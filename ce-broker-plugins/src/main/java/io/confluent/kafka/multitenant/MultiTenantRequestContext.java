@@ -464,10 +464,11 @@ public class MultiTenantRequestContext extends RequestContext {
           .filter(ce -> {
             if (resource.type() == ConfigResource.Type.BROKER) {
               return MultiTenantConfigRestrictions.VISIBLE_BROKER_CONFIGS.contains(ce.name());
+            } else if (resource.type() == ConfigResource.Type.TOPIC) {
+              return MultiTenantConfigRestrictions.visibleTopicConfig(ce.name());
             }
 
-            // Allow through all topic configs
-            return resource.type() == ConfigResource.Type.TOPIC;
+            return false;
           })
           // For topic configs that are not updatable, set readOnly to true
           .map(configEntry -> resource.type() == ConfigResource.Type.TOPIC &&

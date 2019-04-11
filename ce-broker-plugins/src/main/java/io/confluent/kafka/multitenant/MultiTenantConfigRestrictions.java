@@ -34,4 +34,8 @@ public class MultiTenantConfigRestrictions {
       "segment.bytes",
       "segment.ms"
   );
+
+  public static boolean visibleTopicConfig(String configName) {
+    return !configName.startsWith("confluent.tier");
+  }
 }
