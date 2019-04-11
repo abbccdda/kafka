@@ -17,6 +17,7 @@ type AdminConf struct {
 	Acks                               string `json:"acks,omitempty"`
 	EnableIdempotence                  string `json:"enable.idempotence,omitempty"`
 	LingerMs                           int64  `json:"linger.ms,omitempty"`
+	RetentionMs                        int64  `json:"retention.ms,omitempty"`
 	MaxInFlightRequestsPerConnection   uint64 `json:"max.in.flight.requests.per.connection,omitempty"`
 	RetryBackoffMs                     int64  `json:"retry.backoff.ms,omitempty"`
 	SaslJaasConfig                     string `json:"sasl.jaas.config,omitempty"`

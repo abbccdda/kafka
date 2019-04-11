@@ -8,6 +8,7 @@
     "step_cooldown_ms": 60000,
     "start_throughput_mbs": 10,
     "end_throughput_mbs": 20,
-    "throughput_increase_per_step_mbs": 5
+    "throughput_increase_per_step_mbs": 5,
+    "message_size_bytes": 1000
   }
 }

@@ -18,14 +18,15 @@ type Workload struct {
 	StartThroughputMbs    float32 `json:"start_throughput_mbs"`
 	EndThroughputMbs      float32 `json:"end_throughput_mbs"`
 	ThroughputIncreaseMbs float32 `json:"throughput_increase_per_step_mbs"`
-}
-
-var producerOptions = trogdor.ProducerOptions{
-	ValueGenerator: trogdor.DefaultValueGeneratorSpec, // 1000 bytes size
-	KeyGenerator:   trogdor.DefaultKeyGeneratorSpec,
+	MessageSizeBytes      uint64  `json:"message_size_bytes"`
 }
 
 const PRODUCE_WORKLOAD_TYPE = "Produce"
+
+var defaultProducerOptions = trogdor.ProducerOptions{
+	ValueGenerator: trogdor.ValueGeneratorSpec{ValueType: "uniformRandom", Size: 900, Padding: 100},
+	KeyGenerator:   trogdor.DefaultKeyGeneratorSpec,
+}
 
 // Returns all the Trogdor tasks that should be ran as part of this workload
 func (workload *Workload) CreateWorkload(trogdorAgentsCount int, bootstrapServers string) ([]trogdor.TaskSpec, error) {
@@ -52,8 +53,9 @@ func (workload *Workload) CreateWorkload(trogdorAgentsCount int, bootstrapServer
 			throughputMbs: throughputMbs,
 			startMs:       startMs,
 			endMs:         startMs + workload.StepDurationMs,
+			workload:      workload,
 		}
-		newTasks, err := currentStep.tasks(workload.Type, topicSpec, clientNodes, bootstrapServers)
+		newTasks, err := currentStep.tasks(topicSpec, clientNodes, bootstrapServers)
 		if err != nil {
 			return []trogdor.TaskSpec{}, err
 		}
@@ -76,19 +78,32 @@ type Step struct {
 	startMs       uint64
 	endMs         uint64
 	number        uint32
+	workload      *Workload
 }
 
 // Returns all the Trogdor tasks that should be ran as part of this workload step
-func (step *Step) tasks(workloadType string, topicSpec *trogdor.TopicSpec, clientNodes []string, bootstrapServers string) ([]trogdor.TaskSpec, error) {
+func (step *Step) tasks(topicSpec *trogdor.TopicSpec, clientNodes []string, bootstrapServers string) ([]trogdor.TaskSpec, error) {
 	var err error
 	taskCount := len(clientNodes)
 	spec := trogdor.ScenarioSpec{
 		UsedNames: map[string]bool{},
 	}
 
+	workloadType := step.workload.Type
 	switch workloadType {
 	case PRODUCE_WORKLOAD_TYPE:
 		{
+			messageSize := step.workload.MessageSizeBytes
+			var producerOptions trogdor.ProducerOptions
+			if messageSize == 0 {
+				producerOptions = defaultProducerOptions
+			} else {
+				producerOptions = trogdor.ProducerOptions{
+					ValueGenerator: trogdor.ValueGeneratorSpec{ValueType: "uniformRandom", Size: messageSize, Padding: 100},
+					KeyGenerator:   trogdor.DefaultKeyGeneratorSpec,
+				}
+			}
+
 			stepScenario := trogdor.ScenarioConfig{
 				ScenarioID: trogdor.TaskId{
 					TaskType: "Produce Workload",

@@ -18,6 +18,7 @@ Each step essentially consists of multiple Trogdor tasks. We schedule exactly on
 * StartThroughputMbs - the throughput, in MB/s, we want to start at
 * EndThroughputMbs - the throughput, in MB/s, we want this test to end at (inclusive)
 * ThroughputIncreaseMbs - the amount of throughput we want to progressively increase each step by
+* MessageSizeBytes - an approximation of the message size. We always add 100 of the same bytes as padding to the end of the message to simulate a partly-compressible workload
 
 ##### Example
 See [example.json](example.json) for a sample configuration.
@@ -33,7 +34,8 @@ A configuration like
     "step_cooldown_ms": 60000,
     "start_throughput_mbs": 1,
     "end_throughput_mbs": 5,
-    "throughput_increase_per_step_mbs": 3
+    "throughput_increase_per_step_mbs": 3,
+    "message_size_bytes": 1000
   }
 }
 ```

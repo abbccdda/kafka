@@ -1,7 +1,7 @@
 image:
   repository: confluent-docker.jfrog.io/confluentinc
   name: cc-soak-clients
-  tag: 0.115.0-2.3.0-SNAPSHOT-14-g658ab6c4a
+  tag: 0.127.0-2.3.0-SNAPSHOT-6-g6e4a08437
   pullPolicy: IfNotPresent
 trogdorCoordinatorPort: 9002
 apiKey: "null"
@@ -13,5 +13,6 @@ shortLivedTaskMs: "900000"
 shortLivedTaskRescheduleDelayMs: "0"
 shortLivedTaskMinutes: "15" # sum of shortLivedTaskMs + shortLivedTaskRescheduleDelayMs; used to configure the frequency of the status reporter
 longLivedTaskMs: "604800000"
+logRetentionMs: "10800000"
 debugLogs: "true"
 agentCount: "6" # as much as agentReplicaCount in cc-trogdor-service

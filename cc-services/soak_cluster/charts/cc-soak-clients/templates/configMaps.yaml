@@ -11,7 +11,8 @@ data:
 {
   "sasl.mechanism": "PLAIN",
   "sasl.jaas.config": "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"{{ .Values.apiKey }}\" password=\"{{ .Values.apiSecret }}\";",
-  "security.protocol": "SASL_SSL"
+  "security.protocol": "SASL_SSL",
+  "retention.ms": {{ .Values.logRetentionMs }}
 }
 '
 ---
@@ -135,7 +136,8 @@ data:
     "step_cooldown_ms": 30000,
     "start_throughput_mbs": 10,
     "end_throughput_mbs": 200,
-    "throughput_increase_per_step_mbs": 10
+    "throughput_increase_per_step_mbs": 10,
+    "message_size_bytes": 1000
   }
 }
 '

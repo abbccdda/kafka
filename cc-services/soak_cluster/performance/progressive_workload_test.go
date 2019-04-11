@@ -55,8 +55,11 @@ func TestStepTasksInvalidWorkloadTypeShouldReturnErr(t *testing.T) {
 		throughputMbs: 10,
 		startMs:       10,
 		endMs:         20,
+		workload: &Workload{
+			Type: "aaa_invalid",
+		},
 	}
-	_, err := step.tasks("aaa_invalid", topicSpec, clientNodes, "localhost:9092")
+	_, err := step.tasks(topicSpec, clientNodes, "localhost:9092")
 	assert.NotNil(t, err)
 }
 
@@ -65,22 +68,25 @@ func TestStepTasksCreatesAsManyTasksAsAgentNodes(t *testing.T) {
 		throughputMbs: 10,
 		startMs:       10,
 		endMs:         20,
+		workload: &Workload{
+			Type: PRODUCE_WORKLOAD_TYPE,
+		},
 	}
 	agentNodes := []string{
 		"a", "b", "c",
 	}
 
-	tasks, err := step.tasks(PRODUCE_WORKLOAD_TYPE, topicSpec, agentNodes, "localhost:9092")
+	tasks, err := step.tasks(topicSpec, agentNodes, "localhost:9092")
 	assert.Nil(t, err)
 	assert.Equal(t, len(agentNodes), len(tasks))
 
 	agentNodes = []string{"a"}
-	tasks, err = step.tasks(PRODUCE_WORKLOAD_TYPE, topicSpec, agentNodes, "localhost:9092")
+	tasks, err = step.tasks(topicSpec, agentNodes, "localhost:9092")
 	assert.Nil(t, err)
 	assert.Equal(t, len(agentNodes), len(tasks))
 
 	agentNodes = []string{"a", "a", "a", "a", "a", "a"}
-	tasks, err = step.tasks(PRODUCE_WORKLOAD_TYPE, topicSpec, agentNodes, "localhost:9092")
+	tasks, err = step.tasks(topicSpec, agentNodes, "localhost:9092")
 	assert.Nil(t, err)
 	assert.Equal(t, len(agentNodes), len(tasks))
 }
