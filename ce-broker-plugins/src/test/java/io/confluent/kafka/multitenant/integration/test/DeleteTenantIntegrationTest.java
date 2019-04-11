@@ -100,7 +100,8 @@ public class DeleteTenantIntegrationTest {
         props.put(MultiTenantAuthorizer.MAX_ACLS_PER_TENANT_PROP, "100"); // this enables ACLs
         props.put(ConfluentConfigs.MULTITENANT_METADATA_RELOAD_DELAY_MS_CONFIG,
                 TEST_CACHE_RELOAD_DELAY_MS);
-
+        // for most tests, we want to delete tenants immediately
+        props.put(ConfluentConfigs.MULTITENANT_TENANT_DELETE_DELAY_MS_CONFIG, "0");
         return props;
     }
 
@@ -223,25 +224,72 @@ public class DeleteTenantIntegrationTest {
         props.put(KafkaConfig$.MODULE$.AuthorizerClassNameProp(), MultiTenantAuthorizer.class.getName());
         props.put(ConfluentConfigs.MULTITENANT_METADATA_RELOAD_DELAY_MS_CONFIG,
                 TEST_CACHE_RELOAD_DELAY_MS);
+        props.put(ConfluentConfigs.MULTITENANT_TENANT_DELETE_DELAY_MS_CONFIG, "0");
 
         testHarness.shutdown();
 
         PhysicalCluster physicalCluster = testHarness.start(props);
         PhysicalClusterMetadata metadata = updatePhysicalClusterMetadata(physicalCluster);
 
-        lc1 = physicalCluster.createLogicalCluster(LC_META_ABC.logicalClusterId(), adminUserId, 9, 11, 12);
         Utils.createLogicalClusterFile(LC_META_ABC, tempFolder);
-        Utils.createLogicalClusterFile(LC_META_XYZ, tempFolder);
 
         // delete the clusters
         LogicalClusterMetadata deleted1 = deleteLogicalCluster(LC_META_ABC);
-        LogicalClusterMetadata deleted2 = deleteLogicalCluster(LC_META_XYZ);
 
         // make sure it is completely deleted
         TestUtils.waitForCondition(
-                () -> metadata.fullyDeletedClusters().contains(deleted1.logicalClusterId()) && metadata.fullyDeletedClusters().contains(deleted2.logicalClusterId()),
+                () ->   metadata.tenantLifecycleManager.fullyDeletedClusters().contains(deleted1.logicalClusterId()),
                 TEST_MAX_WAIT_MS,
                 "Expect that the tenants are gone");
+    }
+
+    @Test
+    public void testDelayedDelete() throws Exception {
+
+        int delaySec = 10;
+
+        // create physical cluster with delay, wait for tenant to get created and then delete it
+
+        Properties props = new Properties();
+        props.put(KafkaConfig.BrokerIdProp(), 100);
+        props.put(ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG,
+                tempFolder.getRoot().getCanonicalPath());
+        props.put(ConfluentConfigs.MULTITENANT_METADATA_CLASS_CONFIG,
+                "io.confluent.kafka.multitenant.PhysicalClusterMetadata");
+        props.put(KafkaConfig$.MODULE$.AuthorizerClassNameProp(), MultiTenantAuthorizer.class.getName());
+        props.put(ConfluentConfigs.MULTITENANT_METADATA_RELOAD_DELAY_MS_CONFIG,
+                TEST_CACHE_RELOAD_DELAY_MS);
+        props.put(ConfluentConfigs.MULTITENANT_TENANT_DELETE_DELAY_MS_CONFIG,
+                TimeUnit.SECONDS.toMillis(delaySec));
+
+        testHarness.shutdown();
+
+        PhysicalCluster physicalCluster = testHarness.start(props);
+        PhysicalClusterMetadata metadata = updatePhysicalClusterMetadata(physicalCluster);
+
+        Utils.createLogicalClusterFile(LC_META_ABC, tempFolder);
+
+        TestUtils.waitForCondition(
+                () -> metadata.logicalClusterIds().contains(LC_META_ABC.logicalClusterId()),
+                TEST_MAX_WAIT_MS,
+                "Tenant wasn't created on time");
+
+        LogicalClusterMetadata deleted = deleteLogicalCluster(LC_META_ABC);
+
+        // wait for tenant to be around and marked for deletion
+
+        TestUtils.waitForCondition(
+                () -> !metadata.logicalClusterIds().contains(deleted.logicalClusterId()) &&
+                        !metadata.tenantLifecycleManager.deletedClusters().contains(deleted.logicalClusterId()),
+                TEST_MAX_WAIT_MS,
+                "Tenant should not be part of the cache but not deleted either");
+
+
+        // wait a bit more and check that it is really gone
+        TestUtils.waitForCondition(
+                () -> metadata.tenantLifecycleManager.fullyDeletedClusters().contains(deleted.logicalClusterId()),
+                TEST_MAX_WAIT_MS,
+                "Tenant was not deleted as expected");
     }
 
     // We "delete" tenants by generating new metadata with a delete date
@@ -270,7 +318,7 @@ public class DeleteTenantIntegrationTest {
         configs.put(KafkaConfig.AdvertisedListenersProp(), internalBootstrap);
         configs.put(TopicPolicyConfig.INTERNAL_LISTENER_CONFIG,
                 TopicPolicyConfig.DEFAULT_INTERNAL_LISTENER);
-        metadata.updateAdminClient(configs);
+        metadata.tenantLifecycleManager.updateAdminClient(configs);
 
         return metadata;
     }

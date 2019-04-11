@@ -781,6 +781,7 @@ class KafkaConfigTest {
         case KafkaConfig.BrokerSessionUuidProp => // ignore string
         case ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG => // ignore string
         case ConfluentConfigs.MULTITENANT_METADATA_RELOAD_DELAY_MS_CONFIG => // ignore
+        case ConfluentConfigs.MULTITENANT_TENANT_DELETE_DELAY_MS_CONFIG => // ignore
         case ConfluentConfigs.MULTITENANT_TENANT_DELETE_BATCH_SIZE_CONFIG => // ignore
 
         case _ => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1")

@@ -2,28 +2,9 @@
 
 package io.confluent.kafka.multitenant;
 
-
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
-
-import io.confluent.common.InterClusterConnection;
-import io.confluent.kafka.multitenant.schema.TenantContext;
-import io.confluent.kafka.server.plugins.policy.TopicPolicyConfig;
-import org.apache.kafka.clients.CommonClientConfigs;
-import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.common.acl.AccessControlEntryFilter;
-import org.apache.kafka.common.acl.AclBinding;
-import org.apache.kafka.common.acl.AclBindingFilter;
-import org.apache.kafka.common.acl.AclOperation;
-import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
-import org.apache.kafka.common.errors.InvalidRequestException;
-import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
-import org.apache.kafka.common.resource.PatternType;
-import org.apache.kafka.common.resource.ResourcePatternFilter;
-import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.server.multitenant.MultiTenantMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,20 +18,12 @@ import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.nio.file.StandardWatchEventKinds;
-import java.time.Duration;
-import java.util.Collection;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
@@ -86,11 +59,9 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
   final LogicalClustersChangeListener dirWatcher;
   private final Thread dirListenerThread;
   private final ScheduledExecutorService executorService;
-  private final ExecutorService topicDeletionExecutor;
   private long reloadDelaysMs;
   private volatile Future<?> reloadFuture = null;
   private final ReadWriteLock cacheLock;
-  private int deleteTopicBatchSize;
 
   public enum State {
     NOT_READY,
@@ -99,28 +70,18 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
     CLOSED
   }
   private final AtomicReference<State> state;
+
   // either newly created logical clusters that we failed to load (not in logicalClusterMap) or
   // logical clusters that were updated but we failed to load the updated file
   private final Set<String> staleLogicalClusters;
 
-  // Logical clusters that have older deleteDate in their metadata
-  // we need to remove their topics and ACLs
-  private final Set<String> deleteInProgressClusters;
-
-  // Logical clusters that are completely gone
-  // We track them to avoid listing topics and ACLs for them again and again
-  // Since they will be re-added to deletedInProgress every time we load files
-  private final Set<String> deletedClusters;
-
-  private final Properties adminClientProps = new Properties();
-  private AdminClient adminClient;
+  // Public for testing
+  public TenantLifecycleManager tenantLifecycleManager;
 
   public PhysicalClusterMetadata() {
     this.state = new AtomicReference<>(State.NOT_READY);
     this.cacheLock = new ReentrantReadWriteLock();
     this.logicalClusterMap = new ConcurrentHashMap<>();
-    this.deleteInProgressClusters = new CopyOnWriteArraySet<>();
-    this.deletedClusters = new CopyOnWriteArraySet<>();
     this.staleLogicalClusters = new CopyOnWriteArraySet<>();
     this.dirWatcher = new LogicalClustersChangeListener();
     this.dirListenerThread = new Thread(this.dirWatcher, "confluent-tenants-change-listener");
@@ -129,8 +90,6 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
       thread.setDaemon(true);
       return thread;
     });
-    this.topicDeletionExecutor = Executors.newSingleThreadExecutor(new ThreadFactoryBuilder().setNameFormat(
-            "tenant-topic-deletion-thread-%d").build());
   }
 
   /**
@@ -150,6 +109,8 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
   @Override
   public void configure(Map<String, ?> configs) {
     String instanceKey = getInstanceKey(configs);
+    tenantLifecycleManager = new TenantLifecycleManager(configs);
+
     Object dirConfigValue = configs.get(ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG);
     if (dirConfigValue == null) {
       throw new ConfigException(ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG + " is not set");
@@ -161,23 +122,6 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
       this.reloadDelaysMs = ConfluentConfigs.MULTITENANT_METADATA_RELOAD_DELAY_MS_DEFAULT;
     else
       this.reloadDelaysMs = (long) reloadDelayValue;
-
-    Object deleteTopicBatchSizeValue =
-            configs.get(ConfluentConfigs.MULTITENANT_TENANT_DELETE_BATCH_SIZE_CONFIG);
-    if (deleteTopicBatchSizeValue == null)
-      this.deleteTopicBatchSize = ConfluentConfigs.MULTITENANT_TENANT_DELETE_BATCH_SIZE_DEFAULT;
-    else
-      this.deleteTopicBatchSize = (int) deleteTopicBatchSizeValue;
-
-    // this shouldn't happen in real cluster, but we want to allow testing the cache without
-    // a cluster.
-    try {
-      this.adminClient = createAdminClient(configs);
-    } catch (Exception e) {
-      this.adminClient = null;
-      LOG.error("Could not connect to local physical cluster, so we can't actually delete tenants, "
-              + "just mark them as deleted. Topics and ACLs will remain until this is fixed.");
-    }
 
     synchronized (INSTANCES) {
       PhysicalClusterMetadata instance = INSTANCES.get(instanceKey);
@@ -205,48 +149,13 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
     LOG.warn("Configured and started instance for broker session {}", instanceKey);
   }
 
-  private AdminClient createAdminClient(Map<String, ?> configs) {
-    Object listenerValue = configs.get(TopicPolicyConfig.INTERNAL_LISTENER_CONFIG);
-    String listener;
-    if (listenerValue == null)
-      listener = TopicPolicyConfig.DEFAULT_INTERNAL_LISTENER;
-    else
-      listener = listenerValue.toString();
 
-    try {
-      String bootstrapBroker = InterClusterConnection.getBootstrapBrokerForListener(listener, configs);
-
-      LOG.info("Using bootstrap servers {} for removing topics and ACLs of deleted tenants",
-              bootstrapBroker);
-
-      adminClientProps.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapBroker);
-      return AdminClient.create(adminClientProps);
-    } catch (Exception e) {
-      // NOTE: This error is important in production - it means we don't clean tenants properly
-      // but test scenarios can set the admin client later and still pass
-      LOG.error("Failed to create admin client. We will make clusters as deleted but will not "
-              + " be able to delete topics and ACLs. {}", e);
-      return null;
-    }
-  }
-
-
-  // For testing only
-  // Integration tests require creating this object before we know the port the broker is
-  // listening on, so we need to create PhysicalClusterMetadata with the broker (or before), then
-  // get the broker internal EndPoint, and then use that to update the admin client here.
-  public void updateAdminClient(Map<String, ?> configs) {
-    if (this.adminClient == null) {
-      this.adminClient = createAdminClient(configs);
-    }
-  }
 
   // used by unit test
-  void configure(String logicalClustersDir, long reloadDelaysMs, AdminClient adminClient) {
+  void configure(String logicalClustersDir, long reloadDelaysMs) {
     this.reloadDelaysMs = reloadDelaysMs;
     this.logicalClustersDir = logicalClustersDir;
-    this.adminClient = adminClient;
-    this.deleteTopicBatchSize = 10;
+    this.tenantLifecycleManager = new TenantLifecycleManager(0, null);
   }
 
   @Override
@@ -322,16 +231,7 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
         LOG.debug("Shutting down was interrupted", e);
       }
 
-      try {
-        if (topicDeletionExecutor.awaitTermination(CLOSE_TIMEOUT_MS, TimeUnit.MILLISECONDS))
-          LOG.debug("Deleting topics of deactivated tenants was completed before shutdown.");
-        else
-          executorService.shutdownNow();
-      } catch (InterruptedException e) {
-        LOG.debug("Shutting down was interrupted", e);
-      }
-      if (adminClient != null)
-        adminClient.close(Duration.ofMillis(CLOSE_TIMEOUT_MS));
+      tenantLifecycleManager.close();
 
       LOG.info("Closed Physical Cluster Metadata Cache");
     }
@@ -353,7 +253,8 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
   }
 
   /**
-   * Returns all logical clusters with up-to-date/valid metadata hosted by this physical cluster
+   * Returns all active logical clusters with up-to-date/valid metadata hosted by this physical
+   * cluster
    * @return set of logical cluster IDs
    * @throws IllegalStateException if cache is not started or already shut down
    */
@@ -363,7 +264,7 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
   }
 
   /**
-   * Returns all logical clusters hosted by this physical cluster, including logical clusters
+   * Returns all active logical clusters hosted by this physical cluster, including logical clusters
    * with stale/invalid metadata
    * @return set of logical cluster IDs
    * @throws IllegalStateException if cache is not started or already shut down
@@ -373,23 +274,6 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
     return Sets.union(logicalClusterMap.keySet(), staleLogicalClusters).immutableCopy();
   }
 
-  /**
-   * Return all logical clusters that are deleted or in process of deletion
-   * Currently used for testing
-   * @return set of logical cluster IDs
-   */
-  public Set<String> deletedClusters() {
-    ensureOpen();
-    return Sets.union(deleteInProgressClusters, deletedClusters).immutableCopy();
-  }
-
-  /**
-   * Return all logical clusters that are considered deleted and we won't try to delete again
-   */
-  public Set<String> fullyDeletedClusters() {
-    ensureOpen();
-    return deletedClusters;
-  }
 
   /**
    * Returns metadata of a given logical cluster ID
@@ -458,18 +342,18 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
         LOG.info("Removed logical cluster {}", removedLogicalCluster);
       }
 
-      // treat all clusters that are marked for deletion as if they are completely gone
-      // note that the JSON is not gone immediately, so we'll keep reloading the file and them
+      // treat all clusters that are deactivated as if they are completely gone
+      // note that the JSON is not gone immediately, so we'll keep reloading the file and then
       // removing the cluster from the cache on every iteration, and therefore we are not
       // logging here.
-      for (String deactivatedCluster : deletedClusters()) {
+      for (String deactivatedCluster : tenantLifecycleManager.inactiveClusters()) {
         logicalClusterMap.remove(deactivatedCluster);
         markUpToDate(deactivatedCluster);
       }
 
       // delete tenants that were marked for deletion. This will wait to get a list of topics
       // then create a task and have it executed on a different thread
-      deleteTenants();
+      tenantLifecycleManager.deleteTenants();
     } catch (IOException ioe) {
       LOG.warn("Failed to read metadata files from dir={}", logicalClustersDataDir(), ioe);
     } finally {
@@ -572,14 +456,13 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
       }
       LogicalClusterMetadata oldMeta = logicalClusterMap.put(lcMeta.logicalClusterId(), lcMeta);
       markUpToDate(logicalClusterId);
+      tenantLifecycleManager.updateTenantState(lcMeta);
 
       if (!lcMeta.equals(oldMeta)) {
         LOG.info("Added/Updated logical cluster {}", lcMeta);
       }
 
-      // Mark for deletion
-      if (shouldDelete(lcMeta))
-        deleteInProgressClusters.add(logicalClusterId);
+
 
     } catch (Exception e) {
       LOG.error("Failed to load metadata file for logical cluster {}", logicalClusterId, e);
@@ -587,123 +470,6 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
     }
     return logicalClusterId;
   }
-
-  private boolean shouldDelete(LogicalClusterMetadata lcMeta) {
-    return (lcMeta.lifecycleMetadata() != null) &&
-            (lcMeta.lifecycleMetadata().deletionDate() != null) &&
-            lcMeta.lifecycleMetadata().deletionDate().before(new Date());
-  }
-
-  // We check if the deactivated tenants have any topics or ACLs left.
-  // If they do, we try to delete the topics and ACLs.
-  // If the topics and ACLs are completely gone, we add them to the deletedClusters list and stop
-  // deleting them.
-  // Visible for testing
- void deleteTenants() {
-    if (adminClient == null)
-      return;
-
-    // we need to remove the "already deleted" clusters every single time when we enter this method
-    // because we re-populate deleteInProgressClusters with stuff that was already deleted just
-    // before entering this method.
-    deleteInProgressClusters.removeAll(deletedClusters);
-    if (deleteInProgressClusters.isEmpty())
-      return;
-
-    LOG.info("Deleting tenants in: {}", deleteInProgressClusters);
-
-    Set<String> tenantsWithNoTopics = deleteTopics();
-    Set<String> tenantsWithNoACLs = deleteAcls();
-
-    // all the tenants with no topics *and* no ACLs are considered completely deleted
-    deletedClusters.addAll(Sets.intersection(tenantsWithNoACLs, tenantsWithNoTopics));
-  }
-
-  // Delete topics of deactivated tenants.
-  // We do a bunch of setup here and then create a task and pass it to an executor because this
-  // can take a while.
-  // Note that the actual deletion is done synchronously, in small batches and one thread
-  // This is to avoid taking over the controller for too long
-  private Set<String> deleteTopics() {
-    Set<String> tenantsWithNoTopics = new HashSet<>();
-    List<String> topicsToDelete;
-
-    try {
-      Set<String> topics = adminClient.listTopics().names().get();
-      topicsToDelete = topics.stream()
-              .filter(topic -> deleteInProgressClusters.contains(TenantContext.extractTenant(topic)))
-              .collect(Collectors.toList());
-      Set<String> clustersWithTopicsToDelete =
-              topicsToDelete.stream().map(topic -> TenantContext.extractTenant(topic)).collect(Collectors.toSet());
-      tenantsWithNoTopics =
-              Sets.difference(deleteInProgressClusters, clustersWithTopicsToDelete).immutableCopy();
-      LOG.info("deleting topics {} because they belong to tenants {}", topicsToDelete, clustersWithTopicsToDelete);
-    } catch (Exception e) {
-      LOG.error("Failed to get list of topics in cluster. We'll retry in {} ms", reloadDelaysMs, e);
-      return tenantsWithNoTopics; //can't delete if we have no topics...
-    }
-
-    Runnable deleteTopics = () -> {
-      List<List<String>> topicBatches = Lists.partition(topicsToDelete, deleteTopicBatchSize);
-      try {
-        for (List<String> topicBatch : topicBatches) {
-          try {
-            adminClient.deleteTopics(topicBatch).all().get();
-            LOG.info("Successfully deleted topics {}", topicBatch);
-          } catch (UnknownTopicOrPartitionException e) {
-            // Do nothing and keep going. It just means the topic was already removed via another
-            // broker
-          }
-        }
-      } catch (InterruptedException e) {
-        LOG.info("Deleting topics of deactivated tenants was interrupted");
-      } catch (ExecutionException e) {
-        LOG.error("Failed to delete topics for tenants {}. We'll try again next time",
-                deleteInProgressClusters, e);
-      }
-    };
-
-    topicDeletionExecutor.execute(deleteTopics);
-
-    return tenantsWithNoTopics;
-  }
-
-  private Set<String>  deleteAcls() {
-    Set<String> tenantsWithNoACLs = new HashSet<>();
-    Collection<AclBindingFilter> aclFiltersToDelete = new LinkedList<>();
-
-    for (String lc: deleteInProgressClusters) {
-      AclBindingFilter tenantFilter = new AclBindingFilter(
-              new ResourcePatternFilter(ResourceType.ANY, lc + TenantContext.DELIMITER,
-                      PatternType.CONFLUENT_ALL_TENANT_ANY),
-              new AccessControlEntryFilter(null, null, AclOperation.ANY, AclPermissionType.ANY));
-
-      try {
-        Collection<AclBinding> acls = adminClient.describeAcls(tenantFilter).values().get();
-        if (acls.isEmpty())
-          tenantsWithNoACLs.add(lc);
-        else
-          aclFiltersToDelete.add(tenantFilter);
-      } catch (Exception e) {
-        if (e.getCause() instanceof InvalidRequestException) {
-          LOG.error("Failed to get ACLs for tenants {} because this operation isn't supporting on "
-                  + "this physical cluster. We won't retry and will consider deletion of ACLs "
-                  + "for all tenants in list complete.", deleteInProgressClusters, e);
-          tenantsWithNoACLs.addAll(deleteInProgressClusters);
-          return tenantsWithNoACLs; // we know this cluster doesn't do ACLs, no point in trying all of them
-        } else {
-          LOG.error("Failed to get ACLs for tenants {}. We'll try again next time",
-                  deleteInProgressClusters, e);
-          return tenantsWithNoACLs;
-        }
-      }
-    }
-
-    adminClient.deleteAcls(aclFiltersToDelete);
-    return tenantsWithNoACLs;
-  }
-
-
 
   private static QuotaConfig quotaConfig(LogicalClusterMetadata lcMeta) {
     double multiplier = 1 + lcMeta.networkQuotaOverhead() / 100.0;

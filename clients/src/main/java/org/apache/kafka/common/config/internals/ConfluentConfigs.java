@@ -37,7 +37,13 @@ public class ConfluentConfigs {
     public static final Long MULTITENANT_METADATA_RELOAD_DELAY_MS_DEFAULT = TimeUnit.MINUTES.toMillis(10);
     public static final String MULTITENANT_METADATA_RELOAD_DELAY_MS_DOC = "Interval (in ms) "
             + "between full reloads of logical cluster metadata. Defaults to 10 minutes.";
-
+    public static final String MULTITENANT_TENANT_DELETE_DELAY_MS_CONFIG = "multitenant.tenant"
+            + ".delete.delay";
+    public static final Long MULTITENANT_TENANT_DELETE_DELAY_MS_DEFAULT = TimeUnit.DAYS.toMillis(7);
+    public static final String MULTITENANT_TENANT_DELETE_DELAY_MS_DOC = "Delay between the time "
+            + "the tenant is marked as deactivated in JSON file, until we actually start deleting"
+            + " topics. This defaults to 7 days to allow plenty of times for operators and users "
+            + "to regret their decisions and do something about it";
     public static final String MULTITENANT_TENANT_DELETE_BATCH_SIZE_CONFIG = "multitenant.tenant"
             + ".delete.batch.size";
     // This value is based on the idea that the controller is more efficient in deleting batches
@@ -46,7 +52,6 @@ public class ConfluentConfigs {
     public static final String MULTITENANT_TENANT_DELETE_BATCH_SIZE_DOC = "Batch size for topic "
             + "deletion of deactivated tenants. We wait for each batch to complete before sending"
             + " another";
-
 
     public static BrokerInterceptor buildBrokerInterceptor(Mode mode, Map<String, ?> configs) {
         if (mode == Mode.CLIENT)

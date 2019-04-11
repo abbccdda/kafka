@@ -31,7 +31,7 @@ public class Utils {
           LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE.longValue(),
           LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
           new LogicalClusterMetadata.LifecycleMetadata("abc", "pkc-abc", null, null));
-  // Note that this cluster will be "deleted" on arrival
+  // Note that this cluster will be deactivated on arrival, but maybe not deleted yet
   public static final LogicalClusterMetadata LC_META_DED =
           new LogicalClusterMetadata("lkc-ded", "pkc-ded", "ded",
           "my-account", "k8s-abc", LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
@@ -39,6 +39,17 @@ public class Utils {
           LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE.longValue(),
           LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
           new LogicalClusterMetadata.LifecycleMetadata("ded", "pkc-ded", null, new Date()));
+  // Cluster that was deactivated some time ago and is ready for deletion according to our
+  // default policy
+  public static final LogicalClusterMetadata LC_META_MEH =
+          new LogicalClusterMetadata("lkc-meh", "pkc-meh", "meh",
+                  "my-account", "k8s-abc", LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
+                  10485760L, 102400L, 204800L,
+                  LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE.longValue(),
+                  LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
+                  new LogicalClusterMetadata.LifecycleMetadata("meh", "pkc-meh", null,
+                          new Date(System.currentTimeMillis() - ConfluentConfigs.MULTITENANT_TENANT_DELETE_DELAY_MS_DEFAULT)));
+
   public static final LogicalClusterMetadata LC_META_HEALTHCHECK =
       new LogicalClusterMetadata("lkc-htc", "pkc-xyz", "external-healthcheck-pkc-xyz", "my-account",
                                  "k8s-abc", LogicalClusterMetadata.HEALTHCHECK_LOGICAL_CLUSTER_TYPE,
@@ -205,4 +216,5 @@ public class Utils {
 
     return mapper.writeValueAsString(lcMeta.lifecycleMetadata());
   }
+
 }

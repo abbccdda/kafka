@@ -4,16 +4,8 @@ package io.confluent.kafka.multitenant;
 
 import com.google.common.collect.ImmutableSet;
 
-import io.confluent.kafka.multitenant.schema.TenantContext;
-import org.apache.kafka.clients.admin.DescribeAclsOptions;
-import org.apache.kafka.clients.admin.DescribeAclsResult;
-import org.apache.kafka.clients.admin.MockAdminClient;
-import org.apache.kafka.clients.admin.NewTopic;
-import org.apache.kafka.common.Node;
-import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
-import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.server.quota.ClientQuotaType;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
@@ -27,7 +19,6 @@ import static io.confluent.kafka.multitenant.quota.TenantQuotaCallback.DEFAULT_M
 import static io.confluent.kafka.multitenant.Utils.LC_META_ABC;
 import static io.confluent.kafka.multitenant.Utils.LC_META_XYZ;
 import static io.confluent.kafka.multitenant.Utils.LC_META_HEALTHCHECK;
-import static java.util.Collections.singletonList;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertFalse;
@@ -38,19 +29,11 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import io.confluent.kafka.multitenant.quota.QuotaConfig;
 import io.confluent.kafka.multitenant.quota.TenantQuotaCallback;
-
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 
 public class PhysicalClusterMetadataTest {
 
@@ -68,7 +51,7 @@ public class PhysicalClusterMetadataTest {
   @Before
   public void setUp() throws Exception {
     lcCache = new PhysicalClusterMetadata();
-    lcCache.configure(tempFolder.getRoot().getCanonicalPath(), TEST_CACHE_RELOAD_DELAY_MS, null);
+    lcCache.configure(tempFolder.getRoot().getCanonicalPath(), TEST_CACHE_RELOAD_DELAY_MS);
     // but not started, so we can test different initial state of the directory
   }
 
@@ -558,57 +541,9 @@ public class PhysicalClusterMetadataTest {
             "Expected new logical cluster to be added to the cache and the deleted to not be.");
 
 
-    assertFalse("We expect that the deactivated cluster will be marked for deletion",
-            lcCache.deletedClusters().contains(LC_META_DED));
+    assertFalse("We expect that the deactivated cluster will be in process of getting deleted",
+            lcCache.tenantLifecycleManager.deletedClusters().contains(LC_META_DED));
     assertFalse("We expect that deactivated clusters will not be in cache, even as stale",
             lcCache.logicalClusterIdsIncludingStale().contains(LC_META_DED.logicalClusterId()));
-  }
-
-  @Test
-  public void testOnlyDeleteTenantsOnce() throws ExecutionException, InterruptedException, IOException {
-    // create MockAdminClient and a fake topic that belongs to a deleted tenant, so we can count
-    // the number of times we try to delete it.
-    //
-    // Overriding describeACLs method because CCP does not support ACL operations at all
-    // and it signifies its lack of support with InvalidRequestException rather than
-    // UnsupportedOperationException. The class we are testing handles the real error correctly,
-    // and I don't want to add handling for exceptions that are only expected from the mock.
-    Node node = new Node(1, "localhost", 9092);
-    MockAdminClient mockAdminClient = spy(new MockAdminClient(singletonList(node), node) {
-      @Override
-      public DescribeAclsResult describeAcls(AclBindingFilter filter,
-                                             DescribeAclsOptions options) {
-        throw new UnsupportedOperationException("Not implemented", new InvalidRequestException("Not "
-                + "supported on this cluster"));
-      }
-    });
-    TenantContext tc = new TenantContext(new MultiTenantPrincipal("",
-            new TenantMetadata(LC_META_DED.logicalClusterId(), LC_META_DED.logicalClusterId())));
-    List<NewTopic> sampleTopics =
-            Collections.singletonList(new NewTopic(tc.addTenantPrefix("topic"), 3, (short) 1));
-    mockAdminClient.createTopics(sampleTopics).all().get();
-
-    // create PhysicalMetadata cache that uses the mocked admin client
-    lcCache = new PhysicalClusterMetadata();
-    lcCache.configure(tempFolder.getRoot().getCanonicalPath(), TEST_CACHE_RELOAD_DELAY_MS, mockAdminClient);
-
-    // create the deleted tenant and start the cache
-    Utils.createLogicalClusterFile(LC_META_DED, tempFolder);
-    lcCache.start();
-
-    // wait for it to get deleted and then wait for few more reload cycles
-    TestUtils.waitForCondition(
-            () -> lcCache.fullyDeletedClusters().contains(LC_META_DED.logicalClusterId()),
-            TEST_MAX_WAIT_MS,
-            "Expected deleted cluster to become fully deleted");
-
-    // assert that our mocked admin client only ran listTopics twice (one to delete the tenant
-    // and once to check that the topic is gone
-    verify(mockAdminClient, times(2)).listTopics();
-
-    // Try loading the metadata again and check that we are not calling the admin client again
-    reset(mockAdminClient);
-    lcCache.deleteTenants();
-    verify(mockAdminClient, never()).listTopics();
   }
 }
