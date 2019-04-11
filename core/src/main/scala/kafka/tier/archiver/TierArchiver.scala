@@ -10,7 +10,7 @@ import java.util.function.Predicate
 import com.yammer.metrics.core.Gauge
 import com.yammer.metrics.core.Meter
 import kafka.metrics.KafkaMetricsGroup
-import kafka.server.ReplicaManager
+import kafka.server.{KafkaConfig, ReplicaManager}
 import kafka.tier.archiver.TierArchiverState.{BeforeLeader, TierArchiverStateComparator}
 import kafka.tier.exceptions.{TierArchiverFatalException, TierArchiverFencedException}
 import kafka.tier.store.TierObjectStore
@@ -22,11 +22,15 @@ import org.apache.kafka.common.utils.Time
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
-case class TierArchiverConfig(updateIntervalMs: Int = 50,
-                              enableArchiver: Boolean = true,
-                              maxConcurrentUploads: Int = 10,
-                              maxRetryBackoffMs: Int = 1000 * 60 * 5,
-                              archivePartitionsWithGreatestLagFirst: Boolean = false)
+case class TierArchiverConfig(numThreads: Int = 10,
+                              updateIntervalMs: Int = 50,
+                              maxRetryBackoffMs: Int = 1000 * 60 * 5)
+
+object TierArchiverConfig {
+  def apply(kafkaConfig: KafkaConfig): TierArchiverConfig = {
+    TierArchiverConfig(kafkaConfig.tierArchiverNumThreads)
+  }
+}
 
 /**
   * Tier Archiver uploads segment files, associated indices and other broker status to blob storage.
@@ -47,7 +51,7 @@ class TierArchiver(config: TierArchiverConfig,
                    tierTopicManager: TierTopicManager,
                    tierObjectStore: TierObjectStore,
                    time: Time = Time.SYSTEM) extends ShutdownableThread(name = "tier-archiver") with KafkaMetricsGroup {
-  private[tier] val blockingTaskExecutor = Executors.newScheduledThreadPool(config.maxConcurrentUploads)
+  private[tier] val blockingTaskExecutor = Executors.newScheduledThreadPool(config.numThreads)
   private[tier] val immigrationEmigrationQueue = new ConcurrentLinkedQueue[ImmigratingOrEmigratingTopicPartitions]()
 
   // consists of states between status transitions, and sorts by priority to facilitate scheduling.
@@ -163,7 +167,7 @@ class TierArchiver(config: TierArchiverConfig,
     */
   def tryRunPendingStates(): Boolean = {
     var didWork = false
-    while (stateTransitionsInProgress.size < config.maxConcurrentUploads && !pausedStates.isEmpty) {
+    while (stateTransitionsInProgress.size < config.numThreads && !pausedStates.isEmpty) {
       val state = pausedStates.poll()
       if (state != null) {
         stateTransitionsInProgress.put(state.topicPartition, (state, state.nextState()))
@@ -181,7 +185,7 @@ class TierArchiver(config: TierArchiverConfig,
   }
 
   override def doWork(): Unit = {
-    if (config.enableArchiver && tierTopicManager.isReady) {
+    if (tierTopicManager.isReady) {
       lock.synchronized {
         processTransitions()
       }

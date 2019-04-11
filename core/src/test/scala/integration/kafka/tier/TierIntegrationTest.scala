@@ -60,7 +60,7 @@ class TierIntegrationTest {
 
   val mBeanServer: MBeanServer = ManagementFactory.getPlatformMBeanServer
 
-  def setup(numLogs: Integer = 2, maxConcurrentUploads: Integer = 10): Unit = {
+  def setup(numLogs: Integer = 2, numArchiverThreads: Integer = 10): Unit = {
     val tierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig())
     val tierMetadataManager = new TierMetadataManager(new MemoryTierPartitionStateFactory(),
       Some(tierObjectStore), new LogDirFailureChannel(1), true)
@@ -69,7 +69,7 @@ class TierIntegrationTest {
     val tempDir = TestUtils.tempDir()
     val logs = createLogs(numLogs, logConfig, tempDir, tierMetadataManager)
     val replicaManager = mockReplicaManager(logs)
-    val tierArchiver = new TierArchiver(TierArchiverConfig(maxConcurrentUploads = maxConcurrentUploads), replicaManager, tierMetadataManager, tierTopicManager, tierObjectStore, mockTime)
+    val tierArchiver = new TierArchiver(TierArchiverConfig(numArchiverThreads), replicaManager, tierMetadataManager, tierTopicManager, tierObjectStore, mockTime)
 
     this.tierArchiver = tierArchiver
     this.replicaManager = replicaManager
@@ -305,7 +305,7 @@ class TierIntegrationTest {
 
   @Test
   def testArchiverUploadWithAsymmetricalWrites(): Unit = {
-    setup(numLogs = 3, maxConcurrentUploads = 2)
+    setup(numLogs = 3, numArchiverThreads = 2)
 
     val leaderEpoch = 1
     val firstTopicPartition = logs.head.topicPartition

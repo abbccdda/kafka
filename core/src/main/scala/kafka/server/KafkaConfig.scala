@@ -206,6 +206,9 @@ object Defaults {
   val TierLocalHotsetBytes = -1L
   val TierLocalHotsetMs = 24 * 60 * 60 * 1000L
 
+  /** Tiered storage archiver configs **/
+  val TierArchiverNumThreads = 10:Integer
+
   /** ********* Fetch Session Configuration **************/
   val MaxIncrementalFetchSessionCacheSlots = 1000
 
@@ -464,6 +467,9 @@ object KafkaConfig {
   /** Tiered storage retention configs **/
   val TierLocalHotsetBytesProp = ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_CONFIG
   val TierLocalHotsetMsProp = ConfluentTopicConfig.TIER_LOCAL_HOTSET_MS_CONFIG
+
+  /** Tiered storage archiver configs **/
+  val TierArchiverNumThreadsProp = ConfluentPrefix + "tier.archiver.num.threads"
 
   /** ********* Fetch Session Configuration **************/
   val MaxIncrementalFetchSessionCacheSlots = "max.incremental.fetch.session.cache.slots"
@@ -821,6 +827,9 @@ object KafkaConfig {
   val TierLocalHotsetBytesDoc = ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_DOC
   val TierLocalHotsetMsDoc = ConfluentTopicConfig.TIER_LOCAL_HOTSET_MS_DOC
 
+  /** Tiered storage archiver configs **/
+  val TierArchiverNumThreadsDoc = "The size of the threadpool used for TierArchiver state transitions."
+
   /** ********* Fetch Session Configuration **************/
   val MaxIncrementalFetchSessionCacheSlotsDoc = "The maximum number of incremental fetch sessions that we will maintain."
 
@@ -1110,6 +1119,7 @@ object KafkaConfig {
       .defineInternal(TierObjectFetcherThreadsProp, INT, Defaults.TierObjectFetcherThreads, atLeast(1), MEDIUM, TierObjectFetcherThreadsDoc)
       .defineInternal(TierLocalHotsetBytesProp, LONG, Defaults.TierLocalHotsetBytes, HIGH, TierLocalHotsetBytesDoc)
       .defineInternal(TierLocalHotsetMsProp, LONG, Defaults.TierLocalHotsetMs, HIGH, TierLocalHotsetMsDoc)
+      .defineInternal(TierArchiverNumThreadsProp, INT, Defaults.TierArchiverNumThreads, atLeast(1), MEDIUM, TierArchiverNumThreadsDoc)
 
     /** ********* Fetch Session Configuration **************/
       .define(MaxIncrementalFetchSessionCacheSlots, INT, Defaults.MaxIncrementalFetchSessionCacheSlots, atLeast(0), MEDIUM, MaxIncrementalFetchSessionCacheSlotsDoc)
@@ -1441,6 +1451,7 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierObjectFetcherThreads = getInt(KafkaConfig.TierObjectFetcherThreadsProp)
   def tierLocalHotsetBytes = getLong(KafkaConfig.TierLocalHotsetBytesProp)
   def tierLocalHotsetMs = getLong(KafkaConfig.TierLocalHotsetMsProp)
+  val tierArchiverNumThreads = getInt(KafkaConfig.TierArchiverNumThreadsProp)
 
   /** ********* Metric Configuration **************/
   val metricNumSamples = getInt(KafkaConfig.MetricNumSamplesProp)

@@ -325,7 +325,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           tierTopicManager = new TierTopicManager(tierMetadataManager, tierTopicManagerConfig, tieredBootstrapServersSupplier, metrics)
           tierTopicManager.startup()
 
-          val tierArchiverConfig = TierArchiverConfig()
+          val tierArchiverConfig = TierArchiverConfig(config)
           tierArchiver = new TierArchiver(tierArchiverConfig, replicaManager, tierMetadataManager, tierTopicManager, tierObjectStore.get)
           tierArchiver.start()
         }
