@@ -17,25 +17,42 @@ import kafka.security.auth.Acl;
 import kafka.security.auth.Authorizer;
 import kafka.security.auth.Operation;
 import kafka.security.auth.Resource;
+import kafka.server.KafkaServer;
 import kafka.zk.KafkaZkClient;
 import kafka.zookeeper.ZooKeeperClient;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.security.authenticator.CredentialCache;
 import org.apache.kafka.common.security.authenticator.LoginManager;
+import org.apache.kafka.common.security.scram.ScramCredential;
+import org.apache.kafka.common.security.scram.internals.ScramMechanism;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.test.TestUtils;
 import scala.collection.JavaConversions;
 
 public class SecurityTestUtils {
 
-  public static String createScramUser(String zkConnect, String userName, String password) {
-    String credentials = String.format("SCRAM-SHA-256=[iterations=4096,password=%s]", password);
+  public static String createScramUser(EmbeddedKafkaCluster kafkaCluster, String userName, String password) {
+    String mechanism = ScramMechanism.SCRAM_SHA_256.mechanismName();
+    String credentials = String.format("%s=[iterations=4096,password=%s]", mechanism, password);
     String[] args = {
-        "--zookeeper", zkConnect,
+        "--zookeeper", kafkaCluster.zkConnect(),
         "--alter", "--add-config", credentials,
         "--entity-type", "users",
         "--entity-name", userName
     };
     ConfigCommand.main(args);
+
+    for (KafkaServer server : kafkaCluster.brokers()) {
+      CredentialCache.Cache<ScramCredential> cache = server.credentialProvider().credentialCache()
+          .cache(mechanism, ScramCredential.class);
+      try {
+        TestUtils.waitForCondition(() -> cache.get(userName) != null,
+            "SCRAM credentials not create for user " + userName);
+      } catch (InterruptedException e) {
+        throw new RuntimeException(e);
+      }
+    }
     return password;
   }
 

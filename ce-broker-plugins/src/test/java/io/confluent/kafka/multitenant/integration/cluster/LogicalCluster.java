@@ -33,7 +33,7 @@ public class LogicalCluster {
     LogicalClusterUser logicalClusterUser = new LogicalClusterUser(user, logicalClusterId);
     this.users.put(userId, logicalClusterUser);
 
-    SecurityTestUtils.createScramUser(physicalCluster.kafkaCluster().zkConnect(),
+    SecurityTestUtils.createScramUser(physicalCluster.kafkaCluster(),
         logicalClusterUser.saslUserName(),
         user.apiSecret());
     return logicalClusterUser;

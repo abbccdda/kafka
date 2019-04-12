@@ -29,7 +29,7 @@ public class User {
 
   public static User createScramUser(EmbeddedKafkaCluster kafkaCluster, String name) {
     String password = name + "-secret";
-    String scramSecret = SecurityTestUtils.createScramUser(kafkaCluster.zkConnect(), name, password);
+    String scramSecret = SecurityTestUtils.createScramUser(kafkaCluster, name, password);
     return scramUser(name, scramSecret);
   }
 }

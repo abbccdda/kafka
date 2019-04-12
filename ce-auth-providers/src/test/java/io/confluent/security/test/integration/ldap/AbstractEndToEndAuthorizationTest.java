@@ -270,7 +270,7 @@ public abstract class AbstractEndToEndAuthorizationTest {
     User user;
     if (ScramMechanism.isScram(saslMechanism)) {
       String password = name + "-secret";
-      String scramSecret = SecurityTestUtils.createScramUser(zkConnect, name, password);
+      String scramSecret = SecurityTestUtils.createScramUser(kafkaCluster, name, password);
       user = User.scramUser(name, scramSecret);
     } else if (saslMechanism.equals("GSSAPI")) {
       String hostSuffix = KAFKA_SERVICE.equals(name) ? "/localhost" : "";
