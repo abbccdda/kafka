@@ -6,7 +6,7 @@ import io.netty.channel.ChannelHandlerContext;
 import org.apache.kafka.common.protocol.ApiMessage;
 import org.apache.kafka.common.protocol.Message;
 import org.apache.kafka.common.utils.LogContext;
-import org.apache.kafka.common.message.ApiMessageFactory;
+import org.apache.kafka.common.message.ApiMessageType;
 import org.apache.kafka.common.message.RequestHeaderData;
 
 import java.net.SocketAddress;
@@ -38,7 +38,7 @@ public class TenantReader extends Reader {
                 return;
             }
             this.header = nextHeader;
-            this.request = (ApiMessage) ApiMessageFactory.newRequest(header.requestApiKey());
+            this.request = ApiMessageType.fromApiKey(header.requestApiKey()).newRequest();
             if (log().isTraceEnabled()) {
                 log().trace("Read tenant request header {}.", this.header);
             }

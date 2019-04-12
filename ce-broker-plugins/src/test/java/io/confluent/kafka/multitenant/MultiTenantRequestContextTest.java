@@ -21,6 +21,8 @@ import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.config.TopicConfig;
+import org.apache.kafka.common.message.ControlledShutdownRequestData;
+import org.apache.kafka.common.message.ControlledShutdownResponseData;
 import org.apache.kafka.common.message.CreateTopicsRequestData;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfig;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfigSet;
@@ -923,12 +925,16 @@ public class MultiTenantRequestContextTest {
   public void testControlledShutdownNotAllowed() throws Exception {
     for (short ver = ApiKeys.CONTROLLED_SHUTDOWN.oldestVersion(); ver <= ApiKeys.CONTROLLED_SHUTDOWN.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.CONTROLLED_SHUTDOWN, ver);
-      ControlledShutdownRequest inbound = new ControlledShutdownRequest.Builder(1, 0, ver).build(ver);
+      ControlledShutdownRequest inbound = new ControlledShutdownRequest.Builder(
+          new ControlledShutdownRequestData()
+              .setBrokerId(1)
+              .setBrokerEpoch(0), ver)
+          .build(ver);
       ControlledShutdownRequest request = (ControlledShutdownRequest) parseRequest(context, inbound);
       assertTrue(context.shouldIntercept());
       ControlledShutdownResponse response = (ControlledShutdownResponse) context.intercept(request, 0);
       Struct struct = parseResponse(ApiKeys.CONTROLLED_SHUTDOWN, ver, context.buildResponse(response));
-      ControlledShutdownResponse outbound = new ControlledShutdownResponse(struct);
+      ControlledShutdownResponse outbound = new ControlledShutdownResponse(new ControlledShutdownResponseData(struct, ver));
       assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, outbound.error());
       verifyRequestAndResponseMetrics(ApiKeys.CONTROLLED_SHUTDOWN, Errors.CLUSTER_AUTHORIZATION_FAILED);
     }

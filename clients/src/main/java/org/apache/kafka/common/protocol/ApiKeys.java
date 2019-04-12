@@ -18,6 +18,8 @@ package org.apache.kafka.common.protocol;
 
 import org.apache.kafka.common.message.TierListOffsetRequestData;
 import org.apache.kafka.common.message.TierListOffsetResponseData;
+import org.apache.kafka.common.message.ControlledShutdownRequestData;
+import org.apache.kafka.common.message.ControlledShutdownResponseData;
 import org.apache.kafka.common.message.CreateTopicsRequestData;
 import org.apache.kafka.common.message.CreateTopicsResponseData;
 import org.apache.kafka.common.message.DeleteTopicsRequestData;
@@ -51,8 +53,6 @@ import org.apache.kafka.common.requests.AlterReplicaLogDirsRequest;
 import org.apache.kafka.common.requests.AlterReplicaLogDirsResponse;
 import org.apache.kafka.common.requests.ApiVersionsRequest;
 import org.apache.kafka.common.requests.ApiVersionsResponse;
-import org.apache.kafka.common.requests.ControlledShutdownRequest;
-import org.apache.kafka.common.requests.ControlledShutdownResponse;
 import org.apache.kafka.common.requests.CreateAclsRequest;
 import org.apache.kafka.common.requests.CreateAclsResponse;
 import org.apache.kafka.common.requests.CreateDelegationTokenRequest;
@@ -133,8 +133,8 @@ public enum ApiKeys {
     STOP_REPLICA(5, "StopReplica", true, StopReplicaRequest.schemaVersions(), StopReplicaResponse.schemaVersions()),
     UPDATE_METADATA(6, "UpdateMetadata", true, UpdateMetadataRequest.schemaVersions(),
             UpdateMetadataResponse.schemaVersions()),
-    CONTROLLED_SHUTDOWN(7, "ControlledShutdown", true, ControlledShutdownRequest.schemaVersions(),
-            ControlledShutdownResponse.schemaVersions()),
+    CONTROLLED_SHUTDOWN(7, "ControlledShutdown", true, ControlledShutdownRequestData.SCHEMAS,
+            ControlledShutdownResponseData.SCHEMAS),
     OFFSET_COMMIT(8, "OffsetCommit", OffsetCommitRequest.schemaVersions(), OffsetCommitResponse.schemaVersions()),
     OFFSET_FETCH(9, "OffsetFetch", OffsetFetchRequest.schemaVersions(), OffsetFetchResponse.schemaVersions()),
     FIND_COORDINATOR(10, "FindCoordinator", FindCoordinatorRequest.schemaVersions(),

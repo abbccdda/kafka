@@ -6,7 +6,7 @@ import io.netty.channel.ChannelHandlerContext;
 import org.apache.kafka.common.protocol.ApiMessage;
 import org.apache.kafka.common.protocol.Message;
 import org.apache.kafka.common.utils.LogContext;
-import org.apache.kafka.common.message.ApiMessageFactory;
+import org.apache.kafka.common.message.ApiMessageType;
 import org.apache.kafka.common.message.RequestHeaderData;
 import org.apache.kafka.common.message.ResponseHeaderData;
 
@@ -63,7 +63,7 @@ public class BrokerReader extends Reader {
                         "to correlation ID " + respHeader.correlationId());
             }
             this.header = nextHeader;
-            this.response = (ApiMessage) ApiMessageFactory.newResponse(header.requestApiKey());
+            this.response = ApiMessageType.fromApiKey(header.requestApiKey()).newResponse();
             flow.sendToTenant(new FrameStart(frameLength(), header));
         }
         if (!readMessage(this.response, header.requestApiVersion())) {

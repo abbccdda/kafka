@@ -26,7 +26,7 @@ import org.junit.{Before, Test}
 import scala.collection.JavaConverters._
 
 class TierIntegrationFetchTest extends IntegrationTestHarness {
-  override protected def serverCount: Int = 1
+  override protected def brokerCount: Int = 1
 
   private def configureMock = {
     serverConfig.put(KafkaConfig.TierBackendProp, "mock")

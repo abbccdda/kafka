@@ -27,6 +27,7 @@ import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.message._
 import org.apache.kafka.common.resource.{PatternType, ResourcePattern, ResourcePatternFilter, ResourceType => AdminResourceType}
 import org.apache.kafka.common.{Node, TopicPartition}
+import org.apache.kafka.common.message.ControlledShutdownRequestData
 import org.apache.kafka.common.message.CreateTopicsRequestData.{CreatableTopic, CreatableTopicSet}
 import org.apache.kafka.common.metrics.{KafkaMetric, Quota, Sensor}
 import org.apache.kafka.common.network.ListenerName
@@ -47,7 +48,7 @@ import scala.collection.mutable.ListBuffer
 
 class RequestQuotaTest extends BaseRequestTest {
 
-  override def numBrokers: Int = 1
+  override def brokerCount: Int = 1
 
   private val topic = "topic-1"
   private val numPartitions = 1
@@ -64,7 +65,7 @@ class RequestQuotaTest extends BaseRequestTest {
   private val executor = Executors.newCachedThreadPool
   private val tasks = new ListBuffer[Task]
 
-  override def propertyOverrides(properties: Properties): Unit = {
+  override def brokerPropertyOverrides(properties: Properties): Unit = {
     properties.put(KafkaConfig.ControlledShutdownEnableProp, "false")
     properties.put(KafkaConfig.OffsetsTopicReplicationFactorProp, "1")
     properties.put(KafkaConfig.OffsetsTopicPartitionsProp, "1")
@@ -243,7 +244,11 @@ class RequestQuotaTest extends BaseRequestTest {
           new UpdateMetadataRequest.Builder(ApiKeys.UPDATE_METADATA.latestVersion, brokerId, Int.MaxValue, Long.MaxValue, partitionState, brokers)
 
         case ApiKeys.CONTROLLED_SHUTDOWN =>
-          new ControlledShutdownRequest.Builder(brokerId, Long.MaxValue, ApiKeys.CONTROLLED_SHUTDOWN.latestVersion)
+          new ControlledShutdownRequest.Builder(
+              new ControlledShutdownRequestData()
+                .setBrokerId(brokerId)
+                .setBrokerEpoch(Long.MaxValue),
+              ApiKeys.CONTROLLED_SHUTDOWN.latestVersion)
 
         case ApiKeys.OFFSET_COMMIT =>
           new OffsetCommitRequest.Builder("test-group",
