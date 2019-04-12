@@ -2,9 +2,13 @@
 package io.confluent.kafka.server.plugins.policy;
 
 import com.google.common.collect.ImmutableMap;
+import io.confluent.kafka.multitenant.MultiTenantPrincipal;
+import io.confluent.kafka.multitenant.TenantMetadata;
+import kafka.server.KafkaConfig$;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.PolicyViolationException;
+import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.server.policy.AlterConfigPolicy.RequestMetadata;
 import org.junit.Before;
 import org.junit.Test;
@@ -152,11 +156,29 @@ public class AlterConfigPolicyTest {
   }
 
   @Test(expected = PolicyViolationException.class)
-  public void rejectsBrokerConfigs() throws Exception {
+  public void rejectsBrokerConfigUpdatesFromTenant() throws Exception {
+    RequestMetadata brokerRequestMetadata = createBrokerRequestMetadata(
+        new MultiTenantPrincipal("tenantUserA", new TenantMetadata("cluster1", "cluster1")));
+    policy.validate(brokerRequestMetadata);
+  }
+
+  @Test
+  public void allowsBrokerConfigUpdatesFromInternalUser() throws Exception {
+    RequestMetadata brokerRequestMetadata = createBrokerRequestMetadata(
+        new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "ANONYMOUS"));
+    policy.validate(brokerRequestMetadata);
+  }
+
+  private RequestMetadata createBrokerRequestMetadata(KafkaPrincipal principal) {
     RequestMetadata brokerRequestMetadata = mock(RequestMetadata.class);
     ConfigResource cfgResource = new ConfigResource(ConfigResource.Type.BROKER, "dummy");
     when(brokerRequestMetadata.resource()).thenReturn(cfgResource);
-    policy.validate(brokerRequestMetadata);
+    Map<String, String> brokerConfigs = ImmutableMap.<String, String>builder()
+        .put(KafkaConfig$.MODULE$.MessageMaxBytesProp(), "4242")
+        .build();
+    when(brokerRequestMetadata.configs()).thenReturn(brokerConfigs);
+    when(brokerRequestMetadata.principal()).thenReturn(principal);
+    return brokerRequestMetadata;
   }
 
   @Test(expected = PolicyViolationException.class)

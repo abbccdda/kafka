@@ -5,14 +5,18 @@ import io.confluent.kafka.multitenant.PhysicalClusterMetadata;
 import io.confluent.kafka.multitenant.integration.cluster.LogicalCluster;
 import io.confluent.kafka.multitenant.integration.cluster.PhysicalCluster;
 
+import io.confluent.kafka.server.plugins.policy.AlterConfigPolicy;
+import io.confluent.kafka.server.plugins.policy.TopicPolicyConfig;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
 import kafka.security.auth.SimpleAclAuthorizer;
@@ -20,17 +24,24 @@ import kafka.security.auth.SimpleAclAuthorizer$;
 import kafka.server.KafkaConfig$;
 
 import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.Config;
+import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.acl.AccessControlEntryFilter;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
+import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.common.config.ConfigResource.Type;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.errors.InvalidRequestException;
+import org.apache.kafka.common.errors.PolicyViolationException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourcePattern;
 import org.apache.kafka.common.resource.ResourcePatternFilter;
 import org.apache.kafka.common.resource.ResourceType;
+import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -39,6 +50,7 @@ import org.junit.rules.TemporaryFolder;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.fail;
 
 
 public class TenantIsolationTest {
@@ -75,6 +87,9 @@ public class TenantIsolationTest {
               "io.confluent.kafka.multitenant.PhysicalClusterMetadata");
     props.put(ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG,
                 tempFolder.getRoot().getCanonicalPath());
+    props.put(KafkaConfig$.MODULE$.AlterConfigPolicyClassNameProp(), AlterConfigPolicy.class.getName());
+    props.put(TopicPolicyConfig.REPLICATION_FACTOR_CONFIG, "1");
+    props.put(TopicPolicyConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "1");
     return props;
   }
 
@@ -104,6 +119,46 @@ public class TenantIsolationTest {
     // and consume different set of messages from `testtopic`
     testHarness.produceConsume(logicalCluster2.user(21), logicalCluster2.user(22), "testtopic", "group1", 1000);
 
+  }
+
+  @Test
+  public void testAlterBrokerConfigs() throws Throwable {
+    AdminClient tenantAdminClient = testHarness.createAdminClient(logicalCluster1.adminUser());
+    AdminClient internalAdminClient = physicalCluster.superAdminClient();
+
+    int defaultMaxMessageBytes = physicalCluster.kafkaCluster().kafkas().get(0).kafkaServer().config().messageMaxBytes();
+    Map<ConfigResource, Config> newConfigs = Collections.singletonMap(
+        new ConfigResource(Type.BROKER, "0"),
+        new Config(Collections.singleton(new ConfigEntry(KafkaConfig$.MODULE$.MessageMaxBytesProp(), "10000")))
+    );
+
+    // Verify that tenants cannot update dynamic broker configs
+    try {
+      tenantAdminClient.alterConfigs(newConfigs).all().get();
+      fail("Alter configs did not fail with tenant principal");
+    } catch (ExecutionException e) {
+      assertEquals(PolicyViolationException.class, e.getCause().getClass());
+    }
+    assertEquals(defaultMaxMessageBytes, physicalCluster.kafkaCluster().kafkas().get(0).kafkaServer().config().messageMaxBytes().intValue());
+
+    // Verify that users with access to internal listener can update dynamic broker configs
+    internalAdminClient.alterConfigs(newConfigs).all().get();
+    TestUtils.waitForCondition(() ->
+        physicalCluster.kafkaCluster().kafkas().get(0).kafkaServer().config().messageMaxBytes() == 10000,
+        "Dynamic config not updated");
+
+    // Verify that users with access to internal listener cannot update immutable broker configs
+    Map<ConfigResource, Config> invalidConfigs = Collections.singletonMap(
+        new ConfigResource(Type.BROKER, "0"),
+        new Config(Collections.singleton(new ConfigEntry(KafkaConfig$.MODULE$.BrokerIdProp(), "20")))
+    );
+    try {
+      internalAdminClient.alterConfigs(invalidConfigs).all().get();
+      fail("Alter configs did not fail with update of immutable broker config");
+    } catch (ExecutionException e) {
+      assertEquals(InvalidRequestException.class, e.getCause().getClass());
+    }
+    assertEquals(0, physicalCluster.kafkaCluster().kafkas().get(0).kafkaServer().config().brokerId());
   }
 
   @Test

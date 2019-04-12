@@ -35,6 +35,7 @@ import org.apache.kafka.common.requests.CreatePartitionsRequest.PartitionDetails
 import org.apache.kafka.common.requests.CreateTopicsRequest._
 import org.apache.kafka.common.requests.DescribeConfigsResponse.ConfigSource
 import org.apache.kafka.common.requests.{AlterConfigsRequest, ApiError, DescribeConfigsResponse}
+import org.apache.kafka.common.security.auth.KafkaPrincipal
 import org.apache.kafka.server.policy.{AlterConfigPolicy, CreateTopicPolicy}
 import org.apache.kafka.server.policy.CreateTopicPolicy.RequestMetadata
 
@@ -372,7 +373,7 @@ class AdminManager(val config: KafkaConfig,
     }.toMap
   }
 
-  def alterConfigs(configs: Map[ConfigResource, AlterConfigsRequest.Config], validateOnly: Boolean): Map[ConfigResource, ApiError] = {
+  def alterConfigs(configs: Map[ConfigResource, AlterConfigsRequest.Config], validateOnly: Boolean, principal: KafkaPrincipal): Map[ConfigResource, ApiError] = {
     configs.map { case (resource, config) =>
 
       def validateConfigPolicy(resourceType: ConfigResource.Type): Unit = {
@@ -380,7 +381,7 @@ class AdminManager(val config: KafkaConfig,
           case Some(policy) =>
             val configEntriesMap = config.entries.asScala.map(entry => (entry.name, entry.value)).toMap
             policy.validate(new AlterConfigPolicy.RequestMetadata(
-              new ConfigResource(resourceType, resource.name), configEntriesMap.asJava))
+              new ConfigResource(resourceType, resource.name), configEntriesMap.asJava, principal))
           case None =>
         }
       }

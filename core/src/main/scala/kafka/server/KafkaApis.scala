@@ -2213,7 +2213,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         case rt => throw new InvalidRequestException(s"Unexpected resource type $rt")
       }
     }
-    val authorizedResult = adminManager.alterConfigs(authorizedResources, alterConfigsRequest.validateOnly)
+    val authorizedResult = adminManager.alterConfigs(authorizedResources, alterConfigsRequest.validateOnly, request.session.principal)
     val unauthorizedResult = unauthorizedResources.keys.map { resource =>
       resource -> configsAuthorizationApiError(request.session, resource)
     }
