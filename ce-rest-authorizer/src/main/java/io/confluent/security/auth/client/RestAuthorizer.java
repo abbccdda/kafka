@@ -2,11 +2,16 @@
 
 package io.confluent.security.auth.client;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import io.confluent.security.auth.client.rest.RestRequest;
+import io.confluent.security.auth.client.rest.entities.AuthorizeRequest;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.Authorizer;
 import io.confluent.security.auth.client.rest.RestClient;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.List;
@@ -38,37 +43,64 @@ import java.util.stream.Collectors;
  */
 public class RestAuthorizer implements Authorizer {
 
-    private RestClient restClient;
+  private static final Logger log = LoggerFactory.getLogger(RestAuthorizer.class);
 
-    @Override
-    public void configure(final Map<String, ?> configs) {
-        restClient = new RestClient(configs);
+  private static final String
+          AUTHORIZE_ENDPOINT = "/authorize";
+
+  private static final TypeReference<List<String>>
+          AUTHORIZE_RESPONSE_TYPE = new TypeReference<List<String>>() { };
+
+  private RestClient restClient;
+
+  public RestAuthorizer() {};
+
+  public RestAuthorizer(RestClient restClient) {
+    this.restClient = restClient;
+  }
+
+  @Override
+  public void configure(final Map<String, ?> configs) {
+    if (this.restClient != null) {
+      log.warn("Using the existing RestClient instance");
+      return;
     }
 
-    @Override
-    public List<AuthorizeResult> authorize(final KafkaPrincipal sessionPrincipal,
-                                           final String host, final List<Action> actions) {
-        try {
-            if (restClient == null)
-                throw new IllegalStateException("RestClient is not initialized.");
+    this.restClient = new RestClient(configs);
+  }
 
-            List<String> results = restClient.authorize(
-                    sessionPrincipal.toString(),
-                    host,
-                    actions);
-            return  results.stream()
+  @Override
+  public List<AuthorizeResult> authorize(final KafkaPrincipal sessionPrincipal,
+                                         final String host, final List<Action> actions) {
+
+    if (restClient == null)
+      throw new IllegalStateException("RestClient has not been initialized.");
+
+
+    RestRequest request = this.restClient.newRequest(AUTHORIZE_ENDPOINT);
+
+    AuthorizeRequest authorizeRequest =
+            new AuthorizeRequest(sessionPrincipal.toString(), host, actions);
+
+    request.setRequest(authorizeRequest);
+    request.setResponse(AUTHORIZE_RESPONSE_TYPE);
+
+    try {
+      List<String> results = restClient.sendRequest(request);
+
+      return results.stream()
                     .map(AuthorizeResult::valueOf)
                     .collect(Collectors.toList());
-        } catch (Exception e) {
-           throw new RuntimeException("Error occurred" +
-                   " while executing authorize operation", e);
-        }
+    } catch (Exception e) {
+      throw new RuntimeException("Error occurred" +
+              " while executing authorize operation", e);
     }
+  }
 
-    @Override
-    public void close() throws IOException {
-        if (restClient != null)
-            restClient.close();
-    }
+  @Override
+  public void close() throws IOException {
+    if (restClient != null)
+      restClient.close();
+  }
 
 }

@@ -24,6 +24,7 @@
   <allow pkg="javax.net" />
   <allow pkg="javax.security" />
   <allow pkg="javax.xml.bind" />
+  <allow pkg="javax.ws.rs.core" />
   <allow pkg="junit" />
   <allow pkg="net" />
   <allow pkg="org.bouncycastle" />

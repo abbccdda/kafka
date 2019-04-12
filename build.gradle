@@ -2077,6 +2077,7 @@ project(':ce-rest-authorizer') {
     testCompile libs.powermockEasymock
     testCompile libs.powermockJunit4
     testCompile project(':clients').sourceSets.test.output
+    testCompile libs.jerseyCommon
   }
 
   tasks.create(name: "copyDependantLibs", type: Copy) {

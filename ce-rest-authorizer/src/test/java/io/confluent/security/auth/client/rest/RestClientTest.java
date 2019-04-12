@@ -2,17 +2,18 @@
 
 package io.confluent.security.auth.client.rest;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.confluent.security.auth.client.RestAuthorizer;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.auth.client.RestClientConfig;
-import org.apache.kafka.common.errors.TimeoutException;
+import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
 import org.junit.Test;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
@@ -36,8 +37,10 @@ public class RestClientTest {
         configs.put(RestClientConfig.ENABLE_METADATA_SERVER_URL_REFRESH, false);
 
         RestClient restClient = new RestClient(configs, Time.SYSTEM);
+        RestAuthorizer authorizer = new RestAuthorizer(restClient);
 
-        String userPrincipal = "User:principal";
+        KafkaPrincipal userPrincipal =
+                new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "principal");
         Action alterConfigs = new Action("clusterA", ResourceType.CLUSTER,
                 "kafka-cluster", new Operation("AlterConfigs"));
         List<Action> actionList = Collections.singletonList(alterConfigs);
@@ -45,7 +48,7 @@ public class RestClientTest {
         // succeed at 3 retry
         FailOverTestRequestSender requestSender = new FailOverTestRequestSender(3);
         restClient.requestSender(requestSender);
-        restClient.authorize(userPrincipal, "localhost", actionList);
+        authorizer.authorize(userPrincipal, "localhost", actionList);
 
         assertEquals(3, requestSender.attempt);
         assertEquals(3, requestSender.triedUrls.size());
@@ -53,7 +56,7 @@ public class RestClientTest {
         // succeed at 2 retry
         requestSender = new FailOverTestRequestSender(2);
         restClient.requestSender(requestSender);
-        restClient.authorize(userPrincipal, "localhost", actionList);
+        authorizer.authorize(userPrincipal, "localhost", actionList);
 
         assertEquals(2, requestSender.attempt);
         assertEquals(2, requestSender.triedUrls.size());
@@ -62,9 +65,10 @@ public class RestClientTest {
         requestSender = new FailOverTestRequestSender(4);
         restClient.requestSender(requestSender);
         try {
-            restClient.authorize(userPrincipal, "localhost", actionList);
+            authorizer.authorize(userPrincipal, "localhost", actionList);
             fail("should have failed");
-        } catch (IOException e) {
+        } catch (Exception e) {
+            // NoOp
         }
     }
 
@@ -81,17 +85,15 @@ public class RestClientTest {
         }
 
         @Override
-        public <T> T send(final String requestUrl, final String method, final byte[] requestBodyData,
-                          final TypeReference<T> responseFormat, final long requestTimeout) throws IOException {
+        public <T> T send(RestRequest request, final long requestTimeout) throws IOException {
             attempt++;
-            triedUrls.add(requestUrl);
+            triedUrls.add(request.build().toString());
             if (attempt == successAttempt)
-                return jsonDeserializer.readValue("[]", responseFormat);
+                return request.readResponse(new ByteArrayInputStream("[]".getBytes()));
             else {
                 throw new IOException("http Request Failed");
             }
         }
-
     }
 
     @Test
@@ -106,7 +108,8 @@ public class RestClientTest {
         Time time = new MockTime();
         RestClient restClient = new RestClient(configs, time);
 
-        String userPrincipal = "User:principal";
+        KafkaPrincipal userPrincipal =
+                new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "principal");
         Action alterConfigs = new Action("clusterA", ResourceType.CLUSTER,
             "kafka-cluster", new Operation("AlterConfigs"));
         List<Action> actionList = Collections.singletonList(alterConfigs);
@@ -114,15 +117,18 @@ public class RestClientTest {
         // succeed at 3 retry
         TimeoutTestRequestSender requestSender = new TimeoutTestRequestSender(time, 10 * 1000, 3);
         restClient.requestSender(requestSender);
-        restClient.authorize(userPrincipal, "localhost", actionList);
+
+        RestAuthorizer authorizer = new RestAuthorizer(restClient);
+        authorizer.authorize(userPrincipal, "localhost", actionList);
 
         // test request timeout
         requestSender = new TimeoutTestRequestSender(time, 20 * 1000, 3);
         restClient.requestSender(requestSender);
         try {
-            restClient.authorize(userPrincipal, "localhost", actionList);
+            authorizer.authorize(userPrincipal, "localhost", actionList);
             fail("should have failed");
-        } catch (TimeoutException e) {
+        } catch (RuntimeException e) {
+
         }
     }
 
@@ -142,16 +148,14 @@ public class RestClientTest {
         }
 
         @Override
-        public <T> T send(final String requestUrl, final String method, final byte[] requestBodyData,
-                          final TypeReference<T> responseFormat, final long requestTimeout) throws IOException {
+        public <T> T send(RestRequest request, final long requestTimeout) throws IOException {
             attempt++;
             time.sleep(sleepTime);
-            if (attempt == successAttempt)
-                return jsonDeserializer.readValue("[]", responseFormat);
-            else {
+            if (attempt == successAttempt) {
+                return request.readResponse(new ByteArrayInputStream("[]".getBytes()));
+            } else {
                 throw new IOException("http Request Failed");
             }
         }
-
     }
 }
