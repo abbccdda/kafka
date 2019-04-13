@@ -957,9 +957,11 @@ class ReplicaManager(val config: KafkaConfig,
     //                        3) fetch request does not require any tiered data and has enough data available in local store to respond
     //                        4) some error happens while reading data
     if (timeout <= 0 || fetchInfos.isEmpty || (tierLogReadResultMap.isEmpty && localReadableBytes >= fetchMinBytes) || errorReadingData) {
-      val fetchPartitionData = logReadResults.map { case (tp, result: LogReadResult) =>
-        tp -> FetchPartitionData(result.error, result.highWatermark, result.leaderLogStartOffset, result.info.records,
-          result.lastStableOffset, result.info.abortedTransactions)
+      val fetchPartitionData = logReadResults.flatMap {
+        case (tp, result: LogReadResult) =>
+          Some(tp -> FetchPartitionData(result.error, result.highWatermark, result.leaderLogStartOffset, result.info.records,
+            result.lastStableOffset, result.info.abortedTransactions))
+        case _ => None
       }
       responseCallback(fetchPartitionData)
     } else {
