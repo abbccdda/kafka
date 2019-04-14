@@ -6,9 +6,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.security.auth.client.RestClientConfig;
-import io.confluent.security.auth.client.provider.BasicAuthCredentialProvider;
-import io.confluent.security.auth.client.provider.BuiltInAuthProviders;
-import io.confluent.security.auth.client.provider.BuiltInAuthProviders.BasicAuthCredentialProviders;
+import io.confluent.security.auth.client.provider.HttpBasicCredentialProvider;
+import io.confluent.security.auth.client.provider.HttpCredentialProvider;
 import io.confluent.security.auth.client.rest.entities.ErrorMessage;
 import io.confluent.security.auth.client.rest.exceptions.RestClientException;
 import org.apache.kafka.common.config.ConfigException;
@@ -31,8 +30,6 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -77,7 +74,7 @@ public class RestClient implements Closeable {
   private final String protocol;
 
   private SSLSocketFactory sslSocketFactory;
-  private BasicAuthCredentialProvider basicAuthCredentialProvider;
+  private HttpCredentialProvider credentialProvider;
   private ScheduledExecutorService urlRefreshscheduler;
   private RequestSender requestSender = new HTTPRequestSender();
 
@@ -97,11 +94,7 @@ public class RestClient implements Closeable {
     this.httpRequestTimeout = rbacClientConfig.getInt(RestClientConfig.HTTP_REQUEST_TIMEOUT_MS_CONFIG);
 
     //set basic auth provider
-    String basicAuthProvider = (String) configs.get(RestClientConfig.BASIC_AUTH_CREDENTIALS_PROVIDER_PROP);
-    String basicAuthProviderName = basicAuthProvider == null || basicAuthProvider.isEmpty()
-            ? BasicAuthCredentialProviders.NONE.name() : basicAuthProvider;
-    basicAuthCredentialProvider = BuiltInAuthProviders.loadBasicAuthCredentialProvider(basicAuthProviderName);
-    basicAuthCredentialProvider.configure(configs);
+    this.credentialProvider = new HttpBasicCredentialProvider(configs);
 
     //set ssl socket factory
     if (rbacClientConfig.getString(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG) != null)
@@ -164,28 +157,15 @@ public class RestClient implements Closeable {
           throws IOException, RestClientException, URISyntaxException {
 
     RestRequest request = this.newRequest(String.format(ACTIVE_NODES_END_POINT, protocol));
+    request.setCredentialProvider(this.credentialProvider);
     request.setResponse(ACTIVE_URLS_RESPONSE_TYPE);
 
     return this.sendRequest(request);
   }
 
-  private String buildRequestUrl(String baseUrl, String path) {
-    // Join base URL and path, collapsing any duplicate forward slash delimiters
-    return baseUrl.replaceFirst("/$", "") + "/" + path.replaceFirst("^/", "");
-  }
-
   private void setupSsl(HttpURLConnection connection) {
     if (connection instanceof HttpsURLConnection && sslSocketFactory != null) {
       ((HttpsURLConnection) connection).setSSLSocketFactory(sslSocketFactory);
-    }
-  }
-
-  private void setBasicAuthRequestHeader(HttpURLConnection connection) {
-    String userInfo;
-    if (basicAuthCredentialProvider != null
-            && (userInfo = basicAuthCredentialProvider.getUserInfo()) != null) {
-      String authHeader = Base64.getEncoder().encodeToString(userInfo.getBytes(StandardCharsets.UTF_8));
-      connection.setRequestProperty("Authorization", "Basic " + authHeader);
     }
   }
 
@@ -265,7 +245,7 @@ public class RestClient implements Closeable {
       return executor.submit(() -> {
         HttpURLConnection connection = null;
         try {
-          URL url = request.build().toURL();
+          URL url = request.build();
           connection = (HttpURLConnection) url.openConnection();
 
           connection.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);

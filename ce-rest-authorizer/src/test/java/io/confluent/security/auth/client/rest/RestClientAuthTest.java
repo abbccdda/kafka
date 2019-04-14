@@ -4,6 +4,9 @@ package io.confluent.security.auth.client.rest;
 
 import io.confluent.security.auth.client.RestClientConfig;
 import io.confluent.security.auth.client.provider.BuiltInAuthProviders;
+import io.confluent.security.auth.client.provider.HttpBasicCredentialProvider;
+import io.confluent.security.auth.client.provider.HttpCredentialProvider;
+import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -39,13 +42,17 @@ public class RestClientAuthTest {
 
   @Test
   public void testSetBasicAuthRequestHeader() throws Exception {
+    RestRequest request = createNiceMock(RestRequest.class);
     HttpURLConnection httpURLConnection = createNiceMock(HttpURLConnection.class);
     InputStream inputStream = createNiceMock(InputStream.class);
 
     expectNew(URL.class, anyString()).andReturn(url).times(2);
+    expectNew(RestRequest.class, anyString(), anyString()).andReturn(request);
+
     expect(url.getProtocol()).andReturn("http");
     expect(url.openConnection()).andReturn(httpURLConnection);
     expect(httpURLConnection.getResponseCode()).andReturn(HttpURLConnection.HTTP_OK);
+    expect(request.build()).andReturn(url);
 
     // Make sure that the Authorization header is set with the correct value for "user:password"
     httpURLConnection.setRequestProperty("Authorization", "Basic dXNlcjpwYXNzd29yZA==");
@@ -71,6 +78,7 @@ public class RestClientAuthTest {
     replay(URL.class, url);
     replay(HttpURLConnection.class, httpURLConnection);
     replay(InputStream.class, inputStream);
+    replay(RestRequest.class, request);
 
     Map<String, Object> configs = new HashMap<>();
     configs.put(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP, "http://localhost:8080");
@@ -79,5 +87,20 @@ public class RestClientAuthTest {
     new RestClient(configs);
 
     verify(httpURLConnection);
+  }
+
+  @Test
+  public void testRestRequestBasicAuth() throws Exception {
+    Map<String, Object> configs = new HashMap<>();
+    configs.put(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP, "http://localhost:8080");
+    configs.put(RestClientConfig.BASIC_AUTH_CREDENTIALS_PROVIDER_PROP, BuiltInAuthProviders.BasicAuthCredentialProviders.USER_INFO.name());
+    configs.put(RestClientConfig.BASIC_AUTH_USER_INFO_PROP, "user:password");
+    configs.put(RestClientConfig.ENABLE_METADATA_SERVER_URL_REFRESH, false);
+
+    HttpCredentialProvider credentialProvider =
+            new HttpBasicCredentialProvider(configs);
+
+    Assert.assertEquals("Basic", credentialProvider.getScheme());
+    Assert.assertEquals("dXNlcjpwYXNzd29yZA==", credentialProvider.getCredentials());
   }
 }

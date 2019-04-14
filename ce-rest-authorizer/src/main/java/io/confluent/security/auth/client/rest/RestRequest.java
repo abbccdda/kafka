@@ -13,8 +13,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
 import java.net.ProtocolException;
 import java.net.URI;
+import java.net.URL;
 
 public class RestRequest {
   private static final Logger log = LoggerFactory.getLogger(RestRequest.class);
@@ -68,8 +70,8 @@ public class RestRequest {
     return this.builder.host(host).build();
   }
 
-  URI build() {
-    return this.builder.build();
+  URL build() throws MalformedURLException {
+    return this.builder.build().toURL();
   }
 
   /*
@@ -95,6 +97,11 @@ public class RestRequest {
 
   void setPort(int port) {
     this.builder.port(port);
+  }
+
+  /* Configures the credential provider to be used when making requests */
+  public void setCredentialProvider(HttpCredentialProvider credentialProvider) {
+    this.credentialProvider = credentialProvider;
   }
 
   /* Sets request methood [GET, PUT, POST, etc] */
