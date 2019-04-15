@@ -65,8 +65,7 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
 
   public enum State {
     NOT_READY,
-    UP_TO_DATE,
-    STALE,
+    RUNNING,
     CLOSED
   }
   private final AtomicReference<State> state;
@@ -190,20 +189,21 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
       throw new IllegalStateException("Physical Cluster Metadata Cache already shut down.");
     }
 
-    if (state.compareAndSet(State.NOT_READY, State.STALE)) {
+    if (state.compareAndSet(State.NOT_READY, State.RUNNING)) {
       try {
         dirWatcher.register(logicalClustersDir);
       } catch (IOException ioe) {
-        state.compareAndSet(State.STALE, State.NOT_READY);
+        state.compareAndSet(State.RUNNING, State.NOT_READY);
         LOG.error("Failed to register watcher for dir={}", logicalClustersDir, ioe);
+        dirWatcher.close();
         throw ioe;
       }
       loadAllFiles();
-      maybeSetNotStale();
       reloadFuture = executorService.scheduleWithFixedDelay(
           this::reloadCache, reloadDelaysMs, reloadDelaysMs, TimeUnit.MILLISECONDS);
-      LOG.info("Loaded logical cluster metadata from files in dir={} state={}",
-               logicalClustersDir, state.get());
+      LOG.info(
+          "Loaded logical cluster metadata from files in dir={} (known) stale logical clusters={}",
+          logicalClustersDir, staleLogicalClusters);
       dirListenerThread.start();
     }
   }
@@ -238,18 +238,10 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
   }
 
   /**
-   * Returns true if cache is loaded and up-to-date. Returns false if cache is stale, or not open.
+   * Returns true if cache is loaded and listening for metadata, otherwise returns false.
    */
-  public boolean isUpToDate() {
-    return State.UP_TO_DATE.equals(state.get());
-  }
-
-  /**
-   * Returns true if there was an issue with handling add/update/delete of at least one logical
-   * cluster, and was not able to recover yet.
-   */
-  public boolean isStale() {
-    return State.STALE.equals(state.get());
+  public boolean isUp() {
+    return State.RUNNING.equals(state.get());
   }
 
   /**
@@ -376,10 +368,9 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
     cacheLock.writeLock().lock();
     try {
       if (!State.CLOSED.equals(state.get())) {
-        if (isStale()) {
+        if (!staleLogicalClusters.isEmpty()) {
           LOG.info(
-              "Re-loading cache: current state={}, (known) stale logical clusters={}",
-              state.get(), staleLogicalClusters);
+              "Re-loading cache: (known) stale logical clusters={}", staleLogicalClusters);
         }
         loadAllFiles();
       }
@@ -393,26 +384,11 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
    * @param logicalClusterId ID of the logical cluster that failed re-fresh
    */
   private void markStale(String logicalClusterId) {
-    if (state.compareAndSet(State.UP_TO_DATE, State.STALE) ||
-        state.compareAndSet(State.NOT_READY, State.STALE) ||
-        state.compareAndSet(State.STALE, State.STALE)) {
-      staleLogicalClusters.add(logicalClusterId);
-    } else {
-      throw new IllegalStateException("Unexpected cache state: " + state.get());
-    }
+    staleLogicalClusters.add(logicalClusterId);
   }
 
   private void markUpToDate(String logicalClusterId) {
-    if (staleLogicalClusters.remove(logicalClusterId)) {
-      maybeSetNotStale();
-    }
-  }
-
-  private void maybeSetNotStale() {
-    if (staleLogicalClusters.isEmpty() &&
-        state.compareAndSet(State.STALE, State.UP_TO_DATE)) {
-      LOG.info("Cache is up to date");
-    }
+    staleLogicalClusters.remove(logicalClusterId);
   }
 
   /**
