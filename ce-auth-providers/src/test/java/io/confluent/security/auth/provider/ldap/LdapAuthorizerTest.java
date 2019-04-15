@@ -312,28 +312,28 @@ public class LdapAuthorizerTest {
   private Void addTopicAcl(KafkaPrincipal principal, Resource topic, Operation op) {
     AclCommand.main(SecurityTestUtils.addTopicAclArgs(kafkaCluster.zkConnect(),
         principal, topic.name(), op, PatternType.LITERAL));
-    SecurityTestUtils.waitForAclUpdate(ldapAuthorizer, topic, op, false);
+    SecurityTestUtils.waitForAclUpdate(ldapAuthorizer, principal, topic, op, false);
     return null;
   }
 
   private Void addConsumerGroupAcl(KafkaPrincipal principal, Resource group, Operation op) {
     AclCommand.main(SecurityTestUtils.addConsumerGroupAclArgs(kafkaCluster.zkConnect(),
         principal, group.name(), op, PatternType.LITERAL));
-    SecurityTestUtils.waitForAclUpdate(ldapAuthorizer, group, op, false);
+    SecurityTestUtils.waitForAclUpdate(ldapAuthorizer, principal, group, op, false);
     return null;
   }
 
   private Void addClusterAcl(KafkaPrincipal principal, Operation op) {
     AclCommand.main(SecurityTestUtils.clusterAclArgs(kafkaCluster.zkConnect(),
         principal, op.name()));
-    SecurityTestUtils.waitForAclUpdate(ldapAuthorizer, CLUSTER_RESOURCE, op, false);
+    SecurityTestUtils.waitForAclUpdate(ldapAuthorizer, principal, CLUSTER_RESOURCE, op, false);
     return null;
   }
 
   private void deleteTopicAcl(KafkaPrincipal principal, Resource topic, Operation op) {
     AclCommand.main(SecurityTestUtils.deleteTopicAclArgs(kafkaCluster.zkConnect(),
         principal, topic.name(), op.name()));
-    SecurityTestUtils.waitForAclUpdate(ldapAuthorizer, topic, op, true);
+    SecurityTestUtils.waitForAclUpdate(ldapAuthorizer, principal, topic, op, true);
   }
 
   private void verifyLicenseMetric(LicenseStatus status) {

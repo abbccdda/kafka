@@ -169,12 +169,12 @@ public class SecurityTestUtils {
     };
   }
 
-  public static void waitForAclUpdate(Authorizer authorizer, Resource resource,
+  public static void waitForAclUpdate(Authorizer authorizer, KafkaPrincipal principal, Resource resource,
       Operation op, boolean deleted) {
     try {
       org.apache.kafka.test.TestUtils.waitForCondition(() -> {
         Set<Acl> acls = JavaConversions.setAsJavaSet(authorizer.getAcls(resource));
-        boolean matches = acls.stream().anyMatch(acl -> acl.operation().equals(op));
+        boolean matches = acls.stream().anyMatch(acl -> acl.operation().equals(op) && acl.principal().equals(principal));
         return deleted != matches;
       }, "ACLs not updated");
     } catch (InterruptedException e) {
