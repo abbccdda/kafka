@@ -30,6 +30,7 @@ public class ProducerBuilder implements TierTopicProducerBuilder {
                 "org.apache.kafka.common.serialization.ByteArraySerializer");
         properties.put(ProducerConfig.ACKS_CONFIG, "all");
         properties.put(ProducerConfig.RETRIES_CONFIG, Integer.toString(Integer.MAX_VALUE));
+        properties.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, Integer.toString(2000));
         properties.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, Integer.toString(Integer.MAX_VALUE));
         properties.put(ProducerConfig.CLIENT_ID_CONFIG, clientId(config.clusterId, config.brokerId));
         properties.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, config.requestTimeoutMs);

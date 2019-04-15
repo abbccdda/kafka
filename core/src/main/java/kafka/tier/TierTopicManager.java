@@ -39,6 +39,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.HashSet;
@@ -168,7 +169,7 @@ public class TierTopicManager implements Runnable {
         primaryConsumer.wakeup();
         if (catchUpConsumer != null)
             catchUpConsumer.wakeup();
-        producer.close();
+        producer.close(Duration.ofSeconds(1));
         try {
             if (managerThread != null && managerThread.isAlive()) { // if the manager thread never
                 // started, there's nothing
