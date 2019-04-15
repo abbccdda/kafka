@@ -105,6 +105,9 @@ public class TenantLifecycleManagerTest {
         lifecycleManager.updateTenantState(LC_META_DED);
         lifecycleManager.deleteTenants();
 
+        // wait for async delete task started by `deleteTenants` to complete
+        lifecycleManager.topicDeletionExecutor().submit(() -> { }).get();
+
         // trigger deletion again so the deletion will be finalized
         lifecycleManager.deleteTenants();
 
@@ -115,7 +118,7 @@ public class TenantLifecycleManagerTest {
         // Try deleting tenants again and check that we are not calling the admin client again
         // because tenant was already deleted
         reset(mockAdminClient);
-      lifecycleManager.deleteTenants();
+        lifecycleManager.deleteTenants();
         verify(mockAdminClient, never()).listTopics(any());
     }
 

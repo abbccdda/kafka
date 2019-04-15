@@ -340,4 +340,9 @@ public class TenantLifecycleManager {
                 tenantLifecycleState.getOrDefault(lcMeta.logicalClusterId(), State.ACTIVE) != State.DELETED;
     }
 
+    // Visibility for testing
+    ExecutorService topicDeletionExecutor() {
+        return topicDeletionExecutor;
+    }
+
 }
