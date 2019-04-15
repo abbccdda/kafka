@@ -103,28 +103,30 @@ object TierArchiverState {
     * backoff.
     */
   abstract class RetriableTierArchiverState(config: TierArchiverConfig) extends TierArchiverState {
-    @volatile private var retryCount: Int = 0
+    @volatile private var _retryCount: Int = 0
 
     def retryState(blockingTaskExecutor: ScheduledExecutorService): CompletableFuture[TierArchiverState] = {
       val future: CompletableFuture[TierArchiverState] = new CompletableFuture[TierArchiverState]()
       val self = this
       blockingTaskExecutor.schedule(new Callable[Unit] {
         override def call(): Unit = {
-          self.retryCount += 1
+          self._retryCount += 1
           future.complete(self)
         }
       }, backoffMs, TimeUnit.MILLISECONDS)
       future
     }
 
+    def retryCount: Int = _retryCount
+
     // Calculate a random duration of seconds between zero and the current retry count
     private def backoffMs: Long = {
-      if (retryCount == 0)
+      if (_retryCount == 0)
         0L
       else
         Math.min(
           config.maxRetryBackoffMs,
-          Random.nextInt(retryCount) * 1000
+          Random.nextInt(_retryCount) * 1000
         )
     }
   }
@@ -197,7 +199,7 @@ object TierArchiverState {
     override def relativePriority(other: TierArchiverState): Int = {
       other match {
         case _: BeforeLeader => Priority.Lower
-        case otherBeforeUpload: BeforeUpload => {
+        case otherBeforeUpload: BeforeUpload =>
           val otherLag = otherBeforeUpload.lag
           val thisLag = this.lag
           if (otherLag > thisLag) {
@@ -207,7 +209,6 @@ object TierArchiverState {
           } else {
             Priority.Same
           }
-        }
         case _: AfterUpload => Priority.Lower
       }
     }

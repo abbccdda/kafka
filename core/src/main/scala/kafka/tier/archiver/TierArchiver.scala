@@ -11,7 +11,7 @@ import com.yammer.metrics.core.Gauge
 import com.yammer.metrics.core.Meter
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.{KafkaConfig, ReplicaManager}
-import kafka.tier.archiver.TierArchiverState.{BeforeLeader, TierArchiverStateComparator}
+import kafka.tier.archiver.TierArchiverState.{BeforeLeader, TierArchiverStateComparator, RetriableTierArchiverState}
 import kafka.tier.exceptions.{TierArchiverFatalException, TierArchiverFencedException}
 import kafka.tier.store.TierObjectStore
 import kafka.tier.{TierMetadataManager, TierTopicManager}
@@ -24,6 +24,7 @@ import scala.util.{Failure, Success, Try}
 
 case class TierArchiverConfig(numThreads: Int = 10,
                               updateIntervalMs: Int = 50,
+                              mainLoopBackoffMs: Int = 1000,
                               maxRetryBackoffMs: Int = 1000 * 60 * 5)
 
 object TierArchiverConfig {
@@ -77,6 +78,20 @@ class TierArchiver(config: TierArchiverConfig,
     }
   )
 
+  // set up metrics
+  removeMetric("RetryStateCount")
+  newGauge("RetryStateCount",
+    new Gauge[Long] {
+      def value(): Long = {
+        lock.synchronized {
+          val paused = pausedStates.toArray(Array.empty[TierArchiverState])
+          val pending = stateTransitionsInProgress.map { case (_, (state, _)) => state }
+          (pending ++ paused)
+            .collect { case x: RetriableTierArchiverState if x.retryCount > 0 => x }.size
+        }
+      }
+    }
+  )
   removeMetric("BytesPerSec")
   private val byteRate = newMeter("BytesPerSec", "bytes", TimeUnit.SECONDS)
 
@@ -186,11 +201,17 @@ class TierArchiver(config: TierArchiverConfig,
 
   override def doWork(): Unit = {
     if (tierTopicManager.isReady) {
-      lock.synchronized {
-        processTransitions()
+      try {
+        lock.synchronized {
+          processTransitions()
+        }
+      } catch {
+        case ie: InterruptedException =>
+        case e: Throwable => logger.error("Unhandled exception caught in archiver doWork loop. Backing off.", e)
+          Thread.sleep(config.mainLoopBackoffMs)
       }
+      pause(config.updateIntervalMs, TimeUnit.MILLISECONDS)
     }
-    pause(config.updateIntervalMs, TimeUnit.MILLISECONDS)
   }
 
   override def shutdown(): Unit = {
