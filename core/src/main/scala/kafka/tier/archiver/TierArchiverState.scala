@@ -10,7 +10,6 @@ import java.io.IOException
 import java.util.Comparator
 import java.util.function.Supplier
 
-import com.yammer.metrics.core.Meter
 import kafka.log.AbstractLog
 import kafka.server.checkpoints.LeaderEpochCheckpointFile
 import kafka.log.LogSegment
@@ -35,17 +34,24 @@ sealed trait TierArchiverState extends Logging {
 
   def lag: Long
 
-  def calculateLag (topicPartition: TopicPartition,
-                    replicaManager: ReplicaManager,
-                    tierPartitionState: TierPartitionState): Long = {
+  def calculateLag(topicPartition: TopicPartition,
+                   replicaManager: ReplicaManager,
+                   tierPartitionState: TierPartitionState): Long = {
+
+
     replicaManager
       .getLog(topicPartition)
-      .flatMap(l => l.baseOffsetFirstUntierableSegment.map(firstUntiered => {
-        if (!tierPartitionState.endOffset.isPresent)
-          firstUntiered
-        else
-        firstUntiered - 1 - tierPartitionState.endOffset.get
-      }))
+      .flatMap { log =>
+        log.baseOffsetFirstUntierableSegment.map { firstUntieredOffset =>
+          val tieredOffset =
+            if (tierPartitionState.endOffset.isPresent)
+              tierPartitionState.endOffset.get + 1
+            else
+              0L
+
+          firstUntieredOffset - tieredOffset
+        }
+      }
       .getOrElse(0L)
   }
 
@@ -99,10 +105,10 @@ object TierArchiverState {
   }
 
   /**
-    * Allows running retryable state transitions at some point in the future, based on a configurable
-    * backoff.
-    */
-  abstract class RetriableTierArchiverState(config: TierArchiverConfig) extends TierArchiverState {
+   * Allows running retryable state transitions at some point in the future, based on a configurable
+   * backoff.
+   */
+  sealed abstract class RetriableTierArchiverState(config: TierArchiverConfig) extends TierArchiverState {
     @volatile private var _retryCount: Int = 0
 
     def retryState(blockingTaskExecutor: ScheduledExecutorService): CompletableFuture[TierArchiverState] = {
@@ -169,7 +175,8 @@ object TierArchiverState {
             throw new TierArchiverFatalException(s"Tier archiver found tier partition $topicPartition in illegal status.")
           case AppendResult.FENCED =>
             throw new TierArchiverFencedException(topicPartition)
-        }}
+        }
+      }
         .thenComposeExceptionally((ex: Throwable) => {
           if (ex.isInstanceOf[TierMetadataRetriableException])
             retryState(blockingTaskExecutor)
@@ -222,11 +229,11 @@ object TierArchiverState {
         })
 
         logLogSegment match {
-          case None => {
+          case None =>
             // Log has been moved or there is no eligible segment. Retry BeforeUpload state.
-            CompletableFutureUtil.completed(this)}
+            CompletableFutureUtil.completed(this)
 
-          case Some((log: AbstractLog, logSegment: LogSegment)) => {
+          case Some((log: AbstractLog, logSegment: LogSegment)) =>
             // Upload next segment and transition.
             val leaderEpochStateFile = uploadableLeaderEpochState(log, logSegment.readNextOffset)
             putSegment(logSegment, leaderEpochStateFile, blockingTaskExecutor).thenApply[TierArchiverState] { objectMetadata: TierObjectMetadata =>
@@ -241,7 +248,6 @@ object TierArchiverState {
               case ex =>
                 throw new TierArchiverFatalException(topicPartition, ex)
             }
-          }
         }
       }
     }
@@ -256,7 +262,6 @@ object TierArchiverState {
         leaderEpochCacheClone.file
       })
     }
-
 
 
     private def putSegment(logSegment: LogSegment, leaderEpochCacheFile: Option[File], blockingTaskExecutor: ScheduledExecutorService): CompletableFuture[TierObjectMetadata] = {
@@ -278,10 +283,10 @@ object TierArchiverState {
 
     private def assertSegmentFileAccess(logSegment: LogSegment, leaderEpochCacheFile: Option[File]): Unit = {
       var fileListToCheck: List[File] = List(logSegment.log.file(),
-              logSegment.offsetIndex.file,
-              logSegment.timeIndex.file,
-              logSegment.timeIndex.file, // FIXME producer status
-              logSegment.timeIndex.file) // FIXME transaction index
+        logSegment.offsetIndex.file,
+        logSegment.timeIndex.file,
+        logSegment.timeIndex.file, // FIXME producer status
+        logSegment.timeIndex.file) // FIXME transaction index
       if (leaderEpochCacheFile.isDefined) {
         fileListToCheck :+= leaderEpochCacheFile.get
       }
@@ -289,12 +294,12 @@ object TierArchiverState {
       val missing: List[File] =
         fileListToCheck
           .filterNot { f =>
-          try {
-            f.exists()
-          } catch {
-            case _: SecurityException => false
+            try {
+              f.exists()
+            } catch {
+              case _: SecurityException => false
+            }
           }
-        }
 
       if (missing.nonEmpty) {
         throw new IOException(s"Tier archiver could not read segment files: ${missing.mkString(", ")}")
