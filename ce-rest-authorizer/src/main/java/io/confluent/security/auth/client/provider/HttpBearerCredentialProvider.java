@@ -2,11 +2,22 @@
 
 package io.confluent.security.auth.client.provider;
 
+import java.util.Map;
+
 public class HttpBearerCredentialProvider implements HttpCredentialProvider {
-  private final String token;
+  private String token;
+
+  public HttpBearerCredentialProvider() {
+
+  }
 
   public HttpBearerCredentialProvider(String token) {
     this.token = token;
+  }
+
+  @Override
+  public void configure(Map<String, ?> configs) {
+
   }
 
   @Override
