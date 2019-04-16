@@ -83,6 +83,7 @@ public class RestAuthorizer implements Authorizer {
             new AuthorizeRequest(sessionPrincipal.toString(), host, actions);
 
     request.setRequest(authorizeRequest);
+    request.setRequestMethod("PUT");
     request.setResponse(AUTHORIZE_RESPONSE_TYPE);
 
     try {

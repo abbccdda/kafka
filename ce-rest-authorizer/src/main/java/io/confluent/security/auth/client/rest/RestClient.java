@@ -174,7 +174,10 @@ public class RestClient implements Closeable {
   }
 
   public RestRequest newRequest(String path) {
-    return new RestRequest(this.protocol, path);
+    RestRequest request = new RestRequest(this.protocol, path);
+    /* inherit rest client credential provider as a default */
+    request.setCredentialProvider(this.credentialProvider);
+    return request;
   }
 
   public <T> T sendRequest(RestRequest request)

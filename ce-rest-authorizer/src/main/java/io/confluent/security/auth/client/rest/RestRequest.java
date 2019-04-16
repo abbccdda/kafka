@@ -5,6 +5,7 @@ package io.confluent.security.auth.client.rest;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.security.auth.client.provider.HttpCredentialProvider;
+import io.confluent.security.authorizer.utils.JsonMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,7 +22,7 @@ import java.net.URL;
 public class RestRequest {
   private static final Logger log = LoggerFactory.getLogger(RestRequest.class);
 
-  private static ObjectMapper objectMapper = new ObjectMapper();
+  private static ObjectMapper objectMapper = JsonMapper.objectMapper();
 
   static final String API_ENDPOINT = "/security/1.0";
 
@@ -31,9 +32,6 @@ public class RestRequest {
 
   private String method = "GET";
   private Object request;
-
-
-  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
   RestRequest(String protocol, String path) {
     this.builder = UriBuilder
@@ -80,7 +78,7 @@ public class RestRequest {
    */
   void writeRequestBody(OutputStream out) throws IOException {
     if (this.request != null) {
-      OBJECT_MAPPER.writeValue(out, this.request);
+      objectMapper.writeValue(out, this.request);
     }
   }
 
