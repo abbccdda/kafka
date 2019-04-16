@@ -34,11 +34,18 @@ public class RestClientConfig extends AbstractConfig {
   public static final String METADATA_SERVER_URL_MAX_AGE_DOC = "The period of time in milliseconds after which we " +
           "force a refresh of metadata server urls.";
 
+  public static final String HTTP_AUTH_CREDENTIALS_PROVIDER_PROP = "http.auth.credentials.provider";
+  private static final String HTTP_AUTH_CREDENTIALS_PROVIDER_DEFAULT = "";
+  private static final String HTTP_AUTH_CREDENTIALS_PROVIDER_DOC = "HTTP authentication scheme. "
+          + "Supported schemes are " + BuiltInAuthProviders.builtInHttpCredentialProviders();
+
   public static final String BASIC_AUTH_CREDENTIALS_PROVIDER_PROP = "basic.auth.credentials.provider";
-  public static final String BASIC_AUTH_CREDENTIALS_PROVIDER_DEFAULT = BasicAuthCredentialProviders.NONE.name();
-  private static final String BASIC_AUTH_CREDENTIALS_PROVIDER_PROP_DOC = "User credentials provider for the HTTP" +
-          " basic authentication. Supported providers are " + BuiltInAuthProviders.builtInBasicAuthCredentialProviders()
-          + ". Basic access authentication is disabled by default.";
+  private static final String BASIC_AUTH_CREDENTIALS_PROVIDER_DEFAULT =
+          BasicAuthCredentialProviders.USER_INFO.name();
+  private static final String BASIC_AUTH_CREDENTIALS_PROVIDER_PROP_DOC =
+          "User credentials provider for the HTTP"
+                  + " basic authentication. Supported providers are "
+                  + BuiltInAuthProviders.builtInBasicAuthCredentialProviders();
 
   public static final String BASIC_AUTH_USER_INFO_PROP = "basic.auth.user.info";
   private static final String BASIC_AUTH_USER_INFO_PROP_DOC = "Basic user credentials info in the format user:password." +
@@ -58,7 +65,10 @@ public class RestClientConfig extends AbstractConfig {
     CONFIG = new ConfigDef()
             .define(BOOTSTRAP_METADATA_SERVER_URLS_PROP, Type.LIST, "", Importance.HIGH,
                     BOOTSTRAP_METADATA_SERVER_URLS_DOC)
-            .define(BASIC_AUTH_CREDENTIALS_PROVIDER_PROP, Type.STRING, BASIC_AUTH_CREDENTIALS_PROVIDER_DEFAULT, Importance.HIGH,
+            .define(HTTP_AUTH_CREDENTIALS_PROVIDER_PROP, Type.STRING, HTTP_AUTH_CREDENTIALS_PROVIDER_DEFAULT,
+                    Importance.HIGH, HTTP_AUTH_CREDENTIALS_PROVIDER_DOC)
+            .define(BASIC_AUTH_CREDENTIALS_PROVIDER_PROP, Type.STRING, BASIC_AUTH_CREDENTIALS_PROVIDER_DEFAULT,
+                    Importance.HIGH,
                     BASIC_AUTH_CREDENTIALS_PROVIDER_PROP_DOC)
             .define(BASIC_AUTH_USER_INFO_PROP, Type.STRING, "", Importance.MEDIUM, BASIC_AUTH_USER_INFO_PROP_DOC)
             .define(ENABLE_METADATA_SERVER_URL_REFRESH, Type.BOOLEAN, true, Importance.LOW,

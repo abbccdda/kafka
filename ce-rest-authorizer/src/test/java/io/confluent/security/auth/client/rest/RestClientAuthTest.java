@@ -98,7 +98,9 @@ public class RestClientAuthTest {
     configs.put(RestClientConfig.ENABLE_METADATA_SERVER_URL_REFRESH, false);
 
     HttpCredentialProvider credentialProvider =
-            new HttpBasicCredentialProvider(configs);
+            new HttpBasicCredentialProvider();
+
+    credentialProvider.configure(configs);
 
     Assert.assertEquals("Basic", credentialProvider.getScheme());
     Assert.assertEquals("dXNlcjpwYXNzd29yZA==", credentialProvider.getCredentials());

@@ -5,7 +5,6 @@ package io.confluent.security.auth.client.provider;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.utils.Utils;
 
-import java.util.Map;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -14,7 +13,6 @@ public class BuiltInAuthProviders {
 
     public enum BasicAuthCredentialProviders {
         USER_INFO, // UserInfo credential provider
-        NONE,      // Basic authentication is disabled
     }
 
     public static Set<String> builtInBasicAuthCredentialProviders() {
@@ -23,9 +21,6 @@ public class BuiltInAuthProviders {
     }
 
     public static BasicAuthCredentialProvider loadBasicAuthCredentialProvider(String name) {
-        if (name.equals(BasicAuthCredentialProviders.NONE.name()))
-            return new EmptyBasicAuthCredentialProvider();
-
         BasicAuthCredentialProvider basicAuthCredentialProvider = null;
         ServiceLoader<BasicAuthCredentialProvider> providers = ServiceLoader.load(BasicAuthCredentialProvider.class);
         for (BasicAuthCredentialProvider provider : providers) {
@@ -39,20 +34,25 @@ public class BuiltInAuthProviders {
         return basicAuthCredentialProvider;
     }
 
-    private static class EmptyBasicAuthCredentialProvider implements BasicAuthCredentialProvider {
-
-        @Override
-        public void configure(Map<String, ?> configs) {
-        }
-
-        @Override
-        public String providerName() {
-            return BasicAuthCredentialProviders.NONE.name();
-        }
-
-        @Override
-        public String getUserInfo() {
-            return null;
-        }
+    public enum HttpCredentialProviders {
+        BASIC, // HTTP Basic credential provider
+        BEARER, // HTTP Bearer token credential provider
     }
+
+    public static Set<String> builtInHttpCredentialProviders() {
+        return Utils.mkSet(HttpCredentialProviders.values()).stream()
+                .map(HttpCredentialProviders::name).collect(Collectors.toSet());
+    }
+
+    public static HttpCredentialProvider loadHttpCredentialProviders(String name) {
+        HttpCredentialProvider credentialProvider = null;
+        ServiceLoader<HttpCredentialProvider> providers = ServiceLoader.load(HttpCredentialProvider.class);
+        for (HttpCredentialProvider provider : providers) {
+            if (provider.getScheme().equalsIgnoreCase(name)) {
+                return provider;
+            }
+        }
+        throw new ConfigException("HttpCredentialProvider not found for " + name);
+    }
+
 }

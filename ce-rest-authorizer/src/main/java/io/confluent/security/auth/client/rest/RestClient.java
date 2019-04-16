@@ -6,7 +6,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.security.auth.client.RestClientConfig;
-import io.confluent.security.auth.client.provider.HttpBasicCredentialProvider;
+import io.confluent.security.auth.client.provider.BuiltInAuthProviders;
 import io.confluent.security.auth.client.provider.HttpCredentialProvider;
 import io.confluent.security.auth.client.rest.entities.ErrorMessage;
 import io.confluent.security.auth.client.rest.exceptions.RestClientException;
@@ -93,8 +93,14 @@ public class RestClient implements Closeable {
     this.requestTimeout = rbacClientConfig.getInt(RestClientConfig.REQUEST_TIMEOUT_MS_CONFIG);
     this.httpRequestTimeout = rbacClientConfig.getInt(RestClientConfig.HTTP_REQUEST_TIMEOUT_MS_CONFIG);
 
-    //set basic auth provider
-    this.credentialProvider = new HttpBasicCredentialProvider(configs);
+    /* Configure credential provider if any */
+    String credentialProviderName =
+            rbacClientConfig.getString(RestClientConfig.HTTP_AUTH_CREDENTIALS_PROVIDER_PROP);
+
+    if (credentialProviderName != null && !credentialProviderName.isEmpty()) {
+      credentialProvider = BuiltInAuthProviders.loadHttpCredentialProviders(credentialProviderName);
+      credentialProvider.configure(configs);
+    }
 
     //set ssl socket factory
     if (rbacClientConfig.getString(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG) != null)

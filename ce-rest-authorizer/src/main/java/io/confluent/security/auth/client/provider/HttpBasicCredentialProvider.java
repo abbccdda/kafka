@@ -11,12 +11,13 @@ import java.util.Map;
 public class HttpBasicCredentialProvider implements HttpCredentialProvider {
   private BasicAuthCredentialProvider basicAuthCredentialProvider;
 
-  public HttpBasicCredentialProvider(Map<String, ?> configs) {
+  @Override
+  public void configure(Map<String, ?> configs) {
     //set basic auth provider
-    String basicAuthProvider = (String) configs.get(RestClientConfig.BASIC_AUTH_CREDENTIALS_PROVIDER_PROP);
-    String basicAuthProviderName = basicAuthProvider == null || basicAuthProvider.isEmpty()
-            ? BuiltInAuthProviders.BasicAuthCredentialProviders.NONE.name() : basicAuthProvider;
-    basicAuthCredentialProvider = BuiltInAuthProviders.loadBasicAuthCredentialProvider(basicAuthProviderName);
+    RestClientConfig rbacClientConfig = new RestClientConfig(configs);
+    String basicAuthProvider = rbacClientConfig.getString(RestClientConfig.BASIC_AUTH_CREDENTIALS_PROVIDER_PROP);
+
+    basicAuthCredentialProvider = BuiltInAuthProviders.loadBasicAuthCredentialProvider(basicAuthProvider);
     basicAuthCredentialProvider.configure(configs);
   }
 
