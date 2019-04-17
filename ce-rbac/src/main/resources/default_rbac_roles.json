@@ -40,6 +40,10 @@
           {
             "resourceType" : "Topic",
             "operations" : ["Create", "Delete", "Alter", "AlterConfigs", "Describe", "DescribeConfigs"]
+          },
+          {
+            "resourceType" : "Subject",
+            "operations" : ["Read", "write", "Delete", "ReadCompatibility", "WriteCompatibility"]
           }
         ]
       }
@@ -87,6 +91,10 @@
           {
             "resourceType" : "DelegationToken",
             "operations" : ["Describe"]
+          },
+          {
+            "resourceType" : "Subject",
+            "operations" : ["Read", "write", "Delete", "ReadCompatibility", "WriteCompatibility"]
           }
         ]
       }
@@ -112,7 +120,11 @@
           {
             "resourceType" : "Cluster",
             "operations" : []
-          }
+          },
+          {
+            "resourceType" : "Subject",
+            "operations" : ["Read", "ReadCompatibility"]
+          },
         ]
       }
     },
@@ -137,6 +149,10 @@
           {
             "resourceType" : "Cluster",
             "operations" : ["IdempotentWrite"]
+          },
+          {
+            "resourceType" : "Subject",
+            "operations" : ["Write"]
           }
         ]
       }
@@ -162,6 +178,10 @@
           {
             "resourceType" : "Cluster",
             "operations" : ["Create", "DescribeConfigs"]
+          },
+          {
+            "resourceType" : "Subject",
+            "operations" : ["ReadCompatibility", "WriteCompatibility"]
           }
         ]
       }
