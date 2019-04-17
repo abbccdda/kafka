@@ -44,6 +44,10 @@
           {
             "resourceType" : "Subject",
             "operations" : ["Read", "write", "Delete", "ReadCompatibility", "WriteCompatibility"]
+          },
+          {
+            "resourceType" : "Connector",
+            "operations" : ["Create", "ReadConfig", "ReadStatus", "Pause", "Resume", "Scale", "Delete"]
           }
         ]
       }
@@ -54,6 +58,10 @@
         "scopeType" : "Cluster",
         "isSuperUser" : "false",
         "allowedOperations" : [
+          {
+            "resourceType" : "Connector",
+            "operations" : ["ReadStatus", "Pause", "Resume", "Scale"]
+          }
         ]
       }
     },
@@ -95,6 +103,10 @@
           {
             "resourceType" : "Subject",
             "operations" : ["Read", "write", "Delete", "ReadCompatibility", "WriteCompatibility"]
+          },
+          {
+            "resourceType" : "Connector",
+            "operations" : ["Create", "ReadConfig", "ReadStatus", "Pause", "Resume", "Scale", "Configure", "Delete"]
           }
         ]
       }
@@ -125,6 +137,10 @@
             "resourceType" : "Subject",
             "operations" : ["Read", "ReadCompatibility"]
           },
+          {
+            "resourceType" : "Connector",
+            "operations" : ["ReadConfig", "ReadStatus"]
+          }
         ]
       }
     },
@@ -153,6 +169,10 @@
           {
             "resourceType" : "Subject",
             "operations" : ["Write"]
+          },
+          {
+            "resourceType" : "Connector",
+            "operations" : ["ReadStatus", "Configure"]
           }
         ]
       }
@@ -182,6 +202,10 @@
           {
             "resourceType" : "Subject",
             "operations" : ["ReadCompatibility", "WriteCompatibility"]
+          },
+          {
+            "resourceType" : "Connector",
+            "operations" : ["Create", "ReadStatus", "Pause", "Resume", "Scale"]
           }
         ]
       }
