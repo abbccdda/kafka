@@ -12,6 +12,8 @@ import kafka.tier.store.MockInMemoryTierObjectStore;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreConfig;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.record.CompressionType;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.MemoryRecordsBuilder;
@@ -25,6 +27,7 @@ import org.junit.Test;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Collections;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.Executor;
@@ -47,12 +50,13 @@ public class SegmentFileFetchRequestTest {
 
         try {
             TierObjectMetadata metadata = segmentMetadata(topicPartition, segment);
-
+            Metrics metrics = new Metrics();
             putSegment(tierObjectStore, segment, metadata);
+            Sensor recordBytesFetched = metrics.sensor("recordBytesFetched");
 
             long targetOffset = 149L;
-            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore, metadata, targetOffset,
-                    1024, Long.MAX_VALUE);
+            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore, recordBytesFetched,
+                    metadata, key -> { }, targetOffset, 1024, Long.MAX_VALUE, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
 
@@ -89,12 +93,11 @@ public class SegmentFileFetchRequestTest {
 
             putSegment(tierObjectStore, segment, metadata);
 
-            PendingFetch pendingFetch = new PendingFetch(ctx,
-                    tierObjectStore,
-                    metadata,
-                    150L,
-                    1024,
-                    Long.MAX_VALUE);
+            Metrics metrics = new Metrics();
+            Long targetOffset = 150L;
+            Sensor recordBytesFetched = metrics.sensor("recordBytesFetched");
+            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore, recordBytesFetched,
+                    metadata, key -> { }, targetOffset, 1024, Long.MAX_VALUE, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
 
@@ -126,13 +129,12 @@ public class SegmentFileFetchRequestTest {
             TierObjectMetadata metadata = segmentMetadata(topicPartition, segment);
 
             putSegment(tierObjectStore, segment, metadata);
+            Metrics metrics = new Metrics();
+            Long targetOffset = 51L;
+            Sensor recordBytesFetched = metrics.sensor("recordBytesFetched");
+            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore, recordBytesFetched, metadata,
+                    key -> { }, targetOffset, 1024, 100L, Collections.emptyList());
 
-            PendingFetch pendingFetch = new PendingFetch(ctx,
-                    tierObjectStore,
-                    metadata,
-                    51L,
-                    1024,
-                    100L);
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
 

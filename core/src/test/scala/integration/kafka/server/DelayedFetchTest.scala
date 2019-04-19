@@ -17,9 +17,10 @@
 package kafka.server
 
 import java.util.concurrent.TimeUnit
-import java.util.{Optional, UUID}
+import java.util.Optional
 
 import kafka.cluster.Partition
+import kafka.tier.fetcher.PendingFetch
 import kafka.tier.fetcher.TierFetchResult
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{FencedLeaderEpochException, UnknownServerException}
@@ -58,15 +59,15 @@ class DelayedFetchTest extends EasyMockSupport {
         (topicPartition1, buildFetchPartitionStatus(fetchOffset, LogOffsetMetadata.UnknownOffsetMetadata))
       ))
 
+    val pendingFetch : PendingFetch = mock(classOf[PendingFetch])
+    EasyMock.expect(pendingFetch.isComplete).andReturn(true)
+
     val callbackPromise: Promise[Seq[(TopicPartition, FetchPartitionData)]] = Promise[Seq[(TopicPartition, FetchPartitionData)]]()
-    val requestIdOpt = Some(UUID.randomUUID())
     val delayedFetch = new DelayedFetch(
-      delayMs = 500, fetchMetadata = fetchMetadata, replicaManager = replicaManager, replicaQuota, requestIdOpt,
+      delayMs = 500, fetchMetadata = fetchMetadata, replicaManager = replicaManager, replicaQuota, Some(pendingFetch),
       callbackPromise.success
     )
-
-    EasyMock.expect(replicaManager.tierFetchIsComplete(requestIdOpt.get)).andReturn(Some(true))
-    expectGetTierFetchResults(replicaManager, requestIdOpt, Seq((topicPartition1, None)))
+    expectGetTierFetchResults(pendingFetch, Seq((topicPartition1, None)))
     expectReadFromLocalLog(replicaManager, Seq(
       (topicPartition0, FetchDataInfo(LogOffsetMetadata(0,0), MemoryRecords.EMPTY, firstEntryIncomplete = false, None), None),
       (topicPartition1, TierFetchDataInfo(null, None), None)
@@ -102,17 +103,17 @@ class DelayedFetchTest extends EasyMockSupport {
         (topicPartition2, buildFetchPartitionStatus(fetchOffset, LogOffsetMetadata.UnknownOffsetMetadata)))
     )
 
+    val pendingFetch : PendingFetch = mock(classOf[PendingFetch])
+    EasyMock.expect(pendingFetch.isComplete).andReturn(true)
+
     val callbackPromise: Promise[Seq[(TopicPartition, FetchPartitionData)]] = Promise[Seq[(TopicPartition, FetchPartitionData)]]()
-    val requestIdOpt = Some(UUID.randomUUID())
     val delayedFetch = new DelayedFetch(
-      delayMs = 500, fetchMetadata = fetchMetadata, replicaManager = replicaManager, replicaQuota, requestIdOpt,
+      delayMs = 500, fetchMetadata = fetchMetadata, replicaManager = replicaManager, replicaQuota, Some(pendingFetch),
       callbackPromise.success
     )
 
-    EasyMock.expect(replicaManager.tierFetchIsComplete(requestIdOpt.get)).andReturn(Some(true))
     expectGetTierFetchResults(
-      replicaManager,
-      requestIdOpt,
+      pendingFetch,
       Seq(
         (topicPartition0, None),
         (topicPartition1, Some(new UnknownServerException)),
@@ -231,16 +232,15 @@ class DelayedFetchTest extends EasyMockSupport {
       lastStableOffset = None)
   }
 
-  private def expectGetTierFetchResults(replicaManagerMock: ReplicaManager,
-                                        requestIdOpt: Option[UUID],
+  private def expectGetTierFetchResults(pendingFetch: PendingFetch,
                                         topicPartitionException: Seq[(TopicPartition, Option[Throwable])]): Unit = {
     val results = topicPartitionException
       .map { case (topicPartition: TopicPartition, exceptionOpt: Option[Throwable]) =>
         (topicPartition, new TierFetchResult(MemoryRecords.EMPTY, exceptionOpt.orNull))
       }.toMap.asJava
     EasyMock
-      .expect(replicaManager.getTierFetchResults(requestIdOpt.get))
-      .andReturn(Some(results))
+      .expect(pendingFetch.finish())
+      .andReturn(results)
   }
 
   private def expectReadFromLocalLog(replicaManager: ReplicaManager,

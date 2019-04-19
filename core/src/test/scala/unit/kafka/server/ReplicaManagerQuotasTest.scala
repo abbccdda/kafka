@@ -183,7 +183,7 @@ class ReplicaManagerQuotasTest {
         replicaId = 1,
         fetchPartitionStatus = List((tp, fetchPartitionStatus)))
       new DelayedFetch(delayMs = 600, fetchMetadata = fetchMetadata, replicaManager = replicaManager,
-        quota = null, responseCallback = null, tierFetchIdOpt = None) {
+        quota = null, responseCallback = null, tierFetchOpt = None) {
         override def forceComplete(): Boolean = true
       }
     }

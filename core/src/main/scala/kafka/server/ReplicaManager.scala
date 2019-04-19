@@ -34,7 +34,8 @@ import kafka.server.checkpoints.OffsetCheckpointFile
 import kafka.tier.TierMetadataManager
 import kafka.utils._
 import kafka.zk.KafkaZkClient
-import kafka.tier.fetcher.{TierStateFetcher, TierFetchResult, TierFetcher}
+import kafka.tier.fetcher.{TierFetcher, TierFetchResult, TierStateFetcher}
+import kafka.tier.fetcher.PendingFetch
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.metrics.Metrics
@@ -985,15 +986,13 @@ class ReplicaManager(val config: KafkaConfig,
         // Must use the logReadResult list instead of the tierLogReadResultMap to ensure ordering is maintained.
         val tierFetchMetadataList = logReadResults.collect { case (_, tierLogReadResult: TierLogReadResult) => tierLogReadResult.info.fetchMetadata }
 
-        val requestId = UUID.randomUUID()
         val completionCallback: DelayedOperationKey => Unit = (delayedOperationKey: DelayedOperationKey) => this.tryCompleteDelayedFetch(delayedOperationKey)
         val tierFetcher = tierFetcherOpt.getOrElse(throw new IllegalStateException("Attempted to initiate fetch for tiered data but there is no TierFetcher present"))
-
-        val tierDelayedFetchKeys = tierFetcher.fetch(requestId, tierFetchMetadataList.asJava, completionCallback.asJava)
+        val pendingFetch = tierFetcher.fetch(tierFetchMetadataList.asJava, completionCallback.asJava)
 
         // Create TopicPartitionOperationKey's for all local partitions included in this fetch. Merge the resulting
         // set of keys with the list of TierFetchOperationKeys returned from initiating the tier fetch.
-        val delayedFetchKeys = localDelayedFetchKeys ++ tierDelayedFetchKeys.asScala
+        val delayedFetchKeys = localDelayedFetchKeys ++ pendingFetch.delayedOperationKeys.asScala
 
         // For tiered fetches, we set the lower bound on the fetch timeout to 15s, which is half of the default request
         // timeout. This forces all requests with max.wait < 15000 to wait for the tier fetch to complete, or the 15000
@@ -1001,7 +1000,7 @@ class ReplicaManager(val config: KafkaConfig,
         val boundedTimeout = Math.max(timeout, 15000)
         val tierAndLocalFetchMetadata = FetchMetadata(fetchMinBytes, fetchMaxBytes, hardMaxBytesLimit, fetchOnlyFromLeader,
           fetchIsolation, isFromFollower, replicaId, localFetchPartitionStatusList ++ tierFetchPartitionStatusList)
-        val delayedFetch = new DelayedFetch(boundedTimeout, tierAndLocalFetchMetadata, this, quota, Some(requestId), responseCallback)
+        val delayedFetch = new DelayedFetch(boundedTimeout, tierAndLocalFetchMetadata, this, quota, Some(pendingFetch), responseCallback)
         // Gather up all of the fetchInfos
         delayedFetchPurgatory.tryCompleteElseWatch(delayedFetch, delayedFetchKeys)
       }
@@ -1713,20 +1712,5 @@ class ReplicaManager(val config: KafkaConfig,
     }
 
     controller.electPreferredLeaders(partitions, electionCallback)
-  }
-
-  def tierFetchIsComplete(requestId: UUID): Option[Boolean] = {
-    tierFetcherOpt.flatMap(_.isComplete(requestId).asScala.map(_.booleanValue()))
-  }
-
-  /**
-    * Cancel and return all ongoing tier fetches.
-    */
-  def getTierFetchResults(requestId: UUID): Option[util.Map[TopicPartition, TierFetchResult]] = {
-    tierFetcherOpt.flatMap(_.getFetchResultsAndRemove(requestId).asScala)
-  }
-
-  def cancelTierFetch(requestId: UUID): Unit = {
-    tierFetcherOpt.foreach(_.cancel(requestId))
   }
 }

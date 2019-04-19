@@ -37,7 +37,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -49,7 +48,6 @@ import static org.junit.Assert.assertNotNull;
 
 public class TierFetcherTest {
     private MockTime mockTime = new MockTime();
-
     @Test
     public void tierFetcherExceptionCausesOnComplete() throws Exception {
         ByteBuffer offsetIndexBuffer = ByteBuffer.allocate(1);
@@ -63,26 +61,17 @@ public class TierFetcherTest {
         TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
         try {
             int maxBytes = 600;
-            UUID requestId = UUID.randomUUID();
-
             TierFetchMetadata fetchMetadata = new TierFetchMetadata(0, Option.apply(1000L),
                     maxBytes, 1000L, true, tierObjectMetadata, Option.empty(), 0, 1000);
 
             CompletableFuture<Boolean> f = new CompletableFuture<>();
-            DelayedOperation delayedFetch = new MockDelayedFetch(f, tierFetcher, requestId);
-
             tierObjectStore.failNextRequest();
-            assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.inFlightValueMetricName).metricValue(), 0.0);
             assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
-            tierFetcher.fetch(requestId,
-                    new ArrayList<>(Arrays.asList(fetchMetadata)),
-                    ignored -> delayedFetch.tryComplete());
-            assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.inFlightValueMetricName).metricValue(), 1.0);
-
+            PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Arrays.asList(fetchMetadata)),
+                    ignored -> f.complete(true));
+            DelayedOperation delayedFetch = new MockDelayedFetch(pending);
             assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
-            assertTrue(tierFetcher.bytesFetched(requestId).isPresent());
-            assertEquals(tierFetcher.getFetchResultsAndRemove(requestId).get().get(topicPartition).records.sizeInBytes(), 0);
-            assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.inFlightValueMetricName).metricValue(), 0.0);
+
             // We fetched no bytes because there was an exception.
             assertEquals((double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0, 0);
         } finally {
@@ -107,14 +96,10 @@ public class TierFetcherTest {
     }
 
     class MockDelayedFetch extends DelayedOperation {
-        private final CompletableFuture<Boolean> tryCompleteFut;
-        TierFetcher tierFetcher;
-        UUID requestId;
-        MockDelayedFetch(CompletableFuture<Boolean> tryCompleteFut, TierFetcher tierFetcher, UUID requestId) {
+        PendingFetch fetch;
+        MockDelayedFetch(PendingFetch fetch) {
             super(0, Option.empty());
-            this.tryCompleteFut = tryCompleteFut;
-            this.tierFetcher = tierFetcher;
-            this.requestId = requestId;
+            this.fetch = fetch;
         }
 
         @Override
@@ -124,12 +109,12 @@ public class TierFetcherTest {
 
         @Override
         public void onComplete() {
-            tryCompleteFut.complete(true);
+            fetch.finish();
         }
 
         @Override
         public boolean tryComplete() {
-            if (tierFetcher.isComplete(requestId).orElse(false)) {
+            if (fetch.isComplete()) {
                 return this.forceComplete();
             } else {
                 return false;
@@ -153,19 +138,19 @@ public class TierFetcherTest {
                     10000, 1000L, true, tierObjectMetadata,
                     Option.empty(), 0, 1000);
 
-            UUID requestId = UUID.randomUUID();
-
             CompletableFuture<Boolean> f = new CompletableFuture<>();
-            DelayedOperation delayedFetch = new MockDelayedFetch(f, tierFetcher, requestId);
-            tierFetcher.fetch(requestId,
-                    new ArrayList<>(Arrays.asList(fetchMetadata)),
-                    ignored -> delayedFetch.tryComplete());
-            f.get(2000, TimeUnit.MILLISECONDS);
-            assertTrue(tierFetcher.bytesFetched(requestId).isPresent());
+            assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
+            PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Arrays.asList(fetchMetadata)),
+                    ignored -> f.complete(true));
+            DelayedOperation delayedFetch = new MockDelayedFetch(pending);
+            assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
 
-            Map<TopicPartition, TierFetchResult> fetchResults =
-                    tierFetcher.getFetchResultsAndRemove(requestId).get();
+            Map<TopicPartition, TierFetchResult> fetchResults = pending.finish();
             assertNotNull("expected non-null fetch result", fetchResults);
+
+            assertTrue((Double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue() > 0.0);
+            assertTrue(delayedFetch.tryComplete());
+
             TierFetchResult fetchResult = fetchResults.get(topicPartition);
             Records records = fetchResult.records;
 
@@ -222,19 +207,20 @@ public class TierFetcherTest {
                 TierFetchMetadata fetchMetadata = new TierFetchMetadata(100,
                         Option.apply(1000L), 10000, 1000L, true,
                         tierObjectMetadata, Option.empty(), 0, 1000);
-                UUID requestId = UUID.randomUUID();
-
                 CompletableFuture<Boolean> f = new CompletableFuture<>();
-                DelayedOperation delayedFetch = new MockDelayedFetch(f, tierFetcher, requestId);
-                tierFetcher.fetch(requestId,
-                        new ArrayList<>(Arrays.asList(fetchMetadata)),
-                        ignored -> delayedFetch.tryComplete());
-                f.get(2000, TimeUnit.MILLISECONDS);
-                assertTrue(tierFetcher.bytesFetched(requestId).isPresent());
 
-                Map<TopicPartition, TierFetchResult> fetchResults =
-                        tierFetcher.getFetchResultsAndRemove(requestId).get();
+                assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
+                PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Arrays.asList(fetchMetadata)),
+                        ignored -> f.complete(true));
+                DelayedOperation delayedFetch = new MockDelayedFetch(pending);
+                assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
+
+                Map<TopicPartition, TierFetchResult> fetchResults = pending.finish();
                 assertNotNull("expected non-null fetch result", fetchResults);
+
+                assertTrue((Double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue() > 0.0);
+                assertTrue(delayedFetch.tryComplete());
+
                 TierFetchResult fetchResult = fetchResults.get(topicPartition);
                 Records records = fetchResult.records;
 
@@ -371,21 +357,20 @@ public class TierFetcherTest {
                         Option.apply(1000L), maxBytes, 1000L, true,
                         tierObjectMetadata, Option.empty(), 0, 1000);
 
-                UUID requestId = UUID.randomUUID();
-
                 CompletableFuture<Boolean> f = new CompletableFuture<>();
-                DelayedOperation delayedFetch = new MockDelayedFetch(f, tierFetcher, requestId);
-                assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
-                tierFetcher.fetch(requestId,
-                        new ArrayList<>(Arrays.asList(fetchMetadata)),
-                        ignored -> delayedFetch.tryComplete());
-                f.get(5000, TimeUnit.MILLISECONDS);
-                assertTrue(tierFetcher.bytesFetched(requestId).isPresent());
 
-                Map<TopicPartition, TierFetchResult> fetchResults =
-                        tierFetcher.getFetchResultsAndRemove(requestId).get();
-                assertTrue((double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue() > 0.0);
+                assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
+                PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Arrays.asList(fetchMetadata)),
+                        ignored -> f.complete(true));
+                DelayedOperation delayedFetch = new MockDelayedFetch(pending);
+                assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
+
+                Map<TopicPartition, TierFetchResult> fetchResults = pending.finish();
                 assertNotNull("expected non-null fetch result", fetchResults);
+
+                assertTrue((Double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue() > 0.0);
+                assertTrue(delayedFetch.tryComplete());
+
                 TierFetchResult fetchResult = fetchResults.get(topicPartition);
                 Records records = fetchResult.records;
                 assertTrue(fetchResult.records.sizeInBytes() <= maxBytes);

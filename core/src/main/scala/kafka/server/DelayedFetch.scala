@@ -22,7 +22,8 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 import kafka.metrics.KafkaMetricsGroup
-import kafka.tier.fetcher.{TierFetchResult}
+import kafka.tier.fetcher.PendingFetch
+import kafka.tier.fetcher.TierFetchResult
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
@@ -62,7 +63,7 @@ class DelayedFetch(delayMs: Long,
                    fetchMetadata: FetchMetadata,
                    replicaManager: ReplicaManager,
                    quota: ReplicaQuota,
-                   tierFetchIdOpt: Option[UUID],
+                   tierFetchOpt: Option[PendingFetch],
                    responseCallback: Seq[(TopicPartition, FetchPartitionData)] => Unit)
   extends DelayedOperation(delayMs) {
 
@@ -140,21 +141,21 @@ class DelayedFetch(delayMs: Long,
         }
     }
 
-    tierFetchIdOpt.map { tierFetchId =>
+    tierFetchOpt.map { tierFetch =>
       // Case G, our tiered storage fetch request is done.
-      if (replicaManager.tierFetchIsComplete(tierFetchId).get)
+      if (tierFetch.isComplete)
         return forceComplete()
     }
 
     // Case D (only if there is no ongoing tier fetch, otherwise we always wait for the tier fetch to complete.
-    if (accumulatedSize >= fetchMetadata.fetchMinBytes && tierFetchIdOpt.isEmpty)
+    if (accumulatedSize >= fetchMetadata.fetchMinBytes && tierFetchOpt.isEmpty)
       forceComplete()
     else
       false
   }
 
   override def onExpiration() {
-    tierFetchIdOpt.foreach(reqId => replicaManager.cancelTierFetch(reqId))
+    tierFetchOpt.foreach(_.cancel())
     if (fetchMetadata.isFromFollower)
       DelayedFetchMetrics.followerExpiredRequestMeter.mark()
     else
@@ -181,12 +182,12 @@ class DelayedFetch(delayMs: Long,
    * Upon completion, read whatever data is available and pass to the complete callback
    */
   override def onComplete() {
-    val tierFetchCompleted = tierFetchIdOpt.flatMap(reqId => replicaManager.tierFetchIsComplete(reqId)).getOrElse(false)
+    val tierFetchCompleted = tierFetchOpt.exists(_.isComplete)
     // If the tierFetch is not completed, then it's safe to assume that this request timed out. It should have been
     // canceled in `onExpiration()`. In order to prevent blocking the expiration thread, we will only retrieve
     // the results if doing so will not block.
     val tierFetcherReadResults: Option[util.Map[TopicPartition, TierFetchResult]] = if (tierFetchCompleted) {
-      tierFetchIdOpt.flatMap(reqId => replicaManager.getTierFetchResults(reqId))
+      Some(tierFetchOpt.get.finish())
     } else None
 
     val logReadResults = collectLogReadResults()
