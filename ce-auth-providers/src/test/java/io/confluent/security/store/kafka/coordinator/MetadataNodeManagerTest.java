@@ -4,6 +4,7 @@ package io.confluent.security.store.kafka.coordinator;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -101,6 +102,10 @@ public class MetadataNodeManagerTest {
     nodeManager.onAssigned(assignment((short) 0, writerId), 2);
     assertEquals(activeUrls, nodeManager.activeNodeUrls("http"));
     assertEquals(writerUrl, nodeManager.masterWriterUrl("http"));
+
+    nodeManager.activeNodeUrls("somestrangeprotocol").forEach(url ->
+        assertNotNull("No active node URL should not be null, even for unrecognized protocols", url)
+    );
   }
 
   @Test

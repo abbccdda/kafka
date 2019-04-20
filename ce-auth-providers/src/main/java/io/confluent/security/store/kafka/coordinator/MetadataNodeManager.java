@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -153,7 +154,10 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
     if (!isAlive.get())
       return Collections.emptySet();
     else
-      return activeNodes.stream().map(n -> n.url(protocol)).collect(Collectors.toSet());
+      return activeNodes.stream()
+          .map(n -> n.url(protocol))
+          .filter(Objects::nonNull)
+          .collect(Collectors.toSet());
   }
 
   @Override
