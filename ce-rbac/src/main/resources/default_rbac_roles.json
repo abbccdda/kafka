@@ -43,7 +43,7 @@
           },
           {
             "resourceType" : "Subject",
-            "operations" : ["Read", "write", "Delete", "ReadCompatibility", "WriteCompatibility"]
+            "operations" : ["Read", "Write", "Delete", "ReadCompatibility", "WriteCompatibility"]
           },
           {
             "resourceType" : "Connector",
@@ -102,7 +102,7 @@
           },
           {
             "resourceType" : "Subject",
-            "operations" : ["Read", "write", "Delete", "ReadCompatibility", "WriteCompatibility"]
+            "operations" : ["Read", "Write", "Delete", "ReadCompatibility", "WriteCompatibility"]
           },
           {
             "resourceType" : "Connector",
