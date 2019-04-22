@@ -39,6 +39,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Iterator;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
@@ -51,7 +54,6 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -75,7 +77,6 @@ public class TierTopicManager implements Runnable {
     private final Supplier<String> bootstrapServersSupplier;
     private final TierTopicListeners resultListeners = new TierTopicListeners();
     private final TierTopicManagerCommitter committer;
-    private final ConcurrentLinkedQueue<MigrationEntry> migrations = new ConcurrentLinkedQueue<>();
     private final TierTopicConsumerBuilder consumerBuilder;
     private final TierTopicProducerBuilder producerBuilder;
     private final AtomicLong heartbeat = new AtomicLong(System.currentTimeMillis());
@@ -86,15 +87,17 @@ public class TierTopicManager implements Runnable {
     private Consumer<byte[], byte[]> catchUpConsumer;
     private Producer<byte[], byte[]> producer;
     private volatile boolean ready = false;
+    private volatile boolean partitionsImmigrated = false;
+    private volatile boolean partitionsEmigrated = false;
     private KafkaThread committerThread;
     private KafkaThread managerThread;
 
     /**
      * Instantiate TierTopicManager. Once created, startup() must be called in order to start normal operation.
      *
-     * @param config TierTopicManagerConfig containing tiering configuration.
-     * @param consumerBuilder builder to create consumer instances.
-     * @param producerBuilder producer to create producer instances.
+     * @param config              TierTopicManagerConfig containing tiering configuration.
+     * @param consumerBuilder     builder to create consumer instances.
+     * @param producerBuilder     producer to create producer instances.
      * @param tierMetadataManager Tier Metadata Manager instance
      * @throws IOException on logdir write failures
      */
@@ -136,8 +139,8 @@ public class TierTopicManager implements Runnable {
      * Primary public constructor for TierTopicManager.
      *
      * @param tierMetadataManager Tier Metadata Manager instance
-     * @param config TierTopicManagerConfig containing tiering configuration.
-     * @param metrics kafka metrics to track TierTopicManager metrics
+     * @param config              TierTopicManagerConfig containing tiering configuration.
+     * @param metrics             kafka metrics to track TierTopicManager metrics
      */
     public TierTopicManager(TierMetadataManager tierMetadataManager,
                             TierTopicManagerConfig config,
@@ -236,9 +239,8 @@ public class TierTopicManager implements Runnable {
      * @return TierPartitionState for this partition.
      */
     public TierPartitionState partitionState(TopicPartition topicPartition) {
-        TierPartitionState tierPartitionState = tierMetadataManager.tierPartitionState(topicPartition)
+        return tierMetadataManager.tierPartitionState(topicPartition)
                 .orElseThrow(() -> new IllegalStateException("Tier partition state for " + topicPartition + " not found"));
-        return tierPartitionState;
     }
 
     /**
@@ -288,6 +290,7 @@ public class TierTopicManager implements Runnable {
                                 producerPartitions, topicName, config.numPartitions);
                         Exit.exit(1);
                     }
+                    maybeStartCatchUpConsumer(new HashSet<>(Arrays.asList(TierPartitionStatus.INIT, TierPartitionStatus.CATCHUP)));
                 } else {
                     log.warn("Failed to ensure tier topic has been created. Retrying in {}",
                             TOPIC_CREATION_BACKOFF_MS);
@@ -336,33 +339,15 @@ public class TierTopicManager implements Runnable {
     }
 
     /**
-     * Adds partitions to the migration queue to be immigrated.
-     * @param partitions
+     * Work cycle
+     * public for testing purposes.
      */
-    private void immigratePartitions(List<TopicPartition> partitions) {
-        for (TopicPartition tp : partitions)
-            migrations.add(new MigrationEntry(tp, MigrationEntry.Type.IMMIGRATION));
-    }
-
-    /**
-     * Adds partitions to the migration queue to be emigrated.
-     * @param partitions
-     */
-    private void emigratePartitions(List<TopicPartition> partitions) {
-        for (TopicPartition tp : partitions)
-            migrations.add(new MigrationEntry(tp, MigrationEntry.Type.EMIGRATION));
-    }
-
-    /**
-     * work cycle
-     */
-    // public for testing
     public boolean doWork() throws TierMetadataDeserializationException, IOException {
-        processMigrations();
         checkCatchingUpComplete();
-        final boolean primaryProcessed = pollConsumer(primaryConsumer, TierPartitionStatus.ONLINE);
+        processMigrations();
+        final boolean primaryProcessed = pollConsumer(primaryConsumer, TierPartitionStatus.ONLINE, true);
         final boolean catchUpProcessed = catchUpConsumer != null
-                && pollConsumer(catchUpConsumer, TierPartitionStatus.CATCHUP);
+                && pollConsumer(catchUpConsumer, TierPartitionStatus.CATCHUP, false);
 
         heartbeat.set(System.currentTimeMillis());
         return primaryProcessed || catchUpProcessed;
@@ -371,10 +356,11 @@ public class TierTopicManager implements Runnable {
     /**
      * Ensure tier topic has been created and setup the backing consumer
      * and producer before signalling ready.
+     * @param boostrapServers the brokers to bootstrap the tier topic consumer and producer
      */
     // pubic for testing
     public void becomeReady(String boostrapServers) {
-        primaryConsumer = consumerBuilder.setupConsumer(boostrapServers, committer, topicName, "primary");
+        primaryConsumer = consumerBuilder.setupConsumer(boostrapServers, topicName, "primary");
         primaryConsumer.assign(partitions());
         for (Map.Entry<Integer, Long> entry : committer.positions().entrySet()) {
             primaryConsumer.seek(new TopicPartition(topicName, entry.getKey()), entry.getValue());
@@ -385,6 +371,107 @@ public class TierTopicManager implements Runnable {
         ready = true;
     }
 
+    /**
+     * Sets a flag to trigger immigration of the supplied partitions in
+     * the main worker thread.
+     *
+     * package-private for testing purposes.
+     * @param partitions the TopicPartitions to immigrate
+     */
+    void immigratePartitions(List<TopicPartition> partitions) {
+        if (!partitions.isEmpty())
+            partitionsImmigrated = true;
+    }
+
+    /**
+     * Sets a flag to trigger emigrations of the supplied partitions in
+     * the main worker thread.
+     *
+     * package-private for testing purposes.
+     * @param partitions the TopicPartitions to emigrate
+     */
+    void emigratePartitions(List<TopicPartition> partitions) {
+        for (TopicPartition tp : partitions) {
+            resultListeners.remove(tp);
+            partitionsEmigrated = true;
+        }
+    }
+
+    /**
+     * Process any migrations if any have occurred.
+     * If the catch up consumer has been started, and partitions have been emigrated,
+     * check whether the catch up consumer is still required, and if not, stop it.
+     *
+     * If the catch up consumer is stopped, and partitions have been immigrated,
+     * check whether any partitions are in the INIT state, and if so transition them to CATCHUP
+     * and start the catch up consumer.
+     *
+     * package-private for testing purposes
+     */
+    void processMigrations() {
+        if (catchingUp()) {
+            if (partitionsEmigrated) {
+                partitionsEmigrated = false;
+                reconcileCatchUpConsumer();
+            }
+        } else {
+            if (partitionsImmigrated) {
+                partitionsImmigrated = false;
+                maybeStartCatchUpConsumer(new HashSet<>(Collections.singletonList(TierPartitionStatus.INIT)));
+            }
+        }
+    }
+
+    private List<TierPartitionState> collectPartitionsWithStatus(Set<TierPartitionStatus> transitionStatuses) {
+        ArrayList<TierPartitionState> tierPartitionStates = new ArrayList<>();
+        tierMetadataManager.tierEnabledPartitionStateIterator().forEachRemaining(tps -> {
+            if (transitionStatuses.contains(tps.status()))
+                tierPartitionStates.add(tps);
+        });
+        return tierPartitionStates;
+    }
+
+    /**
+     * Reconciles the catch up consumer, with the current TierPartitionStates
+     * that are being caught up. If no tier topic partitions need to be consumed, the
+     * catch up consumer will be shutdown. If tier topic partitions no longer need to be read
+     * the catch up consumer's assignment will be updated.
+     */
+    private void reconcileCatchUpConsumer() {
+        Set<TierPartitionStatus> catchUpStatuses
+                = new HashSet<>(Collections.singletonList(TierPartitionStatus.CATCHUP));
+        List<TierPartitionState> states = collectPartitionsWithStatus(catchUpStatuses);
+        if (states.isEmpty()) {
+            stopCatchUpConsumer();
+        } else {
+            List<TopicPartition> catchUpPartitions = states
+                    .stream()
+                    .map(TierPartitionState::topicPartition)
+                    .collect(Collectors.toList());
+            log.info("Assigning tier topic partitions to catch up consumer {}", catchUpPartitions);
+            catchUpConsumer.assign(requiredPartitions(catchUpPartitions));
+        }
+    }
+
+    private void maybeStartCatchUpConsumer(Set<TierPartitionStatus> transitionStatuses) {
+        if (!catchingUp()) {
+            List<TierPartitionState> states = collectPartitionsWithStatus(transitionStatuses);
+            if (!states.isEmpty()) {
+                for (TierPartitionState state : states)
+                    state.beginCatchup();
+
+                final List<TopicPartition> catchUpPartitions =
+                        states.stream().map(TierPartitionState::topicPartition).collect(Collectors.toList());
+                catchUpConsumer = consumerBuilder.setupConsumer(bootstrapServersSupplier.get(), topicName, "catchup");
+                catchUpConsumer.assign(requiredPartitions(catchUpPartitions));
+
+                // TODO: upon adding snapshot support, we should seek to the earliest point
+                // required to restore all required snapshots
+                log.info("Seeking consumer to beginning.");
+                catchUpConsumer.seekToBeginning(catchUpConsumer.assignment());
+            }
+        }
+    }
 
     TierTopicManagerCommitter committer() {
         return committer;
@@ -440,92 +527,25 @@ public class TierTopicManager implements Runnable {
         }
     }
 
-    /**
-     * When all tier partition states have caught up, switch consumers.
-     */
-    private void completeCatchUp() {
-        log.info("Completed adding partitions. Setting states online. Switching catchup consumer to primary consumer.");
-        tierMetadataManager.tierEnabledPartitionStateIterator().forEachRemaining(tierPartitionState -> {
-            if (tierPartitionState.status() == TierPartitionStatus.CATCHUP)
-                tierPartitionState.onCatchUpComplete();
-        });
+    private void stopCatchUpConsumer() {
         catchUpConsumer.close();
         catchUpConsumer = null;
     }
 
     /**
-     * Drains the migration queue of entries if a catch up consumer is not already materializing.
-     * For immigrating partitions, sets TierPartition state to CATCHUP
-     * and instantiates the catch up consumer, assigning it the Tier Topic partitions
-     * containing data for the immigrating partitions.
+     * When all tier partition states have caught up, transition their statuses,
+     * shutdown catch up consumer, and check whether any TierPartitionStates have been added
+     * that require catch up since the last pass started.
      */
-    private void processMigrations() {
-        if (!catchingUp() && !migrations.isEmpty()) {
-            HashSet<TopicPartition> migrationCandidates = pollMigrations();
-            HashSet<TopicPartition> transitioned = new HashSet<>();
-            if (!migrationCandidates.isEmpty()) {
-                for (TopicPartition tp : migrationCandidates) {
-                    log.debug("Adding {} to catchingUp partition states.", tp);
-                    Optional<TierMetadataManager.PartitionMetadata> partitionMetadataOpt = tierMetadataManager.tierPartitionMetadata(tp);
-                    if (!partitionMetadataOpt.isPresent())
-                        continue;
-                    TierMetadataManager.PartitionMetadata partitionMetadata = partitionMetadataOpt.get();
-                    TierPartitionState tierPartitionState = partitionMetadata.tierPartitionState();
-
-                    switch (tierPartitionState.status()) {
-                        case READ_ONLY:
-                            if (partitionMetadata.tieringEnabled())
-                                tierPartitionState.beginCatchup();
-                            transitioned.add(tp);
-                            break;
-
-                        case CLOSED:
-                            throw new IllegalStateException("Partition " + tp + " in invalid state during migration");
-
-                        default:
-                            log.debug("Ignoring migration of {} in state {}", tp, tierPartitionState.status());
-                    }
-                }
-
-                if (!transitioned.isEmpty()) {
-                    catchUpConsumer = consumerBuilder.setupConsumer(bootstrapServersSupplier.get(),
-                            committer, topicName,
-                            "catchup");
-                    catchUpConsumer.assign(requiredPartitions(transitioned));
-
-                    log.info("Seeking consumer to beginning.");
-
-                    // TODO: upon adding snapshot support, we should seek to the earliest point
-                    // required to restore all required snapshots
-                    catchUpConsumer.seekToBeginning(catchUpConsumer.assignment());
-                }
-            }
+    private void completeCatchUp() {
+        log.info("Completed adding partitions. Setting states for catch up topic partitions to ONLINE.");
+        stopCatchUpConsumer();
+        Iterator<TierPartitionState> iterator = tierMetadataManager.tierEnabledPartitionStateIterator();
+        while (iterator.hasNext()) {
+            TierPartitionState state = iterator.next();
+            if (state.status() == TierPartitionStatus.CATCHUP)
+                state.onCatchUpComplete();
         }
-    }
-
-    /**
-     * polls the migration queue, removing emigrated partitions
-     * and returning a set of the added partitions.
-     *
-     * @return HashSet containing immigrated partitions.
-     */
-    private HashSet<TopicPartition> pollMigrations() {
-        HashSet<TopicPartition> added = new HashSet<>();
-        while (!migrations.isEmpty()) {
-            MigrationEntry entry = migrations.poll();
-            switch (entry.type) {
-                case IMMIGRATION:
-                    added.add(entry.topicPartition);
-                    break;
-                case EMIGRATION:
-                    // there is no need to catch up to a partition
-                    // that has been emigrated prior to being processed
-                    added.remove(entry.topicPartition);
-                    resultListeners.remove(entry.topicPartition);
-                    break;
-            }
-        }
-        return added;
     }
 
 
@@ -534,18 +554,23 @@ public class TierTopicManager implements Runnable {
      *
      * @param consumer      the consumer to poll
      * @param requiredState The TierPartition must be in this state or else the metadata will be ignored.
-     * @return boolean for whether any messages were processed
+     * @param commitPositions boolean denoting whether to send the consumer positions to the
+     *                        committer. Only the primary consumer should commit offsets.
+     * @return boolean denoting whether messages were processed
      * @throws IOException if error occurred writing to pier partition state/logdir.
      */
     private boolean pollConsumer(Consumer<byte[], byte[]> consumer,
-                                 TierPartitionStatus requiredState) throws IOException {
+                                 TierPartitionStatus requiredState,
+                                 boolean commitPositions) throws IOException {
         boolean processedMessages = false;
         for (ConsumerRecord<byte[], byte[]> record : consumer.poll(config.pollDuration)) {
             final Optional<AbstractTierMetadata> entry =
                     AbstractTierMetadata.deserialize(record.key(), record.value());
             if (entry.isPresent()) {
                 processEntry(entry.get(), requiredState);
-                committer.updatePosition(record.partition(), record.offset() + 1);
+                if (commitPositions)
+                    committer.updatePosition(record.partition(), record.offset() + 1);
+
                 processedMessages = true;
             }
         }
@@ -608,23 +633,6 @@ public class TierTopicManager implements Runnable {
      */
     private static boolean retriable(Exception e) {
         return e instanceof RetriableException;
-    }
-
-    private static class MigrationEntry {
-        public enum Type {
-            // supplied tier partition has been added to broker
-            IMMIGRATION,
-            // supplied tier partition has been removed from the broker
-            EMIGRATION
-        }
-
-        public final TopicPartition topicPartition;
-        public final Type type;
-
-        MigrationEntry(TopicPartition topicPartition, Type type) {
-            this.topicPartition = topicPartition;
-            this.type = type;
-        }
     }
 
     /**

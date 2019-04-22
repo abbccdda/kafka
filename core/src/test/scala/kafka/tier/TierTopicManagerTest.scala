@@ -8,9 +8,9 @@ import java.io.File
 import java.util
 import java.util.Properties
 import java.util.function.Supplier
+import java.util.Collections
 
 import kafka.log.LogConfig
-import kafka.server.KafkaConfig
 import kafka.server.LogDirFailureChannel
 import kafka.tier.client.{MockConsumerBuilder, MockProducerBuilder}
 import kafka.tier.domain.TierObjectMetadata
@@ -20,6 +20,7 @@ import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.config.ConfluentTopicConfig
 import org.junit.Assert._
 import org.junit.Test
 
@@ -48,6 +49,7 @@ class TierTopicManagerTest {
         clusterId,
         5L,
         30000,
+        500,
         logDirs)
 
       val producerBuilder = new MockProducerBuilder()
@@ -85,6 +87,7 @@ class TierTopicManagerTest {
           State.AVAILABLE))
       consumerBuilder.moveRecordsFromProducer()
       tierTopicManager.doWork()
+      tierTopicManager.committer().flush()
       val tierPartitionState = tierTopicManager.partitionState(archivedPartition1)
       assertEquals(1000L, tierPartitionState.endOffset().get())
 
@@ -102,6 +105,7 @@ class TierTopicManagerTest {
           State.AVAILABLE))
       consumerBuilder.moveRecordsFromProducer()
       tierTopicManager.doWork()
+      tierTopicManager.committer().flush()
       // end offset shouldn't have updated - message with identical ranges with same start offset and epoch
       // should be filtered
       assertEquals(1000L, tierPartitionState.totalSize)
@@ -120,6 +124,7 @@ class TierTopicManagerTest {
           State.AVAILABLE))
       consumerBuilder.moveRecordsFromProducer()
       tierTopicManager.doWork()
+      tierTopicManager.committer().flush()
 
       // end offset shouldn't have updated - message with overlapping ranges with same epoch
       // should be filtered
@@ -168,9 +173,65 @@ class TierTopicManagerTest {
     }
   }
 
+  @Test
+  def testCatchUpConsumer(): Unit = {
+    try {
+      val tierTopicManagerConfig = new TierTopicManagerConfig(
+        "",
+        "",
+        tierTopicNumPartitions,
+        1.toShort,
+        3,
+        clusterId,
+        5L,
+        30000,
+        500,
+        logDirs)
+
+      val producerBuilder = new MockProducerBuilder()
+      val consumerBuilder = new MockConsumerBuilder(tierTopicManagerConfig,
+        producerBuilder.producer())
+
+      val bootstrapSupplier = new Supplier[String] {
+        override def get: String = { "" }
+      }
+
+      val tierTopicManager = new TierTopicManager(
+        tierTopicManagerConfig,
+        consumerBuilder,
+        producerBuilder,
+        bootstrapSupplier,
+        tierMetadataManager)
+
+      tierTopicManager.becomeReady(bootstrapSupplier.get())
+      val archivedPartition1 = new TopicPartition("archivedTopic", 0)
+      addReplica(archivedPartition1)
+      val archivedPartition2 = new TopicPartition("archivedTopic", 1)
+      addReplica(archivedPartition2)
+
+      tierTopicManager.immigratePartitions(Collections.singletonList(archivedPartition1))
+      tierTopicManager.immigratePartitions(Collections.singletonList(archivedPartition2))
+      tierTopicManager.processMigrations()
+      assertTrue(tierTopicManager.catchingUp())
+      tierMetadataManager.delete(archivedPartition2)
+      tierTopicManager.emigratePartitions(Collections.singletonList(archivedPartition2))
+      tierTopicManager.processMigrations()
+      assertTrue(tierTopicManager.catchingUp())
+      tierMetadataManager.delete(archivedPartition1)
+      tierTopicManager.emigratePartitions(Collections.singletonList(archivedPartition1))
+      tierTopicManager.processMigrations()
+      assertFalse(tierTopicManager.catchingUp())
+    } finally {
+      Option(new File(logDir).listFiles)
+        .map(_.toList)
+        .getOrElse(Nil)
+        .foreach(_.delete())
+    }
+  }
+
   private def addReplica(topicPartition: TopicPartition): Unit = {
     val properties = new Properties()
-    properties.put(KafkaConfig.TierEnableProp, "true")
+    properties.put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true")
     tierMetadataManager.initState(topicPartition, new File(logDir), new LogConfig(properties))
   }
 
@@ -185,5 +246,6 @@ class TierTopicManagerTest {
     val result = tierTopicManager.becomeArchiver(topicPartition, epoch)
     consumerBuilder.moveRecordsFromProducer()
     while (!tierTopicManager.doWork()) assertEquals(expected, result.get())
+    tierTopicManager.committer().flush()
   }
 }

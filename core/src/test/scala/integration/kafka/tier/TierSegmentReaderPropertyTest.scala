@@ -259,7 +259,7 @@ class TierSegmentReaderPropertyTest {
       val resultMemoryRecords = TierSegmentReader.loadRecords(cancellationContext, inputStream, bytesAvailable, Long.MaxValue, 0)
       val resultRecords = SegmentViewDefinition.flattenMemoryRecords(List(resultMemoryRecords))
 
-      segmentViewDefinition.checkRecordBatchCountAndSize(resultRecords)&&
+      segmentViewDefinition.checkRecordBatchCountAndSize(resultRecords) &&
         resultRecords.forall(r => r.isValid) &&
         segmentViewDefinition.checkRecordBatchesMatch(resultRecords)
     }}, testParams)

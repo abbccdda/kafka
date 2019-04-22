@@ -23,8 +23,10 @@ public class DumpTierPartitionState {
         final File dir = new File(args[0]);
         final TopicPartition topicPartition = Log.parseTopicPartitionName(dir);
         System.out.println("Reading tier partition state for: " + topicPartition);
-        try (FileTierPartitionState state = new FileTierPartitionState(dir, topicPartition, true)) {
-            FileTierPartitionIterator iterator = state.iterator(0);
+        try (FileTierPartitionState state = new FileTierPartitionState(dir, topicPartition,
+                true,
+                true)) {
+            FileTierPartitionIterator iterator = state.iterator();
             while (iterator.hasNext()) {
                 System.out.println(iterator.next());
             }

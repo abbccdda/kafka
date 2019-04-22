@@ -99,7 +99,6 @@ public class PendingFetch implements Runnable {
             } else {
                 completeFetch(MemoryRecords.EMPTY);
             }
-
         } catch (CancellationException e) {
             completeFetch(MemoryRecords.EMPTY);
         } catch (Exception e) {

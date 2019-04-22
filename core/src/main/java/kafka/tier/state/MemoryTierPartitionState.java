@@ -11,7 +11,6 @@ import kafka.tier.domain.TierTopicInitLeader;
 import org.apache.kafka.common.TopicPartition;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Optional;
@@ -34,10 +33,12 @@ public class MemoryTierPartitionState implements TierPartitionState {
 
     public MemoryTierPartitionState(File dir, TopicPartition topicPartition, boolean tieringEnabled) {
         this.dir = dir;
-        this.status = TierPartitionStatus.CLOSED;
         this.topicPartition = topicPartition;
         this.tieringEnabled = tieringEnabled;
-        maybeOpen();
+        if (tieringEnabled)
+            status = TierPartitionStatus.INIT;
+        else
+            status = TierPartitionStatus.CLOSED;
     }
 
     @Override
@@ -62,6 +63,11 @@ public class MemoryTierPartitionState implements TierPartitionState {
     @Override
     public Optional<Long> endOffset() {
         return lastSegmentMetadata().map(TierObjectMetadata::endOffset);
+    }
+
+    @Override
+    public Optional<Long> uncommittedEndOffset() {
+        return endOffset();
     }
 
     @Override
@@ -107,9 +113,9 @@ public class MemoryTierPartitionState implements TierPartitionState {
     }
 
     @Override
-    public void onTieringEnable() throws IOException {
+    public void onTieringEnable() {
         tieringEnabled = true;
-        maybeOpen();
+        status = TierPartitionStatus.INIT;
     }
 
     @Override
@@ -142,7 +148,7 @@ public class MemoryTierPartitionState implements TierPartitionState {
 
     @Override
     public NavigableSet<Long> segmentOffsets(long from, long to) {
-        return Log$.MODULE$.logSegments(segmentMap, from, to, segmentMapLock).keySet();
+        return Log$.MODULE$.logSegments(segmentMap, from, to).keySet();
     }
 
     @Override
@@ -161,7 +167,6 @@ public class MemoryTierPartitionState implements TierPartitionState {
     public void beginCatchup() {
         if (!tieringEnabled)
             throw new IllegalStateException("Illegal state for tier partition state");
-        maybeOpen();
         status = TierPartitionStatus.CATCHUP;
     }
 
@@ -169,7 +174,6 @@ public class MemoryTierPartitionState implements TierPartitionState {
     public void onCatchUpComplete() {
         if (!tieringEnabled)
             throw new IllegalStateException("Illegal state for tier partition state");
-        maybeOpen();
         status = TierPartitionStatus.ONLINE;
     }
 
@@ -187,11 +191,6 @@ public class MemoryTierPartitionState implements TierPartitionState {
 
     public void delete() {
         close();
-    }
-
-    private void maybeOpen() {
-        if (tieringEnabled)
-            status = TierPartitionStatus.READ_ONLY;
     }
 
     private AppendResult append(TierObjectMetadata objectMetadata) {

@@ -4,7 +4,6 @@
 
 package kafka.tier.client;
 
-import kafka.tier.TierTopicManagerCommitter;
 import kafka.tier.TierTopicManagerConfig;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -38,7 +37,6 @@ public class MockConsumerBuilder implements TierTopicConsumerBuilder {
      * @return a KafkaConsumer
      */
     public Consumer<byte[], byte[]> setupConsumer(String bootstrapServers,
-                                                  TierTopicManagerCommitter committer,
                                                   String topicName,
                                                   String clientIdSuffix) {
         MockConsumer<byte[], byte[]> consumer = new MockConsumer<>(OffsetResetStrategy.EARLIEST);

@@ -16,6 +16,7 @@ public class TierTopicManagerConfig {
     public final int brokerId;
     public final String clusterId;
     public final Duration pollDuration;
+    public final Integer commitIntervalMs;
     public final Integer requestTimeoutMs;
     public final List<String> logDirs;
 
@@ -27,6 +28,7 @@ public class TierTopicManagerConfig {
                                   String clusterId,
                                   Long pollDurationMs,
                                   Integer requestTimeoutMs,
+                                  Integer commitIntervalMs,
                                   List<String> logDirs) {
         this.bootstrapServers = bootstrapServers;
         this.tierNamespace = tierNamespace;
@@ -36,6 +38,7 @@ public class TierTopicManagerConfig {
         this.clusterId = clusterId;
         this.pollDuration = Duration.ofMillis(pollDurationMs);
         this.requestTimeoutMs = requestTimeoutMs;
+        this.commitIntervalMs = commitIntervalMs;
         this.logDirs = logDirs;
     }
 
@@ -49,6 +52,7 @@ public class TierTopicManagerConfig {
                 clusterId,
                 config.tierMetadataMaxPollMs(),
                 config.tierMetadataRequestTimeoutMs(),
+                config.tierPartitionStateCommitIntervalMs(),
                 scala.collection.JavaConversions.seqAsJavaList(config.logDirs()));
     }
 }

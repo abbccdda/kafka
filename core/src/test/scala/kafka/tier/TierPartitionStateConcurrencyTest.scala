@@ -52,6 +52,7 @@ class StateScan(state: FileTierPartitionState,
     var prevSize = 0L
     while (!shutdown.get()) {
       try {
+        state.flush()
         val newSize = state.totalSize
         accum += newSize
         if (prevSize > newSize) {
@@ -78,7 +79,7 @@ class TierPartitionStateConcurrencyTest {
     val nThreads = 8
     val epoch = 0
 
-    val state = new FileTierPartitionState(baseDir, tp, true)
+    val state = new FileTierPartitionState(baseDir, tp, true, false)
     state.beginCatchup()
     state.onCatchUpComplete()
     val startTime = System.currentTimeMillis()
@@ -116,6 +117,7 @@ class TierPartitionStateConcurrencyTest {
             true,
             false,
             State.AVAILABLE))
+        state.flush()
         latestStartOffset.set(i * 2)
         size += i
         i += 1

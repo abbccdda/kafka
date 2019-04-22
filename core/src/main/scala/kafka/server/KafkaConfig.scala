@@ -201,6 +201,7 @@ object Defaults {
   val TierS3SignerOverride = null
   val TierFetcherNumThreads = 2:Integer
   val TierObjectFetcherThreads = 1:Integer
+  val TierPartitionStateCommitInterval = 15000:Integer
 
   /** Tiered storage retention configs **/
   val TierLocalHotsetBytes = -1L
@@ -450,6 +451,7 @@ object KafkaConfig {
   val TierMetadataNumPartitionsProp = ConfluentPrefix + "tier.metadata.num.partitions"
   val TierMetadataReplicationFactorProp = ConfluentPrefix + "tier.metadata.replication.factor"
   val TierObjectFetcherThreadsProp = ConfluentPrefix + "tier.object.fetcher.num.threads"
+  val TierPartitionStateCommitIntervalProp = ConfluentPrefix + "tier.partition.state.commit.interval.ms"
 
   /** Tiered storage S3 configs **/
   val TierS3BucketProp = ConfluentPrefix + "tier.s3.bucket"
@@ -822,6 +824,7 @@ object KafkaConfig {
   val TierS3SignerOverrideDoc = "Set the name of the signature algorithm used for signing S3 requests."
   val TierFetcherNumThreadsDoc = "The size of the threadpool used by the TierFetcher. Roughly corresponds to # of concurrent fetch requests."
   val TierObjectFetcherThreadsDoc  = "The size of the threadpool use by the tier object fetcher. Currently this option is the concurrency factor for tier state fetches made by the replica fetcher threads."
+  val TierPartitionStateCommitIntervalDoc = "The frequency in milliseconds that the TierTopicManager commits updates to TierPartitionState files. Decreasing this interval will reduce batching of updates. Increasing this interval will increase the time taken for tiered log segments from being deleted from local disk. "
 
   /** Tiered storage retention configs **/
   val TierLocalHotsetBytesDoc = ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_DOC
@@ -1117,6 +1120,7 @@ object KafkaConfig {
       .defineInternal(TierS3SignerOverrideProp, STRING, Defaults.TierS3SignerOverride, LOW, TierS3SignerOverrideDoc)
       .defineInternal(TierFetcherNumThreadsProp, INT, Defaults.TierFetcherNumThreads, atLeast(1), MEDIUM, TierFetcherNumThreadsDoc)
       .defineInternal(TierObjectFetcherThreadsProp, INT, Defaults.TierObjectFetcherThreads, atLeast(1), MEDIUM, TierObjectFetcherThreadsDoc)
+      .defineInternal(TierPartitionStateCommitIntervalProp, INT, Defaults.TierPartitionStateCommitInterval, atLeast(5000), MEDIUM, TierPartitionStateCommitIntervalDoc)
       .defineInternal(TierLocalHotsetBytesProp, LONG, Defaults.TierLocalHotsetBytes, HIGH, TierLocalHotsetBytesDoc)
       .defineInternal(TierLocalHotsetMsProp, LONG, Defaults.TierLocalHotsetMs, HIGH, TierLocalHotsetMsDoc)
       .defineInternal(TierArchiverNumThreadsProp, INT, Defaults.TierArchiverNumThreads, atLeast(1), MEDIUM, TierArchiverNumThreadsDoc)
@@ -1451,6 +1455,7 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierS3SignerOverride = getString(KafkaConfig.TierS3SignerOverrideProp)
   val tierFetcherNumThreads = getInt(KafkaConfig.TierFetcherNumThreadsProp)
   val tierObjectFetcherThreads = getInt(KafkaConfig.TierObjectFetcherThreadsProp)
+  val tierPartitionStateCommitIntervalMs = getInt(KafkaConfig.TierPartitionStateCommitIntervalProp)
   def tierLocalHotsetBytes = getLong(KafkaConfig.TierLocalHotsetBytesProp)
   def tierLocalHotsetMs = getLong(KafkaConfig.TierLocalHotsetMsProp)
   val tierArchiverNumThreads = getInt(KafkaConfig.TierArchiverNumThreadsProp)

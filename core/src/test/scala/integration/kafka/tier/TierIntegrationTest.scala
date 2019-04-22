@@ -35,7 +35,7 @@ import scala.collection.JavaConverters._
 
 class TierIntegrationTest {
   private val mockTime = new MockTime()
-  val logDirs = new util.ArrayList(Collections.singleton(System.getProperty("java.io.tmpdir")))
+  val logDirs = new util.ArrayList(Collections.singleton(TestUtils.tempDir().getAbsolutePath))
 
   val tierTopicManagerConfig = new TierTopicManagerConfig(
     "bootstrap",
@@ -45,6 +45,7 @@ class TierIntegrationTest {
     33,
     "cluster99",
     10L,
+    500,
     500,
     logDirs
   )
@@ -271,15 +272,19 @@ class TierIntegrationTest {
     var materializedFirstCycle = Seq.empty[TopicPartition]
 
     // Wait for the partitions that happened to be at the front of the priority queue to each upload their first segment and store metadata.
-    val lastOffsetOfInitialSegment = Optional.of(recordsPerBatch - 1 : Long)
+    val lastOffsetOfInitialSegment = Optional.of(recordsPerBatch - 1L : java.lang.Long)
     archiveAndMaterializeUntilTrue(() => {
       materializedFirstCycle = logs.collect {
-        case log if tierTopicManager.partitionState(log.topicPartition).endOffset()
+        case log if tierTopicManager.partitionState(log.topicPartition).uncommittedEndOffset()
           .equals(lastOffsetOfInitialSegment) => log.topicPartition
       }
       maxConcurrentUploads == materializedFirstCycle.size
     }, s"Do work until the initial segment for each of the first $maxConcurrentUploads states is materialized",
       tierArchiver, tierTopicManager, consumerBuilder)
+
+
+    // end offsets match, process transitions to stage next upload
+    tierArchiver.processTransitions()
 
     // Just before the end of the above cycle, the highest priority paused state(s) had yet to start uploading any segments.
     // Now, of those, we expect at least one (up to the max states-in-progress ceiling) to be transitioning from BeforeUpload to AfterUpload.
@@ -294,10 +299,10 @@ class TierIntegrationTest {
     }
     // The previous assertions cover priority fairness in practice.
     // Now ensure the archiver can exhaust all tierable segs.
-    val lastOffsetOfFinalTierableSegment = Optional.of(recordsPerBatch * (batches - 1) - 1 : Long)
+    val lastOffsetOfFinalTierableSegment = Optional.of(recordsPerBatch * (batches - 1) - 1L : java.lang.Long)
     archiveAndMaterializeUntilTrue(() => {
       logs.forall { log =>
-        lastOffsetOfFinalTierableSegment == tierTopicManager.partitionState(log.topicPartition).endOffset()
+        lastOffsetOfFinalTierableSegment == tierTopicManager.partitionState(log.topicPartition).uncommittedEndOffset()
       }
     }, s"Eventually, all tierable segments should be materialized.",
       tierArchiver, tierTopicManager, consumerBuilder)
@@ -308,36 +313,39 @@ class TierIntegrationTest {
     setup(numLogs = 3, numArchiverThreads = 2)
 
     val leaderEpoch = 1
-    val firstTopicPartition = logs.head.topicPartition
+    val lastTopicPartition = logs.last.topicPartition
 
-    // Write a batch only to the second two logs
-    logs.tail.foreach { log => writeRecordBatches(log, leaderEpoch, 0L, 1, 4) }
+    val firstLogs = logs.take(2)
+
+    // Write a batch only to the first two logs
+    firstLogs.foreach { log => writeRecordBatches(log, leaderEpoch, 0L, 1, 4) }
 
     // Immigrate all test logs.
     // Given maxConcurrentUploads < logs, this will also transition states for second two logs.
     waitForImmigration(logs, leaderEpoch, tierArchiver, tierTopicManager, consumerBuilder)
 
     snapshotArchiver(tierArchiver) { s =>
-      assertTrue("Second two partitions should have state transitions in progress",
-        logs.tail.forall { log => s.transitioning.contains(log.topicPartition) })
-      assertFalse(s"$firstTopicPartition should not have a state transition in progress.",
-        s.transitioning.contains(firstTopicPartition))
-      assertTrue(s"$firstTopicPartition should be in BeforeUpload state",
-        s.pausedStates.exists { case x: BeforeUpload if x.topicPartition == firstTopicPartition => true })
+      assertTrue("First two partitions should have state transitions in progress",
+        firstLogs.forall { log =>
+          s.transitioning.contains(log.topicPartition) })
+      assertFalse(s"$lastTopicPartition should not have a state transition in progress.",
+        s.transitioning.contains(lastTopicPartition))
+      assertTrue(s"$lastTopicPartition should be in BeforeUpload state",
+        s.pausedStates.exists { case x: BeforeUpload if x.topicPartition == lastTopicPartition => true })
     }
 
-    // Write ten batches to first log.
-    writeRecordBatches(logs.head, leaderEpoch, 0L, 10, 4)
+    // Write ten batches to last log.
+    writeRecordBatches(logs.last, leaderEpoch, 0L, 10, 4)
 
-    // The first log's state should be transitioned in the next cycle.
+    // The last log's state should be transitioned in the next cycle.
     TestUtils.waitUntilTrue(
       () => tierArchiver.processTransitions(),
       "Archiver should un-pause the first topic partition's state",
       maxWaitTimeMs)
 
     snapshotArchiver(tierArchiver) { s =>
-      assertTrue(s"$firstTopicPartition should be transitioning state.",
-        s.transitioning.contains(firstTopicPartition))
+      assertTrue(s"$lastTopicPartition should be transitioning state.",
+        s.transitioning.contains(lastTopicPartition))
     }
   }
 

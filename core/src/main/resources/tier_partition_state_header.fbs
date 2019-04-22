@@ -1,0 +1,15 @@
+namespace kafka.tier.serdes;
+
+// These state entry files should be written with a builder.forceDefaults(true);
+
+// DO NOT REUSE FIELD IDS AS THIS WILL BREAK FORWARD AND BACKWARD COMPAT
+// INSTEAD MARK THEM AS DEPRECATED
+// e.g. myfield:byte (id: 9, deprecated)
+
+table TierPartitionStateHeader {
+  version: byte (id: 0);
+  tierEpoch: int (id: 1);
+  status: byte (id: 2);
+}
+
+root_type TierPartitionStateHeader;

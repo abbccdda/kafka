@@ -792,6 +792,10 @@ project(':core') {
         commandLine "${buildDir}/flatbuffers/bin/flatc", "--java", "-o", "${buildDir}/generated/src/main/java",
                     "src/main/resources/tier_init_leader.fbs"
       }
+      exec {
+        commandLine "${buildDir}/flatbuffers/bin/flatc", "--java", "--gen-mutable", "-o", "${buildDir}/generated/src/main/java",
+                    "src/main/resources/tier_partition_state_header.fbs"
+      }
     }
   }
   /* end flatbuffers generation steps */

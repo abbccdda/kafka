@@ -4,7 +4,6 @@
 
 package kafka.tier.client;
 
-import kafka.tier.TierTopicManagerCommitter;
 import kafka.tier.TierTopicManagerConfig;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -25,7 +24,6 @@ public class ConsumerBuilder implements TierTopicConsumerBuilder {
      * @return a KafkaConsumer
      */
     public KafkaConsumer<byte[], byte[]> setupConsumer(String bootstrapServers,
-                                                       TierTopicManagerCommitter committer,
                                                        String topicName,
                                                        String clientIdSuffix) {
         final Properties properties = new Properties();

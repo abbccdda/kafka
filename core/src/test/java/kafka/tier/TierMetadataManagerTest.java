@@ -6,6 +6,7 @@ package kafka.tier;
 
 import kafka.log.LogConfig;
 import kafka.server.LogDirFailureChannel;
+import kafka.tier.state.TierPartitionStatus;
 import kafka.tier.store.TierObjectStoreConfig;
 import kafka.tier.state.FileTierPartitionStateFactory;
 import kafka.tier.state.TierPartitionState;
@@ -54,12 +55,35 @@ public class TierMetadataManagerTest {
         TierPartitionState partitionState = metadataManager.initState(TOPIC_PARTITION, dir, config);
         assertTrue(partitionState.tieringEnabled());
         assertTrue(metadataManager.tierPartitionMetadata(TOPIC_PARTITION).get().tieringEnabled());
-        assertTrue(partitionState.status().isOpen());
-        metadataManager.delete(TOPIC_PARTITION);
+        assertEquals(TierPartitionStatus.INIT, partitionState.status());
+
+        assertEquals(0, onBecomeLeader);
+        assertEquals(0, onBecomeFollower);
+        assertEquals(0, onDelete);
+
+        partitionState.beginCatchup();
+        assertEquals(TierPartitionStatus.CATCHUP, partitionState.status());
+        partitionState.flush();
+
+        metadataManager.close();
+
+        // Test reopen metadata manager and tier partition state
+        TierMetadataManager metadataManager2 = new TierMetadataManager(
+                new FileTierPartitionStateFactory(),
+                Option.apply(new MockInMemoryTierObjectStore(OBJECT_STORE_CONFIG)),
+                new LogDirFailureChannel(10),
+                true);
+        addListener(metadataManager2);
+        TierPartitionState partitionState2 = metadataManager2.initState(TOPIC_PARTITION, dir,
+                config);
+        assertEquals(TierPartitionStatus.CATCHUP, partitionState2.status());
+
+        metadataManager2.delete(TOPIC_PARTITION);
 
         assertEquals(0, onBecomeLeader);
         assertEquals(0, onBecomeFollower);
         assertEquals(1, onDelete);
+        metadataManager.close();
     }
 
     @Test
@@ -74,12 +98,30 @@ public class TierMetadataManagerTest {
         TierPartitionState partitionState = metadataManager.initState(TOPIC_PARTITION, dir, config);
         assertFalse(partitionState.tieringEnabled());
         assertFalse(metadataManager.tierPartitionMetadata(TOPIC_PARTITION).get().tieringEnabled());
-        assertFalse(partitionState.status().isOpen());
+        assertEquals(TierPartitionStatus.CLOSED, partitionState.status());
         metadataManager.delete(TOPIC_PARTITION);
 
         assertEquals(0, onBecomeLeader);
         assertEquals(0, onBecomeFollower);
         assertEquals(0, onDelete);
+
+        // Test reopen metadata manager and tier partition state
+        TierMetadataManager metadataManager2 = new TierMetadataManager(
+                new FileTierPartitionStateFactory(),
+                Option.apply(new MockInMemoryTierObjectStore(OBJECT_STORE_CONFIG)),
+                new LogDirFailureChannel(10),
+                true);
+        addListener(metadataManager2);
+        TierPartitionState partitionState2 = metadataManager2.initState(TOPIC_PARTITION, dir,
+                config);
+        assertEquals(TierPartitionStatus.CLOSED, partitionState2.status());
+
+        metadataManager2.delete(TOPIC_PARTITION);
+
+        assertEquals(0, onBecomeLeader);
+        assertEquals(0, onBecomeFollower);
+        assertEquals(0, onDelete);
+        metadataManager.close();
     }
 
     @Test
@@ -112,7 +154,7 @@ public class TierMetadataManagerTest {
         TierPartitionState partitionState = metadataManager.initState(TOPIC_PARTITION, dir, config);
         assertFalse(partitionState.tieringEnabled());
         assertFalse(metadataManager.tierPartitionMetadata(TOPIC_PARTITION).get().tieringEnabled());
-        assertFalse(partitionState.status().isOpen());
+        assertEquals(TierPartitionStatus.CLOSED, partitionState.status());
         metadataManager.delete(TOPIC_PARTITION);
 
         assertEquals(0, onBecomeLeader);

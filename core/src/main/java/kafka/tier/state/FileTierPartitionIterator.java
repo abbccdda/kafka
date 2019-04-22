@@ -33,10 +33,10 @@ public class FileTierPartitionIterator extends AbstractIterator<TierObjectMetada
     public FileTierPartitionIterator(TopicPartition topicPartition,
                                      FileChannel channel,
                                      long startPosition) throws IOException {
+        this.topicPartition = topicPartition;
         this.channel = channel;
         this.position = startPosition;
         this.endPosition = channel.size();
-        this.topicPartition = topicPartition;
     }
 
     @Override
@@ -45,35 +45,26 @@ public class FileTierPartitionIterator extends AbstractIterator<TierObjectMetada
             return allDone();
 
         try {
-            long currentPosition = this.position;
-            // read length
-            Utils.readFully(channel, lengthBuffer, currentPosition);
-            if (lengthBuffer.hasRemaining())
-                return allDone();
+            long currentPosition = position;
+
+            if (!fillLengthBuffer(currentPosition))
+                throw new IOException("Failed to read TierObjectMetadata length prefix.");
+
+            final short length = lengthBuffer.getShort();
             currentPosition += lengthBuffer.limit();
-            lengthBuffer.flip();
-
-            short length = lengthBuffer.getShort();
-
-            // check if we have enough bytes to read the entry
-            if (currentPosition + length > endPosition)
-                return allDone();
 
             // reallocate entry buffer if needed
             if (entryBuffer == null || length > entryBuffer.capacity()) {
                 if (entryBuffer != null)
                     log.debug("Resizing tier partition state iterator buffer from " + entryBuffer.capacity() + " to " + length);
+
                 entryBuffer = ByteBuffer.allocate(length).order(ByteOrder.LITTLE_ENDIAN);
             }
 
-            // read and return the entry
-            entryBuffer.clear();
-            entryBuffer.limit(length);
-            Utils.readFully(channel, entryBuffer, currentPosition);
-            if (entryBuffer.hasRemaining())
-                return allDone();
+            if (!fillEntryBuffer(currentPosition, length))
+                throw new IOException("Failed to read TierObjectMetadata of length " + length);
+
             currentPosition += entryBuffer.limit();
-            entryBuffer.flip();
 
             // advance position
             position = currentPosition;
@@ -82,6 +73,35 @@ public class FileTierPartitionIterator extends AbstractIterator<TierObjectMetada
         } catch (IOException e) {
             throw new KafkaStorageException(e);
         }
+    }
+
+    /**
+     * Fills object metadata entry buffer.
+     * @param currentPosition file channel position of object metadata entry
+     * @param length length of object metadata entry
+     * @return boolean for whether the buffer was successfully filled with expected entry size
+     * @throws IOException
+     */
+    private boolean fillEntryBuffer(long currentPosition, short length) throws IOException {
+        entryBuffer.clear();
+        Utils.readFully(channel, entryBuffer, currentPosition);
+        entryBuffer.flip();
+
+        return entryBuffer.limit() == length;
+    }
+
+    /**
+     * Fills object metadata length buffer.
+     * @param currentPosition file channel position of object metadata length prefix
+     * @return boolean for whether the length buffer was successfully filled with length prefix size
+     * @throws IOException
+     */
+    private boolean fillLengthBuffer(long currentPosition) throws IOException {
+        lengthBuffer.clear();
+        Utils.readFully(channel, lengthBuffer, currentPosition);
+        lengthBuffer.flip();
+
+        return lengthBuffer.limit() == ENTRY_LENGTH_SIZE;
     }
 
     public long position() {

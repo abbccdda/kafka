@@ -28,8 +28,8 @@ import java.util.stream.Collectors;
 
 public class TierTopicManagerCommitter implements Runnable {
     private static final String SEPARATOR = " ";
-    private static final long COMMIT_PERIOD_MS = 60000;
     private static final Logger log = LoggerFactory.getLogger(TierTopicManager.class);
+    private final long commitIntervalMs;
     private final CountDownLatch shutdownInitiated = new CountDownLatch(1);
     private final CountDownLatch managerShutdownLatch;
     private final TierTopicManagerConfig config;
@@ -50,6 +50,7 @@ public class TierTopicManagerCommitter implements Runnable {
         this.config = config;
         this.tierMetadataManager = tierMetadataManager;
         this.managerShutdownLatch = managerShutdownLatch;
+        this.commitIntervalMs = config.commitIntervalMs;
         if (config.logDirs.size() != 1) {
             throw new RuntimeException("TierTopicManager does not currently support multiple logdirs.");
         }
@@ -92,9 +93,11 @@ public class TierTopicManagerCommitter implements Runnable {
             Iterator<TierPartitionState> metadataIterator = tierMetadataManager.tierEnabledPartitionStateIterator();
             while (metadataIterator.hasNext())
                 metadataIterator.next().flush();
+
             writeOffsets(flushPositions);
         } catch (IOException ioe) {
-            log.error("Error committing progress.", ioe);
+            log.error("Error committing progress or flushing TierPartitionStates.", ioe);
+            System.exit(1);
         }
     }
 
@@ -122,7 +125,7 @@ public class TierTopicManagerCommitter implements Runnable {
      */
     public void run() {
         try {
-            while (!shutdownInitiated.await(COMMIT_PERIOD_MS, TimeUnit.MILLISECONDS))
+            while (!shutdownInitiated.await(commitIntervalMs, TimeUnit.MILLISECONDS))
                 flush();
             // ensure we flush on shutdown
             flush();

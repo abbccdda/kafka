@@ -54,11 +54,18 @@ public interface TierPartitionState {
     Optional<Long> startOffset() throws IOException;
 
     /**
-     * Determine end offset spanned by the TierPartitionState.
+     * Return the end offset spanned by the TierPartitionState that has been committed to disk.
      * @return end offset
      * @throws IOException
      */
     Optional<Long> endOffset() throws IOException;
+
+    /**
+     * Return the uncommitted end offset spanned by the TierPartitionState.
+     * @return end offset
+     * @throws IOException
+     */
+    Optional<Long> uncommittedEndOffset() throws IOException;
 
     /**
      * Scan the ObjectMetadata (segment) entries in this tier partition, and return the count.
@@ -85,8 +92,11 @@ public interface TierPartitionState {
      * @param targetOffset the target offset to lookup the overlapping or next metadata for.
      * @return The TierObjectMetadata, if any.
      * @throws IOException if disk error encountered
+     * @throws IllegalStateException if a metadata entry was expected to exist in the
+     *         TierPartitionState, but was not present in the expected position.
      */
-    Optional<TierObjectMetadata> metadata(long targetOffset) throws IOException;
+    Optional<TierObjectMetadata> metadata(long targetOffset) throws IOException,
+            IllegalStateException;
 
     /**
      * Appends abstract metadata to the tier partition.

@@ -37,15 +37,13 @@ sealed trait TierArchiverState extends Logging {
   def calculateLag(topicPartition: TopicPartition,
                    replicaManager: ReplicaManager,
                    tierPartitionState: TierPartitionState): Long = {
-
-
     replicaManager
       .getLog(topicPartition)
       .flatMap { log =>
         log.baseOffsetFirstUntierableSegment.map { firstUntieredOffset =>
           val tieredOffset =
-            if (tierPartitionState.endOffset.isPresent)
-              tierPartitionState.endOffset.get + 1
+            if (tierPartitionState.uncommittedEndOffset.isPresent)
+              tierPartitionState.uncommittedEndOffset.get + 1
             else
               0L
 

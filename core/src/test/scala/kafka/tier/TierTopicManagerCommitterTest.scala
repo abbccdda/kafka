@@ -47,6 +47,7 @@ class TierTopicManagerCommitterTest {
       "cluster99",
       200L,
       500,
+      500,
       Collections.singletonList(logDir))
 
 

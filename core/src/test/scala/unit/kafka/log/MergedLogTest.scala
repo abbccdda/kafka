@@ -58,7 +58,7 @@ class MergedLogTest {
           val segmentBaseOffset = tierPartitionState.segmentOffsets.floor(offset)
           assertEquals(segmentBaseOffset, tierResult.fetchMetadata.segmentBaseOffset)
         }
-        case _ => fail(s"Unexpected $result")
+        case _ => fail(s"Unexpected $result for read at $offset")
       }
     }
     log.close()
@@ -402,6 +402,7 @@ class MergedLogTest {
         false,
         0.toByte)
       val appendResult = tierPartitionState.append(tierObjectMetadata)
+      tierPartitionState.flush()
       assertEquals(AppendResult.ACCEPTED, appendResult)
     }
 

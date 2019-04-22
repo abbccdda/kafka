@@ -11,7 +11,6 @@ import java.util
 import java.util.concurrent.{Executors, ScheduledExecutorService, TimeUnit}
 import java.util.{Collections, Optional, Properties, UUID}
 
-import com.yammer.metrics.core.Meter
 import kafka.log.{AbstractLog, LogManager, LogSegment, LogTest, _}
 import kafka.server.{BrokerTopicStats, LogDirFailureChannel, ReplicaManager}
 import kafka.server.KafkaConfig
@@ -29,7 +28,6 @@ import org.apache.kafka.common.utils.Utils
 import org.junit.Assert.{assertEquals, assertTrue}
 import org.junit.Test
 import org.mockito.Mockito.{mock, when}
-import kafka.metrics.KafkaMetricsGroup
 import kafka.tier.archiver.JavaFunctionConversions._
 import kafka.tier.domain.TierTopicInitLeader
 import kafka.tier.state.MemoryTierPartitionState
@@ -350,7 +348,7 @@ class TierArchiverStateTest {
 
   private def mockTierPartitionStateAtEndOffset(offset: Long): TierPartitionState = {
     val tierPartitionState = mock(classOf[TierPartitionState])
-    when(tierPartitionState.endOffset()).thenReturn(Optional.of(offset) : Optional[java.lang.Long])
+    when(tierPartitionState.uncommittedEndOffset()).thenReturn(Optional.of(offset) : Optional[java.lang.Long])
     tierPartitionState
   }
 

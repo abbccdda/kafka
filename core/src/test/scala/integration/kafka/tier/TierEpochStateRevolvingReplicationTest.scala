@@ -34,7 +34,6 @@ import org.junit.Assert.assertEquals
 import org.junit.{Before, After, Test}
 
 import scala.collection.JavaConverters._
-import scala.collection.mutable.{ListBuffer => Buffer}
 import scala.collection.Seq
 import scala.util.Random
 
@@ -70,26 +69,18 @@ class TierEpochStateRevolvingReplicationTest extends ZooKeeperTestHarness with L
     properties.put(TopicConfig.RETENTION_BYTES_CONFIG, "-1")
     properties.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "2")
 
-
     //A single partition topic with 3 replicas
     TestUtils.createTopic(zkClient, topic, Map(0 -> Seq(100, 101, 102)), brokers, properties)
     producer = createProducer
     val tp = new TopicPartition(topic, 0)
 
-    producer.send(new ProducerRecord(topic, 0, null, msg)).get
-
-    // bounce leader to bump initial epoch
-    bounce(leader)
-
     // since we use RF = 3 on the tier topic,
     // we must make sure the tier topic is up before we start stopping brokers
     brokers.foreach(b => TierUtils.awaitTierTopicPartition(b, 0))
 
-    awaitISR(tp, 3)
-
     producer.send(new ProducerRecord(topic, 0, null, msg)).get
 
-    assertEquals(Buffer(EpochEntry(0, 0), EpochEntry(1, 1)), epochCache(leader).epochEntries)
+    awaitISR(tp, 3)
 
     for (i <- 0 to 5) {
       val followerToShutdown = randomFollower()
