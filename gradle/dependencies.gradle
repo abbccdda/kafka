@@ -53,8 +53,10 @@ versions += [
   apachedaLdapCodec: "1.0.0",
   apacheds: "2.0.0-M24",
   argparse4j: "0.7.0",
+  avro: "1.8.1",
   bcpkix: "1.60",
-  httpclient: "4.5.7",
+  httpcomponents: "4.5.7",
+  httpmime: "4.5.2",
   easymock: "4.0.2",
   flatbuffers: "1.9.0",
   flatbuffersCompiler: "1.9.0.1",
@@ -116,6 +118,7 @@ libs += [
   apachedsMavibotPartition: "org.apache.directory.server:apacheds-mavibot-partition:$versions.apacheds",
   apachedsJdbmPartition: "org.apache.directory.server:apacheds-jdbm-partition:$versions.apacheds",
   argparse4j: "net.sourceforge.argparse4j:argparse4j:$versions.argparse4j",
+  avro: "org.apache.avro:avro:$versions.avro",
   bcpkix: "org.bouncycastle:bcpkix-jdk15on:$versions.bcpkix",
   easymock: "org.easymock:easymock:$versions.easymock",
   flatbuffers: "com.google.flatbuffers:flatbuffers-java:$versions.flatbuffers",
@@ -124,6 +127,8 @@ libs += [
   guava: "com.google.guava:guava:$versions.guava",
   guavaTestLib: "com.google.guava:guava-testlib:$versions.guava",
   jacksonDatabind: "com.fasterxml.jackson.core:jackson-databind:$versions.jackson",
+  jacksonDataformatCsv: "com.fasterxml.jackson.dataformat:jackson-dataformat-csv:$versions.jackson",
+  jacksonModuleScala: "com.fasterxml.jackson.module:jackson-module-scala_$versions.baseScala:$versions.jackson",
   jacksonJDK8Datatypes: "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:$versions.jackson",
   jacksonJaxrsJsonProvider: "com.fasterxml.jackson.jaxrs:jackson-jaxrs-json-provider:$versions.jackson",
   jaxbApi: "javax.xml.bind:jaxb-api:$versions.jaxb",
@@ -178,5 +183,6 @@ libs += [
   jfreechart: "jfreechart:jfreechart:$versions.jfreechart",
   mavenArtifact: "org.apache.maven:maven-artifact:$versions.mavenArtifact",
   zstd: "com.github.luben:zstd-jni:$versions.zstd",
-  httpclient: "org.apache.httpcomponents:httpclient:$versions.httpclient"
+  httpclient: "org.apache.httpcomponents:httpclient:$versions.httpcomponents",
+  httpmime: "org.apache.httpcomponents:httpmime:$versions.httpcomponents"
 ]

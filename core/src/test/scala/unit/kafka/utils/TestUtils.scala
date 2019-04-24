@@ -43,7 +43,8 @@ import kafka.tier.state.MemoryTierPartitionStateFactory
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
 import kafka.zk._
 import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.clients.admin.{AdminClient, AlterConfigsResult, Config, ConfigEntry}
+import org.apache.kafka.clients.admin.AlterConfigOp.OpType
+import org.apache.kafka.clients.admin._
 import org.apache.kafka.clients.consumer._
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.{KafkaFuture, TopicPartition}
@@ -1422,6 +1423,20 @@ object TestUtils extends Logging {
     adminClient.alterConfigs(configs)
   }
 
+  def incrementalAlterConfigs(servers: Seq[KafkaServer], adminClient: AdminClient, props: Properties,
+                   perBrokerConfig: Boolean, opType: OpType = OpType.SET): AlterConfigsResult  = {
+    val configEntries = props.asScala.map { case (k, v) => new AlterConfigOp(new ConfigEntry(k, v), opType) }.toList.asJavaCollection
+    val configs = if (perBrokerConfig) {
+      servers.map { server =>
+        val resource = new ConfigResource(ConfigResource.Type.BROKER, server.config.brokerId.toString)
+        (resource, configEntries)
+      }.toMap.asJava
+    } else {
+      Map(new ConfigResource(ConfigResource.Type.BROKER, "") -> configEntries).asJava
+    }
+    adminClient.incrementalAlterConfigs(configs)
+  }
+
   def alterTopicConfigs(adminClient: AdminClient, topic: String, topicConfigs: Properties): AlterConfigsResult = {
     val configEntries = topicConfigs.asScala.map { case (k, v) => new ConfigEntry(k, v) }.toList.asJava
     val newConfig = new Config(configEntries)
@@ -1463,15 +1478,18 @@ object TestUtils extends Logging {
     (out.toString, err.toString)
   }
 
-  def assertFutureExceptionTypeEquals(future: KafkaFuture[_], clazz: Class[_ <: Throwable]): Unit = {
+  def assertFutureExceptionTypeEquals(future: KafkaFuture[_], clazz: Class[_ <: Throwable],
+                                      expectedErrorMessage: Option[String] = None): Unit = {
     try {
       future.get()
       fail("Expected CompletableFuture.get to return an exception")
     } catch {
       case e: ExecutionException =>
-        val cause = e.getCause()
+        val cause = e.getCause
         assertTrue("Expected an exception of type " + clazz.getName + "; got type " +
-            cause.getClass().getName, clazz.isInstance(cause))
+            cause.getClass.getName, clazz.isInstance(cause))
+        expectedErrorMessage.foreach(message => assertTrue(s"Received error message : ${cause.getMessage}" +
+          s" does not contain expected error message : $message", cause.getMessage.contains(message)))
     }
   }
 

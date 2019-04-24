@@ -36,6 +36,7 @@ import org.apache.kafka.common.message.DeleteTopicsResponseData.DeletableTopicRe
 import org.apache.kafka.common.message.DeleteTopicsResponseData.DeletableTopicResultSet;
 import org.apache.kafka.common.message.DescribeGroupsRequestData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData;
+import org.apache.kafka.common.message.InitProducerIdRequestData;
 import org.apache.kafka.common.message.JoinGroupRequestData;
 import org.apache.kafka.common.message.LeaveGroupRequestData;
 import org.apache.kafka.common.errors.NotLeaderForPartitionException;
@@ -903,9 +904,10 @@ public class MultiTenantRequestContextTest {
   public void testInitProducerIdRequest() {
     for (short ver = ApiKeys.INIT_PRODUCER_ID.oldestVersion(); ver <= ApiKeys.INIT_PRODUCER_ID.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.INIT_PRODUCER_ID, ver);
-      InitProducerIdRequest inbound = new InitProducerIdRequest.Builder("tr", 30000).build(ver);
+      InitProducerIdRequest inbound = new InitProducerIdRequest.Builder(new InitProducerIdRequestData().
+          setTransactionalId("tr").setTransactionTimeoutMs(30000)).build(ver);
       InitProducerIdRequest intercepted = (InitProducerIdRequest) parseRequest(context, inbound);
-      assertEquals("tenant_tr", intercepted.transactionalId());
+      assertEquals("tenant_tr", intercepted.data.transactionalId());
       verifyRequestMetrics(ApiKeys.INIT_PRODUCER_ID);
     }
   }
@@ -914,9 +916,10 @@ public class MultiTenantRequestContextTest {
   public void testInitProducerIdRequestNullTransactionalId() {
     for (short ver = ApiKeys.INIT_PRODUCER_ID.oldestVersion(); ver <= ApiKeys.INIT_PRODUCER_ID.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.INIT_PRODUCER_ID, ver);
-      InitProducerIdRequest inbound = new InitProducerIdRequest.Builder(null).build(ver);
+      InitProducerIdRequest inbound = new InitProducerIdRequest.Builder(new InitProducerIdRequestData().
+          setTransactionalId(null).setTransactionTimeoutMs(1000)).build(ver);
       InitProducerIdRequest intercepted = (InitProducerIdRequest) parseRequest(context, inbound);
-      assertNull(intercepted.transactionalId());
+      assertNull(intercepted.data.transactionalId());
       verifyRequestMetrics(ApiKeys.INIT_PRODUCER_ID);
     }
   }

@@ -320,7 +320,10 @@ class RequestQuotaTest extends BaseRequestTest {
           new DeleteRecordsRequest.Builder(5000, Map(tp -> (0L: java.lang.Long)).asJava)
 
         case ApiKeys.INIT_PRODUCER_ID =>
-          new InitProducerIdRequest.Builder("abc")
+          val requestData = new InitProducerIdRequestData()
+            .setTransactionalId("test-transactional-id")
+            .setTransactionTimeoutMs(5000)
+          new InitProducerIdRequest.Builder(requestData)
 
         case ApiKeys.OFFSET_FOR_LEADER_EPOCH =>
           new OffsetsForLeaderEpochRequest.Builder(ApiKeys.OFFSET_FOR_LEADER_EPOCH.latestVersion,
@@ -399,6 +402,10 @@ class RequestQuotaTest extends BaseRequestTest {
             new ElectPreferredLeadersRequestData()
                 .setTimeoutMs(0)
                 .setTopicPartitions(Collections.singletonList(partition)))
+
+        case ApiKeys.INCREMENTAL_ALTER_CONFIGS =>
+          new IncrementalAlterConfigsRequest.Builder(
+            new IncrementalAlterConfigsRequestData())
 
         case _ =>
           maybeBuildInternalRequest(apiKey)
@@ -483,7 +490,7 @@ class RequestQuotaTest extends BaseRequestTest {
       case ApiKeys.FETCH => FetchResponse.parse(response).throttleTimeMs
       case ApiKeys.LIST_OFFSETS => new ListOffsetResponse(response).throttleTimeMs
       case ApiKeys.METADATA =>
-        new MetadataResponse(response, ApiKeys.DESCRIBE_GROUPS.latestVersion()).throttleTimeMs
+        new MetadataResponse(response, ApiKeys.DESCRIBE_GROUPS.latestVersion).throttleTimeMs
       case ApiKeys.OFFSET_COMMIT => new OffsetCommitResponse(response).throttleTimeMs
       case ApiKeys.OFFSET_FETCH => new OffsetFetchResponse(response).throttleTimeMs
       case ApiKeys.FIND_COORDINATOR => new FindCoordinatorResponse(response).throttleTimeMs
@@ -492,15 +499,15 @@ class RequestQuotaTest extends BaseRequestTest {
       case ApiKeys.LEAVE_GROUP => new LeaveGroupResponse(response).throttleTimeMs
       case ApiKeys.SYNC_GROUP => new SyncGroupResponse(response).throttleTimeMs
       case ApiKeys.DESCRIBE_GROUPS =>
-        new DescribeGroupsResponse(response, ApiKeys.DESCRIBE_GROUPS.latestVersion()).throttleTimeMs
+        new DescribeGroupsResponse(response, ApiKeys.DESCRIBE_GROUPS.latestVersion).throttleTimeMs
       case ApiKeys.LIST_GROUPS => new ListGroupsResponse(response).throttleTimeMs
       case ApiKeys.API_VERSIONS => new ApiVersionsResponse(response).throttleTimeMs
       case ApiKeys.CREATE_TOPICS =>
-        new CreateTopicsResponse(response, ApiKeys.CREATE_TOPICS.latestVersion()).throttleTimeMs
+        new CreateTopicsResponse(response, ApiKeys.CREATE_TOPICS.latestVersion).throttleTimeMs
       case ApiKeys.DELETE_TOPICS => 
-        new DeleteTopicsResponse(response, ApiKeys.DELETE_TOPICS.latestVersion()).throttleTimeMs
+        new DeleteTopicsResponse(response, ApiKeys.DELETE_TOPICS.latestVersion).throttleTimeMs
       case ApiKeys.DELETE_RECORDS => new DeleteRecordsResponse(response).throttleTimeMs
-      case ApiKeys.INIT_PRODUCER_ID => new InitProducerIdResponse(response).throttleTimeMs
+      case ApiKeys.INIT_PRODUCER_ID => new InitProducerIdResponse(response, ApiKeys.INIT_PRODUCER_ID.latestVersion).throttleTimeMs
       case ApiKeys.ADD_PARTITIONS_TO_TXN => new AddPartitionsToTxnResponse(response).throttleTimeMs
       case ApiKeys.ADD_OFFSETS_TO_TXN => new AddOffsetsToTxnResponse(response).throttleTimeMs
       case ApiKeys.END_TXN => new EndTxnResponse(response).throttleTimeMs
@@ -520,6 +527,8 @@ class RequestQuotaTest extends BaseRequestTest {
       case ApiKeys.DELETE_GROUPS => new DeleteGroupsResponse(response).throttleTimeMs
       case ApiKeys.OFFSET_FOR_LEADER_EPOCH => new OffsetsForLeaderEpochResponse(response).throttleTimeMs
       case ApiKeys.ELECT_PREFERRED_LEADERS => new ElectPreferredLeadersResponse(response).throttleTimeMs
+      case ApiKeys.INCREMENTAL_ALTER_CONFIGS =>
+        new IncrementalAlterConfigsResponse(response, ApiKeys.INCREMENTAL_ALTER_CONFIGS.latestVersion()).throttleTimeMs
       case requestId => throw new IllegalArgumentException(s"No throttle time for $requestId")
     }
   }

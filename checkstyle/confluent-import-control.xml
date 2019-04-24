@@ -4,11 +4,11 @@
 
 <!--
   //
-  // Copyright 2018, Confluent.
+  // confluent-import-control.xml
   //
-  // import-control-ce.xml
+  // The import control file for Confluent code.
   //
-  // The import control file for Confluent Enterprise modules.
+  // Copyright Confluent, 2018-2019.
   //
 -->
 
@@ -38,6 +38,25 @@
   <allow pkg="org.slf4j" />
   <allow pkg="org.mockito" />
   <allow pkg="org.mockito.stubbing" />
+  <allow pkg="scala" />
+
+  <subpackage name="support">
+    <subpackage name="metrics">
+      <allow pkg="io.confluent.command" />
+      <allow pkg="io.confluent.kafka.common.license" />
+      <allow pkg="io.confluent.license" />
+      <allow pkg="io.confluent.serializers" />
+      <allow pkg="io.confluent.support.metrics" />
+      <allow pkg="kafka" />
+      <allow pkg="org.apache.avro" />
+      <allow pkg="org.apache.commons.compress" />
+      <allow pkg="org.apache.http" />
+      <allow pkg="org.apache.kafka.clients" />
+      <allow pkg="org.apache.kafka.common" />
+      <allow pkg="org.apache.kafka.connect" />
+      <allow pkg="org.apache.zookeeper" />
+    </subpackage>
+  </subpackage>
 
   <subpackage name="common">
     <allow pkg="org.apache.kafka.common" />

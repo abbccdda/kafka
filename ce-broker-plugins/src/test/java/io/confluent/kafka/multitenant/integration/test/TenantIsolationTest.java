@@ -24,6 +24,7 @@ import kafka.security.auth.SimpleAclAuthorizer$;
 import kafka.server.KafkaConfig$;
 
 import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.AlterConfigOp;
 import org.apache.kafka.clients.admin.Config;
 import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.common.acl.AccessControlEntry;
@@ -121,6 +122,7 @@ public class TenantIsolationTest {
 
   }
 
+  @SuppressWarnings("deprecation")
   @Test
   public void testAlterBrokerConfigs() throws Throwable {
     AdminClient tenantAdminClient = testHarness.createAdminClient(logicalCluster1.adminUser());
@@ -132,10 +134,23 @@ public class TenantIsolationTest {
         new Config(Collections.singleton(new ConfigEntry(KafkaConfig$.MODULE$.MessageMaxBytesProp(), "10000")))
     );
 
-    // Verify that tenants cannot update dynamic broker configs
+    // Verify that tenants cannot update dynamic broker configs using AlterConfigs
     try {
       tenantAdminClient.alterConfigs(newConfigs).all().get();
       fail("Alter configs did not fail with tenant principal");
+    } catch (ExecutionException e) {
+      assertEquals(PolicyViolationException.class, e.getCause().getClass());
+    }
+    assertEquals(defaultMaxMessageBytes, physicalCluster.kafkaCluster().kafkas().get(0).kafkaServer().config().messageMaxBytes().intValue());
+
+    // Verify that tenants cannot update dynamic broker configs using incrementalAlterConfigs
+    Map<ConfigResource, Collection<AlterConfigOp>> newConfigs2 = Collections.singletonMap(
+        new ConfigResource(Type.BROKER, "0"),
+        Collections.singletonList(new AlterConfigOp(new ConfigEntry(KafkaConfig$.MODULE$.MessageMaxBytesProp(), "15000"),
+            AlterConfigOp.OpType.SET)));
+    try {
+      tenantAdminClient.incrementalAlterConfigs(newConfigs2).all().get();
+      fail("IncrementalAlterConfigs did not fail with tenant principal");
     } catch (ExecutionException e) {
       assertEquals(PolicyViolationException.class, e.getCause().getClass());
     }
@@ -145,6 +160,12 @@ public class TenantIsolationTest {
     internalAdminClient.alterConfigs(newConfigs).all().get();
     TestUtils.waitForCondition(() ->
         physicalCluster.kafkaCluster().kafkas().get(0).kafkaServer().config().messageMaxBytes() == 10000,
+        "Dynamic config not updated");
+
+    // Verify that users with access to internal listener can update dynamic broker configs
+    internalAdminClient.incrementalAlterConfigs(newConfigs2).all().get();
+    TestUtils.waitForCondition(() ->
+            physicalCluster.kafkaCluster().kafkas().get(0).kafkaServer().config().messageMaxBytes() == 15000,
         "Dynamic config not updated");
 
     // Verify that users with access to internal listener cannot update immutable broker configs

@@ -90,6 +90,7 @@ public class MultiTenantApis {
       case TXN_OFFSET_COMMIT:
       case DESCRIBE_CONFIGS:
       case ALTER_CONFIGS:
+      case INCREMENTAL_ALTER_CONFIGS:
       case SASL_AUTHENTICATE:
       case CREATE_ACLS:
       case DESCRIBE_ACLS:
@@ -215,6 +216,7 @@ public class MultiTenantApis {
 
         case DESCRIBE_CONFIGS:
         case ALTER_CONFIGS:
+        case INCREMENTAL_ALTER_CONFIGS:
           if (field != null && field.name.equals("resources") && type instanceof Schema) {
             return Optional.some(
                 new ConfigResourceTenantTransformer(type, TenantTransform.ADD_PREFIX));
@@ -286,6 +288,7 @@ public class MultiTenantApis {
 
         case DESCRIBE_CONFIGS:
         case ALTER_CONFIGS:
+        case INCREMENTAL_ALTER_CONFIGS:
           if (field != null && field.name.equals("resources") && type instanceof Schema) {
             return Optional.some(
                 new ConfigResourceTenantTransformer(type, TenantTransform.REMOVE_PREFIX));
