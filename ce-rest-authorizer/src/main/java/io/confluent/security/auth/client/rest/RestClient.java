@@ -8,10 +8,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.security.auth.client.RestClientConfig;
 import io.confluent.security.auth.client.provider.BuiltInAuthProviders;
 import io.confluent.security.auth.client.provider.HttpCredentialProvider;
+import io.confluent.security.auth.client.rest.entities.AuthenticationResponse;
 import io.confluent.security.auth.client.rest.entities.ErrorMessage;
 import io.confluent.security.auth.client.rest.exceptions.RestClientException;
+import io.confluent.security.auth.common.JwtBearerToken;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.SslConfigs;
+import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.network.Mode;
 import org.apache.kafka.common.security.ssl.SslFactory;
@@ -54,9 +57,13 @@ public class RestClient implements Closeable {
   private static final int JSON_PARSE_ERROR_CODE = 50005;
 
   private static final String ACTIVE_NODES_END_POINT = "/activenodes/%s";
+  private static final String AUTHENTICATE_END_POINT = "/authenticate";
 
-  private static final TypeReference<List<String>> ACTIVE_URLS_RESPONSE_TYPE = new TypeReference<List<String>>() {
-  };
+  private static final TypeReference<List<String>> ACTIVE_URLS_RESPONSE_TYPE =
+          new TypeReference<List<String>>() { };
+
+  private static final TypeReference<AuthenticationResponse>
+          AUTHENTICATION_RESPONSE_TYPE = new TypeReference<AuthenticationResponse>() { };
 
   private static final Map<String, String> DEFAULT_REQUEST_PROPERTIES;
   private static ObjectMapper jsonDeserializer = new ObjectMapper();
@@ -184,6 +191,19 @@ public class RestClient implements Closeable {
     /* inherit rest client credential provider as a default */
     request.setCredentialProvider(this.credentialProvider);
     return request;
+  }
+
+  public JwtBearerToken login() throws AuthenticationException {
+    RestRequest request = newRequest(AUTHENTICATE_END_POINT);
+    request.setCredentialProvider(this.credentialProvider);
+    request.setResponse(AUTHENTICATION_RESPONSE_TYPE);
+
+    try {
+      AuthenticationResponse response = sendRequest(request);
+      return new JwtBearerToken(response.authenticationToken());
+    } catch (Exception e) {
+      throw new AuthenticationException("Failed to authenticate", e);
+    }
   }
 
   public <T> T sendRequest(RestRequest request)

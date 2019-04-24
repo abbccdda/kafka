@@ -51,6 +51,11 @@ public class RestClientConfig extends AbstractConfig {
   private static final String BASIC_AUTH_USER_INFO_PROP_DOC = "Basic user credentials info in the format user:password." +
           " This is required for " + BasicAuthCredentialProviders.USER_INFO.name() + " provider.";
 
+  public static final String TOKEN_AUTH_CREDENTIAL_PROP = "token.auth.credential";
+  private static final String TOKEN_AUTH_CREDENTIAL_DEFAULT = "";
+  private static final String TOKEN_AUTH_CREDENTIAL_DOC =
+          "String representation of an Authentication Token";
+
   public static final String REQUEST_TIMEOUT_MS_CONFIG = "request.timeout.ms";
   public static final String REQUEST_TIMEOUT_MS_DOC = "The configuration controls the maximum amount of time the client will wait "
           + "for the response of a each authorizer request.";
@@ -79,6 +84,10 @@ public class RestClientConfig extends AbstractConfig {
                     REQUEST_TIMEOUT_MS_DOC)
             .define(HTTP_REQUEST_TIMEOUT_MS_CONFIG, Type.INT, 10 * 1000, atLeast(0), Importance.MEDIUM,
                 HTTP_REQUEST_TIMEOUT_MS_DOC)
+            .define(TOKEN_AUTH_CREDENTIAL_PROP, Type.STRING,
+                    TOKEN_AUTH_CREDENTIAL_DEFAULT,
+                    Importance.LOW,
+                    TOKEN_AUTH_CREDENTIAL_DOC)
             .withClientSslSupport();
   }
 

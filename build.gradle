@@ -2074,9 +2074,11 @@ project(':ce-rest-authorizer') {
   dependencies {
     compile project(':clients')
     compile project(':ce-authorizer')
+    compile project(':ce-broker-plugins')
     compile libs.jacksonDatabind
     compile libs.jacksonJDK8Datatypes
     compile libs.jaxrsApi
+    compile libs.jose4j
     testCompile libs.junit
     testCompile libs.powermockEasymock
     testCompile libs.powermockJunit4
