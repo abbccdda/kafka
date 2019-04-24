@@ -60,6 +60,7 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -194,6 +195,8 @@ public class RestServer {
             }
             context.addFilter(filterHolder, "/*", EnumSet.of(DispatcherType.REQUEST));
         }
+
+        applyServletInitializers(context);
 
         RequestLogHandler requestLogHandler = new RequestLogHandler();
         Slf4jRequestLog requestLog = new Slf4jRequestLog();
@@ -331,6 +334,27 @@ public class RestServer {
             return base + path.substring(1);
         else
             return base + path;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void applyServletInitializers(ServletContextHandler context) {
+        List<Consumer> servletInitializers = config.getConfiguredInstances(
+            WorkerConfig.REST_SERVLET_INITIALIZERS_CLASSES_CONFIG,
+            Consumer.class
+        );
+        for (Consumer<?> servletInitializer : servletInitializers) {
+            log.info("Creating rest initializer {}", servletInitializer);
+            try {
+                ((Consumer<ServletContextHandler>) servletInitializer).accept(context);
+            } catch (final Throwable e) {
+                throw new ConfigException(
+                    "Exception from custom servlet initializer "
+                        + servletInitializer.getClass().getName(),
+                    e
+                );
+            }
+        }
+
     }
 
 }

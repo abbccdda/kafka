@@ -212,6 +212,15 @@ public class WorkerConfig extends AbstractConfig {
             + "<code>ConnectRestExtension</code> allows you to inject into Connect's REST API user defined resources like filters. "
             + "Typically used to add custom capability like logging, security, etc. ";
 
+    public static final String REST_SERVLET_INITIALIZERS_CLASSES_CONFIG =
+        "rest.servlet.initializor.classes";
+    public static final String REST_SERVLET_INITIALIZERS_CLASSES_DOC =
+        "Defines one or more initializer for the rest endpoint's ServletContextHandler. "
+            + "Each initializer must implement Consumer<ServletContextHandler>. "
+            + "It will be called to perform initialization of the handler, in order. "
+            + "This is an internal feature and subject to change, "
+            + "including changes to the Jetty version";
+
     public static final String METRICS_SAMPLE_WINDOW_MS_CONFIG = CommonClientConfigs.METRICS_SAMPLE_WINDOW_MS_CONFIG;
     public static final String METRICS_NUM_SAMPLES_CONFIG = CommonClientConfigs.METRICS_NUM_SAMPLES_CONFIG;
     public static final String METRICS_RECORDING_LEVEL_CONFIG = CommonClientConfigs.METRICS_RECORDING_LEVEL_CONFIG;
@@ -289,7 +298,10 @@ public class WorkerConfig extends AbstractConfig {
                         Collections.emptyList(),
                         Importance.LOW, CONFIG_PROVIDERS_DOC)
                 .define(REST_EXTENSION_CLASSES_CONFIG, Type.LIST, "",
-                        Importance.LOW, REST_EXTENSION_CLASSES_DOC);
+                        Importance.LOW, REST_EXTENSION_CLASSES_DOC)
+                .define(REST_SERVLET_INITIALIZERS_CLASSES_CONFIG,
+                        Type.LIST, Collections.emptyList(), Importance.LOW,
+                        REST_SERVLET_INITIALIZERS_CLASSES_DOC);
     }
 
     private void logInternalConverterDeprecationWarnings(Map<String, String> props) {
