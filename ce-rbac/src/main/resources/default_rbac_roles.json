@@ -48,6 +48,10 @@
           {
             "resourceType" : "Connector",
             "operations" : ["Create", "ReadConfig", "ReadStatus", "Pause", "Resume", "Scale", "Delete"]
+          },
+          {
+            "resourceType" : "KsqlCluster",
+            "operations" : ["Create", "Contribute", "Terminate"]
           }
         ]
       }
@@ -107,6 +111,10 @@
           {
             "resourceType" : "Connector",
             "operations" : ["Create", "ReadConfig", "ReadStatus", "Pause", "Resume", "Scale", "Configure", "Delete"]
+          },
+          {
+            "resourceType" : "KsqlCluster",
+            "operations" : ["Create", "Contribute", "Terminate"]
           }
         ]
       }
@@ -173,6 +181,10 @@
           {
             "resourceType" : "Connector",
             "operations" : ["ReadStatus", "Configure"]
+          },
+          {
+            "resourceType" : "KsqlCluster",
+            "operations" : ["Contribute"]
           }
         ]
       }
@@ -206,6 +218,10 @@
           {
             "resourceType" : "Connector",
             "operations" : ["Create", "ReadStatus", "Pause", "Resume", "Scale"]
+          },
+          {
+            "resourceType" : "KsqlCluster",
+            "operations" : ["Terminate"]
           }
         ]
       }
