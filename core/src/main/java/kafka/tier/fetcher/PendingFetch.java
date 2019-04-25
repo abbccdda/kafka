@@ -76,7 +76,6 @@ public class PendingFetch implements Runnable {
         return this.transferPromise.isDone();
     }
 
-
     @Override
     public void run() {
         try {

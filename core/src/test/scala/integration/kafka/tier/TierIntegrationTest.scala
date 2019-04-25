@@ -271,41 +271,20 @@ class TierIntegrationTest {
 
     var materializedFirstCycle = Seq.empty[TopicPartition]
 
-    // Wait for the partitions that happened to be at the front of the priority queue to each upload their first segment and store metadata.
+    // two partitions should be chosen initially, and both should be materialized fully in parallel
+    // and the other partition should not be materialized at al
     val lastOffsetOfInitialSegment = Optional.of(recordsPerBatch - 1L : java.lang.Long)
     archiveAndMaterializeUntilTrue(() => {
-      materializedFirstCycle = logs.collect {
-        case log if tierTopicManager.partitionState(log.topicPartition).uncommittedEndOffset()
-          .equals(lastOffsetOfInitialSegment) => log.topicPartition
-      }
-      maxConcurrentUploads == materializedFirstCycle.size
+      logs.count(_.tierableLogSegments.isEmpty) == 2
     }, s"Do work until the initial segment for each of the first $maxConcurrentUploads states is materialized",
       tierArchiver, tierTopicManager, consumerBuilder)
 
-
     // end offsets match, process transitions to stage next upload
     tierArchiver.processTransitions()
-
-    // Just before the end of the above cycle, the highest priority paused state(s) had yet to start uploading any segments.
-    // Now, of those, we expect at least one (up to the max states-in-progress ceiling) to be transitioning from BeforeUpload to AfterUpload.
-    val expectedInProgressNotMaterialized = Math.min(nLogs - maxConcurrentUploads, maxConcurrentUploads)
-    snapshotArchiver(tierArchiver) { s =>
-      assertEquals(s"$expectedInProgressNotMaterialized not yet materialized partition(s) should correspond to an in-progress BeforeUpload state",
-        expectedInProgressNotMaterialized,
-        logs.count { log =>
-          s.transitioning.contains(log.topicPartition) &&
-            !materializedFirstCycle.contains(log.topicPartition)
-        })
-    }
-    // The previous assertions cover priority fairness in practice.
-    // Now ensure the archiver can exhaust all tierable segs.
-    val lastOffsetOfFinalTierableSegment = Optional.of(recordsPerBatch * (batches - 1) - 1L : java.lang.Long)
-    archiveAndMaterializeUntilTrue(() => {
-      logs.forall { log =>
-        lastOffsetOfFinalTierableSegment == tierTopicManager.partitionState(log.topicPartition).uncommittedEndOffset()
-      }
-    }, s"Eventually, all tierable segments should be materialized.",
-      tierArchiver, tierTopicManager, consumerBuilder)
+    val untieredLogs = logs.filter(_.tierableLogSegments.nonEmpty)
+    assertEquals("One log should not have been tiered at all", 0, untieredLogs.head.tierableLogSegments.head.baseOffset)
+    assertEquals(1, untieredLogs.size)
+    assertEquals(untieredLogs.head.localLogSegments.size - 1, untieredLogs.head.tierableLogSegments.size )
   }
 
   @Test
@@ -320,10 +299,25 @@ class TierIntegrationTest {
     // Write a batch only to the first two logs
     firstLogs.foreach { log => writeRecordBatches(log, leaderEpoch, 0L, 1, 4) }
 
-    // Immigrate all test logs.
-    // Given maxConcurrentUploads < logs, this will also transition states for second two logs.
-    waitForImmigration(logs, leaderEpoch, tierArchiver, tierTopicManager, consumerBuilder)
+    // Write two batches to last log.
+    writeRecordBatches(logs.last, leaderEpoch, 0L, 2, 4)
 
+    // Immigrate all test partitions
+    logs.foreach { log =>
+      tierMetadataManager.becomeLeader(log.topicPartition, leaderEpoch)
+    }
+
+    // materialize state until online, but don't trigger any archiving
+    archiveAndMaterializeUntilTrue(() => {
+      logs.forall { log =>
+        Option(tierTopicManager.partitionState(log.topicPartition)).exists { tps =>
+          tps.status() == TierPartitionStatus.ONLINE
+        }
+      }
+    }, "Expect leadership to materialize", tierArchiver, tierTopicManager, consumerBuilder)
+
+
+    // trigger archiving, first two partitions should be chosen because they have the least lag
     snapshotArchiver(tierArchiver) { s =>
       assertTrue("First two partitions should have state transitions in progress",
         firstLogs.forall { log =>
@@ -334,9 +328,6 @@ class TierIntegrationTest {
         s.pausedStates.exists { case x: BeforeUpload if x.topicPartition == lastTopicPartition => true })
     }
 
-    // Write ten batches to last log.
-    writeRecordBatches(logs.last, leaderEpoch, 0L, 10, 4)
-
     // The last log's state should be transitioned in the next cycle.
     TestUtils.waitUntilTrue(
       () => tierArchiver.processTransitions(),
@@ -346,6 +337,26 @@ class TierIntegrationTest {
     snapshotArchiver(tierArchiver) { s =>
       assertTrue(s"$lastTopicPartition should be transitioning state.",
         s.transitioning.contains(lastTopicPartition))
+    }
+
+    archiveAndMaterializeUntilTrue(() => {
+      !logs.exists(_.tierableLogSegments.nonEmpty)
+    }, "expected all logs to be fully tiered", tierArchiver, tierTopicManager, consumerBuilder)
+
+
+    writeRecordBatches(logs(0), leaderEpoch, logs(0).logEndOffset+1, 9, 4)
+    writeRecordBatches(logs(1), leaderEpoch, logs(1).logEndOffset+1, 10, 4)
+    writeRecordBatches(logs(2), leaderEpoch, logs(2).logEndOffset+1, 8, 4)
+
+    // The last log's state should be transitioned in the next cycle.
+    TestUtils.waitUntilTrue(
+      () => tierArchiver.processTransitions(),
+      "Archiver should stage new writes",
+      maxWaitTimeMs)
+
+    snapshotArchiver(tierArchiver) { s =>
+      assertTrue("First and last partitions should now have state transitions in progress as they have the minimum lag after writing new batches",
+        s.transitioning.toSet.equals(Set(logs(0).topicPartition, logs(2).topicPartition)))
     }
   }
 
@@ -373,8 +384,7 @@ class TierIntegrationTest {
       // one more tick for the transition from AfterUpload to BeforeUpload
       tierArchiver.processTransitions()
 
-      // -1 because the final segment will not be archived
-      assertEquals(numLogs * (batches - archivedBatches - 1) * recordsPerBatch, totalLag)
+      assertEquals(logs.map(_.tierableLogSegments.map(_.size).sum).sum, totalLag)
     }
 
     // when tracking no partitions, lag should be zero
@@ -392,7 +402,7 @@ class TierIntegrationTest {
 
     // assert initial lag based on the sum of expected log end offsets
     // minus the last segment
-    assertEquals(numLogs * (batches - 1) * recordsPerBatch, totalLag)
+    assertEquals(logs.map(_.tierableLogSegments.map(_.size).sum).sum, totalLag)
 
     // assert lag after each batch is materialized by the archiver
     (1 until batches).foreach(awaitMaterializeBatchAndAssertLag)

@@ -34,25 +34,6 @@ sealed trait TierArchiverState extends Logging {
 
   def lag: Long
 
-  def calculateLag(topicPartition: TopicPartition,
-                   replicaManager: ReplicaManager,
-                   tierPartitionState: TierPartitionState): Long = {
-    replicaManager
-      .getLog(topicPartition)
-      .flatMap { log =>
-        log.baseOffsetFirstUntierableSegment.map { firstUntieredOffset =>
-          val tieredOffset =
-            if (tierPartitionState.uncommittedEndOffset.isPresent)
-              tierPartitionState.uncommittedEndOffset.get + 1
-            else
-              0L
-
-          firstUntieredOffset - tieredOffset
-        }
-      }
-      .getOrElse(0L)
-  }
-
   def relativePriority(other: TierArchiverState): Int
 
   def nextState(): CompletableFuture[TierArchiverState]
@@ -89,6 +70,14 @@ to the next status or remain in the current status
  */
 
 object TierArchiverState {
+  def calculateLag(topicPartition: TopicPartition,
+                   replicaManager: ReplicaManager,
+                   tierPartitionState: TierPartitionState): Long = {
+    replicaManager.getLog(topicPartition) match {
+      case None => 0L
+      case Some(log) => log.tierableLogSegments.foldLeft(0L)(_ + _.size)
+    }
+  }
 
   object TierArchiverStateComparator extends Comparator[TierArchiverState] with Serializable {
     override def compare(a: TierArchiverState, b: TierArchiverState): Int = {
@@ -200,20 +189,21 @@ object TierArchiverState {
     override def lag: Long = calculateLag(topicPartition, replicaManager, tierPartitionState)
 
     // Priority: BeforeLeader > AfterUpload > BeforeUpload (this)
-    // When comparing two BeforeUpload states, prioritize the state with greater lag higher.
+    // When comparing two BeforeUpload states, prioritize the state with lower lag higher.
+    // Partitions with 0 lag should be deprioritized as they are already fully tiered.
     override def relativePriority(other: TierArchiverState): Int = {
       other match {
         case _: BeforeLeader => Priority.Lower
         case otherBeforeUpload: BeforeUpload =>
           val otherLag = otherBeforeUpload.lag
           val thisLag = this.lag
-          if (otherLag > thisLag) {
-            Priority.Lower
-          } else if (otherLag < thisLag) {
-            Priority.Higher
-          } else {
+          if (thisLag == otherLag)
             Priority.Same
-          }
+          else if (thisLag == 0 || otherLag < thisLag)
+            Priority.Lower
+          else
+            Priority.Higher
+
         case _: AfterUpload => Priority.Lower
       }
     }

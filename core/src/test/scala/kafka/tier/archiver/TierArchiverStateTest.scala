@@ -282,8 +282,30 @@ class TierArchiverStateTest {
 
   @Test
   def testArchiverStateRelativePriority(): Unit = {
+    def addLog(mockTierMetadataManager: TierMetadataManager,
+               topicPartition: TopicPartition,
+               tierPartitionState: TierPartitionState,
+               replicaManager: ReplicaManager,
+               hwm: Long,
+               tierEndOffset: Long): Unit = {
+      val logDir = Paths.get(TestUtils.tempDir().getPath, topicPartition.toString).toFile
+      val logConfig = LogTest.createLogConfig(segmentBytes = 150, indexIntervalBytes = 1, maxMessageBytes = 64 * 1024, tierEnable = true)
+      when(mockTierMetadataManager.initState(topicPartition, logDir, logConfig)).thenReturn(tierPartitionState)
+      val log = Log(logDir, logConfig, 0L, 0L, mockTime.scheduler, new BrokerTopicStats, mockTime, 60 * 60 * 1000,
+        LogManager.ProducerIdExpirationCheckIntervalMs, new LogDirFailureChannel(10), Some(mockTierMetadataManager))
+
+      for (i <- 0 to hwm.intValue())
+        log.appendAsFollower(TierUtils.createRecords(1, topicPartition, log.logEndOffset, 0))
+
+      log.onHighWatermarkIncremented(log.logEndOffset)
+      when(replicaManager.getLog(topicPartition)).thenReturn(Some(log))
+
+      when(tierPartitionState.uncommittedEndOffset()).thenReturn(Optional.of(tierEndOffset): Optional[java.lang.Long])
+    }
+
     val tierTopicManager = mock(classOf[TierTopicManager])
     val tierObjectStore = new MockInMemoryTierObjectStore(objectStoreConfig)
+    val mockTierMetadataManager: TierMetadataManager = mock(classOf[TierMetadataManager])
     val topicPartitionBeforeLeader = new TopicPartition("foo", 0)
     val topicPartitionBeforeUploadA = new TopicPartition("foo", 1)
     val topicPartitionBeforeUploadB = new TopicPartition("foo", 2)
@@ -297,21 +319,26 @@ class TierArchiverStateTest {
     val leaderTierPartitionState = mockTierPartitionStateAtEndOffset(0L)
     when(tierTopicManager.partitionState(topicPartitionBeforeLeader)).thenReturn(leaderTierPartitionState)
 
-    addLog(topicPartitionBeforeLeader, replicaManager, 0)
-    addLog(topicPartitionBeforeUploadA, replicaManager, 100)
-    addLog(topicPartitionBeforeUploadB , replicaManager, 100)
-    addLog(topicPartitionBeforeUploadC, replicaManager, 900)
-    addLog(topicPartitionAfterUpload, replicaManager, 0)
+    val beforeLeaderPartitionState = mockTierPartitionStateAtEndOffset(0L)
+    addLog(mockTierMetadataManager, topicPartitionBeforeLeader, beforeLeaderPartitionState, replicaManager, 0, 0L)
+
+    val beforeUploadAPartitionState = mockTierPartitionStateAtEndOffset(0L)
+    addLog(mockTierMetadataManager, topicPartitionBeforeUploadA, beforeUploadAPartitionState, replicaManager, 100, 0L)
+
+    val beforeUploadBPartitionState = mockTierPartitionStateAtEndOffset(0L)
+    addLog(mockTierMetadataManager, topicPartitionBeforeUploadB, beforeUploadBPartitionState, replicaManager, 100, 0L)
+
+    val beforeUploadCPartitionState = mockTierPartitionStateAtEndOffset(0L)
+    addLog(mockTierMetadataManager, topicPartitionBeforeUploadC, beforeUploadCPartitionState, replicaManager, 901, 890L)
+
+    val afterUploadPartitionState = mockTierPartitionStateAtEndOffset(0L)
+    addLog(mockTierMetadataManager, topicPartitionAfterUpload, afterUploadPartitionState, replicaManager, 0, 0L)
 
     val beforeLeader = BeforeLeader(replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartitionBeforeLeader, tierEpoch, blockingTaskExecutor, config)
-
-    val beforeUploadA = BeforeUpload(replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartitionBeforeUploadA, mockTierPartitionStateAtEndOffset(0L), tierEpoch, blockingTaskExecutor, config)
-
-    val beforeUploadB = BeforeUpload(replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartitionBeforeUploadB , mockTierPartitionStateAtEndOffset(0L), tierEpoch, blockingTaskExecutor, config)
-
-    val beforeUploadC = BeforeUpload(replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartitionBeforeUploadC, mockTierPartitionStateAtEndOffset(900L), tierEpoch, blockingTaskExecutor, config)
-
-    val afterUpload = AfterUpload(mock(classOf[TierObjectMetadata]), mock(classOf[LogSegment]), replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartitionAfterUpload, mockTierPartitionStateAtEndOffset(0L), tierEpoch, blockingTaskExecutor, config)
+    val beforeUploadA = BeforeUpload(replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartitionBeforeUploadA, beforeUploadAPartitionState, tierEpoch, blockingTaskExecutor, config)
+    val beforeUploadB = BeforeUpload(replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartitionBeforeUploadB, beforeUploadBPartitionState, tierEpoch, blockingTaskExecutor, config)
+    val beforeUploadC = BeforeUpload(replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartitionBeforeUploadC, beforeUploadCPartitionState, tierEpoch, blockingTaskExecutor, config)
+    val afterUpload = AfterUpload(mock(classOf[TierObjectMetadata]), mock(classOf[LogSegment]), replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartitionAfterUpload, afterUploadPartitionState, tierEpoch, blockingTaskExecutor, config)
 
     assertEquals("BeforeLeader states have greater priority than AfterUpload states",
       Priority.Higher, beforeLeader.relativePriority(afterUpload))
@@ -322,28 +349,8 @@ class TierArchiverStateTest {
     assertEquals("BeforeUpload states with equal lag have same priority",
       Priority.Same, beforeUploadA.relativePriority(beforeUploadB))
 
-    assertEquals("BeforeUpload states with greater lag have higher priority",
-      Priority.Higher, beforeUploadA.relativePriority(beforeUploadC))
-  }
-
-  private def addLog(topicPartition: TopicPartition, replicaManager: ReplicaManager, hwm: Long) : Unit = {
-    val logDir = Paths.get(TestUtils.tempDir().getPath, topicPartition.toString).toFile
-    val logConfig = LogTest.createLogConfig(segmentBytes =  150, indexIntervalBytes = 1, maxMessageBytes = 64 * 1024, tierEnable = true)
-    val log = LogTest.createLog(logDir, logConfig, new BrokerTopicStats, mockTime.scheduler, mockTime,
-      0L, 0L, 60 * 60 * 1000, LogManager.ProducerIdExpirationCheckIntervalMs)
-
-
-    val tierPartitionState = mock(classOf[TierPartitionState])
-    when(tierPartitionState.endOffset()).thenReturn(Optional.empty() : Optional[java.lang.Long])
-    when(tierPartitionState.tierEpoch).thenReturn(0)
-
-    for (i <- 0 to hwm.intValue())
-      log.appendAsFollower(TierUtils.createRecords(1, topicPartition, log.logEndOffset, 0))
-
-    log.onHighWatermarkIncremented(log.logEndOffset)
-
-    when(replicaManager.getLog(topicPartition)).thenReturn(Some(log))
-
+    assertEquals("BeforeUpload states with higher lag have lower priority",
+      Priority.Lower, beforeUploadA.relativePriority(beforeUploadC))
   }
 
   private def mockTierPartitionStateAtEndOffset(offset: Long): TierPartitionState = {
