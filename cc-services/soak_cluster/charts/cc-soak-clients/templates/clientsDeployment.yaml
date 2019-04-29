@@ -59,11 +59,3 @@ spec:
               value: "/mnt/config/client/client_properties.json"
             - name: DEBUG_LOGS
               value: "{{ .Values.debugLogs }}"
-          readinessProbe:
-            exec:
-              command:
-              - /usr/bin/nc
-              - -z
-              - -w
-              - "2"
-              - 0.0.0.0
