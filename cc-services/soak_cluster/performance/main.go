@@ -1,41 +1,15 @@
 package performance
 
 import (
-	"encoding/json"
-	"fmt"
 	logutil "github.com/confluentinc/cc-utils/log"
 	"github.com/confluentinc/ce-kafka/cc-services/soak_cluster/common"
 	"github.com/confluentinc/ce-kafka/cc-services/soak_cluster/trogdor"
 	"github.com/go-kit/kit/log"
-	"github.com/pkg/errors"
-	"io/ioutil"
 	"os"
+	"time"
 )
 
 var logger log.Logger
-
-type PerformanceTestConfig struct {
-	Type       string          `json:"test_type"`
-	Name       string          `json:"test_name"`
-	Parameters json.RawMessage `json:"test_parameters"`
-}
-
-const PROGRESSIVE_WORKLOAD_TEST_TYPE = "ProgressiveWorkload"
-
-func (performanceTestConfig *PerformanceTestConfig) parseConfig(configPath string) error {
-	raw, err := ioutil.ReadFile(configPath)
-	if err != nil {
-		return errors.Wrap(err, fmt.Sprintf("failed reading the performance test configuration from %s", configPath))
-	}
-
-	err = json.Unmarshal(raw, &performanceTestConfig)
-	if err != nil {
-		return err
-	}
-
-	logutil.Info(logger, "Loaded configuration for test %s of type %s.", performanceTestConfig.Name, performanceTestConfig.Type)
-	return nil
-}
 
 var (
 	adminConfig   = trogdor.AdminConf{}
@@ -50,28 +24,24 @@ func Run(testConfigPath string, trogdorCoordinatorHost string, trogdorAgentsCoun
 		panic(err)
 	}
 
-	testConfig := PerformanceTestConfig{}
-	err = testConfig.parseConfig(testConfigPath)
+	testConfig := newScenarioTestConfig()
+	err = testConfig.ParseConfig(testConfigPath)
 	if err != nil {
-		logutil.Error(logger, "error while parsing performance test config - %s", err)
+		logutil.Error(logger, "error while parsing scenario test config - %s", err)
 		panic(err)
 	}
-	var tasks []trogdor.TaskSpec
-	switch testConfig.Type {
-	case PROGRESSIVE_WORKLOAD_TEST_TYPE:
-		var progressiveWorkload Workload
-		err = json.Unmarshal(testConfig.Parameters, &progressiveWorkload)
-		if err != nil {
-			panic(errors.Wrapf(err, "error while trying to parse progressive workload test parameters"))
-		}
-		progressiveWorkload.Name = testConfig.Name
-		tasks, err = progressiveWorkload.CreateWorkload(trogdorAgentsCount, bootstrapServers)
-		if err != nil {
-			panic(err)
-		}
-	default:
-		panic(errors.New(fmt.Sprintf("test type %s is not supported", testConfig.Type)))
+	err = testConfig.CreateSchedules(time.Now())
+	if err != nil {
+		logutil.Error(logger, "error while scheduling tests - %s", err)
+		panic(err)
 	}
 
+	tasks, err := testConfig.CreateTests(trogdorAgentsCount, bootstrapServers)
+	if err != nil {
+		logutil.Error(logger, "error while creating tests - %s", err)
+		panic(err)
+	}
+
+	logutil.Info(logger, "Parsed and scheduled tests successfully")
 	common.ScheduleTrogdorTasks(logger, tasks, trogdorCoordinatorHost)
 }

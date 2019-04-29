@@ -3,7 +3,6 @@ package trogdor
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -333,9 +332,9 @@ func TaskStatuses(coordinatorURL string, earliestStartMs int64, latestStartMs in
 		return nil, err
 	}
 	if req.StatusCode > 299 {
-		return nil, errors.New(fmt.Sprintf(
+		return nil, fmt.Errorf(
 			`Request for the status of tasks (earliestStartMs: %d, latestStartMs: %d) returned status code %s`,
-			earliestStartMs, latestStartMs, req.Status))
+			earliestStartMs, latestStartMs, req.Status)
 	}
 
 	return parseStatuses(req.Body)
@@ -363,7 +362,7 @@ func (r *TaskSpec) Status(coordinatorURL string) (*TaskStatus, error) {
 		return nil, err
 	}
 	if req.StatusCode > 299 {
-		return nil, errors.New(fmt.Sprintf(`Request for the status of task "%s" returned status code %s`, r.ID, req.Status))
+		return nil, fmt.Errorf(`request for the status of task "%s" returned status code %s`, r.ID, req.Status)
 	}
 
 	return r.parseStatus(req.Body)
@@ -433,7 +432,7 @@ func (r *TaskStatus) isProduceTask() bool {
 
 func (r *TaskStatus) produceTaskStatus() (*produceTaskStatus, error) {
 	if !r.isProduceTask() {
-		return nil, errors.New(fmt.Sprintf("the task is a %s, not a produce task", r.Spec.Class))
+		return nil, fmt.Errorf("the task is a %s, not a produce task", r.Spec.Class)
 	}
 	var taskStatus produceTaskStatus
 	err := json.Unmarshal(r.Status, &taskStatus)
@@ -446,7 +445,7 @@ func (r *TaskStatus) produceTaskStatus() (*produceTaskStatus, error) {
 
 func (r *TaskStatus) consumeTaskStatus() (map[string]*consumeTaskStatus, error) {
 	if !r.isConsumeTask() {
-		return nil, errors.New(fmt.Sprintf("the task is a %s, not a consume task", r.Spec.Class))
+		return nil, fmt.Errorf("the task is a %s, not a consume task", r.Spec.Class)
 	}
 	var taskStatuses map[string]*consumeTaskStatus
 	err := json.Unmarshal(r.Status, &taskStatuses)

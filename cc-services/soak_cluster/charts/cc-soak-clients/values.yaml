@@ -1,7 +1,7 @@
 image:
   repository: confluent-docker.jfrog.io/confluentinc
   name: cc-soak-clients
-  tag: 0.127.0-2.3.0-SNAPSHOT-6-g6e4a08437
+  tag: 0.155.0-2.3.0-SNAPSHOT-11-gaf34942b4
   pullPolicy: IfNotPresent
 trogdorCoordinatorPort: 9002
 apiKey: "null"

@@ -127,17 +127,22 @@ metadata:
 data:
   performance_test.json: '
 {
-  "test_type": "ProgressiveWorkload",
-  "test_name": "progressive produce test 10-200mbs",
-  "test_parameters": {
-    "workload_type": "Produce",
-    "step_duration_ms": 150000,
-    "partition_count": 100,
-    "step_cooldown_ms": 30000,
-    "start_throughput_mbs": 10,
-    "end_throughput_mbs": 200,
-    "throughput_increase_per_step_mbs": 10,
-    "message_size_bytes": 1000
-  }
+  "scenario_name": "ExampleTest",
+  "test_definitions": [
+    {
+      "test_type": "ProgressiveWorkload",
+      "test_name": "progressive produce test 10-200mbs",
+      "test_parameters": {
+        "workload_type": "Produce",
+        "step_duration_ms": 150000,
+        "partition_count": 100,
+        "step_cooldown_ms": 30000,
+        "start_throughput_mbs": 10,
+        "end_throughput_mbs": 200,
+        "throughput_increase_per_step_mbs": 10,
+        "message_size_bytes": 1000
+      }
+    }
+  ]
 }
 '
