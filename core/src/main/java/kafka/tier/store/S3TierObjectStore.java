@@ -38,18 +38,17 @@ import java.util.List;
 import java.util.Optional;
 
 public class S3TierObjectStore implements TierObjectStore {
-    private final static int PART_UPLOAD_SIZE = 5 * 1024 * 1024;
     private final static Logger log = LoggerFactory.getLogger(S3TierObjectStore.class);
     private final String bucket;
     private final String sseAlgorithm;
-    private final boolean enableMultiPartUpload;
+    private final int partUploadSize;
     private AmazonS3 client;
 
     public S3TierObjectStore(TierObjectStoreConfig config) {
         this.client = client(config);
         this.bucket = config.s3bucket;
         this.sseAlgorithm = config.s3SseAlgorithm;
-        this.enableMultiPartUpload = config.s3EnableMultipartUpload;
+        this.partUploadSize = config.s3MultipartUploadSize;
         expectBucket(bucket, config.s3Region);
     }
 
@@ -85,12 +84,11 @@ public class S3TierObjectStore implements TierObjectStore {
             File producerStateSnapshotData, File transactionIndexData,
             Optional<File> epochState) {
         try {
-            if (enableMultiPartUpload) {
-                putFileMultipart(keyPath(objectMetadata, TierObjectStoreFileType.SEGMENT),
-                        segmentData);
-            } else {
+            if (segmentData.length() <= partUploadSize)
+                putFileMultipart(keyPath(objectMetadata, TierObjectStoreFileType.SEGMENT), segmentData);
+            else
                 putFile(keyPath(objectMetadata, TierObjectStoreFileType.SEGMENT), segmentData);
-            }
+
             putFile(keyPath(objectMetadata, TierObjectStoreFileType.OFFSET_INDEX), offsetIndexData);
             putFile(keyPath(objectMetadata, TierObjectStoreFileType.TIMESTAMP_INDEX),
                 timestampIndexData);
@@ -132,8 +130,8 @@ public class S3TierObjectStore implements TierObjectStore {
 
     private void putFileMultipart(String key, File file) {
         final ObjectMetadata objectMetadata = new ObjectMetadata();
-        long fileLength = file.length();
-        long partSize = PART_UPLOAD_SIZE;
+        final long fileLength = file.length();
+        long partSize = partUploadSize;
         log.debug("Uploading multipart object to s3://{}/{}", bucket, key);
 
         final List<PartETag> partETags = new ArrayList<>();
@@ -179,10 +177,8 @@ public class S3TierObjectStore implements TierObjectStore {
             builder.setEndpointConfiguration(
                     new AwsClientBuilder.EndpointConfiguration(
                             config.s3EndpointOverride,
-                            Regions.fromName(config.s3Region).getName()
-                    ));
+                            Regions.fromName(config.s3Region).getName()));
             builder.setPathStyleAccessEnabled(true);
-
         } else if (config.s3Region != null && !config.s3Region.isEmpty()) {
             builder.setRegion(config.s3Region);
         }

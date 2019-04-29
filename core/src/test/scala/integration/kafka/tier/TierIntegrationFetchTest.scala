@@ -48,7 +48,6 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
     serverConfig.put(KafkaConfig.TierBackendProp, "S3")
     serverConfig.put(KafkaConfig.TierS3BucketProp, "tiered-storage-gcs-compatibility-testing-lucas")
     serverConfig.put(KafkaConfig.TierS3RegionProp, "us-east-1")
-    serverConfig.put(KafkaConfig.TierS3EnableMultipartUploadProp, "false")
     serverConfig.put(KafkaConfig.TierS3EndpointOverrideProp, "storage.googleapis.com")
     serverConfig.put(KafkaConfig.TierLocalHotsetBytesProp, "0")
   }
