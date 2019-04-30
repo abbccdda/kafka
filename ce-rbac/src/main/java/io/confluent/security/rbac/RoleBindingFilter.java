@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourcePatternFilter;
+import io.confluent.security.authorizer.Scope;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
@@ -19,7 +20,7 @@ public class RoleBindingFilter {
   private final KafkaPrincipal principal;
   private final ResourcePatternFilter resourceFilter;
   private final String role;
-  private final String scope;
+  private final Scope scope;
 
   /**
    * Filter used to match role bindings for describing or deleting matching role bindings.
@@ -36,7 +37,7 @@ public class RoleBindingFilter {
   @JsonCreator
   public RoleBindingFilter(@JsonProperty("principal") KafkaPrincipal principal,
                            @JsonProperty("role") String role,
-                           @JsonProperty("scope") String scope,
+                           @JsonProperty("scope") Scope scope,
                            @JsonProperty("resourceFilter") ResourcePatternFilter resourceFilter) {
     this.principal = principal;
     this.role = role;
@@ -55,7 +56,7 @@ public class RoleBindingFilter {
   }
 
   @JsonProperty
-  public String scope() {
+  public Scope scope() {
     return scope;
   }
 
@@ -69,7 +70,7 @@ public class RoleBindingFilter {
       return null;
     if (role != null && !role.equals(roleBinding.role()))
       return null;
-    if (scope != null && !scope.contains(roleBinding.scope()))
+    if (scope != null && !scope.containsScope(roleBinding.scope()))
       return null;
     if (resourceFilter == null || !matchResource)
       return roleBinding;

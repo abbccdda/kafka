@@ -2,13 +2,14 @@
 
 package io.confluent.security.test.utils;
 
-import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.auth.store.data.RoleBindingKey;
 import io.confluent.security.auth.store.data.RoleBindingValue;
 import io.confluent.security.auth.store.data.UserKey;
 import io.confluent.security.auth.store.data.UserValue;
 import io.confluent.security.auth.store.kafka.KafkaAuthStore;
+import io.confluent.security.authorizer.ResourcePattern;
+import io.confluent.security.authorizer.Scope;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -30,7 +31,7 @@ public class RbacTestUtils {
   public static void updateRoleBinding(DefaultAuthCache authCache,
                                        KafkaPrincipal principal,
                                        String role,
-                                       String scope,
+                                       Scope scope,
                                        Set<ResourcePattern> resources) {
     RoleBindingKey key = new RoleBindingKey(principal, role, scope);
     RoleBindingValue value = new RoleBindingValue(resources == null ? Collections.emptySet() : resources);
@@ -40,7 +41,7 @@ public class RbacTestUtils {
   public static void deleteRoleBinding(DefaultAuthCache authCache,
                                        KafkaPrincipal principal,
                                        String role,
-                                       String scope) {
+                                       Scope scope) {
     RoleBindingKey key = new RoleBindingKey(principal, role, scope);
     authCache.remove(key);
   }

@@ -5,6 +5,7 @@ package io.confluent.security.rbac;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.confluent.security.authorizer.ResourcePattern;
+import io.confluent.security.authorizer.Scope;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -20,18 +21,18 @@ public class RoleBinding {
   private final KafkaPrincipal principal;
   private final Collection<ResourcePattern> resources;
   private final String role;
-  private final String scope;
+  private final Scope scope;
 
   @JsonCreator
   public RoleBinding(@JsonProperty("principal") KafkaPrincipal principal,
                      @JsonProperty("role") String role,
-                     @JsonProperty("scope") String scope,
+                     @JsonProperty("scope") Scope scope,
                      @JsonProperty("resources") Collection<ResourcePattern> resources) {
     this.principal = Objects.requireNonNull(principal, "principal must not be null");
     if (role == null || role.isEmpty())
       throw new IllegalArgumentException("Role must be non-empty for role binding");
     this.role = role;
-    if (scope == null || scope.isEmpty())
+    if (scope == null || scope.clusters().isEmpty())
       throw new IllegalArgumentException("Scope must be non-empty for role binding");
     this.scope = scope;
     this.resources = resources == null ? Collections.emptySet() :
@@ -49,7 +50,7 @@ public class RoleBinding {
   }
 
   @JsonProperty
-  public String scope() {
+  public Scope scope() {
     return scope;
   }
 

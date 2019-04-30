@@ -15,7 +15,6 @@ public class ResourcePattern implements Comparable<ResourcePattern> {
 
   public static final ResourcePattern ALL =
       new ResourcePattern(ResourceType.ALL, org.apache.kafka.common.resource.ResourcePattern.WILDCARD_RESOURCE, PatternType.LITERAL);
-  public static final ResourcePattern CLUSTER = Resource.CLUSTER.toResourcePattern();
 
   private final String name;
   private final ResourceType resourceType;
@@ -90,7 +89,6 @@ public class ResourcePattern implements Comparable<ResourcePattern> {
   }
 
   public static ResourcePattern all(ResourceType resourceType) {
-    return resourceType.equals(ResourceType.CLUSTER) ? CLUSTER :
-        new ResourcePattern(resourceType, org.apache.kafka.common.resource.ResourcePattern.WILDCARD_RESOURCE, PatternType.LITERAL);
+    return new ResourcePattern(resourceType, org.apache.kafka.common.resource.ResourcePattern.WILDCARD_RESOURCE, PatternType.LITERAL);
   }
 }

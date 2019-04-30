@@ -27,7 +27,7 @@ public class TestAccessRuleProvider implements AccessRuleProvider {
   @Override
   public boolean isSuperUser(KafkaPrincipal sessionPrincipal,
                              Set<KafkaPrincipal> groupPrincipals,
-                             String scope) {
+                             Scope scope) {
     validate(scope);
     return superUsers.contains(sessionPrincipal) || groupPrincipals.stream().anyMatch(superUsers::contains);
   }
@@ -35,7 +35,7 @@ public class TestAccessRuleProvider implements AccessRuleProvider {
   @Override
   public Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
                                      Set<KafkaPrincipal> groupPrincipals,
-                                     String scope,
+                                     Scope scope,
                                      Resource resource) {
 
     validate(scope);
@@ -66,10 +66,10 @@ public class TestAccessRuleProvider implements AccessRuleProvider {
   public void close() {
   }
 
-  private void validate(String scope) {
+  private void validate(Scope scope) {
     if (exception != null)
       throw exception;
-    if (!scope.startsWith(SCOPE))
+    if (!scope.clusters().values().iterator().next().startsWith(SCOPE))
       throw new InvalidScopeException("Unknown scope " + scope);
   }
 

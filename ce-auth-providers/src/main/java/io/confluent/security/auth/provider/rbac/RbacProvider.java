@@ -2,23 +2,23 @@
 
 package io.confluent.security.auth.provider.rbac;
 
-import io.confluent.security.auth.provider.ldap.LdapAuthenticateCallbackHandler;
-import io.confluent.security.auth.provider.ldap.LdapConfig;
-import io.confluent.security.authorizer.Authorizer;
-import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
-import io.confluent.security.authorizer.EmbeddedAuthorizer;
-import io.confluent.security.authorizer.Resource;
-import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
-import io.confluent.security.authorizer.provider.AccessRuleProvider;
-import io.confluent.security.authorizer.provider.GroupProvider;
-import io.confluent.security.authorizer.AccessRule;
-import io.confluent.security.authorizer.provider.MetadataProvider;
 import io.confluent.security.auth.metadata.AuthCache;
 import io.confluent.security.auth.metadata.AuthStore;
 import io.confluent.security.auth.metadata.MetadataServer;
 import io.confluent.security.auth.metadata.MetadataServiceConfig;
+import io.confluent.security.auth.provider.ldap.LdapAuthenticateCallbackHandler;
+import io.confluent.security.auth.provider.ldap.LdapConfig;
 import io.confluent.security.auth.store.kafka.KafkaAuthStore;
-import io.confluent.security.rbac.Scope;
+import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.Authorizer;
+import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
+import io.confluent.security.authorizer.EmbeddedAuthorizer;
+import io.confluent.security.authorizer.Resource;
+import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.provider.AccessRuleProvider;
+import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
+import io.confluent.security.authorizer.provider.GroupProvider;
+import io.confluent.security.authorizer.provider.MetadataProvider;
 import java.io.IOException;
 import java.net.URL;
 import java.util.Collection;
@@ -53,14 +53,9 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   }
 
   @Override
-  public void configureScope(String scope) {
-    if (scope == null || scope.isEmpty())
-      throw new ConfigException("Invalid scope for RBAC provider: " + scope);
-    try {
-      authScope = new Scope(scope);
-    } catch (Exception e) {
-      throw new ConfigException("Invalid scope for RBAC provider: " + scope, e);
-    }
+  public void configureScope(Scope scope) {
+    this.authScope = Objects.requireNonNull(scope, "scope");
+    this.authScope.validate(false);
   }
 
   @Override
@@ -77,7 +72,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
       // scope. We use the metadata server scope for the single AuthStore shared by the authorizer
       // on this broker and the metadata server. If the broker authorizer is not RBAC-enabled,
       // then authScope may be empty and we can just use the metadata server scope for the store.
-      if (!metadataScope.containsScope(authScope) && !authScope.name().isEmpty())
+      if (!metadataScope.containsScope(authScope) && !Scope.ROOT_SCOPE.equals(authScope))
         throw new ConfigException(String.format("Metadata service scope %s does not contain broker scope %s",
             metadataScope, authScope));
       authStoreScope = metadataScope;
@@ -139,16 +134,16 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   @Override
   public boolean isSuperUser(KafkaPrincipal sessionPrincipal,
                              Set<KafkaPrincipal> groupPrincipals,
-                             String scope) {
-    return authCache.isSuperUser(new Scope(scope), userPrincipal(sessionPrincipal), groupPrincipals);
+                             Scope scope) {
+    return authCache.isSuperUser(scope, userPrincipal(sessionPrincipal), groupPrincipals);
   }
 
   @Override
   public Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
                                      Set<KafkaPrincipal> groupPrincipals,
-                                     String scope,
+                                     Scope scope,
                                      Resource resource) {
-    return authCache.rbacRules(new Scope(scope),
+    return authCache.rbacRules(scope,
                                resource,
                                userPrincipal(sessionPrincipal),
                                groupPrincipals);

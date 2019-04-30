@@ -5,13 +5,13 @@ package io.confluent.security.auth.store.kafka;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import io.confluent.security.authorizer.utils.JsonMapper;
 import io.confluent.security.auth.store.data.AuthKey;
 import io.confluent.security.auth.store.data.AuthValue;
 import io.confluent.security.auth.store.data.StatusKey;
 import io.confluent.security.auth.store.data.StatusValue;
+import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.utils.JsonMapper;
 import io.confluent.security.rbac.RbacRoles;
-import io.confluent.security.rbac.Scope;
 import io.confluent.security.store.MetadataStoreStatus;
 import io.confluent.security.store.kafka.KafkaStoreConfig;
 import io.confluent.security.store.kafka.coordinator.MetadataNodeManager;

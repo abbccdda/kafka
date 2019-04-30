@@ -15,10 +15,10 @@ import io.confluent.security.auth.store.data.RoleBindingKey;
 import io.confluent.security.auth.store.data.RoleBindingValue;
 import io.confluent.security.auth.store.data.UserKey;
 import io.confluent.security.auth.store.data.UserValue;
+import io.confluent.security.authorizer.Scope;
 import io.confluent.security.minikdc.MiniKdcWithLdapService;
 import io.confluent.security.rbac.RbacRoles;
 import io.confluent.security.rbac.RoleBinding;
-import io.confluent.security.rbac.Scope;
 import io.confluent.security.store.MetadataStoreException;
 import io.confluent.security.store.MetadataStoreStatus;
 import io.confluent.security.test.utils.LdapTestUtils;
@@ -39,8 +39,7 @@ import org.junit.Test;
 public class KafkaAuthStoreTest {
 
   private final Time time = new MockTime();
-  private String clusterA = "testOrg/clusterA";
-  private Scope scopeClusterA = new Scope(clusterA);
+  private final Scope clusterA = new Scope.Builder("testOrg").withKafkaCluster("clusterA").build();
   private final int storeNodeId = 1;
 
   private RbacRoles rbacRoles;
@@ -73,7 +72,7 @@ public class KafkaAuthStoreTest {
     for (int i = 0; i < 100; i++) {
       authWriter.addRoleBinding(principal("user" + i), "Operator", clusterA);
     }
-    TestUtils.waitForCondition(() -> authCache.rbacRoleBindings(new Scope(clusterA)).size() == 100,
+    TestUtils.waitForCondition(() -> authCache.rbacRoleBindings(clusterA).size() == 100,
         "Roles not assigned");
     for (int i = 0; i < 100; i++) {
       verifyRole("user" + i, "Operator");
@@ -83,7 +82,7 @@ public class KafkaAuthStoreTest {
     for (int i = 0; i < 100; i++) {
       authWriter.addRoleBinding(principal("user" + i), "ClusterAdmin", clusterA);
     }
-    TestUtils.waitForCondition(() -> authCache.rbacRoleBindings(new Scope(clusterA)).size() == 200,
+    TestUtils.waitForCondition(() -> authCache.rbacRoleBindings(clusterA).size() == 200,
         "Roles not assigned");
 
     for (int i = 0; i < 100; i++) {
@@ -106,7 +105,7 @@ public class KafkaAuthStoreTest {
           new RoleBindingValue(Collections.emptySet()));
       authStore.consumer.addRecord(record);
     }
-    TestUtils.waitForCondition(() -> authCache.rbacRoleBindings(new Scope(clusterA)).size() == 100,
+    TestUtils.waitForCondition(() -> authCache.rbacRoleBindings(clusterA).size() == 100,
         "Roles not assigned");
     for (int i = 0; i < 100; i++) {
       verifyRole("user" + i, "Operator");
@@ -167,13 +166,13 @@ public class KafkaAuthStoreTest {
   }
 
   private void createAuthStore() throws Exception {
-    authStore = MockAuthStore.create(rbacRoles, time, new Scope("testOrg"), 1, storeNodeId);
+    authStore = MockAuthStore.create(rbacRoles, time, Scope.intermediateScope("testOrg"), 1, storeNodeId);
   }
 
   private void createAuthStoreWithLdap() throws Exception {
     miniKdcWithLdapService = LdapTestUtils.createMiniKdcWithLdapService(null, null);
 
-    authStore = new MockAuthStore(rbacRoles, time, new Scope("testOrg"), 1, storeNodeId);
+    authStore = new MockAuthStore(rbacRoles, time, Scope.intermediateScope("testOrg"), 1, storeNodeId);
     Map<String, Object> configs = new HashMap<>();
     configs.putAll(LdapTestUtils.ldapAuthorizerConfigs(miniKdcWithLdapService, 10));
     configs.put(LdapConfig.RETRY_BACKOFF_MS_PROP, "1");
@@ -199,6 +198,6 @@ public class KafkaAuthStoreTest {
     RoleBinding binding =
         new RoleBinding(principal(userName), role, clusterA, Collections.emptySet());
     assertTrue("Missing role for " + userName,
-        authCache.rbacRoleBindings(scopeClusterA).contains(binding));
+        authCache.rbacRoleBindings(clusterA).contains(binding));
   }
 }

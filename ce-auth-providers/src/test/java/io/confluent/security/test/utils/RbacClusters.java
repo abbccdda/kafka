@@ -17,6 +17,7 @@ import io.confluent.security.auth.store.kafka.KafkaAuthWriter;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.ResourcePattern;
+import io.confluent.security.authorizer.Scope;
 import io.confluent.security.minikdc.MiniKdcWithLdapService;
 import io.confluent.security.store.kafka.KafkaStoreConfig;
 import java.util.HashMap;
@@ -104,13 +105,13 @@ public class RbacClusters {
   public void assignRole(String principalType,
                          String userName,
                          String role,
-                         String scope,
+                         String clusterId,
                          Set<ResourcePattern> resources) throws Exception {
     KafkaPrincipal principal = new KafkaPrincipal(principalType, userName);
     authWriter.setRoleResources(
         principal,
         role,
-        scope,
+        Scope.kafkaClusterScope(clusterId),
         resources).toCompletableFuture().get(30, TimeUnit.SECONDS);
   }
 

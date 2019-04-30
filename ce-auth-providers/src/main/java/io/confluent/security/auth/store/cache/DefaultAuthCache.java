@@ -2,29 +2,29 @@
 
 package io.confluent.security.auth.store.cache;
 
-import io.confluent.security.authorizer.Operation;
-import io.confluent.security.authorizer.AccessRule;
-import io.confluent.security.authorizer.PermissionType;
-import io.confluent.security.authorizer.Resource;
-import io.confluent.security.authorizer.ResourcePattern;
-import io.confluent.security.authorizer.ResourceType;
-import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.auth.metadata.AuthCache;
 import io.confluent.security.auth.store.data.AuthEntryType;
 import io.confluent.security.auth.store.data.AuthKey;
 import io.confluent.security.auth.store.data.AuthValue;
-import io.confluent.security.auth.store.data.StatusKey;
-import io.confluent.security.auth.store.data.StatusValue;
 import io.confluent.security.auth.store.data.RoleBindingKey;
 import io.confluent.security.auth.store.data.RoleBindingValue;
+import io.confluent.security.auth.store.data.StatusKey;
+import io.confluent.security.auth.store.data.StatusValue;
 import io.confluent.security.auth.store.data.UserKey;
 import io.confluent.security.auth.store.data.UserValue;
+import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.Operation;
+import io.confluent.security.authorizer.PermissionType;
+import io.confluent.security.authorizer.Resource;
+import io.confluent.security.authorizer.ResourcePattern;
+import io.confluent.security.authorizer.ResourceType;
+import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.rbac.AccessPolicy;
 import io.confluent.security.rbac.RbacRoles;
 import io.confluent.security.rbac.Role;
 import io.confluent.security.rbac.RoleBinding;
 import io.confluent.security.rbac.RoleBindingFilter;
-import io.confluent.security.rbac.Scope;
 import io.confluent.security.rbac.UserMetadata;
 import io.confluent.security.store.KeyValueStore;
 import io.confluent.security.store.MetadataStoreException;
@@ -186,7 +186,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     ensureNotFailed();
     Set<RoleBinding> bindings = new HashSet<>();
     roleBindings.entrySet().stream()
-        .filter(e -> scope.name().equals(e.getKey().scope()))
+        .filter(e -> scope.equals(e.getKey().scope()))
         .forEach(e -> bindings.add(roleBinding(e.getKey(), e.getValue())));
     return bindings;
   }
@@ -307,7 +307,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
   }
 
   private RoleBindingValue updateRoleBinding(RoleBindingKey key, RoleBindingValue value) {
-    Scope scope = new Scope(key.scope());
+    Scope scope = key.scope();
     if (!this.rootScope.containsScope(scope))
       return null;
 
@@ -333,7 +333,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
   }
 
   private RoleBindingValue removeRoleBinding(RoleBindingKey key) {
-    Scope scope = new Scope(key.scope());
+    Scope scope = key.scope();
     if (!this.rootScope.containsScope(scope))
       return null;
     RoleBindingValue existing = roleBindings.remove(key);
@@ -386,10 +386,12 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     Collection<ResourcePattern> resources;
     AccessPolicy accessPolicy = accessPolicy(roleBindingKey);
     if (accessPolicy != null) {
-      if (roleBindingValue.resources().isEmpty()) {
-        resources = accessPolicy.allowedOperations(ResourceType.CLUSTER).isEmpty() ?
-            Collections.emptySet() : Collections.singleton(ResourcePattern.CLUSTER);
-
+      if (!accessPolicy.hasResourceScope()) {
+        resources = accessPolicy.allowedOperations().stream()
+            .map(op -> ResourcePattern.all(new ResourceType(op.resourceType())))
+            .collect(Collectors.toSet());
+      } else if (roleBindingValue.resources().isEmpty()) {
+        resources = Collections.emptySet();
       } else {
         resources = roleBindingValue.resources();
       }
@@ -417,7 +419,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
         deletedRules.put(resource, principalRules);
       });
       roleBindings.entrySet().stream()
-          .filter(e -> e.getKey().principal().equals(principal) && e.getKey().scope().equals(scope.name()))
+          .filter(e -> e.getKey().principal().equals(principal) && e.getKey().scope().equals(scope))
           .flatMap(e -> accessRules(e.getKey(), e.getValue()).entrySet().stream())
           .forEach(e -> {
             Set<AccessRule> existing = deletedRules.get(e.getKey());

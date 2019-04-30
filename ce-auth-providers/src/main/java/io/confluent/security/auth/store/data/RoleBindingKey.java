@@ -5,6 +5,7 @@ package io.confluent.security.auth.store.data;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.confluent.security.authorizer.Scope;
 import java.util.Objects;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 
@@ -12,12 +13,12 @@ public class RoleBindingKey extends AuthKey {
 
   private final KafkaPrincipal principal;
   private final String role;
-  private final String scope;
+  private final Scope scope;
 
   @JsonCreator
   public RoleBindingKey(@JsonProperty("principal") KafkaPrincipal principal,
                         @JsonProperty("role") String role,
-                        @JsonProperty("scope") String scope) {
+                        @JsonProperty("scope") Scope scope) {
     this.principal = principal;
     this.role = role;
     this.scope = scope;
@@ -34,7 +35,7 @@ public class RoleBindingKey extends AuthKey {
   }
 
   @JsonProperty
-  public String scope() {
+  public Scope scope() {
     return scope;
   }
 

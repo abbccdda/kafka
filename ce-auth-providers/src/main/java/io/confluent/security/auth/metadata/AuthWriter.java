@@ -4,6 +4,7 @@ package io.confluent.security.auth.metadata;
 
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourcePatternFilter;
+import io.confluent.security.authorizer.Scope;
 import java.util.Collection;
 import java.util.concurrent.CompletionStage;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -20,14 +21,14 @@ public interface AuthWriter {
   /**
    * Adds a new role binding without any resources. If the specified role has resource-level
    * scope, no access rules are added for the principal until resources are added to the role
-   * using {@link #addRoleResources(KafkaPrincipal, String, String, Collection)}.
+   * using {@link #addRoleResources(KafkaPrincipal, String, Scope, Collection)}.
    *
    * @param principal User or group principal to which role is assigned
    * @param role Name of role
    * @param scope Scope at which role is assigned
    * @return a stage that is completed when update completes
    */
-  CompletionStage<Void> addRoleBinding(KafkaPrincipal principal, String role, String scope);
+  CompletionStage<Void> addRoleBinding(KafkaPrincipal principal, String role, Scope scope);
 
   /**
    * Adds resources to a role binding. If the role is not assigned to the principal, an
@@ -41,7 +42,7 @@ public interface AuthWriter {
    * @param resources Resources to add to role binding
    * @return a stage that is completed when update completes
    */
-  CompletionStage<Void> addRoleResources(KafkaPrincipal principal, String role, String scope, Collection<ResourcePattern> resources);
+  CompletionStage<Void> addRoleResources(KafkaPrincipal principal, String role, Scope scope, Collection<ResourcePattern> resources);
 
   /**
    * Removes a role binding. If the specified role has resource-level scope, role
@@ -52,7 +53,7 @@ public interface AuthWriter {
    * @param scope Scope at which role is assigned
    * @return a stage that is completed when update completes
    */
-  CompletionStage<Void> removeRoleBinding(KafkaPrincipal principal, String role, String scope);
+  CompletionStage<Void> removeRoleBinding(KafkaPrincipal principal, String role, Scope scope);
 
   /**
    * Removes resources from an existing role binding. This method will block until the
@@ -64,7 +65,7 @@ public interface AuthWriter {
    * @param resources Filter for resources being removed for the role binding
    * @return a stage that is completed when update completes
    */
-  CompletionStage<Void> removeRoleResources(KafkaPrincipal principal, String role, String scope, Collection<ResourcePatternFilter> resources);
+  CompletionStage<Void> removeRoleResources(KafkaPrincipal principal, String role, Scope scope, Collection<ResourcePatternFilter> resources);
 
   /**
    * Sets resources for an existing role binding. If the role doesn't exist, a new role
@@ -76,6 +77,6 @@ public interface AuthWriter {
    * @param resources Updated collection of resources for the role binding
    * @return a stage that is completed when update completes
    */
-  CompletionStage<Void> setRoleResources(KafkaPrincipal principal, String role, String scope, Collection<ResourcePattern> resources);
+  CompletionStage<Void> setRoleResources(KafkaPrincipal principal, String role, Scope scope, Collection<ResourcePattern> resources);
 
 }

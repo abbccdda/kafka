@@ -1,6 +1,6 @@
 // (Copyright) [2019 - 2019] Confluent, Inc.
 
-package io.confluent.security.rbac;
+package io.confluent.security.authorizer;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -15,11 +15,11 @@ public class ScopeTest {
 
   @Test
   public void testScopes() throws Exception {
-    Scope root = scope("{ \"name\": \"\" }");
-    Scope abc = scope("{ \"name\": \"a/b/c\" }");
-    Scope ab = scope("{ \"name\": \"a/b\" }");
-    Scope a = scope("{ \"name\": \"a\" }");
-    Scope c = scope("{ \"name\": \"c\" }");
+    Scope root = scope("{ \"path\": [] }");
+    Scope abc = scope("{ \"path\": [\"a\", \"b\"], \"clusters\": {\"c\" : \"123\"}  }");
+    Scope ab = scope("{ \"path\": [\"a\", \"b\"] }");
+    Scope a = scope("{ \"path\": [\"a\"] }");
+    Scope c = scope("{ \"path\": [\"c\"] }");
 
     assertEquals(root, scope(JsonMapper.objectMapper().writeValueAsString(root)));
     assertEquals(abc, scope(JsonMapper.objectMapper().writeValueAsString(abc)));

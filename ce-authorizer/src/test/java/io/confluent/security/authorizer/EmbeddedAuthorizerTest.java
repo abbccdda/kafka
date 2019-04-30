@@ -31,7 +31,7 @@ public class EmbeddedAuthorizerTest {
   private final KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "user1");
   private final KafkaPrincipal group = new KafkaPrincipal(AccessRule.GROUP_PRINCIPAL_TYPE, "groupA");
   private final Resource topic = new Resource(new ResourceType("Topic"), "testTopic");
-  private final String scope = "testScope";
+  private final Scope scope = Scope.kafkaClusterScope("testScope");
 
   @After
   public void tearDown() {
@@ -125,7 +125,7 @@ public class EmbeddedAuthorizerTest {
   public void testInvalidScope() {
     configureAuthorizer("TEST", "NONE");
 
-    Action write = new Action("someScope", topic.resourceType(), topic.name(), new Operation("Write"));
+    Action write = new Action(Scope.kafkaClusterScope("someScope"), topic.resourceType(), topic.name(), new Operation("Write"));
     List<AuthorizeResult> result;
     result = authorizer.authorize(principal, "localhost", Collections.singletonList(write));
     assertEquals(Collections.singletonList(AuthorizeResult.UNKNOWN_SCOPE), result);

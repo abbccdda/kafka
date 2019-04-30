@@ -60,7 +60,7 @@ public class EmbeddedAuthorizer implements Authorizer {
   private Set<KafkaPrincipal> superUsers;
   private Duration initTimeout;
   private boolean usesMetadataFromThisKafkaCluster;
-  private volatile String scope;
+  private volatile Scope scope;
 
   static {
     IMPLICIT_ALLOWED_OPS = new HashMap<>();
@@ -80,11 +80,11 @@ public class EmbeddedAuthorizer implements Authorizer {
     this.time = time;
     this.providersCreated = new HashSet<>();
     this.superUsers = Collections.emptySet();
-    this.scope = ""; // Scope is only required for broker authorizers using RBAC
+    this.scope = Scope.ROOT_SCOPE; // Scope is only required for broker authorizers using RBAC
     licenseValidator = licenseValidator();
   }
 
-  public void configureScope(String scope) {
+  public void configureScope(Scope scope) {
     this.scope = scope;
   }
 
@@ -262,7 +262,7 @@ public class EmbeddedAuthorizer implements Authorizer {
       log.error("Failed to close authorizer cleanly", exception);
   }
 
-  protected String scope() {
+  protected Scope scope() {
     return scope;
   }
 

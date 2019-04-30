@@ -11,7 +11,6 @@ import java.util.Objects;
 public class ResourceType {
 
   public static final ResourceType ALL = new ResourceType("All");
-  public static final ResourceType CLUSTER = new ResourceType("Cluster");
 
   private final String name;
 

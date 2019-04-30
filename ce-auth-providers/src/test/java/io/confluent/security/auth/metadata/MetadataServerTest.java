@@ -7,6 +7,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import io.confluent.security.auth.metadata.MockMetadataServer.ServerState;
+import io.confluent.security.auth.provider.rbac.RbacProvider;
+import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
@@ -15,10 +18,7 @@ import io.confluent.security.authorizer.EmbeddedAuthorizer;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.Resource;
 import io.confluent.security.authorizer.ResourceType;
-import io.confluent.security.auth.metadata.MockMetadataServer.ServerState;
-import io.confluent.security.auth.provider.rbac.RbacProvider;
-import io.confluent.security.auth.store.cache.DefaultAuthCache;
-import io.confluent.security.rbac.Scope;
+import io.confluent.security.authorizer.Scope;
 import io.confluent.security.test.utils.RbacTestUtils;
 import java.util.Collections;
 import java.util.HashMap;
@@ -33,7 +33,8 @@ import org.junit.Test;
 
 public class MetadataServerTest {
 
-  private final String clusterA = "testOrg/clusterA";
+  private final Scope clusterA = new Scope.Builder("testOrg").withKafkaCluster("clusterA").build();
+  private final Resource clusterResource = new Resource(new ResourceType("Cluster"), "kafka-cluster");
   private EmbeddedAuthorizer authorizer;
   private RbacProvider metadataRbacProvider;
   private MockMetadataServer metadataServer;
@@ -48,17 +49,17 @@ public class MetadataServerTest {
   @Test
   public void testMetadataServer() {
     createEmbeddedAuthorizer(Collections.emptyMap());
-    verifyMetadataServer("", null);
+    verifyMetadataServer(Scope.ROOT_SCOPE, null);
   }
 
   @Test
   public void testMetadataServerOnBrokerWithoutRbacAccessControl() {
     createEmbeddedAuthorizer(Collections.singletonMap(
         ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "SUPER_USERS"));
-    verifyMetadataServer("", "otherOrg");
+    verifyMetadataServer(Scope.ROOT_SCOPE, Scope.intermediateScope("otherOrg"));
   }
 
-  private void verifyMetadataServer(String cacheScope, String invalidScope) {
+  private void verifyMetadataServer(Scope cacheScope, Scope invalidScope) {
     assertEquals(ServerState.STARTED, metadataServer.serverState);
     assertNotNull(metadataServer.authStore);
     assertNotNull(metadataServer.embeddedAuthorizer);
@@ -68,16 +69,16 @@ public class MetadataServerTest {
     assertNotNull(metadataRbacProvider);
     DefaultAuthCache metadataAuthCache = (DefaultAuthCache) metadataRbacProvider.authCache();
     assertSame(metadataServer.authCache, metadataAuthCache);
-    assertEquals(new Scope(cacheScope), metadataAuthCache.rootScope());
+    assertEquals(cacheScope, metadataAuthCache.rootScope());
 
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
     Set<KafkaPrincipal> groups = Collections.emptySet();
 
     RbacTestUtils.updateRoleBinding(metadataAuthCache, alice, "ClusterAdmin", clusterA, Collections.emptySet());
-    verifyRules(accessRules(alice, groups, Resource.CLUSTER), "Create", "Alter", "Describe", "AlterConfigs", "DescribeConfigs");
-    verifyRules(accessRules(alice, groups, topic));
+    verifyRules(accessRules(alice, groups, clusterResource), "Create", "Alter", "Describe", "AlterConfigs", "DescribeConfigs");
+    verifyRules(accessRules(alice, groups, topic), "Create", "Delete", "Alter", "AlterConfigs", "Describe", "DescribeConfigs");
 
-    Action alterConfigs = new Action(clusterA, ResourceType.CLUSTER, "kafka-cluster", new Operation("AlterConfigs"));
+    Action alterConfigs = new Action(clusterA, new ResourceType("Cluster"), "kafka-cluster", new Operation("AlterConfigs"));
     assertEquals(Collections.singletonList(AuthorizeResult.ALLOWED),
         metadataServer.embeddedAuthorizer.authorize(alice, "localhost", Collections.singletonList(alterConfigs)));
 
@@ -86,7 +87,7 @@ public class MetadataServerTest {
         metadataServer.embeddedAuthorizer.authorize(alice, "localhost", Collections.singletonList(readTopic)));
 
     if (invalidScope != null) {
-      Action describeAnotherScope = new Action(invalidScope, ResourceType.CLUSTER, "kafka-cluster", new Operation("AlterConfigs"));
+      Action describeAnotherScope = new Action(invalidScope, new ResourceType("Cluster"), "kafka-cluster", new Operation("AlterConfigs"));
       assertEquals(Collections.singletonList(AuthorizeResult.DENIED),
           metadataServer.embeddedAuthorizer.authorize(alice, "localhost", Collections.singletonList(describeAnotherScope)));
     }

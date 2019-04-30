@@ -4,6 +4,7 @@ package io.confluent.security.authorizer.provider;
 
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.Resource;
+import io.confluent.security.authorizer.Scope;
 import java.util.Set;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 
@@ -21,7 +22,7 @@ public interface AccessRuleProvider extends Provider {
    * root scope. Scope is not used by cluster-specific providers (e.g. ACLs).
    * @param scope metadata scope
    */
-  default void configureScope(String scope) {
+  default void configureScope(Scope scope) {
   }
 
   /**
@@ -34,7 +35,7 @@ public interface AccessRuleProvider extends Provider {
    * @param scope Scope of resource being access
    * @return true if super-user or super-group
    */
-  boolean isSuperUser(KafkaPrincipal sessionPrincipal, Set<KafkaPrincipal> groupPrincipals, String scope);
+  boolean isSuperUser(KafkaPrincipal sessionPrincipal, Set<KafkaPrincipal> groupPrincipals, Scope scope);
 
   /**
    * Returns the set of access rules for the user and group principals that match the provided
@@ -48,7 +49,7 @@ public interface AccessRuleProvider extends Provider {
    */
   Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
                               Set<KafkaPrincipal> groupPrincipals,
-                              String scope,
+                              Scope scope,
                               Resource resource);
 
   /**

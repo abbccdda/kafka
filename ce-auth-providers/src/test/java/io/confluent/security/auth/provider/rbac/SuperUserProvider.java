@@ -4,6 +4,7 @@ package io.confluent.security.auth.provider.rbac;
 
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.Resource;
+import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import java.io.IOException;
 import java.util.Collections;
@@ -18,14 +19,14 @@ public class SuperUserProvider implements AccessRuleProvider {
   }
 
   @Override
-  public boolean isSuperUser(KafkaPrincipal sessionPrincipal, Set<KafkaPrincipal> groupPrincipals, String scope) {
+  public boolean isSuperUser(KafkaPrincipal sessionPrincipal, Set<KafkaPrincipal> groupPrincipals, Scope scope) {
     return true;
   }
 
   @Override
   public Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
                                      Set<KafkaPrincipal> groupPrincipals,
-                                     String scope,
+                                     Scope scope,
                                      Resource resource) {
     return Collections.emptySet();
   }

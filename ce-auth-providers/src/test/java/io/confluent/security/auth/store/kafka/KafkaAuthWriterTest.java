@@ -9,18 +9,18 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
-import io.confluent.security.authorizer.ResourcePattern;
-import io.confluent.security.authorizer.ResourcePatternFilter;
-import io.confluent.security.authorizer.ResourceType;
-import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.auth.store.data.AuthKey;
 import io.confluent.security.auth.store.data.AuthValue;
 import io.confluent.security.auth.store.data.RoleBindingKey;
 import io.confluent.security.auth.store.data.RoleBindingValue;
+import io.confluent.security.authorizer.ResourcePattern;
+import io.confluent.security.authorizer.ResourcePatternFilter;
+import io.confluent.security.authorizer.ResourceType;
+import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.rbac.InvalidRoleBindingException;
 import io.confluent.security.rbac.RbacRoles;
-import io.confluent.security.rbac.Scope;
 import io.confluent.security.store.MetadataStoreStatus;
 import io.confluent.security.store.NotMasterWriterException;
 import io.confluent.security.test.utils.RbacTestUtils;
@@ -49,6 +49,10 @@ public class KafkaAuthWriterTest {
   private final Time time = new MockTime();
   private final KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
   private final KafkaPrincipal bob = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Bob");
+  private final Scope clusterA = new Scope.Builder("testOrg").withKafkaCluster("clusterA").build();
+  private final Scope clusterB = new Scope.Builder("testOrg").withKafkaCluster("clusterB").build();
+  private final Scope anotherClusterA = new Scope.Builder("anotherOrg").withKafkaCluster("clusterA").build();
+  private final Scope invalidScope = new Scope(Collections.emptyList(), Collections.singletonMap("", "invalid"));
   private final int storeNodeId = 1;
 
   private MockAuthStore authStore;
@@ -58,7 +62,7 @@ public class KafkaAuthWriterTest {
   @Before
   public void setUp() throws Exception {
     RbacRoles rbacRoles = RbacRoles.load(this.getClass().getClassLoader(), "test_rbac_roles.json");
-    authStore = MockAuthStore.create(rbacRoles, time, new Scope("testOrg"), 2, storeNodeId);
+    authStore = MockAuthStore.create(rbacRoles, time, Scope.intermediateScope("testOrg"), 2, storeNodeId);
     authStore.startService(authStore.urls());
     assertNotNull(authStore.writer());
     authWriter = authStore.writer();
@@ -94,9 +98,6 @@ public class KafkaAuthWriterTest {
 
   @Test
   public void testClusterScopeAssignment() throws Exception {
-    String clusterA = "testOrg/clusterA";
-    String clusterB = "testOrg/clusterB";
-
     authWriter.addRoleBinding(alice, "ClusterAdmin", clusterA).toCompletableFuture().join();
     assertEquals(Collections.emptySet(), rbacResources(alice, "ClusterAdmin", clusterA));
 
@@ -119,9 +120,6 @@ public class KafkaAuthWriterTest {
 
   @Test
   public void testResourceScopeBinding() throws Exception {
-    String clusterA = "testOrg/clusterA";
-    String clusterB = "testOrg/clusterB";
-
     // Assign role without resources, add resources
     authWriter.addRoleBinding(alice, "Reader", clusterA).toCompletableFuture().join();
     assertEquals(Collections.emptySet(), rbacResources(alice, "Reader", clusterA));
@@ -176,8 +174,6 @@ public class KafkaAuthWriterTest {
 
   @Test
   public void testResourceRemoveFilter() throws Exception {
-    String clusterA = "testOrg/clusterA";
-
     ResourceType topicType = new ResourceType("Topic");
     ResourceType groupType = new ResourceType("Group");
     ResourcePattern prefixedFinanceTopic = new ResourcePattern(topicType, "finance", PatternType.PREFIXED);
@@ -215,92 +211,92 @@ public class KafkaAuthWriterTest {
 
   @Test(expected = IllegalArgumentException.class)
   public void testClusterScopeAddResources() throws Exception {
-    authWriter.addRoleResources(bob, "Operator", "testOrg/clusterA", resources("topicA", "groupB"));
+    authWriter.addRoleResources(bob, "Operator", clusterA, resources("topicA", "groupB"));
   }
 
   @Test(expected = IllegalArgumentException.class)
   public void testClusterScopeRemoveResources() throws Exception {
-    authWriter.removeRoleResources(bob, "Operator", "testOrg/clusterA", resourceFilters("topicA", "groupB"));
+    authWriter.removeRoleResources(bob, "Operator", clusterA, resourceFilters("topicA", "groupB"));
   }
 
   @Test(expected = IllegalArgumentException.class)
   public void testClusterScopeSetResources() throws Exception {
-    authWriter.setRoleResources(bob, "Operator", "testOrg/clusterA", resources("topicA", "groupB"));
+    authWriter.setRoleResources(bob, "Operator", clusterA, resources("topicA", "groupB"));
   }
 
   @Test(expected = InvalidRoleBindingException.class)
   public void testUnknownRoleAddBinding() throws Exception {
-    authWriter.addRoleBinding(bob, "SomeRole", "testOrg/clusterA");
+    authWriter.addRoleBinding(bob, "SomeRole", clusterA);
   }
 
   @Test(expected = InvalidRoleBindingException.class)
   public void testUnknownRoleAddResources() throws Exception {
-    authWriter.addRoleResources(bob, "SomeRole", "testOrg/clusterA", resources("topicA", "groupB"));
+    authWriter.addRoleResources(bob, "SomeRole", clusterA, resources("topicA", "groupB"));
   }
 
   @Test(expected = InvalidRoleBindingException.class)
   public void testUnknownRoleSetResources() throws Exception {
-    authWriter.setRoleResources(bob, "SomeRole", "testOrg/clusterA", resources("topicA", "groupB"));
+    authWriter.setRoleResources(bob, "SomeRole", clusterA, resources("topicA", "groupB"));
   }
 
   @Test(expected = InvalidRoleBindingException.class)
   public void testUnknownRoleRemoveResources() throws Exception {
-    authWriter.removeRoleResources(bob, "SomeRole", "testOrg/clusterA", resourceFilters("topicA", "groupB"));
+    authWriter.removeRoleResources(bob, "SomeRole", clusterA, resourceFilters("topicA", "groupB"));
   }
 
   @Test(expected = InvalidRoleBindingException.class)
   public void testUnknownRoleRemoveBinding() throws Exception {
-    authWriter.removeRoleBinding(bob, "SomeRole", "testOrg/clusterA");
+    authWriter.removeRoleBinding(bob, "SomeRole", clusterA);
   }
 
   @Test(expected = InvalidScopeException.class)
   public void testUnknownScopeAddBinding() throws Exception {
-    authWriter.addRoleBinding(alice, "Operator", "anotherOrg/clusterA");
+    authWriter.addRoleBinding(alice, "Operator", anotherClusterA);
   }
 
   @Test(expected = InvalidScopeException.class)
   public void testUnknownScopeAddResources() throws Exception {
-    authWriter.addRoleResources(alice, "Reader", "anotherOrg/clusterA", resources("topicA", "groupB"));
+    authWriter.addRoleResources(alice, "Reader", anotherClusterA, resources("topicA", "groupB"));
   }
 
   @Test(expected = InvalidScopeException.class)
   public void testUnknownScopeSetResources() throws Exception {
-    authWriter.setRoleResources(alice, "Reader", "anotherOrg/clusterA", resources("topicA", "groupB"));
+    authWriter.setRoleResources(alice, "Reader", anotherClusterA, resources("topicA", "groupB"));
   }
 
   @Test(expected = InvalidScopeException.class)
   public void testUnknownScopeRemoveResources() throws Exception {
-    authWriter.removeRoleResources(alice, "Reader", "anotherOrg/clusterA", resourceFilters("topicA", "groupB"));
+    authWriter.removeRoleResources(alice, "Reader", anotherClusterA, resourceFilters("topicA", "groupB"));
   }
 
   @Test(expected = InvalidScopeException.class)
   public void testUnknownScopeRemoveBinding() throws Exception {
-    authWriter.removeRoleBinding(alice, "Operator", "anotherOrg/clusterA");
+    authWriter.removeRoleBinding(alice, "Operator", anotherClusterA);
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test(expected = InvalidScopeException.class)
   public void testInvalidScopeAddBinding() throws Exception {
-    authWriter.addRoleBinding(alice, "Operator", "//");
+    authWriter.addRoleBinding(alice, "Operator", invalidScope);
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test(expected = InvalidScopeException.class)
   public void testInvalidScopeAddResources() throws Exception {
-    authWriter.addRoleResources(alice, "Reader", "//", resources("topicA", "groupB"));
+    authWriter.addRoleResources(alice, "Reader", invalidScope, resources("topicA", "groupB"));
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test(expected = InvalidScopeException.class)
   public void testInvalidScopeSetResources() throws Exception {
-    authWriter.setRoleResources(alice, "Reader", "//", resources("topicA", "groupB"));
+    authWriter.setRoleResources(alice, "Reader", invalidScope, resources("topicA", "groupB"));
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test(expected = InvalidScopeException.class)
   public void testInvalidScopeRemoveResources() throws Exception {
-    authWriter.removeRoleResources(alice, "Reader", "//", resourceFilters("topicA", "groupB"));
+    authWriter.removeRoleResources(alice, "Reader", invalidScope, resourceFilters("topicA", "groupB"));
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test(expected = InvalidScopeException.class)
   public void testInvalidScopeRemoveBinding() throws Exception {
-    authWriter.removeRoleBinding(alice, "Operator", "//");
+    authWriter.removeRoleBinding(alice, "Operator", invalidScope);
   }
 
   @Test(expected = NotMasterWriterException.class)
@@ -308,7 +304,7 @@ public class KafkaAuthWriterTest {
     authStore.makeMasterWriter(-1);
     TestUtils.waitForCondition(() -> !authStore.url("http").equals(authStore.masterWriterUrl("http")),
         "Not rebalancing");
-    authWriter.addRoleBinding(bob, "Operator", "testOrg/clusterA");
+    authWriter.addRoleBinding(bob, "Operator", clusterA);
   }
 
   @Test(expected = NotMasterWriterException.class)
@@ -316,7 +312,7 @@ public class KafkaAuthWriterTest {
     authStore.makeMasterWriter(storeNodeId + 1);
     TestUtils.waitForCondition(() -> !authStore.url("http").equals(authStore.masterWriterUrl("http")),
         "Rebalance not complete");
-    authWriter.addRoleBinding(bob, "Operator", "testOrg/clusterA");
+    authWriter.addRoleBinding(bob, "Operator", clusterA);
   }
 
   @Test
@@ -325,8 +321,8 @@ public class KafkaAuthWriterTest {
         "Auth store not initialized");
     authStore.configureDelays(Long.MAX_VALUE, Long.MAX_VALUE); // Don't complete produce/consume
 
-    CompletionStage<Void> stage1 = authWriter.addRoleBinding(bob, "Reader", "testOrg/clusterA");
-    CompletionStage<Void> stage2 = authWriter.setRoleResources(bob, "Reader", "testOrg/clusterA",
+    CompletionStage<Void> stage1 = authWriter.addRoleBinding(bob, "Reader", clusterA);
+    CompletionStage<Void> stage2 = authWriter.setRoleResources(bob, "Reader", clusterA,
         resources("topicA", "groupA"));
     authWriter.stopWriter(1);
     authWriter.startWriter(2);
@@ -351,13 +347,13 @@ public class KafkaAuthWriterTest {
     TestUtils.waitForCondition(() -> authCache.status(0) == MetadataStoreStatus.INITIALIZED,
         "Auth store not initialized");
     authStore.configureDelays(Long.MAX_VALUE, Long.MAX_VALUE); // Don't complete produce/consume
-    CompletionStage<Void> stage = authWriter.addRoleBinding(bob, "Operator", "testOrg/clusterA");
+    CompletionStage<Void> stage = authWriter.addRoleBinding(bob, "Operator", clusterA);
 
     authStore.addNewGenerationStatusRecord(2);
     verifyFailure(stage, NotMasterWriterException.class);
   }
 
-  private Collection<ResourcePattern> rbacResources(KafkaPrincipal principal, String role, String scope) {
+  private Collection<ResourcePattern> rbacResources(KafkaPrincipal principal, String role, Scope scope) {
     RoleBindingValue assignment =
         (RoleBindingValue) authCache.get(new RoleBindingKey(principal, role, scope));
     return assignment == null ? null : assignment.resources();

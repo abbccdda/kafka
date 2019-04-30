@@ -11,12 +11,12 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  */
 public class Action {
 
-  private final String scope;
+  private final Scope scope;
   private final ResourceType resourceType;
   private final String resourceName;
   private final Operation operation;
 
-  public Action(@JsonProperty("scope") String scope,
+  public Action(@JsonProperty("scope") Scope scope,
                 @JsonProperty("resourceType") ResourceType resourceType,
                 @JsonProperty("resourceName") String resourceName,
                 @JsonProperty("operation") Operation operation) {
@@ -27,7 +27,7 @@ public class Action {
   }
 
   @JsonProperty
-  public String scope() {
+  public Scope scope() {
     return scope;
   }
 

@@ -2,12 +2,12 @@
 
 package io.confluent.security.auth.provider.rbac;
 
-import io.confluent.security.authorizer.provider.MetadataProvider;
 import io.confluent.security.auth.metadata.AuthStore;
 import io.confluent.security.auth.metadata.AuthWriter;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
+import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.provider.MetadataProvider;
 import io.confluent.security.rbac.RbacRoles;
-import io.confluent.security.rbac.Scope;
 import java.io.IOException;
 import java.net.URL;
 import java.util.Collection;

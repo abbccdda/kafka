@@ -8,15 +8,16 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
-import io.confluent.security.authorizer.AccessRule;
-import io.confluent.security.authorizer.Resource;
-import io.confluent.security.authorizer.ResourcePattern;
-import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.auth.store.data.RoleBindingKey;
 import io.confluent.security.auth.store.data.RoleBindingValue;
+import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.Resource;
+import io.confluent.security.authorizer.ResourcePattern;
+import io.confluent.security.authorizer.ResourceType;
+import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.rbac.RbacRoles;
-import io.confluent.security.rbac.Scope;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
@@ -30,7 +31,9 @@ import org.junit.Test;
 
 public class RbacProviderTest {
 
-  private final String clusterA = "testOrg/clusterA";
+  private final Scope clusterA = new Scope.Builder("testOrg").withKafkaCluster("clusterA").build();
+  private final Scope clusterB = new Scope.Builder("testOrg").withKafkaCluster("clusterB").build();
+  private final Resource clusterResource = new Resource(new ResourceType("Cluster"), "kafka-cluster");
   private RbacProvider rbacProvider;
   private DefaultAuthCache authCache;
   private Resource topic = new Resource("Topic", "topicA");
@@ -53,11 +56,11 @@ public class RbacProviderTest {
 
     updateRoleBinding(alice, "SuperUser", clusterA, null);
     assertTrue(rbacProvider.isSuperUser(alice, groups, clusterA));
-    verifyRules(accessRules(alice, groups, Resource.CLUSTER));
-    verifyRules(accessRules(alice, groups, topic));
+    verifyRules(accessRules(alice, groups, clusterResource), "All");
+    verifyRules(accessRules(alice, groups, topic), "All");
 
     // Delete non-existing role
-    deleteRoleBinding(alice, "SuperUser", "testOrg/clusterB");
+    deleteRoleBinding(alice, "SuperUser", clusterB);
     assertTrue(rbacProvider.isSuperUser(alice, groups, clusterA));
 
     deleteRoleBinding(alice, "SuperUser", clusterA);
@@ -72,8 +75,8 @@ public class RbacProviderTest {
 
     updateRoleBinding(admin, "SuperUser", clusterA, Collections.emptySet());
     assertTrue(rbacProvider.isSuperUser(alice, groups, clusterA));
-    verifyRules(accessRules(alice, groups, Resource.CLUSTER));
-    verifyRules(accessRules(alice, groups, topic));
+    verifyRules(accessRules(alice, groups, clusterResource), "All");
+    verifyRules(accessRules(alice, groups, topic), "All");
 
     assertFalse(rbacProvider.isSuperUser(alice, Collections.emptySet(), clusterA));
 
@@ -88,25 +91,25 @@ public class RbacProviderTest {
     Set<KafkaPrincipal> groups = Collections.emptySet();
 
     updateRoleBinding(alice, "ClusterAdmin", clusterA, Collections.emptySet());
-    verifyRules(accessRules(alice, groups, Resource.CLUSTER),
+    verifyRules(accessRules(alice, groups, clusterResource),
         "AlterConfigs", "DescribeConfigs");
     verifyRules(accessRules(alice, groups, topic));
 
     updateRoleBinding(alice, "Operator", clusterA, Collections.emptySet());
-    verifyRules(accessRules(alice, groups, Resource.CLUSTER),
+    verifyRules(accessRules(alice, groups, clusterResource),
         "AlterConfigs", "DescribeConfigs");
-    verifyRules(accessRules(alice, groups, topic));
+    verifyRules(accessRules(alice, groups, topic), "DescribeConfigs", "AlterConfigs");
     updateRoleBinding(alice, "Operator", clusterA, Collections.singleton(topic.toResourcePattern()));
     verifyRules(accessRules(alice, groups, topic),
         "AlterConfigs", "DescribeConfigs");
 
     deleteRoleBinding(alice, "ClusterAdmin", clusterA);
-    verifyRules(accessRules(alice, groups, Resource.CLUSTER));
+    verifyRules(accessRules(alice, groups, clusterResource));
     verifyRules(accessRules(alice, groups, topic),
         "AlterConfigs", "DescribeConfigs");
 
     deleteRoleBinding(alice, "Operator", clusterA);
-    verifyRules(accessRules(alice, groups, Resource.CLUSTER));
+    verifyRules(accessRules(alice, groups, clusterResource));
     verifyRules(accessRules(alice, groups, topic));
   }
 
@@ -117,38 +120,38 @@ public class RbacProviderTest {
     Set<KafkaPrincipal> groups = Collections.singleton(admin);
 
     updateRoleBinding(admin, "ClusterAdmin", clusterA, Collections.emptySet());
-    verifyRules(accessRules(alice, groups, Resource.CLUSTER),
+    verifyRules(accessRules(alice, groups, clusterResource),
         "AlterConfigs", "DescribeConfigs");
     verifyRules(accessRules(alice, groups, topic));
-    verifyRules(accessRules(alice, Collections.emptySet(), Resource.CLUSTER));
+    verifyRules(accessRules(alice, Collections.emptySet(), clusterResource));
 
     updateRoleBinding(admin, "Operator", clusterA, Collections.emptySet());
-    verifyRules(accessRules(alice, groups, Resource.CLUSTER),
+    verifyRules(accessRules(alice, groups, clusterResource),
         "AlterConfigs", "DescribeConfigs");
-    verifyRules(accessRules(alice, groups, topic));
+    verifyRules(accessRules(alice, groups, topic), "DescribeConfigs", "AlterConfigs");
     updateRoleBinding(admin, "Operator", clusterA, Collections.singleton(topic.toResourcePattern()));
     verifyRules(accessRules(alice, groups, topic),
         "AlterConfigs", "DescribeConfigs");
 
     updateRoleBinding(alice, "Operator", clusterA, Collections.emptySet());
-    verifyRules(accessRules(alice, groups, Resource.CLUSTER),
+    verifyRules(accessRules(alice, groups, clusterResource),
         "AlterConfigs", "DescribeConfigs");
     verifyRules(accessRules(alice, groups, topic),
         "AlterConfigs", "DescribeConfigs");
 
     deleteRoleBinding(alice, "Operator", clusterA);
-    verifyRules(accessRules(alice, groups, Resource.CLUSTER),
+    verifyRules(accessRules(alice, groups, clusterResource),
         "AlterConfigs", "DescribeConfigs");
     verifyRules(accessRules(alice, groups, topic),
         "AlterConfigs", "DescribeConfigs");
 
     deleteRoleBinding(admin, "ClusterAdmin", clusterA);
-    verifyRules(accessRules(alice, groups, Resource.CLUSTER));
+    verifyRules(accessRules(alice, groups, clusterResource));
     verifyRules(accessRules(alice, groups, topic),
         "AlterConfigs", "DescribeConfigs");
 
     deleteRoleBinding(admin, "Operator", clusterA);
-    verifyRules(accessRules(alice, groups, Resource.CLUSTER));
+    verifyRules(accessRules(alice, groups, clusterResource));
     verifyRules(accessRules(alice, groups, topic));
   }
 
@@ -186,7 +189,7 @@ public class RbacProviderTest {
         Collections.emptySet() : Collections.singleton(roleResource);
 
     updateRoleBinding(alice, "Reader", clusterA, resources);
-    verifyRules(accessRules(alice, emptyGroups, Resource.CLUSTER));
+    verifyRules(accessRules(alice, emptyGroups, clusterResource));
     verifyRules(accessRules(alice, emptyGroups, topic), "Read", "Describe");
 
     updateRoleBinding(admin, "Writer", clusterA, resources);
@@ -212,44 +215,43 @@ public class RbacProviderTest {
 
     updateRoleBinding(alice, "Operator", clusterA, Collections.singleton(topic.toResourcePattern()));
     verifyRules(accessRules(alice, groups, topic), "AlterConfigs", "DescribeConfigs");
-    verifyRules(accessRules(alice, groups, Resource.CLUSTER));
+    verifyRules(accessRules(alice, groups, clusterResource));
 
-    String clusterB = "testOrg/clusterB";
     updateRoleBinding(alice, "ClusterAdmin", clusterB, Collections.emptySet());
-    verifyRules(accessRules(alice, groups, Resource.CLUSTER));
+    verifyRules(accessRules(alice, groups, clusterResource));
     verifyRules(accessRules(alice, groups, topic), "AlterConfigs", "DescribeConfigs");
 
   }
 
   @Test
   public void testProviderScope() throws Exception {
-    initializeRbacProvider("testOrg");
+    initializeRbacProvider(Scope.intermediateScope("testOrg"));
 
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
     Set<KafkaPrincipal> groups = Collections.emptySet();
 
     updateRoleBinding(alice, "Operator", clusterA, Collections.singleton(topic.toResourcePattern()));
     verifyRules(rbacProvider.accessRules(alice, groups, clusterA, topic), "AlterConfigs", "DescribeConfigs");
-    verifyRules(rbacProvider.accessRules(alice, groups, clusterA, Resource.CLUSTER));
+    verifyRules(rbacProvider.accessRules(alice, groups, clusterA, clusterResource));
 
-    String clusterB = "testOrg/clusterB";
     updateRoleBinding(alice, "ClusterAdmin", clusterB, Collections.emptySet());
-    verifyRules(rbacProvider.accessRules(alice, groups, clusterA, Resource.CLUSTER));
+    verifyRules(rbacProvider.accessRules(alice, groups, clusterA, clusterResource));
     verifyRules(rbacProvider.accessRules(alice, groups, clusterA, topic), "AlterConfigs", "DescribeConfigs");
-    verifyRules(rbacProvider.accessRules(alice, groups, clusterB, Resource.CLUSTER), "AlterConfigs", "DescribeConfigs");
+    verifyRules(rbacProvider.accessRules(alice, groups, clusterB, clusterResource), "AlterConfigs", "DescribeConfigs");
     verifyRules(rbacProvider.accessRules(alice, groups, clusterB, topic));
 
     try {
-      rbacProvider.accessRules(alice, groups, "anotherOrg/clusterA", Resource.CLUSTER);
+      Scope anotherScope = new Scope.Builder("anotherOrg").withKafkaCluster("clusterA").build();
+      rbacProvider.accessRules(alice, groups, anotherScope, clusterResource);
       fail("Did not fail with invalid scope");
     } catch (InvalidScopeException e) {
       // Expected exception
     }
   }
 
-  private void initializeRbacProvider(String scope) throws Exception {
+  private void initializeRbacProvider(Scope scope) throws Exception {
     RbacRoles rbacRoles = RbacRoles.load(this.getClass().getClassLoader(), "test_rbac_roles.json");
-    MockRbacProvider.MockAuthStore authStore = new MockRbacProvider.MockAuthStore(rbacRoles, new Scope(scope));
+    MockRbacProvider.MockAuthStore authStore = new MockRbacProvider.MockAuthStore(rbacRoles, scope);
     authCache = authStore.authCache();
     rbacProvider = new RbacProvider() {
       @Override
@@ -261,13 +263,13 @@ public class RbacProviderTest {
     rbacProvider.configure(Collections.emptyMap());
   }
 
-  private void updateRoleBinding(KafkaPrincipal principal, String role, String scope, Set<ResourcePattern> resources) {
+  private void updateRoleBinding(KafkaPrincipal principal, String role, Scope scope, Set<ResourcePattern> resources) {
     RoleBindingKey key = new RoleBindingKey(principal, role, scope);
     RoleBindingValue value = new RoleBindingValue(resources == null ? Collections.emptySet() : resources);
     authCache.put(key, value);
   }
 
-  private void deleteRoleBinding(KafkaPrincipal principal, String role, String scope) {
+  private void deleteRoleBinding(KafkaPrincipal principal, String role, Scope scope) {
     RoleBindingKey key = new RoleBindingKey(principal, role, scope);
     authCache.remove(key);
   }

@@ -2,10 +2,11 @@
 
 package io.confluent.kafka.security.authorizer.acl;
 
-import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
-import io.confluent.security.authorizer.Resource;
-import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.Resource;
+import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.provider.AccessRuleProvider;
+import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import java.util.Set;
 import java.util.stream.Collectors;
 import kafka.network.RequestChannel;
@@ -29,7 +30,7 @@ public class AclProvider extends SimpleAclAuthorizer implements AccessRuleProvid
   @Override
   public boolean isSuperUser(KafkaPrincipal sessionPrincipal,
                              Set<KafkaPrincipal> groupPrincipals,
-                             String scope) {
+                             Scope scope) {
     // `super.users` config is checked by the authorizer before checking with providers
     return false;
   }
@@ -47,7 +48,7 @@ public class AclProvider extends SimpleAclAuthorizer implements AccessRuleProvid
   @Override
   public Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
                                      Set<KafkaPrincipal> groupPrincipals,
-                                     String scope,
+                                     Scope scope,
                                      Resource resource) {
     ResourceType resourceType = AclMapper.kafkaResourceType(resource.resourceType());
     KafkaPrincipal userPrincipal = userPrincipal(sessionPrincipal);

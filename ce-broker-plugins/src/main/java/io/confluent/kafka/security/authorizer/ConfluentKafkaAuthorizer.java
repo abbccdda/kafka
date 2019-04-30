@@ -9,6 +9,7 @@ import io.confluent.kafka.security.authorizer.acl.AclProvider;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.EmbeddedAuthorizer;
+import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import io.confluent.security.authorizer.provider.Provider;
 import io.confluent.license.validator.ConfluentLicenseValidator;
@@ -59,7 +60,7 @@ public class ConfluentKafkaAuthorizer extends EmbeddedAuthorizer
   public void onUpdate(ClusterResource clusterResource) {
     String clusterId = clusterResource.clusterId();
     log.debug("Configuring scope for Kafka cluster with cluster id {}", clusterId);
-    super.configureScope(clusterId);
+    super.configureScope(Scope.kafkaClusterScope(clusterId));
   }
 
   @Override
@@ -74,7 +75,7 @@ public class ConfluentKafkaAuthorizer extends EmbeddedAuthorizer
     // Embedded authorizer used in metadata server can use an empty scope since scopes used
     // in authorization are provided by the remote client. For broker authorizer, the scope
     // of the cluster is required if using providers other than ACL providers.
-    if (scope().isEmpty()) {
+    if (scope().clusters().isEmpty()) {
       Set<String> scopedProviders = accessRuleProviders().stream()
           .map(Provider::providerName)
           .filter(a -> !UNSCOPED_PROVIDERS.contains(a))

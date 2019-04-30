@@ -3,6 +3,7 @@
 package io.confluent.security.test.integration.rbac;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
+import io.confluent.kafka.test.utils.KafkaTestUtils.ClientBuilder;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.ResourcePattern;
@@ -11,7 +12,19 @@ import io.confluent.security.test.utils.RbacClusters.Config;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import kafka.log.LogConfig$;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.AlterConfigOp;
+import org.apache.kafka.clients.admin.ConfigEntry;
+import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.common.acl.AccessControlEntry;
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclOperation;
+import org.apache.kafka.common.acl.AclPermissionType;
+import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.common.config.ConfigResource.Type;
 import org.apache.kafka.common.resource.PatternType;
+import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
 import org.junit.After;
@@ -26,6 +39,7 @@ public class RbacEndToEndAuthorizationTest {
   private static final String DEVELOPER2 = "app2-developer";
   private static final String RESOURCE_OWNER = "resourceOwner1";
   private static final String OPERATOR = "operator1";
+  private static final String CLUSTER_ADMIN = "clusterAdmin1";
   private static final String DEVELOPER_GROUP = "app-developers";
 
   private static final String APP1_TOPIC = "app1-topic";
@@ -43,7 +57,8 @@ public class RbacEndToEndAuthorizationTest {
         DEVELOPER1,
         DEVELOPER2,
         RESOURCE_OWNER,
-        OPERATOR
+        OPERATOR,
+        CLUSTER_ADMIN
     );
     Config config = new Config()
         .users(BROKER_USER, otherUsers);
@@ -76,6 +91,38 @@ public class RbacEndToEndAuthorizationTest {
     rbacClusters.produceConsume(SUPER_USER, APP2_TOPIC, APP1_CONSUMER_GROUP, true);
     rbacClusters.produceConsume(RESOURCE_OWNER, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
     rbacClusters.produceConsume(RESOURCE_OWNER, APP2_TOPIC, APP1_CONSUMER_GROUP, true);
+  }
+
+  @Test
+  public void testClusterScopedRoles() throws Throwable {
+    rbacClusters.produceConsume(OPERATOR, APP1_TOPIC, APP1_CONSUMER_GROUP, false);
+    rbacClusters.produceConsume(CLUSTER_ADMIN, APP1_TOPIC, APP1_CONSUMER_GROUP, false);
+
+    KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, OPERATOR);
+    ClientBuilder clientBuilder = rbacClusters.clientBuilder(CLUSTER_ADMIN);
+    try (AdminClient adminClient = clientBuilder.buildAdminClient()) {
+      // Verify that ClusterAdmin can create topic using cluster-scoped role
+      String topic = "sometopic";
+      NewTopic newTopic = new NewTopic(topic, 1, (short) 1);
+      adminClient.createTopics(Collections.singletonList(newTopic)).all().get();
+
+      // Verify that ClusterAdmin can alter topic using cluster-scoped role with topic operation
+      ConfigResource topicResource = new ConfigResource(Type.TOPIC, topic);
+      AlterConfigOp alterOp = new AlterConfigOp(new ConfigEntry(LogConfig$.MODULE$.FlushMsProp(), "1000"), AlterConfigOp.OpType.SET);
+      adminClient.incrementalAlterConfigs(Collections.singletonMap(topicResource, Collections.singletonList(alterOp))).all().get();
+
+      // Verify that ClusterAdmin can grant ACL-based access
+      AclBinding topicAcl = new AclBinding(
+          new org.apache.kafka.common.resource.ResourcePattern(ResourceType.TOPIC, APP1_TOPIC, PatternType.LITERAL),
+          new AccessControlEntry(principal.toString(),
+              "*", AclOperation.ALL, AclPermissionType.ALLOW));
+      AclBinding groupAcl = new AclBinding(
+          new org.apache.kafka.common.resource.ResourcePattern(ResourceType.GROUP, APP1_CONSUMER_GROUP, PatternType.LITERAL),
+          new AccessControlEntry(principal.toString(),
+              "*", AclOperation.ALL, AclPermissionType.ALLOW));
+      adminClient.createAcls(Arrays.asList(topicAcl, groupAcl)).all().get();
+    }
+    rbacClusters.produceConsume(OPERATOR, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
   }
 
   @Test
@@ -112,6 +159,7 @@ public class RbacEndToEndAuthorizationTest {
         Utils.mkSet(new ResourcePattern("Topic", "*", PatternType.LITERAL),
             new ResourcePattern("Group", "*", PatternType.LITERAL)));
     rbacClusters.assignRole(KafkaPrincipal.USER_TYPE, OPERATOR, "Operator", clusterId, Collections.emptySet());
+    rbacClusters.assignRole(KafkaPrincipal.USER_TYPE, CLUSTER_ADMIN, "ClusterAdmin", clusterId, Collections.emptySet());
     rbacClusters.assignRole(KafkaPrincipal.USER_TYPE, SUPER_USER, "SuperUser", clusterId, Collections.emptySet());
 
     rbacClusters.waitUntilAccessAllowed(DEVELOPER1, APP1_TOPIC);

@@ -12,8 +12,6 @@ import org.apache.kafka.common.resource.PatternType;
  */
 public class Resource {
 
-  public static final Resource CLUSTER = new Resource(ResourceType.CLUSTER, "kafka-cluster");
-
   private final String name;
   private final ResourceType resourceType;
 

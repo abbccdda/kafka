@@ -2,7 +2,7 @@
 
 package io.confluent.security.auth.metadata;
 
-import io.confluent.security.rbac.Scope;
+import io.confluent.security.authorizer.Scope;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.net.MalformedURLException;

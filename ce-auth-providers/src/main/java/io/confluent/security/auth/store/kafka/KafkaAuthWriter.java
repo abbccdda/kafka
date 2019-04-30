@@ -2,34 +2,34 @@
 
 package io.confluent.security.auth.store.kafka;
 
-import io.confluent.security.authorizer.ResourcePattern;
-import io.confluent.security.authorizer.ResourcePatternFilter;
-import io.confluent.security.authorizer.provider.InvalidScopeException;
-import io.confluent.security.authorizer.utils.ThreadUtils;
 import io.confluent.security.auth.metadata.AuthWriter;
-import io.confluent.security.auth.provider.ldap.LdapStore;
 import io.confluent.security.auth.provider.ldap.LdapConfig;
+import io.confluent.security.auth.provider.ldap.LdapStore;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
-import io.confluent.security.auth.store.data.StatusKey;
-import io.confluent.security.auth.store.data.StatusValue;
-import io.confluent.security.auth.store.external.ExternalStore;
 import io.confluent.security.auth.store.data.AuthEntryType;
 import io.confluent.security.auth.store.data.AuthKey;
 import io.confluent.security.auth.store.data.AuthValue;
 import io.confluent.security.auth.store.data.RoleBindingKey;
 import io.confluent.security.auth.store.data.RoleBindingValue;
-import io.confluent.security.store.MetadataStoreStatus;
-import io.confluent.security.store.NotMasterWriterException;
-import io.confluent.security.store.kafka.KafkaStoreConfig;
-import io.confluent.security.store.kafka.clients.KafkaPartitionWriter;
-import io.confluent.security.store.kafka.clients.CachedRecord;
-import io.confluent.security.store.kafka.clients.Writer;
-import io.confluent.security.store.kafka.coordinator.MetadataServiceRebalanceListener;
-import io.confluent.security.store.kafka.clients.ConsumerListener;
+import io.confluent.security.auth.store.data.StatusKey;
+import io.confluent.security.auth.store.data.StatusValue;
+import io.confluent.security.auth.store.external.ExternalStore;
+import io.confluent.security.authorizer.ResourcePattern;
+import io.confluent.security.authorizer.ResourcePatternFilter;
+import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.provider.InvalidScopeException;
+import io.confluent.security.authorizer.utils.ThreadUtils;
 import io.confluent.security.rbac.AccessPolicy;
 import io.confluent.security.rbac.InvalidRoleBindingException;
 import io.confluent.security.rbac.Role;
-import io.confluent.security.rbac.Scope;
+import io.confluent.security.store.MetadataStoreStatus;
+import io.confluent.security.store.NotMasterWriterException;
+import io.confluent.security.store.kafka.KafkaStoreConfig;
+import io.confluent.security.store.kafka.clients.CachedRecord;
+import io.confluent.security.store.kafka.clients.ConsumerListener;
+import io.confluent.security.store.kafka.clients.KafkaPartitionWriter;
+import io.confluent.security.store.kafka.clients.Writer;
+import io.confluent.security.store.kafka.coordinator.MetadataServiceRebalanceListener;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
@@ -169,7 +169,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   }
 
   @Override
-  public CompletionStage<Void> addRoleBinding(KafkaPrincipal principal, String role, String scope) {
+  public CompletionStage<Void> addRoleBinding(KafkaPrincipal principal, String role, Scope scope) {
     log.debug("addRoleBinding principal={} role={} scope={}", principal, role, scope);
     return setRoleResources(principal, role, scope, Collections.emptySet());
   }
@@ -177,7 +177,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   @Override
   public CompletionStage<Void> addRoleResources(KafkaPrincipal principal,
                                                 String role,
-                                                String scope,
+                                                Scope scope,
                                                 Collection<ResourcePattern> newResources) {
     log.debug("addRoleResources principal={} role={} scope={} resources={}", principal, role, scope, newResources);
     validateRoleBindingUpdate(role, scope, newResources);
@@ -199,7 +199,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   @Override
   public CompletionStage<Void> setRoleResources(KafkaPrincipal principal,
                                                 String role,
-                                                String scope,
+                                                Scope scope,
                                                 Collection<ResourcePattern> resources) {
     log.debug("setRoleResources principal={} role={} scope={} resources={}", principal, role, scope, resources);
     validateRoleBindingUpdate(role, scope, resources);
@@ -212,7 +212,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   }
 
   @Override
-  public CompletionStage<Void> removeRoleBinding(KafkaPrincipal principal, String role, String scope) {
+  public CompletionStage<Void> removeRoleBinding(KafkaPrincipal principal, String role, Scope scope) {
     log.debug("removeRoleBinding principal={} role={} scope={}", principal, role, scope);
     validateRoleBindingUpdate(role, scope, Collections.emptySet());
 
@@ -225,7 +225,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   @Override
   public CompletionStage<Void> removeRoleResources(KafkaPrincipal principal,
                                                    String role,
-                                                   String scope,
+                                                   Scope scope,
                                                    Collection<ResourcePatternFilter> deletedResources) {
     log.debug("removeRoleResources principal={} role={} scope={} resources={}", principal, role, scope, deletedResources);
     validateRoleBindingUpdate(role, scope, deletedResources);
@@ -356,7 +356,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
       KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter,
       KafkaPrincipal principal,
       String role,
-      String scope) {
+      Scope scope) {
     RoleBindingKey key = new RoleBindingKey(principal, role, scope);
     return partitionWriter.waitForRefresh(key);
   }
@@ -369,11 +369,12 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
       return roleDefinition.accessPolicy();
   }
 
-  private void validateRoleBindingUpdate(String role, String scope, Collection<?> resources) {
+  private void validateRoleBindingUpdate(String role, Scope scope, Collection<?> resources) {
     if (!isMasterWriter.get() || !ready)
       throw new NotMasterWriterException("This node is currently not the master writer for Metadata Service."
           + " This could be a transient exception during writer election.");
 
+    scope.validate(true);
     AccessPolicy accessPolicy = accessPolicy(role);
     if (!resources.isEmpty() && !accessPolicy.hasResourceScope())
       throw new IllegalArgumentException("Resources cannot be specified for role " + role +
@@ -381,7 +382,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     else if (resources.isEmpty() && accessPolicy.hasResourceScope())
       log.debug("Role binding update of resource-scope role without any resources");
 
-    if (!authCache.rootScope().containsScope(new Scope(scope))) {
+    if (!authCache.rootScope().containsScope(scope)) {
       throw new InvalidScopeException("This writer does not contain binding scope " + scope);
     }
   }
@@ -421,7 +422,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
 
   private KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter(KafkaPrincipal principal,
       String role,
-      String scope) {
+      Scope scope) {
     RoleBindingKey key = new RoleBindingKey(principal, role, scope);
     return partitionWriter(partition(key));
   }

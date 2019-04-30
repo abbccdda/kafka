@@ -5,9 +5,10 @@ package io.confluent.kafka.multitenant.authorizer;
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.security.authorizer.acl.AclMapper;
 import io.confluent.kafka.security.authorizer.acl.AclProvider;
-import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
-import io.confluent.security.authorizer.Resource;
 import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.Resource;
+import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -73,7 +74,7 @@ public class TenantAclProvider extends AclProvider {
   @Override
   public boolean isSuperUser(KafkaPrincipal sessionPrincipal,
                              Set<KafkaPrincipal> groupPrincipals,
-                             String scope) {
+                             Scope scope) {
     return authorizationDisabled || super.isSuperUser(sessionPrincipal, groupPrincipals, scope)
       || isSuperUser(sessionPrincipal) || groupPrincipals.stream().anyMatch(this::isSuperUser);
   }
@@ -81,7 +82,7 @@ public class TenantAclProvider extends AclProvider {
   @Override
   public Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
                                      Set<KafkaPrincipal> groupPrincipals,
-                                     String scope,
+                                     Scope scope,
                                      Resource resource) {
     if (!groupPrincipals.isEmpty())
       throw new UnsupportedOperationException("Groups are not supported for TenantAclProvider");

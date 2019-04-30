@@ -6,6 +6,7 @@ import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.utils.JsonMapper;
 import io.confluent.security.authorizer.utils.JsonTestUtils;
 import java.util.Collection;
+import java.util.Collections;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.junit.Test;
 
@@ -17,21 +18,22 @@ public class RoleBindingTest {
   @Test
   public void testAssignment() throws Exception {
     RoleBinding alice = roleBinding(
-        "{ \"principal\": \"User:Alice\", \"role\": \"ClusterAdmin\", \"scope\": \"ClusterA\" }");
+        "{ \"principal\": \"User:Alice\", \"role\": \"ClusterAdmin\", \"scope\": {\"clusters\":{\"kafka-cluster\" : \"ClusterA\"}} }");
     assertEquals(new KafkaPrincipal("User", "Alice"), alice.principal());
     assertEquals("ClusterAdmin", alice.role());
-    assertEquals("ClusterA", alice.scope());
+    assertEquals(Collections.singletonMap("kafka-cluster", "ClusterA"), alice.scope().clusters());
+    assertEquals(Collections.emptyList(), alice.scope().path());
     assertTrue(alice.resources().isEmpty());
     verifyEquals(alice, roleBinding(JsonMapper.objectMapper().writeValueAsString(alice)));
 
     RoleBinding bob = roleBinding(
-        "{ \"principal\": \"User:Bob\", \"role\": \"Developer\", \"scope\": \"ClusterB\", " +
+        "{ \"principal\": \"User:Bob\", \"role\": \"Developer\", \"scope\": {\"clusters\": {\"kafka-cluster\" : \"ClusterB\" }}, " +
             "\"resources\" : [ {\"resourceType\": \"Topic\", \"patternType\": \"PREFIXED\", \"name\": \"Finance\"}," +
             "{\"resourceType\": \"Group\", \"patternType\": \"LITERAL\", \"name\": \"*\"}," +
             "{\"resourceType\": \"App\", \"patternType\": \"LITERAL\", \"name\": \"FinanceAppA\"} ] }");
     assertEquals(new KafkaPrincipal("User", "Bob"), bob.principal());
     assertEquals("Developer", bob.role());
-    assertEquals("ClusterB", bob.scope());
+    assertEquals(Collections.singletonMap("kafka-cluster", "ClusterB"), bob.scope().clusters());
     Collection<ResourcePattern> resources = bob.resources();
     assertEquals(3, resources.size());
     verifyEquals(bob, roleBinding(JsonMapper.objectMapper().writeValueAsString(bob)));

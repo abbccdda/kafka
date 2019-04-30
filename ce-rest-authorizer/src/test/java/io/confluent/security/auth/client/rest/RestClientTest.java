@@ -4,10 +4,11 @@ package io.confluent.security.auth.client.rest;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.security.auth.client.RestAuthorizer;
+import io.confluent.security.auth.client.RestClientConfig;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.ResourceType;
-import io.confluent.security.auth.client.RestClientConfig;
+import io.confluent.security.authorizer.Scope;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
@@ -41,7 +42,7 @@ public class RestClientTest {
 
         KafkaPrincipal userPrincipal =
                 new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "principal");
-        Action alterConfigs = new Action("clusterA", ResourceType.CLUSTER,
+        Action alterConfigs = new Action(Scope.kafkaClusterScope("clusterA"), new ResourceType("Cluster"),
                 "kafka-cluster", new Operation("AlterConfigs"));
         List<Action> actionList = Collections.singletonList(alterConfigs);
 
@@ -110,7 +111,7 @@ public class RestClientTest {
 
         KafkaPrincipal userPrincipal =
                 new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "principal");
-        Action alterConfigs = new Action("clusterA", ResourceType.CLUSTER,
+        Action alterConfigs = new Action(Scope.kafkaClusterScope("clusterA"), new ResourceType("Cluster"),
             "kafka-cluster", new Operation("AlterConfigs"));
         List<Action> actionList = Collections.singletonList(alterConfigs);
 

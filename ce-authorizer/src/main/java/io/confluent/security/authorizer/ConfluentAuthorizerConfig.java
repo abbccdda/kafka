@@ -125,7 +125,7 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
     initTimeout = Duration.ofMillis(getInt(INIT_TIMEOUT_PROP));
   }
 
-  public final Providers createProviders(String scope) {
+  public final Providers createProviders(Scope scope) {
     List<String> authProviderNames = getList(ACCESS_RULE_PROVIDERS_PROP);
     // Multitenant ACLs are included in the MultiTenantProvider, so include only the MultiTenantProvider
     if (authProviderNames.contains(AccessRuleProviders.ACL.name())
