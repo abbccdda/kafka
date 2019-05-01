@@ -143,7 +143,7 @@ public class TenantLifecycleManagerTest {
                 new LogicalClusterMetadata(lkc.logicalClusterId(), lkc.physicalClusterId(), lkc.logicalClusterName(),
                         lkc.accountId(), lkc.k8sClusterId(), lkc.logicalClusterType(),
                         lkc.storageBytes(), lkc.producerByteRate(), lkc.consumerByteRate(),
-                        lkc.requestPercentage().longValue(), lkc.networkQuotaOverhead(),
+                        lkc.brokerRequestPercentage().longValue(), lkc.networkQuotaOverhead(),
                         new LogicalClusterMetadata.LifecycleMetadata(lkc.lifecycleMetadata().logicalClusterName(),
                                 lkc.lifecycleMetadata().physicalK8sNamespace(),
                                 lkc.lifecycleMetadata().creationDate(),

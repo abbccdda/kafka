@@ -451,7 +451,7 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
     double multiplier = 1 + lcMeta.networkQuotaOverhead() / 100.0;
     return new QuotaConfig((long) (multiplier * lcMeta.producerByteRate()),
           (long) (multiplier * lcMeta.consumerByteRate()),
-          lcMeta.requestPercentage(),
+          lcMeta.brokerRequestPercentage(),
           QuotaConfig.UNLIMITED_QUOTA);
   }
 

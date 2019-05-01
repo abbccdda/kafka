@@ -50,6 +50,67 @@ public class LogicalClusterMetadataTest {
   }
 
   @Test
+  public void testDefaultHeadroom() throws IOException {
+    // test legacy headroom
+    final LogicalClusterMetadata legacyQuotaMeta = new LogicalClusterMetadata(
+        LC_META_ABC.logicalClusterId(), LC_META_ABC.physicalClusterId(),
+        "new-name", "new-account", LC_META_XYZ.k8sClusterId(),
+        LC_META_ABC.logicalClusterType(), LC_META_ABC.storageBytes(),
+        5L * 1024L * 1024L, 5L * 1024L * 1024L,
+        LC_META_ABC.brokerRequestPercentage().longValue(), null, null
+    );
+    assertEquals(100, legacyQuotaMeta.networkQuotaOverhead().longValue());
+
+    // test legacy headroom -- if any of consume quotas is higher than 5MB/sec, we know for sure
+    // this is not legacy anymore, even if produce bandwidth is below 5MB/sec (which we may set
+    // to throttle down CCP customers that ran out of their storage limit
+    final LogicalClusterMetadata largeConsumeQuotaMeta = new LogicalClusterMetadata(
+        LC_META_ABC.logicalClusterId(), LC_META_ABC.physicalClusterId(),
+        "new-name", "new-account", LC_META_XYZ.k8sClusterId(),
+        LC_META_ABC.logicalClusterType(), LC_META_ABC.storageBytes(),
+        1024L * 1024L, 100L * 1024L * 1024L,
+        LC_META_ABC.brokerRequestPercentage().longValue(), null, null
+    );
+    assertEquals(0, largeConsumeQuotaMeta.networkQuotaOverhead().longValue());
+
+    // test new headroom
+    final LogicalClusterMetadata largeQuotaMeta = new LogicalClusterMetadata(
+        LC_META_ABC.logicalClusterId(), LC_META_ABC.physicalClusterId(),
+        "new-name", "new-account", LC_META_XYZ.k8sClusterId(),
+        LC_META_ABC.logicalClusterType(), LC_META_ABC.storageBytes(),
+        100L * 1024L * 1024L, 100L * 1024L * 1024L,
+        LC_META_ABC.brokerRequestPercentage().longValue(), null, null
+    );
+    assertEquals(0, largeQuotaMeta.networkQuotaOverhead().longValue());
+  }
+
+  @Test
+  public void testZeroQuotas() throws IOException {
+    final LogicalClusterMetadata zeroQuotaMeta = new LogicalClusterMetadata(
+        LC_META_ABC.logicalClusterId(), LC_META_ABC.physicalClusterId(),
+        "new-name", "new-account", LC_META_XYZ.k8sClusterId(),
+        LC_META_ABC.logicalClusterType(), LC_META_ABC.storageBytes(),
+        0L, 0L, LC_META_ABC.brokerRequestPercentage().longValue(), null, null
+    );
+    assertEquals(LogicalClusterMetadata.DEFAULT_MIN_NETWORK_BYTE_RATE,
+                 zeroQuotaMeta.producerByteRate());
+    assertEquals(LogicalClusterMetadata.DEFAULT_MIN_NETWORK_BYTE_RATE,
+                 zeroQuotaMeta.consumerByteRate());
+
+    // test we can independently set one quota to zero and another higher
+    final LogicalClusterMetadata produceZeroQuotaMeta = new LogicalClusterMetadata(
+        LC_META_ABC.logicalClusterId(), LC_META_ABC.physicalClusterId(),
+        "new-name", "new-account", LC_META_XYZ.k8sClusterId(),
+        LC_META_ABC.logicalClusterType(), LC_META_ABC.storageBytes(),
+        0L, 100L * 1024L * 1024L, LC_META_ABC.brokerRequestPercentage().longValue(), null, null
+    );
+    assertEquals(LogicalClusterMetadata.DEFAULT_MIN_NETWORK_BYTE_RATE,
+                 produceZeroQuotaMeta.producerByteRate());
+    assertEquals(100L * 1024L * 1024L,
+                 produceZeroQuotaMeta.consumerByteRate().longValue());
+  }
+
+  @Test
   public void testLifeCycleMetadataOfLiveCluster() throws IOException {
     final Path metaFile = tempFolder.newFile("lkc-xyz.json").toPath();
     Files.write(metaFile, Utils.logicalClusterJsonString(LC_META_XYZ, true, true).getBytes());

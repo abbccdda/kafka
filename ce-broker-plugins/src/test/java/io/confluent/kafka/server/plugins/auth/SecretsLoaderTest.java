@@ -3,10 +3,7 @@ package io.confluent.kafka.server.plugins.auth;
 import com.google.common.base.Charsets;
 import com.google.common.io.Files;
 import com.google.common.testing.FakeTicker;
-import io.confluent.kafka.multitenant.quota.TenantQuotaCallback;
-import java.util.Collections;
 import org.apache.kafka.common.config.ConfigException;
-import org.apache.kafka.server.quota.ClientQuotaType;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -16,7 +13,6 @@ import java.io.File;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-import static io.confluent.kafka.multitenant.quota.TenantQuotaCallback.DEFAULT_MIN_PARTITIONS;
 import static junit.framework.TestCase.assertTrue;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -86,85 +82,6 @@ public class SecretsLoaderTest {
     assertEquals("no hash", entry.hashedSecret);
     assertEquals("none", entry.hashFunction);
     assertNull(tenantConfig.quotas);
-  }
-
-  @Test
-  public void shouldLoadFileWithQuotas() throws Exception {
-    final String json = "{\"keys\": {\"key1\": {" +
-            "\"user_id\": \"user1\"," +
-            "\"logical_cluster_id\": \"myCluster\"," +
-            "\"sasl_mechanism\": \"PLAIN\"," +
-            "\"hashed_secret\": \"no hash\"," +
-            "\"hash_function\": \"none\"," +
-            "\"service_account\": \"true\" }}," +
-            "\"quotas\": {\"myCluster\": {" +
-            "\"producer_byte_rate\": \"100\"," +
-            "\"consumer_byte_rate\": \"200\"," +
-            "\"request_percentage\": \"30\"" +
-            "}}}";
-    Files.write(json, tempFile, Charsets.UTF_8);
-    TenantConfig tenantConfig = SecretsLoader.loadFile(tempFile.getPath());
-    Map<String, KeyConfigEntry> keys = tenantConfig.apiKeys;
-    KeyConfigEntry key1 = new KeyConfigEntry("PLAIN", "no hash", "none", "user1",
-        "myCluster", "myCluster", "true");
-    assertEquals(1, keys.size());
-    assertEquals(key1, keys.get("key1"));
-
-    Map<String, QuotaConfigEntry> quotas = tenantConfig.quotas;
-    assertEquals(1, quotas.size());
-    QuotaConfigEntry quota = quotas.get("myCluster");
-    assertNotNull(quota);
-    assertEquals(100, quota.producerByteRate.longValue());
-    assertEquals(200, quota.consumerByteRate.longValue());
-    assertEquals(30.0, quota.requestPercentage.doubleValue(), 0.0001);
-
-    TenantQuotaCallback quotaCallback = new TenantQuotaCallback();
-    quotaCallback.configure(Collections.singletonMap("broker.id", "1"));
-    new SecretsLoader.SecretsCacheLoader(tempFile.getPath()).load("key");
-    Map<String, String> metricTags = Collections.singletonMap("tenant", "myCluster");
-    assertEquals(100.0 / DEFAULT_MIN_PARTITIONS, quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, metricTags), 0.001);
-    assertEquals(200.0 / DEFAULT_MIN_PARTITIONS, quotaCallback.quotaLimit(ClientQuotaType.FETCH, metricTags), 0.001);
-    assertEquals(30.0 / DEFAULT_MIN_PARTITIONS, quotaCallback.quotaLimit(ClientQuotaType.REQUEST, metricTags), 0.001);
-  }
-
-  @Test
-  public void shouldLoadFileWithDefaultQuotas() throws Exception {
-    final String json = "{\"keys\": {\"key1\": {" +
-        "\"user_id\": \"user1\"," +
-        "\"logical_cluster_id\": \"myCluster\"," +
-        "\"sasl_mechanism\": \"PLAIN\"," +
-        "\"hashed_secret\": \"no hash\"," +
-        "\"hash_function\": \"none\"," +
-        "\"service_account\": \"false\" }}," +
-        "\"quotas\": {\"\": {" +
-        "\"producer_byte_rate\": \"1000\"," +
-        "\"consumer_byte_rate\": \"2000\"," +
-        "\"request_percentage\": \"300\"" +
-        "}}}";
-    Files.write(json, tempFile, Charsets.UTF_8);
-    TenantConfig tenantConfig = SecretsLoader.loadFile(tempFile.getPath());
-    Map<String, KeyConfigEntry> keys = tenantConfig.apiKeys;
-    assertEquals(1, keys.size());
-    KeyConfigEntry key1 = new KeyConfigEntry("PLAIN", "no hash", "none", "user1",
-        "myCluster", "myCluster", "false");
-    assertEquals(1, keys.size());
-    assertEquals(key1, keys.get("key1"));
-
-    Map<String, QuotaConfigEntry> quotas = tenantConfig.quotas;
-    assertEquals(1, quotas.size());
-    QuotaConfigEntry quota = quotas.get("");
-    assertNotNull(quota);
-    assertEquals(1000, quota.producerByteRate.longValue());
-    assertEquals(2000, quota.consumerByteRate.longValue());
-    assertEquals(300.0, quota.requestPercentage.doubleValue(), 0.0001);
-
-    TenantQuotaCallback quotaCallback = new TenantQuotaCallback();
-    quotaCallback.configure(Collections.singletonMap("broker.id", "1"));
-    new SecretsLoader.SecretsCacheLoader(tempFile.getPath()).load("key");
-    Map<String, String> metricTags = Collections.singletonMap("tenant", "myCluster");
-    assertEquals(1000.0, quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, metricTags), 0.001);
-    assertEquals(2000.0, quotaCallback.quotaLimit(ClientQuotaType.FETCH, metricTags), 0.001);
-    assertEquals(300, quotaCallback.quotaLimit(ClientQuotaType.REQUEST, metricTags), 0.001);
   }
 
   @Test

@@ -20,23 +20,23 @@ public class Utils {
   public static final LogicalClusterMetadata LC_META_XYZ =
       new LogicalClusterMetadata("lkc-xyz", "pkc-xyz", "xyz",
           "my-account", "k8s-abc", LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
-          104857600L, 1024L, 2048L,
-          LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE.longValue(),
+          104857600L, 10240000L, 2048L,
+          LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER.longValue(),
           LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
           new LogicalClusterMetadata.LifecycleMetadata("xyz", "pkc-xyz", null, null));
   public static final LogicalClusterMetadata LC_META_ABC =
       new LogicalClusterMetadata("lkc-abc", "pkc-abc", "abc",
           "my-account", "k8s-abc", LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
-          10485760L, 102400L, 204800L,
-          LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE.longValue(),
+          10485760L, 10240000L, 204800L,
+          LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER.longValue(),
           LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
           new LogicalClusterMetadata.LifecycleMetadata("abc", "pkc-abc", null, null));
   // Note that this cluster will be deactivated on arrival, but maybe not deleted yet
   public static final LogicalClusterMetadata LC_META_DED =
           new LogicalClusterMetadata("lkc-ded", "pkc-ded", "ded",
           "my-account", "k8s-abc", LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
-          10485760L, 102400L, 204800L,
-          LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE.longValue(),
+          10485760L, 10240000L, 204800L,
+          LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER.longValue(),
           LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
           new LogicalClusterMetadata.LifecycleMetadata("ded", "pkc-ded", null, new Date()));
   // Cluster that was deactivated some time ago and is ready for deletion according to our
@@ -44,8 +44,8 @@ public class Utils {
   public static final LogicalClusterMetadata LC_META_MEH =
           new LogicalClusterMetadata("lkc-meh", "pkc-meh", "meh",
                   "my-account", "k8s-abc", LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
-                  10485760L, 102400L, 204800L,
-                  LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE.longValue(),
+                  10485760L, 10240000L, 204800L,
+                  LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER.longValue(),
                   LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
                   new LogicalClusterMetadata.LifecycleMetadata("meh", "pkc-meh", null,
                           new Date(System.currentTimeMillis() - ConfluentConfigs.MULTITENANT_TENANT_DELETE_DELAY_MS_DEFAULT)));
@@ -170,7 +170,7 @@ public class Utils {
       json += ", \"network_quota_overhead\": " + lcMeta.networkQuotaOverhead();
     }
     if (setReqPercent) {
-      json += ", \"request_percentage\": " + lcMeta.requestPercentage();
+      json += ", \"broker_request_percentage\": " + lcMeta.brokerRequestPercentage();
     }
     json += "}";
 

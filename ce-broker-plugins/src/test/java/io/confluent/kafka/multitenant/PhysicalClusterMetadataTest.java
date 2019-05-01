@@ -15,7 +15,6 @@ import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 
 import static io.confluent.kafka.multitenant.Utils.LC_META_DED;
-import static io.confluent.kafka.multitenant.quota.TenantQuotaCallback.DEFAULT_MIN_PARTITIONS;
 import static io.confluent.kafka.multitenant.Utils.LC_META_ABC;
 import static io.confluent.kafka.multitenant.Utils.LC_META_XYZ;
 import static io.confluent.kafka.multitenant.Utils.LC_META_HEALTHCHECK;
@@ -179,7 +178,7 @@ public class PhysicalClusterMetadataTest {
         "new-name", "new-account", LC_META_XYZ.k8sClusterId(),
         LC_META_XYZ.logicalClusterType(), LC_META_XYZ.storageBytes(),
         LC_META_XYZ.producerByteRate(), LC_META_XYZ.consumerByteRate(),
-        LC_META_XYZ.requestPercentage().longValue(), LC_META_XYZ.networkQuotaOverhead(), null
+        LC_META_XYZ.brokerRequestPercentage().longValue(), LC_META_XYZ.networkQuotaOverhead(), null
     );
     Utils.updateLogicalClusterFile(updatedLcMeta, tempFolder);
     TestUtils.waitForCondition(
@@ -215,7 +214,8 @@ public class PhysicalClusterMetadataTest {
     final LogicalClusterMetadata anotherMeta = new LogicalClusterMetadata(
         "lkc-123", "pkc-123", "123", "my-account", "k8s-123",
         LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
-        10485760L, 102400L, 204800L, LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE.longValue(),
+        10485760L, 102400L, 204800L,
+        LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER.longValue(),
         LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE, null);
     Utils.createLogicalClusterFile(anotherMeta, tempFolder);
     TestUtils.waitForCondition(
@@ -390,7 +390,7 @@ public class PhysicalClusterMetadataTest {
         new LogicalClusterMetadata("lkc-qwr", "pkc-qwr", "xyz", "my-account", "k8s-abc",
                                    LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
                                    104857600L, 1024L, null,
-                                   LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE.longValue(),
+                                   LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER.longValue(),
                                    LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE, null);
 
     lcCache.start();
@@ -407,7 +407,7 @@ public class PhysicalClusterMetadataTest {
     final LogicalClusterMetadata lcValidMeta = new LogicalClusterMetadata(
         "lkc-qwr", "pkc-qwr", "xyz", "my-account", "k8s-abc",
         LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE, 104857600L, 1024L, 2048L,
-        LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE.longValue(),
+        LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER.longValue(),
         LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE, null);
     Utils.updateLogicalClusterFile(lcValidMeta, tempFolder);
     TestUtils.waitForCondition(
@@ -432,11 +432,12 @@ public class PhysicalClusterMetadataTest {
     assertEquals(LC_META_ABC, lcCache.metadata(LC_META_ABC.logicalClusterId()));
 
     Map<String, String> tags = Collections.singletonMap("tenant", LC_META_ABC.logicalClusterId());
-    assertEquals(2.0 * 102400.0 / DEFAULT_MIN_PARTITIONS,
+    // expect minimum bandwidth quotas because we did not simulate creating partitions
+    assertEquals(TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE,
                  quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, tags), 0.001);
-    assertEquals(2.0 * 204800.0 / DEFAULT_MIN_PARTITIONS,
+    assertEquals(TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_CONSUMER_BYTE_RATE,
                  quotaCallback.quotaLimit(ClientQuotaType.FETCH, tags), 0.001);
-    assertEquals(LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE / DEFAULT_MIN_PARTITIONS,
+    assertEquals(LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER,
                  quotaCallback.quotaLimit(ClientQuotaType.REQUEST, tags), 0.001);
 
     Thread.sleep(1000);
@@ -477,17 +478,16 @@ public class PhysicalClusterMetadataTest {
     assertEquals(ImmutableSet.of(LC_META_XYZ.logicalClusterId(), LC_META_HEALTHCHECK.logicalClusterId()),
                  lcCache.logicalClusterIds());
 
-
-    // healthcheck throughput quotas should be unlimited
     Map<String, String> tags =
         Collections.singletonMap("tenant", LC_META_HEALTHCHECK.logicalClusterId());
+    // expect minimum bandwidth quotas because we did not simulate creating partitions
     assertEquals(
-        2.0 * LogicalClusterMetadata.DEFAULT_HEALTHCHECK_MAX_CONSUMER_RATE / DEFAULT_MIN_PARTITIONS,
+        TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE,
         quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, tags), 0.001);
     assertEquals(
-        2.0 * LogicalClusterMetadata.DEFAULT_HEALTHCHECK_MAX_CONSUMER_RATE / DEFAULT_MIN_PARTITIONS,
+        TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_CONSUMER_BYTE_RATE,
         quotaCallback.quotaLimit(ClientQuotaType.FETCH, tags), 0.001);
-    assertEquals(LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE / DEFAULT_MIN_PARTITIONS,
+    assertEquals(LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER,
                  quotaCallback.quotaLimit(ClientQuotaType.REQUEST, tags), 0.001);
   }
 

@@ -24,15 +24,15 @@ public class QuotaConfig {
          requestQuota == null ? defaultQuota.quota(ClientQuotaType.REQUEST) : requestQuota);
   }
 
-  public QuotaConfig(QuotaConfig clusterQuotaConfig, double multiplier) {
-    if (multiplier <= 0) {
-      throw new IllegalArgumentException("Invalid quota multiplier " + multiplier);
+  public Long equalQuotaPerBrokerOrUnlimited(ClientQuotaType quotaType,
+                                             int numBrokers, Long quotaIfNoBrokers) {
+    if (numBrokers <= 0) {
+      return quotaIfNoBrokers;
     }
-    for (ClientQuotaType quotaType : ClientQuotaType.values()) {
-      double brokerQuota = clusterQuotaConfig.hasQuotaLimit(quotaType)
-          ? multiplier * clusterQuotaConfig.quota(quotaType) : UNLIMITED_QUOTA.quota(quotaType);
-      quotas.put(quotaType, brokerQuota);
-    }
+    Double quota = hasQuotaLimit(quotaType) ?
+                   quota(quotaType) / numBrokers :
+                   UNLIMITED_QUOTA.quota(quotaType);
+    return quota.longValue();
   }
 
   private QuotaConfig(double produceQuota, double fetchQuota, double requestQuota) {

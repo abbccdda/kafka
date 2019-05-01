@@ -6,6 +6,8 @@ import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.TenantMetadata;
 import io.confluent.kafka.multitenant.metrics.TenantMetrics;
 import io.confluent.kafka.multitenant.schema.TenantContext;
+
+import java.util.HashSet;
 import java.util.Objects;
 import kafka.server.KafkaConfig$;
 import org.apache.kafka.common.Cluster;
@@ -23,14 +25,33 @@ import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TenantQuotaCallback implements ClientQuotaCallback {
   private static final Logger log = LoggerFactory.getLogger(TenantQuotaCallback.class);
 
-  static final String MIN_PARTITIONS_CONFIG = "confluent.quota.min.partitions";
-  public static final int DEFAULT_MIN_PARTITIONS = 8;
+  static final String MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG =
+      "confluent.quota.tenant.broker.max.producer.rate";
+  static final String MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG =
+      "confluent.quota.tenant.broker.max.consumer.rate";
+  static final String MIN_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG =
+      "confluent.quota.tenant.broker.min.producer.rate";
+  static final String MIN_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG =
+      "confluent.quota.tenant.broker.min.consumer.rate";
+
+  // Default cap on tenant quota that can be assigned to a single broker for produce and consume
+  // quotas: 12.5MB/sec each. With 100MB/sec cluster-wide tenant quota, a tenant needs to send
+  // load to at least 8 partitions (on 8 brokers) to get the full produce and consume quota.
+  public static final long DEFAULT_MAX_BROKER_TENANT_PRODUCER_BYTE_RATE = 13107200;
+  public static final long DEFAULT_MAX_BROKER_TENANT_CONSUMER_BYTE_RATE = 13107200;
+
+  // Default minimum quota that can be assigned to a single broker: 32KB/sec (2x default batch size)
+  // Per-broker tenant quota is always greater than zero to avoid excessive throttling of
+  // requests received before cluster metadata or quota configs are refreshed.
+  public static final long DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE = 32768;
+  public static final long DEFAULT_MIN_BROKER_TENANT_CONSUMER_BYTE_RATE = 32768;
 
   // TODO: This is a temporary workaround to track TenantQuotaCallbacks.
   // This is used by interceptors to find a partition assignor that has access to
@@ -45,7 +66,10 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
   private final TenantPartitionAssignor partitionAssignor;
 
   private volatile int brokerId;
-  private volatile int minPartitionsForMaxQuota;
+  private volatile long maxPerTenantBrokerProducerRate;
+  private volatile long maxPerTenantBrokerConsumerRate;
+  private volatile long minPerTenantBrokerProducerRate;
+  private volatile long minPerTenantBrokerConsumerRate;
   private volatile Cluster cluster;
   private volatile QuotaConfig defaultTenantQuota;
 
@@ -60,19 +84,30 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
 
   @Override
   public void configure(Map<String, ?> configs) {
-    this.brokerId = intConfig(configs, KafkaConfig$.MODULE$.BrokerIdProp(), null);
+    this.brokerId = intConfig(configs, KafkaConfig$.MODULE$.BrokerIdProp());
     synchronized (INSTANCES) {
       INSTANCES.put(brokerId, this);
     }
 
-    this.minPartitionsForMaxQuota = intConfig(configs, MIN_PARTITIONS_CONFIG,
-        DEFAULT_MIN_PARTITIONS);
-    if (minPartitionsForMaxQuota < 1) {
-      throw new ConfigException(MIN_PARTITIONS_CONFIG + " must be >= 1, but got "
-          + minPartitionsForMaxQuota);
-    }
-    log.info("Configured tenant quota callback for broker {} with {}={}",
-        brokerId, MIN_PARTITIONS_CONFIG, minPartitionsForMaxQuota);
+    minPerTenantBrokerProducerRate = loadPerTenantBrokerByteRateConfig(
+        configs, MIN_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG,
+        DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE, 1L);
+    minPerTenantBrokerConsumerRate = loadPerTenantBrokerByteRateConfig(
+        configs, MIN_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG,
+        DEFAULT_MIN_BROKER_TENANT_CONSUMER_BYTE_RATE, 1L);
+    maxPerTenantBrokerProducerRate = loadPerTenantBrokerByteRateConfig(
+        configs, MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG,
+        DEFAULT_MAX_BROKER_TENANT_PRODUCER_BYTE_RATE, minPerTenantBrokerProducerRate);
+    maxPerTenantBrokerConsumerRate = loadPerTenantBrokerByteRateConfig(
+        configs, MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG,
+        DEFAULT_MAX_BROKER_TENANT_CONSUMER_BYTE_RATE, minPerTenantBrokerConsumerRate);
+
+    log.info("Configured tenant quota callback for broker {} with {}={}, {}={}, {}={}, {}={}",
+             brokerId,
+             MIN_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG, minPerTenantBrokerProducerRate,
+             MIN_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG, minPerTenantBrokerConsumerRate,
+             MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG, maxPerTenantBrokerProducerRate,
+             MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG, maxPerTenantBrokerConsumerRate);
   }
 
   @Override
@@ -140,28 +175,37 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
     partitionAssignor.updateClusterMetadata(cluster);
 
     this.cluster = cluster;
-    Map<String, Integer> totalTenantPartitions = new HashMap<>();
+    Map<String, Set<Integer>> brokersHostingLeaders = new HashMap<>();
     Map<String, Integer> tenantPartitionsOnThisBroker = new HashMap<>();
-    tenantQuotas.keySet().forEach(tenant -> totalTenantPartitions.put(tenant, 0));
+    tenantQuotas.keySet().forEach(tenant -> tenantPartitionsOnThisBroker.put(tenant, 0));
     for (String topic : cluster.topics()) {
       String tenant = topicTenant(topic);
       if (!tenant.isEmpty()) {
         for (PartitionInfo partitionInfo : cluster.partitionsForTopic(topic)) {
-          totalTenantPartitions.merge(tenant, 1, Integer::sum);
           Node leader = partitionInfo.leader();
-          if (leader != null && leader.id() == brokerId) {
-            tenantPartitionsOnThisBroker.merge(tenant, 1, Integer::sum);
+          if (leader != null) {
+            if (leader.id() == brokerId) {
+              tenantPartitionsOnThisBroker.merge(tenant, 1, Integer::sum);
+            }
+            // we record brokers even for tenants that do not have quota, because those tenant
+            // may be applied default tenant quota which may be not unlimited
+            if (!brokersHostingLeaders.containsKey(tenant)) {
+              brokersHostingLeaders.put(tenant, new HashSet<Integer>());
+            }
+            brokersHostingLeaders.get(tenant).add(leader.id());
           }
         }
       }
     }
+
     boolean updated = false;
-    for (Map.Entry<String, Integer> entry : totalTenantPartitions.entrySet()) {
+    for (Map.Entry<String, Integer> entry : tenantPartitionsOnThisBroker.entrySet()) {
       String tenant = entry.getKey();
       TenantQuota tenantQuota = getOrCreateTenantQuota(tenant, defaultTenantQuota, false);
-      int total = entry.getValue();
-      Integer partitionsOnThisBroker = tenantPartitionsOnThisBroker.getOrDefault(tenant, 0);
-      updated |= tenantQuota.updatePartitions(partitionsOnThisBroker, total);
+      int leaderPartitions = entry.getValue();
+      int brokersWithLeaders = brokersHostingLeaders.getOrDefault(
+          tenant, Collections.<Integer>emptySet()).size();
+      updated |= tenantQuota.updatePartitions(leaderPartitions, brokersWithLeaders);
     }
     if (updated) {
       log.trace("Some tenant quotas have been updated, new quotas: {}", tenantQuotas);
@@ -209,6 +253,11 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
     for (Map.Entry<String, QuotaConfig> entry : tenantClusterQuotas.entrySet()) {
       getOrCreateTenantQuota(entry.getKey(), entry.getValue(), true);
     }
+    // if default changed for all the tenants ('tenantClusterQuotas' are empty), we need to make
+    // sure that all broker quotas are updated accordingly
+    if (cluster != null && tenantClusterQuotas.isEmpty()) {
+      updateClusterMetadata(cluster);
+    }
     log.trace("Updated tenant quotas, new quotas: {}", tenantQuotas);
   }
 
@@ -226,7 +275,7 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
   }
 
   public static TenantPartitionAssignor partitionAssignor(Map<String, ?> configs) {
-    int brokerId = intConfig(configs, KafkaConfig$.MODULE$.BrokerIdProp(), null);
+    int brokerId = intConfig(configs, KafkaConfig$.MODULE$.BrokerIdProp());
     TenantPartitionAssignor partitionAssignor = null;
     synchronized (INSTANCES) {
       TenantQuotaCallback quotaCallback = INSTANCES.get(brokerId);
@@ -260,7 +309,16 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
     return Collections.singletonMap(TenantMetrics.TENANT_TAG, tenant);
   }
 
-  private static int intConfig(Map<String, ?> configs, String configName, Integer defaultValue) {
+  private static int intConfig(Map<String, ?> configs, String configName) {
+    Object configValue = configs.get(configName);
+    if (configValue == null) {
+      throw new ConfigException(configName + " is not set");
+    }
+    return Integer.parseInt(configValue.toString());
+  }
+
+  private static long loadPerTenantBrokerByteRateConfig(
+      Map<String, ?> configs, String configName, Long defaultValue, Long minValue) {
     Object configValue = configs.get(configName);
     if (configValue == null && defaultValue != null) {
       return defaultValue;
@@ -268,13 +326,17 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
     if (configValue == null) {
       throw new ConfigException(configName + " is not set");
     }
-    return Integer.parseInt(configValue.toString());
+    long maxPerTenantBrokerByteRate = Long.parseLong(configValue.toString());
+    if (maxPerTenantBrokerByteRate < minValue) {
+      throw new ConfigException(configName, maxPerTenantBrokerByteRate, "must be >= " + minValue);
+    }
+    return maxPerTenantBrokerByteRate;
   }
 
   private class TenantQuota {
     // Cluster configs related to the tenant, accessed only with TenantQuotaCallback lock
     int leaderPartitions;   // Tenant partitions with this broker as leader
-    int totalPartitions;    // Total number of tenant partitions
+    int brokersWithLeaders; // Number of brokers that host tenant's leaders
     // Configured cluster-wide quota
     QuotaConfig clusterQuotaConfig;
 
@@ -285,9 +347,9 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
      * Recomputes tenant quota for this broker based on the provided leader partitions of
      * this tenant on this broker and the total number of tenant partitions.
      */
-    boolean updatePartitions(int leaderPartitions, int totalPartitions) {
+    boolean updatePartitions(int leaderPartitions, int brokersWithLeaders) {
       this.leaderPartitions = leaderPartitions;
-      this.totalPartitions = totalPartitions;
+      this.brokersWithLeaders = brokersWithLeaders;
       QuotaConfig oldBrokerQuotas = brokerQuotas;
       updateBrokerQuota();
       return !Objects.equals(oldBrokerQuotas, brokerQuotas);
@@ -306,54 +368,48 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
 
     /**
      * Updates the quotas for this broker based on the configured provisioned cluster quota
-     * for the tenant and the proportion of tenant partitions allocated to this broker (as leader).
-     * If the provisioned cluster quota is not yet known (e.g. tenant quota has not yet been
-     * refreshed on the broker), default tenant quota is used for the calculation. Quota returned
-     * is always greater than zero to avoid excessive throttling of requests received before
-     * cluster metadata or quota configs are refreshed.
+     * for the tenant. If the provisioned cluster quota is not yet known (e.g. tenant quota has
+     * not yet been refreshed on the broker), default tenant quota is used for the calculation.
+     * Quota returned is always greater than zero to avoid excessive throttling of requests
+     * received before cluster metadata or quota configs are refreshed.
+     *
+     * Cluster-wide tenant quota is divided equally among brokers that host tenant's partition
+     * leaders. Per broker tenant quota is capped to a configured (or default) maximum, to make
+     * sure that a load from single tenant cannot overload a single broker.
      *
      * <p>For a cluster with:
      *    nodes = `n`,
      *    tenant cluster quota = `c`,
      *    total tenant partitions = `p`,
-     *    tenant partitions with this broker as leader = `l`,
-     *    confluent.quota.min.partitions = `m`
-     *    default tenant cluster quota = `d`
+     *    tenant partitions with this broker as leader = `l`
+     *    number of brokers hosting tenant's partition leaders = `b`,
+     *    maximum tenant quota that can be achieved on a single broker = `max_q`,
+     *    a broker with no leaders is always assigned a minimum tenant quota, `min_q`
      * Tenant quota 'q` is computed as follows:
-     *    q = l == 0 ? c / max(p, m, n) : c * l / max(p, m)
+     *    q = l == 0 ? min_q : min(c/b, max_q)
      * </p><p>Scenarios:
      * <ul>
-     *   <li>Typical case - quotas divided proportionally to leaders, full quota achieved across
-     *       cluster:
-     *       l > 0, p > 0, n > 0, p > m  : q = c * l / p
+     *   <li>Typical case - tenant creates medium/large number of partitions, full quota achieved
+     *   across cluster:
+     *       l > 0, p > 0, n > 0, b >= c / max_q : q = c / b
      *   </li>
      *   <li>Tenant creates one (or a small number) of partitions, and this broker is the leader
-     *       of one or more partitions. Since tenant partitions will be balanced, we expect this
-     *       broker to be the leader of at most one partition. But for flexibility of data
-     *       rebalancing, we allow l > 1. Full quota achieved if m == 1 or p >= m.
-     *       l > 0, p < n, n > 0 : q = c * l / max(p, m)
+     *       of one or more partitions. Full quota is not achieved.
+     *       l > 0, p > 0, n > 0, b < c / max_q : q = max_q
      *   </li>
      *   <li>Tenant created, metadata not refreshed on this broker - quota divided equally
      *       amongst nodes until partitions are created and metadata is refreshed.
-     *       l = 0, p = 0, n > 0 : q = c / max(m, n)
+     *       l = 0, p = 0, n > 0 : q = min(c/n, max_q)
      *   </li>
-     *   <li>Tenant creates partitions across all brokers, but this broker is not currently
+     *   <li>Tenant creates partitions, but this broker is not currently
      *       the leader of any. To avoid excessive throttling if a request arrives before metadata
      *       is refreshed, quota for one partition is allocated to this broker. This is a very
      *       tiny timing window, so the additional quota shouldn't cause any issues.
-     *       l = 0, p > n, n > 0 : q = c / max(p, m, n)
-     *   </li>
-     *   <li>Tenant creates one (or a small number) of partitions, but this broker is not currently
-     *       the leader of any. Partitions are balanced across brokers, so quota is divided
-     *       equally amongst brokers, including for this broker which is not the leader of any.
-     *       l = 0, p < n, n > 0 : q = c / max(m, n)
-     *   </li>
-     *   <li>Tenant request arrives before tenant quota is refreshed on the callback.
-     *       `q` is calculated with cluster quota `d` based on one of the scenarios above.
+     *       l = 0, p > n, n > 0 : q = min_q
      *   </li>
      *   <li>Tenant request arrives before cluster metadata is refreshed on the callback.
-     *       `q` is calculated with number of nodes from previous cluster metadata if available or
-     *       `m` as the number of nodes, based on one of the scenarios above.
+     *       `q` is calculated with number of  brokers with leaders from previous cluster
+     *       metadata if available or min_q otherwise.
      *   </li>
      * </ul>
      * </p>
@@ -367,28 +423,44 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
      * <li>For larger timing windows related to tenant quota refresh, we may allocate
      *     older or default tenant quotas until the refresh is processed, but we will not
      *     exceed the total (older/default) quota of the tenant across the cluster.</li>
-     * <li>The maximum quota achievable per-partition will be `c / m`. But quota guarantees
-     *     will be on the total of all partitions on each broker and not at individual
-     *     partitions level. At least `m` partitions are required to achieve the provisioned
-     *     quota across the cluster.</li>
+     * <li>The maximum consume and produce quotas achievable per broker is configurable:
+     *     confluent.quota.tenant.broker.max.producer.rate and
+     *     confluent.quota.tenant.broker.max.consumer.rate, with default values 12.5MB/sec each
+     *     </li>
      * <li>Brokers (with non-tenant principals) are allocated unlimited quotas and are never
      *     throttled.</li>
      * </ul>
      * </p>
      */
     void updateBrokerQuota() {
-      int denominator = Math.max(totalPartitions, minPartitionsForMaxQuota);
-      double numerator = Math.max(leaderPartitions, 1.0);
-      if (leaderPartitions == 0) {
-        int numBrokers = cluster == null ? 1 : cluster.nodes().size();
-        denominator = Math.max(denominator, numBrokers);
+      Long produceQuota = null;
+      if (clusterQuotaConfig.hasQuotaLimit(ClientQuotaType.PRODUCE)) {
+        produceQuota = leaderPartitions == 0 ?
+                       minPerTenantBrokerProducerRate :
+                       Math.min(clusterQuotaConfig.equalQuotaPerBrokerOrUnlimited(
+                                    ClientQuotaType.PRODUCE,
+                                    brokersWithLeaders, minPerTenantBrokerProducerRate),
+                                maxPerTenantBrokerProducerRate);
       }
-      double multiplier =  numerator / denominator;
+
+
+      Long consumeQuota = null;
+      if (clusterQuotaConfig.hasQuotaLimit(ClientQuotaType.FETCH)) {
+        consumeQuota = leaderPartitions == 0 ?
+                       minPerTenantBrokerConsumerRate :
+                       Math.min(clusterQuotaConfig.equalQuotaPerBrokerOrUnlimited(
+                                    ClientQuotaType.FETCH,
+                                    brokersWithLeaders, minPerTenantBrokerConsumerRate),
+                                maxPerTenantBrokerConsumerRate);
+      }
 
       // TODO: More investigation is required to figure out the best way to
       // distribute request quota. In phase 1, we will allocate high request
       // quotas to reduce throttling based on request quotas.
-      brokerQuotas = new QuotaConfig(clusterQuotaConfig, multiplier);
+      brokerQuotas = new QuotaConfig(produceQuota,
+                                     consumeQuota,
+                                     clusterQuotaConfig.quota(ClientQuotaType.REQUEST),
+                                     QuotaConfig.UNLIMITED_QUOTA);
     }
 
     boolean hasQuotaLimit(ClientQuotaType quotaType) {
@@ -402,7 +474,7 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
     @Override
     public String toString() {
       return "TenantQuota("
-          + "totalPartitions=" + totalPartitions + ", "
+          + "brokersWithLeaders=" + brokersWithLeaders + ", "
           + "leaderPartitions=" + leaderPartitions + ", "
           + "clusterQuotaConfig=" + clusterQuotaConfig + ", "
           + "brokerQuotas=" + brokerQuotas + ")";
