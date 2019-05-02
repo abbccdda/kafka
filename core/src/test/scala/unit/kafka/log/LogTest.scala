@@ -31,10 +31,11 @@ import kafka.server.{BrokerTopicStats, FetchDataInfo, KafkaConfig, LogDirFailure
 import kafka.utils._
 import org.apache.kafka.common.{KafkaException, TopicPartition}
 import org.apache.kafka.common.errors._
-import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.record.MemoryRecords.RecordFilter
 import org.apache.kafka.common.record.MemoryRecords.RecordFilter.BatchRetention
 import org.apache.kafka.common.record._
+import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
+import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.requests.FetchResponse.AbortedTransaction
 import org.apache.kafka.common.requests.{ListOffsetRequest, ListOffsetResponse}
 import org.apache.kafka.common.utils.{Time, Utils}
@@ -1694,9 +1695,9 @@ class LogTest {
     for(i <- 0 until numMessages) {
       assertEquals(i, readLog(log, i, 100).records.batches.iterator.next().lastOffset)
       if (i == 0)
-        assertEquals(log.localLogSegments.head.baseOffset, log.fetchOffsetByTimestamp(mockTime.milliseconds + i * 10).get.offset)
+        assertOffset(log.localLogSegments.head.baseOffset, log.fetchOffsetByTimestamp(mockTime.milliseconds + i * 10).get)
       else
-        assertEquals(i, log.fetchOffsetByTimestamp(mockTime.milliseconds + i * 10).get.offset)
+        assertOffset(i : Long, log.fetchOffsetByTimestamp(mockTime.milliseconds + i * 10).get)
     }
     log.close()
   }
@@ -1709,34 +1710,34 @@ class LogTest {
     assertEquals(None, log.fetchOffsetByTimestamp(0L))
 
     val firstTimestamp = mockTime.milliseconds
-    val firstLeaderEpoch = 0
+    val firstLeaderEpoch : Integer = 0
     log.appendAsLeader(TestUtils.singletonRecords(
       value = TestUtils.randomBytes(10),
       timestamp = firstTimestamp),
       leaderEpoch = firstLeaderEpoch)
 
     val secondTimestamp = firstTimestamp + 1
-    val secondLeaderEpoch = 1
+    val secondLeaderEpoch : Integer = 1
     log.appendAsLeader(TestUtils.singletonRecords(
       value = TestUtils.randomBytes(10),
       timestamp = secondTimestamp),
       leaderEpoch = secondLeaderEpoch)
 
-    assertEquals(Some(new TimestampAndOffset(firstTimestamp, 0L, Optional.of(firstLeaderEpoch))),
+    assertEquals(Some(new FileTimestampAndOffset(firstTimestamp, 0L, Optional.of(firstLeaderEpoch))),
       log.fetchOffsetByTimestamp(firstTimestamp))
-    assertEquals(Some(new TimestampAndOffset(secondTimestamp, 1L, Optional.of(secondLeaderEpoch))),
+    assertEquals(Some(new FileTimestampAndOffset(secondTimestamp, 1L, Optional.of(secondLeaderEpoch))),
       log.fetchOffsetByTimestamp(secondTimestamp))
 
-    assertEquals(Some(new TimestampAndOffset(ListOffsetResponse.UNKNOWN_TIMESTAMP, 0L, Optional.of(firstLeaderEpoch))),
+    assertEquals(Some(new FileTimestampAndOffset(ListOffsetResponse.UNKNOWN_TIMESTAMP, 0L, Optional.of(firstLeaderEpoch))),
       log.fetchOffsetByTimestamp(ListOffsetRequest.EARLIEST_TIMESTAMP))
-    assertEquals(Some(new TimestampAndOffset(ListOffsetResponse.UNKNOWN_TIMESTAMP, 2L, Optional.of(secondLeaderEpoch))),
+    assertEquals(Some(new FileTimestampAndOffset(ListOffsetResponse.UNKNOWN_TIMESTAMP, 2L, Optional.of(secondLeaderEpoch))),
       log.fetchOffsetByTimestamp(ListOffsetRequest.LATEST_TIMESTAMP))
 
     // The cache can be updated directly after a leader change.
     // The new latest offset should reflect the updated epoch.
     log.maybeAssignEpochStartOffset(2, 2L)
 
-    assertEquals(Some(new TimestampAndOffset(ListOffsetResponse.UNKNOWN_TIMESTAMP, 2L, Optional.of(2))),
+    assertEquals(Some(new FileTimestampAndOffset(ListOffsetResponse.UNKNOWN_TIMESTAMP, 2L, Optional.of(2 : Integer))),
       log.fetchOffsetByTimestamp(ListOffsetRequest.LATEST_TIMESTAMP))
   }
 
@@ -1801,9 +1802,9 @@ class LogTest {
     for(i <- 0 until numMessages) {
       assertEquals(i, readLog(log, i, 100).records.batches.iterator.next().lastOffset)
       if (i == 0)
-        assertEquals(log.localLogSegments.head.baseOffset, log.fetchOffsetByTimestamp(mockTime.milliseconds + i * 10).get.offset)
+        assertOffset(log.localLogSegments.head.baseOffset, log.fetchOffsetByTimestamp(mockTime.milliseconds + i * 10).get)
       else
-        assertEquals(i, log.fetchOffsetByTimestamp(mockTime.milliseconds + i * 10).get.offset)
+        assertOffset(i : Long, log.fetchOffsetByTimestamp(mockTime.milliseconds + i * 10).get)
     }
     log.close()
   }
@@ -3123,6 +3124,11 @@ class LogTest {
     // epoch entries should be recovered
     assertEquals(ListBuffer(EpochEntry(1, 0), EpochEntry(2, 1), EpochEntry(3, 3)), recoveredLeaderEpochCache.epochEntries)
     recoveredLog.close()
+  }
+
+  private def assertOffset(expected: Long, timestampAndOffset: TimestampAndOffset): Unit = {
+    assertTrue(timestampAndOffset.isInstanceOf[FileTimestampAndOffset])
+    assertEquals(expected, timestampAndOffset.asInstanceOf[FileTimestampAndOffset].offset)
   }
 
   /**

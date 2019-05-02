@@ -38,6 +38,8 @@ class TierLogSegment private[log] (private val segment: TierObjectMetadata,
   }
 
   def nextOffset: Long = segment.endOffset + 1
+  def maxTimestamp: Long = segment.maxTimestamp()
+  def metadata: TierObjectMetadata = segment
 
   override def toString = s"baseOffset: $baseOffset tierObjectStore: $tierObjectStore"
 }

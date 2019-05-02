@@ -15,16 +15,19 @@ import kafka.server.epoch.{LeaderEpochFileCache, EpochEntry}
 import kafka.tier.TierMetadataManager
 import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.state.{MemoryTierPartitionStateFactory, TierPartitionState}
+import kafka.tier.TierTimestampAndOffset
 import kafka.utils.{Logging, Scheduler}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{KafkaStorageException, OffsetOutOfRangeException}
+import org.apache.kafka.common.record.MemoryRecords
 import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
-import org.apache.kafka.common.record.{FileRecords, MemoryRecords}
 import org.apache.kafka.common.requests.FetchResponse.AbortedTransaction
+import org.apache.kafka.common.requests.ListOffsetRequest
 import org.apache.kafka.common.utils.{Time, Utils}
 
 import scala.collection.mutable.ListBuffer
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 import scala.compat.java8.OptionConverters._
 
 /**
@@ -378,8 +381,11 @@ class MergedLog(private[log] val localLog: Log,
   private[log] def uniqueLogSegments(from: Long, to: Long): (Iterable[TierLogSegment], Iterable[LogSegment]) = {
     val localSegments = localLog.logSegments(from, to)
     val localStartOffset = localSegments.headOption.map(_.baseOffset)
-    val tieredSegments = tieredOffsets(from, localStartOffset.getOrElse(to)).asScala
-      .map(offset => tierSegment(tierPartitionState.metadata(offset).get))
+    val tieredSegments = new mutable.MutableList[TierLogSegment]
+    val tieredIterator = tieredOffsets(from, localStartOffset.getOrElse(to)).iterator()
+    while (tieredIterator.hasNext)
+      tieredSegments += tierSegment(tierPartitionState.metadata(tieredIterator.next()).get)
+
     (tieredSegments, localSegments)
   }
 
@@ -446,11 +452,31 @@ class MergedLog(private[log] val localLog: Log,
   }
 
   override def fetchOffsetByTimestamp(targetTimestamp: Long): Option[TimestampAndOffset] = {
-    localLog.fetchOffsetByTimestamp(targetTimestamp)
+    // if we're performing an earliest timestamp or latest timestamp fetch
+    // we don't care about tiered data at all, and can use the Log implementation
+    if (targetTimestamp.equals(ListOffsetRequest.EARLIEST_TIMESTAMP) || targetTimestamp.equals(ListOffsetRequest.LATEST_TIMESTAMP))
+      return localLog.fetchOffsetByTimestamp(targetTimestamp)
+
+
+    // if the targetTimestamp is within tiered unique log segments,
+    // return a TierTimestampAndOffset to indicate a tier fetch request is required
+    val (tieredSegments, localSegments) = uniqueLogSegments
+    tieredSegments.find(t => t.maxTimestamp >= targetTimestamp) match {
+      case Some(logSegment) =>
+        Some(new TierTimestampAndOffset(targetTimestamp, logSegment.metadata))
+
+      // if the offset for timestamp isn't in tiered section, dispatch to local log lookup
+      case None => localLog.fetchOffsetByTimestamp(targetTimestamp)
+    }
   }
 
   override def legacyFetchOffsetsBefore(timestamp: Long, maxNumOffsets: Int): Seq[Long] = {
-    localLog.legacyFetchOffsetsBefore(timestamp, maxNumOffsets)
+    val (tieredSegments, localSegments) = uniqueLogSegments
+    // Cache to avoid race conditions. `toBuffer` is faster than most alternatives and provides
+    // constant time access while being safe to use with concurrent collections unlike `toArray`.
+    val segments = (tieredSegments.map(seg => (seg.baseOffset, seg.metadata.maxTimestamp, seg.size))
+      ++ localSegments.map(seg => (seg.baseOffset, seg.lastModified, seg.size))).toBuffer
+    localLog.legacyFetchOffsetsBefore(timestamp, maxNumOffsets, segments)
   }
 
   override def convertToLocalOffsetMetadata(offset: Long): Option[LogOffsetMetadata] = localLog.convertToOffsetMetadata(offset)
@@ -803,10 +829,12 @@ sealed trait AbstractLog {
   /**
     * See Log#fetchOffsetByTimestamp for documentation. This performs a best-effort local lookup for the timestamp.
     */
-  def fetchOffsetByTimestamp(targetTimestamp: Long): Option[FileRecords.TimestampAndOffset]
+  def fetchOffsetByTimestamp(targetTimestamp: Long): Option[TimestampAndOffset]
 
   /**
     * See Log#legacyFetchOffsetsBefore for documentation. This performs a best-effort local lookup for the timestamp.
+    * Note that for tiered segments the segment's maxTimestamp is used in lieu of segment lastModifiedTime
+    * as lastModifiedTime is not maintained.
     */
   def legacyFetchOffsetsBefore(timestamp: Long, maxNumOffsets: Int): Seq[Long]
 

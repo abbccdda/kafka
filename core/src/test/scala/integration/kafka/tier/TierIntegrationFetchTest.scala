@@ -11,6 +11,7 @@ import java.util
 import java.util.concurrent.TimeUnit
 import java.util.function.Consumer
 import java.util.{Properties, UUID}
+import java.util.Random
 
 import javax.management.ObjectName
 import kafka.api.IntegrationTestHarness
@@ -94,7 +95,8 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
       for (b <- 0 until nBatches) {
         val producerRecords = (0 until recordsPerBatch).map(i => {
           val m = recordsPerBatch * b + i
-          new ProducerRecord(topic, null, null,
+          val timestamp = Math.abs(new Random().nextLong())
+          new ProducerRecord(topic, null, timestamp,
             "foo".getBytes(StandardCharsets.UTF_8),
             s"$m".getBytes(StandardCharsets.UTF_8)
           )
@@ -162,17 +164,28 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
       consumer.assign(partitions)
       consumer.seekToBeginning(partitions)
       val valuesRead = new util.ArrayList[Int]()
+      val timestampsOffsets = new util.ArrayList[(Long,Long)]()
       while (valuesRead.size() != nBatches * recordsPerBatch) {
         val records = consumer.poll(Duration.ofMillis(1000))
         records.forEach(new Consumer[ConsumerRecord[String, String]]() {
           override def accept(r: ConsumerRecord[String, String]): Unit = {
             valuesRead.add(Integer.parseInt(r.value()))
+            timestampsOffsets.add((r.timestamp(), r.offset()))
           }
         })
       }
       val expectedValues = new util.ArrayList[Int](Range(0, nBatches * recordsPerBatch).asJava)
       assertEquals(expectedValues, valuesRead)
 
+      for ((timestamp, offset) <- timestampsOffsets.asScala) {
+        val expectedOffset = timestampsOffsets.asScala.find {case (recordTimestamp, recordOffset) => recordTimestamp >= timestamp }.get._2
+        assertTimestampForOffsetLookupCorrect(topicPartition, consumer, timestamp, expectedOffset)
+      }
+
+      // smallest possible timestamp should return offset of 0
+      assertTimestampForOffsetLookupCorrect(topicPartition, consumer, 0, 0)
+      // largest possible timestamp should not happen, so offset for times should return null
+      assertTimestampForOffsetLookupMissing(topicPartition, consumer, Long.MaxValue)
     } finally {
       consumer.close()
     }
@@ -198,5 +211,18 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
 
     assertTrue("tier archiver mean rate shows no data uploaded to tiered storage",
       meanArchiveRate > 100)
+  }
+
+  private def assertTimestampForOffsetLookupCorrect(topicPartition: TopicPartition, consumer: KafkaConsumer[String, String], timestamp: Long, expectedOffset: Long) = {
+    val timestampsToSearch = new util.HashMap[TopicPartition, java.lang.Long]()
+    timestampsToSearch.put(topicPartition, timestamp)
+    assertEquals("timestamp should match offset read",
+      consumer.offsetsForTimes(timestampsToSearch).get(topicPartition).offset(), expectedOffset)
+  }
+
+  private def assertTimestampForOffsetLookupMissing(topicPartition: TopicPartition, consumer: KafkaConsumer[String,String], timestamp: Long) = {
+    val timestampsToSearch = new util.HashMap[TopicPartition, java.lang.Long]()
+    timestampsToSearch.put(topicPartition, timestamp)
+    assertEquals("offset should not be returned", null, consumer.offsetsForTimes(timestampsToSearch).get(topicPartition))
   }
 }

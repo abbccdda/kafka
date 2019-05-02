@@ -37,6 +37,7 @@ import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.utils.Utils
 import org.apache.kafka.common.record._
+import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
 import org.apache.kafka.common.requests.{EpochEndOffset, IsolationLevel, LeaderAndIsrRequest, ListOffsetRequest}
 import org.junit.{After, Before, Test}
 import org.junit.Assert._
@@ -551,14 +552,14 @@ class PartitionTest {
 
     // Get the LEO
     fetchOffsetsForTimestamp(ListOffsetRequest.LATEST_TIMESTAMP, None) match {
-      case Right(Some(offsetAndTimestamp)) => assertEquals(5, offsetAndTimestamp.offset)
+      case Right(Some(offsetAndTimestamp)) => assertOffset(5L, offsetAndTimestamp)
       case Right(None) => fail("Should have seen some offsets")
       case Left(e) => fail("Should not have seen an error")
     }
 
     // Get the HW
     fetchOffsetsForTimestamp(ListOffsetRequest.LATEST_TIMESTAMP, Some(IsolationLevel.READ_UNCOMMITTED)) match {
-      case Right(Some(offsetAndTimestamp)) => assertEquals(2, offsetAndTimestamp.offset)
+      case Right(Some(offsetAndTimestamp)) => assertOffset(2L, offsetAndTimestamp)
       case Right(None) => fail("Should have seen some offsets")
       case Left(e) => fail("Should not have seen an error")
     }
@@ -584,14 +585,14 @@ class PartitionTest {
 
     // If request is not from a client, we skip the check
     fetchOffsetsForTimestamp(ListOffsetRequest.LATEST_TIMESTAMP, None) match {
-      case Right(Some(offsetAndTimestamp)) => assertEquals(5, offsetAndTimestamp.offset)
+      case Right(Some(offsetAndTimestamp)) => assertOffset(5L, offsetAndTimestamp)
       case Right(None) => fail("Should have seen some offsets")
       case Left(e: ApiException) => fail(s"Got ApiException $e")
     }
 
     // If we request the earliest timestamp, we skip the check
     fetchOffsetsForTimestamp(ListOffsetRequest.EARLIEST_TIMESTAMP, Some(IsolationLevel.READ_UNCOMMITTED)) match {
-      case Right(Some(offsetAndTimestamp)) => assertEquals(0, offsetAndTimestamp.offset)
+      case Right(Some(offsetAndTimestamp)) => assertOffset(0L, offsetAndTimestamp)
       case Right(None) => fail("Should have seen some offsets")
       case Left(e: ApiException) => fail(s"Got ApiException $e")
     }
@@ -599,7 +600,7 @@ class PartitionTest {
     // If we request an offset by timestamp earlier than the HW, we are ok
     fetchOffsetsForTimestamp(11, Some(IsolationLevel.READ_UNCOMMITTED)) match {
       case Right(Some(offsetAndTimestamp)) =>
-        assertEquals(1, offsetAndTimestamp.offset)
+        assertOffset(1L, offsetAndTimestamp)
         assertEquals(11, offsetAndTimestamp.timestamp)
       case Right(None) => fail("Should have seen some offsets")
       case Left(e: ApiException) => fail(s"Got ApiException $e")
@@ -622,7 +623,7 @@ class PartitionTest {
 
     // Error goes away
     fetchOffsetsForTimestamp(ListOffsetRequest.LATEST_TIMESTAMP, Some(IsolationLevel.READ_UNCOMMITTED)) match {
-      case Right(Some(offsetAndTimestamp)) => assertEquals(5, offsetAndTimestamp.offset)
+      case Right(Some(offsetAndTimestamp)) => assertOffset(5L, offsetAndTimestamp)
       case Right(None) => fail("Should have seen some offsets")
       case Left(e: ApiException) => fail(s"Got ApiException $e")
     }
@@ -789,19 +790,19 @@ class PartitionTest {
       res.get
     }
 
-    assertEquals(3L, fetchLatestOffset(isolationLevel = None).offset)
-    assertEquals(0L, fetchLatestOffset(isolationLevel = Some(IsolationLevel.READ_UNCOMMITTED)).offset)
-    assertEquals(0L, fetchLatestOffset(isolationLevel = Some(IsolationLevel.READ_COMMITTED)).offset)
+    assertOffset(3L, fetchLatestOffset(isolationLevel = None))
+    assertOffset(0L, fetchLatestOffset(isolationLevel = Some(IsolationLevel.READ_UNCOMMITTED)))
+    assertOffset(0L, fetchLatestOffset(isolationLevel = Some(IsolationLevel.READ_COMMITTED)))
 
     replica.highWatermark = LogOffsetMetadata(1L)
 
-    assertEquals(3L, fetchLatestOffset(isolationLevel = None).offset)
-    assertEquals(1L, fetchLatestOffset(isolationLevel = Some(IsolationLevel.READ_UNCOMMITTED)).offset)
-    assertEquals(0L, fetchLatestOffset(isolationLevel = Some(IsolationLevel.READ_COMMITTED)).offset)
+    assertOffset(3L, fetchLatestOffset(isolationLevel = None))
+    assertOffset(1L, fetchLatestOffset(isolationLevel = Some(IsolationLevel.READ_UNCOMMITTED)))
+    assertOffset(0L, fetchLatestOffset(isolationLevel = Some(IsolationLevel.READ_COMMITTED)))
 
-    assertEquals(0L, fetchEarliestOffset(isolationLevel = None).offset)
-    assertEquals(0L, fetchEarliestOffset(isolationLevel = Some(IsolationLevel.READ_UNCOMMITTED)).offset)
-    assertEquals(0L, fetchEarliestOffset(isolationLevel = Some(IsolationLevel.READ_COMMITTED)).offset)
+    assertOffset(0L, fetchEarliestOffset(isolationLevel = None))
+    assertOffset(0L, fetchEarliestOffset(isolationLevel = Some(IsolationLevel.READ_UNCOMMITTED)))
+    assertOffset(0L, fetchEarliestOffset(isolationLevel = Some(IsolationLevel.READ_COMMITTED)))
   }
 
   @Test
@@ -1012,6 +1013,11 @@ class PartitionTest {
       executor.shutdownNow()
       executor.awaitTermination(5, TimeUnit.SECONDS)
     }
+  }
+
+  private def assertOffset(expected: Long, timestampAndOffset: TimestampAndOffset): Unit = {
+    assertTrue(timestampAndOffset.isInstanceOf[FileTimestampAndOffset])
+    assertEquals(expected, timestampAndOffset.asInstanceOf[FileTimestampAndOffset].offset)
   }
 
   def createRecords(records: Iterable[SimpleRecord], baseOffset: Long, partitionLeaderEpoch: Int = 0): MemoryRecords = {

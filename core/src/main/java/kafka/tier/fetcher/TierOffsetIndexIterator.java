@@ -15,14 +15,15 @@ class TierOffsetIndexIterator extends AbstractInputStreamFixedSizeIterator<Offse
         super(inputStream, 8);
         this.base = base;
     }
+
     @Override
     OffsetPosition toIndexEntry() {
         if (this.indexEntryBytes.length != 8) {
             throw new IllegalArgumentException("OffsetIndex entries must be 8 bytes");
         } else {
-            ByteBuffer buf = ByteBuffer.wrap(indexEntryBytes);
-            long offset = base + buf.getInt();
-            int position = buf.getInt(4);
+            final ByteBuffer buf = ByteBuffer.wrap(indexEntryBytes);
+            final long offset = base + buf.getInt();
+            final int position = buf.getInt(4);
             return OffsetPosition.apply(offset, position);
         }
     }

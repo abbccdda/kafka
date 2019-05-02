@@ -315,14 +315,14 @@ public class FileRecords extends AbstractRecords implements Closeable {
      * @param startingOffset The starting offset to search.
      * @return The timestamp and offset of the message found. Null if no message is found.
      */
-    public TimestampAndOffset searchForTimestamp(long targetTimestamp, int startingPosition, long startingOffset) {
+    public FileTimestampAndOffset searchForTimestamp(long targetTimestamp, int startingPosition, long startingOffset) {
         for (RecordBatch batch : batchesFrom(startingPosition)) {
             if (batch.maxTimestamp() >= targetTimestamp) {
                 // We found a message
                 for (Record record : batch) {
                     long timestamp = record.timestamp();
                     if (timestamp >= targetTimestamp && record.offset() >= startingOffset)
-                        return new TimestampAndOffset(timestamp, record.offset(),
+                        return new FileTimestampAndOffset(timestamp, record.offset(),
                                 maybeLeaderEpoch(batch.partitionLeaderEpoch()));
                 }
             }
@@ -335,7 +335,7 @@ public class FileRecords extends AbstractRecords implements Closeable {
      * @param startingPosition The starting position.
      * @return The largest timestamp of the messages after the given position.
      */
-    public TimestampAndOffset largestTimestampAfter(int startingPosition) {
+    public FileTimestampAndOffset largestTimestampAfter(int startingPosition) {
         long maxTimestamp = RecordBatch.NO_TIMESTAMP;
         long offsetOfMaxTimestamp = -1L;
         int leaderEpochOfMaxTimestamp = RecordBatch.NO_PARTITION_LEADER_EPOCH;
@@ -348,7 +348,7 @@ public class FileRecords extends AbstractRecords implements Closeable {
                 leaderEpochOfMaxTimestamp = batch.partitionLeaderEpoch();
             }
         }
-        return new TimestampAndOffset(maxTimestamp, offsetOfMaxTimestamp,
+        return new FileTimestampAndOffset(maxTimestamp, offsetOfMaxTimestamp,
                 maybeLeaderEpoch(leaderEpochOfMaxTimestamp));
     }
 
@@ -500,22 +500,52 @@ public class FileRecords extends AbstractRecords implements Closeable {
         }
     }
 
-    public static class TimestampAndOffset {
-        public final long timestamp;
-        public final long offset;
-        public final Optional<Integer> leaderEpoch;
+    public interface TimestampAndOffset {
+       long timestamp();
+       Optional<Integer> leaderEpoch();
+    }
 
-        public TimestampAndOffset(long timestamp, long offset, Optional<Integer> leaderEpoch) {
+    public static class FileTimestampAndOffset implements TimestampAndOffset {
+        public final long timestamp;
+        public final Optional<Integer> leaderEpoch;
+        public long offset;
+        public Exception exception = null;
+
+        public FileTimestampAndOffset(long timestamp, long offset, Optional<Integer> leaderEpoch) {
             this.timestamp = timestamp;
             this.offset = offset;
             this.leaderEpoch = leaderEpoch;
+        }
+
+       public FileTimestampAndOffset(long timestamp, Optional<Integer> leaderEpoch, Exception exception) {
+            this.timestamp = timestamp;
+            this.leaderEpoch = leaderEpoch;
+            this.exception = exception;
+        }
+
+        @Override
+        public long timestamp() {
+            return timestamp;
+        }
+
+        public long offset() {
+            return offset;
+        }
+
+        public Exception exception() {
+            return exception;
+        }
+
+        @Override
+        public Optional<Integer> leaderEpoch() {
+            return leaderEpoch;
         }
 
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
-            TimestampAndOffset that = (TimestampAndOffset) o;
+            FileTimestampAndOffset that = (FileTimestampAndOffset) o;
             return timestamp == that.timestamp &&
                     offset == that.offset &&
                     Objects.equals(leaderEpoch, that.leaderEpoch);

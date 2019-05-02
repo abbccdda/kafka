@@ -18,7 +18,6 @@
 package kafka.server
 
 import java.util
-import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 import kafka.metrics.KafkaMetricsGroup

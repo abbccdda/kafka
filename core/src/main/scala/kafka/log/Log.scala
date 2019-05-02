@@ -37,12 +37,13 @@ import kafka.tier.TierMetadataManager
 import kafka.server.{AbstractFetchDataInfo, BrokerTopicStats, FetchDataInfo, LogDirFailureChannel, LogOffsetMetadata, OffsetAndEpoch}
 import kafka.utils._
 import org.apache.kafka.common.errors._
-import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.requests.FetchResponse.AbortedTransaction
 import org.apache.kafka.common.requests.{EpochEndOffset, ListOffsetRequest}
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.apache.kafka.common.{KafkaException, TopicPartition}
+import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
+import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
@@ -1337,11 +1338,11 @@ class Log(@volatile var dir: File,
           case Some(entry) if entry.startOffset <= mergedLogStartOffset => Optional.of[Integer](entry.epoch)
           case _ => Optional.empty[Integer]()
         }
-        return Some(new TimestampAndOffset(RecordBatch.NO_TIMESTAMP, mergedLogStartOffset, epochOpt))
+        return Some(new FileTimestampAndOffset(RecordBatch.NO_TIMESTAMP, mergedLogStartOffset, epochOpt))
       } else if (targetTimestamp == ListOffsetRequest.LATEST_TIMESTAMP) {
         val latestEpochOpt = leaderEpochCache.flatMap(_.latestEpoch).map(_.asInstanceOf[Integer])
         val epochOptional = Optional.ofNullable(latestEpochOpt.orNull)
-        return Some(new TimestampAndOffset(RecordBatch.NO_TIMESTAMP, logEndOffset, epochOptional))
+        return Some(new FileTimestampAndOffset(RecordBatch.NO_TIMESTAMP, logEndOffset, epochOptional))
       }
 
       val targetSeg = {
@@ -1361,8 +1362,20 @@ class Log(@volatile var dir: File,
   def legacyFetchOffsetsBefore(timestamp: Long, maxNumOffsets: Int): Seq[Long] = {
     // Cache to avoid race conditions. `toBuffer` is faster than most alternatives and provides
     // constant time access while being safe to use with concurrent collections unlike `toArray`.
-    val segments = logSegments.toBuffer
-    val lastSegmentHasSize = segments.last.size > 0
+    val buffer = logSegments.map(seg => (seg.baseOffset, seg.lastModified, seg.size)).toBuffer
+    legacyFetchOffsetsBefore(timestamp, maxNumOffsets, buffer)
+  }
+
+  /**
+   * legacyFetchOffsetsBefore functionality intended for reuse by both Log and MergedLog code
+   * @param timestamp target timestamp
+   * @param maxNumOffsets max number of segments to scan (protocol V0)
+   * @param segments buffer containing segment tuples (baseOffset, (lastModifiedTime or maxTimestamp), size)
+   * @return offsets
+   */
+  def legacyFetchOffsetsBefore(timestamp: Long, maxNumOffsets: Int, segments: mutable.Buffer[(Long,Long,Int)]): Seq[Long] = {
+    val (_, _, lastSegmentSize) = segments.last
+    val lastSegmentHasSize = lastSegmentSize > 0
 
     val offsetTimeArray =
       if (lastSegmentHasSize)
@@ -1370,8 +1383,10 @@ class Log(@volatile var dir: File,
       else
         new Array[(Long, Long)](segments.length)
 
-    for (i <- segments.indices)
-      offsetTimeArray(i) = (math.max(segments(i).baseOffset, localLogStartOffset), segments(i).lastModified)
+    for (i <- segments.indices) {
+      val (baseOffset, lastModified, _) = segments(i)
+      offsetTimeArray(i) = (math.max(baseOffset, localLogStartOffset), lastModified)
+    }
     if (lastSegmentHasSize)
       offsetTimeArray(segments.length) = (logEndOffset, time.milliseconds)
 

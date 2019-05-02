@@ -76,6 +76,7 @@ import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
 import org.apache.kafka.common.security.token.delegation.{DelegationToken, TokenInformation}
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.apache.kafka.common.{Node, TopicPartition}
+import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
 
 import scala.collection.JavaConverters._
 import scala.collection._
@@ -848,12 +849,10 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleListOffsetRequest(request: RequestChannel.Request) {
     val version = request.header.apiVersion()
 
-    val mergedResponseMap = if (version == 0)
-      handleListOffsetRequestV0(request)
+    if (version == 0)
+      sendResponseMaybeThrottle(request, requestThrottleMs => new ListOffsetResponse(requestThrottleMs, handleListOffsetRequestV0(request).asJava))
     else
-      handleListOffsetRequestV1AndAbove(request)
-
-    sendResponseMaybeThrottle(request, requestThrottleMs => new ListOffsetResponse(requestThrottleMs, mergedResponseMap.asJava))
+      handleListOffsetRequestV1AndAbove(request, response => sendResponseMaybeThrottle(request, requestThrottleMs => new ListOffsetResponse(requestThrottleMs, response.asJava)))
   }
 
   private def handleListOffsetRequestV0(request : RequestChannel.Request) : Map[TopicPartition, ListOffsetResponse.PartitionData] = {
@@ -895,7 +894,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     responseMap ++ unauthorizedResponseStatus
   }
 
-  private def handleListOffsetRequestV1AndAbove(request : RequestChannel.Request): Map[TopicPartition, ListOffsetResponse.PartitionData] = {
+  private def handleListOffsetRequestV1AndAbove(request : RequestChannel.Request, sendResponse: Map[TopicPartition, ListOffsetResponse.PartitionData] => Unit): Unit = {
     val correlationId = request.header.correlationId
     val clientId = request.header.clientId
     val offsetRequest = request.body[ListOffsetRequest]
@@ -911,74 +910,88 @@ class KafkaApis(val requestChannel: RequestChannel,
         Optional.empty())
     })
 
-    val responseMap = authorizedRequestInfo.map { case (topicPartition, partitionData) =>
-      if (offsetRequest.duplicatePartitions.contains(topicPartition)) {
+    val (duplicated, unique) = authorizedRequestInfo.partition { case (tp, _) => offsetRequest.duplicatePartitions().contains(tp) }
+    val duplicatedResponseMap = duplicated.map {
+      case (topicPartition, partitionData) =>
         debug(s"OffsetRequest with correlation id $correlationId from client $clientId on partition $topicPartition " +
-            s"failed because the partition is duplicated in the request.")
+          s"failed because the partition is duplicated in the request.")
         (topicPartition, new ListOffsetResponse.PartitionData(Errors.INVALID_REQUEST,
           ListOffsetResponse.UNKNOWN_TIMESTAMP,
           ListOffsetResponse.UNKNOWN_OFFSET,
           Optional.empty()))
-      } else {
+    }
 
-        def buildErrorResponse(e: Errors): (TopicPartition, ListOffsetResponse.PartitionData) = {
-          (topicPartition, new ListOffsetResponse.PartitionData(
-            e,
-            ListOffsetResponse.UNKNOWN_TIMESTAMP,
-            ListOffsetResponse.UNKNOWN_OFFSET,
-            Optional.empty()))
-        }
+    val partitionTimestamps = unique.map { case (topicPartition, partitionData) =>
+      (topicPartition, (partitionData.currentLeaderEpoch, partitionData.timestamp))
+    }
 
-        try {
-          val fetchOnlyFromLeader = offsetRequest.replicaId != ListOffsetRequest.DEBUGGING_REPLICA_ID
-          val isClientRequest = offsetRequest.replicaId == ListOffsetRequest.CONSUMER_REPLICA_ID
-          val isolationLevelOpt = if (isClientRequest)
-            Some(offsetRequest.isolationLevel)
-          else
-            None
+    val fetchOnlyFromLeader = offsetRequest.replicaId != ListOffsetRequest.DEBUGGING_REPLICA_ID
+    val isClientRequest = offsetRequest.replicaId == ListOffsetRequest.CONSUMER_REPLICA_ID
+    val isolationLevelOpt = if (isClientRequest)
+      Some(offsetRequest.isolationLevel)
+    else
+      None
 
-          val foundOpt = replicaManager.fetchOffsetForTimestamp(topicPartition,
-            partitionData.timestamp,
-            isolationLevelOpt,
-            partitionData.currentLeaderEpoch,
-            fetchOnlyFromLeader)
+    def buildError(topicPartition: TopicPartition, exception: Exception): ListOffsetResponse.PartitionData = {
+      def buildErrorResponse(e: Errors): ListOffsetResponse.PartitionData = {
+        new ListOffsetResponse.PartitionData(
+          e,
+          ListOffsetResponse.UNKNOWN_TIMESTAMP,
+          ListOffsetResponse.UNKNOWN_OFFSET,
+          Optional.empty())
+      }
 
-          val response = foundOpt match {
-            case Some(found) =>
-              new ListOffsetResponse.PartitionData(Errors.NONE, found.timestamp, found.offset, found.leaderEpoch)
+      exception match {
+        // NOTE: These exceptions are special cased since these error messages are typically transient or the client
+        // would have received a clear exception and there is no value in logging the entire stack trace for the same
+        case e@(_: UnknownTopicOrPartitionException |
+                _: NotLeaderForPartitionException |
+                _: UnknownLeaderEpochException |
+                _: FencedLeaderEpochException |
+                _: KafkaStorageException |
+                _: UnsupportedForMessageFormatException) =>
+          debug(s"Offset request with correlation id $correlationId from client $clientId on " +
+            s"partition $topicPartition failed due to ${e.getMessage}")
+          buildErrorResponse(Errors.forException(e))
+
+        // Only V5 and newer ListOffset calls should get OFFSET_NOT_AVAILABLE
+        case e: OffsetNotAvailableException =>
+          if (request.header.apiVersion >= 5) {
+            buildErrorResponse(Errors.forException(e))
+          } else {
+            buildErrorResponse(Errors.LEADER_NOT_AVAILABLE)
+          }
+
+        case e: Throwable =>
+          error("Error while responding to offset request", e)
+          buildErrorResponse(Errors.forException(e))
+      }
+    }
+
+    def responseCallback(timestampAndOffsetMap: Map[TopicPartition, Option[FileTimestampAndOffset]]): Unit = {
+      val responseMap = timestampAndOffsetMap.map {
+        case (topicPartition, timestampAndOffsetOpt) =>
+          val response = timestampAndOffsetOpt match {
+            case Some(timestampAndOffset) =>
+              if (timestampAndOffset.exception != null)
+                buildError(topicPartition, timestampAndOffset.exception)
+              else
+                new ListOffsetResponse.PartitionData(Errors.NONE, timestampAndOffset.timestamp, timestampAndOffset.offset, timestampAndOffset.leaderEpoch)
             case None =>
               new ListOffsetResponse.PartitionData(Errors.NONE, ListOffsetResponse.UNKNOWN_TIMESTAMP,
                 ListOffsetResponse.UNKNOWN_OFFSET, Optional.empty())
           }
           (topicPartition, response)
-        } catch {
-          // NOTE: These exceptions are special cased since these error messages are typically transient or the client
-          // would have received a clear exception and there is no value in logging the entire stack trace for the same
-          case e @ (_ : UnknownTopicOrPartitionException |
-                    _ : NotLeaderForPartitionException |
-                    _ : UnknownLeaderEpochException |
-                    _ : FencedLeaderEpochException |
-                    _ : KafkaStorageException |
-                    _ : UnsupportedForMessageFormatException) =>
-            debug(s"Offset request with correlation id $correlationId from client $clientId on " +
-                s"partition $topicPartition failed due to ${e.getMessage}")
-            buildErrorResponse(Errors.forException(e))
-
-          // Only V5 and newer ListOffset calls should get OFFSET_NOT_AVAILABLE
-          case e: OffsetNotAvailableException =>
-            if(request.header.apiVersion >= 5) {
-              buildErrorResponse(Errors.forException(e))
-            } else {
-              buildErrorResponse(Errors.LEADER_NOT_AVAILABLE)
-            }
-
-          case e: Throwable =>
-            error("Error while responding to offset request", e)
-            buildErrorResponse(Errors.forException(e))
-        }
       }
+
+      sendResponse(unauthorizedResponseStatus ++ duplicatedResponseMap ++ responseMap)
     }
-    responseMap ++ unauthorizedResponseStatus
+
+    replicaManager.fetchOffsetsForTimestamps(partitionTimestamps,
+            isolationLevelOpt,
+            fetchOnlyFromLeader,
+            responseCallback,
+            15000L)
   }
 
   private def createTopic(topic: String,

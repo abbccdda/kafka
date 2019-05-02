@@ -680,6 +680,8 @@ class ReplicaManagerTest {
       purgatoryName = "DeleteRecords", timer, reaperEnabled = false)
     val mockElectPreferredLeaderPurgatory = new DelayedOperationPurgatory[DelayedElectPreferredLeader](
       purgatoryName = "ElectPreferredLeader", timer, reaperEnabled = false)
+    val mockListOffestsPurgatory = new DelayedOperationPurgatory[DelayedListOffsets](
+      purgatoryName = "ElectPreferredLeader", timer, reaperEnabled = false)
 
     // Mock network client to show leader offset of 5
     val quota = QuotaFactory.instantiate(config, metrics, time, "")
@@ -688,7 +690,7 @@ class ReplicaManagerTest {
     val replicaManager = new ReplicaManager(config, metrics, time, kafkaZkClient, mockScheduler, mockLogMgr,
       new AtomicBoolean(false), quota, mockBrokerTopicStats,
       metadataCache, mockLogDirFailureChannel, mockProducePurgatory, mockFetchPurgatory,
-      mockDeleteRecordsPurgatory, mockElectPreferredLeaderPurgatory, tierMetadataManager, None, None, Option(this.getClass.getName)) {
+      mockDeleteRecordsPurgatory, mockElectPreferredLeaderPurgatory, mockListOffestsPurgatory, tierMetadataManager, None, None, Option(this.getClass.getName)) {
       override protected def createReplicaFetcherManager(metrics: Metrics,
                                                          time: Time,
                                                          threadNamePrefix: Option[String],
@@ -839,12 +841,14 @@ class ReplicaManagerTest {
       purgatoryName = "DeleteRecords", timer, reaperEnabled = false)
     val mockDelayedElectPreferredLeaderPurgatory = new DelayedOperationPurgatory[DelayedElectPreferredLeader](
       purgatoryName = "DelayedElectPreferredLeader", timer, reaperEnabled = false)
+    val mockDelayedListOffsetsPurgatory = new DelayedOperationPurgatory[DelayedListOffsets](
+      purgatoryName = "DelayedElectPreferredLeader", timer, reaperEnabled = false)
     val tierMetadataManager: TierMetadataManager = EasyMock.createMock(classOf[TierMetadataManager])
 
     new ReplicaManager(config, metrics, time, kafkaZkClient, new MockScheduler(time), mockLogMgr,
       new AtomicBoolean(false), QuotaFactory.instantiate(config, metrics, time, ""), new BrokerTopicStats,
       metadataCache, new LogDirFailureChannel(config.logDirs.size), mockProducePurgatory, mockFetchPurgatory,
-      mockDeleteRecordsPurgatory, mockDelayedElectPreferredLeaderPurgatory, tierMetadataManager, None, None, Option(this.getClass.getName))
+      mockDeleteRecordsPurgatory, mockDelayedElectPreferredLeaderPurgatory, mockDelayedListOffsetsPurgatory, tierMetadataManager, None, None, Option(this.getClass.getName))
   }
 
 }

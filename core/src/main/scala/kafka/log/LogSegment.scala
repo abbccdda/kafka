@@ -27,7 +27,7 @@ import kafka.server.epoch.LeaderEpochFileCache
 import kafka.server.{FetchDataInfo, LogOffsetMetadata}
 import kafka.utils._
 import org.apache.kafka.common.errors.CorruptRecordException
-import org.apache.kafka.common.record.FileRecords.{LogOffsetPosition, TimestampAndOffset}
+import org.apache.kafka.common.record.FileRecords.{LogOffsetPosition, FileTimestampAndOffset}
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.utils.Time
 
@@ -564,7 +564,7 @@ class LogSegment private[log] (val log: FileRecords,
    * @param startingOffset The starting offset to search.
    * @return the timestamp and offset of the first message that meets the requirements. None will be returned if there is no such message.
    */
-  def findOffsetByTimestamp(timestamp: Long, startingOffset: Long = baseOffset): Option[TimestampAndOffset] = {
+  def findOffsetByTimestamp(timestamp: Long, startingOffset: Long = baseOffset): Option[FileTimestampAndOffset] = {
     // Get the index entry with a timestamp less than or equal to the target timestamp
     val timestampOffset = timeIndex.lookup(timestamp)
     val position = offsetIndex.lookup(math.max(timestampOffset.offset, startingOffset)).position

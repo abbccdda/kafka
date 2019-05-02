@@ -5,15 +5,19 @@
 package kafka.tier.fetcher;
 
 import kafka.server.DelayedOperationKey;
+import kafka.tier.TierTimestampAndOffset;
 import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.store.TierObjectStore;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.requests.IsolationLevel;
 import org.apache.kafka.common.utils.LogContext;
 import org.slf4j.Logger;
 import scala.compat.java8.OptionConverters;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -77,8 +81,8 @@ public class TierFetcher {
                 throw new IllegalStateException("No TierFetchMetadata supplied, cannot start fetch");
             } else if (!stopped.get()) {
 
-                logger.debug("Fetching " + firstFetchMetadata.segmentMetadata().topicPartition() + " "
-                        + "from tiered storage");
+                logger.debug("Fetching " + firstFetchMetadata.segmentMetadata().topicPartition()
+                        + " from tiered storage");
                 final TierObjectMetadata tierObjectMetadata = firstFetchMetadata.segmentMetadata();
                 final long targetOffset = firstFetchMetadata.fetchStartOffset();
                 final int maxBytes = firstFetchMetadata.maxBytes();
@@ -98,5 +102,21 @@ public class TierFetcher {
             throw new IllegalStateException("No TierFetchMetadata supplied to TierFetcher fetch "
                     + "request");
         }
+    }
+
+    public PendingOffsetForTimestamp fetchOffsetForTimestamp(Map<TopicPartition, TierTimestampAndOffset> tierTimestampAndOffsets,
+                                                             Optional<IsolationLevel> isolationLevel,
+                                                             Consumer<DelayedOperationKey> fetchCompletionCallback) {
+        if (isolationLevel.isPresent() && isolationLevel.get() == IsolationLevel.READ_COMMITTED)
+            throw new UnsupportedOperationException("Read " + IsolationLevel.READ_COMMITTED
+                    + " is not currently supported for offset for timestamp fetches.");
+
+        final CancellationContext cancellationContext = CancellationContext.newContext();
+        final PendingOffsetForTimestamp pending = new PendingOffsetForTimestamp(cancellationContext,
+                tierObjectStore,
+                tierTimestampAndOffsets,
+                fetchCompletionCallback);
+        executorService.execute(pending);
+        return pending;
     }
 }

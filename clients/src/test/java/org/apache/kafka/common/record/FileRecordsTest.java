@@ -398,17 +398,17 @@ public class FileRecordsTest {
         appendWithOffsetAndTimestamp(fileRecords, version, 10L, 5, 0);
         appendWithOffsetAndTimestamp(fileRecords, version, 11L, 6, 1);
 
-        assertFoundTimestamp(new FileRecords.TimestampAndOffset(10L, 5, Optional.of(0)),
+        assertFoundTimestamp(new FileRecords.FileTimestampAndOffset(10L, 5, Optional.of(0)),
                 fileRecords.searchForTimestamp(9L, 0, 0L), version);
-        assertFoundTimestamp(new FileRecords.TimestampAndOffset(10L, 5, Optional.of(0)),
+        assertFoundTimestamp(new FileRecords.FileTimestampAndOffset(10L, 5, Optional.of(0)),
                 fileRecords.searchForTimestamp(10L, 0, 0L), version);
-        assertFoundTimestamp(new FileRecords.TimestampAndOffset(11L, 6, Optional.of(1)),
+        assertFoundTimestamp(new FileRecords.FileTimestampAndOffset(11L, 6, Optional.of(1)),
                 fileRecords.searchForTimestamp(11L, 0, 0L), version);
         assertNull(fileRecords.searchForTimestamp(12L, 0, 0L));
     }
 
-    private void assertFoundTimestamp(FileRecords.TimestampAndOffset expected,
-                                      FileRecords.TimestampAndOffset actual,
+    private void assertFoundTimestamp(FileRecords.FileTimestampAndOffset expected,
+                                      FileRecords.FileTimestampAndOffset actual,
                                       RecordVersion version) {
         if (version == RecordVersion.V0) {
             assertNull("Expected no match for message format v0", actual);

@@ -26,6 +26,7 @@ import kafka.controller.KafkaController
 import kafka.log._
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server._
+import kafka.tier.TierTimestampAndOffset
 import kafka.utils.CoreUtils.{inReadLock, inWriteLock}
 import kafka.utils._
 import kafka.zk.{AdminZkClient, KafkaZkClient}
@@ -33,8 +34,9 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.protocol.Errors._
-import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.record.{MemoryRecords, RecordBatch}
+import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
+import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.requests.EpochEndOffset._
 import org.apache.kafka.common.requests.TierListOffsetRequest.OffsetType
 import org.apache.kafka.common.requests._
@@ -291,8 +293,8 @@ class Partition(val topicPartition: TopicPartition,
       None
   }
 
-  private def localReplicaWithEpochOrException(currentLeaderEpoch: Optional[Integer],
-                                               requireLeader: Boolean): Replica = {
+  def localReplicaWithEpochOrException(currentLeaderEpoch: Optional[Integer],
+                                       requireLeader: Boolean): Replica = {
     getLocalReplica(localBrokerId, currentLeaderEpoch, requireLeader) match {
       case Left(replica) => replica
       case Right(error) =>
@@ -888,12 +890,14 @@ class Partition(val topicPartition: TopicPartition,
     timestamp match {
       case ListOffsetRequest.LATEST_TIMESTAMP =>
         maybeOffsetsError.map(e => throw e)
-          .orElse(Some(new TimestampAndOffset(RecordBatch.NO_TIMESTAMP, lastFetchableOffset, Optional.of(leaderEpoch))))
+          .orElse(Some(new FileTimestampAndOffset(RecordBatch.NO_TIMESTAMP, lastFetchableOffset, Optional.of(leaderEpoch: Integer))))
       case ListOffsetRequest.EARLIEST_TIMESTAMP =>
         getOffsetByTimestamp
       case _ =>
-        getOffsetByTimestamp.filter(timestampAndOffset => timestampAndOffset.offset < lastFetchableOffset)
-          .orElse(maybeOffsetsError.map(e => throw e))
+        getOffsetByTimestamp.filter {
+          case fileTimestampAndOffset : FileTimestampAndOffset => fileTimestampAndOffset.offset < lastFetchableOffset
+          case _ : TierTimestampAndOffset => true
+        }.orElse(maybeOffsetsError.map(e => throw e))
     }
   }
 

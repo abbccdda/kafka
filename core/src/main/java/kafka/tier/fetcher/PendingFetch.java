@@ -6,7 +6,7 @@ package kafka.tier.fetcher;
 
 import kafka.log.OffsetPosition;
 import kafka.server.DelayedOperationKey;
-import kafka.server.TierFetcherOperationKey;
+import kafka.server.TierFetchOperationKey;
 import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
@@ -65,7 +65,7 @@ public class PendingFetch implements Runnable {
      * @return list of DelayedOperationKeys that correspond to this request.
      */
     public List<DelayedOperationKey> delayedOperationKeys() {
-        return Collections.singletonList(new TierFetcherOperationKey(tierObjectMetadata.topicPartition(), requestId));
+        return Collections.singletonList(new TierFetchOperationKey(tierObjectMetadata.topicPartition(), requestId));
     }
 
     /**
@@ -111,7 +111,7 @@ public class PendingFetch implements Runnable {
      * for the fetch, or empty records.
      */
     public Map<TopicPartition, TierFetchResult> finish() {
-        HashMap<TopicPartition, TierFetchResult> resultMap = new HashMap<>();
+        final HashMap<TopicPartition, TierFetchResult> resultMap = new HashMap<>();
         try {
             final Records records = transferPromise.get();
             final TierFetchResult tierFetchResult = new TierFetchResult(records, exception);
@@ -125,8 +125,7 @@ public class PendingFetch implements Runnable {
         }
 
         for (TopicPartition ignoredTopicPartition : ignoredTopicPartitions) {
-            resultMap.put(ignoredTopicPartition, TierFetchResult.emptyFetchResult()
-            );
+            resultMap.put(ignoredTopicPartition, TierFetchResult.emptyFetchResult());
         }
         return resultMap;
     }

@@ -7,18 +7,21 @@ package kafka.tier.fetcher;
 import kafka.log.LogConfig;
 import kafka.log.LogSegment;
 import kafka.server.DelayedOperation;
+import kafka.tier.TierTimestampAndOffset;
 import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.record.CompressionType;
+import org.apache.kafka.common.record.FileRecords;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.MemoryRecordsBuilder;
 import org.apache.kafka.common.record.Record;
 import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.record.TimestampType;
+import org.apache.kafka.common.requests.IsolationLevel;
 import org.apache.kafka.common.utils.ByteBufferInputStream;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.test.TestUtils;
@@ -33,6 +36,7 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
@@ -52,8 +56,10 @@ public class TierFetcherTest {
     public void tierFetcherExceptionCausesOnComplete() throws Exception {
         ByteBuffer offsetIndexBuffer = ByteBuffer.allocate(1);
         ByteBuffer segmentFileBuffer = ByteBuffer.allocate(1);
+        ByteBuffer timestampFileBuffer = ByteBuffer.allocate(1);
 
-        MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer, offsetIndexBuffer);
+        MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
+                offsetIndexBuffer, timestampFileBuffer);
         TopicPartition topicPartition = new TopicPartition("foo", 0);
         TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicPartition, 0, 0,
                 0, 0, 0, 0, false, false, kafka.tier.serdes.State.AVAILABLE);
@@ -125,7 +131,8 @@ public class TierFetcherTest {
     @Test
     public void tierFetcherRequestEmptyIndexTest() throws Exception {
         ByteBuffer combinedBuffer = getMemoryRecordsBuffer();
-        TierObjectStore tierObjectStore = new MockedTierObjectStore(combinedBuffer, ByteBuffer.allocate(0));
+        TierObjectStore tierObjectStore = new MockedTierObjectStore(combinedBuffer,
+                ByteBuffer.allocate(0), ByteBuffer.allocate(0));
         TopicPartition topicPartition = new TopicPartition("foo", 0);
         TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicPartition, 0, 0, 101,
                 0, 0, 0, false, false,
@@ -167,7 +174,8 @@ public class TierFetcherTest {
     private MemoryRecords buildWithOffset(long baseOffset) {
         ByteBuffer buffer = ByteBuffer.allocate(2048);
         MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, RecordBatch.MAGIC_VALUE_V2, CompressionType.NONE, TimestampType.CREATE_TIME, baseOffset);
-        IntStream.range(0, 50).forEach(i -> builder.appendWithOffset(baseOffset + i, 1L, "a".getBytes(), "v".getBytes()));
+        IntStream.range(0, 50).forEach(i -> builder.appendWithOffset(baseOffset + i, baseOffset + i,
+                "a".getBytes(), "v".getBytes()));
         return builder.build();
     }
 
@@ -192,10 +200,14 @@ public class TierFetcherTest {
 
             File offsetIndexFile = logSegment.offsetIndex().file();
             ByteBuffer offsetIndexBuffer = ByteBuffer.wrap(Files.readAllBytes(offsetIndexFile.toPath()));
+            File timestampIndexFile = logSegment.offsetIndex().file();
+            ByteBuffer timestampIndexBuffer =
+                    ByteBuffer.wrap(Files.readAllBytes(timestampIndexFile.toPath()));
             File segmentFile = logSegment.log().file();
             ByteBuffer segmentFileBuffer = ByteBuffer.wrap(Files.readAllBytes(segmentFile.toPath()));
 
-            TierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer, offsetIndexBuffer);
+            TierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
+                    offsetIndexBuffer, timestampIndexBuffer);
             TopicPartition topicPartition = new TopicPartition("foo", 0);
             TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicPartition,
                     0, 0, nextOffset, 0, 0,
@@ -238,85 +250,88 @@ public class TierFetcherTest {
         }
     }
 
-    class MockedTierObjectStore implements TierObjectStore {
-        private final ByteBuffer segmentByteBuffer;
-        private final ByteBuffer indexByteBuffer;
-        private final AtomicBoolean failNextRequest = new AtomicBoolean(false);
+    @Test
+    public void tierTimestampIndexTest() throws Exception {
+        File logSegmentDir = TestUtils.tempDirectory();
+        Properties logProps = new Properties();
+        logProps.put(LogConfig.IndexIntervalBytesProp(), 1);
+        Set<String> override = Collections.emptySet();
+        LogConfig logConfig = LogConfig.apply(logProps, scala.collection.JavaConverters.asScalaSetConverter(override).asScala().toSet());
+        LogSegment logSegment = LogSegment.open(logSegmentDir, 0, logConfig, mockTime, false, 4096, false, "");
+        try {
+            MemoryRecords records1 = buildWithOffset(logSegment.readNextOffset());
+            long largestOffset1 = logSegment.readNextOffset() + 49;
+            logSegment.append(largestOffset1, largestOffset1, largestOffset1, records1);
+            logSegment.flush();
+            MemoryRecords records2 = buildWithOffset(logSegment.readNextOffset());
+            long largestOffset2 = logSegment.readNextOffset() + 49;
+            logSegment.append(largestOffset2, largestOffset2, largestOffset2, records2);
+            logSegment.flush();
+            MemoryRecords records3 = buildWithOffset(logSegment.readNextOffset());
+            long largestOffset3 = logSegment.readNextOffset() + 49;
+            logSegment.append(largestOffset3, largestOffset3, largestOffset3, records3);
+            logSegment.flush();
+            long largestOffset4 = logSegment.readNextOffset() + 49;
+            logSegment.append(largestOffset4, largestOffset4, largestOffset4, records3);
+            int nextOffset = (int) logSegment.readNextOffset();
+            logSegment.offsetIndex().flush();
+            logSegment.offsetIndex().trimToValidSize();
+            logSegment.timeIndex().flush();
+            logSegment.timeIndex().trimToValidSize();
 
-        MockedTierObjectStore(ByteBuffer segmentByteBuffer,
-                              ByteBuffer indexByteBuffer) {
-            this.segmentByteBuffer = segmentByteBuffer;
-            this.indexByteBuffer = indexByteBuffer;
-        }
+            File offsetIndexFile = logSegment.offsetIndex().file();
+            ByteBuffer offsetIndexBuffer = ByteBuffer.wrap(Files.readAllBytes(offsetIndexFile.toPath()));
+            File timestampIndexFile = logSegment.timeIndex().file();
+            ByteBuffer timestampIndexBuffer = ByteBuffer.wrap(Files.readAllBytes(timestampIndexFile.toPath()));
+            File segmentFile = logSegment.log().file();
+            ByteBuffer segmentFileBuffer = ByteBuffer.wrap(Files.readAllBytes(segmentFile.toPath()));
 
-        class MockTierObjectStoreResponse implements TierObjectStoreResponse {
-            private final InputStream is;
-            private final long size;
 
-            MockTierObjectStoreResponse(InputStream is, long size) {
-                this.is = is;
-                this.size = size;
+            MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
+                    offsetIndexBuffer, timestampIndexBuffer);
+            TopicPartition topicPartition = new TopicPartition("foo", 0);
+            TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicPartition,
+                    0, 0, nextOffset, 0, 0,
+                    0, false, false, kafka.tier.serdes.State.AVAILABLE);
+            Metrics metrics = new Metrics();
+
+            TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
+            try {
+                // test success
+                {
+                    CompletableFuture<Boolean> f = new CompletableFuture<>();
+                    HashMap<TopicPartition, TierTimestampAndOffset> timestamps = new HashMap<>();
+                    timestamps.put(topicPartition, new TierTimestampAndOffset(101L,
+                            tierObjectMetadata));
+                    PendingOffsetForTimestamp pending = tierFetcher.fetchOffsetForTimestamp(timestamps,
+                            Optional.of(IsolationLevel.READ_UNCOMMITTED),
+                            ignored -> f.complete(true));
+                    f.get(2000, TimeUnit.MILLISECONDS);
+                    assertEquals("incorrect offset for supplied timestamp returned",
+                            Optional.of(new FileRecords.FileTimestampAndOffset(101, 101,
+                                    Optional.empty())),
+                            pending.results().get(topicPartition));
+                }
+                // test failure
+                {
+                    tierObjectStore.failNextRequest();
+                    CompletableFuture<Boolean> f = new CompletableFuture<>();
+                    HashMap<TopicPartition, TierTimestampAndOffset> timestamps = new HashMap<>();
+                    timestamps.put(topicPartition, new TierTimestampAndOffset(101L,
+                            tierObjectMetadata));
+                    PendingOffsetForTimestamp pending = tierFetcher.fetchOffsetForTimestamp(timestamps,
+                            Optional.of(IsolationLevel.READ_UNCOMMITTED),
+                            ignored -> f.complete(true));
+                    f.get(2000, TimeUnit.MILLISECONDS);
+                    assertNotNull("tier object store through exception, pending result should "
+                            + "have been completed exceptionally",
+                            pending.results().get(topicPartition).get().exception);
+                }
+            } finally {
+                tierFetcher.close();
             }
-
-            @Override
-            public InputStream getInputStream() {
-                return is;
-            }
-
-            @Override
-            public Long getObjectSize() {
-                return size;
-            }
-
-            @Override
-            public void close() {
-            }
-        }
-
-        void failNextRequest() {
-            failNextRequest.set(true);
-        }
-
-        @Override
-        public void close() {
-        }
-
-        @Override
-        public TierObjectStoreResponse getObject(TierObjectMetadata tierObjectMetadata,
-                                                 TierObjectStoreFileType fileType,
-                                                 Integer byteOffset, Integer byteOffsetEnd) throws IOException {
-            if (failNextRequest.compareAndSet(true, false)) {
-                throw new IOException("Failed to retrieve object.");
-            }
-            if (fileType == TierObjectStoreFileType.OFFSET_INDEX) {
-                int start = byteOffset == null ? 0 : byteOffset;
-                int end = byteOffsetEnd == null ? indexByteBuffer.array().length : byteOffsetEnd;
-                int byteBufferSize = Math.min(end - start, indexByteBuffer.array().length);
-                end = Math.min(byteBufferSize, end);
-                ByteBuffer buf = ByteBuffer.allocate(byteBufferSize);
-                buf.put(indexByteBuffer.array(), start, end - start);
-                buf.flip();
-                return new MockTierObjectStoreResponse(new ByteBufferInputStream(buf), byteBufferSize);
-
-            } else if (fileType == TierObjectStoreFileType.SEGMENT) {
-                int start = byteOffset == null ? 0 : byteOffset;
-                int end = byteOffsetEnd == null ? segmentByteBuffer.array().length : byteOffsetEnd;
-                int byteBufferSize = Math.min(end - start, segmentByteBuffer.array().length);
-                ByteBuffer buf = ByteBuffer.allocate(byteBufferSize);
-                buf.put(segmentByteBuffer.array(), start, end - start);
-                buf.flip();
-                return new MockTierObjectStoreResponse(new ByteBufferInputStream(buf), byteBufferSize);
-            } else {
-                throw new UnsupportedOperationException();
-            }
-        }
-
-        @Override
-        public TierObjectMetadata putSegment(TierObjectMetadata objectMetadata, File segmentData,
-                                             File offsetIndexData, File timestampIndexData,
-                                             File producerStateSnapshotData,
-                                             File transactionIndexData, Optional<File> epochState) {
-            throw new UnsupportedOperationException();
+        } finally {
+            logSegment.close();
         }
     }
 
@@ -342,10 +357,14 @@ public class TierFetcherTest {
 
             File offsetIndexFile = logSegment.offsetIndex().file();
             ByteBuffer offsetIndexBuffer = ByteBuffer.wrap(Files.readAllBytes(offsetIndexFile.toPath()));
+            File timestampIndexFile = logSegment.timeIndex().file();
+            ByteBuffer timestampIndexBuffer =
+                    ByteBuffer.wrap(Files.readAllBytes(timestampIndexFile.toPath()));
             File segmentFile = logSegment.log().file();
             ByteBuffer segmentFileBuffer = ByteBuffer.wrap(Files.readAllBytes(segmentFile.toPath()));
 
-            TierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer, offsetIndexBuffer);
+            TierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
+                    offsetIndexBuffer, timestampIndexBuffer);
             TopicPartition topicPartition = new TopicPartition("foo", 0);
             TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicPartition, 0, 0,
                     nextOffset, 0, 0, 0, false, false, kafka.tier.serdes.State.AVAILABLE);
@@ -388,6 +407,90 @@ public class TierFetcherTest {
             }
         } finally {
             logSegment.close();
+        }
+    }
+
+    class MockedTierObjectStore implements TierObjectStore {
+        private final ByteBuffer segmentByteBuffer;
+        private final ByteBuffer offsetByteBuffer;
+        private final ByteBuffer timestampByteBuffer;
+        private final AtomicBoolean failNextRequest = new AtomicBoolean(false);
+
+        MockedTierObjectStore(ByteBuffer segmentByteBuffer,
+                              ByteBuffer indexByteBuffer,
+                              ByteBuffer timestampByteBuffer) {
+            this.segmentByteBuffer = segmentByteBuffer;
+            this.offsetByteBuffer = indexByteBuffer;
+            this.timestampByteBuffer = timestampByteBuffer;
+        }
+
+        class MockTierObjectStoreResponse implements TierObjectStoreResponse {
+            private final InputStream is;
+            private final long size;
+
+            MockTierObjectStoreResponse(InputStream is, long size) {
+                this.is = is;
+                this.size = size;
+            }
+
+            @Override
+            public InputStream getInputStream() {
+                return is;
+            }
+
+            @Override
+            public Long getObjectSize() {
+                return size;
+            }
+
+            @Override
+            public void close() {
+            }
+        }
+
+        void failNextRequest() {
+            failNextRequest.set(true);
+        }
+
+        @Override
+        public void close() {
+        }
+
+        @Override
+        public TierObjectStoreResponse getObject(TierObjectMetadata tierObjectMetadata,
+                                                 TierObjectStoreFileType fileType,
+                                                 Integer byteOffset,
+                                                 Integer byteOffsetEnd) throws IOException {
+            if (failNextRequest.compareAndSet(true, false)) {
+                throw new IOException("Failed to retrieve object.");
+            }
+            ByteBuffer buffer;
+            if (fileType == TierObjectStoreFileType.OFFSET_INDEX) {
+                buffer = offsetByteBuffer;
+            } else if (fileType == TierObjectStoreFileType.SEGMENT) {
+                buffer = segmentByteBuffer;
+            } else if (fileType == TierObjectStoreFileType.TIMESTAMP_INDEX) {
+                buffer = timestampByteBuffer;
+            } else {
+                throw new UnsupportedOperationException();
+            }
+
+            int start = byteOffset == null ? 0 : byteOffset;
+            int end = byteOffsetEnd == null ? buffer.array().length : byteOffsetEnd;
+            int byteBufferSize = Math.min(end - start, buffer.array().length);
+            ByteBuffer buf = ByteBuffer.allocate(byteBufferSize);
+            buf.put(buffer.array(), start, end - start);
+            buf.flip();
+
+            return new MockTierObjectStoreResponse(new ByteBufferInputStream(buf), byteBufferSize);
+        }
+
+        @Override
+        public TierObjectMetadata putSegment(TierObjectMetadata objectMetadata, File segmentData,
+                                             File offsetIndexData, File timestampIndexData,
+                                             File producerStateSnapshotData,
+                                             File transactionIndexData, Optional<File> epochState) {
+            throw new UnsupportedOperationException();
         }
     }
 }

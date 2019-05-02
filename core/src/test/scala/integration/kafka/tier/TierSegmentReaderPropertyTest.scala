@@ -6,6 +6,7 @@ package integration.kafka.tier
 
 import java.io.EOFException
 import java.nio.ByteBuffer
+import java.util.function.Consumer
 
 import kafka.tier.fetcher.{CancellationContext, TierSegmentReader}
 import kafka.utils.ScalaCheckUtils.assertProperty
@@ -14,19 +15,21 @@ import org.apache.kafka.common.utils.ByteBufferInputStream
 import org.junit.Test
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
+import org.scalacheck.Shrink
 import org.scalacheck.Test.Parameters
 import org.scalacheck.Test.Parameters.defaultVerbose
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 
 /**
   * Defines the parameters needed to construct a record batch
   */
-case class RecordBatchDefiniton(numRecords: Int, magic: Byte, compressionType: CompressionType, key: String, value: String) {
+case class RecordBatchDefiniton(numRecords: Int, magic: Byte, compressionType: CompressionType, timestamps: List[Long], key: String, value: String) {
   def generateBatch(baseOffset: Long): MemoryRecords = {
-    val records: Array[SimpleRecord] = new Array[SimpleRecord](numRecords + 1)
-    for (i <- 0 to numRecords) {
-      records(i) = new SimpleRecord(i, (key + i).getBytes(), (value + i).getBytes())
+    val records: Array[SimpleRecord] = new Array[SimpleRecord](numRecords)
+    for (i <- 0 until numRecords) {
+      records(i) = new SimpleRecord(timestamps(i), (key + i).getBytes(), (value + i).getBytes())
     }
     if (records.isEmpty) {
       MemoryRecords.EMPTY
@@ -39,11 +42,12 @@ case class RecordBatchDefiniton(numRecords: Int, magic: Byte, compressionType: C
 object RecordBatchDefiniton {
   val gen: Gen[RecordBatchDefiniton] = for {
     numRecords <- Gen.posNum[Int]
+    timestamps <- Gen.listOfN(numRecords, Gen.posNum[Long])
     magic <- Gen.oneOf(RecordBatch.MAGIC_VALUE_V0, RecordBatch.MAGIC_VALUE_V1, RecordBatch.MAGIC_VALUE_V2)
     key <- Gen.alphaNumStr
     value <- Gen.alphaNumStr
     compressionType <- Gen.oneOf(CompressionType.NONE, CompressionType.SNAPPY, CompressionType.ZSTD, CompressionType.GZIP, CompressionType.LZ4)
-  } yield RecordBatchDefiniton(numRecords, magic, compressionType, key, value)
+  } yield RecordBatchDefiniton(numRecords, magic, compressionType, timestamps, key, value)
 }
 
 /**
@@ -249,6 +253,42 @@ class TierSegmentReaderPropertyTest {
         buffer.limit() == buffer.capacity()
     }}, testParams)
   }
+
+  @Test
+  def offsetForTimestampTest(): Unit = {
+    assertProperty(forAll(SegmentViewDefinition.gen, Gen.posNum[Long]) { (segmentViewDefinition: SegmentViewDefinition, targetTimestamp: Long) => {
+      val inputStream = segmentViewDefinition.bytesAsInputStream()
+      val cancellationContext = CancellationContext.newContext()
+      val offsetTimestampList = new java.util.ArrayList[(Long,Long)]
+      segmentViewDefinition.memoryRecords.foreach(
+        _.batches().forEach(new Consumer[MutableRecordBatch] {
+          override def accept(recordBatch: MutableRecordBatch): Unit = {
+            recordBatch.forEach(
+            new Consumer[Record] {
+              override def accept(record: Record): Unit = {
+                offsetTimestampList.add((record.timestamp(), record.offset()))
+              }
+            })
+          }
+        }))
+
+      val oracleResult = offsetTimestampList.asScala.find { case (recordTimestamp, _) => recordTimestamp >= targetTimestamp }
+      if (oracleResult.isDefined) {
+        val offset = TierSegmentReader.offsetForTimestamp(cancellationContext, inputStream, targetTimestamp)
+        oracleResult.get._2 == offset.get()
+      } else {
+        // should not exist in file, so we should hit an EOF exception
+        try {
+          val offset = TierSegmentReader.offsetForTimestamp(cancellationContext, inputStream, targetTimestamp)
+          false
+        } catch {
+          case e : EOFException => true
+          case _ : Exception => false
+        }
+      }
+    }}, testParams)
+  }
+
 
   @Test
   def loadAllRecordsPropertyTest(): Unit = {

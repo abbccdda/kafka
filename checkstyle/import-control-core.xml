@@ -73,7 +73,8 @@
     <allow class="kafka.log.TimeIndex"/>
     <allow class="kafka.log.LogSegment"/>
     <allow class="kafka.server.DelayedOperationKey"/>
-    <allow class="kafka.server.TierFetcherOperationKey"/>
+    <allow class="kafka.server.TierFetchOperationKey"/>
+    <allow class="kafka.server.TierOffsetForTimestampOperationKey"/>
     <subpackage name="client">
       <allow pkg="kafka.tier" />
     </subpackage>
@@ -81,6 +82,8 @@
       <allow class="kafka.server.DelayedOperation" />
       <allow class="kafka.server.checkpoints.LeaderEpochCheckpointBuffer" />
       <allow class="kafka.server.epoch.EpochEntry" />
+      <allow class="kafka.log.TimestampOffset" />
+      <allow class="kafka.tier.TierTimestampAndOffset"/>
     </subpackage>
     <subpackage name="store">
       <allow pkg="com.amazonaws" />

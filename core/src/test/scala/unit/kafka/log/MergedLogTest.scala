@@ -4,7 +4,7 @@
 
 package kafka.log
 
-import java.util.concurrent.{TimeUnit, ConcurrentSkipListMap, ConcurrentNavigableMap}
+import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, TimeUnit}
 
 import kafka.server.{BrokerTopicStats, FetchDataInfo, LogDirFailureChannel, TierFetchDataInfo}
 import kafka.server.epoch.EpochEntry
@@ -13,6 +13,7 @@ import kafka.tier.domain.{TierObjectMetadata, TierTopicInitLeader}
 import kafka.tier.state.FileTierPartitionStateFactory
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
+import kafka.tier.TierTimestampAndOffset
 import kafka.utils.{MockTime, Scheduler, TestUtils}
 import org.apache.kafka.common.record.MemoryRecords
 import org.apache.kafka.common.utils.{Time, Utils}
@@ -343,6 +344,73 @@ class MergedLogTest {
     log.flush(log.logEndOffset)
     assertEquals(log.localLogSegments.size - tieredSegments.size - 1, log.tierableLogSegments.size)
   }
+
+  @Test
+  def testTierableSegmentsOffsetForTimestamp(): Unit = {
+    val noopScheduler = new Scheduler { // noopScheduler allows us to roll segments without scheduling a background flush
+      override def startup(): Unit = ()
+      override def shutdown(): Unit = ()
+      override def isStarted: Boolean = true
+      override def schedule(name: String, fun: () => Unit, delay: Long, period: Long, unit: TimeUnit): Unit = ()
+    }
+
+    val logConfig = LogTest.createLogConfig(segmentBytes = Int.MaxValue, tierEnable = true, tierLocalHotsetBytes = 1)
+    val log = createMergedLog(logConfig, scheduler = noopScheduler)
+    val messagesToWrite = 10
+    for (_ <- 0 until messagesToWrite) {
+      val segmentStr = "foo"
+      val messageStr = "bar"
+      def createRecords = TestUtils.singletonRecords(("test" + segmentStr + messageStr).getBytes)
+      log.appendAsLeader(createRecords, 0)
+      log.roll()
+    }
+
+    val tierPartitionState = tierMetadataManager.tierPartitionState(log.topicPartition).get
+    val epoch = 0
+    val tieredSegments = log.localLogSegments.take(2)
+
+    // append an init message
+    tierPartitionState.onCatchUpComplete()
+    tierPartitionState.append(new TierTopicInitLeader(log.topicPartition,
+      epoch, java.util.UUID.randomUUID(), 0))
+
+    // append metadata for tiered segments
+    tieredSegments.foreach { segment =>
+      val tierObjectMetadata = new TierObjectMetadata(log.topicPartition,
+        epoch,
+        segment.baseOffset,
+        (segment.readNextOffset - segment.baseOffset - 1).toInt,
+        segment.readNextOffset,
+        segment.largestTimestamp,
+        segment.size,
+        true,
+        false,
+        0.toByte)
+      val appendResult = tierPartitionState.append(tierObjectMetadata)
+      assertEquals(AppendResult.ACCEPTED, appendResult)
+    }
+    tierPartitionState.flush()
+
+    // no segments should be tierable yet, as recovery point and highwatermark have not moved
+    assertEquals(0, log.tierableLogSegments.size)
+
+    // no segments are tierable after recovery point and highwatermark move to the end of first tiered segment
+    log.onHighWatermarkIncremented(tieredSegments.head.readNextOffset - 1)
+    log.flush(1)
+    assertEquals(0, log.tierableLogSegments.size)
+
+    // all non tiered segments become tierable after recovery point and highwatermark move to the end of the log
+    log.onHighWatermarkIncremented(log.logEndOffset)
+    log.flush(log.logEndOffset)
+    assertEquals(log.localLogSegments.size - tieredSegments.size - 1, log.tierableLogSegments.size)
+
+
+    val metadata = tierPartitionState.metadata(0).get()
+    log.deleteOldSegments()
+    val firstTimestamp = metadata.maxTimestamp()
+    assertEquals(Some(new TierTimestampAndOffset(firstTimestamp, metadata)), log.fetchOffsetByTimestamp(firstTimestamp))
+  }
+
 
   private def logRanges(log: MergedLog): LogRanges = {
     val tierPartitionState = tierMetadataManager.tierPartitionState(log.topicPartition).get

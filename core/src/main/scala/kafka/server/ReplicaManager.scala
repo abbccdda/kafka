@@ -18,7 +18,7 @@ package kafka.server
 
 import java.io.File
 import java.util
-import java.util.{Optional, UUID}
+import java.util.Optional
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong}
 import java.util.concurrent.locks.Lock
@@ -31,11 +31,11 @@ import kafka.log._
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.QuotaFactory.{QuotaManagers, UnboundedQuota}
 import kafka.server.checkpoints.OffsetCheckpointFile
-import kafka.tier.TierMetadataManager
 import kafka.utils._
 import kafka.zk.KafkaZkClient
 import kafka.tier.fetcher.{TierFetcher, TierFetchResult, TierStateFetcher}
-import kafka.tier.fetcher.PendingFetch
+import kafka.tier.TierMetadataManager
+import kafka.tier.TierTimestampAndOffset
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.metrics.Metrics
@@ -49,6 +49,7 @@ import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.utils.Time
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
 import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.requests.TierListOffsetRequest.OffsetType
 
@@ -203,6 +204,7 @@ class ReplicaManager(val config: KafkaConfig,
                      val delayedFetchPurgatory: DelayedOperationPurgatory[DelayedFetch],
                      val delayedDeleteRecordsPurgatory: DelayedOperationPurgatory[DelayedDeleteRecords],
                      val delayedElectPreferredLeaderPurgatory: DelayedOperationPurgatory[DelayedElectPreferredLeader],
+                     val delayedListOffsetsPurgatory: DelayedOperationPurgatory[DelayedListOffsets],
                      val tierMetadataManager: TierMetadataManager,
                      val tierFetcherOpt: Option[TierFetcher],
                      val tierStateFetcher: Option[TierStateFetcher],
@@ -236,6 +238,8 @@ class ReplicaManager(val config: KafkaConfig,
         purgeInterval = config.deleteRecordsPurgatoryPurgeIntervalRequests),
       DelayedOperationPurgatory[DelayedElectPreferredLeader](
         purgatoryName = "ElectPreferredLeader", brokerId = config.brokerId),
+      DelayedOperationPurgatory[DelayedListOffsets](
+        purgatoryName = "ListOffsets", brokerId = config.brokerId),
       tierMetadataManager,
       tierFetcherOpt,
       tierStateFetcher,
@@ -381,6 +385,15 @@ class ReplicaManager(val config: KafkaConfig,
   def tryCompleteDelayedFetch(key: DelayedOperationKey) {
     val completed = delayedFetchPurgatory.checkAndComplete(key)
     debug("Request key %s unblocked %d fetch requests.".format(key.keyLabel, completed))
+  }
+
+  /**
+   * Try to complete some delayed list offsets requests with the request key;
+   * this can be triggered when the tier fetcher has fetched the tiered timestamp -> offset mapping
+   */
+  def tryCompleteDelayedListOffsets(key: DelayedOperationKey) {
+    val completed = delayedListOffsetsPurgatory.checkAndComplete(key)
+    debug("Request key %s unblocked %d list offsets requests.".format(key.keyLabel, completed))
   }
 
   /**
@@ -865,11 +878,60 @@ class ReplicaManager(val config: KafkaConfig,
     partition.fetchTierOffsetForType(offset, currentLeaderEpoch, fetchOnlyFromLeader)
   }
 
-  def fetchOffsetForTimestamp(topicPartition: TopicPartition,
-                              timestamp: Long,
-                              isolationLevel: Option[IsolationLevel],
-                              currentLeaderEpoch: Optional[Integer],
-                              fetchOnlyFromLeader: Boolean): Option[TimestampAndOffset] = {
+  /**
+   * Fetch offsets for timestamps.
+   * If any offsets require fetches from the tiered section of the log, stages a DelayedListOffset request
+   * in purgatory.
+   * @param lookupMetadata Map of TopicPartition -> (Optional[LeaderEpoch], Timestamp)
+   * @param isolationLevel Optional isolation level
+   * @param fetchOnlyFromLeader fetchOnlyFromLeader boolean
+   * @param responseCallback callback to call with fetched Map of TopicPartition -> FileTimestampAndOffset
+   *                         when request is completed or has hit a timeout
+   * @param delayMs number of ms to allow the fetch to complete if the request is staged in purgatory
+   */
+  def fetchOffsetsForTimestamps(lookupMetadata: Map[TopicPartition, (Optional[Integer], Long)],
+                                isolationLevel: Option[IsolationLevel],
+                                fetchOnlyFromLeader: Boolean,
+                                responseCallback: Map[TopicPartition, Option[FileTimestampAndOffset]] => Unit,
+                                delayMs: Long): Unit = {
+    val tierLists = new util.HashMap[TopicPartition, TierTimestampAndOffset]()
+    val localLists = new util.HashMap[TopicPartition, Option[FileTimestampAndOffset]]()
+    lookupMetadata.map { case (topicPartition, (leaderAndEpoch, timestamp)) =>
+      try {
+        fetchOffsetForTimestamp(topicPartition, timestamp, isolationLevel,
+          leaderAndEpoch, fetchOnlyFromLeader)
+        match {
+          case Some(timestampAndOffset: TierTimestampAndOffset) =>
+            tierLists.put(topicPartition, timestampAndOffset)
+          case Some(timestampAndOffset: FileTimestampAndOffset) =>
+            localLists.put(topicPartition, Some(timestampAndOffset))
+          case Some(timestampAndOffset) =>
+            throw new Exception("Unexpected implementation of TimestampAndOffset " + timestampAndOffset.getClass)
+          case None =>
+            localLists.put(topicPartition, None)
+        }
+      } catch {
+        case e: Exception =>
+          localLists.put(topicPartition, Some(new FileTimestampAndOffset(timestamp, leaderAndEpoch, e)))
+      }
+    }
+
+    if (tierLists.isEmpty) {
+      responseCallback(localLists.asScala)
+    } else {
+      val completionCallback: DelayedOperationKey => Unit = (delayedOperationKey: DelayedOperationKey) => this.tryCompleteDelayedListOffsets(delayedOperationKey)
+      val pending = tierFetcherOpt.get.fetchOffsetForTimestamp(tierLists, isolationLevel.asJava, completionCallback.asJava)
+      val delayedListOffsets = new DelayedListOffsets(delayMs, fetchOnlyFromLeader, localLists, pending, this, responseCallback)
+      val delayedOperationKeys = pending.delayedOperationKeys.asScala ++ lookupMetadata.keys.map(tp => TopicPartitionOperationKey(tp.topic(), tp.partition()))
+      delayedListOffsetsPurgatory.tryCompleteElseWatch(delayedListOffsets, delayedOperationKeys)
+    }
+  }
+
+  private def fetchOffsetForTimestamp(topicPartition: TopicPartition,
+                                      timestamp: Long,
+                                      isolationLevel: Option[IsolationLevel],
+                                      currentLeaderEpoch: Optional[Integer],
+                                      fetchOnlyFromLeader: Boolean): Option[TimestampAndOffset] = {
     val partition = getPartitionOrException(topicPartition, expectLeader = fetchOnlyFromLeader)
     partition.fetchOffsetForTimestamp(timestamp, isolationLevel, currentLeaderEpoch, fetchOnlyFromLeader)
   }
@@ -1451,6 +1513,7 @@ class ReplicaManager(val config: KafkaConfig,
         val topicPartitionOperationKey = new TopicPartitionOperationKey(partition.topicPartition)
         tryCompleteDelayedProduce(topicPartitionOperationKey)
         tryCompleteDelayedFetch(topicPartitionOperationKey)
+        tryCompleteDelayedListOffsets(topicPartitionOperationKey)
       }
 
       partitionsToMakeFollower.foreach { partition =>
@@ -1655,6 +1718,7 @@ class ReplicaManager(val config: KafkaConfig,
     delayedProducePurgatory.shutdown()
     delayedDeleteRecordsPurgatory.shutdown()
     delayedElectPreferredLeaderPurgatory.shutdown()
+    delayedListOffsetsPurgatory.shutdown()
     if (checkpointHW)
       checkpointHighWatermarks()
     info("Shut down completely")

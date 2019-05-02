@@ -40,7 +40,6 @@ import org.apache.kafka.common.memory.MemoryPool
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
-import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.requests.UpdateMetadataRequest.{Broker, EndPoint}
@@ -49,6 +48,8 @@ import org.apache.kafka.common.requests.{FetchMetadata => JFetchMetadata, _}
 import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
 import org.easymock.{Capture, EasyMock, IAnswer}
 import EasyMock._
+import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
+import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.junit.Assert.{assertEquals, assertNull, assertTrue}
 import org.junit.{After, Test}
 
@@ -378,23 +379,27 @@ class KafkaApisTest {
     val isolationLevel = IsolationLevel.READ_UNCOMMITTED
     val currentLeaderEpoch = Optional.of[Integer](15)
 
-    EasyMock.expect(replicaManager.fetchOffsetForTimestamp(
-      EasyMock.eq(tp),
-      EasyMock.eq(ListOffsetRequest.EARLIEST_TIMESTAMP),
+    val timestamp = ListOffsetRequest.EARLIEST_TIMESTAMP
+    val capturedSendResponse : Capture[Map[TopicPartition, Option[FileTimestampAndOffset]] => Unit] = Capture.newInstance()
+    val lookupMetadata = Map(tp -> (currentLeaderEpoch, timestamp))
+    EasyMock.expect(replicaManager.fetchOffsetsForTimestamps(
+      EasyMock.eq(lookupMetadata),
       EasyMock.eq(Some(isolationLevel)),
-      EasyMock.eq(currentLeaderEpoch),
-      fetchOnlyFromLeader = EasyMock.eq(true))
-    ).andThrow(error.exception)
+      EasyMock.eq(true),
+      capture(capturedSendResponse),
+      EasyMock.eq(15000L)))
 
     val capturedResponse = expectNoThrottling()
     EasyMock.replay(replicaManager, clientRequestQuotaManager, requestChannel)
 
-    val targetTimes = Map(tp -> new ListOffsetRequest.PartitionData(ListOffsetRequest.EARLIEST_TIMESTAMP,
-      currentLeaderEpoch))
+    val targetTimes = Map(tp -> new ListOffsetRequest.PartitionData(timestamp, currentLeaderEpoch))
     val builder = ListOffsetRequest.Builder.forConsumer(true, isolationLevel)
       .setTargetTimes(targetTimes.asJava)
     val (listOffsetRequest, request) = buildRequest(builder)
     createKafkaApis().handleListOffsetRequest(request)
+
+    val results = Map(tp -> Some(new FileTimestampAndOffset(timestamp, currentLeaderEpoch, error.exception)))
+    capturedSendResponse.getValue.apply(results)
 
     val response = readResponse(ApiKeys.LIST_OFFSETS, listOffsetRequest, capturedResponse)
       .asInstanceOf[ListOffsetResponse]
@@ -531,13 +536,14 @@ class KafkaApisTest {
     val latestOffset = 15L
     val currentLeaderEpoch = Optional.empty[Integer]()
 
-    EasyMock.expect(replicaManager.fetchOffsetForTimestamp(
-      EasyMock.eq(tp),
-      EasyMock.eq(ListOffsetRequest.LATEST_TIMESTAMP),
+    val capturedSendResponse : Capture[Map[TopicPartition, Option[TimestampAndOffset]] => Unit] = Capture.newInstance()
+    val lookupMetadata = Map(tp -> (currentLeaderEpoch, ListOffsetRequest.LATEST_TIMESTAMP))
+    EasyMock.expect(replicaManager.fetchOffsetsForTimestamps(
+      EasyMock.eq(lookupMetadata),
       EasyMock.eq(Some(isolationLevel)),
-      EasyMock.eq(currentLeaderEpoch),
-      fetchOnlyFromLeader = EasyMock.eq(true))
-    ).andReturn(Some(new TimestampAndOffset(ListOffsetResponse.UNKNOWN_TIMESTAMP, latestOffset, currentLeaderEpoch)))
+      EasyMock.eq(true),
+      capture(capturedSendResponse),
+      EasyMock.eq(15000L)))
 
     val capturedResponse = expectNoThrottling()
     EasyMock.replay(replicaManager, clientRequestQuotaManager, requestChannel)
@@ -548,6 +554,9 @@ class KafkaApisTest {
       .setTargetTimes(targetTimes.asJava)
     val (listOffsetRequest, request) = buildRequest(builder)
     createKafkaApis().handleListOffsetRequest(request)
+
+    val results = Map(tp -> Some(new FileTimestampAndOffset(ListOffsetResponse.UNKNOWN_TIMESTAMP, latestOffset, currentLeaderEpoch)))
+    capturedSendResponse.getValue.apply(results)
 
     val response = readResponse(ApiKeys.LIST_OFFSETS, listOffsetRequest, capturedResponse).asInstanceOf[ListOffsetResponse]
     assertTrue(response.responseData.containsKey(tp))
