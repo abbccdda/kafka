@@ -9,7 +9,7 @@ image:
   repository: confluent-docker.jfrog.io/confluentinc
   name: cc-trogdor
   tag: 0.109.0-2.3.0-SNAPSHOT
-  pullPolicy: Always
+  pullPolicy: IfNotPresent
 
 kafkaName: kafka
 

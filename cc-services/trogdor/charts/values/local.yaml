@@ -1,2 +1,3 @@
 ---
 agentReplicaCount: 6
+pullPolicy: Always
