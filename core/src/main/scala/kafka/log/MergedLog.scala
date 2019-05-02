@@ -203,7 +203,7 @@ class MergedLog(private[log] val localLog: Log,
   }
 
   override def size: Long = {
-    var size = 0
+    var size: Long = 0
     uniqueLogSegments match { case (tieredSegments, localSegments) =>
       // add up size of all tiered segments
       tieredSegments.foreach(size += _.size)
