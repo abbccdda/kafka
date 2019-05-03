@@ -108,7 +108,7 @@ public class RbacClusters {
                          String clusterId,
                          Set<ResourcePattern> resources) throws Exception {
     KafkaPrincipal principal = new KafkaPrincipal(principalType, userName);
-    authWriter.setRoleResources(
+    authWriter.replaceResourceRoleBinding(
         principal,
         role,
         Scope.kafkaClusterScope(clusterId),

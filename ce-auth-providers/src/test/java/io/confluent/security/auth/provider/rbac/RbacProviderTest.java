@@ -12,7 +12,6 @@ import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.auth.store.data.RoleBindingKey;
 import io.confluent.security.auth.store.data.RoleBindingValue;
 import io.confluent.security.authorizer.AccessRule;
-import io.confluent.security.authorizer.Resource;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
@@ -33,10 +32,10 @@ public class RbacProviderTest {
 
   private final Scope clusterA = new Scope.Builder("testOrg").withKafkaCluster("clusterA").build();
   private final Scope clusterB = new Scope.Builder("testOrg").withKafkaCluster("clusterB").build();
-  private final Resource clusterResource = new Resource(new ResourceType("Cluster"), "kafka-cluster");
+  private final ResourcePattern clusterResource = new ResourcePattern(new ResourceType("Cluster"), "kafka-cluster", PatternType.LITERAL);
   private RbacProvider rbacProvider;
   private DefaultAuthCache authCache;
-  private Resource topic = new Resource("Topic", "topicA");
+  private ResourcePattern topic = new ResourcePattern("Topic", "topicA", PatternType.LITERAL);
 
   @Before
   public void setUp() throws Exception {
@@ -99,7 +98,7 @@ public class RbacProviderTest {
     verifyRules(accessRules(alice, groups, clusterResource),
         "AlterConfigs", "DescribeConfigs");
     verifyRules(accessRules(alice, groups, topic), "DescribeConfigs", "AlterConfigs");
-    updateRoleBinding(alice, "Operator", clusterA, Collections.singleton(topic.toResourcePattern()));
+    updateRoleBinding(alice, "Operator", clusterA, Collections.singleton(topic));
     verifyRules(accessRules(alice, groups, topic),
         "AlterConfigs", "DescribeConfigs");
 
@@ -129,7 +128,7 @@ public class RbacProviderTest {
     verifyRules(accessRules(alice, groups, clusterResource),
         "AlterConfigs", "DescribeConfigs");
     verifyRules(accessRules(alice, groups, topic), "DescribeConfigs", "AlterConfigs");
-    updateRoleBinding(admin, "Operator", clusterA, Collections.singleton(topic.toResourcePattern()));
+    updateRoleBinding(admin, "Operator", clusterA, Collections.singleton(topic));
     verifyRules(accessRules(alice, groups, topic),
         "AlterConfigs", "DescribeConfigs");
 
@@ -213,7 +212,7 @@ public class RbacProviderTest {
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
     Set<KafkaPrincipal> groups = Collections.emptySet();
 
-    updateRoleBinding(alice, "Operator", clusterA, Collections.singleton(topic.toResourcePattern()));
+    updateRoleBinding(alice, "Operator", clusterA, Collections.singleton(topic));
     verifyRules(accessRules(alice, groups, topic), "AlterConfigs", "DescribeConfigs");
     verifyRules(accessRules(alice, groups, clusterResource));
 
@@ -230,7 +229,7 @@ public class RbacProviderTest {
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
     Set<KafkaPrincipal> groups = Collections.emptySet();
 
-    updateRoleBinding(alice, "Operator", clusterA, Collections.singleton(topic.toResourcePattern()));
+    updateRoleBinding(alice, "Operator", clusterA, Collections.singleton(topic));
     verifyRules(rbacProvider.accessRules(alice, groups, clusterA, topic), "AlterConfigs", "DescribeConfigs");
     verifyRules(rbacProvider.accessRules(alice, groups, clusterA, clusterResource));
 
@@ -276,7 +275,7 @@ public class RbacProviderTest {
 
   private Set<AccessRule> accessRules(KafkaPrincipal userPrincipal,
                                       Set<KafkaPrincipal> groupPrincipals,
-                                      Resource resource) {
+                                      ResourcePattern resource) {
     return rbacProvider.accessRules(userPrincipal, groupPrincipals, clusterA, resource);
   }
 

@@ -112,17 +112,19 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
     if (getList(ACCESS_RULE_PROVIDERS_PROP).isEmpty())
       throw new ConfigException("No access rule providers specified");
 
-    String su = getString(ConfluentAuthorizerConfig.SUPER_USERS_PROP);
+    this.superUsers = parseSuperUsers(getString(ConfluentAuthorizerConfig.SUPER_USERS_PROP));
+    initTimeout = Duration.ofMillis(getInt(INIT_TIMEOUT_PROP));
+  }
+
+  public static Set<KafkaPrincipal> parseSuperUsers(String su) {
     if (su != null && !su.trim().isEmpty()) {
       String[] users = su.split(";");
-      superUsers = Arrays.stream(users)
+      return Arrays.stream(users)
           .map(user -> SecurityUtils.parseKafkaPrincipal(user.trim()))
           .collect(Collectors.toSet());
     } else {
-      superUsers = Collections.emptySet();
+      return Collections.emptySet();
     }
-
-    initTimeout = Duration.ofMillis(getInt(INIT_TIMEOUT_PROP));
   }
 
   public final Providers createProviders(Scope scope) {

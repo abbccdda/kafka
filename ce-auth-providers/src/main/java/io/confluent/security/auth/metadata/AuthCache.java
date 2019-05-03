@@ -3,7 +3,7 @@
 package io.confluent.security.auth.metadata;
 
 import io.confluent.security.authorizer.AccessRule;
-import io.confluent.security.authorizer.Resource;
+import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.rbac.RbacRoles;
 import io.confluent.security.rbac.RoleBinding;
@@ -51,7 +51,7 @@ public interface AuthCache {
    * @return Set of access rules that match the principals and resource
    */
   Set<AccessRule> rbacRules(Scope resourceScope,
-                            Resource resource,
+                            ResourcePattern resource,
                             KafkaPrincipal userPrincipal,
                             Collection<KafkaPrincipal> groupPrincipals);
 

@@ -89,9 +89,9 @@ public class FileBasedRbac extends RbacProvider {
         RoleBinding[] roleBindings = objectMapper.readValue(bindingsFile, RoleBinding[].class);
         for (RoleBinding binding : roleBindings) {
           if (binding.resources().isEmpty())
-            writer.addRoleBinding(binding.principal(), binding.role(), binding.scope()).toCompletableFuture().get();
+            writer.addClusterRoleBinding(binding.principal(), binding.role(), binding.scope()).toCompletableFuture().get();
           else
-            writer.setRoleResources(binding.principal(), binding.role(), binding.scope(), binding.resources()).toCompletableFuture().get();
+            writer.replaceResourceRoleBinding(binding.principal(), binding.role(), binding.scope(), binding.resources()).toCompletableFuture().get();
           log.debug("Created role binding {}", binding);
         }
         log.info("Completed loading RBAC role bindings from {}", bindingsFile);

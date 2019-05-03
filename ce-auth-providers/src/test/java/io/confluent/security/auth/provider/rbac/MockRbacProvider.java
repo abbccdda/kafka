@@ -32,7 +32,7 @@ public class MockRbacProvider extends RbacProvider implements MetadataProvider {
 
     private final Scope scope;
     private final Collection<URL> activeNodes;
-    private volatile DefaultAuthCache authCache;
+    private final DefaultAuthCache authCache;
 
     MockAuthStore(RbacRoles rbacRoles, Scope scope) {
       this.scope = scope;

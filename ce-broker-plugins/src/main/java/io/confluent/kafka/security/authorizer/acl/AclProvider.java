@@ -3,7 +3,7 @@
 package io.confluent.kafka.security.authorizer.acl;
 
 import io.confluent.security.authorizer.AccessRule;
-import io.confluent.security.authorizer.Resource;
+import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
@@ -49,7 +49,7 @@ public class AclProvider extends SimpleAclAuthorizer implements AccessRuleProvid
   public Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
                                      Set<KafkaPrincipal> groupPrincipals,
                                      Scope scope,
-                                     Resource resource) {
+                                     ResourcePattern resource) {
     ResourceType resourceType = AclMapper.kafkaResourceType(resource.resourceType());
     KafkaPrincipal userPrincipal = userPrincipal(sessionPrincipal);
     return JavaConversions.setAsJavaSet(getMatchingAcls(resourceType, resource.name())).stream()

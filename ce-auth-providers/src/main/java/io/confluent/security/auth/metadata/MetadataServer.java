@@ -17,7 +17,7 @@ public interface MetadataServer extends Configurable, Closeable {
    * initialized and the local cache is populated with existing entries. The metadata server
    * can use {@link AuthStore#writer()} to update the store.
    *
-   * @param embeddedAuthorizer An embedded cross-component authorizer that can be used to authorize any action
+   * @param embeddedAuthorizer An embedded cross-component authorizer that can be used to authorize any action.
    * @param authStore An instance of AuthStore that can be used to read current role bindings,
    *                 user metadata etc. from an in-memory cache that is kept up-to-date by the embedded
    *                 authorizer.

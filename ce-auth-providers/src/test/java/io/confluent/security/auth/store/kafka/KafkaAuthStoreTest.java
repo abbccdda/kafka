@@ -70,7 +70,7 @@ public class KafkaAuthStoreTest {
 
     authStore.configureDelays(1, 2);
     for (int i = 0; i < 100; i++) {
-      authWriter.addRoleBinding(principal("user" + i), "Operator", clusterA);
+      authWriter.addClusterRoleBinding(principal("user" + i), "Operator", clusterA);
     }
     TestUtils.waitForCondition(() -> authCache.rbacRoleBindings(clusterA).size() == 100,
         "Roles not assigned");
@@ -80,7 +80,7 @@ public class KafkaAuthStoreTest {
 
     authStore.configureDelays(2, 1);
     for (int i = 0; i < 100; i++) {
-      authWriter.addRoleBinding(principal("user" + i), "ClusterAdmin", clusterA);
+      authWriter.addClusterRoleBinding(principal("user" + i), "ClusterAdmin", clusterA);
     }
     TestUtils.waitForCondition(() -> authCache.rbacRoleBindings(clusterA).size() == 200,
         "Roles not assigned");

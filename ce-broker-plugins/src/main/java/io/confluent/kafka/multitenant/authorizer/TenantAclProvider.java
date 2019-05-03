@@ -6,7 +6,7 @@ import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.security.authorizer.acl.AclMapper;
 import io.confluent.kafka.security.authorizer.acl.AclProvider;
 import io.confluent.security.authorizer.AccessRule;
-import io.confluent.security.authorizer.Resource;
+import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import java.util.Map;
@@ -15,6 +15,7 @@ import java.util.stream.Collectors;
 import kafka.security.auth.Acl;
 import kafka.security.auth.Cluster$;
 import kafka.security.auth.ResourceType;
+import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import scala.collection.JavaConversions;
 
@@ -83,7 +84,7 @@ public class TenantAclProvider extends AclProvider {
   public Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
                                      Set<KafkaPrincipal> groupPrincipals,
                                      Scope scope,
-                                     Resource resource) {
+                                     ResourcePattern resource) {
     if (!groupPrincipals.isEmpty())
       throw new UnsupportedOperationException("Groups are not supported for TenantAclProvider");
 
@@ -98,7 +99,7 @@ public class TenantAclProvider extends AclProvider {
     ResourceType resourceType = AclMapper.kafkaResourceType(resource.resourceType());
     if (AclMapper.kafkaResourceType(resource.resourceType()) == Cluster$.MODULE$) {
       String prefixedCluster = tenantPrefix + resource.name();
-      resource = new Resource(resource.resourceType(), prefixedCluster);
+      resource = new ResourcePattern(resource.resourceType(), prefixedCluster, PatternType.LITERAL);
     }
 
     return JavaConversions.setAsJavaSet(getMatchingAcls(resourceType, resource.name())).stream()

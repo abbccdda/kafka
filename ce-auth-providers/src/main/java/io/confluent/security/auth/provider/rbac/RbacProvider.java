@@ -13,7 +13,7 @@ import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.Authorizer;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.EmbeddedAuthorizer;
-import io.confluent.security.authorizer.Resource;
+import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
@@ -47,6 +47,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
 
   private MetadataServer metadataServer;
   private Collection<URL> metadataServerUrls;
+  private Set<KafkaPrincipal> configuredSuperUsers;
 
   public RbacProvider() {
     this.authScope = Scope.ROOT_SCOPE;
@@ -77,6 +78,9 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
             metadataScope, authScope));
       authStoreScope = metadataScope;
     }
+    // Allow security metadata access for broker's configured super-user in the metadata cluster
+    this.configuredSuperUsers =
+        ConfluentAuthorizerConfig.parseSuperUsers((String) configs.get(ConfluentAuthorizerConfig.SUPER_USERS_PROP));
     authStore = createAuthStore(authStoreScope, configs);
     this.authCache = authStore.authCache();
     if (LdapConfig.ldapEnabled(configs)) {
@@ -142,7 +146,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   public Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
                                      Set<KafkaPrincipal> groupPrincipals,
                                      Scope scope,
-                                     Resource resource) {
+                                     ResourcePattern resource) {
     return authCache.rbacRules(scope,
                                resource,
                                userPrincipal(sessionPrincipal),
@@ -171,11 +175,6 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
     return sessionPrincipal.getClass() != KafkaPrincipal.class
         ? new KafkaPrincipal(sessionPrincipal.getPrincipalType(), sessionPrincipal.getName())
         : sessionPrincipal;
-  }
-
-  // Visibility for testing
-  public AuthCache authCache() {
-    return authCache;
   }
 
   // Visibility for testing
@@ -212,6 +211,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   private class RbacAuthorizer extends EmbeddedAuthorizer {
     RbacAuthorizer() {
       configureProviders(Collections.singletonList(RbacProvider.this), RbacProvider.this, null);
+      configureSuperUsers(configuredSuperUsers);
     }
   }
 

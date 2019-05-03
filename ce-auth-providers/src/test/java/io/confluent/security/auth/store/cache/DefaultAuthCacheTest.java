@@ -12,7 +12,6 @@ import io.confluent.security.auth.store.data.StatusValue;
 import io.confluent.security.auth.store.kafka.KafkaAuthStore;
 import io.confluent.security.auth.store.kafka.MockAuthStore;
 import io.confluent.security.authorizer.AccessRule;
-import io.confluent.security.authorizer.Resource;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourcePatternFilter;
 import io.confluent.security.authorizer.ResourceType;
@@ -41,7 +40,7 @@ public class DefaultAuthCacheTest {
 
   private final MockTime time = new MockTime();
   private final Scope clusterA = Scope.kafkaClusterScope("clusterA");
-  private final Resource clusterResource = new Resource(new ResourceType("Cluster"), "kafka-cluster");
+  private final ResourcePattern clusterResource = new ResourcePattern(new ResourceType("Cluster"), "kafka-cluster", PatternType.LITERAL);
   private RbacRoles rbacRoles;
   private KafkaAuthStore authStore;
   private DefaultAuthCache authCache;
@@ -83,9 +82,9 @@ public class DefaultAuthCacheTest {
 
     io.confluent.security.authorizer.ResourceType topicType = new io.confluent.security.authorizer.ResourceType("Topic");
     io.confluent.security.authorizer.ResourceType groupType = new io.confluent.security.authorizer.ResourceType("Group");
-    Resource generalTopic = new Resource(topicType, "generalTopic");
-    Resource financeTopic = new Resource(topicType, "financeTopic");
-    Resource generalConsumerGroup = new Resource(groupType, "generalConsumerGroup");
+    ResourcePattern generalTopic = new ResourcePattern(topicType, "generalTopic", PatternType.LITERAL);
+    ResourcePattern financeTopic = new ResourcePattern(topicType, "financeTopic", PatternType.LITERAL);
+    ResourcePattern generalConsumerGroup = new ResourcePattern(groupType, "generalConsumerGroup", PatternType.LITERAL);
     ResourcePattern financeTopicPattern = new ResourcePattern(topicType, "finance", PatternType.PREFIXED);
     ResourcePattern financeGroupPattern = new ResourcePattern(groupType, "finance", PatternType.PREFIXED);
 
@@ -94,16 +93,16 @@ public class DefaultAuthCacheTest {
     RbacTestUtils.updateRoleBinding(authCache, alice, "Reader", Scope.kafkaClusterScope("financeCluster"),
         Utils.mkSet(financeTopicPattern, financeGroupPattern));
     RbacTestUtils.updateRoleBinding(authCache, alice, "Writer", Scope.kafkaClusterScope("financeCluster"),
-        Utils.mkSet(financeTopic.toResourcePattern()));
+        Utils.mkSet(financeTopic));
     RbacTestUtils.updateRoleBinding(authCache, alice, "Reader", Scope.kafkaClusterScope("generalCluster"),
-        Utils.mkSet(generalTopic.toResourcePattern(), generalConsumerGroup.toResourcePattern()));
+        Utils.mkSet(generalTopic, generalConsumerGroup));
     RbacTestUtils.updateRoleBinding(authCache, bob, "Writer", Scope.kafkaClusterScope("generalCluster"),
-        Collections.singleton(generalTopic.toResourcePattern()));
+        Collections.singleton(generalTopic));
 
     RoleBinding aliceFinanceWrite = new RoleBinding(alice, "Writer", Scope.kafkaClusterScope("financeCluster"),
-        Utils.mkSet(financeTopic.toResourcePattern()));
+        Utils.mkSet(financeTopic));
     RoleBinding bobGeneralWrite = new RoleBinding(bob, "Writer", Scope.kafkaClusterScope("generalCluster"),
-        Utils.mkSet(generalTopic.toResourcePattern()));
+        Utils.mkSet(generalTopic));
     assertEquals(Utils.mkSet(aliceFinanceWrite),
         authCache.rbacRoleBindings(new RoleBindingFilter(alice, "Writer", Scope.kafkaClusterScope("financeCluster"),
         new ResourcePatternFilter(topicType, financeTopic.name(), PatternType.LITERAL))));
@@ -124,16 +123,19 @@ public class DefaultAuthCacheTest {
             new ResourcePatternFilter(topicType, null, PatternType.ANY))));
     assertEquals(Utils.mkSet(bobGeneralWrite),
         authCache.rbacRoleBindings(new RoleBindingFilter(null, "Writer", null,
-            new ResourcePatternFilter(null, "generalTopic", PatternType.MATCH))));
+            new ResourcePatternFilter(ResourceType.ALL, "generalTopic", PatternType.MATCH))));
+    assertEquals(Utils.mkSet(bobGeneralWrite, aliceFinanceWrite),
+        authCache.rbacRoleBindings(new RoleBindingFilter(null, "Writer", null,
+            new ResourcePatternFilter(null, null, null))));
 
     RoleBinding aliceFinanceTopic = new RoleBinding(alice, "Reader", Scope.kafkaClusterScope("financeCluster"),
         Utils.mkSet(financeTopicPattern));
     RoleBinding aliceFinanceRead = new RoleBinding(alice, "Reader", Scope.kafkaClusterScope("financeCluster"),
         Utils.mkSet(financeTopicPattern, financeGroupPattern));
     RoleBinding aliceGeneralTopic = new RoleBinding(alice, "Reader", Scope.kafkaClusterScope("generalCluster"),
-        Utils.mkSet(generalTopic.toResourcePattern()));
+        Utils.mkSet(generalTopic));
     RoleBinding aliceGeneralRead = new RoleBinding(alice, "Reader", Scope.kafkaClusterScope("generalCluster"),
-        Utils.mkSet(generalTopic.toResourcePattern(), generalConsumerGroup.toResourcePattern()));
+        Utils.mkSet(generalTopic, generalConsumerGroup));
     assertEquals(Utils.mkSet(aliceFinanceRead),
         authCache.rbacRoleBindings(new RoleBindingFilter(null, "Reader", Scope.kafkaClusterScope("financeCluster"),
             new ResourcePatternFilter(null, null, PatternType.ANY))));
@@ -203,8 +205,8 @@ public class DefaultAuthCacheTest {
 
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
     Set<KafkaPrincipal> emptyGroups = Collections.emptySet();
-    Resource topicA = new Resource("Topic", "topicA");
-    RbacTestUtils.updateRoleBinding(authCache, alice, "Reader", clusterA, Collections.singleton(topicA.toResourcePattern()));
+    ResourcePattern topicA = new ResourcePattern("Topic", "topicA", PatternType.LITERAL);
+    RbacTestUtils.updateRoleBinding(authCache, alice, "Reader", clusterA, Collections.singleton(topicA));
     assertEquals(1, authCache.rbacRules(clusterA).size());
     verifyPermissions(clusterA, alice, topicA, "Read", "Describe");
 
@@ -215,7 +217,7 @@ public class DefaultAuthCacheTest {
     verifyPermissions(clusterA, alice, topicA, "Read", "Describe");
 
     Scope clusterC = new Scope.Builder("org2").withKafkaCluster("clusterC").build();
-    RbacTestUtils.updateRoleBinding(authCache, alice, "Writer", clusterC, Collections.singleton(topicA.toResourcePattern()));
+    RbacTestUtils.updateRoleBinding(authCache, alice, "Writer", clusterC, Collections.singleton(topicA));
     try {
       authCache.rbacRules(clusterC, topicA, alice, emptyGroups);
       fail("Exception not thrown for unknown cluster");
@@ -277,14 +279,14 @@ public class DefaultAuthCacheTest {
   }
 
   private void verifyPermissions(KafkaPrincipal principal,
-                                 Resource resource,
+                                 ResourcePattern resource,
                                  String... expectedOps) {
     verifyPermissions(clusterA, principal, resource, expectedOps);
   }
 
   private void verifyPermissions(Scope scope,
                                  KafkaPrincipal principal,
-                                 Resource resource,
+                                 ResourcePattern resource,
                                  String... expectedOps) {
     Set<String> actualOps = authCache.rbacRules(scope, resource, principal, Collections.emptySet())
         .stream()

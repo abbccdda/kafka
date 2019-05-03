@@ -16,7 +16,7 @@ import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.EmbeddedAuthorizer;
 import io.confluent.security.authorizer.Operation;
-import io.confluent.security.authorizer.Resource;
+import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.test.utils.RbacTestUtils;
@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.test.TestUtils;
@@ -34,11 +35,11 @@ import org.junit.Test;
 public class MetadataServerTest {
 
   private final Scope clusterA = new Scope.Builder("testOrg").withKafkaCluster("clusterA").build();
-  private final Resource clusterResource = new Resource(new ResourceType("Cluster"), "kafka-cluster");
+  private final ResourcePattern clusterResource = new ResourcePattern(new ResourceType("Cluster"), "kafka-cluster", PatternType.LITERAL);
   private EmbeddedAuthorizer authorizer;
   private RbacProvider metadataRbacProvider;
   private MockMetadataServer metadataServer;
-  private Resource topic = new Resource("Topic", "topicA");
+  private ResourcePattern topic = new ResourcePattern("Topic", "topicA", PatternType.LITERAL);
 
   @After
   public void tearDown() {
@@ -67,7 +68,7 @@ public class MetadataServerTest {
     EmbeddedAuthorizer authorizer = (EmbeddedAuthorizer) metadataServer.embeddedAuthorizer;
     metadataRbacProvider = (RbacProvider) authorizer.accessRuleProvider("MOCK_RBAC");
     assertNotNull(metadataRbacProvider);
-    DefaultAuthCache metadataAuthCache = (DefaultAuthCache) metadataRbacProvider.authCache();
+    DefaultAuthCache metadataAuthCache = (DefaultAuthCache) metadataRbacProvider.authStore().authCache();
     assertSame(metadataServer.authCache, metadataAuthCache);
     assertEquals(cacheScope, metadataAuthCache.rootScope());
 
@@ -118,6 +119,7 @@ public class MetadataServerTest {
     configs.put(ConfluentAuthorizerConfig.METADATA_PROVIDER_PROP, "MOCK_RBAC");
     configs.put(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP, "http://localhost:8090");
     configs.put("listeners", "PLAINTEXT://localhost:9092");
+    configs.put("super.users", "User:admin;Group:adminGroup");
     configs.putAll(configOverrides);
     authorizer.configureScope(clusterA);
     authorizer.configure(configs);
@@ -143,7 +145,7 @@ public class MetadataServerTest {
 
   private Set<AccessRule> accessRules(KafkaPrincipal userPrincipal,
                                       Set<KafkaPrincipal> groupPrincipals,
-                                      Resource resource) {
+                                      ResourcePattern resource) {
     return metadataRbacProvider.accessRules(userPrincipal, groupPrincipals, clusterA, resource);
   }
 

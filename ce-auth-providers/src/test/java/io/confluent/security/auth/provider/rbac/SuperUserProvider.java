@@ -3,7 +3,7 @@
 package io.confluent.security.auth.provider.rbac;
 
 import io.confluent.security.authorizer.AccessRule;
-import io.confluent.security.authorizer.Resource;
+import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import java.io.IOException;
@@ -27,7 +27,7 @@ public class SuperUserProvider implements AccessRuleProvider {
   public Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
                                      Set<KafkaPrincipal> groupPrincipals,
                                      Scope scope,
-                                     Resource resource) {
+                                     ResourcePattern resource) {
     return Collections.emptySet();
   }
 

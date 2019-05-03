@@ -18,7 +18,7 @@ public class TestAccessRuleProvider implements AccessRuleProvider {
 
   static RuntimeException exception;
   static Set<KafkaPrincipal> superUsers = new HashSet<>();
-  static Map<Resource, Set<AccessRule>> accessRules = new HashMap<>();
+  static Map<ResourcePattern, Set<AccessRule>> accessRules = new HashMap<>();
 
   @Override
   public void configure(Map<String, ?> configs) {
@@ -36,7 +36,7 @@ public class TestAccessRuleProvider implements AccessRuleProvider {
   public Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
                                      Set<KafkaPrincipal> groupPrincipals,
                                      Scope scope,
-                                     Resource resource) {
+                                     ResourcePattern resource) {
 
     validate(scope);
     Set<KafkaPrincipal> principals = new HashSet<>(groupPrincipals.size() + 1);

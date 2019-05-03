@@ -23,6 +23,14 @@
           {
             "resourceType" : "DelegationToken",
             "operations" : ["Describe"]
+          },
+          {
+            "resourceType" : "SecurityMetadata",
+            "operations" : ["Describe", "Alter"]
+          },
+          {
+            "resourceType" : "All",
+            "operations" : ["DescribeAccess", "AlterAccess"]
           }
         ]
       }
@@ -75,6 +83,10 @@
         "scopeType" : "Cluster",
         "isSuperUser" : "false",
         "allowedOperations" : [
+          {
+            "resourceType" : "All",
+            "operations" : ["DescribeAccess"]
+          }
         ]
       }
     },
@@ -86,35 +98,35 @@
         "allowedOperations" : [
           {
             "resourceType" : "Topic",
-            "operations" : ["Create", "Delete", "Read", "Write", "Describe", "DescribeConfigs", "Alter", "AlterConfigs"]
+            "operations" : ["Create", "Delete", "Read", "Write", "Describe", "DescribeConfigs", "Alter", "AlterConfigs", "DescribeAccess", "AlterAccess"]
           },
           {
             "resourceType" : "Group",
-            "operations" : ["Read", "Describe", "Delete"]
+            "operations" : ["Read", "Describe", "Delete", "DescribeAccess", "AlterAccess"]
           },
           {
             "resourceType" : "TransactionalId",
-            "operations" : ["Write", "Describe"]
+            "operations" : ["Write", "Describe", "DescribeAccess", "AlterAccess"]
           },
           {
             "resourceType" : "Cluster",
-            "operations" : ["Create", "IdempotentWrite", "Describe", "DescribeConfigs", "Alter", "AlterConfigs"]
+            "operations" : ["Create", "IdempotentWrite", "Describe", "DescribeConfigs", "Alter", "AlterConfigs", "DescribeAccess", "AlterAccess"]
           },
           {
             "resourceType" : "DelegationToken",
-            "operations" : ["Describe"]
+            "operations" : ["Describe", "DescribeAccess", "AlterAccess"]
           },
           {
             "resourceType" : "Subject",
-            "operations" : ["Read", "Write", "Delete", "ReadCompatibility", "WriteCompatibility"]
+            "operations" : ["Read", "Write", "Delete", "ReadCompatibility", "WriteCompatibility", "DescribeAccess", "AlterAccess"]
           },
           {
             "resourceType" : "Connector",
-            "operations" : ["Create", "ReadConfig", "ReadStatus", "Pause", "Resume", "Scale", "Configure", "Delete"]
+            "operations" : ["Create", "ReadConfig", "ReadStatus", "Pause", "Resume", "Scale", "Configure", "Delete", "DescribeAccess", "AlterAccess"]
           },
           {
             "resourceType" : "KsqlCluster",
-            "operations" : ["Create", "Contribute", "Terminate"]
+            "operations" : ["Create", "Contribute", "Terminate", "DescribeAccess", "AlterAccess"]
           }
         ]
       }

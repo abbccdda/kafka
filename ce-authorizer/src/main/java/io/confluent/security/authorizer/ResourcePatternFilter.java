@@ -16,12 +16,21 @@ public class ResourcePatternFilter {
   private final ResourceType resourceType;
   private final PatternType patternType;
 
+  /**
+   * Constructs a resource filter. See {@link org.apache.kafka.common.resource.ResourcePatternFilter}
+   * for description of matching logic.
+   *
+   * @param resourceType Resource type or 'All' to match all resource types
+   * @param name Resource name to match. Null value matches any resource name.
+   *             '*' matches only LITERAL wildcard.
+   * @param patternType Pattern type which may include MATCH or ANY
+   */
   public ResourcePatternFilter(@JsonProperty("resourceType") ResourceType resourceType,
                                @JsonProperty("name") String name,
                                @JsonProperty("patternType") PatternType patternType) {
     this.name = name;
-    this.resourceType = resourceType;
-    this.patternType = patternType;
+    this.resourceType = resourceType == null ? ResourceType.ALL : resourceType;
+    this.patternType = patternType == null ? PatternType.ANY : patternType;
   }
 
   @JsonProperty
@@ -40,7 +49,7 @@ public class ResourcePatternFilter {
   }
 
   public boolean matches(ResourcePattern resource) {
-    if (resourceType() != null && !resourceType().equals(resource.resourceType()))
+    if (resourceType() != ResourceType.ALL && !resourceType().equals(resource.resourceType()))
       return false;
 
     // For cross-component resources, we check resource type separately. We want to use common

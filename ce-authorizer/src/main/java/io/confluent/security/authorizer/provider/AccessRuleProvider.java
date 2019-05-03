@@ -3,7 +3,7 @@
 package io.confluent.security.authorizer.provider;
 
 import io.confluent.security.authorizer.AccessRule;
-import io.confluent.security.authorizer.Resource;
+import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import java.util.Set;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -50,7 +50,7 @@ public interface AccessRuleProvider extends Provider {
   Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
                               Set<KafkaPrincipal> groupPrincipals,
                               Scope scope,
-                              Resource resource);
+                              ResourcePattern resource);
 
   /**
    * Returns true if this provider supports DENY rules. If false, this provider's rules are

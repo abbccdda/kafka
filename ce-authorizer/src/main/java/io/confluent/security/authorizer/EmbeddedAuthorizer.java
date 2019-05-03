@@ -182,6 +182,10 @@ public class EmbeddedAuthorizer implements Authorizer {
     this.metadataProvider = metadataProvider;
   }
 
+  protected void configureSuperUsers(Set<KafkaPrincipal> superUsers) {
+    this.superUsers = new HashSet<>(superUsers);
+  }
+
   private AuthorizeResult authorize(KafkaPrincipal sessionPrincipal, String host, Action action) {
     try {
       // On license expiry, update metric and log error, but continue to authorize
@@ -203,7 +207,7 @@ public class EmbeddedAuthorizer implements Authorizer {
           authorized = authorize(sessionPrincipal, groupPrincipals, host, action);
         }
       }
-      logAuditMessage(sessionPrincipal, authorized, action.operation(), action.resource(), host);
+      logAuditMessage(sessionPrincipal, authorized, action.operation(), action.resourcePattern(), host);
       return authorized ? AuthorizeResult.ALLOWED : AuthorizeResult.DENIED;
 
     } catch (InvalidScopeException e) {
@@ -228,12 +232,12 @@ public class EmbeddedAuthorizer implements Authorizer {
       return true;
     }
 
-    Resource resource = action.resource();
+    ResourcePattern resource = action.resourcePattern();
     Operation operation = action.operation();
     Set<AccessRule> rules = new HashSet<>();
     accessRuleProviders.stream()
         .filter(AccessRuleProvider::mayDeny)
-        .forEach(p -> rules.addAll(p.accessRules(sessionPrincipal, groupPrincipals, action.scope(), action.resource())));
+        .forEach(p -> rules.addAll(p.accessRules(sessionPrincipal, groupPrincipals, action.scope(), action.resourcePattern())));
 
     // Check if there is any Deny acl match that would disallow this operation.
     if (aclMatch(operation, resource, host, PermissionType.DENY, rules))
@@ -241,7 +245,7 @@ public class EmbeddedAuthorizer implements Authorizer {
 
     accessRuleProviders.stream()
         .filter(p -> !p.mayDeny())
-        .forEach(p -> rules.addAll(p.accessRules(sessionPrincipal, groupPrincipals, action.scope(), action.resource())));
+        .forEach(p -> rules.addAll(p.accessRules(sessionPrincipal, groupPrincipals, action.scope(), action.resourcePattern())));
 
     // Check if there are any Allow ACLs which would allow this operation.
     if (allowOps(operation).stream().anyMatch(op -> aclMatch(op, resource, host, PermissionType.ALLOW, rules)))
@@ -283,7 +287,7 @@ public class EmbeddedAuthorizer implements Authorizer {
   }
 
   private boolean aclMatch(Operation op,
-      Resource resource,
+      ResourcePattern resource,
       String host, PermissionType permissionType,
       Collection<AccessRule> permissions) {
     for (AccessRule acl : permissions) {
@@ -298,7 +302,7 @@ public class EmbeddedAuthorizer implements Authorizer {
     return false;
   }
 
-  private boolean isEmptyAclAndAuthorized(Resource resource, Set<AccessRule> acls) {
+  private boolean isEmptyAclAndAuthorized(ResourcePattern resource, Set<AccessRule> acls) {
     if (acls.isEmpty()) {
       log.debug("No acl found for resource {}, authorized = {}", resource, allowEveryoneIfNoAcl);
       return allowEveryoneIfNoAcl;
@@ -326,7 +330,7 @@ public class EmbeddedAuthorizer implements Authorizer {
    */
   private void logAuditMessage(KafkaPrincipal principal, boolean authorized,
       Operation op,
-      Resource resource, String host) {
+      ResourcePattern resource, String host) {
     String logMessage = "Principal = {} is {} Operation = {} from host = {} on resource = {}";
     if (authorized) {
       log.debug(logMessage, principal, "Allowed", op, host, resource);

@@ -27,9 +27,9 @@ public class ResourcePattern implements Comparable<ResourcePattern> {
   public ResourcePattern(@JsonProperty("resourceType") ResourceType resourceType,
                          @JsonProperty("name") String name,
                          @JsonProperty("patternType") PatternType patternType) {
-    this.name = name;
-    this.resourceType = resourceType;
-    this.patternType = patternType;
+    this.name = Objects.requireNonNull(name, "name");
+    this.resourceType = Objects.requireNonNull(resourceType, "resourceType");
+    this.patternType = patternType == null ? PatternType.LITERAL : patternType;
   }
 
   @JsonProperty

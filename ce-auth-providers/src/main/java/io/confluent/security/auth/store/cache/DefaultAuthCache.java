@@ -15,7 +15,6 @@ import io.confluent.security.auth.store.data.UserValue;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.PermissionType;
-import io.confluent.security.authorizer.Resource;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
@@ -133,7 +132,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
    */
   @Override
   public Set<AccessRule> rbacRules(Scope resourceScope,
-                                   Resource resource,
+                                   ResourcePattern resource,
                                    KafkaPrincipal userPrincipal,
                                    Collection<KafkaPrincipal> groupPrincipals) {
     ensureNotFailed();
@@ -150,9 +149,10 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
         String resourceName = resource.name();
         ResourceType resourceType = resource.resourceType();
 
-        addMatchingRules(rules.get(resource.toResourcePattern()), resourceRules, matchingPrincipals);
+        addMatchingRules(rules.get(resource), resourceRules, matchingPrincipals);
         addMatchingRules(rules.get(ResourcePattern.all(resourceType)), resourceRules, matchingPrincipals);
         addMatchingRules(rules.get(ResourcePattern.ALL), resourceRules, matchingPrincipals);
+        addMatchingRules(rules.get(new ResourcePattern(ResourceType.ALL, resourceName, PatternType.LITERAL)), resourceRules, matchingPrincipals);
 
         rules.subMap(
             new ResourcePattern(resourceType.name(), resourceName, PatternType.PREFIXED), true,
