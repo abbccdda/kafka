@@ -53,6 +53,8 @@ type TopicConfiguration struct {
 	ShortLivedConsumeCount int     `json:"short_lived_consumer_count"`
 	TransactionsEnabled    bool    `json:"transactions_enabled"`
 	IdempotenceEnabled     bool    `json:"idempotence_enabled"`
+	ShortLivedRandomConsumerGroup bool `json:"short_lived_random_consumer_group"`
+	LongLivedRandomConsumerGroup bool `json:"long_lived_random_consumer_group"`
 }
 
 func (topicConfig *TopicConfiguration) totalProduceCount() int {
@@ -114,6 +116,19 @@ func baselineTasks(soakConfigPath string, trogdorAgentsCount int, bootstrapServe
 	return tasks, nil
 }
 
+// consumerOptions will return Trogdor ConsumerOptions for the given topicName.
+// if randomGroup is true, we will leave the group name blank, as the Trogdor agent
+// will assign a random groupID in this case.
+func consumerOptions(topicName string, randomGroup bool) trogdor.ConsumerOptions {
+	consumerGroupName := fmt.Sprintf("Consume%sTestGroup", topicName)
+	if randomGroup {
+		consumerGroupName = ""
+	}
+	return trogdor.ConsumerOptions{
+		ConsumerGroup: consumerGroupName,
+	}
+}
+
 // Creates Trogdor Produce and Consume Bench Tasks from a TopicConfiguration
 // short-lived tasks are scheduled to run up until the long-lived tasks finish, taking into account a delay in re-scheduling
 func createTopicTasks(topicConfig TopicConfiguration, clientNodes []string, existingTaskIDs map[string]bool,
@@ -137,9 +152,11 @@ func createTopicTasks(topicConfig TopicConfiguration, clientNodes []string, exis
 	if topicConfig.IdempotenceEnabled {
 		producerAdminConfig.EnableIdempotence = "true"
 	}
-	consumerOptions := trogdor.ConsumerOptions{
-		ConsumerGroup: fmt.Sprintf("Consume%sTestGroup", topicConfig.Name),
-	}
+
+
+	longLivedConsumerOptions := consumerOptions(topicConfig.Name, topicConfig.LongLivedRandomConsumerGroup)
+	shortLivedConsumerOptions := consumerOptions(topicConfig.Name, topicConfig.ShortLivedRandomConsumerGroup)
+
 	nowMs := uint64(time.Now().UnixNano() / int64(time.Millisecond))
 
 	longLivingProducersScenarioConfig := trogdor.ScenarioConfig{
@@ -179,7 +196,7 @@ func createTopicTasks(topicConfig TopicConfiguration, clientNodes []string, exis
 		BootstrapServers: bootstrapServers,
 		MessagesPerSec:   messagesPerSec(topicConfig.longLivedConsumeTaskThroughput(), producerOptions),
 		AdminConf:        adminConfig,
-		ConsumerOptions:  consumerOptions,
+		ConsumerOptions:  longLivedConsumerOptions,
 		ClientNodes:      shuffleSlice(clientNodes),
 	}
 
@@ -237,7 +254,7 @@ func createTopicTasks(topicConfig TopicConfiguration, clientNodes []string, exis
 		BootstrapServers: bootstrapServers,
 		MessagesPerSec:   messagesPerSec(topicConfig.shortLivedConsumeTaskThroughput(), producerOptions),
 		AdminConf:        adminConfig,
-		ConsumerOptions:  consumerOptions,
+		ConsumerOptions:  shortLivedConsumerOptions,
 		ClientNodes:      shuffleSlice(clientNodes),
 	}
 

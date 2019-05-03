@@ -15,6 +15,20 @@
 
     },
     {
+      "name":"baseline_soak_reset_topic_1000p",
+      "partitions_count":1000,
+      "produce_mbs_throughput":45,
+      "consume_mbs_throughput":120,
+      "long_lived_producer_count":6,
+      "short_lived_producer_count":6,
+      "long_lived_consumer_count":6,
+      "short_lived_consumer_count":6,
+
+      "short_lived_random_consumer_group": true,
+      "long_lived_random_consumer_group": true
+
+    },
+    {
       "name":"baseline_soak_medium_topic_25p",
       "partitions_count":25,
       "produce_mbs_throughput":15,

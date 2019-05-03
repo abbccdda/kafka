@@ -46,6 +46,10 @@ spec:
           image: "{{ .Values.image.repository }}/{{ .Values.image.name }}:v{{ default .Chart.Version .Values.image.tag }}"
           {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.image.pullSecret }}
+          imagePullSecrets:
+            - name: {{ .Values.image.pullSecret }}
+          {{- end}}
           volumeMounts:
             - name: "config-volume"
               mountPath: /mnt/config
@@ -59,10 +63,12 @@ spec:
             - name: CAAS_POD_ID
               value: "1"
           ports:
+            {{- if .Values.scheduleAlone }}
             - containerPort: 28130
               hostPort: 28130
               name: schedule-alone # ensure this pod is scheduled alone
               protocol: TCP
+            {{- end}}
             - name: agent
               containerPort: {{ .Values.trogdorAgentPort }}
               protocol: TCP

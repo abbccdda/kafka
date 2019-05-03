@@ -21,6 +21,10 @@ spec:
             image: "{{ .Values.image.repository }}/{{ .Values.image.name }}:v{{ default .Chart.Version .Values.image.tag }}"
           {{- end }}
             imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.image.pullSecret }}
+            imagePullSecrets:
+              - name: {{ .Values.image.pullSecret }}
+          {{- end}}
             args:
               - soak-clients
               - report

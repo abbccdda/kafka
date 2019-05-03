@@ -12,7 +12,7 @@ image:
   pullPolicy: IfNotPresent
 
 kafkaName: kafka
-
+scheduleAlone: true
 trogdorAgentPort: 9001
 trogdorCoordinatorPort: 9002
 trogdorJmxPort: 7203
