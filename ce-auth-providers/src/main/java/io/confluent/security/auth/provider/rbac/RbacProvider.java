@@ -30,6 +30,8 @@ import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.kafka.clients.ClientUtils;
+import org.apache.kafka.common.ClusterResource;
+import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.security.auth.AuthenticateCallbackHandler;
@@ -37,7 +39,7 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class RbacProvider implements AccessRuleProvider, GroupProvider, MetadataProvider {
+public class RbacProvider implements AccessRuleProvider, GroupProvider, MetadataProvider, ClusterResourceListener {
   private static final Logger log = LoggerFactory.getLogger(RbacProvider.class);
 
   private LdapAuthenticateCallbackHandler authenticateCallbackHandler;
@@ -45,6 +47,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   private AuthStore authStore;
   private AuthCache authCache;
 
+  private String clusterId;
   private MetadataServer metadataServer;
   private Collection<URL> metadataServerUrls;
   private Set<KafkaPrincipal> configuredSuperUsers;
@@ -54,13 +57,17 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   }
 
   @Override
-  public void configureScope(Scope scope) {
-    this.authScope = Objects.requireNonNull(scope, "scope");
+  public void onUpdate(ClusterResource clusterResource) {
+    this.clusterId = clusterResource.clusterId();
+    this.authScope = Scope.kafkaClusterScope(clusterId);
     this.authScope.validate(false);
   }
 
   @Override
   public void configure(Map<String, ?> configs) {
+    if (clusterId == null)
+      throw new IllegalStateException("Kafka cluster id not known");
+
     Scope authStoreScope = Objects.requireNonNull(authScope, "authScope");
     if (providerName().equals(configs.get(ConfluentAuthorizerConfig.METADATA_PROVIDER_PROP))) {
       MetadataServiceConfig metadataServiceConfig = new MetadataServiceConfig(configs);
@@ -204,6 +211,9 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
     }
     if (metadataServer == null)
       metadataServer = new DummyMetadataServer();
+    if (metadataServer instanceof ClusterResourceListener) {
+      ((ClusterResourceListener) metadataServer).onUpdate(new ClusterResource(clusterId));
+    }
     metadataServer.configure(metadataServiceConfig.metadataServerConfigs());
     return metadataServer;
   }

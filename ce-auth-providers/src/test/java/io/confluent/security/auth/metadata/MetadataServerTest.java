@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.kafka.common.resource.PatternType;
+import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.test.TestUtils;
@@ -71,6 +72,7 @@ public class MetadataServerTest {
     DefaultAuthCache metadataAuthCache = (DefaultAuthCache) metadataRbacProvider.authStore().authCache();
     assertSame(metadataServer.authCache, metadataAuthCache);
     assertEquals(cacheScope, metadataAuthCache.rootScope());
+    assertEquals("clusterA", metadataServer.metadataClusterId);
 
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
     Set<KafkaPrincipal> groups = Collections.emptySet();
@@ -121,7 +123,7 @@ public class MetadataServerTest {
     configs.put("listeners", "PLAINTEXT://localhost:9092");
     configs.put("super.users", "User:admin;Group:adminGroup");
     configs.putAll(configOverrides);
-    authorizer.configureScope(clusterA);
+    authorizer.onUpdate(new ClusterResource("clusterA"));
     authorizer.configure(configs);
     authorizer.start();
     try {

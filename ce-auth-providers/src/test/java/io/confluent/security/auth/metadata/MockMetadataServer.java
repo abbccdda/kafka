@@ -5,9 +5,11 @@ package io.confluent.security.auth.metadata;
 import io.confluent.security.authorizer.Authorizer;
 import java.io.IOException;
 import java.util.Map;
+import org.apache.kafka.common.ClusterResource;
+import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.security.auth.AuthenticateCallbackHandler;
 
-public class MockMetadataServer implements MetadataServer {
+public class MockMetadataServer implements MetadataServer, ClusterResourceListener {
   public enum ServerState {
     CREATED,
     CONFIGURED,
@@ -20,6 +22,7 @@ public class MockMetadataServer implements MetadataServer {
   volatile AuthStore authStore;
   volatile AuthCache authCache;
   volatile Map<String, ?> configs;
+  volatile String metadataClusterId;
 
   public MockMetadataServer() {
     this.serverState = ServerState.CREATED;
@@ -52,5 +55,10 @@ public class MockMetadataServer implements MetadataServer {
   @Override
   public String providerName() {
     return "MOCK_RBAC";
+  }
+
+  @Override
+  public void onUpdate(ClusterResource clusterResource) {
+    this.metadataClusterId = clusterResource.clusterId();
   }
 }

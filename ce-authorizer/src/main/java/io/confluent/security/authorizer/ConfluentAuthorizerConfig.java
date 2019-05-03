@@ -26,6 +26,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.apache.kafka.common.ClusterResource;
+import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigDef.Importance;
@@ -127,7 +129,7 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
     }
   }
 
-  public final Providers createProviders(Scope scope) {
+  public final Providers createProviders(String clusterId) {
     List<String> authProviderNames = getList(ACCESS_RULE_PROVIDERS_PROP);
     // Multitenant ACLs are included in the MultiTenantProvider, so include only the MultiTenantProvider
     if (authProviderNames.contains(AccessRuleProviders.ACL.name())
@@ -140,7 +142,6 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
 
     List<AccessRuleProvider> accessRuleProviders =
         ConfluentBuiltInProviders.loadAccessRuleProviders(authProviderNames);
-    accessRuleProviders.forEach(provider -> provider.configureScope(scope));
     Set<Provider> providers = new HashSet<>(accessRuleProviders);
 
     String groupFeature = getString(GROUP_PROVIDER_PROP);
@@ -161,6 +162,14 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
         providers);
     providers.add(metadataProvider);
 
+    if (clusterId != null) {
+      ClusterResource clusterResource = new ClusterResource(clusterId);
+      providers.forEach(provider -> {
+        if (provider instanceof ClusterResourceListener) {
+          ((ClusterResourceListener) provider).onUpdate(clusterResource);
+        }
+      });
+    }
     providers.forEach(provider -> provider.configure(originals()));
 
     return new Providers(accessRuleProviders, groupProvider, metadataProvider);

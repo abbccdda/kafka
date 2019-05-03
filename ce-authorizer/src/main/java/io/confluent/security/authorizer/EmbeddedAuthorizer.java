@@ -30,6 +30,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.kafka.clients.ClientUtils;
+import org.apache.kafka.common.ClusterResource;
+import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Time;
@@ -40,7 +42,7 @@ import org.slf4j.LoggerFactory;
  * Cross-component embedded authorizer that implements common authorization logic. This
  * authorizer loads configured providers and uses them to perform authorization.
  */
-public class EmbeddedAuthorizer implements Authorizer {
+public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
 
   protected static final Logger log = LoggerFactory.getLogger("kafka.authorizer.logger");
 
@@ -60,6 +62,7 @@ public class EmbeddedAuthorizer implements Authorizer {
   private Set<KafkaPrincipal> superUsers;
   private Duration initTimeout;
   private boolean usesMetadataFromThisKafkaCluster;
+  private volatile String clusterId;
   private volatile Scope scope;
 
   static {
@@ -84,8 +87,12 @@ public class EmbeddedAuthorizer implements Authorizer {
     licenseValidator = licenseValidator();
   }
 
-  public void configureScope(Scope scope) {
-    this.scope = scope;
+  @Override
+  public void onUpdate(ClusterResource clusterResource) {
+    String clusterId = clusterResource.clusterId();
+    log.debug("Configuring scope for Kafka cluster with cluster id {}", clusterId);
+    this.clusterId = clusterId;
+    this.scope = Scope.kafkaClusterScope(clusterId);
   }
 
   @Override
@@ -98,7 +105,7 @@ public class EmbeddedAuthorizer implements Authorizer {
       licenseValidator = DUMMY_LICENSE_VALIDATOR;
     initializeAndValidateLicense(configs, licensePropName());
 
-    ConfluentAuthorizerConfig.Providers providers = authorizerConfig.createProviders(scope);
+    ConfluentAuthorizerConfig.Providers providers = authorizerConfig.createProviders(clusterId);
     providersCreated.addAll(providers.accessRuleProviders);
     if (providers.groupProvider != null)
       providersCreated.add(providers.groupProvider);

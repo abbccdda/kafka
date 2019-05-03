@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
@@ -258,7 +259,7 @@ public class RbacProviderTest {
         KafkaTestUtils.setFinalField(rbacProvider, RbacProvider.class, "authCache", authCache);
       }
     };
-    rbacProvider.configureScope(scope);
+    rbacProvider.onUpdate(new ClusterResource("clusterA"));
     rbacProvider.configure(Collections.emptyMap());
   }
 

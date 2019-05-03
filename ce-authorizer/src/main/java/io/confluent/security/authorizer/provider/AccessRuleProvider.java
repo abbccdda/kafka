@@ -15,17 +15,6 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal;
 public interface AccessRuleProvider extends Provider {
 
   /**
-   * Configures authorization scope for this provider, which indicates the scope of
-   * authorization metadata stored by this provider if this provider uses a centralized metadata
-   * service. For a broker not hosting a metadata service for authorization in other components,
-   * scope is the broker's cluster id. For a broker hosting metadata service, scope is the empty
-   * root scope. Scope is not used by cluster-specific providers (e.g. ACLs).
-   * @param scope metadata scope
-   */
-  default void configureScope(Scope scope) {
-  }
-
-  /**
    * Returns true if either the session's user principal or one of the provided group
    * principals is a super user. All operations are authorized for super-users without
    * checking any access rules.

@@ -22,6 +22,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.errors.AuthorizationException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -66,6 +67,7 @@ public class MetadataAuthorizationTest {
     props.put(ConfluentAuthorizerConfig.GROUP_PROVIDER_PROP, "MOCK_RBAC");
     props.put(ConfluentAuthorizerConfig.METADATA_PROVIDER_PROP, "MOCK_RBAC");
     props.put(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP, "http://127.0.0.1:8090");
+    authorizer.onUpdate(new ClusterResource("clusterA"));
     authorizer.configure(props);
     RbacProvider rbacProvider = (RbacProvider) authorizer.accessRuleProvider("MOCK_RBAC");
     this.authCache = (DefaultAuthCache) rbacProvider.authStore().authCache();

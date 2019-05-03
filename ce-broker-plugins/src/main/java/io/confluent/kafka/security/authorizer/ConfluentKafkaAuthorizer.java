@@ -9,7 +9,6 @@ import io.confluent.kafka.security.authorizer.acl.AclProvider;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.EmbeddedAuthorizer;
-import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import io.confluent.security.authorizer.provider.Provider;
 import io.confluent.license.validator.ConfluentLicenseValidator;
@@ -27,8 +26,6 @@ import kafka.security.auth.Authorizer;
 import kafka.security.auth.AuthorizerWithKafkaStore;
 import kafka.security.auth.Operation;
 import kafka.security.auth.Resource;
-import org.apache.kafka.common.ClusterResource;
-import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.resource.PatternType;
@@ -37,8 +34,7 @@ import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 
 
-public class ConfluentKafkaAuthorizer extends EmbeddedAuthorizer
-    implements AuthorizerWithKafkaStore, ClusterResourceListener {
+public class ConfluentKafkaAuthorizer extends EmbeddedAuthorizer implements AuthorizerWithKafkaStore {
 
   private static final Set<String> UNSCOPED_PROVIDERS =
       Utils.mkSet(AccessRuleProviders.ACL.name(), AccessRuleProviders.MULTI_TENANT.name());
@@ -54,13 +50,6 @@ public class ConfluentKafkaAuthorizer extends EmbeddedAuthorizer
 
   public ConfluentKafkaAuthorizer(Time time) {
     super(time);
-  }
-
-  @Override
-  public void onUpdate(ClusterResource clusterResource) {
-    String clusterId = clusterResource.clusterId();
-    log.debug("Configuring scope for Kafka cluster with cluster id {}", clusterId);
-    super.configureScope(Scope.kafkaClusterScope(clusterId));
   }
 
   @Override
