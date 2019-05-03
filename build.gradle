@@ -2243,7 +2243,7 @@ project(':ce-rest-authorizer') {
   dependencies {
     compile project(':clients')
     compile project(':ce-authorizer')
-    compile project(':ce-broker-plugins')
+    compile libs.bcpkix
     compile libs.jacksonDatabind
     compile libs.jacksonJDK8Datatypes
     compile libs.jaxrsApi

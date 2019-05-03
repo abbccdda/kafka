@@ -2,7 +2,6 @@
 
 package io.confluent.security.auth.broker.token;
 
-import com.google.common.annotations.VisibleForTesting;
 import io.confluent.security.auth.client.RestClientConfig;
 import io.confluent.security.auth.client.provider.BuiltInAuthProviders;
 import io.confluent.security.auth.client.rest.RestClient;
@@ -167,7 +166,7 @@ import java.util.Objects;
       }
     }
 
-    @VisibleForTesting
+    // Visible for testing
     public static void validatePublicKey(String publicKeyPath) {
       try {
         if (publicKeyPath.isEmpty()) {
