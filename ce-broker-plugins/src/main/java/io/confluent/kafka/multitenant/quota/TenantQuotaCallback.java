@@ -224,19 +224,18 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
     }
   }
 
-  private TenantQuota getOrCreateTenantQuota(String tenant,
-                                             QuotaConfig clusterQuotaConfig,
-                                             boolean forceUpdate) {
-    boolean created = false;
-    TenantQuota tenantQuota = new TenantQuota();
+  TenantQuota getOrCreateTenantQuota(String tenant,
+                                     QuotaConfig clusterQuotaConfig,
+                                     boolean forceUpdate) {
+    TenantQuota tenantQuota = new TenantQuota(clusterQuotaConfig);
     TenantQuota prevQuota = tenantQuotas.putIfAbsent(tenant, tenantQuota);
     if (prevQuota != null) {
       tenantQuota = prevQuota;
-    } else {
-      created = true;
-    }
-    if (created || forceUpdate) {
-      tenantQuota.updateClusterQuota(clusterQuotaConfig);
+      // if we just created quota for this tenant, the quota is already up to date
+      // so only need to update on 'forceUpdate' if we updated the quota
+      if (forceUpdate) {
+        tenantQuota.updateClusterQuota(clusterQuotaConfig);
+      }
     }
     return tenantQuota;
   }
@@ -252,11 +251,6 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
     tenantQuotas.keySet().removeIf(tenant -> !tenantClusterQuotas.containsKey(tenant));
     for (Map.Entry<String, QuotaConfig> entry : tenantClusterQuotas.entrySet()) {
       getOrCreateTenantQuota(entry.getKey(), entry.getValue(), true);
-    }
-    // if default changed for all the tenants ('tenantClusterQuotas' are empty), we need to make
-    // sure that all broker quotas are updated accordingly
-    if (cluster != null && tenantClusterQuotas.isEmpty()) {
-      updateClusterMetadata(cluster);
     }
     log.trace("Updated tenant quotas, new quotas: {}", tenantQuotas);
   }
@@ -333,7 +327,7 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
     return maxPerTenantBrokerByteRate;
   }
 
-  private class TenantQuota {
+  class TenantQuota {
     // Cluster configs related to the tenant, accessed only with TenantQuotaCallback lock
     int leaderPartitions;   // Tenant partitions with this broker as leader
     int brokersWithLeaders; // Number of brokers that host tenant's leaders
@@ -342,6 +336,13 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
 
     // Quotas for this broker
     volatile QuotaConfig brokerQuotas;
+
+    public TenantQuota(QuotaConfig clusterQuotaConfig) {
+      this.leaderPartitions = 0;
+      this.brokersWithLeaders = 0;
+      this.clusterQuotaConfig = clusterQuotaConfig;
+      updateBrokerQuota();
+    }
 
     /**
      * Recomputes tenant quota for this broker based on the provided leader partitions of

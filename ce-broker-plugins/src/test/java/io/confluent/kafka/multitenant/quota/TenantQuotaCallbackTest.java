@@ -17,6 +17,8 @@ import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertFalse;
+
 
 public class TenantQuotaCallbackTest {
 
@@ -45,6 +47,78 @@ public class TenantQuotaCallbackTest {
   @After
   public void tearDown() {
     quotaCallback.close();
+  }
+
+  @Test
+  public void testTenantQuotaConstructor() {
+    TenantQuotaCallback.TenantQuota unlimitedQuota =
+        new TenantQuotaCallback().new TenantQuota(QuotaConfig.UNLIMITED_QUOTA);
+    assertFalse(unlimitedQuota.hasQuotaLimit(ClientQuotaType.PRODUCE));
+    assertFalse(unlimitedQuota.hasQuotaLimit(ClientQuotaType.FETCH));
+    assertFalse(unlimitedQuota.hasQuotaLimit(ClientQuotaType.REQUEST));
+
+    QuotaConfig defaultQuota = quotaConfig(102400L, 102400L, 50.0);
+    assertTrue(defaultQuota.hasQuotaLimit(ClientQuotaType.PRODUCE));
+    assertEquals("Unexpected PRODUCE quota",
+                 102400.0, defaultQuota.quota(ClientQuotaType.PRODUCE), EPS);
+
+    assertTrue(defaultQuota.hasQuotaLimit(ClientQuotaType.FETCH));
+    assertEquals("Unexpected FETCH quota",
+                 102400.0, defaultQuota.quota(ClientQuotaType.FETCH), EPS);
+
+    assertTrue(defaultQuota.hasQuotaLimit(ClientQuotaType.REQUEST));
+    assertEquals("Unexpected REQUEST quota",
+                 50.0, defaultQuota.quota(ClientQuotaType.REQUEST), EPS);
+  }
+
+  @Test
+  public void testGetOrCreateTenantQuota() {
+    TenantQuotaCallback newQuotaCallback = new TenantQuotaCallback();
+    Map<String, Object> configs = new HashMap<>();
+    configs.put("broker.id", String.valueOf(brokerId));
+    newQuotaCallback.configure(configs);
+
+    TenantQuotaCallback.TenantQuota tenantQuota = newQuotaCallback.getOrCreateTenantQuota(
+        "tenantA", quotaConfig(204800L, 204800L, 500.0), false);
+    // there are no partition leaders, so expecting minimum produce & consume quotas
+    assertTrue(tenantQuota.hasQuotaLimit(ClientQuotaType.PRODUCE));
+    assertEquals("Unexpected PRODUCE quota",
+                 TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE,
+                 tenantQuota.quotaLimit(ClientQuotaType.PRODUCE), EPS);
+
+    assertTrue(tenantQuota.hasQuotaLimit(ClientQuotaType.FETCH));
+    assertEquals("Unexpected FETCH quota",
+                 TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_CONSUMER_BYTE_RATE,
+                 tenantQuota.quotaLimit(ClientQuotaType.FETCH), EPS);
+
+    assertTrue(tenantQuota.hasQuotaLimit(ClientQuotaType.REQUEST));
+    assertEquals("Unexpected REQUEST quota",
+                 500.0, tenantQuota.quotaLimit(ClientQuotaType.REQUEST), EPS);
+
+    // this will update quotas based on new partition assignment
+    createCluster(5);
+    testCluster.setPartitionLeaders("tenantA_topic1", 0, 1, brokerId);
+    newQuotaCallback.updateClusterMetadata(testCluster.cluster());
+    // without 'forceUpdate' quota is not updated due to new quota config, but update due to new
+    // partition assignment already took place when we updated cluster metadata
+    TenantQuotaCallback.TenantQuota tenantQuota2 = newQuotaCallback.getOrCreateTenantQuota(
+        "tenantA", quotaConfig(404800L, 404800L, 600.0), false);
+    assertEquals("Unexpected PRODUCE quota",
+                 204800.0, tenantQuota2.quotaLimit(ClientQuotaType.PRODUCE), EPS);
+    assertEquals("Unexpected FETCH quota",
+                 204800.0, tenantQuota2.quotaLimit(ClientQuotaType.FETCH), EPS);
+    assertEquals("Unexpected REQUEST quota",
+                 500.0, tenantQuota2.quotaLimit(ClientQuotaType.REQUEST), EPS);
+
+    // quota is updated with 'forceUpdate' based on new quota config
+    TenantQuotaCallback.TenantQuota updatedQuota = newQuotaCallback.getOrCreateTenantQuota(
+        "tenantA", quotaConfig(404800L, 404800L, 600.0), true);
+    assertEquals("Unexpected PRODUCE quota",
+                 404800, updatedQuota.quotaLimit(ClientQuotaType.PRODUCE), EPS);
+    assertEquals("Unexpected FETCH quota",
+                 404800, updatedQuota.quotaLimit(ClientQuotaType.FETCH), EPS);
+    assertEquals("Unexpected REQUEST quota",
+                 600.0, updatedQuota.quotaLimit(ClientQuotaType.REQUEST), EPS);
   }
 
   @Test
@@ -238,7 +312,7 @@ public class TenantQuotaCallbackTest {
     // Change default quota and verify again
     QuotaConfig newDefaultQuota = quotaConfig(3000L, 6000L, 30.0);
     TenantQuotaCallback.updateQuotas(Collections.emptyMap(), newDefaultQuota);
-    //quotaCallback.updateClusterMetadata(testCluster.cluster());
+    quotaCallback.updateClusterMetadata(testCluster.cluster());
     verifyQuotas(principal2, 600, 1200, 30.0);
 
     verifyQuotas(principal, 600, 1200, 30.0);
