@@ -85,9 +85,9 @@ public class S3TierObjectStore implements TierObjectStore {
             Optional<File> epochState) {
         try {
             if (segmentData.length() <= partUploadSize)
-                putFileMultipart(keyPath(objectMetadata, TierObjectStoreFileType.SEGMENT), segmentData);
-            else
                 putFile(keyPath(objectMetadata, TierObjectStoreFileType.SEGMENT), segmentData);
+            else
+                putFileMultipart(keyPath(objectMetadata, TierObjectStoreFileType.SEGMENT), segmentData);
 
             putFile(keyPath(objectMetadata, TierObjectStoreFileType.OFFSET_INDEX), offsetIndexData);
             putFile(keyPath(objectMetadata, TierObjectStoreFileType.TIMESTAMP_INDEX),
