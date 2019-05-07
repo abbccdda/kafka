@@ -118,6 +118,7 @@ message ClientTriggerMeasurement {
   int64 maxLatency = 4;
   bool hasError = 5;
   int64 consumerLag = 6;
+  int64 consumerLead = 7;
 }
 
 message MetricMeasurement {

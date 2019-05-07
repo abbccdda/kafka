@@ -8,6 +8,7 @@ enum TriggerMetricType {
   MAX_LATENCY = 1;
   AVG_LATENCY = 2;
   CONSUMER_LAG = 3;
+  CONSUMER_LEAD = 4;
 }
 
 enum BrokerTriggerMetricType {
