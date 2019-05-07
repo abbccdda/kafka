@@ -60,6 +60,14 @@
           {
             "resourceType" : "KsqlCluster",
             "operations" : ["Create", "Contribute", "Terminate"]
+          },
+          {
+            "resourceType" : "C3BrokerMetrics",
+            "operations" : ["Read"]
+          },
+          {
+            "resourceType" : "C3Alerts",
+            "operations" : ["Read", "Write"]
           }
         ]
       }
@@ -73,6 +81,14 @@
           {
             "resourceType" : "Connector",
             "operations" : ["ReadStatus", "Pause", "Resume", "Scale"]
+          },
+          {
+            "resourceType" : "C3BrokerMetrics",
+            "operations" : ["Read"]
+          },
+          {
+            "resourceType" : "C3Alerts",
+            "operations" : ["Read", "Write"]
           }
         ]
       }
