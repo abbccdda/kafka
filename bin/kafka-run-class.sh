@@ -101,6 +101,13 @@ for file in "$ce_aegis_build_dir"/libs/*.jar "$ce_aegis_build_dir"/dependant-lib
   fi
 done
 
+ce_metrics_build_dir=$(dirname $0)/../ce-metrics/build/
+for file in "$ce_metrics_build_dir"/libs/*.jar "$ce_metrics_build_dir"/dependant-libs/*.jar; do
+  if should_include_file "$file"; then
+    CLASSPATH="$CLASSPATH":"$file"
+  fi
+done
+
 if [ -z "$UPGRADE_KAFKA_STREAMS_TEST_VERSION" ]; then
   for file in "$base_dir"/streams/examples/build/libs/kafka-streams-examples*.jar;
   do
