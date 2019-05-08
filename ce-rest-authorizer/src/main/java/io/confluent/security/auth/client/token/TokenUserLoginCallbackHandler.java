@@ -33,7 +33,7 @@ import java.util.Map;
  *  org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule Required
  *      username="user"
  *      password="password"
- *      adminServer="https://mds:8080"
+ *      metadataServerUrl="https://mds:8080"
  * </pre>
  *
  * This class should be explicitly set via the

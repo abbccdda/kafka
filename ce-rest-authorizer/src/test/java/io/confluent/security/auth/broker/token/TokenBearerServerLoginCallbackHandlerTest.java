@@ -95,7 +95,7 @@ import static org.powermock.api.easymock.PowerMock.replay;
         jaasConfigText += " password=\"" + token + "\"";
       }
       if (authServer != null && !authServer.isEmpty()) {
-        jaasConfigText += " adminServer=\"" + authServer + '"';
+        jaasConfigText += " metadataServerUrl=\"" + authServer + '"';
       }
       jaasConfigText += ";";
 

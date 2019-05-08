@@ -46,7 +46,7 @@ public abstract class AbstractTokenLoginCallbackHandler
 
   private boolean configured = false;
 
-  static final String LOGIN_SERVER_OPTION = "adminServer";
+  static final String LOGIN_SERVER_OPTION = "metadataServerUrl";
   static final String TOKEN_OPTION = "authenticationToken";
   static final String USER_OPTION = "username";
   static final String PASSWORD_OPTION = "password";

@@ -110,7 +110,7 @@ public class TokenUserBearerLoginCallbackHandlerTest {
       jaasConfigText += " password=\"" + token + "\"";
     }
     if (authServer != null && !authServer.isEmpty()) {
-      jaasConfigText += " adminServer=\"" + authServer + '"';
+      jaasConfigText += " metadataServerUrl=\"" + authServer + '"';
     }
     jaasConfigText += ";";
 
@@ -126,7 +126,7 @@ public class TokenUserBearerLoginCallbackHandlerTest {
       jaasConfigText += " authenticationToken=\"" + token + "\"";
     }
     if (authServer != null && !authServer.isEmpty()) {
-      jaasConfigText += " adminServer=\"" + authServer + '"';
+      jaasConfigText += " metadataServerUrl=\"" + authServer + '"';
     }
     jaasConfigText += ";";
 

@@ -32,6 +32,11 @@ import java.util.Objects;
    *  1. Inter-broker communication using Authentication Tokens
    *  2. Inter-broker communication using another mechanism
    *
+   *  <p>
+   *    Note: Inter-broker communication is not supported by this callback handler
+   *    when running the token service on the same broker.
+   *  </p>
+   *
    *  The first case will look almost exactly like the client login callback handler.
    *  See {@code TokenBearerLoginCallbackHandler}.
    *
@@ -67,10 +72,10 @@ import java.util.Objects;
     private boolean configured = false;
     private boolean tokenRequired = false;
 
-    static final String KEY_OPTION = "publicKeyPath";
-    static final String LOGIN_SERVER_OPTION = "adminServer";
-    static final String USER_OPTION = "username";
-    static final String PASSWORD_OPTION = "password";
+    private static final String KEY_OPTION = "publicKeyPath";
+    private static final String LOGIN_SERVER_OPTION = "metadataServerUrl";
+    private static final String USER_OPTION = "username";
+    private static final String PASSWORD_OPTION = "password";
 
 
     @Override
@@ -108,15 +113,13 @@ import java.util.Objects;
 
       Map<String, String> loginConfigs = new HashMap<>();
 
-      loginConfigs.put(LOGIN_SERVER_OPTION, loginServer);
-      loginConfigs.put(USER_OPTION, user);
-      loginConfigs.put(PASSWORD_OPTION, pass);
-
       loginConfigs.put(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP, loginServer);
       loginConfigs.put(RestClientConfig.HTTP_AUTH_CREDENTIALS_PROVIDER_PROP,
               BuiltInAuthProviders.HttpCredentialProviders.BASIC.name());
       loginConfigs.put(RestClientConfig.BASIC_AUTH_CREDENTIALS_PROVIDER_PROP,
               BuiltInAuthProviders.BasicAuthCredentialProviders.USER_INFO.name());
+      loginConfigs.put(RestClientConfig.BASIC_AUTH_USER_INFO_PROP,
+              user + ":" + pass);
 
       restClient = new RestClient(loginConfigs);
 
