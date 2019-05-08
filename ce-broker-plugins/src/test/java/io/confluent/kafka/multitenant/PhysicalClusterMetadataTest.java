@@ -4,6 +4,7 @@ package io.confluent.kafka.multitenant;
 
 import com.google.common.collect.ImmutableSet;
 
+import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.server.quota.ClientQuotaType;
@@ -33,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 
 import io.confluent.kafka.multitenant.quota.QuotaConfig;
 import io.confluent.kafka.multitenant.quota.TenantQuotaCallback;
+import io.confluent.kafka.multitenant.quota.TestCluster;
 
 public class PhysicalClusterMetadataTest {
 
@@ -559,5 +561,81 @@ public class PhysicalClusterMetadataTest {
             lcCache.tenantLifecycleManager.deletedClusters().contains(LC_META_DED));
     assertFalse("We expect that deactivated clusters will not be in cache, even as stale",
             lcCache.logicalClusterIdsIncludingStale().contains(LC_META_DED.logicalClusterId()));
+  }
+
+  @Test
+  public void testTenantQuotaUpdateUpdatesQuotaLimitAndUpdatesQuotaResetRequired()
+      throws IOException, InterruptedException {
+    final LogicalClusterMetadata legacyTenant =
+        new LogicalClusterMetadata(
+            "lkc-leg", "pkc-a7sjfe", "my-poc-cluster", "my-account", "k8s-abc",
+            LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
+            5242880000L, 5242880L, 5242880L, 50L,
+            LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
+            new LogicalClusterMetadata.LifecycleMetadata("my-poc-cluster", "pkc-a7sjfe", null, null));
+    final LogicalClusterMetadata upgradedTenant =
+        Utils.updateQuotas(legacyTenant, 104857600L, 104857600L, 250L);
+
+    // tenant
+    Utils.createLogicalClusterFile(legacyTenant, tempFolder);
+
+    // cluster
+    final int brokerId = 1;
+    final int numBrokers = 8;
+    TenantQuotaCallback quotaCallback = new TenantQuotaCallback();
+    quotaCallback.configure(Collections.singletonMap("broker.id", String.valueOf(brokerId)));
+    TestCluster testCluster = new TestCluster();
+    for (int i = 1; i <= numBrokers; i++) {
+      testCluster.addNode(i, "rack0");
+    }
+    Cluster cluster = testCluster.cluster();
+    quotaCallback.updateClusterMetadata(cluster);
+
+    // partitions
+    final String topic = legacyTenant.logicalClusterId() + "_topic1";
+    for (int i = 1; i <= numBrokers; i++) {
+      testCluster.setPartitionLeaders(topic, i, 1, i);
+    }
+    quotaCallback.updateClusterMetadata(testCluster.cluster());
+
+    // since quota update came from metadata update, quota reset flags should not be set
+    assertFalse(quotaCallback.quotaResetRequired(ClientQuotaType.PRODUCE));
+    assertFalse(quotaCallback.quotaResetRequired(ClientQuotaType.FETCH));
+    assertFalse(quotaCallback.quotaResetRequired(ClientQuotaType.REQUEST));
+
+    // start the broker
+    lcCache.start();
+    assertTrue("Expected cache to be initialized", lcCache.isUp());
+
+    Map<String, String> tags = Collections.singletonMap("tenant", legacyTenant.logicalClusterId());
+    assertEquals(2.0 * 5242880.0 / numBrokers,
+                 quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, tags), 0.001);
+    assertEquals(2.0 * 5242880.0 / numBrokers,
+                 quotaCallback.quotaLimit(ClientQuotaType.FETCH, tags), 0.001);
+    assertEquals(50.0, quotaCallback.quotaLimit(ClientQuotaType.REQUEST, tags), 0.001);
+
+    // since we loaded tenant metadata, quota changed from default (unlimited) to tenant's quotas
+    // verify that TenantQuotaCallback#quotaResetRequired returns true for all types of quotas
+    assertTrue(quotaCallback.quotaResetRequired(ClientQuotaType.PRODUCE));
+    assertTrue(quotaCallback.quotaResetRequired(ClientQuotaType.FETCH));
+    assertTrue(quotaCallback.quotaResetRequired(ClientQuotaType.REQUEST));
+
+    // upgrade tenant to 100MB/s quotas
+    Utils.updateLogicalClusterFile(upgradedTenant, tempFolder);
+    TestUtils.waitForCondition(
+        () -> lcCache.metadata(legacyTenant.logicalClusterId()).producerByteRate() == 104857600L,
+        TEST_MAX_WAIT_MS,
+        "Expected metadata to be updated");
+    assertEquals(104857600L / numBrokers,
+                 quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, tags), 0.001);
+    assertEquals(104857600L / numBrokers,
+                 quotaCallback.quotaLimit(ClientQuotaType.FETCH, tags), 0.001);
+    assertEquals(250.0, quotaCallback.quotaLimit(ClientQuotaType.REQUEST, tags), 0.001);
+
+    // verify that TenantQuotaCallback#quotaResetRequired returns true for all types of quotas,
+    // which will ensure that next produce/consume will pick up new quotas for throttling
+    assertTrue(quotaCallback.quotaResetRequired(ClientQuotaType.PRODUCE));
+    assertTrue(quotaCallback.quotaResetRequired(ClientQuotaType.FETCH));
+    assertTrue(quotaCallback.quotaResetRequired(ClientQuotaType.REQUEST));
   }
 }

@@ -30,7 +30,7 @@ public class LogicalClusterMetadataTest {
   @Test
   public void testLoadMetadataFromFile() throws IOException {
     final Path metaFile = tempFolder.newFile("lkc-xyz.json").toPath();
-    Files.write(metaFile, jsonString(LC_META_XYZ).getBytes());
+    Files.write(metaFile, Utils.logicalClusterJsonString(LC_META_XYZ).getBytes());
 
     // load metadata and verify
     LogicalClusterMetadata meta = loadFromFile(metaFile);
@@ -41,7 +41,7 @@ public class LogicalClusterMetadataTest {
   @Test
   public void testLoadMetadataWithNonDefaultOverheadAndRequestRate() throws IOException {
     final Path metaFile = tempFolder.newFile("lkc-abc.json").toPath();
-    Files.write(metaFile, Utils.logicalClusterJsonString(LC_META_ABC, true, true).getBytes());
+    Files.write(metaFile, Utils.logicalClusterJsonString(LC_META_ABC).getBytes());
 
     // load metadata and verify
     LogicalClusterMetadata meta = loadFromFile(metaFile);
@@ -113,7 +113,7 @@ public class LogicalClusterMetadataTest {
   @Test
   public void testLifeCycleMetadataOfLiveCluster() throws IOException {
     final Path metaFile = tempFolder.newFile("lkc-xyz.json").toPath();
-    Files.write(metaFile, Utils.logicalClusterJsonString(LC_META_XYZ, true, true).getBytes());
+    Files.write(metaFile, Utils.logicalClusterJsonString(LC_META_XYZ).getBytes());
 
     // load metadata and verify that we have lifecycle metadata
     LogicalClusterMetadata meta = loadFromFile(metaFile);
@@ -125,7 +125,7 @@ public class LogicalClusterMetadataTest {
   public void testLifeCycleMetadataOfDeadCluster() throws IOException {
 
     final Path metaFile = tempFolder.newFile("lkc-abs.json").toPath();
-    Files.write(metaFile, Utils.logicalClusterJsonString(LC_META_DED, true, true).getBytes());
+    Files.write(metaFile, Utils.logicalClusterJsonString(LC_META_DED).getBytes());
 
     // load metadata and verify that we have lifecycle metadata
     LogicalClusterMetadata meta = loadFromFile(metaFile);
@@ -192,7 +192,4 @@ public class LogicalClusterMetadataTest {
     return retMeta;
   }
 
-  private static String jsonString(LogicalClusterMetadata lcMeta) {
-    return Utils.logicalClusterJsonString(lcMeta, false, false);
-  }
 }

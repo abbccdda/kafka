@@ -35,7 +35,7 @@ public class Utils {
   public static final LogicalClusterMetadata LC_META_DED =
           new LogicalClusterMetadata("lkc-ded", "pkc-ded", "ded",
           "my-account", "k8s-abc", LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
-          10485760L, 10240000L, 204800L,
+          10485760L, 10240000L, 20480000L,
           LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER.longValue(),
           LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
           new LogicalClusterMetadata.LifecycleMetadata("ded", "pkc-ded", null, new Date()));
@@ -111,6 +111,19 @@ public class Utils {
     Files.setPosixFilePermissions(metaPath, PosixFilePermissions.fromString(posixFilePermissionsStr));
   }
 
+  public static LogicalClusterMetadata updateQuotas(LogicalClusterMetadata lcMeta,
+                                                    Long producerByteRate,
+                                                    Long consumerByteRate,
+                                                    Long brokerRequestPercentage) {
+    return new LogicalClusterMetadata(
+        lcMeta.logicalClusterId(), lcMeta.physicalClusterId(),
+        lcMeta.logicalClusterName(), lcMeta.accountId(), lcMeta.k8sClusterId(),
+        LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE, lcMeta.storageBytes(),
+        producerByteRate, consumerByteRate, brokerRequestPercentage,
+        lcMeta.networkQuotaOverhead(), lcMeta.lifecycleMetadata());
+  }
+
+
   private static void updateLogicalClusterFile(LogicalClusterMetadata lcMeta,
                                                boolean remove,
                                                boolean valid,
@@ -164,16 +177,10 @@ public class Utils {
     return lcFile;
   }
 
-  static String logicalClusterJsonString(LogicalClusterMetadata lcMeta, boolean setQuotaOverhead, boolean setReqPercent) {
+  static String logicalClusterJsonString(LogicalClusterMetadata lcMeta) {
     String json = baseLogicalClusterJsonString(lcMeta);
-    if (setQuotaOverhead) {
-      json += ", \"network_quota_overhead\": " + lcMeta.networkQuotaOverhead();
-    }
-    if (setReqPercent) {
-      json += ", \"broker_request_percentage\": " + lcMeta.brokerRequestPercentage();
-    }
+    json += ", \"network_quota_overhead\": " + lcMeta.networkQuotaOverhead();
     json += "}";
-
     return json;
   }
 
@@ -206,6 +213,9 @@ public class Utils {
     }
     if (lcMeta.consumerByteRate() != null) {
       json += ", \"network_egress_byte_rate\": " + lcMeta.consumerByteRate();
+    }
+    if (lcMeta.brokerRequestPercentage() != null) {
+      json += ", \"broker_request_percentage\": " + lcMeta.brokerRequestPercentage();
     }
 
     return json;

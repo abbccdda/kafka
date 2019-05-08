@@ -224,6 +224,15 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
     }
   }
 
+  /**
+   * Creates tenant quota if does not exist; and updates existing quotas if 'forceUpdate' flag is
+   * set
+   * @param tenant tenant name
+   * @param clusterQuotaConfig cluster-wide tenant quota config
+   * @param forceUpdate true if the cluster quota config comes from tenant metadata update rather
+   *                    than from cluster metadata update
+   * @return tenant quotas assigned to this broker
+   */
   TenantQuota getOrCreateTenantQuota(String tenant,
                                      QuotaConfig clusterQuotaConfig,
                                      boolean forceUpdate) {
@@ -234,7 +243,17 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
       // if we just created quota for this tenant, the quota is already up to date
       // so only need to update on 'forceUpdate' if we updated the quota
       if (forceUpdate) {
-        tenantQuota.updateClusterQuota(clusterQuotaConfig);
+        QuotaConfig prevQuotas = tenantQuota.updateClusterQuota(clusterQuotaConfig);
+        for (ClientQuotaType quotaType : ClientQuotaType.values()) {
+          if (prevQuotas.quota(quotaType) != tenantQuota.quotaLimit(quotaType)) {
+            quotaResetPending.get(quotaType).getAndSet(true);
+          }
+        }
+      }
+    } else if (forceUpdate) {
+      // first time quotas created, update the flags for all quota types
+      for (ClientQuotaType quotaType : ClientQuotaType.values()) {
+          quotaResetPending.get(quotaType).getAndSet(true);
       }
     }
     return tenantQuota;
@@ -359,12 +378,15 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
     /**
      * Recomputes tenant quota for this broker based on the new provisioned cluster quota config
      * provided.
+     * @return previous broker quotas
      */
-    void updateClusterQuota(QuotaConfig clusterQuotaConfig) {
+    QuotaConfig updateClusterQuota(QuotaConfig clusterQuotaConfig) {
+      QuotaConfig oldBrokerQuotas = brokerQuotas;
       if (!clusterQuotaConfig.equals(this.clusterQuotaConfig)) {
         this.clusterQuotaConfig = clusterQuotaConfig;
         updateBrokerQuota();
       }
+      return oldBrokerQuotas;
     }
 
     /**

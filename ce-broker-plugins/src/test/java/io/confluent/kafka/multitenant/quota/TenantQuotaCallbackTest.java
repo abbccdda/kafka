@@ -186,6 +186,96 @@ public class TenantQuotaCallbackTest {
   }
 
   @Test
+  public void testTenantQuotaUpdateSetsCorrectUpdateFlags() {
+    final int numBrokers = 10;
+    final String tenantName = "tenant1";
+    final String topic = tenantName + "_topic1";
+
+    Map<String, QuotaConfig> tenantQuotas = new HashMap<>();
+    tenantQuotas.put(tenantName, quotaConfig(3000, 2000, 300));
+    TenantQuotaCallback.updateQuotas(tenantQuotas, QuotaConfig.UNLIMITED_QUOTA);
+    // this changed quotas from unlimited to min quota per broker (no partitions yet)
+    assertTrue(quotaCallback.quotaResetRequired(ClientQuotaType.PRODUCE));
+    assertTrue(quotaCallback.quotaResetRequired(ClientQuotaType.FETCH));
+    assertTrue(quotaCallback.quotaResetRequired(ClientQuotaType.REQUEST));
+
+    // if nothing changed, second call to quotaResetRequired returns false
+    assertFalse(quotaCallback.quotaResetRequired(ClientQuotaType.PRODUCE));
+    assertFalse(quotaCallback.quotaResetRequired(ClientQuotaType.FETCH));
+    assertFalse(quotaCallback.quotaResetRequired(ClientQuotaType.REQUEST));
+
+    // setup cluster and topic partitions
+    createCluster(numBrokers);
+    MultiTenantPrincipal principal = new MultiTenantPrincipal(
+        "userA", new TenantMetadata(tenantName, "tenant1_cluster_id", false));
+
+    // each broker has one tenant partition leader, so that quotas distributed equally among brokers
+    for (int i = 1; i <= numBrokers; i++) {
+      setPartitionLeaders(topic, i - 1, 1, i);
+    }
+    // quota change comes from metadata update, so quota reset flags should be false
+    verifyQuota(ClientQuotaType.PRODUCE, principal, 300.0, tenantName, false);
+    verifyQuota(ClientQuotaType.FETCH, principal, 200.0, tenantName, false);
+    verifyQuota(ClientQuotaType.REQUEST, principal, 300.0, tenantName, false);
+
+    // update all tenant quotas -- this should set quota reset flags to true for all quota types
+    tenantQuotas.put(tenantName, quotaConfig(2000, 4000, 500));
+    TenantQuotaCallback.updateQuotas(tenantQuotas, QuotaConfig.UNLIMITED_QUOTA);
+    verifyQuota(ClientQuotaType.PRODUCE, principal, 200.0, tenantName, true);
+    verifyQuota(ClientQuotaType.FETCH, principal, 400.0, tenantName, true);
+    verifyQuota(ClientQuotaType.REQUEST, principal, 500.0, tenantName, true);
+
+    // verify update of produce quota only
+    tenantQuotas.put(tenantName, quotaConfig(1000, 4000, 500));
+    TenantQuotaCallback.updateQuotas(tenantQuotas, QuotaConfig.UNLIMITED_QUOTA);
+    verifyQuota(ClientQuotaType.PRODUCE, principal, 100.0, tenantName, true);
+    verifyQuota(ClientQuotaType.FETCH, principal, 400.0, tenantName, false);
+    verifyQuota(ClientQuotaType.REQUEST, principal, 500.0, tenantName, false);
+
+    // verify update of consume quota only
+    tenantQuotas.put(tenantName, quotaConfig(1000, 2000, 500));
+    TenantQuotaCallback.updateQuotas(tenantQuotas, QuotaConfig.UNLIMITED_QUOTA);
+    verifyQuota(ClientQuotaType.PRODUCE, principal, 100.0, tenantName, false);
+    verifyQuota(ClientQuotaType.FETCH, principal, 200.0, tenantName, true);
+    verifyQuota(ClientQuotaType.REQUEST, principal, 500.0, tenantName, false);
+
+    // verify update of request quota only
+    tenantQuotas.put(tenantName, quotaConfig(1000, 2000, 200));
+    TenantQuotaCallback.updateQuotas(tenantQuotas, QuotaConfig.UNLIMITED_QUOTA);
+    verifyQuota(ClientQuotaType.PRODUCE, principal, 100.0, tenantName, false);
+    verifyQuota(ClientQuotaType.FETCH, principal, 200.0, tenantName, false);
+    verifyQuota(ClientQuotaType.REQUEST, principal, 200.0, tenantName, true);
+
+    // add one more tenant with one partition on this broker
+    MultiTenantPrincipal principal2 = new MultiTenantPrincipal(
+        "userB", new TenantMetadata("tenant2", "tenant2_cluster_id", false));
+    tenantQuotas.put("tenant2", quotaConfig(500, 500, 500));
+    TenantQuotaCallback.updateQuotas(tenantQuotas, QuotaConfig.UNLIMITED_QUOTA);
+    // this changed quotas from unlimited to min quota per broker (no partitions yet)
+    assertTrue(quotaCallback.quotaResetRequired(ClientQuotaType.PRODUCE));
+    assertTrue(quotaCallback.quotaResetRequired(ClientQuotaType.FETCH));
+    assertTrue(quotaCallback.quotaResetRequired(ClientQuotaType.REQUEST));
+
+    // one partition on one broker
+    setPartitionLeaders("tenant2_topic1", 0, 1, brokerId);
+    verifyQuotas(principal2, 500, 500, 500);
+
+    // metadata update should not change flags
+    assertFalse(quotaCallback.quotaResetRequired(ClientQuotaType.PRODUCE));
+    assertFalse(quotaCallback.quotaResetRequired(ClientQuotaType.FETCH));
+    assertFalse(quotaCallback.quotaResetRequired(ClientQuotaType.REQUEST));
+
+    // updating one quota of one tenant sets the flag for all tenants for this quota type, but
+    // ClientQuotaManager will filter only ones that actually changed
+    tenantQuotas.put("tenant2", quotaConfig(400, 500, 500));
+    TenantQuotaCallback.updateQuotas(tenantQuotas, QuotaConfig.UNLIMITED_QUOTA);
+    verifyQuotas(principal2, 400, 500, 500);
+    assertTrue(quotaCallback.quotaResetRequired(ClientQuotaType.PRODUCE));
+    assertFalse(quotaCallback.quotaResetRequired(ClientQuotaType.FETCH));
+    assertFalse(quotaCallback.quotaResetRequired(ClientQuotaType.REQUEST));
+  }
+
+  @Test
   public void testSmallNumberOfPartitions() throws Exception {
     createCluster(5);
     MultiTenantPrincipal principal = new MultiTenantPrincipal("userA",
@@ -380,6 +470,12 @@ public class TenantQuotaCallbackTest {
 
   private void verifyQuota(ClientQuotaType type, KafkaPrincipal principal,
                            double expectedValue, String expectedTenantTag) {
+    verifyQuota(type, principal, expectedValue, expectedTenantTag, null);
+  }
+
+  private void verifyQuota(ClientQuotaType type, KafkaPrincipal principal,
+                           double expectedValue, String expectedTenantTag,
+                           Boolean expectQuotaResetRequired) {
     Map<String, String> metricTags = quotaCallback.quotaMetricTags(type, principal, "some-client");
     if (expectedTenantTag != null) {
       assertEquals(Collections.singletonMap("tenant", expectedTenantTag), metricTags);
@@ -388,6 +484,9 @@ public class TenantQuotaCallbackTest {
     }
     Double quotaLimit = quotaCallback.quotaLimit(type, metricTags);
     assertEquals("Unexpected quota of type " + type, expectedValue, quotaLimit, EPS);
+    if (expectQuotaResetRequired != null) {
+      assertEquals(expectQuotaResetRequired, quotaCallback.quotaResetRequired(type));
+    }
   }
 
   private void verifyUnlimitedQuotas(KafkaPrincipal principal) {
