@@ -5,7 +5,6 @@
 package kafka.tier.store;
 
 import com.amazonaws.AmazonClientException;
-import com.amazonaws.AmazonServiceException;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
@@ -55,8 +54,7 @@ public class S3TierObjectStore implements TierObjectStore {
     @Override
     public TierObjectStoreResponse getObject(
             TierObjectMetadata objectMetadata, TierObjectStoreFileType objectFileType,
-            Integer byteOffsetStart, Integer byteOffsetEnd)
-            throws AmazonServiceException {
+            Integer byteOffsetStart, Integer byteOffsetEnd) {
         final String key = keyPath(objectMetadata, objectFileType);
         final GetObjectRequest request = new GetObjectRequest(bucket, key);
         if (byteOffsetStart != null && byteOffsetEnd != null)

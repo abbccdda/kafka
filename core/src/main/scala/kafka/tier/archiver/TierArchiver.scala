@@ -11,11 +11,11 @@ import com.yammer.metrics.core.Gauge
 import com.yammer.metrics.core.Meter
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.{KafkaConfig, ReplicaManager}
-import kafka.tier.archiver.TierArchiverState.{BeforeLeader, TierArchiverStateComparator, RetriableTierArchiverState}
+import kafka.tier.archiver.TierArchiverState.{BeforeLeader, RetriableTierArchiverState, TierArchiverStateComparator}
 import kafka.tier.exceptions.{TierArchiverFatalException, TierArchiverFencedException}
 import kafka.tier.store.TierObjectStore
 import kafka.tier.{TierMetadataManager, TierTopicManager}
-import kafka.utils.ShutdownableThread
+import kafka.utils.{Logging, ShutdownableThread}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.utils.Time
 
@@ -51,7 +51,7 @@ class TierArchiver(config: TierArchiverConfig,
                    tierMetadataManager: TierMetadataManager,
                    tierTopicManager: TierTopicManager,
                    tierObjectStore: TierObjectStore,
-                   time: Time = Time.SYSTEM) extends ShutdownableThread(name = "tier-archiver") with KafkaMetricsGroup {
+                   time: Time = Time.SYSTEM) extends ShutdownableThread(name = "tier-archiver") with KafkaMetricsGroup with Logging {
   private[tier] val blockingTaskExecutor = Executors.newScheduledThreadPool(config.numThreads)
   private[tier] val immigrationEmigrationQueue = new ConcurrentLinkedQueue[ImmigratingOrEmigratingTopicPartitions]()
 
@@ -65,33 +65,27 @@ class TierArchiver(config: TierArchiverConfig,
   removeMetric("TotalLag")
   newGauge("TotalLag",
     new Gauge[Long] {
-      def value(): Long = {
-        lock.synchronized {
-          val paused = pausedStates.toArray(Array.empty[TierArchiverState])
-          val pending = stateTransitionsInProgress.map { case (_, (state, _)) => state }
-          (pending ++ paused)
-            .foldLeft(0L) { (acc, state) =>
-              acc + state.lag
-            }
+      def value(): Long = lock synchronized {
+        val paused = pausedStates.toArray(Array.empty[TierArchiverState])
+        val pending = stateTransitionsInProgress.map { case (_, (state, _)) => state }
+        (pending ++ paused).foldLeft(0L) { (lagSoFar, state) =>
+          lagSoFar + state.lag
         }
       }
     }
   )
 
-  // set up metrics
   removeMetric("RetryStateCount")
   newGauge("RetryStateCount",
     new Gauge[Long] {
-      def value(): Long = {
-        lock.synchronized {
-          val paused = pausedStates.toArray(Array.empty[TierArchiverState])
-          val pending = stateTransitionsInProgress.map { case (_, (state, _)) => state }
-          (pending ++ paused)
-            .collect { case x: RetriableTierArchiverState if x.retryCount > 0 => x }.size
-        }
+      def value(): Long = lock synchronized {
+        val paused = pausedStates.toArray(Array.empty[TierArchiverState])
+        val pending = stateTransitionsInProgress.map { case (_, (state, _)) => state }
+        (pending ++ paused).collect { case state: RetriableTierArchiverState if state.retryCount > 0 => state }.size
       }
     }
   )
+
   removeMetric("BytesPerSec")
   private val byteRate = newMeter("BytesPerSec", "bytes", TimeUnit.SECONDS)
 
@@ -121,17 +115,19 @@ class TierArchiver(config: TierArchiverConfig,
     *
     * @return true if any new immigration/emigration events were processed
     */
-  def processImmigrationEmigrationQueue(): Boolean = {
+  private def processImmigrationEmigrationQueue(): Boolean = lock synchronized {
     var didWork = false
     while (!immigrationEmigrationQueue.isEmpty) {
         immigrationEmigrationQueue.poll() match {
         case immigrationEvent: ImmigratingTopicPartition =>
+          trace(s"Handling immigration for ${immigrationEvent.topicPartition} at epoch ${immigrationEvent.leaderEpoch}")
           val state = BeforeLeader(replicaManager, tierTopicManager, tierObjectStore,
             ArchiverStateMetrics(byteRate), immigrationEvent.topicPartition, immigrationEvent.leaderEpoch,
-            blockingTaskExecutor, config)
+            blockingTaskExecutor, time, config)
           pausedStates.put(state)
           didWork = true
         case emigrationEvent: EmigratingTopicPartition =>
+          trace(s"Handling emigration for ${emigrationEvent.topicPartition}")
           pausedStates.removeIf(new Predicate[TierArchiverState] {
             override def test(t: TierArchiverState): Boolean = {
               t.topicPartition == emigrationEvent.topicPartition
@@ -152,25 +148,24 @@ class TierArchiver(config: TierArchiverConfig,
     * @return True if any states were successfully transitioned or fenced. False if no states were transitioned. Throws
     *         on fatal error.
     */
-  def pauseDoneStates(): Boolean = {
+  private def pauseDoneStates(): Boolean = lock synchronized {
     var didWork = false
-    for ((topicPartition, (_, future)) <- stateTransitionsInProgress) {
+    trace(s"Checking completion of transitions in progress (size=${stateTransitionsInProgress.size})")
+    for ((topicPartition, (state, future)) <- stateTransitionsInProgress) {
       if (future.isDone) {
-        Try(future.get()) match {
+        Try(future.get) match {
           case Success(nextState: TierArchiverState) =>
+            trace(s"Moving $topicPartition from $state to $nextState")
             pausedStates.put(nextState)
             didWork = true
             stateTransitionsInProgress.remove(topicPartition)
-          case Failure(ex: ExecutionException) if ex.getCause.isInstanceOf[TierArchiverFencedException] =>
-            info(ex.getCause.getMessage)
+          case Failure(e: ExecutionException) if e.getCause.isInstanceOf[TierArchiverFencedException] =>
+            info(s"Removing fenced partition $topicPartition while in $state state", e)
             didWork = true
             stateTransitionsInProgress.remove(topicPartition)
-          case Failure(ex: ExecutionException) if ex.getCause.isInstanceOf[TierArchiverFatalException] =>
+          case Failure(e) =>
             stateTransitionsInProgress.remove(topicPartition)
-            throw ex.getCause
-          case Failure(ex) =>
-            stateTransitionsInProgress.remove(topicPartition)
-            throw new TierArchiverFatalException("Unhandled exception", ex)
+            throw new TierArchiverFatalException(s"Unhandled exception for $topicPartition while in $state state", e)
         }
       }
     }
@@ -180,11 +175,12 @@ class TierArchiver(config: TierArchiverConfig,
   /**
     * If there is room on the executor, try to transition pending states.
     */
-  def tryRunPendingStates(): Boolean = {
+  def tryRunPendingStates(): Boolean = lock synchronized {
     var didWork = false
     while (stateTransitionsInProgress.size < config.numThreads && !pausedStates.isEmpty) {
       val state = pausedStates.poll()
       if (state != null) {
+        trace(s"Initiating transition for ${state.topicPartition} in state $state")
         stateTransitionsInProgress.put(state.topicPartition, (state, state.nextState()))
         didWork = true
       }
@@ -202,12 +198,11 @@ class TierArchiver(config: TierArchiverConfig,
   override def doWork(): Unit = {
     if (tierTopicManager.isReady) {
       try {
-        lock.synchronized {
-          processTransitions()
-        }
+        processTransitions()
       } catch {
-        case ie: InterruptedException =>
-        case e: Throwable => logger.error("Unhandled exception caught in archiver doWork loop. Backing off.", e)
+        case _: InterruptedException =>
+        case e: Throwable =>
+          error("Unhandled exception caught in archiver doWork loop. Backing off.", e)
           Thread.sleep(config.mainLoopBackoffMs)
       }
       pause(config.updateIntervalMs, TimeUnit.MILLISECONDS)

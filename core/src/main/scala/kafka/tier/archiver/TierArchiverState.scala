@@ -25,6 +25,7 @@ import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
 import kafka.utils.Logging
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.utils.Time
 
 import scala.compat.java8.OptionConverters._
 import scala.util.Random
@@ -117,10 +118,7 @@ object TierArchiverState {
       if (_retryCount == 0)
         0L
       else
-        Math.min(
-          config.maxRetryBackoffMs,
-          Random.nextInt(_retryCount) * 1000
-        )
+        Math.min(config.maxRetryBackoffMs, Random.nextInt(_retryCount) * 1000)
     }
   }
 
@@ -134,8 +132,8 @@ object TierArchiverState {
                                 topicPartition: TopicPartition,
                                 tierEpoch: Int,
                                 blockingTaskExecutor: ScheduledExecutorService,
+                                time: Time,
                                 config: TierArchiverConfig) extends RetriableTierArchiverState(config) {
-
     override def lag: Long = calculateLag(topicPartition, replicaManager, tierTopicManager.partitionState(topicPartition))
 
     // Priority: BeforeLeader (this) > AfterUpload > BeforeUpload
@@ -154,21 +152,21 @@ object TierArchiverState {
         result match {
           case AppendResult.ACCEPTED =>
             val tierPartitionState = tierTopicManager.partitionState(topicPartition)
-            BeforeUpload(
-              replicaManager, tierTopicManager, tierObjectStore, metrics,
-              topicPartition, tierPartitionState, tierEpoch, blockingTaskExecutor, config
-            )
+            BeforeUpload(replicaManager, tierTopicManager, tierObjectStore, metrics,
+              topicPartition, tierPartitionState, tierEpoch, blockingTaskExecutor, time, config)
           case AppendResult.ILLEGAL =>
             throw new TierArchiverFatalException(s"Tier archiver found tier partition $topicPartition in illegal status.")
           case AppendResult.FENCED =>
             throw new TierArchiverFencedException(topicPartition)
         }
       }
-        .thenComposeExceptionally((ex: Throwable) => {
-          if (ex.isInstanceOf[TierMetadataRetriableException])
+        .thenComposeExceptionally((e: Throwable) => {
+          if (e.isInstanceOf[TierMetadataRetriableException]) {
+            info(s"Retrying BeforeLeader state transition for $topicPartition", e)
             retryState(blockingTaskExecutor)
-          else
-            throw ex
+          } else {
+            throw e
+          }
         })
     }
   }
@@ -184,7 +182,11 @@ object TierArchiverState {
                                 tierPartitionState: TierPartitionState,
                                 tierEpoch: Int,
                                 blockingTaskExecutor: ScheduledExecutorService,
+                                time: Time,
                                 config: TierArchiverConfig) extends RetriableTierArchiverState(config) {
+    locally {
+      trace(s"$topicPartition entering BeforeUpload state with $lag lag")
+    }
 
     override def lag: Long = calculateLag(topicPartition, replicaManager, tierPartitionState)
 
@@ -209,32 +211,33 @@ object TierArchiverState {
     }
 
     override def nextState(): CompletableFuture[TierArchiverState] = {
-      if (tierPartitionState.tierEpoch() != tierEpoch) {
+      if (tierPartitionState.tierEpoch != tierEpoch) {
         CompletableFutureUtil.failed(new TierArchiverFencedException(topicPartition))
       } else {
-        val logLogSegment: Option[(AbstractLog, LogSegment)] = replicaManager.getLog(topicPartition).flatMap(log => {
+        val logLogSegment: Option[(AbstractLog, LogSegment)] = replicaManager.getLog(topicPartition).flatMap { log =>
           log.tierableLogSegments.collectFirst { case logSegment: LogSegment => (log, logSegment) }
-        })
+        }
 
         logLogSegment match {
           case None =>
             // Log has been moved or there is no eligible segment. Retry BeforeUpload state.
+            debug(s"Transitioning back to BeforeUpload for $topicPartition as no log was found")
             CompletableFutureUtil.completed(this)
 
           case Some((log: AbstractLog, logSegment: LogSegment)) =>
             // Upload next segment and transition.
             val leaderEpochStateFile = uploadableLeaderEpochState(log, logSegment.readNextOffset)
+            val startTime = time.milliseconds
             putSegment(logSegment, leaderEpochStateFile, blockingTaskExecutor).thenApply[TierArchiverState] { objectMetadata: TierObjectMetadata =>
               metrics.byteRate.mark(objectMetadata.size())
               AfterUpload(objectMetadata, logSegment, replicaManager, tierTopicManager, tierObjectStore, metrics,
-                topicPartition, tierPartitionState, tierEpoch, blockingTaskExecutor, config)
+                topicPartition, tierPartitionState, tierEpoch, blockingTaskExecutor, startTime, time, config)
             }.thenComposeExceptionally {
-              case ex if ex.getCause.isInstanceOf[IOException] || ex.getCause.isInstanceOf[TierObjectStoreRetriableException] =>
-                info(s"Tier archiver failed to upload segment $topicPartition "
-                  + s"baseOffset ${logSegment.baseOffset}. Retrying.", ex)
+              case e if e.getCause.isInstanceOf[IOException] || e.getCause.isInstanceOf[TierObjectStoreRetriableException] =>
+                info(s"Failed to upload segment at baseOffset ${logSegment.baseOffset} for $topicPartition. Retrying.", e)
                 retryState(blockingTaskExecutor)
-              case ex =>
-                throw new TierArchiverFatalException(topicPartition, ex)
+              case e =>
+                throw new TierArchiverFatalException(topicPartition, e)
             }
         }
       }
@@ -275,9 +278,8 @@ object TierArchiverState {
         logSegment.timeIndex.file,
         logSegment.timeIndex.file, // FIXME producer status
         logSegment.timeIndex.file) // FIXME transaction index
-      if (leaderEpochCacheFile.isDefined) {
+      if (leaderEpochCacheFile.isDefined)
         fileListToCheck :+= leaderEpochCacheFile.get
-      }
 
       val missing: List[File] =
         fileListToCheck
@@ -289,9 +291,8 @@ object TierArchiverState {
             }
           }
 
-      if (missing.nonEmpty) {
+      if (missing.nonEmpty)
         throw new IOException(s"Tier archiver could not read segment files: ${missing.mkString(", ")}")
-      }
     }
   }
 
@@ -308,6 +309,8 @@ object TierArchiverState {
                                tierPartitionState: TierPartitionState,
                                tierEpoch: Int,
                                blockingTaskExecutor: ScheduledExecutorService,
+                               uploadStartTime: Long,
+                               time: Time,
                                config: TierArchiverConfig) extends TierArchiverState {
 
     override def lag: Long = calculateLag(topicPartition, replicaManager, tierPartitionState)
@@ -324,12 +327,13 @@ object TierArchiverState {
     override def nextState(): CompletableFuture[TierArchiverState] = {
       tierTopicManager
         .addMetadata(objectMetadata)
-        .thenApply { t: AppendResult =>
-          t match {
+        .thenApply { appendResult: AppendResult =>
+          appendResult match {
             case AppendResult.ACCEPTED =>
-              BeforeUpload(replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartition, tierPartitionState, tierEpoch, blockingTaskExecutor, config)
+              info(s"Tiered $logSegment for $topicPartition in ${time.milliseconds - uploadStartTime} ms")
+              BeforeUpload(replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartition, tierPartitionState, tierEpoch, blockingTaskExecutor, time, config)
             case AppendResult.ILLEGAL =>
-              throw new TierArchiverFatalException(s"Tier archiver found tier partition $topicPartition in illegal status.")
+              throw new TierArchiverFatalException(s"Tier archiver found tier partition $topicPartition in illegal status")
             case AppendResult.FENCED =>
               throw new TierArchiverFencedException(topicPartition)
           }
