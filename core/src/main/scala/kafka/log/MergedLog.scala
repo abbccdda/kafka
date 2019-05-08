@@ -192,12 +192,14 @@ class MergedLog(private[log] val localLog: Log,
     // Delete all eligible local segments if tiering is disabled. If tiering is enabled, allow deletion for eligible
     // tiered segments only. Local segments that have not been tiered yet must not be deleted.
     val deleted =
-      if (!config.tierEnable)
+      if (!config.tierEnable) {
         localLog.deleteOldSegments(None)
-      else if (!tieredOffsets.isEmpty)
-        localLog.deleteOldSegments(Some(firstUntieredOffsetCommitted)) // do not delete any untiered segments
-      else
+      } else if (!tieredOffsets.isEmpty) {
+        val deletionUpperBoundOffset = tierPartitionState.committedEndOffset.asScala.map(upperBound => upperBound + 1).getOrElse(0L)
+        localLog.deleteOldSegments(Some(deletionUpperBoundOffset)) // do not delete any untiered segments
+      } else {
         0
+      }
     if (deleted > 0) {
       val logStartOffsetAfterDeletion = math.max(logStartOffset, firstTieredOffset.getOrElse(localLog.localLogStartOffset))
       maybeIncrementLogStartOffset(logStartOffsetAfterDeletion)
@@ -411,8 +413,6 @@ class MergedLog(private[log] val localLog: Log,
   // First untiered offset, essentially (last_tiered_offset + 1). Returns 0 if no segments have been tiered yet.
   private def firstUntieredOffset: Long = MergedLog.firstUntieredOffset(tierPartitionState)
 
-  private def firstUntieredOffsetCommitted: Long = tierPartitionState.endOffset().asScala.map(endOffset => endOffset + 1).getOrElse(0L)
-
   // First tiered offset, if there is one
   private def firstTieredOffset: Option[Long] = {
     tierPartitionState.startOffset.asScala.map(Long2long)
@@ -602,7 +602,7 @@ object MergedLog {
   }
 
   private def firstUntieredOffset(tierPartitionState: TierPartitionState): Long = {
-    tierPartitionState.uncommittedEndOffset().asScala.map(endOffset => endOffset + 1).getOrElse(0L)
+    tierPartitionState.endOffset.asScala.map(endOffset => endOffset + 1).getOrElse(0L)
   }
 }
 

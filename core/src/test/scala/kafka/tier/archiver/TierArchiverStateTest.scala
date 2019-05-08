@@ -47,9 +47,7 @@ class TierArchiverStateTest {
     new LogDirFailureChannel(1),
     true)
   val blockingTaskExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
-
-  var metrics : ArchiverStateMetrics  = null
-
+  var metrics : ArchiverStateMetrics = null
 
   @Before
   def setUp(): Unit = {
@@ -79,16 +77,11 @@ class TierArchiverStateTest {
     while(tierTopicManager.doWork()) {}
 
     val tierObjectStore = new MockInMemoryTierObjectStore(objectStoreConfig)
-
-    val logConfig = LogTest.createLogConfig(segmentBytes = 2048 * 5, tierEnable = true)
-    val logDir = Paths.get(TestUtils.tempDir().getPath, topicPartition.toString).toFile
-    val log = LogTest.createLog(logDir, logConfig, new BrokerTopicStats, mockTime.scheduler, mockTime,
-      0L, 0L, 60 * 60 * 1000, LogManager.ProducerIdExpirationCheckIntervalMs)
     val replicaManager = mock(classOf[ReplicaManager])
 
     val nextStage = BeforeLeader(replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartition, 0, blockingTaskExecutor, TierArchiverConfig())
       .nextState()
-      .handle { (state: TierArchiverState, ex: Throwable) =>
+      .handle { (state: TierArchiverState, _: Throwable) =>
         assertTrue("Should advance to BeforeUpload", state.isInstanceOf[BeforeUpload])
         state
       }
@@ -139,16 +132,19 @@ class TierArchiverStateTest {
     when(replicaManager.getLog(topicPartition)).thenReturn(Some(log))
 
     val tierPartitionState = mock(classOf[TierPartitionState])
-    when(tierPartitionState.endOffset()).thenReturn(Optional.of(new java.lang.Long(1L)))
+    when(tierPartitionState.committedEndOffset()).thenReturn(Optional.of(new java.lang.Long(1L)))
 
     val tierTopicManager = mock(classOf[TierTopicManager])
     when(tierTopicManager.addMetadata(metadata))
       .thenReturn(CompletableFutureUtil.completed(AppendResult.ACCEPTED))
 
-    val nextStage = AfterUpload(metadata, mock(classOf[LogSegment]), replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartition, tierPartitionState, 0, blockingTaskExecutor, TierArchiverConfig()).nextState().handle { (result: TierArchiverState, ex: Throwable) =>
-      assertTrue("Should advance to BeforeUpload", result.isInstanceOf[BeforeUpload])
-      result
-    }
+    val nextStage = AfterUpload(metadata, mock(classOf[LogSegment]), replicaManager, tierTopicManager,
+      tierObjectStore, metrics, topicPartition, tierPartitionState, 0, blockingTaskExecutor, TierArchiverConfig())
+      .nextState()
+      .handle { (result: TierArchiverState, _: Throwable) =>
+        assertTrue("Should advance to BeforeUpload", result.isInstanceOf[BeforeUpload])
+        result
+      }
 
     nextStage.get(100, TimeUnit.MILLISECONDS)
   }
@@ -166,7 +162,7 @@ class TierArchiverStateTest {
     when(replicaManager.getLog(topicPartition)).thenReturn(Some(log))
 
     val tierPartitionState = mock(classOf[TierPartitionState])
-    when(tierPartitionState.endOffset()).thenReturn(Optional.empty() : Optional[java.lang.Long])
+    when(tierPartitionState.committedEndOffset()).thenReturn(Optional.empty() : Optional[java.lang.Long])
     when(tierPartitionState.tierEpoch).thenReturn(1)
 
     val nextStage = BeforeUpload(replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartition, tierPartitionState, 0, blockingTaskExecutor, TierArchiverConfig())
@@ -194,13 +190,16 @@ class TierArchiverStateTest {
     when(replicaManager.getLog(topicPartition)).thenReturn(Some(log))
 
     val tierPartitionState = mock(classOf[TierPartitionState])
-    when(tierPartitionState.endOffset()).thenReturn(Optional.empty() : Optional[java.lang.Long])
+    when(tierPartitionState.committedEndOffset()).thenReturn(Optional.empty() : Optional[java.lang.Long])
     when(tierPartitionState.tierEpoch).thenReturn(0)
 
-    val nextStage = BeforeUpload(replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartition, tierPartitionState, 0, blockingTaskExecutor, TierArchiverConfig()).nextState().handle { (result: TierArchiverState, ex: Throwable) =>
-      assertTrue("Should advance to BeforeUpload", result.isInstanceOf[BeforeUpload])
-      result
-    }
+    val nextStage = BeforeUpload(replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartition,
+      tierPartitionState, 0, blockingTaskExecutor, TierArchiverConfig())
+      .nextState()
+      .handle { (result: TierArchiverState, _: Throwable) =>
+        assertTrue("Should advance to BeforeUpload", result.isInstanceOf[BeforeUpload])
+        result
+      }
 
     nextStage.get(2000, TimeUnit.MILLISECONDS)
   }
@@ -220,7 +219,7 @@ class TierArchiverStateTest {
     when(replicaManager.getLog(topicPartition)).thenReturn(Some(log))
 
     val tierPartitionState = mock(classOf[TierPartitionState])
-    when(tierPartitionState.endOffset()).thenReturn(Optional.empty() : Optional[java.lang.Long])
+    when(tierPartitionState.committedEndOffset()).thenReturn(Optional.empty() : Optional[java.lang.Long])
     when(tierPartitionState.tierEpoch).thenReturn(0)
 
     log.appendAsFollower(TierUtils.createRecords(5, topicPartition, log.logEndOffset, 0))
@@ -229,7 +228,7 @@ class TierArchiverStateTest {
     log.onHighWatermarkIncremented(log.logEndOffset)
 
     val nextStage = BeforeUpload(replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartition, tierPartitionState,
-      0, blockingTaskExecutor, TierArchiverConfig()).nextState().handle { (result: TierArchiverState, ex: Throwable) =>
+      0, blockingTaskExecutor, TierArchiverConfig()).nextState().handle { (result: TierArchiverState, _: Throwable) =>
       assertTrue("Should advance to AfterUpload", result.isInstanceOf[AfterUpload])
       result
     }
@@ -272,7 +271,7 @@ class TierArchiverStateTest {
     when(replicaManager.getLog(topicPartition)).thenReturn(Some(log))
 
     val nextStage = BeforeUpload(replicaManager, tierTopicManager, tierObjectStore, metrics, topicPartition, tierPartitionState,
-      newTierEpoch, blockingTaskExecutor, TierArchiverConfig()).nextState().handle { (result: TierArchiverState, ex: Throwable) =>
+      newTierEpoch, blockingTaskExecutor, TierArchiverConfig()).nextState().handle { (result: TierArchiverState, _: Throwable) =>
       assertTrue("Should advance to AfterUpload", result.isInstanceOf[AfterUpload])
       result
     }
@@ -294,13 +293,13 @@ class TierArchiverStateTest {
       val log = Log(logDir, logConfig, 0L, 0L, mockTime.scheduler, new BrokerTopicStats, mockTime, 60 * 60 * 1000,
         LogManager.ProducerIdExpirationCheckIntervalMs, new LogDirFailureChannel(10), Some(mockTierMetadataManager))
 
-      for (i <- 0 to hwm.intValue())
+      for (_ <- 0 to hwm.intValue())
         log.appendAsFollower(TierUtils.createRecords(1, topicPartition, log.logEndOffset, 0))
 
       log.onHighWatermarkIncremented(log.logEndOffset)
       when(replicaManager.getLog(topicPartition)).thenReturn(Some(log))
 
-      when(tierPartitionState.uncommittedEndOffset()).thenReturn(Optional.of(tierEndOffset): Optional[java.lang.Long])
+      when(tierPartitionState.endOffset).thenReturn(Optional.of(tierEndOffset): Optional[java.lang.Long])
     }
 
     val tierTopicManager = mock(classOf[TierTopicManager])
@@ -355,7 +354,7 @@ class TierArchiverStateTest {
 
   private def mockTierPartitionStateAtEndOffset(offset: Long): TierPartitionState = {
     val tierPartitionState = mock(classOf[TierPartitionState])
-    when(tierPartitionState.uncommittedEndOffset()).thenReturn(Optional.of(offset) : Optional[java.lang.Long])
+    when(tierPartitionState.endOffset()).thenReturn(Optional.of(offset) : Optional[java.lang.Long])
     tierPartitionState
   }
 

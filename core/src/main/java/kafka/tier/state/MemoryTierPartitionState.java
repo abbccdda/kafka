@@ -30,15 +30,14 @@ public class MemoryTierPartitionState implements TierPartitionState {
     private volatile TierPartitionStatus status;
     private volatile boolean tieringEnabled;
     private volatile boolean closed = false;
+    private volatile Long committedEndOffset = null;
 
     public MemoryTierPartitionState(File dir, TopicPartition topicPartition, boolean tieringEnabled) {
         this.dir = dir;
+        this.status = TierPartitionStatus.CLOSED;
         this.topicPartition = topicPartition;
         this.tieringEnabled = tieringEnabled;
-        if (tieringEnabled)
-            status = TierPartitionStatus.INIT;
-        else
-            status = TierPartitionStatus.CLOSED;
+        maybeOpen();
     }
 
     @Override
@@ -61,13 +60,13 @@ public class MemoryTierPartitionState implements TierPartitionState {
     }
 
     @Override
-    public Optional<Long> endOffset() {
-        return lastSegmentMetadata().map(TierObjectMetadata::endOffset);
+    public Optional<Long> committedEndOffset() {
+        return Optional.ofNullable(committedEndOffset);
     }
 
     @Override
-    public Optional<Long> uncommittedEndOffset() {
-        return endOffset();
+    public Optional<Long> endOffset() {
+        return lastSegmentMetadata().map(TierObjectMetadata::endOffset);
     }
 
     @Override
@@ -80,8 +79,7 @@ public class MemoryTierPartitionState implements TierPartitionState {
 
     @Override
     public Future<TierObjectMetadata> materializationListener(long targetOffset) throws UnsupportedOperationException {
-        throw new UnsupportedOperationException("offsetListener not supported for "
-                + "MemoryTierPartitionState.");
+        throw new UnsupportedOperationException("offsetListener not supported for MemoryTierPartitionState.");
     }
 
     @Override
@@ -115,7 +113,7 @@ public class MemoryTierPartitionState implements TierPartitionState {
     @Override
     public void onTieringEnable() {
         tieringEnabled = true;
-        status = TierPartitionStatus.INIT;
+        maybeOpen();
     }
 
     @Override
@@ -148,7 +146,7 @@ public class MemoryTierPartitionState implements TierPartitionState {
 
     @Override
     public NavigableSet<Long> segmentOffsets(long from, long to) {
-        return Log$.MODULE$.logSegments(segmentMap, from, to).keySet();
+        return Log$.MODULE$.logSegments(segmentMap, from, to, segmentMapLock).keySet();
     }
 
     @Override
@@ -161,6 +159,7 @@ public class MemoryTierPartitionState implements TierPartitionState {
     }
 
     public void flush() {
+        committedEndOffset = endOffset().orElse(null);
     }
 
     @Override
@@ -193,19 +192,22 @@ public class MemoryTierPartitionState implements TierPartitionState {
         close();
     }
 
+    private void maybeOpen() {
+        if (tieringEnabled)
+            status = TierPartitionStatus.INIT;
+    }
+
     private AppendResult append(TierObjectMetadata objectMetadata) {
         if (objectMetadata.tierEpoch() == tierEpoch()) {
             Optional<Long> endOffset = endOffset();
-            if (!endOffset.isPresent()
-                    || objectMetadata.endOffset() > endOffset.get()) {
+            if (!endOffset.isPresent() || objectMetadata.endOffset() > endOffset.get()) {
                 // As there may be arbitrary overlap between segments, it is possible for a new
                 // segment to completely overlap a previous segment. We rely on on lookup via the
                 // start offset, and if we insert into the lookup map with the raw offset, it is possible
                 // for portions of a segment to be unfetchable unless we bound overlapping segments
                 // in the lookup map. e.g. if [100 - 200] is in the map at 100, and we insert [50 - 250]
                 // at 50, the portion 201 - 250 will be inaccessible.
-                segmentMap.put(Math.max(endOffset().orElse(-1L) + 1, objectMetadata.startOffset()),
-                        objectMetadata);
+                segmentMap.put(Math.max(endOffset().orElse(-1L) + 1, objectMetadata.startOffset()), objectMetadata);
                 return AppendResult.ACCEPTED;
             }
         }

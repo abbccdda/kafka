@@ -1922,9 +1922,7 @@ class Log(@volatile var dir: File,
    * that includes up to "to-1" or the end of the log (if to > logEndOffset)
    */
   def logSegments(from: Long, to: Long): Iterable[LogSegment] = {
-    lock synchronized {
-      Log.logSegments(segments, from, to).values.asScala
-    }
+    Log.logSegments(segments, from, to, lock).values.asScala
   }
 
   /**
@@ -2368,10 +2366,14 @@ object Log {
   private def isLogFile(file: File): Boolean =
     file.getPath.endsWith(LogFileSuffix)
 
-  def logSegments[A](segments: ConcurrentNavigableMap[java.lang.Long, A], from: Long, to: Long): ConcurrentNavigableMap[java.lang.Long, A] = {
-    val view = Option(segments.floorKey(from)).map { floor =>
-      segments.subMap(floor, to)
-    }.getOrElse(segments.headMap(to))
-    view
+  def isTierStateFile(file: File): Boolean = file.getPath.endsWith(TierStateSuffix)
+
+  def logSegments[A](segments: ConcurrentNavigableMap[java.lang.Long, A], from: Long, to: Long, lock: Object): ConcurrentNavigableMap[java.lang.Long, A] = {
+    lock synchronized {
+      val view = Option(segments.floorKey(from)).map { floor =>
+        segments.subMap(floor, to)
+      }.getOrElse(segments.headMap(to))
+      view
+    }
   }
 }

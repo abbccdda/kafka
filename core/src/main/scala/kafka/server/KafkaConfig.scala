@@ -1120,7 +1120,7 @@ object KafkaConfig {
       .defineInternal(TierS3SignerOverrideProp, STRING, Defaults.TierS3SignerOverride, LOW, TierS3SignerOverrideDoc)
       .defineInternal(TierFetcherNumThreadsProp, INT, Defaults.TierFetcherNumThreads, atLeast(1), MEDIUM, TierFetcherNumThreadsDoc)
       .defineInternal(TierObjectFetcherThreadsProp, INT, Defaults.TierObjectFetcherThreads, atLeast(1), MEDIUM, TierObjectFetcherThreadsDoc)
-      .defineInternal(TierPartitionStateCommitIntervalProp, INT, Defaults.TierPartitionStateCommitInterval, atLeast(5000), MEDIUM, TierPartitionStateCommitIntervalDoc)
+      .defineInternal(TierPartitionStateCommitIntervalProp, INT, Defaults.TierPartitionStateCommitInterval, atLeast(0), MEDIUM, TierPartitionStateCommitIntervalDoc)
       .defineInternal(TierLocalHotsetBytesProp, LONG, Defaults.TierLocalHotsetBytes, HIGH, TierLocalHotsetBytesDoc)
       .defineInternal(TierLocalHotsetMsProp, LONG, Defaults.TierLocalHotsetMs, HIGH, TierLocalHotsetMsDoc)
       .defineInternal(TierArchiverNumThreadsProp, INT, Defaults.TierArchiverNumThreads, atLeast(1), MEDIUM, TierArchiverNumThreadsDoc)

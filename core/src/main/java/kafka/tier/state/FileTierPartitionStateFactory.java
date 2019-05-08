@@ -12,6 +12,6 @@ import java.io.IOException;
 public class FileTierPartitionStateFactory implements TierPartitionStateFactory {
     @Override
     public TierPartitionState initState(File stateDir, TopicPartition topicPartition, boolean tieringEnabled) throws IOException {
-        return new FileTierPartitionState(stateDir, topicPartition, tieringEnabled, false);
+        return new FileTierPartitionState(stateDir, topicPartition, tieringEnabled);
     }
 }

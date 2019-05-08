@@ -89,7 +89,7 @@ class TierTopicManagerTest {
       tierTopicManager.doWork()
       tierTopicManager.committer().flush()
       val tierPartitionState = tierTopicManager.partitionState(archivedPartition1)
-      assertEquals(1000L, tierPartitionState.endOffset().get())
+      assertEquals(1000L, tierPartitionState.committedEndOffset().get())
 
       // should be ignored
       tierTopicManager.addMetadata(

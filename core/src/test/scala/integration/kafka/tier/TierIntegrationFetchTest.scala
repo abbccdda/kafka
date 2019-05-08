@@ -28,13 +28,14 @@ import scala.collection.JavaConverters._
 
 class TierIntegrationFetchTest extends IntegrationTestHarness {
   override protected def brokerCount: Int = 1
+  serverConfig.put(KafkaConfig.TierPartitionStateCommitIntervalProp, "5")
 
-  private def configureMock = {
+  private def configureMock(): Unit = {
     serverConfig.put(KafkaConfig.TierBackendProp, "mock")
     serverConfig.put(KafkaConfig.TierS3BucketProp, "mybucket")
   }
 
-  private def configureMinio = {
+  private def configureMinio(): Unit = {
     serverConfig.put(KafkaConfig.TierBackendProp, "S3")
     serverConfig.put(KafkaConfig.TierS3BucketProp, "mybucket")
     serverConfig.put(KafkaConfig.TierS3AwsAccessKeyIdProp, "admin")
@@ -45,7 +46,7 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
     serverConfig.put(KafkaConfig.TierLocalHotsetBytesProp, "0")
   }
 
-  private def configures3GcsCompatMode = {
+  private def configures3GcsCompatMode(): Unit = {
     serverConfig.put(KafkaConfig.TierBackendProp, "S3")
     serverConfig.put(KafkaConfig.TierS3BucketProp, "tiered-storage-gcs-compatibility-testing-lucas")
     serverConfig.put(KafkaConfig.TierS3RegionProp, "us-east-1")
@@ -53,7 +54,7 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
     serverConfig.put(KafkaConfig.TierLocalHotsetBytesProp, "0")
   }
 
-  private def configureS3 = {
+  private def configureS3(): Unit = {
     serverConfig.put(KafkaConfig.TierBackendProp, "S3")
     serverConfig.put(KafkaConfig.TierS3BucketProp, "ai383estnar")
     serverConfig.put(KafkaConfig.TierS3RegionProp, "us-west-2")
@@ -66,10 +67,7 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
   serverConfig.put(KafkaConfig.TierMetadataReplicationFactorProp, "1")
   serverConfig.put(KafkaConfig.LogCleanupIntervalMsProp, "500")
   serverConfig.put(KafkaConfig.TierLocalHotsetBytesProp, "0")
-  //configureMinio
-  //configureS3
-  //configures3GcsCompatMode
-  configureMock
+  configureMock()
 
   private val topic = UUID.randomUUID().toString
   private val partitions: Int = 1
@@ -93,14 +91,13 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
     val producer = createProducer()
     try {
       for (b <- 0 until nBatches) {
-        val producerRecords = (0 until recordsPerBatch).map(i => {
+        val producerRecords = (0 until recordsPerBatch).map { i =>
           val m = recordsPerBatch * b + i
           val timestamp = Math.abs(new Random().nextLong())
           new ProducerRecord(topic, null, timestamp,
             "foo".getBytes(StandardCharsets.UTF_8),
-            s"$m".getBytes(StandardCharsets.UTF_8)
-          )
-        })
+            s"$m".getBytes(StandardCharsets.UTF_8))
+        }
         producerRecords.map(producer.send).map(_.get(10, TimeUnit.SECONDS))
       }
     } finally {
@@ -116,25 +113,28 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
     * Waits until minNumSegments across all topic partitions are tiered.
     */
   private def waitUntilSegmentsTiered(minNumSegments: Int = 1): Unit = {
-    TestUtils.waitUntilTrue(() => {
-      topicPartitions.forall(tp => {
-        val leaderId = getLeaderForTopicPartition(tp)
-        val server = serverForId(leaderId)
-        server.get.tierMetadataManager.tierPartitionState(tp).get().numSegments() > minNumSegments
-      })
-    }, s"timeout waiting for at least $minNumSegments to be archived and materialized", 60000L)
+    topicPartitions.foreach { tp =>
+      val leaderId = getLeaderForTopicPartition(tp)
+      val server = serverForId(leaderId)
+      val tierPartitionState = server.get.tierMetadataManager.tierPartitionState(tp).get
+
+      TestUtils.waitUntilTrue(() =>
+        tierPartitionState.numSegments > minNumSegments &&
+          tierPartitionState.endOffset == tierPartitionState.committedEndOffset,
+        s"timeout waiting for at least $minNumSegments to be archived and materialized", 60000L)
+    }
   }
 
   /**
     * Delete old (tiered) segments on all brokers.
     */
   private def simulateRetention(): Unit = {
-    topicPartitions.foreach(tp => {
+    topicPartitions.foreach { tp =>
       val leaderId = getLeaderForTopicPartition(tp)
       val server = serverForId(leaderId)
       val numDeleted = server.get.replicaManager.logManager.getLog(tp).get.deleteOldSegments()
       assertTrue("tiered segments should have been deleted", numDeleted > 0)
-    })
+    }
   }
 
   @Test

@@ -61,7 +61,7 @@ class TierPartitionStatePropertyTest {
   def testSameElementsProperty(): Unit = {
     val prop = forAll(Gen.listOf(genMetadata)) {
       objectMetadatas =>
-        val diskstate = new FileTierPartitionState(baseDir, tp, true, false)
+        val diskstate = new FileTierPartitionState(baseDir, tp, true)
         diskstate.beginCatchup()
         diskstate.onCatchUpComplete()
         try {
@@ -72,8 +72,9 @@ class TierPartitionStatePropertyTest {
             memstate.append(m)
             diskstate.append(m)
           }
+          memstate.flush()
           diskstate.flush()
-          memstate.totalSize == diskstate.totalSize && memstate.endOffset == diskstate.endOffset && memstate.uncommittedEndOffset == diskstate.uncommittedEndOffset
+          memstate.totalSize == diskstate.totalSize && memstate.committedEndOffset == diskstate.committedEndOffset && memstate.endOffset == diskstate.endOffset
         } finally {
           diskstate.close()
           diskstate.delete()
@@ -96,7 +97,7 @@ class TierPartitionStatePropertyTest {
   @Test
   def testMetadataForOffsetProperty(): Unit = {
     val prop = forAll(genOffsetCheck) { trial =>
-      val diskstate = new FileTierPartitionState(baseDir, tp, true, false)
+      val diskstate = new FileTierPartitionState(baseDir, tp, true)
       diskstate.beginCatchup()
       diskstate.onCatchUpComplete()
       try {
@@ -108,13 +109,9 @@ class TierPartitionStatePropertyTest {
           diskstate.append(m)
         }
 
-        // flush to make metadata visible
-        diskstate.flush()
         val m1 = memstate.metadata(trial.offset)
         val m2 = diskstate.metadata(trial.offset)
-
         m1.equals(m2)
-
       } finally {
         diskstate.close()
         diskstate.delete()

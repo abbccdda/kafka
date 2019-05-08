@@ -166,7 +166,9 @@ class TierIntegrationTest {
     // Materialize the first segment for each
     archiveAndMaterializeUntilTrue(() => {
       logs.forall { log =>
-        tierTopicManager.partitionState(log.topicPartition).numSegments() == 1
+        val tierPartitionState = tierTopicManager.partitionState(log.topicPartition)
+        tierPartitionState.flush()
+        tierPartitionState.numSegments == 1 && tierPartitionState.committedEndOffset == tierPartitionState.endOffset
       }
     }, "Should materialize segments", tierArchiver, tierTopicManager, consumerBuilder)
 
@@ -174,7 +176,7 @@ class TierIntegrationTest {
       assertEquals("batch 1: segment should be materialized with correct offset relationship",
         0L, tierTopicManager.partitionState(log.topicPartition).metadata(0).get().startOffset)
       assertEquals("batch 1: segment should be materialized with correct end offset",
-        3L, tierTopicManager.partitionState(log.topicPartition).endOffset.get())
+        3L, tierTopicManager.partitionState(log.topicPartition).committedEndOffset.get())
     }
 
     validatePartitionStateContainedInObjectStore(tierTopicManager, tierObjectStore, logs)
@@ -182,7 +184,9 @@ class TierIntegrationTest {
     // Materialize the second segment for each
     archiveAndMaterializeUntilTrue(() => {
       logs.forall { log =>
-        tierTopicManager.partitionState(log.topicPartition).numSegments() == 2
+        val tierPartitionState = tierTopicManager.partitionState(log.topicPartition)
+        tierPartitionState.flush()
+        tierPartitionState.numSegments == 2 && tierPartitionState.committedEndOffset == tierPartitionState.endOffset
       }
     }, "Should materialize segments", tierArchiver, tierTopicManager, consumerBuilder)
 
@@ -193,7 +197,7 @@ class TierIntegrationTest {
       assertEquals("batch 2: segment should be materialized with correct offset relationship",
         4L, tierTopicManager.partitionState(log.topicPartition).metadata(6).get().startOffset)
       assertEquals("batch 2: segment should be materialized with correct end offset",
-        7L, tierTopicManager.partitionState(log.topicPartition).endOffset.get())
+        7L, tierTopicManager.partitionState(log.topicPartition).committedEndOffset.get())
     }
 
     validatePartitionStateContainedInObjectStore(tierTopicManager, tierObjectStore, logs)
@@ -201,7 +205,9 @@ class TierIntegrationTest {
     // Materialize the third segment for each
     archiveAndMaterializeUntilTrue(() => {
       logs.forall { log =>
-        tierTopicManager.partitionState(log.topicPartition).numSegments() == 3
+        val tierPartitionState = tierTopicManager.partitionState(log.topicPartition)
+        tierPartitionState.flush()
+        tierPartitionState.numSegments == 3 && tierPartitionState.committedEndOffset == tierPartitionState.endOffset
       }
     }, "Should materialize segments", tierArchiver, tierTopicManager, consumerBuilder)
 
@@ -209,7 +215,7 @@ class TierIntegrationTest {
       assertEquals("batch 3: segment should be materialized with correct offset relationship",
         8L, tierTopicManager.partitionState(log.topicPartition).metadata(10).get().startOffset)
       assertEquals("batch 3: segment should be materialized with correct end offset",
-        11L, tierTopicManager.partitionState(log.topicPartition).endOffset.get())
+        11L, tierTopicManager.partitionState(log.topicPartition).committedEndOffset.get())
     }
 
     validatePartitionStateContainedInObjectStore(tierTopicManager, tierObjectStore, logs)
@@ -232,7 +238,9 @@ class TierIntegrationTest {
     // Wait for the first segments to materialize
     archiveAndMaterializeUntilTrue(() => {
       logs.forall { log =>
-        tierTopicManager.partitionState(log.topicPartition).numSegments() > 0
+        val tierPartitionState = tierTopicManager.partitionState(log.topicPartition)
+        tierPartitionState.flush()
+        tierPartitionState.numSegments > 0 && tierPartitionState.committedEndOffset == tierPartitionState.endOffset
       }
     }, "Should materialize segments", tierArchiver, tierTopicManager, consumerBuilder)
 
@@ -240,7 +248,7 @@ class TierIntegrationTest {
       assertEquals("Segment should be materialized with correct offset relationship",
         0L, tierTopicManager.partitionState(log.topicPartition).metadata(0).get().startOffset)
       assertEquals("Segment should be materialized with correct end offset",
-        3L, tierTopicManager.partitionState(log.topicPartition).endOffset.get())
+        3L, tierTopicManager.partitionState(log.topicPartition).committedEndOffset.get())
     }
     validatePartitionStateContainedInObjectStore(tierTopicManager, tierObjectStore, logs)
   }
@@ -377,7 +385,9 @@ class TierIntegrationTest {
     def awaitMaterializeBatchAndAssertLag(archivedBatches: Int): Unit = {
       archiveAndMaterializeUntilTrue(() => {
         logs.forall { log =>
-          tierTopicManager.partitionState(log.topicPartition).numSegments() == archivedBatches
+          val tierPartitionState = tierTopicManager.partitionState(log.topicPartition)
+          tierPartitionState.flush()
+          tierPartitionState.numSegments == archivedBatches && tierPartitionState.committedEndOffset == tierPartitionState.endOffset
         }
       }, s"Should materialize segments for batch $archivedBatches", tierArchiver, tierTopicManager, consumerBuilder)
 
