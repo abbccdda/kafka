@@ -21,6 +21,7 @@ public class JwtBearerToken implements OAuthBearerToken {
   private final Set<String> scope;
   private final long lifetimeMs;
   private final Long startTimeMs;
+  private final JwtClaims jwtClaims;
 
   public JwtBearerToken(String value, Set<String> scope, long lifetimeMs,
                         String principalName, Long startTimeMs, String jwtId) {
@@ -30,6 +31,7 @@ public class JwtBearerToken implements OAuthBearerToken {
     this.lifetimeMs = lifetimeMs;
     this.startTimeMs = startTimeMs;
     this.jwtId = jwtId;
+    jwtClaims = new JwtClaims();
   }
 
   /* Constructs JwtBearerToken without validating claims */
@@ -40,13 +42,13 @@ public class JwtBearerToken implements OAuthBearerToken {
             .build();
 
     try {
-      JwtClaims claims = jwtConsumer.processToClaims(value);
+      jwtClaims = jwtConsumer.processToClaims(value);
       this.value = value;
-      this.principalName = claims.getSubject();
+      this.principalName = jwtClaims.getSubject();
       this.scope = Collections.emptySet();
-      this.lifetimeMs = claims.getExpirationTime().getValueInMillis();
-      this.startTimeMs = claims.getIssuedAt().getValueInMillis();
-      this.jwtId = claims.getJwtId();
+      this.lifetimeMs = jwtClaims.getExpirationTime().getValueInMillis();
+      this.startTimeMs = jwtClaims.getIssuedAt().getValueInMillis();
+      this.jwtId = jwtClaims.getJwtId();
     } catch (MalformedClaimException | InvalidJwtException e) {
       throw new ConfigException("Failed to construct login token", e);
     }
@@ -79,5 +81,9 @@ public class JwtBearerToken implements OAuthBearerToken {
 
   public String jwtId() {
     return jwtId;
+  }
+
+  public JwtClaims jwtClaims() {
+    return jwtClaims;
   }
 }
