@@ -3,6 +3,7 @@
 package io.confluent.security.auth.client;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import io.confluent.security.auth.client.provider.HttpCredentialProvider;
 import io.confluent.security.auth.client.rest.RestRequest;
 import io.confluent.security.auth.client.rest.entities.AuthorizeRequest;
 import io.confluent.security.authorizer.Action;
@@ -48,12 +49,16 @@ public class RestAuthorizer implements Authorizer {
   private static final String
           AUTHORIZE_ENDPOINT = "/authorize";
 
+  private static final String
+          AUTHORIZE_METHOD = "PUT";
+
   private static final TypeReference<List<String>>
-          AUTHORIZE_RESPONSE_TYPE = new TypeReference<List<String>>() { };
+          AUTHORIZE_RESPONSE_TYPE =
+          new TypeReference<List<String>>() { };
 
   private RestClient restClient;
 
-  public RestAuthorizer() {};
+  public RestAuthorizer() { }
 
   public RestAuthorizer(RestClient restClient) {
     this.restClient = restClient;
@@ -73,29 +78,56 @@ public class RestAuthorizer implements Authorizer {
   public List<AuthorizeResult> authorize(final KafkaPrincipal sessionPrincipal,
                                          final String host, final List<Action> actions) {
 
+    return doAuthorize(newAuthorizeRequest(sessionPrincipal, host, actions));
+  }
+
+  public List<AuthorizeResult> authorize(HttpCredentialProvider credentialProvider,
+                                         final KafkaPrincipal sessionPrincipal,
+                                         final String host, final List<Action> actions) {
+
+    return doAuthorize(credentialProvider,
+            newAuthorizeRequest(sessionPrincipal, host, actions));
+  }
+
+  private RestRequest newAuthorizeRequest(final KafkaPrincipal sessionPrincipal,
+                                          final String host, final List<Action> actions) {
+
     if (restClient == null)
       throw new IllegalStateException("RestClient has not been initialized.");
 
 
     RestRequest request = this.restClient.newRequest(AUTHORIZE_ENDPOINT);
-
     AuthorizeRequest authorizeRequest =
             new AuthorizeRequest(sessionPrincipal.toString(), host, actions);
 
     request.setRequest(authorizeRequest);
-    request.setRequestMethod("PUT");
+    request.setRequestMethod(AUTHORIZE_METHOD);
     request.setResponse(AUTHORIZE_RESPONSE_TYPE);
 
+    return request;
+  }
+
+  private List<AuthorizeResult> doAuthorize(HttpCredentialProvider credentialProvider,
+                                            RestRequest request) {
+    request.setCredentialProvider(credentialProvider);
+    return doAuthorize(request);
+  }
+
+  private List<AuthorizeResult> doAuthorize(RestRequest request) {
     try {
-      List<String> results = restClient.sendRequest(request);
+      List<String> results = doRequest(request);
 
       return results.stream()
-                    .map(AuthorizeResult::valueOf)
-                    .collect(Collectors.toList());
+              .map(AuthorizeResult::valueOf)
+              .collect(Collectors.toList());
     } catch (Exception e) {
       throw new RuntimeException("Error occurred" +
               " while executing authorize operation", e);
     }
+  }
+
+  private <T> T doRequest(RestRequest request) throws Exception {
+    return restClient.sendRequest(request);
   }
 
   @Override

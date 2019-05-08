@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.security.auth.client.RestClientConfig;
 import io.confluent.security.auth.client.provider.BuiltInAuthProviders;
+import io.confluent.security.auth.client.provider.HttpBasicCredentialProvider;
 import io.confluent.security.auth.client.provider.HttpCredentialProvider;
 import io.confluent.security.auth.client.rest.entities.AuthenticationResponse;
 import io.confluent.security.auth.client.rest.entities.ErrorMessage;
@@ -54,10 +55,9 @@ public class RestClient implements Closeable {
 
   private static final int HTTP_CONNECT_TIMEOUT_MS = 60000;
   private static final int HTTP_READ_TIMEOUT_MS = 60000;
-  private static final int JSON_PARSE_ERROR_CODE = 50005;
 
-  private static final String ACTIVE_NODES_END_POINT = "/activenodes/%s";
-  private static final String AUTHENTICATE_END_POINT = "/authenticate";
+  private static final String ACTIVE_NODES_ENDPOINT = "/activenodes/%s";
+  private static final String AUTHENTICATE_ENDPOINT = "/authenticate";
 
   private static final TypeReference<List<String>> ACTIVE_URLS_RESPONSE_TYPE =
           new TypeReference<List<String>>() { };
@@ -74,7 +74,6 @@ public class RestClient implements Closeable {
     DEFAULT_REQUEST_PROPERTIES.put("Content-Type", "application/json");
   }
 
-  private final List<String> bootstrapMetadataServerURLs;
   private final int requestTimeout;
   private final int httpRequestTimeout;
   private volatile List<String> activeMetadataServerURLs;
@@ -92,7 +91,7 @@ public class RestClient implements Closeable {
   public RestClient(final Map<String, ?> configs, final Time time) {
     this.time = time;
     RestClientConfig rbacClientConfig = new RestClientConfig(configs);
-    this.bootstrapMetadataServerURLs = rbacClientConfig.getList(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP);
+    List<String> bootstrapMetadataServerURLs = rbacClientConfig.getList(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP);
     if (bootstrapMetadataServerURLs.isEmpty())
       throw new ConfigException("Missing required bootstrap metadata server url list.");
 
@@ -169,7 +168,7 @@ public class RestClient implements Closeable {
   private List<String> getActiveMetadataServerURLs()
           throws IOException, RestClientException, URISyntaxException {
 
-    RestRequest request = this.newRequest(String.format(ACTIVE_NODES_END_POINT, protocol));
+    RestRequest request = this.newRequest(String.format(ACTIVE_NODES_ENDPOINT, protocol));
     request.setCredentialProvider(this.credentialProvider);
     request.setResponse(ACTIVE_URLS_RESPONSE_TYPE);
 
@@ -194,8 +193,16 @@ public class RestClient implements Closeable {
   }
 
   public JwtBearerToken login() throws AuthenticationException {
-    RestRequest request = newRequest(AUTHENTICATE_END_POINT);
-    request.setCredentialProvider(this.credentialProvider);
+    return this.login(this.credentialProvider);
+  }
+
+  public JwtBearerToken login(String userInfo) {
+    return this.login(new HttpBasicCredentialProvider(userInfo));
+  }
+
+  public JwtBearerToken login(HttpCredentialProvider credentialProvider) {
+    RestRequest request = newRequest(AUTHENTICATE_ENDPOINT);
+    request.setCredentialProvider(credentialProvider);
     request.setResponse(AUTHENTICATION_RESPONSE_TYPE);
 
     try {
@@ -312,7 +319,8 @@ public class RestClient implements Closeable {
             try {
               errorMessage = jsonDeserializer.readValue(es, ErrorMessage.class);
             } catch (JsonProcessingException e) {
-              errorMessage = new ErrorMessage(JSON_PARSE_ERROR_CODE, e.getMessage());
+              errorMessage = new ErrorMessage(responseCode,
+                      connection.getResponseMessage());
             }
             es.close();
             throw new RestClientException(errorMessage.message(), responseCode,
