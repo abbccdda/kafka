@@ -31,6 +31,8 @@ import scala.compat.java8.OptionConverters._
 import scala.util.Random
 
 sealed trait TierArchiverState extends Logging {
+  override protected def loggerName: String = classOf[TierArchiverState].getName
+
   val topicPartition: TopicPartition
 
   def lag: Long
@@ -184,10 +186,6 @@ object TierArchiverState {
                                 blockingTaskExecutor: ScheduledExecutorService,
                                 time: Time,
                                 config: TierArchiverConfig) extends RetriableTierArchiverState(config) {
-    locally {
-      trace(s"$topicPartition entering BeforeUpload state with $lag lag")
-    }
-
     override def lag: Long = calculateLag(topicPartition, replicaManager, tierPartitionState)
 
     // Priority: BeforeLeader > AfterUpload > BeforeUpload (this)
@@ -211,6 +209,8 @@ object TierArchiverState {
     }
 
     override def nextState(): CompletableFuture[TierArchiverState] = {
+      trace(s"$topicPartition entering BeforeUpload state with $lag lag")
+
       if (tierPartitionState.tierEpoch != tierEpoch) {
         CompletableFutureUtil.failed(new TierArchiverFencedException(topicPartition))
       } else {
@@ -221,7 +221,7 @@ object TierArchiverState {
         logLogSegment match {
           case None =>
             // Log has been moved or there is no eligible segment. Retry BeforeUpload state.
-            debug(s"Transitioning back to BeforeUpload for $topicPartition as no log was found")
+            debug(s"Transitioning back to BeforeUpload for $topicPartition as no tierable segments were found")
             CompletableFutureUtil.completed(this)
 
           case Some((log: AbstractLog, logSegment: LogSegment)) =>
