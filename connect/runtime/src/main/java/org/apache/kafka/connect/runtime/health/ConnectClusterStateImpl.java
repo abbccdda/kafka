@@ -45,8 +45,7 @@ public class ConnectClusterStateImpl implements ConnectClusterState {
     public ConnectClusterStateImpl(
         long connectorsTimeoutMs,
         ConnectClusterDetails clusterDetails,
-        Herder herder
-    ) {
+        Herder herder) {
         this.herderRequestTimeoutMs = connectorsTimeoutMs;
         this.clusterDetails = clusterDetails;
         this.herder = herder;
