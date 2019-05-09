@@ -239,6 +239,10 @@
         files="support-metrics-common/src/main/generated/.*"/>
     <suppress checks=".+"
         files="support-metrics-common/src/test/generated/.*"/>
+    <suppress checks=".+"
+        files="support-metrics-fullcollector/src/main/generated/.*"/>
+    <suppress checks=".+"
+        files="support-metrics-fullcollector/src/test/generated/.*"/>
 
     <suppress checks=".+"
               files="ce-serializers/build/generated/.+.java$"/>

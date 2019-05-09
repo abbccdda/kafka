@@ -180,6 +180,13 @@ CLASSPATH="$CLASSPATH:$base_dir/support-metrics-client/build/libs/*"
 # classpath for support jars with LSB-style layout
 CLASSPATH="$CLASSPATH":"/usr/share/java/support-metrics-client/*"
 
+# classpath for support-metrics-fullcollector jars
+CLASSPATH="$CLASSPATH:$base_dir/support-metrics-fullcollector/build/dependant-libs-${SCALA_VERSION}/*"
+CLASSPATH="$CLASSPATH:$base_dir/support-metrics-fullcollector/build/libs/*"
+
+# classpath for support jars with LSB-style layout
+CLASSPATH="$CLASSPATH":"/usr/share/java/support-metrics-fullcollector/*"
+
 for file in "$base_dir"/core/build/libs/kafka_${SCALA_BINARY_VERSION}*.jar;
 do
   if should_include_file "$file"; then

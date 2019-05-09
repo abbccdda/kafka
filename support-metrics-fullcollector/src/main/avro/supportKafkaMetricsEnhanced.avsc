@@ -1,0 +1,207 @@
+{
+  "namespace": "io.confluent.support.metrics",
+  "type": "record",
+  "name": "SupportKafkaMetricsEnhanced",
+  "doc": "Represents enhanced support-relevant metrics captured on a single Kafka broker",
+  "fields": [
+    {
+      "name": "timestamp",
+      "type": "long",
+      "doc": "Time when this data record was created on the broker (Unix time)."
+    },
+    {
+      "name": "jvmStartTimeMs",
+      "type": "long",
+      "doc": "The start time of the Java virtual machine in milliseconds."
+    },
+    {
+      "name": "jvmUptimeMs",
+      "type": "long",
+      "doc": "The uptime of the Java virtual machine in milliseconds."
+    },
+    {
+      "name": "clusterId",
+      "type": "string",
+      "doc": "A unique identifier for the Kafka cluster.",
+      "default": "NA"
+    },
+    {
+      "name": "brokerId",
+      "type": "int",
+      "doc": "The ID of this broker aka `broker.id`."
+    },
+    {
+      "name": "kafkaVersion",
+      "type": "string",
+      "doc": "The version of Kafka this broker is running."
+    },
+    {
+      "name": "confluentPlatformVersion",
+      "type": [
+        "null",
+        "string"
+      ],
+      "doc": "The version of the Confluent Platform this broker is running."
+    },
+    {
+      "name": "collectorState",
+      "type": "int",
+      "doc": "The run-time state of the Proactive Support agent that collects the metrics from this broker. Valid values are: 0 (stopped), 1 (shutting down), and 2 (running)."
+    },
+    {
+      "name": "brokerProcessUUID",
+      "type": "string",
+      "doc": "A unique identifier that is valid for the runtime of a broker.  The identifier is generated at broker startup and lost at shutdown/crash."
+    },
+    {
+      "name": "brokerMetrics",
+      "doc": "Metrics collected from a single broker.",
+      "type": {
+        "type": "record",
+        "name": "BrokerMetricsRecord",
+        "fields": [
+          {
+            "name": "brokerConfiguration",
+            "doc": "Kafka configuration of this broker.",
+            "type": [ "null", {
+              "type": "map",
+              "values": "string"
+            }],
+            "default": null
+          },
+          {
+            "name": "javaSystemProperties",
+            "doc": "Java system properties of this broker, obtained through System.getProperties().",
+            "type": [ "null", {
+              "type": "map",
+              "values": "string"
+            }],
+            "default": null
+          },
+          {
+            "name": "jvmRuntimeEnvironment",
+            "doc": "Runtime environment information of this broker's JVM.",
+            "type": {
+              "type": "record",
+              "name": "RuntimePropertiesRecord",
+              "fields": [
+                {
+                  "name": "availableProcessors",
+                  "type": "int"
+                },
+                {
+                  "name": "freeMemoryBytes",
+                  "type": "long"
+                },
+                {
+                  "name": "maxMemoryBytes",
+                  "type": "long"
+                },
+                {
+                  "name": "totalMemoryBytes",
+                  "type": "long"
+                }
+              ]
+            }
+          },
+          {
+            "name": "brokerStatistics",
+            "doc": "Various statistics obtained from a running broker",
+            "type": {
+              "type": "record",
+              "name": "BrokerStatisticsRecord",
+              "fields": [
+                {
+                  "name": "writtenBytes",
+                  "type": "long",
+                  "doc": "Bytes written to this broker since it started. Counter is reset on restart. Counts only bytes written to such partitions for which this broker was a leader at the time of the write operation, i.e., bytes written due to replication are not being counted"
+                },
+                {
+                  "name": "readBytes",
+                  "type": "long",
+                  "doc": "Bytes read from this broker since it started. Counter is reset on restart. Counts only bytes read from such partitions for which this broker was a leader at the time of the read operation"
+                },
+                {
+                  "name": "bytesInRate",
+                  "type": "double",
+                  "doc": "Average (mean) bytes per second written to this broker since it started. Counter is reset on restart."
+                },
+                {
+                  "name": "bytesOutRate",
+                  "type": "double",
+                  "doc": "Average (mean) bytes per second read from this broker since it started. Counter is reset on restart."
+                },
+                {
+                  "name": "numPartitions",
+                  "type": "int",
+                  "doc": "Total number of partitions stored in this broker."
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "clusterMetrics",
+      "doc": "Metrics representing cluster statistics",
+      "type": {
+        "type": "record",
+        "name": "ClusterMetricsRecord",
+        "fields": [
+          {
+            "name": "replicationHistogram",
+            "doc": "Distribution of partitions by replication factor. Buckets represent replication factors 0-4 and >=5.",
+            "type": {
+              "type": "array",
+              "items": "int"
+            }
+          },
+          {
+            "name": "minIsrHistogram",
+            "doc": "Distribution of partitions by minIsr factor. Buckets represent minIsr factors 0-4 and >=5.",
+            "type": {
+              "type": "array",
+              "items": "int"
+            }
+          },
+          {
+            "name": "numberTopics",
+            "type": "long",
+            "doc": "Total number of topics in the cluster from a broker's metadata cache."
+          },
+          {
+            "name": "numberTopicsZk",
+            "type": "long",
+            "doc": "Total number of topics in the cluster obtained from Zookeeper."
+          },
+          {
+            "name": "numberPartitions",
+            "type": "long",
+            "doc": "Total number of partitions in the cluster from a broker's metadata cache."
+          },
+          {
+            "name": "zookeeperStats",
+            "doc": "Array of Zookeeper servers' statistics (currently only version number). Length of array is number of Zookeeper servers.",
+            "type": [ "null", {
+              "type": "array",
+                "items": {
+                  "type": "map",
+                  "values":"string"
+              }
+            }],
+            "default": null
+          },
+          {
+            "name": "uncleanLeaderElectionHistogram",
+            "doc": "Distribution of partitions by uncleanLeaderElection option. 2 buckets representing FALSE and TRUE.",
+            "type": {
+              "type": "array",
+              "items": "int"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

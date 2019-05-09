@@ -193,6 +193,7 @@ subprojects {
     options.compilerArgs << "-Xlint:-try"
     if (!project.name.equals('support-metrics-client') &&
         !project.name.equals('support-metrics-common') &&
+        !project.name.equals('support-metrics-fullcollector') &&
         !project.name.equals('ce-serializers')) {
       // Do not enable -Werror for subprojects with automatically generated code.
       // We can't fix the warnings in automatically generated code.
@@ -641,7 +642,7 @@ for ( sv in availableScalaVersions ) {
 def connectPkgs = ['connect:api', 'connect:runtime', 'connect:transforms', 'connect:json', 'connect:file', 'connect:basic-auth-extension']
 def pkgs = ['clients', 'examples', 'log4j-appender', 'tools',
             'streams', 'streams:streams-scala', 'streams:test-utils', 'streams:examples',
-            'support-metrics-client', 'support-metrics-common',
+            'support-metrics-client', 'support-metrics-common', 'support-metrics-fullcollector',
             'ce-serializers', 'ce-licensing', 'ce-kafka-client-plugins', 'ce-broker-plugins',
             'ce-authorizer', 'ce-rest-authorizer', 'ce-rbac', 'ce-auth-providers', 'ce-metrics', 'ce-aegis'] + connectPkgs
 
@@ -934,6 +935,8 @@ project(':core') {
     from(project(':support-metrics-common').configurations.runtime) { into("libs/") }
     from(project(':support-metrics-client').jar) { into("libs/") }
     from(project(':support-metrics-client').configurations.runtime) { into("libs/") }
+    from(project(':support-metrics-fullcollector').jar) { into("libs/") }
+    from(project(':support-metrics-fullcollector').configurations.runtime) { into("libs/") }
     from(project(':streams:examples').jar) { into("libs/") }
     from(project(':streams:examples').configurations.runtime) { into("libs/") }
     from(project(':ce-metrics').jar) { into("libs/") }
@@ -1425,6 +1428,88 @@ project(':support-metrics-common') {
     testCompile project(':core').sourceSets.test.output
     testCompile project(':clients').sourceSets.test.output // for org.apache.kafka.test.IntegrationTest
     testCompile libs.junit
+    testCompile libs.mockitoCore
+  }
+
+  javadoc {
+    enabled = false
+  }
+
+  sourceSets {
+    main {
+      java {
+        srcDirs = ["src/main/generated/java", "src/main/java"]
+      }
+    }
+    test {
+      java {
+        srcDirs = ["src/main/generated/java", "src/test/generated/java", "src/test/java"]
+      }
+    }
+  }
+
+  tasks.create(name: "generateAvro", type: com.commercehub.gradle.plugin.avro.GenerateAvroJavaTask) {
+    source("src/main/avro/")
+    outputDir = file("src/main/generated/java/")
+  }
+
+  tasks.create(name: "generateTestAvro", type: com.commercehub.gradle.plugin.avro.GenerateAvroJavaTask) {
+    source("src/test/avro/")
+    outputDir = file("src/test/generated/java/")
+  }
+
+  tasks.create(name: "copyDependantLibs", type: Copy) {
+    from (configurations.testRuntime) {
+      include('slf4j-log4j12*')
+      include('log4j*jar')
+    }
+    from (configurations.runtime) {
+    }
+    into "$buildDir/dependant-libs-${versions.scala}"
+    duplicatesStrategy 'exclude'
+  }
+
+  compileJava {
+    dependsOn 'generateAvro'
+  }
+
+  compileTestJava {
+    dependsOn 'generateTestAvro'
+  }
+
+  jar {
+    dependsOn 'copyDependantLibs'
+  }
+
+  checkstyle {
+    configProperties = checkstyleConfigProperties("confluent-import-control.xml")
+  }
+
+  checkstyleTest {
+    configProperties = checkstyleConfigProperties("confluent-import-control.xml")
+  }
+}
+
+project(':support-metrics-fullcollector') {
+  archivesBaseName = "support-metrics-fullcollector"
+  version = cpVersion
+  group = "io.confluent.support"
+
+  dependencies {
+    compile libs.avro
+    compile libs.httpclient
+    compile libs.httpmime
+    compile libs.slf4jlog4j
+    compile project(':clients')
+    compile project(':core')
+    compile project(':support-metrics-common')
+
+    testCompile project(':core').sourceSets.test.output
+    testCompile project(':clients').sourceSets.test.output
+    testCompile project(':support-metrics-common').sourceSets.test.output
+    testCompile project(':support-metrics-client')
+    testCompile libs.junit
+    testCompile libs.assertjCore
     testCompile libs.mockitoCore
   }
 

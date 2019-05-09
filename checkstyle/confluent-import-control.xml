@@ -28,6 +28,7 @@
   <allow pkg="junit" />
   <allow pkg="net" />
   <allow pkg="org.bouncycastle" />
+  <allow pkg="org.assertj" />
   <allow pkg="org.easymock" />
   <allow pkg="org.hamcrest" />
   <allow pkg="org.ietf.jgss" />
