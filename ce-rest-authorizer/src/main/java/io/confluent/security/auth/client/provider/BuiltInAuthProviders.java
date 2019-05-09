@@ -21,17 +21,16 @@ public class BuiltInAuthProviders {
     }
 
     public static BasicAuthCredentialProvider loadBasicAuthCredentialProvider(String name) {
-        BasicAuthCredentialProvider basicAuthCredentialProvider = null;
-        ServiceLoader<BasicAuthCredentialProvider> providers = ServiceLoader.load(BasicAuthCredentialProvider.class);
+        ServiceLoader<BasicAuthCredentialProvider> providers = ServiceLoader.load(
+            BasicAuthCredentialProvider.class,
+            BuiltInAuthProviders.class.getClassLoader()
+        );
         for (BasicAuthCredentialProvider provider : providers) {
             if (provider.providerName().equals(name)) {
-                basicAuthCredentialProvider = provider;
-                break;
+                return provider;
             }
         }
-        if (basicAuthCredentialProvider == null)
-            throw new ConfigException("BasicAuthCredentialProvider not found for " + name);
-        return basicAuthCredentialProvider;
+        throw new ConfigException("BasicAuthCredentialProvider not found for " + name);
     }
 
     public enum HttpCredentialProviders {
@@ -45,8 +44,10 @@ public class BuiltInAuthProviders {
     }
 
     public static HttpCredentialProvider loadHttpCredentialProviders(String name) {
-        HttpCredentialProvider credentialProvider = null;
-        ServiceLoader<HttpCredentialProvider> providers = ServiceLoader.load(HttpCredentialProvider.class);
+        ServiceLoader<HttpCredentialProvider> providers = ServiceLoader.load(
+            HttpCredentialProvider.class,
+            BasicAuthCredentialProvider.class.getClassLoader()
+        );
         for (HttpCredentialProvider provider : providers) {
             if (provider.getScheme().equalsIgnoreCase(name)) {
                 return provider;
