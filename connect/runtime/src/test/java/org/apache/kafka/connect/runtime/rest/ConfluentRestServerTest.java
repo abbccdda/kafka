@@ -92,6 +92,9 @@ public class ConfluentRestServerTest {
         EasyMock.eq(ConnectRestExtension.class)
     )).andReturn(Collections.emptyList());
 
+    EasyMock.expect(herder.plugins())
+            .andReturn(plugins);
+
     PowerMock.replayAll();
 
     server = new RestServer(config);
@@ -117,6 +120,9 @@ public class ConfluentRestServerTest {
         EasyMock.eq(config),
         EasyMock.eq(ConnectRestExtension.class)
     )).andReturn(Collections.emptyList());
+
+    EasyMock.expect(herder.plugins())
+            .andReturn(plugins);
 
     PowerMock.replayAll();
 
