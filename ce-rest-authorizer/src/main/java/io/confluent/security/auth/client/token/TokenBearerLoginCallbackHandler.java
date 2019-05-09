@@ -34,7 +34,7 @@ import java.util.Map;
  * <pre>
  *  org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule Required
  *      authenticationToken="long-token-string"
- *      adminServer="https://mds:8080"
+ *      metadataServerUrls="https://mds:8080"
  * </pre>
  *
  * This class should be explicitly set via the

@@ -46,7 +46,7 @@ import java.util.Objects;
    * With Inter-broker communication using Authentication Tokens
    * <pre>
    *  org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule Required
-   *     adminServer="http://adminserver"
+   *     metadataServerUrls="http://metadataServerUrls"
    *     publicKeyPath="dir-to-pem-file"
    *     username="broker"
    *     password="broker"
@@ -73,7 +73,7 @@ import java.util.Objects;
     private boolean tokenRequired = false;
 
     private static final String KEY_OPTION = "publicKeyPath";
-    private static final String LOGIN_SERVER_OPTION = "metadataServerUrl";
+    private static final String LOGIN_SERVER_OPTION = "metadataServerUrls";
     private static final String USER_OPTION = "username";
     private static final String PASSWORD_OPTION = "password";
 
