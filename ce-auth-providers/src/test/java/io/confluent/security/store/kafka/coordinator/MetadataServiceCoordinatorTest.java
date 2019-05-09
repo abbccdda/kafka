@@ -31,6 +31,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.internals.ConsumerNetworkClient;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.internals.ClusterResourceListeners;
+import org.apache.kafka.common.message.FindCoordinatorResponseData;
 import org.apache.kafka.common.message.JoinGroupResponseData;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.protocol.ApiKeys;
@@ -203,7 +204,9 @@ public class MetadataServiceCoordinatorTest {
   }
 
   private void addFindCoordinatorResponse(int leaderId, Errors error) {
-    mockClient.prepareResponse(new FindCoordinatorResponse(error, cluster.nodeById(leaderId)));
+    mockClient.prepareResponse(new FindCoordinatorResponse(new FindCoordinatorResponseData()
+            .setErrorCode(Errors.NONE.code())
+            .setNodeId(leaderId)));
   }
 
   private void addJoinGroupResponse(String leaderId, int generationId) {

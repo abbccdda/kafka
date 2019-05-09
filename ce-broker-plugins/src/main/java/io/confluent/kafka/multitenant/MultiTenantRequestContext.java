@@ -23,6 +23,8 @@ import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicCo
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignmentSet;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignment;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResult;
+import org.apache.kafka.common.message.OffsetCommitRequestData;
+import org.apache.kafka.common.message.OffsetCommitResponseData;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.network.NetworkSend;
@@ -45,9 +47,12 @@ import org.apache.kafka.common.requests.CreatePartitionsRequest;
 import org.apache.kafka.common.requests.CreatePartitionsRequest.PartitionDetails;
 import org.apache.kafka.common.requests.DescribeConfigsResponse;
 import org.apache.kafka.common.requests.FetchResponse;
+import org.apache.kafka.common.requests.FindCoordinatorRequest;
 import org.apache.kafka.common.requests.ListGroupsResponse;
 import org.apache.kafka.common.requests.MetadataRequest;
 import org.apache.kafka.common.requests.MetadataResponse;
+import org.apache.kafka.common.requests.OffsetCommitRequest;
+import org.apache.kafka.common.requests.OffsetCommitResponse;
 import org.apache.kafka.common.requests.ProduceRequest;
 import org.apache.kafka.common.requests.RequestAndSize;
 import org.apache.kafka.common.requests.RequestContext;
@@ -159,7 +164,12 @@ public class MultiTenantRequestContext extends RequestContext {
           updatePartitionBytesInMetrics((ProduceRequest) body);
         } else if (body instanceof AlterConfigsRequest) {
           body = transformAlterConfigsRequest((AlterConfigsRequest) body, apiVersion);
+        } else if (body instanceof OffsetCommitRequest) {
+          body = transformOffsetCommitRequest((OffsetCommitRequest) body);
+        } else if (body instanceof FindCoordinatorRequest) {
+          body = transformFindCoordinatorRequest((FindCoordinatorRequest) body);
         }
+
       } catch (InvalidRequestException e) {
         // We couldn't transform the request. Save the tenant request exception and intercept later
         tenantApiException = e;
@@ -233,7 +243,10 @@ public class MultiTenantRequestContext extends RequestContext {
         filteredResponse = filteredDescribeAclsResponse((DescribeAclsResponse) body);
       } else if (body instanceof DeleteAclsResponse) {
         filteredResponse = transformDeleteAclsResponse((DeleteAclsResponse) body);
+      } else if (body instanceof OffsetCommitResponse) {
+        filteredResponse = transformOffsetCommitResponse((OffsetCommitResponse) body);
       }
+
 
       TransformableType<TenantContext> schema = MultiTenantApis.responseSchema(api, apiVersion);
       Struct responseHeaderStruct = responseHeader.toStruct();
@@ -288,6 +301,18 @@ public class MultiTenantRequestContext extends RequestContext {
                     .setTimeoutMs(topicsRequest.data().timeoutMs())
                     .setValidateOnly(topicsRequest.data().validateOnly()))
             .build(version);
+  }
+
+  private OffsetCommitRequest transformOffsetCommitRequest(OffsetCommitRequest request) {
+    for (OffsetCommitRequestData.OffsetCommitRequestTopic topic: request.data().topics()) {
+      topic.setName(tenantContext.addTenantPrefix(topic.name()));
+    }
+    return request;
+  }
+
+  private FindCoordinatorRequest transformFindCoordinatorRequest(FindCoordinatorRequest request) {
+    request.data().setKey(tenantContext.addTenantPrefix(request.data().key()));
+    return request;
   }
 
   private void removeFilteredConfigs(CreatableTopic topicDetails) {
@@ -530,6 +555,13 @@ public class MultiTenantRequestContext extends RequestContext {
       return new DeleteAclsResponse.AclFilterResponse(r.error(), deletions);
     }).collect(Collectors.toList());
     return new DeleteAclsResponse(response.throttleTimeMs(), responses);
+  }
+
+  private OffsetCommitResponse transformOffsetCommitResponse(OffsetCommitResponse response) {
+    for (OffsetCommitResponseData.OffsetCommitResponseTopic topic: response.data().topics()) {
+      topic.setName(tenantContext.removeTenantPrefix(topic.name()));
+    }
+    return response;
   }
 
   private boolean isUnsupportedApiVersionsRequest() {

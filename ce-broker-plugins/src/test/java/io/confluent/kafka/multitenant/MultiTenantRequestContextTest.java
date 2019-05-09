@@ -36,6 +36,7 @@ import org.apache.kafka.common.message.DeleteTopicsResponseData.DeletableTopicRe
 import org.apache.kafka.common.message.DeleteTopicsResponseData.DeletableTopicResultSet;
 import org.apache.kafka.common.message.DescribeGroupsRequestData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData;
+import org.apache.kafka.common.message.FindCoordinatorRequestData;
 import org.apache.kafka.common.message.InitProducerIdRequestData;
 import org.apache.kafka.common.message.JoinGroupRequestData;
 import org.apache.kafka.common.message.LeaveGroupRequestData;
@@ -53,6 +54,7 @@ import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Struct;
 import org.apache.kafka.common.record.CompressionType;
 import org.apache.kafka.common.record.MemoryRecords;
+import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.SimpleRecord;
 import org.apache.kafka.common.requests.AbstractRequest;
 import org.apache.kafka.common.requests.AbstractResponse;
@@ -108,6 +110,7 @@ import org.apache.kafka.common.requests.ListOffsetResponse;
 import org.apache.kafka.common.requests.MetadataRequest;
 import org.apache.kafka.common.requests.MetadataResponse;
 import org.apache.kafka.common.requests.OffsetCommitRequest;
+import org.apache.kafka.common.message.OffsetCommitRequestData;
 import org.apache.kafka.common.requests.OffsetCommitResponse;
 import org.apache.kafka.common.requests.OffsetFetchRequest;
 import org.apache.kafka.common.requests.OffsetFetchResponse;
@@ -456,14 +459,34 @@ public class MultiTenantRequestContextTest {
     for (short ver = ApiKeys.OFFSET_COMMIT.oldestVersion(); ver <= ApiKeys.OFFSET_COMMIT.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_COMMIT, ver);
       String groupId = "group";
-      Map<TopicPartition, OffsetCommitRequest.PartitionData> requestPartitions = new HashMap<>();
-      requestPartitions.put(new TopicPartition("foo", 0), new OffsetCommitRequest.PartitionData(0L, Optional.empty(), ""));
-      requestPartitions.put(new TopicPartition("bar", 0), new OffsetCommitRequest.PartitionData(0L, Optional.empty(), ""));
-      OffsetCommitRequest inbound = new OffsetCommitRequest.Builder(groupId, requestPartitions).build(ver);
+      OffsetCommitRequest inbound = new OffsetCommitRequest.Builder(
+              new OffsetCommitRequestData()
+                      .setGroupId(groupId)
+                      .setTopics(Arrays.asList(
+                              new OffsetCommitRequestData.OffsetCommitRequestTopic()
+                                      .setName("foo")
+                                      .setPartitions(Collections.singletonList(
+                                              new OffsetCommitRequestData.OffsetCommitRequestPartition()
+                                                      .setPartitionIndex(0)
+                                                      .setCommittedOffset(0L)
+                                                      .setCommittedLeaderEpoch(RecordBatch.NO_PARTITION_LEADER_EPOCH)
+                                                      .setCommittedMetadata(""))),
+                      new OffsetCommitRequestData.OffsetCommitRequestTopic()
+                                      .setName("bar")
+                                      .setPartitions(Collections.singletonList(
+                                              new OffsetCommitRequestData.OffsetCommitRequestPartition()
+                                                      .setPartitionIndex(0)
+                                                      .setCommittedOffset(0L)
+                                                      .setCommittedLeaderEpoch(RecordBatch.NO_PARTITION_LEADER_EPOCH)
+                                                      .setCommittedMetadata(""))))))
+              .build(ver);
+
       OffsetCommitRequest intercepted = (OffsetCommitRequest) parseRequest(context, inbound);
-      assertEquals("tenant_group", intercepted.groupId());
-      assertEquals(mkSet(new TopicPartition("tenant_foo", 0), new TopicPartition("tenant_bar", 0)),
-          intercepted.offsetData().keySet());
+      assertEquals("tenant_group", intercepted.data().groupId());
+      assertEquals(Arrays.asList(new TopicPartition("tenant_foo", 0), new TopicPartition("tenant_bar", 0)),
+          intercepted.data().topics().stream()
+                  .flatMap(t -> t.partitions().stream().map(p -> new TopicPartition(t.name(), p.partitionIndex())))
+                  .collect(Collectors.toList()));
       verifyRequestMetrics(ApiKeys.OFFSET_COMMIT);
     }
   }
@@ -477,9 +500,13 @@ public class MultiTenantRequestContextTest {
       partitionErrors.put(new TopicPartition("tenant_bar", 0), Errors.NONE);
       OffsetCommitResponse outbound = new OffsetCommitResponse(0, partitionErrors);
       Struct struct = parseResponse(ApiKeys.OFFSET_COMMIT, ver, context.buildResponse(outbound));
-      OffsetCommitResponse intercepted = new OffsetCommitResponse(struct);
-      assertEquals(mkSet(new TopicPartition("foo", 0), new TopicPartition("bar", 0)),
-          intercepted.responseData().keySet());
+      OffsetCommitResponse intercepted = new OffsetCommitResponse(struct, ver);
+      assertEquals(new HashSet<>(Arrays.asList(new TopicPartition("foo", 0),
+              new TopicPartition("bar", 0))),
+              intercepted.data().topics().stream()
+                      .flatMap(t -> t.partitions().stream().map(p -> new TopicPartition(t.name(),
+                              p.partitionIndex())))
+                      .collect(Collectors.toSet()));
       verifyResponseMetrics(ApiKeys.OFFSET_COMMIT, Errors.NONE);
     }
   }
@@ -519,10 +546,13 @@ public class MultiTenantRequestContextTest {
   public void testFindGroupCoordinatorRequest() {
     for (short ver = ApiKeys.FIND_COORDINATOR.oldestVersion(); ver <= ApiKeys.FIND_COORDINATOR.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.FIND_COORDINATOR, ver);
-      FindCoordinatorRequest inbound = new FindCoordinatorRequest.Builder(FindCoordinatorRequest.CoordinatorType.GROUP,
-          "group").build(ver);
+      FindCoordinatorRequest inbound =
+              new FindCoordinatorRequest.Builder(new FindCoordinatorRequestData()
+                      .setKeyType(FindCoordinatorRequest.CoordinatorType.GROUP.id())
+                      .setKey("group"))
+                      .build(ver);
       FindCoordinatorRequest intercepted = (FindCoordinatorRequest) parseRequest(context, inbound);
-      assertEquals("tenant_group", intercepted.coordinatorKey());
+      assertEquals("tenant_group", intercepted.data().key());
       verifyRequestMetrics(ApiKeys.FIND_COORDINATOR);
     }
   }
@@ -531,10 +561,13 @@ public class MultiTenantRequestContextTest {
   public void testFindTxnCoordinatorRequest() {
     for (short ver = 1; ver <= ApiKeys.FIND_COORDINATOR.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.FIND_COORDINATOR, ver);
-      FindCoordinatorRequest inbound = new FindCoordinatorRequest.Builder(
-          FindCoordinatorRequest.CoordinatorType.TRANSACTION, "tr").build(ver);
+      FindCoordinatorRequest inbound =
+              new FindCoordinatorRequest.Builder(new FindCoordinatorRequestData()
+                      .setKeyType(FindCoordinatorRequest.CoordinatorType.TRANSACTION.id())
+                      .setKey("tr"))
+                      .build(ver);
       FindCoordinatorRequest intercepted = (FindCoordinatorRequest) parseRequest(context, inbound);
-      assertEquals("tenant_tr", intercepted.coordinatorKey());
+      assertEquals("tenant_tr", intercepted.data().key());
       verifyRequestMetrics(ApiKeys.FIND_COORDINATOR);
     }
   }

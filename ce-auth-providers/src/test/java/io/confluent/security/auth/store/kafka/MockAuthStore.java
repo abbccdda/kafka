@@ -54,6 +54,7 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartitionInfo;
+import org.apache.kafka.common.message.FindCoordinatorResponseData;
 import org.apache.kafka.common.message.JoinGroupResponseData;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.requests.FindCoordinatorResponse;
@@ -222,7 +223,7 @@ public class MockAuthStore extends KafkaAuthStore {
   private KafkaClient createCoordinatorClient(Time time, Metadata metadata) {
     coordinatorClient = new MockClient(time, metadata);
     coordinatorClient.prepareMetadataUpdate(metadataResponse);
-    coordinatorClient.prepareResponse(new FindCoordinatorResponse(Errors.NONE, cluster.nodeById(nodeId)));
+    coordinatorClient.prepareResponse(new FindCoordinatorResponse(new FindCoordinatorResponseData().setErrorCode(Errors.NONE.code()).setNodeId(nodeId)));
     coordinatorClient.prepareResponse(joinGroupResponse(coordinatorGeneration.incrementAndGet()));
     coordinatorClient.prepareResponse(syncGroupResponse(nodeId));
     return coordinatorClient;
