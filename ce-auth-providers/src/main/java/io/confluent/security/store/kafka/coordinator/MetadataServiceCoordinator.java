@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -54,16 +55,16 @@ public class MetadataServiceCoordinator extends AbstractCoordinator {
       Time time,
       MetadataServiceRebalanceListener rebalanceListener) {
     super(logContext,
-        client,
-        consumerConfig.getString(ConsumerConfig.GROUP_ID_CONFIG),
-        consumerConfig.getInt(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG),
-        consumerConfig.getInt(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG),
-        consumerConfig.getInt(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG),
-        metrics,
-        metricGrpPrefix,
-        time,
-        consumerConfig.getLong(CommonClientConfigs.RETRY_BACKOFF_MS_CONFIG),
-        true); // Leave group on close
+            client,
+            consumerConfig.getString(ConsumerConfig.GROUP_ID_CONFIG),
+            Optional.empty(),
+            consumerConfig.getInt(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG),
+            consumerConfig.getInt(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG),
+            consumerConfig.getInt(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG),
+            metrics,
+            metricGrpPrefix,
+            time,
+            consumerConfig.getLong(CommonClientConfigs.RETRY_BACKOFF_MS_CONFIG));
 
     this.log = logContext.logger(MetadataServiceCoordinator.class);
     this.rebalanceListener = Objects.requireNonNull(rebalanceListener, "rebalanceListener");
