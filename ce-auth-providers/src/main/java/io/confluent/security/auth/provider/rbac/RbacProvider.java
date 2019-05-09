@@ -29,7 +29,7 @@ import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
-import org.apache.kafka.clients.ClientUtils;
+import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.KafkaException;
@@ -169,10 +169,10 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   public void close() {
     log.debug("Closing RBAC provider");
     AtomicReference<Throwable> firstException = new AtomicReference<>();
-    ClientUtils.closeQuietly(metadataServer, "metadataServer", firstException);
-    ClientUtils.closeQuietly(authStore, "authStore", firstException);
+    Utils.closeQuietly(metadataServer, "metadataServer", firstException);
+    Utils.closeQuietly(authStore, "authStore", firstException);
     if (authenticateCallbackHandler != null)
-      ClientUtils.closeQuietly(authenticateCallbackHandler, "authenticateCallbackHandler", firstException);
+      Utils.closeQuietly(authenticateCallbackHandler, "authenticateCallbackHandler", firstException);
     Throwable exception = firstException.getAndSet(null);
     if (exception != null)
       throw new KafkaException("RbacProvider could not be closed cleanly", exception);

@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.apache.kafka.clients.ClientUtils;
+import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.errors.TimeoutException;
@@ -265,8 +265,8 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
   public void close() {
     AtomicReference<Throwable> firstException = new AtomicReference<>();
     providersCreated.forEach(provider ->
-        ClientUtils.closeQuietly(provider, provider.providerName(), firstException));
-    ClientUtils.closeQuietly(licenseValidator, "licenseValidator", firstException);
+        Utils.closeQuietly(provider, provider.providerName(), firstException));
+    Utils.closeQuietly(licenseValidator, "licenseValidator", firstException);
     Throwable exception = firstException.getAndSet(null);
     // We don't want to prevent clean broker shutdown if providers are not gracefully closed.
     if (exception != null)

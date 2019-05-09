@@ -38,6 +38,7 @@ import org.apache.kafka.common.network.Selector;
 import org.apache.kafka.common.utils.AppInfoParser;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 
 /**
@@ -210,8 +211,8 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
       firstException.set(e);
     }
 
-    ClientUtils.closeQuietly(coordinatorNetworkClient, "coordinatorNetworkClient", firstException);
-    ClientUtils.closeQuietly(metrics, "metrics", firstException);
+    Utils.closeQuietly(coordinatorNetworkClient, "coordinatorNetworkClient", firstException);
+    Utils.closeQuietly(metrics, "metrics", firstException);
     AppInfoParser.unregisterAppInfo(JMX_PREFIX, clientId, metrics);
 
     Throwable exception = firstException.getAndSet(null);
