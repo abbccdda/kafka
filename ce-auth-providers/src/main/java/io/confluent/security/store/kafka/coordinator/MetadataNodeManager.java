@@ -265,7 +265,7 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
     );
     reporters.add(new JmxReporter(JMX_PREFIX));
     Metrics metrics = new Metrics(metricConfig, reporters, time);
-    AppInfoParser.registerAppInfo(JMX_PREFIX, clientId, metrics);
+    AppInfoParser.registerAppInfo(JMX_PREFIX, clientId, metrics, time.milliseconds());
     return metrics;
   }
 
