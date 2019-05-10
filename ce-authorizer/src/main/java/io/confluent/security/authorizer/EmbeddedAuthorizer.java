@@ -2,9 +2,9 @@
 
 package io.confluent.security.authorizer;
 
-import io.confluent.kafka.common.license.LicenseExpiredException;
-import io.confluent.kafka.common.license.InvalidLicenseException;
-import io.confluent.kafka.common.license.LicenseValidator;
+import io.confluent.common.license.LicenseExpiredException;
+import io.confluent.common.license.InvalidLicenseException;
+import io.confluent.common.license.LicenseValidator;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import io.confluent.security.authorizer.provider.MetadataProvider;
 import io.confluent.security.authorizer.provider.Provider;

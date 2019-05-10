@@ -1,7 +1,7 @@
 // (Copyright) [2019 - 2019] Confluent, Inc.
 package io.confluent.kafka.multitenant.integration.test;
 
-import io.confluent.kafka.clients.multitenant.auth.oauth.OAuthBearerLoginCallbackHandler;
+import io.confluent.kafka.clients.plugins.auth.oauth.OAuthBearerLoginCallbackHandler;
 import io.confluent.kafka.multitenant.PhysicalClusterMetadata;
 import io.confluent.kafka.multitenant.Utils;
 import io.confluent.kafka.multitenant.integration.cluster.PhysicalCluster;

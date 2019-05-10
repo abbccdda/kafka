@@ -1,10 +1,10 @@
 // (Copyright) [2017 - 2019] Confluent, Inc.
 
-package io.confluent.security.auth.broker.token;
+package io.confluent.kafka.server.plugins.auth.token;
 
 import io.confluent.security.auth.common.JwtBearerToken;
 import io.confluent.security.auth.client.rest.RestClient;
-import io.confluent.security.auth.utils.TokenUtils;
+import io.confluent.kafka.test.utils.TokenTestUtils;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.config.types.Password;
 import org.apache.kafka.common.security.JaasContext;
@@ -34,12 +34,12 @@ import static org.powermock.api.easymock.PowerMock.replay;
 
     private TokenBearerServerLoginCallbackHandler callbackHandler;
     private JwtBearerToken token;
-    private TokenUtils.JwsContainer jwsContainer;
+    private TokenTestUtils.JwsContainer jwsContainer;
 
     @Before
     public void setUp() throws Exception {
        jwsContainer =
-               TokenUtils.setUpJws(36000, "user", "password");
+               TokenTestUtils.setUpJws(36000, "user", "password");
 
       token = new JwtBearerToken("Token", Collections.emptySet(), -1,
               "", -1L, "");

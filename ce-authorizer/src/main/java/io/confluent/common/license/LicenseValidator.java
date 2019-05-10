@@ -1,6 +1,6 @@
 // (Copyright) [2018 - 2019] Confluent, Inc.
 
-package io.confluent.kafka.common.license;
+package io.confluent.common.license;
 
 import java.io.Closeable;
 import org.apache.kafka.common.utils.Time;

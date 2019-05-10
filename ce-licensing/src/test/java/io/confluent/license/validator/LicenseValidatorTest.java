@@ -2,8 +2,8 @@
 
 package io.confluent.license.validator;
 
-import io.confluent.kafka.common.license.LicenseExpiredException;
-import io.confluent.kafka.common.license.InvalidLicenseException;
+import io.confluent.common.license.LicenseExpiredException;
+import io.confluent.common.license.InvalidLicenseException;
 import io.confluent.license.test.utils.LicenseTestUtils;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
 import org.apache.kafka.common.utils.MockTime;

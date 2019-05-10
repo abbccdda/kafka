@@ -2,7 +2,7 @@
 
 package io.confluent.security.auth.provider.ldap;
 
-import io.confluent.kafka.common.license.InvalidLicenseException;
+import io.confluent.common.license.InvalidLicenseException;
 import io.confluent.kafka.security.ldap.authorizer.LdapAuthorizer;
 import io.confluent.license.test.utils.LicenseTestUtils;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;

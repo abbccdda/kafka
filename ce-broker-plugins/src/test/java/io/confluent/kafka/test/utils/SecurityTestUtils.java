@@ -4,7 +4,7 @@ package io.confluent.kafka.test.utils;
 
 import static org.junit.Assert.assertEquals;
 
-import io.confluent.kafka.common.license.LicenseValidator;
+import io.confluent.common.license.LicenseValidator;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.license.validator.ConfluentLicenseValidator;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;

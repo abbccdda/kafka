@@ -1,6 +1,6 @@
 // (Copyright) [2017 - 2019] Confluent, Inc.
 
-package io.confluent.kafka.clients.multitenant.auth.oauth;
+package io.confluent.kafka.clients.plugins.auth.oauth;
 
 import io.confluent.kafka.common.multitenant.oauth.OAuthBearerJwsToken;
 import org.apache.kafka.common.config.ConfigException;

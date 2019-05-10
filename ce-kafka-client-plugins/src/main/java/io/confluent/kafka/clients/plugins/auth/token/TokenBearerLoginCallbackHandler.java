@@ -1,6 +1,6 @@
 // (Copyright) [2017 - 2019] Confluent, Inc.
 
-package io.confluent.security.auth.client.token;
+package io.confluent.kafka.clients.plugins.auth.token;
 
 import static io.confluent.security.auth.client.provider
         .BuiltInAuthProviders.HttpCredentialProviders;

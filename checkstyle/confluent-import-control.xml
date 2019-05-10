@@ -44,7 +44,7 @@
   <subpackage name="support">
     <subpackage name="metrics">
       <allow pkg="io.confluent.command" />
-      <allow pkg="io.confluent.kafka.common.license" />
+      <allow pkg="io.confluent.common.license" />
       <allow pkg="io.confluent.license" />
       <allow pkg="io.confluent.serializers" />
       <allow pkg="io.confluent.support.metrics" />
@@ -67,7 +67,7 @@
     <allow pkg="io.confluent.command" />
     <allow pkg="io.confluent.license" />
     <allow pkg="io.confluent.serializers" />
-    <allow pkg="io.confluent.kafka.common.license" />
+    <allow pkg="io.confluent.common.license" />
     <allow pkg="kafka" />
     <allow pkg="org.apache.kafka.clients" />
     <allow pkg="org.apache.kafka.common" />
@@ -103,6 +103,7 @@
     <allow pkg="io.confluent.common" />
     <allow pkg="io.confluent.kafka" />
     <allow pkg="io.confluent.license" />
+    <allow pkg="io.confluent.security" />
     <allow pkg="kafka" />
     <allow pkg="org.apache.kafka.common.utils" />
     <allow pkg="org.apache.kafka.clients" />
@@ -135,7 +136,7 @@
   </subpackage>
 
   <subpackage name="security">
-    <allow pkg="io.confluent.kafka.common" />
+    <allow pkg="io.confluent.common" />
     <allow pkg="io.confluent.kafka.test" />
     <allow pkg="io.confluent.license" />
     <allow pkg="io.confluent.security.authorizer" />

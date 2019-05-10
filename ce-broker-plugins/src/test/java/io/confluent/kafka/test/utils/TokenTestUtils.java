@@ -1,6 +1,6 @@
 // (Copyright) [2017 - 2019] Confluent, Inc.
 
-package io.confluent.security.auth.utils;
+package io.confluent.kafka.test.utils;
 
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.jose4j.jws.AlgorithmIdentifiers;
@@ -21,8 +21,8 @@ import java.security.PublicKey;
 
 import static org.apache.kafka.test.TestUtils.tempFile;
 
-public class TokenUtils {
-  private static final Logger log = LoggerFactory.getLogger(TokenUtils.class);
+public class TokenTestUtils {
+  private static final Logger log = LoggerFactory.getLogger(TokenTestUtils.class);
 
   public static class JwsContainer {
     private final String jwsToken;

@@ -2,7 +2,7 @@
 
 package io.confluent.kafka.security.authorizer;
 
-import io.confluent.kafka.common.license.LicenseValidator;
+import io.confluent.common.license.LicenseValidator;
 import io.confluent.kafka.multitenant.authorizer.MultiTenantAuthorizer;
 import io.confluent.kafka.security.authorizer.acl.AclMapper;
 import io.confluent.kafka.security.authorizer.acl.AclProvider;

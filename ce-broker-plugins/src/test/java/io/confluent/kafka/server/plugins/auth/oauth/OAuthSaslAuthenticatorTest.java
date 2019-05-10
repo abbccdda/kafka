@@ -2,7 +2,7 @@
 
 package io.confluent.kafka.server.plugins.auth.oauth;
 
-import io.confluent.kafka.clients.multitenant.auth.oauth.OAuthBearerLoginCallbackHandler;
+import io.confluent.kafka.clients.plugins.auth.oauth.OAuthBearerLoginCallbackHandler;
 
 import io.confluent.kafka.multitenant.PhysicalClusterMetadata;
 import io.confluent.kafka.multitenant.Utils;

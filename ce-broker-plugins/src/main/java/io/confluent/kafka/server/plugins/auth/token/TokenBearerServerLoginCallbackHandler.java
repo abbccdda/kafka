@@ -1,6 +1,6 @@
 // (Copyright) [2019 - 2019] Confluent, Inc.
 
-package io.confluent.security.auth.broker.token;
+package io.confluent.kafka.server.plugins.auth.token;
 
 import io.confluent.security.auth.client.RestClientConfig;
 import io.confluent.security.auth.client.provider.BuiltInAuthProviders;
