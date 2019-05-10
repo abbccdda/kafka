@@ -31,6 +31,7 @@ message ActionInfo {
   string name = 2;
   oneof action {
     command_alert.EmailAction email = 3;
+    command_alert.WebHookAction webhook = 4;
   }
 }
 
