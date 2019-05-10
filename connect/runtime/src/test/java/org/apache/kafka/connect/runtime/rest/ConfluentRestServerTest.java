@@ -50,6 +50,8 @@ public class ConfluentRestServerTest {
   private Plugins plugins;
   private RestServer server;
 
+  protected static final String KAFKA_CLUSTER_ID = "Xbafgnagvar";
+
   @After
   public void tearDown() {
     server.stop();
@@ -83,6 +85,7 @@ public class ConfluentRestServerTest {
     DistributedConfig config = new DistributedConfig(configMap);
 
     EasyMock.expect(herder.plugins()).andReturn(plugins);
+    EasyMock.expect(herder.kafkaClusterId()).andReturn(KAFKA_CLUSTER_ID);
     EasyMock.expect(plugins.newPlugins(
         EasyMock.eq(Collections.emptyList()),
         EasyMock.eq(config),
@@ -108,6 +111,7 @@ public class ConfluentRestServerTest {
     DistributedConfig config = new DistributedConfig(configMap);
 
     EasyMock.expect(herder.plugins()).andReturn(plugins);
+    EasyMock.expect(herder.kafkaClusterId()).andReturn(KAFKA_CLUSTER_ID);
     EasyMock.expect(plugins.newPlugins(
         EasyMock.eq(Collections.emptyList()),
         EasyMock.eq(config),
