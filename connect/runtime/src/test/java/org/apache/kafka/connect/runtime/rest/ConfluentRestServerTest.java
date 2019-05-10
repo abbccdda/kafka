@@ -20,7 +20,6 @@ import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.connect.rest.ConnectRestExtension;
 import org.apache.kafka.connect.runtime.Herder;
-import org.apache.kafka.connect.runtime.HerderProvider;
 import org.apache.kafka.connect.runtime.WorkerConfig;
 import org.apache.kafka.connect.runtime.distributed.DistributedConfig;
 import org.apache.kafka.connect.runtime.isolation.Plugins;
@@ -50,6 +49,8 @@ public class ConfluentRestServerTest {
   @MockStrict
   private Plugins plugins;
   private RestServer server;
+
+  protected static final String KAFKA_CLUSTER_ID = "Xbafgnagvar";
 
   @After
   public void tearDown() {
@@ -83,6 +84,8 @@ public class ConfluentRestServerTest {
     );
     DistributedConfig config = new DistributedConfig(configMap);
 
+    EasyMock.expect(herder.plugins()).andReturn(plugins);
+    EasyMock.expect(herder.kafkaClusterId()).andReturn(KAFKA_CLUSTER_ID);
     EasyMock.expect(plugins.newPlugins(
         EasyMock.eq(Collections.emptyList()),
         EasyMock.eq(config),
@@ -92,7 +95,8 @@ public class ConfluentRestServerTest {
     PowerMock.replayAll();
 
     server = new RestServer(config);
-    server.start(new HerderProvider(herder), plugins);
+    server.initializeServer();
+    server.initializeResources(herder);
 
     assertNotNull(TestServletInitializer.context());
   }
@@ -106,6 +110,8 @@ public class ConfluentRestServerTest {
     );
     DistributedConfig config = new DistributedConfig(configMap);
 
+    EasyMock.expect(herder.plugins()).andReturn(plugins);
+    EasyMock.expect(herder.kafkaClusterId()).andReturn(KAFKA_CLUSTER_ID);
     EasyMock.expect(plugins.newPlugins(
         EasyMock.eq(Collections.emptyList()),
         EasyMock.eq(config),
@@ -115,7 +121,8 @@ public class ConfluentRestServerTest {
     PowerMock.replayAll();
 
     server = new RestServer(config);
-    server.start(new HerderProvider(herder), plugins);
+    server.initializeServer();
+    server.initializeResources(herder);
   }
 
   public static class TestServletInitializer implements Consumer<ServletContextHandler> {

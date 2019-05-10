@@ -14,29 +14,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.connect.runtime.rest.resources;
 
-import org.apache.kafka.connect.runtime.Herder;
-import org.apache.kafka.connect.runtime.rest.entities.ServerInfo;
+package org.apache.kafka.connect.health;
 
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
+/**
+ * Provides immutable Connect cluster information, such as the ID of the backing Kafka cluster. The
+ * Connect framework provides the implementation for this interface.
+ */
+public interface ConnectClusterDetails {
 
-@Path("/")
-@Produces(MediaType.APPLICATION_JSON)
-public class RootResource {
-
-    private final Herder herder;
-
-    public RootResource(Herder herder) {
-        this.herder = herder;
-    }
-
-    @GET
-    @Path("/")
-    public ServerInfo serverInfo() {
-        return new ServerInfo(herder.kafkaClusterId());
-    }
+    /**
+     * Get the cluster ID of the Kafka cluster backing this Connect cluster.
+     * 
+     * @return the cluster ID of the Kafka cluster backing this Connect cluster
+     **/
+    String kafkaClusterId();
 }

@@ -14,29 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.connect.runtime.rest.resources;
 
-import org.apache.kafka.connect.runtime.Herder;
-import org.apache.kafka.connect.runtime.rest.entities.ServerInfo;
+package org.apache.kafka.connect.runtime.health;
 
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
+import org.apache.kafka.connect.health.ConnectClusterDetails;
 
-@Path("/")
-@Produces(MediaType.APPLICATION_JSON)
-public class RootResource {
+public class ConnectClusterDetailsImpl implements ConnectClusterDetails {
 
-    private final Herder herder;
+    private final String kafkaClusterId;
 
-    public RootResource(Herder herder) {
-        this.herder = herder;
+    public ConnectClusterDetailsImpl(String kafkaClusterId) {
+        this.kafkaClusterId = kafkaClusterId;
     }
 
-    @GET
-    @Path("/")
-    public ServerInfo serverInfo() {
-        return new ServerInfo(herder.kafkaClusterId());
+    @Override
+    public String kafkaClusterId() {
+        return kafkaClusterId;
     }
 }
