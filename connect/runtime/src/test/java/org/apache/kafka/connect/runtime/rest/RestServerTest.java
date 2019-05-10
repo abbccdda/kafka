@@ -72,6 +72,7 @@ public class RestServerTest {
     @SuppressWarnings("deprecation")
     private Map<String, String> baseWorkerProps() {
         Map<String, String> workerProps = new HashMap<>();
+        workerProps.put(WorkerConfig.REST_PORT_CONFIG, "0");
         workerProps.put(DistributedConfig.STATUS_STORAGE_TOPIC_CONFIG, "status-topic");
         workerProps.put(DistributedConfig.CONFIG_TOPIC_CONFIG, "config-topic");
         workerProps.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
