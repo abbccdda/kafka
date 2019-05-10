@@ -28,5 +28,24 @@ public class TierObjectStoreConfig {
             this.s3SseAlgorithm = config.tierS3SseAlgorithm();
     }
 
+    // used for testing
+    TierObjectStoreConfig(String s3bucket,
+                          String s3Region,
+                          String s3AwsSecretAccessKey,
+                          String s3AwsAccessKeyId,
+                          String s3EndpointOverride,
+                          String s3SignerOverride,
+                          String s3SseAlgorithm,
+                          Integer s3MultipartUploadSize) {
+        this.s3bucket = s3bucket;
+        this.s3Region = s3Region;
+        this.s3AwsSecretAccessKey = s3AwsSecretAccessKey;
+        this.s3AwsAccessKeyId = s3AwsAccessKeyId;
+        this.s3EndpointOverride = s3EndpointOverride;
+        this.s3SignerOverride = s3SignerOverride;
+        this.s3SseAlgorithm = s3SseAlgorithm;
+        this.s3MultipartUploadSize = s3MultipartUploadSize;
+    }
+
     public TierObjectStoreConfig() { }
 }

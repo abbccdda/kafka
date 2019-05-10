@@ -44,7 +44,12 @@ public class S3TierObjectStore implements TierObjectStore {
     private AmazonS3 client;
 
     public S3TierObjectStore(TierObjectStoreConfig config) {
-        this.client = client(config);
+        this(client(config), config);
+    }
+
+    // used for testing
+    S3TierObjectStore(AmazonS3 client, TierObjectStoreConfig config) {
+        this.client = client;
         this.bucket = config.s3bucket;
         this.sseAlgorithm = config.s3SseAlgorithm;
         this.partUploadSize = config.s3MultipartUploadSize;
@@ -162,7 +167,7 @@ public class S3TierObjectStore implements TierObjectStore {
         client.completeMultipartUpload(completeMultipartUploadRequest);
     }
 
-    private AmazonS3 client(TierObjectStoreConfig config) {
+    private static AmazonS3 client(TierObjectStoreConfig config) {
         final ClientConfiguration clientConfiguration = new ClientConfiguration();
         final AmazonS3ClientBuilder builder = AmazonS3ClientBuilder.standard();
         builder.setClientConfiguration(clientConfiguration);
