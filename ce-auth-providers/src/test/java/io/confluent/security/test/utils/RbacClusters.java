@@ -2,6 +2,7 @@
 
 package io.confluent.security.test.utils;
 
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import io.confluent.kafka.security.authorizer.ConfluentKafkaAuthorizer;
@@ -23,9 +24,11 @@ import io.confluent.security.store.kafka.KafkaStoreConfig;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import kafka.admin.AclCommand;
 import kafka.security.auth.Alter$;
 import kafka.security.auth.ClusterAction$;
@@ -48,7 +51,7 @@ public class RbacClusters {
   public final EmbeddedKafkaCluster kafkaCluster;
   private final Map<String, User> users;
   public final MiniKdcWithLdapService miniKdcWithLdapService;
-  private final KafkaAuthWriter authWriter;
+  private List<KafkaAuthWriter> authWriters;
 
   public RbacClusters(Config config) throws Exception {
     this.config = config;
@@ -62,20 +65,14 @@ public class RbacClusters {
       miniKdcWithLdapService = null;
 
     // In order to start metadata service without fixed ports, start one broker
-    // without metadata service and a second one with metadata service using the
+    // without metadata service and one or more brokers with metadata service using the
     // first broker as bootstrap server for the metadata service
-    metadataCluster.startBrokers(1, metadataClusterServerConfig());
-    metadataCluster.startBrokers(1, metadataClusterServerConfig());
-    KafkaServer metadataBroker = metadataCluster.brokers().get(1);
+    metadataCluster.startBrokers(1, metadataClusterServerConfig(0));
+    for (int i = 0; i < config.numMetadataServers; i++)
+      metadataCluster.startBrokers(1, metadataClusterServerConfig(i + 1));
 
-    ConfluentKafkaAuthorizer authorizer = (ConfluentKafkaAuthorizer) metadataBroker.authorizer().get();
-    RbacProvider rbacProvider = (RbacProvider) authorizer.metadataProvider();
-    TestUtils.waitForCondition(() -> rbacProvider.authStore() != null,
-        "Metadata server not created");
-    TestUtils.waitForCondition(() -> rbacProvider.authStore().writer() != null,
-        30000, "Metadata writer not started");
-    assertTrue(rbacProvider.authStore().writer() instanceof KafkaAuthWriter);
-    this.authWriter = (KafkaAuthWriter) rbacProvider.authStore().writer();
+    updateAuthWriters();
+    assertNotNull("Master writer not elected:", masterWriter());
 
     kafkaCluster = new EmbeddedKafkaCluster();
     kafkaCluster.startZooKeeper();
@@ -108,7 +105,7 @@ public class RbacClusters {
                          String clusterId,
                          Set<ResourcePattern> resources) throws Exception {
     KafkaPrincipal principal = new KafkaPrincipal(principalType, userName);
-    authWriter.replaceResourceRoleBinding(
+    masterWriter().replaceResourceRoleBinding(
         principal,
         role,
         Scope.kafkaClusterScope(clusterId),
@@ -125,7 +122,7 @@ public class RbacClusters {
           Utils.mkSet(new KafkaPrincipal(AccessRule.GROUP_PRINCIPAL_TYPE, group));
       UserKey key = new UserKey(principal);
       UserValue value = new UserValue(groupPrincipals);
-      authWriter.writeExternalEntry(key, value, 1);
+      masterWriter().writeExternalEntry(key, value, 1);
     }
   }
 
@@ -145,6 +142,38 @@ public class RbacClusters {
 
   public void waitUntilAccessDenied(String user, String topic) throws Exception {
     waitUntilAccessUpdated(user, topic, false);
+  }
+
+  public void restartMasterWriter() throws Exception {
+    KafkaAuthWriter masterWriter = masterWriter();
+    int index = authWriters.indexOf(masterWriter);
+    KafkaServer masterWriterBroker = metadataCluster.brokers().get(index + 1);
+
+    masterWriterBroker.shutdown();
+    TestUtils.waitForCondition(() -> !currentMasterWriter().equals(Optional.of(masterWriter)),
+        "Master writer not reset after broker failure");
+    masterWriterBroker.startup();
+    updateAuthWriters();
+    TestUtils.waitForCondition(() -> currentMasterWriter().isPresent(),
+        "Master writer not re-elected after broker failure");
+  }
+
+  private Optional<KafkaAuthWriter> currentMasterWriter() {
+    return authWriters.stream().filter(KafkaAuthWriter::ready).findAny();
+  }
+
+  private void updateAuthWriters() {
+    List<KafkaServer> metadataBrokers = metadataCluster.brokers().subList(1, metadataCluster.brokers().size());
+    authWriters = metadataBrokers.stream().map(this::kafkaAuthWriter).collect(Collectors.toList());
+  }
+
+  private KafkaAuthWriter masterWriter() {
+    try {
+      TestUtils.waitForCondition(() -> currentMasterWriter().isPresent(), "Master writer not found");
+    } catch (InterruptedException e) {
+      throw new IllegalStateException(e);
+    }
+    return currentMasterWriter().orElseThrow(() -> new IllegalStateException("Master writer not found"));
   }
 
   private void waitUntilAccessUpdated(String user, String topic, boolean allowed) throws Exception {
@@ -202,7 +231,7 @@ public class RbacClusters {
     return serverConfig;
   }
 
-  private Properties metadataClusterServerConfig() {
+  private Properties metadataClusterServerConfig(int index) {
     Properties serverConfig = new Properties();
     serverConfig.putAll(scramConfigs());
     int existingBrokerCount = metadataCluster.brokers().size();
@@ -217,10 +246,11 @@ public class RbacClusters {
       serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL");
       serverConfig.setProperty("super.users", "User:" + config.brokerUser);
       serverConfig.setProperty(ConfluentAuthorizerConfig.METADATA_PROVIDER_PROP, "RBAC");
+      int metadataPort = 8000 + index;
       serverConfig.setProperty(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP,
-          "http://0.0.0.0:8000");
+          "http://0.0.0.0:" + metadataPort);
       serverConfig.setProperty(MetadataServiceConfig.METADATA_SERVER_ADVERTISED_LISTENERS_PROP,
-          "http://localhost:8000");
+          "http://localhost:" + metadataPort);
       serverConfig.setProperty(KafkaStoreConfig.NUM_PARTITIONS_PROP, "2");
       serverConfig.setProperty(KafkaStoreConfig.REPLICATION_FACTOR_PROP, "1");
       serverConfig.setProperty(KafkaConfig$.MODULE$.AutoCreateTopicsEnableProp(), "false");
@@ -246,8 +276,25 @@ public class RbacClusters {
     return users;
   }
 
+  private KafkaAuthWriter kafkaAuthWriter(KafkaServer kafkaServer) {
+    try {
+      ConfluentKafkaAuthorizer authorizer = (ConfluentKafkaAuthorizer) kafkaServer.authorizer()
+          .get();
+      RbacProvider rbacProvider = (RbacProvider) authorizer.metadataProvider();
+      TestUtils.waitForCondition(() -> rbacProvider.authStore() != null,
+          "Metadata server not created");
+      TestUtils.waitForCondition(() -> rbacProvider.authStore().writer() != null,
+          30000, "Metadata writer not started");
+      assertTrue(rbacProvider.authStore().writer() instanceof KafkaAuthWriter);
+      return (KafkaAuthWriter) rbacProvider.authStore().writer();
+    } catch (InterruptedException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   public static class Config {
     private final Properties metadataClusterPropOverrides = new Properties();
+    private int numMetadataServers = 1;
     private String brokerUser;
     private List<String> userNames;
     private boolean enableLdap;
@@ -268,6 +315,12 @@ public class RbacClusters {
     public Config withLdap() {
       this.enableLdap = true;
       return this;
+    }
+
+    public Config addMetadataServer() {
+      this.numMetadataServers++;
+      return this.overrideMetadataBrokerConfig(KafkaConfig$.MODULE$.OffsetsTopicReplicationFactorProp(), "2")
+          .overrideMetadataBrokerConfig(KafkaStoreConfig.REPLICATION_FACTOR_PROP, "2");
     }
 
     public Config overrideMetadataBrokerConfig(String name, String value) {

@@ -187,8 +187,13 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
     log.debug("onWriterResigned {}", generationId);
     if (this.nodeMetadata.equals(masterWriterNode) && masterWriterGenerationId == generationId) {
       stopWriter(generationId);
-      this.coordinator.onWriterResigned();
+      onWriterResigned();
     }
+  }
+
+  // Visibility for testing
+  protected void onWriterResigned() {
+    coordinator.onWriterResigned();
   }
 
   public void close(Duration closeTimeout) {

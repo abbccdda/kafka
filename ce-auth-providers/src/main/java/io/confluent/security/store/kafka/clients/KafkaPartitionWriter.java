@@ -98,15 +98,7 @@ public class KafkaPartitionWriter<K, V> {
       this.generationId = generationId;
     }
 
-    ProducerRecord<K, V> record = new ProducerRecord<>(topicPartition.topic(),
-        topicPartition.partition(), statusKey, statusValue);
-    producer.send(record, (metadata, exception) -> {
-      if (exception != null) {
-        rebalanceListener.onWriterResigned(generationId);
-      } else {
-        onStatusRecordWriteCompletion(generationId, MetadataStoreStatus.INITIALIZING, metadata.offset());
-      }
-    });
+    writeStatus(generationId, statusKey, statusValue, MetadataStoreStatus.INITIALIZING);
   }
 
   public void writeStatus(int generationId, K statusKey, V statusValue, MetadataStoreStatus status) {
@@ -119,7 +111,7 @@ public class KafkaPartitionWriter<K, V> {
         topicPartition.partition(), statusKey, statusValue);
     producer.send(record, (metadata, exception) -> {
       if (exception != null) {
-        log.error("Error could not be added to auth topic", exception);
+        log.error("Status {}:{} could not be added to auth topic", statusKey, statusValue, exception);
         rebalanceListener.onWriterResigned(generationId);
       } else {
         onStatusRecordWriteCompletion(generationId, status, metadata.offset());

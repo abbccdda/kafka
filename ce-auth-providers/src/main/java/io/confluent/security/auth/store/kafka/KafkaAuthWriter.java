@@ -105,30 +105,22 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
       throw new IllegalStateException("Starting writer without clearing startup executor of previous generation");
     executor = Executors.newSingleThreadExecutor(ThreadUtils.createThreadFactory("auth-writer-%d", true));
 
-    if (partitionWriters.isEmpty()) {
-      executor.submit(() -> {
-        try {
-          int numPartitions = maybeCreateAuthTopic(topic);
-          if (numPartitions == 0)
-            throw new IllegalStateException("Number of partitions not known for " + topic);
-          for (int i = 0; i < numPartitions; i++) {
-            TopicPartition tp = new TopicPartition(topic, i);
-            partitionWriters.put(i,
-                new KafkaPartitionWriter<>(tp, producer, authCache, rebalanceListener,
-                    config.refreshTimeout, time));
-          }
-
-          StatusValue initializing = new StatusValue(MetadataStoreStatus.INITIALIZING, generationId,
-              null);
-          partitionWriters.forEach((partition, writer) ->
-              writer.start(generationId, new StatusKey(partition), initializing));
-          ready = true;
-        } catch (Throwable e) {
-          log.error("Kafka auth writer initialization failed {}", e);
-          rebalanceListener.onWriterResigned(generationId);
+    executor.submit(() -> {
+      try {
+        if (partitionWriters.isEmpty()) {
+          createPartitionWriters();
         }
-      });
-    }
+
+        StatusValue initializing = new StatusValue(MetadataStoreStatus.INITIALIZING, generationId, null);
+        partitionWriters.forEach((partition, writer) ->
+            writer.start(generationId, new StatusKey(partition), initializing));
+        ready = true;
+
+      } catch (Throwable e) {
+        log.error("Kafka auth writer initialization failed {}", e);
+        rebalanceListener.onWriterResigned(generationId);
+      }
+    });
 
     executor.submit(() -> {
       try {
@@ -323,6 +315,18 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
           rebalanceListener.onWriterResigned(generationId);
         }
       });
+    }
+  }
+
+  private void createPartitionWriters() throws Throwable {
+    int numPartitions = maybeCreateAuthTopic(topic);
+    if (numPartitions == 0)
+      throw new IllegalStateException("Number of partitions not known for " + topic);
+    for (int i = 0; i < numPartitions; i++) {
+      TopicPartition tp = new TopicPartition(topic, i);
+      partitionWriters.put(i,
+          new KafkaPartitionWriter<>(tp, producer, authCache, rebalanceListener,
+              config.refreshTimeout, time));
     }
   }
 

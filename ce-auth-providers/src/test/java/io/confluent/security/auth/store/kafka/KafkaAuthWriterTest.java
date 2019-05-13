@@ -87,8 +87,15 @@ public class KafkaAuthWriterTest {
     authStore.makeMasterWriter(newWriter);
     TestUtils.waitForCondition(() -> !authStore.url("http").equals(authStore.masterWriterUrl("http")),
         "Rebalance not completed");
+    TestUtils.waitForCondition(() -> !authStore.writer().ready(), "Writer ready flag not reset after rebalance");
     assertEquals(new URL("http://server2:8089"), authStore.masterWriterUrl("http"));
     assertEquals(new URL("https://server2:8090"), authStore.masterWriterUrl("https"));
+
+    newWriter = storeNodeId;
+    authStore.makeMasterWriter(newWriter);
+    TestUtils.waitForCondition(() -> authStore.url("http").equals(authStore.masterWriterUrl("http")),
+        "Rebalance not completed");
+    TestUtils.waitForCondition(() -> authStore.writer().ready(), "Writer not ready after rebalance");
 
     assertEquals(authStore.nodes.values().stream().map(n -> n.url("http")).collect(Collectors.toSet()),
         authStore.activeNodeUrls("http"));
@@ -339,7 +346,7 @@ public class KafkaAuthWriterTest {
     stage1.toCompletableFuture().get(10, TimeUnit.SECONDS);
 
     // Pending write should fail when new generation status record appears
-    authStore.addNewGenerationStatusRecord(2);
+    authStore.addNewGenerationStatusRecord(3);
     verifyFailure(stage2, NotMasterWriterException.class);
   }
 

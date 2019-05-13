@@ -47,6 +47,7 @@ public class RbacEndToEndAuthorizationTest {
   private static final String APP2_TOPIC = "app2-topic";
   private static final String APP2_CONSUMER_GROUP = "app2-consumer-group";
 
+  private Config config;
   private RbacClusters rbacClusters;
   private String clusterId;
 
@@ -60,15 +61,8 @@ public class RbacEndToEndAuthorizationTest {
         OPERATOR,
         CLUSTER_ADMIN
     );
-    Config config = new Config()
+    config = new Config()
         .users(BROKER_USER, otherUsers);
-    rbacClusters = new RbacClusters(config);
-
-    rbacClusters.kafkaCluster.createTopic(APP1_TOPIC, 2, 1);
-    rbacClusters.kafkaCluster.createTopic(APP2_TOPIC, 2, 1);
-    clusterId = rbacClusters.kafkaClusterId();
-
-    initializeRoles();
   }
 
   @After
@@ -84,6 +78,7 @@ public class RbacEndToEndAuthorizationTest {
 
   @Test
   public void testProduceConsumeWithRbac() throws Throwable {
+    setupRbacClusters(1);
     rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
     rbacClusters.produceConsume(DEVELOPER2, APP1_TOPIC, APP1_CONSUMER_GROUP, false);
     rbacClusters.produceConsume(DEVELOPER2, APP2_TOPIC, APP2_CONSUMER_GROUP, true);
@@ -95,6 +90,7 @@ public class RbacEndToEndAuthorizationTest {
 
   @Test
   public void testClusterScopedRoles() throws Throwable {
+    setupRbacClusters(1);
     rbacClusters.produceConsume(OPERATOR, APP1_TOPIC, APP1_CONSUMER_GROUP, false);
     rbacClusters.produceConsume(CLUSTER_ADMIN, APP1_TOPIC, APP1_CONSUMER_GROUP, false);
 
@@ -127,6 +123,7 @@ public class RbacEndToEndAuthorizationTest {
 
   @Test
   public void testProduceConsumeWithGroupRoles() throws Throwable {
+    setupRbacClusters(1);
     rbacClusters.updateUserGroup(DEVELOPER2, DEVELOPER_GROUP);
     rbacClusters.assignRole(AccessRule.GROUP_PRINCIPAL_TYPE, DEVELOPER_GROUP, "DeveloperRead", clusterId,
         Utils.mkSet(new ResourcePattern("Group", APP1_CONSUMER_GROUP, PatternType.LITERAL),
@@ -139,9 +136,36 @@ public class RbacEndToEndAuthorizationTest {
 
   @Test
   public void testAuthorizationWithRolesInOtherScopes() throws Throwable {
+    setupRbacClusters(1);
     createAdditionalRoles("confluent/core/anotherCluster");
     createAdditionalRoles("confluent/anotherDepartment/testCluster");
     rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
+  }
+
+  @Test
+  public void testAuthWriterFailover() throws Throwable {
+    setupRbacClusters(2);
+    rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
+    rbacClusters.restartMasterWriter();
+
+    rbacClusters.produceConsume(DEVELOPER2, APP1_TOPIC, APP1_CONSUMER_GROUP, false);
+    rbacClusters.assignRole(KafkaPrincipal.USER_TYPE, DEVELOPER2, "ResourceOwner", clusterId,
+        Utils.mkSet(new ResourcePattern("Group", APP1_CONSUMER_GROUP, PatternType.LITERAL),
+            new ResourcePattern("Topic", APP1_TOPIC, PatternType.LITERAL)));
+    rbacClusters.waitUntilAccessAllowed(DEVELOPER2, APP1_TOPIC);
+    rbacClusters.produceConsume(DEVELOPER2, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
+  }
+
+  private void setupRbacClusters(int numMetadataServers) throws Exception {
+    for (int i = 1; i < numMetadataServers; i++)
+      config = config.addMetadataServer();
+    rbacClusters = new RbacClusters(config);
+
+    rbacClusters.kafkaCluster.createTopic(APP1_TOPIC, 2, 1);
+    rbacClusters.kafkaCluster.createTopic(APP2_TOPIC, 2, 1);
+    clusterId = rbacClusters.kafkaClusterId();
+
+    initializeRoles();
   }
 
   private void initializeRoles() throws Exception {

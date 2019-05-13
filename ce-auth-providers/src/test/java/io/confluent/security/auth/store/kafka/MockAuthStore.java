@@ -14,6 +14,7 @@ import io.confluent.security.authorizer.utils.JsonMapper;
 import io.confluent.security.rbac.RbacRoles;
 import io.confluent.security.store.MetadataStoreStatus;
 import io.confluent.security.store.kafka.KafkaStoreConfig;
+import io.confluent.security.store.kafka.clients.Writer;
 import io.confluent.security.store.kafka.coordinator.MetadataNodeManager;
 import io.confluent.security.store.kafka.coordinator.MetadataServiceAssignment;
 import io.confluent.security.store.kafka.coordinator.MetadataServiceAssignment.AssignmentError;
@@ -77,7 +78,7 @@ public class MockAuthStore extends KafkaAuthStore {
   private final AtomicInteger revokeCount = new AtomicInteger();
   volatile MockProducer<AuthKey, AuthValue> producer;
   volatile MockConsumer<AuthKey, AuthValue> consumer;
-  private volatile MetadataNodeManager nodeManager;
+  private volatile MockNodeManager nodeManager;
   private volatile long produceDelayMs;
   private volatile long consumeDelayMs;
   private volatile MockClient coordinatorClient;
@@ -155,33 +156,7 @@ public class MockAuthStore extends KafkaAuthStore {
                                                   KafkaStoreConfig config,
                                                   KafkaAuthWriter writer,
                                                   Time time) {
-    nodeManager = new MetadataNodeManager(nodeUrls, config, writer, time) {
-      @Override
-      protected KafkaClient createKafkaClient(ConsumerConfig coordinatorConfig,
-                                              Metadata metadata,
-                                              Time time,
-                                              LogContext logContext) {
-        return createCoordinatorClient(time, metadata);
-      }
-
-      @Override
-      public synchronized void onAssigned(MetadataServiceAssignment assignment, int generationId) {
-        assignCount.incrementAndGet();
-        super.onAssigned(assignment, generationId);
-      }
-
-      @Override
-      public synchronized void onRevoked(int generationId) {
-        revokeCount.incrementAndGet();
-        super.onRevoked(generationId);
-      }
-
-      @Override
-      public void close(Duration timeout) {
-        // To avoid processing pending requests, just close without waiting
-        super.close(Duration.ZERO);
-      }
-    };
+    nodeManager = new MockNodeManager(nodeUrls, config, writer, time);
     return nodeManager;
   }
 
@@ -212,10 +187,11 @@ public class MockAuthStore extends KafkaAuthStore {
     int expectedRevokeCount = revokeCount.get() + 1;
 
     try {
-      if (nodeId != this.nodeId) {
+      if (nodeId != this.nodeId)
         nodeManager.onWriterResigned(oldGeneration);
-        TestUtils.waitForCondition(() -> revokeCount.get() == expectedRevokeCount, "Writer not revoked");
-      }
+      else
+        nodeManager.onWriterResigned();
+      TestUtils.waitForCondition(() -> revokeCount.get() == expectedRevokeCount, "Writer not revoked");
 
       if (nodeId != -1) {
         TestUtils.waitForCondition(() -> this.masterWriterUrl("http") != null, "Writer not elected");
@@ -305,5 +281,44 @@ public class MockAuthStore extends KafkaAuthStore {
     store.configure(configs);
     store.startReader();
     return store;
+  }
+
+  private class MockNodeManager extends MetadataNodeManager {
+    MockNodeManager(Collection<URL> nodeUrls,
+        KafkaStoreConfig config,
+        Writer metadataWriter,
+        Time time) {
+      super(nodeUrls, config, metadataWriter, time);
+    }
+
+    @Override
+    protected KafkaClient createKafkaClient(ConsumerConfig coordinatorConfig,
+        Metadata metadata,
+        Time time,
+        LogContext logContext) {
+      return createCoordinatorClient(time, metadata);
+    }
+
+    @Override
+    public synchronized void onAssigned(MetadataServiceAssignment assignment, int generationId) {
+      assignCount.incrementAndGet();
+      super.onAssigned(assignment, generationId);
+    }
+
+    @Override
+    public synchronized void onRevoked(int generationId) {
+      revokeCount.incrementAndGet();
+      super.onRevoked(generationId);
+    }
+
+    @Override
+    public void close(Duration timeout) {
+      // To avoid processing pending requests, just close without waiting
+      super.close(Duration.ZERO);
+    }
+
+    public void onWriterResigned() {
+      super.onWriterResigned();
+    }
   }
 }

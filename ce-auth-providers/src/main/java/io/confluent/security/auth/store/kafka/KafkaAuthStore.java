@@ -33,7 +33,7 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
 
   private static final Logger log = LoggerFactory.getLogger(KafkaAuthStore.class);
 
-  public static final  String AUTH_TOPIC = "__confluent_security_auth";
+  public static final String AUTH_TOPIC = "__confluent_security_auth";
 
   private static final Duration CLOSE_TIMEOUT = Duration.ofSeconds(30);
 
