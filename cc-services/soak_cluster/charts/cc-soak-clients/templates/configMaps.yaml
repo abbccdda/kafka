@@ -12,7 +12,8 @@ data:
   "sasl.mechanism": "PLAIN",
   "sasl.jaas.config": "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"{{ .Values.apiKey }}\" password=\"{{ .Values.apiSecret }}\";",
   "security.protocol": "SASL_SSL",
-  "retention.ms": {{ .Values.logRetentionMs }}
+  "retention.ms": {{ .Values.logRetentionMs }},
+  "linger.ms": {{ .Values.LingerMs }}
 }
 '
 ---
@@ -111,6 +112,25 @@ data:
       "long_lived_consumer_count": 1,
       "short_lived_consumer_count": 1,
       "idempotence_enabled": true
+    }
+  ]
+}
+'
+  high-load-topic.json: '
+{
+  "long_lived_task_duration_ms": {{ .Values.longLivedTaskMs }},
+  "short_lived_task_duration_ms": {{ .Values.shortLivedTaskMs }},
+  "short_lived_task_reschedule_delay_ms": {{ .Values.shortLivedTaskRescheduleDelayMs }},
+  "topics": [
+    {
+      "name": "tenant_soak_high_bandwidth_topic_72p",
+      "partitions_count": 72,
+      "produce_mbs_throughput": 150,
+      "consume_mbs_throughput": 200,
+      "long_lived_producer_count": 6,
+      "short_lived_producer_count": 6,
+      "long_lived_consumer_count": 6,
+      "short_lived_consumer_count": 6
     }
   ]
 }
