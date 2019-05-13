@@ -1334,7 +1334,6 @@ project(':streams:test-utils') {
 
 project(':support-metrics-client') {
   archivesBaseName = "support-metrics-client"
-  version = cpVersion
   group = "io.confluent.support"
 
   dependencies {
@@ -1414,7 +1413,6 @@ project(':support-metrics-client') {
 
 project(':support-metrics-common') {
   archivesBaseName = "support-metrics-common"
-  version = cpVersion
   group = "io.confluent.support"
 
   dependencies {
@@ -1492,7 +1490,6 @@ project(':support-metrics-common') {
 
 project(':support-metrics-fullcollector') {
   archivesBaseName = "support-metrics-fullcollector"
-  version = cpVersion
   group = "io.confluent.support"
 
   dependencies {
@@ -2052,8 +2049,8 @@ project(':connect:basic-auth-extension') {
 
 project(':ce-metrics') {
   apply plugin: 'com.github.johnrengelman.shadow'
+  group = "io.confluent"
   archivesBaseName = "confluent-metrics"
-  version = cpVersion
 
   dependencies {
     compile libs.bcpkix
@@ -2092,8 +2089,8 @@ project(':ce-metrics') {
 
 project(':ce-serializers') {
   apply plugin: 'com.google.protobuf'
+  group = "io.confluent"
   archivesBaseName = "confluent-serializers-new"
-  version = cpVersion
 
   dependencies {
     compile libs.gson
@@ -2148,7 +2145,7 @@ project(':ce-serializers') {
 
 project(':ce-licensing') {
   archivesBaseName = "confluent-licensing-new"
-  version = cpVersion
+  group = "io.confluent"
 
   dependencies {
     compile libs.jose4j
@@ -2192,8 +2189,8 @@ project(':ce-licensing') {
 
 project(':ce-kafka-client-plugins') {
   apply plugin: 'com.github.johnrengelman.shadow'
+  group = "io.confluent"
   archivesBaseName = "kafka-client-plugins"
-  version = cpVersion
 
   dependencies {
     compile project(':clients')
@@ -2231,8 +2228,8 @@ project(':ce-kafka-client-plugins') {
 
 project(':ce-broker-plugins') {
   apply plugin: 'com.github.johnrengelman.shadow'
+  group = "io.confluent"
   archivesBaseName = "broker-plugins"
-  version = cpVersion
 
   dependencies {
     compile libs.bcpkix
@@ -2287,8 +2284,8 @@ project(':ce-broker-plugins') {
 
 project(':ce-authorizer') {
   apply plugin: 'com.github.johnrengelman.shadow'
+  group = "io.confluent"
   archivesBaseName = "authorizer"
-  version = cpVersion
 
   dependencies {
     compile project(':clients')
@@ -2327,8 +2324,8 @@ project(':ce-authorizer') {
 
 project(':ce-rest-authorizer') {
   apply plugin: 'com.github.johnrengelman.shadow'
+  group = "io.confluent"
   archivesBaseName = "rest-authorizer"
-  version = cpVersion
 
   dependencies {
     compile project(':clients')
@@ -2371,8 +2368,8 @@ project(':ce-rest-authorizer') {
 
 project(':ce-rbac') {
   apply plugin: 'com.github.johnrengelman.shadow'
+  group = "io.confluent"
   archivesBaseName = "rbac"
-  version = cpVersion
 
   dependencies {
     compile project(':clients')
@@ -2414,8 +2411,8 @@ project(':ce-rbac') {
 
 project(':ce-auth-providers') {
   apply plugin: 'com.github.johnrengelman.shadow'
+  group = "io.confluent"
   archivesBaseName = "auth-providers"
-  version = cpVersion
 
   dependencies {
     compile libs.bcpkix
@@ -2479,7 +2476,7 @@ project(':ce-auth-providers') {
 
 project(':ce-aegis') {
   archivesBaseName = "aegis"
-  version = cpVersion
+  group = "io.confluent"
 
   dependencies {
     compile libs.argparse4j
