@@ -38,8 +38,8 @@ buildscript {
     classpath "com.diffplug.spotless:spotless-plugin-gradle:$versions.spotlessPlugin"
     classpath "gradle.plugin.com.github.spotbugs:spotbugs-gradle-plugin:$versions.spotbugsPlugin"
     classpath "com.commercehub.gradle.plugin:gradle-avro-plugin:$versions.avroPlugin"
-    classpath 'com.google.protobuf:protobuf-gradle-plugin:0.8.6'
-    classpath 'de.undercouch:gradle-download-task:3.4.3'
+    classpath "com.google.protobuf:protobuf-gradle-plugin:$versions.protobufPlugin"
+    classpath "de.undercouch:gradle-download-task:$versions.downloadTaskPlugin"
   }
 }
 
