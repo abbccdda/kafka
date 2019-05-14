@@ -92,7 +92,7 @@ public class TenantLifecycleManagerTest {
     }
 
     @Test
-    public void testOnlyDeleteTenantsOnce() throws ExecutionException, InterruptedException, IOException {
+    public void testOnlyDeleteTenantsOnce() throws ExecutionException, InterruptedException {
         // count how many times we are trying to delete a topic
 
         TenantContext tc = new TenantContext(new MultiTenantPrincipal("",
@@ -115,9 +115,10 @@ public class TenantLifecycleManagerTest {
         // to validate the topics are gone and the tenant is deleted
         verify(mockAdminClient, times(2)).listTopics(any());
 
-        // Try deleting tenants again and check that we are not calling the admin client again
-        // because tenant was already deleted
+        // Try updating metadata and deleting tenants again and check that we are not calling the
+        // admin client again because tenant was already deleted
         reset(mockAdminClient);
+        lifecycleManager.updateTenantState(LC_META_DED);
         lifecycleManager.deleteTenants();
         verify(mockAdminClient, never()).listTopics(any());
     }

@@ -107,14 +107,20 @@ public class TenantLifecycleManager {
     }
 
     public void updateTenantState(LogicalClusterMetadata lcMeta) {
-        if (active(lcMeta))
-            tenantLifecycleState.put(lcMeta.logicalClusterId(), State.ACTIVE);
-        else if (shouldDelete(lcMeta))
-            tenantLifecycleState.put(lcMeta.logicalClusterId(), State.DELETE_IN_PROGRESS);
-        else if (shouldDeactivate(lcMeta)) {
-            LOG.warn("Tenant {} was deactivated and will be deleted in {}.", lcMeta.logicalClusterId(),
+        String lcId = lcMeta.logicalClusterId();
+        if (active(lcMeta)) {
+            State prevState = tenantLifecycleState.put(lcId, State.ACTIVE);
+
+            if (prevState == State.DEACTIVATED)
+                LOG.info("Tenant {} was reactivated and will not be deleted", lcId);
+            else if (prevState == State.DELETE_IN_PROGRESS || prevState == State.DELETED)
+                LOG.warn("Attempted to reactive tenant {} but it was already deleted.", lcId);
+        } else if (shouldDelete(lcMeta)) {
+            tenantLifecycleState.put(lcId, State.DELETE_IN_PROGRESS);
+        } else if (shouldDeactivate(lcMeta)) {
+            tenantLifecycleState.put(lcId, State.DEACTIVATED);
+            LOG.warn("Tenant {} was deactivated and will be deleted in {}.", lcId,
                     Duration.ofMillis(deleteDelayMs));
-            tenantLifecycleState.put(lcMeta.logicalClusterId(), State.DEACTIVATED);
         }
     }
 
