@@ -23,11 +23,12 @@ import static org.junit.Assert.assertNull;
 public class ProtoSerdeTest {
 
   private ProtoSerde<AMessage> serde;
-  private static final String JSON = "{\"aString\":\"my string\",\"aLong\":\"1029309\"}";
+  private static final String JSON = "{\"aString\":\"my string\",\"aLong\":\"1029309\",\"second_string\":\"second string\"}";
   private final AMessage original = AMessage.newBuilder()
       .setALong(1029309)
       .setAString("my string")
       .setAnEnum(AnEnum.A)
+      .setSecondString("second string")
       .build();
 
   @Before
@@ -84,5 +85,23 @@ public class ProtoSerdeTest {
     Gson gson = new Gson();
     Map<String, Object> decoded = (Map<String, Object>) gson.fromJson(json, HashMap.class);
     assertEquals("my string", decoded.get("aString"));
+  }
+
+  @Test
+  public void toJSONPreseveFieldNameTrue() throws Exception {
+    String json = serde.toJson(original, true);
+    assertFalse(json.contains("\n"));
+    Gson gson = new Gson();
+    Map<String, Object> decoded = (Map<String, Object>) gson.fromJson(json, HashMap.class);
+    assertEquals("second string", decoded.get("second_string"));
+  }
+
+  @Test
+  public void toJSONPreseveFieldNameFalse() throws Exception {
+    String json = serde.toJson(original, false);
+    assertFalse(json.contains("\n"));
+    Gson gson = new Gson();
+    Map<String, Object> decoded = (Map<String, Object>) gson.fromJson(json, HashMap.class);
+    assertEquals("second string", decoded.get("secondString"));
   }
 }

@@ -14,4 +14,5 @@ message AMessage {
   int64 aLong = 3;
   int32 anInt = 4;
   string anotherString = 5;
+  string second_string = 6;
 }

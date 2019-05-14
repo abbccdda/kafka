@@ -132,11 +132,23 @@ public class ProtoSerde<T extends Message> implements
 
   @Override
   public String toJson(T obj) {
+    return toJson(obj, false);
+  }
+
+  public String toJson(T obj, boolean preseveFieldName) {
     try {
-      return JsonFormat.printer()
-          .includingDefaultValueFields()
-          .omittingInsignificantWhitespace()
-          .print(obj);
+      if (preseveFieldName) {
+        return JsonFormat.printer()
+            .includingDefaultValueFields()
+            .omittingInsignificantWhitespace()
+            .preservingProtoFieldNames()
+            .print(obj);
+      } else {
+        return JsonFormat.printer()
+            .includingDefaultValueFields()
+            .omittingInsignificantWhitespace()
+            .print(obj);
+      }
     } catch (InvalidProtocolBufferException e) {
       throw new SerializationException("JSON formatting failed: " + e.getMessage(), e);
     }
