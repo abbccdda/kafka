@@ -148,13 +148,14 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
     LOG.warn("Configured and started instance for broker session {}", instanceKey);
   }
 
-
-
   // used by unit test
   void configure(String logicalClustersDir, long reloadDelaysMs) {
+    configure(logicalClustersDir, reloadDelaysMs, new TenantLifecycleManager(0, null));
+  }
+  void configure(String logicalClustersDir, long reloadDelaysMs, TenantLifecycleManager lifecycleManager) {
     this.reloadDelaysMs = reloadDelaysMs;
     this.logicalClustersDir = logicalClustersDir;
-    this.tenantLifecycleManager = new TenantLifecycleManager(0, null);
+    this.tenantLifecycleManager = lifecycleManager;
   }
 
   @Override
@@ -402,6 +403,11 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
     cacheLock.readLock().lock();
     try {
       loadAllFiles();
+    } catch (Exception e) {
+      // most of the exceptions are caught earlier
+      // if we get here, it means something unexpected happened which we should fix or
+      // catch/recover from exception earlier
+      LOG.warn("Failed to load/update metadata of at least one logical cluster", e);
     } finally {
       cacheLock.readLock().unlock();
     }
@@ -447,17 +453,9 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
     return logicalClusterId;
   }
 
-  private static QuotaConfig quotaConfig(LogicalClusterMetadata lcMeta) {
-    double multiplier = 1 + lcMeta.networkQuotaOverhead() / 100.0;
-    return new QuotaConfig((long) (multiplier * lcMeta.producerByteRate()),
-          (long) (multiplier * lcMeta.consumerByteRate()),
-          lcMeta.brokerRequestPercentage(),
-          QuotaConfig.UNLIMITED_QUOTA);
-  }
-
   private void updateQuotas() {
     Map<String, QuotaConfig> tenantQuotas = logicalClusterMap.entrySet().stream()
-        .collect(Collectors.toMap(Map.Entry::getKey, e -> quotaConfig(e.getValue())));
+        .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().quotaConfig()));
     TenantQuotaCallback.updateQuotas(tenantQuotas, QuotaConfig.UNLIMITED_QUOTA);
   }
 
@@ -518,6 +516,8 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
         runWatcher(watchService, logicalClustersDirPath);
       } catch (InterruptedException ie) {
         LOG.warn("Watching {} was interrupted.", logicalClustersDir);
+      } catch (Exception e) {
+        LOG.warn("Stopping watching {}", logicalClustersDir, e);
       } finally {
         close();
       }

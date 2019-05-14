@@ -4,6 +4,7 @@ package io.confluent.kafka.multitenant;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import org.apache.kafka.server.quota.ClientQuotaType;
 import org.junit.Test;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
@@ -14,6 +15,7 @@ import static io.confluent.kafka.multitenant.Utils.LC_META_XYZ;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
@@ -21,6 +23,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Date;
+
+import io.confluent.kafka.multitenant.quota.QuotaConfig;
 
 public class LogicalClusterMetadataTest {
 
@@ -51,7 +55,7 @@ public class LogicalClusterMetadataTest {
 
   @Test
   public void testDefaultHeadroom() throws IOException {
-    // test legacy headroom
+    // ensure we set default headroom even for "legacy" (<=5MB/s) ingress and egress
     final LogicalClusterMetadata legacyQuotaMeta = new LogicalClusterMetadata(
         LC_META_ABC.logicalClusterId(), LC_META_ABC.physicalClusterId(),
         "new-name", "new-account", LC_META_XYZ.k8sClusterId(),
@@ -59,11 +63,15 @@ public class LogicalClusterMetadataTest {
         5L * 1024L * 1024L, 5L * 1024L * 1024L,
         LC_META_ABC.brokerRequestPercentage().longValue(), null, null
     );
-    assertEquals(100, legacyQuotaMeta.networkQuotaOverhead().longValue());
+    assertEquals(LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
+                 legacyQuotaMeta.networkQuotaOverhead());
+    QuotaConfig quotaConfig = legacyQuotaMeta.quotaConfig();
+    assertEquals(5L * 1024L * 1024L, quotaConfig.quota(ClientQuotaType.PRODUCE), 0.001);
+    assertEquals(5L * 1024L * 1024L, quotaConfig.quota(ClientQuotaType.FETCH), 0.001);
+    assertEquals(LC_META_ABC.brokerRequestPercentage(),
+                 quotaConfig.quota(ClientQuotaType.REQUEST), 0.001);
 
-    // test legacy headroom -- if any of consume quotas is higher than 5MB/sec, we know for sure
-    // this is not legacy anymore, even if produce bandwidth is below 5MB/sec (which we may set
-    // to throttle down CCP customers that ran out of their storage limit
+    // low ingress, 100MB/s egress -- same default headroom
     final LogicalClusterMetadata largeConsumeQuotaMeta = new LogicalClusterMetadata(
         LC_META_ABC.logicalClusterId(), LC_META_ABC.physicalClusterId(),
         "new-name", "new-account", LC_META_XYZ.k8sClusterId(),
@@ -71,9 +79,17 @@ public class LogicalClusterMetadataTest {
         1024L * 1024L, 100L * 1024L * 1024L,
         LC_META_ABC.brokerRequestPercentage().longValue(), null, null
     );
-    assertEquals(0, largeConsumeQuotaMeta.networkQuotaOverhead().longValue());
+    assertEquals(LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
+                 largeConsumeQuotaMeta.networkQuotaOverhead());
+    quotaConfig = largeConsumeQuotaMeta.quotaConfig();
+    assertEquals(1024L * 1024L,
+                 quotaConfig.quota(ClientQuotaType.PRODUCE), 0.001);
+    assertEquals(100L * 1024L * 1024L,
+                 quotaConfig.quota(ClientQuotaType.FETCH), 0.001);
+    assertEquals(LC_META_ABC.brokerRequestPercentage(),
+                 quotaConfig.quota(ClientQuotaType.REQUEST), 0.001);
 
-    // test new headroom
+    // high ingress and egress -- same default headroom
     final LogicalClusterMetadata largeQuotaMeta = new LogicalClusterMetadata(
         LC_META_ABC.logicalClusterId(), LC_META_ABC.physicalClusterId(),
         "new-name", "new-account", LC_META_XYZ.k8sClusterId(),
@@ -81,7 +97,15 @@ public class LogicalClusterMetadataTest {
         100L * 1024L * 1024L, 100L * 1024L * 1024L,
         LC_META_ABC.brokerRequestPercentage().longValue(), null, null
     );
-    assertEquals(0, largeQuotaMeta.networkQuotaOverhead().longValue());
+    assertEquals(LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
+                 largeQuotaMeta.networkQuotaOverhead());
+    quotaConfig = largeQuotaMeta.quotaConfig();
+    assertEquals(100L * 1024L * 1024L,
+                 quotaConfig.quota(ClientQuotaType.PRODUCE), 0.001);
+    assertEquals(100L * 1024L * 1024L,
+                 quotaConfig.quota(ClientQuotaType.FETCH), 0.001);
+    assertEquals(LC_META_ABC.brokerRequestPercentage(),
+                 quotaConfig.quota(ClientQuotaType.REQUEST), 0.001);
   }
 
   @Test
@@ -108,6 +132,14 @@ public class LogicalClusterMetadataTest {
                  produceZeroQuotaMeta.producerByteRate());
     assertEquals(100L * 1024L * 1024L,
                  produceZeroQuotaMeta.consumerByteRate().longValue());
+
+    QuotaConfig quotaConfig = produceZeroQuotaMeta.quotaConfig();
+    assertEquals(LogicalClusterMetadata.DEFAULT_MIN_NETWORK_BYTE_RATE,
+                 quotaConfig.quota(ClientQuotaType.PRODUCE), 0.001);
+    assertEquals(100L * 1024L * 1024L,
+                 quotaConfig.quota(ClientQuotaType.FETCH), 0.001);
+    assertEquals(LC_META_ABC.brokerRequestPercentage(),
+                 quotaConfig.quota(ClientQuotaType.REQUEST), 0.001);
   }
 
   @Test
@@ -134,7 +166,7 @@ public class LogicalClusterMetadataTest {
   }
 
   @Test
-  public void testLoadMetadataWithNoByteRatesIsInvalid() throws IOException {
+  public void testMetadataWithNoByteRatesIsValid() throws IOException {
     final String lcId = "lkc-fhg";
     final String invalidMeta = "{" +
                                 "\"logical_cluster_id\": \"" + lcId + "\"," +
@@ -150,8 +182,25 @@ public class LogicalClusterMetadataTest {
     // should be able to load valid json
     LogicalClusterMetadata meta = loadFromFile(metaFile);
     assertNotNull(meta);
-    // but not valid metadata
-    assertFalse(meta.isValid());
+    // valid metadata
+    assertTrue(meta.isValid());
+
+    // unset (null) produce/consume rate is valid
+    assertNull(meta.producerByteRate());
+    assertNull(meta.consumerByteRate());
+    // unset request rate will result in default request rate (since currently all logical
+    // clusters have it unset and we assume default)
+    assertEquals(LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER,
+                 meta.brokerRequestPercentage(), 0.001);
+
+    QuotaConfig quotaConfig = meta.quotaConfig();
+    // unset produce/consume rate will result in unlimited produce/consume bandwidth quota
+    assertEquals(QuotaConfig.UNLIMITED_QUOTA.quota(ClientQuotaType.PRODUCE),
+                 quotaConfig.quota(ClientQuotaType.PRODUCE), 0.001);
+    assertEquals(QuotaConfig.UNLIMITED_QUOTA.quota(ClientQuotaType.FETCH),
+                 quotaConfig.quota(ClientQuotaType.FETCH), 0.001);
+    assertEquals(LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER,
+                 quotaConfig.quota(ClientQuotaType.REQUEST), 0.001);
   }
 
   @Test

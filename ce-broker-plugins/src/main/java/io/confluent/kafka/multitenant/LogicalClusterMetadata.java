@@ -10,6 +10,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.util.Date;
 import java.util.Objects;
 
+import io.confluent.kafka.multitenant.quota.QuotaConfig;
+
 /**
  * Represents logical cluster metadata
  */
@@ -87,21 +89,10 @@ public class LogicalClusterMetadata {
     }
     this.producerByteRate = validProducerByteRate;
     this.consumerByteRate = validConsumerByteRate;
-    this.brokerRequestPercentage = brokerRequestPercentage == null ?
+    this.brokerRequestPercentage = brokerRequestPercentage == null || brokerRequestPercentage == 0 ?
                                    DEFAULT_REQUEST_PERCENTAGE_PER_BROKER : brokerRequestPercentage;
-
-    // to make sure we do not introduce dependency on order of release, and make sure that
-    // existing customers with <= 5MB/sec provisioned bandwidth do not experience unexpected drop
-    // in performance before we upgrade them to 100MB/sec.
-    Integer headroom = DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE;
-    final Long legacyMaxByteRate = 5L * 1024L * 1024L;
-    // both producer and consumer must be on small (legacy) quotas, otherwise we know that the
-    // switch already happened, and low quota is set for some other reason
-    if (this.producerByteRate != null && this.producerByteRate <= legacyMaxByteRate &&
-        this.consumerByteRate != null && this.consumerByteRate <= legacyMaxByteRate) {
-      headroom = 100; // headroom we used to have for small provisioned bandwidth
-    }
-    this.networkQuotaOverhead = networkQuotaOverhead == null ? headroom : networkQuotaOverhead;
+    this.networkQuotaOverhead = networkQuotaOverhead == null ?
+                                DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE : networkQuotaOverhead;
     this.lifecycleMetadata = lifecycleMetadata;
   }
 
@@ -169,9 +160,19 @@ public class LogicalClusterMetadata {
    * Returns true if metadata values are valid
    */
   boolean isValid() {
-    return (KAFKA_LOGICAL_CLUSTER_TYPE.equals(logicalClusterType) ||
-            HEALTHCHECK_LOGICAL_CLUSTER_TYPE.equals(logicalClusterType)) &&
-            producerByteRate != null && consumerByteRate != null;
+    return KAFKA_LOGICAL_CLUSTER_TYPE.equals(logicalClusterType) ||
+           HEALTHCHECK_LOGICAL_CLUSTER_TYPE.equals(logicalClusterType);
+  }
+
+  public QuotaConfig quotaConfig() {
+    double multiplier = 1 + networkQuotaOverhead() / 100.0;
+    Long producerByteRate = producerByteRate() == null ?
+                            null : (long) (multiplier * producerByteRate());
+    Long consumerByteRate = consumerByteRate() == null ?
+                            null : (long) (multiplier * consumerByteRate());
+    // will use default (unlimited) for null quotas
+    return new QuotaConfig(producerByteRate, consumerByteRate,
+                           brokerRequestPercentage(), QuotaConfig.UNLIMITED_QUOTA);
   }
 
   @Override

@@ -24,6 +24,8 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.doThrow;
 
 import java.io.File;
 import java.io.IOException;
@@ -351,6 +353,91 @@ public class PhysicalClusterMetadataTest {
   }
 
   @Test
+  public void testListenerThreadShouldNotDieOnUnsetQuotas() throws IOException, InterruptedException {
+    final LogicalClusterMetadata tenantWithUnsetQuota =
+        new LogicalClusterMetadata(
+            "lkc-inv", "pkc-a7sjfe", "my-poc-cluster", "my-account", "k8s-abc",
+            LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
+            5242880000L, 104857600L, null, 0L,
+            LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
+            new LogicalClusterMetadata.LifecycleMetadata("my-poc-cluster", "pkc-a7sjfe", null, null));
+    final int numBrokers = 8;
+    TenantQuotaCallback quotaCallback = setupCallbackAndTenant(
+        LC_META_ABC.logicalClusterId(), numBrokers);
+
+    lcCache.configure(tempFolder.getRoot().getCanonicalPath(), TimeUnit.MINUTES.toMillis(60));
+    lcCache.start();
+    assertEquals(ImmutableSet.of(), lcCache.logicalClusterIds());
+
+    // create logical cluster with unset request quota should still load logical cluster
+    Utils.createLogicalClusterFile(tenantWithUnsetQuota, tempFolder);
+    TestUtils.waitForCondition(
+        () -> lcCache.metadata(tenantWithUnsetQuota.logicalClusterId()) != null,
+        TEST_MAX_WAIT_MS,
+        "Expected metadata of new logical cluster to be present in metadata cache");
+    Map<String, String> tags1 = Collections.singletonMap("tenant", tenantWithUnsetQuota.logicalClusterId());
+    // no partitions on this broker --> min producer quota
+    TestUtils.waitForCondition(
+        () -> quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, tags1).longValue() ==
+              TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE,
+        TEST_MAX_WAIT_MS,
+        "Expected min producer quota for tenant with no topics and limited quota");
+    assertEquals(QuotaConfig.UNLIMITED_QUOTA.quota(ClientQuotaType.FETCH),
+                 quotaCallback.quotaLimit(ClientQuotaType.FETCH, tags1), 0.001);
+    assertEquals(LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER,
+                 quotaCallback.quotaLimit(ClientQuotaType.REQUEST, tags1), 0.001);
+
+    // add another logical cluster to verify that listener thread is still alive
+    Utils.createLogicalClusterFile(LC_META_ABC, tempFolder);
+    // will timeout if loaded on retry thread
+    TestUtils.waitForCondition(
+        () -> lcCache.metadata(LC_META_ABC.logicalClusterId()) != null,
+        TEST_MAX_WAIT_MS,
+        "Expected metadata of 'lkc-abc' logical cluster to be present in metadata cache");
+    quotaCallback.updateClusterMetadata(quotaCallback.cluster());
+
+    // verify quotas are also updated
+    Map<String, String> tags = Collections.singletonMap("tenant", LC_META_ABC.logicalClusterId());
+    TestUtils.waitForCondition(
+        () -> quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, tags) >
+              TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE,
+        TEST_MAX_WAIT_MS,
+        "Expected unlimited quota for tenant with no quota");
+
+    assertEquals(10240000L / numBrokers,
+                 quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, tags), 0.001);
+    assertEquals(204800L / numBrokers,
+                 quotaCallback.quotaLimit(ClientQuotaType.FETCH, tags), 0.001);
+    assertEquals(LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER,
+                 quotaCallback.quotaLimit(ClientQuotaType.REQUEST, tags), 0.001);
+  }
+
+  @Test
+  public void testListenerThreadShouldNotDieOnException() throws IOException, InterruptedException {
+    // long retry period, to make sure we test the listener thread
+    TenantLifecycleManager lifecycleManager = spy(new TenantLifecycleManager(0, null));
+    lcCache.configure(tempFolder.getRoot().getCanonicalPath(), TimeUnit.MINUTES.toMillis(60), lifecycleManager);
+    lcCache.start();
+
+    doThrow(new RuntimeException()).when(lifecycleManager).deleteTenants();
+
+    Utils.createLogicalClusterFile(LC_META_ABC, tempFolder);
+    // will timeout if loaded on retry thread
+    TestUtils.waitForCondition(
+        () -> lcCache.metadata(LC_META_ABC.logicalClusterId()) != null,
+        TEST_MAX_WAIT_MS,
+        "Expected metadata of 'lkc-abc' logical cluster to be present in metadata cache");
+
+    // add another logical cluster to verify that listener thread is still alive
+    Utils.createLogicalClusterFile(LC_META_XYZ, tempFolder);
+    // will timeout if loaded on retry thread
+    TestUtils.waitForCondition(
+        () -> lcCache.metadata(LC_META_XYZ.logicalClusterId()) != null,
+        TEST_MAX_WAIT_MS,
+        "Expected metadata of 'lkc-xyz' logical cluster to be present in metadata cache");
+  }
+
+  @Test
   public void testShouldSkipInvalidJsonButUpdateCacheWhenJsonGetsFixed()
       throws IOException, InterruptedException {
     lcCache.start();
@@ -566,7 +653,7 @@ public class PhysicalClusterMetadataTest {
   @Test
   public void testTenantQuotaUpdateUpdatesQuotaLimitAndUpdatesQuotaResetRequired()
       throws IOException, InterruptedException {
-    final LogicalClusterMetadata legacyTenant =
+    final LogicalClusterMetadata lowIngressEgressTenant =
         new LogicalClusterMetadata(
             "lkc-leg", "pkc-a7sjfe", "my-poc-cluster", "my-account", "k8s-abc",
             LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
@@ -574,29 +661,14 @@ public class PhysicalClusterMetadataTest {
             LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
             new LogicalClusterMetadata.LifecycleMetadata("my-poc-cluster", "pkc-a7sjfe", null, null));
     final LogicalClusterMetadata upgradedTenant =
-        Utils.updateQuotas(legacyTenant, 104857600L, 104857600L, 250L);
+        Utils.updateQuotas(lowIngressEgressTenant, 104857600L, 104857600L, 250L);
 
     // tenant
-    Utils.createLogicalClusterFile(legacyTenant, tempFolder);
+    Utils.createLogicalClusterFile(lowIngressEgressTenant, tempFolder);
 
     // cluster
-    final int brokerId = 1;
     final int numBrokers = 8;
-    TenantQuotaCallback quotaCallback = new TenantQuotaCallback();
-    quotaCallback.configure(Collections.singletonMap("broker.id", String.valueOf(brokerId)));
-    TestCluster testCluster = new TestCluster();
-    for (int i = 1; i <= numBrokers; i++) {
-      testCluster.addNode(i, "rack0");
-    }
-    Cluster cluster = testCluster.cluster();
-    quotaCallback.updateClusterMetadata(cluster);
-
-    // partitions
-    final String topic = legacyTenant.logicalClusterId() + "_topic1";
-    for (int i = 1; i <= numBrokers; i++) {
-      testCluster.setPartitionLeaders(topic, i, 1, i);
-    }
-    quotaCallback.updateClusterMetadata(testCluster.cluster());
+    TenantQuotaCallback quotaCallback = setupCallbackAndTenant(lowIngressEgressTenant.logicalClusterId(), numBrokers);
 
     // since quota update came from metadata update, quota reset flags should not be set
     assertFalse(quotaCallback.quotaResetRequired(ClientQuotaType.PRODUCE));
@@ -607,10 +679,12 @@ public class PhysicalClusterMetadataTest {
     lcCache.start();
     assertTrue("Expected cache to be initialized", lcCache.isUp());
 
-    Map<String, String> tags = Collections.singletonMap("tenant", legacyTenant.logicalClusterId());
-    assertEquals(2.0 * 5242880.0 / numBrokers,
+    Map<String, String> tags = Collections.singletonMap("tenant", lowIngressEgressTenant.logicalClusterId());
+    // we don't have special headroom handling anymore; if some tenant sets <= 5MB/s ingress &
+    // egress, they are still going to have 0 headroom
+    assertEquals(5242880.0 / numBrokers,
                  quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, tags), 0.001);
-    assertEquals(2.0 * 5242880.0 / numBrokers,
+    assertEquals(5242880.0 / numBrokers,
                  quotaCallback.quotaLimit(ClientQuotaType.FETCH, tags), 0.001);
     assertEquals(50.0, quotaCallback.quotaLimit(ClientQuotaType.REQUEST, tags), 0.001);
 
@@ -623,7 +697,7 @@ public class PhysicalClusterMetadataTest {
     // upgrade tenant to 100MB/s quotas
     Utils.updateLogicalClusterFile(upgradedTenant, tempFolder);
     TestUtils.waitForCondition(
-        () -> lcCache.metadata(legacyTenant.logicalClusterId()).producerByteRate() == 104857600L,
+        () -> lcCache.metadata(upgradedTenant.logicalClusterId()).producerByteRate() == 104857600L,
         TEST_MAX_WAIT_MS,
         "Expected metadata to be updated");
     assertEquals(104857600L / numBrokers,
@@ -637,5 +711,26 @@ public class PhysicalClusterMetadataTest {
     assertTrue(quotaCallback.quotaResetRequired(ClientQuotaType.PRODUCE));
     assertTrue(quotaCallback.quotaResetRequired(ClientQuotaType.FETCH));
     assertTrue(quotaCallback.quotaResetRequired(ClientQuotaType.REQUEST));
+  }
+
+  private TenantQuotaCallback setupCallbackAndTenant(String lcId, int numBrokers) {
+    final int brokerId = 1;
+
+    TenantQuotaCallback quotaCallback = new TenantQuotaCallback();
+    quotaCallback.configure(Collections.singletonMap("broker.id", String.valueOf(brokerId)));
+    TestCluster testCluster = new TestCluster();
+    for (int i = 1; i <= numBrokers; i++) {
+      testCluster.addNode(i, "rack0");
+    }
+    Cluster cluster = testCluster.cluster();
+    quotaCallback.updateClusterMetadata(cluster);
+
+    // partitions
+    final String topic = lcId + "_topic1";
+    for (int i = 1; i <= numBrokers; i++) {
+      testCluster.setPartitionLeaders(topic, i, 1, i);
+    }
+    quotaCallback.updateClusterMetadata(testCluster.cluster());
+    return quotaCallback;
   }
 }
