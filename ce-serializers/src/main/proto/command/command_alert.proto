@@ -111,9 +111,12 @@ message WebHookAction {
 
 message Slack {
   string channel = 1;
-  string userName = 2;
-  string iconEmoji = 3;
-  string iconUrl = 4;
+  string username = 2;
+  oneof Emoji {
+    string icon_emoji = 3;
+    string icon_url = 4;
+  }
+  string text = 5;
 }
 
 message PagerDuty {
