@@ -487,9 +487,9 @@ private[log] object LogCleanerManager extends Logging {
     * get max delay between the time when log is required to be compacted as determined
     * by maxCompactionLagMs and the current time.
     */
-  def getMaxCompactionDelay(log: Log, firstDirtyOffset: Long, now: Long) : Long = {
+  def getMaxCompactionDelay(log: AbstractLog, firstDirtyOffset: Long, now: Long) : Long = {
 
-    val dirtyNonActiveSegments = log.logSegments(firstDirtyOffset, log.activeSegment.baseOffset)
+    val dirtyNonActiveSegments = log.localLogSegments(firstDirtyOffset, log.activeSegment.baseOffset)
 
     val firstBatchTimestamps = log.getFirstBatchTimestampForSegments(dirtyNonActiveSegments).filter(_ > 0)
 

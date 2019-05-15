@@ -25,15 +25,15 @@ import org.apache.kafka.common.message.ControlledShutdownRequestData;
 import org.apache.kafka.common.message.ControlledShutdownResponseData;
 import org.apache.kafka.common.message.CreateTopicsRequestData;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfig;
-import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfigSet;
-import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopicSet;
+import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfigCollection;
+import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopicCollection;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignment;
-import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignmentSet;
+import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignmentCollection;
 import org.apache.kafka.common.message.CreateTopicsResponseData;
 import org.apache.kafka.common.message.DeleteTopicsRequestData;
 import org.apache.kafka.common.message.DeleteTopicsResponseData;
 import org.apache.kafka.common.message.DeleteTopicsResponseData.DeletableTopicResult;
-import org.apache.kafka.common.message.DeleteTopicsResponseData.DeletableTopicResultSet;
+import org.apache.kafka.common.message.DeleteTopicsResponseData.DeletableTopicResultCollection;
 import org.apache.kafka.common.message.DescribeGroupsRequestData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData;
 import org.apache.kafka.common.message.FindCoordinatorRequestData;
@@ -76,7 +76,7 @@ import org.apache.kafka.common.requests.CreatePartitionsRequest.PartitionDetails
 import org.apache.kafka.common.requests.CreatePartitionsResponse;
 import org.apache.kafka.common.requests.CreateTopicsRequest;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResult;
-import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResultSet;
+import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResultCollection;
 import org.apache.kafka.common.requests.CreateTopicsResponse;
 import org.apache.kafka.common.requests.DeleteAclsRequest;
 import org.apache.kafka.common.requests.DeleteAclsResponse;
@@ -577,7 +577,7 @@ public class MultiTenantRequestContextTest {
     for (short ver = ApiKeys.JOIN_GROUP.oldestVersion(); ver <= ApiKeys.JOIN_GROUP.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.JOIN_GROUP, ver);
 
-      JoinGroupRequestData.JoinGroupRequestProtocolSet protocols = new JoinGroupRequestData.JoinGroupRequestProtocolSet(
+      JoinGroupRequestData.JoinGroupRequestProtocolCollection protocols = new JoinGroupRequestData.JoinGroupRequestProtocolCollection(
               Collections.singleton(
                       new JoinGroupRequestData.JoinGroupRequestProtocol()
                               .setMetadata(new byte[0])
@@ -713,7 +713,7 @@ public class MultiTenantRequestContextTest {
 
   CreateTopicsRequestData.CreatableTopic creatableTopic(String topicName, int numPartitions,
                                                         short replicationFactor,
-                                                        CreateableTopicConfigSet configs) {
+                                                        CreateableTopicConfigCollection configs) {
       return new CreateTopicsRequestData.CreatableTopic()
               .setName(topicName)
               .setNumPartitions(numPartitions)
@@ -732,13 +732,13 @@ public class MultiTenantRequestContextTest {
   public void testCreateTopicsRequest() {
     for (short ver = ApiKeys.CREATE_TOPICS.oldestVersion(); ver <= ApiKeys.CREATE_TOPICS.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_TOPICS, ver);
-      CreatableTopicSet requestTopics =
-              new CreateTopicsRequestData.CreatableTopicSet();
+      CreatableTopicCollection requestTopics =
+              new CreateTopicsRequestData.CreatableTopicCollection();
 
       requestTopics.add(creatableTopic("foo", 4, (short) 1, testConfigs()));
 
-      CreatableReplicaAssignmentSet unbalancedAssignments =
-              new CreateTopicsRequestData.CreatableReplicaAssignmentSet();
+      CreatableReplicaAssignmentCollection unbalancedAssignments =
+              new CreateTopicsRequestData.CreatableReplicaAssignmentCollection();
       unbalancedAssignments.add(new CreatableReplicaAssignment()
               .setPartitionIndex(0)
               .setBrokerIds(Arrays.asList(0, 1)));
@@ -795,12 +795,12 @@ public class MultiTenantRequestContextTest {
     for (short ver = ApiKeys.CREATE_TOPICS.oldestVersion(); ver <= ApiKeys.CREATE_TOPICS.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_TOPICS, ver);
 
-       CreateTopicsRequestData.CreatableTopicSet requestTopics =
-              new CreateTopicsRequestData.CreatableTopicSet();
+       CreateTopicsRequestData.CreatableTopicCollection requestTopics =
+              new CreateTopicsRequestData.CreatableTopicCollection();
       requestTopics.add(creatableTopic("foo", 4, (short) 1, testConfigs()));
 
-       CreateTopicsRequestData.CreatableReplicaAssignmentSet unbalancedAssignments =
-              new CreateTopicsRequestData.CreatableReplicaAssignmentSet();
+       CreateTopicsRequestData.CreatableReplicaAssignmentCollection unbalancedAssignments =
+              new CreateTopicsRequestData.CreatableReplicaAssignmentCollection();
       unbalancedAssignments.add(new CreateTopicsRequestData.CreatableReplicaAssignment()
               .setPartitionIndex(0)
               .setBrokerIds(Arrays.asList(0, 1)));
@@ -864,7 +864,7 @@ public class MultiTenantRequestContextTest {
                       .setErrorMessage("")
                       .setName("tenant_bar"));
       CreateTopicsResponse outbound = new CreateTopicsResponse(new CreateTopicsResponseData()
-              .setTopics(new CreatableTopicResultSet(results.iterator())));
+              .setTopics(new CreatableTopicResultCollection(results.iterator())));
       Struct struct = parseResponse(ApiKeys.CREATE_TOPICS, ver, context.buildResponse(outbound));
       CreateTopicsResponse intercepted = new CreateTopicsResponse(struct, ver);
       assertEquals(new HashSet<>(Arrays.asList("foo", "bar")), intercepted.data().topics()
@@ -887,7 +887,7 @@ public class MultiTenantRequestContextTest {
                       .setErrorMessage("")
                       .setName("tenant_bar"));
       CreateTopicsResponse outbound = new CreateTopicsResponse(new CreateTopicsResponseData()
-              .setTopics(new CreatableTopicResultSet(results.iterator())));
+              .setTopics(new CreatableTopicResultCollection(results.iterator())));
       Struct struct = parseResponse(ApiKeys.CREATE_TOPICS, ver, context.buildResponse(outbound));
       CreateTopicsResponse intercepted = new CreateTopicsResponse(struct, ver);
       assertEquals(new HashSet<>(Arrays.asList("foo", "bar")), intercepted.data().topics()
@@ -919,7 +919,7 @@ public class MultiTenantRequestContextTest {
   public void testDeleteTopicsResponse() throws IOException {
     for (short ver = ApiKeys.DELETE_TOPICS.oldestVersion(); ver <= ApiKeys.DELETE_TOPICS.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_TOPICS, ver);
-      DeletableTopicResultSet deleted = new DeletableTopicResultSet();
+      DeletableTopicResultCollection deleted = new DeletableTopicResultCollection();
       deleted.add(new DeletableTopicResult().setName("tenant_foo").setErrorCode(Errors.NONE.code()));
       deleted.add(new DeletableTopicResult().setName("tenant_bar").setErrorCode(Errors.NONE.code()));
       DeleteTopicsResponse outbound = new DeleteTopicsResponse(new DeleteTopicsResponseData().setResponses(deleted));
@@ -1909,16 +1909,16 @@ public class MultiTenantRequestContextTest {
   }
 
   // Returns the test config map with compression.type stripped out
-  private CreateableTopicConfigSet transformedTestConfigs() {
-    CreateableTopicConfigSet transformedConfigs = testConfigs();
+  private CreateableTopicConfigCollection transformedTestConfigs() {
+    CreateableTopicConfigCollection transformedConfigs = testConfigs();
     transformedConfigs.remove(new CreateableTopicConfig().setName(TopicConfig.COMPRESSION_TYPE_CONFIG).setValue("lz4"));
     return transformedConfigs;
   }
 
   // Gets a map of configs containing all modifiable configs, plus min.insync.replicas, plus
   // an unmodifiable config (compression.type)
-  private CreateableTopicConfigSet testConfigs() {
-    CreateableTopicConfigSet configs = new CreateableTopicConfigSet();
+  private CreateableTopicConfigCollection testConfigs() {
+    CreateableTopicConfigCollection configs = new CreateableTopicConfigCollection();
     configs.add(new CreateableTopicConfig().setName(TopicConfig.CLEANUP_POLICY_CONFIG).setValue("compact"));
     configs.add(new CreateableTopicConfig().setName(TopicConfig.MAX_MESSAGE_BYTES_CONFIG).setValue("16777216"));
     configs.add(new CreateableTopicConfig().setName(TopicConfig.MESSAGE_TIMESTAMP_DIFFERENCE_MAX_MS_CONFIG).setValue("31536000000"));

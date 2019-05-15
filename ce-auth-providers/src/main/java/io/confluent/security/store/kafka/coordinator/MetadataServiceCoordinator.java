@@ -78,8 +78,8 @@ public class MetadataServiceCoordinator extends AbstractCoordinator {
   }
 
   @Override
-  protected JoinGroupRequestData.JoinGroupRequestProtocolSet metadata() {
-    JoinGroupRequestData.JoinGroupRequestProtocolSet protocolSet = new JoinGroupRequestData.JoinGroupRequestProtocolSet();
+  protected JoinGroupRequestData.JoinGroupRequestProtocolCollection metadata() {
+    JoinGroupRequestData.JoinGroupRequestProtocolCollection protocolSet = new JoinGroupRequestData.JoinGroupRequestProtocolCollection();
     protocolSet.add(new JoinGroupRequestData.JoinGroupRequestProtocol()
             .setName(PROTOCOL)
             .setMetadata(nodeMetadata.serialize().array()));

@@ -2074,20 +2074,6 @@ class Log(@volatile var dir: File,
   }
 
   /**
-    * This function does not acquire Log.lock. The caller has to make sure log segments don't get deleted during
-    * this call, and also protects against calling this function on the same segment in parallel.
-    *
-    * Currently, it is used by LogCleaner threads on log compact non-active segments only with LogCleanerManager's lock
-    * to ensure no other logcleaner threads and retention thread can work on the same segment.
-    */
-  private[log] def getFirstBatchTimestampForSegments(segments: Iterable[LogSegment]): Iterable[Long] = {
-    segments.map {
-      segment =>
-        segment.getFirstBatchTimestamp()
-    }
-  }
-
-  /**
    * remove deleted log metrics
    */
   private[log] def removeLogMetrics(): Unit = {

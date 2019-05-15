@@ -166,16 +166,16 @@ class LogCleanerIntegrationTest extends AbstractLogCleanerIntegrationTest {
       s"but lastCleaned=$lastCleaned2", lastCleaned2 >= secondBlockCleanableSegmentOffset)
   }
 
-  private def readFromLog(log: Log): Iterable[(Int, Int)] = {
+  private def readFromLog(log: AbstractLog): Iterable[(Int, Int)] = {
     import JavaConverters._
-    for (segment <- log.logSegments; record <- segment.log.records.asScala) yield {
+    for (segment <- log.localLogSegments; record <- segment.log.records.asScala) yield {
       val key = TestUtils.readString(record.key).toInt
       val value = TestUtils.readString(record.value).toInt
       key -> value
     }
   }
 
-  private def writeKeyDups(numKeys: Int, numDups: Int, log: Log, codec: CompressionType, timestamp: Long, startValue: Int, step: Int): Seq[(Int, Int)] = {
+  private def writeKeyDups(numKeys: Int, numDups: Int, log: AbstractLog, codec: CompressionType, timestamp: Long, startValue: Int, step: Int): Seq[(Int, Int)] = {
     var valCounter = startValue
     for (_ <- 0 until numDups; key <- 0 until numKeys) yield {
       val curValue = valCounter

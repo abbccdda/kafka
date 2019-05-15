@@ -527,6 +527,8 @@ class MergedLog(private[log] val localLog: Log,
 
   override def getHighWatermark: Option[Long] = localLog.getHighWatermark
 
+  override private[log] def lastRecordsOfActiveProducers: Map[Long, LastRecord] = localLog.lastRecordsOfActiveProducers
+
   override private[log] def activeProducersWithLastSequence = localLog.activeProducersWithLastSequence
 
   override private[log] def splitOverflowedSegment(segment: LogSegment) = localLog.splitOverflowedSegment(segment)
@@ -700,7 +702,6 @@ sealed trait AbstractLog {
     */
   def tierableLogSegments: Iterable[LogSegment]
 
-
   /**
    * Get the base offset of the first untiered segment, if one exists
    * @return the base offset.
@@ -809,6 +810,22 @@ sealed trait AbstractLog {
     * @return List of all aborted transactions within the range
     */
   private[log] def collectAbortedTransactions(startOffset: Long, upperBoundOffset: Long): List[AbortedTxn]
+
+  /**
+    * This function does not acquire Log.lock. The caller has to make sure log segments don't get deleted during
+    * this call, and also protects against calling this function on the same segment in parallel.
+    *
+    * Currently, it is used by LogCleaner threads on log compact non-active segments only with LogCleanerManager's lock
+    * to ensure no other logcleaner threads and retention thread can work on the same segment.
+    */
+  private[log] def getFirstBatchTimestampForSegments(segments: Iterable[LogSegment]): Iterable[Long] = {
+    segments.map {
+      segment =>
+        segment.getFirstBatchTimestamp()
+    }
+  }
+
+  private[log] def lastRecordsOfActiveProducers: Map[Long, LastRecord]
 
   /**
     * Collect all active producers along with their last sequence numbers.
