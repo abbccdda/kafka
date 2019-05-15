@@ -62,11 +62,11 @@
             "operations" : ["Create", "Contribute", "Terminate"]
           },
           {
-            "resourceType" : "C3BrokerMetrics",
+            "resourceType" : "ControlCenterBrokerMetrics",
             "operations" : ["Read"]
           },
           {
-            "resourceType" : "C3Alerts",
+            "resourceType" : "ControlCenterAlerts",
             "operations" : ["Read", "Write"]
           }
         ]
@@ -83,11 +83,11 @@
             "operations" : ["ReadStatus", "Pause", "Resume", "Scale"]
           },
           {
-            "resourceType" : "C3BrokerMetrics",
+            "resourceType" : "ControlCenterBrokerMetrics",
             "operations" : ["Read"]
           },
           {
-            "resourceType" : "C3Alerts",
+            "resourceType" : "ControlCenterAlerts",
             "operations" : ["Read", "Write"]
           }
         ]
