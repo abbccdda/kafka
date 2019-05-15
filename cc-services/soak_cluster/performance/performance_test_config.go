@@ -19,10 +19,13 @@ type PerformanceTestConfig struct {
 
 	schedulableTest SchedulableTest
 	job             *common.SchedulableJob
+
+	// determines whether ParseTest() was called successfully
+	parsed bool
 }
 
 // SchedulableTest is an interface for a test that is schedulable.
-// To be eligible for scheduling, the test should have a known duration time.
+// To be eligible for scheduling, the test should have a known duration time or be scheduled to run until a test with a known duration time.
 // After the scheduling is determined, the start and end times of the test
 // 	will be set via the appropriate methods
 type SchedulableTest interface {
@@ -33,6 +36,7 @@ type SchedulableTest interface {
 
 	GetName() string
 
+	// returns the duration of the test. If the test is scheduled to run until another test, this method should return 0
 	GetDuration() time.Duration
 	// returns an error if StartTime is not set
 	GetStartTime() (time.Time, error)
@@ -43,14 +47,29 @@ type SchedulableTest interface {
 	SetEndTime(time.Time)
 }
 
+// TestWithTopics is an interface for a test that makes use of topics.
+type TestWithTopics interface {
+	GetName() string
+	// TopicNames() should return all the topics this test will use
+	TopicNames() []string
+}
+
 const PROGRESSIVE_WORKLOAD_TEST_TYPE = "ProgressiveWorkload"
+const TAIL_CONSUMER_TEST_TYPE = "TailConsume"
 
 func (ptc *PerformanceTestConfig) CreateTest(trogdorAgentsCount int, bootstrapServers string) ([]trogdor.TaskSpec, error) {
 	return ptc.schedulableTest.CreateTest(trogdorAgentsCount, bootstrapServers)
 }
 
-// parseTest() parses the configuration into the concrete test struct
-func (ptc *PerformanceTestConfig) parseTest() error {
+// ParseTest() parses the configuration into the concrete test struct
+// it can return a retriable error of type NotEnoughContext which means that we should try parsing this test
+// again when we have more context from the scenario
+// Parsing will be done only once, if successful
+func (ptc *PerformanceTestConfig) ParseTest(context *ScenarioContext) error {
+	if ptc.parsed {
+		return nil
+	}
+
 	switch ptc.Type {
 	case PROGRESSIVE_WORKLOAD_TEST_TYPE:
 		progressiveWorkload := newWorkload()
@@ -60,15 +79,38 @@ func (ptc *PerformanceTestConfig) parseTest() error {
 		}
 		progressiveWorkload.Name = ptc.Name
 		ptc.schedulableTest = progressiveWorkload
+	case TAIL_CONSUMER_TEST_TYPE:
+		tailConsumer := newTailConsumer()
+		err := json.Unmarshal(ptc.Parameters, tailConsumer)
+		if err != nil {
+			return errors.Wrapf(err, "error while trying to parse tail consumer %s test parameters", tailConsumer.Name)
+		}
+		tailConsumer.Name = ptc.Name
+		err = tailConsumer.validate()
+		if err != nil {
+			return errors.Wrapf(err, "error while validating")
+		}
+
+		if tailConsumer.ProduceTestName != "" {
+			produceTest := context.TestsWithTopics[tailConsumer.ProduceTestName]
+			if produceTest == nil {
+				return newNotEnoughContextError(fmt.Sprintf("could not find test %s to get topics from", tailConsumer.ProduceTestName))
+			}
+
+			tailConsumer.Topics = produceTest.TopicNames()
+		}
+
+		ptc.schedulableTest = tailConsumer
 	default:
 		return fmt.Errorf("test type %s is not supported", ptc.Type)
 	}
+	ptc.parsed = true
 	return nil
 }
 
 // prepareForScheduling() parses the test to get the necessary parameters from it needed for scheduling - namely, duration
-func (ptc *PerformanceTestConfig) prepareForScheduling() error {
-	err := ptc.parseTest()
+func (ptc *PerformanceTestConfig) prepareForScheduling(context *ScenarioContext) error {
+	err := ptc.ParseTest(context)
 	if err != nil {
 		return err
 	}

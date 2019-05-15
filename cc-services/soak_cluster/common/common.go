@@ -135,3 +135,12 @@ func TrogdorAgentPodNames(trogdorAgentsCount int) []string {
 func TimeToUnixMilli(t time.Time) uint64 {
 	return uint64(t.UnixNano() / 1e6)
 }
+
+func StringSliceContains(list []string, element string) bool {
+	for _, item := range list {
+		if item == element {
+			return true
+		}
+	}
+	return false
+}

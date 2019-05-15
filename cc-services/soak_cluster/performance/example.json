@@ -1,9 +1,18 @@
 {
   "scenario_name": "ExampleTest",
+  "schedule": {
+    "test-produce": {
+      "start_after_begin": ["test-consume"],
+      "start_delay": "1m"
+    },
+    "test-consume": {
+      "run_until_end_of": ["test-produce"]
+    }
+  },
   "test_definitions": [
     {
       "test_type": "ProgressiveWorkload",
-      "test_name": "test",
+      "test_name": "test-produce",
       "test_parameters": {
         "workload_type": "Produce",
         "step_duration_ms": 100,
@@ -13,6 +22,14 @@
         "end_throughput_mbs": 20,
         "throughput_increase_per_step_mbs": 5,
         "message_size_bytes": 1000
+      }
+    },
+    {
+      "test_type": "TailConsume",
+      "test_name": "test-consume",
+      "test_parameters": {
+        "fanout": 2,
+        "topics_from_test": "test-produce"
       }
     }
   ]

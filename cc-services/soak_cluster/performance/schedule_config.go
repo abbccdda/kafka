@@ -1,6 +1,7 @@
 package performance
 
 import (
+	"github.com/confluentinc/ce-kafka/cc-services/soak_cluster/common"
 	"github.com/pkg/errors"
 	"time"
 )
@@ -11,6 +12,7 @@ type Schedule struct {
 	StartDelay      string   `json:"start_delay"`
 	StartAfterBegin []string `json:"start_after_begin"`
 	StartAfterEnd   []string `json:"start_after_end"`
+	RunUntilEndOf   []string `json:"run_until_end_of"`
 }
 
 func (sd ScheduleDef) validate(taskNames map[string]*PerformanceTestConfig) error {
@@ -28,6 +30,9 @@ func (sd ScheduleDef) validate(taskNames map[string]*PerformanceTestConfig) erro
 			if testName == sTest {
 				return errors.Errorf("test %s cannot start after itself", testName)
 			}
+			if common.StringSliceContains(schedule.RunUntilEndOf, sTest) {
+				return errors.Errorf("test %s cannot start after %s ends since it is scheduled to run until it ends", testName, sTest)
+			}
 		}
 		for _, sTest := range schedule.StartAfterBegin {
 			if taskNames[sTest] == nil {
@@ -36,7 +41,16 @@ func (sd ScheduleDef) validate(taskNames map[string]*PerformanceTestConfig) erro
 			if testName == sTest {
 				return errors.Errorf("test %s cannot start after itself", testName)
 			}
+			if common.StringSliceContains(schedule.RunUntilEndOf, sTest) {
+				return errors.Errorf("test %s cannot start after %s begins since it is scheduled to run until it ends", testName, sTest)
+			}
 		}
+		for _, runUntilTest := range schedule.RunUntilEndOf {
+			if taskNames[runUntilTest] == nil {
+				return errors.Errorf("test %s does not exist", runUntilTest)
+			}
+		}
+
 		if schedule.StartDelay != "" {
 			_, err := time.ParseDuration(schedule.StartDelay)
 			if err != nil {

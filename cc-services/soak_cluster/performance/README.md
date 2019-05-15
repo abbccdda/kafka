@@ -17,6 +17,7 @@ The framework allows you to schedule multiple tests at once with flexible schedu
     * start_after_end - a list of tasks that should all end before the given task starts
         * we do not support configuring both start_after_begin and start_after_end at once
     * start_delay - defines a duration that should pass before we start the task
+    * run_until_end_of - defines the duration of the given test. It will run until the test with the latest end time in the list
 * test_definitions - defines the different tests this scenario will consist of
     * test_name - name of the test
     * test_type - defines the type of test we will run. Each test supports different test_parameters
@@ -32,6 +33,17 @@ Each step essentially consists of multiple Trogdor tasks. We schedule exactly on
 * end_throughput_mbs - the throughput, in MB/s, we want this test to end at (inclusive)
 * throughput_increase_mbs - the amount of throughput we want to progressively increase each step by
 * message_size_bytes - an approximation of the message size. We always add 100 of the same bytes as padding to the end of the message to simulate a partly-compressible workload
+
+#### Tail Consumer
+A tail consumer test consists of multiple consumers subscribed to a topic. They read from the end of the log at all times with no throttling.
+We schedule exactly one Trogdor ConsumeBench task per Trogdor agent **for every** consumer group at any one given time.
+
+* fanout - defines the number of consumer groups
+* topics_from_test - the name of the test that produces to topics which consumers of this test will subscribe to.
+    * It is expected for this produce test to be defined in the scenario, the tail consumer to be scheduled to run until the end of said produce test and for the topics field to not be populated.
+* topics - mutually-exclusive with _topics_from_test_; the topics these consumers will subscribe to 
+* duration - optional; the duration this test should run for
+
 
 ##### Single Test Example
 See [example.json](example.json) for a sample configuration.
@@ -67,7 +79,10 @@ Note that the _schedule_ field is optional. If omitted, all tasks get scheduled 
       "start_delay": "1m",
       "start_after_begin": ["A"]
     },
-    "A": {}
+    "A": {},
+    "C": {
+      "run_until_end_of": ["B"]
+    }
   },
   "test_definitions": [
     {
@@ -97,11 +112,19 @@ Note that the _schedule_ field is optional. If omitted, all tasks get scheduled 
         "throughput_increase_per_step_mbs": 5,
         "message_size_bytes": 255
       }
+    },
+    {
+      "test_type": "TailConsume",
+      "test_name": "C",
+      "test_parameters": {
+        "fanout": 2,
+        "topics_from_test": "A"
+      }
     }
   ]
 }
 ```
-In this example, we have two produce tasks. The second task, _B_, will start one minute after _A_ starts.
+In this example, we have two produce tasks. The second task, _B_, will start one minute after _A_ starts. Task _C_ will start in the beginning with _A_ and run until _B_ ends. 
 
 ## How to Run
 Pre-requisite: Have Trogdor and the soak clients helm charts deployed. (see [cc-services/README.md](../../README.md))

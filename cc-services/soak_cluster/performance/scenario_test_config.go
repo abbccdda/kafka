@@ -18,12 +18,14 @@ type ScenarioTestConfig struct {
 	TestDefinitions    []*PerformanceTestConfig `json:"test_definitions"`
 	ScheduleDefinition ScheduleDef              `json:"schedule"`
 
-	tests map[string]*PerformanceTestConfig
+	tests   map[string]*PerformanceTestConfig
+	context *ScenarioContext
 }
 
 func newScenarioTestConfig() *ScenarioTestConfig {
 	return &ScenarioTestConfig{
-		tests: make(map[string]*PerformanceTestConfig),
+		tests:   make(map[string]*PerformanceTestConfig),
+		context: newScenarioContext(),
 	}
 }
 
@@ -56,7 +58,7 @@ func (sct *ScenarioTestConfig) ParseConfig(configPath string) error {
 // CreateSchedules() parses the user-defined scheduling and sets each test's startTime/endTime accordingly
 func (sct *ScenarioTestConfig) CreateSchedules(startTime time.Time) error {
 	for _, testConfig := range sct.TestDefinitions {
-		err := testConfig.prepareForScheduling()
+		err := testConfig.prepareForScheduling(sct.context)
 		if err != nil {
 			return err
 		}
@@ -92,6 +94,40 @@ func (sct *ScenarioTestConfig) CreateSchedules(startTime time.Time) error {
 		logutil.Debug(logger, "Test %s got scheduled startTime: %s, endTime: %s", test.Name, startTime, endTime)
 		test.schedulableTest.SetStartTime(startTime)
 		test.schedulableTest.SetEndTime(endTime)
+		if !endTime.After(startTime) {
+			return fmt.Errorf("test %s got scheduled invalid times - startTime: %s, endTime: %s",
+				test.Name, startTime, endTime)
+		}
+	}
+	return nil
+}
+
+func (sct *ScenarioTestConfig) parseTests() error {
+	configsNeedingContext := []*PerformanceTestConfig{}
+	for _, testConfig := range sct.TestDefinitions {
+		err := testConfig.ParseTest(sct.context)
+		if err != nil {
+			switch err.(type) {
+			case *NotEnoughContextError:
+				configsNeedingContext = append(configsNeedingContext, testConfig)
+			default:
+				return err
+			}
+		} else {
+			sct.context.addTest(testConfig.schedulableTest)
+		}
+	}
+	for _, testConfig := range configsNeedingContext {
+		err := testConfig.ParseTest(sct.context)
+		if err != nil {
+			switch err.(type) {
+			case *NotEnoughContextError:
+				return errors.Wrapf(err, "test %s did not have enough context after a second iteration", testConfig.Name)
+			default:
+				return err
+			}
+		}
+		sct.context.addTest(testConfig.schedulableTest)
 	}
 	return nil
 }
@@ -103,6 +139,9 @@ func (sct *ScenarioTestConfig) parseJson(rawJson []byte) error {
 		return err
 	}
 	for _, def := range sct.TestDefinitions {
+		if sct.tests[def.Name] != nil {
+			return fmt.Errorf("test %s is defined twice", def.Name)
+		}
 		sct.tests[def.Name] = def
 	}
 
@@ -185,5 +224,21 @@ func (sct *ScenarioTestConfig) scheduleJob(job *common.SchedulableJob, schedule 
 			return err
 		}
 	}
+
+	if len(schedule.RunUntilEndOf) != 0 {
+		schedulableJobs := make([]*common.SchedulableJob, 0)
+		for _, testName := range schedule.RunUntilEndOf {
+			job, err := sct.tests[testName].getSchedulableJob()
+			if err != nil {
+				return err
+			}
+			schedulableJobs = append(schedulableJobs, job)
+		}
+		err := job.RunUntilEndOf(schedulableJobs)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }

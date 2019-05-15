@@ -1,11 +1,11 @@
 package performance
 
 import (
-	"errors"
 	"fmt"
 	logutil "github.com/confluentinc/cc-utils/log"
 	"github.com/confluentinc/ce-kafka/cc-services/soak_cluster/common"
 	"github.com/confluentinc/ce-kafka/cc-services/soak_cluster/trogdor"
+	"github.com/pkg/errors"
 	"time"
 )
 
@@ -43,6 +43,14 @@ func (workload *Workload) GetDuration() time.Duration {
 	}
 
 	return workload.duration
+}
+
+func (workload *Workload) TopicNames() []string {
+	return []string{workload.topicName()}
+}
+
+func (workload *Workload) topicName() string {
+	return workload.Name + "-topic"
 }
 
 // creates all the Steps that this Workload will consist of
@@ -95,17 +103,17 @@ func (workload *Workload) CreateTest(trogdorAgentsCount int, bootstrapServers st
 	topicSpec := &trogdor.TopicSpec{
 		NumPartitions:     workload.PartitionCount,
 		ReplicationFactor: 3,
-		TopicName:         workload.Name + "-topic",
+		TopicName:         workload.topicName(),
 	}
 	clientNodes := common.TrogdorAgentPodNames(trogdorAgentsCount)
 
 	startTime, err := workload.GetStartTime()
 	if err != nil {
-		return tasks, err
+		return tasks, errors.Wrapf(err, "%s", workload.Name)
 	}
 	endTime, err := workload.GetEndTime()
 	if err != nil {
-		return tasks, err
+		return tasks, errors.Wrapf(err, "%s", workload.Name)
 	}
 
 	workload.populateSteps(startTime)
@@ -117,7 +125,7 @@ func (workload *Workload) CreateTest(trogdorAgentsCount int, bootstrapServers st
 	for _, step := range workload.steps {
 		newTasks, err := step.tasks(topicSpec, clientNodes, bootstrapServers)
 		if err != nil {
-			return tasks, err
+			return tasks, errors.Wrapf(err, "%s", workload.Name)
 		}
 		tasks = append(tasks, newTasks...)
 	}
