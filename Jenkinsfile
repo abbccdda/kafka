@@ -14,7 +14,7 @@ def job = {
     stage("Check compilation compatibility with Scala 2.11") {
         sh "gradle"
         sh "./gradlew clean compileJava compileScala compileTestJava compileTestScala " +
-                "--stacktrace -PscalaVersion=2.11"
+                "--no-daemon --stacktrace -PscalaVersion=2.11"
     }
 
     stage("Compile and validate") {
@@ -36,7 +36,7 @@ def job = {
 
     stage("Integration test") {
         sh "./gradlew integrationTest " +
-                "--no-daemon --stacktrace --continue -PtestLoggingEvents=started,passed,skipped,failed -PmaxParallelForks=6 || true"
+                "--no-daemon --stacktrace --continue -PtestLoggingEvents=started,passed,skipped,failed -PmaxParallelForks=4 || true"
     }
 }
 
