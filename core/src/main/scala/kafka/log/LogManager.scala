@@ -999,6 +999,8 @@ object LogManager {
             logDirFailureChannel: LogDirFailureChannel,
             tierMetadataManager: TierMetadataManager): LogManager = {
     val defaultProps = KafkaServer.copyKafkaConfigToLog(config)
+
+    LogConfig.validateValues(defaultProps)
     val defaultLogConfig = LogConfig(defaultProps)
 
     // read the log configurations from zookeeper

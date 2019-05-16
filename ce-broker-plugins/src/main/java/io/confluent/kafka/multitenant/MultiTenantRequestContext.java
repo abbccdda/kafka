@@ -16,11 +16,11 @@ import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic;
-import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopicSet;
+import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopicCollection;
 import org.apache.kafka.common.message.CreateTopicsRequestData;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfig;
-import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfigSet;
-import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignmentSet;
+import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfigCollection;
+import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignmentCollection;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignment;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResult;
 import org.apache.kafka.common.message.OffsetCommitRequestData;
@@ -265,13 +265,15 @@ public class MultiTenantRequestContext extends RequestContext {
 
   private AbstractRequest transformCreateTopicsRequest(CreateTopicsRequest topicsRequest,
                                                        short version) {
-    final CreatableTopicSet topics = topicsRequest.data().topics();
-    final CreatableTopicSet updatedTopicSet = new CreatableTopicSet();
+    final CreatableTopicCollection topics = topicsRequest.data().topics();
+    final CreatableTopicCollection updatedTopicSet = new CreatableTopicCollection();
 
     for (CreateTopicsRequestData.CreatableTopic topicDetails : topics) {
       removeFilteredConfigs(topicDetails);
       topicDetails.setName(tenantContext.addTenantPrefix(topicDetails.name()));
-      updatedTopicSet.add(topicDetails);
+      updatedTopicSet.add(new CreatableTopic().setConfigs(topicDetails.configs()).setAssignments(topicDetails.assignments())
+              .setReplicationFactor(topicDetails.replicationFactor()).setNumPartitions(topicDetails.numPartitions())
+              .setName(topicDetails.name()));
     }
 
     final boolean overrideAssignments = partitionAssignor != null;
@@ -281,7 +283,7 @@ public class MultiTenantRequestContext extends RequestContext {
       for (CreatableTopic topicDetails : updatedTopicSet) {
         List<List<Integer>> assignment = assignments.getOrDefault(topicDetails.name(),
                 Collections.emptyList());
-        final CreatableReplicaAssignmentSet newAssignments = new CreatableReplicaAssignmentSet();
+        final CreatableReplicaAssignmentCollection newAssignments = new CreatableReplicaAssignmentCollection();
         for (int i = 0; i < assignment.size(); i++) {
           newAssignments.add(new CreatableReplicaAssignment()
                   .setPartitionIndex(i)
@@ -317,10 +319,10 @@ public class MultiTenantRequestContext extends RequestContext {
 
   private void removeFilteredConfigs(CreatableTopic topicDetails) {
     // validate configs
-    CreateableTopicConfigSet filteredConfigs = new CreateableTopicConfigSet();
+    CreateableTopicConfigCollection filteredConfigs = new CreateableTopicConfigCollection();
     for (CreateableTopicConfig config: topicDetails.configs()) {
       if (allowConfigInRequest(config.name())) {
-        filteredConfigs.add(config);
+        filteredConfigs.add(new CreateableTopicConfig().setValue(config.value()).setName(config.name()));
       } else {
         handleNonUpdateableConfig(config.name());
       }
@@ -328,7 +330,7 @@ public class MultiTenantRequestContext extends RequestContext {
     topicDetails.setConfigs(filteredConfigs);
   }
 
-  private Map<String, List<List<Integer>>> newAssignments(CreateTopicsRequestData.CreatableTopicSet topics) {
+  private Map<String, List<List<Integer>>> newAssignments(CreateTopicsRequestData.CreatableTopicCollection topics) {
     Map<String, TenantPartitionAssignor.TopicInfo> topicInfos = new HashMap<>();
 
     for (CreateTopicsRequestData.CreatableTopic topicDetails : topics) {

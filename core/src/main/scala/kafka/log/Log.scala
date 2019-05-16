@@ -160,7 +160,7 @@ case class RollParams(maxSegmentMs: Long,
 
 object RollParams {
   def apply(config: LogConfig, appendInfo: LogAppendInfo, messagesSize: Int, now: Long): RollParams = {
-   new RollParams(config.segmentMs,
+   new RollParams(config.maxSegmentMs,
      config.segmentSize,
      appendInfo.maxTimestamp,
      appendInfo.lastOffset,
@@ -706,6 +706,14 @@ class Log(@volatile var dir: File,
   private[log] def activeProducersWithLastSequence: Map[Long, Int] = lock synchronized {
     producerStateManager.activeProducers.map { case (producerId, producerIdEntry) =>
       (producerId, producerIdEntry.lastSeq)
+    }
+  }
+
+  private[log] def lastRecordsOfActiveProducers: Map[Long, LastRecord] = lock synchronized {
+    producerStateManager.activeProducers.map { case (producerId, producerIdEntry) =>
+      val lastDataOffset = if (producerIdEntry.lastDataOffset >= 0 ) Some(producerIdEntry.lastDataOffset) else None
+      val lastRecord = LastRecord(lastDataOffset, producerIdEntry.producerEpoch)
+      producerId -> lastRecord
     }
   }
 
