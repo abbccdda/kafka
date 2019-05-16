@@ -2,6 +2,8 @@
 
 package io.confluent.security.auth.provider.ldap;
 
+import static org.junit.Assert.fail;
+
 import io.confluent.security.minikdc.MiniKdcWithLdapService;
 import io.confluent.security.test.utils.LdapTestUtils;
 import java.io.IOException;
@@ -88,6 +90,28 @@ public class LdapAuthenticateCallbackHandlerTest {
     authenticate("alice", "alice-secret");
   }
 
+  @Test
+  public void testLdapConnectionFailure() throws Exception {
+    createLdapCallbackHandler(Collections.emptyMap());
+    verifyLdapConnectionFailure();
+  }
+
+  @Test
+  public void testLdapConnectionFailureWithPasswordSearch() throws Exception {
+    createLdapCallbackHandler(Collections.singletonMap(LdapConfig.USER_PASSWORD_ATTRIBUTE_PROP, "userPassword"));
+    verifyLdapConnectionFailure();
+  }
+
+  private void verifyLdapConnectionFailure() throws Exception {
+    authenticate("alice", "alice-secret");
+    miniKdcWithLdapService.stopLdap();
+    verifyAuthenticationFailure("alice", "alice-secret");
+    verifyAuthenticationFailure("alice", "bad-secret");
+    LdapTestUtils.restartLdapServer(miniKdcWithLdapService);
+    authenticate("alice", "alice-secret");
+    verifyAuthenticationFailure("alice", "bad-secret");
+  }
+
   private void createLdapCallbackHandler(Map<String, Object> overrideProps) {
     Map<String, Object> props = new HashMap<>();
     props.putAll(LdapTestUtils.ldapAuthorizerConfigs(miniKdcWithLdapService, 0));
@@ -107,6 +131,15 @@ public class LdapAuthenticateCallbackHandlerTest {
     ldapCallbackHandler.handle(new Callback[] {nameCallback, plainCallback});
     if (!plainCallback.authenticated())
       throw new AuthenticationException("LDAP authentication failed");
+  }
+
+  private void verifyAuthenticationFailure(String userName, String password) throws Exception {
+    try {
+      authenticate(userName, password);
+      fail("Did not fail authentication");
+    } catch (AuthenticationException e) {
+      // Expected exception
+    }
   }
 }
 

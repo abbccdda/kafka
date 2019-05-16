@@ -14,6 +14,7 @@ import java.util.Hashtable;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
+import javax.naming.CommunicationException;
 import javax.naming.NamingEnumeration;
 import javax.naming.NamingException;
 import javax.naming.directory.Attribute;
@@ -197,7 +198,7 @@ public class LdapAuthenticateCallbackHandler implements AuthenticateCallbackHand
         context = searchContextCreator.createLdapContext();
       try {
         return ldapSearch(context, userName);
-      } catch (IOException e) {
+      } catch (IOException | CommunicationException e) {
         if (hasContext) {
           context = searchContextCreator.createLdapContext();
           return ldapSearch(context, userName);
