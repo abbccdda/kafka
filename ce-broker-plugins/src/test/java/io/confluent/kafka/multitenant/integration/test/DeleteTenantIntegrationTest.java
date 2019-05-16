@@ -56,6 +56,7 @@ public class DeleteTenantIntegrationTest {
     private static final long TEST_MAX_WAIT_MS = TimeUnit.SECONDS.toMillis(60);
 
     private IntegrationTestHarness testHarness;
+    private PhysicalCluster physicalCluster;
     private LogicalCluster lc1;
     private LogicalCluster lc2;
     private PhysicalClusterMetadata metadata;
@@ -71,7 +72,7 @@ public class DeleteTenantIntegrationTest {
 
         testHarness = new IntegrationTestHarness();
 
-        PhysicalCluster physicalCluster = testHarness.start(brokerProps());
+        physicalCluster = testHarness.start(brokerProps());
 
         lc1 = physicalCluster.createLogicalCluster(LC_META_ABC.logicalClusterId(), adminUserId, 9, 11, 12);
         lc2 = physicalCluster.createLogicalCluster(LC_META_XYZ.logicalClusterId(), adminUserId, 9, 11, 12);
@@ -167,7 +168,7 @@ public class DeleteTenantIntegrationTest {
         Properties props = new Properties();
         props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, internalBootstrap);
 
-        AdminClient superClient = AdminClient.create(props);
+        AdminClient superClient = physicalCluster.superAdminClient();
         Collection<AclBinding> describedAcls = superClient.describeAcls(new AclBindingFilter(
                 new ResourcePatternFilter(ResourceType.ANY, null, PatternType.ANY),
                 new AccessControlEntryFilter(null, null, AclOperation.ANY, AclPermissionType.ANY)
