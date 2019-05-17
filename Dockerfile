@@ -50,7 +50,7 @@ WORKDIR /
 RUN mkdir -p /opt/caas/lib \
   && curl -o /opt/caas/lib/jmx_prometheus_javaagent-0.1.0.jar -O https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/0.1.0/jmx_prometheus_javaagent-0.1.0.jar \
   && apt update \
-  && apt install -y cc-rollingupgrade-ctl=0.4.0 vim-tiny \
+  && apt install -y cc-rollingupgrade-ctl=0.5.0 vim-tiny \
   && apt-get autoremove -y \
   && mkdir -p  "${KAFKA_SECRETS_DIR}" "${KAFKA_LOG4J_DIR}" /opt/caas/config/kafka \
   && chmod -R ag+w "${KAFKA_SECRETS_DIR}" "${KAFKA_LOG4J_DIR}"
