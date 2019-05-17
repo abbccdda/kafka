@@ -40,6 +40,7 @@
   <allow pkg="org.mockito" />
   <allow pkg="org.mockito.stubbing" />
   <allow pkg="scala" />
+  <allow pkg="javax.crypto" />
 
   <subpackage name="support">
     <subpackage name="metrics">
