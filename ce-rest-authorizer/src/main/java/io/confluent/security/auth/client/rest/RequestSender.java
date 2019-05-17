@@ -4,9 +4,10 @@ package io.confluent.security.auth.client.rest;
 
 import io.confluent.security.auth.client.rest.exceptions.RestClientException;
 
+import java.io.Closeable;
 import java.io.IOException;
 
-public interface RequestSender {
+public interface RequestSender extends Closeable {
     /**
      * @param request    An instance of RestRequest
      * @param requestTimeout    request timeout

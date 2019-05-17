@@ -20,6 +20,7 @@ import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.network.Mode;
 import org.apache.kafka.common.security.ssl.SslFactory;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -247,6 +248,9 @@ public class RestClient implements Closeable {
   public void close() {
     if (urlRefreshscheduler != null)
       urlRefreshscheduler.shutdownNow();
+    if (requestSender != null) {
+      Utils.closeQuietly(requestSender, "requestSender");
+    }
   }
 
   private class HTTPRequestSender implements RequestSender {
@@ -334,6 +338,9 @@ public class RestClient implements Closeable {
         }
       });
     }
-  }
 
+    public void close() {
+      executor.shutdownNow();
+    }
+  }
 }

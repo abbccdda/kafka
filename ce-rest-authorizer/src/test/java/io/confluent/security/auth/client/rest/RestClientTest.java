@@ -95,6 +95,10 @@ public class RestClientTest {
                 throw new IOException("http Request Failed");
             }
         }
+
+        @Override
+        public void close() {
+        }
     }
 
     @Test
@@ -157,6 +161,10 @@ public class RestClientTest {
             } else {
                 throw new IOException("http Request Failed");
             }
+        }
+
+        @Override
+        public void close() {
         }
     }
 }
