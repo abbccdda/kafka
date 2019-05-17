@@ -37,6 +37,7 @@ import org.apache.kafka.common.message.DeleteTopicsResponseData.DeletableTopicRe
 import org.apache.kafka.common.message.DescribeGroupsRequestData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData;
 import org.apache.kafka.common.message.FindCoordinatorRequestData;
+import org.apache.kafka.common.message.HeartbeatRequestData;
 import org.apache.kafka.common.message.InitProducerIdRequestData;
 import org.apache.kafka.common.message.JoinGroupRequestData;
 import org.apache.kafka.common.message.LeaveGroupRequestData;
@@ -613,9 +614,12 @@ public class MultiTenantRequestContextTest {
   public void testHeartbeatRequest() {
     for (short ver = ApiKeys.HEARTBEAT.oldestVersion(); ver <= ApiKeys.HEARTBEAT.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.HEARTBEAT, ver);
-      HeartbeatRequest inbound = new HeartbeatRequest.Builder("group", 1, "memberId").build(ver);
+      HeartbeatRequest inbound = new HeartbeatRequest.Builder(new HeartbeatRequestData()
+          .setGroupId("group")
+          .setGenerationid(1)
+          .setMemberId("memberId")).build(ver);
       HeartbeatRequest intercepted = (HeartbeatRequest) parseRequest(context, inbound);
-      assertEquals("tenant_group", intercepted.groupId());
+      assertEquals("tenant_group", intercepted.data.groupId());
       verifyRequestMetrics(ApiKeys.HEARTBEAT);
     }
   }
