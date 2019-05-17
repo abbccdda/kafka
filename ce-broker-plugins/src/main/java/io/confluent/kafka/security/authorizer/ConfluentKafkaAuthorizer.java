@@ -2,22 +2,27 @@
 
 package io.confluent.kafka.security.authorizer;
 
-import io.confluent.common.license.LicenseValidator;
 import io.confluent.kafka.multitenant.authorizer.MultiTenantAuthorizer;
 import io.confluent.kafka.security.authorizer.acl.AclMapper;
 import io.confluent.kafka.security.authorizer.acl.AclProvider;
+import io.confluent.kafka.security.ldap.authorizer.LdapAuthorizer;
+import io.confluent.license.InvalidLicenseException;
+import io.confluent.license.validator.LegacyLicenseValidator;
+import io.confluent.license.validator.LicenseConfig;
+import io.confluent.license.validator.LicenseValidator;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
+import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.EmbeddedAuthorizer;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import io.confluent.security.authorizer.provider.Provider;
 import io.confluent.license.validator.ConfluentLicenseValidator;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import kafka.network.RequestChannel;
 import kafka.network.RequestChannel.Session;
@@ -26,6 +31,8 @@ import kafka.security.auth.Authorizer;
 import kafka.security.auth.AuthorizerWithKafkaStore;
 import kafka.security.auth.Operation;
 import kafka.security.auth.Resource;
+import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.resource.PatternType;
@@ -38,23 +45,30 @@ public class ConfluentKafkaAuthorizer extends EmbeddedAuthorizer implements Auth
 
   private static final Set<String> UNSCOPED_PROVIDERS =
       Utils.mkSet(AccessRuleProviders.ACL.name(), AccessRuleProviders.MULTI_TENANT.name());
+
+  private static final String METRIC_GROUP = "confluent.license";
+  private static final LicenseValidator DUMMY_LICENSE_VALIDATOR = new DummyLicenseValidator();
   private static final Set<Class<? extends ConfluentKafkaAuthorizer>> LICENSE_FREE_AUTHORIZERS =
       Collections.singleton(MultiTenantAuthorizer.class);
+  private static final Set<Class<? extends ConfluentKafkaAuthorizer>> LEGACY_AUTHORIZERS =
+      Collections.singleton(LdapAuthorizer.class);
 
+  private final Time time;
+  private LicenseValidator licenseValidator;
   private Authorizer aclAuthorizer;
-  private volatile CompletableFuture<Void> readyFuture;
 
   public ConfluentKafkaAuthorizer() {
     this(Time.SYSTEM);
   }
 
   public ConfluentKafkaAuthorizer(Time time) {
-    super(time);
+    this.time = time;
   }
 
   @Override
   public void configure(Map<String, ?> configs) {
     super.configure(configs);
+
     Optional<Authorizer> aclProvider = accessRuleProviders().stream()
         .filter(a -> a instanceof AclProvider)
         .findFirst()
@@ -73,12 +87,13 @@ public class ConfluentKafkaAuthorizer extends EmbeddedAuthorizer implements Auth
       if (!scopedProviders.isEmpty())
         throw new ConfigException("Scope not provided for broker providers: " + scopedProviders);
     }
-
-    readyFuture = start();
+    createLicenseValidator();
   }
 
   @Override
   public boolean authorize(RequestChannel.Session session, Operation operation, Resource resource) {
+    if (ready())
+      licenseValidator.verifyLicense();
 
     if (resource.patternType() != PatternType.LITERAL) {
       throw new IllegalArgumentException("Only literal resources are supported, got: "
@@ -128,20 +143,87 @@ public class ConfluentKafkaAuthorizer extends EmbeddedAuthorizer implements Auth
   public void close() {
     log.debug("Closing Kafka authorizer");
     super.close();
+    try {
+      licenseValidator.close();
+    } catch (Exception e) {
+      log.error("Failed to close license validator", e);
+    }
   }
 
-  @Override
-  public CompletableFuture<Void> readyFuture() {
-    return readyFuture;
+  /**
+   * Creates a license validator.
+   *
+   * License validation is disabled if:
+   * 1) Proprietary features are not used (e.g. only ACLs are enabled) OR
+   * 2) This authorizer is license-free (e.g. Tenant authorizer for CCloud)
+   *
+   * Legacy license validation without Kafka topics is used for the legacy LdapAuthorizer
+   * to ensure that we can continue to support clusters with single listeners without a separate
+   * metadata cluster.
+   *
+   * New-style Kafka-topic-based license management is used for ConfluentKafkaAuthorizer
+   * with proprietary features like RBAC. These have the same restrictions as metadata service.
+   * In single-cluster deployments, metadata cluster brokers must be configured with a separate
+   * inter-broker listener where broker requests can be authorized using AclProvider.
+   */
+  private void createLicenseValidator() {
+    if (LICENSE_FREE_AUTHORIZERS.contains(this.getClass()))
+      licenseValidator = DUMMY_LICENSE_VALIDATOR;
+    else if (LEGACY_AUTHORIZERS.contains(this.getClass()))
+      licenseValidator = new LegacyLicenseValidator(time);
+    else {
+      boolean needsLicense = accessRuleProviders().stream().anyMatch(Provider::needsLicense);
+      if (groupProvider() != null && groupProvider().needsLicense())
+        needsLicense = true;
+      if (metadataProvider() != null && metadataProvider().needsLicense())
+        needsLicense = true;
+      if (needsLicense)
+        licenseValidator = new ConfluentLicenseValidator(time);
+      else
+        licenseValidator = DUMMY_LICENSE_VALIDATOR;
+    }
   }
 
   // Make this final so that license validation cannot be trivially overridden
-  @Override
-  protected final LicenseValidator licenseValidator() {
-    if (LICENSE_FREE_AUTHORIZERS.contains(this.getClass()))
-      return null;
-    else
-      return new ConfluentLicenseValidator();
+  protected final void initializeAndValidateLicense(Map<String, ?> configs) {
+    String id = "broker-" + configs.get("broker.id");
+    Map<String, Object> licenseConfigs = new HashMap<>(configs);
+    LicenseConfig config = new LicenseConfig(id, configs);
+    replacePrefix(config, licenseConfigs, "confluent.metadata.", LicenseConfig.PREFIX);
+    replacePrefix(config, licenseConfigs, "confluent.metadata.reader.", LicenseConfig.CONSUMER_PREFIX);
+    replacePrefix(config, licenseConfigs, "confluent.metadata.writer.", LicenseConfig.PRODUCER_PREFIX);
+    licenseValidator.configure(licenseConfigs);
+
+    String licensePropName = licensePropName();
+    String license = (String) configs.get(licensePropName);
+    try {
+      licenseValidator.initializeAndVerify(license, licenseStatusMetricGroup(), id);
+    } catch (InvalidLicenseException e) {
+      throw new KafkaException(
+          String.format("Confluent Authorizer license validation failed."
+              + " Please specify a valid license in the config " + licensePropName
+              + " to enable authorization using %s. Kafka brokers may be started with basic"
+              + " user-principal based authorization using 'kafka.security.auth.SimpleAclAuthorizer'"
+              + " without a license.", this.getClass().getName()), e);
+    }
+  }
+
+  private void replacePrefix(AbstractConfig srcConfig, Map<String, Object> dstConfigs, String srcPrefix, String dstPrefix) {
+    Map<String, Object> prefixedConfigs = srcConfig.originalsWithPrefix(srcPrefix);
+    prefixedConfigs.forEach((k, v) -> {
+      dstConfigs.remove(srcPrefix + k);
+      dstConfigs.putIfAbsent(dstPrefix + k, v);
+    });
+  }
+
+  // Allow authorizer implementation to override so that LdapAuthorizer can provide its custom property
+  protected String licensePropName() {
+    return ConfluentAuthorizerConfig.LICENSE_PROP;
+  }
+
+  // Allow authorizer implementation to override so that LdapAuthorizer can provide its custom metric
+  protected String licenseStatusMetricGroup() {
+    return METRIC_GROUP;
   }
 
   private static class AclErrorProvider implements Authorizer {
@@ -186,6 +268,26 @@ public class ConfluentKafkaAuthorizer extends EmbeddedAuthorizer implements Auth
     @Override
     public scala.collection.immutable.Map<Resource, scala.collection.immutable.Set<Acl>> getAcls() {
       throw EXCEPTION;
+    }
+
+    @Override
+    public void close() {
+    }
+  }
+
+  private static class DummyLicenseValidator implements LicenseValidator {
+
+    @Override
+    public void configure(Map<String, ?> configs) {
+    }
+
+    @Override
+    public void initializeAndVerify(String license, String metricGroup, String componentId) {
+    }
+
+    @Override
+    public boolean verifyLicense() {
+      return true;
     }
 
     @Override

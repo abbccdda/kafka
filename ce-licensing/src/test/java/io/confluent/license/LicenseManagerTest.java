@@ -59,7 +59,7 @@ public class LicenseManagerTest extends EasyMockSupport {
 
   private static final Logger log = LoggerFactory.getLogger(LicenseManager.class);
   private static final String TOPIC = "_confluent-command";
-  private static final KeyPair KEY_PAIR = generateKeyPair();
+  public static final KeyPair KEY_PAIR = generateKeyPair();
 
   private MockTime time;
   @Mock
@@ -98,10 +98,11 @@ public class LicenseManagerTest extends EasyMockSupport {
   }
 
   public static String generateLicense(Time clock, int daysBeforeExpiring) {
-    return sign(
-        KEY_PAIR.getPrivate(),
-        clock.milliseconds() + TimeUnit.DAYS.toMillis(daysBeforeExpiring)
-    );
+    return generateLicense(clock.milliseconds() + TimeUnit.DAYS.toMillis(daysBeforeExpiring));
+  }
+
+  public static String generateLicense(long expiryTimeMs) {
+    return sign(KEY_PAIR.getPrivate(), expiryTimeMs);
   }
 
   public static String generateLicenseSignedWithWrongKeyPair(Time clock, int daysBeforeExpiring) {
@@ -127,7 +128,7 @@ public class LicenseManagerTest extends EasyMockSupport {
     return null;
   }
 
-  static License generateLicenseObject(
+  public static License generateLicenseObject(
       String audience,
       Time clock,
       int expirationDays

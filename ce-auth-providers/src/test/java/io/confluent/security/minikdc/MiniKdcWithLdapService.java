@@ -730,11 +730,10 @@ public class MiniKdcWithLdapService {
     miniKdc.start();
 
     Map<String, List<String>> groups = new HashMap<>();
-    String[] users = new String[principalsWithMetadata.size()];
-    int index = 0;
+    Map<String, String> users = new HashMap<>(principalsWithMetadata.size());
     for (Map.Entry<String, UserMetadata> entry : principalsWithMetadata.entrySet()) {
       String user = entry.getKey();
-      users[index++] = user;
+      users.put(user, entry.getValue().password);
       for (String group : entry.getValue().groups) {
         groups.computeIfAbsent(group, g -> new ArrayList<>()).add(user);
       }

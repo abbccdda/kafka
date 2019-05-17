@@ -58,8 +58,6 @@ public class KafkaStoreConfig extends AbstractConfig {
 
   static {
     CONFIG = new ConfigDef()
-        .define(BOOTSTRAP_SERVERS_PROP, Type.LIST,
-            Importance.HIGH, CommonClientConfigs.BOOTSTRAP_SERVERS_DOC)
         .define(NUM_PARTITIONS_PROP, Type.INT, NUM_PARTITIONS_DEFAULT,
             atLeast(1), Importance.LOW, NUM_PARTITIONS_DOC)
         .define(REPLICATION_FACTOR_PROP, Type.SHORT, REPLICATION_FACTOR_DEFAULT,
@@ -74,23 +72,23 @@ public class KafkaStoreConfig extends AbstractConfig {
 
   public final Duration topicCreateTimeout;
   public final Duration refreshTimeout;
-  private final String bootstrapServers;
+  private final String brokerId;
 
   public KafkaStoreConfig(Map<?, ?> props) {
     super(CONFIG, props);
 
     topicCreateTimeout = Duration.ofMillis(getInt(TOPIC_CREATE_TIMEOUT_PROP));
     refreshTimeout = Duration.ofMillis(getInt(REFRESH_TIMEOUT_PROP));
-    this.bootstrapServers = Utils.join(getList(BOOTSTRAP_SERVERS_PROP), ",");
+    Object brokerId = props.get("broker.id");
+    this.brokerId = brokerId == null ? "unknown" : String.valueOf(brokerId);
   }
 
   public Map<String, Object> readerConfigs() {
     Map<String, Object> configs = baseConfigs();
     configs.putAll(originalsWithPrefix(PREFIX + "reader."));
 
-    configs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
     configs.put(ConsumerConfig.GROUP_ID_CONFIG, "__metadata_reader_group");
-    configs.put(ConsumerConfig.CLIENT_ID_CONFIG, "__metadata_reader");
+    configs.put(ConsumerConfig.CLIENT_ID_CONFIG, "__metadata_reader_" + brokerId);
 
     configs.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
     configs.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
@@ -100,8 +98,7 @@ public class KafkaStoreConfig extends AbstractConfig {
   public Map<String, Object> writerConfigs() {
     Map<String, Object> configs = baseConfigs();
     configs.putAll(originalsWithPrefix(PREFIX + "writer."));
-    configs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-    configs.put(ConsumerConfig.CLIENT_ID_CONFIG, "__metadata_writer");
+    configs.put(ConsumerConfig.CLIENT_ID_CONFIG, "__metadata_writer_" + brokerId);
 
     configs.put(ProducerConfig.ACKS_CONFIG, "all");
     configs.put(ProducerConfig.RETRIES_CONFIG, "0");
@@ -112,9 +109,8 @@ public class KafkaStoreConfig extends AbstractConfig {
   public Map<String, Object> coordinatorConfigs() {
     Map<String, Object> configs = baseConfigs();
     configs.putAll(originalsWithPrefix(PREFIX + "coordinator."));
-    configs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
     configs.put(ConsumerConfig.GROUP_ID_CONFIG, "__metadata_coordinator_group");
-    configs.put(ConsumerConfig.CLIENT_ID_CONFIG, "__metadata_coordinator");
+    configs.put(ConsumerConfig.CLIENT_ID_CONFIG, "__metadata_coordinator_" + brokerId);
 
     configs.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
     configs.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
@@ -129,8 +125,7 @@ public class KafkaStoreConfig extends AbstractConfig {
     Map<String, Object> configs = baseConfigs();
     String clientType = reader ? "reader" : "writer";
     configs.putAll(originalsWithPrefix(PREFIX + clientType + "."));
-    configs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-    configs.put(ConsumerConfig.CLIENT_ID_CONFIG, "__metadata_admin_" + clientType);
+    configs.put(ConsumerConfig.CLIENT_ID_CONFIG, "__metadata_admin_" + clientType + "_"  + brokerId);
     return configs;
   }
 
@@ -138,6 +133,7 @@ public class KafkaStoreConfig extends AbstractConfig {
   private Map<String, Object> baseConfigs() {
     Map<String, Object> configs = originals();
     configs.putAll(originalsWithPrefix(PREFIX));
+    configs.keySet().removeAll(originalsWithPrefix(PREFIX, false).keySet());
     CONFIG.names().stream().filter(name -> name.startsWith(PREFIX))
         .map(name -> name.substring(PREFIX.length()))
         .forEach(configs::remove);

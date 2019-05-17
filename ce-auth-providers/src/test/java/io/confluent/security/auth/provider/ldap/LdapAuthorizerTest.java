@@ -2,8 +2,8 @@
 
 package io.confluent.security.auth.provider.ldap;
 
-import io.confluent.common.license.InvalidLicenseException;
 import io.confluent.kafka.security.ldap.authorizer.LdapAuthorizer;
+import io.confluent.license.InvalidLicenseException;
 import io.confluent.license.test.utils.LicenseTestUtils;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
 import io.confluent.security.minikdc.MiniKdcWithLdapService;
@@ -50,6 +50,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 
 public class LdapAuthorizerTest {
 
@@ -97,7 +98,7 @@ public class LdapAuthorizerTest {
   public void testAcls() throws Exception {
     miniKdcWithLdapService.createGroup("adminGroup", "adminUser", "kafkaUser");
     miniKdcWithLdapService.createGroup("guestGroup", "guest");
-    ldapAuthorizer.configure(authorizerConfig);
+    configureLdapAuthorizer();
 
     Resource topicResource = randomResource(Topic$.MODULE$);
     verifyResourceAcls(topicResource, TOPIC_OPS,
@@ -118,7 +119,7 @@ public class LdapAuthorizerTest {
   public void testGroupChanges() throws Exception {
     miniKdcWithLdapService.createGroup("adminGroup", "adminUser", "kafkaUser");
     miniKdcWithLdapService.createGroup("guestGroup", "guest");
-    ldapAuthorizer.configure(authorizerConfig);
+    configureLdapAuthorizer();
 
     KafkaPrincipal adminGroupPrincipal = new KafkaPrincipal("Group", "adminGroup");
     Resource topicResource = randomResource(Topic$.MODULE$);
@@ -150,7 +151,7 @@ public class LdapAuthorizerTest {
     miniKdcWithLdapService.createGroup("adminGroup", "adminUser", "kafkaUser");
     miniKdcWithLdapService.createGroup("guestGroup", "guest");
     authorizerConfig.put(LdapConfig.RETRY_TIMEOUT_MS_PROP, "1000");
-    ldapAuthorizer.configure(authorizerConfig);
+    configureLdapAuthorizer();
 
     KafkaPrincipal adminGroupPrincipal = new KafkaPrincipal("Group", "adminGroup");
     Resource topicResource = randomResource(Topic$.MODULE$);
@@ -206,7 +207,7 @@ public class LdapAuthorizerTest {
     authorizerConfig.put(SimpleAclAuthorizer.SuperUsersProp(), "Group:adminGroup");
     authorizerConfig.put(SimpleAclAuthorizer.AllowEveryoneIfNoAclIsFoundProp(),
         String.valueOf(allowIfNoAcl));
-    ldapAuthorizer.configure(authorizerConfig);
+    configureLdapAuthorizer();
 
     Resource topicResource = randomResource(Topic$.MODULE$);
     verifyAuthorization("adminUser", topicResource, true);
@@ -214,13 +215,13 @@ public class LdapAuthorizerTest {
     verifyAuthorization("someUser", topicResource, allowIfNoAcl);
   }
 
-  @Test(expected = InvalidLicenseException.class)
+  @Test
   public void testLicenseExpiryBeforeStart() throws Exception {
     miniKdcWithLdapService.createGroup("adminGroup", "adminUser", "kafkaUser");
     miniKdcWithLdapService.createGroup("guestGroup", "guest");
     authorizerConfig.put(LdapAuthorizer.LICENSE_PROP,
         LicenseTestUtils.generateLicense(System.currentTimeMillis() - 1));
-    ldapAuthorizer.configure(authorizerConfig);
+    verifyAuthorizerLicenseFailure();
   }
 
   @Test
@@ -230,7 +231,7 @@ public class LdapAuthorizerTest {
     String license = LicenseTestUtils.generateLicense(expiryMs);
     authorizerConfig.put(LdapAuthorizer.LICENSE_PROP, license);
     ldapAuthorizer = new LdapAuthorizer(time);
-    ldapAuthorizer.configure(authorizerConfig);
+    configureLdapAuthorizer();
 
     time.sleep(60000);
     verifyAuthorizer();
@@ -242,25 +243,25 @@ public class LdapAuthorizerTest {
     MockTime time = new MockTime(0L, System.currentTimeMillis(), 0L);
     authorizerConfig.put(LdapAuthorizer.LICENSE_PROP, "");
     ldapAuthorizer = new LdapAuthorizer(time);
-    ldapAuthorizer.configure(authorizerConfig);
+    configureLdapAuthorizer();
 
     time.sleep(60000);
     verifyAuthorizer();
     verifyLicenseMetric(LicenseStatus.TRIAL);
   }
 
-  @Test(expected = InvalidLicenseException.class)
+  @Test
   public void testTrialPeriodExpiryBeforeStart() throws Exception {
     MockTime time = new MockTime(0L, System.currentTimeMillis(), 0L);
     authorizerConfig.put(LdapAuthorizer.LICENSE_PROP, "");
     // Start one authorizer to start the trial period
     ldapAuthorizer = new LdapAuthorizer(time);
-    ldapAuthorizer.configure(authorizerConfig);
+    configureLdapAuthorizer();
     ldapAuthorizer.close();
     time.sleep(TimeUnit.DAYS.toMillis(31));
     // Start another authorizer after trial period completes, this should fail
     ldapAuthorizer = new LdapAuthorizer(time);
-    ldapAuthorizer.configure(authorizerConfig);
+    verifyAuthorizerLicenseFailure();
   }
 
   @Test
@@ -268,11 +269,16 @@ public class LdapAuthorizerTest {
     MockTime time = new MockTime(0L, System.currentTimeMillis(), 0L);
     authorizerConfig.put(LdapAuthorizer.LICENSE_PROP, "");
     ldapAuthorizer = new LdapAuthorizer(time);
-    ldapAuthorizer.configure(authorizerConfig);
+    configureLdapAuthorizer();
 
     time.sleep(TimeUnit.DAYS.toMillis(31));
     verifyAuthorizer();
     verifyLicenseMetric(LicenseStatus.TRIAL_EXPIRED);
+  }
+
+  private void configureLdapAuthorizer() throws Exception {
+    ldapAuthorizer.configure(authorizerConfig);
+    ldapAuthorizer.start(authorizerConfig).get();
   }
 
   private void verifyAuthorizer() throws Exception {
@@ -281,6 +287,19 @@ public class LdapAuthorizerTest {
     Resource topicResource = randomResource(Topic$.MODULE$);
     verifyResourceAcls(topicResource, TOPIC_OPS,
         (principal, op) -> addTopicAcl(principal, topicResource, op));
+  }
+
+  private void verifyAuthorizerLicenseFailure() {
+    ldapAuthorizer.configure(authorizerConfig);
+    try {
+      ldapAuthorizer.start(authorizerConfig).get();
+    } catch (Exception e) {
+      Throwable cause = e.getCause();
+      while (cause != null && !(cause instanceof InvalidLicenseException)) {
+        cause = cause.getCause();
+      }
+      assertNotNull("Unexpected exception: " + e, cause);
+    }
   }
 
   private Session session(String user) {

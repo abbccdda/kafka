@@ -122,6 +122,11 @@ public class ConfluentBuiltInProviders {
     }
 
     @Override
+    public boolean needsLicense() {
+      return false;
+    }
+
+    @Override
     public void close() {
     }
   }
@@ -139,6 +144,11 @@ public class ConfluentBuiltInProviders {
 
     @Override
     public boolean usesMetadataFromThisKafkaCluster() {
+      return false;
+    }
+
+    @Override
+    public boolean needsLicense() {
       return false;
     }
 

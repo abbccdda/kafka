@@ -17,10 +17,14 @@
 
 package io.confluent.kafka.test.cluster;
 
+import io.confluent.license.validator.LicenseConfig;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import kafka.api.Request;
 import kafka.server.KafkaConfig$;
@@ -57,26 +61,62 @@ public class EmbeddedKafkaCluster {
   public void startBrokers(int numBrokers, Properties overrideProps) throws Exception {
     log.debug("Initiating embedded Kafka cluster startup with config {}", overrideProps);
 
+    int brokerIdStart = Integer.parseInt(overrideProps.getOrDefault(KafkaConfig$.MODULE$.BrokerIdProp(), "0").toString());
+    for (int i = 0; i < numBrokers; i++) {
+      Properties brokerConfig = createBrokerConfig(brokerIdStart + i, overrideProps);
+      log.debug("Starting a Kafka instance on port {} ...", brokerConfig.get(KafkaConfig$.MODULE$.PortProp()));
+      EmbeddedKafka broker = new EmbeddedKafka.Builder(time).addConfigs(brokerConfig).build();
+      brokers.add(broker);
+
+      log.debug("Kafka instance started: {}", broker);
+    }
+  }
+
+  public Properties createBrokerConfig(int brokerId, Properties overrideProps) throws Exception {
+    log.debug("Initiating embedded Kafka cluster startup with config {}", overrideProps);
+
     Properties brokerConfig = new Properties();
     brokerConfig.put(KafkaConfig$.MODULE$.ZkConnectProp(), zkConnect());
     brokerConfig.put(KafkaConfig$.MODULE$.PortProp(), DEFAULT_BROKER_PORT);
     putIfAbsent(brokerConfig, KafkaConfig$.MODULE$.OffsetsTopicReplicationFactorProp(), (short) 1);
+    putIfAbsent(brokerConfig, LicenseConfig.REPLICATION_FACTOR_PROP, (short) 1);
     brokerConfig.putAll(overrideProps);
     // use delay of 0ms otherwise failed authentications never get a response due to MockTime
     putIfAbsent(brokerConfig, KafkaConfig$.MODULE$.FailedAuthenticationDelayMsProp(), 0);
     putIfAbsent(brokerConfig, KafkaConfig$.MODULE$.GroupInitialRebalanceDelayMsProp(), 0);
     putIfAbsent(brokerConfig, KafkaConfig$.MODULE$.OffsetsTopicPartitionsProp(), 5);
     putIfAbsent(brokerConfig, KafkaConfig$.MODULE$.AutoCreateTopicsEnableProp(), true);
-    int brokerIdStart = Integer.parseInt(overrideProps.getOrDefault(KafkaConfig$.MODULE$.BrokerIdProp(), "0").toString());
+    brokerConfig.put(KafkaConfig$.MODULE$.BrokerIdProp(), brokerId);
+    return brokerConfig;
+  }
 
-    for (int i = 0; i < numBrokers; i++) {
-      brokerConfig.put(KafkaConfig$.MODULE$.BrokerIdProp(), brokerIdStart + i);
-      log.debug("Starting a Kafka instance on port {} ...",
-          brokerConfig.get(KafkaConfig$.MODULE$.PortProp()));
-      EmbeddedKafka broker = new EmbeddedKafka.Builder(time).addConfigs(brokerConfig).build();
-      brokers.add(broker);
+  /**
+   * Start brokers with the provided broker configs concurrently. This is used to start
+   * multi-broker RBAC clusters with metadata topic that has replication factor > 1. Broker
+   * start up completes in this case only after the topic is created and authorizer is
+   * initialized using the topic. Brokers need to be started concurrently since the topic
+   * can be created only when sufficient number of brokers are registered.
+   */
+  public void concurrentStartBrokers(List<Properties> brokerConfigs) throws Exception {
+    int numBrokers = brokerConfigs.size();
+    List<Future<EmbeddedKafka>> brokerFutures = new ArrayList<>(numBrokers);
+    ExecutorService executorService = Executors.newFixedThreadPool(numBrokers);
+    try {
+      for (int i = 0; i < numBrokers; i++) {
+        Properties brokerConfig = brokerConfigs.get(i);
+        brokerFutures.add(executorService.submit(() -> {
+          log.debug("Starting a Kafka instance on port {} ...", brokerConfig.get(KafkaConfig$.MODULE$.PortProp()));
+          return new EmbeddedKafka.Builder(time).addConfigs(brokerConfig).build();
+        }));
+      }
 
-      log.debug("Kafka instance started: {}", broker);
+      for (Future<EmbeddedKafka> future : brokerFutures) {
+        EmbeddedKafka broker = future.get();
+        brokers.add(broker);
+        log.debug("Kafka instance started: {}", broker);
+      }
+    } finally {
+      executorService.shutdownNow();
     }
   }
 

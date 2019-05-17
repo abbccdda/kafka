@@ -65,6 +65,11 @@ public class AclProvider extends SimpleAclAuthorizer implements AccessRuleProvid
     throw new IllegalStateException("This provider should be used for authorization only using the AccessRuleProvider interface");
   }
 
+  @Override
+  public boolean needsLicense() {
+    return false;
+  }
+
   private KafkaPrincipal userPrincipal(KafkaPrincipal sessionPrincipal) {
     // Always use KafkaPrincipal instance for comparisons since super.users and ACLs are
     // instantiated as KafkaPrincipal

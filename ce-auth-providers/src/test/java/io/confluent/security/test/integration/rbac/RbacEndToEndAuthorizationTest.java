@@ -5,6 +5,9 @@ package io.confluent.security.test.integration.rbac;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.KafkaTestUtils.ClientBuilder;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
+import io.confluent.license.License;
+import io.confluent.license.test.utils.LicenseTestUtils;
+import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.test.utils.RbacClusters;
@@ -30,7 +33,14 @@ import org.apache.kafka.common.utils.Utils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
 
+@RunWith(PowerMockRunner.class)
+@PrepareForTest({License.class})
+@PowerMockIgnore({"javax.*", "sun.*"})
 public class RbacEndToEndAuthorizationTest {
 
   private static final String BROKER_USER = "kafka";
@@ -63,6 +73,7 @@ public class RbacEndToEndAuthorizationTest {
     );
     config = new Config()
         .users(BROKER_USER, otherUsers);
+    LicenseTestUtils.injectPublicKey();
   }
 
   @After
@@ -86,6 +97,7 @@ public class RbacEndToEndAuthorizationTest {
     rbacClusters.produceConsume(SUPER_USER, APP2_TOPIC, APP1_CONSUMER_GROUP, true);
     rbacClusters.produceConsume(RESOURCE_OWNER, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
     rbacClusters.produceConsume(RESOURCE_OWNER, APP2_TOPIC, APP1_CONSUMER_GROUP, true);
+    SecurityTestUtils.verifyAuthorizerLicense(rbacClusters.kafkaCluster, LicenseStatus.LICENSE_ACTIVE);
   }
 
   @Test
@@ -159,7 +171,7 @@ public class RbacEndToEndAuthorizationTest {
   private void setupRbacClusters(int numMetadataServers) throws Exception {
     for (int i = 1; i < numMetadataServers; i++)
       config = config.addMetadataServer();
-    rbacClusters = new RbacClusters(config);
+    rbacClusters = new RbacClusters(config.withLicense());
 
     rbacClusters.kafkaCluster.createTopic(APP1_TOPIC, 2, 1);
     rbacClusters.kafkaCluster.createTopic(APP2_TOPIC, 2, 1);

@@ -2,9 +2,6 @@
 
 package io.confluent.security.authorizer;
 
-import io.confluent.common.license.LicenseExpiredException;
-import io.confluent.common.license.InvalidLicenseException;
-import io.confluent.common.license.LicenseValidator;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import io.confluent.security.authorizer.provider.MetadataProvider;
 import io.confluent.security.authorizer.provider.Provider;
@@ -34,7 +31,6 @@ import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
-import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,15 +42,9 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
 
   protected static final Logger log = LoggerFactory.getLogger("kafka.authorizer.logger");
 
-  private static final LicenseValidator DUMMY_LICENSE_VALIDATOR = new DummyLicenseValidator();
-
-  private static final String ZK_CONNECT_PROPNAME = "zookeeper.connect";
-  private static final String METRIC_GROUP = "confluent.license";
   private static final Map<Operation, Collection<Operation>> IMPLICIT_ALLOWED_OPS;
 
-  private final Time time;
   private final Set<Provider> providersCreated;
-  private LicenseValidator licenseValidator;
   private GroupProvider groupProvider;
   private List<AccessRuleProvider> accessRuleProviders;
   private MetadataProvider metadataProvider;
@@ -62,6 +52,7 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
   private Set<KafkaPrincipal> superUsers;
   private Duration initTimeout;
   private boolean usesMetadataFromThisKafkaCluster;
+  private volatile boolean ready;
   private volatile String clusterId;
   private volatile Scope scope;
 
@@ -76,15 +67,9 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
   }
 
   public EmbeddedAuthorizer() {
-    this(Time.SYSTEM);
-  }
-
-  public EmbeddedAuthorizer(Time time) {
-    this.time = time;
     this.providersCreated = new HashSet<>();
     this.superUsers = Collections.emptySet();
     this.scope = Scope.ROOT_SCOPE; // Scope is only required for broker authorizers using RBAC
-    licenseValidator = licenseValidator();
   }
 
   @Override
@@ -100,10 +85,6 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
     ConfluentAuthorizerConfig authorizerConfig = new ConfluentAuthorizerConfig(configs);
     allowEveryoneIfNoAcl = authorizerConfig.allowEveryoneIfNoAcl;
     superUsers = authorizerConfig.superUsers;
-
-    if (licenseValidator == null)
-      licenseValidator = DUMMY_LICENSE_VALIDATOR;
-    initializeAndValidateLicense(configs, licensePropName());
 
     ConfluentAuthorizerConfig.Providers providers = authorizerConfig.createProviders(clusterId);
     providersCreated.addAll(providers.accessRuleProviders);
@@ -153,7 +134,7 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
     return metadataProvider;
   }
 
-  public CompletableFuture<Void> start() {
+  public CompletableFuture<Void> start(Map<String, ?> interBrokerListenerConfigs) {
     Set<Provider> providers = new HashSet<>(); // Use a set to remove duplicates
     if (groupProvider != null)
       providers.add(groupProvider);
@@ -161,11 +142,18 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
     if (metadataProvider != null)
       providers.add(metadataProvider);
     List<CompletableFuture<Void>> futures = providers.stream()
-        .map(Provider::start).map(CompletionStage::toCompletableFuture)
+        .map(provider -> provider.start(interBrokerListenerConfigs))
+        .map(CompletionStage::toCompletableFuture)
         .collect(Collectors.toList());
     CompletableFuture<Void> readyFuture =
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()]));
-    CompletableFuture<Void> future = futureOrTimeout(readyFuture, initTimeout);
+    CompletableFuture<Void> future = futureOrTimeout(readyFuture, initTimeout)
+        .thenApply(unused -> {
+          initializeAndValidateLicense(interBrokerListenerConfigs);
+          this.ready = true;
+          return null;
+        });
+
 
     // For clusters that are not hosting the metadata topic, we can safely wait for the
     // future to complete before any listeners are started. For brokers on the cluster
@@ -193,11 +181,12 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
     this.superUsers = new HashSet<>(superUsers);
   }
 
+  protected boolean ready() {
+    return ready;
+  }
+
   private AuthorizeResult authorize(KafkaPrincipal sessionPrincipal, String host, Action action) {
     try {
-      // On license expiry, update metric and log error, but continue to authorize
-      licenseValidator.verifyLicense(false);
-
       boolean authorized;
       KafkaPrincipal userPrincipal = userPrincipal(sessionPrincipal);
       if (superUsers.contains(userPrincipal)) {
@@ -266,7 +255,6 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
     AtomicReference<Throwable> firstException = new AtomicReference<>();
     providersCreated.forEach(provider ->
         Utils.closeQuietly(provider, provider.providerName(), firstException));
-    Utils.closeQuietly(licenseValidator, "licenseValidator", firstException);
     Throwable exception = firstException.getAndSet(null);
     // We don't want to prevent clean broker shutdown if providers are not gracefully closed.
     if (exception != null)
@@ -275,22 +263,6 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
 
   protected Scope scope() {
     return scope;
-  }
-
-  // Allow authorizer implementation to override so that LdapAuthorizer can provide its custom property
-  protected String licensePropName() {
-    return ConfluentAuthorizerConfig.LICENSE_PROP;
-  }
-
-  // Allow authorizer implementation to override so that LdapAuthorizer can provide its custom metric
-  protected String licenseStatusMetricGroup() {
-    return METRIC_GROUP;
-  }
-
-  // Allow Kafka brokers to override license validator. Other services (e.g. Metadata service)
-  // will be performing license validation separately, so use a dummy validator as default.
-  protected LicenseValidator licenseValidator() {
-    return DUMMY_LICENSE_VALIDATOR;
   }
 
   private boolean aclMatch(Operation op,
@@ -356,19 +328,8 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
       return Collections.singleton(operation);
   }
 
-  private void initializeAndValidateLicense(Map<String, ?> configs, String licensePropName) {
-    String license = (String) configs.get(licensePropName);
-    String zkConnect = (String) configs.get(ZK_CONNECT_PROPNAME);
-    try {
-      licenseValidator.initializeAndVerify(license, zkConnect, time, licenseStatusMetricGroup());
-    } catch (InvalidLicenseException | LicenseExpiredException e) {
-      throw new InvalidLicenseException(
-          String.format("Confluent Authorizer license validation failed."
-              + " Please specify a valid license in the config " + licensePropName
-              + " to enable authorization using %s. Kafka brokers may be started with basic"
-              + " user-principal based authorization using 'kafka.security.auth.SimpleAclAuthorizer'"
-              + " without a license.", this.getClass().getName()), e);
-    }
+  // Sub-classes may override to enforce license validation
+  protected void initializeAndValidateLicense(Map<String, ?> configs) {
   }
 
   // Visibility for testing
@@ -386,20 +347,5 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
     return CompletableFuture.anyOf(readyFuture, timeoutFuture)
         .thenApply(unused -> (Void) null)
         .whenComplete((unused, e) -> executor.shutdownNow());
-  }
-
-  private static class DummyLicenseValidator implements LicenseValidator {
-
-    @Override
-    public void initializeAndVerify(String license, String zkConnect, Time time, String metricGroup) {
-    }
-
-    @Override
-    public void verifyLicense(boolean failOnError) {
-    }
-
-    @Override
-    public void close() {
-    }
   }
 }

@@ -10,6 +10,7 @@ import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.KafkaTestUtils.ClientBuilder;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
+import io.confluent.license.test.utils.LicenseTestUtils;
 import io.confluent.security.auth.metadata.MetadataServiceConfig;
 import io.confluent.security.auth.provider.rbac.RbacProvider;
 import io.confluent.security.auth.store.data.UserKey;
@@ -21,6 +22,7 @@ import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.minikdc.MiniKdcWithLdapService;
 import io.confluent.security.store.kafka.KafkaStoreConfig;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -64,12 +66,10 @@ public class RbacClusters {
     else
       miniKdcWithLdapService = null;
 
-    // In order to start metadata service without fixed ports, start one broker
-    // without metadata service and one or more brokers with metadata service using the
-    // first broker as bootstrap server for the metadata service
-    metadataCluster.startBrokers(1, metadataClusterServerConfig(0));
+    List<Properties> metadataBrokerProps = new ArrayList<>(config.numMetadataServers);
     for (int i = 0; i < config.numMetadataServers; i++)
-      metadataCluster.startBrokers(1, metadataClusterServerConfig(i + 1));
+      metadataBrokerProps.add(metadataCluster.createBrokerConfig(100 + i, metadataClusterServerConfig(i)));
+    metadataCluster.concurrentStartBrokers(metadataBrokerProps);
 
     updateAuthWriters();
     assertNotNull("Master writer not elected:", masterWriter());
@@ -147,7 +147,7 @@ public class RbacClusters {
   public void restartMasterWriter() throws Exception {
     KafkaAuthWriter masterWriter = masterWriter();
     int index = authWriters.indexOf(masterWriter);
-    KafkaServer masterWriterBroker = metadataCluster.brokers().get(index + 1);
+    KafkaServer masterWriterBroker = metadataCluster.brokers().get(index);
 
     masterWriterBroker.shutdown();
     TestUtils.waitForCondition(() -> !currentMasterWriter().equals(Optional.of(masterWriter)),
@@ -163,8 +163,9 @@ public class RbacClusters {
   }
 
   private void updateAuthWriters() {
-    List<KafkaServer> metadataBrokers = metadataCluster.brokers().subList(1, metadataCluster.brokers().size());
-    authWriters = metadataBrokers.stream().map(this::kafkaAuthWriter).collect(Collectors.toList());
+    authWriters = metadataCluster.brokers().stream()
+        .map(this::kafkaAuthWriter)
+        .collect(Collectors.toList());
   }
 
   private KafkaAuthWriter masterWriter() {
@@ -205,7 +206,11 @@ public class RbacClusters {
     props.setProperty(
         "listener.name.internal.scram-sha-256." + KafkaConfig$.MODULE$.SaslJaasConfigProp(),
         users.get(config.brokerUser).jaasConfig);
+    return props;
+  }
 
+  private Properties metadataClientConfigs() {
+    Properties props = new Properties();
     props.setProperty(KafkaStoreConfig.PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG,
         metadataCluster.bootstrapServers("INTERNAL"));
     props.setProperty(KafkaStoreConfig.PREFIX + CommonClientConfigs.SECURITY_PROTOCOL_CONFIG,
@@ -221,6 +226,7 @@ public class RbacClusters {
   private Properties serverConfig() {
     Properties serverConfig = new Properties();
     serverConfig.putAll(scramConfigs());
+    serverConfig.putAll(metadataClientConfigs());
 
     serverConfig.setProperty(KafkaConfig$.MODULE$.AuthorizerClassNameProp(),
         ConfluentKafkaAuthorizer.class.getName());
@@ -234,28 +240,25 @@ public class RbacClusters {
   private Properties metadataClusterServerConfig(int index) {
     Properties serverConfig = new Properties();
     serverConfig.putAll(scramConfigs());
-    int existingBrokerCount = metadataCluster.brokers().size();
-    serverConfig.setProperty(KafkaConfig$.MODULE$.BrokerIdProp(), String.valueOf(100 + existingBrokerCount));
+    serverConfig.setProperty(KafkaConfig$.MODULE$.BrokerIdProp(), String.valueOf(100 + index));
 
-    if (existingBrokerCount != 0) {
-      if (config.enableLdap) {
-        serverConfig.putAll(LdapTestUtils.ldapAuthorizerConfigs(miniKdcWithLdapService, 10));
-      }
-      serverConfig.setProperty(KafkaConfig$.MODULE$.AuthorizerClassNameProp(),
-          ConfluentKafkaAuthorizer.class.getName());
-      serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL");
-      serverConfig.setProperty("super.users", "User:" + config.brokerUser);
-      serverConfig.setProperty(ConfluentAuthorizerConfig.METADATA_PROVIDER_PROP, "RBAC");
-      int metadataPort = 8000 + index;
-      serverConfig.setProperty(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP,
-          "http://0.0.0.0:" + metadataPort);
-      serverConfig.setProperty(MetadataServiceConfig.METADATA_SERVER_ADVERTISED_LISTENERS_PROP,
-          "http://localhost:" + metadataPort);
-      serverConfig.setProperty(KafkaStoreConfig.NUM_PARTITIONS_PROP, "2");
-      serverConfig.setProperty(KafkaStoreConfig.REPLICATION_FACTOR_PROP, "1");
-      serverConfig.setProperty(KafkaConfig$.MODULE$.AutoCreateTopicsEnableProp(), "false");
-      serverConfig.putAll(config.metadataClusterPropOverrides);
+    if (config.enableLdap) {
+      serverConfig.putAll(LdapTestUtils.ldapAuthorizerConfigs(miniKdcWithLdapService, 10));
     }
+    serverConfig.setProperty(KafkaConfig$.MODULE$.AuthorizerClassNameProp(),
+        ConfluentKafkaAuthorizer.class.getName());
+    serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL");
+    serverConfig.setProperty("super.users", "User:" + config.brokerUser);
+    serverConfig.setProperty(ConfluentAuthorizerConfig.METADATA_PROVIDER_PROP, "RBAC");
+    int metadataPort = 8000 + index;
+    serverConfig.setProperty(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP,
+        "http://0.0.0.0:" + metadataPort);
+    serverConfig.setProperty(MetadataServiceConfig.METADATA_SERVER_ADVERTISED_LISTENERS_PROP,
+        "http://localhost:" + metadataPort);
+    serverConfig.setProperty(KafkaStoreConfig.NUM_PARTITIONS_PROP, "2");
+    serverConfig.setProperty(KafkaStoreConfig.REPLICATION_FACTOR_PROP, "1");
+    serverConfig.setProperty(KafkaConfig$.MODULE$.AutoCreateTopicsEnableProp(), "false");
+    serverConfig.putAll(config.metadataClusterPropOverrides);
     return serverConfig;
   }
 
@@ -314,6 +317,11 @@ public class RbacClusters {
 
     public Config withLdap() {
       this.enableLdap = true;
+      return this;
+    }
+
+    public Config withLicense() {
+      overrideMetadataBrokerConfig(ConfluentAuthorizerConfig.LICENSE_PROP, LicenseTestUtils.generateLicense());
       return this;
     }
 

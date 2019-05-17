@@ -4,13 +4,19 @@ package io.confluent.kafka.test.utils;
 
 import static org.junit.Assert.assertEquals;
 
-import io.confluent.common.license.LicenseValidator;
+import com.yammer.metrics.Metrics;
+import com.yammer.metrics.core.Gauge;
+import com.yammer.metrics.core.Metric;
+import io.confluent.kafka.security.authorizer.ConfluentKafkaAuthorizer;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.license.validator.ConfluentLicenseValidator;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
-import io.confluent.security.authorizer.EmbeddedAuthorizer;
+import io.confluent.license.validator.LicenseValidator;
 import java.io.File;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.security.auth.login.Configuration;
 import kafka.admin.ConfigCommand;
 import kafka.security.auth.Acl;
@@ -18,15 +24,12 @@ import kafka.security.auth.Authorizer;
 import kafka.security.auth.Operation;
 import kafka.security.auth.Resource;
 import kafka.server.KafkaServer;
-import kafka.zk.KafkaZkClient;
-import kafka.zookeeper.ZooKeeperClient;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.authenticator.CredentialCache;
 import org.apache.kafka.common.security.authenticator.LoginManager;
 import org.apache.kafka.common.security.scram.ScramCredential;
 import org.apache.kafka.common.security.scram.internals.ScramMechanism;
-import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.test.TestUtils;
 import scala.collection.JavaConversions;
 
@@ -184,18 +187,18 @@ public class SecurityTestUtils {
 
   public static void verifyAuthorizerLicense(EmbeddedKafkaCluster kafkaCluster, LicenseStatus expectedStatus) {
     boolean needsLicense = expectedStatus != null;
-    EmbeddedAuthorizer authorizer = (EmbeddedAuthorizer) kafkaCluster.brokers().get(0).authorizer().get();
-    LicenseValidator licenseValidator = KafkaTestUtils.fieldValue(authorizer, EmbeddedAuthorizer.class, "licenseValidator");
+    ConfluentKafkaAuthorizer authorizer = (ConfluentKafkaAuthorizer) kafkaCluster.brokers().get(0).authorizer().get();
+    LicenseValidator licenseValidator = KafkaTestUtils.fieldValue(authorizer, ConfluentKafkaAuthorizer.class, "licenseValidator");
     assertEquals(needsLicense, licenseValidator instanceof ConfluentLicenseValidator);
 
-    Time time = Time.SYSTEM;
-    ZooKeeperClient zooClient = new ZooKeeperClient(kafkaCluster.zkConnect(), 10000, 1000,
-        Integer.MAX_VALUE, time, "testMetricGroup", "testMetricType");
-    try {
-      KafkaZkClient zkClient = new KafkaZkClient(zooClient, false, time);
-      assertEquals(expectedStatus == LicenseStatus.TRIAL, zkClient.pathExists("/confluent-license/trial"));
-    } finally {
-      zooClient.close();
+    Map<String, Metric> metrics = Metrics.defaultRegistry().allMetrics().entrySet().stream()
+        .filter(e -> e.getKey().getName().equals(ConfluentLicenseValidator.METRIC_NAME))
+        .collect(Collectors.toMap(e -> e.getKey().getGroup(), Map.Entry::getValue));
+    if (expectedStatus != null) {
+      metrics.forEach((k, v) -> {
+        assertEquals("Unexpected license metric for " + k,
+            expectedStatus.name().toLowerCase(Locale.ROOT), ((Gauge<?>) v).value());
+      });
     }
   }
 }

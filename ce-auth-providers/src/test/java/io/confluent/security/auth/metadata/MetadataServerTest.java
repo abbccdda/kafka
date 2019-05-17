@@ -49,13 +49,13 @@ public class MetadataServerTest {
   }
 
   @Test
-  public void testMetadataServer() {
+  public void testMetadataServer() throws Exception {
     createEmbeddedAuthorizer(Collections.emptyMap());
     verifyMetadataServer(Scope.ROOT_SCOPE, null);
   }
 
   @Test
-  public void testMetadataServerOnBrokerWithoutRbacAccessControl() {
+  public void testMetadataServerOnBrokerWithoutRbacAccessControl() throws Exception {
     createEmbeddedAuthorizer(Collections.singletonMap(
         ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "SUPER_USERS"));
     verifyMetadataServer(Scope.ROOT_SCOPE, Scope.intermediateScope("otherOrg"));
@@ -97,7 +97,7 @@ public class MetadataServerTest {
   }
 
   @Test
-  public void testMetadataServerConfigs() {
+  public void testMetadataServerConfigs() throws Exception {
     Map<String, Object> configs = new HashMap<>();
     configs.put("confluent.metadata.server.custom.config", "some.value");
     configs.put("confluent.metadata.server.ssl.truststore.location", "trust.jks");
@@ -114,7 +114,7 @@ public class MetadataServerTest {
     assertEquals("http://localhost:8090", metadataServer.configs.get("advertised.listeners"));
   }
 
-  private void createEmbeddedAuthorizer(Map<String, Object> configOverrides) {
+  private void createEmbeddedAuthorizer(Map<String, Object> configOverrides) throws Exception {
     authorizer = new EmbeddedAuthorizer();
     Map<String, Object> configs = new HashMap<>();
     configs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "MOCK_RBAC");
@@ -125,7 +125,7 @@ public class MetadataServerTest {
     configs.putAll(configOverrides);
     authorizer.onUpdate(new ClusterResource("clusterA"));
     authorizer.configure(configs);
-    authorizer.start();
+    authorizer.start(Collections.emptyMap()).get();
     try {
       TestUtils.waitForCondition(() -> metadataServer(authorizer) != null,
           "Metadata server not created");

@@ -112,7 +112,7 @@ public class ConfluentKafkaAuthorizerTest {
       waitForAccess(adminClient, auditTopic, false);
     }
 
-    SecurityTestUtils.verifyAuthorizerLicense(rbacClusters.kafkaCluster, LicenseStatus.TRIAL);
+    SecurityTestUtils.verifyAuthorizerLicense(rbacClusters.kafkaCluster, LicenseStatus.FREE_TIER);
   }
 
   @Test

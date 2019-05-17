@@ -45,5 +45,5 @@ trait AuthorizerWithKafkaStore extends Authorizer {
     * from all users. Implementation of this method should complete the future with appropriate
     * exception if initialization fails or times out.
     */
-  def readyFuture(): CompletableFuture[Void]
+  def start(interBrokerListenerConfigs: java.util.Map[String, _]): CompletableFuture[Void]
 }

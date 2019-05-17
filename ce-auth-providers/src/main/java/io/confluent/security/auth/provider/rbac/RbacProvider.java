@@ -19,10 +19,12 @@ import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import io.confluent.security.authorizer.provider.GroupProvider;
 import io.confluent.security.authorizer.provider.MetadataProvider;
+import io.confluent.security.store.kafka.KafkaStoreConfig;
 import java.io.IOException;
 import java.net.URL;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.ServiceLoader;
@@ -42,8 +44,10 @@ import org.slf4j.LoggerFactory;
 public class RbacProvider implements AccessRuleProvider, GroupProvider, MetadataProvider, ClusterResourceListener {
   private static final Logger log = LoggerFactory.getLogger(RbacProvider.class);
 
+  private Map<String, ?> configs;
   private LdapAuthenticateCallbackHandler authenticateCallbackHandler;
   private Scope authScope;
+  private Scope authStoreScope;
   private AuthStore authStore;
   private AuthCache authCache;
 
@@ -65,10 +69,11 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
 
   @Override
   public void configure(Map<String, ?> configs) {
+    this.configs = configs;
     if (clusterId == null)
       throw new IllegalStateException("Kafka cluster id not known");
 
-    Scope authStoreScope = Objects.requireNonNull(authScope, "authScope");
+    authStoreScope = Objects.requireNonNull(authScope, "authScope");
     if (providerName().equals(configs.get(ConfluentAuthorizerConfig.METADATA_PROVIDER_PROP))) {
       MetadataServiceConfig metadataServiceConfig = new MetadataServiceConfig(configs);
       metadataServer = createMetadataServer(metadataServiceConfig);
@@ -88,12 +93,6 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
     // Allow security metadata access for broker's configured super-user in the metadata cluster
     this.configuredSuperUsers =
         ConfluentAuthorizerConfig.parseSuperUsers((String) configs.get(ConfluentAuthorizerConfig.SUPER_USERS_PROP));
-    authStore = createAuthStore(authStoreScope, configs);
-    this.authCache = authStore.authCache();
-    if (LdapConfig.ldapEnabled(configs)) {
-      authenticateCallbackHandler = new LdapAuthenticateCallbackHandler();
-      authenticateCallbackHandler.configure(configs, "PLAIN", Collections.emptyList());
-    }
   }
 
   @Override
@@ -121,7 +120,20 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
    * metadata cluster to create and initialize the topic.
    */
   @Override
-  public CompletionStage<Void> start() {
+  public CompletionStage<Void> start(Map<String, ?> interBrokerListenerConfigs) {
+    if (!usesMetadataFromThisKafkaCluster() && !configs.containsKey(KafkaStoreConfig.BOOTSTRAP_SERVERS_PROP)) {
+      throw new ConfigException("Metadata bootstrap servers not specified for broker which does not host metadata service");
+    }
+
+    Map<String, Object> clientConfigs = new HashMap<>(configs);
+    clientConfigs.putAll(interBrokerListenerConfigs);
+    authStore = createAuthStore(authStoreScope, clientConfigs);
+    this.authCache = authStore.authCache();
+    if (LdapConfig.ldapEnabled(configs)) {
+      authenticateCallbackHandler = new LdapAuthenticateCallbackHandler();
+      authenticateCallbackHandler.configure(configs, "PLAIN", Collections.emptyList());
+    }
+
     if (metadataServer != null)
       authStore.startService(metadataServerUrls);
     return authStore.startReader()

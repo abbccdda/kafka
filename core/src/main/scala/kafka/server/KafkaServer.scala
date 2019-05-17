@@ -44,7 +44,8 @@ import kafka.tier.{TierMetadataManager, TierTopicManager, TierTopicManagerConfig
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils._
 import kafka.zk.{BrokerInfo, KafkaZkClient}
-import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, ManualMetadataUpdater, NetworkClient, NetworkClientUtils}
+import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, CommonClientConfigs, ManualMetadataUpdater, NetworkClient, NetworkClientUtils}
+import org.apache.kafka.common.config.SaslConfigs
 import org.apache.kafka.common.internals.ClusterResourceListeners
 import org.apache.kafka.common.message.ControlledShutdownRequestData
 import org.apache.kafka.common.metrics.{JmxReporter, Metrics, _}
@@ -57,6 +58,7 @@ import org.apache.kafka.common.security.{JaasContext, JaasUtils}
 import org.apache.kafka.common.utils.{AppInfoParser, LogContext, Time}
 import org.apache.kafka.common.{ClusterResource, ClusterResourceListener, Node}
 import org.apache.kafka.common.config.internals.ConfluentConfigs
+import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.server.multitenant.MultiTenantMetadata
 
 import scala.collection.JavaConverters._
@@ -382,7 +384,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         socketServer.startControlPlaneProcessor()
         val authorizerFuture = authorizer.collect {
-          case a : AuthorizerWithKafkaStore => a.readyFuture()
+          case a : AuthorizerWithKafkaStore => a.start(interBrokerClientConfigs(brokerInfo))
         }
         socketServer.startDataPlaneProcessors(authorizerFuture)
         brokerState.newState(RunningAsBroker)
@@ -402,6 +404,26 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         shutdown()
         throw e
     }
+  }
+
+  private def interBrokerClientConfigs(brokerInfo: BrokerInfo) : util.Map[String, _] = {
+    val clientConfigs = new util.HashMap[String, AnyRef]
+    val listenerPrefix = config.interBrokerListenerName.configPrefix
+    clientConfigs.putAll(config.originals)
+    clientConfigs.putAll(config.originalsWithPrefix(listenerPrefix))
+    clientConfigs.keySet.removeAll(config.originalsWithPrefix(listenerPrefix, false).keySet)
+    val securityProtocol = config.interBrokerSecurityProtocol
+    if (securityProtocol == SecurityProtocol.SASL_PLAINTEXT || securityProtocol == SecurityProtocol.SASL_SSL) {
+      val mechanismPrefix = config.interBrokerListenerName.saslMechanismConfigPrefix(config.saslMechanismInterBrokerProtocol)
+      clientConfigs.putAll(config.originalsWithPrefix(mechanismPrefix))
+      clientConfigs.keySet.removeAll(config.originalsWithPrefix(mechanismPrefix, false).keySet)
+    }
+    val endpoint = brokerInfo.broker.brokerEndPoint(config.interBrokerListenerName)
+    clientConfigs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, endpoint.host + ":" + endpoint.port)
+    clientConfigs.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol.name)
+    clientConfigs.put(SaslConfigs.SASL_MECHANISM, config.saslMechanismInterBrokerProtocol)
+    clientConfigs.put(KafkaConfig.BrokerIdProp, config.brokerId.toString)
+    clientConfigs
   }
 
   private def tieredBootstrapServersSupplier: Supplier[String] = {
