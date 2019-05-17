@@ -56,6 +56,7 @@ import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartitionInfo;
 import org.apache.kafka.common.message.FindCoordinatorResponseData;
 import org.apache.kafka.common.message.JoinGroupResponseData;
+import org.apache.kafka.common.message.SyncGroupResponseData;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.requests.FindCoordinatorResponse;
 import org.apache.kafka.common.requests.JoinGroupResponse;
@@ -268,7 +269,9 @@ public class MockAuthStore extends KafkaAuthStore {
         nodesByMemberId,
         writerMemberId,
         writeNodeId == -1 ? null : nodesByMemberId.get(writerMemberId));
-    return new SyncGroupResponse(Errors.NONE, JsonMapper.toByteBuffer(assignment));
+    return new SyncGroupResponse(new SyncGroupResponseData()
+        .setErrorCode(Errors.NONE.code())
+        .setAssignment(JsonMapper.toByteArray(assignment)));
   }
 
   public static MockAuthStore create(RbacRoles rbacRoles,

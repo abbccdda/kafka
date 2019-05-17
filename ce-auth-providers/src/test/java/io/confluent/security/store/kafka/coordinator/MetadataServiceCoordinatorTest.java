@@ -33,6 +33,7 @@ import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.internals.ClusterResourceListeners;
 import org.apache.kafka.common.message.FindCoordinatorResponseData;
 import org.apache.kafka.common.message.JoinGroupResponseData;
+import org.apache.kafka.common.message.SyncGroupResponseData;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
@@ -179,7 +180,7 @@ public class MetadataServiceCoordinatorTest {
 
     SyncGroupRequest syncRequest = (SyncGroupRequest) mockClient.requests().peek().requestBuilder().build();
     MetadataServiceAssignment assignment = JsonMapper.fromByteBuffer(
-        syncRequest.groupAssignment().get(coordinatorId), MetadataServiceAssignment.class);
+        syncRequest.groupAssignments().get(coordinatorId), MetadataServiceAssignment.class);
     assertEquals(AssignmentError.DUPLICATE_URLS.errorCode(), assignment.error());
   }
 
@@ -233,7 +234,9 @@ public class MetadataServiceCoordinatorTest {
         activeNodes,
         writerId,
         activeNodes.get(writerId));
-    mockClient.prepareResponse(new SyncGroupResponse(Errors.NONE, JsonMapper.toByteBuffer(assignment)));
+    mockClient.prepareResponse(new SyncGroupResponse(new SyncGroupResponseData()
+        .setErrorCode(Errors.NONE.code())
+        .setAssignment(JsonMapper.toByteArray(assignment))));
   }
 
   private class RebalanceListener implements MetadataServiceRebalanceListener {

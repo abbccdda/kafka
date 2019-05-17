@@ -51,6 +51,14 @@ public class JsonMapper {
         return OBJECT_MAPPER;
   }
 
+  public static byte[] toByteArray(Object obj) {
+    try {
+      return OBJECT_MAPPER.writeValueAsBytes(obj);
+    } catch (IOException e) {
+      throw new IllegalArgumentException("JSON serialization failed for: " + obj, e);
+    }
+  }
+
   public static ByteBuffer toByteBuffer(Object obj) {
     try {
       return ByteBuffer.wrap(OBJECT_MAPPER.writeValueAsBytes(obj));

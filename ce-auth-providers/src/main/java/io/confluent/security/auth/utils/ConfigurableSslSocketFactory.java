@@ -29,7 +29,7 @@ public class ConfigurableSslSocketFactory extends SSLSocketFactory {
   }
 
   public ConfigurableSslSocketFactory() {
-    sslSocketFactory = sslFactory.sslContext().getSocketFactory();
+    sslSocketFactory = sslFactory.sslEngineBuilder().sslContext().getSocketFactory();
   }
 
   @Override

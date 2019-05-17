@@ -162,7 +162,7 @@ public class RestClient implements Closeable {
   private SSLSocketFactory createSslSocketFactory(final RestClientConfig rbacClientConfig) {
     SslFactory sslFactory = new SslFactory(Mode.CLIENT);
     sslFactory.configure(rbacClientConfig.values());
-    return sslFactory.sslContext().getSocketFactory();
+    return sslFactory.sslEngineBuilder().sslContext().getSocketFactory();
   }
 
   private List<String> getActiveMetadataServerURLs()

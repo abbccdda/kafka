@@ -43,6 +43,7 @@ import org.apache.kafka.common.message.LeaveGroupRequestData;
 import org.apache.kafka.common.errors.NotLeaderForPartitionException;
 import org.apache.kafka.common.message.MetadataRequestData;
 import org.apache.kafka.common.message.MetadataRequestData.MetadataRequestTopic;
+import org.apache.kafka.common.message.SyncGroupRequestData;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
@@ -600,10 +601,10 @@ public class MultiTenantRequestContextTest {
   public void testSyncGroupRequest() {
     for (short ver = ApiKeys.SYNC_GROUP.oldestVersion(); ver <= ApiKeys.SYNC_GROUP.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.SYNC_GROUP, ver);
-      SyncGroupRequest inbound = new SyncGroupRequest.Builder("group", 1, "memberId",
-          Collections.<String, ByteBuffer>emptyMap()).build(ver);
+      SyncGroupRequest inbound = new SyncGroupRequest.Builder(new SyncGroupRequestData()
+          .setGroupId("group").setGenerationId(1).setMemberId("memberId")).build(ver);
       SyncGroupRequest intercepted = (SyncGroupRequest) parseRequest(context, inbound);
-      assertEquals("tenant_group", intercepted.groupId());
+      assertEquals("tenant_group", intercepted.data.groupId());
       verifyRequestMetrics(ApiKeys.SYNC_GROUP);
     }
   }
