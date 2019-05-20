@@ -25,6 +25,10 @@
             "operations" : ["Describe"]
           },
           {
+            "resourceType" : "Secret",
+            "operations" : ["Create", "Read", "Delete"]
+          },
+          {
             "resourceType" : "SecurityMetadata",
             "operations" : ["Describe", "Alter"]
           },
@@ -56,6 +60,10 @@
           {
             "resourceType" : "Connector",
             "operations" : ["Create", "ReadConfig", "ReadStatus", "Pause", "Resume", "Scale", "Delete"]
+          },
+          {
+            "resourceType" : "Secret",
+            "operations" : ["Create", "Read", "Delete"]
           },
           {
             "resourceType" : "KsqlCluster",
