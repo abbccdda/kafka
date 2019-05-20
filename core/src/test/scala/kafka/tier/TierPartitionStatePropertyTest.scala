@@ -12,11 +12,14 @@ import kafka.tier.state.{FileTierPartitionState, MemoryTierPartitionState}
 import kafka.utils.ScalaCheckUtils.assertProperty
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.test.IntegrationTest
 import org.junit.Test
+import org.junit.experimental.categories.Category
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 import org.scalacheck.Test.Parameters.defaultVerbose
 
+@Category(Array(classOf[IntegrationTest]))
 class TierPartitionStatePropertyTest {
   val brokerId = 0
   val baseDir = TestUtils.tempDir()

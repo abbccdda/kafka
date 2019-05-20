@@ -6,21 +6,22 @@ package integration.kafka.tier
 
 import java.io.EOFException
 import java.nio.ByteBuffer
+import java.util.Optional
 import java.util.function.Consumer
 
 import kafka.tier.fetcher.{CancellationContext, TierSegmentReader}
 import kafka.utils.ScalaCheckUtils.assertProperty
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.utils.ByteBufferInputStream
+import org.apache.kafka.test.IntegrationTest
 import org.junit.Test
+import org.junit.experimental.categories.Category
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
-import org.scalacheck.Shrink
 import org.scalacheck.Test.Parameters
 import org.scalacheck.Test.Parameters.defaultVerbose
 
 import scala.collection.JavaConverters._
-import scala.collection.mutable
 
 /**
   * Defines the parameters needed to construct a record batch
@@ -79,7 +80,7 @@ case class SegmentViewDefinition(recordBatchDefinitions: List[RecordBatchDefinit
       val newBaseOffset: Int = acc.lastOption.map { case (baseOffset: Int,_) => baseOffset }.getOrElse(-1) + 1
       val memRecords = definition.generateBatch(newBaseOffset)
       acc :+ (newBaseOffset, memRecords)
-    }).map { case (baseOffset: Int, memoryRecords: MemoryRecords) => memoryRecords }
+    }).map { case (_: Int, memoryRecords: MemoryRecords) => memoryRecords }
   }
 
   def bytesAsInputStream(): ByteBufferInputStream = {
@@ -144,6 +145,7 @@ object SegmentViewDefinition {
 /**
   * Wrapper class for data needed when calling `TierSegmentReader.loadRecords()`.
   */
+
 case class LoadRecordsRequestDefinition(segmentViewDefinition: SegmentViewDefinition, targetOffset: Long, maxBytes: Int) {
   private def firstBatchContainsTargetOffset(loadedRecordBatches: List[RecordBatch]): Boolean = {
     // 1. If both the expected and loaded batches are empty, return true.
@@ -195,7 +197,7 @@ object LoadRecordsRequestDefinition {
     } yield LoadRecordsRequestDefinition(segmentViewDef, targetOffset, maxBytes)
   }
 }
-
+@Category(Array(classOf[IntegrationTest]))
 class TierSegmentReaderPropertyTest {
   val numTestRuns: Int = 1000
   val testParams: Parameters = defaultVerbose
@@ -264,31 +266,34 @@ class TierSegmentReaderPropertyTest {
         _.batches().forEach(new Consumer[MutableRecordBatch] {
           override def accept(recordBatch: MutableRecordBatch): Unit = {
             recordBatch.forEach(
-            new Consumer[Record] {
-              override def accept(record: Record): Unit = {
-                offsetTimestampList.add((record.timestamp(), record.offset()))
-              }
-            })
+              new Consumer[Record] {
+                override def accept(record: Record): Unit = {
+                  offsetTimestampList.add((record.timestamp(), record.offset()))
+                }
+              })
           }
         }))
 
-      val oracleResult = offsetTimestampList.asScala.find { case (recordTimestamp, _) => recordTimestamp >= targetTimestamp }
-      if (oracleResult.isDefined) {
-        val offset = TierSegmentReader.offsetForTimestamp(cancellationContext, inputStream, targetTimestamp)
-        oracleResult.get._2 == offset.get()
-      } else {
-        // should not exist in file, so we should hit an EOF exception
-        try {
-          val offset = TierSegmentReader.offsetForTimestamp(cancellationContext, inputStream, targetTimestamp)
-          false
-        } catch {
-          case e : EOFException => true
-          case _ : Exception => false
-        }
+      val expectedOffsetForTimestamp = offsetTimestampList.asScala.collectFirst {
+        case (ts, offset) if ts >= targetTimestamp => offset.asInstanceOf[java.lang.Long]
+      }
+      expectedOffsetForTimestamp match {
+        case Some(expected) =>
+          Optional.of(expected) ==
+            TierSegmentReader.offsetForTimestamp(cancellationContext, inputStream, targetTimestamp)
+
+        case None =>
+          // should not exist in file, so we should hit an EOF exception
+          try {
+            TierSegmentReader.offsetForTimestamp(cancellationContext, inputStream, targetTimestamp)
+            false
+          } catch {
+            case _: EOFException => true
+            case _: Throwable => false
+          }
       }
     }}, testParams)
   }
-
 
   @Test
   def loadAllRecordsPropertyTest(): Unit = {

@@ -39,7 +39,7 @@ public class CancellationContext implements Closeable {
      *
      * @return a new child CancellationContext
      */
-    CancellationContext subContext() {
+    public CancellationContext subContext() {
         CancellationContext newContext = new CancellationContext(this.cancelled);
         synchronized (this) {
             this.child.add(newContext);

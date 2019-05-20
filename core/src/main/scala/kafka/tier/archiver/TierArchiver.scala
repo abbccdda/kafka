@@ -4,24 +4,20 @@
 
 package kafka.tier.archiver
 
-import java.util.PriorityQueue
-import java.util.concurrent.{CompletableFuture, ConcurrentLinkedQueue, ExecutionException, Executors, TimeUnit}
-import java.util.function.Predicate
+import java.util.concurrent.{CancellationException, ForkJoinPool, TimeUnit}
 
 import com.yammer.metrics.core.Gauge
-import com.yammer.metrics.core.Meter
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.{KafkaConfig, ReplicaManager}
-import kafka.tier.archiver.TierArchiverState.{BeforeLeader, RetriableTierArchiverState, TierArchiverStateComparator}
-import kafka.tier.exceptions.{TierArchiverFatalException, TierArchiverFencedException}
+import kafka.tier.fetcher.CancellationContext
 import kafka.tier.store.TierObjectStore
 import kafka.tier.{TierMetadataManager, TierTopicManager}
 import kafka.utils.{Logging, ShutdownableThread}
-import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.utils.Time
 
-import scala.collection.mutable
-import scala.util.{Failure, Success, Try}
+import scala.concurrent.duration._
+import scala.concurrent.{Await, ExecutionContext, ExecutionContextExecutor, Future}
+import scala.util.Try
 
 case class TierArchiverConfig(numThreads: Int = 10,
                               updateIntervalMs: Int = 50,
@@ -47,31 +43,68 @@ object TierArchiverConfig {
   * are scheduled based on this `priority()` method.
   *
   */
-class TierArchiver(config: TierArchiverConfig,
-                   replicaManager: ReplicaManager,
-                   tierMetadataManager: TierMetadataManager,
-                   tierTopicManager: TierTopicManager,
-                   tierObjectStore: TierObjectStore,
-                   time: Time = Time.SYSTEM) extends ShutdownableThread(name = "tier-archiver") with KafkaMetricsGroup with Logging {
-  private[tier] val blockingTaskExecutor = Executors.newScheduledThreadPool(config.numThreads)
-  private[tier] val immigrationEmigrationQueue = new ConcurrentLinkedQueue[ImmigratingOrEmigratingTopicPartitions]()
+final class TierArchiver(config: TierArchiverConfig,
+                         replicaManager: ReplicaManager,
+                         tierMetadataManager: TierMetadataManager,
+                         tierTopicManager: TierTopicManager,
+                         tierObjectStore: TierObjectStore,
+                         time: Time = Time.SYSTEM) extends ShutdownableThread(name = "tier-archiver") with KafkaMetricsGroup with Logging {
 
-  // consists of states between status transitions, and sorts by priority to facilitate scheduling.
-  private[tier] val pausedStates = new PriorityQueue[TierArchiverState](11, TierArchiverStateComparator)
-  // maps topic partitions to a tuple of state and pending status transition.
-  private[tier] val stateTransitionsInProgress = mutable.Map.empty[TopicPartition, State]
-  private val lock = new Object
+  private val ctx: CancellationContext = CancellationContext.newContext()
+  private val executor = new ForkJoinPool(Runtime.getRuntime.availableProcessors, ForkJoinPool.defaultForkJoinWorkerThreadFactory, new Thread.UncaughtExceptionHandler {
+    override def uncaughtException(t: Thread, e: Throwable): Unit = {
+      fatal(s"uncaught exception in TierArchiver thread-${t.getId}", e)
+    }
+  }, true)
+  private implicit val pool: ExecutionContextExecutor = ExecutionContext.fromExecutor(executor)
+  private[tier] val taskQueue: TaskQueue[ArchiveTask] = new ArchiverTaskQueue[ArchiveTask](ctx.subContext(), time, schedulingLag, ArchiveTask.apply)
 
-  // set up metrics
+  // Register the taskQueue with the metadata listener
+  tierMetadataManager.addListener(taskQueue)
+
+  /**
+    * Tasks are ordered in the following way,
+    *
+    *   1. AfterUpload always comes before BeforeLeader
+    *
+    *   2. BeforeLeader always comes before BeforeUpload
+    *
+    *   3. A partition in the BeforeUpload state with low
+    *      lag always comes before a partition in the BeforeUpload
+    *      state with high lag.
+    *
+    * `schedulingLag()` returns an Option[Long] suitable for sorting
+    * tasks using a less-than comparison. That is to say, more important tasks
+    * will have a lower return value while less important tasks will
+    * have a higher return value. If a lag cannot be found, None is returned.
+    */
+  private def schedulingLag(task: ArchiveTask): Option[Long] = {
+    task.state match {
+      case _: BeforeLeader => Some(-1)
+      case _: BeforeUpload =>
+        replicaManager
+          .getLog(task.topicPartition)
+          .map(log => log.tierableLogSegments.map(_.size).sum)
+      case _: AfterUpload => Some(-2)
+    }
+  }
+
   removeMetric("TotalLag")
   newGauge("TotalLag",
     new Gauge[Long] {
       def value(): Long = {
-        val (paused, pending) = lock synchronized {
-          (pausedStates.toArray(Array.empty[TierArchiverState]), stateTransitionsInProgress.values.map(_.archiverState).toArray)
-        }
-
-        (pending ++ paused).foldLeft(0L) { (acc, state) => acc + state.lag }
+        taskQueue.withAllTasks(tasks => {
+          var totalSize = 0L
+          for (task <- tasks) {
+            replicaManager.getLog(task.topicPartition) match {
+              case Some(log) =>
+                val logSize = log.tierableLogSegments.map(_.size).sum
+                totalSize += logSize
+              case None =>
+            }
+          }
+          totalSize
+        })
       }
     }
   )
@@ -80,158 +113,112 @@ class TierArchiver(config: TierArchiverConfig,
   newGauge("RetryStateCount",
     new Gauge[Long] {
       def value(): Long = {
-        val (paused, pending) = lock synchronized {
-          (pausedStates.toArray(Array.empty[TierArchiverState]), stateTransitionsInProgress.values.map(_.archiverState).toArray)
-        }
-        (pending ++ paused).collect { case state: RetriableTierArchiverState if state.retryCount > 0 => state }.size
+        taskQueue.withAllTasks(tasks => {
+          tasks.map(_.totalRetryCount).sum
+        })
       }
     }
   )
 
   removeMetric("BytesPerSec")
-  private val byteRate = newMeter("BytesPerSec", "bytes", TimeUnit.SECONDS)
+  private val byteRate = newMeter("BytesPerSec", "bytes per second", TimeUnit.SECONDS)
 
-  tierMetadataManager.addListener(new TierMetadataManager.ChangeListener {
-    override def onBecomeLeader(topicPartition: TopicPartition, leaderEpoch: Int): Unit = handleImmigration(topicPartition, leaderEpoch)
-    override def onBecomeFollower(topicPartition: TopicPartition): Unit = handleEmigration(topicPartition)
-    override def onDelete(topicPartition: TopicPartition): Unit = handleEmigration(topicPartition)
+  removeMetric("CyclesPerSec")
+  private val cycleTimeMetric = newMeter("CyclesPerSec", "archiver cycles per second", TimeUnit.SECONDS)
+
+  removeMetric("WorkingSetSaturationPercent")
+  newGauge("WorkingSetSaturationPercent", new Gauge[Double] {
+    override def value(): Double = {
+      workingSet.size / config.numThreads
+    }
   })
 
-  def handleImmigration(topicPartition: TopicPartition, leaderEpoch: Int): Unit = {
-    immigrationEmigrationQueue.add(ImmigratingTopicPartition(topicPartition, leaderEpoch))
-  }
-
-  def handleEmigration(topicPartition: TopicPartition): Unit = {
-    immigrationEmigrationQueue.add(EmigratingTopicPartition(topicPartition))
+  private def waitForTierTopicManager(): Unit = {
+    while (!tierTopicManager.isReady) {
+      Thread.sleep(1000) // TODO: Have the TierTopicManager just block futures on this
+    }
   }
 
   /**
-    * Immigration and emigration requests are queued together in `immigrationEmigrationQueue`, this allows us to
-    * preserve ordering of immigration and emigration events to be processed by the archiver, while also not blocking
-    * the immigration/emigration handler caller thread.
-    *
-    * `processImmigrationEmigrationQueue()` empties the `immigrationEmigrationQueue` on each invocation, adding
-    * new TopicPartition immigrations to the map of `pausedStates`. An emigration event removes any matching status from
-    * `pausedStates`. If there are any `stateTransitionsInProgress` for the emigrating TopicPartition, the status
-    * transition is canceled and it is removed from the set of `stateTransitionsInProgress` too.
-    *
-    * @return true if any new immigration/emigration events were processed
+    * Contains the set of currently executing ArchiveTasks.
     */
-  private def processImmigrationEmigrationQueue(): Boolean = {
-    var didWork = false
-    while (!immigrationEmigrationQueue.isEmpty) {
-      lock synchronized {
-        immigrationEmigrationQueue.poll() match {
-          case immigrationEvent: ImmigratingTopicPartition =>
-            trace(s"Handling immigration for ${immigrationEvent.topicPartition} at epoch ${immigrationEvent.leaderEpoch}")
-            val state = BeforeLeader(replicaManager, tierTopicManager, tierObjectStore,
-              ArchiverStateMetrics(byteRate), immigrationEvent.topicPartition, immigrationEvent.leaderEpoch,
-              blockingTaskExecutor, time, config)
-            pausedStates.add(state)
-            didWork = true
-          case emigrationEvent: EmigratingTopicPartition =>
-            trace(s"Handling emigration for ${emigrationEvent.topicPartition}")
-            pausedStates.removeIf(new Predicate[TierArchiverState] {
-              override def test(t: TierArchiverState): Boolean = {
-                t.topicPartition == emigrationEvent.topicPartition
-              }
-            })
-            stateTransitionsInProgress.remove(emigrationEvent.topicPartition).map(_.promise.cancel(true))
-            didWork = true
+  var workingSet: List[Future[ArchiveTask]] = List()
+
+  /**
+    * Block until there is at least one task item in the workingSet. If there is a task item
+    * in the working set already, continue to add to it until filled or poll times out
+    */
+  private def fillWorkingSet(): Unit = {
+    var continue = true
+    while (continue && !ctx.isCancelled && workingSet.size < config.numThreads) {
+      if (workingSet.isEmpty) {
+        debug("working set is empty, blocking until a new task is available")
+        val newTask = taskQueue.poll()
+        workingSet :+= newTask.transition(time, tierTopicManager, tierObjectStore, replicaManager,
+          Some(byteRate), Some(config.maxRetryBackoffMs))
+      } else {
+        taskQueue.poll(config.updateIntervalMs, TimeUnit.MILLISECONDS) match {
+          case Some(newTask) =>
+            workingSet :+= newTask.transition(time, tierTopicManager, tierObjectStore, replicaManager,
+              Some(byteRate), Some(config.maxRetryBackoffMs))
+          case None => continue = false
         }
       }
     }
-    didWork
   }
 
   /**
-    * Iterates over the map of stateTransitionsInProgress, resolving completed futures and adding them back to
-    * `pausedStates`
-    * @return True if any states were successfully transitioned or fenced. False if no states were transitioned. Throws
-    *         on fatal error.
+    * If the working set is full, block until at least one task has completed.
+    * If the working set is not full, block for config.updateIntervalMs or until a task
+    * has completed. Drain the working set of all completed tasks and re-add them to
+    * the work queue.
     */
-  private def pauseDoneStates(): Boolean = {
-    var didWork = false
-    trace(s"Checking completion of transitions in progress (size=${stateTransitionsInProgress.size})")
-    for ((topicPartition, state) <- stateTransitionsInProgress) {
-      if (state.promise.isDone) {
-        lock synchronized {
-          Try(state.promise.get) match {
-            case Success(nextState: TierArchiverState) =>
-              trace(s"Moving $topicPartition from $state to $nextState after successful completion")
-              pausedStates.add(nextState)
-              didWork = true
-              stateTransitionsInProgress.remove(topicPartition)
-            case Failure(e: ExecutionException) if e.getCause.isInstanceOf[TierArchiverFencedException] =>
-              info(s"Removing fenced partition $topicPartition while in $state state", e)
-              didWork = true
-              stateTransitionsInProgress.remove(topicPartition)
-            case Failure(e) =>
-              stateTransitionsInProgress.remove(topicPartition)
-              throw new TierArchiverFatalException(s"Unhandled exception for $topicPartition while in $state state", e)
-          }
-        }
-      }
+  private def drainFutures(): Unit = {
+    if (workingSet.size >= config.numThreads) {
+      debug("working set is full, blocking until a task completes")
+      Await.ready(Future.firstCompletedOf(workingSet), Int.MaxValue seconds)
+    } else {
+      debug("working set is not full, attempting to complete at least one future")
+      // Here we just use `Try` to swallow the exception thrown when hitting the `Await.ready` timeout.
+      Try(Await.ready(Future.firstCompletedOf(workingSet), config.updateIntervalMs millis))
     }
-    didWork
-  }
-
-  /**
-    * If there is room on the executor, try to transition pending states.
-    */
-  def tryRunPendingStates(): Boolean = {
-    var didWork = false
-    while (stateTransitionsInProgress.size < config.numThreads && !pausedStates.isEmpty) {
-      lock synchronized {
-        val state = pausedStates.poll()
-        if (state != null) {
-          trace(s"Initiating transition for ${state.topicPartition} in state $state")
-          stateTransitionsInProgress.put(state.topicPartition, State(state, state.nextState()))
-          didWork = true
-        }
-      }
+    val (completed, inProgress) = workingSet.partition(_.isCompleted)
+    workingSet = inProgress
+    debug(s"${inProgress.size} tasks still in progress")
+    debug(s"${completed.size} tasks completed")
+    for (taskFuture <- completed) {
+      val task = Await.result(taskFuture, 0 seconds)
+      trace(s"completing task $task")
+      taskQueue.done(task)
     }
-    didWork
-  }
-
-  def processTransitions(): Boolean = {
-    val processedImmigrationEmigration = processImmigrationEmigrationQueue()
-    val pausedDoneStates = pauseDoneStates()
-    val ranPendingStates = tryRunPendingStates()
-    processedImmigrationEmigration || ranPendingStates || pausedDoneStates
   }
 
   override def doWork(): Unit = {
-    if (tierTopicManager.isReady) {
-      try {
-        processTransitions()
-      } catch {
-        case _: InterruptedException =>
-        case e: Throwable =>
-          error("Unhandled exception caught in archiver doWork loop. Backing off.", e)
-          Thread.sleep(config.mainLoopBackoffMs)
+    try {
+      info("waiting for TierTopicManager to start")
+      waitForTierTopicManager()
+      info("TierTopicManager is ready, starting archiver loop")
+      while (!ctx.isCancelled) {
+        fillWorkingSet()
+        drainFutures()
+
+        cycleTimeMetric.mark()
       }
-      pause(config.updateIntervalMs, TimeUnit.MILLISECONDS)
+      info("exiting work loop")
+    } catch {
+      case _: InterruptedException | _: CancellationException =>
+        info("archiver shutting down")
+      case t: Throwable =>
+        fatal("caught fatal exception while archiving", t)
+        throw t
     }
   }
 
   override def shutdown(): Unit = {
-    blockingTaskExecutor.shutdown()
-    blockingTaskExecutor.awaitTermination(30, TimeUnit.SECONDS)
+    info("shutting down")
     super.shutdown()
+    ctx.cancel()
+    taskQueue.close()
+    executor.shutdownNow()
   }
-
-  private[tier] case class State(archiverState: TierArchiverState, promise: CompletableFuture[TierArchiverState])
 }
-
-private[tier] sealed trait ImmigratingOrEmigratingTopicPartitions {
-  val topicPartition: TopicPartition
-}
-
-private[tier] case class ImmigratingTopicPartition(topicPartition: TopicPartition, leaderEpoch: Integer)
-  extends ImmigratingOrEmigratingTopicPartitions
-
-private[tier] case class EmigratingTopicPartition(topicPartition: TopicPartition)
-  extends ImmigratingOrEmigratingTopicPartitions
-
-private[tier] case class ArchiverStateMetrics (byteRate: Meter)
