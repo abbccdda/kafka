@@ -786,16 +786,36 @@ class KafkaApis(val requestChannel: RequestChannel,
 
         val maxThrottleTimeMs = math.max(bandwidthThrottleTimeMs, requestThrottleTimeMs)
         if (maxThrottleTimeMs > 0) {
+
+          // Historically, one reason to return an empty fetch response when it's throttled is to avoid the throttling
+          // value being exceeded. If the throttling value is exceeded, other requests like HeartBeat could be
+          // throttled, which can cause a consumer session to time out. This change is unlikely to cause this issue since
+          //
+          // (1) HeartBeat only has CPU (request) throttling and CPU probably won't be used a lot even when a full
+          //     response is sent;
+          // (2) The throttling time for CPU quota is currently bounded by the quota window size, which defaults to
+          //     1 sec. The default consumer session timeout is 10 secs.
+          val responseContainsMemoryRecords: Boolean = partitions
+            .values()
+            .asScala
+            .exists(_.records.isInstanceOf[MemoryRecords])
+
           // Even if we need to throttle for request quota violation, we should "unrecord" the already recorded value
-          // from the fetch quota because we are going to return an empty response.
-          quotas.fetch.unrecordQuotaSensor(request, responseSize, timeMs)
+          // from the fetch quota if we are going to return an empty response.
+          if (!responseContainsMemoryRecords)
+            quotas.fetch.unrecordQuotaSensor(request, responseSize, timeMs)
+
           if (bandwidthThrottleTimeMs > requestThrottleTimeMs) {
             quotas.fetch.throttle(request, bandwidthThrottleTimeMs, sendResponse)
           } else {
             quotas.request.throttle(request, requestThrottleTimeMs, sendResponse)
           }
-          // If throttling is required, return an empty response.
-          unconvertedFetchResponse = fetchContext.getThrottledResponse(maxThrottleTimeMs)
+
+          if (!responseContainsMemoryRecords)
+          // If throttling is required, and the response does not contain MemoryRecords, return an empty response.
+            unconvertedFetchResponse = fetchContext.getThrottledResponse(maxThrottleTimeMs)
+          else
+            unconvertedFetchResponse = fetchContext.updateAndGenerateResponseData(partitions)
         } else {
           // Get the actual response. This will update the fetch context.
           unconvertedFetchResponse = fetchContext.updateAndGenerateResponseData(partitions)

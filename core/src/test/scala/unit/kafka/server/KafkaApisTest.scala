@@ -553,6 +553,55 @@ class KafkaApisTest {
     EasyMock.replay(groupCoordinator)
   }
 
+  @Test
+  def testTierFetchThrottlingBehavior(): Unit = {
+    val topicPartition = new TopicPartition("foo", 0)
+    EasyMock.reset(replicaManager, clientQuotaManager, clientRequestQuotaManager, requestChannel, fetchManager)
+    val response1 = throttlingBehavior(topicPartition, 0, MemoryRecords.withRecords(CompressionType.NONE, new SimpleRecord(0, "foo".getBytes(StandardCharsets.UTF_8))), 0)
+    assertTrue("expected that without throttling, a response is returned", response1.responseData().containsKey(topicPartition))
+    EasyMock.reset(replicaManager, clientQuotaManager, clientRequestQuotaManager, requestChannel, fetchManager)
+    val response2 = throttlingBehavior(topicPartition, 0, MemoryRecords.withRecords(CompressionType.NONE, new SimpleRecord(0, "foo".getBytes(StandardCharsets.UTF_8))), 100)
+    assertTrue("expected that with throttling, a response is still returned", response2.responseData().containsKey(topicPartition))
+  }
+
+  private def throttlingBehavior(topicPartition: TopicPartition, hw: Int, records: Records, throttleTimeMs: Int): FetchResponse[BaseRecords] = {
+    setupBasicMetadataCache(topicPartition.topic, numPartitions = 1)
+    expect(replicaManager.getLogConfig(EasyMock.eq(topicPartition))).andReturn(None)
+
+    replicaManager.fetchMessages(anyLong, anyInt, anyInt, anyInt, anyBoolean,
+      anyObject[Seq[(TopicPartition, FetchRequest.PartitionData)]], anyObject[ReplicaQuota],
+      anyObject[Seq[(TopicPartition, FetchPartitionData)] => Unit](), anyObject[IsolationLevel])
+    expectLastCall[Unit].andAnswer(new IAnswer[Unit] {
+      def answer: Unit = {
+        val callback = getCurrentArguments.apply(7).asInstanceOf[Seq[(TopicPartition, FetchPartitionData)] => Unit]
+        callback(Seq(topicPartition -> FetchPartitionData(Errors.NONE, hw, 0, records,
+          None, None)))
+      }
+    })
+
+    val fetchData = Map(topicPartition -> new FetchRequest.PartitionData(0, 0, 1000,
+      Optional.empty())).asJava
+    val fetchMetadata = new JFetchMetadata(0, 0)
+    val fetchContext = new FullFetchContext(time, new FetchSessionCache(1000, 100),
+      fetchMetadata, fetchData, false)
+    expect(fetchManager.newContext(anyObject[JFetchMetadata],
+      anyObject[util.Map[TopicPartition, FetchRequest.PartitionData]],
+      anyObject[util.List[TopicPartition]],
+      anyBoolean)).andReturn(fetchContext)
+
+    val capturedResponse = expectNoThrottling()
+    EasyMock.expect(clientQuotaManager.maybeRecordAndGetThrottleTimeMs( // Introduce a throttle
+      anyObject[RequestChannel.Request](), anyDouble, anyLong)).andReturn(throttleTimeMs)
+
+    EasyMock.replay(replicaManager, clientQuotaManager, clientRequestQuotaManager, requestChannel, fetchManager)
+
+    val builder = new FetchRequest.Builder(9, 9, -1, 100, 0, fetchData)
+    val (fetchRequest, request) = buildRequest(builder)
+    createKafkaApis().handleFetchRequest(request)
+
+    readResponse(ApiKeys.FETCH, fetchRequest, capturedResponse).asInstanceOf[FetchResponse[BaseRecords]]
+  }
+
   /**
    * Return pair of listener names in the metadataCache: PLAINTEXT and LISTENER2 respectively.
    */
