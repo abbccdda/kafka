@@ -29,6 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.management.ManagementFactory;
+import java.lang.management.OperatingSystemMXBean;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -101,6 +102,7 @@ public class ConfluentMetricsReporter
   private long volumeMetricsRefreshPeriodMs =
       ConfluentMetricsReporterConfig.DEFAULT_VOLUME_METRICS_REFRESH_PERIOD;
   private String[] volumeMetricsLogDirs = new String[0];
+  private com.sun.management.OperatingSystemMXBean osBean;
 
 
   @Override
@@ -258,6 +260,13 @@ public class ConfluentMetricsReporter
       metricMap.put(m.metricName(), m);
     }
 
+    OperatingSystemMXBean osBean = ManagementFactory.getOperatingSystemMXBean();
+    if (osBean instanceof com.sun.management.OperatingSystemMXBean) {
+      this.osBean = (com.sun.management.OperatingSystemMXBean) osBean;
+    } else {
+      log.warn("CPU metric is not available on this operating system");
+    }
+
     executor.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
     executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
     executor.setThreadFactory(new ThreadFactory() {
@@ -405,18 +414,20 @@ public class ConfluentMetricsReporter
 
       // add CPU metric if the source is a broker (we simulate a Kafka metric for serialization)
       if (metricType == BROKER) {
-        double cpuUtil = ((com.sun.management.OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean()).getProcessCpuLoad();
-        KafkaMeasurable.Builder builder = KafkaMeasurable.newBuilder();
-        builder.setValue(cpuUtil);
+        if (ConfluentMetricsReporter.this.osBean != null) {
+          double cpuUtil = osBean.getProcessCpuLoad();
+          KafkaMeasurable.Builder builder = KafkaMeasurable.newBuilder();
+          builder.setValue(cpuUtil);
 
-        ConfluentMetric.KafkaMetricName.Builder nameBuilder = ConfluentMetric.KafkaMetricName.newBuilder();
-        nameBuilder.setGroup("kafka.server");
-        nameBuilder.setName("CpuUsage");
-        builder.setMetricName(nameBuilder.build());
-        KafkaMeasurable km = builder.build();
-        List<KafkaMeasurable> kms = new ArrayList<>();
-        kms.add(km);
-        splitter.addKafkaMeasurables(kms);
+          ConfluentMetric.KafkaMetricName.Builder nameBuilder = ConfluentMetric.KafkaMetricName.newBuilder();
+          nameBuilder.setGroup("kafka.server");
+          nameBuilder.setName("CpuUsage");
+          builder.setMetricName(nameBuilder.build());
+          KafkaMeasurable km = builder.build();
+          List<KafkaMeasurable> kms = new ArrayList<>();
+          kms.add(km);
+          splitter.addKafkaMeasurables(kms);
+        }
       }
 
       // add Yammer metrics if the source is a broker, the clients don't produce Yammer metrics
