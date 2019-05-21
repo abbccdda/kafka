@@ -20,26 +20,28 @@ import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
 
 public class RestClientConfig extends AbstractConfig {
 
+  public static final String CONFIG_PREFIX = "confluent.metadata.";
+
   private static final ConfigDef CONFIG;
 
-  public static final String BOOTSTRAP_METADATA_SERVER_URLS_PROP = "bootstrap.metadata.server.urls";
+  public static final String BOOTSTRAP_METADATA_SERVER_URLS_PROP = CONFIG_PREFIX + "bootstrap.server.urls";
   private static final String BOOTSTRAP_METADATA_SERVER_URLS_DOC = "Comma separated list of bootstrap metadata servers urls to" +
           " which this client connects to. For ex: http://localhost:8080,http://localhost:8081";
 
-  public static final String ENABLE_METADATA_SERVER_URL_REFRESH = "enable.metadata.server.urls.refresh";
+  public static final String ENABLE_METADATA_SERVER_URL_REFRESH = CONFIG_PREFIX + "enable.server.urls.refresh";
   public static final String ENABLE_METADATA_SERVER_URL_REFRESH_DOC = "enables periodic refresh of metadata server urls.";
 
-  public static final String METADATA_SERVER_URL_MAX_AGE_PROP = "metadata.server.urls.max.age.ms";
+  public static final String METADATA_SERVER_URL_MAX_AGE_PROP = CONFIG_PREFIX + "server.urls.max.age.ms";
   public static final Long METADATA_SERVER_URL_MAX_AGE_DEFAULT = 10 * 60 * 1000L;
   public static final String METADATA_SERVER_URL_MAX_AGE_DOC = "The period of time in milliseconds after which we " +
           "force a refresh of metadata server urls.";
 
-  public static final String HTTP_AUTH_CREDENTIALS_PROVIDER_PROP = "http.auth.credentials.provider";
+  public static final String HTTP_AUTH_CREDENTIALS_PROVIDER_PROP = CONFIG_PREFIX + "http.auth.credentials.provider";
   private static final String HTTP_AUTH_CREDENTIALS_PROVIDER_DEFAULT = "";
   private static final String HTTP_AUTH_CREDENTIALS_PROVIDER_DOC = "HTTP authentication scheme. "
           + "Supported schemes are " + BuiltInAuthProviders.builtInHttpCredentialProviders();
 
-  public static final String BASIC_AUTH_CREDENTIALS_PROVIDER_PROP = "basic.auth.credentials.provider";
+  public static final String BASIC_AUTH_CREDENTIALS_PROVIDER_PROP = CONFIG_PREFIX + "basic.auth.credentials.provider";
   private static final String BASIC_AUTH_CREDENTIALS_PROVIDER_DEFAULT =
           BasicAuthCredentialProviders.USER_INFO.name();
   private static final String BASIC_AUTH_CREDENTIALS_PROVIDER_PROP_DOC =
@@ -47,20 +49,20 @@ public class RestClientConfig extends AbstractConfig {
                   + " basic authentication. Supported providers are "
                   + BuiltInAuthProviders.builtInBasicAuthCredentialProviders();
 
-  public static final String BASIC_AUTH_USER_INFO_PROP = "basic.auth.user.info";
+  public static final String BASIC_AUTH_USER_INFO_PROP = CONFIG_PREFIX + "basic.auth.user.info";
   private static final String BASIC_AUTH_USER_INFO_PROP_DOC = "Basic user credentials info in the format user:password." +
           " This is required for " + BasicAuthCredentialProviders.USER_INFO.name() + " provider.";
 
-  public static final String TOKEN_AUTH_CREDENTIAL_PROP = "token.auth.credential";
+  public static final String TOKEN_AUTH_CREDENTIAL_PROP = CONFIG_PREFIX + "token.auth.credential";
   private static final String TOKEN_AUTH_CREDENTIAL_DEFAULT = "";
   private static final String TOKEN_AUTH_CREDENTIAL_DOC =
           "String representation of an Authentication Token";
 
-  public static final String REQUEST_TIMEOUT_MS_CONFIG = "request.timeout.ms";
+  public static final String REQUEST_TIMEOUT_MS_CONFIG = CONFIG_PREFIX + "request.timeout.ms";
   public static final String REQUEST_TIMEOUT_MS_DOC = "The configuration controls the maximum amount of time the client will wait "
           + "for the response of a each authorizer request.";
 
-  public static final String HTTP_REQUEST_TIMEOUT_MS_CONFIG = "http.request.timeout.ms";
+  public static final String HTTP_REQUEST_TIMEOUT_MS_CONFIG = CONFIG_PREFIX + "http.request.timeout.ms";
   public static final String HTTP_REQUEST_TIMEOUT_MS_DOC = "The configuration controls the maximum amount of time the client will wait "
       + "for the response of a http request. If the response is not received before the timeout "
       + "elapses the client will resend the request if necessary or fail the request if "
