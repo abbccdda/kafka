@@ -699,7 +699,7 @@ class ReplicaManagerTest {
 
           override def createFetcherThread(fetcherId: Int, sourceBroker: BrokerEndPoint): ReplicaFetcherThread = {
             new ReplicaFetcherThread(s"ReplicaFetcherThread-$fetcherId", fetcherId,
-              sourceBroker, config, replicaManager, metrics, time, quota.follower, tierMetadataManager, None, Some(blockingSend)) {
+              sourceBroker, config, failedPartitions, replicaManager, metrics, time, quota.follower, tierMetadataManager, None, Some(blockingSend)) {
 
               override def doWork() = {
                 // In case the thread starts before the partition is added by AbstractFetcherManager,
