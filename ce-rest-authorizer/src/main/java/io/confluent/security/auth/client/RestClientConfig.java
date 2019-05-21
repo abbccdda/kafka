@@ -75,7 +75,7 @@ public class RestClientConfig extends AbstractConfig {
             .define(BASIC_AUTH_CREDENTIALS_PROVIDER_PROP, Type.STRING, BASIC_AUTH_CREDENTIALS_PROVIDER_DEFAULT,
                     Importance.HIGH,
                     BASIC_AUTH_CREDENTIALS_PROVIDER_PROP_DOC)
-            .define(BASIC_AUTH_USER_INFO_PROP, Type.STRING, "", Importance.MEDIUM, BASIC_AUTH_USER_INFO_PROP_DOC)
+            .define(BASIC_AUTH_USER_INFO_PROP, Type.PASSWORD, "", Importance.MEDIUM, BASIC_AUTH_USER_INFO_PROP_DOC)
             .define(ENABLE_METADATA_SERVER_URL_REFRESH, Type.BOOLEAN, true, Importance.LOW,
                 ENABLE_METADATA_SERVER_URL_REFRESH_DOC)
             .define(METADATA_SERVER_URL_MAX_AGE_PROP, Type.LONG, METADATA_SERVER_URL_MAX_AGE_DEFAULT, atLeast(0),
@@ -84,7 +84,7 @@ public class RestClientConfig extends AbstractConfig {
                     REQUEST_TIMEOUT_MS_DOC)
             .define(HTTP_REQUEST_TIMEOUT_MS_CONFIG, Type.INT, 10 * 1000, atLeast(0), Importance.MEDIUM,
                 HTTP_REQUEST_TIMEOUT_MS_DOC)
-            .define(TOKEN_AUTH_CREDENTIAL_PROP, Type.STRING,
+            .define(TOKEN_AUTH_CREDENTIAL_PROP, Type.PASSWORD,
                     TOKEN_AUTH_CREDENTIAL_DEFAULT,
                     Importance.LOW,
                     TOKEN_AUTH_CREDENTIAL_DOC)
