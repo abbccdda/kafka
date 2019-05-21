@@ -616,7 +616,7 @@ public class MultiTenantRequestContextTest {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.HEARTBEAT, ver);
       HeartbeatRequest inbound = new HeartbeatRequest.Builder(new HeartbeatRequestData()
           .setGroupId("group")
-          .setGenerationid(1)
+          .setGenerationId(1)
           .setMemberId("memberId")).build(ver);
       HeartbeatRequest intercepted = (HeartbeatRequest) parseRequest(context, inbound);
       assertEquals("tenant_group", intercepted.data.groupId());

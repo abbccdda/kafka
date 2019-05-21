@@ -14,16 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.streams.kstream.internals;
+package org.apache.kafka.common.requests;
 
-import org.apache.kafka.streams.processor.ProcessorContext;
-import org.apache.kafka.streams.state.ValueAndTimestamp;
+import org.apache.kafka.common.errors.UnsupportedVersionException;
+import org.apache.kafka.common.message.SyncGroupRequestData;
+import org.junit.Test;
 
-public interface KTableValueGetter<K, V> {
+public class SyncGroupRequestTest {
 
-    void init(ProcessorContext context);
-
-    ValueAndTimestamp<V> get(K key);
-
-    void close();
+    @Test(expected = UnsupportedVersionException.class)
+    public void testRequestVersionCompatibilityFailBuild() {
+        new SyncGroupRequest.Builder(
+                new SyncGroupRequestData()
+                        .setGroupId("groupId")
+                        .setMemberId("consumerId")
+                        .setGroupInstanceId("groupInstanceId")
+        ).build((short) 2);
+    }
 }
