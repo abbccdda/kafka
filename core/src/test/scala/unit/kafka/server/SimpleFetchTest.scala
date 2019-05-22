@@ -35,6 +35,7 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, SimpleRecord}
 import org.easymock.EasyMock
 import org.junit.Assert._
+import org.scalatest.Assertions.fail
 
 class SimpleFetchTest {
 
@@ -182,6 +183,7 @@ class SimpleFetchTest {
       readPartitionInfo = fetchInfo,
       quota = UnboundedQuota).find(_._1 == topicPartition).map {
       case (topicPartition: TopicPartition, result: LogReadResult) => (topicPartition, result)
+      case (_: TopicPartition, _: TierLogReadResult) => fail("TierLogReadResult should not be returned")
     }
     val firstReadRecord = readCommittedRecords.get._2.info.records.records.iterator.next()
     assertEquals("Reading committed data should return messages only up to high watermark", recordToHW,
@@ -196,6 +198,7 @@ class SimpleFetchTest {
       readPartitionInfo = fetchInfo,
       quota = UnboundedQuota).find(_._1 == topicPartition).map {
       case (topicPartition: TopicPartition, result: LogReadResult) => (topicPartition, result)
+      case (_: TopicPartition, _: TierLogReadResult) => fail("TierLogReadResult should not be returned")
     }
 
     val firstRecord = readAllRecords.get._2.info.records.records.iterator.next()

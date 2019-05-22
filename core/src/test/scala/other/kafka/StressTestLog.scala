@@ -131,7 +131,7 @@ object StressTestLog {
   class ReaderThread(val log: AbstractLog) extends WorkerThread with LogProgress {
     override def work() {
       try {
-        log.read(currentOffset,
+        log.readLocal(currentOffset,
           maxLength = 1024,
           maxOffset = Some(currentOffset + 1),
           minOneMessage = true,
