@@ -191,7 +191,7 @@ public class TierTopicManager implements Runnable {
      */
     public static String topicName(String tierNamespace) {
         return tierNamespace != null && !tierNamespace.isEmpty()
-                ? String.format("%s_%s", Topic.TIER_TOPIC_NAME, tierNamespace)
+                ? String.format("%s-%s", Topic.TIER_TOPIC_NAME, tierNamespace)
                 : Topic.TIER_TOPIC_NAME;
     }
 

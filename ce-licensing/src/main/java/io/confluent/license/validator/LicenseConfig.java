@@ -23,7 +23,7 @@ public class LicenseConfig extends AbstractConfig {
   public static final String CONSUMER_PREFIX = PREFIX + "consumer.";
 
   public static final String TOPIC_PROP = "confluent.license.topic";
-  private static final String TOPIC_DEFAULT = "_confluent-command";
+  private static final String TOPIC_DEFAULT = "_confluent-license";
   private static final String TOPIC_DOC = "Topic used for storing Confluent license";
 
   public static final String REPLICATION_FACTOR_PROP = "confluent.license.topic.replication.factor";
@@ -56,7 +56,7 @@ public class LicenseConfig extends AbstractConfig {
     Map<String, Object> configs = baseConfigs();
     configs.putAll(originalsWithPrefix(PRODUCER_PREFIX));
     configs.putIfAbsent(CommonClientConfigs.CLIENT_ID_CONFIG,
-          "__confluent_license_producer_" + componentId);
+          String.format("%s-producer-%s", TOPIC_DEFAULT, componentId));
     return configs;
   }
 
@@ -64,7 +64,7 @@ public class LicenseConfig extends AbstractConfig {
     Map<String, Object> configs = baseConfigs();
     configs.putAll(originalsWithPrefix(CONSUMER_PREFIX));
     configs.putIfAbsent(CommonClientConfigs.CLIENT_ID_CONFIG,
-        "__confluent_license_consumer_" + componentId);
+        String.format("%s-consumer-%s", TOPIC_DEFAULT, componentId));
     return configs;
   }
 
@@ -72,7 +72,7 @@ public class LicenseConfig extends AbstractConfig {
     Map<String, Object> configs = baseConfigs();
     configs.put(LicenseStore.REPLICATION_FACTOR_CONFIG, String.valueOf(replicationFactor));
     configs.putIfAbsent(CommonClientConfigs.CLIENT_ID_CONFIG,
-          "__confluent_license_admin_" + componentId);
+        String.format("%s-admin-%s", TOPIC_DEFAULT, componentId));
     return configs;
   }
 

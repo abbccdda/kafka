@@ -13,21 +13,17 @@ import io.confluent.security.store.MetadataStoreStatus;
 import io.confluent.security.test.utils.RbacTestUtils;
 import java.time.Duration;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.clients.admin.MockAdminClient;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.MockConsumer;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.TopicPartitionInfo;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.test.TestUtils;
@@ -198,7 +194,7 @@ public class KafkaReaderTest {
 
   @Test
   public void testTopicCreateTimeout() throws Exception {
-    CompletableFuture<Void> future = reader.start(() -> createAdminClient(null), Duration.ofSeconds(100))
+    CompletableFuture<Void> future = reader.start(Duration.ofSeconds(100))
         .toCompletableFuture();
     time.sleep(100 * 1000);
     try {
@@ -210,22 +206,18 @@ public class KafkaReaderTest {
   }
 
   private CompletableFuture<Void> startReader() throws Exception {
-    CompletableFuture<Void> future = reader.start(() -> createAdminClient(topic), Duration.ofMillis(100))
+    updatePartitions(topic);
+    CompletableFuture<Void> future = reader.start(Duration.ofMillis(100))
         .toCompletableFuture();
     TestUtils.waitForCondition(() -> reader.numPartitions() > 0, "Reader not initialized");
     return future;
   }
 
-  private AdminClient createAdminClient(String topic) {
-    MockAdminClient adminClient = new MockAdminClient(cluster.nodes(), cluster.nodeById(0));
-    if (topic != null) {
-      TopicPartitionInfo tp1 = new TopicPartitionInfo(0, cluster.nodeById(0), cluster.nodes(),
-          Collections.<Node>emptyList());
-      TopicPartitionInfo tp2 = new TopicPartitionInfo(1, cluster.nodeById(0), cluster.nodes(),
-          Collections.<Node>emptyList());
-      adminClient.addTopic(true, topic, Arrays.asList(tp1, tp2), null);
-    }
-    return adminClient;
+  private void updatePartitions(String topic) {
+    Node[] replicas = cluster.nodes().toArray(new Node[cluster.nodes().size()]);
+    PartitionInfo tp1 = new PartitionInfo(topic, 0, cluster.nodeById(0), replicas, replicas);
+    PartitionInfo tp2 = new PartitionInfo(topic, 1, cluster.nodeById(0), replicas, replicas);
+    consumer.updatePartitions(topic, Arrays.asList(tp1, tp2));
   }
 
   private void createTopic() {

@@ -817,7 +817,7 @@ object KafkaConfig {
   val TierMetadataRequestTimeoutMsDoc = "request.timeout.ms passed through to the backing producer. After this timeout the producer will retry the request."
   val TierEnableDoc = "Enable topic tiering on all topics broker wide."
   val TierBackendDoc = "Tiered storage backend (S3 only for now)."
-  val TierMetadataNamespaceDoc = "Namespace of the tier topic name e.g. namespace mycluster will be translated into __tier_topic_mycluster."
+  val TierMetadataNamespaceDoc = "Namespace of the tier topic name e.g. namespace mycluster will be translated into _confluent-tier-state-mycluster."
   val TierMetadataNumPartitionsDoc = "The number of partitions for the tier topic (should not change after deployment)."
   val TierMetadataReplicationFactorDoc = "The replication factor for the Tier Topic (set higher to ensure availability)."
   val TierS3BucketDoc = "The S3 bucket to use for tiered storage."

@@ -6,7 +6,6 @@ import io.confluent.security.authorizer.utils.ThreadUtils;
 import io.confluent.security.store.KeyValueStore;
 import io.confluent.security.store.MetadataStoreStatus;
 import java.time.Duration;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,15 +17,14 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.InterruptException;
+import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.WakeupException;
 import org.apache.kafka.common.utils.Time;
@@ -62,12 +60,11 @@ public class KafkaReader<K, V> implements Runnable {
     this.partitionStates = new HashMap<>();
   }
 
-  public CompletionStage<Void> start(Supplier<AdminClient> adminClientSupplier,
-                                     Duration topicCreateTimeout) {
+  public CompletionStage<Void> start(Duration topicCreateTimeout) {
     CompletableFuture<Void> readyFuture = new CompletableFuture<>();
     executor.submit(() -> {
       try {
-        initialize(adminClientSupplier, topicCreateTimeout);
+        initialize(topicCreateTimeout);
         List<CompletableFuture<Void>> futures = partitionStates.values().stream()
             .map(s -> s.readyFuture).collect(Collectors.toList());
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()]))
@@ -91,33 +88,32 @@ public class KafkaReader<K, V> implements Runnable {
     return readyFuture;
   }
 
-  private void initialize(Supplier<AdminClient> adminClientSupplier,
-                          Duration topicCreateTimeout) {
+  private void initialize(Duration topicCreateTimeout) {
     long timeoutMs = topicCreateTimeout.toMillis();
     long endTimeMs = time.milliseconds() + timeoutMs;
-    TopicDescription topicDescription = null;
-    try (AdminClient adminClient = adminClientSupplier.get()) {
-      long remainingMs = timeoutMs;
-      do {
-        try {
-          topicDescription = adminClient.describeTopics(Collections.singleton(topic))
-              .all().get(remainingMs, TimeUnit.MILLISECONDS).get(topic);
-        } catch (Exception e) {
-          log.debug("Describe failed with exception", e);
-          remainingMs = endTimeMs - time.milliseconds();
-          if (remainingMs <= 0) {
-            throw new TimeoutException(String.format("Topic %s not created within timeout %s ms",
-                topic, timeoutMs));
-          } else {
-            time.sleep(Math.min(remainingMs, 10));
-          }
+    List<PartitionInfo> partitionInfos = null;
+    do {
+      RetriableException exception = null;
+      try {
+        partitionInfos = consumer.partitionsFor(topic);
+      } catch (RetriableException e) {
+        log.debug("Partition info could not be obtained for " + topic, e);
+        exception = e;
+      }
+      if (partitionInfos == null || partitionInfos.isEmpty()) {
+        long remainingMs = endTimeMs - time.milliseconds();
+        if (remainingMs <= 0) {
+          throw new TimeoutException(String.format("Topic %s not created within timeout %s ms",
+              topic, timeoutMs), exception);
+        } else {
+          time.sleep(Math.min(remainingMs, 10));
         }
-      } while (topicDescription == null && alive.get());
-    }
+      }
+    } while (partitionInfos == null && alive.get());
     if (!alive.get())
       return;
 
-    Set<TopicPartition> partitions = topicDescription.partitions().stream()
+    Set<TopicPartition> partitions = partitionInfos.stream()
         .map(p -> new TopicPartition(topic, p.partition()))
         .collect(Collectors.toSet());
     this.consumer.assign(partitions);

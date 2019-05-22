@@ -190,8 +190,8 @@ public class ConfluentKafkaAuthorizer extends EmbeddedAuthorizer implements Auth
     Map<String, Object> licenseConfigs = new HashMap<>(configs);
     LicenseConfig config = new LicenseConfig(id, configs);
     replacePrefix(config, licenseConfigs, "confluent.metadata.", LicenseConfig.PREFIX);
-    replacePrefix(config, licenseConfigs, "confluent.metadata.reader.", LicenseConfig.CONSUMER_PREFIX);
-    replacePrefix(config, licenseConfigs, "confluent.metadata.writer.", LicenseConfig.PRODUCER_PREFIX);
+    replacePrefix(config, licenseConfigs, "confluent.metadata.consumer.", LicenseConfig.CONSUMER_PREFIX);
+    replacePrefix(config, licenseConfigs, "confluent.metadata.producer.", LicenseConfig.PRODUCER_PREFIX);
     licenseValidator.configure(licenseConfigs);
 
     String licensePropName = licensePropName();

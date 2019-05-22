@@ -33,7 +33,7 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
 
   private static final Logger log = LoggerFactory.getLogger(KafkaAuthStore.class);
 
-  public static final String AUTH_TOPIC = "__confluent_security_auth";
+  public static final String AUTH_TOPIC = KafkaStoreConfig.TOPIC_PREFIX + "-auth";
 
   private static final Duration CLOSE_TIMEOUT = Duration.ofSeconds(30);
 
@@ -64,7 +64,7 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
     this.clientConfig = new KafkaStoreConfig(configs);
 
     this.reader = new KafkaReader<>(AUTH_TOPIC,
-        createConsumer(clientConfig.readerConfigs()),
+        createConsumer(clientConfig.consumerConfigs(AUTH_TOPIC)),
         authCache,
         this,
         time);
@@ -81,8 +81,7 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
 
   @Override
   public CompletionStage<Void> startReader() {
-    return reader.start(() -> createAdminClient(clientConfig.adminClientConfigs(true)),
-        clientConfig.topicCreateTimeout);
+    return reader.start(clientConfig.topicCreateTimeout);
   }
 
   @Override
@@ -97,8 +96,8 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
     this.writer = new KafkaAuthWriter(
         AUTH_TOPIC,
         clientConfig,
-        createProducer(clientConfig.writerConfigs()),
-        () -> createAdminClient(clientConfig.adminClientConfigs(false)),
+        createProducer(clientConfig.producerConfigs(AUTH_TOPIC)),
+        () -> createAdminClient(clientConfig.adminClientConfigs()),
         authCache,
         time);
 

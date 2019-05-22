@@ -25,7 +25,7 @@ import org.junit.Assert._
 import org.junit.Test
 
 class TierTopicManagerTest {
-  val tierTopicName = "__tier_topic"
+  val tierTopicName = "_confluent-tier-state"
   val tierTopicNumPartitions = 1.toShort
   val clusterId = "mycluster"
   val objectStoreConfig = new TierObjectStoreConfig()

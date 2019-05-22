@@ -34,7 +34,7 @@ import scala.concurrent.duration._
 class TierArchiverStateTest {
   var ctx: CancellationContext = _
   val mockTime = new MockTime()
-  val tierTopicName = "__tier_topic"
+  val tierTopicName = "_confluent-tier-state"
   val tierTopicNumPartitions: Short = 1
   val logDirs = new util.ArrayList(Collections.singleton(System.getProperty("java.io.tmpdir")))
   val objectStoreConfig = new TierObjectStoreConfig()
