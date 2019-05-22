@@ -4,6 +4,7 @@ package io.confluent.security.auth.metadata;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
@@ -109,7 +110,7 @@ public class MetadataServerTest {
     createEmbeddedAuthorizer(configs);
     assertEquals("some.value", metadataServer.configs.get("custom.config"));
     assertEquals("trust.jks", metadataServer.configs.get("ssl.truststore.location"));
-    assertEquals("key.jks", metadataServer.configs.get("ssl.keystore.location"));
+    assertNull(metadataServer.configs.get("ssl.keystore.location"));
     assertEquals("http://0.0.0.0:8090", metadataServer.configs.get("listeners"));
     assertEquals("http://localhost:8090", metadataServer.configs.get("advertised.listeners"));
   }

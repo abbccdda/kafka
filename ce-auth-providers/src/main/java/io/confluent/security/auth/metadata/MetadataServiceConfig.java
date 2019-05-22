@@ -72,9 +72,7 @@ public class MetadataServiceConfig extends AbstractConfig {
   }
 
   public Map<String, Object> metadataServerConfigs() {
-    Map<String, Object> configs = originals();
-    configs.putAll(originalsWithPrefix(METADATA_SERVER_PREFIX));
-    return configs;
+    return originalsWithPrefix(METADATA_SERVER_PREFIX);
   }
 
   @Override
