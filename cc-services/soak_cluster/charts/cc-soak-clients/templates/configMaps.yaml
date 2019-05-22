@@ -151,7 +151,7 @@ data:
   "test_definitions": [
     {
       "test_type": "ProgressiveWorkload",
-      "test_name": "progressive produce test 10-200mbs",
+      "test_name": "progressive-produce-test-10-200mbs",
       "test_parameters": {
         "workload_type": "Produce",
         "step_duration_ms": 150000,

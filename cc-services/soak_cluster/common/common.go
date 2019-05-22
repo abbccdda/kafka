@@ -41,6 +41,9 @@ func ScheduleTrogdorTasks(logger log.Logger, taskSpecs []trogdor.TaskSpec, trogd
 		}
 		if code := resp.StatusCode; code > 299 {
 			errMsg := fmt.Sprintf("Error while trying to create task %s. status code: %d, body: %s", task.ID, code, body)
+			if code == 409 {
+				errMsg = fmt.Sprintf("Error while trying to create task %s. A task with the same ID but a different spec already exists in the coordinator (status code: %d, body: %s)", task.ID, code, body)
+			}
 			logutil.Error(logger, errMsg)
 			abortAndCleanUp(trogdorCoordinatorHost,
 				abortError{errMsg, runningTaskNames, logger})

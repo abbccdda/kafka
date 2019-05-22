@@ -43,18 +43,18 @@ func (t *SoakTestConfig) parseConfig(configPath string) error {
 }
 
 type TopicConfiguration struct {
-	Name                   string  `json:"name"`
-	PartitionsCount        int     `json:"partitions_count"`
-	ProduceMBsThroughput   float32 `json:"produce_mbs_throughput"`
-	ConsumeMBsThroughput   float32 `json:"consume_mbs_throughput"`
-	LongLivedProduceCount  int     `json:"long_lived_producer_count"`
-	ShortLivedProduceCount int     `json:"short_lived_producer_count"`
-	LongLivedConsumeCount  int     `json:"long_lived_consumer_count"`
-	ShortLivedConsumeCount int     `json:"short_lived_consumer_count"`
-	TransactionsEnabled    bool    `json:"transactions_enabled"`
-	IdempotenceEnabled     bool    `json:"idempotence_enabled"`
-	ShortLivedRandomConsumerGroup bool `json:"short_lived_random_consumer_group"`
-	LongLivedRandomConsumerGroup bool `json:"long_lived_random_consumer_group"`
+	Name                          string  `json:"name"`
+	PartitionsCount               int     `json:"partitions_count"`
+	ProduceMBsThroughput          float32 `json:"produce_mbs_throughput"`
+	ConsumeMBsThroughput          float32 `json:"consume_mbs_throughput"`
+	LongLivedProduceCount         int     `json:"long_lived_producer_count"`
+	ShortLivedProduceCount        int     `json:"short_lived_producer_count"`
+	LongLivedConsumeCount         int     `json:"long_lived_consumer_count"`
+	ShortLivedConsumeCount        int     `json:"short_lived_consumer_count"`
+	TransactionsEnabled           bool    `json:"transactions_enabled"`
+	IdempotenceEnabled            bool    `json:"idempotence_enabled"`
+	ShortLivedRandomConsumerGroup bool    `json:"short_lived_random_consumer_group"`
+	LongLivedRandomConsumerGroup  bool    `json:"long_lived_random_consumer_group"`
 }
 
 func (topicConfig *TopicConfiguration) totalProduceCount() int {
@@ -152,7 +152,6 @@ func createTopicTasks(topicConfig TopicConfiguration, clientNodes []string, exis
 	if topicConfig.IdempotenceEnabled {
 		producerAdminConfig.EnableIdempotence = "true"
 	}
-
 
 	longLivedConsumerOptions := consumerOptions(topicConfig.Name, topicConfig.LongLivedRandomConsumerGroup)
 	shortLivedConsumerOptions := consumerOptions(topicConfig.Name, topicConfig.ShortLivedRandomConsumerGroup)
