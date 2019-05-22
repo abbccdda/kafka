@@ -177,24 +177,25 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
     this.metadataProvider = metadataProvider;
   }
 
-  protected void configureSuperUsers(Set<KafkaPrincipal> superUsers) {
-    this.superUsers = new HashSet<>(superUsers);
-  }
-
   protected boolean ready() {
     return ready;
+  }
+
+  protected boolean isSuperUser(KafkaPrincipal principal, Action action) {
+    return superUsers.contains(principal);
   }
 
   private AuthorizeResult authorize(KafkaPrincipal sessionPrincipal, String host, Action action) {
     try {
       boolean authorized;
       KafkaPrincipal userPrincipal = userPrincipal(sessionPrincipal);
-      if (superUsers.contains(userPrincipal)) {
+      if (isSuperUser(userPrincipal, action)) {
         log.debug("principal = {} is a super user, allowing operation without checking any providers.", userPrincipal);
         authorized = true;
       } else {
         Set<KafkaPrincipal> groupPrincipals = groupProvider.groups(sessionPrincipal);
-        Optional<KafkaPrincipal> superGroup = groupPrincipals.stream().filter(superUsers::contains).findFirst();
+        Optional<KafkaPrincipal> superGroup = groupPrincipals.stream()
+            .filter(group -> isSuperUser(group, action)).findFirst();
         if (superGroup.isPresent()) {
           log.debug("principal = {} belongs to super group {}, allowing operation without checking acls.",
               userPrincipal, superGroup.get());

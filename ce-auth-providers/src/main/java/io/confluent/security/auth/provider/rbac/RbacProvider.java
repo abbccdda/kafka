@@ -10,10 +10,12 @@ import io.confluent.security.auth.provider.ldap.LdapAuthenticateCallbackHandler;
 import io.confluent.security.auth.provider.ldap.LdapConfig;
 import io.confluent.security.auth.store.kafka.KafkaAuthStore;
 import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.Authorizer;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.EmbeddedAuthorizer;
 import io.confluent.security.authorizer.ResourcePattern;
+import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
@@ -43,6 +45,9 @@ import org.slf4j.LoggerFactory;
 
 public class RbacProvider implements AccessRuleProvider, GroupProvider, MetadataProvider, ClusterResourceListener {
   private static final Logger log = LoggerFactory.getLogger(RbacProvider.class);
+
+  static final ResourceType SECURITY_METADATA = new ResourceType("SecurityMetadata");
+  private static final Set<ResourceType> METADATA_RESOURCE_TYPES = Utils.mkSet(SECURITY_METADATA);
 
   private Map<String, ?> configs;
   private LdapAuthenticateCallbackHandler authenticateCallbackHandler;
@@ -139,7 +144,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
     return authStore.startReader()
         .thenApply(unused -> {
           if (metadataServer != null)
-            metadataServer.start(new RbacAuthorizer(), authStore, authenticateCallbackHandler);
+            metadataServer.start(createRbacAuthorizer(), authStore, authenticateCallbackHandler);
           return null;
         });
   }
@@ -200,9 +205,15 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   public AuthStore authStore() {
     return authStore;
   }
+
   // Visibility for testing
   public MetadataServer metadataServer() {
     return metadataServer;
+  }
+
+  // Visibility for testing
+  EmbeddedAuthorizer createRbacAuthorizer() {
+    return new RbacAuthorizer();
   }
 
   // Allow override for testing
@@ -233,7 +244,21 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   private class RbacAuthorizer extends EmbeddedAuthorizer {
     RbacAuthorizer() {
       configureProviders(Collections.singletonList(RbacProvider.this), RbacProvider.this, null);
-      configureSuperUsers(configuredSuperUsers);
+    }
+
+    /**
+     * Users configured as `super.users` on the brokers running metadata service are
+     * granted access to security metadata for all clusters. This helps with bootstrapping
+     * new clusters, allowing role bindings to be created for new clusters using
+     * these super user principals.
+     *
+     * Note that `super.users` also have access to all broker resources in the metadata
+     * cluster, but these are handled by the broker authorizer.
+     */
+    @Override
+    protected boolean isSuperUser(KafkaPrincipal principal, Action action) {
+      return configuredSuperUsers.contains(principal) &&
+          METADATA_RESOURCE_TYPES.contains(action.resourceType());
     }
   }
 

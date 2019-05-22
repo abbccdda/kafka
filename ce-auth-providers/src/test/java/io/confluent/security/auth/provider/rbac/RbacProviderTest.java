@@ -8,16 +8,23 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
+import io.confluent.security.auth.metadata.MetadataServiceConfig;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.auth.store.data.RoleBindingKey;
 import io.confluent.security.auth.store.data.RoleBindingValue;
 import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.Action;
+import io.confluent.security.authorizer.AuthorizeResult;
+import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
+import io.confluent.security.authorizer.EmbeddedAuthorizer;
+import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.rbac.RbacRoles;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -40,7 +47,7 @@ public class RbacProviderTest {
 
   @Before
   public void setUp() throws Exception {
-    initializeRbacProvider(clusterA);
+    initializeRbacProvider("clusterA", clusterA, Collections.emptyMap());
   }
 
   @After
@@ -83,6 +90,34 @@ public class RbacProviderTest {
     deleteRoleBinding(admin, "SuperUser", clusterA);
     assertFalse(rbacProvider.isSuperUser(alice, groups, clusterA));
 
+  }
+
+  @Test
+  public void testRbacAuthorizerSuperUsers() throws Exception {
+    KafkaPrincipal admin = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "admin");
+    Scope metadataCluster = Scope.kafkaClusterScope("metadataCluster");
+    Scope otherCluster = Scope.kafkaClusterScope("anotherCluster");
+    Map<String, Object> configs = new HashMap<>();
+    configs.put("super.users", admin.toString());
+    configs.put(ConfluentAuthorizerConfig.METADATA_PROVIDER_PROP, "RBAC");
+    configs.put(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP, "http://127.0.0.1:8090");
+    initializeRbacProvider("metadataCluster", Scope.ROOT_SCOPE, configs);
+    EmbeddedAuthorizer authorizer = rbacProvider.createRbacAuthorizer();
+
+    // Statically configured super users have access to security metadata in all clusters.
+    // For the metadata service authorizer, these users are not granted access to any other resource.
+    verifyAccess(authorizer, admin, metadataCluster, RbacProvider.SECURITY_METADATA, AuthorizeResult.ALLOWED);
+    verifyAccess(authorizer, admin, otherCluster, RbacProvider.SECURITY_METADATA, AuthorizeResult.ALLOWED);
+    verifyAccess(authorizer, admin, metadataCluster, topic.resourceType(), AuthorizeResult.DENIED);
+    verifyAccess(authorizer, admin, otherCluster, topic.resourceType(), AuthorizeResult.DENIED);
+
+    // Super user roles have access to all resources within the role binding scope
+    KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
+    updateRoleBinding(alice, "SuperUser", metadataCluster, Collections.emptySet());
+    verifyAccess(authorizer, alice, metadataCluster, RbacProvider.SECURITY_METADATA, AuthorizeResult.ALLOWED);
+    verifyAccess(authorizer, alice, otherCluster, RbacProvider.SECURITY_METADATA, AuthorizeResult.DENIED);
+    verifyAccess(authorizer, alice, metadataCluster, topic.resourceType(), AuthorizeResult.ALLOWED);
+    verifyAccess(authorizer, alice, otherCluster, topic.resourceType(), AuthorizeResult.DENIED);
   }
 
   @Test
@@ -225,7 +260,7 @@ public class RbacProviderTest {
 
   @Test
   public void testProviderScope() throws Exception {
-    initializeRbacProvider(Scope.intermediateScope("testOrg"));
+    initializeRbacProvider("clusterA", Scope.intermediateScope("testOrg"), Collections.emptyMap());
 
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
     Set<KafkaPrincipal> groups = Collections.emptySet();
@@ -249,18 +284,19 @@ public class RbacProviderTest {
     }
   }
 
-  private void initializeRbacProvider(Scope scope) throws Exception {
+  private void initializeRbacProvider(String clusterId, Scope authStoreScope,  Map<String, ?> configs) throws Exception {
     RbacRoles rbacRoles = RbacRoles.load(this.getClass().getClassLoader(), "test_rbac_roles.json");
-    MockRbacProvider.MockAuthStore authStore = new MockRbacProvider.MockAuthStore(rbacRoles, scope);
+    MockRbacProvider.MockAuthStore authStore = new MockRbacProvider.MockAuthStore(rbacRoles, authStoreScope);
     authCache = authStore.authCache();
     rbacProvider = new RbacProvider() {
       @Override
       public void configure(Map<String, ?> configs) {
+        super.configure(configs);
         KafkaTestUtils.setFinalField(rbacProvider, RbacProvider.class, "authCache", authCache);
       }
     };
-    rbacProvider.onUpdate(new ClusterResource("clusterA"));
-    rbacProvider.configure(Collections.emptyMap());
+    rbacProvider.onUpdate(new ClusterResource(clusterId));
+    rbacProvider.configure(configs);
   }
 
   private void updateRoleBinding(KafkaPrincipal principal, String role, Scope scope, Set<ResourcePattern> resources) {
@@ -283,6 +319,13 @@ public class RbacProviderTest {
   private void verifyRules(Set<AccessRule> rules, String... expectedOps) {
     Set<String> actualOps = rules.stream().map(r -> r.operation().name()).collect(Collectors.toSet());
     assertEquals(Utils.mkSet(expectedOps), actualOps);
+  }
+
+  private void verifyAccess(EmbeddedAuthorizer authorizer, KafkaPrincipal principal,
+      Scope scope, ResourceType resourceType, AuthorizeResult expectedResult) {
+    Action action = new Action(scope, resourceType, "name", new Operation("Alter"));
+    assertEquals(expectedResult,
+        authorizer.authorize(principal, "localhost", Collections.singletonList(action)).get(0));
   }
 }
 
