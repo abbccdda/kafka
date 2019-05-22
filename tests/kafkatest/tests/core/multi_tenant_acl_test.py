@@ -147,7 +147,10 @@ class MultiTenantAclTest(ProduceConsumeValidateTest, KafkaPathResolverMixin):
         return "\n".join(output)
 
     def verify_topic_tenant_prefix(self, tenant_prefix):
-        topics = set(self.kafka.list_topics(None)).difference({"__consumer_offsets"})
+        alltopics = set(self.kafka.list_topics(None))
+        topics = [x for x in alltopics if not (x.startswith('__confluent') or
+                                               x.startswith('_confluent') or
+                                               x.startswith('__consumer_offsets'))]
         assert {"%s_%s" % (tenant_prefix, self.topic)} == set(topics), "Found unexpected topics: %s" % str(topics)
 
 
