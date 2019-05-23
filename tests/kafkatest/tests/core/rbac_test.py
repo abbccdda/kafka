@@ -57,7 +57,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                               ["super.users", "User:ANONYMOUS"],
                               ["confluent.authorizer.access.rule.providers", "ACL,FILE_RBAC"],
                               ["confluent.authorizer.metadata.provider", "FILE_RBAC"],
-                              ["test.metadata.rbac.file", SecurityConfig.ROLES_PATH]
+                              ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH]
                           ])
         self.kafka.start()
         self.create_roles(self.kafka, "User:" + SecurityConfig.SCRAM_CLIENT_USER)
@@ -85,7 +85,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                               ["confluent.authorizer.metadata.provider", "FILE_RBAC"],
                               ["confluent.authorizer.group.provider", "FILE_RBAC"],
                               ["ldap.java.naming.provider.url", self.minildap.ldap_url],
-                              ["test.metadata.rbac.file", SecurityConfig.ROLES_PATH]
+                              ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH]
                           ])
         self.kafka.start()
         self.create_roles(self.kafka, "Group:" + RbacTest.CLIENT_GROUP)
