@@ -84,6 +84,7 @@ class TierTopicManagerTest {
           1000,
           true,
           false,
+          false,
           State.AVAILABLE))
       consumerBuilder.moveRecordsFromProducer()
       tierTopicManager.doWork()
@@ -101,6 +102,7 @@ class TierTopicManagerTest {
           16000L,
           1000,
           true,
+          false,
           true,
           State.AVAILABLE))
       consumerBuilder.moveRecordsFromProducer()
@@ -120,6 +122,7 @@ class TierTopicManagerTest {
           16000L,
           1000,
           true,
+          false,
           false,
           State.AVAILABLE))
       consumerBuilder.moveRecordsFromProducer()

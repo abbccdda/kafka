@@ -160,6 +160,8 @@ object ArchiveTask extends Logging {
       logSegment.largestTimestamp,
       logSegment.size,
       hasEpochState,
+      // TODO: set when we have producer state
+      false,
       // TODO: compute whether any tx aborts occurred.
       false,
       State.AVAILABLE)

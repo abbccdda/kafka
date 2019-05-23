@@ -40,7 +40,7 @@ public class OffsetIndexFetchRequestTest {
     private TopicPartition topicPartition = new TopicPartition("foo", 0);
     private TierObjectMetadata tierObjectMetadata =
             new TierObjectMetadata(topicPartition, 0, baseOffset, (int) (endOffset - baseOffset),
-                    0, 0, 0, true, false, (byte) 0);
+                    0, 0, 0, true, false, false, (byte) 0);
 
     @Test
     public void emptyIndexFileTest() {

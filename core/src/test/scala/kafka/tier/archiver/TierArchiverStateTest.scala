@@ -107,6 +107,7 @@ class TierArchiverStateTest {
       0,
       1,
       true,
+      false,
       true,
       1.asInstanceOf[Byte]
     )
@@ -228,7 +229,7 @@ class TierArchiverStateTest {
 
     // overlaps with one of our segments
     tierPartitionState.append(new TierTopicInitLeader(topicPartition, 0, UUID.randomUUID(), 0))
-    tierPartitionState.append(new TierObjectMetadata(topicPartition, 0, 0L, 60, 50L, 1551311973419L, 1000, false, false, kafka.tier.serdes.State.AVAILABLE))
+    tierPartitionState.append(new TierObjectMetadata(topicPartition, 0, 0L, 60, 50L, 1551311973419L, 1000, false, false, false, kafka.tier.serdes.State.AVAILABLE))
 
     val newTierEpoch = 1
     tierPartitionState.append(new TierTopicInitLeader(topicPartition, newTierEpoch, UUID.randomUUID(), 0))

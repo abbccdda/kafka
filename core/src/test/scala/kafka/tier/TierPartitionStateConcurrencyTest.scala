@@ -116,6 +116,7 @@ class TierPartitionStateConcurrencyTest {
             i,
             true,
             false,
+            false,
             State.AVAILABLE))
         state.flush()
         latestStartOffset.set(i * 2)

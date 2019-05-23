@@ -20,7 +20,7 @@ class S3TierObjectStoreTest {
     val client = mock(classOf[AmazonS3])
     val config = new TierObjectStoreConfig("bucket", "region", "key", "id", "endpoint", "signer", "sseAlgorithm", partSize)
     val objectStore = new S3TierObjectStore(client, config)
-    val metadata = new TierObjectMetadata(new TopicPartition("foo", 0), 0, 0, 100, 100, 1000, 1000, false, false, 0.toByte)
+    val metadata = new TierObjectMetadata(new TopicPartition("foo", 0), 0, 0, 100, 100, 1000, 1000, false, false, false, 0.toByte)
     val segmentData = mock(classOf[File])
 
     when(segmentData.length).thenReturn(segmentSize)
@@ -37,7 +37,7 @@ class S3TierObjectStoreTest {
     val client = mock(classOf[AmazonS3])
     val config = new TierObjectStoreConfig("bucket", "region", "key", "id", "endpoint", "signer", "sseAlgorithm", partSize)
     val objectStore = new S3TierObjectStore(client, config)
-    val metadata = new TierObjectMetadata(new TopicPartition("foo", 0), 0, 0, 100, 100, 1000, 1000, false, false, 0.toByte)
+    val metadata = new TierObjectMetadata(new TopicPartition("foo", 0), 0, 0, 100, 100, 1000, 1000, false, false, false, 0.toByte)
     val segmentData = mock(classOf[File])
 
     when(segmentData.length).thenReturn(segmentSize)

@@ -167,7 +167,7 @@ public class SegmentFileFetchRequestTest {
                 logSegment.largestTimestamp(),
                 logSegment.size(),
                 true,
-                false,
+                false, false,
                 State.AVAILABLE);
     }
 

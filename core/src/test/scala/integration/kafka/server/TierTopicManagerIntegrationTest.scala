@@ -59,6 +59,7 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
           16000L,
           100,
           true,
+          false,
           true,
           State.AVAILABLE))
       .get()
@@ -78,6 +79,7 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
         16000L,
         200,
         true,
+        false,
         false,
         State.AVAILABLE))
 

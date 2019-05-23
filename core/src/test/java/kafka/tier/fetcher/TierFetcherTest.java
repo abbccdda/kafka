@@ -62,7 +62,7 @@ public class TierFetcherTest {
                 offsetIndexBuffer, timestampFileBuffer);
         TopicPartition topicPartition = new TopicPartition("foo", 0);
         TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicPartition, 0, 0,
-                0, 0, 0, 0, false, false, kafka.tier.serdes.State.AVAILABLE);
+                0, 0, 0, 0, false, false, false, kafka.tier.serdes.State.AVAILABLE);
         Metrics metrics = new Metrics();
         TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
         try {
@@ -135,7 +135,7 @@ public class TierFetcherTest {
                 ByteBuffer.allocate(0), ByteBuffer.allocate(0));
         TopicPartition topicPartition = new TopicPartition("foo", 0);
         TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicPartition, 0, 0, 101,
-                0, 0, 0, false, false,
+                0, 0, 0, false, false, false,
                 kafka.tier.serdes.State.AVAILABLE);
 
         Metrics metrics = new Metrics();
@@ -211,7 +211,7 @@ public class TierFetcherTest {
             TopicPartition topicPartition = new TopicPartition("foo", 0);
             TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicPartition,
                     0, 0, nextOffset, 0, 0,
-                    0, false, false, kafka.tier.serdes.State.AVAILABLE);
+                    0, false, false, false, kafka.tier.serdes.State.AVAILABLE);
             Metrics metrics = new Metrics();
 
             TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
@@ -292,7 +292,7 @@ public class TierFetcherTest {
             TopicPartition topicPartition = new TopicPartition("foo", 0);
             TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicPartition,
                     0, 0, nextOffset, 0, 0,
-                    0, false, false, kafka.tier.serdes.State.AVAILABLE);
+                    0, false, false, false, kafka.tier.serdes.State.AVAILABLE);
             Metrics metrics = new Metrics();
 
             TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
@@ -367,7 +367,7 @@ public class TierFetcherTest {
                     offsetIndexBuffer, timestampIndexBuffer);
             TopicPartition topicPartition = new TopicPartition("foo", 0);
             TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicPartition, 0, 0,
-                    nextOffset, 0, 0, 0, false, false, kafka.tier.serdes.State.AVAILABLE);
+                    nextOffset, 0, 0, 0, false, false, false, kafka.tier.serdes.State.AVAILABLE);
             Metrics metrics = new Metrics();
             TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
             try {

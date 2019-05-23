@@ -47,6 +47,7 @@ class TierPartitionStatePropertyTest {
                            maxTimestamp,
                            size,
                            hasTierState,
+                           false,
                            hasAborts,
                            State.AVAILABLE)
 

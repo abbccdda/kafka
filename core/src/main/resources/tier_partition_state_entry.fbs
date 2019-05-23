@@ -30,6 +30,7 @@ table ObjectMetadata {
   hasAborts: bool (id: 8);
   version: byte (id: 9);
   state: State (id: 10);
+  hasProducerState: bool (id: 11);
 }
 
 root_type ObjectMetadata;

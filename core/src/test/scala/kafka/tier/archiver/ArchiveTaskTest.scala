@@ -247,7 +247,7 @@ class ArchiveTaskTest {
   @Test
   def testFinalizeUpload(): Unit = {
     val leaderEpoch = 0
-    val metadata = new TierObjectMetadata(topicPartition, leaderEpoch, 0, 10, 10, 0, 1000, true, false, State.AVAILABLE)
+    val metadata = new TierObjectMetadata(topicPartition, leaderEpoch, 0, 10, 10, 0, 1000, true, false, false, State.AVAILABLE)
     when(tierTopicManager.addMetadata(metadata)).thenReturn(CompletableFutureUtil.completed(AppendResult.ACCEPTED))
     val result = Await.result(ArchiveTask.finalizeUpload(AfterUpload(0, metadata, time.milliseconds()), topicPartition, time, tierTopicManager), 100 millis)
     Assert.assertTrue("expected state to sucessfully transition to BeforeUpload", result.isInstanceOf[BeforeUpload])

@@ -54,7 +54,7 @@ public class StateWriteBenchmark {
                 UUID.randomUUID(), 0));
         for (int i = 0; i < COUNT; i++) {
             state.append(new TierObjectMetadata(TOPIC_PARTITION, EPOCH,
-                    i * 2, 1, i, i, i, false, false, (byte) 0));
+                    i * 2, 1, i, i, i, false, false, false, (byte) 0));
         }
         state.flush();
     }

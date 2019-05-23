@@ -940,7 +940,7 @@ class AbstractFetcherThreadTest {
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[MaterializingTierMetadata])
     assertEquals(0L, fetcher.fetchState(partition).get.fetchOffset)
 
-    promise.complete(new TierObjectMetadata(partition, 0, 40L, 9, 0L, 0L, 100, false, false, State.AVAILABLE))
+    promise.complete(new TierObjectMetadata(partition, 0, 40L, 9, 0L, 0L, 100, false, false, false, State.AVAILABLE))
 
     fetcher.doWork() // transitions partition to FetchingTierState state
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[FetchingTierState])
@@ -1078,7 +1078,7 @@ class AbstractFetcherThreadTest {
 
       fetcher.fetchState(partition).get.state.isInstanceOf[MaterializingTierMetadata])
 
-    promiseSuccessful.complete(new TierObjectMetadata(partition, 0, 9L, 1, 0L, 0L, 100, false, false, State.AVAILABLE))
+    promiseSuccessful.complete(new TierObjectMetadata(partition, 0, 9L, 1, 0L, 0L, 100, false, false, false, State.AVAILABLE))
 
     fetcher.doWork() // transitions partition to FetchingTierState state
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[FetchingTierState])
@@ -1141,7 +1141,7 @@ class AbstractFetcherThreadTest {
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[MaterializingTierMetadata])
 
     // complete tier materialization
-    materialization1.complete(new TierObjectMetadata(partition, 0, 9L, 1, 0L, 0L, 100, false, false, State.AVAILABLE))
+    materialization1.complete(new TierObjectMetadata(partition, 0, 9L, 1, 0L, 0L, 100, false, false, false, State.AVAILABLE))
 
     fetcher.doWork() // transitions partition to FetchingTierState state
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[FetchingTierState])

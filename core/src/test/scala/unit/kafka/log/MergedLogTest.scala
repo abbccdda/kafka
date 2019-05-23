@@ -326,6 +326,7 @@ class MergedLogTest {
         segment.size,
         true,
         false,
+        false,
         0.toByte)
       val appendResult = tierPartitionState.append(tierObjectMetadata)
       assertEquals(AppendResult.ACCEPTED, appendResult)
@@ -384,6 +385,7 @@ class MergedLogTest {
         segment.largestTimestamp,
         segment.size,
         true,
+        false,
         false,
         0.toByte)
       val appendResult = tierPartitionState.append(tierObjectMetadata)
@@ -467,6 +469,7 @@ class MergedLogTest {
         segment.largestTimestamp,
         segment.size,
         true,
+        false,
         false,
         0.toByte)
       val appendResult = tierPartitionState.append(tierObjectMetadata)

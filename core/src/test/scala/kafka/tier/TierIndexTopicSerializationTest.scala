@@ -16,7 +16,7 @@ class TierIndexTopicSerializationTest {
   def serializeDeserializeTest(): Unit = {
     roundTrip(new TierTopicInitLeader(new TopicPartition("my-topic33", 0), 0, UUID.randomUUID, 33))
     roundTrip(new TierTopicInitLeader(new TopicPartition("my", 199999), 1, UUID.randomUUID, 99))
-    roundTrip(new TierObjectMetadata(new TopicPartition("foo", 0), 0, 0L, 33333, 0L, 99999L, 3333, true,false, kafka.tier.serdes.State.AVAILABLE))
+    roundTrip(new TierObjectMetadata(new TopicPartition("foo", 0), 0, 0L, 33333, 0L, 99999L, 3333, true, false, false, kafka.tier.serdes.State.AVAILABLE))
   }
 
   private def roundTrip(v: AbstractTierMetadata): Unit = {
@@ -29,7 +29,7 @@ class TierIndexTopicSerializationTest {
   @Test (expected = classOf[IllegalArgumentException])
   def metadataIllegalEpochTest(): Unit = {
     new TierObjectMetadata(new TopicPartition("foo", 0), -1, 0L, 23252334, 0L,
-      0L, 102, true, false, kafka.tier.serdes.State.AVAILABLE)
+      0L, 102, true, false, false, kafka.tier.serdes.State.AVAILABLE)
   }
 
   @Test (expected = classOf[IllegalArgumentException])

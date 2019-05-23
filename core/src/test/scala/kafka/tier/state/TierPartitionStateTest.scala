@@ -61,7 +61,7 @@ class TierPartitionStateTest {
     state.append(new TierTopicInitLeader(tp, epoch, java.util.UUID.randomUUID(), 0))
     var size = 0
     for (i <- 0 until numSegments) {
-      state.append(new TierObjectMetadata(tp, epoch, i * 2, 1, 1, i, i, true, false, 0))
+      state.append(new TierObjectMetadata(tp, epoch, i * 2, 1, 1, i, i, true, false, false, 0))
       size += i
       currentSegments += 1
     }
@@ -81,7 +81,7 @@ class TierPartitionStateTest {
 
     // append more segments after flush
     for (i <- numSegments until numSegments * 2) {
-      state.append(new TierObjectMetadata(tp, epoch, i * 2, 1, 1, i, i, true, false, 0))
+      state.append(new TierObjectMetadata(tp, epoch, i * 2, 1, 1, i, i, true, false, false, 0))
       size += i
       currentSegments += 1
     }
@@ -111,7 +111,7 @@ class TierPartitionStateTest {
     state.append(new TierTopicInitLeader(tp, epoch, java.util.UUID.randomUUID(), 0))
     var size = 0
     for (i <- 0 until n) {
-      state.append(new TierObjectMetadata(tp, epoch, i * 2, 1, 1, i, i, true, false, 0))
+      state.append(new TierObjectMetadata(tp, epoch, i * 2, 1, 1, i, i, true, false, false, 0))
       size += i
     }
 
@@ -128,7 +128,7 @@ class TierPartitionStateTest {
   @Test
   def flushAvailabilityTest(): Unit = {
     assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tp, 0, java.util.UUID.randomUUID(), 0)))
-    assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierObjectMetadata(tp, 0, 0, 100, 100, 0, 0, false, false, 0)))
+    assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierObjectMetadata(tp, 0, 0, 100, 100, 0, 0, false, false, false, 0)))
 
     // committedEndOffset is unavailable before first flush
     assertEquals(100L, state.endOffset.get)
@@ -140,7 +140,7 @@ class TierPartitionStateTest {
     assertEquals(100L, state.endOffset.get)
     assertEquals(100L, state.committedEndOffset.get)
 
-    assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierObjectMetadata(tp, 0, 100, 100, 200, 0, 0, false, false, 0)))
+    assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierObjectMetadata(tp, 0, 100, 100, 200, 0, 0, false, false, false, 0)))
     assertEquals(0L, state.startOffset.get)
     assertEquals(100L, state.committedEndOffset.get)
     assertEquals(200L, state.endOffset.get)
@@ -163,7 +163,7 @@ class TierPartitionStateTest {
     state.append(new TierTopicInitLeader(tp, epoch, java.util.UUID.randomUUID(), 0))
     var size = 0
     for (i <- 0 until numSegments) {
-      state.append(new TierObjectMetadata(tp, epoch, i * 2, 1, 1, i, i, true, false, 0))
+      state.append(new TierObjectMetadata(tp, epoch, i * 2, 1, 1, i, i, true, false, false, 0))
       size += i
     }
     state.flush()
