@@ -189,12 +189,15 @@ class ArchiverTaskQueue[T <: ArchiverTaskQueueTask](ctx: CancellationContext,
 
   /**
     * Re-enqueue a task for later processing. If a leadership change event has caused this task to be removed,
-    * `done` will cancel the provided task and effectively drop it.
+    * `done` will cancel the provided task and effectively drop it. `done` will also cleanup a task which has been
+    * canceled.
     */
   override def done(task: T): Unit = synchronized {
     processing -= task
     if (!tasks.contains(task))
       task.ctx.cancel()
+    if (task.ctx.isCancelled)
+      tasks -= task
   }
 
   /**

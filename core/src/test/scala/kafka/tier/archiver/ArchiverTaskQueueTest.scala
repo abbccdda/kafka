@@ -244,6 +244,25 @@ final class ArchiverTaskQueueTest {
     Assert.assertEquals("expected no tasks to be present", queue.taskCount(), 0)
   }
 
+  @Test
+  def testCancellationRemovesTaskFromQueue(): Unit = {
+    val tp0 = new TopicPartition("foo", 0)
+    queue.onBecomeLeader(tp0, 0)
+    updateLag(tp0, 1)
+    val task = queue.poll()
+    Assert.assertFalse("expected task not to be canceled", task.ctx.isCancelled)
+
+    queue.withAllTasks(allTasks => {
+      Assert.assertTrue("expected there to be at least one task in the queue", allTasks.nonEmpty)
+    })
+
+    task.ctx.cancel() // Cancel task, re-adding it should cause removal from the task set.
+    queue.done(task)
+
+    queue.withAllTasks(allTasks => {
+      Assert.assertTrue("expected all tasks to have been removed", allTasks.isEmpty)
+    })
+  }
 
   @Test
   def testClosingQueueUnblocksPollers(): Unit = {
