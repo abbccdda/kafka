@@ -72,7 +72,7 @@ public class MetadataAuthorizationTest {
     authorizer.start(Collections.emptyMap()).get();
     RbacProvider rbacProvider = (RbacProvider) authorizer.accessRuleProvider("MOCK_RBAC");
     this.authCache = (DefaultAuthCache) rbacProvider.authStore().authCache();
-    RbacTestUtils.updateRoleBinding(authCache, admin, "SuperAdmin", clusterA, Collections.emptySet());
+    RbacTestUtils.updateRoleBinding(authCache, admin, "SystemAdmin", clusterA, Collections.emptySet());
   }
 
   @After

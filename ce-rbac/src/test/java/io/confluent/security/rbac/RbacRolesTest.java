@@ -59,7 +59,7 @@ public class RbacRolesTest {
   public void testDefaultRoles() throws Exception {
     RbacRoles rbacRoles = RbacRoles.loadDefaultPolicy();
 
-    assertEquals("Cluster", rbacRoles.role("SuperAdmin").accessPolicy().scopeType());
+    assertEquals("Cluster", rbacRoles.role("SystemAdmin").accessPolicy().scopeType());
     assertEquals("Cluster", rbacRoles.role("UserAdmin").accessPolicy().scopeType());
     assertEquals("Cluster", rbacRoles.role("ClusterAdmin").accessPolicy().scopeType());
     assertEquals("Cluster", rbacRoles.role("Operator").accessPolicy().scopeType());

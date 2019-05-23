@@ -44,7 +44,7 @@ import org.powermock.modules.junit4.PowerMockRunner;
 public class RbacEndToEndAuthorizationTest {
 
   private static final String BROKER_USER = "kafka";
-  private static final String SUPER_ADMIN = "root";
+  private static final String SYSTEM_ADMIN = "root";
   private static final String DEVELOPER1 = "app1-developer";
   private static final String DEVELOPER2 = "app2-developer";
   private static final String RESOURCE_OWNER = "resourceOwner1";
@@ -64,7 +64,7 @@ public class RbacEndToEndAuthorizationTest {
   @Before
   public void setUp() throws Throwable {
     List<String> otherUsers = Arrays.asList(
-        SUPER_ADMIN,
+        SYSTEM_ADMIN,
         DEVELOPER1,
         DEVELOPER2,
         RESOURCE_OWNER,
@@ -93,8 +93,8 @@ public class RbacEndToEndAuthorizationTest {
     rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
     rbacClusters.produceConsume(DEVELOPER2, APP1_TOPIC, APP1_CONSUMER_GROUP, false);
     rbacClusters.produceConsume(DEVELOPER2, APP2_TOPIC, APP2_CONSUMER_GROUP, true);
-    rbacClusters.produceConsume(SUPER_ADMIN, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
-    rbacClusters.produceConsume(SUPER_ADMIN, APP2_TOPIC, APP1_CONSUMER_GROUP, true);
+    rbacClusters.produceConsume(SYSTEM_ADMIN, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
+    rbacClusters.produceConsume(SYSTEM_ADMIN, APP2_TOPIC, APP1_CONSUMER_GROUP, true);
     rbacClusters.produceConsume(RESOURCE_OWNER, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
     rbacClusters.produceConsume(RESOURCE_OWNER, APP2_TOPIC, APP1_CONSUMER_GROUP, true);
     SecurityTestUtils.verifyAuthorizerLicense(rbacClusters.kafkaCluster, LicenseStatus.LICENSE_ACTIVE);
@@ -196,12 +196,12 @@ public class RbacEndToEndAuthorizationTest {
             new ResourcePattern("Group", "*", PatternType.LITERAL)));
     rbacClusters.assignRole(KafkaPrincipal.USER_TYPE, OPERATOR, "Operator", clusterId, Collections.emptySet());
     rbacClusters.assignRole(KafkaPrincipal.USER_TYPE, CLUSTER_ADMIN, "ClusterAdmin", clusterId, Collections.emptySet());
-    rbacClusters.assignRole(KafkaPrincipal.USER_TYPE, SUPER_ADMIN, "SuperAdmin", clusterId, Collections.emptySet());
+    rbacClusters.assignRole(KafkaPrincipal.USER_TYPE, SYSTEM_ADMIN, "SystemAdmin", clusterId, Collections.emptySet());
 
     rbacClusters.waitUntilAccessAllowed(DEVELOPER1, APP1_TOPIC);
     rbacClusters.waitUntilAccessAllowed(DEVELOPER2, APP2_TOPIC);
     rbacClusters.waitUntilAccessAllowed(RESOURCE_OWNER, APP1_TOPIC);
-    rbacClusters.waitUntilAccessAllowed(SUPER_ADMIN, APP1_TOPIC);
+    rbacClusters.waitUntilAccessAllowed(SYSTEM_ADMIN, APP1_TOPIC);
   }
 
   private void createAdditionalRoles(String cluster) throws Exception {
@@ -216,7 +216,7 @@ public class RbacEndToEndAuthorizationTest {
             new ResourcePattern("Group", "*", PatternType.LITERAL)));
     rbacClusters.assignRole(KafkaPrincipal.USER_TYPE, OPERATOR, "Operator", cluster,
         Collections.emptySet());
-    rbacClusters.assignRole(KafkaPrincipal.USER_TYPE, SUPER_ADMIN, "SuperAdmin", cluster,
+    rbacClusters.assignRole(KafkaPrincipal.USER_TYPE, SYSTEM_ADMIN, "SystemAdmin", cluster,
         Collections.emptySet());
   }
 }
