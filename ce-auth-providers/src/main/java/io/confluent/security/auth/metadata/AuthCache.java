@@ -21,19 +21,6 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal;
 public interface AuthCache {
 
   /**
-   * Returns true if the provided user principal or any of the group principals has
-   * `Super User` role at the specified scope.
-   *
-   * @param scope Scope being checked, super-users are parent level also return true
-   * @param userPrincipal User principal
-   * @param groupPrincipals Set of group principals of the user
-   * @return true if the provided principal is a super user or super group.
-   */
-  boolean isSuperUser(Scope scope,
-                      KafkaPrincipal userPrincipal,
-                      Collection<KafkaPrincipal> groupPrincipals);
-
-  /**
    * Returns the groups of the provided user principal.
    * @param userPrincipal User principal
    * @return Set of group principals of the user, which may be empty

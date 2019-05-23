@@ -27,32 +27,20 @@ public class AccessPolicy {
   static final Set<String> SCOPE_TYPES = Utils.mkSet(CLUSTER_SCOPE, RESOURCE_SCOPE);
 
   private final String scopeType;
-  private final boolean isSuperUser;
   private final Map<ResourceType, Collection<Operation>> allowedOperations;
 
   @JsonCreator
   public AccessPolicy(@JsonProperty("scopeType") String scopeType,
-                      @JsonProperty("isSuperUser") boolean isSuperUser,
                       @JsonProperty("allowedOperations") Collection<ResourceOperations> allowedOperations) {
     this.scopeType = scopeType;
-    this.isSuperUser = isSuperUser;
-    if (isSuperUser) {
-      this.allowedOperations = Collections.singletonMap(ResourceType.ALL, Collections.singleton(Operation.ALL));
-    } else {
-      this.allowedOperations = allowedOperations.stream()
-          .collect(Collectors.toMap(op -> new ResourceType(op.resourceType),
-              op -> op.operations.stream().map(Operation::new).collect(Collectors.toList())));
-    }
+    this.allowedOperations = allowedOperations.stream()
+        .collect(Collectors.toMap(op -> new ResourceType(op.resourceType),
+            op -> op.operations.stream().map(Operation::new).collect(Collectors.toList())));
   }
 
   @JsonProperty
   public String scopeType() {
     return scopeType;
-  }
-
-  @JsonProperty
-  public boolean isSuperUser() {
-    return isSuperUser;
   }
 
   @JsonProperty
@@ -85,13 +73,12 @@ public class AccessPolicy {
     AccessPolicy that = (AccessPolicy) o;
 
     return Objects.equals(this.scopeType, that.scopeType) &&
-        Objects.equals(this.isSuperUser, that.isSuperUser) &&
         Objects.equals(this.allowedOperations, that.allowedOperations);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(scopeType, isSuperUser, allowedOperations);
+    return Objects.hash(scopeType, allowedOperations);
   }
 
   public static class ResourceOperations {

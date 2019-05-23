@@ -4,17 +4,21 @@
 {
   "roles" : [
     {
-      "name" : "SuperUser",
+      "name" : "SuperAdmin",
       "policy" : {
         "scopeType" : "Cluster",
-        "isSuperUser" : "true"
+        "allowedOperations" : [
+          {
+            "resourceType" : "All",
+            "operations" : ["All"]
+          }
+        ]
       }
     },
     {
       "name" : "UserAdmin",
       "policy" : {
         "scopeType" : "Cluster",
-        "isSuperUser" : "false",
         "allowedOperations" : [
           {
             "resourceType" : "Cluster",
@@ -43,7 +47,6 @@
       "name" : "ClusterAdmin",
       "policy" : {
         "scopeType" : "Cluster",
-        "isSuperUser" : "false",
         "allowedOperations" : [
           {
             "resourceType" : "Cluster",
@@ -84,7 +87,6 @@
       "name" : "Operator",
       "policy" : {
         "scopeType" : "Cluster",
-        "isSuperUser" : "false",
         "allowedOperations" : [
           {
             "resourceType" : "Connector",
@@ -105,7 +107,6 @@
       "name" : "SecurityAdmin",
       "policy" : {
         "scopeType" : "Cluster",
-        "isSuperUser" : "false",
         "allowedOperations" : [
           {
             "resourceType" : "All",
@@ -118,7 +119,6 @@
       "name" : "ResourceOwner",
       "policy" : {
         "scopeType" : "Resource",
-        "isSuperUser" : "false",
         "allowedOperations" : [
           {
             "resourceType" : "Topic",
@@ -159,7 +159,6 @@
       "name" : "DeveloperRead",
       "policy" : {
         "scopeType" : "Resource",
-        "isSuperUser" : "false",
         "allowedOperations" : [
           {
             "resourceType" : "Topic",
@@ -192,7 +191,6 @@
       "name" : "DeveloperWrite",
       "policy" : {
         "scopeType" : "Resource",
-        "isSuperUser" : "false",
         "allowedOperations" : [
           {
             "resourceType" : "Topic",
@@ -229,7 +227,6 @@
       "name" : "DeveloperManage",
       "policy" : {
         "scopeType" : "Resource",
-        "isSuperUser" : "false",
         "allowedOperations" : [
           {
             "resourceType" : "Topic",

@@ -6,10 +6,15 @@
 {
   "roles" : [
     {
-      "name" : "SuperUser",
+      "name" : "SuperAdmin",
       "policy" : {
         "scopeType" : "Cluster",
-        "isSuperUser" : "true"
+        "allowedOperations" : [
+          {
+            "resourceType" : "All",
+            "operations" : ["All"]
+          }
+        ]
       }
     },
     {

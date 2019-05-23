@@ -4,7 +4,6 @@ package io.confluent.security.auth.provider.rbac;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
@@ -57,37 +56,37 @@ public class RbacProviderTest {
   }
 
   @Test
-  public void testSuperUserAccessRules() {
+  public void testSuperAdminAccessRules() {
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
     Set<KafkaPrincipal> groups = Collections.emptySet();
 
-    updateRoleBinding(alice, "SuperUser", clusterA, null);
-    assertTrue(rbacProvider.isSuperUser(alice, groups, clusterA));
+    updateRoleBinding(alice, "SuperAdmin", clusterA, null);
+    assertFalse(rbacProvider.isSuperUser(alice, groups, clusterA));
     verifyRules(accessRules(alice, groups, clusterResource), "All");
     verifyRules(accessRules(alice, groups, topic), "All");
 
     // Delete non-existing role
-    deleteRoleBinding(alice, "SuperUser", clusterB);
-    assertTrue(rbacProvider.isSuperUser(alice, groups, clusterA));
+    deleteRoleBinding(alice, "SuperAdmin", clusterB);
+    assertFalse(rbacProvider.isSuperUser(alice, groups, clusterA));
 
-    deleteRoleBinding(alice, "SuperUser", clusterA);
+    deleteRoleBinding(alice, "SuperAdmin", clusterA);
     assertFalse(rbacProvider.isSuperUser(alice, groups, clusterA));
   }
 
   @Test
-  public void testSuperGroupAccessRules() {
+  public void testSuperAdminGroupAccessRules() {
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
     KafkaPrincipal admin = new KafkaPrincipal(AccessRule.GROUP_PRINCIPAL_TYPE, "admin");
     Set<KafkaPrincipal> groups = Collections.singleton(admin);
 
-    updateRoleBinding(admin, "SuperUser", clusterA, Collections.emptySet());
-    assertTrue(rbacProvider.isSuperUser(alice, groups, clusterA));
+    updateRoleBinding(admin, "SuperAdmin", clusterA, Collections.emptySet());
+    assertFalse(rbacProvider.isSuperUser(alice, groups, clusterA));
     verifyRules(accessRules(alice, groups, clusterResource), "All");
     verifyRules(accessRules(alice, groups, topic), "All");
 
     assertFalse(rbacProvider.isSuperUser(alice, Collections.emptySet(), clusterA));
 
-    deleteRoleBinding(admin, "SuperUser", clusterA);
+    deleteRoleBinding(admin, "SuperAdmin", clusterA);
     assertFalse(rbacProvider.isSuperUser(alice, groups, clusterA));
 
   }
@@ -118,7 +117,7 @@ public class RbacProviderTest {
 
     // Super user roles have access to all resources within the role binding scope
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
-    updateRoleBinding(alice, "SuperUser", metadataCluster, Collections.emptySet());
+    updateRoleBinding(alice, "SuperAdmin", metadataCluster, Collections.emptySet());
     verifyAccess(authorizer, alice, metadataCluster, RbacProvider.SECURITY_METADATA, alter, AuthorizeResult.ALLOWED);
     verifyAccess(authorizer, alice, otherCluster, RbacProvider.SECURITY_METADATA, alter, AuthorizeResult.DENIED);
     verifyAccess(authorizer, alice, metadataCluster, topic.resourceType(), alter, AuthorizeResult.ALLOWED);

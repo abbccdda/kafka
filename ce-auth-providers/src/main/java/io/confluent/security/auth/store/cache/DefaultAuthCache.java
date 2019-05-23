@@ -66,7 +66,6 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
   private final Scope rootScope;
   private final Map<KafkaPrincipal, UserMetadata> users;
   private final Map<RoleBindingKey, RoleBindingValue> roleBindings;
-  private final Map<Scope, Set<KafkaPrincipal>> rbacSuperUsers;
   private final Map<Scope, NavigableMap<ResourcePattern, Set<AccessRule>>> rbacAccessRules;
   private final Map<Integer, StatusValue> partitionStatus;
 
@@ -75,37 +74,8 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     this.rootScope = rootScope;
     this.users = new ConcurrentHashMap<>();
     this.roleBindings = new ConcurrentHashMap<>();
-    this.rbacSuperUsers = new ConcurrentHashMap<>();
     this.rbacAccessRules = new ConcurrentHashMap<>();
     this.partitionStatus = new ConcurrentHashMap<>();
-  }
-
-  /**
-   * Returns true if the provided user principal or any of the group principals has
-   * `Super User` role at the specified scope.
-   *
-   * @param scope Scope being checked, super-users are parent level also return true
-   * @param userPrincipal User principal
-   * @param groupPrincipals Set of group principals of the user
-   * @return true if the provided principal is a super user or super group.
-   */
-  @Override
-  public boolean isSuperUser(Scope scope,
-                             KafkaPrincipal userPrincipal,
-                             Collection<KafkaPrincipal> groupPrincipals) {
-    ensureNotFailed();
-    if (!this.rootScope.containsScope(scope))
-      throw new InvalidScopeException("This authorization cache does not contain scope " + scope);
-
-    Set<KafkaPrincipal> matchingPrincipals = matchingPrincipals(userPrincipal, groupPrincipals);
-    Scope nextScope = scope;
-    while (nextScope != null) {
-      Set<KafkaPrincipal> superUsers = rbacSuperUsers.getOrDefault(nextScope, Collections.emptySet());
-      if (superUsers.stream().anyMatch(matchingPrincipals::contains))
-        return true;
-      nextScope = nextScope.parent();
-    }
-    return false;
   }
 
   /**
@@ -324,9 +294,6 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     rules.forEach((r, a) ->
         scopeRules.computeIfAbsent(r, x -> ConcurrentHashMap.newKeySet()).addAll(a));
 
-    if (accessPolicy.isSuperUser())
-      rbacSuperUsers.computeIfAbsent(scope, unused -> ConcurrentHashMap.newKeySet()).add(principal);
-
     // Remove access policy for any resources that were removed
     removeDeletedAccessPolicies(principal, scope);
     return oldValue;
@@ -339,12 +306,6 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     RoleBindingValue existing = roleBindings.remove(key);
     if (existing != null) {
       removeDeletedAccessPolicies(key.principal(), scope);
-      AccessPolicy accessPolicy = accessPolicy(key);
-      if (accessPolicy != null && accessPolicy.isSuperUser()) {
-        Set<KafkaPrincipal> superUsers = rbacSuperUsers.get(scope);
-        if (superUsers != null)
-          superUsers.remove(key.principal());
-      }
       return existing;
     } else
       return null;

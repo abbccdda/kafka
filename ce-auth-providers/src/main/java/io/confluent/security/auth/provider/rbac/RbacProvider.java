@@ -168,7 +168,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   public boolean isSuperUser(KafkaPrincipal sessionPrincipal,
                              Set<KafkaPrincipal> groupPrincipals,
                              Scope scope) {
-    return authCache.isSuperUser(scope, userPrincipal(sessionPrincipal), groupPrincipals);
+    return false; // All roles are handled using access rules from the policy
   }
 
   @Override
