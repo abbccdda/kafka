@@ -105,19 +105,26 @@ public class RbacProviderTest {
     EmbeddedAuthorizer authorizer = rbacProvider.createRbacAuthorizer();
 
     // Statically configured super users have access to security metadata in all clusters.
+    // These users can also describe and alter access of any resource.
     // For the metadata service authorizer, these users are not granted access to any other resource.
-    verifyAccess(authorizer, admin, metadataCluster, RbacProvider.SECURITY_METADATA, AuthorizeResult.ALLOWED);
-    verifyAccess(authorizer, admin, otherCluster, RbacProvider.SECURITY_METADATA, AuthorizeResult.ALLOWED);
-    verifyAccess(authorizer, admin, metadataCluster, topic.resourceType(), AuthorizeResult.DENIED);
-    verifyAccess(authorizer, admin, otherCluster, topic.resourceType(), AuthorizeResult.DENIED);
+    Operation alter = new Operation("Alter");
+    Operation alterAccess = new Operation("AlterAccess");
+    verifyAccess(authorizer, admin, metadataCluster, RbacProvider.SECURITY_METADATA, alter, AuthorizeResult.ALLOWED);
+    verifyAccess(authorizer, admin, otherCluster, RbacProvider.SECURITY_METADATA, alter, AuthorizeResult.ALLOWED);
+    verifyAccess(authorizer, admin, metadataCluster, topic.resourceType(), alter, AuthorizeResult.DENIED);
+    verifyAccess(authorizer, admin, otherCluster, topic.resourceType(), alter, AuthorizeResult.DENIED);
+    verifyAccess(authorizer, admin, metadataCluster, topic.resourceType(), alterAccess, AuthorizeResult.ALLOWED);
+    verifyAccess(authorizer, admin, otherCluster, topic.resourceType(), alterAccess, AuthorizeResult.ALLOWED);
 
     // Super user roles have access to all resources within the role binding scope
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
     updateRoleBinding(alice, "SuperUser", metadataCluster, Collections.emptySet());
-    verifyAccess(authorizer, alice, metadataCluster, RbacProvider.SECURITY_METADATA, AuthorizeResult.ALLOWED);
-    verifyAccess(authorizer, alice, otherCluster, RbacProvider.SECURITY_METADATA, AuthorizeResult.DENIED);
-    verifyAccess(authorizer, alice, metadataCluster, topic.resourceType(), AuthorizeResult.ALLOWED);
-    verifyAccess(authorizer, alice, otherCluster, topic.resourceType(), AuthorizeResult.DENIED);
+    verifyAccess(authorizer, alice, metadataCluster, RbacProvider.SECURITY_METADATA, alter, AuthorizeResult.ALLOWED);
+    verifyAccess(authorizer, alice, otherCluster, RbacProvider.SECURITY_METADATA, alter, AuthorizeResult.DENIED);
+    verifyAccess(authorizer, alice, metadataCluster, topic.resourceType(), alter, AuthorizeResult.ALLOWED);
+    verifyAccess(authorizer, alice, otherCluster, topic.resourceType(), alter, AuthorizeResult.DENIED);
+    verifyAccess(authorizer, alice, metadataCluster, topic.resourceType(), alterAccess, AuthorizeResult.ALLOWED);
+    verifyAccess(authorizer, alice, otherCluster, topic.resourceType(), alterAccess, AuthorizeResult.DENIED);
   }
 
   @Test
@@ -322,8 +329,8 @@ public class RbacProviderTest {
   }
 
   private void verifyAccess(EmbeddedAuthorizer authorizer, KafkaPrincipal principal,
-      Scope scope, ResourceType resourceType, AuthorizeResult expectedResult) {
-    Action action = new Action(scope, resourceType, "name", new Operation("Alter"));
+      Scope scope, ResourceType resourceType, Operation op, AuthorizeResult expectedResult) {
+    Action action = new Action(scope, resourceType, "name", op);
     assertEquals(expectedResult,
         authorizer.authorize(principal, "localhost", Collections.singletonList(action)).get(0));
   }

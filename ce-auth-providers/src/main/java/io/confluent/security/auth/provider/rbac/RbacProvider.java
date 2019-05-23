@@ -14,6 +14,7 @@ import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.Authorizer;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.EmbeddedAuthorizer;
+import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
@@ -48,6 +49,10 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
 
   static final ResourceType SECURITY_METADATA = new ResourceType("SecurityMetadata");
   private static final Set<ResourceType> METADATA_RESOURCE_TYPES = Utils.mkSet(SECURITY_METADATA);
+  private static final Set<Operation> METADATA_OPS = Utils.mkSet(
+      new Operation("DescribeAccess"),
+      new Operation("AlterAccess")
+  );
 
   private Map<String, ?> configs;
   private LdapAuthenticateCallbackHandler authenticateCallbackHandler;
@@ -258,7 +263,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
     @Override
     protected boolean isSuperUser(KafkaPrincipal principal, Action action) {
       return configuredSuperUsers.contains(principal) &&
-          METADATA_RESOURCE_TYPES.contains(action.resourceType());
+          (METADATA_RESOURCE_TYPES.contains(action.resourceType()) || METADATA_OPS.contains(action.operation()));
     }
   }
 
