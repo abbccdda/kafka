@@ -96,13 +96,13 @@ public class MultiTenantApis {
       case DESCRIBE_ACLS:
       case DELETE_ACLS:
       case CREATE_PARTITIONS:
+      case OFFSET_FOR_LEADER_EPOCH:
         return true;
 
       case CONTROLLED_SHUTDOWN:
       case LEADER_AND_ISR:
       case UPDATE_METADATA:
       case STOP_REPLICA:
-      case OFFSET_FOR_LEADER_EPOCH:
       case WRITE_TXN_MARKERS:
       case ALTER_REPLICA_LOG_DIRS:
       case DESCRIBE_LOG_DIRS:

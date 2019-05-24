@@ -96,6 +96,7 @@ import org.apache.kafka.common.requests.DescribeConfigsResponse;
 import org.apache.kafka.common.requests.DescribeGroupsRequest;
 import org.apache.kafka.common.requests.DescribeGroupsResponse;
 import org.apache.kafka.common.requests.EndTxnRequest;
+import org.apache.kafka.common.requests.EpochEndOffset;
 import org.apache.kafka.common.requests.FetchRequest;
 import org.apache.kafka.common.requests.FetchResponse;
 import org.apache.kafka.common.requests.FindCoordinatorRequest;
@@ -1063,7 +1064,7 @@ public class MultiTenantRequestContextTest {
   }
 
   @Test
-  public void testOffsetForLeaderEpochNotAllowed() throws Exception {
+  public void testOffsetForLeaderEpochRequest() {
     for (short ver = ApiKeys.OFFSET_FOR_LEADER_EPOCH.oldestVersion(); ver <= ApiKeys.OFFSET_FOR_LEADER_EPOCH.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_FOR_LEADER_EPOCH, ver);
       TopicPartition partition = new TopicPartition("foo", 0);
@@ -1071,13 +1072,23 @@ public class MultiTenantRequestContextTest {
               ver, Collections.singletonMap(partition, new OffsetsForLeaderEpochRequest.PartitionData(Optional.empty(), 0))).build(ver);
       OffsetsForLeaderEpochRequest request = (OffsetsForLeaderEpochRequest) parseRequest(context, inbound);
       assertEquals(mkSet(new TopicPartition("tenant_foo", 0)), request.epochsByTopicPartition().keySet());
-      assertTrue(context.shouldIntercept());
-      OffsetsForLeaderEpochResponse response = (OffsetsForLeaderEpochResponse) context.intercept(request, 0);
-      Struct struct = parseResponse(ApiKeys.OFFSET_FOR_LEADER_EPOCH, ver, context.buildResponse(response));
-      OffsetsForLeaderEpochResponse outbound = new OffsetsForLeaderEpochResponse(struct);
-      assertEquals(1, outbound.responses().size());
-      assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, outbound.responses().get(partition).error());
-      verifyRequestAndResponseMetrics(ApiKeys.OFFSET_FOR_LEADER_EPOCH, Errors.CLUSTER_AUTHORIZATION_FAILED);
+      assertFalse(context.shouldIntercept());
+      verifyRequestMetrics(ApiKeys.OFFSET_FOR_LEADER_EPOCH);
+    }
+  }
+
+  @Test
+  public void testOffsetForLeaderEpochResponse() throws Exception {
+    for (short ver = ApiKeys.OFFSET_FOR_LEADER_EPOCH.oldestVersion(); ver <= ApiKeys.OFFSET_FOR_LEADER_EPOCH.latestVersion(); ver++) {
+      TopicPartition partition = new TopicPartition("foo", 0);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_FOR_LEADER_EPOCH, ver);
+      OffsetsForLeaderEpochResponse outbound = new OffsetsForLeaderEpochResponse(Collections.singletonMap(
+              new TopicPartition("tenant_foo", 0), new EpochEndOffset(5, 37L)));
+      Struct struct = parseResponse(ApiKeys.OFFSET_FOR_LEADER_EPOCH, ver, context.buildResponse(outbound));
+      OffsetsForLeaderEpochResponse intercepted = new OffsetsForLeaderEpochResponse(struct);
+      assertEquals(1, intercepted.responses().size());
+      assertEquals(Errors.NONE, intercepted.responses().get(partition).error());
+      verifyResponseMetrics(ApiKeys.OFFSET_FOR_LEADER_EPOCH, Errors.NONE);
     }
   }
 
