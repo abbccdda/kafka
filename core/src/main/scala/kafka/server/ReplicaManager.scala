@@ -1234,8 +1234,8 @@ class ReplicaManager(val config: KafkaConfig,
   }
 
   def becomeLeaderOrFollower(correlationId: Int,
-                             leaderAndIsrRequest: LeaderAndIsrRequest,
-                             onLeadershipChange: (Iterable[Partition], Iterable[Partition]) => Unit): LeaderAndIsrResponse = {
+                             leaderAndIsrRequest: LeaderAndIsrRequestBase,
+                             onLeadershipChange: (Iterable[Partition], Iterable[Partition]) => Unit): AbstractResponse = {
     leaderAndIsrRequest.partitionStates.asScala.foreach { case (topicPartition, stateInfo) =>
       stateChangeLogger.trace(s"Received LeaderAndIsr request $stateInfo " +
         s"correlation id $correlationId from controller ${leaderAndIsrRequest.controllerId} " +
@@ -1353,7 +1353,13 @@ class ReplicaManager(val config: KafkaConfig,
         replicaFetcherManager.shutdownIdleFetcherThreads()
         replicaAlterLogDirsManager.shutdownIdleFetcherThreads()
         onLeadershipChange(partitionsBecomeLeader, partitionsBecomeFollower)
-        new LeaderAndIsrResponse(Errors.NONE, responseMap.asJava)
+
+        leaderAndIsrRequest match {
+          case leaderAndIsrRequest: LeaderAndIsrRequest => new LeaderAndIsrResponse(Errors.NONE, responseMap.asJava)
+          case leaderAndIsrRequest: ConfluentLeaderAndIsrRequest => new ConfluentLeaderAndIsrResponse(Errors.NONE, responseMap.asJava)
+          case _ => throw new IllegalArgumentException("Unsupported LeaderAndIsrRequestBase argument supplied "
+            + leaderAndIsrRequest.getClass)
+        }
       }
     }
   }

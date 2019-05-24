@@ -3,19 +3,20 @@ package kafka.tier.archiver
 
 import java.time.Instant
 import java.util.concurrent.TimeUnit
+import java.util.UUID
 
 import kafka.tier.fetcher.CancellationContext
-import org.apache.kafka.common.TopicPartition
+import kafka.tier.TopicIdPartition
 import org.apache.kafka.common.utils.{MockTime, Time}
 import org.junit.{After, Assert, Before, Test}
 
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
-import scala.concurrent.{Await, Future, blocking}
+import scala.concurrent.{blocking, Await, Future}
 
 case class MockArchiverTaskQueueTask(ctx: CancellationContext,
-                                     topicPartition: TopicPartition,
+                                     topicIdPartition: TopicIdPartition,
                                      leaderEpoch: Int) extends ArchiverTaskQueueTask {
 
   @volatile var pauseTime: Option[Instant] = None
@@ -23,7 +24,7 @@ case class MockArchiverTaskQueueTask(ctx: CancellationContext,
 }
 
 final class ArchiverTaskQueueTest {
-  var lagMapping: mutable.Map[TopicPartition, Long] = _
+  var lagMapping: mutable.Map[TopicIdPartition, Long] = _
   var ctx: CancellationContext = _
   var queue: ArchiverTaskQueue[MockArchiverTaskQueueTask] = _
   var time: Time = _
@@ -45,19 +46,19 @@ final class ArchiverTaskQueueTest {
 
   private def getLag(task: MockArchiverTaskQueueTask): Option[Long] = {
     lagMapping.synchronized {
-      lagMapping.get(task.topicPartition)
+      lagMapping.get(task.topicIdPartition)
     }
   }
 
-  private def updateLag(topicPartition: TopicPartition, lag: Long): Unit = {
+  private def updateLag(topicIdPartition: TopicIdPartition, lag: Long): Unit = {
     lagMapping.synchronized {
-      lagMapping += (topicPartition -> lag)
+      lagMapping += (topicIdPartition -> lag)
     }
   }
 
   @Test
   def testLeadershipOverrides(): Unit = {
-    val tp = new TopicPartition("foo", 0)
+    val tp = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
     queue.onBecomeLeader(tp, 0)
     queue.onBecomeLeader(tp, 1)
     updateLag(tp, 1)
@@ -68,22 +69,22 @@ final class ArchiverTaskQueueTest {
 
   @Test
   def testMinLagPrioritization(): Unit = {
-    val tp0 = new TopicPartition("foo", 0)
-    val tp1 = new TopicPartition("foo", 1)
+    val tp0 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
+    val tp1 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 1)
     queue.onBecomeLeader(tp0, 0)
     queue.onBecomeLeader(tp1, 0)
     updateLag(tp0, 50)
     updateLag(tp1, 100)
     Assert.assertEquals("expected the topic partition with the least lag to be polled first",
-      queue.poll().topicPartition, tp0)
+      queue.poll().topicIdPartition, tp0)
     Assert.assertEquals("expected the topic partition with the second least lag to be polled next",
-      queue.poll().topicPartition, tp1)
+      queue.poll().topicIdPartition, tp1)
   }
 
   @Test
   def testLeadershipChangesCancelTasks(): Unit = {
-    val tp0 = new TopicPartition("foo", 0)
-    val tp1 = new TopicPartition("foo", 1)
+    val tp0 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
+    val tp1 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 1)
     queue.onBecomeLeader(tp0, 0)
     queue.onBecomeLeader(tp1, 0)
     updateLag(tp0, 1)
@@ -92,8 +93,8 @@ final class ArchiverTaskQueueTest {
     val tp0Task = queue.poll()
     val tp1Task = queue.poll()
 
-    Assert.assertEquals(tp0Task.topicPartition, tp0)
-    Assert.assertEquals(tp1Task.topicPartition, tp1)
+    Assert.assertEquals(tp0Task.topicIdPartition, tp0)
+    Assert.assertEquals(tp1Task.topicIdPartition, tp1)
 
     queue.onBecomeFollower(tp0)
     queue.processLeadershipQueue(50, TimeUnit.MILLISECONDS)
@@ -108,28 +109,28 @@ final class ArchiverTaskQueueTest {
 
   @Test
   def testExactlyOnceTaskProcessing(): Unit = {
-    val tp0 = new TopicPartition("foo", 0)
+    val tp0 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
     queue.onBecomeLeader(tp0, 0)
     updateLag(tp0, 50)
 
     val tp0Task = queue.poll()
-    Assert.assertEquals(tp0Task.topicPartition, tp0)
+    Assert.assertEquals(tp0Task.topicIdPartition, tp0)
     Assert.assertTrue("expected no other tasks to be available", queue.poll(50, TimeUnit.MILLISECONDS).isEmpty)
 
     queue.done(tp0Task)
 
     Assert.assertEquals("expected to be able to retrieve task after returning it to the queue",
-      queue.poll().topicPartition, tp0)
+      queue.poll().topicIdPartition, tp0)
   }
 
   @Test
   def testLeadershipChangeDuringTaskExecution(): Unit = {
-    val tp0 = new TopicPartition("foo", 0)
+    val tp0 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
     queue.onBecomeLeader(tp0, 0)
     updateLag(tp0, 50)
 
     val tp0Task = queue.poll()
-    Assert.assertEquals(tp0Task.topicPartition, tp0)
+    Assert.assertEquals(tp0Task.topicIdPartition, tp0)
 
     queue.onBecomeLeader(tp0, 1)
     queue.processLeadershipQueue(10, TimeUnit.MILLISECONDS)
@@ -147,8 +148,8 @@ final class ArchiverTaskQueueTest {
 
   @Test
   def testLossOfLeadershipRemovesTask(): Unit = {
-    val tp0 = new TopicPartition("foo", 0)
-    val tp1 = new TopicPartition("foo", 1)
+    val tp0 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
+    val tp1 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 1)
     queue.onBecomeLeader(tp0, 0)
     queue.onBecomeLeader(tp1, 0)
     updateLag(tp0, 1)
@@ -156,8 +157,8 @@ final class ArchiverTaskQueueTest {
 
     val tp0Task = queue.poll()
     val tp1Task = queue.poll()
-    Assert.assertEquals(tp0Task.topicPartition, tp0)
-    Assert.assertEquals(tp1Task.topicPartition, tp1)
+    Assert.assertEquals(tp0Task.topicIdPartition, tp0)
+    Assert.assertEquals(tp1Task.topicIdPartition, tp1)
 
     // Test scenario where leadership changes after a task is done
     queue.done(tp0Task)
@@ -176,11 +177,11 @@ final class ArchiverTaskQueueTest {
 
   @Test
   def testTimeDelay(): Unit = {
-    val tp0 = new TopicPartition("foo", 0)
+    val tp0 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
     queue.onBecomeLeader(tp0, 0)
     updateLag(tp0, 1)
     val tp0Task = queue.poll()
-    Assert.assertEquals(tp0Task.topicPartition, tp0)
+    Assert.assertEquals(tp0Task.topicIdPartition, tp0)
     // Set the task delay to 5 seconds in the future
     tp0Task.pauseTime = Some(Instant.ofEpochMilli(time.milliseconds()).plusSeconds(5))
     queue.done(tp0Task)
@@ -197,7 +198,7 @@ final class ArchiverTaskQueueTest {
 
   @Test
   def testLagChangesUnblockPollers(): Unit = {
-    val tp0 = new TopicPartition("foo", 0)
+    val tp0 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
     queue.onBecomeLeader(tp0, 0)
     updateLag(tp0, 0)
 
@@ -207,13 +208,13 @@ final class ArchiverTaskQueueTest {
     updateLag(tp0, 30)
     val task = Await.result(fut, 100 milliseconds)
     Assert.assertEquals("expected updating lag to unblock the queue",
-      task.topicPartition, tp0)
+      task.topicIdPartition, tp0)
   }
 
   @Test
   def testMultiplePollersGetUniqueTasks(): Unit = {
-    val tp0 = new TopicPartition("foo", 0)
-    val tp1 = new TopicPartition("foo", 1)
+    val tp0 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
+    val tp1 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 1)
     queue.onBecomeLeader(tp0, 0)
     queue.onBecomeLeader(tp1, 0)
     updateLag(tp0, 0)
@@ -226,14 +227,14 @@ final class ArchiverTaskQueueTest {
     updateLag(tp1, 100)
 
     Assert.assertNotEquals("expected unique tasks between pollers",
-      Await.result(fut1, 100 milliseconds).topicPartition,
-      Await.result(fut2, 100 milliseconds).topicPartition
+      Await.result(fut1, 100 milliseconds).topicIdPartition,
+      Await.result(fut2, 100 milliseconds).topicIdPartition
     )
   }
 
   @Test
   def testTopicDeletionStopsTask(): Unit = {
-    val tp = new TopicPartition("foo", 0)
+    val tp = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
     queue.onBecomeLeader(tp, 0)
     updateLag(tp, 1)
     val task = queue.poll()
@@ -246,7 +247,7 @@ final class ArchiverTaskQueueTest {
 
   @Test
   def testCancellationRemovesTaskFromQueue(): Unit = {
-    val tp0 = new TopicPartition("foo", 0)
+    val tp0 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
     queue.onBecomeLeader(tp0, 0)
     updateLag(tp0, 1)
     val task = queue.poll()
@@ -266,8 +267,8 @@ final class ArchiverTaskQueueTest {
 
   @Test
   def testClosingQueueUnblocksPollers(): Unit = {
-    val tp0 = new TopicPartition("foo", 0)
-    val tp1 = new TopicPartition("foo", 1)
+    val tp0 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
+    val tp1 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 1)
     queue.onBecomeLeader(tp0, 0)
     queue.onBecomeLeader(tp1, 0)
     updateLag(tp0, 0)
@@ -291,7 +292,7 @@ final class ArchiverTaskQueueTest {
     Future {
       for (i <- 0 to 10) {
         val task = blocking(queue.poll())
-        updateLag(task.topicPartition, 10 - i)
+        updateLag(task.topicIdPartition, 10 - i)
         queue.done(task)
       }
     }
@@ -299,9 +300,9 @@ final class ArchiverTaskQueueTest {
 
   @Test
   def testLagDrivenToZero(): Unit = {
-    val tp0 = new TopicPartition("foo", 0)
-    val tp1 = new TopicPartition("foo", 1)
-    val tp2 = new TopicPartition("foo", 2)
+    val tp0 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
+    val tp1 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 1)
+    val tp2 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 2)
     queue.onBecomeLeader(tp0, 0)
     queue.onBecomeLeader(tp1, 0)
     queue.onBecomeLeader(tp2, 0)
@@ -324,9 +325,9 @@ final class ArchiverTaskQueueTest {
 
   @Test
   def testMultiThreadedLeadershipChanges(): Unit = {
-    val tp0 = new TopicPartition("foo", 0)
-    val tp1 = new TopicPartition("foo", 1)
-    val tp2 = new TopicPartition("foo", 2)
+    val tp0 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
+    val tp1 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 1)
+    val tp2 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 2)
 
     val fut0 = schedulingLoop(queue)
     val fut1 = schedulingLoop(queue)
@@ -357,8 +358,8 @@ final class ArchiverTaskQueueTest {
   @Test
   def testLeadershipQueueDrainsFully(): Unit = {
     // Verify that the leadership change queue is drained fully on every poll.
-    val tp0 = new TopicPartition("foo", 0)
-    val tp1 = new TopicPartition("foo", 1)
+    val tp0 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
+    val tp1 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 1)
     queue.onBecomeLeader(tp0, 0)
     queue.onBecomeLeader(tp1, 0)
     updateLag(tp0, 0)
@@ -367,8 +368,8 @@ final class ArchiverTaskQueueTest {
     Assert.assertTrue("Expected leadership changes to be processed", queue.processLeadershipQueue(1000, TimeUnit.MILLISECONDS))
     // After processing the leadership queue, we expect that both tp0 and tp1 are available as "tasks"
     queue.withAllTasks(tasks => {
-      Assert.assertTrue("expected to find a task for TP0", tasks.exists(_.topicPartition == tp0))
-      Assert.assertTrue("expected to find a task for TP1", tasks.exists(_.topicPartition == tp1))
+      Assert.assertTrue("expected to find a task for TP0", tasks.exists(_.topicIdPartition == tp0))
+      Assert.assertTrue("expected to find a task for TP1", tasks.exists(_.topicIdPartition == tp1))
     })
   }
 }

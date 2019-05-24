@@ -8,8 +8,10 @@ import kafka.server.TierFetchDataInfo
 import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.fetcher.TierFetchMetadata
 import kafka.tier.store.TierObjectStore
+import org.apache.kafka.common.TopicPartition
 
-class TierLogSegment private[log] (private val segment: TierObjectMetadata,
+class TierLogSegment private[log] (private val topicPartition: TopicPartition,
+                                   private val segment: TierObjectMetadata,
                                    private val tierObjectStore: TierObjectStore) {
   def baseOffset: Long = segment.startOffset
 
@@ -24,7 +26,8 @@ class TierLogSegment private[log] (private val segment: TierObjectMetadata,
       None
     } else {
       val maximumReadableBytes = math.min(maxSize, segment.size)
-      val fetchMetadata = TierFetchMetadata(fetchStartOffset = startOffset,
+      val fetchMetadata = TierFetchMetadata(topicPartition = topicPartition,
+        fetchStartOffset = startOffset,
         maxOffset = maxOffset,
         maxBytes = maximumReadableBytes,
         maxPosition = maxPosition,
@@ -41,6 +44,6 @@ class TierLogSegment private[log] (private val segment: TierObjectMetadata,
   def maxTimestamp: Long = segment.maxTimestamp()
   def metadata: TierObjectMetadata = segment
 
-  override def toString = s"baseOffset: $baseOffset tierObjectStore: $tierObjectStore"
+  override def toString = s"topicPartition: $topicPartition baseOffset: $baseOffset tierObjectStore: $tierObjectStore"
 }
 

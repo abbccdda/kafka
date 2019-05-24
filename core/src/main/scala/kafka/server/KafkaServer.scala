@@ -261,7 +261,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size)
 
         if (config.tierFeature) {
-          val objectStoreConfig = new TierObjectStoreConfig(config)
+          val objectStoreConfig = new TierObjectStoreConfig(clusterId, config)
           tierObjectStore = config.tierBackend match {
             case "S3" => Some(new S3TierObjectStore(objectStoreConfig))
             case "mock" => Some(new MockInMemoryTierObjectStore(objectStoreConfig))

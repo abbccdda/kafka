@@ -18,6 +18,7 @@
 package org.apache.kafka.common.protocol;
 
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 public interface Writable {
     void writeByte(byte val);
@@ -67,5 +68,13 @@ public interface Writable {
         }
         writeShort((short) arr.length);
         writeArray(arr);
+    }
+
+    /**
+     * Write a 128 bit UUID, with most significant bits followed by least significant bits
+     */
+    default void writeUuid(UUID uuid) {
+        writeLong(uuid.getMostSignificantBits());
+        writeLong(uuid.getLeastSignificantBits());
     }
 }

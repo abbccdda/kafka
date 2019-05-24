@@ -10,6 +10,7 @@ import java.nio.ByteBuffer
 import java.util
 import java.util.Collections
 import java.util.function.Supplier
+import java.util.UUID
 
 import javax.management.{MBeanServer, ObjectName}
 import kafka.log._
@@ -53,7 +54,7 @@ class TierIntegrationTest {
   var tierArchiver: TierArchiver = _
   var replicaManager: ReplicaManager = _
   var tierObjectStore: MockInMemoryTierObjectStore = _
-  var logs: Seq[AbstractLog] = _
+  var logs: Seq[MergedLog] = _
   var tierTopicManager: TierTopicManager = _
   var consumerBuilder: MockConsumerBuilder = _
   val maxWaitTimeMs = 2000L
@@ -97,13 +98,13 @@ class TierIntegrationTest {
     tierArchiver.start()
     waitForImmigration(logs, 1, tierArchiver, tierTopicManager, consumerBuilder)
     // Emigrate one partition
-    tierArchiver.taskQueue.onBecomeFollower(logs.head.topicPartition)
+    tierArchiver.taskQueue.onBecomeFollower(logs.head.topicIdPartition.get)
 
     TestUtils.waitUntilTrue(() => tierArchiver.taskQueue.withAllTasks(_.size == 1),
       "Archiver should process pending emigrations", 2000L)
 
     // Re-immigrate with valid epoch
-    tierArchiver.taskQueue.onBecomeLeader(logs.head.topicPartition, 2)
+    tierArchiver.taskQueue.onBecomeLeader(logs.head.topicIdPartition.get, 2)
 
     TestUtils.waitUntilTrue(() => {
       consumerBuilder.moveRecordsFromProducer()
@@ -116,7 +117,6 @@ class TierIntegrationTest {
       })
     }, "Archiver should process pending immigrations", 2000L)
   }
-
 
   @Test
   def testArchiverUploadAndMaterialize(): Unit = {
@@ -133,7 +133,7 @@ class TierIntegrationTest {
 
     logs.foreach { log =>
       assertEquals(s"topic manager should materialize entry for ${log.topicPartition}",
-        tierTopicManager.partitionState(log.topicPartition).tierEpoch,
+        tierTopicManager.partitionState(log.topicIdPartition.get).tierEpoch,
         leaderEpoch)
     }
 
@@ -142,7 +142,7 @@ class TierIntegrationTest {
     // Materialize at least the first segment for each
     archiveAndMaterializeUntilTrue(() => {
       logs.forall { log =>
-        val tierPartitionState = tierTopicManager.partitionState(log.topicPartition)
+        val tierPartitionState = tierTopicManager.partitionState(log.topicIdPartition.get)
         tierPartitionState.flush()
         tierPartitionState.numSegments >= 1
       }
@@ -150,9 +150,9 @@ class TierIntegrationTest {
 
     logs.foreach { log =>
       assertEquals("batch 1: segment should be materialized with correct offset relationship",
-        0L, tierTopicManager.partitionState(log.topicPartition).metadata(0).get().startOffset)
+        0L, tierTopicManager.partitionState(log.topicIdPartition.get).metadata(0).get().startOffset)
       assertTrue("batch 1: segment should be materialized with correct end offset",
-        tierTopicManager.partitionState(log.topicPartition).committedEndOffset.get() >= 3L)
+        tierTopicManager.partitionState(log.topicIdPartition.get).committedEndOffset.get() >= 3L)
     }
 
     validatePartitionStateContainedInObjectStore(tierTopicManager, tierObjectStore, logs)
@@ -160,7 +160,7 @@ class TierIntegrationTest {
     // Materialize at least the second segment for each
     archiveAndMaterializeUntilTrue(() => {
       logs.forall { log =>
-        val tierPartitionState = tierTopicManager.partitionState(log.topicPartition)
+        val tierPartitionState = tierTopicManager.partitionState(log.topicIdPartition.get)
         tierPartitionState.flush()
         tierPartitionState.numSegments >= 2 && tierPartitionState.committedEndOffset == tierPartitionState.endOffset
       }
@@ -171,9 +171,9 @@ class TierIntegrationTest {
 
     logs.foreach { log =>
       assertEquals("batch 2: segment should be materialized with correct offset relationship",
-        4L, tierTopicManager.partitionState(log.topicPartition).metadata(6).get().startOffset)
+        4L, tierTopicManager.partitionState(log.topicIdPartition.get).metadata(6).get().startOffset)
       assertTrue("batch 2: segment should be materialized with correct end offset",
-        tierTopicManager.partitionState(log.topicPartition).committedEndOffset.get() >= 7L)
+        tierTopicManager.partitionState(log.topicIdPartition.get).committedEndOffset.get() >= 7L)
     }
 
     validatePartitionStateContainedInObjectStore(tierTopicManager, tierObjectStore, logs)
@@ -181,7 +181,7 @@ class TierIntegrationTest {
     // Materialize the third segment for each
     archiveAndMaterializeUntilTrue(() => {
       logs.forall { log =>
-        val tierPartitionState = tierTopicManager.partitionState(log.topicPartition)
+        val tierPartitionState = tierTopicManager.partitionState(log.topicIdPartition.get)
         tierPartitionState.flush()
         tierPartitionState.numSegments >= 3 && tierPartitionState.committedEndOffset == tierPartitionState.endOffset
       }
@@ -189,9 +189,9 @@ class TierIntegrationTest {
 
     logs.foreach { log =>
       assertEquals("batch 3: segment should be materialized with correct offset relationship",
-        8L, tierTopicManager.partitionState(log.topicPartition).metadata(10).get().startOffset)
+        8L, tierTopicManager.partitionState(log.topicIdPartition.get).metadata(10).get().startOffset)
       assertTrue("batch 3: segment should be materialized with correct end offset",
-        tierTopicManager.partitionState(log.topicPartition).committedEndOffset.get() >= 11L)
+        tierTopicManager.partitionState(log.topicIdPartition.get).committedEndOffset.get() >= 11L)
     }
 
     validatePartitionStateContainedInObjectStore(tierTopicManager, tierObjectStore, logs)
@@ -215,7 +215,7 @@ class TierIntegrationTest {
     // Wait for the first segments to materialize
     archiveAndMaterializeUntilTrue(() => {
       logs.forall { log =>
-        val tierPartitionState = tierTopicManager.partitionState(log.topicPartition)
+        val tierPartitionState = tierTopicManager.partitionState(log.topicIdPartition.get)
         tierPartitionState.flush()
         tierPartitionState.numSegments > 0 && tierPartitionState.committedEndOffset == tierPartitionState.endOffset
       }
@@ -223,13 +223,12 @@ class TierIntegrationTest {
 
     logs.foreach { log =>
       assertEquals("Segment should be materialized with correct offset relationship",
-        0L, tierTopicManager.partitionState(log.topicPartition).metadata(0).get().startOffset)
+        0L, tierTopicManager.partitionState(log.topicIdPartition.get).metadata(0).get().startOffset)
       assertTrue("Segment should be materialized with correct end offset",
-        tierTopicManager.partitionState(log.topicPartition).committedEndOffset.get() >= 3)
+        tierTopicManager.partitionState(log.topicIdPartition.get).committedEndOffset.get() >= 3)
     }
     validatePartitionStateContainedInObjectStore(tierTopicManager, tierObjectStore, logs)
   }
-
 
   @Test
   def testArchiverUploadWithLimitedUploadConcurrency(): Unit = {
@@ -275,7 +274,7 @@ class TierIntegrationTest {
     def awaitMaterializeBatchAndAssertLag(archivedBatches: Int): Unit = {
       archiveAndMaterializeUntilTrue(() => {
         logs.forall { log =>
-          val tierPartitionState = tierTopicManager.partitionState(log.topicPartition)
+          val tierPartitionState = tierTopicManager.partitionState(log.topicIdPartition.get)
           tierPartitionState.flush()
           tierPartitionState.numSegments >= archivedBatches && tierPartitionState.committedEndOffset == tierPartitionState.endOffset
         }
@@ -313,19 +312,20 @@ class TierIntegrationTest {
     *  2. Ensure that the TierPartitionState becomes ONLINE for all topic partitions.
     *  3. Issue an archiver state transition to move from BeforeLeader => BeforeUpload.
     */
-  private def waitForImmigration(logs: Seq[AbstractLog],
+  private def waitForImmigration(logs: Seq[MergedLog],
                                  leaderEpoch: Int,
                                  tierArchiver: TierArchiver,
                                  tierTopicManager: TierTopicManager,
                                  consumerBuilder: MockConsumerBuilder): Unit = {
     // Immigrate all test logs
     logs.foreach { log =>
-      tierMetadataManager.becomeLeader(log.topicPartition, leaderEpoch)
+      val topicIdPartition = new TopicIdPartition(log.topicPartition.topic(), UUID.randomUUID, log.topicPartition.partition())
+      tierMetadataManager.becomeLeader(topicIdPartition, leaderEpoch)
     }
 
     archiveAndMaterializeUntilTrue(() => {
       logs.forall { log =>
-        Option(tierTopicManager.partitionState(log.topicPartition)).exists { tps =>
+        Option(tierTopicManager.partitionState(log.topicIdPartition.get)).exists { tps =>
           tps.status() == TierPartitionStatus.ONLINE
         }
       }
@@ -385,7 +385,7 @@ class TierIntegrationTest {
     (tierTopicManager, consumerBuilder)
   }
 
-  private def createLogs(n: Int, logConfig: LogConfig, tempDir: File, tierMetadataManager: TierMetadataManager): IndexedSeq[AbstractLog] = {
+  private def createLogs(n: Int, logConfig: LogConfig, tempDir: File, tierMetadataManager: TierMetadataManager): IndexedSeq[MergedLog] = {
     val logDirFailureChannel = new LogDirFailureChannel(n)
     (0 until n).map { i =>
       val logDir = tempDir.toPath.resolve(s"tierlogtest-$i").toFile
@@ -432,5 +432,4 @@ class TierIntegrationTest {
     filtered.flip()
     MemoryRecords.readableRecords(filtered)
   }
-
 }

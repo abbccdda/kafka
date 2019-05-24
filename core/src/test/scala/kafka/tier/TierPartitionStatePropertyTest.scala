@@ -11,7 +11,6 @@ import kafka.tier.serdes.State
 import kafka.tier.state.{FileTierPartitionState, MemoryTierPartitionState}
 import kafka.utils.ScalaCheckUtils.assertProperty
 import kafka.utils.TestUtils
-import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.test.IntegrationTest
 import org.junit.Test
 import org.junit.experimental.categories.Category
@@ -24,8 +23,10 @@ class TierPartitionStatePropertyTest {
   val brokerId = 0
   val baseDir = TestUtils.tempDir()
   val topic = UUID.randomUUID().toString
+  val topicId = UUID.randomUUID
   val partition = 0
-  val tp = new TopicPartition(topic, partition)
+  val tpid = new TopicIdPartition(topic, topicId, partition)
+  val tp = tpid.topicPartition()
   val n = 200
 
   val genObjectMetadata: Gen[TierObjectMetadata] = for {
@@ -34,12 +35,13 @@ class TierPartitionStatePropertyTest {
     endOffsetDelta <- Gen.posNum[Int]
     lastStableOffset <- Gen.posNum[Long]
     hasTierState <- Gen.oneOf(true, false)
+    hasProducerState <- Gen.oneOf(true, false)
     hasAborts <- Gen.oneOf(true, false)
     maxTimestamp <- Gen.posNum[Long]
     lastModifiedTime <- Gen.posNum[Long]
     size <- Gen.posNum[Int]
   } yield
-    new TierObjectMetadata(tp,
+    new TierObjectMetadata(tpid,
                            epoch,
                            startOffset,
                            endOffsetDelta,
@@ -47,13 +49,13 @@ class TierPartitionStatePropertyTest {
                            maxTimestamp,
                            size,
                            hasTierState,
-                           false,
+                           hasProducerState,
                            hasAborts,
                            State.AVAILABLE)
 
   val genInit: Gen[TierTopicInitLeader] = for {
     epoch <- Gen.posNum[Int]} yield
-    new TierTopicInitLeader(tp,
+    new TierTopicInitLeader(tpid,
                             epoch,
                             UUID.randomUUID(),
                             brokerId)
@@ -66,10 +68,12 @@ class TierPartitionStatePropertyTest {
     val prop = forAll(Gen.listOf(genMetadata)) {
       objectMetadatas =>
         val diskstate = new FileTierPartitionState(baseDir, tp, true)
+        diskstate.setTopicIdPartition(tpid)
         diskstate.beginCatchup()
         diskstate.onCatchUpComplete()
         try {
           val memstate = new MemoryTierPartitionState(baseDir, tp, true)
+          memstate.setTopicIdPartition(tpid)
           memstate.beginCatchup()
           memstate.onCatchUpComplete()
           for (m <- objectMetadatas) {
@@ -102,10 +106,12 @@ class TierPartitionStatePropertyTest {
   def testMetadataForOffsetProperty(): Unit = {
     val prop = forAll(genOffsetCheck) { trial =>
       val diskstate = new FileTierPartitionState(baseDir, tp, true)
+      diskstate.setTopicIdPartition(tpid)
       diskstate.beginCatchup()
       diskstate.onCatchUpComplete()
       try {
         val memstate = new MemoryTierPartitionState(baseDir, tp, true)
+        memstate.setTopicIdPartition(tpid)
         memstate.beginCatchup()
         memstate.onCatchUpComplete()
         for (m <- trial.metadatas) {

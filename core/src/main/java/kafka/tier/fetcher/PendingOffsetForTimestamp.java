@@ -142,7 +142,7 @@ public class PendingOffsetForTimestamp implements Runnable {
                                         TierSegmentReader.offsetForTimestamp(cancellationContext,
                                                 response.getInputStream(),
                                                 targetTimestamp);
-                                results.putIfAbsent(objectMetadata.topicPartition(),
+                                results.putIfAbsent(topicPartition,
                                         offsetOpt.map(offset ->
                                                 new FileRecords.FileTimestampAndOffset(targetTimestamp, offset,
                                                         tierTimestampAndOffset.leaderEpoch())));

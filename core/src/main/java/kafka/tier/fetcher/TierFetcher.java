@@ -74,21 +74,21 @@ public class TierFetcher {
             final List<TopicPartition> ignoredTopicPartitions =
                     tierFetchMetadataList.subList(1, tierFetchMetadataList.size())
                             .stream()
-                            .map(tierFetchMetadata -> tierFetchMetadata.segmentMetadata().topicPartition())
+                            .map(tierFetchMetadata -> tierFetchMetadata.topicPartition())
                             .collect(Collectors.toList());
 
             if (firstFetchMetadata == null) {
                 throw new IllegalStateException("No TierFetchMetadata supplied, cannot start fetch");
             } else if (!stopped.get()) {
-
-                logger.debug("Fetching " + firstFetchMetadata.segmentMetadata().topicPartition()
-                        + " from tiered storage");
+                logger.debug("Fetching " + firstFetchMetadata.topicPartition() + " from tiered storage");
                 final TierObjectMetadata tierObjectMetadata = firstFetchMetadata.segmentMetadata();
                 final long targetOffset = firstFetchMetadata.fetchStartOffset();
                 final int maxBytes = firstFetchMetadata.maxBytes();
                 final long maxOffset = OptionConverters.toJava(firstFetchMetadata.maxOffset()).map(v -> (Long) v).orElse(Long.MAX_VALUE);
                 final CancellationContext cancellationContext = CancellationContext.newContext();
-                final PendingFetch newFetch = new PendingFetch(cancellationContext,
+                final PendingFetch newFetch =
+                        new PendingFetch(firstFetchMetadata.topicPartition(),
+                                cancellationContext,
                         tierObjectStore, tierFetcherMetrics.bytesFetched(), tierObjectMetadata,
                         fetchCompletionCallback,
                         targetOffset, maxBytes, maxOffset,

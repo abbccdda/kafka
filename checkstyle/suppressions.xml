@@ -232,6 +232,7 @@
             files="MessageTest.java"/>
 
     <suppress checks="CyclomaticComplexity" files="MessageDataGenerator.java"/>
+    <suppress checks="BooleanExpressionComplexity" files="MessageDataGenerator.java"/>
 
     <!-- proactive support -->
     <suppress checks=".+"
@@ -282,7 +283,7 @@
 
     <!-- Tiered Storage exclusions -->
     <!-- flatbuffer generated classes -->
-    <suppress checks="[a-zA-Z0-9]*" files="(InitLeader|ObjectMetadata|UUID|State|TierPartitionStateHeader).java"/>
+    <suppress checks="[a-zA-Z0-9]*" files="(InitLeader|ObjectMetadata|UUID|State|TierPartitionStateHeader|TierKafkaKey).java"/>
 
     <!-- ce-metrics exclusions -->
     <suppress checks="NPathComplexity"

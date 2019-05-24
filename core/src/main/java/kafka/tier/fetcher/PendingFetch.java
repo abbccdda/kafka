@@ -29,6 +29,7 @@ public class PendingFetch implements Runnable {
     private final CancellationContext cancellationContext;
     private final TierObjectStore tierObjectStore;
     private final Sensor recordBytesFetched;
+    private final TopicPartition topicPartition;
     private final TierObjectMetadata tierObjectMetadata;
     private final Consumer<DelayedOperationKey> fetchCompletionCallback;
     private final long targetOffset;
@@ -39,7 +40,8 @@ public class PendingFetch implements Runnable {
     private final CompletableFuture<MemoryRecords> transferPromise;
     private Exception exception;
 
-    PendingFetch(CancellationContext cancellationContext,
+    PendingFetch(TopicPartition topicPartition,
+                 CancellationContext cancellationContext,
                  TierObjectStore tierObjectStore,
                  Sensor recordBytesFetched,
                  TierObjectMetadata tierObjectMetadata,
@@ -48,6 +50,7 @@ public class PendingFetch implements Runnable {
                  int maxBytes,
                  long maxOffset,
                  List<TopicPartition> ignoredTopicPartitions) {
+        this.topicPartition = topicPartition;
         this.cancellationContext = cancellationContext;
         this.tierObjectStore = tierObjectStore;
         this.recordBytesFetched = recordBytesFetched;
@@ -65,7 +68,7 @@ public class PendingFetch implements Runnable {
      * @return list of DelayedOperationKeys that correspond to this request.
      */
     public List<DelayedOperationKey> delayedOperationKeys() {
-        return Collections.singletonList(new TierFetchOperationKey(tierObjectMetadata.topicPartition(), requestId));
+        return Collections.singletonList(new TierFetchOperationKey(topicPartition, requestId));
     }
 
     /**
@@ -116,12 +119,11 @@ public class PendingFetch implements Runnable {
             final Records records = transferPromise.get();
             final TierFetchResult tierFetchResult = new TierFetchResult(records, exception);
             recordBytesFetched.record(records.sizeInBytes());
-            resultMap.put(tierObjectMetadata.topicPartition(), tierFetchResult);
+            resultMap.put(topicPartition, tierFetchResult);
         } catch (InterruptedException e) {
-            resultMap.put(tierObjectMetadata.topicPartition(), TierFetchResult.emptyFetchResult());
+            resultMap.put(topicPartition, TierFetchResult.emptyFetchResult());
         } catch (ExecutionException e) {
-            resultMap.put(tierObjectMetadata.topicPartition(),
-                    new TierFetchResult(MemoryRecords.EMPTY, e.getCause()));
+            resultMap.put(topicPartition, new TierFetchResult(MemoryRecords.EMPTY, e.getCause()));
         }
 
         for (TopicPartition ignoredTopicPartition : ignoredTopicPartitions) {

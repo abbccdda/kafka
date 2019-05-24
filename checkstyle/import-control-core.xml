@@ -75,6 +75,7 @@
     <allow class="kafka.server.DelayedOperationKey"/>
     <allow class="kafka.server.TierFetchOperationKey"/>
     <allow class="kafka.server.TierOffsetForTimestampOperationKey"/>
+    <allow class="kafka.tier.TopicIdPartition"/>
     <subpackage name="client">
       <allow pkg="kafka.tier" />
     </subpackage>
@@ -89,8 +90,10 @@
       <allow pkg="com.amazonaws" />
       <allow class="kafka.log.LogSegment" />
     </subpackage>
+    <subpackage name="domain">
+      <allow class="com.google.flatbuffers.FlatBufferBuilder" />
+    </subpackage>
   </subpackage>
-
 
   <subpackage name="coordinator">
     <allow class="kafka.server.MetadataCache" />

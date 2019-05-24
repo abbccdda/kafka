@@ -5,6 +5,7 @@
 package kafka.tier.state;
 
 import kafka.log.Log$;
+import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.AbstractTierMetadata;
 import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.domain.TierTopicInitLeader;
@@ -23,6 +24,7 @@ public class MemoryTierPartitionState implements TierPartitionState {
     private final ConcurrentNavigableMap<Long, TierObjectMetadata> segmentMap = new ConcurrentSkipListMap<>();
     private final AtomicInteger currentEpoch = new AtomicInteger(-1);
     private final TopicPartition topicPartition;
+    private TopicIdPartition topicIdPartition;
 
     private File dir;
     private Object segmentMapLock = new Object();
@@ -48,6 +50,19 @@ public class MemoryTierPartitionState implements TierPartitionState {
     @Override
     public File dir() {
         return dir;
+    }
+
+    public void setTopicIdPartition(TopicIdPartition topicIdPartition) {
+        if (this.topicIdPartition != null && ! this.topicIdPartition.equals(topicIdPartition))
+            throw new IllegalStateException("TierPartitionState assigned a different "
+                    + "topicIdPartition than already assigned (" + topicIdPartition
+                    + " " + this.topicIdPartition);
+
+        this.topicIdPartition = topicIdPartition;
+    }
+
+    public Optional<TopicIdPartition> topicIdPartition() {
+        return Optional.ofNullable(topicIdPartition);
     }
 
     Optional<TierObjectMetadata> lastSegmentMetadata() {

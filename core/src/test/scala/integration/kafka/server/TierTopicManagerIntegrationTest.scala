@@ -31,6 +31,7 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
   @Test
   def testTierTopicManager(): Unit = {
     val tierTopicManager = servers.last.tierTopicManager
+    val tierMetadataManager = servers.last.tierMetadataManager
 
     val properties = new Properties()
     properties.put(KafkaConfig.TierEnableProp, "true")
@@ -45,13 +46,15 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
     val topicPartition = new TopicPartition(topic1, 0)
 
     TestUtils.waitUntilTrue(() => {
-      val initialState = tierTopicManager.partitionState(topicPartition)
-      initialState.tierEpoch() == 0
+      val partitionState = tierMetadataManager.tierPartitionState(topicPartition)
+      partitionState.isPresent && partitionState.get().topicIdPartition().isPresent && partitionState.get().tierEpoch() == 0
     }, "Did not become leader for TierPartitionState.")
+
+    val topicIdPartition1 = tierMetadataManager.tierPartitionState(topicPartition).get().topicIdPartition().get()
     val metaresult1 = tierTopicManager
       .addMetadata(
         new TierObjectMetadata(
-          topicPartition,
+          topicIdPartition1,
           0,
           0L,
           1000,
@@ -66,12 +69,12 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
 
     assertEquals(AppendResult.ACCEPTED, metaresult1)
 
-    val tierPartitionState = tierTopicManager.partitionState(topicPartition)
+    val tierPartitionState = tierTopicManager.partitionState(topicIdPartition1)
     tierPartitionState.flush()
     assertEquals(1000L, tierPartitionState.committedEndOffset.get())
     val metaresult2 = tierTopicManager.addMetadata(
       new TierObjectMetadata(
-        topicPartition,
+        topicIdPartition1,
         0,
         0L,
         1000,
@@ -90,22 +93,22 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
     assertEquals(1, tierPartitionState.numSegments())
 
     val topic2 = "topic2"
-    TestUtils.createTopic(this.zkClient, topic2, 1, 1,
+    val topicPartition2 = new TopicPartition(topic2,0)
+    TestUtils.createTopic(this.zkClient, topicPartition2.topic, 1, 1,
       servers, properties)
 
-    val topicPartitionTopic2 = new TopicPartition(topic2, 0)
-        TestUtils.waitUntilTrue(() => {
-      val state = tierTopicManager.partitionState(topicPartitionTopic2)
-      state.tierEpoch() == 0
+    TestUtils.waitUntilTrue(() => {
+      val partitionState = tierMetadataManager.tierPartitionState(topicPartition2)
+      partitionState.isPresent && partitionState.get().topicIdPartition().isPresent && partitionState.get().tierEpoch() == 0
     }, "Did not become leader for TierPartitionState topic2.")
 
+    assertTrue(tierMetadataManager.tierPartitionState(topicPartition2).get().topicIdPartition().isPresent)
 
     TestUtils.waitUntilTrue(() => {
       !tierTopicManager.catchingUp()
     }, "tierTopicManager consumers catchingUp timed out", 500L)
 
-
-    val originalState = tierTopicManager.partitionState(topicPartition)
+    val originalState = tierTopicManager.partitionState(topicIdPartition1)
     // original topic1 tier partition state should only have one entry, even after catch up
     // consumer has been seeked backwards.
     assertEquals(1, originalState.numSegments())

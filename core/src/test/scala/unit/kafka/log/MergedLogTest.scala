@@ -5,6 +5,7 @@
 package kafka.log
 
 import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, TimeUnit}
+import java.util.UUID
 
 import kafka.server.{BrokerTopicStats, FetchDataInfo, LogDirFailureChannel, TierFetchDataInfo}
 import kafka.server.epoch.EpochEntry
@@ -14,6 +15,7 @@ import kafka.tier.state.FileTierPartitionStateFactory
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
 import kafka.tier.TierTimestampAndOffset
+import kafka.tier.TopicIdPartition
 import kafka.utils.{MockTime, Scheduler, TestUtils}
 import org.apache.kafka.common.record.MemoryRecords
 import org.apache.kafka.common.utils.{Time, Utils}
@@ -306,18 +308,20 @@ class MergedLogTest {
       log.roll()
     }
 
+    val topicIdPartition = new TopicIdPartition(log.topicPartition.topic(), UUID.randomUUID(), log.topicPartition.partition())
     val tierPartitionState = tierMetadataManager.tierPartitionState(log.topicPartition).get
     val epoch = 0
     val tieredSegments = log.localLogSegments.take(2)
 
     // append an init message
+    tierPartitionState.setTopicIdPartition(topicIdPartition)
     tierPartitionState.onCatchUpComplete()
-    tierPartitionState.append(new TierTopicInitLeader(log.topicPartition,
+    tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
       epoch, java.util.UUID.randomUUID(), 0))
 
     // append metadata for tiered segments
     tieredSegments.foreach { segment =>
-      val tierObjectMetadata = new TierObjectMetadata(log.topicPartition,
+      val tierObjectMetadata = new TierObjectMetadata(topicIdPartition,
         epoch,
         segment.baseOffset,
         (segment.readNextOffset - segment.baseOffset - 1).toInt,
@@ -366,18 +370,20 @@ class MergedLogTest {
       log.roll()
     }
 
+    val topicIdPartition = new TopicIdPartition(log.topicPartition.topic(), UUID.randomUUID(), log.topicPartition.partition())
     val tierPartitionState = tierMetadataManager.tierPartitionState(log.topicPartition).get
     val epoch = 0
     val tieredSegments = log.localLogSegments.take(2)
 
     // append an init message
+    tierPartitionState.setTopicIdPartition(topicIdPartition)
     tierPartitionState.onCatchUpComplete()
-    tierPartitionState.append(new TierTopicInitLeader(log.topicPartition,
+    tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
       epoch, java.util.UUID.randomUUID(), 0))
 
     // append metadata for tiered segments
     tieredSegments.foreach { segment =>
-      val tierObjectMetadata = new TierObjectMetadata(log.topicPartition,
+      val tierObjectMetadata = new TierObjectMetadata(topicIdPartition,
         epoch,
         segment.baseOffset,
         (segment.readNextOffset - segment.baseOffset - 1).toInt,
@@ -439,6 +445,8 @@ class MergedLogTest {
   private def createLogWithOverlap(numTieredSegments: Int, numLocalSegments: Int, numOverlap: Int, logConfig: LogConfig): MergedLog = {
     var log = createMergedLog(logConfig)
     var tierPartitionState = tierMetadataManager.tierPartitionState(log.topicPartition).get
+    val topicIdPartition = new TopicIdPartition(log.topicPartition.topic(), UUID.randomUUID(), log.topicPartition.partition())
+    tierPartitionState.setTopicIdPartition(topicIdPartition)
     tierPartitionState.onCatchUpComplete()
 
     val epoch = 0
@@ -453,7 +461,7 @@ class MergedLogTest {
     assertEquals(numTieredSegments + numLocalSegments, log.localLogSegments.size)
 
     // append an init message
-    tierPartitionState.append(new TierTopicInitLeader(log.topicPartition,
+    tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
       epoch,
       java.util.UUID.randomUUID(),
       0))
@@ -461,7 +469,7 @@ class MergedLogTest {
     // initialize metadata for tiered segments
     val segmentsToTier = log.localLogSegments.take(numTieredSegments)
     segmentsToTier.foreach { segment =>
-      val tierObjectMetadata = new TierObjectMetadata(log.topicPartition,
+      val tierObjectMetadata = new TierObjectMetadata(topicIdPartition,
         epoch,
         segment.baseOffset,
         (segment.readNextOffset - segment.baseOffset - 1).toInt,

@@ -17,11 +17,11 @@
 
 package org.apache.kafka.jmh.tier;
 
+import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.domain.TierTopicInitLeader;
 import kafka.tier.state.FileTierPartitionStateFactory;
 import kafka.tier.state.TierPartitionState;
-import org.apache.kafka.common.TopicPartition;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -46,15 +46,15 @@ public class StateWriteBenchmark {
     private static final int COUNT = 10000;
     private static final String BASE_DIR = System.getProperty("java.io.tmpdir");
     private static final int EPOCH = 0;
-    private static final TopicPartition TOPIC_PARTITION = new TopicPartition("mytopic", 0);
+    private static final TopicIdPartition TOPIC_TOPICID_PARTITION = new TopicIdPartition("mytopic", UUID.randomUUID(), 0);
 
     private void writeState(TierPartitionState state) throws IOException {
         state.beginCatchup();
-        state.append(new TierTopicInitLeader(TOPIC_PARTITION, EPOCH,
+        state.setTopicIdPartition(TOPIC_TOPICID_PARTITION);
+        state.append(new TierTopicInitLeader(TOPIC_TOPICID_PARTITION, EPOCH,
                 UUID.randomUUID(), 0));
         for (int i = 0; i < COUNT; i++) {
-            state.append(new TierObjectMetadata(TOPIC_PARTITION, EPOCH,
-                    i * 2, 1, i, i, i, false, false, false, (byte) 0));
+            state.append(new TierObjectMetadata(TOPIC_TOPICID_PARTITION, EPOCH, i * 2, 1, i, i, i, false, false, false, (byte) 0));
         }
         state.flush();
     }
@@ -63,7 +63,8 @@ public class StateWriteBenchmark {
     @OutputTimeUnit(TimeUnit.MILLISECONDS)
     public void appendReadByteBufferBench() throws Exception {
         FileTierPartitionStateFactory factory = new FileTierPartitionStateFactory();
-        TierPartitionState state = factory.initState(new File(BASE_DIR), TOPIC_PARTITION, true);
+        TierPartitionState state = factory.initState(new File(BASE_DIR), TOPIC_TOPICID_PARTITION.topicPartition(),
+                true);
         try {
             writeState(state);
         } finally {

@@ -162,7 +162,7 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
     )
 
     // create a topic assignment
-    zkClient.createTopicAssignment(topic1, assignment)
+    zkClient.createTopicAssignment(topic1, None, assignment)
 
     assertTrue(zkClient.topicExists(topic1))
 
@@ -179,7 +179,7 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
 
     val updatedAssignment = assignment - new TopicPartition(topic1, 2)
 
-    zkClient.setTopicAssignment(topic1, updatedAssignment)
+    zkClient.setTopicAssignment(topic1, None, updatedAssignment)
     assertEquals(updatedAssignment.size, zkClient.getTopicPartitionCount(topic1).get)
 
     // add second topic
@@ -188,7 +188,7 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
       new TopicPartition(topic2, 1) -> Seq(0, 1)
     )
 
-    zkClient.createTopicAssignment(topic2, secondAssignment)
+    zkClient.createTopicAssignment(topic2, None, secondAssignment)
 
     assertEquals(Set(topic1, topic2), zkClient.getAllTopicsInCluster.toSet)
   }

@@ -11,7 +11,6 @@ import kafka.tier.domain.{TierObjectMetadata, TierTopicInitLeader}
 import kafka.tier.serdes.State
 import kafka.tier.state.FileTierPartitionState
 import kafka.utils.TestUtils
-import org.apache.kafka.common.TopicPartition
 import org.junit.Assert._
 import org.junit.Test
 
@@ -74,12 +73,15 @@ class TierPartitionStateConcurrencyTest {
     val baseDir = TestUtils.tempDir
     val topic = UUID.randomUUID().toString
     val partition = 0
-    val tp = new TopicPartition(topic, partition)
+    val topicId = UUID.randomUUID()
+    val tpid = new TopicIdPartition(topic, topicId, partition)
+    val tp = tpid.topicPartition()
     val runLengthMs = 500
     val nThreads = 8
     val epoch = 0
 
     val state = new FileTierPartitionState(baseDir, tp, true)
+    state.setTopicIdPartition(tpid)
     state.beginCatchup()
     state.onCatchUpComplete()
     val startTime = System.currentTimeMillis()
@@ -99,7 +101,7 @@ class TierPartitionStateConcurrencyTest {
 
     try {
       state.append(
-        new TierTopicInitLeader(tp,
+        new TierTopicInitLeader(tpid,
           epoch,
           java.util.UUID.randomUUID(),
           0))
@@ -107,7 +109,7 @@ class TierPartitionStateConcurrencyTest {
       var i = 0
       while (System.currentTimeMillis() < startTime + runLengthMs) {
         state.append(
-          new TierObjectMetadata(tp,
+          new TierObjectMetadata(tpid,
             epoch,
             i * 2,
             1,
@@ -136,5 +138,4 @@ class TierPartitionStateConcurrencyTest {
       state.delete()
     }
   }
-
 }

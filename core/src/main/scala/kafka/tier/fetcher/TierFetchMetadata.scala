@@ -5,8 +5,10 @@
 package kafka.tier.fetcher
 
 import kafka.tier.domain.TierObjectMetadata
+import org.apache.kafka.common.TopicPartition
 
-case class TierFetchMetadata(val fetchStartOffset: Long,
+case class TierFetchMetadata(val topicPartition: TopicPartition,
+                             val fetchStartOffset: Long,
                              val maxOffset: Option[Long],
                              val maxBytes: Integer,
                              val maxPosition: Long,

@@ -7,6 +7,7 @@ package kafka.tier.state;
 import com.google.flatbuffers.FlatBufferBuilder;
 import kafka.log.Log;
 import kafka.log.Log$;
+import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.AbstractTierMetadata;
 import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.domain.TierTopicInitLeader;
@@ -32,6 +33,7 @@ import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -61,6 +63,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     // etc. If the state is re-read, no guarantees are made about the existence of particular segments, their positions
     // in the file relative to the old file, etc.
     private volatile State state;
+    private volatile TopicIdPartition topicIdPartition;
     private volatile boolean tieringEnabled;
     private volatile ReplicationMaterializationListener materializationTracker;
     private volatile TierPartitionStatus status = TierPartitionStatus.CLOSED;
@@ -82,6 +85,20 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     @Override
     public TopicPartition topicPartition() {
         return topicPartition;
+    }
+
+    public Optional<TopicIdPartition> topicIdPartition() {
+        return Optional.ofNullable(topicIdPartition);
+    }
+
+    public void setTopicIdPartition(TopicIdPartition topicIdPartition) throws IOException {
+        if (this.topicIdPartition != null && ! this.topicIdPartition.equals(topicIdPartition))
+            throw new IllegalStateException("TierPartitionState assigned a different "
+                    + "topicIdPartition than already assigned (" + topicIdPartition
+                    + " " + this.topicIdPartition);
+
+        this.topicIdPartition = topicIdPartition;
+        maybeOpenChannel();
     }
 
     @Override
@@ -127,7 +144,9 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         Map.Entry<Long, SegmentState> firstEntry = currentState.segments.firstEntry();
 
         if (firstEntry != null) {
-            FileTierPartitionIterator iterator = iterator(topicPartition, currentState.channel, firstEntry.getValue().position);
+            FileTierPartitionIterator iterator = iterator(topicIdPartition().get(),
+                    currentState.channel,
+                    firstEntry.getValue().position);
             while (iterator.hasNext()) {
                 TierObjectMetadata metadata = iterator.next();
                 size += metadata.size();
@@ -145,7 +164,11 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 state.channel.force(true);
 
                 // update the header and flush it
-                writeHeader(state.channel, new Header(version, state.currentEpoch, status));
+                writeHeader(state.channel, new Header(
+                        topicIdPartition.topicId(),
+                        version,
+                        state.currentEpoch,
+                        status));
                 state.channel.force(true);
 
                 state.committedEndOffset = state.endOffset;
@@ -311,17 +334,20 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         State currentState = state;
         Map.Entry<Long, SegmentState> entry = currentState.segments.floorEntry(targetOffset);
         if (entry != null)
-            return read(topicPartition, currentState, entry.getValue().position);
+            return read(topicIdPartition, currentState, entry.getValue().position);
         else
             return Optional.empty();
     }
 
     public static Optional<FileTierPartitionIterator> iterator(TopicPartition topicPartition,
-                                                                FileChannel channel) throws IOException {
+                                                               FileChannel channel) throws IOException {
         Optional<Header> headerOpt = readHeader(channel);
         if (!headerOpt.isPresent())
             return Optional.empty();
-        return Optional.of(iterator(topicPartition, channel, headerOpt.get().size()));
+        return Optional.of(iterator(new TopicIdPartition(topicPartition.topic(),
+                        headerOpt.get().topicId(),
+                        topicPartition.partition()), channel,
+                headerOpt.get().size()));
     }
 
     // visible for testing
@@ -329,10 +355,10 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return version;
     }
 
-    private static FileTierPartitionIterator iterator(TopicPartition topicPartition,
+    private static FileTierPartitionIterator iterator(TopicIdPartition topicIdPartition,
                                                       FileChannel channel,
                                                       long position) throws IOException {
-        return new FileTierPartitionIterator(topicPartition, channel, position);
+        return new FileTierPartitionIterator(topicIdPartition, channel, position);
     }
 
     private void setStatus(TierPartitionStatus status) {
@@ -341,16 +367,27 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     private void maybeOpenChannel() throws IOException {
-        if (tieringEnabled && !status.isOpen())
-            scanAndInitialize();
+        if (tieringEnabled && !status.isOpen()) {
+            FileChannel channel = getChannelMaybeReinitialize(topicPartition,
+                    topicIdPartition,
+                    path, version);
+
+            if (channel == null) {
+                status = TierPartitionStatus.CLOSED;
+                return;
+            }
+            scanAndInitialize(channel);
+        }
     }
 
-    private static Optional<TierObjectMetadata> read(TopicPartition topicPartition, State state, long position) throws IOException {
+    private static Optional<TierObjectMetadata> read(TopicIdPartition topicIdPartition,
+                                                     State state,
+                                                     long position) throws IOException {
         if (!state.segments.isEmpty()) {
-            FileTierPartitionIterator iterator = iterator(topicPartition, state.channel, position);
+            FileTierPartitionIterator iterator = iterator(topicIdPartition, state.channel, position);
             // The entry at `position` must be known to be fully written to the underlying file
             if (!iterator.hasNext())
-                throw new IllegalStateException("Could not read entry at " + position + " for " + "partition " + topicPartition);
+                throw new IllegalStateException("Could not read entry at " + position + " for " + "partition " + topicIdPartition);
 
             return Optional.of(iterator.next());
         }
@@ -426,27 +463,42 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             position += src.transferTo(position, srcSize - position, dest);
     }
 
-    private static FileChannel getChannelMaybeReinitialize(TopicPartition topicPartition, String path, byte version) throws IOException {
+    private static FileChannel getChannelMaybeReinitialize(TopicPartition topicPartition,
+                                                           TopicIdPartition topicIdPartition,
+                                                           String path,
+                                                           byte version) throws IOException {
         FileChannel channel = FileChannel.open(Paths.get(path), StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
-
         try {
             Optional<Header> initialHeaderOpt = readHeader(channel);
-
             if (!initialHeaderOpt.isPresent()) {
-                log.info("Writing new header to tier partition state for {}", topicPartition);
-                channel.truncate(0);
-                writeHeader(channel, new Header(version, -1, TierPartitionStatus.INIT));
+                if (topicIdPartition != null) {
+                    log.info("Writing new header to tier partition state for {}", topicIdPartition);
+                    channel.truncate(0);
+                    writeHeader(channel, new Header(topicIdPartition.topicId(),
+                            version, -1,
+                            TierPartitionStatus.INIT));
+                } else {
+                    channel.close();
+                    return null;
+                }
             } else if (initialHeaderOpt.get().header.version() != version) {
                 Header initialHeader = initialHeaderOpt.get();
                 Path tierFilePath = Paths.get(path);
                 Path tmpFilePath = Paths.get(path + ".tmp");
 
+                topicIdPartition = new TopicIdPartition(topicPartition.topic(),
+                        initialHeader.topicId(),
+                        topicPartition.partition());
+
                 try (FileChannel tmpChannel = FileChannel.open(tmpFilePath, StandardOpenOption.CREATE,
                         StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.READ,
                         StandardOpenOption.WRITE)) {
                     log.info("Rewriting tier partition state with version {} to {} for {}",
-                            initialHeader.header.version(), version, topicPartition);
-                    Header newHeader = new Header(version, initialHeader.tierEpoch(), initialHeader.status());
+                            initialHeader.header.version(), version, topicIdPartition);
+                    Header newHeader = new Header(topicIdPartition.topicId(),
+                            version,
+                            initialHeader.tierEpoch(),
+                            initialHeader.status());
                     writeHeader(tmpChannel, newHeader);
                     tmpChannel.position(newHeader.size());
                     channel.position(initialHeader.size());
@@ -480,16 +532,22 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return Optional.of(new Header(TierPartitionStateHeader.getRootAsTierPartitionStateHeader(headerBuf)));
     }
 
-    private void scanAndInitialize() throws IOException {
+    private void scanAndInitialize(FileChannel channel) throws IOException {
         log.debug("scan and truncate TierPartitionState {}", topicPartition);
 
-        FileChannel channel = getChannelMaybeReinitialize(topicPartition, path, version);
         state = new State(channel);
 
         Header header = readHeader(channel).get();
+
+        topicIdPartition = new TopicIdPartition(topicPartition.topic(),
+                header.topicId(),
+                topicPartition.partition());
+
         long currentPosition = header.size();
 
-        FileTierPartitionIterator iterator = iterator(topicPartition, channel, currentPosition);
+        FileTierPartitionIterator iterator = iterator(topicIdPartition,
+                channel,
+                currentPosition);
         while (iterator.hasNext()) {
             TierObjectMetadata metadata = iterator.next();
             log.debug("{}: scan reloaded metadata {}", topicPartition, metadata);
@@ -540,12 +598,17 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             this.header = header;
         }
 
-        Header(byte version, int tierEpoch, TierPartitionStatus status) {
+        Header(UUID topicId, byte version, int tierEpoch,
+               TierPartitionStatus status) {
             if (tierEpoch < -1)
                 throw new IllegalArgumentException("Illegal tierEpoch " + tierEpoch);
 
             final FlatBufferBuilder builder = new FlatBufferBuilder(100).forceDefaults(true);
             TierPartitionStateHeader.startTierPartitionStateHeader(builder);
+            int topicIdOffset = kafka.tier.serdes.UUID.createUUID(builder,
+                    topicId.getMostSignificantBits(),
+                    topicId.getLeastSignificantBits());
+            TierPartitionStateHeader.addTopicId(builder, topicIdOffset);
             TierPartitionStateHeader.addTierEpoch(builder, tierEpoch);
             TierPartitionStateHeader.addVersion(builder, version);
             TierPartitionStateHeader.addStatus(builder, TierPartitionStatus.toByte(status));
@@ -560,6 +623,11 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
         int tierEpoch() {
             return header.tierEpoch();
+        }
+
+        UUID topicId() {
+            return new UUID(header.topicId().mostSignificantBits(),
+                    header.topicId().leastSignificantBits());
         }
 
         TierPartitionStatus status() {

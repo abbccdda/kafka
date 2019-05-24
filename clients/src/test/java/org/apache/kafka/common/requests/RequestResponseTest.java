@@ -115,6 +115,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 import static java.util.Arrays.asList;
 import static java.util.Collections.singletonList;
@@ -207,6 +208,8 @@ public class RequestResponseTest {
         checkResponse(createStopReplicaResponse(), 0, true);
         checkRequest(createLeaderAndIsrRequest(0), true);
         checkErrorResponse(createLeaderAndIsrRequest(0), new UnknownServerException(), false);
+        checkRequest(createConfluentLeaderAndIsrRequest(0), true);
+        checkErrorResponse(createConfluentLeaderAndIsrRequest(0), new UnknownServerException(), false);
         checkRequest(createLeaderAndIsrRequest(1), true);
         checkErrorResponse(createLeaderAndIsrRequest(1), new UnknownServerException(), false);
         checkResponse(createLeaderAndIsrResponse(), 0, true);
@@ -1097,6 +1100,28 @@ public class RequestResponseTest {
                 new Node(1, "test1", 1223)
         );
         return new LeaderAndIsrRequest.Builder((short) version, 1, 10, 0, partitionStates, leaders).build();
+    }
+
+    private ConfluentLeaderAndIsrRequest createConfluentLeaderAndIsrRequest(int version) {
+        Map<TopicPartition, LeaderAndIsrRequest.PartitionState> partitionStates = new HashMap<>();
+        List<Integer> isr = asList(1, 2);
+        List<Integer> replicas = asList(1, 2, 3, 4);
+        partitionStates.put(new TopicPartition("topic5", 105),
+                new LeaderAndIsrRequest.PartitionState(0, 2, 1, new ArrayList<>(isr), 2, replicas, false));
+        partitionStates.put(new TopicPartition("topic5", 1),
+                new LeaderAndIsrRequest.PartitionState(1, 1, 1, new ArrayList<>(isr), 2, replicas, false));
+        partitionStates.put(new TopicPartition("topic20", 1),
+                new LeaderAndIsrRequest.PartitionState(1, 0, 1, new ArrayList<>(isr), 2, replicas, false));
+        Map<String, UUID> topicIds = new HashMap<>();
+        topicIds.put("topic5", UUID.fromString("67e78a6b-8fe5-400e-aeaa-fa30dbff94b5"));
+        topicIds.put("topic20", UUID.fromString("639436c0-ce48-4138-9420-aca1b323f2e3"));
+
+        Set<Node> leaders = Utils.mkSet(
+                new Node(0, "test0", 1223),
+                new Node(1, "test1", 1223)
+        );
+        return new ConfluentLeaderAndIsrRequest.Builder((short) version, 1, 10, 0,
+                topicIds, partitionStates, leaders).build();
     }
 
     private LeaderAndIsrResponse createLeaderAndIsrResponse() {

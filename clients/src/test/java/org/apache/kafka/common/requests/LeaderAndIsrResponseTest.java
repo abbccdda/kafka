@@ -25,6 +25,7 @@ import org.junit.Test;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -77,4 +78,59 @@ public class LeaderAndIsrResponseTest {
         assertTrue(responseStr.contains(Errors.NONE.name()));
     }
 
+    /**
+     * Begin ConfluentLeaderAndIsr[Request,Response] tests. These duplicate the tests above and
+     * can be removed once we have added topic ID support in AK, and we can drop
+     * ConfluentLeaderAndIsr[Request,Response] from our code.
+     */
+
+    @Test
+    public void testConfluentErrorCountsFromGetErrorResponse() {
+        HashMap<TopicPartition, LeaderAndIsrRequest.PartitionState> partitionStates = new HashMap<>();
+        partitionStates.put(new TopicPartition("foo", 0), new LeaderAndIsrRequest.PartitionState(15, 1, 10,
+                Collections.singletonList(10), 20, Collections.singletonList(10), false));
+        partitionStates.put(new TopicPartition("foo", 1), new LeaderAndIsrRequest.PartitionState(15, 1, 10,
+                Collections.singletonList(10), 20, Collections.singletonList(10), false));
+        HashMap<String, UUID> topicIds = new HashMap<>();
+        topicIds.put("foo", UUID.fromString("58464c3a-6542-4af5-80f7-30ec69525132"));
+        ConfluentLeaderAndIsrRequest request =
+                new ConfluentLeaderAndIsrRequest.Builder(ApiKeys.CONFLUENT_LEADER_AND_ISR.latestVersion(),
+                15, 20, 0, topicIds, partitionStates, Collections.<Node>emptySet()).build();
+        ConfluentLeaderAndIsrResponse response = request.getErrorResponse(0,
+                Errors.CLUSTER_AUTHORIZATION_FAILED.exception());
+        assertEquals(Collections.singletonMap(Errors.CLUSTER_AUTHORIZATION_FAILED, 2), response.errorCounts());
+    }
+
+    @Test
+    public void testConfluentErrorCountsWithTopLevelError() {
+        Map<TopicPartition, Errors> errors = new HashMap<>();
+        errors.put(new TopicPartition("foo", 0), Errors.NONE);
+        errors.put(new TopicPartition("foo", 1), Errors.NOT_LEADER_FOR_PARTITION);
+        ConfluentLeaderAndIsrResponse response = new ConfluentLeaderAndIsrResponse(Errors.UNKNOWN_SERVER_ERROR, errors);
+        assertEquals(Collections.singletonMap(Errors.UNKNOWN_SERVER_ERROR, 2), response.errorCounts());
+    }
+
+    @Test
+    public void testConfluentErrorCountsNoTopLevelError() {
+        Map<TopicPartition, Errors> errors = new HashMap<>();
+        errors.put(new TopicPartition("foo", 0), Errors.NONE);
+        errors.put(new TopicPartition("foo", 1), Errors.CLUSTER_AUTHORIZATION_FAILED);
+        ConfluentLeaderAndIsrResponse response = new ConfluentLeaderAndIsrResponse(Errors.NONE, errors);
+        Map<Errors, Integer> errorCounts = response.errorCounts();
+        assertEquals(2, errorCounts.size());
+        assertEquals(1, errorCounts.get(Errors.NONE).intValue());
+        assertEquals(1, errorCounts.get(Errors.CLUSTER_AUTHORIZATION_FAILED).intValue());
+    }
+
+    @Test
+    public void testConfluentToString() {
+        Map<TopicPartition, Errors> errors = new HashMap<>();
+        errors.put(new TopicPartition("foo", 0), Errors.NONE);
+        errors.put(new TopicPartition("foo", 1), Errors.CLUSTER_AUTHORIZATION_FAILED);
+        ConfluentLeaderAndIsrResponse response = new ConfluentLeaderAndIsrResponse(Errors.NONE, errors);
+        String responseStr = response.toString();
+        assertTrue(responseStr.contains(ConfluentLeaderAndIsrResponse.class.getSimpleName()));
+        assertTrue(responseStr.contains(errors.toString()));
+        assertTrue(responseStr.contains(Errors.NONE.name()));
+    }
 }

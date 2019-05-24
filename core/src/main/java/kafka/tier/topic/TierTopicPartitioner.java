@@ -4,10 +4,10 @@
 
 package kafka.tier.topic;
 
-import org.apache.kafka.common.TopicPartition;
+import kafka.tier.TopicIdPartition;
 import org.apache.kafka.common.utils.Utils;
 
-import java.nio.charset.StandardCharsets;
+import java.nio.ByteBuffer;
 
 public class TierTopicPartitioner {
     private int numPartitions;
@@ -17,14 +17,16 @@ public class TierTopicPartitioner {
     }
 
     /**
-     * Determine the Tier Topic partitionId that should contain metadata for a given tiered
-     * TopicPartition
-     * @param topicPartition tiered topic partition
-     * @return partitionId
+     * Determine the Tier Topic partition that should contain metadata for a given tiered
+     * TopicIdPartition
+     * @param topicIdPartition tiered topic id partition
+     * @return partition
      */
-    public int partitionId(TopicPartition topicPartition) {
-        byte[] bytes = String.format("%s_%s", topicPartition.topic(), topicPartition.partition())
-                .getBytes(StandardCharsets.UTF_8);
-        return Utils.toPositive(Utils.murmur2(bytes)) % numPartitions;
+    public int partitionId(TopicIdPartition topicIdPartition) {
+        ByteBuffer buffer = ByteBuffer.allocate(16 + 4); // UUID + Long
+        buffer.putLong(topicIdPartition.topicId().getMostSignificantBits());
+        buffer.putLong(topicIdPartition.topicId().getLeastSignificantBits());
+        buffer.putInt(topicIdPartition.partition());
+        return Utils.toPositive(Utils.murmur2(buffer.array())) % numPartitions;
     }
 }

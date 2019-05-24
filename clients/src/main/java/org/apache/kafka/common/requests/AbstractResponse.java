@@ -162,6 +162,8 @@ public abstract class AbstractResponse extends AbstractRequestResponse {
                 return new IncrementalAlterConfigsResponse(struct, version);
             case TIER_LIST_OFFSET:
                 return new TierListOffsetResponse(struct, version);
+            case CONFLUENT_LEADER_AND_ISR:
+                return new ConfluentLeaderAndIsrResponse(struct);
             default:
                 throw new AssertionError(String.format("ApiKey %s is not currently handled in `parseResponse`, the " +
                         "code should be updated to do so.", apiKey));

@@ -75,11 +75,10 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
     }
 
     private String keyPath(TierObjectMetadata objectMetadata, TierObjectStoreFileType fileType) {
-        return String.format("%s/topic=%s/partition=%d/%s/%020d_%d.%s",
-                config.s3bucket,
-                objectMetadata.topicPartition().topic(),
-                objectMetadata.topicPartition().partition(),
+        return String.format("%s/%s/%d/%020d_%d.%s",
                 objectMetadata.messageId(),
+                objectMetadata.topicIdPartition().topicId(),
+                objectMetadata.topicIdPartition().partition(),
                 objectMetadata.startOffset(),
                 objectMetadata.tierEpoch(),
                 fileType.getSuffix());

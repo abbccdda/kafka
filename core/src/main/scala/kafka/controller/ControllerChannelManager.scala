@@ -268,7 +268,7 @@ class RequestSendThread(val controllerId: Int,
       if (clientResponse != null) {
         val requestHeader = clientResponse.requestHeader
         val api = requestHeader.apiKey
-        if (api != ApiKeys.LEADER_AND_ISR && api != ApiKeys.STOP_REPLICA && api != ApiKeys.UPDATE_METADATA)
+        if (api != ApiKeys.LEADER_AND_ISR && api != ApiKeys.CONFLUENT_LEADER_AND_ISR && api != ApiKeys.STOP_REPLICA && api != ApiKeys.UPDATE_METADATA)
           throw new KafkaException(s"Unexpected apiKey received: $apiKey")
 
         val response = clientResponse.responseBody
@@ -378,7 +378,6 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
                                        leaderIsrAndControllerEpoch: LeaderIsrAndControllerEpoch,
                                        replicas: Seq[Int],
                                        isNew: Boolean): Unit = {
-
     brokerIds.filter(_ >= 0).foreach { brokerId =>
       val result = leaderAndIsrRequestMap.getOrElseUpdate(brokerId, mutable.Map.empty)
       val alreadyNew = result.get(topicPartition).exists(_.isNew)
@@ -440,11 +439,6 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
   }
 
   private def sendLeaderAndIsrRequest(controllerEpoch: Int, stateChangeLog: StateChangeLogger): Unit = {
-    val leaderAndIsrRequestVersion: Short =
-      if (config.interBrokerProtocolVersion >= KAFKA_2_2_IV0) 2
-      else if (config.interBrokerProtocolVersion >= KAFKA_1_0_IV0) 1
-      else 0
-
     leaderAndIsrRequestMap.filterKeys(controllerContext.liveOrShuttingDownBrokerIds.contains).foreach {
       case (broker, leaderAndIsrPartitionStates) =>
         leaderAndIsrPartitionStates.foreach {
@@ -459,10 +453,27 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
           _.node(config.interBrokerListenerName)
         }
         val brokerEpoch = controllerContext.liveBrokerIdAndEpochs(broker)
-        val leaderAndIsrRequestBuilder = new LeaderAndIsrRequest.Builder(leaderAndIsrRequestVersion, controllerId, controllerEpoch,
-          brokerEpoch, leaderAndIsrPartitionStates.asJava, leaders.asJava)
-        sendRequest(broker, leaderAndIsrRequestBuilder, (r: AbstractResponse) => sendEvent(LeaderAndIsrResponseReceived(r, broker)))
+        if (config.tierFeature) {
+          val topicIds = leaderAndIsrPartitionStates.keys
+            .map(_.topic)
+            .toSet
+            .map((topic: String) => (topic, controllerContext.topicIds(topic)))
+            .toMap
+          val leaderAndIsrRequestVersion: Short = 0
+          val leaderAndIsrRequestBuilder = new ConfluentLeaderAndIsrRequest.Builder(leaderAndIsrRequestVersion, controllerId, controllerEpoch,
+            brokerEpoch, topicIds.asJava, leaderAndIsrPartitionStates.asJava, leaders.asJava)
+          sendRequest(broker, leaderAndIsrRequestBuilder, (r: AbstractResponse) => sendEvent(LeaderAndIsrResponseReceived(r, broker)))
+        } else {
+          val leaderAndIsrRequestVersion: Short =
+            if (config.interBrokerProtocolVersion >= KAFKA_2_2_IV0) 2
+            else if (config.interBrokerProtocolVersion >= KAFKA_1_0_IV0) 1
+            else 0
 
+          val leaderAndIsrRequestBuilder =
+            new LeaderAndIsrRequest.Builder(leaderAndIsrRequestVersion, controllerId, controllerEpoch,
+              brokerEpoch, leaderAndIsrPartitionStates.asJava, leaders.asJava)
+          sendRequest(broker, leaderAndIsrRequestBuilder, (r: AbstractResponse) => sendEvent(LeaderAndIsrResponseReceived(r, broker)))
+        }
     }
     leaderAndIsrRequestMap.clear()
   }

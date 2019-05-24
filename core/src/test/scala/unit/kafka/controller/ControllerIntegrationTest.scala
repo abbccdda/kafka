@@ -224,6 +224,36 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
     TestUtils.createTopic(zkClient, tp.topic, partitionReplicaAssignment = assignment, servers = servers)
     waitForPartitionState(tp, firstControllerEpoch, 0, LeaderAndIsr.initialLeaderEpoch,
       "failed to get expected partition state upon topic creation")
+
+    assertTrue(servers.head.kafkaController.controllerContext.topicIds.get(tp.topic).isEmpty)
+  }
+
+  @Test
+  def testTopicIdMigrationAndHandling(): Unit = {
+    val tp = new TopicPartition("t", 0)
+    val assignment = Map(tp.partition -> Seq(0))
+    val adminZkClient = new AdminZkClient(zkClient)
+
+    // start server with tier feature = true
+    servers = makeServers(1, tierFeature = true)
+    // use create topic with ZK client directly, without topic ID
+    adminZkClient.createTopic(tp.topic, 1, 1, createTopicId = false)
+    waitForPartitionState(tp, firstControllerEpoch, 0, LeaderAndIsr.initialLeaderEpoch,
+      "failed to get expected partition state upon topic creation")
+    val topicIdAfterCreate = zkClient.getTopicIdsForTopics(Set(tp.topic())).get(tp.topic())
+    assertTrue(topicIdAfterCreate.isDefined)
+    assertEquals("correct topic ID cannot be found in the controller context",
+      topicIdAfterCreate, servers.head.kafkaController.controllerContext.topicIds.get(tp.topic))
+
+    adminZkClient.addPartitions(tp.topic, assignment, adminZkClient.getBrokerMetadatas(), 2)
+    val topicIdAfterAddition = zkClient.getTopicIdsForTopics(Set(tp.topic())).get(tp.topic())
+    assertEquals(topicIdAfterCreate, topicIdAfterAddition)
+    assertEquals("topic ID changed after partition additions",
+      topicIdAfterCreate, servers.head.kafkaController.controllerContext.topicIds.get(tp.topic))
+
+    adminZkClient.deleteTopic(tp.topic)
+    TestUtils.waitUntilTrue(() => servers.head.kafkaController.controllerContext.topicIds.get(tp.topic).isEmpty,
+      "topic ID for topic should have been removed from controller context after deletion")
   }
 
   @Test
@@ -248,7 +278,7 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
     val assignment = Map(tp0.partition -> Seq(0))
     val expandedAssignment = Map(tp0 -> Seq(0), tp1 -> Seq(0))
     TestUtils.createTopic(zkClient, tp0.topic, partitionReplicaAssignment = assignment, servers = servers)
-    zkClient.setTopicAssignment(tp0.topic, expandedAssignment, firstControllerEpochZkVersion)
+    zkClient.setTopicAssignment(tp0.topic, None, expandedAssignment, firstControllerEpochZkVersion)
     waitForPartitionState(tp1, firstControllerEpoch, 0, LeaderAndIsr.initialLeaderEpoch,
       "failed to get expected partition state upon topic partition expansion")
     TestUtils.waitUntilMetadataIsPropagated(servers, tp1.topic, tp1.partition)
@@ -266,7 +296,7 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
     TestUtils.createTopic(zkClient, tp0.topic, partitionReplicaAssignment = assignment, servers = servers)
     servers(otherBrokerId).shutdown()
     servers(otherBrokerId).awaitShutdown()
-    zkClient.setTopicAssignment(tp0.topic, expandedAssignment, firstControllerEpochZkVersion)
+    zkClient.setTopicAssignment(tp0.topic, None, expandedAssignment, firstControllerEpochZkVersion)
     waitForPartitionState(tp1, firstControllerEpoch, controllerId, LeaderAndIsr.initialLeaderEpoch,
       "failed to get expected partition state upon topic partition expansion")
     TestUtils.waitUntilMetadataIsPropagated(Seq(servers(controllerId)), tp1.topic, tp1.partition)
@@ -677,11 +707,16 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
                           autoLeaderRebalanceEnable: Boolean = false,
                           uncleanLeaderElectionEnable: Boolean = false,
                           enableControlledShutdown: Boolean = true,
+                          tierFeature: Boolean = false,
                           listeners : Option[String] = None,
                           listenerSecurityProtocolMap : Option[String] = None,
                           controlPlaneListenerName : Option[String] = None) = {
     val configs = TestUtils.createBrokerConfigs(numConfigs, zkConnect, enableControlledShutdown = enableControlledShutdown)
     configs.foreach { config =>
+      if (tierFeature) {
+        config.setProperty(KafkaConfig.TierFeatureProp, tierFeature.toString)
+        config.setProperty(KafkaConfig.TierBackendProp, "mock")
+      }
       config.setProperty(KafkaConfig.AutoLeaderRebalanceEnableProp, autoLeaderRebalanceEnable.toString)
       config.setProperty(KafkaConfig.UncleanLeaderElectionEnableProp, uncleanLeaderElectionEnable.toString)
       config.setProperty(KafkaConfig.LeaderImbalanceCheckIntervalSecondsProp, "1")

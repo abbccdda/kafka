@@ -50,11 +50,16 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
     super.setUp()
   }
 
-  def startBrokers(brokerIds: Seq[Int]) {
+  def startBrokers(brokerIds: Seq[Int], tierFeature: Boolean = false) {
     servers = brokerIds.map { i =>
-      val props = createBrokerConfig(i, zkConnect, enableControlledShutdown = false, logDirCount = 3)
+      val logDirCount = if (tierFeature) 1 else 3
+      val props = createBrokerConfig(i, zkConnect, enableControlledShutdown = false, logDirCount = logDirCount)
       // shorter backoff to reduce test durations when no active partitions are eligible for fetching due to throttling
       props.put(KafkaConfig.ReplicaFetchBackoffMsProp, "100")
+      if (tierFeature) {
+        props.put(KafkaConfig.TierFeatureProp, tierFeature.toString)
+        props.put(KafkaConfig.TierBackendProp, "mock")
+      }
       props
     }.map(c => createServer(KafkaConfig.fromProps(c)))
   }
@@ -127,10 +132,27 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
     waitForReassignmentToComplete()
 
     //Then the replica should be on 101
-    assertEquals(Seq(101), zkClient.getPartitionAssignmentForTopics(Set(topicName)).get(topicName).get(partition))
+    assertEquals(Seq(101), zkClient.getPartitionAssignmentForTopics(Set(topicName))(topicName)(partition))
     // The replica should be in the expected log directory on broker 101
     val replica = new TopicPartitionReplica(topicName, 0, 101)
     assertEquals(expectedLogDir, adminClient.describeReplicaLogDirs(Collections.singleton(replica)).all().get.get(replica).getCurrentReplicaLogDir)
+  }
+
+  @Test
+  def shouldRetainTopicId(): Unit = {
+    //Given a single replica on server 100
+    startBrokers(Seq(100, 101), tierFeature = true)
+    adminClient = createAdminClient(servers)
+    val partition = 0
+    createTopic(zkClient, topicName, Map(partition -> Seq(100)), servers = servers)
+    val initialTopicId = zkClient.getTopicIdsForTopics(Set(topicName)).get(topicName)
+    assertTrue(initialTopicId.isDefined)
+
+    val topicJson: String = s"""{"version":1,"partitions":[{"topic":"$topicName","partition":0,"replicas":[101]}]}"""
+    ReassignPartitionsCommand.executeAssignment(zkClient, Some(adminClient), topicJson, NoThrottle)
+    waitForReassignmentToComplete()
+
+    assertEquals(initialTopicId, zkClient.getTopicIdsForTopics(Set(topicName)).get(topicName))
   }
 
   @Test

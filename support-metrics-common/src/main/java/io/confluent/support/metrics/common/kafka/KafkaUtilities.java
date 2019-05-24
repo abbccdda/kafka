@@ -131,6 +131,7 @@ public class KafkaUtilities {
    * @param partitions  Desired number of partitions
    * @param replication Desired number of replicas
    * @param retentionMs Desired retention time in milliseconds
+   * @param withTopicId create the topic with a topic ID
    * @return True if topic was created and verified successfully. False if topic could not be
    *     created, or it is created but verification reveals that the number of replicas or
    *     partitions have dropped to unacceptable levels.
@@ -140,7 +141,8 @@ public class KafkaUtilities {
       String topic,
       int partitions,
       int replication,
-      long retentionMs
+      long retentionMs,
+      boolean withTopicId
   ) {
     Objects.requireNonNull(zkClient, "zkClient must not be null");
 
@@ -179,7 +181,8 @@ public class KafkaUtilities {
           partitions,
           actualReplication,
           metricsTopicProps,
-          Disabled$.MODULE$
+          Disabled$.MODULE$,
+          withTopicId
       );
       // wait until leader is elected for every topic partition we created
       for (int part = 0; part < partitions; ++part) {

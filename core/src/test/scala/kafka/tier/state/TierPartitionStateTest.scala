@@ -10,6 +10,7 @@ import java.io.PrintStream
 import java.nio.channels.FileChannel
 import java.nio.file.{Paths, StandardOpenOption}
 import java.nio.{ByteBuffer, ByteOrder}
+import java.util.UUID
 
 import kafka.log.Log
 import kafka.tier.domain.{TierObjectMetadata, TierTopicInitLeader}
@@ -18,6 +19,7 @@ import org.apache.kafka.common.TopicPartition
 import org.junit.Assert._
 import org.junit.{After, Before, Test}
 import kafka.tier.tools.DumpTierPartitionState
+import kafka.tier.TopicIdPartition
 import org.apache.kafka.common.utils.Utils
 
 class TierPartitionStateTest {
@@ -25,10 +27,12 @@ class TierPartitionStateTest {
   val parentDir = TestUtils.tempDir()
   val dir = TestUtils.randomPartitionLogDir(parentDir)
   val tp = Log.parseTopicPartitionName(dir)
+  val tpid = new TopicIdPartition(tp.topic, UUID.randomUUID, tp.partition)
   val state = new FileTierPartitionState(dir, tp, true)
 
   @Before
   def setup(): Unit = {
+    state.setTopicIdPartition(tpid)
     state.beginCatchup()
     state.onCatchUpComplete()
   }
@@ -42,7 +46,7 @@ class TierPartitionStateTest {
 
   @Test
   def readWriteHeaderOnly(): Unit = {
-    state.append(new TierTopicInitLeader(tp, 9, java.util.UUID.randomUUID(), 0))
+    state.append(new TierTopicInitLeader(tpid, 9, java.util.UUID.randomUUID(), 0))
     assertEquals(9, state.tierEpoch())
     state.close()
 
@@ -58,10 +62,10 @@ class TierPartitionStateTest {
     val epoch = 0
 
     val path = state.path
-    state.append(new TierTopicInitLeader(tp, epoch, java.util.UUID.randomUUID(), 0))
+    state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0))
     var size = 0
     for (i <- 0 until numSegments) {
-      state.append(new TierObjectMetadata(tp, epoch, i * 2, 1, 1, i, i, true, false, false, 0))
+      state.append(new TierObjectMetadata(tpid, epoch, i * 2, 1, 1, i, i, true, false, false, 0))
       size += i
       currentSegments += 1
     }
@@ -81,7 +85,7 @@ class TierPartitionStateTest {
 
     // append more segments after flush
     for (i <- numSegments until numSegments * 2) {
-      state.append(new TierObjectMetadata(tp, epoch, i * 2, 1, 1, i, i, true, false, false, 0))
+      state.append(new TierObjectMetadata(tpid, epoch, i * 2, 1, 1, i, i, true, false, false, 0))
       size += i
       currentSegments += 1
     }
@@ -108,15 +112,15 @@ class TierPartitionStateTest {
     val n = 200
     val epoch = 0
 
-    state.append(new TierTopicInitLeader(tp, epoch, java.util.UUID.randomUUID(), 0))
+    state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0))
     var size = 0
     for (i <- 0 until n) {
-      state.append(new TierObjectMetadata(tp, epoch, i * 2, 1, 1, i, i, true, false, false, 0))
+      state.append(new TierObjectMetadata(tpid, epoch, i * 2, 1, 1, i, i, true, false, false, 0))
       size += i
     }
 
     state.flush()
-    state.append(new TierTopicInitLeader(tp, epoch + 1, java.util.UUID.randomUUID(), 0))
+    state.append(new TierTopicInitLeader(tpid, epoch + 1, java.util.UUID.randomUUID(), 0))
     state.close()
 
     val reopenedState = factory.initState(dir, tp, true)
@@ -127,8 +131,8 @@ class TierPartitionStateTest {
 
   @Test
   def flushAvailabilityTest(): Unit = {
-    assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tp, 0, java.util.UUID.randomUUID(), 0)))
-    assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierObjectMetadata(tp, 0, 0, 100, 100, 0, 0, false, false, false, 0)))
+    assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID(), 0)))
+    assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierObjectMetadata(tpid, 0, 0, 100, 100, 0, 0, false, false, false, 0)))
 
     // committedEndOffset is unavailable before first flush
     assertEquals(100L, state.endOffset.get)
@@ -140,7 +144,7 @@ class TierPartitionStateTest {
     assertEquals(100L, state.endOffset.get)
     assertEquals(100L, state.committedEndOffset.get)
 
-    assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierObjectMetadata(tp, 0, 100, 100, 200, 0, 0, false, false, false, 0)))
+    assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierObjectMetadata(tpid, 0, 100, 100, 200, 0, 0, false, false, false, 0)))
     assertEquals(0L, state.startOffset.get)
     assertEquals(100L, state.committedEndOffset.get)
     assertEquals(200L, state.endOffset.get)
@@ -160,10 +164,10 @@ class TierPartitionStateTest {
     val epoch = 0
     val initialVersion = state.version
 
-    state.append(new TierTopicInitLeader(tp, epoch, java.util.UUID.randomUUID(), 0))
+    state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0))
     var size = 0
     for (i <- 0 until numSegments) {
-      state.append(new TierObjectMetadata(tp, epoch, i * 2, 1, 1, i, i, true, false, false, 0))
+      state.append(new TierObjectMetadata(tpid, epoch, i * 2, 1, 1, i, i, true, false, false, 0))
       size += i
     }
     state.flush()

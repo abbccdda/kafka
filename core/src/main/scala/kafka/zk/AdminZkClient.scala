@@ -17,6 +17,7 @@
 package kafka.zk
 
 import java.util.Properties
+import java.util.UUID
 
 import kafka.admin.{AdminOperationException, AdminUtils, BrokerMetadata, RackAwareMode}
 import kafka.common.TopicAlreadyMarkedForDeletionException
@@ -50,10 +51,11 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
                   partitions: Int,
                   replicationFactor: Int,
                   topicConfig: Properties = new Properties,
-                  rackAwareMode: RackAwareMode = RackAwareMode.Enforced) {
+                  rackAwareMode: RackAwareMode = RackAwareMode.Enforced,
+                  createTopicId: Boolean = false) {
     val brokerMetadatas = getBrokerMetadatas(rackAwareMode)
     val replicaAssignment = AdminUtils.assignReplicasToBrokers(brokerMetadatas, partitions, replicationFactor)
-    createTopicWithAssignment(topic, topicConfig, replicaAssignment)
+    createTopicWithAssignment(topic, topicConfig, replicaAssignment, createTopicId)
   }
 
   /**
@@ -82,7 +84,8 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
 
   def createTopicWithAssignment(topic: String,
                                 config: Properties,
-                                partitionReplicaAssignment: Map[Int, Seq[Int]]): Unit = {
+                                partitionReplicaAssignment: Map[Int, Seq[Int]],
+                                createTopicId: Boolean = false): Unit = {
     validateTopicCreate(topic, partitionReplicaAssignment, config)
 
     info(s"Creating topic $topic with configuration $config and initial partition " +
@@ -92,7 +95,8 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     zkClient.setOrCreateEntityConfigs(ConfigType.Topic, topic, config)
 
     // create the partition assignment
-    writeTopicPartitionAssignment(topic, partitionReplicaAssignment, isUpdate = false)
+    writeTopicPartitionAssignment(topic, partitionReplicaAssignment,
+      isUpdate = false, createTopicId = createTopicId)
   }
 
   /**
@@ -134,14 +138,21 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     LogConfig.validate(config)
   }
 
-  private def writeTopicPartitionAssignment(topic: String, replicaAssignment: Map[Int, Seq[Int]], isUpdate: Boolean) {
+  private def writeTopicPartitionAssignment(topic: String, replicaAssignment: Map[Int, Seq[Int]],
+                                            isUpdate: Boolean, createTopicId: Boolean = false) {
     try {
       val assignment = replicaAssignment.map { case (partitionId, replicas) => (new TopicPartition(topic,partitionId), replicas) }.toMap
 
       if (!isUpdate) {
-        zkClient.createTopicAssignment(topic, assignment)
+        val topicIdOpt = if (createTopicId)
+          Some(UUID.randomUUID())
+        else
+          None
+
+        zkClient.createTopicAssignment(topic, topicIdOpt, assignment)
       } else {
-        zkClient.setTopicAssignment(topic, assignment)
+        val topicIds = zkClient.getTopicIdsForTopics(Set(topic))
+        zkClient.setTopicAssignment(topic, topicIds.get(topic), assignment)
       }
       debug("Updated path %s with %s for replica assignment".format(TopicZNode.path(topic), assignment))
     } catch {

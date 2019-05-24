@@ -242,6 +242,8 @@ public abstract class AbstractRequest extends AbstractRequestResponse {
         switch (apiKey) {
             case TIER_LIST_OFFSET:
                 return new TierListOffsetRequest(struct, apiVersion);
+            case CONFLUENT_LEADER_AND_ISR:
+                return new ConfluentLeaderAndIsrRequest(struct, apiVersion);
             default:
                 throw new AssertionError(String.format("ApiKey %s is not currently handled in `parseRequest`, the " +
                         "code should be updated to do so.", apiKey));

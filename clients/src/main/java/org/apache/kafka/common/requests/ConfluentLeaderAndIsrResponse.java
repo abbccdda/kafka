@@ -34,24 +34,20 @@ import static org.apache.kafka.common.protocol.CommonFields.ERROR_CODE;
 import static org.apache.kafka.common.protocol.CommonFields.PARTITION_ID;
 import static org.apache.kafka.common.protocol.CommonFields.TOPIC_NAME;
 
-public class LeaderAndIsrResponse extends AbstractResponse implements LeaderAndIsrResponseBase {
+public class ConfluentLeaderAndIsrResponse extends AbstractResponse implements LeaderAndIsrResponseBase {
     private static final Field.ComplexArray PARTITIONS = new Field.ComplexArray("partitions", "Response for the requests partitions");
 
     private static final Field PARTITIONS_V0 = PARTITIONS.withFields(
             TOPIC_NAME,
             PARTITION_ID,
             ERROR_CODE);
+
     private static final Schema LEADER_AND_ISR_RESPONSE_V0 = new Schema(
             ERROR_CODE,
             PARTITIONS_V0);
 
-    // LeaderAndIsrResponse V1 may receive KAFKA_STORAGE_ERROR in the response
-    private static final Schema LEADER_AND_ISR_RESPONSE_V1 = LEADER_AND_ISR_RESPONSE_V0;
-
-    private static final Schema LEADER_AND_ISR_RESPONSE_V2 = LEADER_AND_ISR_RESPONSE_V1;
-
     public static Schema[] schemaVersions() {
-        return new Schema[]{LEADER_AND_ISR_RESPONSE_V0, LEADER_AND_ISR_RESPONSE_V1, LEADER_AND_ISR_RESPONSE_V2};
+        return new Schema[]{LEADER_AND_ISR_RESPONSE_V0};
     }
 
     /**
@@ -64,12 +60,12 @@ public class LeaderAndIsrResponse extends AbstractResponse implements LeaderAndI
 
     private final Map<TopicPartition, Errors> responses;
 
-    public LeaderAndIsrResponse(Errors error, Map<TopicPartition, Errors> responses) {
+    public ConfluentLeaderAndIsrResponse(Errors error, Map<TopicPartition, Errors> responses) {
         this.responses = responses;
         this.error = error;
     }
 
-    public LeaderAndIsrResponse(Struct struct) {
+    public ConfluentLeaderAndIsrResponse(Struct struct) {
         responses = new HashMap<>();
         for (Object responseDataObj : struct.get(PARTITIONS)) {
             Struct responseData = (Struct) responseDataObj;
@@ -82,12 +78,10 @@ public class LeaderAndIsrResponse extends AbstractResponse implements LeaderAndI
         error = Errors.forCode(struct.get(ERROR_CODE));
     }
 
-    @Override
     public Map<TopicPartition, Errors> responses() {
         return responses;
     }
 
-    @Override
     public Errors error() {
         return error;
     }
@@ -100,13 +94,13 @@ public class LeaderAndIsrResponse extends AbstractResponse implements LeaderAndI
         return errorCounts(responses);
     }
 
-    public static LeaderAndIsrResponse parse(ByteBuffer buffer, short version) {
-        return new LeaderAndIsrResponse(ApiKeys.LEADER_AND_ISR.parseResponse(version, buffer));
+    public static ConfluentLeaderAndIsrResponse parse(ByteBuffer buffer, short version) {
+        return new ConfluentLeaderAndIsrResponse(ApiKeys.CONFLUENT_LEADER_AND_ISR.parseResponse(version, buffer));
     }
 
     @Override
     protected Struct toStruct(short version) {
-        Struct struct = new Struct(ApiKeys.LEADER_AND_ISR.responseSchema(version));
+        Struct struct = new Struct(ApiKeys.CONFLUENT_LEADER_AND_ISR.responseSchema(version));
 
         List<Struct> responseDatas = new ArrayList<>(responses.size());
         for (Map.Entry<TopicPartition, Errors> response : responses.entrySet()) {
@@ -126,7 +120,7 @@ public class LeaderAndIsrResponse extends AbstractResponse implements LeaderAndI
 
     @Override
     public String toString() {
-        return "LeaderAndIsrResponse(" +
+        return "ConfluentLeaderAndIsrResponse(" +
                 "responses=" + responses +
                 ", error=" + error +
                 ")";

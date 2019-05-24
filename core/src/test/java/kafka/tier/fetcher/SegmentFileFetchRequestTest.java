@@ -6,6 +6,7 @@ package kafka.tier.fetcher;
 
 import kafka.log.LogConfig;
 import kafka.log.LogSegment;
+import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.serdes.State;
 import kafka.tier.store.MockInMemoryTierObjectStore;
@@ -30,6 +31,7 @@ import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.stream.IntStream;
 import java.util.stream.StreamSupport;
@@ -44,18 +46,21 @@ public class SegmentFileFetchRequestTest {
         CancellationContext ctx = CancellationContext.newContext();
         TierObjectStore tierObjectStore =
                 new MockInMemoryTierObjectStore(new TierObjectStoreConfig());
-        TopicPartition topicPartition = new TopicPartition("foo", 0);
+        TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
+                UUID.randomUUID(), 0);
+        TopicPartition topicPartition = topicIdPartition.topicPartition();
 
         LogSegment segment = createSegment(0L, 3, 50);
 
         try {
-            TierObjectMetadata metadata = segmentMetadata(topicPartition, segment);
+            TierObjectMetadata metadata = segmentMetadata(topicIdPartition, segment);
             Metrics metrics = new Metrics();
             putSegment(tierObjectStore, segment, metadata);
             Sensor recordBytesFetched = metrics.sensor("recordBytesFetched");
 
             long targetOffset = 149L;
-            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore, recordBytesFetched,
+            PendingFetch pendingFetch = new PendingFetch(topicPartition, ctx, tierObjectStore,
+                    recordBytesFetched,
                     metadata, key -> { }, targetOffset, 1024, Long.MAX_VALUE, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
@@ -84,19 +89,22 @@ public class SegmentFileFetchRequestTest {
         CancellationContext ctx = CancellationContext.newContext();
         TierObjectStore tierObjectStore =
                 new MockInMemoryTierObjectStore(new TierObjectStoreConfig());
-        TopicPartition topicPartition = new TopicPartition("foo", 0);
+        TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
+                UUID.randomUUID(), 0);
+        TopicPartition topicPartition = topicIdPartition.topicPartition();
 
         LogSegment segment = createSegment(0L, 3, 50);
 
         try {
-            TierObjectMetadata metadata = segmentMetadata(topicPartition, segment);
+            TierObjectMetadata metadata = segmentMetadata(topicIdPartition, segment);
 
             putSegment(tierObjectStore, segment, metadata);
 
             Metrics metrics = new Metrics();
             Long targetOffset = 150L;
             Sensor recordBytesFetched = metrics.sensor("recordBytesFetched");
-            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore, recordBytesFetched,
+            PendingFetch pendingFetch = new PendingFetch(topicPartition,
+                    ctx, tierObjectStore, recordBytesFetched,
                     metadata, key -> { }, targetOffset, 1024, Long.MAX_VALUE, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
@@ -121,19 +129,22 @@ public class SegmentFileFetchRequestTest {
         CancellationContext ctx = CancellationContext.newContext();
         TierObjectStore tierObjectStore =
                 new MockInMemoryTierObjectStore(new TierObjectStoreConfig());
-        TopicPartition topicPartition = new TopicPartition("foo", 0);
+        TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
+                UUID.randomUUID(), 0);
+        TopicPartition topicPartition = topicIdPartition.topicPartition();
 
         LogSegment segment = createSegment(0L, 3, 50);
 
         try {
-            TierObjectMetadata metadata = segmentMetadata(topicPartition, segment);
+            TierObjectMetadata metadata = segmentMetadata(topicIdPartition, segment);
 
             putSegment(tierObjectStore, segment, metadata);
             Metrics metrics = new Metrics();
             Long targetOffset = 51L;
             Sensor recordBytesFetched = metrics.sensor("recordBytesFetched");
-            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore, recordBytesFetched, metadata,
-                    key -> { }, targetOffset, 1024, 100L, Collections.emptyList());
+            PendingFetch pendingFetch = new PendingFetch(topicPartition, ctx, tierObjectStore,
+                    recordBytesFetched, metadata, key -> { }, targetOffset, 1024,
+                    100L, Collections.emptyList());
 
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
@@ -157,9 +168,10 @@ public class SegmentFileFetchRequestTest {
         }
     }
 
-    private TierObjectMetadata segmentMetadata(TopicPartition topicPartition, LogSegment logSegment) {
+    private TierObjectMetadata segmentMetadata(TopicIdPartition topicIdPartition,
+                                               LogSegment logSegment) {
         return new TierObjectMetadata(
-                topicPartition,
+                topicIdPartition,
                 0,
                 logSegment.baseOffset(),
                 (int) (logSegment.readNextOffset() - 1 - logSegment.baseOffset()),

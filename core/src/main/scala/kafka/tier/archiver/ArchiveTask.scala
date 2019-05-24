@@ -18,13 +18,13 @@ import kafka.tier.fetcher.CancellationContext
 import kafka.tier.serdes.State
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
+import kafka.tier.TopicIdPartition
 import kafka.utils.Logging
-import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.utils.Time
 
 import scala.compat.java8.FutureConverters._
 import scala.compat.java8.OptionConverters._
-import scala.concurrent.{ExecutionContext, Future, blocking}
+import scala.concurrent.{blocking, ExecutionContext, Future}
 import scala.util.{Random, Success, Try}
 
 /*
@@ -83,7 +83,7 @@ case class AfterUpload(leaderEpoch: Int, metadata: TierObjectMetadata, beginUplo
   * Asynchronous state machine for archiving a topic partition.
   */
 final class ArchiveTask(override val ctx: CancellationContext,
-                        override val topicPartition: TopicPartition,
+                        override val topicIdPartition: TopicIdPartition,
                         var state: ArchiveTaskState) extends ArchiverTaskQueueTask with Logging {
 
   @volatile var totalRetryCount: Int = 0
@@ -100,7 +100,7 @@ final class ArchiveTask(override val ctx: CancellationContext,
     totalRetryCount += 1
     val now = Instant.ofEpochMilli(time.milliseconds())
     val pauseMs = Math.min(maxRetryBackoffMs, Random.nextInt(retryCount) * 1000)
-    warn(s"pausing archiving of $topicPartition for ${pauseMs}ms")
+    warn(s"pausing archiving of $topicIdPartition for ${pauseMs}ms")
     _pausedUntil = Some(now.plusMillis(pauseMs))
   }
 
@@ -113,9 +113,9 @@ final class ArchiveTask(override val ctx: CancellationContext,
 
     val newState = state match {
       case _ if ctx.isCancelled => Future(state)
-      case s: BeforeLeader => ArchiveTask.establishLeadership(s, topicPartition, tierTopicManager)
-      case s: BeforeUpload => ArchiveTask.tierSegment(s, topicPartition, time, tierTopicManager, tierObjectStore, replicaManager, byteRateMetric)
-      case s: AfterUpload => ArchiveTask.finalizeUpload(s, topicPartition, time, tierTopicManager)
+      case s: BeforeLeader => ArchiveTask.establishLeadership(s, topicIdPartition, tierTopicManager)
+      case s: BeforeUpload => ArchiveTask.tierSegment(s, topicIdPartition, time, tierTopicManager, tierObjectStore, replicaManager, byteRateMetric)
+      case s: AfterUpload => ArchiveTask.finalizeUpload(s, topicIdPartition, time, tierTopicManager)
     }
 
     newState.map {
@@ -125,34 +125,34 @@ final class ArchiveTask(override val ctx: CancellationContext,
         this
     }.recover {
       case e: TierArchiverFatalException =>
-        error(s"$topicPartition encountered a fatal exception", e)
+        error(s"$topicIdPartition encountered a fatal exception", e)
         ctx.cancel()
         throw e
       case e: TierArchiverFencedException =>
-        warn(s"$topicPartition was fenced, stopping archival process", e)
+        warn(s"$topicIdPartition was fenced, stopping archival process", e)
         ctx.cancel()
         this
       case _: TierMetadataRetriableException | _: TierObjectStoreRetriableException =>
-        warn(s"encountered a retriable exception archiving $topicPartition")
+        warn(s"encountered a retriable exception archiving $topicIdPartition")
         retryTaskLater(time, maxRetryBackoffMs.getOrElse(5000))
         this
     }
   }
 
-  override def toString = s"ArchiveTask($topicPartition, retries=$totalRetryCount, state=${state.getClass.getName}, cancelled=${ctx.isCancelled})"
+  override def toString = s"ArchiveTask($topicIdPartition, retries=$totalRetryCount, state=${state.getClass.getName}, cancelled=${ctx.isCancelled})"
 }
 
 
 object ArchiveTask extends Logging {
-  def apply(ctx: CancellationContext, topicPartition: TopicPartition, leaderEpoch: Int): ArchiveTask = {
-    new ArchiveTask(ctx, topicPartition, BeforeLeader(leaderEpoch))
+  def apply(ctx: CancellationContext, topicIdPartition: TopicIdPartition, leaderEpoch: Int): ArchiveTask = {
+    new ArchiveTask(ctx, topicIdPartition, BeforeLeader(leaderEpoch))
   }
 
-  private def createObjectMetadata(topicPartition: TopicPartition, tierEpoch: Int, logSegment: LogSegment, hasEpochState: Boolean): TierObjectMetadata = {
+  private def createObjectMetadata(topicIdPartition: TopicIdPartition, tierEpoch: Int, logSegment: LogSegment, hasEpochState: Boolean): TierObjectMetadata = {
     val lastStableOffset = logSegment.readNextOffset - 1 // TODO: get from producer status snapshot
     val offsetDelta = lastStableOffset - logSegment.baseOffset
     new TierObjectMetadata(
-      topicPartition,
+      topicIdPartition,
       tierEpoch,
       logSegment.baseOffset,
       offsetDelta.intValue(),
@@ -204,21 +204,21 @@ object ArchiveTask extends Logging {
   }
 
   private[archiver] def establishLeadership(state: BeforeLeader,
-                                            topicPartition: TopicPartition,
+                                            topicIdPartition: TopicIdPartition,
                                             tierTopicManager: TierTopicManager)
                                            (implicit ec: ExecutionContext): Future[BeforeUpload] = {
     Future.fromTry(
-      Try(tierTopicManager.becomeArchiver(topicPartition, state.leaderEpoch).toScala))
+      Try(tierTopicManager.becomeArchiver(topicIdPartition, state.leaderEpoch).toScala))
       .flatMap(identity)
       .map { result: AppendResult =>
         result match {
           case AppendResult.ACCEPTED =>
-            info(s"established leadership for $topicPartition")
+            info(s"established leadership for $topicIdPartition")
             BeforeUpload(state.leaderEpoch)
           case AppendResult.ILLEGAL =>
-            throw new TierArchiverFatalException(s"Tier archiver found tier partition $topicPartition in illegal status.")
+            throw new TierArchiverFatalException(s"Tier archiver found tier partition $topicIdPartition in illegal status.")
           case AppendResult.FENCED =>
-            throw new TierArchiverFencedException(topicPartition)
+            throw new TierArchiverFencedException(topicIdPartition)
           case appendResult =>
             throw new TierArchiverFatalException(s"Unknown AppendResult $appendResult")
         }
@@ -226,7 +226,7 @@ object ArchiveTask extends Logging {
   }
 
   private[archiver] def finalizeUpload(state: AfterUpload,
-                                       topicPartition: TopicPartition,
+                                       topicIdPartition: TopicIdPartition,
                                        time: Time,
                                        tierTopicManager: TierTopicManager)
                                       (implicit ec: ExecutionContext): Future[BeforeUpload] = {
@@ -234,17 +234,17 @@ object ArchiveTask extends Logging {
       .flatMap(identity)
       .map {
         case AppendResult.ACCEPTED =>
-          info(s"Tiered log segment for $topicPartition in ${time.milliseconds - state.beginUploadTime} ms")
+          info(s"Tiered log segment for $topicIdPartition in ${time.milliseconds - state.beginUploadTime} ms")
           BeforeUpload(state.leaderEpoch)
         case AppendResult.ILLEGAL =>
-          throw new TierArchiverFatalException(s"Tier archiver found tier partition $topicPartition in illegal status")
+          throw new TierArchiverFatalException(s"Tier archiver found tier partition $topicIdPartition in illegal status")
         case AppendResult.FENCED =>
-          throw new TierArchiverFencedException(topicPartition)
+          throw new TierArchiverFencedException(topicIdPartition)
       }
   }
 
   private[archiver] def tierSegment(state: BeforeUpload,
-                                    topicPartition: TopicPartition,
+                                    topicIdPartition: TopicIdPartition,
                                     time: Time,
                                     tierTopicManager: TierTopicManager,
                                     tierObjectStore: TierObjectStore,
@@ -252,18 +252,18 @@ object ArchiveTask extends Logging {
                                     byteRateMetric: Option[Meter] = None)
                                    (implicit ec: ExecutionContext): Future[ArchiveTaskState] = {
     Future {
-      if (tierTopicManager.partitionState(topicPartition).tierEpoch() != state.leaderEpoch) {
-        throw new TierArchiverFencedException(topicPartition)
+      if (tierTopicManager.partitionState(topicIdPartition).tierEpoch() != state.leaderEpoch) {
+        throw new TierArchiverFencedException(topicIdPartition)
       } else {
         replicaManager
-          .getLog(topicPartition)
+          .getLog(topicIdPartition.topicPartition())
           .flatMap { log =>
             log.tierableLogSegments
               .collectFirst { case logSegment: LogSegment => (log, logSegment) }
           } match {
           case None =>
             // Log has been moved or there is no eligible segment. Retry BeforeUpload state.
-            debug(s"Transitioning back to BeforeUpload for $topicPartition as no log was found")
+            debug(s"Transitioning back to BeforeUpload for $topicIdPartition as no log was found")
             Future(state)
 
           case Some((log: AbstractLog, logSegment: LogSegment)) =>
@@ -272,7 +272,7 @@ object ArchiveTask extends Logging {
             val startTime = time.milliseconds
             blocking {
               putSegment(state,
-                topicPartition,
+                topicIdPartition,
                 tierObjectStore,
                 logSegment,
                 leaderEpochStateFile
@@ -288,13 +288,13 @@ object ArchiveTask extends Logging {
   }
 
   private def putSegment(state: BeforeUpload,
-                         topicPartition: TopicPartition,
+                         topicIdPartition: TopicIdPartition,
                          tierObjectStore: TierObjectStore,
                          logSegment: LogSegment,
                          leaderEpochCacheFile: Option[File])
                         (implicit ec: ExecutionContext): Future[TierObjectMetadata] = {
     Future {
-      val metadata = createObjectMetadata(topicPartition, state.leaderEpoch, logSegment, leaderEpochCacheFile.isDefined)
+      val metadata = createObjectMetadata(topicIdPartition, state.leaderEpoch, logSegment, leaderEpochCacheFile.isDefined)
       blocking {
         assertSegmentFileAccess(logSegment, leaderEpochCacheFile)
         tierObjectStore.putSegment(

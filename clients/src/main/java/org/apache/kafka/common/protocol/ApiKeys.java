@@ -65,6 +65,8 @@ import org.apache.kafka.common.requests.AlterReplicaLogDirsRequest;
 import org.apache.kafka.common.requests.AlterReplicaLogDirsResponse;
 import org.apache.kafka.common.requests.ApiVersionsRequest;
 import org.apache.kafka.common.requests.ApiVersionsResponse;
+import org.apache.kafka.common.requests.ConfluentLeaderAndIsrRequest;
+import org.apache.kafka.common.requests.ConfluentLeaderAndIsrResponse;
 import org.apache.kafka.common.requests.CreateAclsRequest;
 import org.apache.kafka.common.requests.CreateAclsResponse;
 import org.apache.kafka.common.requests.CreateDelegationTokenRequest;
@@ -201,7 +203,10 @@ public enum ApiKeys {
 
     /* ----- Begin internal APIs: API ids decrement sequentially starting from Short.MAX_VALUE with `isInternal` set to true ----- */
 
-    TIER_LIST_OFFSET(32767, "TierListOffsets", true, TierListOffsetRequestData.SCHEMAS, TierListOffsetResponseData.SCHEMAS, true);
+    CONFLUENT_LEADER_AND_ISR(32766, "ConfluentLeaderAndIsr", true, ConfluentLeaderAndIsrRequest.schemaVersions(),
+            ConfluentLeaderAndIsrResponse.schemaVersions(), true),
+    TIER_LIST_OFFSET(32767, "TierListOffsets", true, TierListOffsetRequestData.SCHEMAS,
+                     TierListOffsetResponseData.SCHEMAS, true);
 
     /* ----- End internal APIs ----- */
 

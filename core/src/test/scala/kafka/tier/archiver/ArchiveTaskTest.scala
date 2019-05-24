@@ -3,6 +3,7 @@ package kafka.tier.archiver
 import java.io.File
 import java.util.Collections
 import java.util.concurrent.CompletableFuture
+import java.util.UUID
 
 import kafka.log.{AbstractLog, LogSegment, OffsetIndex, TimeIndex}
 import kafka.server.ReplicaManager
@@ -15,21 +16,21 @@ import kafka.tier.serdes.State
 import kafka.tier.state.TierPartitionState
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
+import kafka.tier.TopicIdPartition
 import kafka.utils.TestUtils
-import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record.FileRecords
 import org.apache.kafka.common.utils.{MockTime, Time}
 import org.junit.{After, Assert, Before, Test}
 import org.mockito.ArgumentMatchers
 import org.mockito.Mockito._
-import scala.concurrent.ExecutionContext.Implicits.global
 
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.collection.JavaConverters._
 import scala.concurrent.Await
 import scala.concurrent.duration._
 
 class ArchiveTaskTest {
-  val topicPartition = new TopicPartition("foo", 0)
+  val topicIdPartition = new TopicIdPartition("foo", UUID.fromString("cbf4eaed-cc00-47dc-b08c-f1f5685f085d"), 0)
   var ctx: CancellationContext = _
   var tierTopicManager: TierTopicManager = _
   var tierObjectStore: TierObjectStore = _
@@ -55,27 +56,27 @@ class ArchiveTaskTest {
   def testEstablishingLeadership(): Unit = {
     val leaderEpoch = 0
 
-    when(tierTopicManager.becomeArchiver(topicPartition, leaderEpoch))
+    when(tierTopicManager.becomeArchiver(topicIdPartition, leaderEpoch))
       .thenReturn(CompletableFutureUtil.completed(AppendResult.ACCEPTED))
-    val nextState = Await.result(ArchiveTask.establishLeadership(BeforeLeader(0), topicPartition, tierTopicManager), 50 millis)
+    val nextState = Await.result(ArchiveTask.establishLeadership(BeforeLeader(0), topicIdPartition, tierTopicManager), 50 millis)
     Assert.assertEquals("Expected task to establish leadership", BeforeUpload(leaderEpoch), nextState)
 
-    when(tierTopicManager.becomeArchiver(topicPartition, leaderEpoch))
+    when(tierTopicManager.becomeArchiver(topicIdPartition, leaderEpoch))
       .thenReturn(CompletableFutureUtil.completed(AppendResult.ILLEGAL))
-    val illegal = Await.ready(ArchiveTask.establishLeadership(BeforeLeader(0), topicPartition, tierTopicManager), 50 millis)
+    val illegal = Await.ready(ArchiveTask.establishLeadership(BeforeLeader(0), topicIdPartition, tierTopicManager), 50 millis)
     Assert.assertTrue("Expected establishing leadership to fail", illegal.value.get.isFailure)
 
-    when(tierTopicManager.becomeArchiver(topicPartition, leaderEpoch))
+    when(tierTopicManager.becomeArchiver(topicIdPartition, leaderEpoch))
       .thenReturn(CompletableFutureUtil.completed(AppendResult.FENCED))
-    val fenced = Await.ready(ArchiveTask.establishLeadership(BeforeLeader(0), topicPartition, tierTopicManager), 50 millis)
+    val fenced = Await.ready(ArchiveTask.establishLeadership(BeforeLeader(0), topicIdPartition, tierTopicManager), 50 millis)
     Assert.assertTrue("Expected establishing leadership to fail", fenced.value.get.isFailure)
 
-    when(tierTopicManager.becomeArchiver(topicPartition, leaderEpoch))
+    when(tierTopicManager.becomeArchiver(topicIdPartition, leaderEpoch))
       .thenReturn(CompletableFutureUtil.completed(new Object()).asInstanceOf[CompletableFuture[AppendResult]])
-    val unknown = Await.ready(ArchiveTask.establishLeadership(BeforeLeader(0), topicPartition, tierTopicManager), 50 millis)
+    val unknown = Await.ready(ArchiveTask.establishLeadership(BeforeLeader(0), topicIdPartition, tierTopicManager), 50 millis)
     Assert.assertTrue("Expected establishing leadership to fail", unknown.value.get.isFailure)
 
-    verify(tierTopicManager, times(4)).becomeArchiver(topicPartition, leaderEpoch)
+    verify(tierTopicManager, times(4)).becomeArchiver(topicIdPartition, leaderEpoch)
   }
 
   @Test
@@ -85,11 +86,11 @@ class ArchiveTaskTest {
     val tps = when(mock(classOf[TierPartitionState]).tierEpoch())
       .thenReturn(leaderEpoch + 1)
       .getMock[TierPartitionState]()
-    when(tierTopicManager.partitionState(topicPartition)).thenReturn(tps)
+    when(tierTopicManager.partitionState(topicIdPartition)).thenReturn(tps)
 
     val nextState = ArchiveTask.tierSegment(
       BeforeUpload(leaderEpoch),
-      topicPartition,
+      topicIdPartition,
       time,
       tierTopicManager,
       tierObjectStore,
@@ -107,19 +108,19 @@ class ArchiveTaskTest {
       .thenReturn(leaderEpoch)
       .getMock[TierPartitionState]()
 
-    when(tierTopicManager.partitionState(topicPartition)).thenReturn(tierPartitionState)
+    when(tierTopicManager.partitionState(topicIdPartition)).thenReturn(tierPartitionState)
 
     val emptyLog = mock(classOf[AbstractLog])
       when(emptyLog.tierableLogSegments)
         .thenReturn(Collections.emptyList().asScala)
         .getMock[AbstractLog]()
 
-    when(replicaManager.getLog(topicPartition))
+    when(replicaManager.getLog(topicIdPartition.topicPartition))
       .thenReturn(Some(emptyLog))
 
     val nextState = ArchiveTask.tierSegment(
       BeforeUpload(leaderEpoch),
-      topicPartition,
+      topicIdPartition,
       time,
       tierTopicManager,
       tierObjectStore,
@@ -173,18 +174,18 @@ class ArchiveTaskTest {
     val tmpFile = TestUtils.tempFile()
     val leaderEpoch = 0
     val tierPartitionState = mockTierPartitionState(leaderEpoch)
-    when(tierTopicManager.partitionState(topicPartition)).thenReturn(tierPartitionState)
+    when(tierTopicManager.partitionState(topicIdPartition)).thenReturn(tierPartitionState)
 
     val logSegment = mockLogSegment(tmpFile)
 
     val log = mockAbstractLog(logSegment)
     when(log.leaderEpochCache).thenReturn(None)
 
-    when(replicaManager.getLog(topicPartition)).thenReturn(Some(log))
+    when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
 
     val nextState = ArchiveTask.tierSegment(
       BeforeUpload(leaderEpoch),
-      topicPartition,
+      topicIdPartition,
       time,
       tierTopicManager,
       tierObjectStore,
@@ -204,7 +205,7 @@ class ArchiveTaskTest {
     val tmpFile = TestUtils.tempFile()
     val leaderEpoch = 0
     val tierPartitionState = mockTierPartitionState(leaderEpoch)
-    when(tierTopicManager.partitionState(topicPartition)).thenReturn(tierPartitionState)
+    when(tierTopicManager.partitionState(topicIdPartition)).thenReturn(tierPartitionState)
 
     val logSegment = mockLogSegment(tmpFile)
 
@@ -220,11 +221,11 @@ class ArchiveTaskTest {
     val log = mockAbstractLog(logSegment)
     when(log.leaderEpochCache).thenReturn(Some(mockLeaderEpochCache))
 
-    when(replicaManager.getLog(topicPartition)).thenReturn(Some(log))
+    when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
 
     val nextState = ArchiveTask.tierSegment(
       BeforeUpload(leaderEpoch),
-      topicPartition,
+      topicIdPartition,
       time,
       tierTopicManager,
       tierObjectStore,
@@ -247,17 +248,17 @@ class ArchiveTaskTest {
   @Test
   def testFinalizeUpload(): Unit = {
     val leaderEpoch = 0
-    val metadata = new TierObjectMetadata(topicPartition, leaderEpoch, 0, 10, 10, 0, 1000, true, false, false, State.AVAILABLE)
+    val metadata = new TierObjectMetadata(topicIdPartition, leaderEpoch, 0, 10, 10, 0, 1000, true, false, false, State.AVAILABLE)
     when(tierTopicManager.addMetadata(metadata)).thenReturn(CompletableFutureUtil.completed(AppendResult.ACCEPTED))
-    val result = Await.result(ArchiveTask.finalizeUpload(AfterUpload(0, metadata, time.milliseconds()), topicPartition, time, tierTopicManager), 100 millis)
+    val result = Await.result(ArchiveTask.finalizeUpload(AfterUpload(0, metadata, time.milliseconds()), topicIdPartition, time, tierTopicManager), 100 millis)
     Assert.assertTrue("expected state to sucessfully transition to BeforeUpload", result.isInstanceOf[BeforeUpload])
   }
 
   @Test
   def testArchiverTaskSetsPauseOnRetry(): Unit = {
-    val task = new ArchiveTask(ctx, topicPartition, BeforeLeader(0))
+    val task = new ArchiveTask(ctx, topicIdPartition, BeforeLeader(0))
 
-    when(tierTopicManager.becomeArchiver(topicPartition, 0)).thenThrow(
+    when(tierTopicManager.becomeArchiver(topicIdPartition, 0)).thenThrow(
       new TierMetadataRetriableException("something"),
       new TierObjectStoreRetriableException("foo", new RuntimeException("foo")))
     val result = Await.result(task.transition(time, tierTopicManager, tierObjectStore, replicaManager), 1 second)
@@ -277,7 +278,7 @@ class ArchiveTaskTest {
 
   @Test
   def testCancelledArchiveTaskDoesNotProgress(): Unit = {
-    val task = new ArchiveTask(ctx, topicPartition, BeforeLeader(0))
+    val task = new ArchiveTask(ctx, topicIdPartition, BeforeLeader(0))
     ctx.cancel()
     val result = Await.result(task.transition(time, tierTopicManager, tierObjectStore, replicaManager), 1 second)
     Assert.assertTrue("expected task to remain in BeforeLeader", result.state.isInstanceOf[BeforeLeader])

@@ -35,6 +35,9 @@ public enum EntityType {
     @JsonProperty("topicName")
     TOPIC_NAME(FieldType.StringFieldType.INSTANCE),
 
+    @JsonProperty("topicId")
+    TOPIC_ID(FieldType.UUIDFieldType.INSTANCE),
+
     @JsonProperty("brokerId")
     BROKER_ID(FieldType.Int32FieldType.INSTANCE);
 

@@ -4,9 +4,9 @@
 
 package kafka.tier.state;
 
+import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.serdes.ObjectMetadata;
-import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.KafkaStorageException;
 import org.apache.kafka.common.utils.AbstractIterator;
 import org.apache.kafka.common.utils.Utils;
@@ -23,17 +23,17 @@ public class FileTierPartitionIterator extends AbstractIterator<TierObjectMetada
     private static final int ENTRY_LENGTH_SIZE = 2;
 
     private final ByteBuffer lengthBuffer = ByteBuffer.allocate(ENTRY_LENGTH_SIZE).order(ByteOrder.LITTLE_ENDIAN);
-    private final TopicPartition topicPartition;
+    private final TopicIdPartition topicIdPartition;
 
     private long position;
     private long endPosition;
     private FileChannel channel;
     private ByteBuffer entryBuffer = null;
 
-    public FileTierPartitionIterator(TopicPartition topicPartition,
+    public FileTierPartitionIterator(TopicIdPartition topicIdPartition,
                                      FileChannel channel,
                                      long startPosition) throws IOException {
-        this.topicPartition = topicPartition;
+        this.topicIdPartition = topicIdPartition;
         this.channel = channel;
         this.position = startPosition;
         this.endPosition = channel.size();
@@ -79,7 +79,7 @@ public class FileTierPartitionIterator extends AbstractIterator<TierObjectMetada
             // advance position
             position = currentPosition;
 
-            return new TierObjectMetadata(topicPartition, ObjectMetadata.getRootAsObjectMetadata(entryBuffer));
+            return new TierObjectMetadata(topicIdPartition, ObjectMetadata.getRootAsObjectMetadata(entryBuffer));
         } catch (IOException e) {
             throw new KafkaStorageException(e);
         }

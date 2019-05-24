@@ -8,6 +8,7 @@ import kafka.log.LogConfig;
 import kafka.log.LogSegment;
 import kafka.server.DelayedOperation;
 import kafka.tier.TierTimestampAndOffset;
+import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
@@ -41,6 +42,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -60,15 +62,19 @@ public class TierFetcherTest {
 
         MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
                 offsetIndexBuffer, timestampFileBuffer);
-        TopicPartition topicPartition = new TopicPartition("foo", 0);
-        TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicPartition, 0, 0,
+        TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
+                UUID.randomUUID(), 0);
+        TopicPartition topicPartition = topicIdPartition.topicPartition();
+        TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicIdPartition, 0, 0,
                 0, 0, 0, 0, false, false, false, kafka.tier.serdes.State.AVAILABLE);
         Metrics metrics = new Metrics();
         TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
         try {
             int maxBytes = 600;
-            TierFetchMetadata fetchMetadata = new TierFetchMetadata(0, Option.apply(1000L),
-                    maxBytes, 1000L, true, tierObjectMetadata, Option.empty(), 0, 1000);
+            TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicPartition, 0,
+                    Option.apply(1000L),
+                    maxBytes, 1000L, true, tierObjectMetadata,
+                    Option.empty(), 0, 1000);
 
             CompletableFuture<Boolean> f = new CompletableFuture<>();
             tierObjectStore.failNextRequest();
@@ -133,16 +139,18 @@ public class TierFetcherTest {
         ByteBuffer combinedBuffer = getMemoryRecordsBuffer();
         TierObjectStore tierObjectStore = new MockedTierObjectStore(combinedBuffer,
                 ByteBuffer.allocate(0), ByteBuffer.allocate(0));
-        TopicPartition topicPartition = new TopicPartition("foo", 0);
-        TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicPartition, 0, 0, 101,
-                0, 0, 0, false, false, false,
+        TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
+                UUID.randomUUID(), 0);
+        TopicPartition topicPartition = topicIdPartition.topicPartition();
+        TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicIdPartition,
+                0, 0, 101, 0, 0, 0, false, false, false,
                 kafka.tier.serdes.State.AVAILABLE);
 
         Metrics metrics = new Metrics();
         TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
         try {
-            TierFetchMetadata fetchMetadata = new TierFetchMetadata(0, Option.apply(1000L),
-                    10000, 1000L, true, tierObjectMetadata,
+            TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicPartition, 0,
+                    Option.apply(1000L), 10000, 1000L, true, tierObjectMetadata,
                     Option.empty(), 0, 1000);
 
             CompletableFuture<Boolean> f = new CompletableFuture<>();
@@ -208,15 +216,17 @@ public class TierFetcherTest {
 
             TierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
                     offsetIndexBuffer, timestampIndexBuffer);
-            TopicPartition topicPartition = new TopicPartition("foo", 0);
-            TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicPartition,
+            TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
+                    UUID.randomUUID(), 0);
+            TopicPartition topicPartition = topicIdPartition.topicPartition();
+            TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicIdPartition,
                     0, 0, nextOffset, 0, 0,
                     0, false, false, false, kafka.tier.serdes.State.AVAILABLE);
             Metrics metrics = new Metrics();
 
             TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
             try {
-                TierFetchMetadata fetchMetadata = new TierFetchMetadata(100,
+                TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicPartition, 100,
                         Option.apply(1000L), 10000, 1000L, true,
                         tierObjectMetadata, Option.empty(), 0, 1000);
                 CompletableFuture<Boolean> f = new CompletableFuture<>();
@@ -289,8 +299,10 @@ public class TierFetcherTest {
 
             MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
                     offsetIndexBuffer, timestampIndexBuffer);
-            TopicPartition topicPartition = new TopicPartition("foo", 0);
-            TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicPartition,
+            TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
+                    UUID.randomUUID(), 0);
+            TopicPartition topicPartition = topicIdPartition.topicPartition();
+            TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicIdPartition,
                     0, 0, nextOffset, 0, 0,
                     0, false, false, false, kafka.tier.serdes.State.AVAILABLE);
             Metrics metrics = new Metrics();
@@ -365,14 +377,18 @@ public class TierFetcherTest {
 
             TierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
                     offsetIndexBuffer, timestampIndexBuffer);
-            TopicPartition topicPartition = new TopicPartition("foo", 0);
-            TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicPartition, 0, 0,
-                    nextOffset, 0, 0, 0, false, false, false, kafka.tier.serdes.State.AVAILABLE);
+            TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
+                    UUID.randomUUID(), 0);
+            TopicPartition topicPartition = topicIdPartition.topicPartition();
+            TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicIdPartition,
+                    0, 0, nextOffset, 0, 0,
+                    0, false, false, false, kafka.tier.serdes.State.AVAILABLE);
             Metrics metrics = new Metrics();
             TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
             try {
                 int maxBytes = 600;
-                TierFetchMetadata fetchMetadata = new TierFetchMetadata(0,
+                TierFetchMetadata fetchMetadata =
+                        new TierFetchMetadata(topicIdPartition.topicPartition(), 0,
                         Option.apply(1000L), maxBytes, 1000L, true,
                         tierObjectMetadata, Option.empty(), 0, 1000);
 

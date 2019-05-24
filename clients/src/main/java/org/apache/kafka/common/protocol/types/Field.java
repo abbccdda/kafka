@@ -99,6 +99,16 @@ public class Field {
         }
     }
 
+    public static class Uuid extends Field {
+        public Uuid(String name, String docString) {
+            super(name, Type.UUID, docString, false, null);
+        }
+
+        public Uuid(String name, String docString, long defaultValue) {
+            super(name, Type.UUID, docString, true, defaultValue);
+        }
+    }
+
     public static class Array extends Field {
         public Array(String name, Type elementType, String docString) {
             super(name, new ArrayOf(elementType), docString, false, null);

@@ -146,7 +146,8 @@ public class KafkaUtilitiesTest {
 
     // When/Then
     try {
-      kUtil.createAndVerifyTopic(null, ANY_TOPIC, ANY_PARTITIONS, ANY_REPLICATION, ANY_RETENTION_MS);
+      kUtil.createAndVerifyTopic(null, ANY_TOPIC, ANY_PARTITIONS, ANY_REPLICATION,
+              ANY_RETENTION_MS, false);
       fail("IllegalArgumentException expected because zkClient is null");
     } catch (NullPointerException e) {
       // ignore
@@ -161,7 +162,8 @@ public class KafkaUtilitiesTest {
 
     // When/Then
     try {
-      kUtil.createAndVerifyTopic(MOCK_ZK_CLIENT, nullTopic, ANY_PARTITIONS, ANY_REPLICATION, ANY_RETENTION_MS);
+      kUtil.createAndVerifyTopic(MOCK_ZK_CLIENT, nullTopic, ANY_PARTITIONS, ANY_REPLICATION,
+              ANY_RETENTION_MS, false);
       fail("IllegalArgumentException expected because topic is null");
     } catch (IllegalArgumentException e) {
       // ignore
@@ -176,7 +178,8 @@ public class KafkaUtilitiesTest {
 
     // When/Then
     try {
-      kUtil.createAndVerifyTopic(MOCK_ZK_CLIENT, emptyTopic, ANY_PARTITIONS, ANY_REPLICATION, ANY_RETENTION_MS);
+      kUtil.createAndVerifyTopic(MOCK_ZK_CLIENT, emptyTopic, ANY_PARTITIONS, ANY_REPLICATION,
+              ANY_RETENTION_MS, false);
       fail("IllegalArgumentException expected because topic is empty");
     } catch (IllegalArgumentException e) {
       // ignore
@@ -191,7 +194,8 @@ public class KafkaUtilitiesTest {
 
     // When/Then
     try {
-      kUtil.createAndVerifyTopic(MOCK_ZK_CLIENT, ANY_TOPIC, zeroPartitions, ANY_REPLICATION, ANY_RETENTION_MS);
+      kUtil.createAndVerifyTopic(MOCK_ZK_CLIENT, ANY_TOPIC, zeroPartitions, ANY_REPLICATION,
+              ANY_RETENTION_MS, false);
       fail("IllegalArgumentException expected because number of partitions is zero");
     } catch (IllegalArgumentException e) {
       // ignore
@@ -206,7 +210,8 @@ public class KafkaUtilitiesTest {
 
     // When/Then
     try {
-      kUtil.createAndVerifyTopic(MOCK_ZK_CLIENT, ANY_TOPIC, ANY_PARTITIONS, zeroReplication, ANY_RETENTION_MS);
+      kUtil.createAndVerifyTopic(MOCK_ZK_CLIENT, ANY_TOPIC, ANY_PARTITIONS, zeroReplication,
+              ANY_RETENTION_MS, false);
       fail("IllegalArgumentException expected because replication factor is zero");
     } catch (IllegalArgumentException e) {
       // ignore
@@ -221,7 +226,8 @@ public class KafkaUtilitiesTest {
 
     // When/Then
     try {
-      kUtil.createAndVerifyTopic(MOCK_ZK_CLIENT, ANY_TOPIC, ANY_PARTITIONS, ANY_REPLICATION, zeroRetentionMs);
+      kUtil.createAndVerifyTopic(MOCK_ZK_CLIENT, ANY_TOPIC, ANY_PARTITIONS, ANY_REPLICATION,
+              zeroRetentionMs, false);
       fail("IllegalArgumentException expected because retention.ms is zero");
     } catch (IllegalArgumentException e) {
       // ignore
@@ -317,7 +323,8 @@ public class KafkaUtilitiesTest {
 
     // When/Then
     for (String topic : EXAMPLE_TOPICS) {
-      assertTrue(kUtil.createAndVerifyTopic(zkClient, topic, partitions, replication, ONE_YEAR_RETENTION));
+      assertTrue(kUtil.createAndVerifyTopic(zkClient, topic, partitions, replication,
+              ONE_YEAR_RETENTION, false));
       // Only one broker is up, so the actual number of replicas will be only 1.
       assertEquals(KafkaUtilities.VerifyTopicState.Less,
           kUtil.verifySupportTopic(zkClient, topic, partitions, replication));
@@ -344,8 +351,10 @@ public class KafkaUtilitiesTest {
 
     // When/Then
     for (String topic : EXAMPLE_TOPICS) {
-      assertTrue(kUtil.createAndVerifyTopic(zkClient, topic, partitions, replication, ONE_YEAR_RETENTION));
-      assertTrue(kUtil.createAndVerifyTopic(zkClient, topic, partitions, replication, ONE_YEAR_RETENTION));
+      assertTrue(kUtil.createAndVerifyTopic(zkClient, topic, partitions, replication,
+              ONE_YEAR_RETENTION, false));
+      assertTrue(kUtil.createAndVerifyTopic(zkClient, topic, partitions, replication,
+              ONE_YEAR_RETENTION, false));
       assertEquals(KafkaUtilities.VerifyTopicState.Less,
           kUtil.verifySupportTopic(zkClient, topic, partitions, replication));
     }
@@ -367,7 +376,8 @@ public class KafkaUtilitiesTest {
     cluster.stopCluster();
 
     // When/Then
-    assertFalse(kUtil.createAndVerifyTopic(defunctZkClient, ANY_TOPIC, ANY_PARTITIONS, ANY_REPLICATION, ANY_RETENTION_MS));
+    assertFalse(kUtil.createAndVerifyTopic(defunctZkClient, ANY_TOPIC, ANY_PARTITIONS,
+            ANY_REPLICATION, ANY_RETENTION_MS, false));
   }
 
   @Test
@@ -385,7 +395,8 @@ public class KafkaUtilitiesTest {
     // When/Then
     for (String topic : EXAMPLE_TOPICS) {
       int morePartitionsThanBrokers = random.nextInt(10) + numBrokers + 1;
-      assertTrue(kUtil.createAndVerifyTopic(zkClient, topic, morePartitionsThanBrokers, replication, ONE_YEAR_RETENTION));
+      assertTrue(kUtil.createAndVerifyTopic(zkClient, topic, morePartitionsThanBrokers,
+              replication, ONE_YEAR_RETENTION, false));
       assertEquals(KafkaUtilities.VerifyTopicState.Exactly,
           kUtil.verifySupportTopic(zkClient, topic, morePartitionsThanBrokers, replication));
     }
@@ -406,7 +417,7 @@ public class KafkaUtilitiesTest {
     int replication = numBrokers;
 
     assertTrue(kUtil.createAndVerifyTopic(zkClient, ANY_TOPIC, ANY_PARTITIONS, replication,
-                                          ONE_YEAR_RETENTION));
+                                          ONE_YEAR_RETENTION, false));
     assertTrue(zkClient.getLeaderForPartition(
         new TopicPartition(ANY_TOPIC, 0)).isDefined());
   }

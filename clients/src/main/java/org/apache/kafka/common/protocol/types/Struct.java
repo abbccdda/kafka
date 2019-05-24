@@ -21,6 +21,7 @@ import org.apache.kafka.common.record.BaseRecords;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * A record that can be serialized and deserialized according to a pre-defined schema
@@ -102,6 +103,10 @@ public class Struct {
 
     public Boolean get(Field.Bool field) {
         return getBoolean(field.name);
+    }
+
+    public UUID get(Field.Uuid field) {
+        return getUUID(field.name);
     }
 
     public Object[] get(Field.Array field) {
@@ -269,6 +274,10 @@ public class Struct {
         return (Boolean) get(name);
     }
 
+    public UUID getUUID(String name) {
+        return (UUID) get(name);
+    }
+
     public ByteBuffer getBytes(BoundField field) {
         Object result = get(field);
         if (result instanceof byte[])
@@ -346,6 +355,10 @@ public class Struct {
     }
 
     public Struct set(Field.Bool def, boolean value) {
+        return set(def.name, value);
+    }
+
+    public Struct set(Field.Uuid def, UUID value) {
         return set(def.name, value);
     }
 

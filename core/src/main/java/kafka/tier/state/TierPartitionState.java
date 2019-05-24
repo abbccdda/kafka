@@ -4,6 +4,7 @@
 
 package kafka.tier.state;
 
+import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.AbstractTierMetadata;
 import kafka.tier.domain.TierObjectMetadata;
 import org.apache.kafka.common.TopicPartition;
@@ -34,6 +35,13 @@ public interface TierPartitionState {
     TopicPartition topicPartition();
 
     /**
+     * Optional TopicIdPartition corresponding to this TierPartition
+     * If one has not been set, returns empty
+     * @return TopicIdPartition
+     */
+    Optional<TopicIdPartition> topicIdPartition();
+
+    /**
      * The directory where the TierPartition is stored on disk.
      * @return file handle for the directory
      */
@@ -51,6 +59,15 @@ public interface TierPartitionState {
      * @throws IOException
      */
     Optional<Long> startOffset() throws IOException;
+
+    /**
+     * Sets the TopicIdPartition for this TierPartitionState.
+     * Will open the TierPartitionState if tiering is enabled, and a TopicIdPartition was not
+     * previously set or able to be read from the FileTierPartitionState header.
+     * @param topicIdPartition
+     * @throws IOException
+     */
+    void setTopicIdPartition(TopicIdPartition topicIdPartition) throws IOException;
 
     /**
      * Return the end offset spanned by the TierPartitionState that has been committed to disk.

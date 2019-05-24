@@ -116,7 +116,7 @@ class ZkAuthorizationTest extends ZooKeeperTestHarness with Logging {
     )
 
     // create a topic assignment
-    zkClient.createTopicAssignment(topic1, assignment)
+    zkClient.createTopicAssignment(topic1, None, assignment)
     verify(TopicZNode.path(topic1))
 
     // Test that can create: createSequentialPersistentPath
@@ -130,7 +130,7 @@ class ZkAuthorizationTest extends ZooKeeperTestHarness with Logging {
 
     // Test that can update persistent nodes
     val updatedAssignment = assignment - new TopicPartition(topic1, 2)
-    zkClient.setTopicAssignment(topic1, updatedAssignment)
+    zkClient.setTopicAssignment(topic1, None, updatedAssignment)
     assertEquals(updatedAssignment.size, zkClient.getTopicPartitionCount(topic1).get)
   }
 

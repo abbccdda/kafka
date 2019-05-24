@@ -8,7 +8,7 @@ import java.io.File
 import java.util
 import java.util.Properties
 import java.util.function.Supplier
-import java.util.Collections
+import java.util.UUID
 
 import kafka.log.LogConfig
 import kafka.server.LogDirFailureChannel
@@ -19,7 +19,6 @@ import kafka.tier.state.FileTierPartitionStateFactory
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
 import kafka.utils.TestUtils
-import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.ConfluentTopicConfig
 import org.junit.Assert._
 import org.junit.Test
@@ -66,7 +65,7 @@ class TierTopicManagerTest {
 
       tierTopicManager.becomeReady(bootstrapSupplier.get())
 
-      val archivedPartition1 = new TopicPartition("archivedTopic", 0)
+      val archivedPartition1 = new TopicIdPartition("archivedTopic", UUID.randomUUID(), 0)
       addReplica(archivedPartition1)
       becomeLeader(consumerBuilder,
         tierTopicManager,
@@ -155,7 +154,7 @@ class TierTopicManagerTest {
         AppendResult.FENCED)
 
       // add a second partition and ensure it catches up.
-      val archivedPartition2 = new TopicPartition("archivedTopic", 1)
+      val archivedPartition2 = new TopicIdPartition("archivedTopic", UUID.randomUUID(), 1)
       addReplica(archivedPartition2)
       becomeLeader(consumerBuilder,
         tierTopicManager,
@@ -207,21 +206,21 @@ class TierTopicManagerTest {
         tierMetadataManager)
 
       tierTopicManager.becomeReady(bootstrapSupplier.get())
-      val archivedPartition1 = new TopicPartition("archivedTopic", 0)
+      val topicId = UUID.randomUUID()
+      val archivedPartition1 = new TopicIdPartition("archivedTopic", topicId, 0)
       addReplica(archivedPartition1)
-      val archivedPartition2 = new TopicPartition("archivedTopic", 1)
-      addReplica(archivedPartition2)
+      tierMetadataManager.becomeFollower(archivedPartition1)
 
-      tierTopicManager.immigratePartitions(Collections.singletonList(archivedPartition1))
-      tierTopicManager.immigratePartitions(Collections.singletonList(archivedPartition2))
+      val archivedPartition2 = new TopicIdPartition("archivedTopic", topicId, 1)
+      addReplica(archivedPartition2)
+      tierMetadataManager.becomeFollower(archivedPartition2)
+
       tierTopicManager.processMigrations()
       assertTrue(tierTopicManager.catchingUp())
-      tierMetadataManager.delete(archivedPartition2)
-      tierTopicManager.emigratePartitions(Collections.singletonList(archivedPartition2))
+      tierMetadataManager.delete(archivedPartition2.topicPartition())
       tierTopicManager.processMigrations()
       assertTrue(tierTopicManager.catchingUp())
-      tierMetadataManager.delete(archivedPartition1)
-      tierTopicManager.emigratePartitions(Collections.singletonList(archivedPartition1))
+      tierMetadataManager.delete(archivedPartition1.topicPartition())
       tierTopicManager.processMigrations()
       assertFalse(tierTopicManager.catchingUp())
     } finally {
@@ -232,21 +231,23 @@ class TierTopicManagerTest {
     }
   }
 
-  private def addReplica(topicPartition: TopicPartition): Unit = {
+  private def addReplica(topicIdPartition: TopicIdPartition): Unit = {
     val properties = new Properties()
     properties.put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true")
-    tierMetadataManager.initState(topicPartition, new File(logDir), new LogConfig(properties))
+    val dir = new File(logDir + "/" + topicIdPartition.topicPartition.toString)
+    dir.mkdir()
+    tierMetadataManager.initState(topicIdPartition.topicPartition(), dir, new LogConfig(properties))
   }
 
   private def becomeLeader(consumerBuilder: MockConsumerBuilder,
                            tierTopicManager: TierTopicManager,
-                           topicPartition: TopicPartition,
+                           topicIdPartition: TopicIdPartition,
                            epoch: Integer,
                            expected: AppendResult): Unit = {
-    tierMetadataManager.becomeLeader(topicPartition, epoch)
+    tierMetadataManager.becomeLeader(topicIdPartition, epoch)
     // force immigration
     tierTopicManager.doWork()
-    val result = tierTopicManager.becomeArchiver(topicPartition, epoch)
+    val result = tierTopicManager.becomeArchiver(topicIdPartition, epoch)
     consumerBuilder.moveRecordsFromProducer()
     while (!tierTopicManager.doWork()) assertEquals(expected, result.get())
     tierTopicManager.committer().flush()

@@ -123,7 +123,8 @@ public class FullCollectorMultiNodeClusterTest {
       String topicDesc = "Topic='" + topic + "', partitions=" + partitions
                          + ", replication=" + replication;
 
-      if (!kUtil.createAndVerifyTopic(zkClient, topic, partitions, replication, ONE_YEAR_RETENTION)) {
+      if (!kUtil.createAndVerifyTopic(zkClient, topic, partitions, replication,
+              ONE_YEAR_RETENTION, false)) {
         fail("Failed to create and/or verify topic " + topicDesc);
       }
       waitUntilMetadataIsPropagated(topic, partitions, cluster, numBrokers);

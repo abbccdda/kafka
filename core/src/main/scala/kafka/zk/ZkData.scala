@@ -18,6 +18,7 @@ package kafka.zk
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.util.Properties
+import java.util.UUID
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.core.JsonProcessingException
@@ -237,30 +238,41 @@ object TopicsZNode {
 }
 
 object TopicZNode {
+  case class TopicIdReplicaAssignment(topic: String, topicId: Option[UUID], assignment: Map[TopicPartition, Seq[Int]])
+
   def path(topic: String) = s"${TopicsZNode.path}/$topic"
-  def encode(assignment: collection.Map[TopicPartition, Seq[Int]]): Array[Byte] = {
+
+  def encode(topicId: Option[UUID], assignment: collection.Map[TopicPartition, Seq[Int]]): Array[Byte] = {
     val assignmentJson = assignment.map { case (partition, replicas) =>
       partition.partition.toString -> replicas.asJava
     }
-    Json.encodeAsBytes(Map("version" -> 1, "partitions" -> assignmentJson.asJava).asJava)
+
+    val topicAssignment = if (topicId.isDefined)
+      Map("version" -> 1, "confluent_topic_id" -> topicId.get.toString, "partitions" -> assignmentJson.asJava).asJava
+    else
+      Map("version" -> 1, "partitions" -> assignmentJson.asJava).asJava
+
+    Json.encodeAsBytes(topicAssignment)
   }
-  def decode(topic: String, bytes: Array[Byte]): Map[TopicPartition, Seq[Int]] = {
-    Json.parseBytes(bytes).flatMap { js =>
+
+  def decode(topic: String, bytes: Array[Byte]): TopicIdReplicaAssignment = {
+    Json.parseBytes(bytes).map { js =>
       val assignmentJson = js.asJsonObject
+      val topicId = assignmentJson.get("confluent_topic_id").map(_.to[String]).map(UUID.fromString)
       val partitionsJsonOpt = assignmentJson.get("partitions").map(_.asJsonObject)
-      partitionsJsonOpt.map { partitionsJson =>
+      val partitions = partitionsJsonOpt.map { partitionsJson =>
         partitionsJson.iterator.map { case (partition, replicas) =>
           new TopicPartition(topic, partition.toInt) -> replicas.to[Seq[Int]]
-        }
-      }
-    }.map(_.toMap).getOrElse(Map.empty)
+        }.toMap
+      }.getOrElse(Map.empty[TopicPartition, Seq[Int]])
+      TopicIdReplicaAssignment(topic, topicId, partitions)
+    }.getOrElse(TopicIdReplicaAssignment(topic, None, Map.empty[TopicPartition, Seq[Int]]))
   }
 }
 
 object TopicPartitionsZNode {
   def path(topic: String) = s"${TopicZNode.path(topic)}/partitions"
 }
-
 object TopicPartitionZNode {
   def path(partition: TopicPartition) = s"${TopicPartitionsZNode.path(partition.topic)}/${partition.partition}"
 }

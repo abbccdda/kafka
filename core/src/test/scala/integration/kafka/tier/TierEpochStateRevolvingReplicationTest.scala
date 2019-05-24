@@ -21,7 +21,7 @@ import java.util.Properties
 
 import kafka.log.AbstractLog
 import kafka.server.KafkaConfig._
-import kafka.server.epoch.{LeaderEpochFileCache, EpochEntry}
+import kafka.server.epoch.LeaderEpochFileCache
 import kafka.server.{KafkaServer, KafkaConfig}
 import kafka.utils.{TestUtils, Logging}
 import kafka.utils.TestUtils._

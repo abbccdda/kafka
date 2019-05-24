@@ -17,6 +17,8 @@
 
 package kafka.controller
 
+import java.util.UUID
+
 import kafka.cluster.Broker
 import org.apache.kafka.common.TopicPartition
 
@@ -32,6 +34,7 @@ class ControllerContext {
   var epochZkVersion: Int = KafkaController.InitialControllerEpochZkVersion
 
   var allTopics: Set[String] = Set.empty
+  var topicIds = mutable.Map.empty[String, UUID]
   val partitionAssignments = mutable.Map.empty[String, mutable.Map[Int, Seq[Int]]]
   val partitionLeadershipInfo = mutable.Map.empty[TopicPartition, LeaderIsrAndControllerEpoch]
   val partitionsBeingReassigned = mutable.Map.empty[TopicPartition, ReassignedPartitionsContext]
@@ -71,6 +74,7 @@ class ControllerContext {
 
   private def clearTopicsState(): Unit = {
     allTopics = Set.empty
+    topicIds.clear()
     partitionAssignments.clear()
     partitionLeadershipInfo.clear()
     partitionsBeingReassigned.clear()
@@ -78,6 +82,16 @@ class ControllerContext {
     partitionStates.clear()
     offlinePartitionCount = 0
     replicaStates.clear()
+  }
+
+  def addTopicId(topic: String, id: UUID): Unit = {
+    topicIds.get(topic).foreach { existingId =>
+      if (!existingId.equals(id))
+        throw new IllegalStateException("topic ID map already contained ID for topic "
+          + topic + " and new ID " + id + " did not match existing ID "
+          + existingId)
+    }
+    topicIds.put(topic, id)
   }
 
   def updatePartitionReplicaAssignment(topicPartition: TopicPartition, newReplicas: Seq[Int]): Unit = {
@@ -217,6 +231,7 @@ class ControllerContext {
 
   def removeTopic(topic: String): Unit = {
     allTopics -= topic
+    topicIds.remove(topic)
     partitionAssignments.remove(topic)
     partitionLeadershipInfo.foreach {
       case (topicPartition, _) if topicPartition.topic == topic => partitionLeadershipInfo.remove(topicPartition)

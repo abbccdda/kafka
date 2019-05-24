@@ -43,6 +43,7 @@
         <allow pkg="kafka.tier.exceptions"/>
         <allow pkg="kafka.tier.serdes"/>
         <allow pkg="kafka.tier.topic"/>
+	<allow class="kafka.tier.TopicIdPartition" />
     </subpackage>
 
 </import-control>

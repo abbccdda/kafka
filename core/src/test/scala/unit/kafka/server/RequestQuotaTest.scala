@@ -17,6 +17,7 @@ package kafka.server
 import java.nio.ByteBuffer
 import java.util.{Collections, LinkedHashMap, Optional, Properties}
 import java.util.concurrent.{Executors, Future, TimeUnit}
+import java.util.UUID
 
 import kafka.log.LogConfig
 import kafka.network.RequestChannel.Session
@@ -228,6 +229,13 @@ class RequestQuotaTest extends BaseRequestTest {
 
         case ApiKeys.LEADER_AND_ISR =>
           new LeaderAndIsrRequest.Builder(ApiKeys.LEADER_AND_ISR.latestVersion, brokerId, Int.MaxValue, Long.MaxValue,
+            Map(tp -> new LeaderAndIsrRequest.PartitionState(Int.MaxValue, brokerId, Int.MaxValue, List(brokerId).asJava,
+              2, Seq(brokerId).asJava, true)).asJava,
+            Set(new Node(brokerId, "localhost", 0)).asJava)
+
+        case ApiKeys.CONFLUENT_LEADER_AND_ISR =>
+          new ConfluentLeaderAndIsrRequest.Builder(ApiKeys.CONFLUENT_LEADER_AND_ISR.latestVersion, brokerId, Int.MaxValue, Long.MaxValue,
+            Map(tp.topic() -> UUID.fromString("e125dac2-033f-4ba3-9617-b95f973c3c9d")).asJava,
             Map(tp -> new LeaderAndIsrRequest.PartitionState(Int.MaxValue, brokerId, Int.MaxValue, List(brokerId).asJava,
               2, Seq(brokerId).asJava, true)).asJava,
             Set(new Node(brokerId, "localhost", 0)).asJava)

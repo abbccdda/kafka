@@ -9,6 +9,7 @@ import java.util.concurrent.TimeUnit
 
 import kafka.tier.TierMetadataManager
 import kafka.tier.fetcher.CancellationContext
+import kafka.tier.TopicIdPartition
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.utils.Time
 
@@ -16,14 +17,14 @@ import scala.concurrent.CancellationException
 
 private sealed trait LeadershipChange extends UpdatableQueueEntry
 
-private case class StartLeadership(topicPartition: TopicPartition, leaderEpoch: Int) extends LeadershipChange {
-  override type Key = TopicPartition
-  override def key: TopicPartition = topicPartition
+private case class StartLeadership(topicIdPartition: TopicIdPartition, leaderEpoch: Int) extends LeadershipChange {
+  override type Key = TopicIdPartition
+  override def key: TopicIdPartition = topicIdPartition
 }
 
-private final case class StopLeadership(topicPartition: TopicPartition) extends LeadershipChange {
-  override type Key = TopicPartition
-  override def key: TopicPartition = topicPartition
+private final case class StopLeadership(topicIdPartition: TopicIdPartition) extends LeadershipChange {
+  override type Key = TopicIdPartition
+  override def key: TopicIdPartition = topicIdPartition
 }
 
 trait TaskQueue[T] extends TierMetadataManager.ChangeListener with AutoCloseable {
@@ -35,7 +36,8 @@ trait TaskQueue[T] extends TierMetadataManager.ChangeListener with AutoCloseable
 }
 
 trait ArchiverTaskQueueTask {
-  val topicPartition: TopicPartition
+  val topicIdPartition: TopicIdPartition
+  val topicPartition: TopicPartition = topicIdPartition.topicPartition
   val ctx: CancellationContext
   def pausedUntil: Option[Instant]
 }
@@ -59,22 +61,22 @@ trait ArchiverTaskQueueTask {
 class ArchiverTaskQueue[T <: ArchiverTaskQueueTask](ctx: CancellationContext,
                                                     time: Time,
                                                     lagFn: T => Option[Long],
-                                                    taskFactoryFn: (CancellationContext, TopicPartition, Int) => T) extends TaskQueue[T] with AutoCloseable {
+                                                    taskFactoryFn: (CancellationContext, TopicIdPartition, Int) => T) extends TaskQueue[T] with AutoCloseable {
 
   private val leadershipChangeQueue: UpdatableQueue[LeadershipChange] = new UpdatableQueue()
   @volatile private var tasks: Set[T] = Set()
   private var processing: Set[T] = Set()
 
-  override def onBecomeLeader(topicPartition: TopicPartition, leaderEpoch: Int): Unit = {
-    leadershipChangeQueue.push(StartLeadership(topicPartition, leaderEpoch))
+  override def onBecomeLeader(topicIdPartition: TopicIdPartition, leaderEpoch: Int): Unit = {
+    leadershipChangeQueue.push(StartLeadership(topicIdPartition, leaderEpoch))
   }
 
-  override def onBecomeFollower(topicPartition: TopicPartition): Unit = {
-    leadershipChangeQueue.push(StopLeadership(topicPartition))
+  override def onBecomeFollower(topicIdPartition: TopicIdPartition): Unit = {
+    leadershipChangeQueue.push(StopLeadership(topicIdPartition))
   }
 
-  override def onDelete(topicPartition: TopicPartition): Unit = {
-    leadershipChangeQueue.push(StopLeadership(topicPartition))
+  override def onDelete(topicIdPartition: TopicIdPartition): Unit = {
+    leadershipChangeQueue.push(StopLeadership(topicIdPartition))
   }
 
   /**
@@ -94,14 +96,14 @@ class ArchiverTaskQueue[T <: ArchiverTaskQueueTask](ctx: CancellationContext,
 
   /**
     * Scans the set of all tasks, canceling and removing the first task found with a matching
-    * TopicPartition.
-    * @param topicPartition
+    * TopicIdPartition.
+    * @param topicIdPartition
     */
-  private def cancelAndRemoveAll(topicPartition: TopicPartition): Unit = {
-    processing.find(_.topicPartition == topicPartition).foreach(_.ctx.cancel())
-    processing = processing.filterNot(_.topicPartition == topicPartition)
-    tasks.find(_.topicPartition == topicPartition).foreach(_.ctx.cancel())
-    tasks = tasks.filterNot(_.topicPartition == topicPartition)
+  private def cancelAndRemoveAll(topicIdPartition: TopicIdPartition): Unit = {
+    processing.find(_.topicIdPartition == topicIdPartition).foreach(_.ctx.cancel())
+    processing = processing.filterNot(_.topicIdPartition == topicIdPartition)
+    tasks.find(_.topicIdPartition == topicIdPartition).foreach(_.ctx.cancel())
+    tasks = tasks.filterNot(_.topicIdPartition == topicIdPartition)
   }
 
   /**
@@ -122,13 +124,13 @@ class ArchiverTaskQueue[T <: ArchiverTaskQueueTask](ctx: CancellationContext,
       val timeBeforePoll = time.milliseconds() // measure start time so we know when to stop polling
       leadershipChangeQueue.pop(remainingWaitDuration.toMillis, TimeUnit.MILLISECONDS) match {
         case Some(startLeadership: StartLeadership) =>
-          val newTask = taskFactoryFn(ctx.subContext(), startLeadership.topicPartition, startLeadership.leaderEpoch)
-          cancelAndRemoveAll(newTask.topicPartition)
+          val newTask = taskFactoryFn(ctx.subContext(), startLeadership.topicIdPartition, startLeadership.leaderEpoch)
+          cancelAndRemoveAll(newTask.topicIdPartition)
           tasks += newTask
           newEntryProcessed = true
 
         case Some(stopLeadership: StopLeadership) =>
-          cancelAndRemoveAll(stopLeadership.topicPartition)
+          cancelAndRemoveAll(stopLeadership.topicIdPartition)
           newEntryProcessed = true
 
         case None => // if `leadershipChangeQueue.pop()` returned None, we hit our timeout so there is no work left to do.

@@ -18,6 +18,7 @@
 package org.apache.kafka.common.protocol;
 
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 public interface Readable {
     byte readByte();
@@ -54,4 +55,12 @@ public interface Readable {
         readArray(arr);
         return arr;
     }
+
+    /**
+     * Read a 128 bit UUID, with most significant bits followed by least significant bits
+     */
+    default UUID readUuid() {
+        return new UUID(readLong(), readLong());
+    }
+
 }

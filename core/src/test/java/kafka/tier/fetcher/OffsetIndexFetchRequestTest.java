@@ -6,9 +6,9 @@ package kafka.tier.fetcher;
 
 import kafka.log.OffsetIndex;
 import kafka.log.OffsetPosition;
+import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.store.TierObjectStore;
-import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Assert;
@@ -18,6 +18,7 @@ import org.junit.Test;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.UUID;
 import java.util.concurrent.CancellationException;
 
 public class OffsetIndexFetchRequestTest {
@@ -37,9 +38,11 @@ public class OffsetIndexFetchRequestTest {
             this.offsetIndex.file().delete();
         }
     }
-    private TopicPartition topicPartition = new TopicPartition("foo", 0);
+    private TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
+            UUID.randomUUID(), 0);
     private TierObjectMetadata tierObjectMetadata =
-            new TierObjectMetadata(topicPartition, 0, baseOffset, (int) (endOffset - baseOffset),
+            new TierObjectMetadata(topicIdPartition, 0, baseOffset,
+                    (int) (endOffset - baseOffset),
                     0, 0, 0, true, false, false, (byte) 0);
 
     @Test

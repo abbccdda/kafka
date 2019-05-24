@@ -32,12 +32,18 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.InputStream;
+import java.text.NumberFormat;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class S3TierObjectStore implements TierObjectStore {
     private final static Logger log = LoggerFactory.getLogger(S3TierObjectStore.class);
+    private final NumberFormat offsetFormat = NumberFormat.getInstance();
+    private final String clusterId;
+    private final int brokerId;
     private final String bucket;
     private final String sseAlgorithm;
     private final int partUploadSize;
@@ -49,10 +55,17 @@ public class S3TierObjectStore implements TierObjectStore {
 
     // used for testing
     S3TierObjectStore(AmazonS3 client, TierObjectStoreConfig config) {
+        this.clusterId = config.clusterId;
+        this.brokerId = config.brokerId;
         this.client = client;
         this.bucket = config.s3bucket;
         this.sseAlgorithm = config.s3SseAlgorithm;
         this.partUploadSize = config.s3MultipartUploadSize;
+
+        offsetFormat.setMinimumIntegerDigits(20);
+        offsetFormat.setMaximumFractionDigits(0);
+        offsetFormat.setGroupingUsed(false);
+
         expectBucket(bucket, config.s3Region);
     }
 
@@ -86,20 +99,30 @@ public class S3TierObjectStore implements TierObjectStore {
             File offsetIndexData, File timestampIndexData,
             File producerStateSnapshotData, File transactionIndexData,
             Optional<File> epochState) {
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put("metadata_version", Integer.toString(objectMetadata.version()));
+        metadata.put("topic", objectMetadata.topicIdPartition().topic());
+        metadata.put("cluster_id", clusterId);
+        metadata.put("broker_id", Integer.toString(brokerId));
         try {
             if (segmentData.length() <= partUploadSize)
-                putFile(keyPath(objectMetadata, TierObjectStoreFileType.SEGMENT), segmentData);
+                putFile(keyPath(objectMetadata, TierObjectStoreFileType.SEGMENT),
+                        metadata, segmentData);
             else
-                putFileMultipart(keyPath(objectMetadata, TierObjectStoreFileType.SEGMENT), segmentData);
+                putFileMultipart(keyPath(objectMetadata, TierObjectStoreFileType.SEGMENT),
+                 metadata, segmentData);
 
-            putFile(keyPath(objectMetadata, TierObjectStoreFileType.OFFSET_INDEX), offsetIndexData);
+            putFile(keyPath(objectMetadata, TierObjectStoreFileType.OFFSET_INDEX),
+             metadata, offsetIndexData);
             putFile(keyPath(objectMetadata, TierObjectStoreFileType.TIMESTAMP_INDEX),
-                timestampIndexData);
+                metadata, timestampIndexData);
             putFile(keyPath(objectMetadata, TierObjectStoreFileType.PRODUCER_STATE),
+                metadata,
                 producerStateSnapshotData);
             putFile(keyPath(objectMetadata, TierObjectStoreFileType.TRANSACTION_INDEX),
-                transactionIndexData);
-            epochState.ifPresent(file -> putFile(keyPath(objectMetadata, TierObjectStoreFileType.EPOCH_STATE), file));
+                metadata, transactionIndexData);
+            epochState.ifPresent(file -> putFile(keyPath(objectMetadata,
+                    TierObjectStoreFileType.EPOCH_STATE), metadata, file));
 
             return objectMetadata;
         } catch (final AmazonClientException e) {
@@ -107,32 +130,33 @@ public class S3TierObjectStore implements TierObjectStore {
         }
     }
 
-    private String keyPath(TierObjectMetadata objectMetadata, TierObjectStoreFileType fileType) {
-        return String.format("topic=%s/partition=%d/%s/%020d_%d.%s",
-                objectMetadata.topicPartition().topic(),
-                objectMetadata.topicPartition().partition(),
-                objectMetadata.messageId(),
-                objectMetadata.startOffset(),
-                objectMetadata.tierEpoch(),
-                fileType.getSuffix());
+    public String keyPath(TierObjectMetadata objectMetadata, TierObjectStoreFileType fileType) {
+        return objectMetadata.messageId() +
+                "/" + objectMetadata.topicIdPartition().topicId()
+                + "/" + objectMetadata.topicIdPartition().partition()
+                + "/" + offsetFormat.format(objectMetadata.startOffset())
+                + "_" + objectMetadata.tierEpoch()
+                + "_v" + objectMetadata.version()
+                + "." + fileType.getSuffix();
     }
 
-    private ObjectMetadata putObjectMetadata() {
-        final ObjectMetadata metadata = new ObjectMetadata();
+    private ObjectMetadata putObjectMetadata(Map<String, String> metadata) {
+        final ObjectMetadata objectMetadata = new ObjectMetadata();
+        objectMetadata.setUserMetadata(metadata);
         if (sseAlgorithm != null)
-            metadata.setSSEAlgorithm(sseAlgorithm);
-        return metadata;
+            objectMetadata.setSSEAlgorithm(sseAlgorithm);
+        return objectMetadata;
     }
 
-    private void putFile(String key, File file) {
+    private void putFile(String key, Map<String, String> metadata, File file) {
         final PutObjectRequest request = new PutObjectRequest(bucket, key, file);
-        request.setMetadata(putObjectMetadata());
+        request.setMetadata(putObjectMetadata(metadata));
         log.debug("Uploading object to s3://{}/{}", bucket, key);
         client.putObject(request);
     }
 
-    private void putFileMultipart(String key, File file) {
-        final ObjectMetadata objectMetadata = new ObjectMetadata();
+    private void putFileMultipart(String key, Map<String, String> metadata, File file) {
+        final ObjectMetadata objectMetadata = putObjectMetadata(metadata);
         final long fileLength = file.length();
         long partSize = partUploadSize;
         log.debug("Uploading multipart object to s3://{}/{}", bucket, key);
@@ -140,7 +164,6 @@ public class S3TierObjectStore implements TierObjectStore {
         final List<PartETag> partETags = new ArrayList<>();
         final InitiateMultipartUploadRequest initiateMultipartUploadRequest =
                 new InitiateMultipartUploadRequest(bucket, key, objectMetadata);
-        initiateMultipartUploadRequest.setObjectMetadata(putObjectMetadata());
         final InitiateMultipartUploadResult initiateMultipartUploadResult =
                 client.initiateMultipartUpload(initiateMultipartUploadRequest);
 

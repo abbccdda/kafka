@@ -83,9 +83,9 @@ public class TierTopicManager implements Runnable {
     private final AtomicBoolean shutdown = new AtomicBoolean(false);
     private TierTopicPartitioner partitioner;
     private final CountDownLatch shutdownInitiated = new CountDownLatch(2);
-    private Consumer<byte[], byte[]> primaryConsumer;
-    private Consumer<byte[], byte[]> catchUpConsumer;
-    private Producer<byte[], byte[]> producer;
+    private volatile Consumer<byte[], byte[]> primaryConsumer;
+    private volatile Consumer<byte[], byte[]> catchUpConsumer;
+    private volatile Producer<byte[], byte[]> producer;
     private volatile boolean ready = false;
     private volatile boolean partitionsImmigrated = false;
     private volatile boolean partitionsEmigrated = false;
@@ -119,18 +119,18 @@ public class TierTopicManager implements Runnable {
         this.producerBuilder = producerBuilder;
         tierMetadataManager.addListener(new TierMetadataManager.ChangeListener() {
             @Override
-            public void onBecomeLeader(TopicPartition topicPartition, int leaderEpoch) {
-                immigratePartitions(Collections.singletonList(topicPartition));
+            public void onBecomeLeader(TopicIdPartition topicIdPartition, int leaderEpoch) {
+                immigratePartitions(Collections.singletonList(topicIdPartition));
             }
 
             @Override
-            public void onBecomeFollower(TopicPartition topicPartition) {
-                immigratePartitions(Collections.singletonList(topicPartition));
+            public void onBecomeFollower(TopicIdPartition topicIdPartition) {
+                immigratePartitions(Collections.singletonList(topicIdPartition));
             }
 
             @Override
-            public void onDelete(TopicPartition topicPartition) {
-                emigratePartitions(Collections.singletonList(topicPartition));
+            public void onDelete(TopicIdPartition topicIdPartition) {
+                emigratePartitions(Collections.singletonList(topicIdPartition));
             }
         });
     }
@@ -169,10 +169,12 @@ public class TierTopicManager implements Runnable {
      */
     public void shutdown() {
         shutdown.set(true);
-        primaryConsumer.wakeup();
+        if (primaryConsumer != null)
+            primaryConsumer.wakeup();
         if (catchUpConsumer != null)
             catchUpConsumer.wakeup();
-        producer.close(Duration.ofSeconds(1));
+        if (producer != null)
+            producer.close(Duration.ofSeconds(1));
         try {
             if (managerThread != null && managerThread.isAlive()) { // if the manager thread never
                 // started, there's nothing
@@ -207,10 +209,10 @@ public class TierTopicManager implements Runnable {
     public CompletableFuture<AppendResult> addMetadata(AbstractTierMetadata entry) throws IllegalAccessException {
         ensureReady();
 
-        final TopicPartition tp = entry.topicPartition();
+        final TopicIdPartition tpid = entry.topicIdPartition();
         // track this entry's materialization
-        final CompletableFuture<AppendResult> result = resultListeners.addTracked(tp, entry);
-        producer.send(new ProducerRecord<>(topicName, partitioner.partitionId(tp),
+        final CompletableFuture<AppendResult> result = resultListeners.addTracked(tpid, entry);
+        producer.send(new ProducerRecord<>(topicName, partitioner.partitionId(tpid),
                         entry.serializeKey(),
                         entry.serializeValue()),
                 (recordMetadata, exception) -> {
@@ -226,7 +228,7 @@ public class TierTopicManager implements Runnable {
                                             "Fatal exception sending tier metadata.",
                                             exception));
                         }
-                        resultListeners.getAndRemoveTracked(tp, entry);
+                        resultListeners.getAndRemoveTracked(tpid, entry);
                     }
                 });
         return result;
@@ -235,29 +237,30 @@ public class TierTopicManager implements Runnable {
     /**
      * Return the TierPartitionState for a given topic partition.
      *
-     * @param topicPartition tiered topic partition
+     * @param topicIdPartition tiered topic partition
      * @return TierPartitionState for this partition.
      */
-    public TierPartitionState partitionState(TopicPartition topicPartition) {
-        return tierMetadataManager.tierPartitionState(topicPartition)
-                .orElseThrow(() -> new IllegalStateException("Tier partition state for " + topicPartition + " not found"));
+    public TierPartitionState partitionState(TopicIdPartition topicIdPartition) {
+        return tierMetadataManager.tierPartitionState(topicIdPartition)
+                .orElseThrow(() -> new IllegalStateException("Tier partition state for " + topicIdPartition + " not found"));
     }
 
     /**
      * Performs a write to the tier topic to attempt to become leader for the tiered topic partition.
      *
-     * @param topicPartition the topic partition for which the sender wishes to become the archive leader.
+     * @param topicIdPartition the topic partition for which the sender wishes to become the archive leader.
      * @param tierEpoch      the archiver epoch
      * @return a CompletableFuture which returns the result of the send and subsequent materialization.
      */
-    public CompletableFuture<AppendResult> becomeArchiver(TopicPartition topicPartition,
+    public CompletableFuture<AppendResult> becomeArchiver(TopicIdPartition topicIdPartition,
                                                           int tierEpoch) throws IllegalAccessException {
         ensureReady();
         // Generate a unique ID in order to track the leader request under scenarios
         // where we maintain the same leader ID.
         // This is possible when there is a single broker, and is primarily for defensive reasons.
         final UUID messageId = UUID.randomUUID();
-        final TierTopicInitLeader initRecord = new TierTopicInitLeader(topicPartition, tierEpoch, messageId, config.brokerId);
+        final TierTopicInitLeader initRecord = new TierTopicInitLeader(topicIdPartition,
+                tierEpoch, messageId, config.brokerId);
         return addMetadata(initRecord);
     }
 
@@ -378,7 +381,7 @@ public class TierTopicManager implements Runnable {
      * package-private for testing purposes.
      * @param partitions the TopicPartitions to immigrate
      */
-    void immigratePartitions(List<TopicPartition> partitions) {
+    void immigratePartitions(List<TopicIdPartition> partitions) {
         if (!partitions.isEmpty())
             partitionsImmigrated = true;
     }
@@ -390,9 +393,9 @@ public class TierTopicManager implements Runnable {
      * package-private for testing purposes.
      * @param partitions the TopicPartitions to emigrate
      */
-    void emigratePartitions(List<TopicPartition> partitions) {
-        for (TopicPartition tp : partitions) {
-            resultListeners.remove(tp);
+    void emigratePartitions(List<TopicIdPartition> partitions) {
+        for (TopicIdPartition tpid : partitions) {
+            resultListeners.remove(tpid);
             partitionsEmigrated = true;
         }
     }
@@ -444,10 +447,7 @@ public class TierTopicManager implements Runnable {
         if (states.isEmpty()) {
             stopCatchUpConsumer();
         } else {
-            List<TopicPartition> catchUpPartitions = states
-                    .stream()
-                    .map(TierPartitionState::topicPartition)
-                    .collect(Collectors.toList());
+            List<TopicIdPartition> catchUpPartitions = getCatchUpPartititions(states);
             log.info("Assigning tier topic partitions to catch up consumer {}", catchUpPartitions);
             catchUpConsumer.assign(requiredPartitions(catchUpPartitions));
         }
@@ -459,9 +459,7 @@ public class TierTopicManager implements Runnable {
             if (!states.isEmpty()) {
                 for (TierPartitionState state : states)
                     state.beginCatchup();
-
-                final List<TopicPartition> catchUpPartitions =
-                        states.stream().map(TierPartitionState::topicPartition).collect(Collectors.toList());
+                List<TopicIdPartition> catchUpPartitions = getCatchUpPartititions(states);
                 catchUpConsumer = consumerBuilder.setupConsumer(bootstrapServersSupplier.get(), topicName, "catchup");
                 catchUpConsumer.assign(requiredPartitions(catchUpPartitions));
 
@@ -471,6 +469,15 @@ public class TierTopicManager implements Runnable {
                 catchUpConsumer.seekToBeginning(catchUpConsumer.assignment());
             }
         }
+    }
+
+    private List<TopicIdPartition> getCatchUpPartititions(List<TierPartitionState> states) {
+        return states
+                .stream()
+                .map(TierPartitionState::topicIdPartition)
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .collect(Collectors.toList());
     }
 
     TierTopicManagerCommitter committer() {
@@ -493,10 +500,10 @@ public class TierTopicManager implements Runnable {
      * @param tieredPartitions partitions that have been tiered
      * @return The partitions on the Tier Topic containing data for tieredPartitions
      */
-    private Collection<TopicPartition> requiredPartitions(Collection<TopicPartition> tieredPartitions) {
+    private Collection<TopicPartition> requiredPartitions(Collection<TopicIdPartition> tieredPartitions) {
         return tieredPartitions
                 .stream()
-                .map(tp -> new TopicPartition(topicName, partitioner.partitionId(tp)))
+                .map(tpid -> new TopicPartition(topicName, partitioner.partitionId(tpid)))
                 .distinct()
                 .collect(Collectors.toList());
     }
@@ -607,8 +614,8 @@ public class TierTopicManager implements Runnable {
      *                      Otherwise the entry will be ignored.
      */
     private void processEntry(AbstractTierMetadata entry, TierPartitionStatus requiredState) throws IOException {
-        final TopicPartition tp = entry.topicPartition();
-        final Optional<TierPartitionState> tierPartitionStateOpt = tierMetadataManager.tierPartitionState(tp);
+        final TopicIdPartition tpid = entry.topicIdPartition();
+        final Optional<TierPartitionState> tierPartitionStateOpt = tierMetadataManager.tierPartitionState(tpid);
         if (!tierPartitionStateOpt.isPresent())
             return;
 
@@ -617,11 +624,11 @@ public class TierTopicManager implements Runnable {
             final AppendResult result = tierPartitionState.append(entry);
             log.debug("Read entry {}, append result {}", entry, result);
             // signal completion of this tier topic entry if this topic manager was the sender
-            resultListeners.getAndRemoveTracked(tp, entry)
+            resultListeners.getAndRemoveTracked(tpid, entry)
                     .ifPresent(c -> c.complete(result));
         } else {
             log.debug("TierPartitionState {} not in required state {}. Ignoring metadata {}.",
-                    tp, requiredState, entry);
+                    tpid, requiredState, entry);
         }
     }
 
@@ -640,7 +647,8 @@ public class TierTopicManager implements Runnable {
      * user when their metadata requests have been read and materialized.
      */
     private static class TierTopicListeners {
-        private final ConcurrentHashMap<TopicPartition, Entry> results = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<TopicIdPartition, Entry> results =
+                new ConcurrentHashMap<>();
 
         /**
          * Checks whether a given tier index entry is being tracked. If so,
@@ -651,7 +659,7 @@ public class TierTopicManager implements Runnable {
          * @return CompletableFuture for this index entry if one exists.
          */
         Optional<CompletableFuture<AppendResult>>
-        getAndRemoveTracked(TopicPartition tp, AbstractTierMetadata entry) {
+        getAndRemoveTracked(TopicIdPartition tp, AbstractTierMetadata entry) {
             final Entry complete = results.get(tp);
             if (complete != null && complete.key.equals(listenerKey(entry))) {
                 results.remove(tp, complete);
@@ -665,36 +673,36 @@ public class TierTopicManager implements Runnable {
          * If an index entry is already being tracked, then we exceptionally
          * complete the existing future before adding the new entry and future.
          *
-         * @param tp    tiered topic partition
+         * @param tpid    tiered topic partition
          * @param entry tier index topic entry to track materialization of.
          * @return future that will be completed when the entry has been materialized.
          */
-        CompletableFuture<AppendResult> addTracked(TopicPartition tp,
+        CompletableFuture<AppendResult> addTracked(TopicIdPartition tpid,
                                                    AbstractTierMetadata entry) {
             final CompletableFuture<AppendResult> result = new CompletableFuture<>();
             final Entry complete = new Entry(listenerKey(entry), result);
-            final Entry found = results.get(tp);
+            final Entry found = results.get(tpid);
             if (found != null) {
                 found.future.completeExceptionally(
                         new TierMetadataFatalException(
                                 "A new index entry is being tracked for this topic partition"
                                         + ", obsoleting this request."));
             }
-            results.put(tp, complete);
+            results.put(tpid, complete);
             return result;
         }
 
         /**
          * Stop tracking this partition after partition emigration
          *
-         * @param tp topic partition.
+         * @param tpid topic id partition.
          */
-        void remove(TopicPartition tp) {
-            final Entry found = results.get(tp);
+        void remove(TopicIdPartition tpid) {
+            final Entry found = results.get(tpid);
             if (found != null) {
                 found.future.completeExceptionally(new TierMetadataFatalException("TierPartitionState has"
                         + " been immigrated by the topic manager."));
-                results.remove(tp, found);
+                results.remove(tpid, found);
             }
         }
 
@@ -718,7 +726,7 @@ public class TierTopicManager implements Runnable {
         TierMetadataListener listenerKey(AbstractTierMetadata message) {
             if (message instanceof TierObjectMetadata) {
                 TierObjectMetadata metadata = (TierObjectMetadata) message;
-                return new TierObjectMetadataListener(metadata.topicPartition(),
+                return new TierObjectMetadataListener(metadata.topicIdPartition(),
                         metadata.tierEpoch(), metadata.startOffset(),
                         metadata.endOffsetDelta());
             } else if (message instanceof TierTopicInitLeader) {
@@ -735,20 +743,23 @@ public class TierTopicManager implements Runnable {
         }
 
         class TierObjectMetadataListener implements TierMetadataListener {
-            private final TopicPartition topicPartition;
+            private final TopicIdPartition topicIdPartition;
             private final int tierEpoch;
             private final long startOffset;
             private final int endOffsetDelta;
 
-            TierObjectMetadataListener(TopicPartition topicPartition, int tierEpoch, long startOffset, int endOffsetDelta) {
-                this.topicPartition = topicPartition;
+            TierObjectMetadataListener(TopicIdPartition topicIdPartition,
+                                       int tierEpoch,
+                                       long startOffset,
+                                       int endOffsetDelta) {
+                this.topicIdPartition = topicIdPartition;
                 this.tierEpoch = tierEpoch;
                 this.startOffset = startOffset;
                 this.endOffsetDelta = endOffsetDelta;
             }
 
             public int hashCode() {
-                return Objects.hash(topicPartition, tierEpoch, startOffset, endOffsetDelta);
+                return Objects.hash(topicIdPartition, tierEpoch, startOffset, endOffsetDelta);
             }
 
             public boolean equals(Object o) {
@@ -761,7 +772,7 @@ public class TierTopicManager implements Runnable {
                 }
 
                 TierObjectMetadataListener that = (TierObjectMetadataListener) o;
-                return Objects.equals(topicPartition, that.topicPartition)
+                return Objects.equals(topicIdPartition, that.topicIdPartition)
                         && Objects.equals(tierEpoch, that.tierEpoch)
                         && Objects.equals(startOffset, that.startOffset)
                         && Objects.equals(endOffsetDelta, that.endOffsetDelta);
@@ -792,6 +803,5 @@ public class TierTopicManager implements Runnable {
                 return Objects.equals(messageId, that.messageId);
             }
         }
-
     }
 }

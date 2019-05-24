@@ -5,8 +5,8 @@
 package kafka.tier.domain;
 
 import com.google.flatbuffers.FlatBufferBuilder;
+import kafka.tier.TopicIdPartition;
 import kafka.tier.serdes.ObjectMetadata;
-import org.apache.kafka.common.TopicPartition;
 
 import java.nio.ByteBuffer;
 import java.util.Objects;
@@ -14,22 +14,23 @@ import java.util.UUID;
 
 public class TierObjectMetadata extends AbstractTierMetadata {
     public final static byte ID = 1;
-    private final TopicPartition topicPartition;
+    private final TopicIdPartition topicIdPartition;
     private final ObjectMetadata metadata;
     private final static byte VERSION_VO = 0;
     private final static byte CURRENT_VERSION = VERSION_VO;
     private final static int BASE_BUFFER_SIZE = 108;
 
-    public TierObjectMetadata(TopicPartition topicPartition, ObjectMetadata metadata) {
-        this.topicPartition = topicPartition;
+    public TierObjectMetadata(TopicIdPartition topicIdPartition, ObjectMetadata metadata) {
+        this.topicIdPartition = topicIdPartition;
         this.metadata = metadata;
     }
 
-    public TierObjectMetadata(TopicPartition topicPartition, int tierEpoch,
+    public TierObjectMetadata(TopicIdPartition topicIdPartition, int tierEpoch,
                               long startOffset, int endOffsetDelta,
                               long lastStableOffset, long maxTimestamp,
                               int size, boolean hasEpochState,
-                              boolean hasProducerState, boolean hasAborts, byte state) {
+                              boolean hasProducerState,
+                              boolean hasAborts, byte state) {
         // Random ID to provide uniqueness when generating object store paths.
         final UUID messageId = UUID.randomUUID();
 
@@ -37,7 +38,7 @@ public class TierObjectMetadata extends AbstractTierMetadata {
             throw new IllegalArgumentException(String.format("Illegal tierEpoch supplied %d.", tierEpoch));
         }
 
-        this.topicPartition = topicPartition;
+        this.topicIdPartition = topicIdPartition;
         final FlatBufferBuilder builder = new FlatBufferBuilder(BASE_BUFFER_SIZE)
                 .forceDefaults(true);
         ObjectMetadata.startObjectMetadata(builder);
@@ -106,8 +107,8 @@ public class TierObjectMetadata extends AbstractTierMetadata {
         return metadata.size();
     }
 
-    public TopicPartition topicPartition() {
-        return topicPartition;
+    public TopicIdPartition topicIdPartition() {
+        return topicIdPartition;
     }
 
     public boolean hasEpochState() {
@@ -132,18 +133,19 @@ public class TierObjectMetadata extends AbstractTierMetadata {
 
     @Override
     public String toString() {
-        return String.format("TierObjectMetadata(topic='%s', partition=%s,"
+        return String.format("TierObjectMetadata(topic='%s', topicId='%s', partition=%s,"
                         + " tierEpoch=%s, version=%s, startOffset=%s,"
                         + " endOffsetDelta=%s, lastStableOffset=%s, hasAborts=%s,"
                         + " maxTimestamp=%s, messageId=%s, size=%s, status=%s,"
                         + " hasProducerState=%s)",
-                topicPartition.topic(), topicPartition.partition(), tierEpoch(), version(), startOffset(),
-                endOffsetDelta(), lastStableOffset(), hasAborts(), maxTimestamp(), messageId(), size(),
-                state(), hasProducerState());
+                topicIdPartition.topic(), topicIdPartition.topicId(),
+                topicIdPartition.partition(), tierEpoch(), version(), startOffset(),
+                endOffsetDelta(), lastStableOffset(), hasAborts(), maxTimestamp(), messageId(),
+                size(), state(), hasProducerState());
     }
 
     public int hashCode() {
-        return Objects.hash(topicPartition, tierEpoch(),
+        return Objects.hash(topicIdPartition, tierEpoch(),
                 startOffset(), endOffsetDelta(), lastStableOffset(),
                 hasAborts(), maxTimestamp(), messageId(), size(),
                 version(), state(), hasProducerState());
@@ -159,7 +161,7 @@ public class TierObjectMetadata extends AbstractTierMetadata {
         }
 
         TierObjectMetadata that = (TierObjectMetadata) o;
-        return Objects.equals(topicPartition, that.topicPartition)
+        return Objects.equals(topicIdPartition, that.topicIdPartition)
                 && Objects.equals(tierEpoch(), that.tierEpoch())
                 && Objects.equals(startOffset(), that.startOffset())
                 && Objects.equals(endOffsetDelta(), that.endOffsetDelta())

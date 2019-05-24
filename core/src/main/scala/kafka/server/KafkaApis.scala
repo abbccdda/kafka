@@ -39,6 +39,7 @@ import kafka.security.auth.{Resource, _}
 import kafka.server.QuotaFactory.{QuotaManagers, UnboundedQuota}
 import kafka.tier.TierMetadataManager
 import kafka.tier.client.ProducerBuilder
+import kafka.tier.TopicIdPartition
 import kafka.utils.{CoreUtils, Logging}
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.clients.admin.{AlterConfigOp, ConfigEntry}
@@ -188,6 +189,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   private def handleInternalRequest(request: RequestChannel.Request) {
     request.header.apiKey match {
       case ApiKeys.TIER_LIST_OFFSET => handleTierListOffsetRequest(request)
+      case ApiKeys.CONFLUENT_LEADER_AND_ISR => handleLeaderAndIsrRequest(request)
       case _ => throw new IllegalArgumentException(s"Unsupported API key ${request.header.apiKey.id}")
     }
   }
@@ -241,7 +243,11 @@ class KafkaApis(val requestChannel: RequestChannel,
     // We can't have the ensureTopicExists check here since the controller sends it as an advisory to all brokers so they
     // stop serving data to clients for the topic being deleted
     val correlationId = request.header.correlationId
-    val leaderAndIsrRequest = request.body[LeaderAndIsrRequest]
+    val leaderAndIsrRequest = request.body[AbstractRequest] match {
+      case request: ConfluentLeaderAndIsrRequest => request.asInstanceOf[LeaderAndIsrRequestBase]
+      case request: LeaderAndIsrRequest => request.asInstanceOf[LeaderAndIsrRequestBase]
+      case _ => throw new IllegalArgumentException("Unsupported LeaderAndIsrRequestBase argument supplied " + request.getClass)
+    }
 
     def onLeadershipChange(updatedLeaders: Iterable[Partition], updatedFollowers: Iterable[Partition]) {
       // for each new leader or follower, call coordinator to handle consumer group migration.
@@ -253,7 +259,11 @@ class KafkaApis(val requestChannel: RequestChannel,
         else if (partition.topic == TRANSACTION_STATE_TOPIC_NAME)
           txnCoordinator.handleTxnImmigration(partition.partitionId, partition.getLeaderEpoch)
 
-        tierMetadataManager.becomeLeader(partition.topicPartition, partition.getLeaderEpoch)
+        val topicId = leaderAndIsrRequest.topicIds().get(partition.topic)
+        if (topicId != null) {
+          val topicIdPartition = new TopicIdPartition(partition.topic, topicId, partition.topicPartition.partition)
+          tierMetadataManager.becomeLeader(topicIdPartition, partition.getLeaderEpoch)
+        }
       }
 
       updatedFollowers.foreach { partition =>
@@ -262,16 +272,21 @@ class KafkaApis(val requestChannel: RequestChannel,
         else if (partition.topic == TRANSACTION_STATE_TOPIC_NAME)
           txnCoordinator.handleTxnEmigration(partition.partitionId, partition.getLeaderEpoch)
 
-        tierMetadataManager.becomeFollower(partition.topicPartition)
+        val topicId = leaderAndIsrRequest.topicIds().get(partition.topic)
+        if (topicId != null) {
+          val topicIdPartition = new TopicIdPartition(partition.topic, topicId, partition.topicPartition.partition)
+          tierMetadataManager.becomeFollower(topicIdPartition)
+        }
       }
     }
 
+    val brokerEpoch = request.body[AbstractControlRequest].brokerEpoch
     authorizeClusterAction(request)
-    if (isBrokerEpochStale(leaderAndIsrRequest.brokerEpoch())) {
+    if (isBrokerEpochStale(brokerEpoch)) {
       // When the broker restarts very quickly, it is possible for this broker to receive request intended
       // for its previous generation so the broker should skip the stale request.
       info("Received LeaderAndIsr request with broker epoch " +
-        s"${leaderAndIsrRequest.brokerEpoch()} smaller than the current broker epoch ${controller.brokerEpoch}")
+        s"$brokerEpoch smaller than the current broker epoch ${controller.brokerEpoch}")
       sendResponseExemptThrottle(request, leaderAndIsrRequest.getErrorResponse(0, Errors.STALE_BROKER_EPOCH.exception))
     } else {
       val response = replicaManager.becomeLeaderOrFollower(correlationId, leaderAndIsrRequest, onLeadershipChange)
@@ -1048,7 +1063,7 @@ class KafkaApis(val requestChannel: RequestChannel,
                           replicationFactor: Int,
                           properties: Properties = new Properties()): MetadataResponse.TopicMetadata = {
     try {
-      adminZkClient.createTopic(topic, numPartitions, replicationFactor, properties, RackAwareMode.Safe)
+      adminZkClient.createTopic(topic, numPartitions, replicationFactor, properties, RackAwareMode.Safe, config.tierFeature)
       info("Auto creation of topic %s with %d partitions and replication factor %d is successful"
         .format(topic, numPartitions, replicationFactor))
       new MetadataResponse.TopicMetadata(Errors.LEADER_NOT_AVAILABLE, topic, isInternal(topic),
@@ -1708,7 +1723,8 @@ class KafkaApis(val requestChannel: RequestChannel,
       adminManager.createTopics(createTopicsRequest.data.timeoutMs(),
           createTopicsRequest.data.validateOnly(),
           toCreate,
-          handleCreateTopicsResults)
+          handleCreateTopicsResults,
+          config.tierFeature)
     }
   }
 

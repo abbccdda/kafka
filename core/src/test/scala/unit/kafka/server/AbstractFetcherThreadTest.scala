@@ -21,6 +21,7 @@ import java.nio.ByteBuffer
 import java.util.Optional
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.UUID
 
 import com.yammer.metrics.Metrics
 import kafka.cluster.BrokerEndPoint
@@ -31,6 +32,7 @@ import kafka.server.epoch.EpochEntry
 import kafka.tier.TierMetadataManager
 import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.serdes.State
+import kafka.tier.TopicIdPartition
 import kafka.utils.TestUtils
 import org.apache.kafka.common.KafkaException
 import org.apache.kafka.common.TopicPartition
@@ -886,7 +888,8 @@ class AbstractFetcherThreadTest {
   // [    ] => follower
   @Test
   def testTierTieredFollowerGapRestore(): Unit = {
-    val partition = new TopicPartition("topic", 0)
+    val topicIdPartition = new TopicIdPartition("topic", UUID.randomUUID(), 0)
+    val partition = topicIdPartition.topicPartition()
     val tierMetadataManager = mock(classOf[TierMetadataManager])
     val promise = new CompletableFuture[TierObjectMetadata]()
     when(tierMetadataManager.materializeUntilOffset(partition, 39L)).thenReturn(promise)
@@ -940,7 +943,7 @@ class AbstractFetcherThreadTest {
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[MaterializingTierMetadata])
     assertEquals(0L, fetcher.fetchState(partition).get.fetchOffset)
 
-    promise.complete(new TierObjectMetadata(partition, 0, 40L, 9, 0L, 0L, 100, false, false, false, State.AVAILABLE))
+    promise.complete(new TierObjectMetadata(topicIdPartition, 0, 40L, 9, 0L, 0L, 100, false, false, false, State.AVAILABLE))
 
     fetcher.doWork() // transitions partition to FetchingTierState state
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[FetchingTierState])
@@ -963,8 +966,8 @@ class AbstractFetcherThreadTest {
 
   @Test
   def testOffsetTieredLeaderEpochExceptionRetried(): Unit = {
-
-    val partition = new TopicPartition("topic", 0)
+    val topicIdPartition = new TopicIdPartition("topic", UUID.randomUUID(), 0)
+    val partition = topicIdPartition.topicPartition()
     val tierMetadataManager = mock(classOf[TierMetadataManager])
     when(tierMetadataManager.materializeUntilOffset(partition, 9L))
       .thenReturn(new CompletableFuture[TierObjectMetadata]())
@@ -1020,8 +1023,8 @@ class AbstractFetcherThreadTest {
   // Materialization completed exceptionally
   @Test
   def testMaterializationExceptionRetry(): Unit = {
-
-    val partition = new TopicPartition("topic", 0)
+    val topicIdPartition = new TopicIdPartition("topic", UUID.randomUUID(), 0)
+    val partition = topicIdPartition.topicPartition()
     val tierMetadataManager = mock(classOf[TierMetadataManager])
     val promise = new CompletableFuture[TierObjectMetadata]()
     val promiseSuccessful = new CompletableFuture[TierObjectMetadata]()
@@ -1078,7 +1081,7 @@ class AbstractFetcherThreadTest {
 
       fetcher.fetchState(partition).get.state.isInstanceOf[MaterializingTierMetadata])
 
-    promiseSuccessful.complete(new TierObjectMetadata(partition, 0, 9L, 1, 0L, 0L, 100, false, false, false, State.AVAILABLE))
+    promiseSuccessful.complete(new TierObjectMetadata(topicIdPartition, 0, 9L, 1, 0L, 0L, 100, false, false, false, State.AVAILABLE))
 
     fetcher.doWork() // transitions partition to FetchingTierState state
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[FetchingTierState])
@@ -1099,7 +1102,8 @@ class AbstractFetcherThreadTest {
   // Complete tier fetch request exceptionally
   @Test
   def testTierFetcherExceptionRetry(): Unit = {
-    val partition = new TopicPartition("topic", 0)
+    val topicIdPartition = new TopicIdPartition("topic", UUID.randomUUID(), 0)
+    val partition = topicIdPartition.topicPartition()
     val tierMetadataManager = mock(classOf[TierMetadataManager])
     val materialization1 = new CompletableFuture[TierObjectMetadata]()
 
@@ -1141,7 +1145,7 @@ class AbstractFetcherThreadTest {
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[MaterializingTierMetadata])
 
     // complete tier materialization
-    materialization1.complete(new TierObjectMetadata(partition, 0, 9L, 1, 0L, 0L, 100, false, false, false, State.AVAILABLE))
+    materialization1.complete(new TierObjectMetadata(topicIdPartition, 0, 9L, 1, 0L, 0L, 100, false, false, false, State.AVAILABLE))
 
     fetcher.doWork() // transitions partition to FetchingTierState state
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[FetchingTierState])

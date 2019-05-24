@@ -154,7 +154,7 @@ public class EmbeddedKafka {
     try (KafkaZkClient kafkaZkClient = createZkClient()) {
       AdminZkClient adminZkClient = new AdminZkClient(kafkaZkClient);
       adminZkClient.createTopic(topic, partitions, replication, topicConfig,
-          RackAwareMode.Enforced$.MODULE$);
+              RackAwareMode.Enforced$.MODULE$, kafkaServer().config().tierFeature());
     }
   }
 

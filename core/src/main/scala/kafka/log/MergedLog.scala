@@ -16,6 +16,7 @@ import kafka.tier.TierMetadataManager
 import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.state.{MemoryTierPartitionStateFactory, TierPartitionState}
 import kafka.tier.TierTimestampAndOffset
+import kafka.tier.TopicIdPartition
 import kafka.utils.{Logging, Scheduler}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{KafkaStorageException, OffsetOutOfRangeException}
@@ -263,6 +264,8 @@ class MergedLog(private[log] val localLog: Log,
       logStartOffset = newOffset
   }
 
+  def topicIdPartition: Option[TopicIdPartition] = tierPartitionState.topicIdPartition.asScala
+
   def onRestoreTierState(proposeLocalLogStart: Long, leaderEpochEntries: List[EpochEntry]): Unit = lock synchronized {
     if (!localLog.leaderEpochCache.isDefined) {
       throw new IllegalStateException("Message format must be upgraded before restoring tier state can be allowed.")
@@ -400,7 +403,7 @@ class MergedLog(private[log] val localLog: Log,
 
   // Construct TierLogSegment from the given metadata
   private def tierSegment(objectMetadata: TierObjectMetadata): TierLogSegment = {
-    new TierLogSegment(objectMetadata, tierMetadataManager.tierObjectStore)
+    new TierLogSegment(topicPartition, objectMetadata, tierMetadataManager.tierObjectStore)
   }
 
   // Throw an exception if "offset" has been tiered and has been deleted or is not present in the local log

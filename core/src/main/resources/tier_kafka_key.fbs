@@ -11,12 +11,10 @@ struct UUID {
   leastSignificantBits: long;
 }
 
-
-table TierPartitionStateHeader {
-  version: byte (id: 0);
-  topicId: UUID (id: 1);
-  tierEpoch: int (id: 2);
-  status: byte (id: 3);
+table TierKafkaKey {
+  topicId: UUID (id: 0);
+  partition: int (id: 1);
+  topicName: string (id: 2);
 }
 
-root_type TierPartitionStateHeader;
+root_type TierKafkaKey;

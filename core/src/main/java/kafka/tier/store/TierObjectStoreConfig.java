@@ -7,6 +7,8 @@ package kafka.tier.store;
 import kafka.server.KafkaConfig;
 
 public class TierObjectStoreConfig {
+    public String clusterId;
+    public Integer brokerId;
     public String s3bucket;
     public String s3Region;
     public String s3AwsSecretAccessKey;
@@ -16,7 +18,9 @@ public class TierObjectStoreConfig {
     public String s3SseAlgorithm;
     public Integer s3MultipartUploadSize;
 
-    public TierObjectStoreConfig(KafkaConfig config) {
+    public TierObjectStoreConfig(String clusterId, KafkaConfig config) {
+        this.clusterId = clusterId;
+        this.brokerId = config.brokerId();
         this.s3bucket = config.tierS3Bucket();
         this.s3Region = config.tierS3Region();
         this.s3AwsSecretAccessKey = config.tierS3AwsSecretAccessKey();
@@ -29,7 +33,9 @@ public class TierObjectStoreConfig {
     }
 
     // used for testing
-    TierObjectStoreConfig(String s3bucket,
+    TierObjectStoreConfig(String clusterId,
+                          Integer brokerId,
+                          String s3bucket,
                           String s3Region,
                           String s3AwsSecretAccessKey,
                           String s3AwsAccessKeyId,
@@ -37,6 +43,8 @@ public class TierObjectStoreConfig {
                           String s3SignerOverride,
                           String s3SseAlgorithm,
                           Integer s3MultipartUploadSize) {
+        this.clusterId = clusterId;
+        this.brokerId = brokerId;
         this.s3bucket = s3bucket;
         this.s3Region = s3Region;
         this.s3AwsSecretAccessKey = s3AwsSecretAccessKey;

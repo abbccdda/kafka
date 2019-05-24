@@ -79,7 +79,8 @@ class AdminManager(val config: KafkaConfig,
   def createTopics(timeout: Int,
                    validateOnly: Boolean,
                    toCreate: Map[String, CreatableTopic],
-                   responseCallback: Map[String, ApiError] => Unit) {
+                   responseCallback: Map[String, ApiError] => Unit,
+                   createTopicId: Boolean = false) {
 
     // 1. map over topics creating assignment and calling zookeeper
     val brokers = metadataCache.getAliveBrokers.map { b => kafka.admin.BrokerMetadata(b.id, b.rack) }
@@ -140,13 +141,13 @@ class AdminManager(val config: KafkaConfig,
               javaAssignments, javaConfigs))
 
             if (!validateOnly)
-              adminZkClient.createTopicWithAssignment(topic.name, configs, assignments)
+              adminZkClient.createTopicWithAssignment(topic.name, configs, assignments, createTopicId)
 
           case None =>
             if (validateOnly)
               adminZkClient.validateTopicCreate(topic.name, assignments, configs)
             else
-              adminZkClient.createTopicWithAssignment(topic.name, configs, assignments)
+              adminZkClient.createTopicWithAssignment(topic.name, configs, assignments, createTopicId)
         }
         CreatePartitionsMetadata(topic.name, assignments, ApiError.NONE)
       } catch {
