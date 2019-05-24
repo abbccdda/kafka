@@ -1,5 +1,6 @@
 package kafka.tier;
 
+import kafka.utils.CoreUtils;
 import org.apache.kafka.common.TopicPartition;
 
 import java.util.Objects;
@@ -26,6 +27,10 @@ final public class TopicIdPartition {
         return topicId;
     }
 
+    public String topicIdAsBase64() {
+        return CoreUtils.uuidToBase64(topicId);
+    }
+
     public TopicPartition topicPartition() {
         return topicPartition;
     }
@@ -50,7 +55,6 @@ final public class TopicIdPartition {
 
     @Override
     public String toString() {
-        return topic() + "-" + topicId() + "-" + partition();
+        return topic() + "-" + topicIdAsBase64() + "-" + partition();
     }
-
 }

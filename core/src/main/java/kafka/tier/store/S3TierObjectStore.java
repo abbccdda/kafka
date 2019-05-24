@@ -135,8 +135,8 @@ public class S3TierObjectStore implements TierObjectStore {
 
     public String keyPath(TierObjectMetadata objectMetadata, TierObjectStoreFileType fileType) {
         return LOG_DATA_PREFIX
-                + objectMetadata.messageId()
-                + "/" + objectMetadata.topicIdPartition().topicId()
+                + objectMetadata.messageIdAsBase64()
+                + "/" + objectMetadata.topicIdPartition().topicIdAsBase64()
                 + "/" + objectMetadata.topicIdPartition().partition()
                 + "/" + offsetFormat.format(objectMetadata.startOffset())
                 + "_" + objectMetadata.tierEpoch()

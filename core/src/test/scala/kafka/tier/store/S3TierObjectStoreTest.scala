@@ -9,6 +9,7 @@ import com.amazonaws.services.s3.model.{InitiateMultipartUploadResult, UploadPar
 import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.TopicIdPartition
 import kafka.tier.store.TierObjectStore.TierObjectStoreFileType
+import kafka.utils.CoreUtils
 import org.junit.Test
 import org.junit.Assert._
 import org.mockito.ArgumentMatchers.any
@@ -62,8 +63,7 @@ class S3TierObjectStoreTest {
     val topicId = UUID.fromString("43aeca7f-a684-4b60-bff8-9b3b783691bb")
     val metadata = new TierObjectMetadata(new TopicIdPartition("foo", topicId, 0), 0,
       0, 100, 100, 1000, 1000, false, false, false, 0.toByte)
-    assertEquals("0/" + metadata.messageId + "/43aeca7f-a684-4b60-bff8-9b3b783691bb/0/00000000000000000000_0_v0.segment",
+    assertEquals(s"0/${metadata.messageIdAsBase64}/Q67Kf6aES2C_-Js7eDaRuw/0/00000000000000000000_0_v0.segment",
       objectStore.keyPath(metadata, TierObjectStoreFileType.SEGMENT))
   }
-
 }

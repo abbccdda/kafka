@@ -7,6 +7,7 @@ package kafka.tier.domain;
 import com.google.flatbuffers.FlatBufferBuilder;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.serdes.ObjectMetadata;
+import kafka.utils.CoreUtils;
 
 import java.nio.ByteBuffer;
 import java.util.Objects;
@@ -91,6 +92,13 @@ public class TierObjectMetadata extends AbstractTierMetadata {
         return new UUID(metadata.messageId().mostSignificantBits(), metadata.messageId().leastSignificantBits());
     }
 
+    /**
+     * @return Base64 string representation of metadata message ID
+     */
+    public String messageIdAsBase64() {
+        return CoreUtils.uuidToBase64(messageId());
+    }
+
     public long endOffset() {
         return startOffset() + endOffsetDelta();
     }
@@ -138,10 +146,10 @@ public class TierObjectMetadata extends AbstractTierMetadata {
                         + " endOffsetDelta=%s, lastStableOffset=%s, hasAborts=%s,"
                         + " maxTimestamp=%s, messageId=%s, size=%s, status=%s,"
                         + " hasProducerState=%s)",
-                topicIdPartition.topic(), topicIdPartition.topicId(),
+                topicIdPartition.topic(), topicIdPartition.topicIdAsBase64(),
                 topicIdPartition.partition(), tierEpoch(), version(), startOffset(),
-                endOffsetDelta(), lastStableOffset(), hasAborts(), maxTimestamp(), messageId(),
-                size(), state(), hasProducerState());
+                endOffsetDelta(), lastStableOffset(), hasAborts(), maxTimestamp(),
+                messageIdAsBase64(), size(), state(), hasProducerState());
     }
 
     public int hashCode() {

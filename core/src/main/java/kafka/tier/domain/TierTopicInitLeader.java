@@ -7,6 +7,7 @@ package kafka.tier.domain;
 import com.google.flatbuffers.FlatBufferBuilder;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.serdes.InitLeader;
+import kafka.utils.CoreUtils;
 
 import java.nio.ByteBuffer;
 import java.util.Objects;
@@ -71,6 +72,13 @@ public class TierTopicInitLeader extends AbstractTierMetadata {
         return new UUID(init.messageId().mostSignificantBits(), init.messageId().leastSignificantBits());
     }
 
+    /**
+     * @return Base64 string representation of metadata message ID
+     */
+    public String messageIdAsBase64() {
+        return CoreUtils.uuidToBase64(messageId());
+    }
+
     public int brokerId() {
         return init.brokerId();
     }
@@ -101,7 +109,9 @@ public class TierTopicInitLeader extends AbstractTierMetadata {
         return String.format(
                 "TierInitLeader(topic='%s', topicId='%s', partition=%s, tierEpoch=%s, "
                         + "magic=%s, messageId='%s', brokerId=%s)",
-                topicIdPartition.topic(), topicIdPartition.topicId(), topicIdPartition.partition(),
+                topicIdPartition.topic(),
+                topicIdPartition.topicIdAsBase64(),
+                topicIdPartition.partition(),
                 tierEpoch(), version(),
                 messageId(), brokerId());
     }

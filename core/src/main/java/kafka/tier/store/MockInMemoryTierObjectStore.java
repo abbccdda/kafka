@@ -16,6 +16,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseable {
+    private final static String LOG_DATA_PREFIX = "0/";
     // KEY_TO_BLOB is static so that a mock object store can be shared across brokers
     // We can remove the shared state once we have more substantial system tests that use S3.
     private final static ConcurrentHashMap<String, byte[]> KEY_TO_BLOB = new ConcurrentHashMap<>();
@@ -75,9 +76,10 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
     }
 
     private String keyPath(TierObjectMetadata objectMetadata, TierObjectStoreFileType fileType) {
-        return String.format("%s/%s/%d/%020d_%d.%s",
-                objectMetadata.messageId(),
-                objectMetadata.topicIdPartition().topicId(),
+        return String.format("%s%s/%s/%d/%020d_%d.%s",
+                LOG_DATA_PREFIX,
+                objectMetadata.messageIdAsBase64(),
+                objectMetadata.topicIdPartition().topicIdAsBase64(),
                 objectMetadata.topicIdPartition().partition(),
                 objectMetadata.startOffset(),
                 objectMetadata.tierEpoch(),
