@@ -40,6 +40,9 @@ import java.util.Map;
 import java.util.Optional;
 
 public class S3TierObjectStore implements TierObjectStore {
+    // LOG_DATA_PREFIX is where segment, offset index, time index, transaction index, leader
+    // epoch state checkpoint, and producer state snapshot data are stored.
+    private final static String LOG_DATA_PREFIX = "0/";
     private final static Logger log = LoggerFactory.getLogger(S3TierObjectStore.class);
     private final NumberFormat offsetFormat = NumberFormat.getInstance();
     private final String clusterId;
@@ -131,8 +134,9 @@ public class S3TierObjectStore implements TierObjectStore {
     }
 
     public String keyPath(TierObjectMetadata objectMetadata, TierObjectStoreFileType fileType) {
-        return objectMetadata.messageId() +
-                "/" + objectMetadata.topicIdPartition().topicId()
+        return LOG_DATA_PREFIX
+                + objectMetadata.messageId()
+                + "/" + objectMetadata.topicIdPartition().topicId()
                 + "/" + objectMetadata.topicIdPartition().partition()
                 + "/" + offsetFormat.format(objectMetadata.startOffset())
                 + "_" + objectMetadata.tierEpoch()

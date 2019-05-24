@@ -62,7 +62,7 @@ class S3TierObjectStoreTest {
     val topicId = UUID.fromString("43aeca7f-a684-4b60-bff8-9b3b783691bb")
     val metadata = new TierObjectMetadata(new TopicIdPartition("foo", topicId, 0), 0,
       0, 100, 100, 1000, 1000, false, false, false, 0.toByte)
-    assertEquals(metadata.messageId + "/43aeca7f-a684-4b60-bff8-9b3b783691bb/0/00000000000000000000_0_v0.segment",
+    assertEquals("0/" + metadata.messageId + "/43aeca7f-a684-4b60-bff8-9b3b783691bb/0/00000000000000000000_0_v0.segment",
       objectStore.keyPath(metadata, TierObjectStoreFileType.SEGMENT))
   }
 
