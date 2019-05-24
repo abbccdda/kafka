@@ -379,6 +379,30 @@ public class MultiTenantRequestContextTest {
   }
 
   @Test
+  public void testMetadataResponseNoController() throws IOException {
+    for (short ver = ApiKeys.METADATA.oldestVersion(); ver <= ApiKeys.METADATA.latestVersion(); ver++) {
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.METADATA, ver);
+      Node node = new Node(1, "localhost", 9092);
+
+      MetadataRequestData data = new MetadataRequestData().
+              setAllowAutoTopicCreation(true)
+              .setTopics(ver == 0 ? Collections.emptyList() : null);
+      MetadataRequest inbound = new MetadataRequest(data, ver);
+      MetadataRequest interceptedInbound = (MetadataRequest) parseRequest(context, inbound);
+      assertTrue(interceptedInbound.isAllTopics());
+
+      MetadataResponse outbound = MetadataResponse.prepareResponse(0, Collections.singletonList(node),
+              "231412341", MetadataResponse.NO_CONTROLLER_ID,
+              new ArrayList<>());
+      assertNull(outbound.controller());
+
+      Struct struct = parseResponse(ApiKeys.METADATA, ver, context.buildResponse(outbound));
+      MetadataResponse intercepted = new MetadataResponse(struct, ver);
+      assertNull(intercepted.controller());
+    }
+  }
+
+  @Test
   public void testMetadataResponse() throws IOException {
     for (short ver = ApiKeys.METADATA.oldestVersion(); ver <= ApiKeys.METADATA.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.METADATA, ver);

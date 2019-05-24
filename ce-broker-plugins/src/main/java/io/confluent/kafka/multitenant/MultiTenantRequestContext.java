@@ -459,8 +459,12 @@ public class MultiTenantRequestContext extends RequestContext {
       brokersList = new ArrayList<>(brokers);
     }
 
+    int controllerId = response.controller() == null ?
+            MetadataResponse.NO_CONTROLLER_ID :
+            response.controller().id();
+
     return MetadataResponse.prepareResponse(response.throttleTimeMs(), brokersList,
-            response.clusterId(), response.controller().id(), filteredTopics);
+            response.clusterId(), controllerId, filteredTopics);
   }
 
   private CreateTopicsResponse transformCreateTopicsResponse(CreateTopicsResponse response) {
