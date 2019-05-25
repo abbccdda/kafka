@@ -2759,6 +2759,30 @@ class LogTest {
   }
 
   @Test
+  def testDeleteTopicPartitionWithTooLongName() {
+    val topic: String = TestUtils.randomString(210)
+    val partition = "99999"
+    val dir = new File(logDir, topicPartitionName(topic, partition))
+    Log.parseTopicPartitionName(dir)
+    // now simulate "deleting" the partition; creating the directory should fail
+    val deleteMarkerDir = new File(logDir, Log.logDeleteDirName(new TopicPartition(topic, partition.toInt)))
+    deleteMarkerDir.deleteOnExit()
+    assertFalse(deleteMarkerDir.mkdir())
+  }
+
+  @Test
+  def testDeleteTopicPartitionWithLongestValidName() {
+    val topic: String = TestUtils.randomString(209)
+    val partition = "99999"
+    val dir = new File(logDir, topicPartitionName(topic, partition))
+    Log.parseTopicPartitionName(dir)
+    // now simulate "deleting" the partition; this should work fine
+    val deleteMarkerDir = new File(logDir, Log.logDeleteDirName(new TopicPartition(topic, partition.toInt)))
+    deleteMarkerDir.deleteOnExit()
+    assertTrue(deleteMarkerDir.mkdir())
+  }
+
+  @Test
   def testParseTopicPartitionNameForExistingInvalidDir() {
     val dir1 = new File(logDir + "/non_kafka_dir")
     try {
