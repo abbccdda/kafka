@@ -10,16 +10,17 @@ import java.util.Optional
 import java.util.function.Consumer
 
 import kafka.tier.fetcher.{CancellationContext, TierSegmentReader}
-import kafka.utils.ScalaCheckUtils.assertProperty
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.utils.ByteBufferInputStream
 import org.apache.kafka.test.IntegrationTest
 import org.junit.Test
 import org.junit.experimental.categories.Category
+import org.junit.runner.RunWith
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
-import org.scalacheck.Test.Parameters
-import org.scalacheck.Test.Parameters.defaultVerbose
+import org.scalatest.FunSuite
+import org.scalatestplus.junit.JUnitRunner
+import org.scalatestplus.scalacheck.Checkers
 
 import scala.collection.JavaConverters._
 
@@ -197,13 +198,13 @@ object LoadRecordsRequestDefinition {
     } yield LoadRecordsRequestDefinition(segmentViewDef, targetOffset, maxBytes)
   }
 }
-@Category(Array(classOf[IntegrationTest]))
-class TierSegmentReaderPropertyTest {
-  val numTestRuns: Int = 1000
-  val testParams: Parameters = defaultVerbose
-    .withMaxSize(100) // limits generator size, for example numRecords won't exceed 1000
-    .withMinSuccessfulTests(numTestRuns)
 
+@Category(Array(classOf[IntegrationTest]))
+@RunWith(classOf[JUnitRunner])
+class TierSegmentReaderPropertyTest extends FunSuite with Checkers {
+
+  implicit override val generatorDrivenConfig: PropertyCheckConfiguration =
+    PropertyCheckConfiguration(minSuccessful = 1000, sizeRange = 100)
 
   private def readRecordBatches(inputStream: ByteBufferInputStream): List[RecordBatch] = {
     var continue = true
@@ -231,95 +232,104 @@ class TierSegmentReaderPropertyTest {
     batches
   }
 
-  @Test
-  def readBatchPropertyTest(): Unit = {
-    assertProperty(forAll(SegmentViewDefinition.gen) { segmentViewDefinition: SegmentViewDefinition => {
-      val resultRecords = readRecordBatches(segmentViewDefinition.bytesAsInputStream())
-      segmentViewDefinition.checkRecordBatchCountAndSize(resultRecords) &&
-        resultRecords.forall(r => r.isValid) &&
-        segmentViewDefinition.checkRecordBatchesMatch(resultRecords)
-    }}, testParams)
-  }
-
-  @Test
-  def readBatchIntoPropertyTest(): Unit = {
-    assertProperty(forAll(SegmentViewDefinition.gen) { segmentViewDefinition => {
-      val inputStream = segmentViewDefinition.bytesAsInputStream()
-      val bytesAvailable = segmentViewDefinition.bytesAvailable()
-      val buffer = ByteBuffer.allocate(bytesAvailable)
-      val resultRecords = readRecordBatchesInto(inputStream, buffer)
-
-      segmentViewDefinition.checkRecordBatchCountAndSize(resultRecords) &&
-        resultRecords.forall(r => r.isValid) &&
-        segmentViewDefinition.checkRecordBatchesMatch(resultRecords) &&
-        buffer.limit() == buffer.capacity()
-    }}, testParams)
-  }
-
-  @Test
-  def offsetForTimestampTest(): Unit = {
-    assertProperty(forAll(SegmentViewDefinition.gen, Gen.posNum[Long]) { (segmentViewDefinition: SegmentViewDefinition, targetTimestamp: Long) => {
-      val inputStream = segmentViewDefinition.bytesAsInputStream()
-      val cancellationContext = CancellationContext.newContext()
-      val offsetTimestampList = new java.util.ArrayList[(Long,Long)]
-      segmentViewDefinition.memoryRecords.foreach(
-        _.batches().forEach(new Consumer[MutableRecordBatch] {
-          override def accept(recordBatch: MutableRecordBatch): Unit = {
-            recordBatch.forEach(
-              new Consumer[Record] {
-                override def accept(record: Record): Unit = {
-                  offsetTimestampList.add((record.timestamp(), record.offset()))
-                }
-              })
-          }
-        }))
-
-      val expectedOffsetForTimestamp = offsetTimestampList.asScala.collectFirst {
-        case (ts, offset) if ts >= targetTimestamp => offset.asInstanceOf[java.lang.Long]
+  test("readBatchPropertyTest") {
+    check {
+      forAll(SegmentViewDefinition.gen) { segmentViewDefinition: SegmentViewDefinition => {
+        val resultRecords = readRecordBatches(segmentViewDefinition.bytesAsInputStream())
+        segmentViewDefinition.checkRecordBatchCountAndSize(resultRecords) &&
+          resultRecords.forall(r => r.isValid) &&
+          segmentViewDefinition.checkRecordBatchesMatch(resultRecords)
       }
-      expectedOffsetForTimestamp match {
-        case Some(expected) =>
-          Optional.of(expected) ==
-            TierSegmentReader.offsetForTimestamp(cancellationContext, inputStream, targetTimestamp)
-
-        case None =>
-          // should not exist in file, so we should hit an EOF exception
-          try {
-            TierSegmentReader.offsetForTimestamp(cancellationContext, inputStream, targetTimestamp)
-            false
-          } catch {
-            case _: EOFException => true
-            case _: Throwable => false
-          }
       }
-    }}, testParams)
+    }
   }
 
-  @Test
-  def loadAllRecordsPropertyTest(): Unit = {
-    assertProperty(forAll(SegmentViewDefinition.gen) { segmentViewDefinition => {
-      val inputStream = segmentViewDefinition.bytesAsInputStream()
-      val bytesAvailable = segmentViewDefinition.bytesAvailable()
-      val cancellationContext = CancellationContext.newContext()
-      val resultMemoryRecords = TierSegmentReader.loadRecords(cancellationContext, inputStream, bytesAvailable, Long.MaxValue, 0)
-      val resultRecords = SegmentViewDefinition.flattenMemoryRecords(List(resultMemoryRecords))
+  test("readBatchIntoPropertyTest") {
+    check {
+      forAll(SegmentViewDefinition.gen) { segmentViewDefinition => {
+        val inputStream = segmentViewDefinition.bytesAsInputStream()
+        val bytesAvailable = segmentViewDefinition.bytesAvailable()
+        val buffer = ByteBuffer.allocate(bytesAvailable)
+        val resultRecords = readRecordBatchesInto(inputStream, buffer)
 
-      segmentViewDefinition.checkRecordBatchCountAndSize(resultRecords) &&
-        resultRecords.forall(r => r.isValid) &&
-        segmentViewDefinition.checkRecordBatchesMatch(resultRecords)
-    }}, testParams)
+        segmentViewDefinition.checkRecordBatchCountAndSize(resultRecords) &&
+          resultRecords.forall(r => r.isValid) &&
+          segmentViewDefinition.checkRecordBatchesMatch(resultRecords) &&
+          buffer.limit() == buffer.capacity()
+      }
+      }
+    }
   }
 
-  @Test
-  def loadTargetOffsetPropertyTest(): Unit = {
-    assertProperty(forAll(LoadRecordsRequestDefinition.gen) { loadRecordsRequestDef => {
-      val inputStream = loadRecordsRequestDef.segmentViewDefinition.bytesAsInputStream()
-      val cancellationContext = CancellationContext.newContext()
-      val targetOffset = loadRecordsRequestDef.targetOffset
-      val maxBytes = loadRecordsRequestDef.maxBytes
-      val resultMemoryRecords = TierSegmentReader.loadRecords(cancellationContext, inputStream, maxBytes, Long.MaxValue, targetOffset)
-      val resultRecordBatches = SegmentViewDefinition.flattenMemoryRecords(List(resultMemoryRecords))
-      loadRecordsRequestDef.checkRecordBatches(resultRecordBatches)
-    }}, testParams)
+  test("offsetForTimestampTest") {
+    check {
+      forAll(SegmentViewDefinition.gen, Gen.posNum[Long]) { (segmentViewDefinition: SegmentViewDefinition, targetTimestamp: Long) => {
+        val inputStream = segmentViewDefinition.bytesAsInputStream()
+        val cancellationContext = CancellationContext.newContext()
+        val offsetTimestampList = new java.util.ArrayList[(Long, Long)]
+        segmentViewDefinition.memoryRecords.foreach(
+          _.batches().forEach(new Consumer[MutableRecordBatch] {
+            override def accept(recordBatch: MutableRecordBatch): Unit = {
+              recordBatch.forEach(
+                new Consumer[Record] {
+                  override def accept(record: Record): Unit = {
+                    offsetTimestampList.add((record.timestamp(), record.offset()))
+                  }
+                })
+            }
+          }))
+
+        val expectedOffsetForTimestamp = offsetTimestampList.asScala.collectFirst {
+          case (ts, offset) if ts >= targetTimestamp => offset.asInstanceOf[java.lang.Long]
+        }
+        expectedOffsetForTimestamp match {
+          case Some(expected) =>
+            Optional.of(expected) ==
+              TierSegmentReader.offsetForTimestamp(cancellationContext, inputStream, targetTimestamp)
+
+          case None =>
+            // should not exist in file, so we should hit an EOF exception
+            try {
+              TierSegmentReader.offsetForTimestamp(cancellationContext, inputStream, targetTimestamp)
+              false
+            } catch {
+              case _: EOFException => true
+              case _: Throwable => false
+            }
+        }
+      }
+      }
+    }
+  }
+
+  test("loadTargetOffsetPropertyTest") {
+    check {
+      forAll(SegmentViewDefinition.gen) { segmentViewDefinition => {
+        val inputStream = segmentViewDefinition.bytesAsInputStream()
+        val bytesAvailable = segmentViewDefinition.bytesAvailable()
+        val cancellationContext = CancellationContext.newContext()
+        val resultMemoryRecords = TierSegmentReader.loadRecords(cancellationContext, inputStream, bytesAvailable, Long.MaxValue, 0)
+        val resultRecords = SegmentViewDefinition.flattenMemoryRecords(List(resultMemoryRecords))
+
+        segmentViewDefinition.checkRecordBatchCountAndSize(resultRecords) &&
+          resultRecords.forall(r => r.isValid) &&
+          segmentViewDefinition.checkRecordBatchesMatch(resultRecords)
+      }
+      }
+    }
+  }
+
+  test("loadTargetOffsetMaxBytesPropertyTest") {
+    check {
+      forAll(LoadRecordsRequestDefinition.gen) { loadRecordsRequestDef => {
+        val inputStream = loadRecordsRequestDef.segmentViewDefinition.bytesAsInputStream()
+        val cancellationContext = CancellationContext.newContext()
+        val targetOffset = loadRecordsRequestDef.targetOffset
+        val maxBytes = loadRecordsRequestDef.maxBytes
+        val resultMemoryRecords = TierSegmentReader.loadRecords(cancellationContext, inputStream, maxBytes, Long.MaxValue, targetOffset)
+        val resultRecordBatches = SegmentViewDefinition.flattenMemoryRecords(List(resultMemoryRecords))
+        loadRecordsRequestDef.checkRecordBatches(resultRecordBatches)
+      }}
+    }
   }
 }

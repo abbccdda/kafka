@@ -7,13 +7,14 @@ package integration.kafka.tier.archiver
 import java.util.concurrent.{CancellationException, TimeUnit}
 
 import kafka.tier.archiver.{UpdatableQueue, UpdatableQueueEntry}
-import kafka.utils.ScalaCheckUtils
 import org.apache.kafka.test.IntegrationTest
-import org.junit.Test
 import org.junit.experimental.categories.Category
-import org.scalacheck.Test.Parameters
+import org.junit.runner.RunWith
 import org.scalacheck.commands.Commands
-import org.scalacheck.{Arbitrary, Gen, Prop, Test}
+import org.scalacheck.{Arbitrary, Gen, Prop}
+import org.scalatest.FunSuite
+import org.scalatestplus.junit.JUnitRunner
+import org.scalatestplus.scalacheck.Checkers
 
 import scala.collection.immutable.Queue
 import scala.util.{Failure, Success, Try}
@@ -148,52 +149,52 @@ object UpdatableQueueSpec extends Commands {
   }
 }
 
+
 @Category(Array(classOf[IntegrationTest]))
-class UpdatableQueuePropertyTest {
-  val testParams: Parameters = Parameters.defaultVerbose
+@RunWith(classOf[JUnitRunner])
+class UpdatableQueuePropertyTest extends FunSuite with Checkers {
 
-  @Test
-  def testSingleThreadedUpdatableQueue(): Unit = {
-    ScalaCheckUtils.assertProperty(UpdatableQueueSpec.property(threadCount = 1),
-      testParams.withMinSuccessfulTests(10000).withWorkers(4))
+  val config: PropertyCheckConfiguration = PropertyCheckConfiguration(minSuccessful = 1000, workers = 4)
+
+  test("testSingleThreadedUpdatableQueue") {
+    implicit val generatorDrivenConfig: PropertyCheckConfiguration = config
+    check {
+      UpdatableQueueSpec.property(threadCount = 1)
+    }
   }
 
-  @Test
-  def testMultiThreadedUpdatableQueue(): Unit = {
-    // This test can take a long time as it needs to generate all possible interleaving of push/pop/close.
-    // We add a test callback to make it clear the test is making progress.
-    ScalaCheckUtils.assertProperty(UpdatableQueueSpec.property(threadCount = 4),
-      testParams.withMinSuccessfulTests(10).withWorkers(4).withTestCallback(new org.scalacheck.Test.TestCallback {
-        override def onPropEval(name: String, threadIdx: Int, succeeded: Int, discarded: Int): Unit = {
-          super.onPropEval(name, threadIdx, succeeded, discarded)
-          println(s"[$threadIdx] Succeeded: $succeeded Discarded: $discarded")
+  test("testMultiThreadedUpdatableQueue") {
+    implicit val generatorDrivenConfig: PropertyCheckConfiguration = config.copy(minSuccessful = 10)
+    check {
+      UpdatableQueueSpec.property(threadCount = 4)
+    }
+  }
+
+  test("testAllValuesMaterialize") {
+    implicit val generatorDrivenConfig: PropertyCheckConfiguration = config
+    check {
+      entries: Seq[QueueEntry] => {
+        val queue = new UpdatableQueue[QueueEntry]()
+        for (queueEntry <- entries) {
+          queue.push(queueEntry)
         }
-      }))
-  }
-
-  @Test
-  def testAllValuesMaterialize(): Unit = {
-    ScalaCheckUtils.assertProperty(Prop.forAll((entries: Seq[QueueEntry]) => {
-      val queue = new UpdatableQueue[QueueEntry]()
-      for (queueEntry <- entries) {
-        queue.push(queueEntry)
+        val expectedValues = entries
+          .foldLeft(Map[QueueEntry#Key, QueueEntry]()) {
+            case (acc: Map[QueueEntry#Key, QueueEntry], queueEntry: QueueEntry) =>
+              acc + (queueEntry.key -> queueEntry)
+          }
+        var results = Map[QueueEntry#Key, QueueEntry]()
+        var pollResult: Option[QueueEntry] = None
+        do {
+          pollResult = queue.pop(0, TimeUnit.MILLISECONDS)
+          pollResult match {
+            case None =>
+            case Some(result) =>
+              results += (result.key -> result)
+          }
+        } while (pollResult.isDefined)
+        expectedValues == results
       }
-      val expectedValues = entries
-        .foldLeft(Map[QueueEntry#Key, QueueEntry]()) {
-          case (acc: Map[QueueEntry#Key, QueueEntry], queueEntry: QueueEntry) =>
-            acc + (queueEntry.key -> queueEntry)
-        }
-      var results = Map[QueueEntry#Key, QueueEntry]()
-      var pollResult: Option[QueueEntry] = None
-      do {
-        pollResult = queue.pop(0, TimeUnit.MILLISECONDS)
-        pollResult match {
-          case None =>
-          case Some(result) =>
-            results += (result.key -> result)
-        }
-      } while (pollResult.isDefined)
-      expectedValues == results
-    }), testParams.withMinSuccessfulTests(10000).withWorkers(4))
+    }
   }
 }
