@@ -168,7 +168,7 @@ class TierEpochStateReplicationTest extends ZooKeeperTestHarness with Logging {
 
   private def awaitISR(tp: TopicPartition, numReplicas: Int): Unit = {
     TestUtils.waitUntilTrue(() => {
-      leader.replicaManager.getPartition(tp).get.inSyncReplicas.map(_.brokerId).size == numReplicas
+      leader.replicaManager.nonOfflinePartition(tp).get.inSyncReplicas.map(_.brokerId).size == numReplicas
     }, "Timed out waiting for replicas to join ISR")
   }
 

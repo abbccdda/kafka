@@ -229,7 +229,7 @@ class IsrExpirationTest {
                                                localLog: AbstractLog): Partition = {
     val leaderId = config.brokerId
     val tp = new TopicPartition(topic, partitionId)
-    val partition = replicaManager.getOrCreatePartition(tp)
+    val partition = replicaManager.createPartition(tp)
     val leaderReplica = new Replica(leaderId, tp, time, 0, Some(localLog))
 
     val allReplicas = getFollowerReplicas(partition, leaderId, time) :+ leaderReplica

@@ -64,7 +64,8 @@ public class MetadataServiceCoordinator extends AbstractCoordinator {
             metrics,
             metricGrpPrefix,
             time,
-            consumerConfig.getLong(CommonClientConfigs.RETRY_BACKOFF_MS_CONFIG));
+            consumerConfig.getLong(CommonClientConfigs.RETRY_BACKOFF_MS_CONFIG),
+            true);
 
     this.log = logContext.logger(MetadataServiceCoordinator.class);
     this.rebalanceListener = Objects.requireNonNull(rebalanceListener, "rebalanceListener");

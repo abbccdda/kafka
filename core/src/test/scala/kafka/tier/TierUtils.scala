@@ -59,7 +59,7 @@ object TierUtils {
 
   def awaitTierTopicPartition(broker: KafkaServer, partition: Integer): Unit = {
     TestUtils.waitUntilTrue(() => {
-      broker.replicaManager.getPartition(new TopicPartition(Topic.TIER_TOPIC_NAME, partition)).isDefined
+      broker.replicaManager.nonOfflinePartition(new TopicPartition(Topic.TIER_TOPIC_NAME, partition)).isDefined
     }, "Timed out waiting for replicas to join ISR")
   }
 

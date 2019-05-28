@@ -1068,8 +1068,8 @@ public class MultiTenantRequestContextTest {
     for (short ver = ApiKeys.OFFSET_FOR_LEADER_EPOCH.oldestVersion(); ver <= ApiKeys.OFFSET_FOR_LEADER_EPOCH.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_FOR_LEADER_EPOCH, ver);
       TopicPartition partition = new TopicPartition("foo", 0);
-      OffsetsForLeaderEpochRequest inbound = OffsetsForLeaderEpochRequest.Builder.forConsumer(
-              ver, Collections.singletonMap(partition, new OffsetsForLeaderEpochRequest.PartitionData(Optional.empty(), 0))).build(ver);
+      OffsetsForLeaderEpochRequest inbound = OffsetsForLeaderEpochRequest.Builder.forFollower(
+              ver, Collections.singletonMap(partition, new OffsetsForLeaderEpochRequest.PartitionData(Optional.empty(), 0)), 1).build(ver);
       OffsetsForLeaderEpochRequest request = (OffsetsForLeaderEpochRequest) parseRequest(context, inbound);
       assertEquals(mkSet(new TopicPartition("tenant_foo", 0)), request.epochsByTopicPartition().keySet());
       assertFalse(context.shouldIntercept());
