@@ -33,7 +33,7 @@ spec:
               - spawn
             env:
               - name: TROGDOR_HOST
-                value: "http://cc-trogdor-service-coordinator.{{.Release.Namespace}}.svc:{{ .Values.trogdorCoordinatorPort }}"
+                value: "http://cc-trogdor-service-coordinator.{{ .Values.trogdorNamespace | .Release.Namespace}}.svc:{{ .Values.trogdorCoordinatorPort }}"
               - name: TROGDOR_BOOTSTRAPSERVERS
                 value: "{{ .Values.bootstrapServer }}"
               - name: TROGDOR_TOPIC_CONFIG_PATH

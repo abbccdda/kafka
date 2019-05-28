@@ -4,6 +4,7 @@ image:
   tag: 0.170.0-2.3.0-SNAPSHOT-7-g48dd53c5bd
   pullPolicy: IfNotPresent
 trogdorCoordinatorPort: 9002
+trogdorNamespace: ""  # optional; if you want to explicitly specify the namespace Trogdor is spawned in
 apiKey: "null"
 apiSecret: "null"
 bootstrapServer: "null"
