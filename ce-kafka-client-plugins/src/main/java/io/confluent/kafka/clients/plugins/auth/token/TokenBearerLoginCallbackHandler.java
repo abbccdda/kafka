@@ -7,6 +7,7 @@ import static io.confluent.security.auth.client.provider
 
 import io.confluent.security.auth.client.RestClientConfig;
 import io.confluent.security.auth.client.rest.RestClient;
+import io.confluent.security.auth.common.JwtBearerToken;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.security.oauthbearer.OAuthBearerTokenCallback;
 import org.slf4j.Logger;
@@ -47,9 +48,11 @@ public class TokenBearerLoginCallbackHandler
           TokenBearerLoginCallbackHandler.class);
 
   private RestClient restClient;
+  private Map<String, String> configs;
 
   public void configure(Map<String, String> configs) {
 
+    this.configs = configs;
     final String authenticationToken = configs.get(TOKEN_OPTION);
 
     if (authenticationToken.isEmpty()) {
@@ -58,11 +61,16 @@ public class TokenBearerLoginCallbackHandler
               TOKEN_OPTION));
     }
 
+    createRestClient(configs, authenticationToken);
+  }
+
+  private void createRestClient(final Map<String, String> configs, final String authenticationToken) {
+    closeRestClient();
+
     configs.put(RestClientConfig.HTTP_AUTH_CREDENTIALS_PROVIDER_PROP,
               HttpCredentialProviders.BEARER.name());
     configs.put(RestClientConfig.TOKEN_AUTH_CREDENTIAL_PROP,
               authenticationToken);
-
     restClient = new RestClient(configs);
   }
 
@@ -71,12 +79,17 @@ public class TokenBearerLoginCallbackHandler
       throw new IllegalArgumentException("Callback had an Authentication Token already");
     }
 
-    callback.token(restClient.login());
-
+    JwtBearerToken token = restClient.login();
+    createRestClient(configs, token.value());
+    callback.token(token);
   }
 
   @Override
   public void close() {
+    closeRestClient();
+  }
+
+  private void closeRestClient() {
     if (restClient != null) {
       restClient.close();
     }

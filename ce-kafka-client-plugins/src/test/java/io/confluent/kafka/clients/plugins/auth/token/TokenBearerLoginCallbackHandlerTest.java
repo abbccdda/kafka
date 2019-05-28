@@ -50,12 +50,15 @@ public class TokenBearerLoginCallbackHandlerTest {
 
   @Test
   public void testAttachesAuthTokenToCallback() throws Exception {
-    RestClient mockClient = createNiceMock(RestClient.class);
+    RestClient mockClient1 = createNiceMock(RestClient.class);
+    RestClient mockClient2 = createNiceMock(RestClient.class);
 
-    expectNew(RestClient.class, anyObject(HashMap.class)).andReturn(mockClient);
-    expect(mockClient.login()).andReturn(token);
+    expectNew(RestClient.class, anyObject(HashMap.class)).andReturn(mockClient1);
+    expect(mockClient1.login()).andReturn(token);
+    expectNew(RestClient.class, anyObject(HashMap.class)).andReturn(mockClient2);
 
-    replay(RestClient.class, mockClient);
+    replay(RestClient.class, mockClient1);
+    replay(RestClient.class, mockClient2);
 
     OAuthBearerTokenCallback tokenCallback = new OAuthBearerTokenCallback();
     Map<String, Object> jaasConfig = buildClientJassConfigText("Token", "http://url1.com");
