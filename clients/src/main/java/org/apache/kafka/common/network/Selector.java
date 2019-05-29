@@ -89,7 +89,8 @@ public class Selector implements Selectable, AutoCloseable {
     public static final long NO_IDLE_TIMEOUT_MS = -1;
     public static final int NO_FAILED_AUTHENTICATION_DELAY = 0;
 
-    private enum CloseMode {
+    // public for testing
+    public enum CloseMode {
         GRACEFUL(true),            // process outstanding staged receives, notify disconnect
         NOTIFY_ONLY(true),         // discard any outstanding receives, notify disconnect
         DISCARD_NO_NOTIFY(false);  // discard any outstanding receives, no disconnect notification
@@ -560,6 +561,10 @@ public class Selector implements Selectable, AutoCloseable {
                                     .record(channel.reauthenticationLatencyMs().doubleValue(), readyTimeMs);
                         } else {
                             sensors.successfulAuthentication.record(1.0, readyTimeMs);
+                            if (channel.interceptor() != null)
+                                channel.interceptor().onAuthenticatedConnection(
+                                        channel.id(), channel.socketAddress(),
+                                        channel.principal(), metrics);
                             if (!channel.connectedClientSupportsReauthentication())
                                 sensors.successfulAuthenticationNoReauth.record(1.0, readyTimeMs);
                         }
@@ -841,8 +846,10 @@ public class Selector implements Selectable, AutoCloseable {
      *
      * The channel will be added to disconnect list when it is actually closed if `closeMode.notifyDisconnect`
      * is true.
+     *
+     * package-private for testing
      */
-    private void close(KafkaChannel channel, CloseMode closeMode) {
+    void close(KafkaChannel channel, CloseMode closeMode) {
         channel.disconnect();
         if (channel.ready() && channel.interceptor() != null)
             channel.interceptor().onAuthenticatedDisconnection(
