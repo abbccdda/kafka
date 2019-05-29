@@ -132,7 +132,7 @@ public class TokenBearerValidatorCallbackHandler implements AuthenticateCallback
 
     JwtBearerToken token = processToken(tokenValue);
     callback.token(token);
-    log.debug("Successfully validated token");
+    log.debug("Successfully validated token from principal {}",  token.principalName());
   }
 
   /**
