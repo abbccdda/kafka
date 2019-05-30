@@ -73,6 +73,21 @@ public class RestClientTest {
         }
     }
 
+    @Test
+    public void testGetActiveUrls() throws Exception {
+        List<String> urllList = Arrays.asList("http://url1:80", "http://url2:80", "http://url3:80");
+
+        Map<String, Object> configs = new HashMap<>();
+        configs.put(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP, String.join(",", urllList));
+        configs.put(RestClientConfig.ENABLE_METADATA_SERVER_URL_REFRESH, false);
+
+        RestClient restClient = new RestClient(configs, Time.SYSTEM);
+
+        restClient.requestSender(new EmptyResponseTestRequestSender());
+        assertEquals(urllList, restClient.getActiveMetadataServerURLs());
+        restClient.close();
+    }
+
     private static class FailOverTestRequestSender implements RequestSender {
 
         private ObjectMapper jsonDeserializer = new ObjectMapper();
@@ -161,6 +176,21 @@ public class RestClientTest {
             } else {
                 throw new IOException("http Request Failed");
             }
+        }
+
+        @Override
+        public void close() {
+        }
+    }
+
+    private static class EmptyResponseTestRequestSender implements RequestSender {
+
+        EmptyResponseTestRequestSender() {
+        }
+
+        @Override
+        public <T> T send(RestRequest request, final long requestTimeout) throws IOException {
+            return request.readResponse(new ByteArrayInputStream("[]".getBytes()));
         }
 
         @Override

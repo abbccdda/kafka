@@ -35,6 +35,7 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +47,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Rest client for sending RBAC requests to the metadata service.
@@ -77,6 +80,7 @@ public class RestClient implements Closeable {
 
   private final int requestTimeout;
   private final int httpRequestTimeout;
+  private static List<String> bootstrapMetadataServerURLs;
   private volatile List<String> activeMetadataServerURLs;
   private final String protocol;
 
@@ -92,7 +96,8 @@ public class RestClient implements Closeable {
   public RestClient(final Map<String, ?> configs, final Time time) {
     this.time = time;
     RestClientConfig rbacClientConfig = new RestClientConfig(configs);
-    List<String> bootstrapMetadataServerURLs = rbacClientConfig.getList(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP);
+    bootstrapMetadataServerURLs =
+            rbacClientConfig.getList(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP);
     if (bootstrapMetadataServerURLs.isEmpty())
       throw new ConfigException("Missing required bootstrap metadata server url list.");
 
@@ -137,7 +142,9 @@ public class RestClient implements Closeable {
     }
 
     //periodic refresh of metadata server urls
-    Long metadataServerUrlsMaxAgeMS = rbacClientConfig.getLong(RestClientConfig.METADATA_SERVER_URL_MAX_AGE_PROP);
+    Long metadataServerUrlsMaxAgeMS = rbacClientConfig.getLong(
+            RestClientConfig.METADATA_SERVER_URL_MAX_AGE_PROP);
+
     urlRefreshscheduler = Executors.newSingleThreadScheduledExecutor(r -> {
       Thread t = Executors.defaultThreadFactory().newThread(r);
       t.setDaemon(true);
@@ -166,14 +173,18 @@ public class RestClient implements Closeable {
     return sslFactory.sslEngineBuilder().sslContext().getSocketFactory();
   }
 
-  private List<String> getActiveMetadataServerURLs()
+  // Exposed for testing
+  List<String> getActiveMetadataServerURLs()
           throws IOException, RestClientException, URISyntaxException {
 
     RestRequest request = this.newRequest(String.format(ACTIVE_NODES_ENDPOINT, protocol));
     request.setCredentialProvider(this.credentialProvider);
     request.setResponse(ACTIVE_URLS_RESPONSE_TYPE);
 
-    return this.sendRequest(request);
+    return Stream.of(this.sendRequest(request), bootstrapMetadataServerURLs)
+            .flatMap(Collection::stream)
+            .distinct()
+            .collect(Collectors.toList());
   }
 
   private void setupSsl(HttpURLConnection connection) {
