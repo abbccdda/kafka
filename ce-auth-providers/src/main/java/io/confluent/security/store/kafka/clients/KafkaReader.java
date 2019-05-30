@@ -43,14 +43,17 @@ public class KafkaReader<K, V> implements Runnable {
   private final AtomicBoolean alive;
   private final Map<TopicPartition, PartitionState> partitionStates;
   private final ConsumerListener<K, V> consumerListener;
+  private final int numAuthTopicPartitions;
 
   public KafkaReader(String topic,
                      Consumer<K, V> consumer,
+                     int numAuthTopicPartitions,
                      KeyValueStore<K, V> cache,
                      ConsumerListener<K, V> consumerListener,
                      Time time) {
     this.topic = Objects.requireNonNull(topic, "topic");
     this.consumer = Objects.requireNonNull(consumer, "consumer");
+    this.numAuthTopicPartitions = numAuthTopicPartitions;
     this.cache = Objects.requireNonNull(cache, "cache");
     this.time = Objects.requireNonNull(time, "time");
     this.consumerListener = consumerListener;
@@ -100,7 +103,13 @@ public class KafkaReader<K, V> implements Runnable {
         log.debug("Partition info could not be obtained for " + topic, e);
         exception = e;
       }
-      if (partitionInfos == null || partitionInfos.isEmpty()) {
+
+      if (partitionInfos != null && partitionInfos.size() > numAuthTopicPartitions) {
+        throw new IllegalStateException(String.format("Number of partitions for Topic %s : %s is more than" +
+                " configured partition count : %s", topic, partitionInfos.size(), numAuthTopicPartitions));
+      }
+
+      if (partitionInfos == null || partitionInfos.isEmpty() || partitionInfos.size() != numAuthTopicPartitions) {
         long remainingMs = endTimeMs - time.milliseconds();
         if (remainingMs <= 0) {
           throw new TimeoutException(String.format("Topic %s not created within timeout %s ms",
@@ -122,6 +131,7 @@ public class KafkaReader<K, V> implements Runnable {
     partitions
         .forEach(tp -> partitionStates.put(tp, new PartitionState(consumer.position(tp) - 1)));
 
+    log.debug("auth topic partitions : {}", partitions);
     consumer.seekToBeginning(partitions);
   }
 

@@ -47,7 +47,7 @@ public class KafkaReaderTest {
     consumer = RbacTestUtils.mockConsumer(cluster, 1);
     cache = new Cache();
     listener = new Listener();
-    this.reader = new KafkaReader<>(topic, consumer, cache, listener, time);
+    this.reader = new KafkaReader<>(topic, consumer, 2, cache, listener, time);
   }
 
   @After

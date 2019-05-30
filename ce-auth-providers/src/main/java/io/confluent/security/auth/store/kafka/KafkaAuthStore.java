@@ -65,6 +65,7 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
 
     this.reader = new KafkaReader<>(AUTH_TOPIC,
         createConsumer(clientConfig.consumerConfigs(AUTH_TOPIC)),
+        clientConfig.getInt(KafkaStoreConfig.NUM_PARTITIONS_PROP),
         authCache,
         this,
         time);
