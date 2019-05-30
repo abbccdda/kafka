@@ -38,7 +38,9 @@ import kafka.server.KafkaConfig$;
 import kafka.server.KafkaServer;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.SaslConfigs;
+import org.apache.kafka.common.config.internals.BrokerSecurityConfigs;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Utils;
@@ -206,7 +208,39 @@ public class RbacClusters {
     props.setProperty(
         "listener.name.internal.scram-sha-256." + KafkaConfig$.MODULE$.SaslJaasConfigProp(),
         users.get(config.brokerUser).jaasConfig);
+
     return props;
+  }
+
+  private void attachTokenListener(Properties props, String publicKey) {
+
+    if (publicKey == null || publicKey.isEmpty()) {
+      throw new ConfigException("Public Key must be set prior to enabling Token Authentication");
+    }
+
+    String jaasConfig = String.format(
+            "org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required "
+            + "publicKeyPath=\"%s\";", publicKey);
+
+
+    props.setProperty(KafkaConfig$.MODULE$.ListenersProp(),
+            props.getProperty(KafkaConfig$.MODULE$.ListenersProp())
+                    + ",TOKEN://localhost:0");
+    props.setProperty(KafkaConfig$.MODULE$.ListenerSecurityProtocolMapProp(),
+            props.getProperty(KafkaConfig$.MODULE$.ListenerSecurityProtocolMapProp())
+                    + ",TOKEN:SASL_PLAINTEXT");
+
+    props.setProperty("listener.name.token." + KafkaConfig$.MODULE$.SaslEnabledMechanismsProp(),
+            "OAUTHBEARER");
+    props.setProperty(
+            "listener.name.token.oauthbearer." + KafkaConfig$.MODULE$.SaslJaasConfigProp(),
+            jaasConfig);
+    props.setProperty("listener.name.token.oauthbearer."
+                    + BrokerSecurityConfigs.SASL_SERVER_CALLBACK_HANDLER_CLASS,
+            "io.confluent.kafka.server.plugins.auth.token.TokenBearerValidatorCallbackHandler");
+    props.setProperty("listener.name.token.oauthbearer."
+                    + SaslConfigs.SASL_LOGIN_CALLBACK_HANDLER_CLASS,
+            "io.confluent.kafka.server.plugins.auth.token.TokenBearerServerLoginCallbackHandler");
   }
 
   private Properties metadataClientConfigs() {
@@ -233,6 +267,10 @@ public class RbacClusters {
     serverConfig.setProperty("super.users", "User:" + config.brokerUser);
     serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL,RBAC");
     serverConfig.setProperty(ConfluentAuthorizerConfig.GROUP_PROVIDER_PROP, "RBAC");
+
+    if (config.enableTokenLogin) {
+      attachTokenListener(serverConfig, config.publicKey);
+    }
 
     return serverConfig;
   }
@@ -302,6 +340,8 @@ public class RbacClusters {
     private List<String> userNames;
     private boolean enableLdap;
     private boolean enableLdapGroups;
+    private boolean enableTokenLogin;
+    private String publicKey;
 
     public Config users(String brokerUser, List<String> userNames) {
       this.brokerUser = brokerUser;
@@ -312,6 +352,12 @@ public class RbacClusters {
     public Config withLdapGroups() {
       this.enableLdapGroups = true;
       this.enableLdap = true;
+      return this;
+    }
+
+    public Config withTokenLogin(String publicKey) {
+      this.enableTokenLogin = true;
+      this.publicKey = publicKey;
       return this;
     }
 
