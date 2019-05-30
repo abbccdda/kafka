@@ -18,11 +18,14 @@ from ducktape.mark.resource import cluster
 from ducktape.utils.util import wait_until
 
 from kafkatest.directory_layout.kafka_path import KafkaPathResolverMixin
+from kafkatest.services.kafka import KafkaService
+from kafkatest.services.security.kafka_acls import ACLs
 from kafkatest.services.security.minildap import MiniLdap
 from kafkatest.services.security.security_config import SecurityConfig
 from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.tests.end_to_end import EndToEndTest
 from kafkatest.utils.remote_account import file_exists
+import time
 
 class RbacTest(EndToEndTest, KafkaPathResolverMixin):
     """
@@ -37,6 +40,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
         """:type test_context: ducktape.tests.test.TestContext"""
         super(RbacTest, self).__init__(test_context=test_context)
         self.context = test_context
+        self.group_id = "test_group"
 
     @cluster(num_nodes=5)
     def test_rbac(self):
@@ -91,12 +95,87 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
         self.create_roles(self.kafka, "Group:" + RbacTest.CLIENT_GROUP)
         self.validate_access()
 
-    def validate_access(self):
+    @cluster(num_nodes=8)
+    def test_simple_to_rbac_authorizer_upgrade(self):
+        """
+        Start with a cluster using SimpleAclAuthorizer. Upgrade brokers to ConfluentKafkaAuthorizer with RBAC
+        using rolling upgrade and ensure we could produce and consume throughout.
+        """
+
+        self.topic_config = {"partitions": 2, "replication-factor": 3, "min.insync.replicas": 2}
+        self.create_zookeeper()
+        self.zk.start()
+        self.acls = ACLs(self.test_context)
+
+        self.create_kafka(num_nodes=3,
+                          security_protocol="SASL_PLAINTEXT",
+                          interbroker_security_protocol="PLAINTEXT",
+                          client_sasl_mechanism="SCRAM-SHA-256",
+                          interbroker_sasl_mechanism="PLAINTEXT",
+                          authorizer_class_name=KafkaService.SIMPLE_AUTHORIZER)
+
+        self.set_acls("User:" + SecurityConfig.SCRAM_CLIENT_USER)
+        self.kafka.start()
+        self.start_producer_and_consumer()
+
+	server_prop_overides=[
+	    ["confluent.authorizer.access.rule.providers", "ACL,FILE_RBAC"],
+	    ["confluent.authorizer.metadata.provider", "FILE_RBAC"],
+	    ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH]
+	]
+        self.configure_rbac(server_prop_overides)
+        self.clean_bounce(delay_sec=10)
+        self.run_validation(min_records=self.producer.num_acked+5000)
+        self.verify_access_denied()
+
+    @cluster(num_nodes=8)
+    def test_ldap_to_rbac_authorizer_upgrade(self):
+        """
+        Start with a cluster using LdapAuthorizer. Upgrade brokers to ConfluentKafkaAuthorizer with RBAC
+        and LDAP using rolling upgrade and ensure we could produce and consume throughout.
+        """
+
+        self.topic_config = {"partitions": 2, "replication-factor": 3, "min.insync.replicas": 2}
+        self.create_zookeeper()
+        self.zk.start()
+        self.enable_ldap()
+        self.acls = ACLs(self.test_context)
+
+        self.create_kafka(num_nodes=3,
+                          security_protocol="SASL_PLAINTEXT",
+                          interbroker_security_protocol="PLAINTEXT",
+                          client_sasl_mechanism="SCRAM-SHA-256",
+                          interbroker_sasl_mechanism="PLAINTEXT",
+                          authorizer_class_name="io.confluent.kafka.security.ldap.authorizer.LdapAuthorizer",
+                          server_prop_overides=[
+                              ["ldap.authorizer.java.naming.provider.url", self.minildap.ldap_url]
+                          ])
+
+        self.set_acls("Group:" + RbacTest.CLIENT_GROUP)
+        self.kafka.start()
+        self.start_producer_and_consumer()
+
+	server_prop_overides=[
+	    ["confluent.authorizer.access.rule.providers", "ACL,FILE_RBAC"],
+	    ["confluent.authorizer.group.provider", "FILE_RBAC"],
+	    ["confluent.authorizer.metadata.provider", "FILE_RBAC"],
+	    ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH],
+	    ["ldap.java.naming.provider.url", self.minildap.ldap_url],
+	]
+        self.configure_rbac(server_prop_overides)
+        self.clean_bounce(delay_sec=10)
+        self.run_validation(min_records=self.producer.num_acked+5000)
+        self.verify_access_denied()
+
+
+    def start_producer_and_consumer(self):
         self.create_producer(log_level="INFO")
         self.producer.start()
-        self.create_consumer(log_level="INFO")
+        self.create_consumer(log_level="INFO", group_id=self.group_id)
         self.consumer.start()
 
+    def validate_access(self):
+        self.start_producer_and_consumer()
         self.run_validation()
         self.verify_access_denied()
 
@@ -127,4 +206,26 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
             raise RuntimeError("User without permission described ACLs successfully")
         except RemoteCommandError as e:
             self.logger.debug("kafka-acls.sh failed as expected with kafka-client: %s" % e)
+
+    def set_acls(self, principal):
+        zk_connect = self.kafka.zk_connect_setting()
+        node = self.kafka.nodes[0]
+        self.acls.acls_command(node, ACLs.add_cluster_acl(zk_connect, "User:ANONYMOUS"))
+        self.acls.acls_command(node, ACLs.broker_read_acl(zk_connect, "*", "User:ANONYMOUS"))
+        self.acls.acls_command(node, ACLs.produce_acl(zk_connect, self.topic, principal))
+        self.acls.acls_command(node, ACLs.consume_acl(zk_connect, self.topic, self.group_id, principal))
+
+    def configure_rbac(self, server_prop_overides):
+        acls_cmd = "--authorizer-properties zookeeper.connect=%s --add --topic=_confluent-license " \
+               "--topic=_confluent-metadata-auth --group=_confluent-metadata-coordinator-group " \
+               "--producer --consumer --allow-principal=User:ANONYMOUS" % self.kafka.zk_connect_setting()
+        self.acls.acls_command(self.kafka.nodes[0], acls_cmd)
+	self.kafka.authorizer_class_name="io.confluent.kafka.security.authorizer.ConfluentKafkaAuthorizer"
+	self.kafka.server_prop_overides=server_prop_overides
+
+    def clean_bounce(self, delay_sec=0):
+        for node in self.kafka.nodes:
+            self.kafka.stop_node(node)
+            self.kafka.start_node(node)
+            time.sleep(delay_sec)
 

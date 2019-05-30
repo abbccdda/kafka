@@ -32,7 +32,6 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
   private static final Logger log = LoggerFactory.getLogger(
       ConfluentLicenseValidator.class);
 
-  private static final String LICENSE_TOPIC = "_confluent-command";
   private static final long EXPIRY_LOG_INTERVAL_MS = 10000;
   public static final String METRIC_NAME = "licenseStatus";
 
@@ -124,7 +123,7 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
   }
 
   protected LicenseManager createLicenseManager(LicenseConfig licenseConfig) {
-    return new LicenseManager(LICENSE_TOPIC,
+    return new LicenseManager(licenseConfig.topic,
         licenseConfig.producerConfigs(),
         licenseConfig.consumerConfigs(),
         licenseConfig.topicConfigs());
