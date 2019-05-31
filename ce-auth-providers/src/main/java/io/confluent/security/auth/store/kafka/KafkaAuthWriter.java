@@ -45,11 +45,16 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.TopicPartitionInfo;
 import org.apache.kafka.common.errors.InterruptException;
+import org.apache.kafka.common.errors.InvalidReplicationFactorException;
+import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.TopicExistsException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
@@ -331,18 +336,40 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   }
 
   private int maybeCreateAuthTopic(String topic) throws Throwable {
+    int configuredPartitions = config.getInt(KafkaStoreConfig.NUM_PARTITIONS_PROP);
     try (AdminClient adminClient = adminClientSupplier.get()) {
-      try {
-        return adminClient.describeTopics(Collections.singleton(topic))
-            .all().get().get(topic).partitions().size();
-      } catch (ExecutionException e) {
-        if (e.getCause() instanceof UnknownTopicOrPartitionException) {
-          log.debug("Topic {} does not exist, creating new topic", topic);
-          createAuthTopic(adminClient, topic);
-          return producer.partitionsFor(topic).size();
-        } else {
-          log.error("Failed to describe auth topic", e);
-          throw e;
+      // Reader will timeout and fail broker shutdown, so it is ok to retry in a loop here
+      while (true) {
+        try {
+          Set<Integer> partitions = adminClient.describeTopics(Collections.singleton(topic))
+              .all().get().get(topic).partitions().stream()
+              .map(TopicPartitionInfo::partition)
+              .collect(Collectors.toSet());
+          int numPartitions = partitions.size();
+          if (numPartitions == configuredPartitions) {
+            for (int i = 0; i < numPartitions; i++) {
+              if (!partitions.contains(i)) {
+                throw new IllegalStateException(String.format("Got %d partitions for %s as expected, but partition %d is missing",
+                    configuredPartitions, topic, i));
+              }
+            }
+            return numPartitions;
+          } else if (numPartitions > configuredPartitions) {
+            throw new IllegalStateException(String.format("Expected %d partitions for %s, got %d",
+                configuredPartitions, topic, numPartitions));
+          }
+        } catch (ExecutionException e) {
+          if (e.getCause() instanceof UnknownTopicOrPartitionException) {
+            log.debug("Topic {} does not exist, creating new topic", topic);
+            try {
+              createAuthTopic(adminClient, topic);
+            } catch (RetriableException | InvalidReplicationFactorException e1) {
+              log.debug("Failed to create auth topic, retrying");
+            }
+          } else {
+            log.error("Failed to describe auth topic", e);
+            throw e;
+          }
         }
       }
     }
@@ -350,8 +377,9 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
 
   private void createAuthTopic(AdminClient adminClient, String topic) throws Throwable {
     try {
-      adminClient.createTopics(Collections.singletonList(config.metadataTopicCreateConfig(topic)))
-          .all().get();
+      NewTopic metadataTopic = config.metadataTopicCreateConfig(topic);
+      log.info("Creating metadata topic {}", metadataTopic);
+      adminClient.createTopics(Collections.singletonList(metadataTopic)).all().get();
     } catch (ExecutionException e) {
       if (!(e.getCause() instanceof TopicExistsException)) {
         log.error("Failed to create auth topic", e.getCause());

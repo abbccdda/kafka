@@ -146,14 +146,13 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
         .map(CompletionStage::toCompletableFuture)
         .collect(Collectors.toList());
     CompletableFuture<Void> readyFuture =
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()]));
-    CompletableFuture<Void> future = futureOrTimeout(readyFuture, initTimeout)
-        .thenApply(unused -> {
-          initializeAndValidateLicense(interBrokerListenerConfigs);
-          this.ready = true;
-          return null;
-        });
-
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()]))
+            .thenApply(unused -> {
+              initializeAndValidateLicense(interBrokerListenerConfigs);
+              this.ready = true;
+              return null;
+            });
+    CompletableFuture<Void> future = futureOrTimeout(readyFuture, initTimeout);
 
     // For clusters that are not hosting the metadata topic, we can safely wait for the
     // future to complete before any listeners are started. For brokers on the cluster

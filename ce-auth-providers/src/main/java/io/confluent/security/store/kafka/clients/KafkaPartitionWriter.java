@@ -159,6 +159,7 @@ public class KafkaPartitionWriter<K, V> {
         throw new TimeoutException("Failed to write record within timeout");
     }
 
+    log.debug("Writing new record with key {} to partition {} generation id {}", key, topicPartition, expectedGenerationId);
     ProducerRecord<K, V> record = new ProducerRecord<>(topicPartition.topic(), topicPartition.partition(),
           key, value);
     try {

@@ -93,6 +93,7 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
         self.interbroker_sasl_mechanism = interbroker_sasl_mechanism
         self.topics = topics
         self.minikdc = None
+        self.concurrent_start = False
         self.authorizer_class_name = authorizer_class_name
         self.zk_set_acl = False
         if server_prop_overides is None:
@@ -172,6 +173,11 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
         self._ensure_zk_chroot()
 
         Service.start(self)
+        if self.concurrent_start:
+            for node in self.nodes:
+                with node.account.monitor_log(KafkaService.STDOUT_STDERR_CAPTURE) as monitor:
+                    monitor.offset = 0
+                    self.wait_for_start(node, monitor)
 
         self.logger.info("Waiting for brokers to register at ZK")
 
@@ -190,6 +196,11 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
 
                 topic_cfg["topic"] = topic
                 self.create_topic(topic_cfg)
+
+    def start_concurrently(self, add_principals=""):
+        self.concurrent_start = True
+        self.start(add_principals)
+        self.concurrent_start = False
 
     def _ensure_zk_chroot(self):
         self.logger.info("Ensuring zk_chroot %s exists", self.zk_chroot)
@@ -276,10 +287,16 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
 
         cmd = self.start_cmd(node)
         self.logger.debug("Attempting to start KafkaService on %s with command: %s" % (str(node.account), cmd))
-        with node.account.monitor_log(KafkaService.STDOUT_STDERR_CAPTURE) as monitor:
+        if self.concurrent_start:
             node.account.ssh(cmd)
-            # Kafka 1.0.0 and higher don't have a space between "Kafka" and "Server"
-            monitor.wait_until("Kafka\s*Server.*started", timeout_sec=60, backoff_sec=.25, err_msg="Kafka server didn't finish startup")
+        else:
+            with node.account.monitor_log(KafkaService.STDOUT_STDERR_CAPTURE) as monitor:
+                node.account.ssh(cmd)
+                self.wait_for_start(node, monitor)
+
+    def wait_for_start(self, node, monitor):
+        # Kafka 1.0.0 and higher don't have a space between "Kafka" and "Server"
+        monitor.wait_until("Kafka\s*Server.*started", timeout_sec=60, backoff_sec=.25, err_msg="Kafka server didn't finish startup")
 
         # Credentials for inter-broker communication are created before starting Kafka.
         # Client credentials are created after starting Kafka so that both loading of

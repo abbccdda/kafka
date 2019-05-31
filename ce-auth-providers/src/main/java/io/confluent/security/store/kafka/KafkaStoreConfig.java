@@ -18,6 +18,7 @@ import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigDef.Importance;
 import org.apache.kafka.common.config.ConfigDef.Type;
+import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.utils.Utils;
 
@@ -37,13 +38,8 @@ public class KafkaStoreConfig extends AbstractConfig {
       + " This is used for creation of the topic if it doesn't exist. Replication factor cannot be"
       + " altered after the topic is created.";
 
-  public static final String SEGMENT_BYTES_PROP = "confluent.metadata.topic.segment.bytes";
-  private static final int SEGMENT_BYTES_DEFAULT = 100 * 1024 * 1024;
-  private static final String SEGMENT_BYTES_DOC = "Segment size for the metadata topic."
-      + " This is used for creation of the topic if it doesn't exist.";
-
   public static final String TOPIC_CREATE_TIMEOUT_PROP = "confluent.metadata.topic.create.timeout.ms";
-  private static final int TOPIC_CREATE_TIMEOUT_DEFAULT = 60000;
+  private static final int TOPIC_CREATE_TIMEOUT_DEFAULT = 300000;
   private static final String TOPIC_CREATE_TIMEOUT_DOC = "The number of milliseconds to wait for"
       + " metadata topic to be created during start up.";
 
@@ -64,8 +60,6 @@ public class KafkaStoreConfig extends AbstractConfig {
             atLeast(1), Importance.LOW, NUM_PARTITIONS_DOC)
         .define(REPLICATION_FACTOR_PROP, Type.SHORT, REPLICATION_FACTOR_DEFAULT,
             atLeast(1), Importance.LOW, REPLICATION_FACTOR_DOC)
-        .define(SEGMENT_BYTES_PROP, Type.INT, SEGMENT_BYTES_DEFAULT,
-            atLeast(1), Importance.LOW, SEGMENT_BYTES_DOC)
         .define(TOPIC_CREATE_TIMEOUT_PROP, Type.INT, TOPIC_CREATE_TIMEOUT_DEFAULT,
             atLeast(1), Importance.LOW, TOPIC_CREATE_TIMEOUT_DOC)
         .define(REFRESH_TIMEOUT_PROP, Type.INT, REFRESH_TIMEOUT_DEFAULT,
@@ -146,9 +140,15 @@ public class KafkaStoreConfig extends AbstractConfig {
     int numPartitions = getInt(NUM_PARTITIONS_PROP);
     short replicationFactor = getShort(REPLICATION_FACTOR_PROP);
     Map<String, String> configs = new HashMap<>();
-    configs.put("cleanup.policy", "compact");
-    configs.put("compression.type", "producer");
-    configs.put("segment.bytes", String.valueOf(getInt(SEGMENT_BYTES_PROP)));
+    configs.put(TopicConfig.COMPRESSION_TYPE_CONFIG, "producer");
+    String configPrefix = PREFIX + "topic.";
+    originalsWithPrefix(configPrefix, true).forEach((k, v) -> {
+      if (!CONFIG.names().contains(configPrefix + k))
+        configs.put(k, String.valueOf(v));
+    });
+    configs.put(TopicConfig.CLEANUP_POLICY_CONFIG, TopicConfig.CLEANUP_POLICY_COMPACT);
+    configs.put(TopicConfig.UNCLEAN_LEADER_ELECTION_ENABLE_CONFIG, "false");
+    configs.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, String.valueOf(Math.min(replicationFactor, 2)));
     return  new NewTopic(topic, numPartitions, replicationFactor).configs(configs);
   }
 

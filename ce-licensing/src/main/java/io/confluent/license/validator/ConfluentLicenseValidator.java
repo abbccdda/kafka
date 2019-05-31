@@ -14,6 +14,8 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Consumer;
+import org.apache.kafka.common.errors.InvalidReplicationFactorException;
+import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -122,11 +124,28 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
     }
   }
 
+  // License manager may fail to create topic when brokers are starting up
+  // if replication factor is greater than the number of available brokers.
+  // So we need to retry. Caller will timeout after startup timeout.
   protected LicenseManager createLicenseManager(LicenseConfig licenseConfig) {
-    return new LicenseManager(licenseConfig.topic,
-        licenseConfig.producerConfigs(),
-        licenseConfig.consumerConfigs(),
-        licenseConfig.topicConfigs());
+    while (true) {
+      try {
+        return new LicenseManager(licenseConfig.topic,
+            licenseConfig.producerConfigs(),
+            licenseConfig.consumerConfigs(),
+            licenseConfig.topicConfigs());
+      } catch (Exception e) {
+        boolean retry = false;
+        for (Throwable ex = e; ex != null; ex = ex.getCause()) {
+          if (ex instanceof RetriableException || ex instanceof InvalidReplicationFactorException) {
+            retry = true;
+            break;
+          }
+        }
+        if (!retry)
+          throw e;
+      }
+    }
   }
 
   protected void updateExpiredStatus(LicenseStatus status, Date expirationDate) {

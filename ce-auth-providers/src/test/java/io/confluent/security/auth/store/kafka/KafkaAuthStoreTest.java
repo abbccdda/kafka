@@ -21,6 +21,7 @@ import io.confluent.security.rbac.RbacRoles;
 import io.confluent.security.rbac.RoleBinding;
 import io.confluent.security.store.MetadataStoreException;
 import io.confluent.security.store.MetadataStoreStatus;
+import io.confluent.security.store.kafka.KafkaStoreConfig;
 import io.confluent.security.test.utils.LdapTestUtils;
 import java.util.Collections;
 import java.util.HashMap;
@@ -179,6 +180,7 @@ public class KafkaAuthStoreTest {
     configs.put(LdapConfig.RETRY_BACKOFF_MAX_MS_PROP, "1");
     configs.put(LdapConfig.RETRY_TIMEOUT_MS_PROP, "1000");
     configs.put("confluent.metadata.bootstrap.servers", "localhost:9092,localhost:9093");
+    configs.put(KafkaStoreConfig.NUM_PARTITIONS_PROP, String.valueOf(1));
     authStore.configure(configs);
   }
 

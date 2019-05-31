@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from ducktape.cluster.remoteaccount import RemoteCommandError
+from ducktape.mark import matrix
 from ducktape.mark.resource import cluster
 from ducktape.utils.util import wait_until
 
@@ -25,7 +26,23 @@ from kafkatest.services.security.security_config import SecurityConfig
 from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.tests.end_to_end import EndToEndTest
 from kafkatest.utils.remote_account import file_exists
+import signal
 import time
+
+def clean_shutdown(test, node):
+    test.kafka.stop_node(node)
+
+def hard_shutdown(test, node):
+    test.kafka.signal_node(node, sig=signal.SIGKILL)
+    wait_until(lambda: len(test.kafka.pids(node)) == 0 and not test.kafka.is_registered(node),
+           timeout_sec=test.kafka.zk_session_timeout + 5,
+           err_msg="Failed to see timely deregistration of hard-killed broker %s" % str(node.account))
+
+shutdown_actions = {
+    "clean_bounce": clean_shutdown,
+    "hard_bounce": hard_shutdown
+}
+
 
 class RbacTest(EndToEndTest, KafkaPathResolverMixin):
     """
@@ -124,7 +141,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
 	    ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH]
 	]
         self.configure_rbac(server_prop_overides)
-        self.clean_bounce(delay_sec=10)
+        self.bounce(delay_sec=10)
         self.run_validation(min_records=self.producer.num_acked+5000)
         self.verify_access_denied()
 
@@ -163,9 +180,42 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
 	    ["ldap.java.naming.provider.url", self.minildap.ldap_url],
 	]
         self.configure_rbac(server_prop_overides)
-        self.clean_bounce(delay_sec=10)
+        self.bounce(delay_sec=10)
         self.run_validation(min_records=self.producer.num_acked+5000)
         self.verify_access_denied()
+
+    @matrix(failure_mode=["clean_bounce", "hard_bounce"])
+    def test_broker_failure(self, failure_mode):
+        """
+        Verify that producers and consumers using RBAC continue to work with broker failures
+        and metadata service backend recovers on restart.
+        """
+
+        self.topic_config = {"partitions": 2, "replication-factor": 3, "min.insync.replicas": 2}
+        self.create_zookeeper()
+        self.zk.start()
+        self.enable_ldap()
+
+        self.create_kafka(num_nodes=3,
+                          security_protocol="SASL_PLAINTEXT",
+                          interbroker_security_protocol="PLAINTEXT",
+                          client_sasl_mechanism="SCRAM-SHA-256",
+                          interbroker_sasl_mechanism="PLAINTEXT",
+                          authorizer_class_name="io.confluent.kafka.security.authorizer.ConfluentKafkaAuthorizer",
+                          server_prop_overides=[
+                              ["super.users", "User:ANONYMOUS"],
+                              ["confluent.authorizer.access.rule.providers", "ACL,FILE_RBAC"],
+                              ["confluent.authorizer.metadata.provider", "FILE_RBAC"],
+                              ["confluent.authorizer.group.provider", "FILE_RBAC"],
+                              ["ldap.java.naming.provider.url", self.minildap.ldap_url],
+                              ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH]
+                          ])
+        self.kafka.start_concurrently()
+
+        self.create_roles(self.kafka, "Group:" + RbacTest.CLIENT_GROUP)
+        self.start_producer_and_consumer()
+        self.bounce(shutdown_actions[failure_mode], verify_roles=True)
+        self.run_validation(min_records=self.producer.num_acked+5000)
 
 
     def start_producer_and_consumer(self):
@@ -185,14 +235,20 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
         self.minildap.start()
 
     def create_roles(self, kafka, principal):
-        node = self.kafka.nodes[0]
-
         role_file = SecurityConfig.ROLES_PATH
         roles = kafka.security_config.rbac_roles(kafka.cluster_id(), principal)
-        node.account.create_file(role_file, roles)
         self.logger.info("Creating RBAC roles: " + roles)
-        wait_until(lambda:  file_exists(node, role_file) != True,
+        for node in self.kafka.nodes:
+            node.account.create_file(role_file, roles)
+        wait_until(lambda:  self.role_updated(role_file) != True,
                    timeout_sec=30, backoff_sec=.2, err_msg="Role bindings file not deleted by broker.")
+
+    def role_updated(self, role_file):
+        # Role file is deleted by the writer node after update. Return true if file has been deleted on any node.
+        for node in self.kafka.nodes:
+            if file_exists(node, role_file) != True:
+                return True
+        return False
 
     def verify_access_denied(self):
         try :
@@ -223,9 +279,15 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
 	self.kafka.authorizer_class_name="io.confluent.kafka.security.authorizer.ConfluentKafkaAuthorizer"
 	self.kafka.server_prop_overides=server_prop_overides
 
-    def clean_bounce(self, delay_sec=0):
+    def bounce(self, shutdown_action=clean_shutdown, verify_roles=False, delay_sec=0):
+        index = 0
         for node in self.kafka.nodes:
-            self.kafka.stop_node(node)
+            shutdown_action(self, node)
+            if verify_roles:
+                self.create_roles(self.kafka, "User:test-user-%d" % index)
+
             self.kafka.start_node(node)
-            time.sleep(delay_sec)
+            if delay_sec > 0:
+                time.sleep(delay_sec)
+            index = index + 1
 

@@ -6,14 +6,24 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.security.auth.metadata.AuthStore;
 import io.confluent.security.auth.metadata.AuthWriter;
 import io.confluent.security.auth.metadata.MetadataServer;
+import io.confluent.security.authorizer.Action;
+import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.Authorizer;
+import io.confluent.security.authorizer.Operation;
+import io.confluent.security.authorizer.ResourcePattern;
+import io.confluent.security.authorizer.ResourceType;
+import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.utils.JsonMapper;
 import io.confluent.security.rbac.RoleBinding;
+import io.confluent.security.store.NotMasterWriterException;
 import java.io.File;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Map;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.security.auth.AuthenticateCallbackHandler;
+import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.test.TestUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,7 +36,6 @@ public class FileBasedRbac extends RbacProvider {
 
   private static final String PROVIDER_NAME = "FILE_RBAC";
   private static final String FILENAME_PROP = "test.metadata.rbac.file";
-  private static final int TIMEOUT_MS = 300000;
 
   public static class Provider extends RbacProvider {
     @Override
@@ -36,8 +45,10 @@ public class FileBasedRbac extends RbacProvider {
   }
 
   public static class Server extends Thread implements MetadataServer {
+    private volatile Authorizer authorizer;
     private volatile AuthStore authStore;
     private volatile File bindingsFile;
+    private volatile boolean isAlive;
 
     public Server() {
       this.setDaemon(true);
@@ -56,7 +67,9 @@ public class FileBasedRbac extends RbacProvider {
     public void start(Authorizer embeddedAuthorizer,
                       AuthStore authStore,
                       AuthenticateCallbackHandler callbackHandler) {
+      this.authorizer = embeddedAuthorizer;
       this.authStore = authStore;
+      isAlive = true;
       this.start();
     }
 
@@ -67,41 +80,83 @@ public class FileBasedRbac extends RbacProvider {
 
     @Override
     public void close() throws IOException {
+      isAlive = false;
     }
 
     @Override
     public void run() {
       try {
-        long endMs = System.currentTimeMillis() + TIMEOUT_MS;
+        while (isAlive) {
+          if (!bindingsFile.exists()) {
+            Thread.sleep(10);
+            continue;
+          }
 
-        while (System.currentTimeMillis() < endMs && !bindingsFile.exists())
-          Thread.sleep(1);
-        if (!bindingsFile.exists())
-          throw new RuntimeException("Role bindings file " + bindingsFile + " not found within timeout");
+          // Authorization should work regardless of writer elections and broker failures
+          verifyAuthorization();
+          if (!authStore.isMasterWriter()) {
+            Thread.sleep(10);
+            continue;
+          }
+          if (!authStore.isMasterWriter() || !updateRoleBindings(bindingsFile)) {
+              log.warn("Role bindings could not be updated, writer re-election may be in progress");
+          }
+        }
+      } catch (Exception e) {
+        log.error("Provider failed with unexpected exception", e);
+      }
+    }
 
-        while (System.currentTimeMillis() < endMs && !authStore.isMasterWriter())
-          Thread.sleep(1);
-        if (!authStore.isMasterWriter())
-          throw new RuntimeException("Timed out waiting to be elected master writer");
-
+    private boolean updateRoleBindings(File bindingsFile) throws Exception {
+      try {
         AuthWriter writer = authStore.writer();
         ObjectMapper objectMapper = JsonMapper.objectMapper();
         RoleBinding[] roleBindings = objectMapper.readValue(bindingsFile, RoleBinding[].class);
         for (RoleBinding binding : roleBindings) {
-          if (binding.resources().isEmpty())
-            writer.addClusterRoleBinding(binding.principal(), binding.role(), binding.scope()).toCompletableFuture().get();
-          else
-            writer.replaceResourceRoleBinding(binding.principal(), binding.role(), binding.scope(), binding.resources()).toCompletableFuture().get();
+          if (binding.resources().isEmpty()) {
+            writer.addClusterRoleBinding(binding.principal(), binding.role(), binding.scope())
+                .toCompletableFuture().get();
+          } else {
+            writer.replaceResourceRoleBinding(binding.principal(), binding.role(), binding.scope(),
+                    binding.resources()).toCompletableFuture().get();
+          }
           log.debug("Created role binding {}", binding);
         }
         log.info("Completed loading RBAC role bindings from {}", bindingsFile);
+        TestUtils.waitForCondition(() -> roleBindingUpdated(roleBindings[0]), "Role binding not updated");
         if (bindingsFile.delete())
           log.debug("Updated role bindings and deleted bindings file");
         else
           log.error("Role bindings file could not be deleted");
-
+        return true;
+      } catch (NotMasterWriterException e) {
+        log.warn("Writer re-election during role update", e);
+        return false;
       } catch (Exception e) {
         log.error("Role bindings could not be loaded from " + bindingsFile, e);
+        throw e;
+      }
+    }
+
+    private boolean roleBindingUpdated(RoleBinding binding) {
+      ResourcePattern resource = binding.resources().isEmpty() ? null : binding.resources().iterator().next();
+      Action action = new Action(binding.scope(),
+          resource != null ? resource.resourceType() : new ResourceType("Cluster"),
+          resource != null ? resource.name() : "kafka-cluster",
+          new Operation("Describe"));
+      AuthorizeResult authorizeResult = authorizer.authorize(binding.principal(), "",
+          Collections.singletonList(action)).get(0);
+      return authorizeResult == AuthorizeResult.ALLOWED;
+    }
+
+    private void verifyAuthorization() {
+      Action action = new Action(Scope.kafkaClusterScope("somecluster"),
+      new ResourceType("Topic"), "sometopic", new Operation("Read"));
+      AuthorizeResult authorizeResult = authorizer.authorize(
+          new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "SomeUser"),
+          "", Collections.singletonList(action)).get(0);
+      if (authorizeResult != AuthorizeResult.DENIED) {
+        throw new IllegalStateException("Unexpected authorize result: " + authorizeResult);
       }
     }
   }

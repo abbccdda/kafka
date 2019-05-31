@@ -182,7 +182,8 @@ public class KafkaReader<K, V> implements Runnable {
       oldValue = cache.put(key, newValue);
     else
       oldValue = cache.remove(key);
-    log.debug("Processing new record key {} newValue {} oldValue {}", key, newValue, oldValue);
+    log.debug("Processing new record {}-{}:{} key {} newValue {} oldValue {}",
+        record.topic(), record.partition(), record.offset(), key, newValue, oldValue);
     if (consumerListener != null)
       consumerListener.onConsumerRecord(record, oldValue);
     PartitionState partitionState = partitionStates.get(new TopicPartition(record.topic(), record.partition()));
