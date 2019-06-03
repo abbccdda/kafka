@@ -20,6 +20,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -145,13 +146,11 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
         .map(provider -> provider.start(interBrokerListenerConfigs))
         .map(CompletionStage::toCompletableFuture)
         .collect(Collectors.toList());
-    CompletableFuture<Void> readyFuture =
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()]))
-            .thenApply(unused -> {
-              initializeAndValidateLicense(interBrokerListenerConfigs);
-              this.ready = true;
-              return null;
-            });
+    CompletableFuture[] futureArray = new CompletableFuture[futures.size() + 1];
+    futures.toArray(futureArray);
+    futureArray[futures.size()] = initializeLicenseAsync(interBrokerListenerConfigs);
+    CompletableFuture<Void> readyFuture = CompletableFuture.allOf(futureArray)
+        .thenAccept(unused -> this.ready = true);
     CompletableFuture<Void> future = futureOrTimeout(readyFuture, initTimeout);
 
     // For clusters that are not hosting the metadata topic, we can safely wait for the
@@ -326,6 +325,22 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
       return allowOps;
     else
       return Collections.singleton(operation);
+  }
+
+  private CompletableFuture<Void> initializeLicenseAsync(Map<String, ?> configs) {
+    ExecutorService executor = Executors
+        .newSingleThreadScheduledExecutor(ThreadUtils.createThreadFactory("license-%d", true));
+    CompletableFuture<Void> licenseFuture = new CompletableFuture<>();
+    executor.submit(() -> {
+      try {
+        initializeAndValidateLicense(configs);
+        licenseFuture.complete(null);
+      } catch (Throwable e) {
+        log.error("License verification failed", e);
+        licenseFuture.completeExceptionally(e);
+      }
+    });
+    return licenseFuture.whenComplete((unused, e) -> executor.shutdownNow());
   }
 
   // Sub-classes may override to enforce license validation

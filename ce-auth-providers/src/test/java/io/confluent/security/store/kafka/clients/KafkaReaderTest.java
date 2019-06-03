@@ -5,19 +5,23 @@ package io.confluent.security.store.kafka.clients;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 import io.confluent.security.store.KeyValueStore;
 import io.confluent.security.store.MetadataStoreStatus;
 import io.confluent.security.test.utils.RbacTestUtils;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.MockConsumer;
 import org.apache.kafka.common.Cluster;
@@ -36,7 +40,7 @@ public class KafkaReaderTest {
   private final MockTime time = new MockTime();
   private final String topic = "testTopic";
   private Cluster cluster;
-  private  MockConsumer<String, String> consumer;
+  private MockConsumer<String, String> consumer;
   private KafkaReader<String, String> reader;
   private Cache cache;
   private Listener listener;
@@ -47,7 +51,7 @@ public class KafkaReaderTest {
     consumer = RbacTestUtils.mockConsumer(cluster, 1);
     cache = new Cache();
     listener = new Listener();
-    this.reader = new KafkaReader<>(topic, consumer, 2, cache, listener, time);
+    this.reader = new KafkaReader<>(topic, 2, consumer, cache, listener, time);
   }
 
   @After
@@ -197,12 +201,44 @@ public class KafkaReaderTest {
     CompletableFuture<Void> future = reader.start(Duration.ofSeconds(100))
         .toCompletableFuture();
     time.sleep(100 * 1000);
-    try {
-      future.get(10, TimeUnit.SECONDS);
-      fail("Did not timeout for topic creation");
-    } catch (ExecutionException e) {
-      assertEquals(TimeoutException.class, e.getCause().getClass());
-    }
+    Throwable e = assertThrows(ExecutionException.class, () -> future.get(10, TimeUnit.SECONDS));
+    assertEquals(TimeoutException.class, e.getCause().getClass());
+  }
+
+  @Test
+  public void testMissingPartitionMetadata() throws Exception {
+    Node[] replicas = cluster.nodes().toArray(new Node[cluster.nodes().size()]);
+    PartitionInfo tp = new PartitionInfo(topic, 1, cluster.nodeById(0), replicas, replicas);
+    consumer.updatePartitions(topic, Collections.singletonList(tp));
+    CompletableFuture<Void> future = reader.start(Duration.ofSeconds(100))
+        .toCompletableFuture();
+    time.sleep(100 * 1000);
+    Throwable e = assertThrows(ExecutionException.class, () -> future.get(10, TimeUnit.SECONDS));
+    assertEquals(TimeoutException.class, e.getCause().getClass());
+  }
+
+  @Test
+  public void testUnexpectedPartition() throws Exception {
+    Node[] replicas = cluster.nodes().toArray(new Node[cluster.nodes().size()]);
+    PartitionInfo tp = new PartitionInfo(topic, 2, cluster.nodeById(0), replicas, replicas);
+    consumer.updatePartitions(topic, Collections.singletonList(tp));
+    CompletableFuture<Void> future = reader.start(Duration.ofSeconds(100)).toCompletableFuture();
+    // Should fail before timeout
+    Throwable e = assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
+    assertEquals(IllegalStateException.class, e.getCause().getClass());
+  }
+
+  @Test
+  public void testTooManyPartitions() throws Exception {
+    Node[] replicas = cluster.nodes().toArray(new Node[cluster.nodes().size()]);
+    List<PartitionInfo> partitions = IntStream.range(0, 3)
+        .mapToObj(i -> new PartitionInfo(topic, i, cluster.nodeById(0), replicas, replicas))
+        .collect(Collectors.toList());
+    consumer.updatePartitions(topic, partitions);
+    CompletableFuture<Void> future = reader.start(Duration.ofSeconds(100)).toCompletableFuture();
+    // Should fail before timeout
+    Throwable e = assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
+    assertEquals(IllegalStateException.class, e.getCause().getClass());
   }
 
   private CompletableFuture<Void> startReader() throws Exception {

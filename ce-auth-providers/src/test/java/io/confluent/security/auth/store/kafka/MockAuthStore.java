@@ -90,7 +90,7 @@ public class MockAuthStore extends KafkaAuthStore {
                        Scope scope,
                        int numAuthTopicPartitions,
                        int nodeId) {
-    super(roles, time, scope);
+    super(roles, time, scope, numAuthTopicPartitions);
     this.nodeId = nodeId;
     this.numAuthTopicPartitions = numAuthTopicPartitions;
 
@@ -282,7 +282,6 @@ public class MockAuthStore extends KafkaAuthStore {
     MockAuthStore store = new MockAuthStore(rbacRoles, time, scope, numAuthTopicPartitions, nodeId);
     Map<String, Object> configs = new HashMap<>();
     configs.put("confluent.metadata.bootstrap.servers", "localhost:9092,localhost:9093");
-    configs.put(KafkaStoreConfig.NUM_PARTITIONS_PROP, String.valueOf(numAuthTopicPartitions));
     store.configure(configs);
     store.startReader();
     return store;

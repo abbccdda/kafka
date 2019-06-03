@@ -26,11 +26,11 @@ public class KafkaStoreConfig extends AbstractConfig {
 
   public static final String PREFIX = "confluent.metadata.";
 
-  public static final String NUM_PARTITIONS_PROP = "confluent.metadata.topic.num.partitions";
-  private static final int NUM_PARTITIONS_DEFAULT = 5;
-  private static final String NUM_PARTITIONS_DOC = "The number of partitions in the metadata topic."
-      + " This is used for creation of the topic if it doesn't exist. Partition count cannot be"
-      + " altered after the topic is created.";
+  // The number of partitions in the security metadata topic _confluent-metadata-auth
+  // is currently not configurable. This is to ensure that we can reliably wait for partition
+  // metadata even if controller sends metadata updates with a subset of partitions in some
+  // edge cases.
+  public static final int NUM_PARTITIONS = 6;
 
   public static final String REPLICATION_FACTOR_PROP = "confluent.metadata.topic.replication.factor";
   private static final short REPLICATION_FACTOR_DEFAULT = 3;
@@ -56,8 +56,6 @@ public class KafkaStoreConfig extends AbstractConfig {
 
   static {
     CONFIG = new ConfigDef()
-        .define(NUM_PARTITIONS_PROP, Type.INT, NUM_PARTITIONS_DEFAULT,
-            atLeast(1), Importance.LOW, NUM_PARTITIONS_DOC)
         .define(REPLICATION_FACTOR_PROP, Type.SHORT, REPLICATION_FACTOR_DEFAULT,
             atLeast(1), Importance.LOW, REPLICATION_FACTOR_DOC)
         .define(TOPIC_CREATE_TIMEOUT_PROP, Type.INT, TOPIC_CREATE_TIMEOUT_DEFAULT,
@@ -136,8 +134,7 @@ public class KafkaStoreConfig extends AbstractConfig {
     return configs;
   }
 
-  public NewTopic metadataTopicCreateConfig(String topic) {
-    int numPartitions = getInt(NUM_PARTITIONS_PROP);
+  public NewTopic metadataTopicCreateConfig(String topic, int numPartitions) {
     short replicationFactor = getShort(REPLICATION_FACTOR_PROP);
     Map<String, String> configs = new HashMap<>();
     configs.put(TopicConfig.COMPRESSION_TYPE_CONFIG, "producer");

@@ -39,6 +39,7 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
 
   private final DefaultAuthCache authCache;
   private final Time time;
+  private final int numAuthTopicPartitions;
   private final JsonSerde<AuthKey> keySerde;
   private final JsonSerde<AuthValue> valueSerde;
 
@@ -48,12 +49,13 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
   private volatile KafkaAuthWriter writer;
 
   public KafkaAuthStore(Scope scope) {
-    this(RbacRoles.loadDefaultPolicy(), Time.SYSTEM, scope);
+    this(RbacRoles.loadDefaultPolicy(), Time.SYSTEM, scope, KafkaStoreConfig.NUM_PARTITIONS);
   }
 
-  public KafkaAuthStore(RbacRoles rbacRoles, Time time, Scope scope) {
+  public KafkaAuthStore(RbacRoles rbacRoles, Time time, Scope scope, int numAuthTopicPartitions) {
     this.authCache = new DefaultAuthCache(rbacRoles, scope);
     this.time = time;
+    this.numAuthTopicPartitions = numAuthTopicPartitions;
 
     this.keySerde = JsonSerde.serde(AuthKey.class, true);
     this.valueSerde = JsonSerde.serde(AuthValue.class, false);
@@ -64,8 +66,8 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
     this.clientConfig = new KafkaStoreConfig(configs);
 
     this.reader = new KafkaReader<>(AUTH_TOPIC,
+        numAuthTopicPartitions,
         createConsumer(clientConfig.consumerConfigs(AUTH_TOPIC)),
-        clientConfig.getInt(KafkaStoreConfig.NUM_PARTITIONS_PROP),
         authCache,
         this,
         time);
@@ -96,6 +98,7 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
 
     this.writer = new KafkaAuthWriter(
         AUTH_TOPIC,
+        numAuthTopicPartitions,
         clientConfig,
         createProducer(clientConfig.producerConfigs(AUTH_TOPIC)),
         () -> createAdminClient(clientConfig.adminClientConfigs()),

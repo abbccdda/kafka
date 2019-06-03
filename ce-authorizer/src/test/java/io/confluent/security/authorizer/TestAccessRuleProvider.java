@@ -9,6 +9,8 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 
@@ -17,12 +19,20 @@ public class TestAccessRuleProvider implements AccessRuleProvider {
   private static final String SCOPE = "test";
 
   static RuntimeException exception;
+  static CompletionStage<Void> startFuture = CompletableFuture.completedFuture(null);
+  static boolean usesMetadataFromThisKafkaCluster = false;
   static Set<KafkaPrincipal> superUsers = new HashSet<>();
   static Map<ResourcePattern, Set<AccessRule>> accessRules = new HashMap<>();
 
   @Override
   public void configure(Map<String, ?> configs) {
   }
+
+  @Override
+  public CompletionStage<Void> start(Map<String, ?> interBrokerListenerConfigs) {
+    return startFuture;
+  }
+
 
   @Override
   public boolean isSuperUser(KafkaPrincipal sessionPrincipal,
@@ -54,7 +64,7 @@ public class TestAccessRuleProvider implements AccessRuleProvider {
 
   @Override
   public boolean usesMetadataFromThisKafkaCluster() {
-    return false;
+    return usesMetadataFromThisKafkaCluster;
   }
 
   @Override
@@ -75,6 +85,8 @@ public class TestAccessRuleProvider implements AccessRuleProvider {
 
   static void reset() {
     exception = null;
+    startFuture = CompletableFuture.completedFuture(null);
+    usesMetadataFromThisKafkaCluster = false;
     accessRules.clear();
     superUsers.clear();
   }

@@ -28,6 +28,7 @@ import io.confluent.security.store.kafka.KafkaStoreConfig;
 import io.confluent.security.store.kafka.clients.CachedRecord;
 import io.confluent.security.store.kafka.clients.ConsumerListener;
 import io.confluent.security.store.kafka.clients.KafkaPartitionWriter;
+import io.confluent.security.store.kafka.clients.KafkaUtils;
 import io.confluent.security.store.kafka.clients.Writer;
 import io.confluent.security.store.kafka.coordinator.MetadataServiceRebalanceListener;
 import java.time.Duration;
@@ -50,15 +51,13 @@ import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.Producer;
+import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.TopicPartitionInfo;
 import org.apache.kafka.common.errors.InterruptException;
-import org.apache.kafka.common.errors.InvalidReplicationFactorException;
 import org.apache.kafka.common.errors.InvalidRequestException;
-import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.TopicExistsException;
-import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
@@ -71,6 +70,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   private static final Logger log = LoggerFactory.getLogger(KafkaAuthWriter.class);
 
   private final String topic;
+  private final int numPartitions;
   private final KafkaStoreConfig config;
   private final Time time;
   private final DefaultAuthCache authCache;
@@ -79,17 +79,20 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   private final Map<AuthEntryType, ExternalStore> externalAuthStores;
   private final AtomicBoolean isMasterWriter;
   private final Map<Integer, KafkaPartitionWriter<AuthKey, AuthValue>> partitionWriters;
+  private final AtomicBoolean alive;
   private MetadataServiceRebalanceListener rebalanceListener;
   private ExecutorService executor;
   private volatile boolean ready;
 
   public KafkaAuthWriter(String topic,
+                         int numPartitions,
                          KafkaStoreConfig config,
                          Producer<AuthKey, AuthValue> producer,
                          Supplier<AdminClient> adminClientSupplier,
                          DefaultAuthCache authCache,
                          Time time) {
     this.topic = topic;
+    this.numPartitions = numPartitions;
     this.config = config;
     this.producer = producer;
     this.adminClientSupplier = adminClientSupplier;
@@ -98,6 +101,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     this.externalAuthStores = new HashMap<>();
     this.isMasterWriter = new AtomicBoolean();
     this.partitionWriters = new HashMap<>();
+    this.alive = new AtomicBoolean(true);
     loadExternalAuthStores();
   }
 
@@ -249,8 +253,10 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   }
 
   public void close(Duration closeTimeout) {
-    stopWriter(null);
-    producer.close(closeTimeout);
+    if (alive.getAndSet(false)) {
+      stopWriter(null);
+      producer.close(closeTimeout);
+    }
   }
 
   @Override
@@ -325,7 +331,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   }
 
   private void createPartitionWriters() throws Throwable {
-    int numPartitions = maybeCreateAuthTopic(topic);
+    maybeCreateAuthTopic(topic, config.topicCreateTimeout);
     if (numPartitions == 0)
       throw new IllegalStateException("Number of partitions not known for " + topic);
     for (int i = 0; i < numPartitions; i++) {
@@ -336,57 +342,55 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     }
   }
 
-  private int maybeCreateAuthTopic(String topic) throws Throwable {
-    int configuredPartitions = config.getInt(KafkaStoreConfig.NUM_PARTITIONS_PROP);
+  private void maybeCreateAuthTopic(String topic, Duration topicCreateTimeout) {
     try (AdminClient adminClient = adminClientSupplier.get()) {
-      // Reader will timeout and fail broker shutdown, so it is ok to retry in a loop here
-      while (true) {
-        try {
-          Set<Integer> partitions = adminClient.describeTopics(Collections.singleton(topic))
-              .all().get().get(topic).partitions().stream()
-              .map(TopicPartitionInfo::partition)
-              .collect(Collectors.toSet());
-          int numPartitions = partitions.size();
-          if (numPartitions == configuredPartitions) {
-            for (int i = 0; i < numPartitions; i++) {
-              if (!partitions.contains(i)) {
-                throw new IllegalStateException(String.format("Got %d partitions for %s as expected, but partition %d is missing",
-                    configuredPartitions, topic, i));
-              }
-            }
-            return numPartitions;
-          } else if (numPartitions > configuredPartitions) {
-            throw new IllegalStateException(String.format("Expected %d partitions for %s, got %d",
-                configuredPartitions, topic, numPartitions));
-          }
-        } catch (ExecutionException e) {
-          if (e.getCause() instanceof UnknownTopicOrPartitionException) {
-            log.debug("Topic {} does not exist, creating new topic", topic);
-            try {
-              createAuthTopic(adminClient, topic);
-            } catch (RetriableException | InvalidReplicationFactorException e1) {
-              log.debug("Failed to create auth topic, retrying");
-            }
-          } else {
-            log.error("Failed to describe auth topic", e);
-            throw e;
-          }
-        }
-      }
+      KafkaUtils.waitForTopic(topic,
+          numPartitions,
+          time,
+          topicCreateTimeout,
+          t -> describeAuthTopic(t, adminClient),
+          t -> createAuthTopic(adminClient, topic));
     }
   }
 
-  private void createAuthTopic(AdminClient adminClient, String topic) throws Throwable {
+  private Set<Integer> describeAuthTopic(String topic, AdminClient adminClient) {
     try {
-      NewTopic metadataTopic = config.metadataTopicCreateConfig(topic);
-      log.info("Creating metadata topic {}", metadataTopic);
+      if (!alive.get())
+        throw new RuntimeException("KafkaAuthWriter has been shutdown");
+      return adminClient.describeTopics(Collections.singleton(topic))
+          .all().get().get(topic).partitions().stream()
+          .map(TopicPartitionInfo::partition)
+          .collect(Collectors.toSet());
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof KafkaException)
+        throw (KafkaException) cause;
+      else
+        throw new KafkaException("Failed to describe auth topic " + topic, cause);
+    } catch (InterruptedException e) {
+      throw new InterruptException(e);
+    }
+  }
+
+  private void createAuthTopic(AdminClient adminClient, String topic) {
+    try {
+      if (!alive.get())
+        throw new RuntimeException("KafkaAuthWriter has been shutdown");
+      NewTopic metadataTopic = config.metadataTopicCreateConfig(topic, numPartitions);
+      log.info("Creating auth topic {}", metadataTopic);
       adminClient.createTopics(Collections.singletonList(metadataTopic)).all().get();
     } catch (ExecutionException e) {
-      if (!(e.getCause() instanceof TopicExistsException)) {
-        log.error("Failed to create auth topic", e.getCause());
-        throw e.getCause();
-      } else
+      if (e.getCause() instanceof TopicExistsException) {
         log.debug("Topic was created by different node");
+      } else {
+        Throwable cause = e.getCause();
+        if (cause instanceof KafkaException)
+          throw (KafkaException) cause;
+        else
+          throw new KafkaException("Failed to create auth topic " + topic, cause);
+      }
+    } catch (InterruptedException e) {
+      throw new InterruptException(e);
     }
   }
 

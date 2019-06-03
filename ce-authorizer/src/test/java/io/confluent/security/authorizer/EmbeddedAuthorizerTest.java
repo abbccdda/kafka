@@ -5,6 +5,8 @@ package io.confluent.security.authorizer;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import io.confluent.security.authorizer.provider.ProviderFailedException;
@@ -17,11 +19,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Test;
@@ -166,6 +172,96 @@ public class EmbeddedAuthorizerTest {
       assertFalse(future3.isDone());
     }
     TestUtils.waitForCondition(() -> threadCount("authorizer") == 0, "Timeout thread not deleted");
+  }
+
+  @Test
+  public void testProviderStartFutureTimeout() throws Exception {
+    TestAccessRuleProvider.startFuture = new CompletableFuture<>();
+    TestAccessRuleProvider.usesMetadataFromThisKafkaCluster = true;
+    Map<String, Object> props = new HashMap<>();
+    props.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "TEST");
+    props.put(ConfluentAuthorizerConfig.INIT_TIMEOUT_PROP, "10");
+    authorizer.configure(props);
+    CompletableFuture<Void> future = authorizer.start(Collections.emptyMap());
+    Throwable t = assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
+    assertEquals(org.apache.kafka.common.errors.TimeoutException.class, t.getCause().getClass());
+    assertFalse(authorizer.ready());
+  }
+
+  @Test
+  public void testProviderStartTimeout() throws Exception {
+    TestAccessRuleProvider.startFuture = new CompletableFuture<>();
+    TestAccessRuleProvider.usesMetadataFromThisKafkaCluster = false;
+    Map<String, Object> props = new HashMap<>();
+    props.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "TEST");
+    props.put(ConfluentAuthorizerConfig.INIT_TIMEOUT_PROP, "10");
+    authorizer.configure(props);
+    Throwable t = assertThrows(CompletionException.class, () -> authorizer.start(Collections.emptyMap()));
+    assertEquals(org.apache.kafka.common.errors.TimeoutException.class, t.getCause().getClass());
+    assertFalse(authorizer.ready());
+  }
+
+  @Test
+  public void testLicenseInitialization() throws Exception {
+    TestAccessRuleProvider.usesMetadataFromThisKafkaCluster = true;
+    Semaphore licenseSemaphore = new Semaphore(0);
+    Map<String, Object> props = new HashMap<>();
+    EmbeddedAuthorizer authorizer = new EmbeddedAuthorizer() {
+      @Override
+      protected void initializeAndValidateLicense(Map<String, ?> configs) {
+        try {
+          licenseSemaphore.acquire();
+        } catch (Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+    };
+    props.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "TEST");
+    authorizer.configure(props);
+    CompletableFuture<Void> future = authorizer.start(Collections.emptyMap());
+    assertFalse(future.isDone());
+    assertFalse(authorizer.ready());
+    licenseSemaphore.release();
+    future.get(5, TimeUnit.SECONDS);
+    assertTrue(authorizer.ready());
+    TestUtils.waitForCondition(() -> threadCount("license") == 0, "License thread not deleted");
+  }
+
+  @Test
+  public void testLicenseTimeout() throws Exception {
+    TestAccessRuleProvider.usesMetadataFromThisKafkaCluster = true;
+    Map<String, Object> props = new HashMap<>();
+    EmbeddedAuthorizer authorizer = new EmbeddedAuthorizer() {
+      @Override
+      protected void initializeAndValidateLicense(Map<String, ?> configs) {
+        Utils.sleep(30000);
+      }
+    };
+    props.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "TEST");
+    props.put(ConfluentAuthorizerConfig.INIT_TIMEOUT_PROP, "10");
+    authorizer.configure(props);
+    CompletableFuture<Void> future = authorizer.start(Collections.emptyMap());
+    Throwable t = assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
+    assertEquals(org.apache.kafka.common.errors.TimeoutException.class, t.getCause().getClass());
+    assertFalse(authorizer.ready());
+  }
+
+  @Test
+  public void testInvalidLicense() throws Exception {
+    TestAccessRuleProvider.usesMetadataFromThisKafkaCluster = true;
+    Map<String, Object> props = new HashMap<>();
+    EmbeddedAuthorizer authorizer = new EmbeddedAuthorizer() {
+      @Override
+      protected void initializeAndValidateLicense(Map<String, ?> configs) {
+        throw new KafkaException("Test license validation exception");
+      }
+    };
+    props.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "TEST");
+    authorizer.configure(props);
+    CompletableFuture<Void> future = authorizer.start(Collections.emptyMap());
+    Throwable t = assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
+    assertEquals(org.apache.kafka.common.KafkaException.class, t.getCause().getClass());
+    assertFalse(authorizer.ready());
   }
 
   private long threadCount(String prefix) {

@@ -293,7 +293,6 @@ public class RbacClusters {
         "http://0.0.0.0:" + metadataPort);
     serverConfig.setProperty(MetadataServiceConfig.METADATA_SERVER_ADVERTISED_LISTENERS_PROP,
         "http://localhost:" + metadataPort);
-    serverConfig.setProperty(KafkaStoreConfig.NUM_PARTITIONS_PROP, "2");
     serverConfig.setProperty(KafkaStoreConfig.REPLICATION_FACTOR_PROP, "1");
     serverConfig.setProperty(KafkaConfig$.MODULE$.AutoCreateTopicsEnableProp(), "false");
     serverConfig.putAll(config.metadataClusterPropOverrides);
