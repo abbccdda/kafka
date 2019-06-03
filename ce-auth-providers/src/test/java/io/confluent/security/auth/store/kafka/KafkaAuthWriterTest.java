@@ -34,6 +34,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.MockTime;
@@ -205,27 +206,27 @@ public class KafkaAuthWriterTest {
         rbacResources(alice, "Reader", clusterA));
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test(expected = InvalidRequestException.class)
   public void testClusterScopeAddResources() throws Exception {
     authWriter.addResourceRoleBinding(bob, "Operator", clusterA, resources("topicA", "groupB"));
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test(expected = InvalidRequestException.class)
   public void testClusterScopeRemoveResources() throws Exception {
     authWriter.removeResourceRoleBinding(bob, "Operator", clusterA, resourceFilters("topicA", "groupB"));
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test(expected = InvalidRequestException.class)
   public void testClusterScopeSetResources() throws Exception {
     authWriter.replaceResourceRoleBinding(bob, "Operator", clusterA, resources("topicA", "groupB"));
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test(expected = InvalidRequestException.class)
   public void testResourceScopeBindingWithoutResources() throws Exception {
     authWriter.addClusterRoleBinding(alice, "Reader", clusterA);
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test(expected = InvalidRequestException.class)
   public void testResourceScopeSetEmptyResources() throws Exception {
     authWriter.replaceResourceRoleBinding(alice, "Reader", clusterA, Collections.emptySet());
   }

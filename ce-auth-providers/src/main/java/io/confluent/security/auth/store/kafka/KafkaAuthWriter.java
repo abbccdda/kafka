@@ -54,6 +54,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.TopicPartitionInfo;
 import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.errors.InvalidReplicationFactorException;
+import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.TopicExistsException;
@@ -414,10 +415,10 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     scope.validate(true);
     AccessPolicy accessPolicy = accessPolicy(role);
     if (!resources.isEmpty() && !accessPolicy.hasResourceScope())
-      throw new IllegalArgumentException("Resources cannot be specified for role " + role +
+      throw new InvalidRequestException("Resources cannot be specified for role " + role +
           " with scope type " + accessPolicy.scopeType());
     else if (expectResourcesForResourceLevel && resources.isEmpty() && accessPolicy.hasResourceScope())
-      throw new IllegalArgumentException("Role binding update of resource-scope role without any resources");
+      throw new InvalidRequestException("Role binding update of resource-scope role without any resources");
 
     if (!authCache.rootScope().containsScope(scope)) {
       throw new InvalidScopeException("This writer does not contain binding scope " + scope);
@@ -427,11 +428,11 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   private void validateRoleResources(Collection<ResourcePattern> resources) {
     resources.forEach(resource -> {
       if (resource.name() == null || resource.name().isEmpty())
-        throw new IllegalArgumentException("Resource name for role binding must be non-empty");
+        throw new InvalidRequestException("Resource name for role binding must be non-empty");
       if (resource.resourceType() == null || resource.resourceType().name() == null || resource.resourceType().name().isEmpty())
-        throw new IllegalArgumentException("Resource type for role binding must be non-empty");
+        throw new InvalidRequestException("Resource type for role binding must be non-empty");
       if (resource.patternType() == null || !resource.patternType().isSpecific())
-        throw new IllegalArgumentException("Resource pattern type for role binding must be LITERAL or PREFIXED, got " + resource);
+        throw new InvalidRequestException("Resource pattern type for role binding must be LITERAL or PREFIXED, got " + resource);
     });
   }
 

@@ -27,7 +27,7 @@ public interface AuthWriter {
    * @param role Name of role
    * @param scope Scope at which role is assigned
    * @return a stage that is completed when update completes
-   * @throws IllegalArgumentException if the specified role has resource-level scope
+   * @throws org.apache.kafka.common.errors.InvalidRequestException if the specified role has resource-level scope
    */
   CompletionStage<Void> addClusterRoleBinding(KafkaPrincipal principal, String role, Scope scope);
 
@@ -44,7 +44,7 @@ public interface AuthWriter {
    * @param scope Scope at which role is assigned
    * @param resources Resources to add to role binding
    * @return a stage that is completed when update completes
-   * @throws IllegalArgumentException if the specified role has cluster-level scope
+   * @throws org.apache.kafka.common.errors.InvalidRequestException if the specified role has cluster-level scope
    */
   CompletionStage<Void> addResourceRoleBinding(KafkaPrincipal principal, String role, Scope scope, Collection<ResourcePattern> resources);
 
@@ -73,7 +73,7 @@ public interface AuthWriter {
    * @param scope Scope at which role is assigned
    * @param resources Filter for resources being removed for the role binding
    * @return a stage that is completed when update completes
-   * @throws IllegalArgumentException if the specified role has cluster-level scope
+   * @throws org.apache.kafka.common.errors.InvalidRequestException if the specified role has cluster-level scope
    */
   CompletionStage<Void> removeResourceRoleBinding(KafkaPrincipal principal, String role, Scope scope, Collection<ResourcePatternFilter> resources);
 
@@ -88,7 +88,7 @@ public interface AuthWriter {
    * @param scope Scope at which role is assigned
    * @param resources Updated collection of resources for the role binding
    * @return a stage that is completed when update completes
-   * @throws IllegalArgumentException if the specified role has cluster-level scope
+   * @throws org.apache.kafka.common.errors.InvalidRequestException if the specified role has cluster-level scope
    */
   CompletionStage<Void> replaceResourceRoleBinding(KafkaPrincipal principal, String role, Scope scope, Collection<ResourcePattern> resources);
 
