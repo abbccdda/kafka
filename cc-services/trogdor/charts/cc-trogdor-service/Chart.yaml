@@ -2,4 +2,4 @@ apiVersion: apps/v1beta2
 appVersion: "1.0"
 description: A Helm chart for Kafka Trogdor
 name: cc-trogdor-service
-version: 0.0.4
+version: 0.0.5
