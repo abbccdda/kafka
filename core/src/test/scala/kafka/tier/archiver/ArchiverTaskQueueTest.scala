@@ -32,6 +32,10 @@ final class ArchiverTaskQueueTest {
   var ctx: CancellationContext = _
   var queue: ArchiverTaskQueue[MockArchiverTaskQueueTask] = _
   var time: Time = _
+  // Maximum amount of time to spend waiting for threads to join in multi-threaded tests.
+  val joinTimeout: FiniteDuration = 1 minute
+  // Maximum amount of time to spend waiting for `processLeadershipQueue()` calls to resolve.
+  val leadershipQueueTimeoutMs: Long = 1000
 
   @Before
   def setup(): Unit = {
@@ -101,12 +105,12 @@ final class ArchiverTaskQueueTest {
     Assert.assertEquals(tp1Task.topicIdPartition, tp1)
 
     queue.onBecomeFollower(tp0)
-    queue.processLeadershipQueue(50, TimeUnit.MILLISECONDS)
+    queue.processLeadershipQueue(leadershipQueueTimeoutMs, TimeUnit.MILLISECONDS)
     Assert.assertTrue("expected tp0 task to be cancelled due to become follower",
       tp0Task.ctx.isCancelled)
 
     queue.onBecomeLeader(tp1, 0)
-    queue.processLeadershipQueue(50, TimeUnit.MILLISECONDS)
+    queue.processLeadershipQueue(leadershipQueueTimeoutMs, TimeUnit.MILLISECONDS)
     Assert.assertTrue("expected tp1 task to be cancelled due to new leadership",
       tp1Task.ctx.isCancelled)
   }
@@ -137,7 +141,7 @@ final class ArchiverTaskQueueTest {
     Assert.assertEquals(tp0Task.topicIdPartition, tp0)
 
     queue.onBecomeLeader(tp0, 1)
-    queue.processLeadershipQueue(10, TimeUnit.MILLISECONDS)
+    queue.processLeadershipQueue(leadershipQueueTimeoutMs, TimeUnit.MILLISECONDS)
 
     queue.done(tp0Task)
     Assert.assertTrue("expected task to be immediately canceled since a new " +
@@ -167,14 +171,14 @@ final class ArchiverTaskQueueTest {
     // Test scenario where leadership changes after a task is done
     queue.done(tp0Task)
     queue.onBecomeFollower(tp0)
-    queue.processLeadershipQueue(50, TimeUnit.MILLISECONDS)
+    queue.processLeadershipQueue(leadershipQueueTimeoutMs, TimeUnit.MILLISECONDS)
     Assert.assertTrue("expected task to be cancelled due to leadership change", tp0Task.ctx.isCancelled)
     Assert.assertEquals("expected task to be removed from the queue due to leadership change",
       queue.taskCount(), 1)
 
     // Test scenario where leadership changes before a task is done
     queue.onBecomeFollower(tp1)
-    queue.processLeadershipQueue(50, TimeUnit.MILLISECONDS)
+    queue.processLeadershipQueue(leadershipQueueTimeoutMs, TimeUnit.MILLISECONDS)
     Assert.assertTrue("expected task to be cancelled due to leadership change", tp1Task.ctx.isCancelled)
     Assert.assertEquals("expected queue to be empty", queue.taskCount(), 0)
   }
@@ -197,7 +201,7 @@ final class ArchiverTaskQueueTest {
     Assert.assertFalse("expected future to still be blocked due to time delay", fut.isCompleted)
     // sleep for more than 5 seconds in total, future should be unblocked
     time.sleep(3000)
-    Assert.assertTrue("expected task pause to expire and future to complete", Await.ready(fut, 100 milliseconds).isCompleted)
+    Assert.assertTrue("expected task pause to expire and future to complete", Await.ready(fut, joinTimeout).isCompleted)
   }
 
   @Test
@@ -210,7 +214,7 @@ final class ArchiverTaskQueueTest {
 
     Assert.assertFalse("expected poll to still be blocked", fut.isCompleted)
     updateLag(tp0, 30)
-    val task = Await.result(fut, 100 milliseconds)
+    val task = Await.result(fut, joinTimeout)
     Assert.assertEquals("expected updating lag to unblock the queue",
       task.topicIdPartition, tp0)
   }
@@ -231,8 +235,8 @@ final class ArchiverTaskQueueTest {
     updateLag(tp1, 100)
 
     Assert.assertNotEquals("expected unique tasks between pollers",
-      Await.result(fut1, 100 milliseconds).topicIdPartition,
-      Await.result(fut2, 100 milliseconds).topicIdPartition
+      Await.result(fut1, joinTimeout).topicIdPartition,
+      Await.result(fut2, joinTimeout).topicIdPartition
     )
   }
 
@@ -243,7 +247,7 @@ final class ArchiverTaskQueueTest {
     updateLag(tp, 1)
     val task = queue.poll()
     queue.onDelete(tp)
-    queue.processLeadershipQueue(50, TimeUnit.MILLISECONDS)
+    queue.processLeadershipQueue(leadershipQueueTimeoutMs, TimeUnit.MILLISECONDS)
     queue.done(task)
     Assert.assertTrue("expected task to be canceled", task.ctx.isCancelled)
     Assert.assertEquals("expected no tasks to be present", queue.taskCount(), 0)
@@ -286,8 +290,8 @@ final class ArchiverTaskQueueTest {
 
     ctx.cancel()
 
-    Assert.assertTrue("expected future to be completed", Await.ready(fut1, 100 millis).isCompleted)
-    Assert.assertTrue("expected future to be completed", Await.ready(fut2, 100 millis).isCompleted)
+    Assert.assertTrue("expected future to be completed", Await.ready(fut1, joinTimeout).isCompleted)
+    Assert.assertTrue("expected future to be completed", Await.ready(fut2, joinTimeout).isCompleted)
     Assert.assertTrue("expected future to fail", fut1.value.get.isFailure)
     Assert.assertTrue("expected future to fail", fut2.value.get.isFailure)
   }
@@ -321,7 +325,7 @@ final class ArchiverTaskQueueTest {
        _ <- schedulingLoop(queue)
        _ <- schedulingLoop(queue)
        _ <- schedulingLoop(queue)
-    } yield (), 5 seconds)
+    } yield (), joinTimeout)
 
     Assert.assertEquals("expected 3 tasks to be present", queue.taskCount(), 3)
     Assert.assertTrue(queue.withAllTasks(tasks => tasks.forall(getLag(_).get == 0)))
@@ -352,7 +356,7 @@ final class ArchiverTaskQueueTest {
       _ <- fut0
       _ <- fut1
       _ <- fut2
-    } yield (), 5 seconds)
+    } yield (), joinTimeout)
 
     Assert.assertEquals("expected 3 tasks to be present", queue.taskCount(), 3)
 
@@ -369,7 +373,7 @@ final class ArchiverTaskQueueTest {
     updateLag(tp0, 0)
     updateLag(tp1, 0)
 
-    Assert.assertTrue("Expected leadership changes to be processed", queue.processLeadershipQueue(1000, TimeUnit.MILLISECONDS))
+    Assert.assertTrue("Expected leadership changes to be processed", queue.processLeadershipQueue(leadershipQueueTimeoutMs, TimeUnit.MILLISECONDS))
     // After processing the leadership queue, we expect that both tp0 and tp1 are available as "tasks"
     queue.withAllTasks(tasks => {
       Assert.assertTrue("expected to find a task for TP0", tasks.exists(_.topicIdPartition == tp0))

@@ -112,6 +112,10 @@ class ArchiverTaskQueue[T <: ArchiverTaskQueueTask](ctx: CancellationContext,
     * without polling any tasks. Each call to processLeadershipQueue will attempt to drain and process the leadershipChangeQueue
     * before hitting the timeout.
     *
+    * This method will block until either of the following conditions are met:
+    *   1. The provided timeout elapses.
+    *   2. This ArchiverTaskQueue has been closed via `close()`.
+
     * @param timeout time to block on polling the leadershipChangeQueue
     * @param unit unit of time
     * @return true if an entry was processed, false if the timeout expired.
@@ -120,8 +124,8 @@ class ArchiverTaskQueue[T <: ArchiverTaskQueueTask](ctx: CancellationContext,
     val timeoutMillis = unit.toMillis(timeout)
     var remainingWaitDuration = Duration.ofMillis(timeoutMillis)
     var newEntryProcessed = false
-    while (true) {
-      val timeBeforePoll = time.milliseconds() // measure start time so we know when to stop polling
+    while (!ctx.isCancelled) {
+      val timeBeforePoll = time.hiResClockMs() // measure start time so we know when to stop polling
       leadershipChangeQueue.pop(remainingWaitDuration.toMillis, TimeUnit.MILLISECONDS) match {
         case Some(startLeadership: StartLeadership) =>
           val newTask = taskFactoryFn(ctx.subContext(), startLeadership.topicIdPartition, startLeadership.leaderEpoch)
@@ -139,7 +143,7 @@ class ArchiverTaskQueue[T <: ArchiverTaskQueueTask](ctx: CancellationContext,
       // `leadershipChangeQueue.pop()` did not timeout, so we can assume that some work was done processing the `leadershipChangeQueue`.
       // In this case, we should update the `remainingWaitDuration` by subtracting out the time we spent waiting
       // for the item which was just processed.
-      val timeWaited = Duration.ofMillis(Math.min(time.milliseconds() - timeBeforePoll, 0))
+      val timeWaited = Duration.ofMillis(Math.min(time.hiResClockMs() - timeBeforePoll, 0))
       remainingWaitDuration = remainingWaitDuration.minus(timeWaited)
     }
     newEntryProcessed
