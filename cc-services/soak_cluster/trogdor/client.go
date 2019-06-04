@@ -52,18 +52,19 @@ type producerSpec struct {
 }
 
 type consumerSpec struct {
-	Class                string     `json:"class"`
-	StartMs              uint64     `json:"startMs"`
-	DurationMs           uint64     `json:"durationMs"`
-	ConsumerNode         string     `json:"consumerNode,omitempty"`
-	ConsumerGroup        string     `json:"consumerGroup,omitempty"`
-	BootstrapServers     string     `json:"bootstrapServers"`
-	TargetMessagesPerSec uint64     `json:"targetMessagesPerSec"`
-	MaxMessages          uint64     `json:"maxMessages"`
-	ConsumerConf         *AdminConf `json:"consumerConf,omitempty"`
-	CommonClientConf     *AdminConf `json:"commonClientConf,omitempty"`
-	AdminClientConf      *AdminConf `json:"adminClientConf,omitempty"`
-	ActiveTopics         []string   `json:"activeTopics"`
+	Class                string                   `json:"class"`
+	StartMs              uint64                   `json:"startMs"`
+	DurationMs           uint64                   `json:"durationMs"`
+	ConsumerNode         string                   `json:"consumerNode,omitempty"`
+	ConsumerGroup        string                   `json:"consumerGroup,omitempty"`
+	BootstrapServers     string                   `json:"bootstrapServers"`
+	TargetMessagesPerSec uint64                   `json:"targetMessagesPerSec"`
+	MaxMessages          uint64                   `json:"maxMessages"`
+	ConsumerConf         *AdminConf               `json:"consumerConf,omitempty"`
+	CommonClientConf     *AdminConf               `json:"commonClientConf,omitempty"`
+	AdminClientConf      *AdminConf               `json:"adminClientConf,omitempty"`
+	ActiveTopics         []string                 `json:"activeTopics"`
+	RecordBatchVerifier  *RecordBatchVerifierSpec `json:"recordBatchVerifier,omitempty"`
 }
 
 type roundTripSpec struct {
@@ -164,6 +165,10 @@ type TransactionGeneratorSpec struct {
 	MessagesPerTransaction uint64 `json:"messagesPerTransaction"`
 }
 
+type RecordBatchVerifierSpec struct {
+	Type string `json:"type"`
+}
+
 // use mostly random values to best simulate real-life data compression
 var DefaultValueGeneratorSpec = ValueGeneratorSpec{ValueType: "uniformRandom", Size: 900, Padding: 100}
 var DefaultKeyGeneratorSpec = KeyGeneratorSpec{Type: "sequential", Size: 4, StartOffset: 0}
@@ -187,7 +192,8 @@ type ScenarioSpec struct {
 }
 
 type ConsumerOptions struct {
-	ConsumerGroup string
+	ConsumerGroup       string
+	RecordBatchVerifier *RecordBatchVerifierSpec
 }
 
 type ProducerOptions struct {
@@ -290,6 +296,10 @@ func (r *ScenarioSpec) createAgentTasks(scenarioConfig ScenarioConfig, scenario 
 					CommonClientConf:     &scenarioConfig.AdminConf,
 					ConsumerGroup:        scenarioConfig.ConsumerOptions.ConsumerGroup, // trogdor will generate a random group if given an empty one
 					ActiveTopics:         []string{scenarioConfig.TopicSpec.TopicName},
+				}
+				if scenarioConfig.ConsumerOptions.RecordBatchVerifier != nil &&
+					scenarioConfig.ConsumerOptions.RecordBatchVerifier.Type != "" {
+					consumeBenchSpecData.RecordBatchVerifier = scenarioConfig.ConsumerOptions.RecordBatchVerifier
 				}
 				rawSpec, _ = json.Marshal(consumeBenchSpecData)
 			}

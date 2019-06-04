@@ -43,18 +43,20 @@ func (t *SoakTestConfig) parseConfig(configPath string) error {
 }
 
 type TopicConfiguration struct {
-	Name                          string  `json:"name"`
-	PartitionsCount               int     `json:"partitions_count"`
-	ProduceMBsThroughput          float32 `json:"produce_mbs_throughput"`
-	ConsumeMBsThroughput          float32 `json:"consume_mbs_throughput"`
-	LongLivedProduceCount         int     `json:"long_lived_producer_count"`
-	ShortLivedProduceCount        int     `json:"short_lived_producer_count"`
-	LongLivedConsumeCount         int     `json:"long_lived_consumer_count"`
-	ShortLivedConsumeCount        int     `json:"short_lived_consumer_count"`
-	TransactionsEnabled           bool    `json:"transactions_enabled"`
-	IdempotenceEnabled            bool    `json:"idempotence_enabled"`
-	ShortLivedRandomConsumerGroup bool    `json:"short_lived_random_consumer_group"`
-	LongLivedRandomConsumerGroup  bool    `json:"long_lived_random_consumer_group"`
+	Name                                  string                          `json:"name"`
+	PartitionsCount                       int                             `json:"partitions_count"`
+	ProduceMBsThroughput                  float32                         `json:"produce_mbs_throughput"`
+	ConsumeMBsThroughput                  float32                         `json:"consume_mbs_throughput"`
+	LongLivedProduceCount                 int                             `json:"long_lived_producer_count"`
+	ShortLivedProduceCount                int                             `json:"short_lived_producer_count"`
+	LongLivedConsumeCount                 int                             `json:"long_lived_consumer_count"`
+	ShortLivedConsumeCount                int                             `json:"short_lived_consumer_count"`
+	TransactionsEnabled                   bool                            `json:"transactions_enabled"`
+	IdempotenceEnabled                    bool                            `json:"idempotence_enabled"`
+	ShortLivedRandomConsumerGroup         bool                            `json:"short_lived_random_consumer_group"`
+	ShortLivedConsumerRecordBatchVerifier trogdor.RecordBatchVerifierSpec `json:"short_lived_consumer_record_batch_verifier"`
+	LongLivedRandomConsumerGroup          bool                            `json:"long_lived_random_consumer_group"`
+	LongLivedConsumerRecordBatchVerifier  trogdor.RecordBatchVerifierSpec `json:"long_lived_consumer_record_batch_verifier"`
 }
 
 func (topicConfig *TopicConfiguration) totalProduceCount() int {
@@ -119,13 +121,14 @@ func baselineTasks(soakConfigPath string, trogdorAgentsCount int, bootstrapServe
 // consumerOptions will return Trogdor ConsumerOptions for the given topicName.
 // if randomGroup is true, we will leave the group name blank, as the Trogdor agent
 // will assign a random groupID in this case.
-func consumerOptions(topicName string, randomGroup bool) trogdor.ConsumerOptions {
+func consumerOptions(topicName string, randomGroup bool, recordBatchVerifier *trogdor.RecordBatchVerifierSpec) trogdor.ConsumerOptions {
 	consumerGroupName := fmt.Sprintf("Consume%sTestGroup", topicName)
 	if randomGroup {
 		consumerGroupName = ""
 	}
 	return trogdor.ConsumerOptions{
-		ConsumerGroup: consumerGroupName,
+		ConsumerGroup:       consumerGroupName,
+		RecordBatchVerifier: recordBatchVerifier,
 	}
 }
 
@@ -153,8 +156,11 @@ func createTopicTasks(topicConfig TopicConfiguration, clientNodes []string, exis
 		producerAdminConfig.EnableIdempotence = "true"
 	}
 
-	longLivedConsumerOptions := consumerOptions(topicConfig.Name, topicConfig.LongLivedRandomConsumerGroup)
-	shortLivedConsumerOptions := consumerOptions(topicConfig.Name, topicConfig.ShortLivedRandomConsumerGroup)
+	longLivedConsumerOptions := consumerOptions(topicConfig.Name,
+		topicConfig.LongLivedRandomConsumerGroup, &topicConfig.LongLivedConsumerRecordBatchVerifier)
+
+	shortLivedConsumerOptions := consumerOptions(topicConfig.Name,
+		topicConfig.ShortLivedRandomConsumerGroup, &topicConfig.ShortLivedConsumerRecordBatchVerifier)
 
 	nowMs := uint64(time.Now().UnixNano() / int64(time.Millisecond))
 

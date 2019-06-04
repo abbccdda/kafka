@@ -20,6 +20,7 @@ package org.apache.kafka.trogdor.workload;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.util.Optional;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.trogdor.common.StringExpander;
@@ -98,6 +99,7 @@ public class ConsumeBenchSpec extends TaskSpec {
     private final List<String> activeTopics;
     private final String consumerGroup;
     private final int threadsPerWorker;
+    private final Optional<RecordBatchVerifier> recordBatchVerifier;
 
     @JsonCreator
     public ConsumeBenchSpec(@JsonProperty("startMs") long startMs,
@@ -111,6 +113,7 @@ public class ConsumeBenchSpec extends TaskSpec {
                             @JsonProperty("commonClientConf") Map<String, String> commonClientConf,
                             @JsonProperty("adminClientConf") Map<String, String> adminClientConf,
                             @JsonProperty("threadsPerWorker") Integer threadsPerWorker,
+                            @JsonProperty("recordBatchVerifier") Optional<RecordBatchVerifier> recordBatchVerifier,
                             @JsonProperty("activeTopics") List<String> activeTopics) {
         super(startMs, durationMs);
         this.consumerNode = (consumerNode == null) ? "" : consumerNode;
@@ -123,6 +126,7 @@ public class ConsumeBenchSpec extends TaskSpec {
         this.activeTopics = activeTopics == null ? new ArrayList<>() : activeTopics;
         this.consumerGroup = consumerGroup == null ? "" : consumerGroup;
         this.threadsPerWorker = threadsPerWorker == null ? 1 : threadsPerWorker;
+        this.recordBatchVerifier = recordBatchVerifier;
     }
 
     @JsonProperty
@@ -153,6 +157,11 @@ public class ConsumeBenchSpec extends TaskSpec {
     @JsonProperty
     public int threadsPerWorker() {
         return threadsPerWorker;
+    }
+
+    @JsonProperty
+    public Optional<RecordBatchVerifier> recordBatchVerifier() {
+        return this.recordBatchVerifier;
     }
 
     @JsonProperty

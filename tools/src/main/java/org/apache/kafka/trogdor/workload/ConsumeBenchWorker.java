@@ -20,6 +20,7 @@ package org.apache.kafka.trogdor.workload;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
+import java.util.Optional;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -73,14 +74,14 @@ public class ConsumeBenchWorker implements TaskWorker {
     private Future<?> statusUpdaterFuture;
     private KafkaFutureImpl<String> doneFuture;
     private ThreadSafeConsumer consumer;
-    public ConsumeBenchWorker(String id, ConsumeBenchSpec spec) {
+    ConsumeBenchWorker(String id, ConsumeBenchSpec spec) {
         this.id = id;
         this.spec = spec;
     }
 
     @Override
     public void start(Platform platform, WorkerStatusTracker status,
-                      KafkaFutureImpl<String> doneFuture) throws Exception {
+                      KafkaFutureImpl<String> doneFuture) {
         if (!running.compareAndSet(false, true)) {
             throw new IllegalStateException("ConsumeBenchWorker is already running.");
         }
@@ -123,18 +124,20 @@ public class ConsumeBenchWorker implements TaskWorker {
             consumer = consumer(consumerGroup, clientId(0));
             if (toUseGroupPartitionAssignment) {
                 Set<String> topics = partitionsByTopic.keySet();
-                tasks.add(new ConsumeMessages(consumer, topics));
+                tasks.add(new ConsumeMessages(consumer, spec.recordBatchVerifier(), topics));
 
                 for (int i = 0; i < consumerCount - 1; i++) {
-                    tasks.add(new ConsumeMessages(consumer(consumerGroup(), clientId(i + 1)), topics));
+                    tasks.add(new ConsumeMessages(consumer(consumerGroup(), clientId(i + 1)),
+                     spec.recordBatchVerifier(), topics));
                 }
             } else {
                 List<TopicPartition> partitions = populatePartitionsByTopic(consumer.consumer(), partitionsByTopic)
                     .values().stream().flatMap(List::stream).collect(Collectors.toList());
-                tasks.add(new ConsumeMessages(consumer, partitions));
+                tasks.add(new ConsumeMessages(consumer, spec.recordBatchVerifier(), partitions));
 
                 for (int i = 0; i < consumerCount - 1; i++) {
-                    tasks.add(new ConsumeMessages(consumer(consumerGroup(), clientId(i + 1)), partitions));
+                    tasks.add(new ConsumeMessages(consumer(consumerGroup(), clientId(i + 1)),
+                            spec.recordBatchVerifier(), partitions));
                 }
             }
 
@@ -198,8 +201,9 @@ public class ConsumeBenchWorker implements TaskWorker {
         private final Throttle throttle;
         private final String clientId;
         private final ThreadSafeConsumer consumer;
+        private final Optional<RecordBatchVerifier> recordBatchVerifier;
 
-        private ConsumeMessages(ThreadSafeConsumer consumer) {
+        private ConsumeMessages(ThreadSafeConsumer consumer, Optional<RecordBatchVerifier> recordBatchVerifier) {
             this.latencyHistogram = new Histogram(5000);
             this.messageSizeHistogram = new Histogram(2 * 1024 * 1024);
             this.clientId = consumer.clientId();
@@ -213,16 +217,21 @@ public class ConsumeBenchWorker implements TaskWorker {
 
             this.throttle = new Throttle(perPeriod, THROTTLE_PERIOD_MS);
             this.consumer = consumer;
+            this.recordBatchVerifier = recordBatchVerifier;
         }
 
-        ConsumeMessages(ThreadSafeConsumer consumer, Set<String> topics) {
-            this(consumer);
+        ConsumeMessages(ThreadSafeConsumer consumer,
+            Optional<RecordBatchVerifier> recordBatchVerifier,
+            Set<String> topics) {
+            this(consumer, recordBatchVerifier);
             log.info("Will consume from topics {} via dynamic group assignment.", topics);
-            this.consumer.subscribe(topics);
+            this.consumer.subscribe(topics, recordBatchVerifier);
         }
 
-        ConsumeMessages(ThreadSafeConsumer consumer, List<TopicPartition> partitions) {
-            this(consumer);
+        ConsumeMessages(ThreadSafeConsumer consumer,
+            Optional<RecordBatchVerifier> recordBatchVerifier,
+            List<TopicPartition> partitions) {
+            this(consumer, recordBatchVerifier);
             log.info("Will consume from topic partitions {} via manual assignment.", partitions);
             this.consumer.assign(partitions);
         }
@@ -260,6 +269,9 @@ public class ConsumeBenchWorker implements TaskWorker {
                         throttle.increment();
                     }
                     startBatchMs = Time.SYSTEM.milliseconds();
+                    if (recordBatchVerifier.isPresent()) {
+                        recordBatchVerifier.get().verifyRecords(records);
+                    }
                 }
             } catch (Exception e) {
                 consumer.close();
@@ -496,10 +508,14 @@ public class ConsumeBenchWorker implements TaskWorker {
             }
         }
 
-        void subscribe(Set<String> topics) {
+        void subscribe(Set<String> topics, Optional<RecordBatchVerifier> listener) {
             this.consumerLock.lock();
             try {
-                consumer.subscribe(topics);
+                if (listener.isPresent()) {
+                    consumer.subscribe(topics, listener.get());
+                } else {
+                    consumer.subscribe(topics);
+                }
             } finally {
                 this.consumerLock.unlock();
             }
