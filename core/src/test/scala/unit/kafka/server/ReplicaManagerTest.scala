@@ -681,8 +681,8 @@ class ReplicaManagerTest {
       purgatoryName = "Fetch", timer, reaperEnabled = false)
     val mockDeleteRecordsPurgatory = new DelayedOperationPurgatory[DelayedDeleteRecords](
       purgatoryName = "DeleteRecords", timer, reaperEnabled = false)
-    val mockElectPreferredLeaderPurgatory = new DelayedOperationPurgatory[DelayedElectPreferredLeader](
-      purgatoryName = "ElectPreferredLeader", timer, reaperEnabled = false)
+    val mockElectLeaderPurgatory = new DelayedOperationPurgatory[DelayedElectLeader](
+      purgatoryName = "ElectLeader", timer, reaperEnabled = false)
     val mockListOffestsPurgatory = new DelayedOperationPurgatory[DelayedListOffsets](
       purgatoryName = "ElectPreferredLeader", timer, reaperEnabled = false)
 
@@ -693,7 +693,7 @@ class ReplicaManagerTest {
     val replicaManager = new ReplicaManager(config, metrics, time, kafkaZkClient, mockScheduler, mockLogMgr,
       new AtomicBoolean(false), quota, mockBrokerTopicStats,
       metadataCache, mockLogDirFailureChannel, mockProducePurgatory, mockFetchPurgatory,
-      mockDeleteRecordsPurgatory, mockElectPreferredLeaderPurgatory, mockListOffestsPurgatory, tierMetadataManager, None, None, Option(this.getClass.getName)) {
+      mockDeleteRecordsPurgatory, mockElectLeaderPurgatory, mockListOffestsPurgatory, tierMetadataManager, None, None, Option(this.getClass.getName)) {
       override protected def createReplicaFetcherManager(metrics: Metrics,
                                                          time: Time,
                                                          threadNamePrefix: Option[String],
@@ -842,8 +842,8 @@ class ReplicaManagerTest {
       purgatoryName = "Fetch", timer, reaperEnabled = false)
     val mockDeleteRecordsPurgatory = new DelayedOperationPurgatory[DelayedDeleteRecords](
       purgatoryName = "DeleteRecords", timer, reaperEnabled = false)
-    val mockDelayedElectPreferredLeaderPurgatory = new DelayedOperationPurgatory[DelayedElectPreferredLeader](
-      purgatoryName = "DelayedElectPreferredLeader", timer, reaperEnabled = false)
+    val mockDelayedElectLeaderPurgatory = new DelayedOperationPurgatory[DelayedElectLeader](
+      purgatoryName = "DelayedElectLeader", timer, reaperEnabled = false)
     val mockDelayedListOffsetsPurgatory = new DelayedOperationPurgatory[DelayedListOffsets](
       purgatoryName = "DelayedElectPreferredLeader", timer, reaperEnabled = false)
     val tierMetadataManager: TierMetadataManager = EasyMock.createMock(classOf[TierMetadataManager])
@@ -851,7 +851,7 @@ class ReplicaManagerTest {
     new ReplicaManager(config, metrics, time, kafkaZkClient, new MockScheduler(time), mockLogMgr,
       new AtomicBoolean(false), QuotaFactory.instantiate(config, metrics, time, ""), new BrokerTopicStats,
       metadataCache, new LogDirFailureChannel(config.logDirs.size), mockProducePurgatory, mockFetchPurgatory,
-      mockDeleteRecordsPurgatory, mockDelayedElectPreferredLeaderPurgatory, mockDelayedListOffsetsPurgatory, tierMetadataManager, None, None, Option(this.getClass.getName))
+      mockDeleteRecordsPurgatory, mockDelayedElectLeaderPurgatory, mockDelayedListOffsetsPurgatory, tierMetadataManager, None, None, Option(this.getClass.getName))
   }
 
 }

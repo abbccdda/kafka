@@ -67,6 +67,8 @@ class PartitionTest {
 
   @Before
   def setup(): Unit = {
+    TestUtils.clearYammerMetrics()
+
     val logProps = createLogProperties(Map.empty)
     logConfig = LogConfig(logProps)
 
@@ -105,6 +107,7 @@ class PartitionTest {
   def tearDown(): Unit = {
     logManager.shutdown()
     Utils.delete(tmpDir)
+    TestUtils.clearYammerMetrics()
   }
 
   @Test

@@ -37,6 +37,7 @@ import kafka.server._
 import kafka.server.checkpoints.OffsetCheckpointFile
 import Implicits._
 import com.sun.management.UnixOperatingSystemMXBean
+import com.yammer.metrics.Metrics
 import kafka.controller.LeaderIsrAndControllerEpoch
 import kafka.tier.TierMetadataManager
 import kafka.tier.state.MemoryTierPartitionStateFactory
@@ -1504,4 +1505,10 @@ object TestUtils extends Logging {
       None
     }
   }
+
+  def clearYammerMetrics(): Unit = {
+    for (metricName <- Metrics.defaultRegistry.allMetrics.keySet.asScala)
+      Metrics.defaultRegistry.removeMetric(metricName)
+  }
+
 }
