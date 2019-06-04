@@ -17,8 +17,10 @@
 
 package kafka.server
 
-import java.util.{Collections, Optional}
+import java.nio.ByteBuffer
 import java.util.concurrent.Future
+import java.util.function.BiFunction
+import java.util.{Collections, Optional, function}
 
 import kafka.api._
 import kafka.cluster.BrokerEndPoint
@@ -26,6 +28,7 @@ import kafka.log.LogAppendInfo
 import kafka.server.AbstractFetcherThread.ResultWithPartitions
 import kafka.server.epoch.EpochEntry
 import kafka.tier.TierMetadataManager
+import kafka.tier.archiver.CompletableFutureUtil
 import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.fetcher.TierStateFetcher
 import org.apache.kafka.clients.FetchSessionHandler
@@ -194,14 +197,27 @@ class ReplicaFetcherThread(name: String,
     logAppendInfo
   }
 
-  override def onRestoreTierState(topicPartition: TopicPartition, proposedLocalLogStart: Long, epochData: List[EpochEntry]): Unit = {
+  override def onRestoreTierState(topicPartition: TopicPartition, proposedLocalLogStart: Long, tierState: TierState): Unit = {
     val replica = replicaMgr.localReplicaOrException(topicPartition)
-    debug(s"Restoring tier state $topicPartition: $epochData")
-    replica.log.get.onRestoreTierState(proposedLocalLogStart, epochData)
+    debug(s"Restoring tier state $topicPartition: $tierState")
+    replica.log.get.onRestoreTierState(proposedLocalLogStart, tierState)
   }
 
-  override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): Future[List[EpochEntry]] = {
-    tierStateFetcher.get.fetchLeaderEpochState(tierObjectMetadata)
+  override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): Future[TierState] = {
+    val epochStateFut = tierStateFetcher.get.fetchLeaderEpochState(tierObjectMetadata)
+    val producerStateFut = if (tierObjectMetadata.hasProducerState)
+      tierStateFetcher.get.fetchProducerStateSnapshot(tierObjectMetadata)
+        .thenApply[Option[ByteBuffer]](new function.Function[ByteBuffer, Option[ByteBuffer]] {
+          override def apply(buf: ByteBuffer): Option[ByteBuffer] = Some(buf)
+        })
+    else
+      CompletableFutureUtil.completed(None)
+
+    epochStateFut.thenCombine[Option[ByteBuffer], TierState](producerStateFut, new BiFunction[List[EpochEntry], Option[ByteBuffer], TierState] {
+      override def apply(epochEntries: List[EpochEntry], producerState: Option[ByteBuffer]): TierState = {
+        TierState(epochEntries, producerState)
+      }
+    })
   }
 
   def maybeWarnIfOversizedRecords(records: MemoryRecords, topicPartition: TopicPartition): Unit = {

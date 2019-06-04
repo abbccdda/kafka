@@ -1469,14 +1469,19 @@ class Log(@volatile var dir: File,
    *
    * @param predicate A function that takes in a candidate log segment and the next higher segment
    *                  (if there is one) and returns true iff it is deletable
+   * @param tierDeletionCheck An additional predicate for use with tiered storage, which allows or succeeding or failing
+    *                         the entire deletion based on the set of `deletable` segments.
    * @return The number of segments deleted
    */
-  private def deleteOldSegments(predicate: (LogSegment, Option[LogSegment]) => Boolean, reason: String): Int = {
+  private def deleteOldSegments(predicate: (LogSegment, Option[LogSegment]) => Boolean, reason: String, tierDeletionCheck: Seq[LogSegment] => Boolean): Int = {
     lock synchronized {
       val deletable = deletableSegments(predicate)
-      if (deletable.nonEmpty)
+      if (deletable.nonEmpty && tierDeletionCheck(deletable.toSeq)) {
         info(s"Found deletable segments with base offsets [${deletable.map(_.baseOffset).mkString(",")}] due to $reason")
-      deleteSegments(deletable)
+        deleteSegments(deletable)
+      } else {
+        0
+      }
     }
   }
 
@@ -1546,12 +1551,14 @@ class Log(@volatile var dir: File,
    * snapshot and leader epoch cache can be truncated.
    *
    * @param deletionUpperBoundOffset Optional upper bound offset. If specified, no segments at or above this offset will be deleted.
+   * @param tierDeletionCheck Optional predicate which takes the set of segments deemed deletable by hotset retention.
+    *                         If the predicate returns true, deletion is allowed to proceed.
    * @return number of segments deleted
    */
-  def deleteOldSegments(deletionUpperBoundOffset: Option[Long]): Int = {
+  def deleteOldSegments(deletionUpperBoundOffset: Option[Long], tierDeletionCheck: Seq[LogSegment] => Boolean = _ => true): Int = {
     if (config.delete) {
-      deleteRetentionMsBreachedSegments(deletionUpperBoundOffset) +
-        deleteRetentionSizeBreachedSegments(deletionUpperBoundOffset, size) +
+      deleteRetentionMsBreachedSegments(deletionUpperBoundOffset, tierDeletionCheck) +
+        deleteRetentionSizeBreachedSegments(deletionUpperBoundOffset, size, tierDeletionCheck) +
         deleteLogStartOffsetBreachedSegments()
     } else {
       deleteLogStartOffsetBreachedSegments()
@@ -1568,7 +1575,7 @@ class Log(@volatile var dir: File,
     }
   }
 
-  private[log] def deleteRetentionMsBreachedSegments(deletionUpperBoundOffsetOpt: Option[Long]): Int = {
+  private[log] def deleteRetentionMsBreachedSegments(deletionUpperBoundOffsetOpt: Option[Long], tierDeletionCheck: Seq[LogSegment] => Boolean): Int = {
     val (retentionMs, breachType) =
       if (config.tierEnable)
         (config.tierLocalHotsetMs, "hotset")
@@ -1580,10 +1587,10 @@ class Log(@volatile var dir: File,
     deleteOldSegments((segment, nextSegmentOpt) => {
       startMs - segment.largestTimestamp > retentionMs &&
         mayDeleteSegment(segment, nextSegmentOpt, deletionUpperBoundOffsetOpt)
-    }, reason = s"$breachType time ${retentionMs}ms breach")
+    }, reason = s"$breachType time ${retentionMs}ms breach", tierDeletionCheck)
   }
 
-  private[log] def deleteRetentionSizeBreachedSegments(deletionUpperBoundOffsetOpt: Option[Long], size: Long): Int = {
+  private[log] def deleteRetentionSizeBreachedSegments(deletionUpperBoundOffsetOpt: Option[Long], size: Long, tierDeletionCheck: Seq[LogSegment] => Boolean): Int = {
     val (retentionSize, breachType) =
       if (config.tierEnable)
         (config.tierLocalHotsetBytes, "hotset")
@@ -1601,14 +1608,14 @@ class Log(@volatile var dir: File,
       }
     }
 
-    deleteOldSegments(shouldDelete, reason = s"$breachType size in bytes $retentionSize breach")
+    deleteOldSegments(shouldDelete, reason = s"$breachType size in bytes $retentionSize breach", tierDeletionCheck)
   }
 
   private[log] def deleteLogStartOffsetBreachedSegments(): Int = {
     def shouldDelete(segment: LogSegment, nextSegmentOpt: Option[LogSegment]) =
       nextSegmentOpt.exists(_.baseOffset <= mergedLogStartOffset)
 
-    deleteOldSegments(shouldDelete, reason = s"log start offset $mergedLogStartOffset breach")
+    deleteOldSegments(shouldDelete, reason = s"log start offset $mergedLogStartOffset breach", _ => true)
   }
 
   def isFuture: Boolean = dir.getName.endsWith(Log.FutureDirSuffix)
@@ -1782,39 +1789,6 @@ class Log(@volatile var dir: File,
           lastFlushedTime.set(time.milliseconds)
         }
       }
-    }
-  }
-
-  /**
-   * Cleanup old producer snapshots after the recovery point is checkpointed. It is useful to retain
-   * the snapshots from the recent segments in case we need to truncate and rebuild the producer state.
-   * Otherwise, we would always need to rebuild from the earliest segment.
-   *
-   * More specifically:
-   *
-   * 1. We always retain the producer snapshot from the last two segments. This solves the common case
-   * of truncating to an offset within the active segment, and the rarer case of truncating to the previous segment.
-   *
-   * 2. We only delete snapshots for offsets less than the recovery point. The recovery point is checkpointed
-   * periodically and it can be behind after a hard shutdown. Since recovery starts from the recovery point, the logic
-   * of rebuilding the producer snapshots in one pass and without loading older segments is simpler if we always
-   * have a producer snapshot for all segments being recovered.
-   *
-   * Return the minimum snapshots offset that was retained.
-   */
-  def deleteSnapshotsAfterRecoveryPointCheckpoint(): Long = {
-    val minOffsetToRetain = minSnapshotsOffsetToRetain
-    producerStateManager.deleteSnapshotsBefore(minOffsetToRetain)
-    minOffsetToRetain
-  }
-
-  // Visible for testing, see `deleteSnapshotsAfterRecoveryPointCheckpoint()` for details
-  private[log] def minSnapshotsOffsetToRetain: Long = {
-    lock synchronized {
-      val twoSegmentsMinOffset = lowerSegment(activeSegment.baseOffset).getOrElse(activeSegment).baseOffset
-      // Prefer segment base offset
-      val recoveryPointOffset = lowerSegment(recoveryPoint).map(_.baseOffset).getOrElse(recoveryPoint)
-      math.min(recoveryPointOffset, twoSegmentsMinOffset)
     }
   }
 

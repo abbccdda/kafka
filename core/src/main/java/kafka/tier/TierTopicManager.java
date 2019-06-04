@@ -68,7 +68,7 @@ import java.util.stream.IntStream;
  * cluster. It does this by consuming from the tier topic and materializing relevant state into the TierPartitionState
  * files.
  */
-public class TierTopicManager implements Runnable {
+public class TierTopicManager implements Runnable, TierTopicAppender {
     private static final Logger log = LoggerFactory.getLogger(TierTopicManager.class);
     private static final int TOPIC_CREATION_BACKOFF_MS = 5000;
     private final String topicName;
@@ -206,6 +206,7 @@ public class TierTopicManager implements Runnable {
      * @param entry the tier topic entry to be written to the tier topic.
      * @return a CompletableFuture which returns the result of the send and subsequent materialization.
      */
+    @Override
     public CompletableFuture<AppendResult> addMetadata(AbstractTierMetadata entry) throws IllegalAccessException {
         ensureReady();
 
@@ -252,6 +253,7 @@ public class TierTopicManager implements Runnable {
      * @param tierEpoch      the archiver epoch
      * @return a CompletableFuture which returns the result of the send and subsequent materialization.
      */
+    @Override
     public CompletableFuture<AppendResult> becomeArchiver(TopicIdPartition topicIdPartition,
                                                           int tierEpoch) throws IllegalAccessException {
         ensureReady();
@@ -269,6 +271,7 @@ public class TierTopicManager implements Runnable {
      *
      * @return boolean
      */
+    @Override
     public boolean isReady() {
         return ready;
     }

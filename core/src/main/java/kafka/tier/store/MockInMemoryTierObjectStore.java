@@ -20,6 +20,8 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
     // KEY_TO_BLOB is static so that a mock object store can be shared across brokers
     // We can remove the shared state once we have more substantial system tests that use S3.
     private final static ConcurrentHashMap<String, byte[]> KEY_TO_BLOB = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<TierObjectStoreFileType, Integer> objectCounts =
+            new ConcurrentHashMap<>();
     private final TierObjectStoreConfig config;
 
     public MockInMemoryTierObjectStore(TierObjectStoreConfig config) {
@@ -28,6 +30,9 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
 
     public ConcurrentHashMap<String, byte[]> getStored() {
          return KEY_TO_BLOB;
+    }
+    public ConcurrentHashMap<TierObjectStoreFileType, Integer> getObjectCounts() {
+        return objectCounts;
     }
 
     @Override
@@ -53,25 +58,44 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
     public void close() {
     }
 
+    private void incrementObjectCount(TierObjectStoreFileType fileType) {
+        objectCounts.compute(fileType, (key, integer) -> integer == null ? 1 : integer++);
+    }
+
     @Override
     public TierObjectMetadata putSegment(
             TierObjectMetadata objectMetadata, File segmentData,
             File offsetIndexData, File timestampIndexData,
-            File producerStateSnapshotData, File transactionIndexData,
+            Optional<File> producerStateSnapshotData, File transactionIndexData,
             Optional<File> epochState) throws IOException {
         this.writeFileToArray(keyPath(objectMetadata, TierObjectStoreFileType.SEGMENT),
                 segmentData);
+        incrementObjectCount(TierObjectStoreFileType.SEGMENT);
+
         this.writeFileToArray(keyPath(objectMetadata, TierObjectStoreFileType.OFFSET_INDEX),
                 offsetIndexData);
+        incrementObjectCount(TierObjectStoreFileType.OFFSET_INDEX);
+
         this.writeFileToArray(keyPath(objectMetadata, TierObjectStoreFileType.TIMESTAMP_INDEX),
                 timestampIndexData);
-        this.writeFileToArray(keyPath(objectMetadata, TierObjectStoreFileType.PRODUCER_STATE),
-                producerStateSnapshotData);
+        incrementObjectCount(TierObjectStoreFileType.TIMESTAMP_INDEX);
+
+        if (producerStateSnapshotData.isPresent()) {
+            this.writeFileToArray(keyPath(objectMetadata, TierObjectStoreFileType.PRODUCER_STATE),
+                    producerStateSnapshotData.get());
+            incrementObjectCount(TierObjectStoreFileType.PRODUCER_STATE);
+        }
+
         this.writeFileToArray(keyPath(objectMetadata, TierObjectStoreFileType.TRANSACTION_INDEX),
                 transactionIndexData);
-        if (epochState.isPresent())
+        incrementObjectCount(TierObjectStoreFileType.TRANSACTION_INDEX);
+
+        if (epochState.isPresent()) {
             this.writeFileToArray(keyPath(objectMetadata, TierObjectStoreFileType.EPOCH_STATE),
                     epochState.get());
+            incrementObjectCount(TierObjectStoreFileType.EPOCH_STATE);
+        }
+
         return objectMetadata;
     }
 

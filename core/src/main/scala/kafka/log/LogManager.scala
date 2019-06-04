@@ -471,7 +471,7 @@ class LogManager(logDirs: Seq[File],
 
         // update the last flush point
         debug(s"Updating recovery points at $dir")
-        checkpointRecoveryOffsetsAndCleanSnapshot(dir, localLogsByDir.getOrElse(dir.toString, Map()).values.toSeq)
+        checkpointRecoveryOffsets(dir)
 
         debug(s"Updating log start offsets at $dir")
         checkpointLogStartOffsetsInDir(dir)
@@ -528,8 +528,8 @@ class LogManager(logDirs: Seq[File],
       }
     }
 
-    for ((dir, logs) <- affectedLogs.groupBy(_.dir.getParentFile)) {
-      checkpointRecoveryOffsetsAndCleanSnapshot(dir, logs)
+    for ((dir, _) <- affectedLogs.groupBy(_.dir.getParentFile)) {
+      checkpointRecoveryOffsets(dir)
     }
   }
 
@@ -563,7 +563,7 @@ class LogManager(logDirs: Seq[File],
           info(s"Compaction for partition $topicPartition is resumed")
         }
       }
-      checkpointRecoveryOffsetsAndCleanSnapshot(log.dir.getParentFile, Seq(log))
+      checkpointRecoveryOffsets(log.dir.getParentFile)
     }
   }
 
@@ -572,9 +572,9 @@ class LogManager(logDirs: Seq[File],
    * to avoid recovering the whole log on startup.
    */
   def checkpointLogRecoveryOffsets() {
-    logsByDir.foreach { case (dir, partitionToLogMap) =>
+    logsByDir.foreach { case (dir, _) =>
       liveLogDirs.find(_.getAbsolutePath.equals(dir)).foreach { f =>
-        checkpointRecoveryOffsetsAndCleanSnapshot(f, partitionToLogMap.values.toSeq)
+        checkpointRecoveryOffsets(f)
       }
     }
   }
@@ -588,16 +588,14 @@ class LogManager(logDirs: Seq[File],
   }
 
   /**
-    * Write the recovery checkpoint file for all logs in provided directory and clean older snapshots for provided logs.
+    * Write the recovery checkpoint file for all logs in provided directory.
     *
     * @param dir the directory in which logs are checkpointed
-    * @param logsToCleanSnapshot logs whose snapshots need to be cleaned
     */
   // Only for testing
-  private[log] def checkpointRecoveryOffsetsAndCleanSnapshot(dir: File, logsToCleanSnapshot: Seq[AbstractLog]): Unit = {
+  private[log] def checkpointRecoveryOffsets(dir: File): Unit = {
     try {
       checkpointLogRecoveryOffsetsInDir(dir)
-      logsToCleanSnapshot.foreach(_.deleteSnapshotsAfterRecoveryPointCheckpoint())
     } catch {
       case e: IOException =>
         logDirFailureChannel.maybeAddOfflineLogDir(dir.getAbsolutePath, s"Disk error while writing to recovery point " +
@@ -822,7 +820,7 @@ class LogManager(logDirs: Seq[File],
         // Now that replica in source log directory has been successfully renamed for deletion.
         // Close the log, update checkpoint files, and enqueue this log to be deleted.
         sourceLog.close()
-        checkpointRecoveryOffsetsAndCleanSnapshot(sourceLog.dir.getParentFile, ArrayBuffer.empty)
+        checkpointRecoveryOffsets(sourceLog.dir.getParentFile)
         checkpointLogStartOffsetsInDir(sourceLog.dir.getParentFile)
         addLogToBeDeleted(sourceLog)
       } catch {
@@ -860,7 +858,7 @@ class LogManager(logDirs: Seq[File],
         cleaner.updateCheckpoints(removedLog.dir.getParentFile)
       }
       removedLog.renameDir(Log.logDeleteDirName(topicPartition))
-      checkpointRecoveryOffsetsAndCleanSnapshot(removedLog.dir.getParentFile, ArrayBuffer.empty)
+      checkpointRecoveryOffsets(removedLog.dir.getParentFile)
       checkpointLogStartOffsetsInDir(removedLog.dir.getParentFile)
       addLogToBeDeleted(removedLog)
       info(s"Log for partition ${removedLog.topicPartition} is renamed to ${removedLog.dir.getAbsolutePath} and is scheduled for deletion")

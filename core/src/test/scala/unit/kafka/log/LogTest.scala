@@ -28,6 +28,7 @@ import kafka.log.Log.DeleteDirSuffix
 import kafka.server.checkpoints.LeaderEpochCheckpointFile
 import kafka.server.epoch.{EpochEntry, LeaderEpochFileCache}
 import kafka.server.{BrokerTopicStats, FetchDataInfo, KafkaConfig, LogDirFailureChannel}
+import kafka.tier.TierMetadataManager
 import kafka.utils._
 import org.apache.kafka.common.{KafkaException, TopicPartition}
 import org.apache.kafka.common.errors._
@@ -407,12 +408,6 @@ class LogTest {
     assertEquals(Set(activeSegmentOffset), segmentsWithReads.map(_.baseOffset))
     assertEquals(segOffsetsAfterRecovery, recoveredSegments.map(_.baseOffset))
     assertEquals(expectedSnapshotOffsets, listProducerSnapshotOffsets.toSet)
-
-    // Verify that we keep 2 snapshot files if we checkpoint the log end offset
-    log.deleteSnapshotsAfterRecoveryPointCheckpoint()
-    val expectedSnapshotsAfterDelete = log.localLogSegments.map(_.baseOffset).toVector.takeRight(2) :+ log.logEndOffset
-    assertEquals(expectedSnapshotsAfterDelete, listProducerSnapshotOffsets)
-    log.close()
   }
 
   @Test
@@ -911,7 +906,7 @@ class LogTest {
   }
 
   @Test
-  def testTakeSnapshotOnRollAndDeleteSnapshotOnRecoveryPointCheckpoint() {
+  def testTakeSnapshotOnRoll() {
     val logConfig = LogTest.createLogConfig(segmentBytes = 2048 * 5)
     val log = createLog(logDir, logConfig)
     log.appendAsLeader(TestUtils.singletonRecords("a".getBytes), leaderEpoch = 0)
@@ -931,15 +926,14 @@ class LogTest {
     // roll triggers a flush at the starting offset of the new segment, we should retain all snapshots
     assertEquals(Some(1L), log.oldestProducerSnapshotOffset)
 
-    // retain the snapshots from the active segment and the previous segment, delete the oldest one
-    log.deleteSnapshotsAfterRecoveryPointCheckpoint()
-    assertEquals(Some(2L), log.oldestProducerSnapshotOffset)
+    // retain the snapshots from all non-deleted segments.
+    assertEquals(Some(1L), log.oldestProducerSnapshotOffset)
 
     // even if we flush within the active segment, the snapshot should remain
     log.appendAsLeader(TestUtils.singletonRecords("baz".getBytes), leaderEpoch = 0)
     log.flush(4L)
     assertEquals(Some(3L), log.latestProducerSnapshotOffset)
-    assertEquals(Some(2L), log.oldestProducerSnapshotOffset)
+    assertEquals(Some(1L), log.oldestProducerSnapshotOffset)
   }
 
   @Test
@@ -3923,7 +3917,8 @@ object LogTest {
                 logStartOffset: Long = 0L,
                 recoveryPoint: Long = 0L,
                 maxProducerIdExpirationMs: Int = 60 * 60 * 1000,
-                producerIdExpirationCheckIntervalMs: Int = LogManager.ProducerIdExpirationCheckIntervalMs): AbstractLog = {
+                producerIdExpirationCheckIntervalMs: Int = LogManager.ProducerIdExpirationCheckIntervalMs,
+                tierMetadataManagerOpt: Option[TierMetadataManager] = None): AbstractLog = {
     Log(dir = dir,
       config = config,
       logStartOffset = logStartOffset,
@@ -3933,7 +3928,8 @@ object LogTest {
       time = time,
       maxProducerIdExpirationMs = maxProducerIdExpirationMs,
       producerIdExpirationCheckIntervalMs = producerIdExpirationCheckIntervalMs,
-      logDirFailureChannel = new LogDirFailureChannel(10))
+      logDirFailureChannel = new LogDirFailureChannel(10),
+      tierMetadataManagerOpt = tierMetadataManagerOpt)
   }
 
   /**

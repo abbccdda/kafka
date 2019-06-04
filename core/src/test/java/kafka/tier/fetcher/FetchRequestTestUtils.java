@@ -26,7 +26,7 @@ class FetchRequestTestUtils {
             public TierObjectMetadata putSegment(TierObjectMetadata objectMetadata,
                                                  File segmentData, File offsetIndexData,
                                                  File timestampIndexData,
-                                                 File producerStateSnapshotData,
+                                                 Optional<File> producerStateSnapshotData,
                                                  File transactionIndexData,
                                                  Optional<File> epochState) throws IOException {
                 throw new IOException("");
@@ -87,7 +87,7 @@ class FetchRequestTestUtils {
             public TierObjectMetadata putSegment(TierObjectMetadata objectMetadata,
                                                  File segmentData, File offsetIndexData,
                                                  File timestampIndexData,
-                                                 File producerStateSnapshotData,
+                                                 Optional<File> producerStateSnapshotData,
                                                  File transactionIndexData,
                                                  Optional<File> epochState) throws IOException {
                 throw new IOException("");

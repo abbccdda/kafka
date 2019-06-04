@@ -393,16 +393,21 @@ object ProducerStateManager {
     new Field(ProducerEntriesField, new ArrayOf(ProducerSnapshotEntrySchema), "The entries in the producer table"))
 
   def readSnapshot(file: File): Iterable[ProducerStateEntry] = {
-    try {
-      val buffer = Files.readAllBytes(file.toPath)
-      val struct = PidSnapshotMapSchema.read(ByteBuffer.wrap(buffer))
+    val buffer = Files.readAllBytes(file.toPath)
+    readSnapshot(ByteBuffer.wrap(buffer))
+  }
 
+  def readSnapshot(buffer: ByteBuffer): Iterable[ProducerStateEntry] = {
+    try {
+      val crcBuffer = buffer.duplicate()
+      val crcBufferSize = buffer.remaining()
+      val struct = PidSnapshotMapSchema.read(buffer)
       val version = struct.getShort(VersionField)
       if (version != ProducerSnapshotVersion)
         throw new CorruptSnapshotException(s"Snapshot contained an unknown file version $version")
 
       val crc = struct.getUnsignedInt(CrcField)
-      val computedCrc =  Crc32C.compute(buffer, ProducerEntriesOffset, buffer.length - ProducerEntriesOffset)
+      val computedCrc =  Crc32C.compute(crcBuffer, ProducerEntriesOffset, crcBufferSize - ProducerEntriesOffset)
       if (crc != computedCrc)
         throw new CorruptSnapshotException(s"Snapshot is corrupt (CRC is no longer valid). " +
           s"Stored crc: $crc. Computed crc: $computedCrc")
@@ -479,6 +484,15 @@ object ProducerStateManager {
     }
   }
 
+  /**
+    * Return the snapshot file for the given offset.
+    * @param dir snapshot file directory
+    * @param offset snapshot offset
+    * @return file for provided snapshot offset
+    */
+  private def snapshotFileForOffset(dir: File, offset: Long): Option[File] = {
+    listSnapshotFiles(dir).find(offsetFromFile(_) == offset)
+  }
 }
 
 /**
@@ -628,6 +642,29 @@ class ProducerStateManager(val topicPartition: TopicPartition,
       loadFromSnapshot(logStartOffset, currentTimeMs)
     } else {
       truncateHead(logStartOffset)
+    }
+  }
+
+  /**
+    * Reload the producer state mapping from tiered storage. This will remove all existing producer state
+    * and seed the ProducerStateManager with the provided snapshotBuffer. This method will not write a new snapshot file
+    * to disk.
+    */
+  def reloadFromTieredSnapshot(logStartOffset: Long, currentTime: Long, snapshotBuffer: ByteBuffer, snapshotOffset: Long): Unit = {
+    if (activeProducers.nonEmpty) {
+      throw new IllegalStateException("expected producer state to be fully truncated before reloading tiered snapshot")
+    }
+    try {
+      val loadedProducers = readSnapshot(snapshotBuffer).filter { producerEntry =>
+        isProducerRetained(producerEntry, logStartOffset) && !isProducerExpired(currentTime, producerEntry)
+      }
+      info(s"restored state for ${loadedProducers.size} producers from tiered storage")
+      loadedProducers.foreach(loadProducerEntry)
+      lastMapOffset = snapshotOffset
+    } catch {
+      case e: CorruptSnapshotException =>
+        warn(s"Failed to load producer snapshot from buffer: ${e.getMessage}")
+        throw e
     }
   }
 
@@ -808,4 +845,18 @@ class ProducerStateManager(val topicPartition: TopicPartition,
 
   private def listSnapshotFiles: Seq[File] = ProducerStateManager.listSnapshotFiles(logDir)
 
+  /**
+    * Locate and return the snapshot file for a given offset. Typically, snapshot files are created on log roll with
+    * the base offset of the next segment as the snapshot offset.
+    *
+    * To find a snapshot file which has a consistent producer state for a segment covering an offset range 0..100,
+    * calling `ProducerStateManager.snapshotFileForOffset(101)` will return the desired snapshot file if the log segment
+    * has rolled.
+    *
+    * @param offset snapshot offset
+    * @return file corresponding to the provided snapshot offset.
+    */
+  def snapshotFileForOffset(offset: Long): Option[File] = {
+    ProducerStateManager.snapshotFileForOffset(logDir, offset)
+  }
 }

@@ -33,9 +33,8 @@ import AbstractFetcherThread._
 
 import scala.collection.{Map, Set, mutable}
 import scala.collection.JavaConverters._
-import java.util.concurrent.{ExecutionException, TimeUnit}
+import java.util.concurrent.{ExecutionException, Future, TimeUnit}
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.Future
 import java.util.function.Consumer
 
 import com.yammer.metrics.core.Gauge
@@ -160,13 +159,13 @@ abstract class AbstractFetcherThread(name: String,
    * fetchTierState starts a fetch of tier state such as the leader epoch state and producer state
    * from object storage, aligned to the start of the leader's local log.
    */
-  protected def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): Future[List[EpochEntry]]
+  protected def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): Future[TierState]
 
   /**
    * onRestoreTierState restores the tier state into the leader epoch cache
    * and producer state, and truncates the local log aligned to the end of the restored state.
    */
-  protected def onRestoreTierState(topicPartition: TopicPartition, proposedLocalLogStart: Long, epochData: List[EpochEntry]): Unit
+  protected def onRestoreTierState(topicPartition: TopicPartition, proposedLocalLogStart: Long, tierState: TierState): Unit
 
   override def shutdown() {
     initiateShutdown()
@@ -923,7 +922,16 @@ case object Fetching extends ReplicaState
 
 case class MaterializingTierMetadata(completionStatus: Future[TierObjectMetadata], previousState: ReplicaState) extends ReplicaState
 
-case class FetchingTierState(completionStatus: Future[List[EpochEntry]], tierObjectMetadata: TierObjectMetadata, previousState: ReplicaState) extends ReplicaState
+final case class TierState(leaderEpochState: List[EpochEntry], producerState: Option[ByteBuffer])
+
+object TierState {
+  // used for testing
+  def apply(leaderEpochState: List[EpochEntry]): TierState = {
+    TierState(leaderEpochState, None)
+  }
+}
+
+case class FetchingTierState(completionStatus: Future[TierState], tierObjectMetadata: TierObjectMetadata, previousState: ReplicaState) extends ReplicaState
 
 object PartitionFetchState {
   def apply(offset: Long, currentLeaderEpoch: Int, state: ReplicaState): PartitionFetchState = {

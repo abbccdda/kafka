@@ -100,7 +100,7 @@ public class S3TierObjectStore implements TierObjectStore {
     public TierObjectMetadata putSegment(
             TierObjectMetadata objectMetadata, File segmentData,
             File offsetIndexData, File timestampIndexData,
-            File producerStateSnapshotData, File transactionIndexData,
+            Optional<File> producerStateSnapshotData, File transactionIndexData,
             Optional<File> epochState) {
         Map<String, String> metadata = new HashMap<>();
         metadata.put("metadata_version", Integer.toString(objectMetadata.version()));
@@ -119,9 +119,8 @@ public class S3TierObjectStore implements TierObjectStore {
              metadata, offsetIndexData);
             putFile(keyPath(objectMetadata, TierObjectStoreFileType.TIMESTAMP_INDEX),
                 metadata, timestampIndexData);
-            putFile(keyPath(objectMetadata, TierObjectStoreFileType.PRODUCER_STATE),
-                metadata,
-                producerStateSnapshotData);
+            producerStateSnapshotData.ifPresent(file -> putFile(keyPath(objectMetadata,
+                    TierObjectStoreFileType.PRODUCER_STATE), metadata, file));
             putFile(keyPath(objectMetadata, TierObjectStoreFileType.TRANSACTION_INDEX),
                 metadata, transactionIndexData);
             epochState.ifPresent(file -> putFile(keyPath(objectMetadata,

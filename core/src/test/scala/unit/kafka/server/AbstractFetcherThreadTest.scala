@@ -19,7 +19,7 @@ package kafka.server
 
 import java.nio.ByteBuffer
 import java.util.Optional
-import java.util.concurrent.CompletableFuture
+import java.util.concurrent.{CompletableFuture, Future}
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.UUID
 
@@ -46,7 +46,7 @@ import org.junit.{Before, Test}
 import org.mockito.Mockito.{mock, when}
 
 import scala.collection.JavaConverters._
-import scala.collection.{mutable, Map, Set}
+import scala.collection.{Map, Set, mutable}
 import scala.util.Random
 import org.scalatest.Assertions.assertThrows
 
@@ -805,7 +805,7 @@ class AbstractFetcherThreadTest {
     val tierMetadataManager = mock(classOf[TierMetadataManager])
 
     val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
-      override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[List[EpochEntry]] = {
+      override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
         throw new Exception("should not fetch state")
       }
 
@@ -893,10 +893,10 @@ class AbstractFetcherThreadTest {
     val tierMetadataManager = mock(classOf[TierMetadataManager])
     val promise = new CompletableFuture[TierObjectMetadata]()
     when(tierMetadataManager.materializeUntilOffset(partition, 39L)).thenReturn(promise)
-    val stateFuture = new CompletableFuture[List[EpochEntry]]()
+    val stateFuture = new CompletableFuture[TierState]()
 
     val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
-      override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[List[EpochEntry]] = {
+      override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
         stateFuture
       }
 
@@ -950,7 +950,7 @@ class AbstractFetcherThreadTest {
 
     fetcher.doWork() // should do nothing until the future completes
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[FetchingTierState])
-    stateFuture.complete(List[EpochEntry]())
+    stateFuture.complete(TierState(List[EpochEntry]()))
 
     fetcher.doWork() // transitions partition to FETCHING state via restoration
     assertEquals(Fetching, fetcher.fetchState(partition).get.state)
@@ -974,10 +974,10 @@ class AbstractFetcherThreadTest {
 
     val tries = new AtomicInteger(0)
 
-    val stateFuture = new CompletableFuture[List[EpochEntry]]()
+    val stateFuture = new CompletableFuture[TierState]()
 
     val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
-      override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[List[EpochEntry]] = {
+      override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
         stateFuture
       }
 
@@ -1031,10 +1031,10 @@ class AbstractFetcherThreadTest {
 
     when(tierMetadataManager.materializeUntilOffset(partition, 9L)).thenReturn(promise).thenReturn(promiseSuccessful)
 
-    val stateFuture = new CompletableFuture[List[EpochEntry]]()
+    val stateFuture = new CompletableFuture[TierState]()
 
     val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
-      override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[List[EpochEntry]] = {
+      override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
         stateFuture
       }
 
@@ -1088,7 +1088,7 @@ class AbstractFetcherThreadTest {
 
     fetcher.doWork() // should do nothing until the future completes
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[FetchingTierState])
-    stateFuture.complete(List[EpochEntry]())
+    stateFuture.complete(TierState(List[EpochEntry]()))
 
     fetcher.doWork() // transitions partition to FETCHING state via restoration
     assertEquals(Fetching, fetcher.fetchState(partition).get.state)
@@ -1111,10 +1111,10 @@ class AbstractFetcherThreadTest {
       .thenReturn(materialization1)
       .thenReturn(new CompletableFuture[TierObjectMetadata]())
 
-    val tierStateFut = new CompletableFuture[List[EpochEntry]]()
+    val tierStateFut = new CompletableFuture[TierState]()
 
     val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
-      override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[List[EpochEntry]] = {
+      override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
         tierStateFut
       }
 
@@ -1336,8 +1336,8 @@ class AbstractFetcherThreadTest {
         Some(OffsetAndEpoch(result.endOffset, result.leaderEpoch))
     }
 
-    override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[List[EpochEntry]] = {
-      new CompletableFuture[List[EpochEntry]]()
+    override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): Future[TierState] = {
+      new CompletableFuture[TierState]()
     }
 
     private def checkExpectedLeaderEpoch(expectedEpochOpt: Optional[Integer],
@@ -1435,7 +1435,7 @@ class AbstractFetcherThreadTest {
       leaderState.logEndOffset
     }
 
-    override protected def onRestoreTierState(topicPartition: TopicPartition, proposedLocalLogStart: Long, epochData: List[EpochEntry]): Unit = {
+    override protected def onRestoreTierState(topicPartition: TopicPartition, proposedLocalLogStart: Long, tierState: TierState): Unit = {
       replicaPartitionState(topicPartition).logEndOffset = proposedLocalLogStart
       replicaPartitionState(topicPartition).highWatermark = proposedLocalLogStart
     }

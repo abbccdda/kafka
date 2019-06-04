@@ -4,20 +4,18 @@
 
 package kafka.log
 
-import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, TimeUnit}
 import java.util.UUID
+import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, TimeUnit}
 
-import kafka.server.{BrokerTopicStats, FetchDataInfo, LogDirFailureChannel, TierFetchDataInfo}
 import kafka.server.epoch.EpochEntry
-import kafka.tier.TierMetadataManager
+import kafka.server.{BrokerTopicStats, FetchDataInfo, LogDirFailureChannel, TierFetchDataInfo, TierState}
+import kafka.tier.{TierMetadataManager, TierTimestampAndOffset, TopicIdPartition}
 import kafka.tier.domain.{TierObjectMetadata, TierTopicInitLeader}
 import kafka.tier.state.FileTierPartitionStateFactory
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
-import kafka.tier.TierTimestampAndOffset
-import kafka.tier.TopicIdPartition
 import kafka.utils.{MockTime, Scheduler, TestUtils}
-import org.apache.kafka.common.record.MemoryRecords
+import org.apache.kafka.common.record.{MemoryRecords, SimpleRecord}
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.junit.Assert.{assertEquals, fail}
 import org.junit.{After, Test}
@@ -247,6 +245,102 @@ class MergedLogTest {
   }
 
   @Test
+  def testSizedBasedRetentionOnSegmentsWithProducerSnapshots(): Unit = {
+    val segmentBytes = 1024
+    // Setup retention to only keep 2 segments total
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, retentionBytes = segmentBytes * 1, tierEnable = true, tierLocalHotsetBytes = 0)
+    val mergedLog = createMergedLog(logConfig)
+    val tierPartitionState = tierMetadataManager.tierPartitionState(mergedLog.topicPartition).get
+    val leaderEpoch = 0
+    val topicIdPartition = new TopicIdPartition(mergedLog.topicPartition.topic(), UUID.randomUUID(), mergedLog.topicPartition.partition())
+    // establish tier leadership for topicIdPartition
+    tierPartitionState.setTopicIdPartition(topicIdPartition)
+    tierPartitionState.onCatchUpComplete()
+    tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
+      leaderEpoch, java.util.UUID.randomUUID(), 0))
+    val pid1 = 1L
+    var lastOffset = 0L
+    for (i <- 0 to 15) {
+      val appendInfo = mergedLog.appendAsLeader(TestUtils.records(Seq(new SimpleRecord(mockTime
+        .milliseconds(), new
+          Array[Byte](128))),
+        producerId = pid1, producerEpoch = 0, sequence = i),
+        leaderEpoch = 0)
+      lastOffset = appendInfo.lastOffset
+    }
+    mergedLog.onHighWatermarkIncremented(lastOffset)
+
+    assertEquals("expected 4 log segments", 4, mergedLog.localLogSegments.size)
+    assertEquals("expected producer state manager to contain some state", false, mergedLog.producerStateManager.isEmpty)
+    assertEquals("expected retention to leave the log unchanged", 0, mergedLog.deleteOldSegments())
+
+    // Remove the two oldest producer state snapshots to simulate them not being present (old behavior).
+    for (_ <- 0 to 1) {
+      val oldestOffset = mergedLog.producerStateManager.oldestSnapshotOffset.get
+      mergedLog.producerStateManager.deleteSnapshotsBefore(oldestOffset + 1)
+      val newOldestOffset = mergedLog.producerStateManager.oldestSnapshotOffset.get
+      assertEquals("expected the oldest producer state snapshot offset to increase", newOldestOffset > oldestOffset, true)
+    }
+
+    // Nothing has been tiered, so nothing should be eligible for deletion
+    assertEquals("expected no segments to be deleted due to retention", 0, mergedLog.deleteOldSegments())
+    // "tier" the first two segments
+    mergedLog.localLogSegments.take(2).foreach {
+      segment =>
+        val hasProducerState = mergedLog.producerStateManager.snapshotFileForOffset(segment.readNextOffset).isDefined
+        val tierObjectMetadata = new TierObjectMetadata(topicIdPartition,
+          leaderEpoch,
+          segment.baseOffset,
+          (segment.readNextOffset - segment.baseOffset - 1).toInt,
+          segment.readNextOffset,
+          segment.largestTimestamp,
+          segment.size,
+          true,
+          hasProducerState,
+          false,
+          0.toByte)
+        val appendResult = tierPartitionState.append(tierObjectMetadata)
+        tierPartitionState.flush()
+        assertEquals(AppendResult.ACCEPTED, appendResult)
+    }
+    // At this point we should have 2 segments which have been tiered. The third to last segment has producer state
+    // (which has not been tiered yet), this should be sufficient to prevent deletion even though there are 2 segments
+    // eligible for deletion due to breach of size-based retention.
+    assertEquals("expected no segments to be deleted due to retention", 0, mergedLog.deleteOldSegments())
+
+    // Tier the third segment
+    mergedLog.localLogSegments.toList.lift(2).foreach {
+      segment =>
+        val hasProducerState = mergedLog.producerStateManager.snapshotFileForOffset(segment.readNextOffset).isDefined
+        assertEquals("expected 3rd segment to have a producer state snapshot", true, hasProducerState)
+        val tierObjectMetadata = new TierObjectMetadata(topicIdPartition,
+          leaderEpoch,
+          segment.baseOffset,
+          (segment.readNextOffset - segment.baseOffset - 1).toInt,
+          segment.readNextOffset,
+          segment.largestTimestamp,
+          segment.size,
+          true,
+          hasProducerState,
+          false,
+          0.toByte)
+        val appendResult = tierPartitionState.append(tierObjectMetadata)
+        tierPartitionState.flush()
+        assertEquals(AppendResult.ACCEPTED, appendResult)
+    }
+
+    // Now that the 3rd segment has been tiered (and it does have a producer state snapshot), the segments eligible
+    // for deletion should resemble:
+    // [ 1 ] - [ 2 ] - [ 3 ]
+    //  [ ]     [ ]     [P]
+    // where only the 3rd segment has a [P] ProducerStateSnapshot. Because the range of eligible segments contains
+    // a producer state snapshot, retention should succeed in deleting segments 1, 2, and 3.
+
+    assertEquals("expected three segments to be deleted due to retention", 3, mergedLog.deleteOldSegments())
+
+  }
+
+  @Test
   def testRestoreStateFromTier(): Unit = {
     val numTieredSegments = 30
     val numHotsetSegments = 10
@@ -266,7 +360,7 @@ class MergedLogTest {
     // and restore state, and start replicating after that segment
     val leaderOffset = 190
     val metadata = tierPartitionState.metadata(leaderOffset).get()
-    log.onRestoreTierState(metadata.endOffset() + 1, entries)
+    log.onRestoreTierState(metadata.endOffset() + 1, TierState(entries))
 
     // check that local log is trimmed to immediately after tiered metadata
     assertEquals(metadata.endOffset() + 1, log.localLog.localLogStartOffset)
@@ -486,7 +580,7 @@ class MergedLogTest {
     }
 
     val localSegmentsToDelete = segmentsToTier.take(numTieredSegments - numOverlap)
-    log.localLog.deleteOldSegments(Some(localSegmentsToDelete.last.readNextOffset))
+    log.localLog.deleteOldSegments(Some(localSegmentsToDelete.last.readNextOffset), _ => true)
 
     // close the log
     log.close()

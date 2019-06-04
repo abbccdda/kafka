@@ -1,3 +1,7 @@
+/*
+ Copyright 2018 Confluent Inc.
+ */
+
 package kafka.tier.archiver
 
 import java.io.File
@@ -5,7 +9,7 @@ import java.util.Collections
 import java.util.concurrent.CompletableFuture
 import java.util.UUID
 
-import kafka.log.{AbstractLog, LogSegment, OffsetIndex, TimeIndex}
+import kafka.log.{AbstractLog, LogSegment, OffsetIndex, ProducerStateManager, TimeIndex}
 import kafka.server.ReplicaManager
 import kafka.server.epoch.LeaderEpochFileCache
 import kafka.tier.TierTopicManager
@@ -178,8 +182,12 @@ class ArchiveTaskTest {
 
     val logSegment = mockLogSegment(tmpFile)
 
+    val mockProducerStateManager = mock(classOf[ProducerStateManager])
+    when(mockProducerStateManager.snapshotFileForOffset(ArgumentMatchers.any(classOf[Long]))).thenReturn(None)
+
     val log = mockAbstractLog(logSegment)
     when(log.leaderEpochCache).thenReturn(None)
+    when(log.producerStateManager).thenReturn(mockProducerStateManager)
 
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
 
@@ -220,6 +228,10 @@ class ArchiveTaskTest {
 
     val log = mockAbstractLog(logSegment)
     when(log.leaderEpochCache).thenReturn(Some(mockLeaderEpochCache))
+
+    val mockProducerStateManager = mock(classOf[ProducerStateManager])
+    when(log.producerStateManager).thenReturn(mockProducerStateManager)
+    when(mockProducerStateManager.snapshotFileForOffset(ArgumentMatchers.any(classOf[Long]))).thenReturn(None)
 
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
 

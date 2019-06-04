@@ -272,11 +272,11 @@ class ReplicaAlterLogDirsThread(name: String,
     }
   }
 
-  override protected def onRestoreTierState(topicPartition: TopicPartition, proposedLocalLogStart: Long, epochData: List[EpochEntry]): Unit = {
+  override protected def onRestoreTierState(topicPartition: TopicPartition, proposedLocalLogStart: Long, tierState: TierState): Unit = {
     throw new UnsupportedOperationException("Restoring tier state during an alter log dirs operation is not currently supported.")
   }
 
-  override protected def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[List[EpochEntry]] = {
+  override protected def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
     throw new UnsupportedOperationException("Restoring tier state during an alter log dirs operation is not currently supported.")
   }
 }

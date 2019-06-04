@@ -181,9 +181,9 @@ class LogManagerTest {
     assertEquals("Now there should be exactly 6 segments", 6, log.numberOfSegments)
     time.sleep(log.config.fileDeleteDelayMs + 1)
 
-    // there should be a log file, two indexes (the txn index is created lazily),
-    // the leader epoch checkpoint and two producer snapshot files (one for the active and previous segments)
-    assertEquals("Files should have been deleted", log.numberOfSegments * 3 + 3, log.dir.list.length)
+    // there should be a log file, two indexes (the txn index is created lazily) and a producer snapshot file,
+    // and the leader epoch checkpoint.
+    assertEquals("Files should have been deleted", log.numberOfSegments * 4 + 1, log.dir.list.length)
     assertEquals("Should get empty fetch off new log.", 0, readLog(log, offset + 1).records.sizeInBytes)
     try {
       readLog(log, 0)
@@ -333,7 +333,8 @@ class LogManagerTest {
 
     topicPartitions.zip(logs).foreach { case (tp, log) =>
       assertEquals("Recovery point should equal checkpoint", checkpoints(tp), log.recoveryPoint)
-      assertEquals(Some(log.minSnapshotsOffsetToRetain), log.oldestProducerSnapshotOffset)
+      val firstLocalSegmentNextOffset = log.localLogSegments.headOption.map(_.readNextOffset)
+      assertEquals(firstLocalSegmentNextOffset, log.oldestProducerSnapshotOffset)
     }
   }
 
@@ -395,17 +396,15 @@ class LogManagerTest {
         log.appendAsLeader(TestUtils.singletonRecords("test".getBytes), leaderEpoch = 0)
       log.flush()
     }
-
-    logManager.checkpointRecoveryOffsetsAndCleanSnapshot(this.logDir, allLogs.filter(_.dir.getName.contains("test-a")))
+    logManager.checkpointRecoveryOffsets(this.logDir)
 
     val checkpoints = new OffsetCheckpointFile(new File(logDir, LogManager.RecoveryPointCheckpointFile)).read()
 
     tps.zip(allLogs).foreach { case (tp, log) =>
       assertEquals("Recovery point should equal checkpoint", checkpoints(tp), log.recoveryPoint)
-      if (tp.topic.equals("test-a")) // should only cleanup old producer snapshots for topic 'test-a'
-        assertEquals(Some(log.minSnapshotsOffsetToRetain), log.oldestProducerSnapshotOffset)
-      else
-        assertNotEquals(Some(log.minSnapshotsOffsetToRetain), log.oldestProducerSnapshotOffset)
+      val firstLocalSegmentNextOffset = log.localLogSegments.headOption.map(_.readNextOffset)
+      // All logs have full snapshot history
+      assertEquals(firstLocalSegmentNextOffset, log.oldestProducerSnapshotOffset)
     }
   }
 

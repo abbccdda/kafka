@@ -1,3 +1,7 @@
+/*
+ Copyright 2018 Confluent Inc.
+ */
+
 package kafka.tier.archiver
 
 

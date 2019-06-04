@@ -504,7 +504,7 @@ public class TierFetcherTest {
         @Override
         public TierObjectMetadata putSegment(TierObjectMetadata objectMetadata, File segmentData,
                                              File offsetIndexData, File timestampIndexData,
-                                             File producerStateSnapshotData,
+                                             Optional<File> producerStateSnapshotData,
                                              File transactionIndexData, Optional<File> epochState) {
             throw new UnsupportedOperationException();
         }

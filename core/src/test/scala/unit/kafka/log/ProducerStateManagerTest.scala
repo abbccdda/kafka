@@ -836,6 +836,51 @@ class ProducerStateManagerTest {
     assertEquals(None, stateManager.lastEntry(producerId).get.currentTxnFirstOffset)
   }
 
+  @Test
+  def testReloadFromTieredSnapshot(): Unit = {
+    val epoch = 0.toShort
+    append(stateManager, producerId, epoch, 0, 0L)
+    append(stateManager, producerId, epoch, 1, 1L)
+    append(stateManager, producerId, epoch, 2, 2L)
+    stateManager.takeSnapshot()
+    val maybeFile: Option[File] = stateManager.snapshotFileForOffset(3L)
+    assertTrue("expected to find snapshot file at offset 3", maybeFile.isDefined)
+    val snapshotFile = maybeFile.get
+    val buf = ByteBuffer.allocate(snapshotFile.length().asInstanceOf[Int])
+    val fc = FileChannel.open(snapshotFile.toPath)
+    try {
+      Utils.readFully(fc, buf, 0)
+    } finally {
+      fc.close()
+    }
+    buf.flip()
+
+    // Snapshot some of the last fields for the last producer state entry. These are what we expect to be restored.
+    val originalLastDataOffset = stateManager.lastEntry(producerId).get.lastDataOffset
+    val originalLastOffsetDelta = stateManager.lastEntry(producerId).get.lastOffsetDelta
+    val originalLastSeq = stateManager.lastEntry(producerId).get.lastSeq
+    val originalLastTimestamp = stateManager.lastEntry(producerId).get.lastTimestamp
+
+    // Write some new entries, these are expected to be overwritten when we restore producer state.
+    append(stateManager, producerId, epoch, 3, 3L)
+    append(stateManager, producerId, epoch, 4, 4L)
+
+    // restore from tierstate
+    stateManager.truncate()
+    stateManager.reloadFromTieredSnapshot(0, time.milliseconds(), buf, 3L)
+    stateManager.takeSnapshot()
+    assertTrue("expected a snapshot file to exist for the restored snapshot",
+      stateManager.snapshotFileForOffset(3L).isDefined)
+    assertEquals("expected all other snapshot files to be cleared, leaving only the restored snapshot file",
+      logDir.listFiles().length, 1)
+
+    val reloadedLastEntry = stateManager.lastEntry(producerId).get
+    assertEquals("expected lastDataOffset to be restored", originalLastDataOffset, reloadedLastEntry.lastDataOffset)
+    assertEquals("expected lastOffsetDelta to be restored", originalLastOffsetDelta, reloadedLastEntry.lastOffsetDelta)
+    assertEquals("expected lastSeq to be restored", originalLastSeq, reloadedLastEntry.lastSeq)
+    assertEquals("expected lastTimestamp to be restored", originalLastTimestamp, reloadedLastEntry.lastTimestamp)
+  }
+
   private def testLoadFromCorruptSnapshot(makeFileCorrupt: FileChannel => Unit): Unit = {
     val epoch = 0.toShort
     val producerId = 1L

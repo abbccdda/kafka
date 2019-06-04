@@ -54,7 +54,7 @@ public interface TierObjectStore {
                                   File segmentData,
                                   File offsetIndexData,
                                   File timestampIndexData,
-                                  File producerStateSnapshotData,
+                                  Optional<File> producerStateSnapshotData,
                                   File transactionIndexData,
                                   Optional<File> epochState)
             throws TierObjectStoreRetriableException, IOException;

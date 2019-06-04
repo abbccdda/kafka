@@ -11,7 +11,7 @@ import kafka.metrics.KafkaMetricsGroup
 import kafka.server.{KafkaConfig, ReplicaManager}
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.store.TierObjectStore
-import kafka.tier.{TierMetadataManager, TierTopicManager}
+import kafka.tier.{TierMetadataManager, TierTopicAppender}
 import kafka.utils.{Logging, ShutdownableThread}
 import org.apache.kafka.common.utils.Time
 
@@ -46,7 +46,7 @@ object TierArchiverConfig {
 final class TierArchiver(config: TierArchiverConfig,
                          replicaManager: ReplicaManager,
                          tierMetadataManager: TierMetadataManager,
-                         tierTopicManager: TierTopicManager,
+                         tierTopicAppender: TierTopicAppender,
                          tierObjectStore: TierObjectStore,
                          time: Time = Time.SYSTEM) extends ShutdownableThread(name = "tier-archiver") with KafkaMetricsGroup with Logging {
 
@@ -133,9 +133,9 @@ final class TierArchiver(config: TierArchiverConfig,
     }
   })
 
-  private def waitForTierTopicManager(): Unit = {
-    while (!tierTopicManager.isReady) {
-      Thread.sleep(1000) // TODO: Have the TierTopicManager just block futures on this
+  private def waitForTierTopicAppender(): Unit = {
+    while (!tierTopicAppender.isReady) {
+      Thread.sleep(1000)
     }
   }
 
@@ -154,12 +154,12 @@ final class TierArchiver(config: TierArchiverConfig,
       if (workingSet.isEmpty) {
         debug("working set is empty, blocking until a new task is available")
         val newTask = taskQueue.poll()
-        workingSet :+= newTask.transition(time, tierTopicManager, tierObjectStore, replicaManager,
+        workingSet :+= newTask.transition(time, tierTopicAppender, tierObjectStore, replicaManager,
           Some(byteRate), Some(config.maxRetryBackoffMs))
       } else {
         taskQueue.poll(config.updateIntervalMs, TimeUnit.MILLISECONDS) match {
           case Some(newTask) =>
-            workingSet :+= newTask.transition(time, tierTopicManager, tierObjectStore, replicaManager,
+            workingSet :+= newTask.transition(time, tierTopicAppender, tierObjectStore, replicaManager,
               Some(byteRate), Some(config.maxRetryBackoffMs))
           case None => continue = false
         }
@@ -195,9 +195,9 @@ final class TierArchiver(config: TierArchiverConfig,
 
   override def doWork(): Unit = {
     try {
-      info("waiting for TierTopicManager to start")
-      waitForTierTopicManager()
-      info("TierTopicManager is ready, starting archiver loop")
+      info("waiting for TierTopicAppender to start")
+      waitForTierTopicAppender()
+      info("TierTopicAppender is ready, starting archiver loop")
       while (!ctx.isCancelled) {
         fillWorkingSet()
         drainFutures()

@@ -5,13 +5,14 @@
 package kafka.log
 
 import java.io.{File, IOException}
+import java.nio.ByteBuffer
 import java.util
 
 import com.yammer.metrics.core.{Gauge, MetricName}
 import kafka.api.ApiVersion
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server._
-import kafka.server.epoch.{LeaderEpochFileCache, EpochEntry}
+import kafka.server.epoch.LeaderEpochFileCache
 import kafka.tier.TierMetadataManager
 import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.state.{MemoryTierPartitionStateFactory, TierPartitionState}
@@ -197,7 +198,17 @@ class MergedLog(private[log] val localLog: Log,
         localLog.deleteOldSegments(None)
       } else if (!tieredOffsets.isEmpty) {
         val deletionUpperBoundOffset = tierPartitionState.committedEndOffset.asScala.map(upperBound => upperBound + 1).getOrElse(0L)
-        localLog.deleteOldSegments(Some(deletionUpperBoundOffset)) // do not delete any untiered segments
+        // Prevent deletion until the segment with the highest base offset in the set of deletable segments has a producer
+        // state snapshot. This ensures that no deletion will occur until it is guaranteed that all followers will be
+        // able to restore a consistent snapshot on OFFSET_TIERED_EXCEPTION.
+        def deletionCanProceed(deletableLogSegments: Seq[LogSegment]): Boolean = {
+          deletableLogSegments.lastOption.flatMap(lastSegment => {
+            // Check if there is a snapshot file for this segment, which would have been created using the
+            // next segments base offset on roll
+            producerStateManager.snapshotFileForOffset(lastSegment.readNextOffset)
+          }).isDefined
+        }
+        localLog.deleteOldSegments(Some(deletionUpperBoundOffset), deletionCanProceed) // do not delete any untiered segments
       } else {
         0
       }
@@ -266,15 +277,26 @@ class MergedLog(private[log] val localLog: Log,
 
   def topicIdPartition: Option[TopicIdPartition] = tierPartitionState.topicIdPartition.asScala
 
-  def onRestoreTierState(proposeLocalLogStart: Long, leaderEpochEntries: List[EpochEntry]): Unit = lock synchronized {
-    if (!localLog.leaderEpochCache.isDefined) {
+  def onRestoreTierState(proposeLocalLogStart: Long, tierState: TierState): Unit = lock synchronized {
+    info(s"restoring tier state for $topicPartition at proposed offset $proposeLocalLogStart")
+    if (localLog.leaderEpochCache.isEmpty)
       throw new IllegalStateException("Message format must be upgraded before restoring tier state can be allowed.")
-    }
 
     truncateFullyAndStartAt(proposeLocalLogStart)
 
+    // ProducerStateManager should be fully truncated at this point, making it safe to restore the snapshot
+    tierState.producerState match {
+      case Some(producerStateBuf: ByteBuffer) =>
+        info(s"restoring non-empty producer state snapshot for $topicPartition")
+        localLog.producerStateManager.reloadFromTieredSnapshot(logStartOffset, localLog.time.milliseconds(), producerStateBuf, proposeLocalLogStart)
+      case None =>
+        info(s"restoring empty producer state snapshot for $topicPartition")
+        // If there is no producer state to restore, just update the lastMapOffset to the restored segment end offset + 1
+        localLog.producerStateManager.updateMapEndOffset(proposeLocalLogStart)
+    }
+
     localLog.leaderEpochCache.get.clear()
-    for (entry <- leaderEpochEntries)
+    for (entry <- tierState.leaderEpochState)
       localLog.leaderEpochCache.get.assign(entry.epoch, entry.startOffset)
   }
 
@@ -542,8 +564,6 @@ class MergedLog(private[log] val localLog: Log,
     localLog.replaceSegments(newSegments, oldSegments, isRecoveredSwapFile)
   }
 
-  override private[log] def deleteSnapshotsAfterRecoveryPointCheckpoint(): Long = localLog.deleteSnapshotsAfterRecoveryPointCheckpoint()
-
   override def logEndOffsetMetadata: LogOffsetMetadata = localLog.logEndOffsetMetadata
 
   override def logEndOffset: Long = localLog.logEndOffset
@@ -554,11 +574,11 @@ class MergedLog(private[log] val localLog: Log,
 
   private def logDirFailureChannel: LogDirFailureChannel = localLog.logDirFailureChannel
 
+  override def producerStateManager: ProducerStateManager = localLog.producerStateManager
+
   /* --------- End pass-through methods --------- */
 
   /* --------- Methods exposed for testing --------- */
-
-  override private[log] def minSnapshotsOffsetToRetain = localLog.minSnapshotsOffsetToRetain
 
   override private[log] def latestProducerSnapshotOffset = localLog.latestProducerSnapshotOffset
 
@@ -881,11 +901,6 @@ sealed trait AbstractLog {
   private[log] def truncateFullyAndStartAt(newOffset: Long): Unit
 
   /**
-    * See Log#deleteSnapshotsAfterRecoveryPointCheckpoint for documentation.
-    */
-  private[log] def deleteSnapshotsAfterRecoveryPointCheckpoint(): Long
-
-  /**
     * Delete old segments in this log, including any tiered segments.
     * @return Number of segments deleted.
     */
@@ -936,7 +951,7 @@ sealed trait AbstractLog {
    * Restores tier state for this partition fetched from the tier object store.
    * Initializes the local log to proposedLogStart.
    */
-  def onRestoreTierState(proposedLocalLogStart: Long, leaderEpochEntries: List[EpochEntry]): Unit
+  def onRestoreTierState(proposedLocalLogStart: Long, leaderEpochEntries: TierState): Unit
 
   /**
     * Remove all log metrics
@@ -947,9 +962,6 @@ sealed trait AbstractLog {
     * Completely delete this log directory and all contents from the file system with no delay
     */
   private[log] def delete(): Unit
-
-  // Visible for testing, see `deleteSnapshotsAfterRecoveryPointCheckpoint()` for details
-  private[log] def minSnapshotsOffsetToRetain: Long
 
   // visible for testing
   private[log] def latestProducerSnapshotOffset: Option[Long]
@@ -974,4 +986,6 @@ sealed trait AbstractLog {
 
   // visible for testing
   def roll(expectedNextOffset: Option[Long] = None): LogSegment
+
+  def producerStateManager: ProducerStateManager
 }

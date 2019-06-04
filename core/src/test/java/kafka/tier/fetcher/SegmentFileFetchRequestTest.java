@@ -220,7 +220,7 @@ public class SegmentFileFetchRequestTest {
             throws IOException {
         tierObjectStore.putSegment(
                 metadata, segment.log().file(), segment.offsetIndex().file(),
-                segment.timeIndex().file(), segment.timeIndex().file(),
+                segment.timeIndex().file(), Optional.empty(),
                 segment.timeIndex().file(), Optional.of(segment.timeIndex().file()));
     }
 }

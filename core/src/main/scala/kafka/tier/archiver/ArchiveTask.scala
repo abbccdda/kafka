@@ -11,20 +11,19 @@ import com.yammer.metrics.core.Meter
 import kafka.log.{AbstractLog, LogSegment}
 import kafka.server.ReplicaManager
 import kafka.server.checkpoints.LeaderEpochCheckpointFile
-import kafka.tier.TierTopicManager
+import kafka.tier.{TierTopicAppender, TopicIdPartition}
 import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.exceptions.{TierArchiverFatalException, TierArchiverFencedException, TierMetadataRetriableException, TierObjectStoreRetriableException}
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.serdes.State
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
-import kafka.tier.TopicIdPartition
 import kafka.utils.Logging
 import org.apache.kafka.common.utils.Time
 
 import scala.compat.java8.FutureConverters._
 import scala.compat.java8.OptionConverters._
-import scala.concurrent.{blocking, ExecutionContext, Future}
+import scala.concurrent.{ExecutionContext, Future, blocking}
 import scala.util.{Random, Success, Try}
 
 /*
@@ -60,7 +59,7 @@ sealed trait ArchiveTaskState {
 
 /**
   * BeforeLeader represents a TopicPartition waiting for a successful fence TierTopic message
-  * to go through. Once this has been realized by the TierTopicManager, it is allowed to progress
+  * to go through. Once this has been realized by the TierTopicAppender, it is allowed to progress
   * to BeforeUpload.
   */
 case class BeforeLeader(leaderEpoch: Int) extends ArchiveTaskState
@@ -73,8 +72,8 @@ case class BeforeLeader(leaderEpoch: Int) extends ArchiveTaskState
 case class BeforeUpload(leaderEpoch: Int) extends ArchiveTaskState
 
 /**
-  * AfterUpload represents the TopicPartition writing out the TierObjectMetadata to the TierTopicManager,
-  * after the TierTopicManager confirms that the TierObjectMetadata has been materialized, AfterUpload
+  * AfterUpload represents the TopicPartition writing out the TierObjectMetadata to the TierTopicAppender,
+  * after the TierTopicAppender confirms that the TierObjectMetadata has been materialized, AfterUpload
   * transitions to BeforeUpload.
   */
 case class AfterUpload(leaderEpoch: Int, metadata: TierObjectMetadata, beginUploadTime: Long) extends ArchiveTaskState
@@ -105,7 +104,7 @@ final class ArchiveTask(override val ctx: CancellationContext,
   }
 
   def transition(time: Time,
-                 tierTopicManager: TierTopicManager,
+                 tierTopicAppender: TierTopicAppender,
                  tierObjectStore: TierObjectStore,
                  replicaManager: ReplicaManager,
                  byteRateMetric: Option[Meter] = None,
@@ -113,9 +112,9 @@ final class ArchiveTask(override val ctx: CancellationContext,
 
     val newState = state match {
       case _ if ctx.isCancelled => Future(state)
-      case s: BeforeLeader => ArchiveTask.establishLeadership(s, topicIdPartition, tierTopicManager)
-      case s: BeforeUpload => ArchiveTask.tierSegment(s, topicIdPartition, time, tierTopicManager, tierObjectStore, replicaManager, byteRateMetric)
-      case s: AfterUpload => ArchiveTask.finalizeUpload(s, topicIdPartition, time, tierTopicManager)
+      case s: BeforeLeader => ArchiveTask.establishLeadership(s, topicIdPartition, tierTopicAppender)
+      case s: BeforeUpload => ArchiveTask.tierSegment(s, topicIdPartition, time, tierTopicAppender, tierObjectStore, replicaManager, byteRateMetric)
+      case s: AfterUpload => ArchiveTask.finalizeUpload(s, topicIdPartition, time, tierTopicAppender)
     }
 
     newState.map {
@@ -148,7 +147,7 @@ object ArchiveTask extends Logging {
     new ArchiveTask(ctx, topicIdPartition, BeforeLeader(leaderEpoch))
   }
 
-  private def createObjectMetadata(topicIdPartition: TopicIdPartition, tierEpoch: Int, logSegment: LogSegment, hasEpochState: Boolean): TierObjectMetadata = {
+  private def createObjectMetadata(topicIdPartition: TopicIdPartition, tierEpoch: Int, logSegment: LogSegment, hasProducerState: Boolean, hasEpochState: Boolean): TierObjectMetadata = {
     val lastStableOffset = logSegment.readNextOffset - 1 // TODO: get from producer status snapshot
     val offsetDelta = lastStableOffset - logSegment.baseOffset
     new TierObjectMetadata(
@@ -160,8 +159,7 @@ object ArchiveTask extends Logging {
       logSegment.largestTimestamp,
       logSegment.size,
       hasEpochState,
-      // TODO: set when we have producer state
-      false,
+      hasProducerState,
       // TODO: compute whether any tx aborts occurred.
       false,
       State.AVAILABLE)
@@ -170,9 +168,7 @@ object ArchiveTask extends Logging {
   private def assertSegmentFileAccess(logSegment: LogSegment, leaderEpochCacheFile: Option[File]): Unit = {
     var fileListToCheck: List[File] = List(logSegment.log.file(),
       logSegment.offsetIndex.file,
-      logSegment.timeIndex.file,
-      logSegment.timeIndex.file, // FIXME producer status
-      logSegment.timeIndex.file) // FIXME transaction index
+      logSegment.timeIndex.file)
     if (leaderEpochCacheFile.isDefined)
       fileListToCheck :+= leaderEpochCacheFile.get
 
@@ -205,10 +201,10 @@ object ArchiveTask extends Logging {
 
   private[archiver] def establishLeadership(state: BeforeLeader,
                                             topicIdPartition: TopicIdPartition,
-                                            tierTopicManager: TierTopicManager)
+                                            tierTopicAppender: TierTopicAppender)
                                            (implicit ec: ExecutionContext): Future[BeforeUpload] = {
     Future.fromTry(
-      Try(tierTopicManager.becomeArchiver(topicIdPartition, state.leaderEpoch).toScala))
+      Try(tierTopicAppender.becomeArchiver(topicIdPartition, state.leaderEpoch).toScala))
       .flatMap(identity)
       .map { result: AppendResult =>
         result match {
@@ -228,9 +224,9 @@ object ArchiveTask extends Logging {
   private[archiver] def finalizeUpload(state: AfterUpload,
                                        topicIdPartition: TopicIdPartition,
                                        time: Time,
-                                       tierTopicManager: TierTopicManager)
+                                       tierTopicAppender: TierTopicAppender)
                                       (implicit ec: ExecutionContext): Future[BeforeUpload] = {
-    Future.fromTry(Try(tierTopicManager.addMetadata(state.metadata).toScala))
+    Future.fromTry(Try(tierTopicAppender.addMetadata(state.metadata).toScala))
       .flatMap(identity)
       .map {
         case AppendResult.ACCEPTED =>
@@ -246,13 +242,13 @@ object ArchiveTask extends Logging {
   private[archiver] def tierSegment(state: BeforeUpload,
                                     topicIdPartition: TopicIdPartition,
                                     time: Time,
-                                    tierTopicManager: TierTopicManager,
+                                    tierTopicAppender: TierTopicAppender,
                                     tierObjectStore: TierObjectStore,
                                     replicaManager: ReplicaManager,
                                     byteRateMetric: Option[Meter] = None)
                                    (implicit ec: ExecutionContext): Future[ArchiveTaskState] = {
     Future {
-      if (tierTopicManager.partitionState(topicIdPartition).tierEpoch() != state.leaderEpoch) {
+      if (tierTopicAppender.partitionState(topicIdPartition).tierEpoch() != state.leaderEpoch) {
         throw new TierArchiverFencedException(topicIdPartition)
       } else {
         replicaManager
@@ -268,15 +264,21 @@ object ArchiveTask extends Logging {
 
           case Some((log: AbstractLog, logSegment: LogSegment)) =>
             // Upload next segment and transition.
-            val leaderEpochStateFile = ArchiveTask.uploadableLeaderEpochState(log, logSegment.readNextOffset)
+            val nextOffset = logSegment.readNextOffset
+            val leaderEpochStateFile = ArchiveTask.uploadableLeaderEpochState(log, nextOffset)
+            // The producer state snapshot for `logSegment` should be named with the next logSegment's base offset
+            // Because we never upload the active segment, and a snapshot is created on roll, we expect that either
+            // this snapshot file is present, or the snapshot file was deleted.
+            val producerStateFile: Option[File] = log.producerStateManager.snapshotFileForOffset(nextOffset)
             val startTime = time.milliseconds
             blocking {
               putSegment(state,
                 topicIdPartition,
                 tierObjectStore,
                 logSegment,
-                leaderEpochStateFile
-              ).map(meta => AfterUpload(state.leaderEpoch, meta, startTime))
+                producerStateFile,
+                leaderEpochStateFile)
+                .map(meta => AfterUpload(state.leaderEpoch, meta, startTime))
             }
         }
       }
@@ -291,10 +293,12 @@ object ArchiveTask extends Logging {
                          topicIdPartition: TopicIdPartition,
                          tierObjectStore: TierObjectStore,
                          logSegment: LogSegment,
+                         producerStateFile: Option[File],
                          leaderEpochCacheFile: Option[File])
                         (implicit ec: ExecutionContext): Future[TierObjectMetadata] = {
     Future {
-      val metadata = createObjectMetadata(topicIdPartition, state.leaderEpoch, logSegment, leaderEpochCacheFile.isDefined)
+      val metadata = createObjectMetadata(topicIdPartition, state.leaderEpoch, logSegment, producerStateFile.isDefined,
+        leaderEpochCacheFile.isDefined)
       blocking {
         assertSegmentFileAccess(logSegment, leaderEpochCacheFile)
         tierObjectStore.putSegment(
@@ -302,7 +306,7 @@ object ArchiveTask extends Logging {
           logSegment.log.file.toPath.toFile,
           logSegment.offsetIndex.file.toPath.toFile,
           logSegment.timeIndex.file.toPath.toFile,
-          logSegment.timeIndex.file.toPath.toFile, // FIXME producer state
+          producerStateFile.asJava,
           logSegment.timeIndex.file.toPath.toFile, // FIXME transaction index
           leaderEpochCacheFile.asJava)
       }

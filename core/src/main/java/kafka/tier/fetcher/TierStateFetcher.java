@@ -9,16 +9,19 @@ import kafka.server.epoch.EpochEntry;
 import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
+import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.collection.immutable.List;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TierStateFetcher {
@@ -47,7 +50,7 @@ public class TierStateFetcher {
      * @param metadata the tier object metadata for this tier state.
      * @return Future to be completed with a list of epoch entries.
      */
-    public Future<List<EpochEntry>> fetchLeaderEpochState(TierObjectMetadata metadata) {
+    public CompletableFuture<List<EpochEntry>> fetchLeaderEpochState(TierObjectMetadata metadata) {
         CompletableFuture<scala.collection.immutable.List<EpochEntry>> entries =
                 new CompletableFuture<>();
         executorService.execute(() -> {
@@ -64,5 +67,28 @@ public class TierStateFetcher {
             }
         });
         return entries;
+    }
+
+    public CompletableFuture<ByteBuffer> fetchProducerStateSnapshot(TierObjectMetadata metadata) {
+        if (!metadata.hasProducerState())
+            throw new IllegalStateException("TierObjectMetadata does not have producer state");
+        return CompletableFuture.supplyAsync(() -> {
+            try (TierObjectStoreResponse response = tierObjectStore.getObject(metadata,
+                    TierObjectStore.TierObjectStoreFileType.PRODUCER_STATE)) {
+                final long objectSize = response.getObjectSize();
+                if (objectSize > Integer.MAX_VALUE) {
+                    throw new IllegalStateException("Tiered producer state snapshot too large");
+                } else {
+                    final ByteBuffer buf = ByteBuffer.allocate((int) objectSize);
+                    Utils.readFully(response.getInputStream(), buf);
+                    buf.flip();
+                    return buf;
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }, executorService);
     }
 }
