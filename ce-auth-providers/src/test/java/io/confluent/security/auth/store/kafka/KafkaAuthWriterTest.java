@@ -6,10 +6,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
+import io.confluent.security.auth.provider.ldap.LdapConfig;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
+import io.confluent.security.auth.store.data.AuthEntryType;
 import io.confluent.security.auth.store.data.AuthKey;
 import io.confluent.security.auth.store.data.AuthValue;
 import io.confluent.security.auth.store.data.RoleBindingKey;
@@ -27,14 +30,24 @@ import io.confluent.security.test.utils.RbacTestUtils;
 import java.net.URL;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import javax.naming.Context;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.errors.InvalidRequestException;
+import org.apache.kafka.common.errors.NotLeaderForPartitionException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.MockTime;
@@ -48,22 +61,25 @@ import org.junit.Test;
 public class KafkaAuthWriterTest {
 
   private final Time time = new MockTime();
+  private final int numPartitions = 2;
   private final KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
   private final KafkaPrincipal bob = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Bob");
+  private final Scope rootScope = Scope.intermediateScope("testOrg");
   private final Scope clusterA = new Scope.Builder("testOrg").withKafkaCluster("clusterA").build();
   private final Scope clusterB = new Scope.Builder("testOrg").withKafkaCluster("clusterB").build();
   private final Scope anotherClusterA = new Scope.Builder("anotherOrg").withKafkaCluster("clusterA").build();
   private final Scope invalidScope = new Scope(Collections.emptyList(), Collections.singletonMap("", "invalid"));
   private final int storeNodeId = 1;
 
+  private RbacRoles rbacRoles;
   private MockAuthStore authStore;
   private KafkaAuthWriter authWriter;
   private DefaultAuthCache authCache;
 
   @Before
   public void setUp() throws Exception {
-    RbacRoles rbacRoles = RbacRoles.load(this.getClass().getClassLoader(), "test_rbac_roles.json");
-    authStore = MockAuthStore.create(rbacRoles, time, Scope.intermediateScope("testOrg"), 2, storeNodeId);
+    rbacRoles = RbacRoles.load(this.getClass().getClassLoader(), "test_rbac_roles.json");
+    authStore = MockAuthStore.create(rbacRoles, time, rootScope, numPartitions, storeNodeId);
     authStore.startService(authStore.urls());
     assertNotNull(authStore.writer());
     authWriter = authStore.writer();
@@ -360,6 +376,135 @@ public class KafkaAuthWriterTest {
 
     authStore.addNewGenerationStatusRecord(2);
     verifyFailure(stage, NotMasterWriterException.class);
+  }
+
+  @Test
+  public void testProduceFailureDuringInitialization() throws Exception {
+    authStore.close();
+    createAuthStoreWithProduceFailure(new NotLeaderForPartitionException(), 1, AuthEntryType.STATUS);
+    startAuthStore(authStore, null, 0);
+    TestUtils.waitForCondition(() -> authStore.assignCount.get() == 2, "Writer not assigned");
+    TestUtils.waitForCondition(() -> authStore.masterWriterUrl("http") != null, "Writer not started");
+    TestUtils.waitForCondition(() -> authStore.writer().ready(), "Writer not ready");
+  }
+
+  @Test
+  public void testProduceFailureDuringInitializationWithLdap() throws Exception {
+    authStore.close();
+    createAuthStoreWithProduceFailure(new AuthenticationException("Test exception"), 1, AuthEntryType.STATUS);
+    Supplier<Map<String, Set<String>>> ldapGroupSupplier =
+        () -> Collections.singletonMap("user1", Collections.singleton("group1"));
+    startAuthStore(authStore, ldapGroupSupplier, 10000);
+    TestUtils.waitForCondition(() -> authStore.assignCount.get() == 2, "Writer not assigned");
+    TestUtils.waitForCondition(() -> authStore.masterWriterUrl("http") != null, "Writer not started");
+    TestUtils.waitForCondition(() -> authStore.writer().ready(), "Writer not ready");
+  }
+
+  @Test
+  public void testLdapProduceFailureDuringInitialization() throws Exception {
+    authStore.close();
+    createAuthStoreWithProduceFailure(new KafkaException("Test exception"), 1, AuthEntryType.USER);
+    Supplier<Map<String, Set<String>>> ldapGroupSupplier =
+        () -> Collections.singletonMap("user1", Collections.singleton("group1"));
+    startAuthStore(authStore, ldapGroupSupplier, 10000);
+    TestUtils.waitForCondition(() -> authStore.assignCount.get() == 2, "Writer not assigned");
+    TestUtils.waitForCondition(() -> authStore.masterWriterUrl("http") != null, "Writer not started");
+    TestUtils.waitForCondition(() -> authStore.writer().ready(), "Writer not ready");
+  }
+
+  @Test
+  public void testLdapProduceFailureAfterInitialization() throws Exception {
+    authStore.close();
+    createAuthStoreWithProduceFailure(new KafkaException("Test exception"), 3, AuthEntryType.USER);
+    Supplier<Map<String, Set<String>>> ldapGroupSupplier =
+        () -> Collections.singletonMap("user1", Collections.singleton("group1"));
+    startAuthStore(authStore, ldapGroupSupplier, 10);
+    TestUtils.waitForCondition(() -> authStore.writer().ready(), "Writer not ready");
+
+    TestUtils.waitForCondition(() -> authStore.assignCount.get() == 2, "Writer not assigned");
+    TestUtils.waitForCondition(() -> authStore.masterWriterUrl("http") != null, "Writer not started");
+    TestUtils.waitForCondition(() -> authStore.writer().ready(), "Writer not ready");
+  }
+
+  @Test
+  public void testRoleBindingProduceFailure() throws Exception {
+    authStore.close();
+    KafkaException testException = new KafkaException("Test exception");
+    createAuthStoreWithProduceFailure(testException, 1, AuthEntryType.ROLE_BINDING);
+    startAuthStore(authStore, null, 0);
+    TestUtils.waitForCondition(() -> authStore.writer().ready(), "Writer not ready");
+    Throwable e = assertThrows(ExecutionException.class, () ->
+        authWriter.addClusterRoleBinding(alice, "ClusterAdmin", clusterA).toCompletableFuture().get(10, TimeUnit.SECONDS));
+    assertEquals(testException, e.getCause());
+
+    authWriter.addClusterRoleBinding(alice, "ClusterAdmin", clusterA).toCompletableFuture().join();
+    assertEquals(1, authStore.assignCount.get());
+  }
+
+  @Test
+  public void testStatusProduceFailureAfterInitialization() throws Exception {
+    authStore.close();
+    int failureIndex = 2 * numPartitions + 1; // INIITALZING and INITIALIZED produced for each partition during startup
+    createAuthStoreWithProduceFailure(new KafkaException("Test exception"), failureIndex, AuthEntryType.STATUS);
+    Supplier<Map<String, Set<String>>> ldapGroupSupplier =
+        () -> Collections.singletonMap("user1", Collections.singleton("group1"));
+    startAuthStore(authStore, ldapGroupSupplier, 10000);
+    TestUtils.waitForCondition(() -> authStore.assignCount.get() == 1, "Writer not assigned");
+    TestUtils.waitForCondition(() -> authStore.writer().ready(), "Writer not ready");
+
+    authWriter.writeExternalStatus(MetadataStoreStatus.INITIALIZED, null, 1);
+    TestUtils.waitForCondition(() -> authStore.assignCount.get() == 1, "Writer not reassigned");
+    TestUtils.waitForCondition(() -> authStore.masterWriterUrl("http") != null, "Writer not started");
+  }
+
+  @Test
+  public void testLdapSearchFailureDuringInitialization() throws Exception {
+    authStore.close();
+    authStore = new MockAuthStore(rbacRoles, time, rootScope, numPartitions, storeNodeId);
+    AtomicInteger failures = new AtomicInteger(1);
+    Supplier<Map<String, Set<String>>> ldapGroupSupplier = () -> {
+      if (failures.getAndDecrement() > 0) {
+        return Collections.singletonMap("user1", Collections.singleton("group1"));
+      } else {
+        authStore.prepareMasterWriter(storeNodeId);
+        throw new RuntimeException("Search failed");
+      }
+    };
+    startAuthStore(authStore, ldapGroupSupplier, 10000);
+    TestUtils.waitForCondition(() -> authStore.assignCount.get() == 1, "Writer not assigned");
+    TestUtils.waitForCondition(() -> authStore.masterWriterUrl("http") != null, "Writer not started");
+    TestUtils.waitForCondition(() -> authStore.writer().ready(), "Writer not ready");
+  }
+
+  private void createAuthStoreWithProduceFailure(RuntimeException exception, int failureIndex, AuthEntryType exceptionEntryType) {
+    AtomicInteger count = new AtomicInteger();
+    authStore = new MockAuthStore(rbacRoles, time, rootScope, numPartitions, storeNodeId) {
+      @Override
+      protected void onSend(ProducerRecord<AuthKey, AuthValue> record, ScheduledExecutorService executor) {
+        if (exceptionEntryType == record.key().entryType() && count.incrementAndGet() == failureIndex) {
+          authStore.prepareMasterWriter(storeNodeId);
+          executor.schedule(() -> producer.errorNext(exception), 0, TimeUnit.MILLISECONDS);
+        } else {
+          super.onSend(record, executor);
+        }
+      }
+    };
+  }
+
+  private void startAuthStore(MockAuthStore authStore,
+                              Supplier<Map<String, Set<String>>> ldapGroupSupplier,
+                              int ldapRefreshIntervalMs) throws Exception {
+    Map<String, Object> configs = new HashMap<>();
+    configs.put("confluent.metadata.bootstrap.servers", "localhost:9092,localhost:9093");
+    if (ldapGroupSupplier != null) {
+      configs.put("ldap." + Context.PROVIDER_URL, MockAuthStore.MOCK_LDAP_URL);
+      configs.put(LdapConfig.REFRESH_INTERVAL_MS_PROP, String.valueOf(ldapRefreshIntervalMs));
+      authStore.ldapGroups = ldapGroupSupplier;
+    }
+    authStore.configure(configs);
+    authStore.startReader();
+    authStore.startService(authStore.urls());
+    authWriter = authStore.writer();
   }
 
   private Collection<ResourcePattern> rbacResources(KafkaPrincipal principal, String role, Scope scope) {

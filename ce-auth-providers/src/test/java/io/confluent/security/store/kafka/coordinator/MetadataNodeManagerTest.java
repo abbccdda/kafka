@@ -5,7 +5,6 @@ package io.confluent.security.store.kafka.coordinator;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
@@ -27,6 +26,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -67,18 +67,18 @@ public class MetadataNodeManagerTest {
     assertEquals(writerId, assignment.writerMemberId());
     assertEquals(MetadataServiceAssignment.LATEST_VERSION, assignment.version());
     nodeManager.onAssigned(assignment, 1);
-    assertEquals(writerUrl, nodeManager.masterWriterUrl("http"));
+    waitForMasterWriter(writerUrl);
     assertTrue(nodeManager.metadataWriter.active.get());
     assertEquals(1, nodeManager.metadataWriter.generationId);
 
     nodeManager.onRevoked(1);
-    assertNull(nodeManager.masterWriterUrl("http"));
+    waitForNoMasterWriter();
     assertFalse(nodeManager.metadataWriter.active.get());
 
     writerId = String.valueOf(2);
     writerUrl = activeNodes.get(writerId).url("http");
     nodeManager.onAssigned(assignment((short) 0, writerId), 2);
-    assertEquals(writerUrl, nodeManager.masterWriterUrl("http"));
+    waitForMasterWriter(writerUrl);
     assertFalse(nodeManager.metadataWriter.active.get());
   }
 
@@ -88,8 +88,8 @@ public class MetadataNodeManagerTest {
     URL writerUrl = activeNodes.get(writerId).url("http");
     MetadataServiceAssignment assignment = assignment((short) 0, writerId);
     nodeManager.onAssigned(assignment, 1);
+    waitForMasterWriter(writerUrl);
     assertEquals(activeUrls, nodeManager.activeNodeUrls("http"));
-    assertEquals(writerUrl, nodeManager.masterWriterUrl("http"));
 
     nodeManager.onRevoked(1);
     assertEquals(activeUrls, nodeManager.activeNodeUrls("http"));
@@ -100,8 +100,8 @@ public class MetadataNodeManagerTest {
     writerId = String.valueOf(1);
     writerUrl = activeNodes.get(writerId).url("http");
     nodeManager.onAssigned(assignment((short) 0, writerId), 2);
+    waitForMasterWriter(writerUrl);
     assertEquals(activeUrls, nodeManager.activeNodeUrls("http"));
-    assertEquals(writerUrl, nodeManager.masterWriterUrl("http"));
 
     nodeManager.activeNodeUrls("somestrangeprotocol").forEach(url ->
         assertNotNull("No active node URL should not be null, even for unrecognized protocols", url)
@@ -113,19 +113,19 @@ public class MetadataNodeManagerTest {
     String writerId = String.valueOf(1);
     URL writerUrl = activeNodes.get(writerId).url("http");
     nodeManager.onAssigned(assignment((short) 0, writerId), 3);
-    assertEquals(writerUrl, nodeManager.masterWriterUrl("http"));
+    waitForMasterWriter(writerUrl);
     assertTrue(nodeManager.metadataWriter.active.get());
 
     writerId = String.valueOf(3);
     writerUrl = activeNodes.get(writerId).url("http");
     nodeManager.onAssigned(assignment((short) 0, writerId), 4);
-    assertEquals(writerUrl, nodeManager.masterWriterUrl("http"));
+    waitForMasterWriter(writerUrl);
     assertFalse(nodeManager.metadataWriter.active.get());
 
     writerId = String.valueOf(1);
     writerUrl = activeNodes.get(writerId).url("http");
     nodeManager.onAssigned(assignment((short) 0, writerId), 5);
-    assertEquals(writerUrl, nodeManager.masterWriterUrl("http"));
+    waitForMasterWriter(writerUrl);
     assertTrue(nodeManager.metadataWriter.active.get());
     assertEquals(activeUrls, nodeManager.activeNodeUrls("http"));
   }
@@ -135,14 +135,14 @@ public class MetadataNodeManagerTest {
     String writerId = String.valueOf(1);
     URL writerUrl = activeNodes.get(writerId).url("http");
     nodeManager.onAssigned(assignment((short) 0, writerId), 3);
+    waitForMasterWriter(writerUrl);
     assertEquals(activeUrls, nodeManager.activeNodeUrls("http"));
-    assertEquals(writerUrl, nodeManager.masterWriterUrl("http"));
     assertTrue(nodeManager.metadataWriter.active.get());
 
     writerId = String.valueOf(3);
     nodeManager.onAssigned(assignment((short) 1, writerId), 4);
+    waitForNoMasterWriter();
     assertEquals(activeUrls, nodeManager.activeNodeUrls("http"));
-    assertNull(nodeManager.masterWriterUrl("http"));
     assertFalse(nodeManager.metadataWriter.active.get());
   }
 
@@ -151,20 +151,20 @@ public class MetadataNodeManagerTest {
     String writerId = String.valueOf(1);
     URL writerUrl = activeNodes.get(writerId).url("http");
     nodeManager.onAssigned(assignment((short) 0, writerId), 3);
-    assertEquals(writerUrl, nodeManager.masterWriterUrl("http"));
+    waitForMasterWriter(writerUrl);
     assertTrue(nodeManager.metadataWriter.active.get());
     assertEquals(3, nodeManager.metadataWriter.generationId);
 
     // Test older generation resign is ignored
     nodeManager.onWriterResigned(2);
-    assertEquals(writerUrl, nodeManager.masterWriterUrl("http"));
+    waitForMasterWriter(writerUrl);
     assertTrue(nodeManager.metadataWriter.active.get());
     assertEquals(3, nodeManager.metadataWriter.generationId);
 
     // Test current generation resign is processed
     nodeManager.onWriterResigned(3);
+    waitForNoMasterWriter();
     assertEquals(activeUrls, nodeManager.activeNodeUrls("http"));
-    assertNull(nodeManager.masterWriterUrl("http"));
     assertFalse(nodeManager.metadataWriter.active.get());
     assertEquals(-1, nodeManager.metadataWriter.generationId);
   }
@@ -174,11 +174,23 @@ public class MetadataNodeManagerTest {
     props.put(KafkaStoreConfig.BOOTSTRAP_SERVERS_PROP, "localhost:9092");
     KafkaStoreConfig config = new KafkaStoreConfig(props);
     MockWriter writer = new MockWriter();
-    return new MockNodeManager(new URL(url), config, writer, time);
+    MockNodeManager nodeManager = new MockNodeManager(new URL(url), config, writer, time);
+    nodeManager.start();
+    return nodeManager;
   }
 
   private MetadataServiceAssignment assignment(short error, String writerId) {
     return new MetadataServiceAssignment(error, activeNodes, writerId, activeNodes.get(writerId));
+  }
+
+  private void waitForMasterWriter(URL writerUrl) throws Exception {
+    TestUtils.waitForCondition(() -> writerUrl.equals(nodeManager.masterWriterUrl("http")),
+        "Master writer not updated");
+  }
+
+  private void waitForNoMasterWriter() throws Exception {
+    TestUtils.waitForCondition(() -> nodeManager.masterWriterUrl("http") == null,
+        "Master writer not removed");
   }
 
   private static class MockNodeManager extends MetadataNodeManager {
@@ -198,7 +210,9 @@ public class MetadataNodeManagerTest {
         Metadata metadata,
         Time time,
         LogContext logContext) {
-      return new MockClient(time, metadata);
+      MockClient client = new MockClient(time, metadata);
+      client.updateMetadata(TestUtils.metadataUpdateWith(1, Collections.singletonMap("_confluent-security-auth", 2)));
+      return client;
     }
   }
 

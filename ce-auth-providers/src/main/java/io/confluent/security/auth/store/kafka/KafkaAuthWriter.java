@@ -107,14 +107,16 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
 
   @Override
   public void startWriter(int generationId) {
-    log.debug("Starting writer with generation id {}", generationId);
+    log.info("Starting writer with generation {}", generationId);
     if (generationId < 0)
       throw new IllegalArgumentException("Invalid generation id for master writer " + generationId);
 
     if (executor != null && !executor.isTerminated())
       throw new IllegalStateException("Starting writer without clearing startup executor of previous generation");
-    executor = Executors.newSingleThreadExecutor(ThreadUtils.createThreadFactory("auth-writer-%d", true));
 
+    isMasterWriter.set(true);
+
+    executor = Executors.newSingleThreadExecutor(ThreadUtils.createThreadFactory("auth-writer-%d", true));
     executor.submit(() -> {
       try {
         if (partitionWriters.isEmpty()) {
@@ -127,7 +129,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
         ready = true;
 
       } catch (Throwable e) {
-        log.error("Kafka auth writer initialization failed {}", e);
+        log.error("Kafka auth writer initialization failed {}, resigning", e);
         rebalanceListener.onWriterResigned(generationId);
       }
     });
@@ -140,13 +142,12 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
         writeExternalStatus(MetadataStoreStatus.FAILED, e.getMessage(), generationId);
       }
     });
-
-    isMasterWriter.set(true);
   }
 
   @Override
   public void stopWriter(Integer generationId) {
     try {
+      log.info("Stopping writer {}", generationId == null ? "" : "with generation " + generationId);
       ready = false;
       if (executor != null) {
         executor.shutdownNow();
@@ -195,7 +196,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     return partitionWriter.write(existingRecord.key(),
         new RoleBindingValue(updatedResources),
         existingRecord.generationIdDuringRead(),
-        true);
+        true, false);
   }
 
   @Override
@@ -210,7 +211,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriter(principal, role, scope);
     RoleBindingKey key = new RoleBindingKey(principal, role, scope);
 
-    return partitionWriter.write(key, new RoleBindingValue(resources), null, true);
+    return partitionWriter.write(key, new RoleBindingValue(resources), null, true, false);
   }
 
   @Override
@@ -221,7 +222,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriter(principal, role, scope);
     RoleBindingKey key = new RoleBindingKey(principal, role, scope);
 
-    return partitionWriter.write(key, null, null, true);
+    return partitionWriter.write(key, null, null, true, false);
   }
 
   @Override
@@ -245,10 +246,10 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
           existingRecord.key(),
           value,
           existingRecord.generationIdDuringRead(),
-          true);
+          true, false);
     } else {
       log.debug("Deleting binding with no remaining resources {} {} {}", principal, role, scope);
-      return partitionWriter.write(existingRecord.key(), null, null, true);
+      return partitionWriter.write(existingRecord.key(), null, null, true, false);
     }
   }
 
@@ -296,12 +297,12 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
    * @param expectedGenerationId Generation id currently associated with the external store
    */
   public void writeExternalEntry(AuthKey key, AuthValue value, int expectedGenerationId) {
-    partitionWriter(partition(key)).write(key, value, expectedGenerationId, false);
+    partitionWriter(partition(key)).write(key, value, expectedGenerationId, false, true);
   }
 
   public void writeExternalStatus(MetadataStoreStatus status, String errorMessage, int generationId) {
     ExecutorService executor = this.executor;
-    if (executor != null) {
+    if (executor != null && !executor.isShutdown()) {
       executor.submit(() -> {
         try {
           boolean hasFailure = externalAuthStores.values().stream().anyMatch(ExternalStore::failed);
@@ -323,7 +324,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
           partitionWriters.forEach((partition, writer) ->
               writer.writeStatus(generationId, new StatusKey(partition), statusValue, status));
         } catch (Throwable e) {
-          log.error("Failed to write external status to auth topic", e);
+          log.error("Failed to write external status to auth topic, writer resigning", e);
           rebalanceListener.onWriterResigned(generationId);
         }
       });
@@ -472,12 +473,18 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   private void loadExternalAuthStores() {
     Map<String, ?> configs = config.originals();
     if (LdapConfig.ldapEnabled(configs)) {
-      LdapStore ldapStore = new LdapStore(authCache, this, time);
-      ldapStore.configure(configs);
+      LdapStore ldapStore = createLdapStore(configs, authCache);
       externalAuthStores.put(AuthEntryType.USER, ldapStore);
     } else {
       externalAuthStores.put(AuthEntryType.USER, new DummyUserStore());
     }
+  }
+
+  // Visibility for testing
+  protected LdapStore createLdapStore(Map<String, ?> configs, DefaultAuthCache authCache) {
+    LdapStore ldapStore = new LdapStore(authCache, this, time);
+    ldapStore.configure(configs);
+    return ldapStore;
   }
 
   private class DummyUserStore implements ExternalStore {

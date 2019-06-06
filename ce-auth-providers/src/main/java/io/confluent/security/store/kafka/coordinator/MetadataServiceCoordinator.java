@@ -180,4 +180,8 @@ public class MetadataServiceCoordinator extends AbstractCoordinator {
   void onWriterResigned() {
     this.currentAssignment = null;
   }
+
+  void wakeup() {
+    client.wakeup();
+  }
 }

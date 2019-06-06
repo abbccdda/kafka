@@ -96,15 +96,7 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
       throw new IllegalStateException("Writer has already been started for this store");
     log.debug("Starting writer for auth store {}", nodeUrls);
 
-    this.writer = new KafkaAuthWriter(
-        AUTH_TOPIC,
-        numAuthTopicPartitions,
-        clientConfig,
-        createProducer(clientConfig.producerConfigs(AUTH_TOPIC)),
-        () -> createAdminClient(clientConfig.adminClientConfigs()),
-        authCache,
-        time);
-
+    this.writer = createWriter(numAuthTopicPartitions, clientConfig, authCache, time);
     nodeManager = createNodeManager(nodeUrls, clientConfig, writer, time);
     writer.rebalanceListener(nodeManager);
     nodeManager.start();
@@ -178,5 +170,20 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
                                                   KafkaAuthWriter writer,
                                                   Time time) {
     return new MetadataNodeManager(nodeUrls, config, writer, time);
+  }
+
+  // Visibility to override in tests
+  protected KafkaAuthWriter createWriter(int numPartitions,
+                                         KafkaStoreConfig clientConfig,
+                                         DefaultAuthCache authCache,
+                                         Time time) {
+    return new KafkaAuthWriter(
+        AUTH_TOPIC,
+        numPartitions,
+        clientConfig,
+        createProducer(clientConfig.producerConfigs(AUTH_TOPIC)),
+        () -> createAdminClient(clientConfig.adminClientConfigs()),
+        authCache,
+        time);
   }
 }

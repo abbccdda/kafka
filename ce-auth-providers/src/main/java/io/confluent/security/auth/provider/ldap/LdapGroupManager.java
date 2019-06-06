@@ -186,6 +186,9 @@ public class LdapGroupManager {
           throw new LdapException("Ldap group manager initialization failed", t);
         }
       }
+      if (!alive.get()) {
+        throw new RuntimeException("LDAP group manager has been shutdown");
+      }
     } while (!done);
 
     onStartup();
@@ -328,7 +331,8 @@ public class LdapGroupManager {
     }, initialDelayMs, refreshIntervalMs, TimeUnit.MILLISECONDS);
   }
 
-  void searchAndProcessResults() throws NamingException, IOException {
+  // Visibility to override for testing
+  protected void searchAndProcessResults() throws NamingException, IOException {
     if (context == null) {
       context = contextCreator.createLdapContext();
       maybeSetPagingControl(null);

@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -29,6 +30,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.internals.ConsumerNetworkClient;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.errors.WakeupException;
 import org.apache.kafka.common.internals.ClusterResourceListeners;
 import org.apache.kafka.common.metrics.JmxReporter;
 import org.apache.kafka.common.metrics.MetricConfig;
@@ -59,6 +61,7 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
   private final ConsumerNetworkClient coordinatorNetworkClient;
   private final MetadataServiceCoordinator coordinator;
   private final AtomicBoolean isAlive;
+  private final ConcurrentLinkedQueue<Runnable> pendingTasks;
 
   private volatile NodeMetadata masterWriterNode;
   private volatile int masterWriterGenerationId;
@@ -71,6 +74,7 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
     this.nodeMetadata = new NodeMetadata(nodeUrls);
     this.writer = metadataWriter;
     this.time = time;
+    this.pendingTasks = new ConcurrentLinkedQueue<>();
 
     ConsumerConfig coordinatorConfig = new ConsumerConfig(config.coordinatorConfigs());
     long rebalanceTimeoutMs = coordinatorConfig.getInt(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG);
@@ -131,7 +135,18 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
     try {
       log.debug("Starting metadata node coordinator");
       while (isAlive.get()) {
-        coordinator.poll(Duration.ofMillis(Long.MAX_VALUE));
+        while (true) {
+          Runnable runnable = pendingTasks.poll();
+          if (runnable != null)
+            runnable.run();
+          else
+            break;
+        }
+        try {
+          coordinator.poll(Duration.ofMillis(Long.MAX_VALUE));
+        } catch (WakeupException e) {
+          log.debug("Wake up exception from poll");
+        }
       }
     } catch (Throwable e) {
       if (isAlive.get())
@@ -163,33 +178,42 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
 
   @Override
   public synchronized void onAssigned(MetadataServiceAssignment assignment, int generationId) {
-    log.debug("onAssigned generation {} assignment {}", assignment, generationId);
+    log.info("Metadata writer assignment complete: generation {} assignment {}", assignment, generationId);
 
-    this.activeNodes = assignment.nodes().values();
+    pendingTasks.add(() -> {
+      this.activeNodes = assignment.nodes().values();
 
-    stopWriter(null);
-    NodeMetadata newWriter = assignment.writerNodeMetadata();
-    if (assignment.error() == AssignmentError.NONE.errorCode && newWriter != null) {
-      this.masterWriterNode = newWriter;
-      this.masterWriterGenerationId = generationId;
-      if (nodeMetadata.equals(newWriter))
-        this.writer.startWriter(generationId);
-    }
+      stopWriter(null);
+      NodeMetadata newWriter = assignment.writerNodeMetadata();
+      if (assignment.error() == AssignmentError.NONE.errorCode && newWriter != null) {
+        this.masterWriterNode = newWriter;
+        this.masterWriterGenerationId = generationId;
+        if (nodeMetadata.equals(newWriter))
+          this.writer.startWriter(generationId);
+      }
+    });
+    coordinator.wakeup();
   }
 
   @Override
   public synchronized void onRevoked(int generationId) {
-    log.debug("onRevoked generation {}", generationId);
-    stopWriter(generationId);
+    log.info("Metadata writer assignment revoked for generation {}", generationId);
+    pendingTasks.add(() -> {
+      stopWriter(generationId);
+    });
+    coordinator.wakeup();
   }
 
   @Override
   public synchronized void onWriterResigned(int generationId) {
-    log.debug("onWriterResigned {}", generationId);
-    if (this.nodeMetadata.equals(masterWriterNode) && masterWriterGenerationId == generationId) {
-      stopWriter(generationId);
-      onWriterResigned();
-    }
+    log.info("Metadata writer resigned, generation {}", generationId);
+    pendingTasks.add(() -> {
+      if (this.nodeMetadata.equals(masterWriterNode) && masterWriterGenerationId == generationId) {
+        stopWriter(generationId);
+        onWriterResigned();
+      }
+    });
+    coordinator.wakeup();
   }
 
   // Visibility for testing

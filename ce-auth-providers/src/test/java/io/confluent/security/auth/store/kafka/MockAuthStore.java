@@ -5,10 +5,17 @@ package io.confluent.security.auth.store.kafka;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import io.confluent.security.auth.provider.ldap.LdapConfig;
+import io.confluent.security.auth.provider.ldap.LdapGroupManager;
+import io.confluent.security.auth.provider.ldap.LdapStore;
+import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.auth.store.data.AuthKey;
 import io.confluent.security.auth.store.data.AuthValue;
 import io.confluent.security.auth.store.data.StatusKey;
 import io.confluent.security.auth.store.data.StatusValue;
+import io.confluent.security.auth.store.data.UserKey;
+import io.confluent.security.auth.store.data.UserValue;
+import io.confluent.security.auth.store.external.ExternalStoreListener;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.utils.JsonMapper;
 import io.confluent.security.rbac.RbacRoles;
@@ -21,6 +28,7 @@ import io.confluent.security.store.kafka.coordinator.MetadataServiceAssignment.A
 import io.confluent.security.store.kafka.coordinator.MetadataServiceCoordinator;
 import io.confluent.security.store.kafka.coordinator.NodeMetadata;
 import io.confluent.security.test.utils.RbacTestUtils;
+import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.time.Duration;
@@ -31,12 +39,16 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import javax.naming.Context;
+import javax.naming.NamingException;
 import org.apache.kafka.clients.KafkaClient;
 import org.apache.kafka.clients.Metadata;
 import org.apache.kafka.clients.MockClient;
@@ -62,11 +74,14 @@ import org.apache.kafka.common.requests.FindCoordinatorResponse;
 import org.apache.kafka.common.requests.JoinGroupResponse;
 import org.apache.kafka.common.requests.MetadataResponse;
 import org.apache.kafka.common.requests.SyncGroupResponse;
+import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.test.TestUtils;
 
 public class MockAuthStore extends KafkaAuthStore {
+
+  static final String MOCK_LDAP_URL = "mock:389";
 
   private final int numAuthTopicPartitions;
   final Map<Integer, NodeMetadata> nodes;
@@ -76,8 +91,9 @@ public class MockAuthStore extends KafkaAuthStore {
   private final int nodeId;
   private final MetadataResponse metadataResponse;
   private final AtomicInteger coordinatorGeneration = new AtomicInteger();
-  private final AtomicInteger assignCount = new AtomicInteger();
-  private final AtomicInteger revokeCount = new AtomicInteger();
+  final AtomicInteger assignCount = new AtomicInteger();
+  final AtomicInteger revokeCount = new AtomicInteger();
+  volatile Supplier<Map<String, Set<String>>> ldapGroups;
   volatile MockProducer<AuthKey, AuthValue> producer;
   volatile MockConsumer<AuthKey, AuthValue> consumer;
   private volatile MockNodeManager nodeManager;
@@ -104,6 +120,7 @@ public class MockAuthStore extends KafkaAuthStore {
     for (int i = 0; i < numAuthTopicPartitions; i++)
       this.consumedOffsets.put(i, -1L);
     this.executor = Executors.newSingleThreadScheduledExecutor();
+    this.ldapGroups = Collections::emptyMap;
   }
 
   public void configureDelays(long produceDelayMs, long consumeDelayMs) {
@@ -134,9 +151,7 @@ public class MockAuthStore extends KafkaAuthStore {
       @Override
       public synchronized Future<RecordMetadata> send(ProducerRecord<AuthKey, AuthValue> record, Callback callback) {
         Future<RecordMetadata> future = super.send(record, callback);
-        executor.schedule(() -> producer.completeNext(), produceDelayMs, TimeUnit.MILLISECONDS);
-        executor.schedule(() -> consumer.addRecord(consumerRecord(record)),
-            consumeDelayMs, TimeUnit.MILLISECONDS);
+        onSend(record, executor);
         return future;
       }
     };
@@ -163,6 +178,46 @@ public class MockAuthStore extends KafkaAuthStore {
   }
 
   @Override
+  protected KafkaAuthWriter createWriter(int numPartitions,
+                                          KafkaStoreConfig clientConfig,
+                                          DefaultAuthCache authCache,
+                                          Time time) {
+    return new KafkaAuthWriter(
+        AUTH_TOPIC,
+        numPartitions,
+        clientConfig,
+        createProducer(clientConfig.producerConfigs(AUTH_TOPIC)),
+        () -> createAdminClient(clientConfig.adminClientConfigs()),
+        authCache,
+        time) {
+
+      @Override
+      protected LdapStore createLdapStore(Map<String, ?> configs, DefaultAuthCache authCache) {
+        return new LdapStore(authCache, this, time) {
+          @Override
+          protected LdapGroupManager createLdapGroupManager(ExternalStoreListener<UserKey, UserValue> listener) {
+            return new LdapGroupManager(new LdapConfig(configs), time, listener) {
+              @Override
+              protected void searchAndProcessResults() throws NamingException, IOException {
+                if (configs.get("ldap." + Context.PROVIDER_URL).equals(MOCK_LDAP_URL)) {
+                  ldapGroups.get().forEach((k, v) -> {
+                    KafkaPrincipal user = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, k);
+                    Set<KafkaPrincipal> groups = v.stream()
+                        .map(name -> new KafkaPrincipal("Group", name))
+                        .collect(Collectors.toSet());
+                    listener.update(new UserKey(user), new UserValue(groups));
+                  });
+                } else
+                  super.searchAndProcessResults();
+              }
+            };
+          }
+        };
+      }
+    };
+  }
+
+  @Override
   public void close() {
     super.close();
     executor.shutdownNow();
@@ -181,10 +236,15 @@ public class MockAuthStore extends KafkaAuthStore {
     return nodes.get(nodeId).url(protocol);
   }
 
-  public void makeMasterWriter(int nodeId) {
+  public int prepareMasterWriter(int nodeId) {
     int oldGeneration = coordinatorGeneration.get();
     coordinatorClient.prepareResponse(joinGroupResponse(coordinatorGeneration.incrementAndGet()));
     coordinatorClient.prepareResponse(syncGroupResponse(nodeId));
+    return oldGeneration;
+  }
+
+  public void makeMasterWriter(int nodeId) {
+    int oldGeneration = prepareMasterWriter(nodeId);
     int expectedAssignCount = assignCount.get() + 1;
     int expectedRevokeCount = revokeCount.get() + 1;
 
@@ -219,6 +279,12 @@ public class MockAuthStore extends KafkaAuthStore {
     consumedOffsets.put(record.partition(), offset);
     return new ConsumerRecord<>(KafkaAuthStore.AUTH_TOPIC, record.partition(),
         offset, record.key(), record.value());
+  }
+
+  protected void onSend(ProducerRecord<AuthKey, AuthValue> record, ScheduledExecutorService executor) {
+    executor.schedule(() -> producer.completeNext(), produceDelayMs, TimeUnit.MILLISECONDS);
+    executor.schedule(() -> consumer.addRecord(consumerRecord(record)),
+        consumeDelayMs, TimeUnit.MILLISECONDS);
   }
 
   private KafkaClient createCoordinatorClient(Time time, Metadata metadata) {

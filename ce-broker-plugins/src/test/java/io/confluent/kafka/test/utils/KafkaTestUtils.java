@@ -49,7 +49,12 @@ public class KafkaTestUtils {
   private static final Set<String> UNEXPECTED_THREADS = Utils.mkSet(
       AbstractCoordinator.HEARTBEAT_THREAD_PREFIX,
       "event-process-thread",
-      "EventThread");
+      "EventThread",
+      "auth-writer-",
+      "auth-reader-",
+      "metadata-service-coordinator",
+      "license-",
+      "authorizer-");
 
   public static Properties brokerConfig(Properties overrideProps) throws Exception {
     Properties serverConfig = new Properties();

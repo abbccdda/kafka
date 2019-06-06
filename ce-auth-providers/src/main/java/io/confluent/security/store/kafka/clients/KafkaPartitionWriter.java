@@ -111,7 +111,7 @@ public class KafkaPartitionWriter<K, V> {
         topicPartition.partition(), statusKey, statusValue);
     producer.send(record, (metadata, exception) -> {
       if (exception != null) {
-        log.error("Status {}:{} could not be added to auth topic", statusKey, statusValue, exception);
+        log.error("Status {}:{} could not be added to auth topic, writer resigning", statusKey, statusValue, exception);
         rebalanceListener.onWriterResigned(generationId);
       } else {
         onStatusRecordWriteCompletion(generationId, status, metadata.offset());
@@ -141,18 +141,24 @@ public class KafkaPartitionWriter<K, V> {
    * @param value Value for the record, which may be null if a record is being deleted
    * @param expectedGenerationId Generation id corresponding to the write if this is an incremental
    *        update or value override
+   * @param waitForInitialization Wait until initialization completes e.g. for role binding updates
+   * @param resignOnFailure Resign if write fails. This is false for writes requested through
+   *        metadata server for which response can be returned to user
    *
    * @return future that completes when the record is written to the partition and consumed
    *         by the local reader
    */
-  public CompletionStage<Void> write(K key, V value, Integer expectedGenerationId, boolean waitForInitialization) {
+  public CompletionStage<Void> write(K key, V value,
+                                     Integer expectedGenerationId,
+                                     boolean waitForInitialization,
+                                     boolean resignOnFailure) {
     PendingWrite pendingWrite;
     synchronized (this) {
       if (expectedGenerationId != null && this.generationId != expectedGenerationId) {
         throw notMasterWriterException();
       }
 
-      pendingWrite = new PendingWrite(generationId, key);
+      pendingWrite = new PendingWrite(generationId, key, resignOnFailure);
       boolean canAdd = waitUntil(unused -> (!waitForInitialization || status == MetadataStoreStatus.INITIALIZED) &&
           pendingWrites.offer(pendingWrite), true);
       if (!canAdd)
@@ -204,8 +210,11 @@ public class KafkaPartitionWriter<K, V> {
 
     synchronized (this) {
       this.lastConsumedOffset = offset;
-      if (newGenerationId != -1 && newGenerationId == this.generationId && !waitUntilPendingOffsetsKnown(offset))
+      if (newGenerationId != -1 && newGenerationId == this.generationId && !waitUntilPendingOffsetsKnown(offset)) {
+        log.error("Writer with generation {} resigning because pending writes up to offset {} not cleared within timeout",
+            generationId, offset);
         resignGenerationId = generationId;
+      }
 
       maybeCompletePendingWrites(lastConsumedOffset);
       maybeCancelPendingWrites(newGenerationId);
@@ -217,7 +226,8 @@ public class KafkaPartitionWriter<K, V> {
 
         // Received a newer generation id than that of this writer, so it must be from another node.
         // Ensure all pending writes have been cancelled and resign.
-        log.debug("Received newer generation id, resigning");
+        log.error("Writer with generation {} resigning because status record with newer generation {} found at offset {}",
+            generationId, newGenerationId, offset);
         resignGenerationId = this.generationId;
         if (!pendingWrites.isEmpty())
           throw new IllegalStateException("All pending writes of older generation must have been cancelled");
@@ -241,6 +251,8 @@ public class KafkaPartitionWriter<K, V> {
       long offset = record.offset();
 
       if (!waitUntilPendingOffsetsKnown(offset)) {
+        log.error("Writer with generation {} resigning because pending writes up to offset {} not cleared within timeout",
+            generationId, offset);
         resignGenerationId = generationId;
       } else if (expectPendingWriteOnMaster && status == MetadataStoreStatus.INITIALIZED && !pendingWriteExists(offset)) {
 
@@ -253,7 +265,7 @@ public class KafkaPartitionWriter<K, V> {
       maybeCompletePendingWrites(lastConsumedOffset);
     }
     if (overwriteValue)
-      write(record.key(), oldValue, generationId, true);
+      write(record.key(), oldValue, generationId, true, true);
 
     if (resignGenerationId != null)
       rebalanceListener.onWriterResigned(resignGenerationId);
@@ -326,6 +338,15 @@ public class KafkaPartitionWriter<K, V> {
       if (status == MetadataStoreStatus.INITIALIZED)
         notifyAll();
     }
+  }
+
+  private void resign(int generationId, Exception cause) {
+    synchronized (this) {
+      if (this.generationId != generationId)
+        return;
+    }
+    log.error("Writer with generation {} resigning because produce failed", generationId, cause);
+    rebalanceListener.onWriterResigned(generationId);
   }
 
   /**
@@ -403,11 +424,13 @@ public class KafkaPartitionWriter<K, V> {
     private final CompletableFuture<Void> future;
     private final int generationId;
     private final K key;
+    private final boolean resignOnFailure;
     private long offset;
 
-    PendingWrite(int generationId, K key) {
+    PendingWrite(int generationId, K key, boolean resignOnFailure) {
       this.generationId = generationId;
       this.key = key;
+      this.resignOnFailure = resignOnFailure;
       this.future = new CompletableFuture<>();
       this.offset = -1;
     }
@@ -418,6 +441,9 @@ public class KafkaPartitionWriter<K, V> {
       if (!future.isDone()) {
         if (exception != null) {
           onRecordWriteFailure(this, exception);
+          if (resignOnFailure) {
+            resign(generationId, exception);
+          }
         } else {
           onRecordWriteCompletion(this, generationId, metadata.offset());
         }

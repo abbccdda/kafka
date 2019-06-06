@@ -35,15 +35,19 @@ public class LdapStore implements ExternalStore {
   public void start(int generationId) {
     listener.generationId = generationId;
     if (ldapGroupManager == null) {
-      ldapGroupManager = new LdapGroupManager(config, time, listener);
+      ldapGroupManager = createLdapGroupManager(listener);
+      listener.start();
       ldapGroupManager.start();
     }
   }
 
   @Override
   public void stop(Integer generationId) {
-    if (ldapGroupManager != null)
+    listener.stop();
+    if (ldapGroupManager != null) {
       ldapGroupManager.close();
+      ldapGroupManager = null;
+    }
     listener.generationId = -1;
   }
 
@@ -53,15 +57,29 @@ public class LdapStore implements ExternalStore {
     return manager != null && manager.failed();
   }
 
+  // Visibility to override for testing
+  protected LdapGroupManager createLdapGroupManager(ExternalStoreListener<UserKey, UserValue> listener) {
+    return new LdapGroupManager(config, time, listener);
+  }
+
   private static class UserStoreListener implements ExternalStoreListener<UserKey, UserValue> {
 
     private final AuthCache authCache;
     private final KafkaAuthWriter writer;
     private volatile int generationId;
+    private volatile boolean active;
 
     UserStoreListener(AuthCache authCache, KafkaAuthWriter writer) {
       this.authCache = authCache;
       this.writer = writer;
+    }
+
+    void start() {
+      this.active = true;
+    }
+
+    void stop() {
+      this.active = false;
     }
 
     @Override
@@ -83,22 +101,30 @@ public class LdapStore implements ExternalStore {
 
     @Override
     public void update(UserKey key, UserValue value) {
-      writer.writeExternalEntry(key, value, generationId);
+      if (active) {
+        writer.writeExternalEntry(key, value, generationId);
+      }
     }
 
     @Override
     public void delete(UserKey key) {
-      writer.writeExternalEntry(key, null, generationId);
+      if (active) {
+        writer.writeExternalEntry(key, null, generationId);
+      }
     }
 
     @Override
     public void fail(String errorMessage) {
-      writer.writeExternalStatus(MetadataStoreStatus.FAILED, errorMessage, generationId);
+      if (active) {
+        writer.writeExternalStatus(MetadataStoreStatus.FAILED, errorMessage, generationId);
+      }
     }
 
     @Override
     public void resetFailure() {
-      writer.writeExternalStatus(MetadataStoreStatus.INITIALIZED, null, generationId);
+      if (active) {
+        writer.writeExternalStatus(MetadataStoreStatus.INITIALIZED, null, generationId);
+      }
     }
   }
 }
