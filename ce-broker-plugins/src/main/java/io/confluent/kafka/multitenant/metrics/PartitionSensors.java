@@ -125,7 +125,7 @@ public class PartitionSensors {
             TOPIC_TAG, tp.topic(),
             PARTITION_TAG, tp.partition());
         PartitionSensorCreator sensorCreator =
-            new PartitionSensorCreator(sensorName, name, tenant, tp, brokerThroughputPercentiles);
+            new PartitionSensorCreator(name, name, tenant, tp, brokerThroughputPercentiles);
         Map<String, AbstractSensorCreator> sensorCreators =
             Collections.singletonMap(sensorName, sensorCreator);
         Map<String, String> sensorsToFind = new HashMap<>(1);
