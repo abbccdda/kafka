@@ -1,0 +1,11 @@
+// (Copyright) [2019 - 2019] Confluent, Inc.
+
+{
+  "class": "org.apache.kafka.trogdor.workload.MetadataServiceWorkloadSpec",
+  "durationMs": 60000,
+  "clientNode": "node0",
+  "seedMetadataServerUrl": "http://ec2-34-203-239-2.compute-1.amazonaws.com:8090",
+  "adminUserCredentials": "mds:confluent1!",
+  "targetCallsPerSec": 100,
+  "numRoleBindings":10
+}
