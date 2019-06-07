@@ -6,6 +6,7 @@ import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.TenantMetadata;
 import kafka.server.KafkaConfig$;
 import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.common.config.ConfluentTopicConfig;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.PolicyViolationException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -16,6 +17,7 @@ import org.junit.Test;
 import java.util.HashMap;
 import java.util.Map;
 
+import static org.junit.Assert.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -42,6 +44,7 @@ public class AlterConfigPolicyTest {
     when(requestMetadata.configs()).thenReturn(topicConfigs);
     ConfigResource cfgResource = new ConfigResource(ConfigResource.Type.TOPIC, "dummy");
     when(requestMetadata.resource()).thenReturn(cfgResource);
+    when(requestMetadata.principal()).thenReturn(new MultiTenantPrincipal("tenantUserA", new TenantMetadata("cluster1", "cluster1")));
   }
 
   @Test
@@ -119,12 +122,33 @@ public class AlterConfigPolicyTest {
   }
 
   @Test(expected = PolicyViolationException.class)
-  public void rejectDissallowedConfigProperty2() throws Exception {
+  public void rejectDisallowedConfigProperty1() throws Exception {
     Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
         .put(TopicConfig.MAX_MESSAGE_BYTES_CONFIG, "100") // allowed
         .put(TopicConfig.SEGMENT_MS_CONFIG, "100") // disallowed
         .build();
     when(requestMetadata.configs()).thenReturn(topicConfigs);
+    policy.validate(requestMetadata);
+  }
+
+  @Test
+  public void rejectDisallowedConfigProperty2() {
+    Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
+            .put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true")
+            .build();
+    when(requestMetadata.configs()).thenReturn(topicConfigs);
+    assertThrows(PolicyViolationException.class, () -> policy.validate(requestMetadata));
+  }
+
+  @Test
+  public void allowAllConfigChangesThroughInternalListener() {
+    Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
+            .put(TopicConfig.MAX_MESSAGE_BYTES_CONFIG, "100")
+            .put(TopicConfig.SEGMENT_MS_CONFIG, "100")
+            .put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true")
+            .build();
+    when(requestMetadata.configs()).thenReturn(topicConfigs);
+    when(requestMetadata.principal()).thenReturn(new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "ANONYMOUS"));
     policy.validate(requestMetadata);
   }
 
@@ -186,6 +210,7 @@ public class AlterConfigPolicyTest {
     RequestMetadata brokerRequestMetadata = mock(RequestMetadata.class);
     ConfigResource cfgResource = new ConfigResource(ConfigResource.Type.UNKNOWN, "dummy");
     when(brokerRequestMetadata.resource()).thenReturn(cfgResource);
+    when(brokerRequestMetadata.principal()).thenReturn(new MultiTenantPrincipal("tenantUserA", new TenantMetadata("cluster1", "cluster1")));
     policy.validate(brokerRequestMetadata);
   }
 }
