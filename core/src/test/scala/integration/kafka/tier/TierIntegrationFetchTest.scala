@@ -56,7 +56,7 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
 
   private def configureS3(): Unit = {
     serverConfig.put(KafkaConfig.TierBackendProp, "S3")
-    serverConfig.put(KafkaConfig.TierS3BucketProp, "ai383estnar")
+    serverConfig.put(KafkaConfig.TierS3BucketProp, "confluent-tier-system-test")
     serverConfig.put(KafkaConfig.TierS3RegionProp, "us-west-2")
     serverConfig.put(KafkaConfig.TierLocalHotsetBytesProp, "0")
   }
@@ -154,6 +154,8 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
     consumerProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer")
     consumerProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer")
     consumerProps.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "50000")
+    consumerProps.put(ConsumerConfig.CLIENT_ID_CONFIG, "test-consumer")
+    consumerProps.put(ConsumerConfig.GROUP_ID_CONFIG, "test-group")
 
     val consumer = new KafkaConsumer[String, String](consumerProps)
 

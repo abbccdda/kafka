@@ -51,6 +51,7 @@ ec2_subnet_id = nil
 # Only override this by setting it to false if you're running in a VPC and you
 # are running Vagrant from within that VPC as well.
 ec2_associate_public_ip = nil
+ec2_iam_instance_profile_name = nil
 
 jdk_major = '8'
 jdk_full = '8u202-linux-x64'
@@ -133,6 +134,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       region.spot_instance = ec2_spot_instance
       region.spot_max_price = ec2_spot_max_price
     end
+    aws.iam_instance_profile_name = ec2_iam_instance_profile_name
 
     # Exclude some directories that can grow very large from syncing
     override.vm.synced_folder ".", "/vagrant", type: "rsync", rsync__exclude: ['.git', 'core/data/', 'logs/', 'tests/results/', 'results/']

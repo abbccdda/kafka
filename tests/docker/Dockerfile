@@ -77,6 +77,15 @@ RUN cd /opt && git clone -q  https://github.com/confluentinc/kibosh.git && cd "/
 
 # Set up the ducker user.
 RUN useradd -ms /bin/bash ducker && mkdir -p /home/ducker/ && rsync -aiq /root/.ssh/ /home/ducker/.ssh && chown -R ducker /home/ducker/ /mnt/ /var/log/ && echo 'ducker ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
+
+# Set AWS credentials if provided as build args.
+ARG aws_access_key_id=
+ARG aws_secret_access_key=
+RUN mkdir /home/ducker/.aws && echo "[default]\n\
+aws_access_key_id=$aws_access_key_id\n\
+aws_secret_access_key=$aws_secret_access_key\n"\
+> /home/ducker/.aws/credentials
+
 USER ducker
 
 CMD sudo service ssh start && tail -f /dev/null

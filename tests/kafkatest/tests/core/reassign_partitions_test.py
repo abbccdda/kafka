@@ -24,6 +24,9 @@ from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
+from kafkatest.utils.tiered_storage import tier_server_props
+from os import environ
+from uuid import uuid1
 import random
 import time
 
@@ -32,33 +35,25 @@ class ReassignPartitionsTest(ProduceConsumeValidateTest):
     These tests validate partition reassignment.
     Create a topic with few partitions, load some data, trigger partition re-assignment with and without broker failure,
     check that partition re-assignment can complete and there is no data loss.
+
+    When running this test via Ducker, the containers must be built such that AWS credentials
+    for `TIER_S3_BUCKET` are available to the brokers at runtime:
+    $ docker_args="\
+      --build-arg aws_access_key_id=$(aws configure get aws_access_key_id) \
+      --build-arg aws_secret_access_key=$(aws configure get aws_secret_access_key)" \
+      ./tests/docker/ducker-ak up
     """
+
+    TIER_S3_BUCKET = "confluent-tier-system-test"
 
     def __init__(self, test_context):
         """:type test_context: ducktape.tests.test.TestContext"""
         super(ReassignPartitionsTest, self).__init__(test_context=test_context)
 
-        self.topic = "test_topic"
+        self.topic = "t-{}-{}".format(self.test_context.session_context.session_id, uuid1())
         self.num_partitions = 20
         self.zk = ZookeeperService(test_context, num_nodes=1)
-        # We set the min.insync.replicas to match the replication factor because
-        # it makes the test more stringent. If min.isr = 2 and
-        # replication.factor=3, then the test would tolerate the failure of
-        # reassignment for upto one replica per partition, which is not
-        # desirable for this test in particular.
-        self.kafka = KafkaService(test_context, num_nodes=4, zk=self.zk,
-                                  server_prop_overides=[
-                                      [config_property.LOG_ROLL_TIME_MS, "5000"],
-                                      [config_property.LOG_RETENTION_CHECK_INTERVAL_MS, "5000"]
-                                  ],
-                                  topics={self.topic: {
-                                      "partitions": self.num_partitions,
-                                      "replication-factor": 3,
-                                      'configs': {
-                                          "min.insync.replicas": 3,
-                                      }}
-                                  })
-        self.timeout_sec = 60
+        self.timeout_sec = 120
         self.producer_throughput = 1000
         self.num_producers = 1
         self.num_consumers = 1
@@ -107,7 +102,7 @@ class ReassignPartitionsTest(ProduceConsumeValidateTest):
         and waiting for them to be cleaned up.
         """
         producer = VerifiableProducer(self.test_context, 1, self.kafka, self.topic,
-                                      throughput=-1, enable_idempotence=True,
+                                      stop_timeout_sec=300, throughput=-1, enable_idempotence=self.enable_idempotence,
                                       create_time=1000)
         producer.start()
         wait_until(lambda: producer.num_acked > 0,
@@ -130,8 +125,10 @@ class ReassignPartitionsTest(ProduceConsumeValidateTest):
 
     @cluster(num_nodes=8)
     @matrix(bounce_brokers=[True, False],
+            tier_feature=[True, False],
+            tier_enable=[True, False],
             reassign_from_offset_zero=[True, False])
-    def test_reassign_partitions(self, bounce_brokers, reassign_from_offset_zero):
+    def test_reassign_partitions(self, bounce_brokers, tier_feature, tier_enable, reassign_from_offset_zero):
         """Reassign partitions tests.
         Setup: 1 zk, 4 kafka nodes, 1 topic with partitions=20, replication-factor=3,
         and min.insync.replicas=3
@@ -143,6 +140,35 @@ class ReassignPartitionsTest(ProduceConsumeValidateTest):
             - When done reassigning partitions and bouncing brokers, stop producing, and finish consuming
             - Validate that every acked message was consumed
             """
+
+        if tier_feature and tier_enable:
+            self.enable_idempotence=False
+            jmx_object_names=["kafka.server:type=TierFetcher"]
+            jmx_attributes=["BytesFetchedTotal"]
+        else:
+            jmx_object_names=None
+            jmx_attributes=[]
+
+        # We set the min.insync.replicas to match the replication factor because
+        # it makes the test more stringent. If min.isr = 2 and
+        # replication.factor=3, then the test would tolerate the failure of
+        # reassignment for upto one replica per partition, which is not
+        # desirable for this test in particular.
+        self.kafka = KafkaService(self.test_context, num_nodes=4, zk=self.zk,
+                                  jmx_object_names=jmx_object_names,
+                                  jmx_attributes=jmx_attributes,
+                                  server_prop_overides=tier_server_props(self.TIER_S3_BUCKET, tier_feature) + [
+                                      [config_property.LOG_ROLL_TIME_MS, "5000"],
+                                      [config_property.LOG_RETENTION_CHECK_INTERVAL_MS, "5000"],
+                                  ],
+                                  topics={self.topic: {
+                                      "partitions": self.num_partitions,
+                                      "replication-factor": 3,
+                                      'configs': {
+                                          "min.insync.replicas": 3,
+                                          "confluent.tier.enable": tier_enable,
+                                      },
+                                  }})
         self.kafka.start()
         if not reassign_from_offset_zero:
             self.move_start_offset()
@@ -150,11 +176,17 @@ class ReassignPartitionsTest(ProduceConsumeValidateTest):
         self.producer = VerifiableProducer(self.test_context, self.num_producers,
                                            self.kafka, self.topic,
                                            throughput=self.producer_throughput,
-                                           enable_idempotence=True)
+                                           enable_idempotence=self.enable_idempotence)
+
         self.consumer = ConsoleConsumer(self.test_context, self.num_consumers,
                                         self.kafka, self.topic,
                                         consumer_timeout_ms=60000,
                                         message_validator=is_int)
 
-        self.enable_idempotence=True
         self.run_produce_consume_validate(core_test_action=lambda: self.reassign_partitions(bounce_brokers))
+
+        if tier_feature and tier_enable:
+            self.kafka.read_jmx_output_all_nodes()
+            tier_bytes_fetched = self.kafka.maximum_jmx_value["kafka.server:type=TierFetcher:BytesFetchedTotal"]
+            self.logger.info("Bytes fetched from S3 {}".format(tier_bytes_fetched))
+            self.logger.info("Producer acked {}".format(self.producer.acked))
