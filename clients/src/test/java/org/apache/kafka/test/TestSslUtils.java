@@ -164,6 +164,7 @@ public class TestSslUtils {
             sslConfigs.put(SslConfigs.SSL_KEYSTORE_PASSWORD_CONFIG, password);
             sslConfigs.put(SslConfigs.SSL_KEY_PASSWORD_CONFIG, keyPassword);
         }
+        sslConfigs.put(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG, SslConfigs.NETTY_SSL_ENGINE_BUILDER_CLASS);
 
         sslConfigs.put(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, trustStoreFile.getPath());
         sslConfigs.put(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, trustStorePassword);

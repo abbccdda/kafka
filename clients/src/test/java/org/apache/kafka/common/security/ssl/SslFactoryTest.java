@@ -46,19 +46,29 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import java.security.Security;
+import java.util.Set;
 
 public class SslFactoryTest {
+    protected void configureSslBuilderClass(Map<String, Object> conf) {
+        conf.put(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG, SslConfigs.KAFKA_SSL_ENGINE_BUILDER_CLASS);
+    }
+
+    protected Set<String> enabledProtocols() {
+        return Utils.mkSet("TLSv1.2");
+    }
+
     @Test
     public void testSslFactoryConfiguration() throws Exception {
         File trustStoreFile = File.createTempFile("truststore", ".jks");
         Map<String, Object> serverSslConfig =
                 TestSslUtils.createSslConfig(false, true, Mode.SERVER, trustStoreFile, "server");
+        configureSslBuilderClass(serverSslConfig);
         SslFactory sslFactory = new SslFactory(Mode.SERVER);
         sslFactory.configure(serverSslConfig);
         //host and port are hints
         SSLEngine engine = sslFactory.createSslEngine("localhost", 0);
         assertNotNull(engine);
-        assertEquals(Utils.mkSet("TLSv1.2"), Utils.mkSet(engine.getEnabledProtocols()));
+        assertEquals(enabledProtocols(), Utils.mkSet(engine.getEnabledProtocols()));
         assertEquals(false, engine.getUseClientMode());
     }
 
@@ -70,6 +80,7 @@ public class SslFactoryTest {
                 TestKeyManagerFactory.ALGORITHM,
                 TestTrustManagerFactory.ALGORITHM
         );
+        configureSslBuilderClass(serverSslConfig);
         SslFactory sslFactory = new SslFactory(Mode.SERVER);
         sslFactory.configure(serverSslConfig);
         assertNotNull("SslEngineBuilder not created", sslFactory.sslEngineBuilder());
@@ -80,6 +91,7 @@ public class SslFactoryTest {
     public void testSslFactoryWithoutPasswordConfiguration() throws Exception {
         File trustStoreFile = File.createTempFile("truststore", ".jks");
         Map<String, Object> serverSslConfig = TestSslUtils.createSslConfig(false, true, Mode.SERVER, trustStoreFile, "server");
+        configureSslBuilderClass(serverSslConfig);
         // unset the password
         serverSslConfig.remove(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG);
         SslFactory sslFactory = new SslFactory(Mode.SERVER);
@@ -95,6 +107,7 @@ public class SslFactoryTest {
         File trustStoreFile = File.createTempFile("truststore", ".jks");
         Map<String, Object> clientSslConfig =
                 TestSslUtils.createSslConfig(false, true, Mode.CLIENT, trustStoreFile, "client");
+        configureSslBuilderClass(clientSslConfig);
         SslFactory sslFactory = new SslFactory(Mode.CLIENT);
         sslFactory.configure(clientSslConfig);
         //host and port are hints
@@ -107,6 +120,7 @@ public class SslFactoryTest {
         File trustStoreFile = File.createTempFile("truststore", ".jks");
         Map<String, Object> sslConfig = TestSslUtils.
                 createSslConfig(false, true, Mode.SERVER, trustStoreFile, "server");
+        configureSslBuilderClass(sslConfig);
         SslFactory sslFactory = new SslFactory(Mode.SERVER);
         sslFactory.configure(sslConfig);
         SslEngineBuilder sslEngineBuilder = sslFactory.sslEngineBuilder();
@@ -121,6 +135,7 @@ public class SslFactoryTest {
         // Verify that the SslEngineBuilder is recreated on reconfigure() if config is changed
         trustStoreFile = File.createTempFile("truststore", ".jks");
         sslConfig = TestSslUtils.createSslConfig(false, true, Mode.SERVER, trustStoreFile, "server");
+        configureSslBuilderClass(sslConfig);
         sslFactory.reconfigure(sslConfig);
         assertNotSame("SslEngineBuilder not recreated",
                 sslEngineBuilder, sslFactory.sslEngineBuilder());
@@ -162,6 +177,7 @@ public class SslFactoryTest {
         File trustStoreFile = File.createTempFile("truststore", ".jks");
         Map<String, Object> sslConfig = TestSslUtils.
             createSslConfig(false, true, Mode.SERVER, trustStoreFile, "server");
+        configureSslBuilderClass(sslConfig);
         sslConfig.remove(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG);
         sslConfig.remove(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG);
         sslConfig.remove(SslConfigs.SSL_TRUSTSTORE_TYPE_CONFIG);
@@ -175,6 +191,7 @@ public class SslFactoryTest {
 
         Map<String, Object> sslConfig2 = TestSslUtils.
             createSslConfig(false, true, Mode.SERVER, trustStoreFile, "server");
+        configureSslBuilderClass(sslConfig2);
         try {
             sslFactory.validateReconfiguration(sslConfig2);
             fail("Truststore configured dynamically for listener without previous truststore");
@@ -188,6 +205,7 @@ public class SslFactoryTest {
         File trustStoreFile = File.createTempFile("truststore", ".jks");
         Map<String, Object> sslConfig = TestSslUtils.
                 createSslConfig(false, true, Mode.SERVER, trustStoreFile, "server");
+        configureSslBuilderClass(sslConfig);
         sslConfig.remove(SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG);
         sslConfig.remove(SslConfigs.SSL_KEYSTORE_PASSWORD_CONFIG);
         sslConfig.remove(SslConfigs.SSL_KEYSTORE_TYPE_CONFIG);
@@ -202,6 +220,7 @@ public class SslFactoryTest {
         File newTrustStoreFile = File.createTempFile("truststore", ".jks");
         sslConfig = TestSslUtils.
                 createSslConfig(false, true, Mode.SERVER, newTrustStoreFile, "server");
+        configureSslBuilderClass(sslConfig);
         sslConfig.remove(SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG);
         sslConfig.remove(SslConfigs.SSL_KEYSTORE_PASSWORD_CONFIG);
         sslConfig.remove(SslConfigs.SSL_KEYSTORE_TYPE_CONFIG);
@@ -211,6 +230,7 @@ public class SslFactoryTest {
 
         sslConfig = TestSslUtils.
                 createSslConfig(false, true, Mode.SERVER, newTrustStoreFile, "server");
+        configureSslBuilderClass(sslConfig);
         try {
             sslFactory.validateReconfiguration(sslConfig);
             fail("Keystore configured dynamically for listener without previous keystore");
@@ -224,6 +244,7 @@ public class SslFactoryTest {
         File trustStoreFile = File.createTempFile("truststore", ".jks");
         Map<String, Object> serverSslConfig = TestSslUtils.createSslConfig(false, true,
                 Mode.SERVER, trustStoreFile, "server");
+        configureSslBuilderClass(serverSslConfig);
         SslFactory sslFactory = new SslFactory(Mode.SERVER);
         sslFactory.configure(serverSslConfig);
         assertNotNull("SslEngineBuilder not created", sslFactory.sslEngineBuilder());
@@ -235,8 +256,10 @@ public class SslFactoryTest {
         File trustStoreFile2 = File.createTempFile("truststore2", ".jks");
         Map<String, Object> sslConfig1 = TestSslUtils.createSslConfig(false, true,
                 Mode.SERVER, trustStoreFile1, "server");
+        configureSslBuilderClass(sslConfig1);
         Map<String, Object> sslConfig2 = TestSslUtils.createSslConfig(false, true,
                 Mode.SERVER, trustStoreFile2, "server");
+        configureSslBuilderClass(sslConfig2);
         SslFactory sslFactory = new SslFactory(Mode.SERVER, null, true);
         for (String key : Arrays.asList(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG,
                 SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG,
@@ -257,12 +280,14 @@ public class SslFactoryTest {
         File trustStoreFile1 = File.createTempFile("truststore1", ".jks");
         Map<String, Object> sslConfig1 = TestSslUtils.createSslConfig(false, true,
                 Mode.SERVER, trustStoreFile1, "server");
+        configureSslBuilderClass(sslConfig1);
         SslFactory sslFactory = new SslFactory(Mode.SERVER, null, true);
         sslFactory.configure(sslConfig1);
 
         File trustStoreFile2 = File.createTempFile("truststore2", ".jks");
         Map<String, Object> sslConfig2 = TestSslUtils.createSslConfig(false, true,
                 Mode.SERVER, trustStoreFile2, "server");
+        configureSslBuilderClass(sslConfig2);
         // Verify that `createSSLContext` fails even if certificate from new keystore is trusted by
         // the new truststore, if certificate is not trusted by the existing truststore on the `SslFactory`.
         // This is to prevent both keystores and truststores to be modified simultaneously on an inter-broker
@@ -280,8 +305,10 @@ public class SslFactoryTest {
         File trustStoreFile = File.createTempFile("truststore", ".jks");
         Map<String, Object> serverSslConfig = TestSslUtils.createSslConfig(false, true,
                 Mode.SERVER, trustStoreFile, "server");
+        configureSslBuilderClass(serverSslConfig);
         Map<String, Object> newCnConfig = TestSslUtils.createSslConfig(false, true,
                 Mode.SERVER, File.createTempFile("truststore", ".jks"), "server", "Another CN");
+        configureSslBuilderClass(newCnConfig);
         KeyStore ks1 = sslKeyStore(serverSslConfig).load();
         KeyStore ks2 = sslKeyStore(serverSslConfig).load();
         assertEquals(SslFactory.CertificateEntries.create(ks1), SslFactory.CertificateEntries.create(ks2));

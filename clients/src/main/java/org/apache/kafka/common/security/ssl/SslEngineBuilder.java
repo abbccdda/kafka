@@ -16,6 +16,15 @@
  */
 package org.apache.kafka.common.security.ssl;
 
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.handler.ssl.ApplicationProtocolConfig;
+import io.netty.handler.ssl.ClientAuth;
+import io.netty.handler.ssl.OpenSsl;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.SslProvider;
+import io.netty.util.internal.logging.InternalLoggerFactory;
+import io.netty.util.internal.logging.Log4JLoggerFactory;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.SslClientAuth;
 import org.apache.kafka.common.config.SslConfigs;
@@ -35,11 +44,20 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
 import java.security.SecureRandom;
+import java.security.UnrecoverableEntryException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -47,6 +65,10 @@ import java.util.stream.Collectors;
 
 public class SslEngineBuilder {
     private static final Logger log = LoggerFactory.getLogger(SslEngineBuilder.class);
+
+    static {
+        InternalLoggerFactory.setDefaultFactory(Log4JLoggerFactory.INSTANCE);
+    }
 
     private final Map<String, ?> configs;
     private final String protocol;
@@ -59,10 +81,12 @@ public class SslEngineBuilder {
     private final String[] enabledProtocols;
     private final SecureRandom secureRandomImplementation;
     private final SSLContext sslContext;
+    private final SslContext nettySslContext;
     private final SslClientAuth sslClientAuth;
+    private final boolean useNetty;
 
     @SuppressWarnings("unchecked")
-    SslEngineBuilder(Map<String, ?> configs) {
+    SslEngineBuilder(Map<String, ?> configs, boolean nettyAllowed) {
         this.configs = Collections.unmodifiableMap(configs);
         this.protocol = (String) configs.get(SslConfigs.SSL_PROTOCOL_CONFIG);
         this.provider = (String) configs.get(SslConfigs.SSL_PROVIDER_CONFIG);
@@ -99,7 +123,38 @@ public class SslEngineBuilder {
                 (String) configs.get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG),
                 (Password) configs.get(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG));
 
+        if (!nettyAllowed) {
+            this.useNetty = false;
+        } else if (!sslEngineBuilderClassIsNetty((String)
+                configs.get(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG))) {
+            this.useNetty = false;
+        } else if (!OpenSsl.isAvailable()) {
+            log.warn("Disabling netty because no OpenSSL is not available.");
+            this.useNetty = false;
+        } else if (keystore == null) {
+            log.warn("Disabling netty because no keystore is configured.");
+            this.useNetty = false;
+        } else {
+            this.useNetty = true;
+        }
         this.sslContext = createSSLContext();
+        if (useNetty) {
+            this.nettySslContext = createNettySslContext();
+        } else {
+            this.nettySslContext = null;
+        }
+    }
+
+    private static boolean sslEngineBuilderClassIsNetty(String engineBuilderClass) {
+        if (engineBuilderClass == null ||
+                engineBuilderClass.equals(SslConfigs.KAFKA_SSL_ENGINE_BUILDER_CLASS)) {
+            return false;
+        } else if (engineBuilderClass.equals(SslConfigs.NETTY_SSL_ENGINE_BUILDER_CLASS)) {
+            return true;
+        } else {
+            throw new RuntimeException("Invalid configuration value for " +
+                    SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG);
+        }
     }
 
     private static SslClientAuth createSslClientAuth(String key) {
@@ -161,6 +216,48 @@ public class SslEngineBuilder {
         }
     }
 
+    private SslContext createNettySslContext() {
+        try {
+            if (keystore == null) {
+                throw new KafkaException("Whe using netty in server mode, a keystore must be configured.");
+            }
+            // The keystore should contain the private key as well as the
+            // certificate chain for the server.
+            PrivateKeyData keystorePrivateKeyData = keystore.loadPrivateKeyData();
+            X509Certificate[] truststoreCerts = truststore == null ?
+                    null : truststore.loadAllCertificates();
+
+            SslContextBuilder builder = SslContextBuilder.
+                    forServer(keystorePrivateKeyData.key(), keystorePrivateKeyData.certificateChain()).
+                    applicationProtocolConfig(ApplicationProtocolConfig.DISABLED).
+                    sslProvider(SslProvider.OPENSSL).
+                    trustManager(truststoreCerts);
+            if (enabledProtocols != null) {
+                builder.protocols(enabledProtocols);
+            }
+            if (cipherSuites != null) {
+                builder.ciphers(Arrays.asList(cipherSuites));
+            }
+            switch (sslClientAuth) {
+                case NONE:
+                    builder.clientAuth(ClientAuth.NONE);
+                    break;
+                case REQUIRED:
+                    builder.clientAuth(ClientAuth.REQUIRE);
+                    break;
+                case REQUESTED:
+                    builder.clientAuth(ClientAuth.OPTIONAL);
+                    break;
+            }
+            // Note: we ignore endpointIdentificationAlgorithm here.
+            // It is only relevant for client mode, and we are in server mode.
+            log.info("netty is enabled for SSL context with keystore {}, truststore {}.", keystore, truststore);
+            return builder.build();
+        } catch (Exception e) {
+            throw new KafkaException(e);
+        }
+    }
+
     private static SecurityStore createKeystore(String type, String path, Password password, Password keyPassword) {
         if (path == null && password != null) {
             throw new KafkaException("SSL key store is not specified, but key store password is specified.");
@@ -204,6 +301,9 @@ public class SslEngineBuilder {
      * @return          The new SSLEngine.
      */
     public SSLEngine createSslEngine(Mode mode, String peerHost, int peerPort, String endpointIdentification) {
+        if (mode == Mode.SERVER && useNetty) {
+            return nettySslContext.newEngine(ByteBufAllocator.DEFAULT, peerHost, peerPort);
+        }
         SSLEngine sslEngine = sslContext.createSSLEngine(peerHost, peerPort);
         if (cipherSuites != null) sslEngine.setEnabledCipherSuites(cipherSuites);
         if (enabledProtocols != null) sslEngine.setEnabledProtocols(enabledProtocols);
@@ -255,6 +355,24 @@ public class SslEngineBuilder {
         return false;
     }
 
+    static class PrivateKeyData {
+        private final PrivateKey key;
+        private final X509Certificate[] certificateChain;
+
+        PrivateKeyData(PrivateKey key, X509Certificate[] certificateChain) {
+            this.key = key;
+            this.certificateChain = certificateChain;
+        }
+
+        PrivateKey key() {
+            return key;
+        }
+
+        X509Certificate[] certificateChain() {
+            return certificateChain;
+        }
+    }
+
     // package access for testing
     static class SecurityStore {
         private final String type;
@@ -302,6 +420,64 @@ public class SslEngineBuilder {
         boolean modified() {
             Long modifiedMs = lastModifiedMs(path);
             return modifiedMs != null && !Objects.equals(modifiedMs, this.fileLastModifiedMs);
+        }
+
+        PrivateKeyData loadPrivateKeyData() {
+            KeyStore store = load();
+            KeyStore.PasswordProtection keyProtection = (keyPassword == null) ? null :
+                    new KeyStore.PasswordProtection(keyPassword.value().toCharArray());
+            try {
+                Enumeration<String> aliases = store.aliases();
+                while (aliases.hasMoreElements()) {
+                    String alias = aliases.nextElement();
+                    if (store.isKeyEntry(alias)) {
+                        try {
+                            KeyStore.Entry entry = store.getEntry(alias, keyProtection);
+                            if (entry instanceof KeyStore.PrivateKeyEntry) {
+                                KeyStore.PrivateKeyEntry privateKeyEntry = (KeyStore.PrivateKeyEntry) entry;
+                                PrivateKey privateKey = privateKeyEntry.getPrivateKey();
+                                Certificate[] certs = privateKeyEntry.getCertificateChain();
+                                if (!(certs instanceof X509Certificate[])) {
+                                    // TODO: can we convert this?
+                                    throw new RuntimeException("Expected a certificate chain of type " +
+                                            "X509Certificate for alias " + alias);
+                                }
+                                return new PrivateKeyData(privateKey, (X509Certificate[]) certs);
+                            }
+                        } catch (NoSuchAlgorithmException e) {
+                            log.info("can't find the algorithm for recovering the {} entry.", alias);
+                        } catch (UnrecoverableEntryException e) {
+                            log.trace("ignoring alias {}, since the password doesn't match.", alias);
+                        }
+                    }
+                }
+            } catch (KeyStoreException e) {
+                throw new KafkaException(e);
+            }
+            throw new RuntimeException("No private key found protected with the given password in " + path);
+        }
+
+        X509Certificate[] loadAllCertificates() {
+            KeyStore store = load();
+            List<X509Certificate> all = new ArrayList<>();
+            try {
+                Enumeration<String> aliases = store.aliases();
+                while (aliases.hasMoreElements()) {
+                    String alias = aliases.nextElement();
+                    if (store.isCertificateEntry(alias)) {
+                        Certificate cert = store.getCertificate(alias);
+                        if (!(cert instanceof X509Certificate)) {
+                            // TODO: can we convert this?
+                            throw new RuntimeException("Expected a certificate of type " +
+                                    "X509Certificate for alias " + alias);
+                        }
+                        all.add((X509Certificate) cert);
+                    }
+                }
+            } catch (KeyStoreException e) {
+                throw new KafkaException(e);
+            }
+            return all.toArray(new X509Certificate[0]);
         }
 
         @Override

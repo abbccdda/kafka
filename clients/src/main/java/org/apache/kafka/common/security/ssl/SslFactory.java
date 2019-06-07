@@ -53,11 +53,16 @@ public class SslFactory implements Reconfigurable {
     private final Mode mode;
     private final String clientAuthConfigOverride;
     private final boolean keystoreVerifiableUsingTruststore;
+    private final boolean requireJSSE;
     private String endpointIdentification;
     private SslEngineBuilder sslEngineBuilder;
 
     public SslFactory(Mode mode) {
         this(mode, null, false);
+    }
+
+    public SslFactory(Mode mode, String clientAuthConfigOverride, boolean keystoreVerifiableUsingTruststore) {
+        this(mode, clientAuthConfigOverride, keystoreVerifiableUsingTruststore, false);
     }
 
     /**
@@ -68,13 +73,17 @@ public class SslFactory implements Reconfigurable {
      *                                              if we don't want to override it.
      * @param keystoreVerifiableUsingTruststore     True if we should require the keystore to be verifiable
      *                                              using the truststore.
+     * @param requireJSSE                           True if we require JSSE.  For example, if we want to
+     *                                              directly use SSLContext, JSSE is required.
      */
     public SslFactory(Mode mode,
                       String clientAuthConfigOverride,
-                      boolean keystoreVerifiableUsingTruststore) {
+                      boolean keystoreVerifiableUsingTruststore,
+                      boolean requireJSSE) {
         this.mode = mode;
         this.clientAuthConfigOverride = clientAuthConfigOverride;
         this.keystoreVerifiableUsingTruststore = keystoreVerifiableUsingTruststore;
+        this.requireJSSE = requireJSSE;
     }
 
     @Override
@@ -90,7 +99,8 @@ public class SslFactory implements Reconfigurable {
         if (clientAuthConfigOverride != null) {
             nextConfigs.put(BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG, clientAuthConfigOverride);
         }
-        SslEngineBuilder builder = new SslEngineBuilder(nextConfigs);
+        SslEngineBuilder builder = new SslEngineBuilder(nextConfigs,
+                mode == Mode.SERVER && (!requireJSSE));
         if (keystoreVerifiableUsingTruststore) {
             try {
                 SslEngineValidator.validate(builder, builder);
@@ -130,7 +140,8 @@ public class SslFactory implements Reconfigurable {
             return sslEngineBuilder;
         }
         try {
-            SslEngineBuilder newSslEngineBuilder = new SslEngineBuilder(nextConfigs);
+            SslEngineBuilder newSslEngineBuilder = new SslEngineBuilder(nextConfigs,
+                    mode == Mode.SERVER && (!requireJSSE));
             if (sslEngineBuilder.keystore() == null) {
                 if (newSslEngineBuilder.keystore() != null) {
                     throw new ConfigException("Cannot add SSL keystore to an existing listener for " +

@@ -55,6 +55,13 @@ public class SslConfigs {
 
     public static final String DEFAULT_SSL_PROTOCOL = "TLS";
 
+    public static final String SSL_ENGINE_BUILDER_CLASS_CONFIG = "ssl.engine.builder.class";
+    public static final String KAFKA_SSL_ENGINE_BUILDER_CLASS = "org.apache.kafka.common.security.ssl.KafkaSslEngineBuilder";
+    public static final String NETTY_SSL_ENGINE_BUILDER_CLASS = "io.confluent.kafka.security.ssl.NettySslEngineBuilder";
+    public static final String DEFAULT_SSL_ENGINE_BUILDER_CLASS = KAFKA_SSL_ENGINE_BUILDER_CLASS;
+    public static final String SSL_ENGINE_BUILDER_CLASS_DOC = "The class to use for building SSLEngine objects.  Options: " +
+            KAFKA_SSL_ENGINE_BUILDER_CLASS + ", " + NETTY_SSL_ENGINE_BUILDER_CLASS;
+
     public static final String SSL_PROVIDER_CONFIG = "ssl.provider";
     public static final String SSL_PROVIDER_DOC = "The name of the security provider used for SSL connections. Default value is the default security provider of the JVM.";
 
@@ -151,6 +158,7 @@ public class SslConfigs {
     public static final Set<String> NON_RECONFIGURABLE_CONFIGS = Utils.mkSet(
             BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG,
             SslConfigs.SSL_PROTOCOL_CONFIG,
+            SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG,
             SslConfigs.SSL_PROVIDER_CONFIG,
             SslConfigs.SSL_CIPHER_SUITES_CONFIG,
             SslConfigs.SSL_ENABLED_PROTOCOLS_CONFIG,
