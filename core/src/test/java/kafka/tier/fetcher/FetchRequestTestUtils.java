@@ -4,7 +4,6 @@
 
 package kafka.tier.fetcher;
 
-import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
 
@@ -18,31 +17,46 @@ class FetchRequestTestUtils {
     static TierObjectStore ioExceptionThrowingTierObjectStore() {
         return new TierObjectStore() {
             @Override
-            public TierObjectStoreResponse getObject(TierObjectMetadata objectMetadata, TierObjectStoreFileType objectFileType, Integer byteOffsetStart, Integer byteOffsetEnd) throws IOException {
+            public TierObjectStoreResponse getObject(TierObjectStore.ObjectMetadata objectMetadata, FileType objectFileType, Integer byteOffsetStart, Integer byteOffsetEnd) throws IOException {
                 throw new IOException("");
             }
 
             @Override
-            public TierObjectMetadata putSegment(TierObjectMetadata objectMetadata,
-                                                 File segmentData, File offsetIndexData,
-                                                 File timestampIndexData,
-                                                 Optional<File> producerStateSnapshotData,
-                                                 File transactionIndexData,
-                                                 Optional<File> epochState) throws IOException {
+            public TierObjectStoreResponse getObject(ObjectMetadata objectMetadata, FileType fileType, Integer byteOffsetStart) throws IOException {
+                throw new IOException("");
+            }
+
+            @Override
+            public TierObjectStoreResponse getObject(ObjectMetadata objectMetadata, FileType fileType) throws IOException {
+                throw new IOException("");
+            }
+
+            @Override
+            public void putSegment(TierObjectStore.ObjectMetadata objectMetadata,
+                                   File segmentData, File offsetIndexData,
+                                   File timestampIndexData,
+                                   Optional<File> producerStateSnapshotData,
+                                   File transactionIndexData,
+                                   Optional<File> epochState) throws IOException {
+                throw new IOException("");
+            }
+
+            @Override
+            public void deleteSegment(ObjectMetadata objectMetadata) throws IOException {
                 throw new IOException("");
             }
 
             @Override
             public void close() {
-
             }
         };
     }
+
     static TierObjectStore fileReturningTierObjectStore(File offsetIndexFile, File timestampIndexFile) {
         return new TierObjectStore() {
             @Override
-            public TierObjectStoreResponse getObject(TierObjectMetadata objectMetadata,
-                                                     TierObjectStoreFileType objectFileType,
+            public TierObjectStoreResponse getObject(ObjectMetadata objectMetadata,
+                                                     FileType objectFileType,
                                                      Integer byteOffsetStart,
                                                      Integer byteOffsetEnd) throws IOException {
                 FileInputStream inputStream = null;
@@ -84,17 +98,22 @@ class FetchRequestTestUtils {
             }
 
             @Override
-            public TierObjectMetadata putSegment(TierObjectMetadata objectMetadata,
-                                                 File segmentData, File offsetIndexData,
-                                                 File timestampIndexData,
-                                                 Optional<File> producerStateSnapshotData,
-                                                 File transactionIndexData,
-                                                 Optional<File> epochState) throws IOException {
+            public void putSegment(ObjectMetadata objectMetadata,
+                                   File segmentData, File offsetIndexData,
+                                   File timestampIndexData,
+                                   Optional<File> producerStateSnapshotData,
+                                   File transactionIndexData,
+                                   Optional<File> epochState) throws IOException {
                 throw new IOException("");
             }
 
             @Override
-            public void close() { }
+            public void deleteSegment(ObjectMetadata objectMetadata) {
+            }
+
+            @Override
+            public void close() {
+            }
         };
     }
 }

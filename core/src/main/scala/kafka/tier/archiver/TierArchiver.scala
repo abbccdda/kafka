@@ -65,11 +65,9 @@ final class TierArchiver(config: TierArchiverConfig,
   /**
     * Tasks are ordered in the following way,
     *
-    *   1. AfterUpload always comes before BeforeLeader
+    *   1. AfterUpload > Upload > BeforeLeader > BeforeUpload
     *
-    *   2. BeforeLeader always comes before BeforeUpload
-    *
-    *   3. A partition in the BeforeUpload state with low
+    *   2. A partition in the BeforeUpload state with low
     *      lag always comes before a partition in the BeforeUpload
     *      state with high lag.
     *
@@ -85,7 +83,8 @@ final class TierArchiver(config: TierArchiverConfig,
         replicaManager
           .getLog(task.topicPartition)
           .map(log => log.tierableLogSegments.map(_.size).sum)
-      case _: AfterUpload => Some(-2)
+      case _: Upload => Some(-2)
+      case _: AfterUpload => Some(-3)
     }
   }
 

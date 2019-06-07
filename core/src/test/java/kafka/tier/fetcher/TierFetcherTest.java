@@ -9,7 +9,6 @@ import kafka.log.LogSegment;
 import kafka.server.DelayedOperation;
 import kafka.tier.TierTimestampAndOffset;
 import kafka.tier.TopicIdPartition;
-import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
 import org.apache.kafka.common.TopicPartition;
@@ -60,18 +59,14 @@ public class TierFetcherTest {
         ByteBuffer segmentFileBuffer = ByteBuffer.allocate(1);
         ByteBuffer timestampFileBuffer = ByteBuffer.allocate(1);
 
-        MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
-                offsetIndexBuffer, timestampFileBuffer);
-        TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
-                UUID.randomUUID(), 0);
-        TopicPartition topicPartition = topicIdPartition.topicPartition();
-        TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicIdPartition, 0, 0,
-                0, 0, 0, 0, false, false, false, kafka.tier.serdes.State.AVAILABLE);
+        MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer, offsetIndexBuffer, timestampFileBuffer);
+        TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
+        TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0);
         Metrics metrics = new Metrics();
         TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
         try {
             int maxBytes = 600;
-            TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicPartition, 0,
+            TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicIdPartition.topicPartition(), 0,
                     Option.apply(1000L),
                     maxBytes, 1000L, true, tierObjectMetadata,
                     Option.empty(), 0, 1000);
@@ -139,17 +134,13 @@ public class TierFetcherTest {
         ByteBuffer combinedBuffer = getMemoryRecordsBuffer();
         TierObjectStore tierObjectStore = new MockedTierObjectStore(combinedBuffer,
                 ByteBuffer.allocate(0), ByteBuffer.allocate(0));
-        TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
-                UUID.randomUUID(), 0);
-        TopicPartition topicPartition = topicIdPartition.topicPartition();
-        TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicIdPartition,
-                0, 0, 101, 0, 0, 0, false, false, false,
-                kafka.tier.serdes.State.AVAILABLE);
+        TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
+        TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0);
 
         Metrics metrics = new Metrics();
         TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
         try {
-            TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicPartition, 0,
+            TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicIdPartition.topicPartition(), 0,
                     Option.apply(1000L), 10000, 1000L, true, tierObjectMetadata,
                     Option.empty(), 0, 1000);
 
@@ -166,7 +157,7 @@ public class TierFetcherTest {
             assertTrue((Double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue() > 0.0);
             assertTrue(delayedFetch.tryComplete());
 
-            TierFetchResult fetchResult = fetchResults.get(topicPartition);
+            TierFetchResult fetchResult = fetchResults.get(topicIdPartition.topicPartition());
             Records records = fetchResult.records;
 
             long lastOffset = 0; // Start looking at offset 0
@@ -202,7 +193,6 @@ public class TierFetcherTest {
             logSegment.flush();
             logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset()));
             logSegment.flush();
-            int nextOffset = (int) logSegment.readNextOffset();
             logSegment.offsetIndex().flush();
             logSegment.offsetIndex().trimToValidSize();
 
@@ -216,17 +206,13 @@ public class TierFetcherTest {
 
             TierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
                     offsetIndexBuffer, timestampIndexBuffer);
-            TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
-                    UUID.randomUUID(), 0);
-            TopicPartition topicPartition = topicIdPartition.topicPartition();
-            TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicIdPartition,
-                    0, 0, nextOffset, 0, 0,
-                    0, false, false, false, kafka.tier.serdes.State.AVAILABLE);
+            TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
+            TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0);
             Metrics metrics = new Metrics();
 
             TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
             try {
-                TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicPartition, 100,
+                TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicIdPartition.topicPartition(), 100,
                         Option.apply(1000L), 10000, 1000L, true,
                         tierObjectMetadata, Option.empty(), 0, 1000);
                 CompletableFuture<Boolean> f = new CompletableFuture<>();
@@ -243,7 +229,7 @@ public class TierFetcherTest {
                 assertTrue((Double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue() > 0.0);
                 assertTrue(delayedFetch.tryComplete());
 
-                TierFetchResult fetchResult = fetchResults.get(topicPartition);
+                TierFetchResult fetchResult = fetchResults.get(topicIdPartition.topicPartition());
                 Records records = fetchResult.records;
 
                 long lastOffset = 100L; // Start looking at offset 100
@@ -283,7 +269,6 @@ public class TierFetcherTest {
             logSegment.flush();
             long largestOffset4 = logSegment.readNextOffset() + 49;
             logSegment.append(largestOffset4, largestOffset4, largestOffset4, records3);
-            int nextOffset = (int) logSegment.readNextOffset();
             logSegment.offsetIndex().flush();
             logSegment.offsetIndex().trimToValidSize();
             logSegment.timeIndex().flush();
@@ -297,14 +282,9 @@ public class TierFetcherTest {
             ByteBuffer segmentFileBuffer = ByteBuffer.wrap(Files.readAllBytes(segmentFile.toPath()));
 
 
-            MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
-                    offsetIndexBuffer, timestampIndexBuffer);
-            TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
-                    UUID.randomUUID(), 0);
-            TopicPartition topicPartition = topicIdPartition.topicPartition();
-            TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicIdPartition,
-                    0, 0, nextOffset, 0, 0,
-                    0, false, false, false, kafka.tier.serdes.State.AVAILABLE);
+            MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer, offsetIndexBuffer, timestampIndexBuffer);
+            TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
+            TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0);
             Metrics metrics = new Metrics();
 
             TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
@@ -313,7 +293,7 @@ public class TierFetcherTest {
                 {
                     CompletableFuture<Boolean> f = new CompletableFuture<>();
                     HashMap<TopicPartition, TierTimestampAndOffset> timestamps = new HashMap<>();
-                    timestamps.put(topicPartition, new TierTimestampAndOffset(101L,
+                    timestamps.put(topicIdPartition.topicPartition(), new TierTimestampAndOffset(101L,
                             tierObjectMetadata));
                     PendingOffsetForTimestamp pending = tierFetcher.fetchOffsetForTimestamp(timestamps,
                             Optional.of(IsolationLevel.READ_UNCOMMITTED),
@@ -322,14 +302,14 @@ public class TierFetcherTest {
                     assertEquals("incorrect offset for supplied timestamp returned",
                             Optional.of(new FileRecords.FileTimestampAndOffset(101, 101,
                                     Optional.empty())),
-                            pending.results().get(topicPartition));
+                            pending.results().get(topicIdPartition.topicPartition()));
                 }
                 // test failure
                 {
                     tierObjectStore.failNextRequest();
                     CompletableFuture<Boolean> f = new CompletableFuture<>();
                     HashMap<TopicPartition, TierTimestampAndOffset> timestamps = new HashMap<>();
-                    timestamps.put(topicPartition, new TierTimestampAndOffset(101L,
+                    timestamps.put(topicIdPartition.topicPartition(), new TierTimestampAndOffset(101L,
                             tierObjectMetadata));
                     PendingOffsetForTimestamp pending = tierFetcher.fetchOffsetForTimestamp(timestamps,
                             Optional.of(IsolationLevel.READ_UNCOMMITTED),
@@ -337,7 +317,7 @@ public class TierFetcherTest {
                     f.get(2000, TimeUnit.MILLISECONDS);
                     assertNotNull("tier object store through exception, pending result should "
                             + "have been completed exceptionally",
-                            pending.results().get(topicPartition).get().exception);
+                            pending.results().get(topicIdPartition.topicPartition()).get().exception);
                 }
             } finally {
                 tierFetcher.close();
@@ -363,7 +343,6 @@ public class TierFetcherTest {
             logSegment.flush();
             logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset()));
             logSegment.flush();
-            int nextOffset = (int) logSegment.readNextOffset();
             logSegment.offsetIndex().flush();
             logSegment.offsetIndex().trimToValidSize();
 
@@ -377,12 +356,9 @@ public class TierFetcherTest {
 
             TierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
                     offsetIndexBuffer, timestampIndexBuffer);
-            TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
-                    UUID.randomUUID(), 0);
+            TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
             TopicPartition topicPartition = topicIdPartition.topicPartition();
-            TierObjectMetadata tierObjectMetadata = new TierObjectMetadata(topicIdPartition,
-                    0, 0, nextOffset, 0, 0,
-                    0, false, false, false, kafka.tier.serdes.State.AVAILABLE);
+            TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0);
             Metrics metrics = new Metrics();
             TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
             try {
@@ -473,19 +449,19 @@ public class TierFetcherTest {
         }
 
         @Override
-        public TierObjectStoreResponse getObject(TierObjectMetadata tierObjectMetadata,
-                                                 TierObjectStoreFileType fileType,
+        public TierObjectStoreResponse getObject(ObjectMetadata tierObjectMetadata,
+                                                 FileType fileType,
                                                  Integer byteOffset,
                                                  Integer byteOffsetEnd) throws IOException {
             if (failNextRequest.compareAndSet(true, false)) {
                 throw new IOException("Failed to retrieve object.");
             }
             ByteBuffer buffer;
-            if (fileType == TierObjectStoreFileType.OFFSET_INDEX) {
+            if (fileType == FileType.OFFSET_INDEX) {
                 buffer = offsetByteBuffer;
-            } else if (fileType == TierObjectStoreFileType.SEGMENT) {
+            } else if (fileType == FileType.SEGMENT) {
                 buffer = segmentByteBuffer;
-            } else if (fileType == TierObjectStoreFileType.TIMESTAMP_INDEX) {
+            } else if (fileType == FileType.TIMESTAMP_INDEX) {
                 buffer = timestampByteBuffer;
             } else {
                 throw new UnsupportedOperationException();
@@ -502,11 +478,18 @@ public class TierFetcherTest {
         }
 
         @Override
-        public TierObjectMetadata putSegment(TierObjectMetadata objectMetadata, File segmentData,
-                                             File offsetIndexData, File timestampIndexData,
-                                             Optional<File> producerStateSnapshotData,
-                                             File transactionIndexData, Optional<File> epochState) {
+        public void putSegment(ObjectMetadata objectMetadata,
+                               File segmentData,
+                               File offsetIndexData,
+                               File timestampIndexData,
+                               Optional<File> producerStateSnapshotData,
+                               File transactionIndexData,
+                               Optional<File> epochState) {
             throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void deleteSegment(ObjectMetadata objectMetadata) {
         }
     }
 }

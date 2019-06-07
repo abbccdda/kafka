@@ -5,9 +5,14 @@
 package kafka.tier
 
 import java.nio.ByteBuffer
+import java.util.UUID
+import java.util.concurrent.CompletableFuture
 
 import kafka.log.AbstractLog
 import kafka.server.KafkaServer
+import kafka.tier.domain.{TierSegmentUploadComplete, TierSegmentUploadInitiate}
+import kafka.tier.state.TierPartitionState
+import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.internals.Topic
@@ -17,7 +22,7 @@ import org.junit.Assert.assertTrue
 
 import scala.collection.JavaConverters._
 
-object TierUtils {
+object TierTestUtils {
   def ensureTierable(log: AbstractLog, tierEndOffset: Long, topicPartition: TopicPartition, leaderEpoch: Int = 0): Unit = {
     val activeSegment = log.activeSegment
 
@@ -63,4 +68,51 @@ object TierUtils {
     }, "Timed out waiting for replicas to join ISR")
   }
 
+  def uploadWithMetadata(tierTopicManager: TierTopicManager,
+                         topicIdPartition: TopicIdPartition,
+                         tierEpoch: Int,
+                         objectId: UUID,
+                         startOffset: Long,
+                         endOffset: Long,
+                         maxTimestamp: Long,
+                         lastModifiedTime: Long,
+                         size: Int,
+                         hasAbortedTxnIndex: Boolean,
+                         hasEpochState: Boolean,
+                         hasProducerState: Boolean): CompletableFuture[AppendResult] = {
+    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, tierEpoch, objectId, startOffset, endOffset,
+      maxTimestamp, size, hasEpochState, hasAbortedTxnIndex, hasProducerState)
+
+    val result = tierTopicManager.addMetadata(uploadInitiate).get
+    if (result != AppendResult.ACCEPTED) {
+      CompletableFuture.completedFuture(result)
+    } else {
+      val uploadComplete = new TierSegmentUploadComplete(uploadInitiate)
+      tierTopicManager.addMetadata(uploadComplete)
+    }
+  }
+
+  def uploadWithMetadata(tierPartitionState: TierPartitionState,
+                         topicIdPartition: TopicIdPartition,
+                         tierEpoch: Int,
+                         objectId: UUID,
+                         startOffset: Long,
+                         endOffset: Long,
+                         maxTimestamp: Long = 0,
+                         lastModifiedTime: Long = 0,
+                         size: Int = 100,
+                         hasAbortedTxnIndex: Boolean = false,
+                         hasEpochState: Boolean = false,
+                         hasProducerState: Boolean = false): AppendResult = {
+    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, tierEpoch, objectId, startOffset, endOffset,
+      maxTimestamp, size, hasEpochState, hasAbortedTxnIndex, hasProducerState)
+
+    val result = tierPartitionState.append(uploadInitiate)
+    if (result != AppendResult.ACCEPTED) {
+      result
+    } else {
+      val uploadComplete = new TierSegmentUploadComplete(uploadInitiate)
+      tierPartitionState.append(uploadComplete)
+    }
+  }
 }

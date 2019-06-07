@@ -6,7 +6,6 @@ package kafka.tier.fetcher;
 
 import kafka.server.DelayedOperationKey;
 import kafka.tier.TierTimestampAndOffset;
-import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.store.TierObjectStore;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.metrics.Metrics;
@@ -81,18 +80,14 @@ public class TierFetcher {
                 throw new IllegalStateException("No TierFetchMetadata supplied, cannot start fetch");
             } else if (!stopped.get()) {
                 logger.debug("Fetching " + firstFetchMetadata.topicPartition() + " from tiered storage");
-                final TierObjectMetadata tierObjectMetadata = firstFetchMetadata.segmentMetadata();
                 final long targetOffset = firstFetchMetadata.fetchStartOffset();
                 final int maxBytes = firstFetchMetadata.maxBytes();
                 final long maxOffset = OptionConverters.toJava(firstFetchMetadata.maxOffset()).map(v -> (Long) v).orElse(Long.MAX_VALUE);
                 final CancellationContext cancellationContext = CancellationContext.newContext();
                 final PendingFetch newFetch =
-                        new PendingFetch(firstFetchMetadata.topicPartition(),
-                                cancellationContext,
-                        tierObjectStore, tierFetcherMetrics.bytesFetched(), tierObjectMetadata,
-                        fetchCompletionCallback,
-                        targetOffset, maxBytes, maxOffset,
-                        ignoredTopicPartitions);
+                        new PendingFetch(cancellationContext, tierObjectStore, tierFetcherMetrics.bytesFetched(),
+                                firstFetchMetadata.segmentMetadata(), fetchCompletionCallback, targetOffset,
+                                maxBytes, maxOffset, ignoredTopicPartitions);
                 executorService.execute(newFetch);
                 return newFetch;
             } else {

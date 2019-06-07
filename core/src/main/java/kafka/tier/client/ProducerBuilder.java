@@ -34,6 +34,7 @@ public class ProducerBuilder implements TierTopicProducerBuilder {
         properties.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, Integer.toString(Integer.MAX_VALUE));
         properties.put(ProducerConfig.CLIENT_ID_CONFIG, clientId(config.clusterId, config.brokerId));
         properties.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, config.requestTimeoutMs);
+        properties.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 1);
 
         return new KafkaProducer<>(properties);
     }

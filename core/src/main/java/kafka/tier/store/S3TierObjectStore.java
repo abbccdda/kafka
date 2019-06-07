@@ -5,26 +5,28 @@
 package kafka.tier.store;
 
 import com.amazonaws.AmazonClientException;
+import com.amazonaws.AmazonServiceException;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 import com.amazonaws.client.builder.AwsClientBuilder;
+import com.amazonaws.http.timers.client.ClientExecutionTimeoutException;
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
+import com.amazonaws.services.s3.model.DeleteObjectsRequest;
 import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
-import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PartETag;
 import com.amazonaws.services.s3.model.PutObjectRequest;
 import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.s3.model.S3ObjectInputStream;
 import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.amazonaws.services.s3.model.UploadPartResult;
-import kafka.tier.domain.TierObjectMetadata;
+import kafka.log.Log;
 import kafka.tier.exceptions.TierObjectStoreFatalException;
 import kafka.tier.exceptions.TierObjectStoreRetriableException;
 import org.slf4j.Logger;
@@ -32,7 +34,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.InputStream;
-import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -42,9 +43,8 @@ import java.util.Optional;
 public class S3TierObjectStore implements TierObjectStore {
     // LOG_DATA_PREFIX is where segment, offset index, time index, transaction index, leader
     // epoch state checkpoint, and producer state snapshot data are stored.
-    private final static String LOG_DATA_PREFIX = "0/";
+    private final static String LOG_DATA_PREFIX = "0";
     private final static Logger log = LoggerFactory.getLogger(S3TierObjectStore.class);
-    private final NumberFormat offsetFormat = NumberFormat.getInstance();
     private final String clusterId;
     private final int brokerId;
     private final String bucket;
@@ -64,19 +64,15 @@ public class S3TierObjectStore implements TierObjectStore {
         this.bucket = config.s3bucket;
         this.sseAlgorithm = config.s3SseAlgorithm;
         this.partUploadSize = config.s3MultipartUploadSize;
-
-        offsetFormat.setMinimumIntegerDigits(20);
-        offsetFormat.setMaximumFractionDigits(0);
-        offsetFormat.setGroupingUsed(false);
-
         expectBucket(bucket, config.s3Region);
     }
 
     @Override
-    public TierObjectStoreResponse getObject(
-            TierObjectMetadata objectMetadata, TierObjectStoreFileType objectFileType,
-            Integer byteOffsetStart, Integer byteOffsetEnd) {
-        final String key = keyPath(objectMetadata, objectFileType);
+    public TierObjectStoreResponse getObject(ObjectMetadata objectMetadata,
+                                             FileType fileType,
+                                             Integer byteOffsetStart,
+                                             Integer byteOffsetEnd) {
+        final String key = keyPath(objectMetadata, fileType);
         final GetObjectRequest request = new GetObjectRequest(bucket, key);
         if (byteOffsetStart != null && byteOffsetEnd != null)
             request.setRange(byteOffsetStart, byteOffsetEnd);
@@ -86,9 +82,73 @@ public class S3TierObjectStore implements TierObjectStore {
             throw new IllegalStateException("Cannot specify a byteOffsetEnd without specifying a "
                     + "byteOffsetStart");
         log.debug("Fetching object from s3://{}/{}, with range start {}", bucket, key, byteOffsetStart);
-        final S3Object object = client.getObject(request);
+
+        S3Object object;
+        try {
+            object = client.getObject(request);
+        } catch (AmazonServiceException e) {
+            throw new TierObjectStoreRetriableException("Failed to fetch segment " + objectMetadata, e);
+        } catch (ClientExecutionTimeoutException e) {
+            throw new TierObjectStoreRetriableException("Timeout when fetching segment " + objectMetadata, e);
+        } catch (Exception e) {
+            throw new TierObjectStoreFatalException("Unknown exception when fetching segment " + objectMetadata, e);
+        }
+
         final S3ObjectInputStream inputStream = object.getObjectContent();
         return new S3TierObjectStoreResponse(inputStream, object.getObjectMetadata().getContentLength());
+    }
+
+    @Override
+    public void putSegment(ObjectMetadata objectMetadata,
+                           File segmentData,
+                           File offsetIndexData,
+                           File timestampIndexData,
+                           Optional<File> producerStateSnapshotData,
+                           File transactionIndexData,
+                           Optional<File> epochState) {
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put("metadata_version", Integer.toString(objectMetadata.version()));
+        metadata.put("topic", objectMetadata.topicIdPartition().topic());
+        metadata.put("cluster_id", clusterId);
+        metadata.put("broker_id", Integer.toString(brokerId));
+
+        try {
+            if (segmentData.length() <= partUploadSize)
+                putFile(keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
+            else
+                putFileMultipart(keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
+
+            putFile(keyPath(objectMetadata, FileType.OFFSET_INDEX), metadata, offsetIndexData);
+            putFile(keyPath(objectMetadata, FileType.TIMESTAMP_INDEX), metadata, timestampIndexData);
+            producerStateSnapshotData.ifPresent(file -> putFile(keyPath(objectMetadata, FileType.PRODUCER_STATE), metadata, file));
+            putFile(keyPath(objectMetadata, FileType.TRANSACTION_INDEX), metadata, transactionIndexData);
+            epochState.ifPresent(file -> putFile(keyPath(objectMetadata, FileType.EPOCH_STATE), metadata, file));
+        } catch (AmazonServiceException e) {
+            throw new TierObjectStoreRetriableException("Failed to upload segment " + objectMetadata, e);
+        } catch (ClientExecutionTimeoutException e) {
+            throw new TierObjectStoreRetriableException("Timeout when uploading segment " + objectMetadata, e);
+        } catch (Exception e) {
+            throw new TierObjectStoreFatalException("Unknown exception when uploading segment " + objectMetadata, e);
+        }
+    }
+
+    @Override
+    public void deleteSegment(ObjectMetadata objectMetadata) {
+        List<DeleteObjectsRequest.KeyVersion> keys = new ArrayList<>();
+        for (FileType type : FileType.values())
+            keys.add(new DeleteObjectsRequest.KeyVersion(keyPath(objectMetadata, type)));
+        DeleteObjectsRequest request = new DeleteObjectsRequest(bucket).withKeys(keys);
+        log.debug("Deleting " + keys);
+
+        try {
+            client.deleteObjects(request);
+        } catch (AmazonServiceException e) {
+            throw new TierObjectStoreRetriableException("Failed to delete segment " + objectMetadata, e);
+        } catch (ClientExecutionTimeoutException e) {
+            throw new TierObjectStoreRetriableException("Timeout when deleting segment " + objectMetadata, e);
+        } catch (Exception e) {
+            throw new TierObjectStoreFatalException("Unknown exception when deleting segment " + objectMetadata, e);
+        }
     }
 
     @Override
@@ -96,79 +156,40 @@ public class S3TierObjectStore implements TierObjectStore {
         this.client.shutdown();
     }
 
-    @Override
-    public TierObjectMetadata putSegment(
-            TierObjectMetadata objectMetadata, File segmentData,
-            File offsetIndexData, File timestampIndexData,
-            Optional<File> producerStateSnapshotData, File transactionIndexData,
-            Optional<File> epochState) {
-        Map<String, String> metadata = new HashMap<>();
-        metadata.put("metadata_version", Integer.toString(objectMetadata.version()));
-        metadata.put("topic", objectMetadata.topicIdPartition().topic());
-        metadata.put("cluster_id", clusterId);
-        metadata.put("broker_id", Integer.toString(brokerId));
-        try {
-            if (segmentData.length() <= partUploadSize)
-                putFile(keyPath(objectMetadata, TierObjectStoreFileType.SEGMENT),
-                        metadata, segmentData);
-            else
-                putFileMultipart(keyPath(objectMetadata, TierObjectStoreFileType.SEGMENT),
-                 metadata, segmentData);
-
-            putFile(keyPath(objectMetadata, TierObjectStoreFileType.OFFSET_INDEX),
-             metadata, offsetIndexData);
-            putFile(keyPath(objectMetadata, TierObjectStoreFileType.TIMESTAMP_INDEX),
-                metadata, timestampIndexData);
-            producerStateSnapshotData.ifPresent(file -> putFile(keyPath(objectMetadata,
-                    TierObjectStoreFileType.PRODUCER_STATE), metadata, file));
-            putFile(keyPath(objectMetadata, TierObjectStoreFileType.TRANSACTION_INDEX),
-                metadata, transactionIndexData);
-            epochState.ifPresent(file -> putFile(keyPath(objectMetadata,
-                    TierObjectStoreFileType.EPOCH_STATE), metadata, file));
-
-            return objectMetadata;
-        } catch (final AmazonClientException e) {
-            throw new TierObjectStoreRetriableException("Failed to upload segment objects to S3", e);
-        }
-    }
-
-    public String keyPath(TierObjectMetadata objectMetadata, TierObjectStoreFileType fileType) {
+    public String keyPath(ObjectMetadata objectMetadata, FileType fileType) {
         return LOG_DATA_PREFIX
-                + objectMetadata.messageIdAsBase64()
+                + "/" + objectMetadata.objectIdAsBase64()
                 + "/" + objectMetadata.topicIdPartition().topicIdAsBase64()
                 + "/" + objectMetadata.topicIdPartition().partition()
-                + "/" + offsetFormat.format(objectMetadata.startOffset())
+                + "/" + Log.filenamePrefixFromOffset(objectMetadata.baseOffet())
                 + "_" + objectMetadata.tierEpoch()
                 + "_v" + objectMetadata.version()
-                + "." + fileType.getSuffix();
+                + "." + fileType.suffix();
     }
 
-    private ObjectMetadata putObjectMetadata(Map<String, String> metadata) {
-        final ObjectMetadata objectMetadata = new ObjectMetadata();
-        objectMetadata.setUserMetadata(metadata);
+    private com.amazonaws.services.s3.model.ObjectMetadata putObjectMetadata(Map<String, String> userMetadata) {
+        final com.amazonaws.services.s3.model.ObjectMetadata metadata = new com.amazonaws.services.s3.model.ObjectMetadata();
         if (sseAlgorithm != null)
-            objectMetadata.setSSEAlgorithm(sseAlgorithm);
-        return objectMetadata;
+            metadata.setSSEAlgorithm(sseAlgorithm);
+        if (userMetadata != null)
+            metadata.setUserMetadata(userMetadata);
+        return metadata;
     }
 
     private void putFile(String key, Map<String, String> metadata, File file) {
-        final PutObjectRequest request = new PutObjectRequest(bucket, key, file);
-        request.setMetadata(putObjectMetadata(metadata));
+        final PutObjectRequest request = new PutObjectRequest(bucket, key, file).withMetadata(putObjectMetadata(metadata));
         log.debug("Uploading object to s3://{}/{}", bucket, key);
         client.putObject(request);
     }
 
     private void putFileMultipart(String key, Map<String, String> metadata, File file) {
-        final ObjectMetadata objectMetadata = putObjectMetadata(metadata);
         final long fileLength = file.length();
         long partSize = partUploadSize;
         log.debug("Uploading multipart object to s3://{}/{}", bucket, key);
 
         final List<PartETag> partETags = new ArrayList<>();
-        final InitiateMultipartUploadRequest initiateMultipartUploadRequest =
-                new InitiateMultipartUploadRequest(bucket, key, objectMetadata);
-        final InitiateMultipartUploadResult initiateMultipartUploadResult =
-                client.initiateMultipartUpload(initiateMultipartUploadRequest);
+        final InitiateMultipartUploadRequest initiateMultipartUploadRequest = new InitiateMultipartUploadRequest(bucket, key, putObjectMetadata(metadata));
+        final InitiateMultipartUploadResult initiateMultipartUploadResult = client.initiateMultipartUpload(initiateMultipartUploadRequest);
 
         long filePosition = 0;
         for (int partNum = 1; filePosition < fileLength; partNum++) {
@@ -260,5 +281,4 @@ public class S3TierObjectStore implements TierObjectStore {
             return objectSize;
         }
     }
-
 }

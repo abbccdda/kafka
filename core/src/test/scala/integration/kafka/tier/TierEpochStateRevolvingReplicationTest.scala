@@ -25,7 +25,7 @@ import kafka.server.epoch.LeaderEpochFileCache
 import kafka.server.{KafkaServer, KafkaConfig}
 import kafka.utils.{TestUtils, Logging}
 import kafka.utils.TestUtils._
-import kafka.tier.TierUtils
+import kafka.tier.TierTestUtils
 import kafka.zk.ZooKeeperTestHarness
 import org.apache.kafka.clients.producer.{ProducerRecord, KafkaProducer}
 import org.apache.kafka.common.TopicPartition
@@ -76,7 +76,7 @@ class TierEpochStateRevolvingReplicationTest extends ZooKeeperTestHarness with L
 
     // since we use RF = 3 on the tier topic,
     // we must make sure the tier topic is up before we start stopping brokers
-    brokers.foreach(b => TierUtils.awaitTierTopicPartition(b, 0))
+    brokers.foreach(b => TierTestUtils.awaitTierTopicPartition(b, 0))
 
     producer.send(new ProducerRecord(topic, 0, null, msg)).get
 

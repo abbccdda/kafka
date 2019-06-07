@@ -9,7 +9,6 @@ import kafka.log.TimestampOffset;
 import kafka.server.DelayedOperationKey;
 import kafka.server.TierOffsetForTimestampOperationKey;
 import kafka.tier.TierTimestampAndOffset;
-import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
 import org.apache.kafka.common.TopicPartition;
@@ -116,7 +115,7 @@ public class PendingOffsetForTimestamp implements Runnable {
         for (Map.Entry<TopicPartition, TierTimestampAndOffset> entry : timestamps.entrySet()) {
             final TopicPartition topicPartition = entry.getKey();
             final TierTimestampAndOffset tierTimestampAndOffset = entry.getValue();
-            final TierObjectMetadata objectMetadata = entry.getValue().metadata;
+            final TierObjectStore.ObjectMetadata objectMetadata = entry.getValue().metadata;
             final long targetTimestamp = tierTimestampAndOffset.timestamp;
             try {
                 if (fetchable(topicPartition)) {
@@ -136,7 +135,7 @@ public class PendingOffsetForTimestamp implements Runnable {
                         if (fetchable(topicPartition)) {
                             try (final TierObjectStoreResponse response =
                                          tierObjectStore.getObject(objectMetadata,
-                                                 TierObjectStore.TierObjectStoreFileType.SEGMENT,
+                                                 TierObjectStore.FileType.SEGMENT,
                                                  offsetPosition.position())) {
                                 final Optional<Long> offsetOpt =
                                         TierSegmentReader.offsetForTimestamp(cancellationContext,

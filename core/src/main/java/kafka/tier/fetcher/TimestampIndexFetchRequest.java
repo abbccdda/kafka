@@ -5,7 +5,6 @@
 package kafka.tier.fetcher;
 
 import kafka.log.TimestampOffset;
-import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
 
@@ -27,13 +26,13 @@ final class TimestampIndexFetchRequest {
      */
     static TimestampOffset fetchOffsetForTimestamp(CancellationContext cancellationContext,
                                                    TierObjectStore tierObjectStore,
-                                                   TierObjectMetadata tierObjectMetadata,
+                                                   TierObjectStore.ObjectMetadata tierObjectMetadata,
                                                    long targetTimestamp) throws Exception {
-        final long startOffset = tierObjectMetadata.startOffset();
-        TimestampOffset found = new TimestampOffset(targetTimestamp, tierObjectMetadata.startOffset());
+        final long startOffset = tierObjectMetadata.baseOffet();
+        TimestampOffset found = new TimestampOffset(targetTimestamp, tierObjectMetadata.baseOffet());
         try (TierObjectStoreResponse timestampResponse = tierObjectStore.getObject(
                 tierObjectMetadata,
-                TierObjectStore.TierObjectStoreFileType.TIMESTAMP_INDEX)) {
+                TierObjectStore.FileType.TIMESTAMP_INDEX)) {
             final InputStream timestampStream = timestampResponse.getInputStream();
             final TierTimestampIndexIterator tierTimestampIterator = new TierTimestampIndexIterator(timestampStream, startOffset);
             while (tierTimestampIterator.hasNext()) {

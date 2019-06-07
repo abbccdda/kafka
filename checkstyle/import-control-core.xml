@@ -88,10 +88,23 @@
     </subpackage>
     <subpackage name="store">
       <allow pkg="com.amazonaws" />
+      <allow class="kafka.log.Log" />
       <allow class="kafka.log.LogSegment" />
     </subpackage>
     <subpackage name="domain">
       <allow class="com.google.flatbuffers.FlatBufferBuilder" />
+    </subpackage>
+    <subpackage name="domain">
+      <allow class="com.google.flatbuffers.FlatBufferBuilder" />
+    </subpackage>
+    <subpackage name="state">
+      <allow class="com.google.flatbuffers.FlatBufferBuilder" />
+      <allow class="kafka.log.Log" />
+      <allow class="kafka.log.Log$" />
+      <allow class="kafka.log.TierLogSegment" />
+    </subpackage>
+    <subpackage name="tools">
+      <allow class="kafka.log.Log" />
     </subpackage>
   </subpackage>
 

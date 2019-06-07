@@ -4,7 +4,7 @@
 
 package kafka.tier.store;
 
-import kafka.tier.domain.TierObjectMetadata;
+import kafka.log.Log;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -20,8 +20,7 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
     // KEY_TO_BLOB is static so that a mock object store can be shared across brokers
     // We can remove the shared state once we have more substantial system tests that use S3.
     private final static ConcurrentHashMap<String, byte[]> KEY_TO_BLOB = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<TierObjectStoreFileType, Integer> objectCounts =
-            new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<TierObjectStore.FileType, Integer> objectCounts = new ConcurrentHashMap<>();
     private final TierObjectStoreConfig config;
 
     public MockInMemoryTierObjectStore(TierObjectStoreConfig config) {
@@ -31,15 +30,15 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
     public ConcurrentHashMap<String, byte[]> getStored() {
          return KEY_TO_BLOB;
     }
-    public ConcurrentHashMap<TierObjectStoreFileType, Integer> getObjectCounts() {
+    public ConcurrentHashMap<TierObjectStore.FileType, Integer> getObjectCounts() {
         return objectCounts;
     }
 
     @Override
-    public TierObjectStoreResponse getObject(
-            TierObjectMetadata objectMetadata, TierObjectStoreFileType objectFileType,
-            Integer byteOffset, Integer byteOffsetEnd)
-            throws IOException {
+    public TierObjectStoreResponse getObject(ObjectMetadata objectMetadata,
+                                             FileType objectFileType,
+                                             Integer byteOffset,
+                                             Integer byteOffsetEnd) throws IOException {
         String key = keyPath(objectMetadata, objectFileType);
         byte[] blob = KEY_TO_BLOB.get(key);
         if (blob == null)
@@ -58,56 +57,56 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
     public void close() {
     }
 
-    private void incrementObjectCount(TierObjectStoreFileType fileType) {
+    private void incrementObjectCount(TierObjectStore.FileType fileType) {
         objectCounts.compute(fileType, (key, integer) -> integer == null ? 1 : integer++);
     }
 
     @Override
-    public TierObjectMetadata putSegment(
-            TierObjectMetadata objectMetadata, File segmentData,
-            File offsetIndexData, File timestampIndexData,
-            Optional<File> producerStateSnapshotData, File transactionIndexData,
-            Optional<File> epochState) throws IOException {
-        this.writeFileToArray(keyPath(objectMetadata, TierObjectStoreFileType.SEGMENT),
-                segmentData);
-        incrementObjectCount(TierObjectStoreFileType.SEGMENT);
+    public void putSegment(ObjectMetadata objectMetadata,
+                           File segmentData,
+                           File offsetIndexData,
+                           File timestampIndexData,
+                           Optional<File> producerStateSnapshotData,
+                           File transactionIndexData,
+                           Optional<File> epochState) throws IOException {
+        writeFileToArray(keyPath(objectMetadata, FileType.SEGMENT), segmentData);
+        incrementObjectCount(FileType.SEGMENT);
 
-        this.writeFileToArray(keyPath(objectMetadata, TierObjectStoreFileType.OFFSET_INDEX),
-                offsetIndexData);
-        incrementObjectCount(TierObjectStoreFileType.OFFSET_INDEX);
+        writeFileToArray(keyPath(objectMetadata, FileType.OFFSET_INDEX), offsetIndexData);
+        incrementObjectCount(FileType.OFFSET_INDEX);
 
-        this.writeFileToArray(keyPath(objectMetadata, TierObjectStoreFileType.TIMESTAMP_INDEX),
-                timestampIndexData);
-        incrementObjectCount(TierObjectStoreFileType.TIMESTAMP_INDEX);
+        writeFileToArray(keyPath(objectMetadata, FileType.TIMESTAMP_INDEX), timestampIndexData);
+        incrementObjectCount(FileType.TIMESTAMP_INDEX);
 
         if (producerStateSnapshotData.isPresent()) {
-            this.writeFileToArray(keyPath(objectMetadata, TierObjectStoreFileType.PRODUCER_STATE),
-                    producerStateSnapshotData.get());
-            incrementObjectCount(TierObjectStoreFileType.PRODUCER_STATE);
+            writeFileToArray(keyPath(objectMetadata, FileType.PRODUCER_STATE), producerStateSnapshotData.get());
+            incrementObjectCount(FileType.PRODUCER_STATE);
         }
 
-        this.writeFileToArray(keyPath(objectMetadata, TierObjectStoreFileType.TRANSACTION_INDEX),
-                transactionIndexData);
-        incrementObjectCount(TierObjectStoreFileType.TRANSACTION_INDEX);
+        writeFileToArray(keyPath(objectMetadata, FileType.TRANSACTION_INDEX), transactionIndexData);
+        incrementObjectCount(FileType.TRANSACTION_INDEX);
 
         if (epochState.isPresent()) {
-            this.writeFileToArray(keyPath(objectMetadata, TierObjectStoreFileType.EPOCH_STATE),
-                    epochState.get());
-            incrementObjectCount(TierObjectStoreFileType.EPOCH_STATE);
+            writeFileToArray(keyPath(objectMetadata, FileType.EPOCH_STATE), epochState.get());
+            incrementObjectCount(FileType.EPOCH_STATE);
         }
-
-        return objectMetadata;
     }
 
-    private String keyPath(TierObjectMetadata objectMetadata, TierObjectStoreFileType fileType) {
-        return String.format("%s%s/%s/%d/%020d_%d.%s",
-                LOG_DATA_PREFIX,
-                objectMetadata.messageIdAsBase64(),
-                objectMetadata.topicIdPartition().topicIdAsBase64(),
-                objectMetadata.topicIdPartition().partition(),
-                objectMetadata.startOffset(),
-                objectMetadata.tierEpoch(),
-                fileType.getSuffix());
+    @Override
+    public void deleteSegment(ObjectMetadata objectMetadata) {
+        for (FileType type : FileType.values())
+            KEY_TO_BLOB.remove(keyPath(objectMetadata, type));
+    }
+
+    public String keyPath(ObjectMetadata objectMetadata, FileType fileType) {
+        return LOG_DATA_PREFIX
+                + "/" + objectMetadata.objectIdAsBase64()
+                + "/" + objectMetadata.topicIdPartition().topicIdAsBase64()
+                + "/" + objectMetadata.topicIdPartition().partition()
+                + "/" + Log.filenamePrefixFromOffset(objectMetadata.baseOffet())
+                + "_" + objectMetadata.tierEpoch()
+                + "_v" + objectMetadata.version()
+                + "." + fileType.suffix();
     }
 
     private void writeFileToArray(String filePath, File file) throws IOException {

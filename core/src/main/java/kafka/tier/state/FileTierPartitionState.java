@@ -9,13 +9,18 @@ import kafka.log.Log;
 import kafka.log.Log$;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.AbstractTierMetadata;
+import kafka.tier.domain.AbstractTierSegmentMetadata;
 import kafka.tier.domain.TierObjectMetadata;
+import kafka.tier.domain.TierSegmentDeleteComplete;
+import kafka.tier.domain.TierSegmentDeleteInitiate;
+import kafka.tier.domain.TierSegmentUploadComplete;
+import kafka.tier.domain.TierSegmentUploadInitiate;
 import kafka.tier.domain.TierTopicInitLeader;
 import kafka.tier.exceptions.TierPartitionStateIllegalListenerException;
-import kafka.tier.serdes.ObjectMetadata;
 import kafka.tier.serdes.TierPartitionStateHeader;
-
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.KafkaStorageException;
+import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,18 +33,57 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 
 public class FileTierPartitionState implements TierPartitionState, AutoCloseable {
+    private enum StateFileType {
+        /**
+         * Persistent file containing tier partition state. This file is atomically updated on flush. On startup,
+         * this file is considered the source-of-truth and reflects the state as of the last successful flush.
+         */
+        FLUSHED(""),
+
+        /**
+         * Mutable file used by writers and readers. On flush, contents in this file are atomically moved to the flushed
+         * file. This is achieved by first copying the bytes out to a temporary file and then moving the temporary file
+         * to the flushed file atomically. Readers could continue reading the mutable file lock-free because of this
+         * out-of-place flush mechanism. This file is overwritten with the flushed file contents on startup.
+         */
+        MUTABLE(".mutable"),
+
+        /**
+         * Temporary file used to overwrite file contents and to move the mutable file contents to the flushed file.
+         */
+        TEMPORARY(".tmp");
+
+        private String suffix;
+
+        StateFileType(String suffix) {
+            this.suffix = suffix;
+        }
+
+        public Path filePath(String basePath) {
+            return Paths.get(basePath + suffix);
+        }
+    }
+
     private static final Logger log = LoggerFactory.getLogger(FileTierPartitionState.class);
     private static final int ENTRY_LENGTH_SIZE = 2;
     private static final long FILE_OFFSET = 0;
@@ -50,7 +94,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     private final Object lock = new Object();
 
     private File dir;
-    private String path;
+    private String basePath;
+    private TierObjectMetadata uploadInProgress;  // cached for quick lookup
     private boolean dirty = false;
 
     // The current tiering state, including segment metadata and the backing file. All writers must synchronize before
@@ -75,7 +120,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     FileTierPartitionState(File dir, TopicPartition topicPartition, boolean tieringEnabled, byte version) throws IOException {
         this.topicPartition = topicPartition;
         this.dir = dir;
-        this.path = Log.tierStateFile(dir, FILE_OFFSET, "").getAbsolutePath();
+        this.basePath = Log.tierStateFile(dir, FILE_OFFSET, "").getAbsolutePath();
         this.tieringEnabled = tieringEnabled;
         this.state = State.UNINITIALIZED_STATE;
         this.version = version;
@@ -92,7 +137,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     public void setTopicIdPartition(TopicIdPartition topicIdPartition) throws IOException {
-        if (this.topicIdPartition != null && ! this.topicIdPartition.equals(topicIdPartition))
+        if (this.topicIdPartition != null && !this.topicIdPartition.equals(topicIdPartition))
             throw new IllegalStateException("TierPartitionState assigned a different "
                     + "topicIdPartition than already assigned (" + topicIdPartition
                     + " " + this.topicIdPartition);
@@ -116,7 +161,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
     @Override
     public Optional<Long> startOffset() {
-        Map.Entry<Long, SegmentState> firstEntry = state.segments.firstEntry();
+        Map.Entry<Long, UUID> firstEntry = state.validSegments.firstEntry();
         if (firstEntry != null)
             return Optional.of(firstEntry.getKey());
         return Optional.empty();
@@ -136,40 +181,40 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     public long totalSize() throws IOException {
         if (!tieringEnabled || !status.isOpen()) {
             throw new IllegalStateException("Illegal state " + status + " for tier partition. " +
-                    "tieringEnabled: " + tieringEnabled + " file: " + path);
+                    "tieringEnabled: " + tieringEnabled + " basePath: " + basePath);
         }
 
         long size = 0;
         State currentState = state;
-        Map.Entry<Long, SegmentState> firstEntry = currentState.segments.firstEntry();
+        Map.Entry<Long, UUID> firstEntry = currentState.validSegments.firstEntry();
 
         if (firstEntry != null) {
             FileTierPartitionIterator iterator = iterator(topicIdPartition().get(),
                     currentState.channel,
-                    firstEntry.getValue().position);
+                    currentState.position(firstEntry.getValue()));
             while (iterator.hasNext()) {
                 TierObjectMetadata metadata = iterator.next();
                 size += metadata.size();
             }
         }
         return size;
-
     }
 
     @Override
     public void flush() throws IOException {
         synchronized (lock) {
             if (dirty && status.isOpenForWrite()) {
-                // flush the file contents
-                state.channel.force(true);
-
-                // update the header and flush it
+                // update the header and flush file contents
                 writeHeader(state.channel, new Header(
                         topicIdPartition.topicId(),
                         version,
                         state.currentEpoch,
                         status));
                 state.channel.force(true);
+
+                // move file contents to the flushed file
+                Files.copy(mutableFilePath(basePath), tmpFilePath(basePath), StandardCopyOption.REPLACE_EXISTING);
+                Utils.atomicMoveWithFallback(tmpFilePath(basePath), flushedFilePath(basePath));
 
                 state.committedEndOffset = state.endOffset;
                 dirty = false;
@@ -188,22 +233,18 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     @Override
-    public String path() {
-        return path;
-    }
-
-    @Override
     public void delete() throws IOException {
         synchronized (lock) {
             closeHandlers();
-            Files.deleteIfExists(Paths.get(path));
+            for (StateFileType type : StateFileType.values())
+                Files.deleteIfExists(type.filePath(basePath));
         }
     }
 
     @Override
     public void updateDir(File dir) {
         synchronized (lock) {
-            this.path = Log.tierStateFile(dir, FILE_OFFSET, "").getAbsolutePath();
+            this.basePath = Log.tierStateFile(dir, FILE_OFFSET, "").getAbsolutePath();
             this.dir = dir;
         }
     }
@@ -238,7 +279,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         synchronized (lock) {
             if (!tieringEnabled || !status.isOpen())
                 throw new IllegalStateException("Illegal state " + status + " for tier partition. " +
-                        "tieringEnabled: " + tieringEnabled + " file: " + path);
+                        "tieringEnabled: " + tieringEnabled + " basePath: " + basePath);
             setStatus(TierPartitionStatus.CATCHUP);
         }
     }
@@ -248,7 +289,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         synchronized (lock) {
             if (!tieringEnabled || !status.isOpen())
                 throw new IllegalStateException("Illegal state " + status + " for tier partition. " +
-                        "tieringEnabled: " + tieringEnabled + " file: " + path);
+                        "tieringEnabled: " + tieringEnabled + " basePath: " + basePath);
 
             setStatus(TierPartitionStatus.ONLINE);
         }
@@ -310,33 +351,51 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         synchronized (lock) {
             if (!status.isOpenForWrite())
                 return AppendResult.ILLEGAL;
-            else if (entry instanceof TierTopicInitLeader)
-                return append((TierTopicInitLeader) entry);
-            else if (entry instanceof TierObjectMetadata)
-                return append((TierObjectMetadata) entry);
-            else
-                throw new RuntimeException(String.format("Unknown TierTopicIndexEntryType %s", entry));
+
+            switch (entry.type()) {
+                case InitLeader:
+                    return handleInitLeader((TierTopicInitLeader) entry);
+
+                case SegmentUploadInitiate:
+                case SegmentUploadComplete:
+                case SegmentDeleteInitiate:
+                case SegmentDeleteComplete:
+                    return maybeTransitionSegment((AbstractTierSegmentMetadata) entry);
+
+                default:
+                    throw new IllegalStateException("Unknown type " + entry.type());
+            }
         }
     }
 
     @Override
     public NavigableSet<Long> segmentOffsets() {
-        return state.segments.keySet();
+        return state.validSegments.keySet();
     }
 
     @Override
     public NavigableSet<Long> segmentOffsets(long from, long to) {
-        return Log$.MODULE$.logSegments(state.segments, from, to, lock).keySet();
+        return Log$.MODULE$.logSegments(state.validSegments, from, to, lock).keySet();
     }
 
     @Override
     public Optional<TierObjectMetadata> metadata(long targetOffset) throws IOException {
         State currentState = state;
-        Map.Entry<Long, SegmentState> entry = currentState.segments.floorEntry(targetOffset);
+        Map.Entry<Long, UUID> entry = currentState.validSegments.floorEntry(targetOffset);
         if (entry != null)
-            return read(topicIdPartition, currentState, entry.getValue().position);
+            return read(topicIdPartition, currentState, currentState.position(entry.getValue()));
         else
             return Optional.empty();
+    }
+
+    // visible for testing
+    String flushedPath() {
+        return flushedFilePath(basePath).toFile().getAbsolutePath();
+    }
+
+    public Collection<TierObjectMetadata> fencedSegments() {
+        State currentState = state;
+        return metadataForStates(topicIdPartition, currentState, Collections.singleton(TierObjectMetadata.State.SEGMENT_FENCED));
     }
 
     public static Optional<FileTierPartitionIterator> iterator(TopicPartition topicPartition,
@@ -366,24 +425,54 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         dirty = true;
     }
 
+    private static List<TierObjectMetadata> metadataForStates(TopicIdPartition topicIdPartition,
+                                                              State currentState,
+                                                              Set<TierObjectMetadata.State> states) {
+        return currentState.allSegments.values()
+                .stream()
+                .filter(segmentState -> states.contains(segmentState.state))
+                .map(segmentState -> {
+                    try {
+                        return iterator(topicIdPartition, currentState.channel, segmentState.position).next();
+                    } catch (IOException e) {
+                        throw new KafkaStorageException(e);
+                    }
+                })
+                .collect(Collectors.toList());
+    }
+
     private void maybeOpenChannel() throws IOException {
         if (tieringEnabled && !status.isOpen()) {
-            FileChannel channel = getChannelMaybeReinitialize(topicPartition,
-                    topicIdPartition,
-                    path, version);
+            Path flushedFilePath = flushedFilePath(basePath);
+            Path mutableFilePath = mutableFilePath(basePath);
+
+            if (!Files.exists(flushedFilePath))
+                Files.createFile(flushedFilePath);
+            Files.copy(flushedFilePath, mutableFilePath, StandardCopyOption.REPLACE_EXISTING);
+
+            FileChannel channel = getChannelMaybeReinitialize(topicPartition, topicIdPartition, basePath, version);
 
             if (channel == null) {
                 status = TierPartitionStatus.CLOSED;
                 return;
             }
-            scanAndInitialize(channel);
+
+            try {
+                scanAndInitialize(channel);
+            } catch (StateCorruptedException e) {
+                // Reinitialize file in catchup state when we detect corruption
+                closeHandlers();
+                Files.delete(flushedFilePath);
+                maybeOpenChannel();
+                beginCatchup();
+            }
         }
     }
 
     private static Optional<TierObjectMetadata> read(TopicIdPartition topicIdPartition,
                                                      State state,
                                                      long position) throws IOException {
-        if (!state.segments.isEmpty()) {
+        if (!state.validSegments.isEmpty()) {
             FileTierPartitionIterator iterator = iterator(topicIdPartition, state.channel, position);
             // The entry at `position` must be known to be fully written to the underlying file
             if (!iterator.hasNext())
@@ -394,8 +483,21 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return Optional.empty();
     }
 
-    private AppendResult append(TierTopicInitLeader initLeader) {
-        if (initLeader.tierEpoch() >= state.currentEpoch) {
+    private AppendResult handleInitLeader(TierTopicInitLeader initLeader) throws IOException {
+        // We accept any epoch >= the current one, as there could be duplicate init leader messages for the current
+        // epoch.
+        if (initLeader.tierEpoch() == state.currentEpoch) {
+            return AppendResult.ACCEPTED;
+        } else if (initLeader.tierEpoch() > state.currentEpoch) {
+            // On leader change, we fence all in-progress uploads and segments that were being deleted
+            Set<TierObjectMetadata.State> statesToFence = new HashSet<>(Arrays.asList(
+                    TierObjectMetadata.State.SEGMENT_UPLOAD_INITIATE,
+                    TierObjectMetadata.State.SEGMENT_DELETE_INITIATE)
+            );
+            List<TierObjectMetadata> toFence = metadataForStates(topicIdPartition, state, statesToFence);
+            for (TierObjectMetadata metadata : toFence)
+                fenceSegment(metadata);
+
             state.currentEpoch = initLeader.tierEpoch();
             dirty = true;
             return AppendResult.ACCEPTED;
@@ -404,28 +506,117 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         }
     }
 
-    private AppendResult append(TierObjectMetadata objectMetadata) throws IOException {
-        if (objectMetadata.tierEpoch() == tierEpoch()) {
-            if (state.endOffset == null || objectMetadata.endOffset() > state.endOffset) {
-                ByteBuffer metadataBuffer = objectMetadata.payloadBuffer();
-                long byteOffset = appendWithSizePrefix(state.channel, metadataBuffer);
-                addSegmentMetadata(objectMetadata.objectMetadata(), byteOffset);
-                dirty = true;
+    private AppendResult maybeTransitionSegment(AbstractTierSegmentMetadata metadata) throws IOException {
+        SegmentState currentState = state.allSegments.get(metadata.objectId());
 
-                if (status.isOpen() &&
-                        materializationTracker != null &&
-                        objectMetadata.endOffset() >= materializationTracker.offsetToMaterialize) {
-                    // manually flush to ensure readable TierPartitionState aligns with the local
-                    // log that will be fetched by the Replica Fetcher. Otherwise we could end up in an unsafe
-                    // state where the TierPartitionState doesn't align if the broker shuts down
-                    flush();
-                    materializationTracker.promise.complete(objectMetadata);
-                    materializationTracker = null;
-                }
-                return AppendResult.ACCEPTED;
-            }
+        // Fence transition that do not belong to the current epoch
+        if (metadata.tierEpoch() != state.currentEpoch) {
+            log.info("Fenced {} as currentEpoch={}.", metadata, state.currentEpoch);
+            return AppendResult.FENCED;
         }
+
+        if (currentState != null) {
+            if (currentState.state.equals(metadata.state())) {
+                // This is a duplicate transition
+                log.debug("Accepting duplicate transition for {}", metadata);
+                return AppendResult.ACCEPTED;
+            } else if (!currentState.state.canTransitionTo(metadata.state())) {
+                // This transition will not take us to the next valid state
+                throw new IllegalStateException("Illegal attempt to transition " + currentState + " to " + metadata);
+            }
+        } else {
+            // If state for this object does not exist, then this must be uploadInitiate
+            if (metadata.state() != TierObjectMetadata.State.SEGMENT_UPLOAD_INITIATE)
+                throw new IllegalStateException("Cannot complete transition for non-existent segment " + metadata);
+        }
+
+        // If we are here, we know this transition is valid: it takes us to the next valid state, it is for the current
+        // epoch, and is not a duplicate
+        switch (metadata.state()) {
+            case SEGMENT_UPLOAD_INITIATE:
+                return handleUploadInitiate((TierSegmentUploadInitiate) metadata);
+            case SEGMENT_UPLOAD_COMPLETE:
+                return handleUploadComplete((TierSegmentUploadComplete) metadata);
+            case SEGMENT_DELETE_INITIATE:
+                return handleDeleteInitiate((TierSegmentDeleteInitiate) metadata);
+            case SEGMENT_DELETE_COMPLETE:
+                return handleDeleteComplete((TierSegmentDeleteComplete) metadata);
+            default:
+                throw new IllegalStateException("Unexpected state " + metadata.state());
+        }
+    }
+
+    private TierObjectMetadata updateState(UUID objectId, TierObjectMetadata.State newState) throws IOException {
+        SegmentState currentState = state.allSegments.get(objectId);
+        if (currentState == null)
+            throw new IllegalStateException("No metadata found for " + objectId);
+
+        TierObjectMetadata metadata = iterator(topicIdPartition, state.channel, currentState.position).next();
+
+        if (!objectId.equals(metadata.objectId()))
+            throw new IllegalStateException("id mismatch. Expected: " + objectId + " Got: " + metadata.objectId());
+
+        metadata.mutateState(newState);
+        Utils.writeFully(state.channel, currentState.position + ENTRY_LENGTH_SIZE, metadata.payloadBuffer());
+        addSegmentMetadata(metadata, currentState.position);
+        dirty = true;
+        return metadata;
+    }
+
+    private void fenceSegment(TierObjectMetadata metadata) throws IOException {
+        updateState(metadata.objectId(), TierObjectMetadata.State.SEGMENT_FENCED);
+        if (uploadInProgress.objectId().equals(metadata.objectId()))
+            uploadInProgress = null;
+    }
+
+    private AppendResult handleUploadInitiate(TierSegmentUploadInitiate uploadInitiate) throws IOException {
+        TierObjectMetadata metadata = new TierObjectMetadata(uploadInitiate);
+
+        if (state.endOffset == null || metadata.endOffset() > state.endOffset) {
+            // This is the next in line valid segment to upload belonging to this epoch. Fence any in-progress upload.
+            if (uploadInProgress != null)
+                fenceSegment(uploadInProgress);
+
+            ByteBuffer metadataBuffer = metadata.payloadBuffer();
+            long byteOffset = appendWithSizePrefix(state.channel, metadataBuffer);
+            addSegmentMetadata(metadata, byteOffset);
+            dirty = true;
+            return AppendResult.ACCEPTED;
+        }
+
+        // This attempt to upload a segment must be fenced as it belongs to a previous epoch or covers an offset
+        // range that has already been uploaded successfully.
+        log.info("Fencing uploadInitiate for {}. currentEndOffset={} currentEpoch={}.",
+                metadata, state.endOffset, state.currentEpoch);
         return AppendResult.FENCED;
+    }
+
+    private AppendResult handleUploadComplete(TierSegmentUploadComplete uploadComplete) throws IOException {
+        if (!uploadInProgress.objectId().equals(uploadComplete.objectId()))
+            throw new IllegalStateException("Expected " + uploadInProgress.objectId() + " to be in-progress but got " + uploadComplete.objectId());
+
+        TierObjectMetadata metadata = updateState(uploadComplete.objectId(), TierObjectMetadata.State.SEGMENT_UPLOAD_COMPLETE);
+
+        if (materializationTracker != null &&
+                metadata.endOffset() >= materializationTracker.offsetToMaterialize) {
+            // manually flush to ensure readable TierPartitionState aligns with the local
+            // log that will be fetched by the Replica Fetcher. Otherwise we could end up in an unsafe
+            // state where the TierPartitionState doesn't align if the broker shuts down
+            flush();
+            materializationTracker.promise.complete(metadata);
+            materializationTracker = null;
+        }
+        return AppendResult.ACCEPTED;
+    }
+
+    private AppendResult handleDeleteInitiate(TierSegmentDeleteInitiate deleteInitiate) throws IOException {
+        updateState(deleteInitiate.objectId(), TierObjectMetadata.State.SEGMENT_DELETE_INITIATE);
+        return AppendResult.ACCEPTED;
+    }
+
+    private AppendResult handleDeleteComplete(TierSegmentDeleteComplete deleteComplete) throws IOException {
+        updateState(deleteComplete.objectId(), TierObjectMetadata.State.SEGMENT_DELETE_COMPLETE);
+        return AppendResult.ACCEPTED;
     }
 
     private static long appendWithSizePrefix(FileChannel channel, ByteBuffer metadataBuffer) throws IOException {
@@ -443,8 +634,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         ByteBuffer sizeBuf = ByteBuffer.allocate(Header.HEADER_LENGTH_LENGTH).order(ByteOrder.LITTLE_ENDIAN);
         sizeBuf.putShort(sizePrefix);
         sizeBuf.flip();
-        channel.write(sizeBuf, 0L);
-        channel.write(header.payloadBuffer(), Header.HEADER_LENGTH_LENGTH);
+        Utils.writeFully(channel, 0, sizeBuf);
+        Utils.writeFully(channel, Header.HEADER_LENGTH_LENGTH, header.payloadBuffer());
     }
 
     private static Optional<Short> readHeaderSize(FileChannel channel) throws IOException {
@@ -465,9 +656,10 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
     private static FileChannel getChannelMaybeReinitialize(TopicPartition topicPartition,
                                                            TopicIdPartition topicIdPartition,
-                                                           String path,
+                                                           String basePath,
                                                            byte version) throws IOException {
-        FileChannel channel = FileChannel.open(Paths.get(path), StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+        Path mutableFilePath = mutableFilePath(basePath);
+        FileChannel channel = FileChannel.open(mutableFilePath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
         try {
             Optional<Header> initialHeaderOpt = readHeader(channel);
             if (!initialHeaderOpt.isPresent()) {
@@ -483,8 +675,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 }
             } else if (initialHeaderOpt.get().header.version() != version) {
                 Header initialHeader = initialHeaderOpt.get();
-                Path tierFilePath = Paths.get(path);
-                Path tmpFilePath = Paths.get(path + ".tmp");
+                Path tmpFilePath = tmpFilePath(basePath);
 
                 topicIdPartition = new TopicIdPartition(topicPartition.topic(),
                         initialHeader.topicId(),
@@ -506,8 +697,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 }
                 channel.close();
 
-                Utils.atomicMoveWithFallback(tmpFilePath, tierFilePath);
-                channel = FileChannel.open(tierFilePath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+                Utils.atomicMoveWithFallback(tmpFilePath, mutableFilePath);
+                channel = FileChannel.open(mutableFilePath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
             }
         } catch (IOException e) {
             channel.close();
@@ -532,7 +723,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return Optional.of(new Header(TierPartitionStateHeader.getRootAsTierPartitionStateHeader(headerBuf)));
     }
 
-    private void scanAndInitialize(FileChannel channel) throws IOException {
+    private void scanAndInitialize(FileChannel channel) throws IOException, StateCorruptedException {
         log.debug("scan and truncate TierPartitionState {}", topicPartition);
 
         state = new State(channel);
@@ -551,15 +742,14 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         while (iterator.hasNext()) {
             TierObjectMetadata metadata = iterator.next();
             log.debug("{}: scan reloaded metadata {}", topicPartition, metadata);
-            addSegmentMetadata(metadata.objectMetadata(), currentPosition);
+            addSegmentMetadata(metadata, currentPosition);
             // advance position
             currentPosition = iterator.position();
         }
 
-        if (currentPosition < channel.size()) {
-            log.debug("Truncating to {}/{} for partition {}", currentPosition, channel.size(), topicPartition);
-            channel.truncate(currentPosition);
-        }
+        if (currentPosition < channel.size())
+            throw new StateCorruptedException("Could not read all bytes in file. position: " +
+                    currentPosition + " size: " + channel.size());
 
         state.committedEndOffset = state.endOffset;
         channel.position(channel.size());
@@ -567,17 +757,59 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         status = header.status();
     }
 
-    private void addSegmentMetadata(ObjectMetadata metadata, long byteOffset) {
-        // As there may be arbitrary overlap between flushedSegments, it is possible for a new
-        // segment to completely overlap a previous segment. We rely on on lookup via the
-        // start offset, and if we insert into the lookup map with the raw offset, it is possible
-        // for portions of a segment to be unfetchable unless we bound overlapping flushedSegments
-        // in the lookup map. e.g. if [100 - 200] is in the map at 100, and we insert [50 - 250]
-        // at 50, the portion 201 - 250 will be inaccessible.
-        SegmentState segmentState = new SegmentState(metadata.state(), byteOffset);
-        state.segments.put(Math.max(endOffset().orElse(-1L) + 1, metadata.startOffset()), segmentState);
-        // store end offset for immediate access
-        state.endOffset = metadata.startOffset() + metadata.endOffsetDelta();
+    // As there may be arbitrary overlap between flushedSegments, it is possible for a new
+    // segment to completely overlap a previous segment. We rely on on lookup via the
+    // start offset, and if we insert into the lookup map with the raw offset, it is possible
+    // for portions of a segment to be unfetchable unless we bound overlapping flushedSegments
+    // in the lookup map. e.g. if [100 - 200] is in the map at 100, and we insert [50 - 250]
+    // at 50, the portion 201 - 250 will be inaccessible.
+    private long startOffsetOfSegment(TierObjectMetadata metadata) {
+        return Math.max(metadata.baseOffset(), endOffset().orElse(-1L) + 1);
+    }
+
+    private void addSegmentMetadata(TierObjectMetadata metadata, long byteOffset) {
+        state.allSegments.putIfAbsent(metadata.objectId(), new SegmentState(startOffsetOfSegment(metadata), byteOffset));
+        SegmentState segmentState = state.allSegments.get(metadata.objectId());
+        segmentState.state = metadata.state();
+        long startOffset = segmentState.startOffset;
+
+        switch (metadata.state()) {
+            case SEGMENT_UPLOAD_INITIATE:
+                if (uploadInProgress != null)
+                    throw new IllegalStateException("Unexpected upload in progress " + uploadInProgress +
+                            " when appending " + metadata);
+                uploadInProgress = metadata.duplicate();
+                break;
+
+            case SEGMENT_UPLOAD_COMPLETE:
+                state.validSegments.put(startOffset, metadata.objectId());
+                state.endOffset = metadata.endOffset();  // store end offset for immediate access
+                uploadInProgress = null;
+                break;
+
+            case SEGMENT_DELETE_INITIATE:
+                state.validSegments.remove(startOffset);
+                break;
+
+            case SEGMENT_DELETE_COMPLETE:
+            case SEGMENT_FENCED:
+                break;
+
+            default:
+                throw new IllegalArgumentException("Unknown state " + metadata);
+        }
+    }
+
+    private static Path flushedFilePath(String basePath) {
+        return StateFileType.FLUSHED.filePath(basePath);
+    }
+
+    private static Path mutableFilePath(String basePath) {
+        return StateFileType.MUTABLE.filePath(basePath);
+    }
+
+    private static Path tmpFilePath(String basePath) {
+        return StateFileType.TEMPORARY.filePath(basePath);
     }
 
     private static class ReplicationMaterializationListener {
@@ -674,8 +906,9 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     private static class State {
         private final static State UNINITIALIZED_STATE = new State(null);
 
-        private final FileChannel channel;
-        private final ConcurrentNavigableMap<Long, SegmentState> segments = new ConcurrentSkipListMap<>();
+        private final FileChannel channel;  // the mutable file channel
+        private final ConcurrentNavigableMap<Long, UUID> validSegments = new ConcurrentSkipListMap<>();
+        private final ConcurrentNavigableMap<UUID, SegmentState> allSegments = new ConcurrentSkipListMap<>();
 
         private volatile Long endOffset = null;
         private volatile Long committedEndOffset = null;
@@ -684,14 +917,22 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         State(FileChannel channel) {
             this.channel = channel;
         }
+
+        long position(UUID objectId) {
+            SegmentState state = allSegments.get(objectId);
+            if (state != null)
+                return state.position;
+            throw new IllegalStateException("Could not find object " + objectId);
+        }
     }
 
     private static class SegmentState {
-        private final byte state;
+        private TierObjectMetadata.State state;
+        private final long startOffset;   // start offset of segment; this may be different from the base offset
         private final long position;
 
-        SegmentState(byte state, long position) {
-            this.state = state;
+        SegmentState(long startOffset, long position) {
+            this.startOffset = startOffset;
             this.position = position;
         }
 
@@ -705,12 +946,28 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
             SegmentState that = (SegmentState) o;
             return Objects.equals(state, that.state) &&
+                    Objects.equals(startOffset, that.startOffset) &&
                     Objects.equals(position, that.position);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(state, position);
+            return Objects.hash(state, startOffset, position);
+        }
+
+        @Override
+        public String toString() {
+            return "SegmentState(" +
+                    "state: " + state + ", " +
+                    "startOffset: " + startOffset + ", " +
+                    "position: " + position +
+                    ")";
+        }
+    }
+
+    private class StateCorruptedException extends RetriableException {
+        StateCorruptedException(String message) {
+            super(message);
         }
     }
 }

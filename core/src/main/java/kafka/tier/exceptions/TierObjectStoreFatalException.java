@@ -6,11 +6,7 @@ package kafka.tier.exceptions;
 
 public class TierObjectStoreFatalException extends RuntimeException {
 
-  public TierObjectStoreFatalException(String message, final Throwable cause) {
+  public TierObjectStoreFatalException(String message, Throwable cause) {
     super(message, cause);
-  }
-
-  public TierObjectStoreFatalException(final Throwable cause) {
-    super(cause);
   }
 }

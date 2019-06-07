@@ -1636,7 +1636,7 @@ class ReplicaManager(val config: KafkaConfig,
     }
   }
 
-  private def leaderPartitionsIterator: Iterator[Partition] =
+  def leaderPartitionsIterator: Iterator[Partition] =
     nonOfflinePartitionsIterator.filter(_.leaderReplicaIfLocal.isDefined)
 
   def getLogEndOffset(topicPartition: TopicPartition): Option[Long] =

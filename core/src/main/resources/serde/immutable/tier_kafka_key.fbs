@@ -1,15 +1,13 @@
-namespace kafka.tier.serdes;
+/*
+ Copyright 2019 Confluent Inc.
+ */
 
-// These state entry files should be written with a builder.forceDefaults(true);
+include "uuid.fbs";
+namespace kafka.tier.serdes;
 
 // DO NOT REUSE FIELD IDS AS THIS WILL BREAK FORWARD AND BACKWARD COMPAT
 // INSTEAD MARK THEM AS DEPRECATED
 // e.g. myfield:byte (id: 9, deprecated)
-
-struct UUID {
-  mostSignificantBits: long;
-  leastSignificantBits: long;
-}
 
 table TierKafkaKey {
   topicId: UUID (id: 0);

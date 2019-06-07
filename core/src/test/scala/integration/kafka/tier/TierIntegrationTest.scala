@@ -8,18 +8,17 @@ import java.io.File
 import java.lang.management.ManagementFactory
 import java.nio.ByteBuffer
 import java.util
-import java.util.Collections
+import java.util.{Collections, Optional, UUID}
 import java.util.function.Supplier
-import java.util.UUID
 
 import javax.management.{MBeanServer, ObjectName}
 import kafka.log._
 import kafka.server.{BrokerTopicStats, LogDirFailureChannel, ReplicaManager}
 import kafka.tier.archiver._
 import kafka.tier.client.{MockConsumerBuilder, MockProducerBuilder}
-import kafka.tier.state.{MemoryTierPartitionStateFactory, TierPartitionStatus}
-import kafka.tier.store.TierObjectStore.TierObjectStoreFileType
-import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
+import kafka.tier.state.{FileTierPartitionStateFactory, TierPartitionStatus}
+import kafka.tier.store.TierObjectStore.FileType
+import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStore, TierObjectStoreConfig}
 import kafka.utils.{MockTime, TestUtils}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record.MemoryRecords.RecordFilter
@@ -63,8 +62,8 @@ class TierIntegrationTest {
 
   def setup(numLogs: Integer = 2, numArchiverThreads: Integer = 10): Unit = {
     val tierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig())
-    val tierMetadataManager = new TierMetadataManager(new MemoryTierPartitionStateFactory(),
-      Some(tierObjectStore), new LogDirFailureChannel(1), true)
+    val tierMetadataManager = new TierMetadataManager(new FileTierPartitionStateFactory(),
+      Optional.of(tierObjectStore), new LogDirFailureChannel(1), true)
     val (tierTopicManager, consumerBuilder) = setupTierTopicManager(tierMetadataManager)
     val logConfig = LogTest.createLogConfig(segmentBytes = 150, indexIntervalBytes = 1, maxMessageBytes = 64 * 1024, tierEnable = true)
     val tempDir = TestUtils.tempDir()
@@ -150,7 +149,7 @@ class TierIntegrationTest {
 
     logs.foreach { log =>
       assertEquals("batch 1: segment should be materialized with correct offset relationship",
-        0L, tierTopicManager.partitionState(log.topicIdPartition.get).metadata(0).get().startOffset)
+        0L, tierTopicManager.partitionState(log.topicIdPartition.get).metadata(0).get().baseOffset)
       assertTrue("batch 1: segment should be materialized with correct end offset",
         tierTopicManager.partitionState(log.topicIdPartition.get).committedEndOffset.get() >= 3L)
     }
@@ -171,7 +170,7 @@ class TierIntegrationTest {
 
     logs.foreach { log =>
       assertEquals("batch 2: segment should be materialized with correct offset relationship",
-        4L, tierTopicManager.partitionState(log.topicIdPartition.get).metadata(6).get().startOffset)
+        4L, tierTopicManager.partitionState(log.topicIdPartition.get).metadata(6).get().baseOffset)
       assertTrue("batch 2: segment should be materialized with correct end offset",
         tierTopicManager.partitionState(log.topicIdPartition.get).committedEndOffset.get() >= 7L)
     }
@@ -189,7 +188,7 @@ class TierIntegrationTest {
 
     logs.foreach { log =>
       assertEquals("batch 3: segment should be materialized with correct offset relationship",
-        8L, tierTopicManager.partitionState(log.topicIdPartition.get).metadata(10).get().startOffset)
+        8L, tierTopicManager.partitionState(log.topicIdPartition.get).metadata(10).get().baseOffset)
       assertTrue("batch 3: segment should be materialized with correct end offset",
         tierTopicManager.partitionState(log.topicIdPartition.get).committedEndOffset.get() >= 11L)
     }
@@ -223,7 +222,7 @@ class TierIntegrationTest {
 
     logs.foreach { log =>
       assertEquals("Segment should be materialized with correct offset relationship",
-        0L, tierTopicManager.partitionState(log.topicIdPartition.get).metadata(0).get().startOffset)
+        0L, tierTopicManager.partitionState(log.topicIdPartition.get).metadata(0).get().baseOffset)
       assertTrue("Segment should be materialized with correct end offset",
         tierTopicManager.partitionState(log.topicIdPartition.get).committedEndOffset.get() >= 3)
     }
@@ -361,7 +360,7 @@ class TierIntegrationTest {
       val tierSegmentOffsets = tierPartitionState.segmentOffsets
       tierSegmentOffsets.asScala.foreach { offset =>
         val tierObjectMetadata = tierPartitionState.metadata(offset).get
-        assertNotNull(tierObjectStore.getObject(tierObjectMetadata, TierObjectStoreFileType.SEGMENT, 0, 1000).getObjectSize)
+        assertNotNull(tierObjectStore.getObject(new TierObjectStore.ObjectMetadata(tierObjectMetadata), FileType.SEGMENT, 0, 1000).getObjectSize)
       }
     }
   }

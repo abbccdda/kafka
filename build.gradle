@@ -817,21 +817,18 @@ project(':core') {
 
   task generateTierTopicSerdes(dependsOn: extractFlatbuffersCompiler) {
     doLast {
-      exec {
-        commandLine "${buildDir}/flatbuffers/bin/flatc", "--java", "--gen-mutable", "-o",
-                    "${buildDir}/generated/src/main/java", "src/main/resources/tier_partition_state_entry.fbs"
+      def mutableSerdesDir = "src/main/resources/serde/mutable"
+      file("$mutableSerdesDir").eachFile { file ->
+        exec {
+          commandLine "${buildDir}/flatbuffers/bin/flatc", "--java", "--gen-mutable", "-o", "${buildDir}/generated/src/main/java", "$file"
+        }
       }
-      exec {
-        commandLine "${buildDir}/flatbuffers/bin/flatc", "--java", "-o", "${buildDir}/generated/src/main/java",
-                    "src/main/resources/tier_init_leader.fbs"
-      }
-      exec {
-        commandLine "${buildDir}/flatbuffers/bin/flatc", "--java", "--gen-mutable", "-o", "${buildDir}/generated/src/main/java",
-                    "src/main/resources/tier_partition_state_header.fbs"
-      }
-      exec {
-        commandLine "${buildDir}/flatbuffers/bin/flatc", "--java", "-o", "${buildDir}/generated/src/main/java",
-                    "src/main/resources/tier_kafka_key.fbs"
+
+      def immutableSerdesDir = "src/main/resources/serde/immutable"
+      file("$immutableSerdesDir").eachFile { file ->
+        exec {
+          commandLine "${buildDir}/flatbuffers/bin/flatc", "--java", "-o", "${buildDir}/generated/src/main/java", "$file"
+        }
       }
     }
   }

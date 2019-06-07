@@ -18,7 +18,6 @@
 package org.apache.kafka.jmh.tier;
 
 import kafka.tier.TopicIdPartition;
-import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.domain.TierTopicInitLeader;
 import kafka.tier.state.FileTierPartitionStateFactory;
 import kafka.tier.state.TierPartitionState;
@@ -55,7 +54,7 @@ public class StateScanBenchmark {
     // accessing same status to be benchmarked
     public static class DiskState {
         private static final String BASE_DIR = System.getProperty("java.io.tmpdir") + "/" + UUID.randomUUID();
-        private static final TopicIdPartition TOPIC_TOPICID_PARTITION = new TopicIdPartition("mytopic", UUID.randomUUID(), 0);
+        private static final TopicIdPartition TOPIC_PARTITION = new TopicIdPartition("mytopic", UUID.randomUUID(), 0);
         private static final int COUNT = 10000;
         private static final int EPOCH = 0;
         private FileTierPartitionStateFactory factory;
@@ -67,15 +66,24 @@ public class StateScanBenchmark {
                 throw new Exception("could not create status directory.");
             }
             factory = new FileTierPartitionStateFactory();
-            state = factory.initState(new File(BASE_DIR), TOPIC_TOPICID_PARTITION.topicPartition(), true);
-            state.setTopicIdPartition(TOPIC_TOPICID_PARTITION);
-            state.append(new TierTopicInitLeader(TOPIC_TOPICID_PARTITION, EPOCH,
+            state = factory.initState(new File(BASE_DIR), TOPIC_PARTITION.topicPartition(), true);
+            state.setTopicIdPartition(TOPIC_PARTITION);
+            state.append(new TierTopicInitLeader(TOPIC_PARTITION, EPOCH,
                     java.util.UUID.randomUUID(), 0));
-            state.append(new TierTopicInitLeader(TOPIC_TOPICID_PARTITION, EPOCH,
+            state.append(new TierTopicInitLeader(TOPIC_PARTITION, EPOCH,
                     java.util.UUID.randomUUID(), 0));
             for (int i = 0; i < COUNT; i++) {
-                state.append(new TierObjectMetadata(TOPIC_TOPICID_PARTITION, EPOCH, i * 2,
-                        1, i, i, i, false, false, false, (byte) 0));
+                TierUtils.uploadWithMetadata(state,
+                        TOPIC_PARTITION,
+                        EPOCH,
+                        UUID.randomUUID(),
+                        i * 2,
+                        i * 2 + 1,
+                        i,
+                        i,
+                        false,
+                        true,
+                        false);
             }
             state.flush();
         }

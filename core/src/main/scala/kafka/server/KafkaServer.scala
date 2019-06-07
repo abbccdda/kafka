@@ -42,6 +42,7 @@ import kafka.tier.state.FileTierPartitionStateFactory
 import kafka.tier.store.{MockInMemoryTierObjectStore, S3TierObjectStore, TierObjectStore, TierObjectStoreConfig}
 import kafka.tier.{TierMetadataManager, TierTopicManager, TierTopicManagerConfig}
 import kafka.tier.fetcher.TierStateFetcher
+import kafka.tier.retention.TierRetentionManager
 import kafka.utils._
 import kafka.zk.{BrokerInfo, KafkaZkClient}
 import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, CommonClientConfigs, ManualMetadataUpdater, NetworkClient, NetworkClientUtils}
@@ -63,6 +64,7 @@ import org.apache.kafka.server.multitenant.MultiTenantMetadata
 
 import scala.collection.JavaConverters._
 import scala.collection.{Map, Seq, mutable}
+import scala.compat.java8.OptionConverters._
 
 object KafkaServer {
   // Copy the subset of properties that are relevant to Logs
@@ -159,6 +161,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   var tierStateFetcher: Option[TierStateFetcher] = None
   var tierObjectStore: Option[TierObjectStore] = None
   var tierArchiver: TierArchiver = null
+  var tierRetentionManager: TierRetentionManager = null
 
   var kafkaController: KafkaController = null
 
@@ -272,7 +275,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           tierStateFetcher = Some(new TierStateFetcher(config.tierObjectFetcherThreads, tierObjectStore.get))
         }
 
-        tierMetadataManager = new TierMetadataManager(new FileTierPartitionStateFactory(), tierObjectStore, logDirFailureChannel, config.tierFeature)
+        tierMetadataManager = new TierMetadataManager(new FileTierPartitionStateFactory(), tierObjectStore.asJava, logDirFailureChannel, config.tierFeature)
 
         /* start log manager */
         logManager = LogManager(config, initialOfflineDirs, zkClient, brokerState, kafkaScheduler, time, brokerTopicStats, logDirFailureChannel, tierMetadataManager)
@@ -332,6 +335,10 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           val tierArchiverConfig = TierArchiverConfig(config)
           tierArchiver = new TierArchiver(tierArchiverConfig, replicaManager, tierMetadataManager, tierTopicManager, tierObjectStore.get, time)
           tierArchiver.start()
+
+          tierRetentionManager = new TierRetentionManager(kafkaScheduler, replicaManager, tierMetadataManager,
+            tierTopicManager, tierObjectStore.get, config.logCleanupIntervalMs, time)
+          tierRetentionManager.startup()
         }
 
         /* Get the authorizer and initialize it if one is specified.*/
@@ -690,6 +697,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         if (tierArchiver != null)
           CoreUtils.swallow(tierArchiver.shutdown(), this)
+
+        if (tierRetentionManager != null)
+          CoreUtils.swallow(tierRetentionManager.shutdown(), this)
 
         if (tierTopicManager != null)
           CoreUtils.swallow(tierTopicManager.shutdown(), this)

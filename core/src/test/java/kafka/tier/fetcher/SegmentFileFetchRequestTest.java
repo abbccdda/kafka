@@ -8,7 +8,6 @@ import kafka.log.LogConfig;
 import kafka.log.LogSegment;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierObjectMetadata;
-import kafka.tier.serdes.State;
 import kafka.tier.store.MockInMemoryTierObjectStore;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreConfig;
@@ -53,13 +52,13 @@ public class SegmentFileFetchRequestTest {
         LogSegment segment = createSegment(0L, 3, 50);
 
         try {
-            TierObjectMetadata metadata = segmentMetadata(topicIdPartition, segment);
+            TierObjectStore.ObjectMetadata metadata = new TierObjectStore.ObjectMetadata(segmentMetadata(topicIdPartition, segment));
             Metrics metrics = new Metrics();
             putSegment(tierObjectStore, segment, metadata);
             Sensor recordBytesFetched = metrics.sensor("recordBytesFetched");
 
             long targetOffset = 149L;
-            PendingFetch pendingFetch = new PendingFetch(topicPartition, ctx, tierObjectStore,
+            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
                     recordBytesFetched,
                     metadata, key -> { }, targetOffset, 1024, Long.MAX_VALUE, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
@@ -96,15 +95,13 @@ public class SegmentFileFetchRequestTest {
         LogSegment segment = createSegment(0L, 3, 50);
 
         try {
-            TierObjectMetadata metadata = segmentMetadata(topicIdPartition, segment);
-
+            TierObjectStore.ObjectMetadata metadata = new TierObjectStore.ObjectMetadata(segmentMetadata(topicIdPartition, segment));
             putSegment(tierObjectStore, segment, metadata);
 
             Metrics metrics = new Metrics();
             Long targetOffset = 150L;
             Sensor recordBytesFetched = metrics.sensor("recordBytesFetched");
-            PendingFetch pendingFetch = new PendingFetch(topicPartition,
-                    ctx, tierObjectStore, recordBytesFetched,
+            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore, recordBytesFetched,
                     metadata, key -> { }, targetOffset, 1024, Long.MAX_VALUE, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
@@ -136,13 +133,12 @@ public class SegmentFileFetchRequestTest {
         LogSegment segment = createSegment(0L, 3, 50);
 
         try {
-            TierObjectMetadata metadata = segmentMetadata(topicIdPartition, segment);
-
+            TierObjectStore.ObjectMetadata metadata = new TierObjectStore.ObjectMetadata(segmentMetadata(topicIdPartition, segment));
             putSegment(tierObjectStore, segment, metadata);
             Metrics metrics = new Metrics();
             Long targetOffset = 51L;
             Sensor recordBytesFetched = metrics.sensor("recordBytesFetched");
-            PendingFetch pendingFetch = new PendingFetch(topicPartition, ctx, tierObjectStore,
+            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
                     recordBytesFetched, metadata, key -> { }, targetOffset, 1024,
                     100L, Collections.emptyList());
 
@@ -173,14 +169,13 @@ public class SegmentFileFetchRequestTest {
         return new TierObjectMetadata(
                 topicIdPartition,
                 0,
+                UUID.randomUUID(),
                 logSegment.baseOffset(),
-                (int) (logSegment.readNextOffset() - 1 - logSegment.baseOffset()),
-                1L,
+                logSegment.readNextOffset() - 1,
                 logSegment.largestTimestamp(),
                 logSegment.size(),
-                true,
-                false, false,
-                State.AVAILABLE);
+                TierObjectMetadata.State.SEGMENT_UPLOAD_INITIATE, false, false, true
+        );
     }
 
     private MemoryRecords createRecords(long offset, int n) {
@@ -216,7 +211,7 @@ public class SegmentFileFetchRequestTest {
         return segment;
     }
 
-    private void putSegment(TierObjectStore tierObjectStore, LogSegment segment, TierObjectMetadata metadata)
+    private void putSegment(TierObjectStore tierObjectStore, LogSegment segment, TierObjectStore.ObjectMetadata metadata)
             throws IOException {
         tierObjectStore.putSegment(
                 metadata, segment.log().file(), segment.offsetIndex().file(),

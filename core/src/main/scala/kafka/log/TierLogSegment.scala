@@ -8,12 +8,15 @@ import kafka.server.TierFetchDataInfo
 import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.fetcher.TierFetchMetadata
 import kafka.tier.store.TierObjectStore
-import org.apache.kafka.common.TopicPartition
 
-class TierLogSegment private[log] (private val topicPartition: TopicPartition,
-                                   private val segment: TierObjectMetadata,
+class TierLogSegment private[log] (private val segment: TierObjectMetadata,
+                                   val startOffset: Long,
                                    private val tierObjectStore: TierObjectStore) {
-  def baseOffset: Long = segment.startOffset
+  val metadata = new TierObjectStore.ObjectMetadata(segment)
+
+  def baseOffset: Long = segment.baseOffset
+
+  def endOffset: Long = segment.endOffset
 
   def size: Int = segment.size
 
@@ -22,17 +25,17 @@ class TierLogSegment private[log] (private val topicPartition: TopicPartition,
            maxSize: Int,
            maxPosition: Long,
            minOneMessage: Boolean): Option[TierFetchDataInfo] = {
-    if (startOffset < segment.startOffset() || startOffset > segment.endOffset()) {
+    if (startOffset < baseOffset || startOffset > segment.endOffset) {
       None
     } else {
       val maximumReadableBytes = math.min(maxSize, segment.size)
-      val fetchMetadata = TierFetchMetadata(topicPartition = topicPartition,
+      val fetchMetadata = TierFetchMetadata(topicPartition = segment.topicIdPartition.topicPartition,
         fetchStartOffset = startOffset,
         maxOffset = maxOffset,
         maxBytes = maximumReadableBytes,
         maxPosition = maxPosition,
         minOneMessage = minOneMessage,
-        segment,
+        segmentMetadata = metadata,
         transactionMetadata = None,
         segmentBaseOffset = baseOffset,
         segmentSize = segment.size)
@@ -41,9 +44,8 @@ class TierLogSegment private[log] (private val topicPartition: TopicPartition,
   }
 
   def nextOffset: Long = segment.endOffset + 1
-  def maxTimestamp: Long = segment.maxTimestamp()
-  def metadata: TierObjectMetadata = segment
+  def maxTimestamp: Long = segment.maxTimestamp
 
-  override def toString = s"topicPartition: $topicPartition baseOffset: $baseOffset tierObjectStore: $tierObjectStore"
+  override def toString = s"topicPartition: ${segment.topicIdPartition} baseOffset: $baseOffset tierObjectStore: $tierObjectStore"
 }
 

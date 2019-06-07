@@ -7,7 +7,6 @@ package kafka.tier.fetcher;
 import kafka.log.OffsetPosition;
 import kafka.server.DelayedOperationKey;
 import kafka.server.TierFetchOperationKey;
-import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
 import org.apache.kafka.common.TopicPartition;
@@ -29,8 +28,7 @@ public class PendingFetch implements Runnable {
     private final CancellationContext cancellationContext;
     private final TierObjectStore tierObjectStore;
     private final Sensor recordBytesFetched;
-    private final TopicPartition topicPartition;
-    private final TierObjectMetadata tierObjectMetadata;
+    private final TierObjectStore.ObjectMetadata objectMetadata;
     private final Consumer<DelayedOperationKey> fetchCompletionCallback;
     private final long targetOffset;
     private final int maxBytes;
@@ -40,21 +38,19 @@ public class PendingFetch implements Runnable {
     private final CompletableFuture<MemoryRecords> transferPromise;
     private Exception exception;
 
-    PendingFetch(TopicPartition topicPartition,
-                 CancellationContext cancellationContext,
+    PendingFetch(CancellationContext cancellationContext,
                  TierObjectStore tierObjectStore,
                  Sensor recordBytesFetched,
-                 TierObjectMetadata tierObjectMetadata,
+                 TierObjectStore.ObjectMetadata objectMetadata,
                  Consumer<DelayedOperationKey> fetchCompletionCallback,
                  long targetOffset,
                  int maxBytes,
                  long maxOffset,
                  List<TopicPartition> ignoredTopicPartitions) {
-        this.topicPartition = topicPartition;
         this.cancellationContext = cancellationContext;
         this.tierObjectStore = tierObjectStore;
         this.recordBytesFetched = recordBytesFetched;
-        this.tierObjectMetadata = tierObjectMetadata;
+        this.objectMetadata = objectMetadata;
         this.fetchCompletionCallback = fetchCompletionCallback;
         this.targetOffset = targetOffset;
         this.maxBytes = maxBytes;
@@ -68,7 +64,7 @@ public class PendingFetch implements Runnable {
      * @return list of DelayedOperationKeys that correspond to this request.
      */
     public List<DelayedOperationKey> delayedOperationKeys() {
-        return Collections.singletonList(new TierFetchOperationKey(topicPartition, requestId));
+        return Collections.singletonList(new TierFetchOperationKey(objectMetadata.topicIdPartition().topicPartition(), requestId));
     }
 
     /**
@@ -86,12 +82,12 @@ public class PendingFetch implements Runnable {
                     .fetchOffsetPositionForStartingOffset(
                             cancellationContext,
                             tierObjectStore,
-                            tierObjectMetadata,
+                            objectMetadata,
                             targetOffset);
             if (!cancellationContext.isCancelled()) {
                 try (final TierObjectStoreResponse response =
-                             tierObjectStore.getObject(tierObjectMetadata,
-                                     TierObjectStore.TierObjectStoreFileType.SEGMENT,
+                             tierObjectStore.getObject(objectMetadata,
+                                     TierObjectStore.FileType.SEGMENT,
                                      offsetPosition.position())) {
 
                     final MemoryRecords records = TierSegmentReader.loadRecords(cancellationContext,
@@ -119,11 +115,12 @@ public class PendingFetch implements Runnable {
             final Records records = transferPromise.get();
             final TierFetchResult tierFetchResult = new TierFetchResult(records, exception);
             recordBytesFetched.record(records.sizeInBytes());
-            resultMap.put(topicPartition, tierFetchResult);
+            resultMap.put(objectMetadata.topicIdPartition().topicPartition(), tierFetchResult);
         } catch (InterruptedException e) {
-            resultMap.put(topicPartition, TierFetchResult.emptyFetchResult());
+            resultMap.put(objectMetadata.topicIdPartition().topicPartition(), TierFetchResult.emptyFetchResult());
         } catch (ExecutionException e) {
-            resultMap.put(topicPartition, new TierFetchResult(MemoryRecords.EMPTY, e.getCause()));
+            resultMap.put(objectMetadata.topicIdPartition().topicPartition(),
+                    new TierFetchResult(MemoryRecords.EMPTY, e.getCause()));
         }
 
         for (TopicPartition ignoredTopicPartition : ignoredTopicPartitions) {
@@ -145,10 +142,10 @@ public class PendingFetch implements Runnable {
      */
     private void completeFetch(MemoryRecords records) {
         this.transferPromise.complete(records);
-        if (fetchCompletionCallback != null)
-            for (DelayedOperationKey key : delayedOperationKeys()) {
+        if (fetchCompletionCallback != null) {
+            for (DelayedOperationKey key : delayedOperationKeys())
                 fetchCompletionCallback.accept(key);
-            }
+        }
     }
 
 }

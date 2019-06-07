@@ -1,0 +1,25 @@
+/*
+ Copyright 2019 Confluent Inc.
+ */
+
+include "uuid.fbs";
+namespace kafka.tier.serdes;
+
+// DO NOT REUSE FIELD IDS AS THIS WILL BREAK FORWARD AND BACKWARD COMPAT
+// INSTEAD MARK THEM AS DEPRECATED
+// e.g. myfield:byte (id: 9, deprecated)
+
+table SegmentUploadInitiate {
+  version: byte (id: 0);
+  tierEpoch: int (id: 1);
+  objectId: UUID (id: 2);
+  baseOffset: long (id: 3);
+  endOffsetDelta: int (id: 4);
+  maxTimestamp: long (id: 5);
+  size: int (id: 6);
+  hasEpochState: bool (id: 7);
+  hasAbortedTxns: bool (id: 8);
+  hasProducerState: bool (id: 9);
+}
+
+root_type SegmentUploadInitiate;

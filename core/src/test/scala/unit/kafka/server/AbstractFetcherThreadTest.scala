@@ -29,10 +29,8 @@ import kafka.log.LogAppendInfo
 import kafka.message.NoCompressionCodec
 import kafka.server.AbstractFetcherThread.ResultWithPartitions
 import kafka.server.epoch.EpochEntry
-import kafka.tier.TierMetadataManager
+import kafka.tier.{TierMetadataManager, TopicIdPartition}
 import kafka.tier.domain.TierObjectMetadata
-import kafka.tier.serdes.State
-import kafka.tier.TopicIdPartition
 import kafka.utils.TestUtils
 import org.apache.kafka.common.KafkaException
 import org.apache.kafka.common.TopicPartition
@@ -991,7 +989,7 @@ class AbstractFetcherThreadTest {
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[MaterializingTierMetadata])
     assertEquals(0L, fetcher.fetchState(partition).get.fetchOffset)
 
-    promise.complete(new TierObjectMetadata(topicIdPartition, 0, 40L, 9, 0L, 0L, 100, false, false, false, State.AVAILABLE))
+    promise.complete(new TierObjectMetadata(topicIdPartition, 0, UUID.randomUUID, 40L, 49L, 0L, 100, TierObjectMetadata.State.SEGMENT_UPLOAD_INITIATE, false, false, false))
 
     fetcher.doWork() // transitions partition to FetchingTierState state
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[FetchingTierState])
@@ -1120,7 +1118,7 @@ class AbstractFetcherThreadTest {
 
       fetcher.fetchState(partition).get.state.isInstanceOf[MaterializingTierMetadata])
 
-    promiseSuccessful.complete(new TierObjectMetadata(topicIdPartition, 0, 9L, 1, 0L, 0L, 100, false, false, false, State.AVAILABLE))
+    promiseSuccessful.complete(new TierObjectMetadata(topicIdPartition, 0, UUID.randomUUID, 9L, 10L, 0L, 100, TierObjectMetadata.State.SEGMENT_UPLOAD_INITIATE, false, false, false))
 
     fetcher.doWork() // transitions partition to FetchingTierState state
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[FetchingTierState])
@@ -1180,7 +1178,7 @@ class AbstractFetcherThreadTest {
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[MaterializingTierMetadata])
 
     // complete tier materialization
-    materialization1.complete(new TierObjectMetadata(topicIdPartition, 0, 9L, 1, 0L, 0L, 100, false, false, false, State.AVAILABLE))
+    materialization1.complete(new TierObjectMetadata(topicIdPartition, 0, UUID.randomUUID, 9L, 10L, 0L, 100, TierObjectMetadata.State.SEGMENT_UPLOAD_INITIATE, false, false, false))
 
     fetcher.doWork() // transitions partition to FetchingTierState state
     assertTrue(fetcher.fetchState(partition).get.state.isInstanceOf[FetchingTierState])

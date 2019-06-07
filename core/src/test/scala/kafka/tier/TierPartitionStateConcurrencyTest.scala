@@ -7,8 +7,7 @@ package kafka.tier
 import java.util.UUID
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
 
-import kafka.tier.domain.{TierObjectMetadata, TierTopicInitLeader}
-import kafka.tier.serdes.State
+import kafka.tier.domain.TierTopicInitLeader
 import kafka.tier.state.FileTierPartitionState
 import kafka.utils.TestUtils
 import org.junit.Assert._
@@ -28,7 +27,7 @@ class StateSeek(state: FileTierPartitionState,
         val found = state
           .metadata(offset)
           .get()
-          .startOffset()
+          .baseOffset()
         if (offset != found) {
           error.set(new Exception("Unexpected offset found expected: " + offset + " found: " + found))
         }
@@ -108,18 +107,17 @@ class TierPartitionStateConcurrencyTest {
       var size = 0
       var i = 0
       while (System.currentTimeMillis() < startTime + runLengthMs) {
-        state.append(
-          new TierObjectMetadata(tpid,
-            epoch,
-            i * 2,
-            1,
-            1,
-            i,
-            i,
-            true,
-            false,
-            false,
-            State.AVAILABLE))
+        TierTestUtils.uploadWithMetadata(state,
+          tpid,
+          epoch,
+          UUID.randomUUID,
+          i * 2,
+          i * 2 + 1,
+          i,
+          i,
+          i,
+          false,
+          true)
         state.flush()
         latestStartOffset.set(i * 2)
         size += i

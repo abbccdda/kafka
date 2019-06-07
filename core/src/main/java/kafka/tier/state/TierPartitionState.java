@@ -11,6 +11,7 @@ import org.apache.kafka.common.TopicPartition;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.NavigableSet;
 import java.util.Optional;
 import java.util.concurrent.Future;
@@ -46,12 +47,6 @@ public interface TierPartitionState {
      * @return file handle for the directory
      */
     File dir();
-
-    /**
-     * Path to where the TierPartition is stored on disk.
-     * @return path
-     */
-    String path();
 
     /**
      * Determine start offset spanned by the TierPartitionState.
@@ -110,6 +105,8 @@ public interface TierPartitionState {
      * @throws IOException if disk error encountered
      */
     Optional<TierObjectMetadata> metadata(long targetOffset) throws IOException;
+
+    Collection<TierObjectMetadata> fencedSegments();
 
     /**
      * Appends abstract metadata to the tier partition.

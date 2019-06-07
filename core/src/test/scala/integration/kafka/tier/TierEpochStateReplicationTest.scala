@@ -23,7 +23,7 @@ import kafka.log.AbstractLog
 import kafka.server.KafkaConfig._
 import kafka.server.epoch.{LeaderEpochFileCache, EpochEntry}
 import kafka.server.{KafkaServer, KafkaConfig}
-import kafka.tier.TierUtils
+import kafka.tier.TierTestUtils
 import kafka.utils.{TestUtils, Logging}
 import kafka.utils.TestUtils._
 import kafka.zk.ZooKeeperTestHarness
@@ -72,7 +72,7 @@ class TierEpochStateReplicationTest extends ZooKeeperTestHarness with Logging {
     // we must make sure the tier topic is up before we start stopping brokers
     // otherwise no tiering will take place
     // Tier topic partition 0 will lie on all brokers due to RF.
-    brokers.foreach(b => TierUtils.awaitTierTopicPartition(b, 0))
+    brokers.foreach(b => TierTestUtils.awaitTierTopicPartition(b, 0))
 
     //A single partition topic with 2 replicas
     TestUtils.createTopic(zkClient, topic, Map(0 -> Seq(100, 101)), brokers, properties)

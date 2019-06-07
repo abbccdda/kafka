@@ -6,7 +6,6 @@ package kafka.tier.fetcher;
 
 import kafka.server.checkpoints.LeaderEpochCheckpointBuffer;
 import kafka.server.epoch.EpochEntry;
-import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
 import org.apache.kafka.common.utils.Utils;
@@ -50,12 +49,12 @@ public class TierStateFetcher {
      * @param metadata the tier object metadata for this tier state.
      * @return Future to be completed with a list of epoch entries.
      */
-    public CompletableFuture<List<EpochEntry>> fetchLeaderEpochState(TierObjectMetadata metadata) {
+    public CompletableFuture<List<EpochEntry>> fetchLeaderEpochState(TierObjectStore.ObjectMetadata metadata) {
         CompletableFuture<scala.collection.immutable.List<EpochEntry>> entries =
                 new CompletableFuture<>();
         executorService.execute(() -> {
             try (TierObjectStoreResponse response = tierObjectStore.getObject(metadata,
-                    TierObjectStore.TierObjectStoreFileType.EPOCH_STATE)) {
+                    TierObjectStore.FileType.EPOCH_STATE)) {
                 try (InputStreamReader inputStreamReader = new InputStreamReader(response.getInputStream())) {
                     try (BufferedReader bufferedReader = new BufferedReader(inputStreamReader)) {
                         LeaderEpochCheckpointBuffer checkPointBuffer = new LeaderEpochCheckpointBuffer(metadata.toString(), bufferedReader);
@@ -69,12 +68,10 @@ public class TierStateFetcher {
         return entries;
     }
 
-    public CompletableFuture<ByteBuffer> fetchProducerStateSnapshot(TierObjectMetadata metadata) {
-        if (!metadata.hasProducerState())
-            throw new IllegalStateException("TierObjectMetadata does not have producer state");
+    public CompletableFuture<ByteBuffer> fetchProducerStateSnapshot(TierObjectStore.ObjectMetadata metadata) {
         return CompletableFuture.supplyAsync(() -> {
             try (TierObjectStoreResponse response = tierObjectStore.getObject(metadata,
-                    TierObjectStore.TierObjectStoreFileType.PRODUCER_STATE)) {
+                    TierObjectStore.FileType.PRODUCER_STATE)) {
                 final long objectSize = response.getObjectSize();
                 if (objectSize > Integer.MAX_VALUE) {
                     throw new IllegalStateException("Tiered producer state snapshot too large");

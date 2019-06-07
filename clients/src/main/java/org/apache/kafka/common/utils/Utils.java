@@ -1008,6 +1008,18 @@ public final class Utils {
     }
 
     /**
+     * Write the source buffer into the given file, starting from the provided file position.
+     * @param channel File channel to write to
+     * @param filePosition File position to start the transfer from
+     * @param sourceBuffer Source buffer from which bytes are to be transferred
+     * @throws IOException
+     */
+    public static void writeFully(FileChannel channel, long filePosition, ByteBuffer sourceBuffer) throws IOException {
+        while (sourceBuffer.hasRemaining())
+            filePosition += channel.write(sourceBuffer, filePosition);
+    }
+
+    /**
      * Write the contents of a buffer to an output stream. The bytes are copied from the current position
      * in the buffer.
      * @param out The output to write to

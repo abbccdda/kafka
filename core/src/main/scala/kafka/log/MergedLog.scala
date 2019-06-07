@@ -14,8 +14,7 @@ import kafka.metrics.KafkaMetricsGroup
 import kafka.server._
 import kafka.server.epoch.LeaderEpochFileCache
 import kafka.tier.TierMetadataManager
-import kafka.tier.domain.TierObjectMetadata
-import kafka.tier.state.{MemoryTierPartitionStateFactory, TierPartitionState}
+import kafka.tier.state.{FileTierPartitionStateFactory, TierPartitionState, TierUtils}
 import kafka.tier.TierTimestampAndOffset
 import kafka.tier.TopicIdPartition
 import kafka.utils.{Logging, Scheduler}
@@ -29,7 +28,6 @@ import org.apache.kafka.common.utils.{Time, Utils}
 
 import scala.collection.mutable.ListBuffer
 import scala.collection.JavaConverters._
-import scala.collection.mutable
 import scala.compat.java8.OptionConverters._
 
 /**
@@ -193,35 +191,40 @@ class MergedLog(private[log] val localLog: Log,
   override def deleteOldSegments(): Int = {
     // Delete all eligible local segments if tiering is disabled. If tiering is enabled, allow deletion for eligible
     // tiered segments only. Local segments that have not been tiered yet must not be deleted.
-    val deleted =
-      if (!config.tierEnable) {
-        localLog.deleteOldSegments(None)
-      } else if (!tieredOffsets.isEmpty) {
-        val deletionUpperBoundOffset = tierPartitionState.committedEndOffset.asScala.map(upperBound => upperBound + 1).getOrElse(0L)
-        // Prevent deletion until the segment with the highest base offset in the set of deletable segments has a producer
-        // state snapshot. This ensures that no deletion will occur until it is guaranteed that all followers will be
-        // able to restore a consistent snapshot on OFFSET_TIERED_EXCEPTION.
-        def deletionCanProceed(deletableLogSegments: Seq[LogSegment]): Boolean = {
-          deletableLogSegments.lastOption.flatMap(lastSegment => {
-            // Check if there is a snapshot file for this segment, which would have been created using the
-            // next segments base offset on roll
-            producerStateManager.snapshotFileForOffset(lastSegment.readNextOffset)
-          }).isDefined
-        }
-        localLog.deleteOldSegments(Some(deletionUpperBoundOffset), deletionCanProceed) // do not delete any untiered segments
-      } else {
-        0
+    if (!config.tierEnable) {
+      val deleted = localLog.deleteOldSegments(None)
+      maybeIncrementLogStartOffset(localLogStartOffset)
+      deleted
+    } else {
+      val retentionDeleted = localLog.deleteOldSegments(None)  // apply retention: all segments are eligible for deletion
+
+      // Prevent hotset retention until the segment with the highest base offset in the set of deletable segments has a
+      // producer state snapshot. This ensures that no deletion will occur until it is guaranteed that all followers will
+      // be able to restore a consistent snapshot on OFFSET_TIERED_EXCEPTION.
+      def deletionCanProceed(deletableLogSegments: Seq[LogSegment]): Boolean = {
+        deletableLogSegments.lastOption.flatMap(lastSegment => {
+          // Check if there is a snapshot file for this segment, which would have been created using the
+          // next segments base offset on roll
+          producerStateManager.snapshotFileForOffset(lastSegment.readNextOffset)
+        }).isDefined
       }
-    if (deleted > 0) {
-      val logStartOffsetAfterDeletion = math.max(logStartOffset, firstTieredOffset.getOrElse(localLog.localLogStartOffset))
-      maybeIncrementLogStartOffset(logStartOffsetAfterDeletion)
+
+      // Apply hotset retention: do not delete any untiered segments
+      val deletionUpperBoundOffset = tierPartitionState.committedEndOffset.asScala.map(upperBound => upperBound + 1).getOrElse(0L)
+      val hotsetDeleted = localLog.deleteOldSegments(Some(deletionUpperBoundOffset), retentionType = HotsetRetention, deletionCanProceed)
+
+      if (retentionDeleted > 0)
+        maybeIncrementLogStartOffset(localLogStartOffset)
+      else
+        maybeIncrementLogStartOffset(firstTieredOffset.getOrElse(localLogStartOffset))
+
+      retentionDeleted + hotsetDeleted
     }
-    deleted
   }
 
   override def size: Long = {
     var size: Long = 0
-    uniqueLogSegments match { case (tieredSegments, localSegments) =>
+    uniqueLogSegments(logStartOffset, Long.MaxValue) match { case (tieredSegments, localSegments) =>
       // add up size of all tiered segments
       tieredSegments.foreach(size += _.size)
 
@@ -350,17 +353,17 @@ class MergedLog(private[log] val localLog: Log,
                        minOneMessage: Boolean,
                        includeAbortedTxns: Boolean,
                        logEndOffset: Long): TierFetchDataInfo = {
-    val tieredOffsets = this.tieredOffsets(startOffset, Long.MaxValue).asScala.iterator
+    val tieredSegments = TierUtils.tieredSegments(tieredOffsets(startOffset, Long.MaxValue), tierPartitionState, tierMetadataManager.tierObjectStore)
     val tierEndOffset = tierPartitionState.endOffset
 
-    if (tieredOffsets.isEmpty || startOffset > tierEndOffset.get || startOffset < logStartOffset)
+    if (tieredSegments.isEmpty || startOffset > tierEndOffset.get || startOffset < logStartOffset)
       throw new OffsetOutOfRangeException(s"Received request for offset $startOffset for partition $topicPartition, " +
         s"but we only have log segments in the range $logStartOffset to $logEndOffset with tierLogEndOffset: " +
         s"$tierEndOffset and localLogStartOffset: ${localLog.localLogStartOffset}")
 
-    while (tieredOffsets.hasNext) {
-      val currentOffset = tieredOffsets.next()
-      val segment = tierSegment(tierPartitionState.metadata(currentOffset).get)
+    val tieredSegmentsIt = tieredSegments.iterator
+    while (tieredSegmentsIt.hasNext) {
+      val segment = tieredSegmentsIt.next()
       val fetchInfoOpt = segment.read(startOffset, maxOffset, maxLength, segment.size, minOneMessage)
       fetchInfoOpt.map { fetchInfo =>
         // We could have segments for which aborted transactions metadata might not have been tiered yet. Include all
@@ -408,25 +411,23 @@ class MergedLog(private[log] val localLog: Log,
   private[log] def uniqueLogSegments(from: Long, to: Long): (Iterable[TierLogSegment], Iterable[LogSegment]) = {
     val localSegments = localLog.logSegments(from, to)
     val localStartOffset = localSegments.headOption.map(_.baseOffset)
-    val tieredSegments = new mutable.MutableList[TierLogSegment]
-    val tieredIterator = tieredOffsets(from, localStartOffset.getOrElse(to)).iterator()
-    while (tieredIterator.hasNext)
-      tieredSegments += tierSegment(tierPartitionState.metadata(tieredIterator.next()).get)
-
+    val tieredSegments = tieredLogSegments(from, localStartOffset.getOrElse(to))
     (tieredSegments, localSegments)
   }
 
+  def tieredLogSegments: Iterable[TierLogSegment] = tieredLogSegments(0, Long.MaxValue)
+
+  private[log] def tieredLogSegments(from: Long, to: Long): Iterable[TierLogSegment] = {
+    TierUtils.tieredSegments(tieredOffsets(from, to), tierPartitionState, tierMetadataManager.tierObjectStore)
+      .iterator.asScala.toIterable
+  }
+
   // Base offset of all tiered segments in the log
-  private def tieredOffsets: util.NavigableSet[java.lang.Long] = tierPartitionState.segmentOffsets
+  private def tieredOffsets: util.NavigableSet[java.lang.Long] = tierPartitionState.segmentOffsets(logStartOffset, Long.MaxValue)
 
   // Base offset of tiered segments beginning with the segment that includes "from" and ending with the segment that
   // includes up to "to-1" or the end of tiered segments if "to" is past the last tiered offset
   private def tieredOffsets(from: Long, to: Long): util.NavigableSet[java.lang.Long] = tierPartitionState.segmentOffsets(from, to)
-
-  // Construct TierLogSegment from the given metadata
-  private def tierSegment(objectMetadata: TierObjectMetadata): TierLogSegment = {
-    new TierLogSegment(topicPartition, objectMetadata, tierMetadataManager.tierObjectStore)
-  }
 
   // Throw an exception if "offset" has been tiered and has been deleted or is not present in the local log
   private def unsupportedIfOffsetNotLocal(offset: Long): Unit = {
@@ -482,11 +483,10 @@ class MergedLog(private[log] val localLog: Log,
     if (targetTimestamp.equals(ListOffsetRequest.EARLIEST_TIMESTAMP) || targetTimestamp.equals(ListOffsetRequest.LATEST_TIMESTAMP))
       return localLog.fetchOffsetByTimestamp(targetTimestamp)
 
-
     // if the targetTimestamp is within tiered unique log segments,
     // return a TierTimestampAndOffset to indicate a tier fetch request is required
-    val (tieredSegments, localSegments) = uniqueLogSegments
-    tieredSegments.find(t => t.maxTimestamp >= targetTimestamp) match {
+    val (tieredSegments, _) = uniqueLogSegments(logStartOffset, Long.MaxValue)
+    tieredSegments.find(_.maxTimestamp >= targetTimestamp) match {
       case Some(logSegment) =>
         Some(new TierTimestampAndOffset(targetTimestamp, logSegment.metadata))
 
@@ -496,10 +496,10 @@ class MergedLog(private[log] val localLog: Log,
   }
 
   override def legacyFetchOffsetsBefore(timestamp: Long, maxNumOffsets: Int): Seq[Long] = {
-    val (tieredSegments, localSegments) = uniqueLogSegments
+    val (tieredSegments, localSegments) = uniqueLogSegments(logStartOffset, Long.MaxValue)
     // Cache to avoid race conditions. `toBuffer` is faster than most alternatives and provides
     // constant time access while being safe to use with concurrent collections unlike `toArray`.
-    val segments = (tieredSegments.map(seg => (seg.baseOffset, seg.metadata.maxTimestamp, seg.size))
+    val segments = (tieredSegments.map(seg => (seg.baseOffset, seg.maxTimestamp, seg.size))
       ++ localSegments.map(seg => (seg.baseOffset, seg.lastModified, seg.size))).toBuffer
     localLog.legacyFetchOffsetsBefore(timestamp, maxNumOffsets, segments)
   }
@@ -610,7 +610,7 @@ object MergedLog {
             logDirFailureChannel: LogDirFailureChannel,
             tierMetadataManagerOpt: Option[TierMetadataManager] = None): MergedLog = {
     val tierMetadataManager = tierMetadataManagerOpt.getOrElse {
-      new TierMetadataManager(new MemoryTierPartitionStateFactory(), None, logDirFailureChannel, false)
+      new TierMetadataManager(new FileTierPartitionStateFactory(), None.asJava, logDirFailureChannel, false)
     }
     val topicPartition = Log.parseTopicPartitionName(dir)
     val tierPartitionState = tierMetadataManager.initState(topicPartition, dir, config)
@@ -718,6 +718,8 @@ sealed trait AbstractLog {
     *         if "to" is past the end of the log.
     */
   def localLogSegments(from: Long, to: Long): Iterable[LogSegment]
+
+  def tieredLogSegments: Iterable[TierLogSegment]
 
   /**
     * Get the next set of tierable segments, if any

@@ -4,60 +4,144 @@
 
 package kafka.tier.store;
 
+import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierObjectMetadata;
+import kafka.tier.exceptions.TierObjectStoreRetriableException;
+import kafka.utils.CoreUtils;
 
 import java.io.File;
 import java.io.IOException;
-import kafka.tier.exceptions.TierObjectStoreRetriableException;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 public interface TierObjectStore {
-    enum TierObjectStoreFileType {
-
+    enum FileType {
         SEGMENT("segment"),
         OFFSET_INDEX("offset-index"),
         TIMESTAMP_INDEX("timestamp-index"),
         TRANSACTION_INDEX("transaction-index"),
-        PRODUCER_STATE("producer-status"),
+        PRODUCER_STATE("producer-state"),
         EPOCH_STATE("epoch-state");
 
         private final String suffix;
 
-        public String getSuffix() {
+        public String suffix() {
             return suffix;
         }
 
-        TierObjectStoreFileType(String suffix) {
+        FileType(String suffix) {
             this.suffix = suffix;
         }
     }
 
-    TierObjectStoreResponse getObject(TierObjectMetadata objectMetadata,
-                                      TierObjectStoreFileType objectFileType,
-                                      Integer byteOffsetStart, Integer byteOffsetEnd)
-            throws IOException;
+    TierObjectStoreResponse getObject(ObjectMetadata objectMetadata,
+                                      FileType fileType,
+                                      Integer byteOffsetStart,
+                                      Integer byteOffsetEnd) throws IOException;
 
-    default TierObjectStoreResponse getObject(TierObjectMetadata objectMetadata,
-                                      TierObjectStoreFileType objectFileType,
-                                      Integer byteOffsetStart)
-            throws IOException {
-        return getObject(objectMetadata, objectFileType, byteOffsetStart, null);
+    default TierObjectStoreResponse getObject(ObjectMetadata objectMetadata,
+                                              FileType fileType,
+                                              Integer byteOffsetStart) throws IOException {
+        return getObject(objectMetadata, fileType, byteOffsetStart, null);
     }
 
-    default TierObjectStoreResponse getObject(TierObjectMetadata objectMetadata,
-                                      TierObjectStoreFileType objectFileType)
-            throws IOException {
-        return getObject(objectMetadata, objectFileType, null);
+    default TierObjectStoreResponse getObject(ObjectMetadata objectMetadata, FileType fileType) throws IOException {
+        return getObject(objectMetadata, fileType, null);
     }
 
-    TierObjectMetadata putSegment(TierObjectMetadata objectMetadata,
-                                  File segmentData,
-                                  File offsetIndexData,
-                                  File timestampIndexData,
-                                  Optional<File> producerStateSnapshotData,
-                                  File transactionIndexData,
-                                  Optional<File> epochState)
-            throws TierObjectStoreRetriableException, IOException;
+    void putSegment(ObjectMetadata objectMetadata,
+                    File segmentData,
+                    File offsetIndexData,
+                    File timestampIndexData,
+                    Optional<File> producerStateSnapshotData,
+                    File transactionIndexData,
+                    Optional<File> epochState) throws TierObjectStoreRetriableException, IOException;
+
+    void deleteSegment(ObjectMetadata objectMetadata) throws IOException;
 
     void close();
+
+    class ObjectMetadata {
+        private static final int CURRENT_VERSION = 0;
+
+        private final int version;
+        private final TopicIdPartition topicIdPartition;
+        private final UUID objectId;
+        private final int tierEpoch;
+        private final long baseOffset;
+
+        public ObjectMetadata(TopicIdPartition topicIdPartition,
+                              UUID objectId,
+                              int tierEpoch,
+                              long baseOffset) {
+            this.version = CURRENT_VERSION;
+            this.topicIdPartition = topicIdPartition;
+            this.objectId = objectId;
+            this.tierEpoch = tierEpoch;
+            this.baseOffset = baseOffset;
+        }
+
+        public ObjectMetadata(TierObjectMetadata metadata) {
+            this.version = metadata.version();
+            this.topicIdPartition = metadata.topicIdPartition();
+            this.objectId = metadata.objectId();
+            this.tierEpoch = metadata.tierEpoch();
+            this.baseOffset = metadata.baseOffset();
+        }
+
+        public int version() {
+            return version;
+        }
+
+        public TopicIdPartition topicIdPartition() {
+            return topicIdPartition;
+        }
+
+        public UUID objectId() {
+            return objectId;
+        }
+
+        public String objectIdAsBase64() {
+            return CoreUtils.uuidToBase64(objectId());
+        }
+
+        public int tierEpoch() {
+            return tierEpoch;
+        }
+
+        public long baseOffet() {
+            return baseOffset;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o)
+                return true;
+            if (o == null || getClass() != o.getClass())
+                return false;
+
+            ObjectMetadata that = (ObjectMetadata) o;
+            return tierEpoch == that.tierEpoch &&
+                    baseOffset == that.baseOffset &&
+                    Objects.equals(topicIdPartition, that.topicIdPartition) &&
+                    Objects.equals(objectId, that.objectId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(topicIdPartition, objectId, tierEpoch, baseOffset);
+        }
+
+        @Override
+        public String toString() {
+            return "ObjectMetadata(" +
+                    "topic=" + topicIdPartition +
+                    ", objectId=" + objectId +
+                    ", tierEpoch=" + tierEpoch +
+                    ", startOffset=" + baseOffset +
+                    ')';
+        }
+    }
 }
+

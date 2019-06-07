@@ -1,0 +1,18 @@
+/*
+ Copyright 2019 Confluent Inc.
+ */
+
+include "uuid.fbs";
+namespace kafka.tier.serdes;
+
+// DO NOT REUSE FIELD IDS AS THIS WILL BREAK FORWARD AND BACKWARD COMPAT
+// INSTEAD MARK THEM AS DEPRECATED
+// e.g. myfield:byte (id: 9, deprecated)
+
+table SegmentDeleteInitiate {
+  version: byte (id: 0);
+  tierEpoch: int (id: 1);
+  objectId: UUID (id: 2);
+}
+
+root_type SegmentDeleteInitiate;

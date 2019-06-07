@@ -31,6 +31,7 @@ import kafka.tier.TierMetadataManager
 import kafka.tier.archiver.CompletableFutureUtil
 import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.fetcher.TierStateFetcher
+import kafka.tier.store.TierObjectStore
 import org.apache.kafka.clients.FetchSessionHandler
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.KafkaStorageException
@@ -204,9 +205,10 @@ class ReplicaFetcherThread(name: String,
   }
 
   override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): Future[TierState] = {
-    val epochStateFut = tierStateFetcher.get.fetchLeaderEpochState(tierObjectMetadata)
+    val metadata = new TierObjectStore.ObjectMetadata(tierObjectMetadata)
+    val epochStateFut = tierStateFetcher.get.fetchLeaderEpochState(metadata)
     val producerStateFut = if (tierObjectMetadata.hasProducerState)
-      tierStateFetcher.get.fetchProducerStateSnapshot(tierObjectMetadata)
+      tierStateFetcher.get.fetchProducerStateSnapshot(metadata)
         .thenApply[Option[ByteBuffer]](new function.Function[ByteBuffer, Option[ByteBuffer]] {
           override def apply(buf: ByteBuffer): Option[ByteBuffer] = Some(buf)
         })

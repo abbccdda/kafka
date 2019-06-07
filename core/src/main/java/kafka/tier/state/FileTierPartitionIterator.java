@@ -6,7 +6,7 @@ package kafka.tier.state;
 
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierObjectMetadata;
-import kafka.tier.serdes.ObjectMetadata;
+import kafka.tier.serdes.TierPartitionStateEntry;
 import org.apache.kafka.common.errors.KafkaStorageException;
 import org.apache.kafka.common.utils.AbstractIterator;
 import org.apache.kafka.common.utils.Utils;
@@ -79,7 +79,7 @@ public class FileTierPartitionIterator extends AbstractIterator<TierObjectMetada
             // advance position
             position = currentPosition;
 
-            return new TierObjectMetadata(topicIdPartition, ObjectMetadata.getRootAsObjectMetadata(entryBuffer));
+            return new TierObjectMetadata(topicIdPartition, TierPartitionStateEntry.getRootAsTierPartitionStateEntry(entryBuffer));
         } catch (IOException e) {
             throw new KafkaStorageException(e);
         }

@@ -168,6 +168,10 @@ object RollParams {
   }
 }
 
+sealed trait RetentionType
+case object Retention extends RetentionType
+case object HotsetRetention extends RetentionType
+
 /**
  * An append-only log for storing messages.
  *
@@ -1550,15 +1554,18 @@ class Log(@volatile var dir: File,
    * if this method deleted any segments. This is done so MergedLog can update its log start offset before producer
    * snapshot and leader epoch cache can be truncated.
    *
-   * @param deletionUpperBoundOffset Optional upper bound offset. If specified, no segments at or above this offset will be deleted.
+   * @param deletionUpperBoundOffset Optional upper bound offset. If specified, this is the highest offset up to which deletion is permitted.
+   * @param retentionType Type of retention to apply.
    * @param tierDeletionCheck Optional predicate which takes the set of segments deemed deletable by hotset retention.
     *                         If the predicate returns true, deletion is allowed to proceed.
    * @return number of segments deleted
    */
-  def deleteOldSegments(deletionUpperBoundOffset: Option[Long], tierDeletionCheck: Seq[LogSegment] => Boolean = _ => true): Int = {
+  def deleteOldSegments(deletionUpperBoundOffset: Option[Long],
+                        retentionType: RetentionType = Retention,
+                        tierDeletionCheck: Seq[LogSegment] => Boolean = _ => true): Int = {
     if (config.delete) {
-      deleteRetentionMsBreachedSegments(deletionUpperBoundOffset, tierDeletionCheck) +
-        deleteRetentionSizeBreachedSegments(deletionUpperBoundOffset, size, tierDeletionCheck) +
+      deleteRetentionMsBreachedSegments(deletionUpperBoundOffset, retentionType, tierDeletionCheck) +
+        deleteRetentionSizeBreachedSegments(deletionUpperBoundOffset, size, retentionType, tierDeletionCheck) +
         deleteLogStartOffsetBreachedSegments()
     } else {
       deleteLogStartOffsetBreachedSegments()
@@ -1575,27 +1582,32 @@ class Log(@volatile var dir: File,
     }
   }
 
-  private[log] def deleteRetentionMsBreachedSegments(deletionUpperBoundOffsetOpt: Option[Long], tierDeletionCheck: Seq[LogSegment] => Boolean): Int = {
-    val (retentionMs, breachType) =
-      if (config.tierEnable)
-        (config.tierLocalHotsetMs, "hotset")
-      else
-        (config.retentionMs, "retention")
+  private def deleteRetentionMsBreachedSegments(deletionUpperBoundOffsetOpt: Option[Long],
+                                                retentionType: RetentionType,
+                                                tierDeletionCheck: Seq[LogSegment] => Boolean): Int = {
+    val retentionMs =
+      retentionType match {
+        case Retention => config.retentionMs
+        case HotsetRetention => config.tierLocalHotsetMs
+      }
 
     if (retentionMs < 0) return 0
     val startMs = time.milliseconds
     deleteOldSegments((segment, nextSegmentOpt) => {
       startMs - segment.largestTimestamp > retentionMs &&
         mayDeleteSegment(segment, nextSegmentOpt, deletionUpperBoundOffsetOpt)
-    }, reason = s"$breachType time ${retentionMs}ms breach", tierDeletionCheck)
+    }, reason = s"$retentionType time ${retentionMs}ms breach", tierDeletionCheck)
   }
 
-  private[log] def deleteRetentionSizeBreachedSegments(deletionUpperBoundOffsetOpt: Option[Long], size: Long, tierDeletionCheck: Seq[LogSegment] => Boolean): Int = {
-    val (retentionSize, breachType) =
-      if (config.tierEnable)
-        (config.tierLocalHotsetBytes, "hotset")
-      else
-        (config.retentionSize, "retention")
+  private def deleteRetentionSizeBreachedSegments(deletionUpperBoundOffsetOpt: Option[Long],
+                                                  size: Long,
+                                                  retentionType: RetentionType,
+                                                  tierDeletionCheck: Seq[LogSegment] => Boolean): Int = {
+    val retentionSize =
+      retentionType match {
+        case Retention => config.retentionSize
+        case HotsetRetention => config.tierLocalHotsetBytes
+      }
 
     if (retentionSize < 0 || size < retentionSize) return 0
     var diff = size - retentionSize
@@ -1608,10 +1620,10 @@ class Log(@volatile var dir: File,
       }
     }
 
-    deleteOldSegments(shouldDelete, reason = s"$breachType size in bytes $retentionSize breach", tierDeletionCheck)
+    deleteOldSegments(shouldDelete, reason = s"$retentionType size in bytes $retentionSize breach", tierDeletionCheck)
   }
 
-  private[log] def deleteLogStartOffsetBreachedSegments(): Int = {
+  private def deleteLogStartOffsetBreachedSegments(): Int = {
     def shouldDelete(segment: LogSegment, nextSegmentOpt: Option[LogSegment]) =
       nextSegmentOpt.exists(_.baseOffset <= mergedLogStartOffset)
 

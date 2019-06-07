@@ -1,18 +1,16 @@
 package kafka.tier.store
 
 import java.io.File
-import java.util.Optional
-import java.util.UUID
 
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.model.{InitiateMultipartUploadResult, UploadPartResult}
-import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.TopicIdPartition
-import kafka.tier.store.TierObjectStore.TierObjectStoreFileType
+import kafka.tier.domain.TierObjectMetadata
 import org.junit.Test
 import org.junit.Assert._
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.{mock, times, verify, when}
+import java.util.{Optional, UUID}
 
 class S3TierObjectStoreTest {
   @Test
@@ -23,7 +21,7 @@ class S3TierObjectStoreTest {
     val client = mock(classOf[AmazonS3])
     val config = new TierObjectStoreConfig("cluster", 3, "bucket", "region", "key", "id", "endpoint", "signer", "sseAlgorithm", partSize)
     val objectStore = new S3TierObjectStore(client, config)
-    val metadata = new TierObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID(), 0), 0, 0, 100, 100, 1000, segmentSize, false, false, false, 0.toByte)
+    val metadata = new TierObjectStore.ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0)
     val segmentData = mock(classOf[File])
 
     when(segmentData.length).thenReturn(segmentSize)
@@ -40,7 +38,7 @@ class S3TierObjectStoreTest {
     val client = mock(classOf[AmazonS3])
     val config = new TierObjectStoreConfig("cluster", 3, "bucket", "region", "key", "id", "endpoint", "signer", "sseAlgorithm", partSize)
     val objectStore = new S3TierObjectStore(client, config)
-    val metadata = new TierObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID(), 0), 0, 0, 100, 100, 1000, segmentSize, false, false, false, 0.toByte)
+    val metadata = new TierObjectStore.ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0)
     val segmentData = mock(classOf[File])
 
     when(segmentData.length).thenReturn(segmentSize)
@@ -60,7 +58,7 @@ class S3TierObjectStoreTest {
     val client = mock(classOf[AmazonS3])
     val config = new TierObjectStoreConfig("cluster", 3, "bucket", "region", "key", "id", "endpoint", "signer", "sseAlgorithm", partSize)
     val objectStore = new S3TierObjectStore(client, config)
-    val metadata = new TierObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID(), 0), 0, 0, 100, 100, 1000, segmentSize, false, false, false, 0.toByte)
+    val metadata = new TierObjectStore.ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0)
     val segmentData = mock(classOf[File])
 
     when(segmentData.length).thenReturn(segmentSize)
@@ -68,7 +66,6 @@ class S3TierObjectStoreTest {
     // expect 6 `put` calls: segment, offset index, time index, transaction index, producer snapshot and epoch state
     verify(client, times(6)).putObject(any())
   }
-
 
   @Test
   def testS3KeyGeneration(): Unit = {
@@ -78,9 +75,9 @@ class S3TierObjectStoreTest {
     val objectStore = new S3TierObjectStore(client, config)
 
     val topicId = UUID.fromString("43aeca7f-a684-4b60-bff8-9b3b783691bb")
-    val metadata = new TierObjectMetadata(new TopicIdPartition("foo", topicId, 0), 0,
-      0, 100, 100, 1000, 1000, false, false, false, 0.toByte)
-    assertEquals(s"0/${metadata.messageIdAsBase64}/Q67Kf6aES2C_-Js7eDaRuw/0/00000000000000000000_0_v0.segment",
-      objectStore.keyPath(metadata, TierObjectStoreFileType.SEGMENT))
+    val metadata = new TierObjectMetadata(new TopicIdPartition("foo", topicId, 0), 0, UUID.randomUUID,
+      0, 100, 100, 1000, TierObjectMetadata.State.SEGMENT_UPLOAD_COMPLETE, false, false, false)
+    assertEquals(s"0/${metadata.objectIdAsBase64}/Q67Kf6aES2C_-Js7eDaRuw/0/00000000000000000000_0_v0.segment",
+      objectStore.keyPath(new TierObjectStore.ObjectMetadata(metadata), TierObjectStore.FileType.SEGMENT))
   }
 }

@@ -284,7 +284,7 @@
 
     <!-- Tiered Storage exclusions -->
     <!-- flatbuffer generated classes -->
-    <suppress checks="[a-zA-Z0-9]*" files="(InitLeader|ObjectMetadata|UUID|State|TierPartitionStateHeader|TierKafkaKey).java"/>
+    <suppress checks=".+" files="core[\\/]build[\\/]generated[\\/]src[\\/]main[\\/]java[\\/]kafka[\\/]tier[\\/]serdes.+.java$"/>
 
     <!-- ce-metrics exclusions -->
     <suppress checks="NPathComplexity"

@@ -4,17 +4,17 @@
 
 package kafka.tier;
 
-import kafka.tier.domain.TierObjectMetadata;
+import kafka.tier.store.TierObjectStore;
 import org.apache.kafka.common.record.FileRecords;
 
 import java.util.Objects;
 import java.util.Optional;
 
 public class TierTimestampAndOffset implements FileRecords.TimestampAndOffset {
-    public final TierObjectMetadata metadata;
+    public final TierObjectStore.ObjectMetadata metadata;
     public final long timestamp;
 
-    public TierTimestampAndOffset(long timestamp, TierObjectMetadata metadata) {
+    public TierTimestampAndOffset(long timestamp, TierObjectStore.ObjectMetadata metadata) {
         this.timestamp = timestamp;
         this.metadata = metadata;
     }

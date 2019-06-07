@@ -25,7 +25,7 @@ import java.nio.charset.{Charset, StandardCharsets}
 import java.nio.file.{Files, StandardOpenOption}
 import java.security.cert.X509Certificate
 import java.time.Duration
-import java.util.{Collections, Properties}
+import java.util.{Collections, Optional, Properties}
 import java.util.concurrent.{Callable, ExecutionException, Executors, TimeUnit}
 
 import javax.net.ssl.X509TrustManager
@@ -40,7 +40,7 @@ import com.sun.management.UnixOperatingSystemMXBean
 import com.yammer.metrics.Metrics
 import kafka.controller.LeaderIsrAndControllerEpoch
 import kafka.tier.TierMetadataManager
-import kafka.tier.state.MemoryTierPartitionStateFactory
+import kafka.tier.state.FileTierPartitionStateFactory
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
 import kafka.zk._
 import org.apache.kafka.clients.CommonClientConfigs
@@ -987,8 +987,8 @@ object TestUtils extends Logging {
   }
 
   def createTierMetadataManager(logDirs: Seq[File]): TierMetadataManager =
-    new TierMetadataManager(new MemoryTierPartitionStateFactory,
-      Some(new MockInMemoryTierObjectStore(new TierObjectStoreConfig())),
+    new TierMetadataManager(new FileTierPartitionStateFactory,
+      Optional.of(new MockInMemoryTierObjectStore(new TierObjectStoreConfig())),
       new LogDirFailureChannel(logDirs.size),
       false)
 

@@ -1,10 +1,9 @@
 package kafka.server
 
-import java.util.Properties
+import java.util.{Properties, UUID}
 
 import kafka.integration.KafkaServerTestHarness
-import kafka.tier.domain.TierObjectMetadata
-import kafka.tier.serdes.State
+import kafka.tier.TierTestUtils
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
@@ -36,9 +35,8 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
     val properties = new Properties()
     properties.put(KafkaConfig.TierEnableProp, "true")
 
-    while (!tierTopicManager.isReady) {
+    while (!tierTopicManager.isReady)
       Thread.sleep(5)
-    }
 
     val topic1 = "foo"
     TestUtils.createTopic(this.zkClient, topic1, 2, 1,
@@ -47,46 +45,40 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
 
     TestUtils.waitUntilTrue(() => {
       val partitionState = tierMetadataManager.tierPartitionState(topicPartition)
-      partitionState.isPresent && partitionState.get().topicIdPartition().isPresent && partitionState.get().tierEpoch() == 0
+      partitionState.isPresent && partitionState.get.topicIdPartition.isPresent && partitionState.get.tierEpoch == 0
     }, "Did not become leader for TierPartitionState.")
 
-    val topicIdPartition1 = tierMetadataManager.tierPartitionState(topicPartition).get().topicIdPartition().get()
-    val metaresult1 = tierTopicManager
-      .addMetadata(
-        new TierObjectMetadata(
-          topicIdPartition1,
-          0,
-          0L,
-          1000,
-          15000L,
-          16000L,
-          100,
-          true,
-          false,
-          true,
-          State.AVAILABLE))
-      .get()
+    val tierPartitionState = tierMetadataManager.tierPartitionState(topicPartition).get
+    val topicIdPartition1 = tierPartitionState.topicIdPartition.get
+    val result1 = TierTestUtils.uploadWithMetadata(tierTopicManager,
+      topicIdPartition1,
+      tierEpoch = 0,
+      objectId = UUID.randomUUID,
+      startOffset = 0,
+      endOffset = 1000L,
+      maxTimestamp = 15000L,
+      lastModifiedTime = 0L,
+      size = 100,
+      hasAbortedTxnIndex = false,
+      hasEpochState = true,
+      hasProducerState = false)
+    assertEquals(AppendResult.ACCEPTED, result1.get)
 
-    assertEquals(AppendResult.ACCEPTED, metaresult1)
-
-    val tierPartitionState = tierTopicManager.partitionState(topicIdPartition1)
     tierPartitionState.flush()
     assertEquals(1000L, tierPartitionState.committedEndOffset.get())
-    val metaresult2 = tierTopicManager.addMetadata(
-      new TierObjectMetadata(
-        topicIdPartition1,
-        0,
-        0L,
-        1000,
-        15000L,
-        16000L,
-        200,
-        true,
-        false,
-        false,
-        State.AVAILABLE))
-
-    assertEquals(AppendResult.FENCED, metaresult2.get())
+    val result2 = TierTestUtils.uploadWithMetadata(tierTopicManager,
+      topicIdPartition1,
+      tierEpoch = 0,
+      objectId = UUID.randomUUID,
+      startOffset = 0L,
+      endOffset = 1000L,
+      maxTimestamp = 15000L,
+      lastModifiedTime = 0L,
+      size = 200,
+      hasAbortedTxnIndex = false,
+      hasEpochState = true,
+      hasProducerState = false)
+    assertEquals(AppendResult.FENCED, result2.get())
 
     tierPartitionState.flush()
     assertEquals(1000L, tierPartitionState.committedEndOffset.get())

@@ -16,7 +16,6 @@ import org.apache.kafka.common.errors.KafkaStorageException;
 import org.apache.kafka.common.internals.Topic;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.Option;
 import scala.runtime.AbstractFunction0;
 import static scala.compat.java8.JFunction.func;
 
@@ -49,16 +48,15 @@ public class TierMetadataManager {
     private static final Logger log = LoggerFactory.getLogger(TierMetadataManager.class);
 
     private final TierPartitionStateFactory tierPartitionStateFactory;
-    private final Option<TierObjectStore> tierObjectStore;
-    private final ConcurrentHashMap<TopicIdPartition, PartitionMetadata> tierMetadataById =
-            new ConcurrentHashMap<>();
+    private final Optional<TierObjectStore> tierObjectStore;
+    private final ConcurrentHashMap<TopicIdPartition, PartitionMetadata> tierMetadataById = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<TopicPartition, PartitionMetadata> tierMetadata = new ConcurrentHashMap<>();
     private final LogDirFailureChannel logDirFailureChannel;
     private final boolean tierFeatureEnabled;
     private final List<ChangeListener> changeListeners = new ArrayList<>();
 
     public TierMetadataManager(TierPartitionStateFactory tierPartitionStateFactory,
-                               Option<TierObjectStore> tierObjectStore,
+                               Optional<TierObjectStore> tierObjectStore,
                                LogDirFailureChannel logDirFailureChannel,
                                boolean tierFeatureEnabled) {
         this.tierPartitionStateFactory = tierPartitionStateFactory;
@@ -76,7 +74,8 @@ public class TierMetadataManager {
      * @return Initialized tier partition state
      * @throws IOException
      */
-    public synchronized TierPartitionState initState(TopicPartition topicPartition, File dir,
+    public synchronized TierPartitionState initState(TopicPartition topicPartition,
+                                                     File dir,
                                                      LogConfig logConfig) throws IOException {
         PartitionMetadata partitionMetadata = new PartitionMetadata(tierPartitionStateFactory, dir, topicPartition, logConfig, tierFeatureEnabled);
         tierMetadata.put(new TopicPartition(topicPartition.topic(), topicPartition.partition()),
@@ -276,8 +275,8 @@ public class TierMetadataManager {
      * store exists.
      * @return Tier object store handle
      */
-    public TierObjectStore tierObjectStore() {
-        return tierObjectStore.get();
+    public Optional<TierObjectStore> tierObjectStore() {
+        return tierObjectStore;
     }
 
     // Handle IO exceptions by marking the log directory offline

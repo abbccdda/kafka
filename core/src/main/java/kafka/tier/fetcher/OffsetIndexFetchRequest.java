@@ -5,7 +5,6 @@
 package kafka.tier.fetcher;
 
 import kafka.log.OffsetPosition;
-import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
 
@@ -23,14 +22,14 @@ final class OffsetIndexFetchRequest {
      */
     static OffsetPosition fetchOffsetPositionForStartingOffset(CancellationContext cancellationContext,
                                                                TierObjectStore tierObjectStore,
-                                                               TierObjectMetadata tierObjectMetadata,
+                                                               TierObjectStore.ObjectMetadata tierObjectMetadata,
                                                                long targetOffset) throws Exception {
-        final long startOffset = tierObjectMetadata.startOffset();
+        final long startOffset = tierObjectMetadata.baseOffet();
         final OffsetPosition defaultOffsetPosition = new OffsetPosition(startOffset, 0);
 
         try (TierObjectStoreResponse response = tierObjectStore.getObject(
                 tierObjectMetadata,
-                TierObjectStore.TierObjectStoreFileType.OFFSET_INDEX)) {
+                TierObjectStore.FileType.OFFSET_INDEX)) {
             final InputStream responseInputStream = response.getInputStream();
             OffsetPosition currentOffsetPosition = defaultOffsetPosition;
             final TierOffsetIndexIterator tierOffsetIndexIterator = new TierOffsetIndexIterator(responseInputStream, startOffset);

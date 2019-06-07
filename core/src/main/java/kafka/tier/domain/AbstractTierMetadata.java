@@ -6,14 +6,18 @@ package kafka.tier.domain;
 
 import kafka.tier.TopicIdPartition;
 import kafka.tier.serdes.InitLeader;
-import kafka.tier.serdes.ObjectMetadata;
 import kafka.tier.exceptions.TierMetadataDeserializationException;
 import kafka.tier.serdes.TierKafkaKey;
 import com.google.flatbuffers.FlatBufferBuilder;
+import kafka.tier.serdes.SegmentDeleteComplete;
+import kafka.tier.serdes.SegmentDeleteInitiate;
+import kafka.tier.serdes.SegmentUploadComplete;
+import kafka.tier.serdes.SegmentUploadInitiate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -45,7 +49,7 @@ public abstract class AbstractTierMetadata {
     public byte[] serializeValue() {
         final ByteBuffer payload = payloadBuffer();
         final ByteBuffer buf = ByteBuffer.allocate(payload.remaining() + TYPE_LENGTH);
-        buf.put(type());
+        buf.put(TierRecordType.toByte(type()));
         buf.put(payload);
         return buf.array();
     }
@@ -57,8 +61,7 @@ public abstract class AbstractTierMetadata {
      * @return AbstractTierMetadata if one could be deserialized. Empty if Tier Metadata ID unrecognized.
      * @throws TierMetadataDeserializationException
      */
-    public static Optional<AbstractTierMetadata> deserialize(byte[] key, byte[] value)
-            throws TierMetadataDeserializationException {
+    public static Optional<AbstractTierMetadata> deserialize(byte[] key, byte[] value) throws TierMetadataDeserializationException {
         final ByteBuffer keyBuf = ByteBuffer.wrap(key);
         final ByteBuffer valueBuf = ByteBuffer.wrap(value);
         final TierKafkaKey tierKey = TierKafkaKey.getRootAsTierKafkaKey(keyBuf);
@@ -68,14 +71,23 @@ public abstract class AbstractTierMetadata {
                 tierKey.partition());
 
         // deserialize value header with record type and tierEpoch
-        final byte type = valueBuf.get();
+        final TierRecordType type = TierRecordType.toType(valueBuf.get());
         switch (type) {
-            case TierTopicInitLeader.ID:
-                final InitLeader init = InitLeader.getRootAsInitLeader(valueBuf);
-                return Optional.of(new TierTopicInitLeader(topicIdPartition, init));
-            case TierObjectMetadata.ID:
-                final ObjectMetadata metadata = ObjectMetadata.getRootAsObjectMetadata(valueBuf);
-                return Optional.of(new TierObjectMetadata(topicIdPartition, metadata));
+            case InitLeader:
+                final InitLeader initLeader = InitLeader.getRootAsInitLeader(valueBuf);
+                return Optional.of(new TierTopicInitLeader(topicIdPartition, initLeader));
+            case SegmentUploadInitiate:
+                final SegmentUploadInitiate uploadInitiate = SegmentUploadInitiate.getRootAsSegmentUploadInitiate(valueBuf);
+                return Optional.of(new TierSegmentUploadInitiate(topicIdPartition, uploadInitiate));
+            case SegmentUploadComplete:
+                final SegmentUploadComplete uploadComplete = SegmentUploadComplete.getRootAsSegmentUploadComplete(valueBuf);
+                return Optional.of(new TierSegmentUploadComplete(topicIdPartition, uploadComplete));
+            case SegmentDeleteInitiate:
+                final SegmentDeleteInitiate deleteInitiate = SegmentDeleteInitiate.getRootAsSegmentDeleteInitiate(valueBuf);
+                return Optional.of(new TierSegmentDeleteInitiate(topicIdPartition, deleteInitiate));
+            case SegmentDeleteComplete:
+                final SegmentDeleteComplete deleteComplete = SegmentDeleteComplete.getRootAsSegmentDeleteComplete(valueBuf);
+                return Optional.of(new TierSegmentDeleteComplete(topicIdPartition, deleteComplete));
             default:
                 log.debug("Unknown tier metadata type with ID {}. Ignoring record.", type);
                 return Optional.empty();
@@ -85,7 +97,7 @@ public abstract class AbstractTierMetadata {
     /**
      * @return byte ID for this metadata entry type.
      */
-    public abstract byte type();
+    public abstract TierRecordType type();
 
     /**
      * Topic-partition corresponding to this tier metadata.
@@ -94,13 +106,38 @@ public abstract class AbstractTierMetadata {
     public abstract TopicIdPartition topicIdPartition();
 
     /**
+     * @return backing payload buffer for this metadata.
+     */
+    public abstract ByteBuffer payloadBuffer();
+
+    /**
      * tierEpoch for the tier metadata
      * @return tierEpoch
      */
     public abstract int tierEpoch();
 
     /**
-     * @return backing payload buffer for this metadata.
+     * Get a unique id for this message. This is a unique fingerprint that identifies the message.
+     * @return the message id
      */
-    public abstract ByteBuffer payloadBuffer();
+    public abstract UUID messageId();
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o)
+            return true;
+
+        if (o == null || getClass() != o.getClass())
+            return false;
+
+        AbstractTierMetadata that = (AbstractTierMetadata) o;
+        return type().equals(that.type()) &&
+                topicIdPartition().equals(that.topicIdPartition()) &&
+                payloadBuffer().equals(that.payloadBuffer());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(type(), topicIdPartition(), payloadBuffer());
+    }
 }
