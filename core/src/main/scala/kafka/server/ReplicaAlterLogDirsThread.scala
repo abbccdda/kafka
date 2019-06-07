@@ -135,6 +135,10 @@ class ReplicaAlterLogDirsThread(name: String,
     offsetSnapshot.logStartOffset
   }
 
+  override protected def fetchEarliestLocalOffsetFromLeader(topicPartition: TopicPartition, leaderEpoch: Int): Long = {
+    throw new UnsupportedOperationException("Alter log dirs does not support tiered partitions")
+  }
+
   override protected def fetchLatestOffsetFromLeader(topicPartition: TopicPartition, leaderEpoch: Int): Long = {
     val offsetSnapshot = offsetSnapshotFromCurrentReplica(topicPartition, leaderEpoch)
     offsetSnapshot.logEndOffset.messageOffset

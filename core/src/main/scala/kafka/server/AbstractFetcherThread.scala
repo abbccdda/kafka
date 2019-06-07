@@ -43,7 +43,7 @@ import kafka.server.epoch.EpochEntry
 import kafka.tier.TierMetadataManager
 import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.fetcher.TierStateFetcher
-import org.apache.kafka.common.{KafkaException, TopicPartition}
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.internals.PartitionStates
 import org.apache.kafka.common.record.{FileRecords, MemoryRecords, Records}
 import org.apache.kafka.common.requests._
@@ -84,7 +84,7 @@ import scala.math._
      |  +------+--------+
      +---------<
      |         |
-     |         | OFFSET_TIERED or OFFSET_OUT_OF_RANGE
+     |         | OFFSET_TIERED
      |  +------v--------+
      |  |               |
      |  | Materializing |
@@ -150,6 +150,8 @@ abstract class AbstractFetcherThread(name: String,
   protected def fetchFromLeader(fetchRequest: FetchRequest.Builder): Seq[(TopicPartition, FetchData)]
 
   protected def fetchEarliestOffsetFromLeader(topicPartition: TopicPartition, currentLeaderEpoch: Int): Long
+
+  protected def fetchEarliestLocalOffsetFromLeader(topicPartition: TopicPartition, currentLeaderEpoch: Int): Long
 
   protected def fetchLatestOffsetFromLeader(topicPartition: TopicPartition, currentLeaderEpoch: Int): Long
 
@@ -401,10 +403,10 @@ abstract class AbstractFetcherThread(name: String,
     }
   }
 
-  private def reinitializeTopicPartitionFromTier(topicPartition: TopicPartition): Boolean = {
+  private def onOffsetTiered(topicPartition: TopicPartition): Boolean = {
     try {
       Option(partitionStates.stateValue(topicPartition)).foreach { currentFetchState =>
-        val leaderStartOffset = fetchEarliestOffsetFromLeader(topicPartition, currentFetchState.currentLeaderEpoch)
+        val leaderStartOffset = fetchEarliestLocalOffsetFromLeader(topicPartition, currentFetchState.currentLeaderEpoch)
         val completionStatus = tierMetadataManager.materializeUntilOffset(topicPartition, leaderStartOffset - 1)
         partitionStates.updateAndMoveToEnd(topicPartition, currentFetchState.copy(state = MaterializingTierMetadata(completionStatus, currentFetchState.state)))
       }
@@ -421,14 +423,10 @@ abstract class AbstractFetcherThread(name: String,
         false
 
       case e: Throwable =>
-        error(s"Error getting offset for partition $topicPartition", e)
-        false
+        error(s"Error handling OFFSET_TIERED exception for $topicPartition", e)
+        markPartitionFailed(topicPartition)
+        true
     }
-  }
-
-  protected def isTiered(topicPartition: TopicPartition): Boolean = {
-    val partitionMetadata = tierMetadataManager.tierPartitionMetadata(topicPartition)
-    partitionMetadata.isPresent && partitionMetadata.get().tieringEnabled()
   }
 
   private def processFetchRequest(fetchStates: Map[TopicPartition, PartitionFetchState],
@@ -506,13 +504,8 @@ abstract class AbstractFetcherThread(name: String,
                       markPartitionFailed(topicPartition)
                   }
                 case Errors.OFFSET_OUT_OF_RANGE =>
-                  if (isTiered(topicPartition)) {
-                    debug(s"OFFSET_OUT_OF_RANGE for tiered partition $topicPartition. Restarting replication from tiering.")
-                    if (!reinitializeTopicPartitionFromTier(topicPartition))
-                      partitionsWithError += topicPartition
-                  } else if (!handleOutOfRangeError(topicPartition, currentFetchState)) {
+                  if (!handleOutOfRangeError(topicPartition, currentFetchState))
                     partitionsWithError += topicPartition
-                  }
 
                 case Errors.UNKNOWN_LEADER_EPOCH =>
                   debug(s"Remote broker has a smaller leader epoch for partition $topicPartition than " +
@@ -524,7 +517,7 @@ abstract class AbstractFetcherThread(name: String,
 
                 case Errors.OFFSET_TIERED =>
                   debug(s"Handling OFFSET_TIERED exception for partition $topicPartition")
-                  if (!reinitializeTopicPartitionFromTier(topicPartition))
+                  if (!onOffsetTiered(topicPartition))
                     partitionsWithError += topicPartition
 
                 case Errors.NOT_LEADER_FOR_PARTITION =>

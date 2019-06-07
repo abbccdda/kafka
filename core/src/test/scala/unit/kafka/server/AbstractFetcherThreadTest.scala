@@ -778,9 +778,7 @@ class AbstractFetcherThreadTest {
     val partition = new TopicPartition("topic", 0)
     val tierMetadataManager = mock(classOf[TierMetadataManager])
 
-    val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
-      override def isTiered(topicPartition: TopicPartition): Boolean = true
-    }
+    val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager)
 
     fetcher.setReplicaState(partition, MockFetcherThread.PartitionState(leaderEpoch = 0))
     fetcher.addPartitions(Map(partition -> offsetAndEpoch(0L, leaderEpoch = 0)))
@@ -807,8 +805,6 @@ class AbstractFetcherThreadTest {
       override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
         throw new Exception("should not fetch state")
       }
-
-      override def isTiered(topicPartition: TopicPartition): Boolean = true
     }
 
     val leaderEpoch = 0
@@ -842,11 +838,7 @@ class AbstractFetcherThreadTest {
     val partition = new TopicPartition("topic", 0)
     val tierMetadataManager = mock(classOf[TierMetadataManager])
 
-    val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
-      override def isTiered(topicPartition: TopicPartition): Boolean = {
-        true
-      }
-    }
+    val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager)
 
     // follower fetches from offset 41, as it has 0-40
     fetcher.setReplicaState(partition, MockFetcherThread.PartitionState(leaderEpoch = 0))
@@ -876,6 +868,67 @@ class AbstractFetcherThreadTest {
     fetcher.doWork() // is able to fetch messages
     assertEquals(43L, fetcher.fetchState(partition).get.fetchOffset)
     assertEquals(43L, followerState.logEndOffset)
+  }
+
+  // Gap between leader and follower
+  // Follower should start fetching from leader's log start offset
+  // and start replicating after that segment's end offset
+  // 0    20  40   60   80  100  120  140
+  //
+  //                        [           ] => leader
+  // [    ] => follower
+  @Test
+  def testFetchDeletedDataWithTiering(): Unit = {
+    val topicIdPartition = new TopicIdPartition("topic", UUID.randomUUID(), 0)
+    val partition = topicIdPartition.topicPartition()
+    val tierMetadataManager = mock(classOf[TierMetadataManager])
+
+    val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
+      override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
+        throw new Exception("Must not fetch tier state")
+      }
+
+      override def fetchEarliestLocalOffsetFromLeader(topicPartition: TopicPartition, leaderEpoch: Int): Long = {
+        throw new Exception("Must not attempt to use tier list offset request")
+      }
+
+      override def fetchFromLeader(fetchRequest: FetchRequest.Builder): Seq[(TopicPartition, FetchData)] = {
+        if (fetchRequest.fetchData.get(partition).fetchOffset >= 100)
+          super.fetchFromLeader(fetchRequest)
+        else
+          fetchRequest.fetchData.asScala.map { case (partition, _) =>
+            val (error, records) = (Errors.OFFSET_OUT_OF_RANGE, MemoryRecords.EMPTY)
+            val leaderState = leaderPartitionState(partition)
+            (partition, new FetchData(error, leaderState.highWatermark, leaderState.highWatermark, leaderState.logStartOffset,
+              List.empty.asJava, records))
+          }.toSeq
+      }
+    }
+
+    val leaderEpoch = 1
+    fetcher.setReplicaState(partition, MockFetcherThread.PartitionState(leaderEpoch = leaderEpoch))
+    fetcher.addPartitions(Map(partition -> offsetAndEpoch(21L, leaderEpoch = leaderEpoch)))
+
+    val leaderLog = Seq(
+      mkBatch(baseOffset = 100L, leaderEpoch = leaderEpoch,
+        new SimpleRecord("a".getBytes), new SimpleRecord("b".getBytes)),
+      mkBatch(baseOffset = 120L, leaderEpoch = leaderEpoch,
+        new SimpleRecord("a".getBytes),
+        new SimpleRecord("b".getBytes),
+        new SimpleRecord("c".getBytes),
+        new SimpleRecord("d".getBytes),
+        new SimpleRecord("e".getBytes)),
+      mkBatch(baseOffset = 139L, leaderEpoch = leaderEpoch,
+        new SimpleRecord("f".getBytes)))
+
+    val leaderState = MockFetcherThread.PartitionState(leaderLog, leaderEpoch = leaderEpoch, highWatermark = 139L)
+    fetcher.setLeaderState(partition, leaderState)
+
+    fetcher.doWork() // fails with offset out of range exception
+    assertEquals(100L, fetcher.fetchState(partition).get.fetchOffset)  // should now start fetching from leader's log start offset
+
+    fetcher.doWork()
+    assertTrue(fetcher.fetchState(partition).get.fetchOffset > 100)
   }
 
   // Gap between leader and follower
@@ -909,10 +962,6 @@ class AbstractFetcherThreadTest {
             (partition, new FetchData(error, leaderState.highWatermark, leaderState.highWatermark, leaderState.logStartOffset,
               List.empty.asJava, records))
           }.toSeq
-      }
-
-      override def isTiered(topicPartition: TopicPartition): Boolean = {
-        true
       }
     }
 
@@ -962,7 +1011,6 @@ class AbstractFetcherThreadTest {
     assertEquals(Fetching, fetcher.fetchState(partition).get.state)
   }
 
-
   @Test
   def testOffsetTieredLeaderEpochExceptionRetried(): Unit = {
     val topicIdPartition = new TopicIdPartition("topic", UUID.randomUUID(), 0)
@@ -978,10 +1026,6 @@ class AbstractFetcherThreadTest {
     val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
       override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
         stateFuture
-      }
-
-      override def isTiered(topicPartition: TopicPartition): Boolean = {
-        true
       }
 
       override def fetchFromLeader(fetchRequest: FetchRequest.Builder): Seq[(TopicPartition, FetchData)] = {
@@ -1035,10 +1079,6 @@ class AbstractFetcherThreadTest {
     val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
       override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
         stateFuture
-      }
-
-      override def isTiered(topicPartition: TopicPartition): Boolean = {
-        true
       }
 
       override def fetchFromLeader(fetchRequest: FetchRequest.Builder): Seq[(TopicPartition, FetchData)] = {
@@ -1115,10 +1155,6 @@ class AbstractFetcherThreadTest {
     val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
       override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
         tierStateFut
-      }
-
-      override def isTiered(topicPartition: TopicPartition): Boolean = {
-        true
       }
 
       override def fetchFromLeader(fetchRequest: FetchRequest.Builder): Seq[(TopicPartition, FetchData)] = {
@@ -1418,14 +1454,14 @@ class AbstractFetcherThreadTest {
       }
     }
 
-    override def isTiered(topicPartition: TopicPartition): Boolean = {
-      false
-    }
-
     override protected def fetchEarliestOffsetFromLeader(topicPartition: TopicPartition, leaderEpoch: Int): Long = {
       val leaderState = leaderPartitionState(topicPartition)
       checkLeaderEpochAndThrow(leaderEpoch, leaderState)
       leaderState.logStartOffset
+    }
+
+    override protected def fetchEarliestLocalOffsetFromLeader(topicPartition: TopicPartition, leaderEpoch: Int): Long = {
+      fetchEarliestOffsetFromLeader(topicPartition, leaderEpoch)
     }
 
     override protected def fetchLatestOffsetFromLeader(topicPartition: TopicPartition, leaderEpoch: Int): Long = {

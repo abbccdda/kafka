@@ -247,17 +247,18 @@ class ReplicaFetcherThread(name: String,
   }
 
   override protected def fetchEarliestOffsetFromLeader(topicPartition: TopicPartition, currentLeaderEpoch: Int): Long = {
-    if (brokerConfig.interBrokerProtocolVersion < KAFKA_2_2_IV1)
-      fetchOffsetFromLeader(topicPartition, currentLeaderEpoch, ListOffsetRequest.EARLIEST_TIMESTAMP)
-    else
+    fetchOffsetFromLeader(topicPartition, currentLeaderEpoch, ListOffsetRequest.EARLIEST_TIMESTAMP)
+  }
+
+  override protected def fetchEarliestLocalOffsetFromLeader(topicPartition: TopicPartition, currentLeaderEpoch: Int): Long = {
+    if (brokerConfig.tierFeature)
       fetchLocalOffsetFromLeader(topicPartition, currentLeaderEpoch, OffsetType.LOCAL_START_OFFSET)
+    else
+      throw new IllegalStateException("Incompatible configuration for tiered storage")
   }
 
   override protected def fetchLatestOffsetFromLeader(topicPartition: TopicPartition, currentLeaderEpoch: Int): Long = {
-    if (brokerConfig.interBrokerProtocolVersion < KAFKA_2_2_IV1)
-      fetchOffsetFromLeader(topicPartition, currentLeaderEpoch, ListOffsetRequest.LATEST_TIMESTAMP)
-    else
-      fetchLocalOffsetFromLeader(topicPartition, currentLeaderEpoch, OffsetType.LOCAL_END_OFFSET)
+    fetchOffsetFromLeader(topicPartition, currentLeaderEpoch, ListOffsetRequest.LATEST_TIMESTAMP)
   }
 
   private def fetchLocalOffsetFromLeader(topicPartition: TopicPartition, currentLeaderEpoch: Int, offsetType: OffsetType): Long = {
