@@ -58,10 +58,12 @@ public class EmbeddedKafka {
   private static final int DEFAULT_ZK_SESSION_TIMEOUT_MS = 10 * 1000;
   private static final int DEFAULT_ZK_CONNECTION_TIMEOUT_MS = 8 * 1000;
 
+  private final boolean loggingEnabled = true;
   private final File logDir;
   private final Properties effectiveConfig;
   public final TemporaryFolder tmpFolder;
-  private final KafkaServer kafka;
+  private final KafkaConfig kafkaConfig;
+  private KafkaServer kafka;
 
   /**
    * Creates and starts an embedded Kafka broker.
@@ -75,9 +77,8 @@ public class EmbeddedKafka {
     tmpFolder = new TemporaryFolder();
     tmpFolder.create();
     logDir = tmpFolder.newFolder();
-    final boolean loggingEnabled = true;
     effectiveConfig = brokerConfigs(config);
-    final KafkaConfig kafkaConfig = new KafkaConfig(effectiveConfig, loggingEnabled);
+    kafkaConfig = new KafkaConfig(effectiveConfig, loggingEnabled);
     log.debug("Starting embedded Kafka broker (with log.dirs={} and ZK ensemble at {}) ...",
         logDir, kafkaConfig.zkConnect());
     kafka = TestUtils.createServer(kafkaConfig, time);
@@ -124,17 +125,37 @@ public class EmbeddedKafka {
   }
 
   /**
-   * Shutdown the broker.
+   * Shutdown the broker and remove all data
    */
-  public void shutdown() {
+  public void shutdownAndCleanup() {
     log.debug("Shutting down embedded Kafka broker %s ...", this);
     kafka.shutdown();
     kafka.awaitShutdown();
+    kafka = null;
     log.debug("Removing logs.dir at {} ...", logDir);
     List<String> logDirs = Collections.singletonList(logDir.getAbsolutePath());
     CoreUtils.delete(scala.collection.JavaConversions.asScalaBuffer(logDirs).seq());
     tmpFolder.delete();
     log.debug("Shutdown of embedded Kafka broker completed %s.", this);
+  }
+
+  /**
+   * Shutdown the broker, but keep the data
+   */
+  public void shutdown() {
+    log.debug("Shutting down embedded Kafka broker %s ...", this);
+    kafka.shutdown();
+    kafka.awaitShutdown();
+    kafka = null;
+    log.debug("Shutdown of embedded Kafka broker completed %s.", this);
+  }
+
+  public void startBroker(final MockTime time) {
+    if (kafka == null) {
+      kafka = TestUtils.createServer(kafkaConfig, time);
+      log.debug("Started embedded Kafka broker (with log.dirs={} and ZK ensemble at {}) ...",
+                logDir, kafkaConfig.zkConnect());
+    }
   }
 
   /**

@@ -22,9 +22,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
+import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import kafka.api.Request;
 import kafka.server.KafkaConfig$;
@@ -43,13 +45,31 @@ public class EmbeddedKafkaCluster {
   private static final Logger log = LoggerFactory.getLogger(EmbeddedKafkaCluster.class);
   private static final int DEFAULT_BROKER_PORT = 0; // 0 results in a random port being selected
 
+  // this class assigns ports so that it can set internal and external advertised listener, which
+  // is useful to make sure that PhysicalClusterMetadata can instantiate admin client for topic
+  // deletion and SSL certificate updates. Sequence number ensures that ports are unique for
+  // tests running in parallel. We initialize sequence number with a random number, because we've
+  // seen cases that port is not available for some time after we close it; so we want to
+  // decrease the chance of port conflicts if that happens.
+  private static final int MAX_BROKERS = 100;
+  private static final int MIN_TEST_PORT = 2000;
+  private static final int MAX_TEST_PORT = 20000;
+  private static AtomicInteger instanceSequenceNumber =
+      new AtomicInteger(new Random().nextInt(MAX_TEST_PORT - MIN_TEST_PORT));
+
   private final MockTime time;
   private final List<EmbeddedKafka> brokers;
   private EmbeddedZookeeper zookeeper;
+  private final int basePort;
 
   public EmbeddedKafkaCluster() {
     time = new MockTime(System.currentTimeMillis(), System.nanoTime());
     brokers = new ArrayList<>();
+    // we need to add 2x of max brokers, because we are setting external and internal ports
+    basePort = MIN_TEST_PORT + instanceSequenceNumber.getAndAdd(2 * MAX_BROKERS);
+    if (basePort > MAX_TEST_PORT) {
+      instanceSequenceNumber.set(0);
+    }
   }
 
   public void startZooKeeper() {
@@ -59,11 +79,14 @@ public class EmbeddedKafkaCluster {
   }
 
   public void startBrokers(int numBrokers, Properties overrideProps) throws Exception {
+    if (numBrokers > MAX_BROKERS) {
+      throw new IllegalArgumentException("Exceeded maximum number of brokers in cluster");
+    }
     log.debug("Initiating embedded Kafka cluster startup with config {}", overrideProps);
 
     int brokerIdStart = Integer.parseInt(overrideProps.getOrDefault(KafkaConfig$.MODULE$.BrokerIdProp(), "0").toString());
     for (int i = 0; i < numBrokers; i++) {
-      Properties brokerConfig = createBrokerConfig(brokerIdStart + i, overrideProps);
+      Properties brokerConfig = createBrokerConfigWithListeners(brokerIdStart + i, i, overrideProps);
       log.debug("Starting a Kafka instance on port {} ...", brokerConfig.get(KafkaConfig$.MODULE$.PortProp()));
       EmbeddedKafka broker = new EmbeddedKafka.Builder(time).addConfigs(brokerConfig).build();
       brokers.add(broker);
@@ -87,6 +110,19 @@ public class EmbeddedKafkaCluster {
     putIfAbsent(brokerConfig, KafkaConfig$.MODULE$.OffsetsTopicPartitionsProp(), 5);
     putIfAbsent(brokerConfig, KafkaConfig$.MODULE$.AutoCreateTopicsEnableProp(), true);
     brokerConfig.put(KafkaConfig$.MODULE$.BrokerIdProp(), brokerId);
+    return brokerConfig;
+  }
+
+  public Properties createBrokerConfigWithListeners(int brokerId, int brokerIndex,
+                                                     Properties overrideProps) throws Exception {
+    final Integer intPort = basePort + brokerIndex;
+    final Integer extPort = basePort + MAX_BROKERS + brokerIndex;
+    String listeners = "INTERNAL://:" + intPort.toString() + ",EXTERNAL://:" + extPort.toString();
+
+    Properties brokerConfig = createBrokerConfig(brokerId, overrideProps);
+    brokerConfig.put(KafkaConfig$.MODULE$.PortProp(), extPort);
+    brokerConfig.put(KafkaConfig$.MODULE$.AdvertisedListenersProp(), listeners);
+    brokerConfig.put(KafkaConfig$.MODULE$.ListenersProp(), listeners);
     return brokerConfig;
   }
 
@@ -126,12 +162,35 @@ public class EmbeddedKafkaCluster {
     }
   }
 
+  /**
+   * Shutdown brokers but keep the data
+   */
+  public void shutdownBrokers() {
+    for (EmbeddedKafka broker : brokers) {
+      if (broker != null) {
+        broker.shutdown();
+      }
+    }
+  }
+
+  /**
+   * Start existing brokers. Assumes brokers have been previously shutdown
+   */
+  public void startBrokersAfterShutdown() {
+    for (EmbeddedKafka broker : brokers) {
+      if (broker != null) {
+        broker.startBroker(time);
+      }
+    }
+  }
+
+  /**
+   * Shutdown brokers and zookeeper and remove all data
+   */
   public void shutdown() {
-    if (brokers != null) {
-      for (EmbeddedKafka broker : brokers) {
-        if (broker != null) {
-          broker.shutdown();
-        }
+    for (EmbeddedKafka broker : brokers) {
+      if (broker != null) {
+        broker.shutdownAndCleanup();
       }
     }
     if (zookeeper != null) {

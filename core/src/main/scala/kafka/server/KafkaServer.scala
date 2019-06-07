@@ -175,7 +175,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   private var _clusterId: String = null
   private var _brokerTopicStats: BrokerTopicStats = null
 
-  val multitenantMetadata: MultiTenantMetadata = ConfluentConfigs.buildMultitenantMetadata(config.values)
+  var multitenantMetadata: MultiTenantMetadata = null
 
   def clusterId: String = _clusterId
 
@@ -381,6 +381,10 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         // Create the config manager. start listening to notifications
         dynamicConfigManager = new DynamicConfigManager(zkClient, dynamicConfigHandlers)
         dynamicConfigManager.startup()
+
+        // multi-tenant metadata watcher should be initialized after dynamic config manager is
+        // initialized and before socket server processors
+        multitenantMetadata = ConfluentConfigs.buildMultitenantMetadata(config.values)
 
         socketServer.startControlPlaneProcessor()
         val authorizerFuture = authorizer.collect {

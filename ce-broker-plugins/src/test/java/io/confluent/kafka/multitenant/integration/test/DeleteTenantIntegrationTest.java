@@ -7,12 +7,10 @@ import io.confluent.kafka.multitenant.authorizer.MultiTenantAuthorizer;
 import io.confluent.kafka.multitenant.integration.cluster.LogicalCluster;
 import io.confluent.kafka.multitenant.integration.cluster.LogicalClusterUser;
 import io.confluent.kafka.multitenant.integration.cluster.PhysicalCluster;
-import io.confluent.kafka.server.plugins.policy.TopicPolicyConfig;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
 import kafka.admin.AclCommand;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
-import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.acl.AccessControlEntryFilter;
@@ -35,9 +33,7 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -46,6 +42,7 @@ import java.util.stream.Collectors;
 import static io.confluent.kafka.multitenant.Utils.LC_META_ABC;
 import static io.confluent.kafka.multitenant.Utils.LC_META_XYZ;
 import static junit.framework.TestCase.assertTrue;
+import static junit.framework.TestCase.assertFalse;
 
 
 public class DeleteTenantIntegrationTest {
@@ -61,7 +58,6 @@ public class DeleteTenantIntegrationTest {
     private LogicalCluster lc2;
     private PhysicalClusterMetadata metadata;
     private List<NewTopic> sampleTopics = Collections.singletonList(new NewTopic("abcd", 3, (short) 1));
-    private String internalBootstrap;
     private int adminUserId = 100;
 
     @Rule
@@ -69,21 +65,18 @@ public class DeleteTenantIntegrationTest {
 
     @Before
     public void setUp() throws Exception {
-
-        testHarness = new IntegrationTestHarness();
-
-        physicalCluster = testHarness.start(brokerProps());
-
-        lc1 = physicalCluster.createLogicalCluster(LC_META_ABC.logicalClusterId(), adminUserId, 9, 11, 12);
-        lc2 = physicalCluster.createLogicalCluster(LC_META_XYZ.logicalClusterId(), adminUserId, 9, 11, 12);
-
-        metadata = updatePhysicalClusterMetadata(physicalCluster);
-
         Utils.createLogicalClusterFile(LC_META_ABC, tempFolder);
         Utils.createLogicalClusterFile(LC_META_XYZ, tempFolder);
+
+        testHarness = new IntegrationTestHarness();
+        physicalCluster = testHarness.start(brokerProps());
+        lc1 = physicalCluster.createLogicalCluster(LC_META_ABC.logicalClusterId(), adminUserId, 9, 11, 12);
+        lc2 = physicalCluster.createLogicalCluster(LC_META_XYZ.logicalClusterId(), adminUserId, 9, 11, 12);
+        metadata = metadata(physicalCluster);
+
         TestUtils.waitForCondition(
-                () -> metadata.logicalClusterIds().size() == 2,
-                "Expected metadata of new logical cluster to be present in metadata cache");
+            () -> metadata.logicalClusterIds().size() == 2,
+            "Expected metadata of new logical cluster to be present in metadata cache");
     }
 
     @After
@@ -149,6 +142,49 @@ public class DeleteTenantIntegrationTest {
     }
 
     @Test
+    public void testTenantDeleteWhileClusterIsDown() throws Exception {
+        // Create topic with same name in two logical clusters
+        AdminClient adminClient1 = testHarness.createAdminClient(lc1.adminUser());
+        AdminClient adminClient2 = testHarness.createAdminClient(lc2.adminUser());
+
+        adminClient1.createTopics(sampleTopics).all().get();
+        adminClient2.createTopics(sampleTopics).all().get();
+
+        // Check that both clusters have the topics
+        List<String> expectedTopics = sampleTopics.stream().map(NewTopic::name)
+            .collect(Collectors.toList());
+        assertTrue(adminClient1.listTopics().names().get().containsAll(expectedTopics));
+        assertTrue(adminClient2.listTopics().names().get().containsAll(expectedTopics));
+
+        testHarness.shutdownBrokers();
+
+        // ABC tenant gets deleted while cluster is down
+        LogicalClusterMetadata deleted = deleteLogicalCluster(LC_META_ABC);
+
+        testHarness.startBrokers();
+        // metadata instance is different after broker restart
+        metadata = metadata(physicalCluster);
+        // tenant is deleted on startup in main thread, no need to wait
+        assertFalse(metadata.logicalClusterIds().contains(deleted.logicalClusterId()));
+
+        // topics of deleted tenants are deleted on the next cache reload to ensure that metadata
+        // gets propagated to brokers
+        TestUtils.waitForCondition(
+            () -> {
+              try {
+                return adminClient1.listTopics().names().get().size() == 0;
+              } catch (Exception e) {
+                return false;
+              }
+            },
+            TEST_MAX_WAIT_MS,
+            "Expecting that the tenant topics were deleted");
+
+        // Make sure the other cluster still has topics!
+        assertTrue(adminClient2.listTopics().names().get().containsAll(expectedTopics));
+    }
+
+    @Test
     public void testDeleteSingleTenantWithACLs() throws InterruptedException, IOException,
             ExecutionException {
 
@@ -164,9 +200,6 @@ public class DeleteTenantIntegrationTest {
         // Also creating ACL for a user on the second logical cluster. Lets not delete this one
         AclCommand.main(SecurityTestUtils.produceAclArgs(testHarness.zkConnect(),
                 user2.prefixedKafkaPrincipal(), user2.withPrefix("topic1"), PatternType.LITERAL));
-
-        Properties props = new Properties();
-        props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, internalBootstrap);
 
         AdminClient superClient = physicalCluster.superAdminClient();
         Collection<AclBinding> describedAcls = superClient.describeAcls(new AclBindingFilter(
@@ -205,7 +238,7 @@ public class DeleteTenantIntegrationTest {
         describedAcls = superClient.describeAcls(new AclBindingFilter(
                 new ResourcePatternFilter(ResourceType.ANY, null, PatternType.ANY),
                 new AccessControlEntryFilter(user2.prefixedKafkaPrincipal().toString(), null,
-                        AclOperation.ANY, AclPermissionType.ANY)
+                                             AclOperation.ANY, AclPermissionType.ANY)
         )).values().get();
 
         assertTrue("ACLs should exist", describedAcls.size() > 0);
@@ -230,7 +263,6 @@ public class DeleteTenantIntegrationTest {
         testHarness.shutdown();
 
         PhysicalCluster physicalCluster = testHarness.start(props);
-        PhysicalClusterMetadata metadata = updatePhysicalClusterMetadata(physicalCluster);
 
         Utils.createLogicalClusterFile(LC_META_ABC, tempFolder);
 
@@ -238,6 +270,7 @@ public class DeleteTenantIntegrationTest {
         LogicalClusterMetadata deleted1 = deleteLogicalCluster(LC_META_ABC);
 
         // make sure it is completely deleted
+        PhysicalClusterMetadata metadata = metadata(physicalCluster);
         TestUtils.waitForCondition(
                 () ->   metadata.tenantLifecycleManager.fullyDeletedClusters().contains(deleted1.logicalClusterId()),
                 TEST_MAX_WAIT_MS,
@@ -266,10 +299,10 @@ public class DeleteTenantIntegrationTest {
         testHarness.shutdown();
 
         PhysicalCluster physicalCluster = testHarness.start(props);
-        PhysicalClusterMetadata metadata = updatePhysicalClusterMetadata(physicalCluster);
 
         Utils.createLogicalClusterFile(LC_META_ABC, tempFolder);
 
+        PhysicalClusterMetadata metadata = metadata(physicalCluster);
         TestUtils.waitForCondition(
                 () -> metadata.logicalClusterIds().contains(LC_META_ABC.logicalClusterId()),
                 TEST_MAX_WAIT_MS,
@@ -308,20 +341,7 @@ public class DeleteTenantIntegrationTest {
         return deleted;
     }
 
-    // Update the metadata plugin with a valid internal listener configuration
-    private PhysicalClusterMetadata updatePhysicalClusterMetadata(PhysicalCluster physicalCluster) {
-        PhysicalClusterMetadata metadata =
-                (PhysicalClusterMetadata) physicalCluster.kafkaCluster().brokers().get(0).multitenantMetadata();
-
-        Map<String, Object> configs = new HashMap<>();
-        internalBootstrap =
-                "INTERNAL://" + physicalCluster.kafkaCluster().kafkas().get(0).brokerConnect("INTERNAL");
-        configs.put(KafkaConfig.AdvertisedListenersProp(), internalBootstrap);
-        configs.put(TopicPolicyConfig.INTERNAL_LISTENER_CONFIG,
-                TopicPolicyConfig.DEFAULT_INTERNAL_LISTENER);
-        metadata.tenantLifecycleManager.updateAdminClient(configs);
-
-        return metadata;
+    private PhysicalClusterMetadata metadata(PhysicalCluster physicalCluster) {
+        return (PhysicalClusterMetadata) physicalCluster.kafkaCluster().brokers().get(0).multitenantMetadata();
     }
-
 }

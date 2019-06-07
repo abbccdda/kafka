@@ -38,6 +38,18 @@ public class IntegrationTestHarness {
     return physicalCluster;
   }
 
+  public void shutdownBrokers() throws Exception {
+    if (physicalCluster != null) {
+      physicalCluster.kafkaCluster().shutdownBrokers();
+    }
+  }
+
+  public void startBrokers() throws Exception {
+    if (physicalCluster != null) {
+      physicalCluster.kafkaCluster().startBrokersAfterShutdown();
+    }
+  }
+
   public void shutdown() throws Exception {
     producers.forEach(KafkaProducer::close);
     consumers.forEach(KafkaConsumer::close);

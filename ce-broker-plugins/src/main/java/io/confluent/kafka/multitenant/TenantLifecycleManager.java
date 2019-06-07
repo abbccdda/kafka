@@ -39,6 +39,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 public class TenantLifecycleManager {
@@ -54,6 +55,7 @@ public class TenantLifecycleManager {
     private final ExecutorService topicDeletionExecutor;
     private final Properties adminClientProps = new Properties();
     private AdminClient adminClient;
+    private AtomicBoolean initialDelete = new AtomicBoolean(false);
 
     enum State {
         ACTIVE,
@@ -178,6 +180,23 @@ public class TenantLifecycleManager {
     public void deleteTenants() {
         if (adminClient == null)
             return;
+
+        // This is a workaround for the following issue:
+        // PhysicalClusterMetadata may call deleteTenants just after broker startup. If we do
+        // this on main thread (current implementation), there are edge cases where admin client
+        // may not find any brokers and timeout, in which case we block the main thread for
+        // LIST_METADATA_TIMEOUT_MS, thus increasing broker startup time by
+        // LIST_METADATA_TIMEOUT_MS.
+        // Note that calling deleteTenants from another thread, but right during broker startup,
+        // has different edge cases. If this is the first broker to start, which also becomes a
+        // controller, admin client may ask for topic metadata before the broker gets topic info
+        // in its metadata cache. In this case, it will appear that a deleted tenant does not have
+        // any topics, so we mark this tenant deleted thus leaking the topics. This is a very
+        // unlikely scenario in cloud, since we don't normally shutdown the whole cluster.
+        // However, it's better to be safe and to skip the first tenant delete and delete on next retry
+        if (initialDelete.compareAndSet(false, true)) {
+            return;
+        }
 
         Set<String> deleteInProgressClusters = deleteInProgressClusters();
         if (deleteInProgressClusters.isEmpty())
