@@ -101,6 +101,9 @@ public class TenantLifecycleManagerTest {
                 Collections.singletonList(new NewTopic(tc.addTenantPrefix("topic"), 3, (short) 1));
         mockAdminClient.createTopics(sampleTopics).all().get();
 
+        // first call to deleteTenants() does not do anything
+        lifecycleManager.deleteTenants();
+
         // load deleted tenant to state store and trigger delete
         lifecycleManager.updateTenantState(LC_META_DED);
         lifecycleManager.deleteTenants();
