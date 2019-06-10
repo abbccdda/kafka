@@ -103,9 +103,10 @@ class MergedLog(private[log] val localLog: Log,
     Map("topic" -> topicPartition.topic, "partition" -> topicPartition.partition.toString) ++ maybeFutureTag
   }
 
+  // Number of segments in local log
   newGauge("NumLogSegments",
     new Gauge[Int] {
-      def value = numberOfSegments
+      def value = localLog.numberOfSegments
     },
     tags)
 
@@ -121,7 +122,24 @@ class MergedLog(private[log] val localLog: Log,
     },
     tags)
 
+  // Size of local log. For compatibility with tools like ADB and Cruise Control, we continue to report the local size
+  // of the log for this metric. Tools that require the total size of the log, including the tiered portion, must use
+  // `TotalSize` instead.
   newGauge("Size",
+    new Gauge[Long] {
+      def value = localLog.size
+    },
+    tags)
+
+  // Size of tiered portion of the log.
+  newGauge("TierSize",
+    new Gauge[Long] {
+      def value = tieredLogSegments.map(_.size.toLong).sum
+    },
+    tags)
+
+  // Total size of the log. See AbstractLog#size for details.
+  newGauge("TotalSize",
     new Gauge[Long] {
       def value = size
     },
@@ -146,6 +164,8 @@ class MergedLog(private[log] val localLog: Log,
     removeMetric("LogStartOffset", tags)
     removeMetric("LogEndOffset", tags)
     removeMetric("Size", tags)
+    removeMetric("TierSize", tags)
+    removeMetric("TotalSize", tags)
     localLog.removeLogMetrics()
   }
 
@@ -909,7 +929,9 @@ sealed trait AbstractLog {
   def deleteOldSegments(): Int
 
   /**
-    * @return The size of this log
+    * @return The size of this log in bytes including tiered segments, if any. If the log consists of tiered segments,
+    *         any overlap between between the tiered and local portion of the log is accounted for once only to avoid
+    *         double-counting.
     */
   def size: Long
 

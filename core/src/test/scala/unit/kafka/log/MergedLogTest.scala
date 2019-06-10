@@ -8,6 +8,8 @@ import java.io.File
 import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, TimeUnit}
 import java.util.{Optional, UUID}
 
+import com.yammer.metrics.Metrics
+import com.yammer.metrics.core.Gauge
 import kafka.log.MergedLogTest.LogRanges
 import kafka.server.{BrokerTopicStats, FetchDataInfo, LogDirFailureChannel, TierFetchDataInfo, TierState}
 import kafka.server.epoch.EpochEntry
@@ -71,6 +73,31 @@ class MergedLogTest {
   }
 
   @Test
+  def testLogSizeMetrics(): Unit = {
+    val numTiered = 30
+    val numOverlap = 3
+    val numLocal = 15  // includes active segment
+
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = 1)
+    var log = createLogWithOverlap(numTiered, numLocal, numOverlap, logConfig)
+    log.close()
+
+    // clear metrics and reopen log
+    TestUtils.clearYammerMetrics()
+    log = createMergedLog(logConfig)
+
+    assertEquals(log.localLog.size, metricValue("Size"))
+    assertEquals(log.tieredLogSegments.map(_.size).sum, metricValue("TierSize"))
+    assertEquals(log.size, metricValue("TotalSize"))
+
+    assertEquals((numLocal + numOverlap - 1) * segmentBytes + log.activeSegment.size, metricValue("Size"))
+    assertEquals((numTiered + numOverlap) * segmentBytes, metricValue("TierSize"))
+    assertEquals((numTiered + numOverlap + numLocal - 1) * segmentBytes + log.activeSegment.size, metricValue("TotalSize"))
+
+    log.close()
+  }
+
+  @Test
   def testCannotUploadPastRecoveryPoint(): Unit = {
     val noopScheduler = new Scheduler { // noopScheduler allows us to roll segments without scheduling a background flush
       override def startup(): Unit = ()
@@ -103,6 +130,8 @@ class MergedLogTest {
     assertEquals("Expected tierable segments to include everything up to the segment before the last flushed segment segment",
       Vector(0, 1, 2, 3, 4, 5, 6, 7),
       log.tierableLogSegments.map(ls => ls.readNextOffset - 1).toVector)
+
+    log.close()
   }
 
   @Test
@@ -126,6 +155,8 @@ class MergedLogTest {
       assertEquals(expectedTierableSegments, log.tierableLogSegments.size)
       expectedTierableSegments += 1
     }
+
+    log.close()
   }
 
   @Test
@@ -306,6 +337,8 @@ class MergedLogTest {
     assertEquals(numSegmentsToRetain + 1, log.localLogSegments.size)
     assertTrue(log.logStartOffset > initialLogStartOffset)
     assertEquals(log.localLogStartOffset, log.logStartOffset)
+
+    log.close()
   }
 
   @Test
@@ -400,7 +433,7 @@ class MergedLogTest {
     // a producer state snapshot, retention should succeed in deleting segments 1, 2, and 3.
 
     assertEquals("expected three segments to be deleted due to retention", 3, mergedLog.deleteOldSegments())
-
+    mergedLog.close()
   }
 
   @Test
@@ -430,6 +463,7 @@ class MergedLogTest {
     assertEquals(metadata.endOffset() + 1, log.localLog.logEndOffset)
     // check that leader epoch cache is correct
     assertEquals(List(EpochEntry(0, 100)), log.leaderEpochCache.get.epochEntries)
+    log.close()
   }
 
   @Test
@@ -443,6 +477,7 @@ class MergedLogTest {
     val segmentSize = log.localLogSegments.head.size
     val expectedLogSize = (numTieredSegments + numOverlapSegments + numLocalSegments - 1) * segmentSize + log.activeSegment.size
     assertEquals(expectedLogSize, log.size)
+    log.close()
   }
 
   @Test
@@ -503,6 +538,7 @@ class MergedLogTest {
     log.onHighWatermarkIncremented(log.logEndOffset)
     log.flush(log.logEndOffset)
     assertEquals(log.localLogSegments.size - tieredSegments.size - 1, log.tierableLogSegments.size)
+    log.close()
   }
 
   @Test
@@ -569,6 +605,7 @@ class MergedLogTest {
     log.deleteOldSegments()
     val firstTimestamp = metadata.maxTimestamp()
     assertEquals(Some(new TierTimestampAndOffset(firstTimestamp, new TierObjectStore.ObjectMetadata(metadata))), log.fetchOffsetByTimestamp(firstTimestamp))
+    log.close()
   }
 
   private def logRanges(log: MergedLog): LogRanges = {
@@ -596,6 +633,10 @@ class MergedLogTest {
                                    recordTimestamp: Long = RecordBatch.NO_TIMESTAMP): MergedLog = {
     MergedLogTest.createLogWithOverlap(numTieredSegments, numLocalSegments, numOverlap, tierMetadataManager, logDir,
       config, brokerTopicStats, mockTime.scheduler, mockTime, topicIdPartition, recordTimestamp = recordTimestamp)
+  }
+
+  private def metricValue(name: String): Long = {
+    Metrics.defaultRegistry.allMetrics.asScala.filterKeys(_.getName == name).values.headOption.get.asInstanceOf[Gauge[Long]].value()
   }
 }
 
