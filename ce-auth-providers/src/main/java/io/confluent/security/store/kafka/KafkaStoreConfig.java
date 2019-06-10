@@ -48,6 +48,12 @@ public class KafkaStoreConfig extends AbstractConfig {
   private static final String REFRESH_TIMEOUT_DOC = "The number of milliseconds to wait for cache"
       + " to be refreshed after a write completes successfully.";
 
+  public static final String RETRY_TIMEOUT_PROP = "confluent.metadata.retry.timeout.ms";
+  private static final int RETRY_TIMEOUT_DEFAULT = 24 * 60 * 60 * 1000;
+  private static final String RETRY_TIMEOUT_DOC = "Timeout for metadata store retries after which"
+      + " the authorizer is marked as failed. All requests are denied access if all metadata reader or"
+      + " writer operations fail for this duration.";
+
   public static final String BOOTSTRAP_SERVERS_PROP = PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
 
   public static final String TOPIC_PREFIX = "_confluent-metadata";
@@ -61,11 +67,14 @@ public class KafkaStoreConfig extends AbstractConfig {
         .define(TOPIC_CREATE_TIMEOUT_PROP, Type.INT, TOPIC_CREATE_TIMEOUT_DEFAULT,
             atLeast(1), Importance.LOW, TOPIC_CREATE_TIMEOUT_DOC)
         .define(REFRESH_TIMEOUT_PROP, Type.INT, REFRESH_TIMEOUT_DEFAULT,
-            atLeast(1), Importance.LOW, REFRESH_TIMEOUT_DOC);
+            atLeast(1), Importance.LOW, REFRESH_TIMEOUT_DOC)
+        .define(RETRY_TIMEOUT_PROP, Type.INT, RETRY_TIMEOUT_DEFAULT,
+            atLeast(1), Importance.LOW, RETRY_TIMEOUT_DOC);
   }
 
   public final Duration topicCreateTimeout;
   public final Duration refreshTimeout;
+  public final Duration retryTimeout;
   private final String brokerId;
 
   public KafkaStoreConfig(Map<?, ?> props) {
@@ -73,6 +82,7 @@ public class KafkaStoreConfig extends AbstractConfig {
 
     topicCreateTimeout = Duration.ofMillis(getInt(TOPIC_CREATE_TIMEOUT_PROP));
     refreshTimeout = Duration.ofMillis(getInt(REFRESH_TIMEOUT_PROP));
+    retryTimeout = Duration.ofMillis(getInt(RETRY_TIMEOUT_PROP));
     Object brokerId = props.get("broker.id");
     this.brokerId = brokerId == null ? "unknown" : String.valueOf(brokerId);
   }

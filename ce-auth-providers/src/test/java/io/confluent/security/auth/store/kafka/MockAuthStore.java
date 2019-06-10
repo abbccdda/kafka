@@ -21,6 +21,7 @@ import io.confluent.security.authorizer.utils.JsonMapper;
 import io.confluent.security.rbac.RbacRoles;
 import io.confluent.security.store.MetadataStoreStatus;
 import io.confluent.security.store.kafka.KafkaStoreConfig;
+import io.confluent.security.store.kafka.clients.StatusListener;
 import io.confluent.security.store.kafka.clients.Writer;
 import io.confluent.security.store.kafka.coordinator.MetadataNodeManager;
 import io.confluent.security.store.kafka.coordinator.MetadataServiceAssignment;
@@ -85,7 +86,7 @@ public class MockAuthStore extends KafkaAuthStore {
 
   private final int numAuthTopicPartitions;
   final Map<Integer, NodeMetadata> nodes;
-  private final Cluster cluster;
+  final Cluster cluster;
   private final Map<Integer, Long> consumedOffsets;
   private final ScheduledExecutorService executor;
   private final int nodeId;
@@ -181,6 +182,7 @@ public class MockAuthStore extends KafkaAuthStore {
   protected KafkaAuthWriter createWriter(int numPartitions,
                                           KafkaStoreConfig clientConfig,
                                           DefaultAuthCache authCache,
+                                          StatusListener statusListener,
                                           Time time) {
     return new KafkaAuthWriter(
         AUTH_TOPIC,
@@ -189,6 +191,7 @@ public class MockAuthStore extends KafkaAuthStore {
         createProducer(clientConfig.producerConfigs(AUTH_TOPIC)),
         () -> createAdminClient(clientConfig.adminClientConfigs()),
         authCache,
+        statusListener,
         time) {
 
       @Override

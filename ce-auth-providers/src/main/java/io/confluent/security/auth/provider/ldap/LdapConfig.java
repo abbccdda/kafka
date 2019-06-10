@@ -48,7 +48,7 @@ public class LdapConfig extends AbstractConfig {
           + " than zero). Paging is disabled by default.";
 
   public static final String RETRY_TIMEOUT_MS_PROP = "ldap.retry.timeout.ms";
-  public static final int RETRY_TIMEOUT_MS_DEFAULT = 60 * 60 * 1000;
+  public static final int RETRY_TIMEOUT_MS_DEFAULT = 24 * 60 * 60 * 1000;
   public static final String RETRY_TIMEOUT_MS_DOC =
       "Timeout for LDAP search retries after which the LDAP authorizer is marked as failed."
           + " All requests are denied access if a successful cache refresh cannot be performed"

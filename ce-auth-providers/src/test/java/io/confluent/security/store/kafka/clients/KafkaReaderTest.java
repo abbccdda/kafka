@@ -20,11 +20,13 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.MockConsumer;
 import org.apache.kafka.common.Cluster;
+import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
@@ -44,6 +46,7 @@ public class KafkaReaderTest {
   private KafkaReader<String, String> reader;
   private Cache cache;
   private Listener listener;
+  private KafkaStoreStatusListener statusListener;
 
   @Before
   public void setUp() throws Exception {
@@ -51,7 +54,8 @@ public class KafkaReaderTest {
     consumer = RbacTestUtils.mockConsumer(cluster, 1);
     cache = new Cache();
     listener = new Listener();
-    this.reader = new KafkaReader<>(topic, 2, consumer, cache, listener, time);
+    statusListener = new KafkaStoreStatusListener();
+    this.reader = new KafkaReader<>(topic, 2, consumer, cache, listener, statusListener, time);
   }
 
   @After
@@ -241,6 +245,21 @@ public class KafkaReaderTest {
     assertEquals(IllegalStateException.class, e.getCause().getClass());
   }
 
+  @Test
+  public void testReaderStatus() throws Exception {
+    assertEquals(0, statusListener.readerSuccessCount.get());
+    assertEquals(0, statusListener.readerFailureCount.get());
+
+    createTopic();
+    startReader();
+    TestUtils.waitForCondition(() -> statusListener.readerSuccessCount.get() > 0, "Success not propagated");
+    assertEquals(0, statusListener.readerFailureCount.get());
+    consumer.setException(new KafkaException("Test exception"));
+    TestUtils.waitForCondition(() -> statusListener.readerFailureCount.get() > 0, "Failure not propagated");
+    // Exception is reset after poll in MockConsumer, so we should see successful polls
+    TestUtils.waitForCondition(() -> statusListener.readerSuccessCount.get() > 0, "Success not propagated");
+  }
+
   private CompletableFuture<Void> startReader() throws Exception {
     updatePartitions(topic);
     CompletableFuture<Void> future = reader.start(Duration.ofMillis(100))
@@ -326,6 +345,50 @@ public class KafkaReaderTest {
         assertEquals(expectedOldValue, oldValue);
       }
       consumedOffsets.put(record.partition(), record.offset());
+    }
+  }
+
+  private static class KafkaStoreStatusListener implements StatusListener {
+
+    AtomicInteger readerSuccessCount = new AtomicInteger();
+    AtomicInteger readerFailureCount = new AtomicInteger();
+
+    @Override
+    public void onReaderSuccess() {
+      readerSuccessCount.incrementAndGet();
+    }
+
+    @Override
+    public boolean onReaderFailure() {
+      readerFailureCount.incrementAndGet();
+      readerSuccessCount.set(0);
+      return false;
+    }
+
+    @Override
+    public void onWriterSuccess(int partition) {
+    }
+
+    @Override
+    public boolean onWriterFailure(int partition) {
+      return false;
+    }
+
+    @Override
+    public void onProduceSuccess(int partition) {
+    }
+
+    @Override
+    public void onProduceFailure(int partition) {
+    }
+
+    @Override
+    public void onRemoteSuccess(int partition) {
+    }
+
+    @Override
+    public boolean onRemoteFailure(int partition) {
+      return false;
     }
   }
 }

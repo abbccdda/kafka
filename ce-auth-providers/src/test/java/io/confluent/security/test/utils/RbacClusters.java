@@ -15,6 +15,7 @@ import io.confluent.security.auth.metadata.MetadataServiceConfig;
 import io.confluent.security.auth.provider.rbac.RbacProvider;
 import io.confluent.security.auth.store.data.UserKey;
 import io.confluent.security.auth.store.data.UserValue;
+import io.confluent.security.auth.store.kafka.KafkaAuthStore;
 import io.confluent.security.auth.store.kafka.KafkaAuthWriter;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
@@ -31,6 +32,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import kafka.admin.AclCommand;
 import kafka.security.auth.Alter$;
 import kafka.security.auth.ClusterAction$;
@@ -41,10 +43,13 @@ import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.config.internals.BrokerSecurityConfigs;
+import org.apache.kafka.common.errors.InterruptException;
+import org.apache.kafka.common.requests.UpdateMetadataRequest;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.test.TestUtils;
+import scala.Option;
 
 public class RbacClusters {
 
@@ -156,6 +161,16 @@ public class RbacClusters {
         "Master writer not reset after broker failure");
     masterWriterBroker.startup();
     updateAuthWriters();
+
+    IntStream.range(0, KafkaStoreConfig.NUM_PARTITIONS).forEach(p -> {
+      try {
+        TestUtils.waitForCondition(() -> hasMinIsrs(masterWriterBroker, KafkaAuthStore.AUTH_TOPIC, p),
+            "Insufficient ISRs for auth topic after restart");
+      } catch (InterruptedException e) {
+        throw new InterruptException(e);
+      }
+    });
+
     TestUtils.waitForCondition(() -> currentMasterWriter().isPresent(),
         "Master writer not re-elected after broker failure");
   }
@@ -177,6 +192,15 @@ public class RbacClusters {
       throw new IllegalStateException(e);
     }
     return currentMasterWriter().orElseThrow(() -> new IllegalStateException("Master writer not found"));
+  }
+
+  private boolean hasMinIsrs(KafkaServer broker, String topic, int partition) {
+    Option<UpdateMetadataRequest.PartitionState> partitionInfo = broker.metadataCache()
+        .getPartitionInfo(topic, partition);
+    if (partitionInfo.isEmpty())
+      return false;
+    UpdateMetadataRequest.PartitionState partitionState = partitionInfo.get();
+    return partitionState.basePartitionState.isr.size() >= Math.min(3, kafkaCluster.brokers().size());
   }
 
   private void waitUntilAccessUpdated(String user, String topic, boolean allowed) throws Exception {

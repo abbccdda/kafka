@@ -2476,6 +2476,7 @@ project(':ce-auth-providers') {
     compile libs.jacksonDatabind
     compile libs.jbcrypt
     compile libs.jose4j
+    compile libs.metrics
     compile project(':clients')
     compile project(':ce-authorizer')
     compile project(':ce-rbac')

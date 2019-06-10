@@ -2,6 +2,8 @@
 
 package io.confluent.security.auth.provider.ldap;
 
+import com.yammer.metrics.core.MetricName;
+import io.confluent.security.auth.utils.MetricsUtils;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.provider.ProviderFailedException;
 import io.confluent.security.auth.provider.ldap.LdapConfig.SearchMode;
@@ -54,6 +56,8 @@ public class LdapGroupManager {
 
   private static final Logger log = LoggerFactory.getLogger(LdapGroupManager.class);
 
+  private static final String METRIC_GROUP = "confluent.metadata";
+  private static final String METRIC_TYPE = LdapGroupManager.class.getSimpleName();
   private static final int CLOSE_TIMEOUT_MS = 30000;
 
   // Entry change notification from https://www.ietf.org/proceedings/50/I-D/ldapext-psearch-03.txt
@@ -83,6 +87,7 @@ public class LdapGroupManager {
   private final AtomicBoolean alive;
   private final PersistentSearch persistentSearch;
   private final ExternalStoreListener<UserKey, UserValue> listener;
+  private final Set<MetricName> metricNames;
 
   private volatile LdapContext context;
   private volatile Future<?> searchFuture;
@@ -135,6 +140,10 @@ public class LdapGroupManager {
     this.failureStartMs = new AtomicLong(0);
     this.retryCount = new AtomicInteger(0);
     this.retryBackoff = new RetryBackoff(config.retryBackoffMs, config.retryMaxBackoffMs);
+
+    metricNames = new HashSet<>();
+    metricNames.add(MetricsUtils.newGauge(METRIC_GROUP, METRIC_TYPE, "failure-start-seconds-ago",
+        Collections.emptyMap(), () -> MetricsUtils.elapsedSeconds(time, failureStartMs.get())));
 
     this.executorService = Executors.newSingleThreadScheduledExecutor(runnable -> {
       final Thread thread = new Thread(runnable, "ldap-group-manager");
@@ -218,6 +227,7 @@ public class LdapGroupManager {
     } catch (NamingException e) {
       log.debug("Could not close LDAP context", e);
     }
+    MetricsUtils.removeMetrics(metricNames);
   }
 
   public Set<String> groups(String userPrincipal) {
@@ -244,9 +254,7 @@ public class LdapGroupManager {
     if (!alive.get()) {
       return 0;
     }
-    if (failureStartMs.get() == 0) {
-      failureStartMs.set(time.milliseconds());
-    }
+    failureStartMs.compareAndSet(0, time.milliseconds());
     if (failed()) {
       log.error("LDAP search failed. Configured retry timeout of " + config.retryTimeoutMs + " has "
           + "expired without a successful search. All requests will fail authorization until the "

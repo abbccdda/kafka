@@ -44,12 +44,14 @@ public class KafkaReader<K, V> implements Runnable {
   private final AtomicBoolean alive;
   private final Map<TopicPartition, PartitionState> partitionStates;
   private final ConsumerListener<K, V> consumerListener;
+  private final StatusListener statusListener;
 
   public KafkaReader(String topic,
                      int numPartitions,
                      Consumer<K, V> consumer,
                      KeyValueStore<K, V> cache,
                      ConsumerListener<K, V> consumerListener,
+                     StatusListener statusListener,
                      Time time) {
     this.topic = Objects.requireNonNull(topic, "topic");
     this.numPartitions = numPartitions;
@@ -57,6 +59,7 @@ public class KafkaReader<K, V> implements Runnable {
     this.cache = Objects.requireNonNull(cache, "cache");
     this.time = Objects.requireNonNull(time, "time");
     this.consumerListener = consumerListener;
+    this.statusListener = statusListener;
     this.executor = Executors.newSingleThreadExecutor(
         ThreadUtils.createThreadFactory("auth-reader-%d", true));
     this.alive = new AtomicBoolean(true);
@@ -127,15 +130,24 @@ public class KafkaReader<K, V> implements Runnable {
     while (alive.get()) {
       try {
         ConsumerRecords<K, V> records = consumer.poll(Duration.ofMillis(Long.MAX_VALUE));
-        records.forEach(this::processConsumerRecord);
+        try {
+          records.forEach(this::processConsumerRecord);
+          statusListener.onReaderSuccess();
+        } catch (Exception e) {
+          // Since failure to process record could result in granting incorrect access to users,
+          // treat this as a fatal exception and deny all access.
+          log.error("Unexpected exception while processing records {}", records, e);
+          fail(e);
+          break;
+        }
       } catch (WakeupException e) {
         log.trace("Wakeup exception, consumer may be closing", e);
       } catch (Throwable e) {
-        log.error("Unexpected exception while consuming records, terminating metadata reader.", e);
-        cache.fail(0, "Metadata reader failed with exception: " + e);
-        // Since failure to process record could result in granting incorrect access to users,
-        // treat this as a fatal exception and deny all access.
-        break;
+        log.error("Unexpected exception from consumer poll", e);
+        if (statusListener.onReaderFailure()) {
+          fail(e);
+          break;
+        }
       }
     }
   }
@@ -177,6 +189,10 @@ public class KafkaReader<K, V> implements Runnable {
     if (partitionState != null) {
       partitionState.onConsume(record.offset(), cache.status(record.partition()) == MetadataStoreStatus.INITIALIZED);
     }
+  }
+
+  private void fail(Throwable e) {
+    IntStream.range(0, numPartitions).forEach(p -> cache.fail(p, "Metadata reader failed with exception: " + e));
   }
 
   private static class PartitionState {

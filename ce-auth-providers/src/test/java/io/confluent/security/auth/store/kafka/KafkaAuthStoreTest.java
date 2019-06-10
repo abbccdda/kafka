@@ -4,6 +4,7 @@ package io.confluent.security.auth.store.kafka;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
@@ -13,6 +14,8 @@ import io.confluent.security.auth.store.data.AuthKey;
 import io.confluent.security.auth.store.data.AuthValue;
 import io.confluent.security.auth.store.data.RoleBindingKey;
 import io.confluent.security.auth.store.data.RoleBindingValue;
+import io.confluent.security.auth.store.data.StatusKey;
+import io.confluent.security.auth.store.data.StatusValue;
 import io.confluent.security.auth.store.data.UserKey;
 import io.confluent.security.auth.store.data.UserValue;
 import io.confluent.security.authorizer.Scope;
@@ -22,11 +25,22 @@ import io.confluent.security.rbac.RoleBinding;
 import io.confluent.security.store.MetadataStoreException;
 import io.confluent.security.store.MetadataStoreStatus;
 import io.confluent.security.test.utils.LdapTestUtils;
+import io.confluent.security.test.utils.RbacTestUtils;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.producer.Callback;
+import org.apache.kafka.clients.producer.MockProducer;
+import org.apache.kafka.clients.producer.Producer;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
@@ -163,6 +177,65 @@ public class KafkaAuthStoreTest {
         return true;
       }
     }, "Auth cache not failed");
+
+
+    RbacTestUtils.verifyMetric("failure-start-seconds-ago", "LdapGroupManager", 1, 10);
+    RbacTestUtils.verifyMetric("writer-failure-start-seconds-ago", "KafkaAuthStore", 0, 0);
+    RbacTestUtils.verifyMetric("record-send-rate", "KafkaAuthStore", 1, 10000);
+    RbacTestUtils.verifyMetric("record-error-rate", "KafkaAuthStore", 0, 0);
+  }
+
+  @Test
+  public void testAuthStoreStatus() throws Exception {
+    AtomicBoolean failNextProduce = new AtomicBoolean();
+    authStore = new MockAuthStore(rbacRoles, time, clusterA, 1, storeNodeId) {
+      @Override
+      protected Producer<AuthKey, AuthValue> createProducer(Map<String, Object> configs) {
+        producer = new MockProducer<AuthKey, AuthValue>(cluster, false, null, null, null) {
+          @Override
+          public synchronized Future<RecordMetadata> send(ProducerRecord<AuthKey, AuthValue> record, Callback callback) {
+            Future<RecordMetadata> future = super.send(record, callback);
+            if (failNextProduce.getAndSet(false)) {
+              producer.errorNext(new KafkaException("Test exception"));
+            } else {
+              producer.completeNext();
+              consumer.addRecord(consumerRecord(record));
+              return future;
+            }
+            return future;
+          }
+        };
+        return producer;
+      }
+    };
+    authStore.configure(Collections.singletonMap("confluent.metadata.bootstrap.servers", "localhost:9092,localhost:9093"));
+    authStore.startReader();
+    startAuthService();
+    assertTrue(authStore.isMasterWriter());
+
+    authWriter.addClusterRoleBinding(principal("user"), "Operator", clusterA)
+        .toCompletableFuture().get(5, TimeUnit.SECONDS);
+    RbacTestUtils.verifyMetric("record-send-rate", "KafkaAuthStore", 1, 1000);
+    RbacTestUtils.verifyMetric("record-error-rate", "KafkaAuthStore", 0, 0);
+    RbacTestUtils.verifyMetric("writer-failure-start-seconds-ago", "KafkaAuthStore", 0, 0);
+    failNextProduce.set(true);
+    assertThrows(ExecutionException.class, () -> authWriter.addClusterRoleBinding(principal("user2"), "Operator", clusterA)
+        .toCompletableFuture().get(5, TimeUnit.SECONDS));
+    RbacTestUtils.verifyMetric("record-error-rate", "KafkaAuthStore", 1, 1);
+
+    failNextProduce.set(true);
+    authWriter.writeExternalStatus(MetadataStoreStatus.INITIALIZED, "", 1);
+    TestUtils.waitForCondition(() -> authStore.writerFailuresStartMs() != null, "Status update failure not propagated");
+    RbacTestUtils.verifyMetric("record-error-rate", "KafkaAuthStore", 2, 5);
+
+    authStore.consumer.addRecord(new ConsumerRecord<>(
+        KafkaAuthStore.AUTH_TOPIC, 0, 10, new StatusKey(0), new StatusValue(MetadataStoreStatus.FAILED, 2, "Test failure")));
+    TestUtils.waitForCondition(() -> authStore.remoteFailuresStartMs() != null, "Status update failure not propagated");
+
+    authStore.consumer.addRecord(new ConsumerRecord<>(
+        KafkaAuthStore.AUTH_TOPIC, 0, 11, new StatusKey(0), new StatusValue(MetadataStoreStatus.INITIALIZED, 3, "Test failure")));
+    TestUtils.waitForCondition(() -> authStore.remoteFailuresStartMs() == null, "Status update failure not propagated");
+
   }
 
   private void createAuthStore() throws Exception {

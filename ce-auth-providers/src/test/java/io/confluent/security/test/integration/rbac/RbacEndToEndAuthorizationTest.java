@@ -12,6 +12,7 @@ import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.test.utils.RbacClusters;
 import io.confluent.security.test.utils.RbacClusters.Config;
+import io.confluent.security.test.utils.RbacTestUtils;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -166,6 +167,7 @@ public class RbacEndToEndAuthorizationTest {
             new ResourcePattern("Topic", APP1_TOPIC, PatternType.LITERAL)));
     rbacClusters.waitUntilAccessAllowed(DEVELOPER2, APP1_TOPIC);
     rbacClusters.produceConsume(DEVELOPER2, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
+    RbacTestUtils.verifyMetadataStoreMetrics();
   }
 
   private void setupRbacClusters(int numMetadataServers) throws Exception {

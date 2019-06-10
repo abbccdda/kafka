@@ -444,7 +444,7 @@ public class KafkaAuthWriterTest {
   @Test
   public void testStatusProduceFailureAfterInitialization() throws Exception {
     authStore.close();
-    int failureIndex = 2 * numPartitions + 1; // INIITALZING and INITIALIZED produced for each partition during startup
+    int failureIndex = 3 * numPartitions + 1; // INIITALZING and 2 INITIALIZED produced for each partition during startup
     createAuthStoreWithProduceFailure(new KafkaException("Test exception"), failureIndex, AuthEntryType.STATUS);
     Supplier<Map<String, Set<String>>> ldapGroupSupplier =
         () -> Collections.singletonMap("user1", Collections.singleton("group1"));

@@ -2,6 +2,13 @@
 
 package io.confluent.security.test.utils;
 
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+import com.yammer.metrics.Metrics;
+import com.yammer.metrics.core.Gauge;
+import com.yammer.metrics.core.Meter;
+import com.yammer.metrics.core.Metric;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.auth.store.data.RoleBindingKey;
 import io.confluent.security.auth.store.data.RoleBindingValue;
@@ -17,6 +24,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.apache.kafka.clients.consumer.MockConsumer;
 import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 import org.apache.kafka.common.Cluster;
@@ -25,6 +33,7 @@ import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.test.TestUtils;
 
 public class RbacTestUtils {
 
@@ -84,5 +93,40 @@ public class RbacTestUtils {
     consumer.updateBeginningOffsets(offsets);
     consumer.updateEndOffsets(offsets);
     return consumer;
+  }
+
+  public static void verifyMetric(String name, String type, long min, long max) {
+    Set<Metric> metrics = metrics(name, type);
+    assertFalse(metrics.isEmpty());
+    long value = metrics.stream().mapToLong(RbacTestUtils::metricValue).sum();
+    assertTrue("Unexpected value: " + value, value >= min && value <= max);
+  }
+
+  private static Set<Metric> metrics(String name, String type) {
+    return Metrics.defaultRegistry().allMetrics().entrySet().stream()
+        .filter(e -> e.getKey().getName().equals(name) && e.getKey().getType().equals(type))
+        .map(Map.Entry::getValue)
+        .collect(Collectors.toSet());
+  }
+
+  @SuppressWarnings("unchecked")
+  private static long metricValue(Metric metric) {
+    if (metric instanceof Gauge) {
+      return ((Gauge<Number>) metric).value().longValue();
+    } else if (metric instanceof Meter) {
+      return ((Meter) metric).count();
+    } else
+      throw new IllegalArgumentException("Metric value could not be computed for " + metric);
+  }
+
+  public static void verifyMetadataStoreMetrics() throws Exception {
+    RbacTestUtils.verifyMetric("reader-failure-start-seconds-ago", "KafkaAuthStore", 0, 0);
+    RbacTestUtils.verifyMetric("remote-failure-start-seconds-ago", "KafkaAuthStore", 0, 0);
+    RbacTestUtils.verifyMetric("writer-failure-start-seconds-ago", "KafkaAuthStore", 0, 0);
+    RbacTestUtils.verifyMetric("active-writer-count", "KafkaAuthStore", 0, 1);
+    TestUtils.waitForCondition(() -> {
+      Set<Metric> metrics = metrics("active-writer-count", "KafkaAuthStore");
+      return metrics.stream().mapToLong(RbacTestUtils::metricValue).sum() == 1;
+    }, "Writer not elected within timeout");
   }
 }

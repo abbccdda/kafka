@@ -29,6 +29,7 @@ import io.confluent.security.store.kafka.clients.CachedRecord;
 import io.confluent.security.store.kafka.clients.ConsumerListener;
 import io.confluent.security.store.kafka.clients.KafkaPartitionWriter;
 import io.confluent.security.store.kafka.clients.KafkaUtils;
+import io.confluent.security.store.kafka.clients.StatusListener;
 import io.confluent.security.store.kafka.clients.Writer;
 import io.confluent.security.store.kafka.coordinator.MetadataServiceRebalanceListener;
 import java.time.Duration;
@@ -36,6 +37,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -74,6 +76,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   private final KafkaStoreConfig config;
   private final Time time;
   private final DefaultAuthCache authCache;
+  private final StatusListener statusListener;
   private final Producer<AuthKey, AuthValue> producer;
   private final Supplier<AdminClient> adminClientSupplier;
   private final Map<AuthEntryType, ExternalStore> externalAuthStores;
@@ -90,10 +93,12 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
                          Producer<AuthKey, AuthValue> producer,
                          Supplier<AdminClient> adminClientSupplier,
                          DefaultAuthCache authCache,
+                         StatusListener statusListener,
                          Time time) {
     this.topic = topic;
     this.numPartitions = numPartitions;
     this.config = config;
+    this.statusListener = statusListener;
     this.producer = producer;
     this.adminClientSupplier = adminClientSupplier;
     this.authCache = authCache;
@@ -163,6 +168,15 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
       partitionWriters.values().forEach(p -> p.stop(generationId));
 
       isMasterWriter.set(false);
+
+      List<Integer> failedPartitions = partitionWriters.keySet().stream()
+          .filter(statusListener::onWriterFailure)
+          .collect(Collectors.toList());
+      if (!failedPartitions.isEmpty()) {
+        String errorMessage = "Partition writers have failed to recover after timeout: " + failedPartitions;
+        log.error(errorMessage);
+        partitionWriters.keySet().forEach(p -> authCache.fail(p, errorMessage));
+      }
     }
   }
 
@@ -327,6 +341,10 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
           log.error("Failed to write external status to auth topic, writer resigning", e);
           rebalanceListener.onWriterResigned(generationId);
         }
+        StatusValue statusValue = new StatusValue(status, generationId, errorMessage);
+        partitionWriters.forEach((partition, writer) ->
+            writer.writeStatus(generationId, new StatusKey(partition), statusValue, status));
+
       });
     }
   }
@@ -338,7 +356,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     for (int i = 0; i < numPartitions; i++) {
       TopicPartition tp = new TopicPartition(topic, i);
       partitionWriters.put(i,
-          new KafkaPartitionWriter<>(tp, producer, authCache, rebalanceListener,
+          new KafkaPartitionWriter<>(tp, producer, authCache, rebalanceListener, statusListener,
               config.refreshTimeout, time));
     }
   }

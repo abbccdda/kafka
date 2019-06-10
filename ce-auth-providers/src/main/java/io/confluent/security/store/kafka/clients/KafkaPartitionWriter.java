@@ -52,6 +52,7 @@ public class KafkaPartitionWriter<K, V> {
   private final Producer<K, V> producer;
   private final KeyValueStore<K, V> cache;
   private final MetadataServiceRebalanceListener rebalanceListener;
+  private final StatusListener statusListener;
   private final Duration refreshTimeout;
   private final Time time;
   private final BlockingQueue<PendingWrite> pendingWrites;
@@ -65,12 +66,14 @@ public class KafkaPartitionWriter<K, V> {
                               Producer<K, V> producer,
                               KeyValueStore<K, V> cache,
                               MetadataServiceRebalanceListener rebalanceListener,
+                              StatusListener statusListener,
                               Duration refreshTimeout,
                               Time time) {
     this.topicPartition = topicPartition;
     this.producer = producer;
     this.cache = cache;
     this.rebalanceListener = rebalanceListener;
+    this.statusListener = statusListener;
     this.refreshTimeout = refreshTimeout;
     this.time = time;
     this.generationId = NOT_MASTER_WRITER;
@@ -109,14 +112,22 @@ public class KafkaPartitionWriter<K, V> {
     }
     ProducerRecord<K, V> record = new ProducerRecord<>(topicPartition.topic(),
         topicPartition.partition(), statusKey, statusValue);
-    producer.send(record, (metadata, exception) -> {
-      if (exception != null) {
-        log.error("Status {}:{} could not be added to auth topic, writer resigning", statusKey, statusValue, exception);
-        rebalanceListener.onWriterResigned(generationId);
-      } else {
-        onStatusRecordWriteCompletion(generationId, status, metadata.offset());
-      }
-    });
+    try {
+      producer.send(record, (metadata, exception) -> {
+        if (exception != null) {
+          log.error("Status {}:{} could not be added to auth topic, writer resigning", statusKey, statusValue, exception);
+          statusListener.onProduceFailure(topicPartition.partition());
+          rebalanceListener.onWriterResigned(generationId);
+        } else {
+          statusListener.onProduceSuccess(topicPartition.partition());
+          onStatusRecordWriteCompletion(generationId, status, metadata.offset());
+        }
+      });
+    } catch (Throwable e) {
+      log.error("Failed to write status to auth topic", e);
+      statusListener.onProduceFailure(topicPartition.partition());
+      rebalanceListener.onWriterResigned(generationId);
+    }
   }
 
   /**
@@ -288,6 +299,7 @@ public class KafkaPartitionWriter<K, V> {
     if (this.generationId == generationId) {
       log.debug("Status record of generation {} for partition {} written at offset {}",
           generationId, topicPartition, offset);
+      statusListener.onWriterSuccess(topicPartition.partition());
       if (lastConsumedOffset >= offset)
         status(status);
     } else {
@@ -314,6 +326,7 @@ public class KafkaPartitionWriter<K, V> {
     log.debug("Send callback for record with partition {} generationId {} offset {}",
         topicPartition, generationId, offset);
 
+    statusListener.onProduceSuccess(topicPartition.partition());
     this.lastProducedOffset = offset;
     pendingWrite.offset = offset;
     maybeCompletePendingWrites(lastConsumedOffset);
@@ -325,6 +338,7 @@ public class KafkaPartitionWriter<K, V> {
   private synchronized void onRecordWriteFailure(PendingWrite pendingWrite, Exception exception) {
     pendingWrite.fail(exception);
     pendingWrites.remove(pendingWrite);
+    statusListener.onProduceFailure(topicPartition.partition());
   }
 
   /**
@@ -335,8 +349,9 @@ public class KafkaPartitionWriter<K, V> {
     if (newStatus != this.status) {
       log.debug("Changing status from {} to {}", this.status, newStatus);
       this.status = newStatus;
-      if (status == MetadataStoreStatus.INITIALIZED)
+      if (status == MetadataStoreStatus.INITIALIZED) {
         notifyAll();
+      }
     }
   }
 
