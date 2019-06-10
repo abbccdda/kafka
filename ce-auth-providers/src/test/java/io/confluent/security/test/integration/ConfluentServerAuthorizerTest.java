@@ -33,7 +33,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-public class ConfluentKafkaAuthorizerTest {
+public class ConfluentServerAuthorizerTest {
 
   private static final String BROKER_USER = "kafka";
   private static final String DEVELOPER1 = "app1-developer";

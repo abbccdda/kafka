@@ -41,27 +41,27 @@ import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 
 
-public class ConfluentKafkaAuthorizer extends EmbeddedAuthorizer implements AuthorizerWithKafkaStore {
+public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements AuthorizerWithKafkaStore {
 
   private static final Set<String> UNSCOPED_PROVIDERS =
       Utils.mkSet(AccessRuleProviders.ACL.name(), AccessRuleProviders.MULTI_TENANT.name());
 
   private static final String METRIC_GROUP = "confluent.license";
   private static final LicenseValidator DUMMY_LICENSE_VALIDATOR = new DummyLicenseValidator();
-  private static final Set<Class<? extends ConfluentKafkaAuthorizer>> LICENSE_FREE_AUTHORIZERS =
+  private static final Set<Class<? extends ConfluentServerAuthorizer>> LICENSE_FREE_AUTHORIZERS =
       Collections.singleton(MultiTenantAuthorizer.class);
-  private static final Set<Class<? extends ConfluentKafkaAuthorizer>> LEGACY_AUTHORIZERS =
+  private static final Set<Class<? extends ConfluentServerAuthorizer>> LEGACY_AUTHORIZERS =
       Collections.singleton(LdapAuthorizer.class);
 
   private final Time time;
   private LicenseValidator licenseValidator;
   private Authorizer aclAuthorizer;
 
-  public ConfluentKafkaAuthorizer() {
+  public ConfluentServerAuthorizer() {
     this(Time.SYSTEM);
   }
 
-  public ConfluentKafkaAuthorizer(Time time) {
+  public ConfluentServerAuthorizer(Time time) {
     this.time = time;
   }
 
@@ -161,7 +161,7 @@ public class ConfluentKafkaAuthorizer extends EmbeddedAuthorizer implements Auth
    * to ensure that we can continue to support clusters with single listeners without a separate
    * metadata cluster.
    *
-   * New-style Kafka-topic-based license management is used for ConfluentKafkaAuthorizer
+   * New-style Kafka-topic-based license management is used for ConfluentServerAuthorizer
    * with proprietary features like RBAC. These have the same restrictions as metadata service.
    * In single-cluster deployments, metadata cluster brokers must be configured with a separate
    * inter-broker listener where broker requests can be authorized using AclProvider.

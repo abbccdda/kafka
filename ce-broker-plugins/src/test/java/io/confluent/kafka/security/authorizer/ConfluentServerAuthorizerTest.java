@@ -35,7 +35,7 @@ import scala.collection.immutable.Set;
 // Note: This test is useful during the early stages of development to ensure consistency
 // with Apache Kafka SimpleAclAuthorizer. It can be removed once the code is stable if it
 // becomes hard to maintain.
-public class ConfluentKafkaAuthorizerTest extends SimpleAclAuthorizerTest {
+public class ConfluentServerAuthorizerTest extends SimpleAclAuthorizerTest {
 
   @Override
   public void setUp() {
@@ -62,7 +62,7 @@ public class ConfluentKafkaAuthorizerTest extends SimpleAclAuthorizerTest {
   }
 
   protected Authorizer createAuthorizer() {
-    return new ConfluentKafkaAuthorizer();
+    return new ConfluentServerAuthorizer();
   }
 
   protected Map<String, Object> authorizerConfigs() {

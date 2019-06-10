@@ -5,7 +5,7 @@ package io.confluent.security.test.utils;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import io.confluent.kafka.security.authorizer.ConfluentKafkaAuthorizer;
+import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.KafkaTestUtils.ClientBuilder;
@@ -287,7 +287,7 @@ public class RbacClusters {
     serverConfig.putAll(metadataClientConfigs());
 
     serverConfig.setProperty(KafkaConfig$.MODULE$.AuthorizerClassNameProp(),
-        ConfluentKafkaAuthorizer.class.getName());
+        ConfluentServerAuthorizer.class.getName());
     serverConfig.setProperty("super.users", "User:" + config.brokerUser);
     serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL,RBAC");
     serverConfig.setProperty(ConfluentAuthorizerConfig.GROUP_PROVIDER_PROP, "RBAC");
@@ -308,7 +308,7 @@ public class RbacClusters {
       serverConfig.putAll(LdapTestUtils.ldapAuthorizerConfigs(miniKdcWithLdapService, 10));
     }
     serverConfig.setProperty(KafkaConfig$.MODULE$.AuthorizerClassNameProp(),
-        ConfluentKafkaAuthorizer.class.getName());
+        ConfluentServerAuthorizer.class.getName());
     serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL");
     serverConfig.setProperty("super.users", "User:" + config.brokerUser);
     serverConfig.setProperty(ConfluentAuthorizerConfig.METADATA_PROVIDER_PROP, "RBAC");
@@ -342,7 +342,7 @@ public class RbacClusters {
 
   private KafkaAuthWriter kafkaAuthWriter(KafkaServer kafkaServer) {
     try {
-      ConfluentKafkaAuthorizer authorizer = (ConfluentKafkaAuthorizer) kafkaServer.authorizer()
+      ConfluentServerAuthorizer authorizer = (ConfluentServerAuthorizer) kafkaServer.authorizer()
           .get();
       RbacProvider rbacProvider = (RbacProvider) authorizer.metadataProvider();
       TestUtils.waitForCondition(() -> rbacProvider.authStore() != null,

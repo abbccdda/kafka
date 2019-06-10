@@ -7,7 +7,7 @@ import static org.junit.Assert.assertEquals;
 import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Metric;
-import io.confluent.kafka.security.authorizer.ConfluentKafkaAuthorizer;
+import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.license.validator.ConfluentLicenseValidator;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
@@ -187,8 +187,8 @@ public class SecurityTestUtils {
 
   public static void verifyAuthorizerLicense(EmbeddedKafkaCluster kafkaCluster, LicenseStatus expectedStatus) {
     boolean needsLicense = expectedStatus != null;
-    ConfluentKafkaAuthorizer authorizer = (ConfluentKafkaAuthorizer) kafkaCluster.brokers().get(0).authorizer().get();
-    LicenseValidator licenseValidator = KafkaTestUtils.fieldValue(authorizer, ConfluentKafkaAuthorizer.class, "licenseValidator");
+    ConfluentServerAuthorizer authorizer = (ConfluentServerAuthorizer) kafkaCluster.brokers().get(0).authorizer().get();
+    LicenseValidator licenseValidator = KafkaTestUtils.fieldValue(authorizer, ConfluentServerAuthorizer.class, "licenseValidator");
     assertEquals(needsLicense, licenseValidator instanceof ConfluentLicenseValidator);
 
     Map<String, Metric> metrics = Metrics.defaultRegistry().allMetrics().entrySet().stream()

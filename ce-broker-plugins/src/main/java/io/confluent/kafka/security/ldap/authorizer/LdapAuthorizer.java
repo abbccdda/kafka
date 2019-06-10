@@ -3,7 +3,7 @@
 package io.confluent.kafka.security.ldap.authorizer;
 
 
-import io.confluent.kafka.security.authorizer.ConfluentKafkaAuthorizer;
+import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.GroupProviders;
@@ -12,7 +12,7 @@ import java.util.Map;
 import org.apache.kafka.common.utils.Time;
 
 
-public class LdapAuthorizer extends ConfluentKafkaAuthorizer {
+public class LdapAuthorizer extends ConfluentServerAuthorizer {
   public static final String LICENSE_PROP = "ldap.authorizer.license";
   private static final String METRIC_GROUP = "kafka.ldap.plugins";
 

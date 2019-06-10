@@ -36,7 +36,7 @@ public class AclEndToEndAuthorizationTest extends SaslEndToEndAuthorizationTest 
   @Before
   public void setUp() {
     Properties serverConfig = serverConfig();
-    serverConfig.put(KafkaConfig$.MODULE$.AuthorizerClassNameProp(), ConfluentKafkaAuthorizer.class.getName());
+    serverConfig.put(KafkaConfig$.MODULE$.AuthorizerClassNameProp(), ConfluentServerAuthorizer.class.getName());
     super.setUp();
   }
 

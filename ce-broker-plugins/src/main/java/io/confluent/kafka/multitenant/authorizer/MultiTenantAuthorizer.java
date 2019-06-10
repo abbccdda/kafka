@@ -3,7 +3,7 @@
 package io.confluent.kafka.multitenant.authorizer;
 
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
-import io.confluent.kafka.security.authorizer.ConfluentKafkaAuthorizer;
+import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.GroupProviders;
@@ -16,7 +16,7 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import scala.collection.JavaConversions;
 import scala.collection.immutable.Set;
 
-public class MultiTenantAuthorizer extends ConfluentKafkaAuthorizer {
+public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
 
   public static final String MAX_ACLS_PER_TENANT_PROP = "confluent.max.acls.per.tenant";
   static final int ACLS_DISABLED = 0;

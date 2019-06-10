@@ -18,7 +18,7 @@
 
 package io.confluent.security.test.integration.ldap;
 
-import io.confluent.kafka.security.authorizer.ConfluentKafkaAuthorizerTest;
+import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizerTest;
 import io.confluent.kafka.security.ldap.authorizer.LdapAuthorizer;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.security.minikdc.MiniKdcWithLdapService;
@@ -31,7 +31,7 @@ import kafka.security.auth.Authorizer;
 // as SimpleAclAuthorizer has been changing frequently in AK as wildcard support was
 // adding in a series of conflicting PRs. Long-term, it would be very hard to maintain
 // this test, so we should remove it once the code base is stable.
-public class LdapAuthorizerUserAclTest extends ConfluentKafkaAuthorizerTest {
+public class LdapAuthorizerUserAclTest extends ConfluentServerAuthorizerTest {
 
   private MiniKdcWithLdapService miniKdcWithLdapService;
 

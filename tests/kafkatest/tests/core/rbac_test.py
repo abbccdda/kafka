@@ -73,7 +73,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                           interbroker_security_protocol="PLAINTEXT",
                           client_sasl_mechanism="SCRAM-SHA-256",
                           interbroker_sasl_mechanism="PLAINTEXT",
-                          authorizer_class_name="io.confluent.kafka.security.authorizer.ConfluentKafkaAuthorizer",
+                          authorizer_class_name="io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer",
                           server_prop_overides=[
                               ["super.users", "User:ANONYMOUS"],
                               ["confluent.authorizer.access.rule.providers", "ACL,FILE_RBAC"],
@@ -99,7 +99,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                           interbroker_security_protocol="PLAINTEXT",
                           client_sasl_mechanism="SCRAM-SHA-256",
                           interbroker_sasl_mechanism="PLAINTEXT",
-                          authorizer_class_name="io.confluent.kafka.security.authorizer.ConfluentKafkaAuthorizer",
+                          authorizer_class_name="io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer",
                           server_prop_overides=[
                               ["super.users", "User:ANONYMOUS"],
                               ["confluent.authorizer.access.rule.providers", "ACL,FILE_RBAC"],
@@ -115,7 +115,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
     @cluster(num_nodes=8)
     def test_simple_to_rbac_authorizer_upgrade(self):
         """
-        Start with a cluster using SimpleAclAuthorizer. Upgrade brokers to ConfluentKafkaAuthorizer with RBAC
+        Start with a cluster using SimpleAclAuthorizer. Upgrade brokers to ConfluentServerAuthorizer with RBAC
         using rolling upgrade and ensure we could produce and consume throughout.
         """
 
@@ -148,7 +148,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
     @cluster(num_nodes=8)
     def test_ldap_to_rbac_authorizer_upgrade(self):
         """
-        Start with a cluster using LdapAuthorizer. Upgrade brokers to ConfluentKafkaAuthorizer with RBAC
+        Start with a cluster using LdapAuthorizer. Upgrade brokers to ConfluentServerAuthorizer with RBAC
         and LDAP using rolling upgrade and ensure we could produce and consume throughout.
         """
 
@@ -201,7 +201,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                           interbroker_security_protocol="PLAINTEXT",
                           client_sasl_mechanism="SCRAM-SHA-256",
                           interbroker_sasl_mechanism="PLAINTEXT",
-                          authorizer_class_name="io.confluent.kafka.security.authorizer.ConfluentKafkaAuthorizer",
+                          authorizer_class_name="io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer",
                           server_prop_overides=[
                               ["super.users", "User:ANONYMOUS"],
                               ["confluent.authorizer.access.rule.providers", "ACL,FILE_RBAC"],
@@ -276,7 +276,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                "--topic=_confluent-metadata-auth --group=_confluent-metadata-coordinator-group " \
                "--producer --consumer --allow-principal=User:ANONYMOUS" % self.kafka.zk_connect_setting()
         self.acls.acls_command(self.kafka.nodes[0], acls_cmd)
-	self.kafka.authorizer_class_name="io.confluent.kafka.security.authorizer.ConfluentKafkaAuthorizer"
+	self.kafka.authorizer_class_name="io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer"
 	self.kafka.server_prop_overides=server_prop_overides
 
     def bounce(self, shutdown_action=clean_shutdown, verify_roles=False, delay_sec=0):
