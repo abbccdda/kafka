@@ -163,7 +163,7 @@ class UpdatableQueuePropertyTest extends FunSuite with Checkers {
     }
   }
 
-  test("testMultiThreadedUpdatableQueue") {
+  ignore("testMultiThreadedUpdatableQueue") {
     implicit val generatorDrivenConfig: PropertyCheckConfiguration = config.copy(minSuccessful = 10)
     check {
       UpdatableQueueSpec.property(threadCount = 4)

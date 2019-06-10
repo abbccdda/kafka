@@ -184,17 +184,18 @@ public class TierMetadataManager {
                 Optional<TopicIdPartition> topicIdPartitionOpt =
                         partitionMetadata.tierPartitionState.topicIdPartition();
 
-                if (!topicIdPartitionOpt.isPresent())
-                    throw new IllegalStateException("TierPartitionState for " + topicPartition +
-                            " does not have a topicIdPartition associated with it");
-
-                if (leaderEpoch.isPresent()) {
-                    int epoch = leaderEpoch.getAsInt();
-                    log.debug("Firing onBecomeLeader listeners on config change for tiered topic {} leaderEpoch: {}", topicPartition, epoch);
-                    changeListeners.forEach(listener -> listener.onBecomeLeader(topicIdPartitionOpt.get(), epoch));
+                if (topicIdPartitionOpt.isPresent()) {
+                    if (leaderEpoch.isPresent()) {
+                        int epoch = leaderEpoch.getAsInt();
+                        log.debug("Firing onBecomeLeader listeners on config change for tiered topic {} leaderEpoch: {}", topicPartition, epoch);
+                        changeListeners.forEach(listener -> listener.onBecomeLeader(topicIdPartitionOpt.get(), epoch));
+                    } else {
+                        log.debug("Firing onBecomeFollower listeners on config change for tiered topic {}", topicPartition);
+                        changeListeners.forEach(listener -> listener.onBecomeFollower(topicIdPartitionOpt.get()));
+                    }
                 } else {
-                    log.debug("Firing onBecomeFollower listeners on config change for tiered topic {}", topicPartition);
-                    changeListeners.forEach(listener -> listener.onBecomeFollower(topicIdPartitionOpt.get()));
+                    log.debug("Ignoring config change for tiered topic {} as TopicIdPartition has"
+                            + " not been associated with TierPartitionState.", topicPartition);
                 }
             }
         } catch (IOException e) {

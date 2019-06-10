@@ -26,12 +26,12 @@ import java.util.Properties;
 import java.util.UUID;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.fail;
 
 public class TierMetadataManagerTest {
-    private static final TopicIdPartition TOPIC_PARTITION = new TopicIdPartition(
+    private static final TopicIdPartition TOPIC_ID_PARTITION = new TopicIdPartition(
             "myTopic", UUID.randomUUID(), 0);
     private static final TierObjectStoreConfig OBJECT_STORE_CONFIG = new TierObjectStoreConfig();
     private final File dir = TestUtils.tempDirectory();
@@ -53,17 +53,17 @@ public class TierMetadataManagerTest {
                 new LogDirFailureChannel(10),
                 true);
         addListener(metadataManager);
-        TierPartitionState partitionState = metadataManager.initState(TOPIC_PARTITION.topicPartition(), dir,
+        TierPartitionState partitionState = metadataManager.initState(TOPIC_ID_PARTITION.topicPartition(), dir,
                 config);
         assertTrue(partitionState.tieringEnabled());
-        assertTrue(metadataManager.tierPartitionMetadata(TOPIC_PARTITION.topicPartition()).get().tieringEnabled());
+        assertTrue(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION.topicPartition()).get().tieringEnabled());
         assertEquals(TierPartitionStatus.CLOSED, partitionState.status());
 
         assertEquals(0, onBecomeLeader);
         assertEquals(0, onBecomeFollower);
         assertEquals(0, onDelete);
 
-        partitionState.setTopicIdPartition(TOPIC_PARTITION);
+        partitionState.setTopicIdPartition(TOPIC_ID_PARTITION);
         partitionState.beginCatchup();
         assertEquals(TierPartitionStatus.CATCHUP, partitionState.status());
         partitionState.flush();
@@ -77,11 +77,11 @@ public class TierMetadataManagerTest {
                 new LogDirFailureChannel(10),
                 true);
         addListener(metadataManager2);
-        TierPartitionState partitionState2 = metadataManager2.initState(TOPIC_PARTITION.topicPartition(), dir,
+        TierPartitionState partitionState2 = metadataManager2.initState(TOPIC_ID_PARTITION.topicPartition(), dir,
                 config);
         assertEquals(TierPartitionStatus.CATCHUP, partitionState2.status());
 
-        metadataManager2.delete(TOPIC_PARTITION.topicPartition());
+        metadataManager2.delete(TOPIC_ID_PARTITION.topicPartition());
 
         assertEquals(0, onBecomeLeader);
         assertEquals(0, onBecomeFollower);
@@ -98,11 +98,11 @@ public class TierMetadataManagerTest {
                 new LogDirFailureChannel(10),
                 true);
         addListener(metadataManager);
-        TierPartitionState partitionState = metadataManager.initState(TOPIC_PARTITION.topicPartition(), dir, config);
+        TierPartitionState partitionState = metadataManager.initState(TOPIC_ID_PARTITION.topicPartition(), dir, config);
         assertFalse(partitionState.tieringEnabled());
-        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_PARTITION.topicPartition()).get().tieringEnabled());
+        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION.topicPartition()).get().tieringEnabled());
         assertEquals(TierPartitionStatus.CLOSED, partitionState.status());
-        metadataManager.delete(TOPIC_PARTITION.topicPartition());
+        metadataManager.delete(TOPIC_ID_PARTITION.topicPartition());
 
         assertEquals(0, onBecomeLeader);
         assertEquals(0, onBecomeFollower);
@@ -115,11 +115,11 @@ public class TierMetadataManagerTest {
                 new LogDirFailureChannel(10),
                 true);
         addListener(metadataManager2);
-        TierPartitionState partitionState2 = metadataManager2.initState(TOPIC_PARTITION.topicPartition(), dir,
+        TierPartitionState partitionState2 = metadataManager2.initState(TOPIC_ID_PARTITION.topicPartition(), dir,
                 config);
         assertEquals(TierPartitionStatus.CLOSED, partitionState2.status());
 
-        metadataManager2.delete(TOPIC_PARTITION.topicPartition());
+        metadataManager2.delete(TOPIC_ID_PARTITION.topicPartition());
 
         assertEquals(0, onBecomeLeader);
         assertEquals(0, onBecomeFollower);
@@ -136,9 +136,9 @@ public class TierMetadataManagerTest {
                 new LogDirFailureChannel(10),
                 true);
         addListener(metadataManager);
-        TierPartitionState state = metadataManager.initState(TOPIC_PARTITION.topicPartition(), dir, config);
+        TierPartitionState state = metadataManager.initState(TOPIC_ID_PARTITION.topicPartition(), dir, config);
         assertFalse(state.tieringEnabled());
-        metadataManager.delete(TOPIC_PARTITION.topicPartition());
+        metadataManager.delete(TOPIC_ID_PARTITION.topicPartition());
 
         assertEquals(0, onBecomeLeader);
         assertEquals(0, onBecomeFollower);
@@ -154,12 +154,12 @@ public class TierMetadataManagerTest {
                 new LogDirFailureChannel(10),
                 false);
         addListener(metadataManager);
-        TierPartitionState partitionState = metadataManager.initState(TOPIC_PARTITION.topicPartition(), dir,
+        TierPartitionState partitionState = metadataManager.initState(TOPIC_ID_PARTITION.topicPartition(), dir,
                 config);
         assertFalse(partitionState.tieringEnabled());
-        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_PARTITION.topicPartition()).get().tieringEnabled());
+        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION.topicPartition()).get().tieringEnabled());
         assertEquals(TierPartitionStatus.CLOSED, partitionState.status());
-        metadataManager.delete(TOPIC_PARTITION.topicPartition());
+        metadataManager.delete(TOPIC_ID_PARTITION.topicPartition());
 
         assertEquals(0, onBecomeLeader);
         assertEquals(0, onBecomeFollower);
@@ -175,24 +175,21 @@ public class TierMetadataManagerTest {
                 new LogDirFailureChannel(10),
                 true);
         addListener(metadataManager);
-        TierPartitionState partitionState = metadataManager.initState(TOPIC_PARTITION.topicPartition(), dir,
+        TierPartitionState partitionState = metadataManager.initState(TOPIC_ID_PARTITION.topicPartition(), dir,
                 oldConfig);
-        metadataManager.becomeFollower(TOPIC_PARTITION);
+        metadataManager.becomeFollower(TOPIC_ID_PARTITION);
 
         LogConfig newConfig = config(true, false);
-        metadataManager.onConfigChange(TOPIC_PARTITION.topicPartition(), newConfig);
+        metadataManager.onConfigChange(TOPIC_ID_PARTITION.topicPartition(), newConfig);
         assertTrue(partitionState.tieringEnabled());
-        assertTrue(metadataManager.tierPartitionMetadata(TOPIC_PARTITION.topicPartition()).get().tieringEnabled());
-        assertTrue(metadataManager.tierPartitionMetadata(TOPIC_PARTITION).get().tieringEnabled());
+        assertTrue(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION.topicPartition()).get().tieringEnabled());
+        assertTrue(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION).get().tieringEnabled());
         assertTrue(partitionState.status().isOpen());
 
         // disabling tiering should now throw an exception
-        try {
-            metadataManager.onConfigChange(TOPIC_PARTITION.topicPartition(), oldConfig);
-            fail();
-        } catch (InvalidConfigurationException e) {
-        }
-        metadataManager.delete(TOPIC_PARTITION.topicPartition());
+        assertThrows(InvalidConfigurationException.class, () ->
+                metadataManager.onConfigChange(TOPIC_ID_PARTITION.topicPartition(), oldConfig));
+        metadataManager.delete(TOPIC_ID_PARTITION.topicPartition());
 
         assertEquals(0, onBecomeLeader);
         assertEquals(1, onBecomeFollower);
@@ -208,28 +205,72 @@ public class TierMetadataManagerTest {
                 new LogDirFailureChannel(10),
                 true);
         addListener(metadataManager);
-        TierPartitionState partitionState = metadataManager.initState(TOPIC_PARTITION.topicPartition(), dir,
+        TierPartitionState partitionState = metadataManager.initState(TOPIC_ID_PARTITION.topicPartition(), dir,
                 oldConfig);
-        metadataManager.becomeLeader(TOPIC_PARTITION, 0);
+        metadataManager.becomeLeader(TOPIC_ID_PARTITION, 0);
 
         LogConfig newConfig = config(true, false);
-        metadataManager.onConfigChange(TOPIC_PARTITION.topicPartition(), newConfig);
+        metadataManager.onConfigChange(TOPIC_ID_PARTITION.topicPartition(), newConfig);
         assertTrue(partitionState.tieringEnabled());
-        assertTrue(metadataManager.tierPartitionMetadata(TOPIC_PARTITION).get().tieringEnabled());
-        assertTrue(metadataManager.tierPartitionMetadata(TOPIC_PARTITION).get().tieringEnabled());
+        assertTrue(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION).get().tieringEnabled());
+        assertTrue(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION).get().tieringEnabled());
         assertTrue(partitionState.status().isOpen());
 
         // disabling tiering should now throw an exception
-        try {
-            metadataManager.onConfigChange(TOPIC_PARTITION.topicPartition(), oldConfig);
-            fail();
-        } catch (InvalidConfigurationException e) {
-        }
-        metadataManager.delete(TOPIC_PARTITION.topicPartition());
+        assertThrows(InvalidConfigurationException.class, () ->
+                metadataManager.onConfigChange(TOPIC_ID_PARTITION.topicPartition(), oldConfig));
+        metadataManager.delete(TOPIC_ID_PARTITION.topicPartition());
 
         assertEquals(1, onBecomeLeader);
         assertEquals(0, onBecomeFollower);
         assertEquals(1, onDelete);
+    }
+
+    @Test
+    public void testUpdateConfigTierEnableNoTopicId() throws IOException {
+        LogConfig oldConfig = config(false, false);
+        TierMetadataManager metadataManager = new TierMetadataManager(
+                new FileTierPartitionStateFactory(),
+                Optional.of(new MockInMemoryTierObjectStore(OBJECT_STORE_CONFIG)),
+                new LogDirFailureChannel(10),
+                true);
+        addListener(metadataManager);
+        TierPartitionState partitionState = metadataManager.initState(TOPIC_ID_PARTITION.topicPartition(), dir,
+                oldConfig);
+
+        LogConfig newConfig = config(true, false);
+        metadataManager.onConfigChange(TOPIC_ID_PARTITION.topicPartition(), newConfig);
+        assertTrue(partitionState.tieringEnabled());
+        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION).isPresent());
+        assertTrue(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION.topicPartition()).get().tieringEnabled());
+        assertFalse(partitionState.status().isOpen());
+
+        // disabling tiering should now throw an exception
+        assertThrows(InvalidConfigurationException.class,
+                    () -> metadataManager.onConfigChange(TOPIC_ID_PARTITION.topicPartition(),
+                            oldConfig));
+
+        assertEquals(0, onBecomeLeader);
+        assertEquals(0, onBecomeFollower);
+        assertEquals("onDelete should not be called as partition state does not have a topic ID"
+                        + " associated and should thus not be wrritten to a file yet",
+                0, onDelete);
+
+        // subsequent become leader after config change
+        metadataManager.becomeLeader(TOPIC_ID_PARTITION, 0);
+        assertEquals(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION.topicPartition()).get().epochIfLeader().getAsInt(), 0);
+        assertEquals(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION).get().epochIfLeader().getAsInt(), 0);
+
+        // become follower after config change
+        metadataManager.becomeFollower(TOPIC_ID_PARTITION);
+        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION.topicPartition()).get().epochIfLeader().isPresent());
+        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION).get().epochIfLeader().isPresent());
+
+        assertEquals(1, onBecomeLeader);
+        assertEquals(1, onBecomeFollower);
+        assertEquals(0, onDelete);
+
+        metadataManager.delete(TOPIC_ID_PARTITION.topicPartition());
     }
 
     @Test
@@ -241,17 +282,18 @@ public class TierMetadataManagerTest {
                 new LogDirFailureChannel(10),
                 true);
         addListener(metadataManager);
-        metadataManager.initState(TOPIC_PARTITION.topicPartition(), dir, oldConfig);
-        TierPartitionState tierPartitionState = metadataManager.tierPartitionState(TOPIC_PARTITION.topicPartition()).get();
-        tierPartitionState.setTopicIdPartition(TOPIC_PARTITION);
+        metadataManager.initState(TOPIC_ID_PARTITION.topicPartition(), dir, oldConfig);
+        TierPartitionState tierPartitionState = metadataManager.tierPartitionState(TOPIC_ID_PARTITION.topicPartition()).get();
+        tierPartitionState.setTopicIdPartition(TOPIC_ID_PARTITION);
 
         LogConfig newConfig = config(false, true);
         try {
-            metadataManager.onConfigChange(TOPIC_PARTITION.topicPartition(), newConfig);
-            fail();
-        } catch (InvalidConfigurationException e) {
+            // disabling tiering should now throw an exception
+            assertThrows(InvalidConfigurationException.class,
+                    () -> metadataManager.onConfigChange(TOPIC_ID_PARTITION.topicPartition(),
+                            newConfig));
         } finally {
-            metadataManager.delete(TOPIC_PARTITION.topicPartition());
+            metadataManager.delete(TOPIC_ID_PARTITION.topicPartition());
         }
 
         assertEquals(0, onBecomeLeader);
@@ -268,36 +310,36 @@ public class TierMetadataManagerTest {
                 new LogDirFailureChannel(10),
                 true);
         addListener(metadataManager);
-        metadataManager.initState(TOPIC_PARTITION.topicPartition(), dir, config);
+        metadataManager.initState(TOPIC_ID_PARTITION.topicPartition(), dir, config);
 
         // become leader with epoch 0
-        metadataManager.becomeLeader(TOPIC_PARTITION, 0);
-        assertEquals(metadataManager.tierPartitionMetadata(TOPIC_PARTITION.topicPartition()).get().epochIfLeader().getAsInt(), 0);
-        assertEquals(metadataManager.tierPartitionMetadata(TOPIC_PARTITION).get().epochIfLeader().getAsInt(), 0);
+        metadataManager.becomeLeader(TOPIC_ID_PARTITION, 0);
+        assertEquals(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION.topicPartition()).get().epochIfLeader().getAsInt(), 0);
+        assertEquals(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION).get().epochIfLeader().getAsInt(), 0);
 
         // advance epoch to 1
-        metadataManager.becomeLeader(TOPIC_PARTITION, 1);
-        assertEquals(metadataManager.tierPartitionMetadata(TOPIC_PARTITION.topicPartition()).get().epochIfLeader().getAsInt(), 1);
-        assertEquals(metadataManager.tierPartitionMetadata(TOPIC_PARTITION).get().epochIfLeader().getAsInt(), 1);
+        metadataManager.becomeLeader(TOPIC_ID_PARTITION, 1);
+        assertEquals(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION.topicPartition()).get().epochIfLeader().getAsInt(), 1);
+        assertEquals(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION).get().epochIfLeader().getAsInt(), 1);
 
         // become follower
-        metadataManager.becomeFollower(TOPIC_PARTITION);
-        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_PARTITION.topicPartition()).get().epochIfLeader().isPresent());
-        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_PARTITION).get().epochIfLeader().isPresent());
+        metadataManager.becomeFollower(TOPIC_ID_PARTITION);
+        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION.topicPartition()).get().epochIfLeader().isPresent());
+        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION).get().epochIfLeader().isPresent());
 
         // become follower again
-        metadataManager.becomeFollower(TOPIC_PARTITION);
-        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_PARTITION.topicPartition()).get().epochIfLeader().isPresent());
-        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_PARTITION).get().epochIfLeader().isPresent());
+        metadataManager.becomeFollower(TOPIC_ID_PARTITION);
+        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION.topicPartition()).get().epochIfLeader().isPresent());
+        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION).get().epochIfLeader().isPresent());
 
         // now become leader with epoch 3
-        metadataManager.becomeLeader(TOPIC_PARTITION, 3);
-        assertEquals(metadataManager.tierPartitionMetadata(TOPIC_PARTITION.topicPartition()).get().epochIfLeader().getAsInt(), 3);
-        assertEquals(metadataManager.tierPartitionMetadata(TOPIC_PARTITION).get().epochIfLeader().getAsInt(), 3);
+        metadataManager.becomeLeader(TOPIC_ID_PARTITION, 3);
+        assertEquals(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION.topicPartition()).get().epochIfLeader().getAsInt(), 3);
+        assertEquals(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION).get().epochIfLeader().getAsInt(), 3);
 
-        metadataManager.delete(TOPIC_PARTITION.topicPartition());
-        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_PARTITION.topicPartition()).isPresent());
-        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_PARTITION).isPresent());
+        metadataManager.delete(TOPIC_ID_PARTITION.topicPartition());
+        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION.topicPartition()).isPresent());
+        assertFalse(metadataManager.tierPartitionMetadata(TOPIC_ID_PARTITION).isPresent());
 
         assertEquals(3, onBecomeLeader);
         assertEquals(2, onBecomeFollower);
