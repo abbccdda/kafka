@@ -47,6 +47,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -85,7 +86,7 @@ public class RestClient implements Closeable {
   private final String protocol;
 
   private SSLSocketFactory sslSocketFactory;
-  private HttpCredentialProvider credentialProvider;
+  private AtomicReference<HttpCredentialProvider> credentialProvider;
   private ScheduledExecutorService urlRefreshscheduler;
   private RequestSender requestSender = new HTTPRequestSender();
 
@@ -109,9 +110,12 @@ public class RestClient implements Closeable {
     String credentialProviderName =
             rbacClientConfig.getString(RestClientConfig.HTTP_AUTH_CREDENTIALS_PROVIDER_PROP);
 
+    this.credentialProvider = new AtomicReference<>();
     if (credentialProviderName != null && !credentialProviderName.isEmpty()) {
-      credentialProvider = BuiltInAuthProviders.loadHttpCredentialProviders(credentialProviderName);
-      credentialProvider.configure(configs);
+      setCredentialProvider(
+          BuiltInAuthProviders.loadHttpCredentialProviders(credentialProviderName)
+      );
+      credentialProvider().configure(configs);
     }
 
     //set ssl socket factory
@@ -121,6 +125,10 @@ public class RestClient implements Closeable {
     activeMetadataServerURLs = bootstrapMetadataServerURLs;
     if (rbacClientConfig.getBoolean(RestClientConfig.ENABLE_METADATA_SERVER_URL_REFRESH))
       scheduleMetadataServiceUrlRefresh(rbacClientConfig);
+  }
+
+  private HttpCredentialProvider credentialProvider() {
+    return credentialProvider.get();
   }
 
   private String protocol(final List<String> bootstrapMetadataServerURLs) {
@@ -177,11 +185,11 @@ public class RestClient implements Closeable {
   List<String> getActiveMetadataServerURLs()
           throws IOException, RestClientException, URISyntaxException {
 
-    RestRequest request = this.newRequest(String.format(ACTIVE_NODES_ENDPOINT, protocol));
-    request.setCredentialProvider(this.credentialProvider);
+    RestRequest request = newRequest(String.format(ACTIVE_NODES_ENDPOINT, protocol));
+    request.setCredentialProvider(credentialProvider());
     request.setResponse(ACTIVE_URLS_RESPONSE_TYPE);
 
-    return Stream.of(this.sendRequest(request), bootstrapMetadataServerURLs)
+    return Stream.of(sendRequest(request), bootstrapMetadataServerURLs)
             .flatMap(Collection::stream)
             .distinct()
             .collect(Collectors.toList());
@@ -197,19 +205,23 @@ public class RestClient implements Closeable {
     this.requestSender = requestSender;
   }
 
+  public void setCredentialProvider(HttpCredentialProvider credentialProvider) {
+    this.credentialProvider.set(credentialProvider);
+  }
+
   public RestRequest newRequest(String path) {
-    RestRequest request = new RestRequest(this.protocol, path);
+    RestRequest request = new RestRequest(protocol, path);
     /* inherit rest client credential provider as a default */
-    request.setCredentialProvider(this.credentialProvider);
+    request.setCredentialProvider(credentialProvider());
     return request;
   }
 
   public JwtBearerToken login() throws AuthenticationException {
-    return this.login(this.credentialProvider);
+    return login(credentialProvider());
   }
 
   public JwtBearerToken login(String userInfo) {
-    return this.login(new HttpBasicCredentialProvider(userInfo));
+    return login(new HttpBasicCredentialProvider(userInfo));
   }
 
   public JwtBearerToken login(HttpCredentialProvider credentialProvider) {
