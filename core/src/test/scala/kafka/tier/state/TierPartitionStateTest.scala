@@ -232,6 +232,32 @@ class TierPartitionStateTest {
   }
 
   @Test
+  def testMultipleInitiatesScannedCorrectlyOnReload(): Unit = {
+    val numSegments = 20
+    var epoch = 0
+    var offset = 0
+
+    // upload few segments at epoch=0
+    state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, UUID.randomUUID(), offset, offset + 1, 100, 100, false, false, false)))
+    epoch += 1
+    offset += 1
+    state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, UUID.randomUUID(), offset, offset + 1, 100, 100, false, false, false)))
+    epoch += 1
+    state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0))
+    val initialFenced = state.fencedSegments()
+
+    assertEquals(2, initialFenced.size())
+    // close state and reopen to allow scanning to check in progress uploads
+    state.close()
+    // setting topic ID partition will cause TierPartitionState to be reopened
+    state.setTopicIdPartition(tpid)
+    val afterReloadFenced = state.fencedSegments()
+    assertEquals(initialFenced, afterReloadFenced)
+  }
+
+  @Test
   def testUploadAtLowerEpochFenced(): Unit = {
     val numSegments = 20
     var epoch = 0

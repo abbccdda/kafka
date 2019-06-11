@@ -141,9 +141,10 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             throw new IllegalStateException("TierPartitionState assigned a different "
                     + "topicIdPartition than already assigned (" + topicIdPartition
                     + " " + this.topicIdPartition);
-
         this.topicIdPartition = topicIdPartition;
-        maybeOpenChannel();
+        synchronized (lock) {
+            maybeOpenChannel();
+        }
     }
 
     @Override
@@ -258,6 +259,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                         state.channel.close();
                 } finally {
                     state = State.UNINITIALIZED_STATE;
+                    uploadInProgress = null;
                     if (materializationTracker != null) {
                         materializationTracker.promise.completeExceptionally(
                                 new TierPartitionStateIllegalListenerException("Tier partition state for " +
