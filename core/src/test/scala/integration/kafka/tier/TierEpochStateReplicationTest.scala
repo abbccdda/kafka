@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package integration.kafka.tier
+package kafka.tier
 
 import java.util.Properties
 

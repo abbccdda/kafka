@@ -2,7 +2,7 @@
 Copyright 2018 Confluent Inc.
 */
 
-package integration.kafka.tier
+package kafka.tier
 
 import java.io.EOFException
 import java.nio.ByteBuffer

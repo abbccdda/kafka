@@ -1,4 +1,4 @@
-package integration.kafka.tier
+package kafka.tier
 
 import kafka.api.IntegrationTestHarness
 import kafka.server.{KafkaConfig, KafkaServer}

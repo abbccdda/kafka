@@ -2,7 +2,7 @@
  Copyright 2018 Confluent Inc.
  */
 
-package integration.kafka.tier.archiver
+package kafka.tier.archiver
 
 import java.util.concurrent.{CancellationException, TimeUnit}
 
