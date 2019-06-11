@@ -23,6 +23,7 @@ import kafka.utils.{MockTime, TestUtils}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record.MemoryRecords.RecordFilter
 import org.apache.kafka.common.record._
+import org.easymock.EasyMock
 import org.junit.Assert._
 import org.junit.{After, Test}
 import org.mockito.ArgumentMatchers
@@ -368,7 +369,7 @@ class TierIntegrationTest {
 
   private def setupTierTopicManager(tierMetadataManager: TierMetadataManager): (TierTopicManager, MockConsumerBuilder) = {
     val producerBuilder = new MockProducerBuilder()
-    val consumerBuilder = new MockConsumerBuilder(tierTopicManagerConfig, producerBuilder.producer())
+    val consumerBuilder = new MockConsumerBuilder(tierTopicManagerConfig.numPartitions, producerBuilder.producer())
     val bootstrapSupplier = new Supplier[String] {
       override def get: String = {
         ""
@@ -379,7 +380,8 @@ class TierIntegrationTest {
       consumerBuilder,
       producerBuilder,
       bootstrapSupplier,
-      tierMetadataManager)
+      tierMetadataManager,
+      EasyMock.mock(classOf[LogDirFailureChannel]))
     tierTopicManager.becomeReady(bootstrapSupplier.get())
     (tierTopicManager, consumerBuilder)
   }

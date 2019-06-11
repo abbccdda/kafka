@@ -4,7 +4,6 @@
 
 package kafka.tier.client;
 
-import kafka.tier.TierTopicManagerConfig;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.MockConsumer;
@@ -20,14 +19,14 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class MockConsumerBuilder implements TierTopicConsumerBuilder {
-    private final TierTopicManagerConfig config;
+    private final short numPartitions;
     private final MockProducer<byte[], byte[]> producer;
     private final ArrayList<MockConsumer<byte[], byte[]>> consumers = new ArrayList<>();
     private final ArrayList<ConsumerRecord<byte[], byte[]>> records = new ArrayList<>();
     private long position = 0;
 
-    public MockConsumerBuilder(TierTopicManagerConfig config, MockProducer<byte[], byte[]> producer) {
-        this.config = config;
+    public MockConsumerBuilder(Short numPartitions, MockProducer<byte[], byte[]> producer) {
+        this.numPartitions = numPartitions;
         this.producer = producer;
     }
 
@@ -71,6 +70,10 @@ public class MockConsumerBuilder implements TierTopicConsumerBuilder {
         }
     }
 
+    ArrayList<MockConsumer<byte[], byte[]>> getConsumers() {
+        return consumers;
+    }
+
     private void addRecord(ConsumerRecord<byte[], byte[]> record) {
         HashMap<TopicPartition, Long> endOffsets = new HashMap<>();
         endOffsets.put(new TopicPartition(record.topic(), record.partition()), record.offset());
@@ -90,7 +93,7 @@ public class MockConsumerBuilder implements TierTopicConsumerBuilder {
 
     private Collection<TopicPartition> partitions(String topicName) {
         return IntStream
-                .range(0, config.numPartitions)
+                .range(0, numPartitions)
                 .mapToObj(part -> new TopicPartition(topicName, part))
                 .collect(Collectors.toList());
     }

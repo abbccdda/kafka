@@ -4,6 +4,7 @@
 
 package kafka.tier;
 
+import kafka.server.LogDirFailureChannel;
 import kafka.tier.client.ConsumerBuilder;
 import kafka.tier.client.ProducerBuilder;
 import kafka.tier.client.TierTopicConsumerBuilder;
@@ -44,10 +45,10 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.Map;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -104,18 +105,21 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
      * @param consumerBuilder     builder to create consumer instances.
      * @param producerBuilder     producer to create producer instances.
      * @param tierMetadataManager Tier Metadata Manager instance
+     * @param logDirFailureChannel Log dir failure channel
      * @throws IOException on logdir write failures
      */
     public TierTopicManager(TierTopicManagerConfig config,
                             TierTopicConsumerBuilder consumerBuilder,
                             TierTopicProducerBuilder producerBuilder,
                             Supplier<String> bootstrapServersSupplier,
-                            TierMetadataManager tierMetadataManager) throws IOException {
+                            TierMetadataManager tierMetadataManager,
+                            LogDirFailureChannel logDirFailureChannel) throws IOException {
         this.config = config;
         this.topicName = topicName(config.tierNamespace);
         this.tierMetadataManager = tierMetadataManager;
         this.bootstrapServersSupplier = bootstrapServersSupplier;
-        this.committer = new TierTopicManagerCommitter(config, tierMetadataManager, shutdownInitiated);
+        this.committer = new TierTopicManagerCommitter(config, tierMetadataManager,
+         logDirFailureChannel, shutdownInitiated);
         if (config.logDirs.size() > 1) {
             throw new UnsupportedOperationException("Multiple log.dirs detected. Tiered "
                     + "storage currently supports single logdir configuration.");
@@ -145,17 +149,20 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
      *
      * @param tierMetadataManager Tier Metadata Manager instance
      * @param config              TierTopicManagerConfig containing tiering configuration.
+     * @param logDirFailureChannel Log dir failure channel
      * @param metrics             kafka metrics to track TierTopicManager metrics
      */
     public TierTopicManager(TierMetadataManager tierMetadataManager,
                             TierTopicManagerConfig config,
                             Supplier<String> bootstrapServersSupplier,
+                            LogDirFailureChannel logDirFailureChannel,
                             Metrics metrics) throws IOException {
         this(config,
                 new ConsumerBuilder(config),
                 new ProducerBuilder(config),
                 bootstrapServersSupplier,
-                tierMetadataManager);
+                tierMetadataManager,
+                logDirFailureChannel);
         setupMetrics(metrics);
     }
 
@@ -349,8 +356,19 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
     public void becomeReady(String boostrapServers) {
         primaryConsumer = consumerBuilder.setupConsumer(boostrapServers, topicName, "primary");
         primaryConsumer.assign(partitions());
-        for (Map.Entry<Integer, Long> entry : committer.positions().entrySet())
-            primaryConsumer.seek(new TopicPartition(topicName, entry.getKey()), entry.getValue());
+        for (TopicPartition partition: partitions()) {
+            Long position = committer.positions().get(partition.partition());
+            if (position != null) {
+                log.info("seeking primary consumer to committed offset {} for partition {}",
+                         position, partition);
+                primaryConsumer.seek(partition, position);
+            } else {
+                log.info("primary consumer missing committed offset for partition {}. Seeking to "
+                                + "beginning",
+                        partition);
+                primaryConsumer.seekToBeginning(Collections.singletonList(partition));
+            }
+        }
 
         producer = producerBuilder.setupProducer(boostrapServers);
         partitioner = new TierTopicPartitioner(config.numPartitions);

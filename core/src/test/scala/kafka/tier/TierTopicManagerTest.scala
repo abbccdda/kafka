@@ -7,23 +7,28 @@ package kafka.tier
 import java.io.File
 import java.util
 import java.util.function.Supplier
+import java.util.Collections
 import java.util.{Optional, Properties, UUID}
 
 import kafka.log.LogConfig
 import kafka.server.LogDirFailureChannel
 import kafka.tier.client.{MockConsumerBuilder, MockProducerBuilder}
+import kafka.tier.client.ConsumerBuilder
+import kafka.tier.client.TierTopicConsumerBuilder
 import kafka.tier.domain.{TierSegmentUploadComplete, TierSegmentUploadInitiate, TierTopicInitLeader}
 import kafka.tier.state.FileTierPartitionStateFactory
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
 import kafka.utils.TestUtils
+import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.common.config.ConfluentTopicConfig
+import org.apache.kafka.common.TopicPartition
+import org.easymock.EasyMock
 import org.junit.Assert._
 import org.junit.Test
 
 class TierTopicManagerTest {
   val tierTopicName = "_confluent-tier-state"
-  val tierTopicNumPartitions = 1.toShort
   val clusterId = "mycluster"
   val objectStoreConfig = new TierObjectStoreConfig()
   val tempDir = TestUtils.tempDir()
@@ -33,22 +38,28 @@ class TierTopicManagerTest {
     Optional.of(new MockInMemoryTierObjectStore(objectStoreConfig)),
     new LogDirFailureChannel(1),
     true)
-  val tierTopicManagerConfig = new TierTopicManagerConfig("", "", tierTopicNumPartitions, 1.toShort, 3, clusterId, 5L, 30000, 500, logDirs)
   val producerBuilder = new MockProducerBuilder()
-  val consumerBuilder = new MockConsumerBuilder(tierTopicManagerConfig, producerBuilder.producer())
   val bootstrapSupplier = new Supplier[String] {
     override def get: String = { "" }
   }
-  val tierTopicManager = new TierTopicManager(
-    tierTopicManagerConfig,
-    consumerBuilder,
-    producerBuilder,
-    bootstrapSupplier,
-    tierMetadataManager)
+
+  def createTierTopicManager(consumerBuilder: TierTopicConsumerBuilder, tierTopicNumPartitions: Short): TierTopicManager = {
+    val tierTopicManagerConfig = new TierTopicManagerConfig("", "", tierTopicNumPartitions, 1.toShort, 3, clusterId, 5L, 30000, 500, logDirs)
+    new TierTopicManager(
+      tierTopicManagerConfig,
+      consumerBuilder,
+      producerBuilder,
+      bootstrapSupplier,
+      tierMetadataManager,
+      EasyMock.mock(classOf[LogDirFailureChannel]))
+  }
 
   @Test
   def testTierTopicManager(): Unit = {
     try {
+      val numPartitions: Short = 1
+      val consumerBuilder = new MockConsumerBuilder(numPartitions, producerBuilder.producer())
+      val tierTopicManager = createTierTopicManager(consumerBuilder, numPartitions)
       tierTopicManager.becomeReady(bootstrapSupplier.get())
 
       val archivedPartition1 = new TopicIdPartition("archivedTopic", UUID.randomUUID(), 0)
@@ -61,6 +72,7 @@ class TierTopicManagerTest {
 
       val objectId = UUID.randomUUID
       uploadWithMetadata(tierTopicManager,
+        consumerBuilder,
         archivedPartition1,
         0,
         objectId,
@@ -129,6 +141,9 @@ class TierTopicManagerTest {
   @Test
   def testCatchUpConsumer(): Unit = {
     try {
+      val numPartitions: Short = 1
+      val consumerBuilder = new MockConsumerBuilder(numPartitions, producerBuilder.producer())
+      val tierTopicManager = createTierTopicManager(consumerBuilder, numPartitions)
       tierTopicManager.becomeReady(bootstrapSupplier.get())
       val topicId = UUID.randomUUID()
       val archivedPartition1 = new TopicIdPartition("archivedTopic", topicId, 0)
@@ -156,9 +171,49 @@ class TierTopicManagerTest {
   }
 
   @Test
-  def testTrackAppendsBeforeReady(): Unit = {
-    val epoch = 0
+  def testPrimaryConsumerOffsetLoad(): Unit = {
+    try {
+      val numPartitions: Short = 2
+      val partition1 = new TopicPartition(tierTopicName, 0)
+      val partition2 = new TopicPartition(tierTopicName, 1)
+      val partitions = util.Arrays.asList(partition1, partition2)
+      val committedOffset = 300L
 
+      val producerBuilder = new MockProducerBuilder()
+      val consumer: KafkaConsumer[Array[Byte], Array[Byte]] = EasyMock.createMock(classOf[KafkaConsumer[Array[Byte], Array[Byte]]])
+      val consumerBuilder: ConsumerBuilder = EasyMock.createMock(classOf[ConsumerBuilder])
+      EasyMock.expect(consumerBuilder.setupConsumer(EasyMock.anyString, EasyMock.anyString, EasyMock.anyString))
+        .andReturn(consumer)
+      EasyMock.expect(consumer.assign(partitions)).andVoid()
+      // partition without committed offset should seek to beginning
+      EasyMock.expect(consumer.seekToBeginning(Collections.singletonList(partition1))).andVoid()
+      // partition with committed offset should restore position
+      EasyMock.expect(consumer.seek(partition2, committedOffset)).andVoid()
+      EasyMock.replay(consumerBuilder)
+      EasyMock.replay(consumer)
+
+      val tierTopicManager = createTierTopicManager(consumerBuilder, numPartitions)
+
+      // set position for partition 2 on committer to test committed offset recovery
+      tierTopicManager.committer().updatePosition(partition2.partition(), committedOffset)
+      tierTopicManager.becomeReady(bootstrapSupplier.get())
+      EasyMock.verify(consumerBuilder)
+      EasyMock.verify(consumer)
+
+    } finally {
+      Option(new File(logDir).listFiles)
+        .map(_.toList)
+        .getOrElse(Nil)
+        .foreach(_.delete())
+    }
+  }
+
+  def testTrackAppendsBeforeReady(): Unit = {
+    val numPartitions: Short = 1
+    val consumerBuilder = new MockConsumerBuilder(numPartitions, producerBuilder.producer())
+    val tierTopicManager = createTierTopicManager(consumerBuilder, numPartitions)
+
+    val epoch = 0
     val topicIdPartition_1 = new TopicIdPartition("foo_1", UUID.randomUUID, 0)
     val initLeader_1 = new TierTopicInitLeader(topicIdPartition_1, epoch, UUID.randomUUID, 0)
     addReplica(topicIdPartition_1)
@@ -206,6 +261,7 @@ class TierTopicManagerTest {
   }
 
   private def uploadWithMetadata(tierTopicManager: TierTopicManager,
+                                 consumerBuilder: MockConsumerBuilder,
                                  topicIdPartition: TopicIdPartition,
                                  tierEpoch: Int,
                                  objectId: UUID,
