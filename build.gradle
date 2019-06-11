@@ -2107,6 +2107,8 @@ project(':ce-metrics') {
   apply plugin: 'com.github.johnrengelman.shadow'
   group = "io.confluent"
   archivesBaseName = "confluent-metrics"
+  jar.enabled = false
+  jar.dependsOn 'shadowJar'
 
   dependencies {
     compile libs.bcpkix
@@ -2130,7 +2132,17 @@ project(':ce-metrics') {
     duplicatesStrategy 'exclude'
   }
 
-  jar {
+  shadowJar {
+    relocate('com.google.protobuf', 'io.confluent.shaded.com.google.protobuf')
+    relocate('com.google.common', 'io.confluent.shaded.com.google.common')
+    relocate('com.google.gson', 'io.confluent.shaded.com.google.gson')
+    dependencies {
+      include(dependency(':ce-serializers'))
+      include(dependency(libs.gson))
+      include(dependency(libs.guava))
+      include(dependency(libs.protobuf))
+      include(dependency(libs.protobufUtil))
+    }
     dependsOn 'copyDependantLibs'
   }
 
@@ -2179,6 +2191,12 @@ project(':ce-serializers') {
 
   jar {
     dependsOn 'copyDependantLibs'
+    // Move '.proto' files to 'proto/' directory to match layout in 5.2.x
+    eachFile { file ->
+      if (file.path.endsWith('.proto')) {
+        file.path = "proto/$file.path"
+      }
+    }
   }
 
   checkstyle {
