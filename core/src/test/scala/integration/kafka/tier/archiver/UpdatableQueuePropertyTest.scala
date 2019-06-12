@@ -28,10 +28,10 @@ case class QueueEntry(k: Int, value: Int) extends UpdatableQueueEntry {
 object QueueEntry {
   implicit def arbQueueEntry: Arbitrary[QueueEntry] = {
     Arbitrary {
-      Gen.sized(size => for {
-        k <- Gen.chooseNum(0, size)
-        v <- Gen.chooseNum(0, size)
-      } yield QueueEntry(k, v))
+      for {
+        k <- Gen.chooseNum(0, 2)
+        v <- Gen.chooseNum(0, 3)
+      } yield QueueEntry(k, v)
     }
   }
 }
@@ -154,24 +154,21 @@ object UpdatableQueueSpec extends Commands {
 @RunWith(classOf[JUnitRunner])
 class UpdatableQueuePropertyTest extends FunSuite with Checkers {
 
-  val config: PropertyCheckConfiguration = PropertyCheckConfiguration(minSuccessful = 1000, workers = 4)
+  val config: PropertyCheckConfiguration = PropertyCheckConfiguration(minSuccessful = 10000, workers = 4)
 
   test("testSingleThreadedUpdatableQueue") {
-    implicit val generatorDrivenConfig: PropertyCheckConfiguration = config
     check {
       UpdatableQueueSpec.property(threadCount = 1)
     }
   }
 
-  ignore("testMultiThreadedUpdatableQueue") {
-    implicit val generatorDrivenConfig: PropertyCheckConfiguration = config.copy(minSuccessful = 10)
+  test("testMultiThreadedUpdatableQueue") {
     check {
       UpdatableQueueSpec.property(threadCount = 4)
     }
   }
 
   test("testAllValuesMaterialize") {
-    implicit val generatorDrivenConfig: PropertyCheckConfiguration = config
     check {
       entries: Seq[QueueEntry] => {
         val queue = new UpdatableQueue[QueueEntry]()
