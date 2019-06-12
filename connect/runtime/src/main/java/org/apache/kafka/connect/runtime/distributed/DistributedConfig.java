@@ -22,6 +22,7 @@ import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.connect.runtime.WorkerConfig;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -312,8 +313,15 @@ public class DistributedConfig extends WorkerConfig {
         return getInt(DistributedConfig.REBALANCE_TIMEOUT_MS_CONFIG);
     }
 
+    private static Map<String, String> addExposeInternalEndpointConfig(Map<String, String> props) {
+        Map<String, String> result = new HashMap<>(props);
+        // Used by the InstallBearerOrBasicSecurityHandler
+        result.putIfAbsent("expose.internal.connect.endpoints", "true");
+        return result;
+    }
+
     public DistributedConfig(Map<String, String> props) {
-        super(CONFIG, props);
+        super(CONFIG, addExposeInternalEndpointConfig(props));
     }
 
     public static void main(String[] args) {

@@ -41,7 +41,7 @@ import org.slf4j.LoggerFactory;
 
 import java.net.URI;
 import java.util.Arrays;
-import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -72,7 +72,7 @@ public class ConnectDistributed {
 
             String workerPropsFile = args[0];
             Map<String, String> workerProps = !workerPropsFile.isEmpty() ?
-                    Utils.propsToStringMap(Utils.loadProps(workerPropsFile)) : Collections.emptyMap();
+                    Utils.propsToStringMap(Utils.loadProps(workerPropsFile)) : new HashMap<>();
 
             ConnectDistributed connectDistributed = new ConnectDistributed();
             Connect connect = connectDistributed.startConnect(workerProps);
