@@ -10,12 +10,16 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseable {
+    public volatile boolean throwExceptionOnSegmentFetch = false;
+    public volatile boolean throwExceptionOnTransactionFetch = false;
+
     private final static String LOG_DATA_PREFIX = "0/";
     // KEY_TO_BLOB is static so that a mock object store can be shared across brokers
     // We can remove the shared state once we have more substantial system tests that use S3.
@@ -34,11 +38,20 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
         return objectCounts;
     }
 
+    private boolean shouldThrow(FileType objectFileType) {
+        return throwExceptionOnSegmentFetch && objectFileType == FileType.SEGMENT ||
+                throwExceptionOnTransactionFetch && objectFileType == FileType.TRANSACTION_INDEX;
+    }
+
     @Override
     public TierObjectStoreResponse getObject(ObjectMetadata objectMetadata,
                                              FileType objectFileType,
                                              Integer byteOffset,
                                              Integer byteOffsetEnd) throws IOException {
+        if (shouldThrow(objectFileType)) {
+            throw new IOException("");
+        }
+
         String key = keyPath(objectMetadata, objectFileType);
         byte[] blob = KEY_TO_BLOB.get(key);
         if (blob == null)
@@ -67,8 +80,9 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
                            File offsetIndexData,
                            File timestampIndexData,
                            Optional<File> producerStateSnapshotData,
-                           File transactionIndexData,
-                           Optional<File> epochState) throws IOException {
+                           Optional<ByteBuffer> transactionIndexData,
+                           Optional<File> epochState) {
+
         writeFileToArray(keyPath(objectMetadata, FileType.SEGMENT), segmentData);
         incrementObjectCount(FileType.SEGMENT);
 
@@ -78,13 +92,15 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
         writeFileToArray(keyPath(objectMetadata, FileType.TIMESTAMP_INDEX), timestampIndexData);
         incrementObjectCount(FileType.TIMESTAMP_INDEX);
 
-        if (producerStateSnapshotData.isPresent()) {
-            writeFileToArray(keyPath(objectMetadata, FileType.PRODUCER_STATE), producerStateSnapshotData.get());
+        producerStateSnapshotData.ifPresent(data -> {
+            writeFileToArray(keyPath(objectMetadata, FileType.PRODUCER_STATE), data);
             incrementObjectCount(FileType.PRODUCER_STATE);
-        }
+        });
 
-        writeFileToArray(keyPath(objectMetadata, FileType.TRANSACTION_INDEX), transactionIndexData);
-        incrementObjectCount(FileType.TRANSACTION_INDEX);
+        transactionIndexData.ifPresent(data -> {
+            this.writeBufToArray(keyPath(objectMetadata, FileType.TRANSACTION_INDEX), data);
+            incrementObjectCount(FileType.TRANSACTION_INDEX);
+        });
 
         if (epochState.isPresent()) {
             writeFileToArray(keyPath(objectMetadata, FileType.EPOCH_STATE), epochState.get());
@@ -109,12 +125,20 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
                 + "." + fileType.suffix();
     }
 
-    private void writeFileToArray(String filePath, File file) throws IOException {
+    private void writeFileToArray(String filePath, File file) {
         try (FileChannel sourceChan = FileChannel.open(file.toPath())) {
             ByteBuffer buf = ByteBuffer.allocate((int) sourceChan.size());
             sourceChan.read(buf);
             KEY_TO_BLOB.put(filePath, buf.array());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
+    }
+
+    private void writeBufToArray(String filePath, ByteBuffer buf) {
+        byte[] arr = new byte[buf.remaining()];
+        buf.get(arr);
+        KEY_TO_BLOB.put(filePath, arr);
     }
 
     private static class MockInMemoryTierObjectStoreResponse implements TierObjectStoreResponse {

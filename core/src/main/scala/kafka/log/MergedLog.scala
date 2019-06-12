@@ -203,7 +203,7 @@ class MergedLog(private[log] val localLog: Log,
       try {
         readLocal(startOffset, maxLength, maxOffset, minOneMessage, includeAbortedTxns)
       } catch {
-        case _: OffsetOutOfRangeException => readTier(startOffset, maxLength, maxOffset, minOneMessage, includeAbortedTxns, logEndOffset)
+        case _: OffsetOutOfRangeException => readTier(startOffset, maxLength, maxOffset, minOneMessage, logEndOffset)
       }
     }
   }
@@ -275,8 +275,9 @@ class MergedLog(private[log] val localLog: Log,
     }
   }
 
-  override private[log] def collectAbortedTransactions(startOffset: Long, upperBoundOffset: Long): List[AbortedTxn] = {
-    // Transactions are currently not supported with tiered storage so raise an exception if this is the case
+  override def collectAbortedTransactions(startOffset: Long, upperBoundOffset: Long): List[AbortedTxn] = {
+    // Aborted transactions are retrieved by the TierFetcher on READ_COMMITTED, so raise an exception if we attempt
+    // to collect aborted transactions from the log layer for a tier fetch.
     unsupportedIfOffsetNotLocal(startOffset)
     localLog.collectAbortedTransactions(startOffset, upperBoundOffset)
   }
@@ -365,13 +366,11 @@ class MergedLog(private[log] val localLog: Log,
   }
 
   // Attempt to locate "startOffset" in tiered store. If found, returns corresponding metadata about the tiered
-  // segment, along with any aborted transaction metadata for the read. Note that the aborted transaction information
-  // is only partial and must be combined with aborted transaction information in tiered segments.
+  // segment.
   private def readTier(startOffset: Long,
                        maxLength: Int,
                        maxOffset: Option[Long],
                        minOneMessage: Boolean,
-                       includeAbortedTxns: Boolean,
                        logEndOffset: Long): TierFetchDataInfo = {
     val tieredSegments = TierUtils.tieredSegments(tieredOffsets(startOffset, Long.MaxValue), tierPartitionState, tierMetadataManager.tierObjectStore)
     val tierEndOffset = tierPartitionState.endOffset
@@ -381,42 +380,18 @@ class MergedLog(private[log] val localLog: Log,
         s"but we only have log segments in the range $logStartOffset to $logEndOffset with tierLogEndOffset: " +
         s"$tierEndOffset and localLogStartOffset: ${localLog.localLogStartOffset}")
 
-    val tieredSegmentsIt = tieredSegments.iterator
-    while (tieredSegmentsIt.hasNext) {
-      val segment = tieredSegmentsIt.next()
+    for (segment <- tieredSegments.iterator().asScala) {
       val fetchInfoOpt = segment.read(startOffset, maxOffset, maxLength, segment.size, minOneMessage)
-      fetchInfoOpt.map { fetchInfo =>
-        // We could have segments for which aborted transactions metadata might not have been tiered yet. Include all
-        // aborted transactional data from local segments. TierFetcher combines this data with aborted transactions
-        // from fetched tiered segments.
-        if (includeAbortedTxns)
-          return addAbortedTransactions(startOffset, maxOffset, segment, fetchInfo)
-        else
+      fetchInfoOpt match {
+        case Some(fetchInfo) =>
           return fetchInfo
+        case None =>
       }
     }
-
     // We are past the end of tiered segments. We know that this offset is higher than the logStartOffset but lower than
     // localLogStartOffset. This likely signifies holes in tiered segments and should never happen.
     throw new IllegalStateException(s"Received request for offset $startOffset for partition $topicPartition, but" +
       s"could not find corresponding segment in the log with range $logStartOffset to $logEndOffset.")
-  }
-
-  // Collect all aborted transaction data from local segments. For simplicity, we place a conservative upper bound
-  // of the offset past the end of the segment we read.
-  private def addAbortedTransactions(startOffset: Long,
-                                     maxOffset: Option[Long],
-                                     segment: TierLogSegment,
-                                     fetchInfo: TierFetchDataInfo): TierFetchDataInfo = {
-    val upperBoundOffset = Math.min(segment.nextOffset, maxOffset.getOrElse(logEndOffset))
-    val abortedTransactions = ListBuffer.empty[AbortedTransaction]
-
-    def accumulator(abortedTxns: List[AbortedTxn]): Unit = {
-      abortedTransactions ++= abortedTxns.map(_.asAbortedTransaction)
-    }
-
-    localLog.collectLocalAbortedTransactions(startOffset, upperBoundOffset, accumulator)
-    fetchInfo.addAbortedTransactions(abortedTransactions.toList)
   }
 
   // Unique segments of the log. Note that this does not method does not return a point-in-time snapshot. Segments seen
@@ -854,7 +829,7 @@ sealed trait AbstractLog {
     * @param upperBoundOffset Exclusive last offset in the fetch range
     * @return List of all aborted transactions within the range
     */
-  private[log] def collectAbortedTransactions(startOffset: Long, upperBoundOffset: Long): List[AbortedTxn]
+  def collectAbortedTransactions(startOffset: Long, upperBoundOffset: Long): List[AbortedTxn]
 
   /**
     * This function does not acquire Log.lock. The caller has to make sure log segments don't get deleted during

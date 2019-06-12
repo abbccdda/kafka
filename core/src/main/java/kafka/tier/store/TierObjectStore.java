@@ -12,6 +12,7 @@ import kafka.utils.CoreUtils;
 import java.io.File;
 import java.io.IOException;
 import java.util.Objects;
+import java.nio.ByteBuffer;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -55,7 +56,7 @@ public interface TierObjectStore {
                     File offsetIndexData,
                     File timestampIndexData,
                     Optional<File> producerStateSnapshotData,
-                    File transactionIndexData,
+                    Optional<ByteBuffer> transactionIndexData,
                     Optional<File> epochState) throws TierObjectStoreRetriableException, IOException;
 
     void deleteSegment(ObjectMetadata objectMetadata) throws IOException;
@@ -70,16 +71,19 @@ public interface TierObjectStore {
         private final UUID objectId;
         private final int tierEpoch;
         private final long baseOffset;
+        private final boolean hasAbortedTxns;
 
         public ObjectMetadata(TopicIdPartition topicIdPartition,
                               UUID objectId,
                               int tierEpoch,
-                              long baseOffset) {
+                              long baseOffset,
+                              boolean hasAbortedTxns) {
             this.version = CURRENT_VERSION;
             this.topicIdPartition = topicIdPartition;
             this.objectId = objectId;
             this.tierEpoch = tierEpoch;
             this.baseOffset = baseOffset;
+            this.hasAbortedTxns = hasAbortedTxns;
         }
 
         public ObjectMetadata(TierObjectMetadata metadata) {
@@ -88,6 +92,7 @@ public interface TierObjectStore {
             this.objectId = metadata.objectId();
             this.tierEpoch = metadata.tierEpoch();
             this.baseOffset = metadata.baseOffset();
+            this.hasAbortedTxns = metadata.hasAbortedTxns();
         }
 
         public int version() {
@@ -114,6 +119,10 @@ public interface TierObjectStore {
             return baseOffset;
         }
 
+        public boolean hasAbortedTxns() {
+            return hasAbortedTxns;
+        }
+
         @Override
         public boolean equals(Object o) {
             if (this == o)
@@ -125,12 +134,13 @@ public interface TierObjectStore {
             return tierEpoch == that.tierEpoch &&
                     baseOffset == that.baseOffset &&
                     Objects.equals(topicIdPartition, that.topicIdPartition) &&
-                    Objects.equals(objectId, that.objectId);
+                    Objects.equals(objectId, that.objectId) &&
+                    hasAbortedTxns == that.hasAbortedTxns;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(topicIdPartition, objectId, tierEpoch, baseOffset);
+            return Objects.hash(topicIdPartition, objectId, tierEpoch, baseOffset, hasAbortedTxns);
         }
 
         @Override
@@ -140,6 +150,7 @@ public interface TierObjectStore {
                     ", objectId=" + objectId +
                     ", tierEpoch=" + tierEpoch +
                     ", startOffset=" + baseOffset +
+                    ", hasAbortedTxns=" + hasAbortedTxns +
                     ')';
         }
     }

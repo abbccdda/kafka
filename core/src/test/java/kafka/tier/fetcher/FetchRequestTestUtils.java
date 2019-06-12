@@ -11,6 +11,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.util.Optional;
 
 class FetchRequestTestUtils {
@@ -36,7 +37,7 @@ class FetchRequestTestUtils {
                                    File segmentData, File offsetIndexData,
                                    File timestampIndexData,
                                    Optional<File> producerStateSnapshotData,
-                                   File transactionIndexData,
+                                   Optional<ByteBuffer> transactionIndexData,
                                    Optional<File> epochState) throws IOException {
                 throw new IOException("");
             }
@@ -102,7 +103,7 @@ class FetchRequestTestUtils {
                                    File segmentData, File offsetIndexData,
                                    File timestampIndexData,
                                    Optional<File> producerStateSnapshotData,
-                                   File transactionIndexData,
+                                   Optional<ByteBuffer> transactionIndexData,
                                    Optional<File> epochState) throws IOException {
                 throw new IOException("");
             }

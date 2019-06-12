@@ -61,7 +61,7 @@ public class TierFetcherTest {
 
         MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer, offsetIndexBuffer, timestampFileBuffer);
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
-        TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0);
+        TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
         Metrics metrics = new Metrics();
         TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
         try {
@@ -75,6 +75,7 @@ public class TierFetcherTest {
             tierObjectStore.failNextRequest();
             assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
             PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Arrays.asList(fetchMetadata)),
+                    IsolationLevel.READ_UNCOMMITTED,
                     ignored -> f.complete(true));
             DelayedOperation delayedFetch = new MockDelayedFetch(pending);
             assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
@@ -135,7 +136,7 @@ public class TierFetcherTest {
         TierObjectStore tierObjectStore = new MockedTierObjectStore(combinedBuffer,
                 ByteBuffer.allocate(0), ByteBuffer.allocate(0));
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
-        TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0);
+        TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
 
         Metrics metrics = new Metrics();
         TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
@@ -147,6 +148,7 @@ public class TierFetcherTest {
             CompletableFuture<Boolean> f = new CompletableFuture<>();
             assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
             PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Arrays.asList(fetchMetadata)),
+                    IsolationLevel.READ_UNCOMMITTED,
                     ignored -> f.complete(true));
             DelayedOperation delayedFetch = new MockDelayedFetch(pending);
             assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
@@ -207,7 +209,7 @@ public class TierFetcherTest {
             TierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
                     offsetIndexBuffer, timestampIndexBuffer);
             TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
-            TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0);
+            TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
             Metrics metrics = new Metrics();
 
             TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
@@ -219,6 +221,7 @@ public class TierFetcherTest {
 
                 assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
                 PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Arrays.asList(fetchMetadata)),
+                        IsolationLevel.READ_UNCOMMITTED,
                         ignored -> f.complete(true));
                 DelayedOperation delayedFetch = new MockDelayedFetch(pending);
                 assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
@@ -284,7 +287,7 @@ public class TierFetcherTest {
 
             MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer, offsetIndexBuffer, timestampIndexBuffer);
             TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
-            TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0);
+            TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
             Metrics metrics = new Metrics();
 
             TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
@@ -296,7 +299,6 @@ public class TierFetcherTest {
                     timestamps.put(topicIdPartition.topicPartition(), new TierTimestampAndOffset(101L,
                             tierObjectMetadata));
                     PendingOffsetForTimestamp pending = tierFetcher.fetchOffsetForTimestamp(timestamps,
-                            Optional.of(IsolationLevel.READ_UNCOMMITTED),
                             ignored -> f.complete(true));
                     f.get(2000, TimeUnit.MILLISECONDS);
                     assertEquals("incorrect offset for supplied timestamp returned",
@@ -312,7 +314,6 @@ public class TierFetcherTest {
                     timestamps.put(topicIdPartition.topicPartition(), new TierTimestampAndOffset(101L,
                             tierObjectMetadata));
                     PendingOffsetForTimestamp pending = tierFetcher.fetchOffsetForTimestamp(timestamps,
-                            Optional.of(IsolationLevel.READ_UNCOMMITTED),
                             ignored -> f.complete(true));
                     f.get(2000, TimeUnit.MILLISECONDS);
                     assertNotNull("tier object store through exception, pending result should "
@@ -358,7 +359,7 @@ public class TierFetcherTest {
                     offsetIndexBuffer, timestampIndexBuffer);
             TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
             TopicPartition topicPartition = topicIdPartition.topicPartition();
-            TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0);
+            TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
             Metrics metrics = new Metrics();
             TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
             try {
@@ -371,8 +372,7 @@ public class TierFetcherTest {
                 CompletableFuture<Boolean> f = new CompletableFuture<>();
 
                 assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
-                PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Arrays.asList(fetchMetadata)),
-                        ignored -> f.complete(true));
+                PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Arrays.asList(fetchMetadata)), IsolationLevel.READ_UNCOMMITTED, ignored -> f.complete(true));
                 DelayedOperation delayedFetch = new MockDelayedFetch(pending);
                 assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
 
@@ -483,7 +483,7 @@ public class TierFetcherTest {
                                File offsetIndexData,
                                File timestampIndexData,
                                Optional<File> producerStateSnapshotData,
-                               File transactionIndexData,
+                               Optional<ByteBuffer> transactionIndexData,
                                Optional<File> epochState) {
             throw new UnsupportedOperationException();
         }

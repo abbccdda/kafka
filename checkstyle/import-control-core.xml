@@ -59,6 +59,7 @@
     <allow class="kafka.server.DelayedFetch" />
     <allow class="kafka.server.FetchDataInfo" />
     <allow class="kafka.server.LogReadResult"/>
+    <allow class="kafka.log.AbortedTxn"/>
     <allow pkg="org.apache.kafka.clients.admin" />
     <allow pkg="org.apache.kafka.clients.consumer" />
     <allow pkg="org.apache.kafka.clients.producer" />
@@ -85,6 +86,7 @@
       <allow class="kafka.server.epoch.EpochEntry" />
       <allow class="kafka.log.TimestampOffset" />
       <allow class="kafka.tier.TierTimestampAndOffset"/>
+      <allow class="kafka.tier.archiver.ArchiveTask"/>
     </subpackage>
     <subpackage name="store">
       <allow pkg="com.amazonaws" />

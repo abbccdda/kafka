@@ -5,14 +5,15 @@
 package kafka.tier.archiver
 
 import java.io.{File, IOException}
+import java.nio.ByteBuffer
 import java.time.Instant
 import java.util.UUID
 
 import com.yammer.metrics.core.Meter
-import kafka.log.{AbstractLog, LogSegment}
+import kafka.log.{AbortedTxn, AbstractLog, LogSegment}
 import kafka.server.ReplicaManager
 import kafka.server.checkpoints.LeaderEpochCheckpointFile
-import kafka.tier.{TierTopicAppender, TierTopicManager, TopicIdPartition}
+import kafka.tier.{TierTopicAppender, TopicIdPartition}
 import kafka.tier.domain.{TierSegmentUploadComplete, TierSegmentUploadInitiate}
 import kafka.tier.exceptions.{TierArchiverFatalException, TierArchiverFencedException, TierMetadataRetriableException, TierObjectStoreRetriableException}
 import kafka.tier.fetcher.CancellationContext
@@ -93,7 +94,7 @@ case class AfterUpload(leaderEpoch: Int, uploadInitiate: TierSegmentUploadInitia
 case class UploadableSegment(logSegment: LogSegment,
                              producerStateOpt: Option[File],
                              leaderEpochStateOpt: Option[File],
-                             abortedTxnIndexOpt: Option[File])
+                             abortedTxnIndexOpt: Option[ByteBuffer])
 
 /**
   * Asynchronous state machine for archiving a topic partition.
@@ -176,7 +177,6 @@ object ArchiveTask extends Logging {
 
     uploadableSegment.producerStateOpt.foreach(fileListToCheck :+= _)
     uploadableSegment.leaderEpochStateOpt.foreach(fileListToCheck :+= _)
-    uploadableSegment.abortedTxnIndexOpt.foreach(fileListToCheck :+= _)
 
     val missing: List[File] =
       fileListToCheck
@@ -203,6 +203,31 @@ object ArchiveTask extends Logging {
       leaderEpochCacheClone.truncateFromEnd(endOffset)
       leaderEpochCacheClone.file
     })
+  }
+
+  /**
+    * Collect the set of aborted transactions between baseOffset and endOffset into a ByteBuffer for tiering.
+    */
+  private def uploadableAbortedTransactionList(log: AbstractLog, baseOffset: Long, endOffset: Long): Option[ByteBuffer] = {
+    val abortedTxnsList = log.collectAbortedTransactions(baseOffset, endOffset)
+    serializeAbortedTransactions(abortedTxnsList)
+  }
+
+  // visible for testing
+  /**
+    * Serializes the provided AbortedTxns to a ByteBuffer for tiering.
+    */
+  def serializeAbortedTransactions(abortedTxnsList: Seq[AbortedTxn]): Option[ByteBuffer] = {
+    var maybeAbortedTxnsBuf: Option[ByteBuffer] = None
+    if (abortedTxnsList.nonEmpty) {
+      val buf = ByteBuffer.allocate(abortedTxnsList.length * AbortedTxn.TotalSize)
+      for (abortedTxn <- abortedTxnsList) {
+        buf.put(abortedTxn.buffer.duplicate())
+      }
+      buf.flip()
+      maybeAbortedTxnsBuf = Some(buf)
+    }
+    maybeAbortedTxnsBuf
   }
 
   private[archiver] def establishLeadership(state: BeforeLeader,
@@ -257,8 +282,8 @@ object ArchiveTask extends Logging {
             // Because we never upload the active segment, and a snapshot is created on roll, we expect that either
             // this snapshot file is present, or the snapshot file was deleted.
             val producerStateOpt: Option[File] = log.producerStateManager.snapshotFileForOffset(nextOffset)
-
-            val uploadableSegment = UploadableSegment(logSegment, producerStateOpt, leaderEpochStateOpt, None)
+            val abortedTransactions = ArchiveTask.uploadableAbortedTransactionList(log, logSegment.baseOffset, nextOffset)
+            val uploadableSegment = UploadableSegment(logSegment, producerStateOpt, leaderEpochStateOpt, abortedTransactions)
             val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition,
               state.leaderEpoch,
               UUID.randomUUID,
@@ -267,7 +292,7 @@ object ArchiveTask extends Logging {
               logSegment.largestTimestamp,
               logSegment.size,
               leaderEpochStateOpt.isDefined,
-              false,
+              abortedTransactions.isDefined,
               producerStateOpt.isDefined)
 
             val startTime = time.milliseconds
@@ -296,12 +321,14 @@ object ArchiveTask extends Logging {
       val logSegment = state.uploadableSegment.logSegment
       val producerStateOpt = state.uploadableSegment.producerStateOpt
       val leaderEpochStateOpt = state.uploadableSegment.leaderEpochStateOpt
+      val abortedTransactions = state.uploadableSegment.abortedTxnIndexOpt
       val uploadInitiate = state.uploadInitiate
 
       val metadata = new TierObjectStore.ObjectMetadata(uploadInitiate.topicIdPartition,
         uploadInitiate.objectId,
         uploadInitiate.tierEpoch,
-        uploadInitiate.baseOffset)
+        uploadInitiate.baseOffset,
+        abortedTransactions.isDefined)
 
       blocking {
         assertSegmentFileAccess(state.uploadableSegment)
@@ -312,7 +339,7 @@ object ArchiveTask extends Logging {
           logSegment.offsetIndex.file.toPath.toFile,
           logSegment.timeIndex.file.toPath.toFile,
           producerStateOpt.asJava,
-          logSegment.timeIndex.file.toPath.toFile, // FIXME transaction index
+          abortedTransactions.asJava,
           leaderEpochStateOpt.asJava)
 
         info(s"Uploaded segment for $topicIdPartition in ${time.milliseconds - startTime}ms")

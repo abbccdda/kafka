@@ -14,7 +14,7 @@ from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
-from kafkatest.utils.tiered_storage import tier_server_props
+from kafkatest.utils.tiered_storage import tier_server_props, archive_completed, restart_jmx_tool
 
 class TierRoundtripTest(ProduceConsumeValidateTest):
     """
@@ -69,18 +69,6 @@ class TierRoundtripTest(ProduceConsumeValidateTest):
     def min_cluster_size(self):
         return super(TierRoundtripTest, self).min_cluster_size() + self.num_producers + self.num_consumers
 
-    def archive_completed(self):
-        self.kafka.read_jmx_output_all_nodes()
-
-        max_lag = self.kafka.maximum_jmx_value.get("kafka.tier.archiver:type=TierArchiver,name=TotalLag:Value", 0)
-        if (max_lag < 1):
-            return False
-
-        # this assumes one kafka node
-        last_jmx_entry = sorted(self.kafka.jmx_stats[0].items(), key=lambda kv: kv[0])[-1][1]
-        last_lag = last_jmx_entry.get("kafka.tier.archiver:type=TierArchiver,name=TotalLag:Value", -1)
-        return last_lag == 0
-
     def restart_jmx_tool(self):
         for knode in self.kafka.nodes:
             knode.account.kill_java_processes(self.kafka.jmx_class_name(), clean_shutdown=False, allow_fail=True)
@@ -102,16 +90,16 @@ class TierRoundtripTest(ProduceConsumeValidateTest):
 
         self.producer.stop()
 
-        wait_until(lambda: self.archive_completed(),
-                   timeout_sec=60, backoff_sec=2, err_msg="archive did not complete within timeout")
+        wait_until(lambda: archive_completed(self.kafka, True),
+                    timeout_sec=60, backoff_sec=2, err_msg="archive did not complete within timeout")
 
         # ensure hot set retention deletes segments
-        sleep(7)
+        sleep(15)
 
         # log-specific beans were not available at startup
         self.kafka.jmx_object_names += ["kafka.log:name=Size,partition=0,topic={},type=Log".format(self.topic),
                                         "kafka.log:name=NumLogSegments,partition=0,topic={},type=Log".format(self.topic)]
-        self.restart_jmx_tool()
+        restart_jmx_tool(self.kafka)
 
         self.consumer.start()
         self.consumer.wait()
@@ -126,4 +114,8 @@ class TierRoundtripTest(ProduceConsumeValidateTest):
         log_segments = self.kafka.maximum_jmx_value[log_segs_key]
         self.logger.info("{} bytes fetched from S3 of {} total bytes, in {} segments".format(tier_bytes_fetched, log_size, log_segments))
         bytes_fetched_from_local_log = log_size - tier_bytes_fetched
+
+        print("log size", log_size, "bytes fetched", tier_bytes_fetched)
+        print("fetched local log", bytes_fetched_from_local_log, "seg bytes", self.LOG_SEGMENT_BYTES)
+
         assert bytes_fetched_from_local_log <= self.LOG_SEGMENT_BYTES

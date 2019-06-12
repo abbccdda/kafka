@@ -24,6 +24,7 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public class TierFetcher {
+    private final CancellationContext cancellationContext;
     private final Logger logger;
     private final TierObjectStore tierObjectStore;
     private final ThreadPoolExecutor executorService;
@@ -34,6 +35,7 @@ public class TierFetcher {
                        TierObjectStore tierObjectStore,
                        Metrics metrics,
                        LogContext logContext) {
+        this.cancellationContext = CancellationContext.newContext();
         this.tierObjectStore = tierObjectStore;
         this.logger = logContext.logger(TierFetcher.class);
         this.executorService = (ThreadPoolExecutor) (Executors.newFixedThreadPool(tierFetcherConfig.numFetchThreads));
@@ -51,6 +53,7 @@ public class TierFetcher {
     public void close() {
         logger.info("Closing TierFetcher");
         if (stopped.compareAndSet(false, true)) {
+            cancellationContext.cancel();
             executorService.shutdownNow();
         }
     }
@@ -65,6 +68,7 @@ public class TierFetcher {
      * which depends on this fetch.
      */
     public PendingFetch fetch(List<TierFetchMetadata> tierFetchMetadataList,
+                              IsolationLevel isolationLevel,
                               Consumer<DelayedOperationKey> fetchCompletionCallback) {
         if (!tierFetchMetadataList.isEmpty()) {
             // For now, we only fetch the first requested partition
@@ -83,11 +87,19 @@ public class TierFetcher {
                 final long targetOffset = firstFetchMetadata.fetchStartOffset();
                 final int maxBytes = firstFetchMetadata.maxBytes();
                 final long maxOffset = OptionConverters.toJava(firstFetchMetadata.maxOffset()).map(v -> (Long) v).orElse(Long.MAX_VALUE);
-                final CancellationContext cancellationContext = CancellationContext.newContext();
+                final CancellationContext cancellationContext = this.cancellationContext.subContext();
                 final PendingFetch newFetch =
-                        new PendingFetch(cancellationContext, tierObjectStore, tierFetcherMetrics.bytesFetched(),
-                                firstFetchMetadata.segmentMetadata(), fetchCompletionCallback, targetOffset,
-                                maxBytes, maxOffset, ignoredTopicPartitions);
+                        new PendingFetch(
+                                cancellationContext,
+                                tierObjectStore,
+                                Optional.of(tierFetcherMetrics.bytesFetched()),
+                                firstFetchMetadata.segmentMetadata(),
+                                fetchCompletionCallback,
+                                targetOffset,
+                                maxBytes,
+                                maxOffset,
+                                isolationLevel,
+                                ignoredTopicPartitions);
                 executorService.execute(newFetch);
                 return newFetch;
             } else {
@@ -100,13 +112,8 @@ public class TierFetcher {
     }
 
     public PendingOffsetForTimestamp fetchOffsetForTimestamp(Map<TopicPartition, TierTimestampAndOffset> tierTimestampAndOffsets,
-                                                             Optional<IsolationLevel> isolationLevel,
                                                              Consumer<DelayedOperationKey> fetchCompletionCallback) {
-        if (isolationLevel.isPresent() && isolationLevel.get() == IsolationLevel.READ_COMMITTED)
-            throw new UnsupportedOperationException("Read " + IsolationLevel.READ_COMMITTED
-                    + " is not currently supported for offset for timestamp fetches.");
-
-        final CancellationContext cancellationContext = CancellationContext.newContext();
+        final CancellationContext cancellationContext = this.cancellationContext.subContext();
         final PendingOffsetForTimestamp pending = new PendingOffsetForTimestamp(cancellationContext,
                 tierObjectStore,
                 tierTimestampAndOffsets,

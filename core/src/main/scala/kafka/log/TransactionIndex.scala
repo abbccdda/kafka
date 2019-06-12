@@ -195,7 +195,7 @@ class TransactionIndex(val startOffset: Long, @volatile var file: File) extends 
 
 }
 
-private[log] object AbortedTxn {
+object AbortedTxn {
   val VersionOffset = 0
   val VersionSize = 2
   val ProducerIdOffset = VersionOffset + VersionSize
@@ -211,7 +211,7 @@ private[log] object AbortedTxn {
   val CurrentVersion: Short = 0
 }
 
-private[log] class AbortedTxn(val buffer: ByteBuffer) {
+class AbortedTxn(val buffer: ByteBuffer) {
   import AbortedTxn._
 
   def this(producerId: Long,

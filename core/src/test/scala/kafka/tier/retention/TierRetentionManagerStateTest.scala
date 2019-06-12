@@ -96,6 +96,6 @@ class TierRetentionManagerStateTest {
 
   private def randomObjectMetadata(topicIdPartition: TopicIdPartition): TierObjectStore.ObjectMetadata = {
     val random = TestUtils.random
-    new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID, random.nextInt, random.nextLong)
+    new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID, random.nextInt, random.nextLong, random.nextBoolean())
   }
 }

@@ -29,11 +29,13 @@ import com.amazonaws.services.s3.model.UploadPartResult;
 import kafka.log.Log;
 import kafka.tier.exceptions.TierObjectStoreFatalException;
 import kafka.tier.exceptions.TierObjectStoreRetriableException;
+import org.apache.kafka.common.utils.ByteBufferInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -99,12 +101,10 @@ public class S3TierObjectStore implements TierObjectStore {
     }
 
     @Override
-    public void putSegment(ObjectMetadata objectMetadata,
-                           File segmentData,
-                           File offsetIndexData,
-                           File timestampIndexData,
+    public void putSegment(ObjectMetadata objectMetadata, File segmentData,
+                           File offsetIndexData, File timestampIndexData,
                            Optional<File> producerStateSnapshotData,
-                           File transactionIndexData,
+                           Optional<ByteBuffer> transactionIndexData,
                            Optional<File> epochState) {
         Map<String, String> metadata = new HashMap<>();
         metadata.put("metadata_version", Integer.toString(objectMetadata.version()));
@@ -121,7 +121,8 @@ public class S3TierObjectStore implements TierObjectStore {
             putFile(keyPath(objectMetadata, FileType.OFFSET_INDEX), metadata, offsetIndexData);
             putFile(keyPath(objectMetadata, FileType.TIMESTAMP_INDEX), metadata, timestampIndexData);
             producerStateSnapshotData.ifPresent(file -> putFile(keyPath(objectMetadata, FileType.PRODUCER_STATE), metadata, file));
-            putFile(keyPath(objectMetadata, FileType.TRANSACTION_INDEX), metadata, transactionIndexData);
+            transactionIndexData.ifPresent(abortedTxnsBuf -> putBuf(keyPath(objectMetadata,
+                    FileType.TRANSACTION_INDEX), metadata, abortedTxnsBuf));
             epochState.ifPresent(file -> putFile(keyPath(objectMetadata, FileType.EPOCH_STATE), metadata, file));
         } catch (AmazonServiceException e) {
             throw new TierObjectStoreRetriableException("Failed to upload segment " + objectMetadata, e);
@@ -178,6 +179,13 @@ public class S3TierObjectStore implements TierObjectStore {
 
     private void putFile(String key, Map<String, String> metadata, File file) {
         final PutObjectRequest request = new PutObjectRequest(bucket, key, file).withMetadata(putObjectMetadata(metadata));
+        log.debug("Uploading object to s3://{}/{}", bucket, key);
+        client.putObject(request);
+    }
+
+    private void putBuf(String key, Map<String, String> metadata, ByteBuffer buf) {
+        final PutObjectRequest request = new PutObjectRequest(bucket, key,
+                new ByteBufferInputStream(buf), putObjectMetadata(metadata));
         log.debug("Uploading object to s3://{}/{}", bucket, key);
         client.putObject(request);
     }

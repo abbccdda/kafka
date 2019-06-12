@@ -212,6 +212,8 @@ class ArchiveTaskTest {
     val log = mockAbstractLog(logSegment)
     when(log.leaderEpochCache).thenReturn(None)
     when(log.producerStateManager).thenReturn(mockProducerStateManager)
+    when(log.collectAbortedTransactions(ArgumentMatchers.any(classOf[Long]), ArgumentMatchers.any(classOf[Long])))
+      .thenReturn(List())
 
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
     when(tierTopicManager.addMetadata(any(classOf[TierSegmentUploadInitiate]))).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
@@ -241,6 +243,8 @@ class ArchiveTaskTest {
 
     val log = mockAbstractLog(logSegment)
     when(log.leaderEpochCache).thenReturn(Some(mockLeaderEpochCache))
+    when(log.collectAbortedTransactions(ArgumentMatchers.any(classOf[Long]), ArgumentMatchers.any(classOf[Long])))
+      .thenReturn(List())
 
     val mockProducerStateManager = mock(classOf[ProducerStateManager])
     when(log.producerStateManager).thenReturn(mockProducerStateManager)

@@ -138,12 +138,17 @@ case class TierLogReadResult(info: TierFetchDataInfo,
     * This requires TierFetchResult's from a completed tier fetch.
     */
   def intoLogReadResult(tierFetchResult: TierFetchResult): LogReadResult = {
-    val newInfo: FetchDataInfo = FetchDataInfo(
+    var newInfo: FetchDataInfo = FetchDataInfo(
       LogOffsetMetadata.UnknownOffsetMetadata,
       tierFetchResult.records,
       firstEntryIncomplete = false,
-      this.info.abortedTransactions
-    )
+      this.info.abortedTransactions)
+
+    if (!tierFetchResult.abortedTxns.isEmpty) {
+      val abortedTransactionList = tierFetchResult.abortedTxns.asScala.map(_.asAbortedTransaction).toList
+      newInfo = newInfo.addAbortedTransactions(abortedTransactionList)
+    }
+
     val exceptionOpt = this.exception.orElse(Option(tierFetchResult.exception))
     LogReadResult(
       info = newInfo,
@@ -913,7 +918,7 @@ class ReplicaManager(val config: KafkaConfig,
     } else {
       val completionCallback = (delayedOperationKey: DelayedOperationKey) =>
         delayedListOffsetsPurgatory.checkAndComplete(delayedOperationKey): Unit
-      val pending = tierFetcherOpt.get.fetchOffsetForTimestamp(tierLists, isolationLevel.asJava, completionCallback.asJava)
+      val pending = tierFetcherOpt.get.fetchOffsetForTimestamp(tierLists, completionCallback.asJava)
       val delayedListOffsets = new DelayedListOffsets(delayMs, fetchOnlyFromLeader, localLists, pending, this, responseCallback)
       val delayedOperationKeys = pending.delayedOperationKeys.asScala ++ lookupMetadata.keys.map(tp => TopicPartitionOperationKey(tp.topic(), tp.partition()))
       delayedListOffsetsPurgatory.tryCompleteElseWatch(delayedListOffsets, delayedOperationKeys)
@@ -1044,7 +1049,7 @@ class ReplicaManager(val config: KafkaConfig,
         val completionCallback = (delayedOperationKey: DelayedOperationKey) =>
           delayedFetchPurgatory.checkAndComplete(delayedOperationKey): Unit
         val tierFetcher = tierFetcherOpt.getOrElse(throw new IllegalStateException("Attempted to initiate fetch for tiered data but there is no TierFetcher present"))
-        val pendingFetch = tierFetcher.fetch(tierFetchMetadataList.asJava, completionCallback.asJava)
+        val pendingFetch = tierFetcher.fetch(tierFetchMetadataList.asJava, isolationLevel, completionCallback.asJava)
 
         // Create TopicPartitionOperationKey's for all local partitions included in this fetch. Merge the resulting
         // set of keys with the list of TierFetchOperationKeys returned from initiating the tier fetch.

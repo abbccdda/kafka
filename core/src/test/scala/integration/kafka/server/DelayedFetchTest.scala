@@ -17,7 +17,7 @@
 package kafka.server
 
 import java.util.concurrent.TimeUnit
-import java.util.Optional
+import java.util.{Collections, Optional}
 
 import kafka.cluster.Partition
 import kafka.tier.fetcher.PendingFetch
@@ -236,7 +236,7 @@ class DelayedFetchTest extends EasyMockSupport {
                                         topicPartitionException: Seq[(TopicPartition, Option[Throwable])]): Unit = {
     val results = topicPartitionException
       .map { case (topicPartition: TopicPartition, exceptionOpt: Option[Throwable]) =>
-        (topicPartition, new TierFetchResult(MemoryRecords.EMPTY, exceptionOpt.orNull))
+        (topicPartition, new TierFetchResult(MemoryRecords.EMPTY, Collections.emptyList(), exceptionOpt.orNull))
       }.toMap.asJava
     EasyMock
       .expect(pendingFetch.finish())

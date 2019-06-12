@@ -25,7 +25,7 @@ public class OffsetIndexFetchRequestTest {
     private int maxEntries = 3;
     private long baseOffset = 45L;
     private TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
-    private TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, baseOffset);
+    private TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, baseOffset, false);
 
     @Before
     public void setup() {

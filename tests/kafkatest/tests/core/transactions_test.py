@@ -18,6 +18,8 @@ from kafkatest.services.kafka import KafkaService
 from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.transactional_message_copier import TransactionalMessageCopier
+from kafkatest.services.kafka import config_property
+from kafkatest.utils.tiered_storage import tier_server_props, archive_completed, restart_jmx_tool
 from kafkatest.utils import is_int
 
 from ducktape.tests.test import Test
@@ -25,6 +27,7 @@ from ducktape.mark import matrix
 from ducktape.mark.resource import cluster
 from ducktape.utils.util import wait_until
 
+import time
 
 class TransactionsTest(Test):
     """Tests transactions by transactionally copying data from a source topic to
@@ -33,6 +36,9 @@ class TransactionsTest(Test):
     topic contains exactly one committed copy of each message in the input
     topic
     """
+
+    TIER_S3_BUCKET = "confluent-tier-system-test"
+
     def __init__(self, test_context):
         """:type test_context: ducktape.tests.test.TestContext"""
         super(TransactionsTest, self).__init__(test_context=test_context)
@@ -50,9 +56,6 @@ class TransactionsTest(Test):
         self.consumer_group = "transactions-test-consumer-group"
 
         self.zk = ZookeeperService(test_context, num_nodes=1)
-        self.kafka = KafkaService(test_context,
-                                  num_nodes=self.num_brokers,
-                                  zk=self.zk)
 
     def setUp(self):
         self.zk.start()
@@ -197,7 +200,7 @@ class TransactionsTest(Test):
 
         return self.drain_consumer(concurrent_consumer, num_messages_to_copy)
 
-    def setup_topics(self):
+    def setup_topics(self, tier):
         self.kafka.topics = {
             self.input_topic: {
                 "partitions": self.num_input_partitions,
@@ -210,6 +213,7 @@ class TransactionsTest(Test):
                 "partitions": self.num_output_partitions,
                 "replication-factor": 3,
                 "configs": {
+                    "confluent.tier.enable": tier,
                     "min.insync.replicas": 2
                 }
             }
@@ -218,9 +222,34 @@ class TransactionsTest(Test):
     @cluster(num_nodes=9)
     @matrix(failure_mode=["hard_bounce", "clean_bounce"],
             bounce_target=["brokers", "clients"],
+            tier=[True, False],
             check_order=[True, False])
-    def test_transactions(self, failure_mode, bounce_target, check_order):
+    def test_transactions(self, failure_mode, bounce_target, check_order, tier):
         security_protocol = 'PLAINTEXT'
+
+        if tier:
+            jmx_object_names=["kafka.server:type=TierFetcher", "kafka.tier.archiver:type=TierArchiver,name=TotalLag"]
+            jmx_attributes=["BytesFetchedTotal", "Value"]
+        else:
+            jmx_object_names=None
+            jmx_attributes=[]
+
+        if tier:
+            self.kafka = KafkaService(context=self.test_context,
+                                      jmx_object_names=jmx_object_names,
+                                      jmx_attributes=jmx_attributes,
+                                      server_prop_overides=tier_server_props(self.TIER_S3_BUCKET,
+                                        feature=tier, enable=False) + [
+                                        [config_property.LOG_SEGMENT_BYTES, "102400"],
+                                        [config_property.LOG_RETENTION_CHECK_INTERVAL_MS, "5000"],
+                                    ],
+                                  num_nodes=self.num_brokers,
+                                  zk=self.zk)
+        else:
+            self.kafka = KafkaService(context=self.test_context,
+                                      num_nodes=self.num_brokers,
+                                      zk=self.zk)
+
         self.kafka.security_protocol = security_protocol
         self.kafka.interbroker_security_protocol = security_protocol
         self.kafka.logs["kafka_data_1"]["collect_default"] = True
@@ -236,7 +265,7 @@ class TransactionsTest(Test):
             self.num_input_partitions = 1
             self.num_output_partitions = 1
 
-        self.setup_topics()
+        self.setup_topics(tier)
         self.kafka.start()
 
         input_messages = self.seed_messages(self.input_topic, self.num_seed_messages)
@@ -244,6 +273,15 @@ class TransactionsTest(Test):
             failure_mode, bounce_target, input_topic=self.input_topic,
             output_topic=self.output_topic, num_copiers=self.num_input_partitions,
             num_messages_to_copy=self.num_seed_messages)
+
+        restart_jmx_tool(self.kafka)
+
+        if tier:
+            wait_until(lambda: archive_completed(self.kafka, False),
+                     timeout_sec=360, backoff_sec=2, err_msg="archive did not complete within timeout")
+            # give hotset management some additional time to delete segments
+            time.sleep(20)
+
         output_messages = self.get_messages_from_topic(self.output_topic, self.num_seed_messages)
 
         concurrently_consumed_message_set = set(concurrently_consumed_messages)
@@ -265,3 +303,8 @@ class TransactionsTest(Test):
             assert input_messages == sorted(input_messages), "The seed messages themselves were not in order"
             assert output_messages == input_messages, "Output messages are not in order"
             assert concurrently_consumed_messages == output_messages, "Concurrently consumed messages are not in order"
+
+        if tier:
+            self.kafka.read_jmx_output_all_nodes()
+            tier_bytes_fetched = self.kafka.maximum_jmx_value["kafka.server:type=TierFetcher:BytesFetchedTotal"]
+            assert tier_bytes_fetched > 0

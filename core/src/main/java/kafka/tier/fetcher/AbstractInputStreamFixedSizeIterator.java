@@ -9,6 +9,7 @@ import org.apache.kafka.common.utils.Utils;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 
 /**
  * Iterator over InputStreams containing fixed-size serialized objects of type T
@@ -38,7 +39,8 @@ abstract class AbstractInputStreamFixedSizeIterator<T> extends AbstractIterator<
             else
                 return allDone();
         } catch (IOException e) {
-            return allDone();
+            allDone();
+            throw new UncheckedIOException(e);
         }
     }
 
