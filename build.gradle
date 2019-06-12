@@ -2133,6 +2133,7 @@ project(':ce-metrics') {
   }
 
   shadowJar {
+    classifier = null
     relocate('com.google.protobuf', 'io.confluent.shaded.com.google.protobuf')
     relocate('com.google.common', 'io.confluent.shaded.com.google.common')
     relocate('com.google.gson', 'io.confluent.shaded.com.google.gson')
