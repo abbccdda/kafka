@@ -10,6 +10,7 @@ import kafka.tier.client.ProducerBuilder;
 import kafka.tier.client.TierTopicConsumerBuilder;
 import kafka.tier.client.TierTopicProducerBuilder;
 import kafka.tier.domain.AbstractTierMetadata;
+import kafka.tier.domain.TierRecordType;
 import kafka.tier.domain.TierTopicInitLeader;
 import kafka.tier.exceptions.TierMetadataDeserializationException;
 import kafka.tier.exceptions.TierMetadataFatalException;
@@ -87,6 +88,7 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
     private final TierTopicListeners resultListeners = new TierTopicListeners();
     private final Map<AbstractTierMetadata, CompletableFuture<AppendResult>> queuedRequests = new LinkedHashMap<>();
     private final AtomicBoolean ready = new AtomicBoolean(false);
+    private final AtomicLong deletedPartitions = new AtomicLong(0);  // temporary tracking for deleted partitions until we implement logic to delete them
 
     private volatile Consumer<byte[], byte[]> primaryConsumer;
     private volatile Consumer<byte[], byte[]> catchUpConsumer;
@@ -382,6 +384,10 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
         }
     }
 
+    public long trackedDeletedPartitions() {
+        return deletedPartitions.get();
+    }
+
     private void cleanup() {
         ready.set(false);
 
@@ -652,20 +658,26 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
      */
     private void processEntry(AbstractTierMetadata entry, TierPartitionStatus requiredState) throws IOException {
         final TopicIdPartition tpid = entry.topicIdPartition();
-        final Optional<TierPartitionState> tierPartitionStateOpt = tierMetadataManager.tierPartitionState(tpid);
-        if (tierPartitionStateOpt.isPresent()) {
-            TierPartitionState tierPartitionState = tierPartitionStateOpt.get();
-            if (tierPartitionState.status() == requiredState) {
-                final AppendResult result = tierPartitionState.append(entry);
-                log.debug("Read entry {}, append result {}", entry, result);
-                // signal completion of this tier topic entry if this topic manager was the sender
-                resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.complete(result));
-            } else {
-                log.debug("TierPartitionState {} not in required state {}. Ignoring metadata {}.", tpid, requiredState, entry);
-            }
+
+        if (entry.type() == TierRecordType.PartitionDeleteInitiate) {
+            deletedPartitions.incrementAndGet();
+            resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.complete(AppendResult.ACCEPTED));
         } else {
-            resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.completeExceptionally(
-                    new TierMetadataRetriableException("Tier partition state for " + tpid + " does not exist")));
+            final Optional<TierPartitionState> tierPartitionStateOpt = tierMetadataManager.tierPartitionState(tpid);
+            if (tierPartitionStateOpt.isPresent()) {
+                TierPartitionState tierPartitionState = tierPartitionStateOpt.get();
+                if (tierPartitionState.status() == requiredState) {
+                    final AppendResult result = tierPartitionState.append(entry);
+                    log.debug("Read entry {}, append result {}", entry, result);
+                    // signal completion of this tier topic entry if this topic manager was the sender
+                    resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.complete(result));
+                } else {
+                    log.debug("TierPartitionState {} not in required state {}. Ignoring metadata {}.", tpid, requiredState, entry);
+                }
+            } else {
+                resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.completeExceptionally(
+                        new TierMetadataRetriableException("Tier partition state for " + tpid + " does not exist")));
+            }
         }
     }
 

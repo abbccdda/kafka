@@ -25,6 +25,7 @@ import kafka.common._
 import kafka.controller.KafkaController.ElectLeadersCallback
 import kafka.metrics.{KafkaMetricsGroup, KafkaTimer}
 import kafka.server._
+import kafka.tier.TierTopicManager
 import kafka.utils._
 import kafka.zk.KafkaZkClient.UpdateLeaderAndIsrResult
 import kafka.zk._
@@ -65,6 +66,7 @@ class KafkaController(val config: KafkaConfig,
                       initialBrokerInfo: BrokerInfo,
                       initialBrokerEpoch: Long,
                       tokenManager: DelegationTokenManager,
+                      tierTopicManagerOpt: Option[TierTopicManager],
                       threadNamePrefix: Option[String] = None)
   extends ControllerEventProcessor with Logging with KafkaMetricsGroup {
 
@@ -93,7 +95,7 @@ class KafkaController(val config: KafkaConfig,
   val partitionStateMachine: PartitionStateMachine = new ZkPartitionStateMachine(config, stateChangeLogger, controllerContext, zkClient,
     new ControllerBrokerRequestBatch(config, controllerChannelManager, eventManager, controllerContext, stateChangeLogger))
   val topicDeletionManager = new TopicDeletionManager(config, controllerContext, replicaStateMachine,
-    partitionStateMachine, new ControllerDeletionClient(this, zkClient))
+    partitionStateMachine, new ControllerDeletionClient(this, zkClient), tierTopicManagerOpt)
 
   private val controllerChangeHandler = new ControllerChangeHandler(eventManager)
   private val brokerChangeHandler = new BrokerChangeHandler(eventManager)
@@ -1192,10 +1194,13 @@ class KafkaController(val config: KafkaConfig,
       } else {
         controllerContext.allPartitions.count { topicPartition =>
           val replicas = controllerContext.partitionReplicaAssignment(topicPartition)
-          val preferredReplica = replicas.head
-          val leadershipInfo = controllerContext.partitionLeadershipInfo.get(topicPartition)
-          leadershipInfo.map(_.leaderAndIsr.leader != preferredReplica).getOrElse(false) &&
-            !topicDeletionManager.isTopicQueuedUpForDeletion(topicPartition.topic)
+          val preferredReplicaOpt = replicas.headOption
+
+          preferredReplicaOpt.map { preferredReplica =>
+            val leadershipInfo = controllerContext.partitionLeadershipInfo.get(topicPartition)
+            leadershipInfo.map(_.leaderAndIsr.leader != preferredReplica).getOrElse(false) &&
+              !topicDeletionManager.isTopicQueuedUpForDeletion(topicPartition.topic)
+          }.getOrElse(false)
         }
       }
 
@@ -1456,6 +1461,13 @@ class KafkaController(val config: KafkaConfig,
     }
   }
 
+  private def processCompleteTopicDeletion(topic: String): Unit = {
+    if (!isActive)
+      return
+
+    topicDeletionManager.finishTopicDelete(topic)
+  }
+
   private def processPartitionReassignment(): Unit = {
     if (!isActive) return
 
@@ -1685,6 +1697,8 @@ class KafkaController(val config: KafkaConfig,
           processIsrChangeNotification()
         case Startup =>
           processStartup()
+        case CompleteTopicDeletion(topic) =>
+          processCompleteTopicDeletion(topic)
       }
     } catch {
       case e: ControllerMovedException =>
@@ -1921,6 +1935,10 @@ case class PartitionReassignmentIsrChange(partition: TopicPartition) extends Con
 
 case object IsrChangeNotification extends ControllerEvent {
   override def state: ControllerState = ControllerState.IsrChange
+}
+
+case class CompleteTopicDeletion(topic: String) extends ControllerEvent {
+  override def state: ControllerState = ControllerState.CompleteTopicDeletion
 }
 
 case class ReplicaLeaderElection(

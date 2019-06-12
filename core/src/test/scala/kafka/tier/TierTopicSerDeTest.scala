@@ -6,7 +6,7 @@ package kafka.tier
 
 import java.util.UUID
 
-import kafka.tier.domain.{AbstractTierMetadata, TierObjectMetadata, TierSegmentDeleteComplete, TierSegmentDeleteInitiate, TierTopicInitLeader, TierSegmentUploadComplete, TierSegmentUploadInitiate}
+import kafka.tier.domain.{AbstractTierMetadata, TierObjectMetadata, TierPartitionDeleteInitiate, TierSegmentDeleteComplete, TierSegmentDeleteInitiate, TierSegmentUploadComplete, TierSegmentUploadInitiate, TierTopicInitLeader}
 import org.junit.Assert._
 import org.junit.Test
 
@@ -20,6 +20,7 @@ class TierTopicSerDeTest {
     roundTrip(new TierSegmentUploadComplete(new TopicIdPartition("foo", UUID.randomUUID,0), 0, UUID.randomUUID))
     roundTrip(new TierSegmentDeleteInitiate(new TopicIdPartition("foo", UUID.randomUUID,0), 0, UUID.randomUUID))
     roundTrip(new TierSegmentDeleteComplete(new TopicIdPartition("foo", UUID.randomUUID,0), 0, UUID.randomUUID))
+    roundTrip(new TierPartitionDeleteInitiate(new TopicIdPartition("foo", UUID.randomUUID,0), 0, UUID.randomUUID))
   }
 
   private def roundTrip(v: AbstractTierMetadata): Unit = {

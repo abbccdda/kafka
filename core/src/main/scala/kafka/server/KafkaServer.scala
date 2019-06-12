@@ -309,8 +309,23 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         tokenManager = new DelegationTokenManager(config, tokenCache, time , zkClient)
         tokenManager.startup()
 
+        /* tiered storage components */
+        if (config.tierFeature) {
+          val tierTopicManagerConfig = new TierTopicManagerConfig(config, _clusterId)
+          tierTopicManager = new TierTopicManager(tierMetadataManager, tierTopicManagerConfig, tieredBootstrapServersSupplier, logDirFailureChannel, metrics)
+          tierTopicManager.startup()
+
+          val tierArchiverConfig = TierArchiverConfig(config)
+          tierArchiver = new TierArchiver(tierArchiverConfig, replicaManager, tierMetadataManager, tierTopicManager, tierObjectStore.get, time)
+          tierArchiver.start()
+
+          tierRetentionManager = new TierRetentionManager(kafkaScheduler, replicaManager, tierMetadataManager,
+            tierTopicManager, tierObjectStore.get, config.logCleanupIntervalMs, time)
+          tierRetentionManager.startup()
+        }
+
         /* start kafka controller */
-        kafkaController = new KafkaController(config, zkClient, time, metrics, brokerInfo, brokerEpoch, tokenManager, threadNamePrefix)
+        kafkaController = new KafkaController(config, zkClient, time, metrics, brokerInfo, brokerEpoch, tokenManager, Option(tierTopicManager), threadNamePrefix)
         kafkaController.startup()
 
         adminManager = new AdminManager(config, metrics, metadataCache, zkClient)
@@ -324,22 +339,6 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         // Hardcode Time.SYSTEM for now as some Streams tests fail otherwise, it would be good to fix the underlying issue
         transactionCoordinator = TransactionCoordinator(config, replicaManager, new KafkaScheduler(threads = 1, threadNamePrefix = "transaction-log-manager-"), zkClient, metrics, metadataCache, Time.SYSTEM)
         transactionCoordinator.startup()
-
-        if (config.tierFeature) {
-          val tierTopicManagerConfig = new TierTopicManagerConfig(config, _clusterId)
-
-          /* tiered storage components */
-          tierTopicManager = new TierTopicManager(tierMetadataManager, tierTopicManagerConfig, tieredBootstrapServersSupplier, logDirFailureChannel, metrics)
-          tierTopicManager.startup()
-
-          val tierArchiverConfig = TierArchiverConfig(config)
-          tierArchiver = new TierArchiver(tierArchiverConfig, replicaManager, tierMetadataManager, tierTopicManager, tierObjectStore.get, time)
-          tierArchiver.start()
-
-          tierRetentionManager = new TierRetentionManager(kafkaScheduler, replicaManager, tierMetadataManager,
-            tierTopicManager, tierObjectStore.get, config.logCleanupIntervalMs, time)
-          tierRetentionManager.startup()
-        }
 
         /* Get the authorizer and initialize it if one is specified.*/
         authorizer = Option(config.authorizerClassName).filter(_.nonEmpty).map { authorizerClassName =>
@@ -695,20 +694,14 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         CoreUtils.swallow(controlledShutdown(), this)
         brokerState.newState(BrokerShuttingDown)
 
-        if (tierArchiver != null)
-          CoreUtils.swallow(tierArchiver.shutdown(), this)
-
-        if (tierRetentionManager != null)
-          CoreUtils.swallow(tierRetentionManager.shutdown(), this)
-
-        if (tierTopicManager != null)
-          CoreUtils.swallow(tierTopicManager.shutdown(), this)
-
         if (tierObjectStore.isDefined)
           CoreUtils.swallow(tierObjectStore.get.close(), this)
 
         if (tierFetcher.isDefined)
           CoreUtils.swallow(tierFetcher.get.close(), this)
+
+        if (tierStateFetcher.isDefined)
+          CoreUtils.swallow(tierStateFetcher.get.close(), this)
 
         if (dynamicConfigManager != null)
           CoreUtils.swallow(dynamicConfigManager.shutdown(), this)
@@ -737,11 +730,18 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         if (groupCoordinator != null)
           CoreUtils.swallow(groupCoordinator.shutdown(), this)
 
+        if (tierRetentionManager != null)
+          CoreUtils.swallow(tierRetentionManager.shutdown(), this)
+
+        if (tierArchiver != null)
+          CoreUtils.swallow(tierArchiver.shutdown(), this)
+
         if (tokenManager != null)
           CoreUtils.swallow(tokenManager.shutdown(), this)
 
         if (replicaManager != null)
           CoreUtils.swallow(replicaManager.shutdown(), this)
+
         if (logManager != null)
           CoreUtils.swallow(logManager.shutdown(), this)
 
@@ -750,6 +750,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         if (kafkaController != null)
           CoreUtils.swallow(kafkaController.shutdown(), this)
+
+        if (tierTopicManager != null)
+          CoreUtils.swallow(tierTopicManager.shutdown(), this)
 
         if (zkClient != null)
           CoreUtils.swallow(zkClient.close(), this)

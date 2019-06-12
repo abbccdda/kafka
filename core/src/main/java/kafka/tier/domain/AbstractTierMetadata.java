@@ -7,6 +7,7 @@ package kafka.tier.domain;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.serdes.InitLeader;
 import kafka.tier.exceptions.TierMetadataDeserializationException;
+import kafka.tier.serdes.PartitionDeleteInitiate;
 import kafka.tier.serdes.TierKafkaKey;
 import com.google.flatbuffers.FlatBufferBuilder;
 import kafka.tier.serdes.SegmentDeleteComplete;
@@ -88,6 +89,9 @@ public abstract class AbstractTierMetadata {
             case SegmentDeleteComplete:
                 final SegmentDeleteComplete deleteComplete = SegmentDeleteComplete.getRootAsSegmentDeleteComplete(valueBuf);
                 return Optional.of(new TierSegmentDeleteComplete(topicIdPartition, deleteComplete));
+            case PartitionDeleteInitiate:
+                final PartitionDeleteInitiate partitionDeleteInitiate = PartitionDeleteInitiate.getRootAsPartitionDeleteInitiate(valueBuf);
+                return Optional.of(new TierPartitionDeleteInitiate(topicIdPartition, partitionDeleteInitiate));
             default:
                 log.debug("Unknown tier metadata type with ID {}. Ignoring record.", type);
                 return Optional.empty();

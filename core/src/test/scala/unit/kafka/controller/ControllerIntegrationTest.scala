@@ -24,6 +24,7 @@ import com.yammer.metrics.Metrics
 import com.yammer.metrics.core.Timer
 import kafka.api.LeaderAndIsr
 import kafka.server.{KafkaConfig, KafkaServer}
+import kafka.tier.TopicIdPartition
 import kafka.utils.TestUtils
 import kafka.zk._
 import org.junit.{After, Before, Test}
@@ -558,6 +559,46 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
   }
 
   @Test
+  def testTieredTopicDeletion(): Unit = {
+    servers = makeServers(3, tierFeature = true)
+    TestUtils.waitUntilControllerElected(zkClient)
+    val topic = "foo"
+    val numPartitions = 5
+    val replicationFactor = 3
+    val topicConfig = new Properties()
+    topicConfig.put("confluent.tier.enable", "true")
+    servers.foreach { server =>
+      TestUtils.waitUntilTrue(() => server.tierTopicManager.isReady, "timeout waiting for tier topic manager to be ready")
+    }
+
+    def awaitISR(tp: TopicPartition): Unit = {
+      TestUtils.waitUntilTrue(() => {
+        val leaderId = zkClient.getLeaderForPartition(tp).get
+        val leader = servers.filter(_.config.brokerId == leaderId)(0)
+        leader.replicaManager.nonOfflinePartition(tp).get.inSyncReplicas.map(_.brokerId).size == replicationFactor
+      }, "Timed out waiting for replicas to join ISR")
+    }
+
+    TestUtils.createTopic(zkClient, topic, numPartitions, replicationFactor, servers = servers, topicConfig = topicConfig)
+    val topicId = zkClient.getTopicIdsForTopics(Set(topic)).get(topic).get
+    val topicIdPartitions =
+      for (partition <- 0 until numPartitions)
+        yield new TopicIdPartition(topic, topicId, partition)
+
+    for (partition <- 0 until numPartitions)
+      awaitISR(topicIdPartitions(partition).topicPartition)
+
+    adminZkClient.deleteTopic(topic)
+    TestUtils.waitUntilTrue(() => zkClient.topicExists(topic) == false, "timeout waiting for topic to be deleted")
+
+    // All replicas must have seen the partition delete initiated message
+    servers.foreach { server =>
+      TestUtils.waitUntilTrue(() => server.tierTopicManager.trackedDeletedPartitions == numPartitions,
+        "Timed out waiting for deleted partitions to be tracked")
+    }
+  }
+
+  @Test
   def testControllerMoveOnPreferredReplicaElection(): Unit = {
     servers = makeServers(1)
     val tp = new TopicPartition("t", 0)
@@ -716,6 +757,7 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
       if (tierFeature) {
         config.setProperty(KafkaConfig.TierFeatureProp, tierFeature.toString)
         config.setProperty(KafkaConfig.TierBackendProp, "mock")
+        config.setProperty(KafkaConfig.TierMetadataReplicationFactorProp, "1")
       }
       config.setProperty(KafkaConfig.AutoLeaderRebalanceEnableProp, autoLeaderRebalanceEnable.toString)
       config.setProperty(KafkaConfig.UncleanLeaderElectionEnableProp, uncleanLeaderElectionEnable.toString)

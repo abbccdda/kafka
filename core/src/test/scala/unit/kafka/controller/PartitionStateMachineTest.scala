@@ -504,7 +504,7 @@ class PartitionStateMachineTest {
     val replicaStateMachine = new MockReplicaStateMachine(controllerContext)
     val deletionClient = Mockito.mock(classOf[DeletionClient])
     val topicDeletionManager = new TopicDeletionManager(config, controllerContext,
-      replicaStateMachine, partitionStateMachine, deletionClient)
+      replicaStateMachine, partitionStateMachine, deletionClient, None)
 
     partitionStateMachine.handleStateChanges(partitions, NewPartition)
     partitionStateMachine.handleStateChanges(partitions, OfflinePartition)
