@@ -44,14 +44,17 @@ import kafka.server.KafkaConfig$;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.MockTime;
+import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
+@Category(IntegrationTest.class)
 public class LdapAuthorizerTest {
 
   private static final Collection<Operation> TOPIC_OPS = Arrays.asList(

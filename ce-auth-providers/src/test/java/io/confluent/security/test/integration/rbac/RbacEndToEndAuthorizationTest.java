@@ -31,9 +31,11 @@ import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.test.IntegrationTest;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
@@ -42,6 +44,7 @@ import org.powermock.modules.junit4.PowerMockRunner;
 @RunWith(PowerMockRunner.class)
 @PrepareForTest({License.class})
 @PowerMockIgnore({"javax.*", "sun.*"})
+@Category(IntegrationTest.class)
 public class RbacEndToEndAuthorizationTest {
 
   private static final String BROKER_USER = "kafka";

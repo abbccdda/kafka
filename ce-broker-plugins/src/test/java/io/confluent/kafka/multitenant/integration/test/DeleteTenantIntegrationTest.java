@@ -23,11 +23,13 @@ import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourcePatternFilter;
 import org.apache.kafka.common.resource.ResourceType;
+import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.IOException;
@@ -47,7 +49,7 @@ import static io.confluent.kafka.multitenant.Utils.LC_META_XYZ;
 import static junit.framework.TestCase.assertTrue;
 import static junit.framework.TestCase.assertFalse;
 
-
+@Category(IntegrationTest.class)
 public class DeleteTenantIntegrationTest {
 
     private static final Long TEST_CACHE_RELOAD_DELAY_MS = TimeUnit.SECONDS.toMillis(5);

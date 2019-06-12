@@ -42,18 +42,20 @@ import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourcePattern;
 import org.apache.kafka.common.resource.ResourcePatternFilter;
 import org.apache.kafka.common.resource.ResourceType;
+import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.Rule;
+import org.junit.experimental.categories.Category;
 import org.junit.rules.TemporaryFolder;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.fail;
 
-
+@Category(IntegrationTest.class)
 public class TenantIsolationTest {
 
   private static final int BROKER_COUNT = 2;

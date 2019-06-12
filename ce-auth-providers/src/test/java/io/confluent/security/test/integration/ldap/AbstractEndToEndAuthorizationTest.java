@@ -34,10 +34,13 @@ import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.security.scram.internals.ScramMechanism;
+import org.apache.kafka.test.IntegrationTest;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(IntegrationTest.class)
 public abstract class AbstractEndToEndAuthorizationTest {
 
   public static final String ADMIN_GROUP = "Kafka Admin";

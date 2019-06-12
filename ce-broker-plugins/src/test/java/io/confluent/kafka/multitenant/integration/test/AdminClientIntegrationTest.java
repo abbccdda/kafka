@@ -13,10 +13,12 @@ import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.errors.SaslAuthenticationException;
+import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.rules.TemporaryFolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +39,7 @@ import static junit.framework.TestCase.fail;
 /**
  * An integration test testing OAUTHBEARER with an AdminClient
  */
+@Category(IntegrationTest.class)
 public class AdminClientIntegrationTest {
   private static final Logger log = LoggerFactory.getLogger(AdminClientIntegrationTest.class);
 
