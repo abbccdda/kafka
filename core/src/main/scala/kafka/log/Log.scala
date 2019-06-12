@@ -684,7 +684,7 @@ class Log(@volatile var dir: File,
 
   private[log] def loadProducerState(lastOffset: Long, reloadFromCleanShutdown: Boolean): Unit = lock synchronized {
     rebuildProducerState(lastOffset, reloadFromCleanShutdown, producerStateManager)
-    updateFirstUnstableOffset(mergedLogStartOffset)
+    updateFirstUnstableOffset(localLogStartOffset)
   }
 
   private def loadProducersFromLog(producerStateManager: ProducerStateManager, records: Records): Unit = {
@@ -973,7 +973,7 @@ class Log(@volatile var dir: File,
         producerStateManager.updateMapEndOffset(appendInfo.lastOffset + 1)
 
         // update the first unstable offset (which is used to compute LSO)
-        updateFirstUnstableOffset(mergedLogStartOffset)
+        updateFirstUnstableOffset(localLogStartOffset)
 
         trace(s"Appended message set with last offset: ${appendInfo.lastOffset}, " +
           s"first offset: ${appendInfo.firstOffset}, " +
@@ -1010,7 +1010,7 @@ class Log(@volatile var dir: File,
     lock synchronized {
       replicaHighWatermark = Some(highWatermark)
       producerStateManager.onHighWatermarkUpdated(highWatermark)
-      updateFirstUnstableOffset(mergedLogStartOffset)
+      updateFirstUnstableOffset(localLogStartOffset)
     }
   }
 
@@ -1028,6 +1028,12 @@ class Log(@volatile var dir: File,
     }
   }
 
+  /**
+   * Update the first unstable offset, bounded by the log start offset
+   * For tiered logs, we can assume that the lower bound for the first unstable offset
+   * is the local log start as we do not currently tier past the LSO.
+   * @param logStartOffset log start offset
+   */
   private def updateFirstUnstableOffset(logStartOffset: Long): Unit = lock synchronized {
     checkIfMemoryMappedBufferClosed()
     val updatedFirstStableOffset = producerStateManager.firstUnstableOffset match {
@@ -1909,7 +1915,7 @@ class Log(@volatile var dir: File,
 
         producerStateManager.truncate()
         producerStateManager.updateMapEndOffset(newOffset)
-        updateFirstUnstableOffset(mergedLogStartOffset)
+        updateFirstUnstableOffset(newOffset)
 
         this.recoveryPoint = math.min(newOffset, this.recoveryPoint)
       }

@@ -5,6 +5,8 @@
 package kafka.log
 
 import java.io.File
+import java.io.FileInputStream
+import java.nio.ByteBuffer
 import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, TimeUnit}
 import java.util.{Optional, UUID}
 
@@ -435,6 +437,89 @@ class MergedLogTest {
     assertEquals("expected three segments to be deleted due to retention", 3, mergedLog.deleteOldSegments())
     mergedLog.close()
   }
+
+  @Test
+  def testRestoreProducerStateFirstUnstableOffset(): Unit = {
+    val segmentBytes = 1024
+    // Setup retention to only keep 2 segments total
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = 0)
+    val mergedLog = createMergedLog(logConfig)
+    val tierPartitionState = tierMetadataManager.tierPartitionState(mergedLog.topicPartition).get
+    val leaderEpoch = 0
+    // establish tier leadership for topicIdPartition
+    tierPartitionState.setTopicIdPartition(topicIdPartition)
+    tierPartitionState.onCatchUpComplete()
+    tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
+      leaderEpoch, java.util.UUID.randomUUID(), 0))
+
+    val result = TierTestUtils.uploadWithMetadata(tierPartitionState,
+      topicIdPartition,
+      leaderEpoch,
+      UUID.randomUUID,
+      0,
+      100,
+      10000,
+      10000,
+      10000,
+      false,
+      true,
+      true)
+    assertEquals(AppendResult.ACCEPTED, result)
+    tierPartitionState.flush()
+
+    val epoch = 0.toShort
+    val sequence = 0
+    val pid = 1L
+
+    def appendToProducerState(stateManager: ProducerStateManager,
+                              producerId: Long,
+                              producerEpoch: Short,
+                              seq: Int,
+                              offset: Long,
+                              timestamp: Long,
+                              isTransactional: Boolean = false,
+                              isFromClient : Boolean = true): Unit = {
+      val producerAppendInfo = stateManager.prepareUpdate(producerId, isFromClient)
+      producerAppendInfo.append(producerEpoch, seq, seq, timestamp, offset, offset, isTransactional)
+      stateManager.update(producerAppendInfo)
+      stateManager.updateMapEndOffset(offset + 1)
+    }
+
+    appendToProducerState(mergedLog.producerStateManager, pid, epoch, sequence, 99L, 10000, isTransactional = true)
+    assertEquals(Some(99), mergedLog.producerStateManager.firstUnstableOffset.map(_.messageOffset))
+    mergedLog.producerStateManager.takeSnapshot()
+    val producerState = mergedLog.producerStateManager.snapshotFileForOffset(100)
+
+    def readProducerStateFile = {
+      val buf = ByteBuffer.allocate(1000)
+      val inputStream = new FileInputStream(producerState.get)
+      try {
+        Utils.readFully(inputStream, buf)
+      } finally {
+        inputStream.close()
+      }
+      buf.flip()
+      buf
+    }
+
+    // restore producer state to restore ongoing transactions
+    mergedLog.onRestoreTierState(tierPartitionState.endOffset().get(), new TierState(List(), Some(readProducerStateFile)))
+
+    // append some messages to test firstUnstableOffset check after restore
+    for (_ <- 0 until 10) {
+      val segmentStr = "foo"
+      val messageStr = "bar"
+      def createRecords = TestUtils.singletonRecords(("test" + segmentStr + messageStr).getBytes)
+      mergedLog.appendAsLeader(createRecords, 0)
+      mergedLog.roll()
+    }
+
+    assertEquals("first unstable offset should be the beginning of the local log after recovery",
+      100L,
+      mergedLog.localLog.firstUnstableOffset.get.messageOffset)
+    mergedLog.close()
+  }
+
 
   @Test
   def testRestoreStateFromTier(): Unit = {
