@@ -81,12 +81,12 @@ public class RestClient implements Closeable {
 
   private final int requestTimeout;
   private final int httpRequestTimeout;
-  private static List<String> bootstrapMetadataServerURLs;
+  private final List<String> bootstrapMetadataServerURLs;
   private volatile List<String> activeMetadataServerURLs;
   private final String protocol;
 
   private SSLSocketFactory sslSocketFactory;
-  private AtomicReference<HttpCredentialProvider> credentialProvider;
+  private final AtomicReference<HttpCredentialProvider> credentialProvider;
   private ScheduledExecutorService urlRefreshscheduler;
   private RequestSender requestSender = new HTTPRequestSender();
 
