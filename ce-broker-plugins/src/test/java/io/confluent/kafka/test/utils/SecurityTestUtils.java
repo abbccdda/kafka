@@ -7,12 +7,18 @@ import static org.junit.Assert.assertEquals;
 import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Metric;
+
+import io.confluent.kafka.clients.plugins.auth.oauth.OAuthBearerLoginCallbackHandler;
 import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
+import io.confluent.kafka.server.plugins.auth.oauth.OAuthBearerServerLoginCallbackHandler;
+import io.confluent.kafka.server.plugins.auth.oauth.OAuthBearerValidatorCallbackHandler;
+import io.confluent.kafka.server.plugins.auth.oauth.OAuthUtils;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.license.validator.ConfluentLicenseValidator;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
 import io.confluent.license.validator.LicenseValidator;
 import java.io.File;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -200,5 +206,31 @@ public class SecurityTestUtils {
             expectedStatus.name().toLowerCase(Locale.ROOT), ((Gauge<?>) v).value());
       });
     }
+  }
+
+  public static void attachServerOAuthConfigs(Map<String, Object> configs, List<String> serverMechanisms,
+                                        String listenerPrefix, OAuthUtils.JwsContainer jwsContainer) {
+    configs.put("sasl.enabled.mechanisms", serverMechanisms);
+    configs.put(listenerPrefix + ".oauthbearer.sasl.login.callback.handler." +
+                "class", OAuthBearerServerLoginCallbackHandler.class.getName());
+    configs.put(listenerPrefix + ".oauthbearer.sasl.server.callback" +
+                ".handler.class", OAuthBearerValidatorCallbackHandler.class.getName());
+    configs.put(listenerPrefix + ".oauthbearer.sasl.jaas.config",
+                "org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required " +
+                "publicKeyPath=\"" +
+                jwsContainer.getPublicKeyFile().toPath() +  "\";");
+  }
+
+  public static void attachMechanisms(Map<String, Object> saslClientConfigs,
+                                      String clientMechanism,
+                                      OAuthUtils.JwsContainer jwsContainer,
+                                      String allowedCluster) {
+    saslClientConfigs.put("sasl.mechanism", clientMechanism);
+    saslClientConfigs.put("sasl.login.callback.handler.class",
+                               OAuthBearerLoginCallbackHandler.class.getName());
+    saslClientConfigs.put("sasl.jaas.config",
+                          "org.apache.kafka.common.security." +
+                          "oauthbearer.OAuthBearerLoginModule Required token=\"" +
+                          jwsContainer.getJwsToken() + "\" cluster=\"" + allowedCluster + "\";");
   }
 }

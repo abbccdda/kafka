@@ -643,11 +643,16 @@ public class PhysicalClusterMetadataTest {
             TEST_MAX_WAIT_MS,
             "Expected new logical cluster to be added to the cache and the deleted to not be.");
 
+    // it's possible that the previous 'waitForCondition' returned true while DED logical cluster
+    // was not loaded yet, so we should wait with timeout in case DED cluster is still being
+    // loaded (and not deactivated yet)
+    TestUtils.waitForCondition(
+        () -> !lcCache.logicalClusterIdsIncludingStale().contains(LC_META_DED.logicalClusterId()),
+        TEST_MAX_WAIT_MS,
+        "We expect that deactivated clusters will not be in cache, even as stale.");
 
     assertFalse("We expect that the deactivated cluster will be in process of getting deleted",
-            lcCache.tenantLifecycleManager.deletedClusters().contains(LC_META_DED));
-    assertFalse("We expect that deactivated clusters will not be in cache, even as stale",
-            lcCache.logicalClusterIdsIncludingStale().contains(LC_META_DED.logicalClusterId()));
+                lcCache.tenantLifecycleManager.deletedClusters().contains(LC_META_DED));
   }
 
   @Test

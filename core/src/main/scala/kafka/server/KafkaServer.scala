@@ -289,6 +289,10 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         tokenCache = new DelegationTokenCache(ScramMechanism.mechanismNames)
         credentialProvider = new CredentialProvider(ScramMechanism.mechanismNames, tokenCache)
 
+        // multi-tenant metadata watcher should be initialized after dynamic config manager is
+        // initialized and before socket server processors
+        multitenantMetadata = ConfluentConfigs.buildMultitenantMetadata(config.values)
+
         // Create and start the socket server acceptor threads so that the bound port is known.
         // Delay starting processors until the end of the initialization sequence to ensure
         // that credentials have been loaded before processing authentications.
@@ -387,10 +391,6 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         // Create the config manager. start listening to notifications
         dynamicConfigManager = new DynamicConfigManager(zkClient, dynamicConfigHandlers)
         dynamicConfigManager.startup()
-
-        // multi-tenant metadata watcher should be initialized after dynamic config manager is
-        // initialized and before socket server processors
-        multitenantMetadata = ConfluentConfigs.buildMultitenantMetadata(config.values)
 
         socketServer.startControlPlaneProcessor()
         val authorizerFuture = authorizer.collect {

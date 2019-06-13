@@ -2,10 +2,11 @@
 
 package io.confluent.kafka.server.plugins.auth.oauth;
 
-import io.confluent.kafka.clients.plugins.auth.oauth.OAuthBearerLoginCallbackHandler;
 
 import io.confluent.kafka.multitenant.PhysicalClusterMetadata;
 import io.confluent.kafka.multitenant.Utils;
+import io.confluent.kafka.test.utils.SecurityTestUtils;
+
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.network.CertStores;
@@ -138,23 +139,10 @@ public class OAuthSaslAuthenticatorTest {
   }
 
   private void configureMechanisms(String clientMechanism, List<String> serverMechanisms) {
-    this.saslClientConfigs.put("sasl.mechanism", clientMechanism);
-    this.saslClientConfigs.put("sasl.login.callback.handler.class",
-            OAuthBearerLoginCallbackHandler.class.getName());
-    this.saslClientConfigs.put("sasl.jaas.config", "org.apache.kafka.common.security." +
-            "oauthbearer.OAuthBearerLoginModule Required token=\"" + jwsContainer.getJwsToken() +
-            "\" cluster=\"" + allowedCluster + "\";");
+    SecurityTestUtils.attachMechanisms(this.saslClientConfigs, clientMechanism, jwsContainer, allowedCluster);
 
-    this.saslServerConfigs.put("sasl.enabled.mechanisms", serverMechanisms);
-    this.saslServerConfigs.put("listener.name.sasl_ssl.oauthbearer.sasl.login.callback.handler." +
-            "class", OAuthBearerServerLoginCallbackHandler.class.getName());
-    this.saslServerConfigs.put("listener.name.sasl_ssl.oauthbearer.sasl.server.callback" +
-            ".handler.class", OAuthBearerValidatorCallbackHandler.class.getName());
-    this.saslServerConfigs.put("listener.name.sasl_ssl.oauthbearer.sasl.jaas.config",
-            "org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required " +
-                    "publicKeyPath=\"" +
-                    jwsContainer.getPublicKeyFile().toPath() +  "\";");
-
+    SecurityTestUtils.attachServerOAuthConfigs(this.saslServerConfigs, serverMechanisms,
+                                               "listener.name.sasl_ssl", jwsContainer);
     TestJaasConfig.createConfiguration(clientMechanism, serverMechanisms);
   }
 
