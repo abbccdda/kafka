@@ -355,22 +355,20 @@ subprojects {
     }
   }
 
+  ext.licenseAndNotice = it.path.startsWith(':ce-') || it.path == ':support-metrics-fullcollector' ? [] : [ "$rootDir/LICENSE", "$rootDir/NOTICE" ]
   jar {
-    from "$rootDir/LICENSE"
-    from "$rootDir/NOTICE"
+    from licenseAndNotice
   }
 
   task srcJar(type: Jar) {
     classifier = 'sources'
-    from "$rootDir/LICENSE"
-    from "$rootDir/NOTICE"
+    from licenseAndNotice
     from sourceSets.main.allSource
   }
 
   task javadocJar(type: Jar, dependsOn: javadoc) {
     classifier 'javadoc'
-    from "$rootDir/LICENSE"
-    from "$rootDir/NOTICE"
+    from licenseAndNotice
     from javadoc.destinationDir
   }
 
@@ -393,15 +391,13 @@ subprojects {
   if(!sourceSets.test.allSource.isEmpty()) {
     task testJar(type: Jar) {
       classifier = 'test'
-      from "$rootDir/LICENSE"
-      from "$rootDir/NOTICE"
+      from licenseAndNotice
       from sourceSets.test.output
     }
 
     task testSrcJar(type: Jar, dependsOn: testJar) {
       classifier = 'test-sources'
-      from "$rootDir/LICENSE"
-      from "$rootDir/NOTICE"
+      from licenseAndNotice
       from sourceSets.test.allSource
     }
 
@@ -413,8 +409,7 @@ subprojects {
   plugins.withType(ScalaPlugin) {
     task scaladocJar(type:Jar) {
       classifier = 'scaladoc'
-      from "$rootDir/LICENSE"
-      from "$rootDir/NOTICE"
+      from licenseAndNotice
       from scaladoc.destinationDir
     }
 
