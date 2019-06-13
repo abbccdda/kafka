@@ -31,7 +31,7 @@ public class TierObjectMetadata {
     public enum State {
         SEGMENT_UPLOAD_INITIATE(ObjectState.SEGMENT_UPLOAD_INITIATE, Arrays.asList(ObjectState.SEGMENT_UPLOAD_COMPLETE, ObjectState.SEGMENT_DELETE_INITIATE, ObjectState.SEGMENT_FENCED)),
         SEGMENT_UPLOAD_COMPLETE(ObjectState.SEGMENT_UPLOAD_COMPLETE, Collections.singletonList(ObjectState.SEGMENT_DELETE_INITIATE)),
-        SEGMENT_DELETE_INITIATE(ObjectState.SEGMENT_DELETE_INITIATE, Collections.singletonList(ObjectState.SEGMENT_DELETE_COMPLETE)),
+        SEGMENT_DELETE_INITIATE(ObjectState.SEGMENT_DELETE_INITIATE, Arrays.asList(ObjectState.SEGMENT_DELETE_COMPLETE, ObjectState.SEGMENT_FENCED)),
         SEGMENT_DELETE_COMPLETE(ObjectState.SEGMENT_DELETE_COMPLETE, Collections.emptyList()),
         SEGMENT_FENCED(ObjectState.SEGMENT_FENCED, Collections.singletonList(ObjectState.SEGMENT_DELETE_INITIATE));
 

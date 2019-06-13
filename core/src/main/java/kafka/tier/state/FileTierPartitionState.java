@@ -567,7 +567,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
     private void fenceSegment(TierObjectMetadata metadata) throws IOException {
         updateState(metadata.objectId(), TierObjectMetadata.State.SEGMENT_FENCED);
-        if (uploadInProgress.objectId().equals(metadata.objectId()))
+        if (uploadInProgress != null && uploadInProgress.objectId().equals(metadata.objectId()))
             uploadInProgress = null;
     }
 

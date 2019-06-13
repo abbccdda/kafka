@@ -354,11 +354,12 @@ class TierPartitionStateTest {
     val numSegments = 20
     var epoch = 0
     var offset = 0
+    val objectIds = for (_ <- 0 until numSegments) yield UUID.randomUUID
 
     // upload few segments at epoch=0
-    state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0))
+    state.append(new TierTopicInitLeader(tpid, epoch, UUID.randomUUID, 0))
     for (i <- 0 until numSegments) {
-      val objectId = UUID.randomUUID
+      val objectId = objectIds(i)
       assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset, offset + 1, 100, i, false, false, false)))
       assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId)))
       offset += 1
@@ -368,13 +369,16 @@ class TierPartitionStateTest {
     val abortedObjectId = UUID.randomUUID
     assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, abortedObjectId, offset, offset + 1, 100, 100, false, false, false)))
 
+    // begin deletion at epoch=0
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(0))))
+
     // leader change; epoch=1
     epoch = 1
     assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0)))
 
-    // segment being uploaded at epoch=0 must be fenced after leader change
-    assertEquals(1, state.fencedSegments.size)
-    assertEquals(abortedObjectId, state.fencedSegments.asScala.map(_.objectId).head)
+    // both segment being uploaded and deleted must now be fenced
+    assertEquals(2, state.fencedSegments.size)
+    assertEquals(Set(abortedObjectId, objectIds(0)), state.fencedSegments.asScala.map(_.objectId).toSet)
 
     // attempt to complete upload must be fenced
     assertEquals(AppendResult.FENCED, state.append(new TierSegmentUploadComplete(tpid, epoch - 1, abortedObjectId)))
