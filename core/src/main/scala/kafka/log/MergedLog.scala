@@ -134,7 +134,7 @@ class MergedLog(private[log] val localLog: Log,
   // Size of tiered portion of the log.
   newGauge("TierSize",
     new Gauge[Long] {
-      def value = tieredLogSegments.map(_.size.toLong).sum
+      def value = tierPartitionState.totalSize
     },
     tags)
 
@@ -243,27 +243,29 @@ class MergedLog(private[log] val localLog: Log,
   }
 
   override def size: Long = {
-    var size: Long = 0
-    uniqueLogSegments(logStartOffset, Long.MaxValue) match { case (tieredSegments, localSegments) =>
-      // add up size of all tiered segments
-      tieredSegments.foreach(size += _.size)
+    // We may overaccount for one of the segments because we do not grab firstUntieredOffset and tierSize atomically.
+    // If a segment were uploaded after we read firstUntieredOffset but before we read the total size, we would end up
+    // double counting the segment that was uploaded.
+    val firstUntieredOffset = this.firstUntieredOffset
+    val tierSize = tierPartitionState.totalSize
 
-      // add up size of all local segments
-      localSegments.foreach(size += _.size)
+    val untieredSegments = localLogSegments(firstUntieredOffset, Long.MaxValue)
+    val untieredSize = untieredSegments.map(_.size).sum
 
-      // there could be an overlap between the last tiered segment and first local segment returned by `uniqueLogSegments`
-      if (tieredSegments.nonEmpty && localSegments.nonEmpty) {
-        val lastTieredSegment = tieredSegments.last
-        val firstLocalSegment = localSegments.head
+    var size = tierSize + untieredSize
 
-        if (firstLocalSegment.baseOffset < lastTieredSegment.nextOffset) {
-          // locate the end of overlap in local segment
-          val overlapEndPosition = firstLocalSegment.translateOffset(lastTieredSegment.nextOffset)
-          if (overlapEndPosition != null)
-            size -= overlapEndPosition.position
-        }
+    // there could be an overlap between the last tiered segment and the first untiered local segment
+    if (untieredSegments.nonEmpty && tierSize > 0) {
+      val firstLocalUntieredSegment = untieredSegments.head
+
+      if (firstLocalUntieredSegment.baseOffset < firstUntieredOffset) {
+        // locate the end of overlap in local segment
+        val overlapEndPosition = firstLocalUntieredSegment.translateOffset(firstUntieredOffset)
+        if (overlapEndPosition != null)
+          size -= overlapEndPosition.position  // this is the position corresponding to the first non overlapping offset
       }
     }
+
     size
   }
 

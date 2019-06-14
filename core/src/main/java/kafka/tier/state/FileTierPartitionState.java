@@ -179,26 +179,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     @Override
-    public long totalSize() throws IOException {
-        if (!tieringEnabled || !status.isOpen()) {
-            throw new IllegalStateException("Illegal state " + status + " for tier partition. " +
-                    "tieringEnabled: " + tieringEnabled + " basePath: " + basePath);
-        }
-
-        long size = 0;
-        State currentState = state;
-        Map.Entry<Long, UUID> firstEntry = currentState.validSegments.firstEntry();
-
-        if (firstEntry != null) {
-            FileTierPartitionIterator iterator = iterator(topicIdPartition().get(),
-                    currentState.channel,
-                    currentState.position(firstEntry.getValue()));
-            while (iterator.hasNext()) {
-                TierObjectMetadata metadata = iterator.next();
-                size += metadata.size();
-            }
-        }
-        return size;
+    public long totalSize() {
+        return state.validSegmentsSize;
     }
 
     @Override
@@ -785,12 +767,14 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
             case SEGMENT_UPLOAD_COMPLETE:
                 state.validSegments.put(startOffset, metadata.objectId());
+                state.validSegmentsSize += metadata.size();
                 state.endOffset = metadata.endOffset();  // store end offset for immediate access
                 uploadInProgress = null;
                 break;
 
             case SEGMENT_DELETE_INITIATE:
                 state.validSegments.remove(startOffset);
+                state.validSegmentsSize -= metadata.size();
                 break;
 
             case SEGMENT_DELETE_COMPLETE:
@@ -915,6 +899,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         private volatile Long endOffset = null;
         private volatile Long committedEndOffset = null;
         private volatile int currentEpoch = -1;
+        private volatile long validSegmentsSize = 0;
 
         State(FileChannel channel) {
             this.channel = channel;

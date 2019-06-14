@@ -423,6 +423,7 @@ class TierPartitionStateTest {
     val objectIds = new ListBuffer[UUID]
     val endOffsets = new ListBuffer[Long]
     val tierObjectStore = mock(classOf[TierObjectStore])
+    var size = 0
 
     // upload few segments at epoch=0
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID, 0))
@@ -433,12 +434,14 @@ class TierPartitionStateTest {
       objectIds += objectId
       endOffsets += (offset + 10)
       offset += 5
+      size += i
     }
 
     val numSegmentsToDelete = 5
     for (i <- 0 until numSegmentsToDelete) {
       assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(i))))
       assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteComplete(tpid, epoch, objectIds(i))))
+      size -= i
     }
 
     val validObjectIds = objectIds.takeRight(numSegments - numSegmentsToDelete)
@@ -449,6 +452,15 @@ class TierPartitionStateTest {
     val validEndOffsets = endOffsets.takeRight(numSegments - numSegmentsToDelete)
     val foundEndOffsets = TierUtils.tieredSegments(state.segmentOffsets, state, Optional.of(tierObjectStore)).iterator.asScala.map(_.endOffset).toList
     assertEquals(validEndOffsets, foundEndOffsets)
+    assertEquals(size, state.totalSize)
+
+    state.close()
+    val reopenedState = new FileTierPartitionState(dir, tp, true)
+    try {
+      assertEquals(size, reopenedState.totalSize)
+    } finally {
+      reopenedState.close()
+    }
   }
 
   @Test
