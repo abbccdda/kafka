@@ -328,8 +328,10 @@ class AdminManager(val config: KafkaConfig,
       def createResponseConfig(configs: Map[String, Any],
                                createConfigEntry: (String, Any) => DescribeConfigsResponse.ConfigEntry): DescribeConfigsResponse.Config = {
         val filteredConfigPairs = configs.filter { case (configName, _) =>
+          /* Only allow tier configs when confluent.tier.feature is enabled */
+          val tierFeatureCheck = config.tierFeature || !configName.startsWith(KafkaConfig.ConfluentTierPrefix)
           /* Always returns true if configNames is None */
-          configNames.forall(_.contains(configName))
+          tierFeatureCheck && configNames.forall(_.contains(configName))
         }.toIndexedSeq
 
         val configEntries = filteredConfigPairs.map { case (name, value) => createConfigEntry(name, value) }

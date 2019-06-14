@@ -285,7 +285,8 @@ object Defaults {
 
 object KafkaConfig {
   private val LogConfigPrefix = "log."
-  private val ConfluentPrefix = "confluent."
+  val ConfluentPrefix = "confluent."
+  val ConfluentTierPrefix = ConfluentPrefix + "tier."
 
   def main(args: Array[String]) {
     System.out.println(configDef.toHtmlTable(DynamicBrokerConfig.dynamicConfigUpdateModes))

@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
 import java.util.concurrent.{CountDownLatch, ExecutionException, TimeUnit}
 import java.util.{Collections, Properties}
 import java.{time, util}
+
 import kafka.log.LogConfig
 import kafka.security.auth.{Cluster, Group, Topic}
 import kafka.server.{Defaults, KafkaConfig, KafkaServer}
@@ -49,6 +50,7 @@ import org.junit.Assert._
 import org.junit.rules.Timeout
 import org.junit.{After, Before, Rule, Test}
 import org.scalatest.Assertions.intercept
+
 import scala.collection.JavaConverters._
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future}
@@ -88,10 +90,12 @@ class AdminClientIntegrationTest extends IntegrationTestHarness with Logging {
   val brokerCount = 3
   val consumerCount = 1
   val producerCount = 1
+  val tierFeature = false
+  override val logDirCount = 2
 
   override def generateConfigs = {
     val cfgs = TestUtils.createBrokerConfigs(brokerCount, zkConnect, interBrokerSecurityProtocol = Some(securityProtocol),
-      trustStoreFile = trustStoreFile, saslProperties = serverSaslProperties, logDirCount = 2)
+      trustStoreFile = trustStoreFile, saslProperties = serverSaslProperties, logDirCount = logDirCount)
     cfgs.foreach { config =>
       config.setProperty(KafkaConfig.ListenersProp, s"${listenerName.value}://localhost:${TestUtils.RandomPort}")
       config.remove(KafkaConfig.InterBrokerSecurityProtocolProp)
@@ -464,7 +468,13 @@ class AdminClientIntegrationTest extends IntegrationTestHarness with Logging {
     assertFalse(maxMessageBytes2.isSensitive)
     assertFalse(maxMessageBytes2.isReadOnly)
 
-    assertEquals(servers(1).config.values.size, configs.get(brokerResource1).entries.size)
+    // calculate the config count for a server, filtering out
+    // tier related broker configs for comparison with topic describe
+    def tierFeatureFilteredConfigCount(server: KafkaServer): Long = {
+      server.config.values.keySet().asScala.filterNot(config => !tierFeature && config.startsWith(KafkaConfig.ConfluentTierPrefix)).size
+    }
+
+    assertEquals(tierFeatureFilteredConfigCount(servers(1)), configs.get(brokerResource1).entries.size)
     assertEquals(servers(1).config.brokerId.toString, configs.get(brokerResource1).get(KafkaConfig.BrokerIdProp).value)
     val listenerSecurityProtocolMap = configs.get(brokerResource1).get(KafkaConfig.ListenerSecurityProtocolMapProp)
     assertEquals(servers(1).config.getString(KafkaConfig.ListenerSecurityProtocolMapProp), listenerSecurityProtocolMap.value)
@@ -485,7 +495,7 @@ class AdminClientIntegrationTest extends IntegrationTestHarness with Logging {
     assertFalse(compressionType.isSensitive)
     assertFalse(compressionType.isReadOnly)
 
-    assertEquals(servers(2).config.values.size, configs.get(brokerResource2).entries.size)
+    assertEquals(tierFeatureFilteredConfigCount(servers(2)), configs.get(brokerResource2).entries.size)
     assertEquals(servers(2).config.brokerId.toString, configs.get(brokerResource2).get(KafkaConfig.BrokerIdProp).value)
     assertEquals(servers(2).config.logCleanerThreads.toString,
       configs.get(brokerResource2).get(KafkaConfig.LogCleanerThreadsProp).value)
@@ -993,6 +1003,17 @@ class AdminClientIntegrationTest extends IntegrationTestHarness with Logging {
       client.deleteRecords(Map(nonExistPartition -> RecordsToDelete.beforeOffset(20L)).asJava).lowWatermarks.get(nonExistPartition).get
     }.getCause
     assertEquals(classOf[LeaderNotAvailableException], cause.getClass)
+  }
+
+  @Test
+  def testDescribeConfigsTierFiltering(): Unit = {
+    createTopic(topic, numPartitions = 2, replicationFactor = brokerCount)
+    client = AdminClient.create(createConfig())
+
+    val existingTopic = new ConfigResource(ConfigResource.Type.TOPIC, topic)
+    val configs = client.describeConfigs(Collections.singletonList(existingTopic)).values.get(existingTopic).get()
+    val foundTierConfigs = configs.entries().asScala.map(_.name).toSet.contains("confluent.tier.enable")
+    assertTrue(tierFeature && foundTierConfigs || !tierFeature && !foundTierConfigs)
   }
 
   @Test
