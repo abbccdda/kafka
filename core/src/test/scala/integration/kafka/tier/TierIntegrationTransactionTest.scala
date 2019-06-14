@@ -36,7 +36,7 @@ class TierIntegrationTransactionTest extends IntegrationTestHarness {
   serverConfig.put(KafkaConfig.TierFeatureProp, "true")
   serverConfig.put(KafkaConfig.TierMetadataNumPartitionsProp, "1")
   serverConfig.put(KafkaConfig.TierMetadataReplicationFactorProp, "1")
-  serverConfig.put(KafkaConfig.LogCleanupIntervalMsProp, "500")
+  serverConfig.put(KafkaConfig.LogCleanupIntervalMsProp, Int.MaxValue.toString) // disable log cleanup, we will manually trigger retention
   serverConfig.put(KafkaConfig.TierLocalHotsetBytesProp, "0")
   serverConfig.put(KafkaConfig.TransactionsTopicReplicationFactorProp, "1")
   serverConfig.put(KafkaConfig.TransactionsTopicMinISRProp, "1")
