@@ -9,6 +9,7 @@ import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.CreateTopicsResult;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.TopicExistsException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,7 +26,9 @@ public class TierTopicAdmin {
     private static final Logger log = LoggerFactory.getLogger(TierTopicAdmin.class);
     private static final Map<String, String> TIER_TOPIC_CONFIG =
             Collections.unmodifiableMap(Stream.of(
-                    new AbstractMap.SimpleEntry<>("retention.ms", "-1"))
+                    new AbstractMap.SimpleEntry<>(TopicConfig.CLEANUP_POLICY_CONFIG, TopicConfig.CLEANUP_POLICY_DELETE),
+                    new AbstractMap.SimpleEntry<>(TopicConfig.RETENTION_MS_CONFIG, "-1"),
+                    new AbstractMap.SimpleEntry<>(TopicConfig.RETENTION_BYTES_CONFIG, "-1"))
                     .collect(Collectors.toMap(e -> e.getKey(), e -> e.getValue())));
 
     /**

@@ -1,14 +1,23 @@
 package kafka.server
 
 import java.util.{Properties, UUID}
+import java.util.Collections
 
 import kafka.integration.KafkaServerTestHarness
 import kafka.tier.TierTestUtils
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.utils.TestUtils
+import org.apache.kafka.clients.admin.AdminClient
+import org.apache.kafka.clients.admin.AdminClientConfig
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.config.ConfigResource
+import org.apache.kafka.common.config.ConfluentTopicConfig
+import org.apache.kafka.common.config.TopicConfig
+import org.apache.kafka.common.internals.Topic
 import org.junit.Assert._
 import org.junit.Test
+
+import scala.collection.JavaConverters._
 
 /* Temporary integration test until we have a more substantial Tiered Storage integration test with archiving. */
 class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
@@ -18,6 +27,11 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
   overridingProps.setProperty(KafkaConfig.TierMetadataNumPartitionsProp, "2")
   overridingProps.setProperty(KafkaConfig.TierMetadataReplicationFactorProp, "1")
   overridingProps.setProperty(KafkaConfig.TierBackendProp, "mock")
+  // set broker retention bytes and time explicitly so we can check
+  // tier state topic is setup correctly
+  overridingProps.setProperty(KafkaConfig.LogCleanupPolicyProp, "compact")
+  overridingProps.setProperty(KafkaConfig.LogRetentionBytesProp, "1000000")
+  overridingProps.setProperty(KafkaConfig.LogRetentionTimeMillisProp, "1000000")
   val logDir = TestUtils.tempDir()
 
   override def generateConfigs =
@@ -33,10 +47,13 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
     val tierMetadataManager = servers.last.tierMetadataManager
 
     val properties = new Properties()
-    properties.put(KafkaConfig.TierEnableProp, "true")
+    properties.put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true")
+    properties.put(TopicConfig.CLEANUP_POLICY_CONFIG, TopicConfig.CLEANUP_POLICY_DELETE)
 
     while (!tierTopicManager.isReady)
       Thread.sleep(5)
+
+    assertTierStateTopicConfigs()
 
     val topic1 = "foo"
     TestUtils.createTopic(this.zkClient, topic1, 2, 1,
@@ -104,5 +121,28 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
     // original topic1 tier partition state should only have one entry, even after catch up
     // consumer has been seeked backwards.
     assertEquals(1, originalState.numSegments())
+  }
+
+  def createAdminClientConfig(): java.util.Map[String, Object] = {
+    val config = new java.util.HashMap[String, Object]
+    config.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList)
+    config.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, "20000")
+    config
+  }
+
+  private def assertTierStateTopicConfigs(): Unit = {
+    val client = AdminClient.create(createAdminClientConfig())
+    try {
+      val existingTopic = new ConfigResource(ConfigResource.Type.TOPIC, Topic.TIER_TOPIC_NAME)
+      val describeConfigs = client.describeConfigs(Collections.singletonList(existingTopic)).values.get(existingTopic).get()
+      assertEquals("-1", describeConfigs.entries().asScala
+        .find(_.name() == TopicConfig.RETENTION_BYTES_CONFIG).get.value())
+      assertEquals("-1", describeConfigs.entries().asScala
+        .find(_.name() == TopicConfig.RETENTION_MS_CONFIG).get.value())
+      assertEquals(TopicConfig.CLEANUP_POLICY_DELETE, describeConfigs.entries().asScala
+        .find(_.name() == TopicConfig.CLEANUP_POLICY_CONFIG).get.value())
+    } finally {
+      client.close()
+    }
   }
 }
