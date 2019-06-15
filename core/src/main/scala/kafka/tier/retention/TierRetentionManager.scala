@@ -84,9 +84,9 @@ class TierRetentionManager(scheduler: Scheduler,
         continue = false
       }
     }
-
-    info(s"Found deletable tiered segments for ${log.topicPartition} with base offsets " +
-      s"[${toDelete.map(_.baseOffet).mkString(",")}] due to $reason")
+    if (toDelete.nonEmpty)
+      info(s"Found deletable tiered segments for ${log.topicPartition} with base offsets " +
+        s"[${toDelete.map(_.baseOffet).mkString(",")}] due to $reason")
     toDelete.toList
   }
 
