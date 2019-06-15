@@ -355,6 +355,14 @@ object LogConfig {
     validateValues(valueMaps)
   }
 
+  def validateChange(current: LogConfig, proposed: LogConfig): Unit = {
+    if (current.tierEnable && !proposed.tierEnable)
+      throw new InvalidConfigurationException("Configs cannot be altered to disable tiering")
+
+    if (current.tierEnable && !current.compact && proposed.compact)
+      throw new InvalidConfigurationException("Configs cannot be altered to enable compaction")
+  }
+
   /**
    * Map topic config to the broker config with highest priority. Some of these have additional synonyms
    * that can be obtained using [[kafka.server.DynamicBrokerConfig#brokerConfigSynonyms]]

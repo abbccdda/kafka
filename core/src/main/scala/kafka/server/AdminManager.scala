@@ -417,6 +417,12 @@ class AdminManager(val config: KafkaConfig,
                                 configProps: Properties, configEntriesMap: Map[String, String],
                                 principal: KafkaPrincipal): (ConfigResource, ApiError) = {
     val topic = resource.name
+
+    val currentDefault = config.originals
+    val currentConfigs = LogConfig.fromProps(currentDefault, adminZkClient.fetchEntityConfig(ConfigType.Topic, topic))
+    val proposedConfigs = LogConfig.fromProps(currentDefault, configProps)
+    LogConfig.validateChange(currentConfigs, proposedConfigs)
+
     adminZkClient.validateTopicConfig(topic, configProps)
     validateConfigPolicy(resource, configEntriesMap, principal)
     if (!validateOnly) {

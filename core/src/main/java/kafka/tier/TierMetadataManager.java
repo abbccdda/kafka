@@ -11,7 +11,6 @@ import kafka.tier.state.TierPartitionState;
 import kafka.tier.state.TierPartitionStateFactory;
 import kafka.tier.store.TierObjectStore;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.errors.KafkaStorageException;
 import org.apache.kafka.common.internals.Topic;
 import org.slf4j.Logger;
@@ -180,9 +179,7 @@ public class TierMetadataManager {
         try {
             if (partitionMetadata.updateConfig(config, tierFeatureEnabled)) {
                 OptionalInt leaderEpoch = partitionMetadata.epochIfLeader;
-
-                Optional<TopicIdPartition> topicIdPartitionOpt =
-                        partitionMetadata.tierPartitionState.topicIdPartition();
+                Optional<TopicIdPartition> topicIdPartitionOpt = partitionMetadata.tierPartitionState.topicIdPartition();
 
                 if (topicIdPartitionOpt.isPresent()) {
                     if (leaderEpoch.isPresent()) {
@@ -329,7 +326,7 @@ public class TierMetadataManager {
                                   TopicPartition topicPartition,
                                   LogConfig config,
                                   boolean tierFeatureEnabled) throws IOException {
-            boolean tieringEnabled = checkTierConfig(topicPartition, config, tierFeatureEnabled);
+            boolean tieringEnabled = isTieringEnabled(topicPartition, config, tierFeatureEnabled);
             this.tierPartitionState = tierPartitionStateFactory.initState(stateDir, topicPartition, tieringEnabled);
         }
 
@@ -340,18 +337,19 @@ public class TierMetadataManager {
         // Change tiering enabled configuration
         private boolean updateConfig(LogConfig newConfig, boolean tierFeatureEnabled) throws IOException {
             boolean currentTieringEnabled = tieringEnabled();
-            boolean newTieringEnabled = newConfig.tierEnable();
+            boolean newTieringEnabled = isTieringEnabled(tierPartitionState.topicPartition(), newConfig, tierFeatureEnabled);
 
-            if (currentTieringEnabled && !newTieringEnabled) {
-                throw new InvalidConfigurationException("Cannot disable tiering on a topic that already has been tiered");
-            } else if (checkTierConfig(tierPartitionState.topicPartition(), newConfig, tierFeatureEnabled)) {
+            if (!currentTieringEnabled && newTieringEnabled) {
                 tierPartitionState.onTieringEnable();
                 return true;
+            } else if (currentTieringEnabled && !newTieringEnabled) {
+                throw new IllegalStateException("Cannot disable tiering on a topic that already has been tiered");
             }
+
             return false;
         }
 
-        private boolean checkTierConfig(TopicPartition topicPartition, LogConfig config, boolean tierFeatureEnabled) {
+        private boolean isTieringEnabled(TopicPartition topicPartition, LogConfig config, boolean tierFeatureEnabled) {
             if (tierFeatureEnabled && config.tierEnable()) {
                 if (config.compact()) {
                     log.warn("Tiering cannot be enabled for compacted topic " + topicPartition);

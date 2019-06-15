@@ -11,7 +11,6 @@ import kafka.tier.store.TierObjectStoreConfig;
 import kafka.tier.state.FileTierPartitionStateFactory;
 import kafka.tier.state.TierPartitionState;
 import kafka.tier.store.MockInMemoryTierObjectStore;
-import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Test;
@@ -187,7 +186,7 @@ public class TierMetadataManagerTest {
         assertTrue(partitionState.status().isOpen());
 
         // disabling tiering should now throw an exception
-        assertThrows(InvalidConfigurationException.class, () ->
+        assertThrows(IllegalStateException.class, () ->
                 metadataManager.onConfigChange(TOPIC_ID_PARTITION.topicPartition(), oldConfig));
         metadataManager.delete(TOPIC_ID_PARTITION.topicPartition());
 
@@ -217,7 +216,7 @@ public class TierMetadataManagerTest {
         assertTrue(partitionState.status().isOpen());
 
         // disabling tiering should now throw an exception
-        assertThrows(InvalidConfigurationException.class, () ->
+        assertThrows(IllegalStateException.class, () ->
                 metadataManager.onConfigChange(TOPIC_ID_PARTITION.topicPartition(), oldConfig));
         metadataManager.delete(TOPIC_ID_PARTITION.topicPartition());
 
@@ -246,7 +245,7 @@ public class TierMetadataManagerTest {
         assertFalse(partitionState.status().isOpen());
 
         // disabling tiering should now throw an exception
-        assertThrows(InvalidConfigurationException.class,
+        assertThrows(IllegalStateException.class,
                     () -> metadataManager.onConfigChange(TOPIC_ID_PARTITION.topicPartition(),
                             oldConfig));
 
@@ -289,7 +288,7 @@ public class TierMetadataManagerTest {
         LogConfig newConfig = config(false, true);
         try {
             // disabling tiering should now throw an exception
-            assertThrows(InvalidConfigurationException.class,
+            assertThrows(IllegalStateException.class,
                     () -> metadataManager.onConfigChange(TOPIC_ID_PARTITION.topicPartition(),
                             newConfig));
         } finally {

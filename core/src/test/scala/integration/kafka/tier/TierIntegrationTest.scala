@@ -254,7 +254,6 @@ class TierIntegrationTest {
       tierArchiver, tierTopicManager, consumerBuilder)
   }
 
-
   @Test
   def testArchiverTotalLag(): Unit = {
     val numLogs = 5
