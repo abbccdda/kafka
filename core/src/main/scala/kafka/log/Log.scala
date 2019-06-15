@@ -1040,8 +1040,22 @@ class Log(@volatile var dir: File,
       case Some(logOffsetMetadata) if logOffsetMetadata.messageOffsetOnly || logOffsetMetadata.messageOffset < logStartOffset =>
         val offset = math.max(logOffsetMetadata.messageOffset, logStartOffset)
         val segment = segments.floorEntry(offset).getValue
-        val position  = segment.translateOffset(offset)
-        Some(LogOffsetMetadata(offset, segment.baseOffset, position.position))
+        Option(segment.translateOffset(offset)) match {
+          case Some(position) =>
+            Some(LogOffsetMetadata(offset, segment.baseOffset, position.position))
+          case None =>
+            // If the first unstable offset position is not located, we default to using the segment size.
+            // This sets a reasonable default if the local log is fully truncated, but the corresponding producer state
+            // failed to be truncated.
+            //
+            // This also guards against a condition specific to tiered storage, where part of the local log was tiered
+            // and deleted. If recovery is triggered and the local log is truncated, it's possible to end up in a state
+            // where there is no local data corresponding to the restored producer state snapshot high watermark.
+            if (segment.size != 0)
+              warn(s"failed to find first unstable offset $offset position in segment $segment")
+            Some(LogOffsetMetadata(offset, segment.baseOffset, segment.size))
+        }
+
       case other => other
     }
 

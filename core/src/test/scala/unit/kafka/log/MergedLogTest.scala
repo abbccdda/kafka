@@ -21,12 +21,13 @@ import kafka.tier.state.FileTierPartitionStateFactory
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStore, TierObjectStoreConfig}
 import kafka.utils.{MockTime, Scheduler, TestUtils}
-import org.apache.kafka.common.record.{MemoryRecords, RecordBatch, SimpleRecord}
+import org.apache.kafka.common.record.{CompressionType, MemoryRecords, RecordBatch, SimpleRecord}
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.junit.Assert.{assertEquals, assertTrue, fail}
 import org.junit.{After, Test}
 
 import scala.collection.JavaConverters._
+import scala.util.Try
 
 class MergedLogTest {
   val brokerTopicStats = new BrokerTopicStats
@@ -691,6 +692,82 @@ class MergedLogTest {
     val firstTimestamp = metadata.maxTimestamp()
     assertEquals(Some(new TierTimestampAndOffset(firstTimestamp, new TierObjectStore.ObjectMetadata(metadata))), log.fetchOffsetByTimestamp(firstTimestamp))
     log.close()
+  }
+
+  @Test // Test that log recovery is successful with an empty segment file and a non-empty producer state.
+  def testSuccessfulLogRecoveryWithEmptySegment(): Unit = {
+    val logConfig = LogTest.createLogConfig(retentionMs = 999)
+    val log = createMergedLog(logConfig)
+
+    val pid = 137L
+    val epoch = 5.toShort
+    val seq = 0
+
+    val records_1 = MemoryRecords.withTransactionalRecords(CompressionType.NONE, pid, epoch, seq,
+      new SimpleRecord(mockTime.milliseconds - 1000, "foo".getBytes),
+      new SimpleRecord(mockTime.milliseconds - 1000, "bar".getBytes),
+      new SimpleRecord(mockTime.milliseconds - 1000, "baz".getBytes))
+
+    val records_2 = MemoryRecords.withTransactionalRecords(CompressionType.NONE, pid + 1, epoch, seq,
+      new SimpleRecord(mockTime.milliseconds - 1000, "foo".getBytes),
+      new SimpleRecord(mockTime.milliseconds - 1000, "bar".getBytes),
+      new SimpleRecord(mockTime.milliseconds - 1000, "baz".getBytes))
+
+    log.appendAsLeader(records_1, leaderEpoch = 0)
+    log.roll()
+    log.appendAsLeader(records_2, leaderEpoch = 0)
+    log.onHighWatermarkIncremented(log.logEndOffset)
+    assertEquals("expected two active producers", 2, log.producerStateManager.activeProducers.size)
+
+    val numDeleted = log.deleteOldSegments()
+    assertEquals(2, numDeleted)
+
+    log.close()
+    val mergedLog = Try(createMergedLog(logConfig))
+    assertTrue("expected log recovery to succeed", mergedLog.isSuccess)
+    mergedLog.foreach(mergedLog => {
+      assertEquals("expected the producer state to be fully truncated", 0, mergedLog.producerStateManager.activeProducers.size)
+    })
+  }
+
+  @Test // Test the first unstable offset is correctly set after truncation
+  def testSuccessfulLogRecoveryWithNonEmptySegment(): Unit = {
+    val logConfig = LogTest.createLogConfig(retentionMs = 999)
+    val log = createMergedLog(logConfig)
+
+    val pid = 137L
+    val epoch = 5.toShort
+    val seq = 0
+
+    val records_1 = MemoryRecords.withTransactionalRecords(CompressionType.NONE, pid, epoch, seq,
+      new SimpleRecord(mockTime.milliseconds - 1000, "foo".getBytes),
+      new SimpleRecord(mockTime.milliseconds - 1000, "bar".getBytes),
+      new SimpleRecord(mockTime.milliseconds - 1000, "baz".getBytes))
+
+    val records_2 = MemoryRecords.withTransactionalRecords(CompressionType.NONE, pid + 1, epoch, seq,
+      new SimpleRecord(mockTime.milliseconds, "foo".getBytes),
+      new SimpleRecord(mockTime.milliseconds, "bar".getBytes),
+      new SimpleRecord(mockTime.milliseconds, "baz".getBytes))
+
+    log.appendAsLeader(records_1, leaderEpoch = 0)
+    log.roll()
+    log.appendAsLeader(records_2, leaderEpoch = 0)
+    log.onHighWatermarkIncremented(log.logEndOffset)
+    assertEquals("expected two active producers", 2, log.producerStateManager.activeProducers.size)
+
+    val numDeleted = log.deleteOldSegments()
+    assertEquals(1, numDeleted)
+
+    log.close()
+    val mergedLog = Try(createMergedLog(logConfig))
+    assertTrue("expected log recovery to succeed", mergedLog.isSuccess)
+    mergedLog.foreach(mergedLog => {
+      assertEquals("expected one active producer to be restored", 1, mergedLog.producerStateManager.activeProducers.size)
+      assertEquals("expected the first unstable offset to be correctly" +
+        " set to the base offset of the batch remaining after truncation",
+        mergedLog.localLog.logSegments.head.baseOffset,
+        mergedLog.firstUnstableOffset.get.messageOffset)
+    })
   }
 
   private def logRanges(log: MergedLog): LogRanges = {
