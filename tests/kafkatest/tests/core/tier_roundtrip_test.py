@@ -1,8 +1,7 @@
 from os import environ
 from time import sleep
-from uuid import uuid1
 
-from ducktape.mark import parametrize
+from ducktape.mark import matrix
 from ducktape.utils.util import wait_until
 from ducktape.mark.resource import cluster
 
@@ -14,9 +13,10 @@ from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
-from kafkatest.utils.tiered_storage import tier_server_props, archive_completed, restart_jmx_tool
+from kafkatest.utils.tiered_storage import TierSupport
+from kafkatest.version import LATEST_0_8_2, LATEST_0_9, LATEST_0_10_0, LATEST_0_10_1, LATEST_0_10_2, LATEST_0_11_0, LATEST_1_0, LATEST_1_1, LATEST_2_0, LATEST_2_1, LATEST_2_2, DEV_BRANCH, KafkaVersion
 
-class TierRoundtripTest(ProduceConsumeValidateTest):
+class TierRoundtripTest(ProduceConsumeValidateTest, TierSupport):
     """
     This test validates that brokers can archive to S3 and consumers can fetch all records,
     including those which were tiered to S3.
@@ -29,36 +29,30 @@ class TierRoundtripTest(ProduceConsumeValidateTest):
       ./tests/docker/ducker-ak up
     """
 
-    TIER_S3_BUCKET = "confluent-tier-system-test-us-east-1"
+    TIER_S3_BUCKET = "confluent-tier-system-test"
     # The value of log.segment.bytes and number of records to produce should be set such that
     # multiple segments are rolled, tiered to S3 and deleted from the local log.
     LOG_SEGMENT_BYTES = 100 * 1024
     MIN_RECORDS_PRODUCED = 25000
 
+    TOPIC_CONFIG = {
+        "partitions": 1,
+        "replication-factor": 1,
+        "configs": {
+            "min.insync.replicas": 1,
+            "confluent.tier.enable": True
+        }
+    }
+
     def __init__(self, test_context):
         super(TierRoundtripTest, self).__init__(test_context=test_context)
 
-        self.topic = "t-{}-{}".format(self.test_context.session_context.session_id, uuid1())
         self.zk = ZookeeperService(test_context, num_nodes=1)
 
-        self.kafka = KafkaService(test_context, num_nodes=1, zk=self.zk,
-                                    jmx_object_names=[
-                                        "kafka.server:type=TierFetcher",
-                                        "kafka.tier.archiver:type=TierArchiver,name=TotalLag",
-                                    ],
-                                    jmx_attributes=["BytesFetchedTotal", "Value"],
-                                    server_prop_overides=tier_server_props(self.TIER_S3_BUCKET, metadata_replication_factor=1, region="us-east-1") + [
-                                        [config_property.LOG_SEGMENT_BYTES, self.LOG_SEGMENT_BYTES],
-                                        [config_property.LOG_RETENTION_CHECK_INTERVAL_MS, "5000"],
-                                    ],
-                                    topics={self.topic: {
-                                        "partitions": 1,
-                                        "replication-factor": 1,
-                                        "configs": {
-                                            "min.insync.replicas": 1,
-                                            "confluent.tier.enable": True
-                                        }}
-                                    })
+        self.kafka = KafkaService(test_context, num_nodes=1, zk=self.zk)
+        self.configure_tiering(self.TIER_S3_BUCKET,
+                               metadata_replication_factor=1,
+                               log_segment_bytes=self.LOG_SEGMENT_BYTES)
 
         self.num_producers = 1
         self.num_consumers = 1
@@ -76,10 +70,20 @@ class TierRoundtripTest(ProduceConsumeValidateTest):
             self.kafka.started[idx-1] = False
             self.kafka.start_jmx_tool(idx, knode)
 
-    def test_tier_roundtrip(self):
-        self.producer = VerifiableProducer(self.test_context, self.num_producers, self.kafka, self.topic, throughput=1000, message_validator=is_int)
+    @matrix(client_version=[str(DEV_BRANCH), str(LATEST_2_2), str(LATEST_2_1), str(LATEST_2_0), str(LATEST_1_1),
+                            str(LATEST_1_0), str(LATEST_0_11_0), str(LATEST_0_10_2), str(LATEST_0_10_1)])
+    def test_tier_roundtrip(self, client_version):
+        self.topic = "test-topic"
+        
+        self.kafka.topics = {self.topic: self.TOPIC_CONFIG}
+
+        self.producer = VerifiableProducer(self.test_context, self.num_producers, self.kafka,
+                                           self.topic, throughput=1000, message_validator=is_int,
+                                           version=KafkaVersion(client_version))
+
         self.consumer = ConsoleConsumer(self.test_context, self.num_consumers, self.kafka,
-             self.topic, consumer_timeout_ms=60000, message_validator=is_int)
+                                        self.topic, consumer_timeout_ms=60000, message_validator=is_int,
+                                        version=KafkaVersion(client_version))
 
         self.kafka.start()
         self.producer.start()
@@ -90,16 +94,11 @@ class TierRoundtripTest(ProduceConsumeValidateTest):
 
         self.producer.stop()
 
-        wait_until(lambda: archive_completed(self.kafka, True),
-                    timeout_sec=60, backoff_sec=2, err_msg="archive did not complete within timeout")
+        self.add_log_metrics(self.topic)
+        self.restart_jmx_tool()
 
-        # ensure hot set retention deletes segments
-        sleep(15)
-
-        # log-specific beans were not available at startup
-        self.kafka.jmx_object_names += ["kafka.log:name=Size,partition=0,topic={},type=Log".format(self.topic),
-                                        "kafka.log:name=NumLogSegments,partition=0,topic={},type=Log".format(self.topic)]
-        restart_jmx_tool(self.kafka)
+        wait_until(lambda: self.tiering_completed(self.topic),
+                   timeout_sec=60, backoff_sec=2, err_msg="archive did not complete within timeout")
 
         self.consumer.start()
         self.consumer.wait()
@@ -107,7 +106,6 @@ class TierRoundtripTest(ProduceConsumeValidateTest):
 
         self.kafka.read_jmx_output_all_nodes()
         tier_bytes_fetched = self.kafka.maximum_jmx_value["kafka.server:type=TierFetcher:BytesFetchedTotal"]
-        # N.B. for some reason the bean tag order is different in the results. Compare to concatted jmx_object_names above.
         log_size_key = "kafka.log:type=Log,name=Size,topic={},partition=0:Value".format(self.topic)
         log_segs_key = "kafka.log:type=Log,name=NumLogSegments,topic={},partition=0:Value".format(self.topic)
         log_size = self.kafka.maximum_jmx_value[log_size_key]

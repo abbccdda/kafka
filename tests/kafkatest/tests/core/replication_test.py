@@ -20,6 +20,8 @@ from ducktape.mark import parametrize
 from ducktape.mark.resource import cluster
 
 from kafkatest.tests.end_to_end import EndToEndTest
+from kafkatest.services.kafka import config_property
+from kafkatest.utils.tiered_storage import TierSupport
 
 import signal
 
@@ -78,7 +80,7 @@ failures = {
 }
 
 
-class ReplicationTest(EndToEndTest):
+class ReplicationTest(EndToEndTest, TierSupport):
     """
     Note that consuming is a bit tricky, at least with console consumer. The goal is to consume all messages
     (foreach partition) in the topic. In this case, waiting for the last message may cause the consumer to stop
@@ -98,11 +100,13 @@ class ReplicationTest(EndToEndTest):
         "replication-factor": 3,
         "configs": {"min.insync.replicas": 2}
     }
- 
+
+    TIER_S3_BUCKET = "confluent-tier-system-test"
+
     def __init__(self, test_context):
         """:type test_context: ducktape.tests.test.TestContext"""
         super(ReplicationTest, self).__init__(test_context=test_context, topic_config=self.TOPIC_CONFIG)
- 
+
     def min_cluster_size(self):
         """Override this since we're adding services outside of the constructor"""
         return super(ReplicationTest, self).min_cluster_size() + self.num_producers + self.num_consumers
@@ -114,7 +118,8 @@ class ReplicationTest(EndToEndTest):
             enable_idempotence=[True])
     @matrix(failure_mode=["clean_shutdown", "hard_shutdown", "clean_bounce", "hard_bounce"],
             broker_type=["leader"],
-            security_protocol=["PLAINTEXT", "SASL_SSL"])
+            security_protocol=["PLAINTEXT", "SASL_SSL"],
+            tiered_storage=[True, False])
     @matrix(failure_mode=["clean_shutdown", "hard_shutdown", "clean_bounce", "hard_bounce"],
             broker_type=["controller"],
             security_protocol=["PLAINTEXT", "SASL_SSL"])
@@ -128,7 +133,7 @@ class ReplicationTest(EndToEndTest):
             security_protocol=["PLAINTEXT"], broker_type=["leader"], compression_type=["gzip"])
     def test_replication_with_broker_failure(self, failure_mode, security_protocol, broker_type,
                                              client_sasl_mechanism="GSSAPI", interbroker_sasl_mechanism="GSSAPI",
-                                             compression_type=None, enable_idempotence=False):
+                                             compression_type=None, enable_idempotence=False, tiered_storage=False):
         """Replication tests.
         These tests verify that replication provides simple durability guarantees by checking that data acked by
         brokers is still available for consumption in the face of various failure scenarios.
@@ -150,6 +155,12 @@ class ReplicationTest(EndToEndTest):
                           interbroker_security_protocol=security_protocol,
                           client_sasl_mechanism=client_sasl_mechanism,
                           interbroker_sasl_mechanism=interbroker_sasl_mechanism)
+
+        if tiered_storage:
+            self.configure_tiering(self.TIER_S3_BUCKET, enable=True, log_segment_bytes=102400
+                                   # Use shorter interval to help ensure hotset retention is invoked before the consumer finishes
+                                   log_retention_check_interval=1000)
+
         self.kafka.start()
 
         compression_types = None if not compression_type else [compression_type]
@@ -157,8 +168,23 @@ class ReplicationTest(EndToEndTest):
         self.producer.start()
 
         self.create_consumer(log_level="DEBUG")
+
+        if tiered_storage:
+            self.add_log_metrics(self.topic)
+            self.restart_jmx_tool()
+            # wait for some records to archive
+            wait_until(lambda: self.tiering_started(self.topic),
+                       timeout_sec=30, backoff_sec=2, err_msg="no segments archived within timeout")
+
         self.consumer.start()
 
         self.await_startup()
         failures[failure_mode](self, broker_type)
-        self.run_validation(enable_idempotence=enable_idempotence)
+        self.run_validation(enable_idempotence=enable_idempotence, producer_timeout_sec=120,
+                            # write enough records to ensure multiple segments are created.
+                            # assuming only the 14-byte record overhead, this ensures 350 KB across 100 KB segments
+                            min_records=25000)
+        if tiered_storage:
+            self.kafka.read_jmx_output_all_nodes()
+            tier_bytes_fetched = self.kafka.maximum_jmx_value["kafka.server:type=TierFetcher:BytesFetchedTotal"]
+            assert tier_bytes_fetched > 0

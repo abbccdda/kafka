@@ -55,6 +55,14 @@ DELEGATION_TOKEN_EXPIRY_TIME_MS="delegation.token.expiry.time.ms"
 DELEGATION_TOKEN_MASTER_KEY="delegation.token.master.key"
 SASL_ENABLED_MECHANISMS="sasl.enabled.mechanisms"
 
+CONFLUENT_TIER_FEATURE = "confluent.tier.feature"
+CONFLUENT_TIER_ENABLE = "confluent.tier.enable"
+CONFLUENT_TIER_LOCAL_HOTSET_BYTES = "confluent.tier.local.hotset.bytes"
+CONFLUENT_TIER_LOCAL_HOTSET_MS = "confluent.tier.local.hotset.ms"
+CONFLUENT_TIER_METADATA_REPLICATION_FACTOR = "confluent.tier.metadata.replication.factor"
+CONFLUENT_TIER_BACKEND = "confluent.tier.backend"
+CONFLUENT_TIER_S3_BUCKET = "confluent.tier.s3.bucket"
+CONFLUENT_TIER_S3_REGION = "confluent.tier.s3.region"
 
 """
 From KafkaConfig.scala

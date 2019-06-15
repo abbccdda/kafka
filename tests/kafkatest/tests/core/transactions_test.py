@@ -19,7 +19,8 @@ from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.transactional_message_copier import TransactionalMessageCopier
 from kafkatest.services.kafka import config_property
-from kafkatest.utils.tiered_storage import tier_server_props, archive_completed, restart_jmx_tool
+from kafkatest.services.monitor.jmx import JmxMixin
+from kafkatest.utils.tiered_storage import TierSupport
 from kafkatest.utils import is_int
 
 from ducktape.tests.test import Test
@@ -29,7 +30,7 @@ from ducktape.utils.util import wait_until
 
 import time
 
-class TransactionsTest(Test):
+class TransactionsTest(Test, TierSupport):
     """Tests transactions by transactionally copying data from a source topic to
     a destination topic and killing the copy process as well as the broker
     randomly through the process. In the end we verify that the final output
@@ -227,28 +228,12 @@ class TransactionsTest(Test):
     def test_transactions(self, failure_mode, bounce_target, check_order, tier):
         security_protocol = 'PLAINTEXT'
 
-        if tier:
-            jmx_object_names=["kafka.server:type=TierFetcher", "kafka.tier.archiver:type=TierArchiver,name=TotalLag"]
-            jmx_attributes=["BytesFetchedTotal", "Value"]
-        else:
-            jmx_object_names=None
-            jmx_attributes=[]
-
-        if tier:
-            self.kafka = KafkaService(context=self.test_context,
-                                      jmx_object_names=jmx_object_names,
-                                      jmx_attributes=jmx_attributes,
-                                      server_prop_overides=tier_server_props(self.TIER_S3_BUCKET,
-                                        feature=tier, enable=False) + [
-                                        [config_property.LOG_SEGMENT_BYTES, "102400"],
-                                        [config_property.LOG_RETENTION_CHECK_INTERVAL_MS, "5000"],
-                                    ],
+        self.kafka = KafkaService(context=self.test_context,
                                   num_nodes=self.num_brokers,
                                   zk=self.zk)
-        else:
-            self.kafka = KafkaService(context=self.test_context,
-                                      num_nodes=self.num_brokers,
-                                      zk=self.zk)
+
+        if tier:
+            self.configure_tiering(self.TIER_S3_BUCKET)
 
         self.kafka.security_protocol = security_protocol
         self.kafka.interbroker_security_protocol = security_protocol
@@ -274,13 +259,11 @@ class TransactionsTest(Test):
             output_topic=self.output_topic, num_copiers=self.num_input_partitions,
             num_messages_to_copy=self.num_seed_messages)
 
-        restart_jmx_tool(self.kafka)
-
         if tier:
-            wait_until(lambda: archive_completed(self.kafka, False),
-                     timeout_sec=360, backoff_sec=2, err_msg="archive did not complete within timeout")
-            # give hotset management some additional time to delete segments
-            time.sleep(20)
+            self.add_log_metrics(self.output_topic)
+            self.restart_jmx_tool()
+            wait_until(lambda: self.tiering_completed(self.output_topic),
+                       timeout_sec=360, backoff_sec=2, err_msg="archive did not complete within timeout")
 
         output_messages = self.get_messages_from_topic(self.output_topic, self.num_seed_messages)
 
