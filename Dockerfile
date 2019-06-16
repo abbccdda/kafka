@@ -11,7 +11,7 @@ WORKDIR /home/gradle
 
 RUN mkdir -p /home/gradle/.m2/repository
 
-RUN gradle && ./gradlew clean releaseTarGz -x signArchives --stacktrace && ./gradlew install --stacktrace
+RUN gradle && ./gradlew clean releaseTarGz -x signArchives --stacktrace -PpackageMetricsReporter=true && ./gradlew install --stacktrace
 
 WORKDIR /build
 RUN tar -xzvf /home/gradle/core/build/distributions/kafka_*-SNAPSHOT.tgz --strip-components 1

@@ -131,6 +131,8 @@ ext {
 
   userTestLoggingEvents = project.hasProperty("testLoggingEvents") ? Arrays.asList(testLoggingEvents.split(",")) : null
 
+  userPackageMetricsReporter = project.hasProperty("packageMetricsReporter") ? packageMetricsReporter : null
+
   generatedDocsDir = new File("${project.rootDir}/docs/generated")
 
   commitId = project.hasProperty('commitId') ? commitId : null
@@ -963,8 +965,14 @@ project(':core') {
     from(project(':support-metrics-fullcollector').configurations.runtime) { into("libs/") }
     from(project(':streams:examples').jar) { into("libs/") }
     from(project(':streams:examples').configurations.runtime) { into("libs/") }
-    from(project(':ce-metrics').jar) { into("libs/") }
-    from(project(':ce-metrics').configurations.runtime) { into("libs/") }
+    // Do not include ce-metrics in the release by default since that is done by the
+    // `confluent-rebalancer` module currently. This approach makes it possible to
+    // install the metrics reporter jar to ccs kafka and ce kafka in the same way.
+    // We allow the behavior to be overridden for the CCloud build
+    if (userPackageMetricsReporter) {
+      from(project(':ce-metrics').jar) { into("libs/") }
+      from(project(':ce-metrics').configurations.runtime) { into("libs/") }
+    }
     from(project(':ce-kafka-client-plugins').jar) { into("libs/") }
     from(project(':ce-kafka-client-plugins').configurations.runtime) { into("libs/") }
     from(project(':ce-broker-plugins').jar) { into("libs/") }
