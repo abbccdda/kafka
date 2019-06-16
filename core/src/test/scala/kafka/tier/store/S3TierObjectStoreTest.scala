@@ -6,12 +6,17 @@ import java.util.{Optional, UUID}
 
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.model.{InitiateMultipartUploadResult, UploadPartResult}
+import com.amazonaws.services.s3.model.PutObjectRequest
 import kafka.tier.TopicIdPartition
 import kafka.tier.domain.TierObjectMetadata
 import org.junit.Assert._
 import org.junit.Test
+import org.mockito.ArgumentCaptor
 import org.mockito.ArgumentMatchers.any
+import org.mockito.Captor
 import org.mockito.Mockito.{mock, times, verify, when}
+
+import scala.collection.JavaConverters._
 
 class S3TierObjectStoreTest {
   @Test
@@ -80,10 +85,24 @@ class S3TierObjectStoreTest {
     val metadata = new TierObjectStore.ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0, false)
     val segmentData = mock(classOf[File])
 
+    @Captor
+    val captor = ArgumentCaptor.forClass(classOf[PutObjectRequest])
     when(segmentData.length).thenReturn(segmentSize)
-    objectStore.putSegment(metadata, segmentData, null, null, Optional.of(segmentData), Optional.of(ByteBuffer.allocate(0)), Optional.of(segmentData))
+    val producerIndexLength = 100
+    val producerIndexBuf = ByteBuffer.allocate(producerIndexLength)
+    producerIndexBuf.limit(producerIndexLength)
+    objectStore.putSegment(metadata, segmentData, null, null, Optional.of(segmentData), Optional.of(producerIndexBuf), Optional.of(segmentData))
     // expect 6 `put` calls: segment, offset index, time index, transaction index, producer snapshot and epoch state
-    verify(client, times(6)).putObject(any())
+    verify(client, times(6)).putObject(captor.capture())
+    assertEquals(producerIndexLength,
+      captor
+      .getAllValues
+      .asScala.map(_.asInstanceOf[PutObjectRequest])
+      .find(_.getKey.contains(".transaction-index"))
+      .get
+      .getMetadata
+      .getContentLength)
+
   }
 
   @Test

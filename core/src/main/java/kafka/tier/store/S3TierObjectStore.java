@@ -184,8 +184,9 @@ public class S3TierObjectStore implements TierObjectStore {
     }
 
     private void putBuf(String key, Map<String, String> metadata, ByteBuffer buf) {
-        final PutObjectRequest request = new PutObjectRequest(bucket, key,
-                new ByteBufferInputStream(buf), putObjectMetadata(metadata));
+        final com.amazonaws.services.s3.model.ObjectMetadata s3metadata = putObjectMetadata(metadata);
+        s3metadata.setContentLength(buf.limit() - buf.position());
+        final PutObjectRequest request = new PutObjectRequest(bucket, key, new ByteBufferInputStream(buf), s3metadata);
         log.debug("Uploading object to s3://{}/{}", bucket, key);
         client.putObject(request);
     }
