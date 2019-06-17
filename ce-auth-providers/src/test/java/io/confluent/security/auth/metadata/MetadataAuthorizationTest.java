@@ -64,12 +64,10 @@ public class MetadataAuthorizationTest {
     authorizer = new EmbeddedAuthorizer();
     Map<String, Object> props = new HashMap<>();
     props.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "MOCK_RBAC");
-    props.put(ConfluentAuthorizerConfig.GROUP_PROVIDER_PROP, "MOCK_RBAC");
-    props.put(ConfluentAuthorizerConfig.METADATA_PROVIDER_PROP, "MOCK_RBAC");
     props.put(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP, "http://127.0.0.1:8090");
     authorizer.onUpdate(new ClusterResource("clusterA"));
     authorizer.configure(props);
-    authorizer.start(Collections.emptyMap()).get();
+    authorizer.start(props).get();
     RbacProvider rbacProvider = (RbacProvider) authorizer.accessRuleProvider("MOCK_RBAC");
     this.authCache = (DefaultAuthCache) rbacProvider.authStore().authCache();
     RbacTestUtils.updateRoleBinding(authCache, admin, "SystemAdmin", clusterA, Collections.emptySet());

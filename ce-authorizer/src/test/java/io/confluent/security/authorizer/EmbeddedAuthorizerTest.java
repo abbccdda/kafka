@@ -273,7 +273,7 @@ public class EmbeddedAuthorizerTest {
   private void configureAuthorizer(String accessRuleProvider, String groupProvider) {
     Map<String, Object> props = new HashMap<>();
     props.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, accessRuleProvider);
-    props.put(ConfluentAuthorizerConfig.GROUP_PROVIDER_PROP, groupProvider);
+    props.put(TestGroupProvider.TEST_PROVIDER_PROP, groupProvider);
     authorizer.configure(props);
   }
 

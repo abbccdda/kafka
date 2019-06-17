@@ -2,6 +2,7 @@
 
 package io.confluent.security.authorizer.provider;
 
+import java.util.Map;
 import java.util.Set;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 
@@ -17,4 +18,8 @@ public interface GroupProvider extends Provider {
    */
   Set<KafkaPrincipal> groups(KafkaPrincipal sessionPrincipal);
 
+  /**
+   * Returns true if minimal configs of this provider are included in the provided configs.
+   */
+  boolean providerConfigured(Map<String, ?> configs);
 }

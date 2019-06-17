@@ -6,10 +6,8 @@ import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
 
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders;
-import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.MetadataProviders;
 import io.confluent.security.authorizer.provider.GroupProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
-import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.GroupProviders;
 import io.confluent.security.authorizer.provider.MetadataProvider;
 import io.confluent.security.authorizer.provider.Provider;
 import java.io.FileOutputStream;
@@ -41,25 +39,11 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
 
   private static final ConfigDef CONFIG;
 
-  public static final String GROUP_PROVIDER_PROP = "confluent.authorizer.group.provider";
-  private static final String GROUP_PROVIDER_DEFAULT = GroupProviders.NONE.name();
-  private static final String GROUP_PROVIDER_DOC = "Group provider for the authorizer to map users to groups. "
-      + " Supported providers are " + ConfluentBuiltInProviders.builtInGroupProviders()
-      + ". Group-based authorization is disabled by default.";
-
   public static final String ACCESS_RULE_PROVIDERS_PROP = "confluent.authorizer.access.rule.providers";
   private static final String ACCESS_RULE_PROVIDERS_DEFAULT = AccessRuleProviders.ACL.name();
   private static final String ACCESS_RULE_PROVIDERS_DOC = "List of access rule providers enabled. "
       + " Access rule providers supported are " + ConfluentBuiltInProviders.builtInAccessRuleProviders()
       + ". ACL-based provider is enabled by default.";
-
-  public static final String METADATA_PROVIDER_PROP = "confluent.authorizer.metadata.provider";
-  private static final String METADATA_PROVIDER_DEFAULT = MetadataProviders.NONE.name();
-  private static final String METATDATA_PROVIDER_DOC = "Metadata provider that provides authentication "
-      + " and authorization metadata for other components using a metadata server embedded in the broker."
-      + " Supported providers are " + ConfluentBuiltInProviders.builtInMetadataProviders()
-      + ". Metadata servers are disabled by default. Note that the metadata server started by this provider"
-      + " enables authorization in other components, but is not used for authorization within this broker.";
 
   public static final String INIT_TIMEOUT_PROP = "confluent.authorizer.init.timeout.ms";
   private static final int INIT_TIMEOUT_DEFAULT = 600000;
@@ -93,10 +77,6 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
             Importance.MEDIUM, SUPER_USERS_DOC)
         .define(ACCESS_RULE_PROVIDERS_PROP, Type.LIST, ACCESS_RULE_PROVIDERS_DEFAULT,
             Importance.MEDIUM, ACCESS_RULE_PROVIDERS_DOC)
-        .define(GROUP_PROVIDER_PROP, Type.STRING, GROUP_PROVIDER_DEFAULT,
-            Importance.MEDIUM, GROUP_PROVIDER_DOC)
-        .define(METADATA_PROVIDER_PROP, Type.STRING, METADATA_PROVIDER_DEFAULT,
-            Importance.MEDIUM, METATDATA_PROVIDER_DOC)
         .define(LICENSE_PROP, Type.STRING, LICENSE_DEFAULT,
             Importance.HIGH, LICENSE_DOC)
         .define(INIT_TIMEOUT_PROP, Type.INT, INIT_TIMEOUT_DEFAULT,
@@ -144,20 +124,12 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
         ConfluentBuiltInProviders.loadAccessRuleProviders(authProviderNames);
     Set<Provider> providers = new HashSet<>(accessRuleProviders);
 
-    String groupFeature = getString(GROUP_PROVIDER_PROP);
-    String groupProviderName = groupFeature == null || groupFeature.isEmpty()
-        ? GroupProviders.NONE.name() : groupFeature;
     GroupProvider groupProvider = createProvider(GroupProvider.class,
-        groupProviderName,
         ConfluentBuiltInProviders::loadGroupProvider,
         providers);
     providers.add(groupProvider);
 
-    String metadataFeature = getString(METADATA_PROVIDER_PROP);
-    String metadataProviderName = metadataFeature == null || metadataFeature.isEmpty()
-        ? MetadataProviders.NONE.name() : metadataFeature;
     MetadataProvider metadataProvider = createProvider(MetadataProvider.class,
-        metadataProviderName,
         ConfluentBuiltInProviders::loadMetadataProvider,
         providers);
     providers.add(metadataProvider);
@@ -177,14 +149,15 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
 
   @SuppressWarnings("unchecked")
   private <T extends Provider> T createProvider(Class<T> providerClass,
-                                                String providerName,
-                                                Function<String, T> creator,
-                                                Collection<? extends Provider> otherProviders) {
+      Function<Map<String, ?>, T> creator,
+      Collection<? extends Provider> otherProviders) {
+    Set<String> otherProviderNames = otherProviders.stream().map(Provider::providerName)
+        .collect(Collectors.toSet());
     for (Provider provider : otherProviders) {
-      if (provider.providerName().equals(providerName) && providerClass.isInstance(provider))
+      if (otherProviderNames.contains(provider.providerName()) && providerClass.isInstance(provider))
         return (T) provider;
     }
-    return creator.apply(providerName);
+    return creator.apply(originals());
   }
 
   @Override

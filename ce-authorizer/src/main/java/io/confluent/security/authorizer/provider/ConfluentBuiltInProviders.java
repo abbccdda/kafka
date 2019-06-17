@@ -2,6 +2,8 @@
 
 package io.confluent.security.authorizer.provider;
 
+import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -38,16 +40,6 @@ public class ConfluentBuiltInProviders {
         .map(AccessRuleProviders::name).collect(Collectors.toSet());
   }
 
-  public static Set<String> builtInGroupProviders() {
-    return Utils.mkSet(GroupProviders.values()).stream()
-        .map(GroupProviders::name).collect(Collectors.toSet());
-  }
-
-  public static Set<String> builtInMetadataProviders() {
-    return Utils.mkSet(MetadataProviders.values()).stream()
-        .map(MetadataProviders::name).collect(Collectors.toSet());
-  }
-
   public static List<AccessRuleProvider> loadAccessRuleProviders(List<String> names) {
     Map<String, AccessRuleProvider> authProviders = new HashMap<>(names.size());
     ServiceLoader<AccessRuleProvider> providers = ServiceLoader.load(AccessRuleProvider.class);
@@ -66,38 +58,48 @@ public class ConfluentBuiltInProviders {
     return names.stream().map(authProviders::get).collect(Collectors.toList());
   }
 
-  public static GroupProvider loadGroupProvider(String name) {
-    if (name.equals(GroupProviders.NONE.name()))
-      return new EmptyGroupProvider();
-
-    GroupProvider groupProvider = null;
+  public static GroupProvider loadGroupProvider(Map<String, ?> configs) {
     ServiceLoader<GroupProvider> providers = ServiceLoader.load(GroupProvider.class);
     for (GroupProvider provider : providers) {
-      if (provider.providerName().equals(name)) {
-        groupProvider = provider;
-        break;
+      if (providerEnabled(provider, configs) && provider.providerConfigured(configs)) {
+        return provider;
       }
     }
-    if (groupProvider == null)
-      throw new ConfigException("Group provider not found for " + name);
-    return groupProvider;
+    return new EmptyGroupProvider();
   }
 
-  public static MetadataProvider loadMetadataProvider(String name) {
-    if (name.equals(MetadataProviders.NONE.name()))
-      return new EmptyMetadataProvider();
-
-    MetadataProvider metadataProvider = null;
+  public static MetadataProvider loadMetadataProvider(Map<String, ?> configs) {
     ServiceLoader<MetadataProvider> providers = ServiceLoader.load(MetadataProvider.class);
     for (MetadataProvider provider : providers) {
-      if (provider.providerName().equals(name)) {
-        metadataProvider = provider;
-        break;
+      if (providerEnabled(provider, configs) && provider.providerConfigured(configs)) {
+        return provider;
       }
     }
-    if (metadataProvider == null)
-      throw new ConfigException("Metadata provider not found for " + name);
-    return metadataProvider;
+    return new EmptyMetadataProvider();
+  }
+
+  /**
+   * Provider selection without using explicit provider configs for metadata providers.
+   *   - Only LdapAuthorizer uses the LDAP group provider. RBAC uses groups from metadata topic
+   *     populated from LDAP by RbacProvider
+   *   - For other providers, only load providers with the same name as access rule providers
+   *     e.g. load RBAC metadata/group provider if RBAC is enabled for access rules
+   *   - If this method returns true, caller also checks if the provider has been configured.
+   *     e.g. Metadata server is created only if listener is configured
+   */
+  private static boolean providerEnabled(Provider provider, Map<String, ?> configs) {
+    String providerName = provider.providerName();
+    Object accessRuleProviders = configs.get(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP);
+    if (provider.providerName().equals("LDAP"))
+      return String.valueOf(configs.get("authorizer.class.name")).endsWith(".LdapAuthorizer");
+    else if (accessRuleProviders == null)
+      return false;
+    else if (accessRuleProviders instanceof String)
+      return Arrays.stream(((String) accessRuleProviders).split(",")).anyMatch(providerName::equals);
+    else if (accessRuleProviders instanceof List)
+      return ((List<?>) accessRuleProviders).stream().anyMatch(providerName::equals);
+    else
+      return false;
   }
 
   private static class EmptyGroupProvider implements GroupProvider {
@@ -127,6 +129,11 @@ public class ConfluentBuiltInProviders {
     }
 
     @Override
+    public boolean providerConfigured(Map<String, ?> configs) {
+      return true;
+    }
+
+    @Override
     public void close() {
     }
   }
@@ -150,6 +157,11 @@ public class ConfluentBuiltInProviders {
     @Override
     public boolean needsLicense() {
       return false;
+    }
+
+    @Override
+    public boolean providerConfigured(Map<String, ?> configs) {
+      return true;
     }
 
     @Override

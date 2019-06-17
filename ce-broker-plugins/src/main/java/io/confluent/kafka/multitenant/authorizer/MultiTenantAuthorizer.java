@@ -6,7 +6,6 @@ import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
-import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.GroupProviders;
 import java.util.HashMap;
 import java.util.Map;
 import kafka.security.auth.Acl;
@@ -33,8 +32,6 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
 
     authorizerConfigs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP,
         AccessRuleProviders.MULTI_TENANT.name());
-    authorizerConfigs.put(ConfluentAuthorizerConfig.GROUP_PROVIDER_PROP,
-        GroupProviders.NONE.name());
     super.configure(authorizerConfigs);
   }
 

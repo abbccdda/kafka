@@ -84,7 +84,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
       throw new IllegalStateException("Kafka cluster id not known");
 
     authStoreScope = Objects.requireNonNull(authScope, "authScope");
-    if (providerName().equals(configs.get(ConfluentAuthorizerConfig.METADATA_PROVIDER_PROP))) {
+    if (configs.containsKey(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP)) {
       MetadataServiceConfig metadataServiceConfig = new MetadataServiceConfig(configs);
       metadataServer = createMetadataServer(metadataServiceConfig);
       metadataServerUrls = metadataServiceConfig.metadataServerUrls;
@@ -111,6 +111,17 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   }
 
   /**
+   * Brokers running RBAC should be either:
+   *   - in the metadata cluster, running MDS. These should have metadata server listeners configured.
+   *   - in another cluster. These should have metadata bootstrap servers configured.
+   */
+  @Override
+  public boolean providerConfigured(Map<String, ?> configs) {
+    return configs.containsKey(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP) ||
+        configs.containsKey(KafkaStoreConfig.BOOTSTRAP_SERVERS_PROP);
+  }
+
+  /**
    * Starts the RBAC provider.
    * <p>
    * On brokers running metadata service, the start up sequence is:
@@ -131,7 +142,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
    */
   @Override
   public CompletionStage<Void> start(Map<String, ?> interBrokerListenerConfigs) {
-    if (!usesMetadataFromThisKafkaCluster() && !configs.containsKey(KafkaStoreConfig.BOOTSTRAP_SERVERS_PROP)) {
+    if (!providerConfigured(interBrokerListenerConfigs)) {
       throw new ConfigException("Metadata bootstrap servers not specified for broker which does not host metadata service");
     }
 

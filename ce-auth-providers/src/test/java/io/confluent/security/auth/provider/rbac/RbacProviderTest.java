@@ -14,7 +14,6 @@ import io.confluent.security.auth.store.data.RoleBindingValue;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
-import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.EmbeddedAuthorizer;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.ResourcePattern;
@@ -98,7 +97,6 @@ public class RbacProviderTest {
     Scope otherCluster = Scope.kafkaClusterScope("anotherCluster");
     Map<String, Object> configs = new HashMap<>();
     configs.put("super.users", admin.toString());
-    configs.put(ConfluentAuthorizerConfig.METADATA_PROVIDER_PROP, "RBAC");
     configs.put(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP, "http://127.0.0.1:8090");
     initializeRbacProvider("metadataCluster", Scope.ROOT_SCOPE, configs);
     EmbeddedAuthorizer authorizer = rbacProvider.createRbacAuthorizer();

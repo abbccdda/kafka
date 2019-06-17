@@ -11,6 +11,7 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal;
 
 public class TestGroupProvider implements GroupProvider {
 
+  static final String TEST_PROVIDER_PROP = "test.group.provider.config";
   static RuntimeException exception;
   static Map<KafkaPrincipal, Set<KafkaPrincipal>> groups = new HashMap<>();
 
@@ -33,6 +34,11 @@ public class TestGroupProvider implements GroupProvider {
   @Override
   public String providerName() {
     return "TEST";
+  }
+
+  @Override
+  public boolean providerConfigured(Map<String, ?> configs) {
+    return "TEST".equals(configs.get(TEST_PROVIDER_PROP));
   }
 
   @Override

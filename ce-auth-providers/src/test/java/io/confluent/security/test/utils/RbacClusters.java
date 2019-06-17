@@ -290,7 +290,6 @@ public class RbacClusters {
         ConfluentServerAuthorizer.class.getName());
     serverConfig.setProperty("super.users", "User:" + config.brokerUser);
     serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL,RBAC");
-    serverConfig.setProperty(ConfluentAuthorizerConfig.GROUP_PROVIDER_PROP, "RBAC");
 
     if (config.enableTokenLogin) {
       attachTokenListener(serverConfig, config.publicKey);
@@ -309,9 +308,8 @@ public class RbacClusters {
     }
     serverConfig.setProperty(KafkaConfig$.MODULE$.AuthorizerClassNameProp(),
         ConfluentServerAuthorizer.class.getName());
-    serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL");
+    serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL,RBAC");
     serverConfig.setProperty("super.users", "User:" + config.brokerUser);
-    serverConfig.setProperty(ConfluentAuthorizerConfig.METADATA_PROVIDER_PROP, "RBAC");
     int metadataPort = 8000 + index;
     serverConfig.setProperty(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP,
         "http://0.0.0.0:" + metadataPort);

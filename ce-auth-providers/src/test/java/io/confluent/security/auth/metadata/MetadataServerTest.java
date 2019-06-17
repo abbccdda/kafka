@@ -3,6 +3,7 @@
 package io.confluent.security.auth.metadata;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
@@ -52,14 +53,15 @@ public class MetadataServerTest {
   @Test
   public void testMetadataServer() throws Exception {
     createEmbeddedAuthorizer(Collections.emptyMap());
+    waitForMetadataServer();
     verifyMetadataServer(Scope.ROOT_SCOPE, null);
   }
 
   @Test
-  public void testMetadataServerOnBrokerWithoutRbacAccessControl() throws Exception {
+  public void testNoRbacProviderOnBrokerWithoutRbacAccessControl() throws Exception {
     createEmbeddedAuthorizer(Collections.singletonMap(
         ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "SUPER_USERS"));
-    verifyMetadataServer(Scope.ROOT_SCOPE, Scope.intermediateScope("otherOrg"));
+    assertFalse(authorizer.metadataProvider() instanceof RbacProvider);
   }
 
   private void verifyMetadataServer(Scope cacheScope, Scope invalidScope) {
@@ -108,6 +110,7 @@ public class MetadataServerTest {
     configs.put("confluent.metadata.server.listeners", "http://0.0.0.0:8090");
     configs.put("confluent.metadata.server.advertised.listeners", "http://localhost:8090");
     createEmbeddedAuthorizer(configs);
+    waitForMetadataServer();
     assertEquals("some.value", metadataServer.configs.get("custom.config"));
     assertEquals("trust.jks", metadataServer.configs.get("ssl.truststore.location"));
     assertNull(metadataServer.configs.get("ssl.keystore.location"));
@@ -119,14 +122,16 @@ public class MetadataServerTest {
     authorizer = new EmbeddedAuthorizer();
     Map<String, Object> configs = new HashMap<>();
     configs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "MOCK_RBAC");
-    configs.put(ConfluentAuthorizerConfig.METADATA_PROVIDER_PROP, "MOCK_RBAC");
     configs.put(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP, "http://localhost:8090");
     configs.put("listeners", "PLAINTEXT://localhost:9092");
     configs.put("super.users", "User:admin;Group:adminGroup");
     configs.putAll(configOverrides);
     authorizer.onUpdate(new ClusterResource("clusterA"));
     authorizer.configure(configs);
-    authorizer.start(Collections.emptyMap()).get();
+    authorizer.start(configs).get();
+  }
+
+  private void waitForMetadataServer() throws Exception {
     try {
       TestUtils.waitForCondition(() -> metadataServer(authorizer) != null,
           "Metadata server not created");

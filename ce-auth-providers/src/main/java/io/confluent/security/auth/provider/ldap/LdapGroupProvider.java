@@ -38,6 +38,11 @@ public class LdapGroupProvider implements GroupProvider {
   }
 
   @Override
+  public boolean providerConfigured(Map<String, ?> configs) {
+    return LdapConfig.ldapEnabled(configs);
+  }
+
+  @Override
   public Set<KafkaPrincipal> groups(KafkaPrincipal sessionPrincipal) {
     if (groupManager == null)
       return Collections.emptySet();
