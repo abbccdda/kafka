@@ -20,39 +20,34 @@ import kafka.tier.state.TierPartitionState
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
 import kafka.tier.TopicIdPartition
+import kafka.tier.archiver.ArchiveTask.SegmentDeletedException
 import kafka.utils.TestUtils
 import org.apache.kafka.common.record.FileRecords
 import org.apache.kafka.common.utils.{MockTime, Time}
-import org.junit.{After, Before, Test}
-import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
+import org.junit.{After, Test}
+import org.junit.Assert.{assertEquals, assertFalse, assertThrows, assertTrue}
+import org.junit.function.ThrowingRunnable
 import org.mockito.ArgumentMatchers
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.{doNothing, mock, reset, times, verify, when}
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.collection.JavaConverters._
-import scala.concurrent.Await
+import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
 
 class ArchiveTaskTest {
   val topicIdPartition = new TopicIdPartition("foo", UUID.fromString("cbf4eaed-cc00-47dc-b08c-f1f5685f085d"), 0)
-  var ctx: CancellationContext = _
-  var tierTopicManager: TierTopicManager = _
-  var tierObjectStore: TierObjectStore = _
-  var replicaManager: ReplicaManager = _
-  var time: Time = _
-
-  @Before
-  def setup(): Unit = {
-    ctx = CancellationContext.newContext()
-    tierTopicManager = mock(classOf[TierTopicManager])
-    tierObjectStore = mock(classOf[TierObjectStore])
-    replicaManager = mock(classOf[ReplicaManager])
-    time = new MockTime()
-  }
+  var ctx: CancellationContext = CancellationContext.newContext()
+  var tierTopicManager: TierTopicManager = mock(classOf[TierTopicManager])
+  var tierObjectStore: TierObjectStore = mock(classOf[TierObjectStore])
+  var replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
+  var time: Time = new MockTime()
+  val tmpFile = TestUtils.tempFile()
 
   @After
   def tearDown(): Unit = {
+    tmpFile.delete()
     ctx.cancel()
     reset(tierTopicManager, tierObjectStore, replicaManager)
   }
@@ -106,6 +101,38 @@ class ArchiveTaskTest {
   }
 
   @Test
+  def testSegmentDeletedDuringInitiateUpload(): Unit = {
+    val nextState = testExceptionHandlingDuringInitiateUpload(new IllegalStateException("offset not local"), deleteSegment = true)
+    assertThrows(classOf[SegmentDeletedException], new ThrowingRunnable {
+      override def run(): Unit = Await.result(nextState, 1 second)
+    })
+  }
+
+  @Test
+  def testUnknownExceptionDuringInitiateUpload(): Unit = {
+    val nextState = testExceptionHandlingDuringInitiateUpload(new IllegalStateException("illegal state"), deleteSegment = false)
+    assertThrows(classOf[IllegalStateException], new ThrowingRunnable {
+      override def run(): Unit = Await.result(nextState, 1 second)
+    })
+  }
+
+  @Test
+  def testSegmentDeletedDuringUpload(): Unit = {
+    val nextState = testExceptionHandlingDuringUpload(new IllegalStateException("segment deleted"), deleteSegment = true)
+    assertThrows(classOf[SegmentDeletedException], new ThrowingRunnable {
+      override def run(): Unit = Await.result(nextState, 1 second)
+    })
+  }
+
+  @Test
+  def testUnknownExceptionDuringUpload(): Unit = {
+    val nextState = testExceptionHandlingDuringUpload(new IllegalStateException("illegal state"), deleteSegment = false)
+    assertThrows(classOf[IllegalStateException], new ThrowingRunnable {
+      override def run(): Unit = Await.result(nextState, 1 second)
+    })
+  }
+
+  @Test
   def testTierSegmentNoSegments(): Unit = {
     val leaderEpoch = 0
 
@@ -136,70 +163,8 @@ class ArchiveTaskTest {
       result.isInstanceOf[BeforeUpload])
   }
 
-  /**
-    * Creates a mock log segment backed by a tmpFile with 9 records
-    */
-  private def mockLogSegment(tmpFile: File): LogSegment = {
-
-    val offsetIndex = mock(classOf[OffsetIndex])
-    when(offsetIndex.file).thenReturn(tmpFile)
-
-    val timeIndex = mock(classOf[TimeIndex])
-    when(timeIndex.file).thenReturn(tmpFile)
-
-    val fileRecords = mock(classOf[FileRecords])
-    when(fileRecords.file()).thenReturn(tmpFile)
-
-    val logSegment = mock(classOf[LogSegment])
-    when(logSegment.readNextOffset).thenReturn(10)
-    when(logSegment.baseOffset).thenReturn(0)
-    when(logSegment.largestTimestamp).thenReturn(0)
-    when(logSegment.size).thenReturn(1000)
-    when(logSegment.log).thenReturn(fileRecords)
-    when(logSegment.offsetIndex).thenReturn(offsetIndex)
-    when(logSegment.timeIndex).thenReturn(timeIndex)
-
-    logSegment
-  }
-
-  private def mockTierPartitionState(leaderEpoch: Int): TierPartitionState = {
-    when(mock(classOf[TierPartitionState]).tierEpoch())
-      .thenReturn(leaderEpoch)
-      .getMock[TierPartitionState]()
-  }
-
-  private def mockAbstractLog(logSegment: LogSegment): AbstractLog = {
-    val log = mock(classOf[AbstractLog])
-    when(log.tierableLogSegments).thenReturn(Seq(logSegment))
-    log
-  }
-
-  private def tierSegment(log: AbstractLog, leaderEpoch: Int): TierObjectMetadata = {
-    val beforeUploadResult = ArchiveTask.maybeInitiateUpload(
-      BeforeUpload(leaderEpoch),
-      topicIdPartition,
-      time,
-      tierTopicManager,
-      tierObjectStore,
-      replicaManager)
-    val upload = Await.result(beforeUploadResult, 1 second).asInstanceOf[Upload]
-
-    val uploadResult = ArchiveTask.upload(upload, topicIdPartition, time, tierObjectStore)
-    val afterUpload = Await.result(uploadResult, 1 second)
-
-    val afterUploadResult = ArchiveTask.finalizeUpload(afterUpload, topicIdPartition, time, tierTopicManager, None)
-    Await.result(afterUploadResult, 1 second)
-
-    val uploadInitiate = upload.uploadInitiate
-    new TierObjectMetadata(uploadInitiate.topicIdPartition, uploadInitiate.tierEpoch, uploadInitiate.objectId,
-      uploadInitiate.baseOffset, uploadInitiate.endOffset, uploadInitiate.maxTimestamp, uploadInitiate.size,
-      TierObjectMetadata.State.SEGMENT_UPLOAD_COMPLETE, uploadInitiate.hasEpochState, uploadInitiate.hasAbortedTxns,
-      uploadInitiate.hasProducerState)
-  }
-
   @Test
   def testTierSegmentWithoutLeaderEpochState(): Unit = {
-    val tmpFile = TestUtils.tempFile()
     val leaderEpoch = 0
     val tierPartitionState = mockTierPartitionState(leaderEpoch)
     when(tierTopicManager.partitionState(topicIdPartition)).thenReturn(tierPartitionState)
@@ -226,7 +191,6 @@ class ArchiveTaskTest {
 
   @Test
   def testTierSegmentWithLeaderEpochState(): Unit = {
-    val tmpFile = TestUtils.tempFile()
     val leaderEpoch = 0
     val tierPartitionState = mockTierPartitionState(leaderEpoch)
     when(tierTopicManager.partitionState(topicIdPartition)).thenReturn(tierPartitionState)
@@ -295,5 +259,156 @@ class ArchiveTaskTest {
     ctx.cancel()
     val result = Await.result(task.transition(time, tierTopicManager, tierObjectStore, replicaManager), 1 second)
     assertTrue("expected task to remain in BeforeLeader", result.state.isInstanceOf[BeforeLeader])
+  }
+
+  @Test
+  def testHandleSegmentDeletedException(): Unit = {
+    val exception = new SegmentDeletedException("segment deleted", new Exception())
+    val beforeLeader = BeforeLeader(0)
+    val beforeUpload = BeforeUpload(0)
+    val upload = Upload(0, mock(classOf[TierSegmentUploadInitiate]), mock(classOf[UploadableSegment]))
+    val afterUpload = AfterUpload(0, mock(classOf[TierSegmentUploadInitiate]))
+
+    assertThrows(exception.getClass, new ThrowingRunnable {
+      override def run(): Unit = beforeLeader.handleSegmentDeletedException(exception)
+    })
+
+    assertEquals(classOf[BeforeUpload], beforeUpload.handleSegmentDeletedException(exception).getClass)
+    assertEquals(classOf[BeforeUpload], upload.handleSegmentDeletedException(exception).getClass)
+
+    assertThrows(exception.getClass, new ThrowingRunnable {
+      override def run(): Unit = afterUpload.handleSegmentDeletedException(exception)
+    })
+  }
+
+  @Test
+  def testHandlingForSegmentDeletedExceptionDuringTransition(): Unit = {
+    val beforeUpload = mock(classOf[BeforeUpload])
+    val task = new ArchiveTask(ctx, topicIdPartition, beforeUpload)
+    val exception = new SegmentDeletedException("segment deleted", new Exception)
+
+    when(tierTopicManager.partitionState(topicIdPartition)).thenThrow(exception)
+    Await.result(task.transition(time, tierTopicManager, tierObjectStore, replicaManager), 1 second)
+
+    verify(beforeUpload, times(1)).handleSegmentDeletedException(exception)
+  }
+
+  private def testExceptionHandlingDuringInitiateUpload(e: Exception, deleteSegment: Boolean): Future[ArchiveTaskState] = {
+    val leaderEpoch = 0
+    val tierPartitionState = mock(classOf[TierPartitionState])
+    val logSegment = mockLogSegment(tmpFile)
+    val log = mockAbstractLog(logSegment)
+    val mockProducerStateManager = mock(classOf[ProducerStateManager])
+
+    when(tierTopicManager.partitionState(topicIdPartition)).thenReturn(tierPartitionState)
+    when(tierPartitionState.tierEpoch).thenReturn(leaderEpoch)
+    when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
+    when(log.tierableLogSegments).thenReturn(Seq(logSegment))
+    when(log.collectAbortedTransactions(any(), any())).thenThrow(e)
+    when(log.leaderEpochCache).thenReturn(None)
+    when(log.producerStateManager).thenReturn(mockProducerStateManager)
+    when(mockProducerStateManager.snapshotFileForOffset(any())).thenReturn(None)
+
+    if (deleteSegment)
+      when(log.localLogSegments(logSegment.baseOffset, logSegment.baseOffset + 1)).thenReturn(Iterable.empty)
+    else
+      when(log.localLogSegments(logSegment.baseOffset, logSegment.baseOffset + 1)).thenReturn(Seq(logSegment))
+
+    ArchiveTask.maybeInitiateUpload(
+      BeforeUpload(leaderEpoch),
+      topicIdPartition,
+      time,
+      tierTopicManager,
+      tierObjectStore,
+      replicaManager)
+  }
+
+  private def testExceptionHandlingDuringUpload(e: Exception, deleteSegment: Boolean): Future[ArchiveTaskState] = {
+    val leaderEpoch = 0
+    val logSegment = mockLogSegment(tmpFile)
+    val log = mockAbstractLog(logSegment)
+
+    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition,
+      leaderEpoch,
+      UUID.randomUUID,
+      logSegment.baseOffset,
+      logSegment.readNextOffset - 1,
+      logSegment.maxTimestampSoFar,
+      logSegment.size,
+      false,
+      false,
+      false)
+
+    val uploadableSegment = UploadableSegment(log, logSegment, None, None, None)
+    val upload = Upload(leaderEpoch, uploadInitiate, uploadableSegment)
+
+    when(tierObjectStore.putSegment(any(), any(), any(), any(), any(), any(), any())).thenThrow(e)
+    if (deleteSegment)
+      when(log.localLogSegments(logSegment.baseOffset, logSegment.baseOffset + 1)).thenReturn(Iterable.empty)
+    else
+      when(log.localLogSegments(logSegment.baseOffset, logSegment.baseOffset + 1)).thenReturn(Seq(logSegment))
+
+    ArchiveTask.upload(upload, topicIdPartition, time, tierObjectStore)
+  }
+
+  /**
+    * Creates a mock log segment backed by a tmpFile with 9 records
+    */
+  private def mockLogSegment(tmpFile: File): LogSegment = {
+
+    val offsetIndex = mock(classOf[OffsetIndex])
+    when(offsetIndex.file).thenReturn(tmpFile)
+
+    val timeIndex = mock(classOf[TimeIndex])
+    when(timeIndex.file).thenReturn(tmpFile)
+
+    val fileRecords = mock(classOf[FileRecords])
+    when(fileRecords.file()).thenReturn(tmpFile)
+
+    val logSegment = mock(classOf[LogSegment])
+    when(logSegment.readNextOffset).thenReturn(10)
+    when(logSegment.baseOffset).thenReturn(0)
+    when(logSegment.largestTimestamp).thenReturn(0)
+    when(logSegment.size).thenReturn(1000)
+    when(logSegment.log).thenReturn(fileRecords)
+    when(logSegment.offsetIndex).thenReturn(offsetIndex)
+    when(logSegment.timeIndex).thenReturn(timeIndex)
+
+    logSegment
+  }
+
+  private def mockTierPartitionState(leaderEpoch: Int): TierPartitionState = {
+    when(mock(classOf[TierPartitionState]).tierEpoch())
+      .thenReturn(leaderEpoch)
+      .getMock[TierPartitionState]()
+  }
+
+  private def mockAbstractLog(logSegment: LogSegment): AbstractLog = {
+    val log = mock(classOf[AbstractLog])
+    when(log.tierableLogSegments).thenReturn(Seq(logSegment))
+    log
+  }
+
+  private def tierSegment(log: AbstractLog, leaderEpoch: Int): TierObjectMetadata = {
+    val beforeUploadResult = ArchiveTask.maybeInitiateUpload(
+      BeforeUpload(leaderEpoch),
+      topicIdPartition,
+      time,
+      tierTopicManager,
+      tierObjectStore,
+      replicaManager)
+    val upload = Await.result(beforeUploadResult, 1 second).asInstanceOf[Upload]
+
+    val uploadResult = ArchiveTask.upload(upload, topicIdPartition, time, tierObjectStore)
+    val afterUpload = Await.result(uploadResult, 1 second)
+
+    val afterUploadResult = ArchiveTask.finalizeUpload(afterUpload, topicIdPartition, time, tierTopicManager, None)
+    Await.result(afterUploadResult, 1 second)
+
+    val uploadInitiate = upload.uploadInitiate
+    new TierObjectMetadata(uploadInitiate.topicIdPartition, uploadInitiate.tierEpoch, uploadInitiate.objectId,
+      uploadInitiate.baseOffset, uploadInitiate.endOffset, uploadInitiate.maxTimestamp, uploadInitiate.size,
+      TierObjectMetadata.State.SEGMENT_UPLOAD_COMPLETE, uploadInitiate.hasEpochState, uploadInitiate.hasAbortedTxns,
+      uploadInitiate.hasProducerState)
   }
 }
