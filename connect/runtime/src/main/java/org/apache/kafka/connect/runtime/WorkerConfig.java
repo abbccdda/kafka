@@ -47,6 +47,8 @@ import static org.apache.kafka.common.config.ConfigDef.ValidString.in;
 public class WorkerConfig extends AbstractConfig {
     private static final Logger log = LoggerFactory.getLogger(WorkerConfig.class);
 
+    private static final String CONFLUENT_PREFIX = "confluent.";
+
     private static final Pattern COMMA_WITH_WHITESPACE = Pattern.compile("\\s*,\\s*");
 
     public static final String BOOTSTRAP_SERVERS_CONFIG = "bootstrap.servers";
@@ -233,6 +235,13 @@ public class WorkerConfig extends AbstractConfig {
             + "This is an internal feature and subject to change, "
             + "including changes to the Jetty version";
 
+    public static final String CONNECTOR_TASK_STATUS_METRICS_CONFIG =
+        CONFLUENT_PREFIX + "connector.task.status.metrics";
+    public static final String CONNECTOR_TASK_STATUS_METRICS_DOC =
+        "Indicates whether or not to include task status Metrics on the Connector, to gate the "
+            + "feature .";
+    public static final String CONNECTOR_TASK_STATUS_METRICS_DEFAULT = "false";
+
     /**
      * Get a basic ConfigDef for a WorkerConfig. This includes all the common settings. Subclasses can use this to
      * bootstrap their own ConfigDef.
@@ -308,8 +317,14 @@ public class WorkerConfig extends AbstractConfig {
                         Importance.LOW, REST_EXTENSION_CLASSES_DOC)
                 .define(CONNECTOR_CLIENT_POLICY_CLASS_CONFIG, Type.STRING, CONNECTOR_CLIENT_POLICY_CLASS_DEFAULT,
                         Importance.MEDIUM, CONNECTOR_CLIENT_POLICY_CLASS_DOC)
+                .defineInternal(CONNECTOR_TASK_STATUS_METRICS_CONFIG, Type.BOOLEAN,
+                    CONNECTOR_TASK_STATUS_METRICS_DEFAULT, Importance.LOW, CONNECTOR_TASK_STATUS_METRICS_DOC)
                 .define(REST_SERVLET_INITIALIZERS_CLASSES_CONFIG, Type.LIST, Collections.emptyList(),
                         Importance.LOW, REST_SERVLET_INITIALIZERS_CLASSES_DOC);
+    }
+
+    public Boolean taskStatusMetricsEnabled() {
+        return getBoolean(CONNECTOR_TASK_STATUS_METRICS_CONFIG);
     }
 
     private void logInternalConverterDeprecationWarnings(Map<String, String> props) {

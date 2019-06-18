@@ -20,6 +20,8 @@ import org.apache.kafka.connect.connector.Connector;
 import org.apache.kafka.connect.connector.ConnectorContext;
 import org.apache.kafka.connect.runtime.ConnectMetrics.MetricGroup;
 import org.apache.kafka.connect.runtime.isolation.Plugins;
+import org.apache.kafka.connect.runtime.rest.entities.ConnectorStateInfo;
+import org.apache.kafka.connect.runtime.rest.entities.ConnectorType;
 import org.easymock.EasyMock;
 import org.easymock.EasyMockRunner;
 import org.easymock.EasyMockSupport;
@@ -29,7 +31,9 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.easymock.EasyMock.expectLastCall;
@@ -55,6 +59,7 @@ public class WorkerConnectorTest extends EasyMockSupport {
     @Mock Connector connector;
     @Mock ConnectorContext ctx;
     @Mock ConnectorStatus.Listener listener;
+    @Mock Herder herder;
 
     @Before
     public void setup() {
@@ -334,6 +339,79 @@ public class WorkerConnectorTest extends EasyMockSupport {
         assertRunningMetric(workerConnector);
         workerConnector.shutdown();
         assertFailedMetric(workerConnector);
+
+        verifyAll();
+    }
+
+    @Test
+    public void testConnectorTaskMetrics() {
+        Long expectedRunning = 1L;
+        Long expectedPaused = 2L;
+        Long expectedFailed = 3L;
+        Long expectedUnassigned = 4L;
+        Long expectedDestroyed = 5L;
+        Long expectedTotal = 15L;
+        List<ConnectorStateInfo.TaskState> tasks = new ArrayList<>();
+        for (int i = 0; i < expectedRunning; i++) {
+            tasks.add(new ConnectorStateInfo.TaskState(0, "RUNNING", "worker", "msg"));
+        }
+        for (int i = 0; i < expectedPaused; i++) {
+            tasks.add(new ConnectorStateInfo.TaskState(0, "PAUSED", "worker", "msg"));
+        }
+        for (int i = 0; i < expectedFailed; i++) {
+            tasks.add(new ConnectorStateInfo.TaskState(0, "FAILED", "worker", "msg"));
+        }
+        for (int i = 0; i < expectedUnassigned; i++) {
+            tasks.add(new ConnectorStateInfo.TaskState(0, "UNASSIGNED", "worker", "msg"));
+        }
+        for (int i = 0; i < expectedDestroyed; i++) {
+            tasks.add(new ConnectorStateInfo.TaskState(0, "DESTROYED", "worker", "msg"));
+        }
+
+        connector.version();
+        expectLastCall().andReturn(VERSION);
+
+        connector.initialize(EasyMock.notNull(ConnectorContext.class));
+        expectLastCall();
+
+        herder.connectorStatus(CONNECTOR);
+        expectLastCall().andReturn(new ConnectorStateInfo(
+            CONNECTOR,
+            new ConnectorStateInfo.ConnectorState("RUNNING", "worker", "msg"),
+            tasks,
+            ConnectorType.SINK
+        )).times(6);
+
+        replayAll();
+
+        WorkerConnector workerConnector =
+            new WorkerConnector(CONNECTOR, connector, ctx, metrics, listener);
+        workerConnector.metrics().addHerderMetrics(herder);
+
+        workerConnector.initialize(connectorConfig);
+        Long taskCount = (Long) metrics.currentMetricValue(workerConnector.metrics().metricGroup(),
+            "connector-total-task-count");
+        assertEquals(expectedTotal, taskCount);
+
+        Long runningTaskCount = (Long) metrics.currentMetricValue(workerConnector.metrics().metricGroup(),
+            "connector-running-task-count");
+        assertEquals(expectedRunning, runningTaskCount);
+
+        Long pausedTaskCount = (Long) metrics.currentMetricValue(workerConnector.metrics().metricGroup(),
+            "connector-paused-task-count");
+        assertEquals(expectedPaused, pausedTaskCount);
+
+        Long failedTaskCount = (Long) metrics.currentMetricValue(workerConnector.metrics().metricGroup(),
+            "connector-failed-task-count");
+        assertEquals(expectedFailed, failedTaskCount);
+
+        Long unassignedTaskCount = (Long) metrics.currentMetricValue(workerConnector.metrics().metricGroup(),
+            "connector-unassigned-task-count");
+        assertEquals(expectedUnassigned, unassignedTaskCount);
+
+        Long destroyedTaskCount = (Long) metrics.currentMetricValue(workerConnector.metrics().metricGroup(),
+            "connector-destroyed-task-count");
+        assertEquals(expectedDestroyed, destroyedTaskCount);
 
         verifyAll();
     }

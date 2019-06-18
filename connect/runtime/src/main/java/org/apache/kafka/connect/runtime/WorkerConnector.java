@@ -18,14 +18,13 @@ package org.apache.kafka.connect.runtime;
 
 import org.apache.kafka.connect.connector.Connector;
 import org.apache.kafka.connect.connector.ConnectorContext;
-import org.apache.kafka.connect.runtime.ConnectMetrics.LiteralSupplier;
 import org.apache.kafka.connect.runtime.ConnectMetrics.MetricGroup;
+import org.apache.kafka.connect.runtime.rest.entities.ConnectorStateInfo;
 import org.apache.kafka.connect.sink.SinkConnector;
 import org.apache.kafka.connect.source.SourceConnector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -240,6 +239,36 @@ public class WorkerConnector {
         private volatile AbstractStatus.State state;
         private final MetricGroup metricGroup;
         private final ConnectorStatus.Listener delegate;
+        private final ConnectMetricsRegistry registry;
+        private Herder herder;
+
+        private ConnectMetrics.LiteralSupplier<Long> taskStateCounter(TaskStatus.State status) {
+            return now -> {
+                ConnectorStateInfo info = herder.connectorStatus(connName);
+                return info == null ? null : info.tasks()
+                    .stream()
+                    .filter(taskState -> status.toString().equalsIgnoreCase(taskState.state()))
+                    .count();
+            };
+        }
+
+        protected void addHerderMetrics(Herder herder) {
+            this.herder = herder;
+            metricGroup.addValueMetric(registry.connectorTotalTaskCount, now -> {
+                ConnectorStateInfo info = herder.connectorStatus(connName);
+                return info == null ? null : (long) info.tasks().size();
+            });
+            metricGroup.addValueMetric(registry.connectorRunningTaskCount,
+                taskStateCounter(TaskStatus.State.RUNNING));
+            metricGroup.addValueMetric(registry.connectorPausedTaskCount,
+                taskStateCounter(TaskStatus.State.PAUSED));
+            metricGroup.addValueMetric(registry.connectorFailedTaskCount,
+                taskStateCounter(TaskStatus.State.FAILED));
+            metricGroup.addValueMetric(registry.connectorUnassignedTaskCount,
+                taskStateCounter(TaskStatus.State.UNASSIGNED));
+            metricGroup.addValueMetric(registry.connectorDestroyedTaskCount,
+                taskStateCounter(TaskStatus.State.DESTROYED));
+        }
 
         public ConnectorMetricsGroup(ConnectMetrics connectMetrics, AbstractStatus.State initialState, ConnectorStatus.Listener delegate) {
             Objects.requireNonNull(connectMetrics);
@@ -248,7 +277,7 @@ public class WorkerConnector {
             Objects.requireNonNull(delegate);
             this.delegate = delegate;
             this.state = initialState;
-            ConnectMetricsRegistry registry = connectMetrics.registry();
+            registry = connectMetrics.registry();
             this.metricGroup = connectMetrics.group(registry.connectorGroupName(),
                     registry.connectorTagName(), connName);
             // prevent collisions by removing any previously created metrics in this group.
@@ -257,12 +286,6 @@ public class WorkerConnector {
             metricGroup.addImmutableValueMetric(registry.connectorType, connectorType());
             metricGroup.addImmutableValueMetric(registry.connectorClass, connector.getClass().getName());
             metricGroup.addImmutableValueMetric(registry.connectorVersion, connector.version());
-            metricGroup.addValueMetric(registry.connectorStatus, new LiteralSupplier<String>() {
-                @Override
-                public String metricValue(long now) {
-                    return state.toString().toLowerCase(Locale.getDefault());
-                }
-            });
         }
 
         public void close() {

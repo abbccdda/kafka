@@ -41,6 +41,12 @@ public class ConnectMetricsRegistry {
     public final MetricNameTemplate connectorType;
     public final MetricNameTemplate connectorClass;
     public final MetricNameTemplate connectorVersion;
+    public final MetricNameTemplate connectorTotalTaskCount;
+    public final MetricNameTemplate connectorRunningTaskCount;
+    public final MetricNameTemplate connectorPausedTaskCount;
+    public final MetricNameTemplate connectorFailedTaskCount;
+    public final MetricNameTemplate connectorUnassignedTaskCount;
+    public final MetricNameTemplate connectorDestroyedTaskCount;
     public final MetricNameTemplate taskStatus;
     public final MetricNameTemplate taskRunningRatio;
     public final MetricNameTemplate taskPauseRatio;
@@ -121,6 +127,30 @@ public class ConnectMetricsRegistry {
         connectorClass = createTemplate("connector-class", CONNECTOR_GROUP_NAME, "The name of the connector class.", connectorTags);
         connectorVersion = createTemplate("connector-version", CONNECTOR_GROUP_NAME,
                                           "The version of the connector class, as reported by the connector.", connectorTags);
+        connectorTotalTaskCount = createTemplate("connector-total-task-count",
+            CONNECTOR_GROUP_NAME,
+            "The number of tasks of the connector.",
+            connectorTags);
+        connectorRunningTaskCount = createTemplate("connector-running-task-count",
+            CONNECTOR_GROUP_NAME,
+            "The number of running tasks of the connector.",
+            connectorTags);
+        connectorPausedTaskCount = createTemplate("connector-paused-task-count",
+            CONNECTOR_GROUP_NAME,
+            "The number of paused tasks of the connector.",
+            connectorTags);
+        connectorFailedTaskCount = createTemplate("connector-failed-task-count",
+            CONNECTOR_GROUP_NAME,
+            "The number of failed tasks of the connector.",
+            connectorTags);
+        connectorUnassignedTaskCount = createTemplate("connector-unassigned-task-count",
+            CONNECTOR_GROUP_NAME,
+            "The number of unassigned tasks of the connector.",
+            connectorTags);
+        connectorDestroyedTaskCount = createTemplate("connector-destroyed-task-count",
+            CONNECTOR_GROUP_NAME,
+            "The number of destroyed tasks of the connector.",
+            connectorTags);
 
         /***** Worker task level *****/
         Set<String> workerTaskTags = new LinkedHashSet<>(tags);
