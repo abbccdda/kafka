@@ -12,9 +12,10 @@ class TierFeatureAdminClientIntegrationTest extends AdminClientIntegrationTest {
   this.serverConfig.setProperty(KafkaConfig.TierEnableProp, tierFeature.toString)
   this.serverConfig.setProperty(KafkaConfig.TierBackendProp, "mock")
 
-  /*
-   Multiple log dirs are not supported in tiered storage yet
-   */
-  override  def testAlterLogDirsAfterDeleteRecords(): Unit = { }
-  override  def testAlterReplicaLogDirs(): Unit = { }
+  // Multiple log dirs are not supported in tiered storage yet
+  override def testAlterLogDirsAfterDeleteRecords(): Unit = { }
+  override def testAlterReplicaLogDirs(): Unit = { }
+
+  // Altering configurations to enable compaction is not supported
+  override def testValidIncrementalAlterConfigs(): Unit = { }
 }

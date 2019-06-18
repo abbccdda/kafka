@@ -33,7 +33,7 @@ import scala.util.{Random, Try}
 ArchiveTask follows a state machine progression. Each call to `transition` can either successfully transition to the
 next state or remain in the current state (after a configurable retry timeout). Unexpected exceptions during state
 transitions cause us to exit the state machine, except when we encounter them during BeforeUpload or Upload states,
-which causes a retry of the BeforeUpload state.
+which causes a retry of the BeforeUpload state if the segment we were trying to upload no longer exists.
 
         +----------------+
         |                |
@@ -119,6 +119,8 @@ final class ArchiveTask(override val ctx: CancellationContext,
   @volatile var totalRetryCount: Int = 0
   @volatile private var retryCount: Int = 0
   @volatile private var _pausedUntil: Option[Instant] = None
+
+  override def loggerName: String = classOf[ArchiveTask].getName
 
   override def pausedUntil: Option[Instant] = _pausedUntil
 
