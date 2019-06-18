@@ -114,7 +114,7 @@ public class ConfluentLeaderAndIsrRequest extends AbstractControlRequest impleme
         @Override
         public String toString() {
             StringBuilder bld = new StringBuilder();
-            bld.append("(type=ConfluentLeaderAndIsRequest")
+            bld.append("(type=ConfluentLeaderAndIsrRequest")
                 .append(", controllerId=").append(controllerId)
                 .append(", controllerEpoch=").append(controllerEpoch)
                 .append(", brokerEpoch=").append(brokerEpoch)
