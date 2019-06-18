@@ -715,6 +715,7 @@ project(':core') {
     compile libs.jacksonJDK8Datatypes
     compile libs.joptSimple
     compile libs.metrics
+    compile libs.scalaJava8Compat
     compile libs.scalaLibrary
     // only needed transitively, but set it explicitly to ensure it has the same version as scala-library
     compile libs.scalaReflect
@@ -1068,6 +1069,7 @@ project(':clients') {
     compile libs.slf4jApi
     compileOnly libs.netty // for SSL acceleration in the broker
     compileOnly libs.nettyTcNative // for SSL acceleration in the broker
+
     compileOnly libs.jacksonDatabind // for SASL/OAUTHBEARER bearer token parsing
     compileOnly libs.jacksonJDK8Datatypes
 

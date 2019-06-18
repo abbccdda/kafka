@@ -20,7 +20,8 @@ package kafka.log
 import java.io._
 import java.nio.ByteBuffer
 import java.nio.file.{Files, Paths}
-import java.util.{Optional, Properties}
+import java.util.regex.Pattern
+import java.util.{Collections, Optional, Properties}
 
 import kafka.api.{ApiVersion, KAFKA_0_11_0_IV0}
 import kafka.common.{OffsetsOutOfOrderException, UnexpectedAppendOffsetException}
@@ -74,6 +75,22 @@ class LogTest {
       Log.logFile(dir, offset).createNewFile()
       Log.offsetIndexFile(dir, offset).createNewFile()
     }
+  }
+
+  @Test
+  def testLogDeleteDirName(): Unit = {
+    val name1 = Log.logDeleteDirName(new TopicPartition("foo", 3))
+    assertTrue(name1.length <= 255)
+    assertTrue(Pattern.compile("foo-3\\.[0-9a-z]{32}-delete").matcher(name1).matches())
+    assertTrue(Log.DeleteDirPattern.matcher(name1).matches())
+    assertFalse(Log.FutureDirPattern.matcher(name1).matches())
+    val name2 = Log.logDeleteDirName(
+      new TopicPartition("n" + String.join("", Collections.nCopies(248, "o")), 5))
+    System.out.println("name2 = " + name2)
+    assertEquals(255, name2.length)
+    assertTrue(Pattern.compile("n[o]{212}-5\\.[0-9a-z]{32}-delete").matcher(name2).matches())
+    assertTrue(Log.DeleteDirPattern.matcher(name2).matches())
+    assertFalse(Log.FutureDirPattern.matcher(name2).matches())
   }
 
   @Test
@@ -2750,30 +2767,6 @@ class LogTest {
     } catch {
       case _: KafkaException => // expected
     }
-  }
-
-  @Test
-  def testDeleteTopicPartitionWithTooLongName() {
-    val topic: String = TestUtils.randomString(210)
-    val partition = "99999"
-    val dir = new File(logDir, topicPartitionName(topic, partition))
-    Log.parseTopicPartitionName(dir)
-    // now simulate "deleting" the partition; creating the directory should fail
-    val deleteMarkerDir = new File(logDir, Log.logDeleteDirName(new TopicPartition(topic, partition.toInt)))
-    deleteMarkerDir.deleteOnExit()
-    assertFalse(deleteMarkerDir.mkdir())
-  }
-
-  @Test
-  def testDeleteTopicPartitionWithLongestValidName() {
-    val topic: String = TestUtils.randomString(209)
-    val partition = "99999"
-    val dir = new File(logDir, topicPartitionName(topic, partition))
-    Log.parseTopicPartitionName(dir)
-    // now simulate "deleting" the partition; this should work fine
-    val deleteMarkerDir = new File(logDir, Log.logDeleteDirName(new TopicPartition(topic, partition.toInt)))
-    deleteMarkerDir.deleteOnExit()
-    assertTrue(deleteMarkerDir.mkdir())
   }
 
   @Test

@@ -585,7 +585,8 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
     // visible for testing
     void invokeCompletedOffsetCommitCallbacks() {
         if (asyncCommitFenced.get()) {
-            throw new FencedInstanceIdException("Get fenced exception for group.instance.id " + groupInstanceId.orElse("unset_instance_id"));
+            throw new FencedInstanceIdException("Get fenced exception for group.instance.id: " +
+                    groupInstanceId.orElse("unset_instance_id") + ", current member.id is " + memberId());
         }
         while (true) {
             OffsetCommitCompletion completion = completedOffsetCommits.poll();
@@ -880,10 +881,20 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
                             log.error("Received fatal exception: group.instance.id gets fenced");
                             future.raise(error);
                             return;
+                        } else if (error == Errors.REBALANCE_IN_PROGRESS) {
+                            /* Consumer never tries to commit offset in between join-group and sync-group,
+                             * and hence on broker-side it is not expected to see a commit offset request
+                             * during CompletingRebalance phase; if it ever happens then broker would return
+                             * this error. In this case we should just treat as a fatal CommitFailed exception.
+                             * However, we do not need to reset generations and just request re-join, such that
+                             * if the caller decides to proceed and poll, it would still try to proceed and re-join normally.
+                             */
+                            requestRejoin();
+                            future.raise(new CommitFailedException());
+                            return;
                         } else if (error == Errors.UNKNOWN_MEMBER_ID
-                                || error == Errors.ILLEGAL_GENERATION
-                                || error == Errors.REBALANCE_IN_PROGRESS) {
-                            // need to re-join group
+                                || error == Errors.ILLEGAL_GENERATION) {
+                            // need to reset generation and re-join group
                             resetGeneration();
                             future.raise(new CommitFailedException());
                             return;

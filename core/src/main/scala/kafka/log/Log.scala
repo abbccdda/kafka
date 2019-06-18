@@ -27,6 +27,7 @@ import java.util.concurrent.atomic._
 import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, TimeUnit}
 import java.util.regex.Pattern
 
+import com.yammer.metrics.core.Gauge
 import kafka.api.{ApiVersion, KAFKA_0_10_0_IV0}
 import kafka.common.{LogSegmentOffsetOverflowException, LongRef, OffsetsOutOfOrderException, UnexpectedAppendOffsetException}
 import kafka.message.{BrokerCompressionCodec, CompressionCodec, NoCompressionCodec}
@@ -2073,6 +2074,20 @@ class Log(@volatile var dir: File,
   }
 
   /**
+    * This function does not acquire Log.lock. The caller has to make sure log segments don't get deleted during
+    * this call, and also protects against calling this function on the same segment in parallel.
+    *
+    * Currently, it is used by LogCleaner threads on log compact non-active segments only with LogCleanerManager's lock
+    * to ensure no other logcleaner threads and retention thread can work on the same segment.
+    */
+  private[log] def getFirstBatchTimestampForSegments(segments: Iterable[LogSegment]): Iterable[Long] = {
+    segments.map {
+      segment =>
+        segment.getFirstBatchTimestamp()
+    }
+  }
+
+  /**
    * remove deleted log metrics
    */
   private[log] def removeLogMetrics(): Unit = {
@@ -2217,10 +2232,10 @@ object Log {
 
   val TierStateSuffix = ".tierstate"
 
-  private val DeleteDirPattern = Pattern.compile(s"^(\\S+)-(\\S+)\\.(\\S+)$DeleteDirSuffix")
-  private val FutureDirPattern = Pattern.compile(s"^(\\S+)-(\\S+)\\.(\\S+)$FutureDirSuffix")
+  private[log] val DeleteDirPattern = Pattern.compile(s"^(\\S+)-(\\S+)\\.(\\S+)$DeleteDirSuffix")
+  private[log] val FutureDirPattern = Pattern.compile(s"^(\\S+)-(\\S+)\\.(\\S+)$FutureDirSuffix")
 
-  val UnknownLogStartOffset = -1L
+  val UnknownOffset = -1L
 
   // return MergedLog so tests execute this codepath by default
   def apply(dir: File,
@@ -2265,11 +2280,16 @@ object Log {
     new File(dir, filenamePrefixFromOffset(offset) + LogFileSuffix + suffix)
 
   /**
-   * Return a directory name to rename the log directory to for async deletion. The name will be in the following
-   * format: topic-partition.uniqueId-delete where topic, partition and uniqueId are variables.
+   * Return a directory name to rename the log directory to for async deletion.
+   * The name will be in the following format: "topic-partitionId.uniqueId-delete".
+   * If the topic name is too long, it will be truncated to prevent the total name
+   * from exceeding 255 characters.
    */
   def logDeleteDirName(topicPartition: TopicPartition): String = {
-    logDirNameWithSuffix(topicPartition, DeleteDirSuffix)
+    val uniqueId = java.util.UUID.randomUUID.toString.replaceAll("-", "")
+    val suffix = s"-${topicPartition.partition()}.${uniqueId}${DeleteDirSuffix}"
+    val prefixLength = Math.min(topicPartition.topic().size, 255 - suffix.size)
+    s"${topicPartition.topic().substring(0, prefixLength)}${suffix}"
   }
 
   /**
