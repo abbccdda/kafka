@@ -60,7 +60,7 @@ final class TierArchiver(config: TierArchiverConfig,
   private[tier] val taskQueue: TaskQueue[ArchiveTask] = new ArchiverTaskQueue[ArchiveTask](ctx.subContext(), time, schedulingLag, ArchiveTask.apply)
 
   // Register the taskQueue with the metadata listener
-  tierMetadataManager.addListener(taskQueue)
+  tierMetadataManager.addListener(this.getClass, taskQueue)
 
   /**
     * Tasks are ordered in the following way,
@@ -216,6 +216,7 @@ final class TierArchiver(config: TierArchiverConfig,
   override def shutdown(): Unit = {
     info("shutting down")
     super.shutdown()
+    tierMetadataManager.removeListener(this.getClass)
     ctx.cancel()
     taskQueue.close()
     executor.shutdownNow()

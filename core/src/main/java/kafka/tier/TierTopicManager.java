@@ -128,7 +128,8 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
         }
         this.consumerBuilder = consumerBuilder;
         this.producerBuilder = producerBuilder;
-        tierMetadataManager.addListener(new TierMetadataManager.ChangeListener() {
+        tierMetadataManager.addListener(this.getClass(),
+                new TierMetadataManager.ChangeListener() {
             @Override
             public void onBecomeLeader(TopicIdPartition topicIdPartition, int leaderEpoch) {
                 immigratePartitions(Collections.singletonList(topicIdPartition));
@@ -183,6 +184,7 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
      */
     public void shutdown() {
         shutdown.set(true);
+        tierMetadataManager.removeListener(this.getClass());
         if (primaryConsumer != null)
             primaryConsumer.wakeup();
         if (catchUpConsumer != null)

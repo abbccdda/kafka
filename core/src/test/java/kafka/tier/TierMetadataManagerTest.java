@@ -346,7 +346,7 @@ public class TierMetadataManagerTest {
     }
 
     private void addListener(TierMetadataManager metadataManager) {
-        metadataManager.addListener(new TierMetadataManager.ChangeListener() {
+        metadataManager.addListener(this.getClass(), new TierMetadataManager.ChangeListener() {
             @Override
             public void onBecomeLeader(TopicIdPartition topicIdPartition, int leaderEpoch) {
                 onBecomeLeader++;

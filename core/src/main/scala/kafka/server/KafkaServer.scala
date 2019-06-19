@@ -694,15 +694,6 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         CoreUtils.swallow(controlledShutdown(), this)
         brokerState.newState(BrokerShuttingDown)
 
-        if (tierObjectStore.isDefined)
-          CoreUtils.swallow(tierObjectStore.get.close(), this)
-
-        if (tierFetcher.isDefined)
-          CoreUtils.swallow(tierFetcher.get.close(), this)
-
-        if (tierStateFetcher.isDefined)
-          CoreUtils.swallow(tierStateFetcher.get.close(), this)
-
         if (dynamicConfigManager != null)
           CoreUtils.swallow(dynamicConfigManager.shutdown(), this)
 
@@ -730,11 +721,17 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         if (groupCoordinator != null)
           CoreUtils.swallow(groupCoordinator.shutdown(), this)
 
+        if (kafkaController != null)
+          CoreUtils.swallow(kafkaController.shutdown(), this)
+
         if (tierRetentionManager != null)
           CoreUtils.swallow(tierRetentionManager.shutdown(), this)
 
         if (tierArchiver != null)
           CoreUtils.swallow(tierArchiver.shutdown(), this)
+
+        if (tierTopicManager != null)
+          CoreUtils.swallow(tierTopicManager.shutdown(), this)
 
         if (tokenManager != null)
           CoreUtils.swallow(tokenManager.shutdown(), this)
@@ -748,11 +745,14 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         if (tierMetadataManager != null)
           CoreUtils.swallow(tierMetadataManager.close(), this)
 
-        if (kafkaController != null)
-          CoreUtils.swallow(kafkaController.shutdown(), this)
+        if (tierStateFetcher.isDefined)
+          CoreUtils.swallow(tierStateFetcher.get.close(), this)
 
-        if (tierTopicManager != null)
-          CoreUtils.swallow(tierTopicManager.shutdown(), this)
+        if (tierFetcher.isDefined)
+          CoreUtils.swallow(tierFetcher.get.close(), this)
+
+        if (tierObjectStore.isDefined)
+          CoreUtils.swallow(tierObjectStore.get.close(), this)
 
         if (zkClient != null)
           CoreUtils.swallow(zkClient.close(), this)

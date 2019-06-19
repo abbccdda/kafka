@@ -20,9 +20,8 @@ import static scala.compat.java8.JFunction.func;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
@@ -52,7 +51,7 @@ public class TierMetadataManager {
     private final ConcurrentHashMap<TopicPartition, PartitionMetadata> tierMetadata = new ConcurrentHashMap<>();
     private final LogDirFailureChannel logDirFailureChannel;
     private final boolean tierFeatureEnabled;
-    private final List<ChangeListener> changeListeners = new ArrayList<>();
+    private final Map<Class, ChangeListener> changeListeners = new ConcurrentHashMap<>();
 
     public TierMetadataManager(TierPartitionStateFactory tierPartitionStateFactory,
                                Optional<TierObjectStore> tierObjectStore,
@@ -100,7 +99,7 @@ public class TierMetadataManager {
                 Optional<TopicIdPartition> topicIdPartition =
                         partitionMetadata.tierPartitionState.topicIdPartition();
 
-                topicIdPartition.ifPresent(tpid -> changeListeners.forEach(listener -> listener.onDelete(tpid)));
+                topicIdPartition.ifPresent(tpid -> changeListeners.values().forEach(listener -> listener.onDelete(tpid)));
             }
 
             File dir = partitionMetadata.tierPartitionState.dir();
@@ -132,7 +131,8 @@ public class TierMetadataManager {
         partitionMetadata.epochIfLeader = OptionalInt.of(leaderEpoch);
         if (partitionMetadata.tieringEnabled()) {
             log.debug("Firing onBecomeLeader listeners for tiered topic {} leaderEpoch: {}", topicIdPartition, leaderEpoch);
-            changeListeners.forEach(listener -> listener.onBecomeLeader(topicIdPartition, leaderEpoch));
+            changeListeners.values().forEach(listener -> listener.onBecomeLeader(topicIdPartition,
+                    leaderEpoch));
         }
     }
 
@@ -160,7 +160,7 @@ public class TierMetadataManager {
         partitionMetadata.epochIfLeader = OptionalInt.empty();
         if (partitionMetadata.tieringEnabled()) {
             log.debug("Firing onBecomeFollower listeners for tiered topic {}", topicIdPartition);
-            changeListeners.forEach(listener -> listener.onBecomeFollower(topicIdPartition));
+            changeListeners.values().forEach(listener -> listener.onBecomeFollower(topicIdPartition));
         }
     }
 
@@ -185,10 +185,10 @@ public class TierMetadataManager {
                     if (leaderEpoch.isPresent()) {
                         int epoch = leaderEpoch.getAsInt();
                         log.debug("Firing onBecomeLeader listeners on config change for tiered topic {} leaderEpoch: {}", topicPartition, epoch);
-                        changeListeners.forEach(listener -> listener.onBecomeLeader(topicIdPartitionOpt.get(), epoch));
+                        changeListeners.values().forEach(listener -> listener.onBecomeLeader(topicIdPartitionOpt.get(), epoch));
                     } else {
                         log.debug("Firing onBecomeFollower listeners on config change for tiered topic {}", topicPartition);
-                        changeListeners.forEach(listener -> listener.onBecomeFollower(topicIdPartitionOpt.get()));
+                        changeListeners.values().forEach(listener -> listener.onBecomeFollower(topicIdPartitionOpt.get()));
                     }
                 } else {
                     log.debug("Ignoring config change for tiered topic {} as TopicIdPartition has"
@@ -262,10 +262,19 @@ public class TierMetadataManager {
 
     /**
      * Register a change listener.
+     * @param clazz class to register the listener under
      * @param listener Listener to register
      */
-    public synchronized void addListener(ChangeListener listener) {
-        changeListeners.add(listener);
+    public synchronized void addListener(Class clazz, ChangeListener listener) {
+        changeListeners.put(clazz, listener);
+    }
+
+    /**
+     * Unregister a change listener.
+     * @param clazz class to unregister the listener under
+     */
+    public synchronized void removeListener(Class clazz) {
+        changeListeners.remove(clazz);
     }
 
     /**

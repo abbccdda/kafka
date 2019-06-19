@@ -39,7 +39,7 @@ class TierRetentionManager(scheduler: Scheduler,
   private val inProgress = new util.HashMap[TopicIdPartition, Future[Option[State]]]()
   private val leaderReplicas = new ConcurrentHashMap[TopicIdPartition, Int]()
 
-  tierMetadataManager.addListener(new TierMetadataManager.ChangeListener {
+  tierMetadataManager.addListener(this.getClass, new TierMetadataManager.ChangeListener {
     override def onBecomeLeader(topicIdPartition: TopicIdPartition, leaderEpoch: Int): Unit = {
       leaderReplicas.put(topicIdPartition, leaderEpoch)
     }
@@ -62,6 +62,7 @@ class TierRetentionManager(scheduler: Scheduler,
   }
 
   def shutdown(): Unit = {
+    tierMetadataManager.removeListener(this.getClass)
     info("Shutdown complete")
   }
 
