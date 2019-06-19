@@ -47,22 +47,18 @@ public class ZkTrialPeriod {
    * @return the time remaining on the trial in milliseconds, or 0 if the trial has expired.
    */
   public long startOrVerify(long now) {
-    kafka.utils.ZkUtils zkUtils = kafka.utils.ZkUtils.apply(
+   try (ZkUtils zkUtils = new ZkUtils(
         zkConnect,
         ZK_SESSION_TIMEOUT_MS,
         ZK_CONNECT_TIMEOUT_MS,
-        JaasUtils.isZkSecurityEnabled()
-    );
-    try {
+        JaasUtils.isZkSecurityEnabled())) {
       return startOrVerifyTrial(zkUtils, now);
-    } finally {
-      zkUtils.close();
     }
   }
 
-  private long startOrVerifyTrial(kafka.utils.ZkUtils zkUtils, long now) {
+  private long startOrVerifyTrial(ZkUtils zkUtils, long now) {
     try {
-      zkUtils.createPersistentPath(licensePath, "", zkUtils.defaultAcls(licensePath));
+      zkUtils.createPersistentPath(licensePath, "");
       log.info("Registered trial license with a validity period of {} days",
           TimeUnit.MILLISECONDS.toDays(TRIAL_LIMIT_MS));
       return TRIAL_LIMIT_MS;
@@ -71,7 +67,7 @@ public class ZkTrialPeriod {
       log.debug("Trial period has already started, checking elapsed time");
     }
 
-    Stat stat = zkUtils.readData(licensePath)._2;
+    Stat stat = zkUtils.readStat(licensePath);
 
     // the Math.max is to compensate for clock skews.
     long trialStartTimeMs = stat.getCtime();

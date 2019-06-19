@@ -8,7 +8,6 @@ import io.confluent.license.trial.ZkTrialPeriod;
 import java.security.PublicKey;
 import java.util.Date;
 import java.util.Map;
-import kafka.server.KafkaConfig$;
 import org.apache.kafka.common.utils.Time;
 import org.jose4j.jwt.JwtClaims;
 import org.slf4j.Logger;
@@ -23,6 +22,7 @@ public class LegacyLicenseValidator extends ConfluentLicenseValidator {
   private static final Logger log = LoggerFactory.getLogger(
       ConfluentLicenseValidator.class);
 
+  private static final String ZK_CONNECT_PROP = "zookeeper.connect";
   private static final PublicKey PUBLIC_KEY;
 
   private final Time time;
@@ -47,7 +47,7 @@ public class LegacyLicenseValidator extends ConfluentLicenseValidator {
 
   @Override
   public void configure(Map<String, ?> configs) {
-    this.zkConnect = (String) configs.get(KafkaConfig$.MODULE$.ZkConnectProp());
+    this.zkConnect = (String) configs.get(ZK_CONNECT_PROP);
   }
 
   @Override

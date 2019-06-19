@@ -34,13 +34,13 @@ public class ZkTrialPeriodTest {
 
   @Test
   public void testTimeElapsed() {
-    MockTime time = new MockTime(System.currentTimeMillis());
+    MockTime time = new MockTime(0);
     verifyTrialPeriod("/cp/license", time);
   }
 
   @Test
   public void testTrialExpired() {
-    MockTime time = new MockTime(System.currentTimeMillis());
+    MockTime time = new MockTime(0);
     ZkTrialPeriod zkTrialPeriod = new ZkTrialPeriod(zkConnect);
     long origTimeRemaining = zkTrialPeriod.startOrVerify(time.milliseconds());
     Assert.assertEquals("Expected a 30 day trial.", origTimeRemaining, TimeUnit.DAYS.toMillis(30));
@@ -51,7 +51,7 @@ public class ZkTrialPeriodTest {
 
   @Test
   public void testMultipleTrials() {
-    MockTime time = new MockTime(System.currentTimeMillis());
+    MockTime time = new MockTime(0);
     verifyTrialPeriod("/cp/componentA", time);
     verifyTrialPeriod("/cp/componentB", time);
   }
@@ -59,7 +59,7 @@ public class ZkTrialPeriodTest {
   private void verifyTrialPeriod(String path, MockTime time) {
     ZkTrialPeriod zkTrialPeriod = new ZkTrialPeriod(zkConnect, path);
     long origTimeRemaining = zkTrialPeriod.startOrVerify(time.milliseconds());
-    time.sleep(5);
+    time.sleep(10000); // Sleep long enough to ensure that current mock time > actual trial start time
     long newTimeRemaining = zkTrialPeriod.startOrVerify(time.milliseconds());
     assertTrue("Expected some time to elapse on the trial.", newTimeRemaining < origTimeRemaining);
   }
