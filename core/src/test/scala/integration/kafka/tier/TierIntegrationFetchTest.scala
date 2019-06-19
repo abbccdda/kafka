@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit
 import java.util.function.Consumer
 import java.util.{Properties, UUID}
 import java.util.Random
+import java.util.concurrent.atomic.AtomicBoolean
 
 import javax.management.ObjectName
 import kafka.api.IntegrationTestHarness
@@ -21,8 +22,11 @@ import org.apache.kafka.clients.consumer.{ConsumerConfig, ConsumerRecord, KafkaC
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{ConfluentTopicConfig, TopicConfig}
-import org.junit.Assert.{assertEquals, assertTrue}
+import org.apache.kafka.common.utils.Exit
+import org.apache.kafka.common.utils.Exit.Procedure
+import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import org.junit.{Before, Test}
+import org.junit.After
 
 import scala.collection.JavaConverters._
 
@@ -73,9 +77,13 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
   private val partitions: Int = 1
   private var partitionToLeader: Map[Int, Int] = Map()
   private def topicPartitions: Seq[TopicPartition] = Range(0,partitions).map(p => new TopicPartition(topic, p))
+  val exited = new AtomicBoolean(false)
 
   @Before
   override def setUp(): Unit = {
+    Exit.setExitProcedure(new Procedure {
+      override def execute(statusCode: Int, message: String): Unit = exited.set(true)
+    })
     super.setUp()
     val props = new Properties
     props.put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true")
@@ -85,6 +93,12 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
     props.put(TopicConfig.RETENTION_BYTES_CONFIG, "-1")
 
     partitionToLeader = createTopic(topic, partitions, 1, props)
+  }
+
+  @After
+  override def tearDown() {
+    super.tearDown()
+    assertFalse(exited.get())
   }
 
   private def produceRecords(nBatches: Int, recordsPerBatch: Int): Unit = {

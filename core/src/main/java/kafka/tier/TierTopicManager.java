@@ -83,11 +83,12 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
     private final TierTopicProducerBuilder producerBuilder;
 
     private final AtomicLong heartbeat = new AtomicLong(System.currentTimeMillis());
-    private final AtomicBoolean shutdown = new AtomicBoolean(false);
     private final CountDownLatch shutdownInitiated = new CountDownLatch(2);
+    private final AtomicBoolean ready = new AtomicBoolean(false);
+    private final AtomicBoolean cleaned = new AtomicBoolean(false);
+    private final AtomicBoolean shutdown = new AtomicBoolean(false);
     private final TierTopicListeners resultListeners = new TierTopicListeners();
     private final Map<AbstractTierMetadata, CompletableFuture<AppendResult>> queuedRequests = new LinkedHashMap<>();
-    private final AtomicBoolean ready = new AtomicBoolean(false);
     private final AtomicLong deletedPartitions = new AtomicLong(0);  // temporary tracking for deleted partitions until we implement logic to delete them
 
     private volatile Consumer<byte[], byte[]> primaryConsumer;
@@ -108,14 +109,13 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
      * @param producerBuilder     producer to create producer instances.
      * @param tierMetadataManager Tier Metadata Manager instance
      * @param logDirFailureChannel Log dir failure channel
-     * @throws IOException on logdir write failures
      */
     public TierTopicManager(TierTopicManagerConfig config,
                             TierTopicConsumerBuilder consumerBuilder,
                             TierTopicProducerBuilder producerBuilder,
                             Supplier<String> bootstrapServersSupplier,
                             TierMetadataManager tierMetadataManager,
-                            LogDirFailureChannel logDirFailureChannel) throws IOException {
+                            LogDirFailureChannel logDirFailureChannel) {
         this.config = config;
         this.topicName = topicName(config.tierNamespace);
         this.tierMetadataManager = tierMetadataManager;
@@ -187,8 +187,6 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
             primaryConsumer.wakeup();
         if (catchUpConsumer != null)
             catchUpConsumer.wakeup();
-        if (producer != null)
-            producer.close(Duration.ofSeconds(1));
         try {
             if (managerThread != null && managerThread.isAlive()) { // if the manager thread never
                 // started, there's nothing
@@ -289,7 +287,7 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
                         log.error("Number of partitions {} on tier topic: {} " +
                                         "does not match the number of partitions configured {}.",
                                 producerPartitions, topicName, config.numPartitions);
-                        Exit.exit(1);
+                        fatal();
                     }
                     maybeStartCatchUpConsumer(new HashSet<>(Arrays.asList(TierPartitionStatus.INIT, TierPartitionStatus.CATCHUP)));
                 } else {
@@ -308,20 +306,20 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
             }
         } catch (IOException io) {
             log.error("Unrecoverable IOException in TierTopicManager", io);
-            Exit.exit(1);
+            fatal();
         } catch (AuthenticationException | AuthorizationException e) {
             log.error("Unrecoverable authentication or authorization issue in TierTopicManager", e);
-            Exit.exit(1);
+            fatal();
         } catch (KafkaException | IllegalStateException e) {
             log.error("Unrecoverable error in work cycle", e);
-            Exit.exit(1);
+            fatal();
         } catch (InterruptedException ie) {
             log.error("Topic manager interrupted", ie);
-            Exit.exit(1);
+            fatal();
         } catch (TierMetadataDeserializationException de) {
             log.error("Tier topic: deserialization error encountered materializing tier topic.",
                     de);
-            Exit.exit(1);
+            fatal();
         } finally {
             cleanup();
         }
@@ -388,20 +386,34 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
         return deletedPartitions.get();
     }
 
+    /**
+     * fatal condition for TierTopicManager
+     * Calls cleanup prior to calling exit, as System.exit will cause the broker's shutdown hook
+     * to be called, and this will cause TierTopicManager.shutdown to be called.
+     * shutdownInitiated needs countDown to be called or else the broker shutdown will deadlock.
+     */
+    private void fatal() {
+        cleanup();
+        Exit.exit(1);
+    }
+
     private void cleanup() {
-        ready.set(false);
+        if (cleaned.compareAndSet(false, true)) {
+            ready.set(false);
+            if (primaryConsumer != null)
+                primaryConsumer.close();
+            if (catchUpConsumer != null)
+                catchUpConsumer.close();
+            if (producer != null)
+                producer.close(Duration.ofSeconds(1));
 
-        if (primaryConsumer != null)
-            primaryConsumer.close();
-        if (catchUpConsumer != null)
-            catchUpConsumer.close();
-        committer.shutdown();
+            committer.shutdown();
+            for (CompletableFuture<AppendResult> future : queuedRequests.values())
+                future.completeExceptionally(new TierMetadataFatalException("Tier topic manager shutting down"));
+            queuedRequests.clear();
 
-        for (CompletableFuture<AppendResult> future : queuedRequests.values())
-            future.completeExceptionally(new TierMetadataFatalException("Tier topic manager shutting down"));
-        queuedRequests.clear();
-
-        shutdownInitiated.countDown();
+            shutdownInitiated.countDown();
+        }
     }
 
     /**

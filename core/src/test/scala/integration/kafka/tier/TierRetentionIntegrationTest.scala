@@ -1,12 +1,17 @@
 package kafka.tier
 
+import java.util.concurrent.atomic.AtomicBoolean
+
 import kafka.api.IntegrationTestHarness
 import kafka.server.{KafkaConfig, KafkaServer}
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
-import org.junit.Assert.{assertEquals, assertTrue}
+import org.apache.kafka.common.utils.Exit
+import org.apache.kafka.common.utils.Exit.Procedure
 import org.junit.{Before, Test}
+import org.junit.After
+import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 
 import scala.collection.JavaConverters._
 
@@ -26,11 +31,21 @@ class TierRetentionIntegrationTest extends IntegrationTestHarness {
   private val numReplicas = 3
 
   override protected def brokerCount: Int = 3
+  val exited = new AtomicBoolean(false)
 
   @Before
   override def setUp(): Unit = {
+    Exit.setExitProcedure(new Procedure {
+      override def execute(statusCode: Int, message: String): Unit = exited.set(true)
+    })
     super.setUp()
     createTopic(topic, numPartitions, numReplicas)
+  }
+
+  @After
+  override def tearDown() {
+    super.tearDown()
+    assertFalse(exited.get())
   }
 
   @Test

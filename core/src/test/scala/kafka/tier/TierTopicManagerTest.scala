@@ -5,6 +5,7 @@
 package kafka.tier
 
 import java.io.File
+import java.io.IOException
 import java.util
 import java.util.function.Supplier
 import java.util.Collections
@@ -23,6 +24,8 @@ import kafka.utils.TestUtils
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.common.config.ConfluentTopicConfig
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.utils.Exit
+import org.apache.kafka.common.utils.Exit.Procedure
 import org.easymock.EasyMock
 import org.junit.Assert._
 import org.junit.Test
@@ -43,7 +46,20 @@ class TierTopicManagerTest {
     override def get: String = { "" }
   }
 
-  def createTierTopicManager(consumerBuilder: TierTopicConsumerBuilder, tierTopicNumPartitions: Short): TierTopicManager = {
+   private def createExceptionTierTopicManager(consumerBuilder: TierTopicConsumerBuilder, tierTopicNumPartitions: Short): TierTopicManager = {
+    val tierTopicManagerConfig = new TierTopicManagerConfig("", "", tierTopicNumPartitions, 1.toShort, 3, clusterId, 5L, 30000, 500, logDirs)
+    new TierTopicManager(
+      tierTopicManagerConfig,
+      consumerBuilder,
+      producerBuilder,
+      bootstrapSupplier,
+      tierMetadataManager,
+      EasyMock.mock(classOf[LogDirFailureChannel])) {
+      override def doWork(): Boolean = throw new IOException("test correct shutdown.")
+    }
+  }
+
+  private def createTierTopicManager(consumerBuilder: TierTopicConsumerBuilder, tierTopicNumPartitions: Short): TierTopicManager = {
     val tierTopicManagerConfig = new TierTopicManagerConfig("", "", tierTopicNumPartitions, 1.toShort, 3, clusterId, 5L, 30000, 500, logDirs)
     new TierTopicManager(
       tierTopicManagerConfig,
@@ -136,6 +152,21 @@ class TierTopicManagerTest {
         .getOrElse(Nil)
         .foreach(_.delete())
     }
+  }
+
+  @Test
+  def testTierTopicManagerShutdown(): Unit = {
+    val numPartitions: Short = 1
+    val consumerBuilder = new MockConsumerBuilder(numPartitions, producerBuilder.producer())
+    val tierTopicManager = createExceptionTierTopicManager(consumerBuilder, numPartitions)
+    Exit.setExitProcedure(new Procedure {
+      override def execute(statusCode: Int, message: String): Unit = Thread.sleep(10000)
+    })
+    tierTopicManager.becomeReady(bootstrapSupplier.get())
+    tierTopicManager.startup()
+    val shutdownStart = System.currentTimeMillis()
+    tierTopicManager.shutdown()
+    assertTrue(System.currentTimeMillis() - shutdownStart < 2000)
   }
 
   @Test

@@ -18,6 +18,7 @@
 package kafka.tier
 
 import java.util.Properties
+import java.util.concurrent.atomic.AtomicBoolean
 
 import kafka.log.AbstractLog
 import kafka.server.KafkaConfig._
@@ -30,7 +31,9 @@ import kafka.zk.ZooKeeperTestHarness
 import org.apache.kafka.clients.producer.{ProducerRecord, KafkaProducer}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{TopicConfig, ConfluentTopicConfig}
-import org.junit.Assert.assertEquals
+import org.apache.kafka.common.utils.Exit
+import org.apache.kafka.common.utils.Exit.Procedure
+import org.junit.Assert.{assertEquals, assertFalse}
 import org.junit.{Before, After, Test}
 
 import scala.collection.JavaConverters._
@@ -45,9 +48,13 @@ class TierEpochStateRevolvingReplicationTest extends ZooKeeperTestHarness with L
   val msgBigger = new Array[Byte](10000)
   var brokers: Seq[KafkaServer] = null
   var producer: KafkaProducer[Array[Byte], Array[Byte]] = null
+  val exited = new AtomicBoolean(false)
 
   @Before
   override def setUp() {
+    Exit.setExitProcedure(new Procedure {
+      override def execute(statusCode: Int, message: String): Unit = exited.set(true)
+    })
     super.setUp()
   }
 
@@ -56,6 +63,7 @@ class TierEpochStateRevolvingReplicationTest extends ZooKeeperTestHarness with L
     producer.close()
     TestUtils.shutdownServers(brokers)
     super.tearDown()
+    assertFalse(exited.get())
   }
 
   @Test

@@ -10,6 +10,7 @@ import java.time.Duration
 import java.util.concurrent.TimeUnit
 import java.util.function.Consumer
 import java.util.{Properties, UUID}
+import java.util.concurrent.atomic.AtomicBoolean
 
 import javax.management.ObjectName
 import kafka.api.IntegrationTestHarness
@@ -19,7 +20,10 @@ import org.apache.kafka.clients.consumer.{ConsumerConfig, ConsumerRecord, KafkaC
 import org.apache.kafka.clients.producer.{ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{ConfluentTopicConfig, TopicConfig}
+import org.apache.kafka.common.utils.Exit
+import org.apache.kafka.common.utils.Exit.Procedure
 import org.junit.{Assert, Before, Test}
+import org.junit.After
 
 import scala.collection.JavaConverters._
 
@@ -47,9 +51,15 @@ class TierIntegrationTransactionTest extends IntegrationTestHarness {
   private val partitions: Int = 1
   private var partitionToLeader: Map[Int, Int] = Map()
   private def topicPartitions: Seq[TopicPartition] = Range(0, partitions).map(p => new TopicPartition(topic, p))
+  val exited = new AtomicBoolean(false)
 
   @Before
   override def setUp(): Unit = {
+
+    Exit.setExitProcedure(new Procedure {
+      override def execute(statusCode: Int, message: String): Unit = exited.set(true)
+    })
+
     super.setUp()
     val props = new Properties
     props.put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true")
@@ -60,6 +70,12 @@ class TierIntegrationTransactionTest extends IntegrationTestHarness {
     props.put(TopicConfig.RETENTION_MS_CONFIG, "-1")
 
     partitionToLeader = createTopic(topic, partitions, 1, props)
+  }
+
+  @After
+  override def tearDown() {
+    super.tearDown()
+    Assert.assertFalse(exited.get())
   }
 
   // Produce records, alternating between comitting and aborting batches
