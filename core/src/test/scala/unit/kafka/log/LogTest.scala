@@ -3734,6 +3734,16 @@ class LogTest {
     assertEquals(new AbortedTransaction(pid, 0), fetchDataInfo.abortedTransactions.get.head)
   }
 
+  @Test
+  def testLoadPartitionDirWithNoSegmentsShouldNotThrow() {
+    val dirName = Log.logDeleteDirName(new TopicPartition("foo", 3))
+    val logDir = new File(tmpDir, dirName)
+    logDir.mkdirs()
+    val logConfig = LogTest.createLogConfig()
+    val log = createLog(logDir, logConfig)
+    assertEquals(1, log.numberOfSegments)
+  }
+
   private def allAbortedTransactions(log: AbstractLog) = log.localLogSegments.flatMap(_.txnIndex.allAbortedTxns)
 
   private def appendTransactionalAsLeader(log: AbstractLog, producerId: Long, producerEpoch: Short): Int => Unit = {
