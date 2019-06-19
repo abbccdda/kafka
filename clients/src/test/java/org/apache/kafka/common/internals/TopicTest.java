@@ -32,7 +32,7 @@ public class TopicTest {
 
     @Test
     public void shouldAcceptValidTopicNames() {
-        String maxLengthString = TestUtils.randomString(209);
+        String maxLengthString = TestUtils.randomString(249);
         String[] validTopicNames = {"valid", "TOPIC", "nAmEs", "ar6", "VaL1d", "_0-9_.", "...", maxLengthString};
 
         for (String topicName : validTopicNames) {
@@ -42,7 +42,7 @@ public class TopicTest {
 
     @Test
     public void shouldThrowOnInvalidTopicNames() {
-        char[] longString = new char[210];
+        char[] longString = new char[250];
         Arrays.fill(longString, 'a');
         String[] invalidTopicNames = {"", "foo bar", "..", "foo:bar", "foo=bar", ".", new String(longString)};
 

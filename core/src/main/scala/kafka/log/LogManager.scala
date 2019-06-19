@@ -837,7 +837,7 @@ class LogManager(logDirs: Seq[File],
   }
 
   /**
-    * Rename the directory of the given topic-partition "logdir" as "logdir.uuid-delete" and
+    * Rename the directory of the given topic-partition "logdir" as "logdir.uuid.delete" and
     * add it in the queue for deletion.
     *
     * @param topicPartition TopicPartition that needs to be deleted

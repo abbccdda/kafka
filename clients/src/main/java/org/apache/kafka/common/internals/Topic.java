@@ -32,15 +32,7 @@ public class Topic {
     public static final Set<String> INTERNAL_TOPICS = Collections.unmodifiableSet(
             Utils.mkSet(GROUP_METADATA_TOPIC_NAME, TRANSACTION_STATE_TOPIC_NAME, TIER_TOPIC_NAME));
 
-    /* Each sharded partition log is placed into its own folder under the Kafka log directory. The name of such folders
-     * consists of the topic name, appended by a dash (-) and the partition id. Since a typical folder name can not be
-     * over 255 characters long, we limit the maximum topic name length to 255 minus the space required for the dash
-     * and a maximum partition id of 99999.  Furthermore, when asynchronously deleting or moving a partition log folder,
-     * the Kafka broker will rename the partition log folder by appending a dot (.), a 32-byte random UUID, and the
-     * suffix "-delete" or "-future".  The total maximum topic name length is therefore:
-     * 255 - "-99999".length() - ".".length() - 32 - "-delete".length()
-     * which is 209, defined below.  This limit ensures that the typical folder name limit is never exceeded. */
-    private static final int MAX_NAME_LENGTH = 209;
+    private static final int MAX_NAME_LENGTH = 249;
 
     public static void validate(String topic) {
         if (topic.isEmpty())
