@@ -2,10 +2,11 @@
 
 package io.confluent.kafka.multitenant.metrics;
 
+import static io.confluent.kafka.multitenant.metrics.TenantMetrics.CLIENT_ID_TAG;
 import static io.confluent.kafka.multitenant.metrics.TenantMetrics.GROUP;
 import static io.confluent.kafka.multitenant.metrics.TenantMetrics.TENANT_TAG;
 
-import io.confluent.kafka.multitenant.MultiTenantPrincipal;
+import io.confluent.kafka.multitenant.metrics.TenantMetrics.MetricsRequestContext;
 import io.confluent.kafka.multitenant.schema.TenantContext;
 import java.lang.reflect.Field;
 import java.util.Collections;
@@ -16,6 +17,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.metrics.JmxReporter;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.metrics.Sensor;
@@ -25,26 +27,27 @@ import org.apache.kafka.common.metrics.stats.Percentiles.BucketSizing;
 import org.apache.kafka.common.metrics.stats.Rate;
 
 public class PartitionSensors {
-  private static final String TOPIC_TAG = "topic";
-  private static final String PARTITION_TAG = "partition";
+  static final String TOPIC_TAG = "topic";
+  static final String PARTITION_TAG = "partition";
   private static final long PARTITION_SENSOR_EXPIRY_SECONDS = 3600;
 
   private final ThroughputSensors bytesIn;
   private final ThroughputSensors bytesOut;
 
-  public PartitionSensors(MultiTenantPrincipal principal,
+  public PartitionSensors(
+      MetricsRequestContext context,
       Map<String, Sensor> sensors,
       PartitionSensorBuilder sensorBuilder) {
 
     bytesIn = new ThroughputSensors(
-        principal,
+        context,
         PartitionSensorBuilder.BYTES_IN,
         sensors.get(PartitionSensorBuilder.BYTES_IN),
         sensors.get(PartitionSensorBuilder.BROKER_SENSOR_PREFIX + PartitionSensorBuilder.BYTES_IN),
         sensorBuilder
     );
     bytesOut = new ThroughputSensors(
-        principal,
+        context,
         PartitionSensorBuilder.BYTES_OUT,
         sensors.get(PartitionSensorBuilder.BYTES_OUT),
         sensors.get(PartitionSensorBuilder.BROKER_SENSOR_PREFIX + PartitionSensorBuilder.BYTES_OUT),
@@ -67,12 +70,6 @@ public class PartitionSensors {
 
     private static final Field STATS_FIELD;
 
-    private final String name;
-    private final String tenant;
-    private final PartitionSensorBuilder partitionSensorBuilder;
-    private final TenantThroughputPercentiles tenantThroughputPercentiles;
-    private final ThroughputPercentiles brokerThroughputPercentiles;
-
     static {
       // TODO: Add accessor for `stats` to Sensor in ce-kafka
       try {
@@ -83,23 +80,33 @@ public class PartitionSensors {
       }
     }
 
-    ThroughputSensors(MultiTenantPrincipal principal,
+    private final String name;
+    private final String tenant;
+    private final String clientId;
+    private final PartitionSensorBuilder partitionSensorBuilder;
+    private final TenantThroughputPercentiles tenantThroughputPercentiles;
+    private final ThroughputPercentiles brokerThroughputPercentiles;
+    private final Map<TopicPartition, Sensor> partitionSensors;
+
+    ThroughputSensors(MetricsRequestContext context,
                       String name,
                       Sensor tenantPercentilesSensor,
                       Sensor brokerPercentilesSensor,
                       PartitionSensorBuilder partitionSensorBuilder) {
       this.name = name;
-      this.tenant = principal.tenantMetadata().tenantName;
+      this.tenant = context.principal().tenantMetadata().tenantName;
+      this.clientId = context.clientId();
       this.partitionSensorBuilder = partitionSensorBuilder;
       this.tenantThroughputPercentiles =
           (TenantThroughputPercentiles) percentilesStats(tenantPercentilesSensor);
       this.brokerThroughputPercentiles =
           (ThroughputPercentiles) percentilesStats(brokerPercentilesSensor);
       this.tenantThroughputPercentiles.brokerThroughputPercentiles = brokerThroughputPercentiles;
+      this.partitionSensors = new ConcurrentHashMap<>();
 
     }
 
-    private Percentiles percentilesStats(Sensor sensor) {
+    private static Percentiles percentilesStats(Sensor sensor) {
       try {
         List<?> stats = (List<?>) STATS_FIELD.get(sensor);
         if (stats.size() != 1) {
@@ -112,10 +119,11 @@ public class PartitionSensors {
     }
 
     void record(TopicPartition tp, long bytes) {
-      partitionSensor(tp).record(bytes);
+      partitionPercentileSensor(tp).record(bytes);
+      partitionDetailSensor(tp).record(bytes);
     }
 
-    private Sensor partitionSensor(TopicPartition tp) {
+    private Sensor partitionPercentileSensor(TopicPartition tp) {
       PartitionStat partitionStat = brokerThroughputPercentiles.partitionStats.get(tp);
       if (partitionStat != null) {
         return partitionStat.rateSensor;
@@ -132,6 +140,37 @@ public class PartitionSensors {
         sensorsToFind.put(sensorName, sensorName);
         return partitionSensorBuilder.getOrCreateSensors(sensorsToFind, sensorCreators)
             .get(sensorName);
+      }
+    }
+
+    private Sensor partitionDetailSensor(TopicPartition tp) {
+      Sensor partitionSensor = partitionSensors.get(tp);
+      if (partitionSensor != null) {
+        return partitionSensor;
+      } else {
+        String sensorName = String.format("%s:%s-%s:%s-%s:%s-%s,%s-%s", name,
+                                          TENANT_TAG, tenant,
+                                          CLIENT_ID_TAG, clientId,
+                                          TOPIC_TAG, tp.topic(),
+                                          PARTITION_TAG, tp.partition());
+
+        PartitionDetailSensorCreator sensorCreator =
+            new PartitionDetailSensorCreator(name, name, tenant, clientId, tp);
+
+        Map<String, AbstractSensorCreator> sensorCreators =
+            Collections.singletonMap(sensorName, sensorCreator);
+
+        Map<String, String> sensorsToFind = new HashMap<>(1);
+        sensorsToFind.put(sensorName, sensorName);
+        Sensor sensor = partitionSensorBuilder.getOrCreateSensors(sensorsToFind, sensorCreators)
+            .get(sensorName);
+
+        Sensor existing  = partitionSensors.putIfAbsent(tp, sensor);
+        if (existing == null) {
+          return sensor;
+        } else {
+          return existing;
+        }
       }
     }
   }
@@ -266,7 +305,7 @@ public class PartitionSensors {
   }
 
   /**
-   * Sensor creator for individual partition throughput
+   * Sensor creator for throughput rate by partition and tenant
    */
   static class PartitionSensorCreator extends AbstractSensorCreator {
 
@@ -287,10 +326,43 @@ public class PartitionSensors {
       tags.put(TenantMetrics.TENANT_TAG, tenant);
       tags.put(TOPIC_TAG, tp.topic());
       tags.put(PARTITION_TAG, String.valueOf(tp.partition()));
-      Sensor sensor = metrics.sensor(sensorName, metrics.config(), PARTITION_SENSOR_EXPIRY_SECONDS);
+      Sensor sensor = super.createSensor(metrics, sensorName, PARTITION_SENSOR_EXPIRY_SECONDS);
       sensor.add(metrics.metricName(name, GROUP, tags),
           throughputPercentiles.partitionStat(tp, sensor));
       return sensor;
     }
   }
+
+  /**
+   * Sensor creator for throughput meter by partition, tenant, and client id
+   */
+  static class PartitionDetailSensorCreator extends AbstractSensorCreator {
+
+    private final String tenant;
+    private final String clientId;
+    private final TopicPartition tp;
+
+    PartitionDetailSensorCreator(String name, String descriptiveName, String tenant, String clientId, TopicPartition tp) {
+      super(name, descriptiveName);
+      this.tenant = tenant;
+      this.clientId = clientId;
+      this.tp = tp;
+    }
+
+    protected Sensor createSensor(Metrics metrics, String sensorName) {
+      Sensor sensor = super.createSensor(metrics, sensorName, PARTITION_SENSOR_EXPIRY_SECONDS);
+
+      Map<String, String> tags = new HashMap<>();
+      // do not publish partition detail metrics to JMX: exposing a large number of JMX metrics can be resource intensive
+      tags.put(JmxReporter.JMX_IGNORE_TAG, "");
+      tags.put(TenantMetrics.TENANT_TAG, tenant);
+      tags.put(CLIENT_ID_TAG, clientId);
+      tags.put(TOPIC_TAG, tp.topic());
+      tags.put(PARTITION_TAG, String.valueOf(tp.partition()));
+
+      sensor.add(createMeter(metrics, GROUP, tags, name, name));
+      return sensor;
+    }
+  }
+
 }

@@ -1,6 +1,5 @@
 package io.confluent.kafka.multitenant.metrics;
 
-import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.metrics.Sensor;
 
@@ -10,15 +9,21 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 
-public abstract class AbstractSensorBuilder<S> {
+public abstract class AbstractSensorBuilder<C, S> {
   private static final ReadWriteLock LOCK = new ReentrantReadWriteLock();
 
   protected final Metrics metrics;
-  protected final MultiTenantPrincipal principal;
+  protected final C context;
 
-  public AbstractSensorBuilder(Metrics metrics, MultiTenantPrincipal principal) {
+  /**
+   * @param metrics the metrics registry to
+   * @param context the context in which to create the metrics
+   *                used to uniquely identify sensors and metrics across different contexts
+   *                (e.g. for tenant level metrics, this could be a MultitenantPrincipal)
+   */
+  public AbstractSensorBuilder(Metrics metrics, C context) {
     this.metrics = metrics;
-    this.principal = principal;
+    this.context = context;
   }
 
   /**
@@ -26,14 +31,14 @@ public abstract class AbstractSensorBuilder<S> {
    */
   public abstract S build();
 
-  protected abstract String sensorSuffix(String name, MultiTenantPrincipal principal);
+  protected abstract String sensorSuffix(String name, C context);
 
   protected abstract Map<String, ? extends AbstractSensorCreator> sensorCreators();
 
   Map<String, Sensor> getOrCreateSuffixedSensors() {
     Map<String, String> sensorsToFind = new HashMap<>();
     for (String name : sensorCreators().keySet()) {
-      sensorsToFind.put(name, name + sensorSuffix(name, principal));
+      sensorsToFind.put(name, name + sensorSuffix(name, context));
     }
     return getOrCreateSensors(sensorsToFind, sensorCreators());
   }

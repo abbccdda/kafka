@@ -48,6 +48,7 @@ public class JmxReporter implements MetricsReporter {
 
     private static final Logger log = LoggerFactory.getLogger(JmxReporter.class);
     private static final Object LOCK = new Object();
+    public static final String JMX_IGNORE_TAG = "io-confluent-jmx-ignore";
     private String prefix;
     private final Map<String, KafkaMbean> mbeans = new HashMap<String, KafkaMbean>();
 
@@ -82,7 +83,9 @@ public class JmxReporter implements MetricsReporter {
     public void metricChange(KafkaMetric metric) {
         synchronized (LOCK) {
             KafkaMbean mbean = addAttribute(metric);
-            reregister(mbean);
+            if (mbean != null) {
+                reregister(mbean);
+            }
         }
     }
 
@@ -113,6 +116,9 @@ public class JmxReporter implements MetricsReporter {
     private KafkaMbean addAttribute(KafkaMetric metric) {
         try {
             MetricName metricName = metric.metricName();
+            if (metricName.tags().containsKey(JMX_IGNORE_TAG)) {
+                return null;
+            }
             String mBeanName = getMBeanName(prefix, metricName);
             if (!this.mbeans.containsKey(mBeanName))
                 mbeans.put(mBeanName, new KafkaMbean(mBeanName));

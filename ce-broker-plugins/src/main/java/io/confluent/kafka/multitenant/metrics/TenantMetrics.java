@@ -16,7 +16,33 @@ import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 public class TenantMetrics {
   public static final String TENANT_TAG = "tenant";
   static final String USER_TAG = "user";
+  static final String CLIENT_ID_TAG = "client-id";
   static final String GROUP = "tenant-metrics";
+
+  public static class MetricsRequestContext {
+
+    private final MultiTenantPrincipal principal;
+    private final String clientId;
+    private final ApiKeys apiKey;
+
+    public MetricsRequestContext(MultiTenantPrincipal principal, String clientId, ApiKeys apiKey) {
+      this.principal = principal;
+      this.clientId = clientId;
+      this.apiKey = apiKey;
+    }
+
+    public MultiTenantPrincipal principal() {
+      return principal;
+    }
+
+    public String clientId() {
+      return clientId;
+    }
+
+    public ApiKeys apiKey() {
+      return apiKey;
+    }
+  }
 
   private EnumMap<ApiKeys, ApiSensors> apiSensors = new EnumMap<>(ApiKeys.class);
   private ConnectionSensors connectionSensors;
@@ -36,16 +62,18 @@ public class TenantMetrics {
     }
   }
 
-  public void recordRequest(Metrics metrics, MultiTenantPrincipal principal, ApiKeys apiKey,
-      long requestSize) {
-    ApiSensors sensors = apiSensors(metrics, principal, apiKey);
+  public void recordRequest(Metrics metrics, MetricsRequestContext context, long requestSize) {
+    ApiSensors sensors = apiSensors(metrics, context);
     sensors.recordRequest(requestSize);
   }
 
-  public void recordResponse(Metrics metrics, MultiTenantPrincipal principal, ApiKeys apiKey,
+  public void recordResponse(Metrics metrics, MetricsRequestContext context,
       long responseSize, long responseTimeNanos, Map<Errors, Integer> errorCounts) {
 
-    ApiSensors sensors = apiSensors(metrics, principal, apiKey);
+    MultiTenantPrincipal principal = context.principal();
+    ApiKeys apiKey = context.apiKey();
+
+    ApiSensors sensors = apiSensors(metrics, context);
     Set<Errors> newErrors = sensors.errorsWithoutSensors(errorCounts.keySet());
     if (!newErrors.isEmpty()) {
       ApiSensorBuilder builder = new ApiSensorBuilder(metrics, principal, apiKey);
@@ -57,32 +85,33 @@ public class TenantMetrics {
   }
 
   public void recordPartitionBytesIn(Metrics metrics,
-                                     MultiTenantPrincipal principal,
+                                     MetricsRequestContext context,
                                      TopicPartition topicPartition,
                                      int size) {
-    partitionSensors(metrics, principal).recordBytesIn(topicPartition, size);
+    partitionSensors(metrics, context).recordBytesIn(topicPartition, size);
   }
 
 
   public void recordPartitionBytesOut(Metrics metrics,
-                                      MultiTenantPrincipal principal,
+                                      MetricsRequestContext context,
                                       TopicPartition topicPartition,
                                       int size) {
-    partitionSensors(metrics, principal).recordBytesOut(topicPartition, size);
+    partitionSensors(metrics, context).recordBytesOut(topicPartition, size);
   }
 
-  private ApiSensors apiSensors(Metrics metrics, MultiTenantPrincipal principal, ApiKeys apiKey) {
+  private ApiSensors apiSensors(Metrics metrics, MetricsRequestContext context) {
+    ApiKeys apiKey = context.apiKey();
     ApiSensors sensors = apiSensors.get(apiKey);
     if (sensors == null) {
-      sensors = new ApiSensorBuilder(metrics, principal, apiKey).build();
+      sensors = new ApiSensorBuilder(metrics, context.principal(), apiKey).build();
       apiSensors.put(apiKey, sensors);
     }
     return sensors;
   }
 
-  private PartitionSensors partitionSensors(Metrics metrics, MultiTenantPrincipal principal) {
+  private PartitionSensors partitionSensors(Metrics metrics, MetricsRequestContext context) {
     if (partitionSensors == null) {
-      partitionSensors = new PartitionSensorBuilder(metrics, principal).build();
+      partitionSensors = new PartitionSensorBuilder(metrics, context).build();
     }
     return partitionSensors;
   }

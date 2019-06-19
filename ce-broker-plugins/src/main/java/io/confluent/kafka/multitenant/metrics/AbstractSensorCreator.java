@@ -28,6 +28,10 @@ public abstract class AbstractSensorCreator {
     return metrics.sensor(sensorName, metrics.config(), EXPIRY_SECONDS);
   }
 
+  protected Sensor createSensor(Metrics metrics, String sensorName, long expirySeconds) {
+    return metrics.sensor(sensorName, metrics.config(), expirySeconds);
+  }
+
   protected Meter createMeter(Metrics metrics, String groupName, Map<String, String> metricTags,
                               String baseName, String descriptiveName) {
     MetricName rateMetricName = metrics.metricName(baseName + "-rate", groupName,

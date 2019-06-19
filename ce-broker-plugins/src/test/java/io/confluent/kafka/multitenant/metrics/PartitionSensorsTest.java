@@ -6,8 +6,11 @@ import static org.junit.Assert.assertEquals;
 
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.TenantMetadata;
+import io.confluent.kafka.multitenant.metrics.TenantMetrics.MetricsRequestContext;
+
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -15,8 +18,11 @@ import java.util.concurrent.TimeUnit;
 import org.apache.kafka.common.Metric;
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.metrics.JmxReporter;
+import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.utils.MockTime;
 import org.junit.After;
 import org.junit.Before;
@@ -52,7 +58,9 @@ public class PartitionSensorsTest {
 
   private void verifyPartitionThroughputPercentiles(String tenant, Optional<String> metricsTenant) {
     MultiTenantPrincipal principal = new MultiTenantPrincipal("userA", new TenantMetadata(tenant, tenant));
-    PartitionSensors partitionSensors = new PartitionSensorBuilder(metrics, principal).build();
+    MetricsRequestContext context = createProduceContext(principal);
+
+    PartitionSensors partitionSensors = new PartitionSensorBuilder(metrics, context).build();
 
     String topic = tenant + "_topic";
     PercentileMetrics percentiles = new PercentileMetrics(metrics, metricsTenant);
@@ -87,6 +95,10 @@ public class PartitionSensorsTest {
     percentiles.assertValues(6150, 6150, 6150, 6150, 6150, 953250);
   }
 
+  private static MetricsRequestContext createProduceContext(MultiTenantPrincipal principal) {
+    return new MetricsRequestContext(principal, "client-1", ApiKeys.PRODUCE);
+  }
+
   @Test
   public void testThroughputPercentilesWithMultipleTenants() {
     String tenant1 = "tenant1";
@@ -94,10 +106,10 @@ public class PartitionSensorsTest {
     String tenant1Topic = tenant1 + "_topic";
     String tenant2Topic = tenant2 + "_topic";
 
-    MultiTenantPrincipal principal1 = new MultiTenantPrincipal("userA", new TenantMetadata(tenant1, tenant1));
-    PartitionSensors partitionSensors1 = new PartitionSensorBuilder(metrics, principal1).build();
-    MultiTenantPrincipal principal2 = new MultiTenantPrincipal("userA", new TenantMetadata(tenant2, tenant2));
-    PartitionSensors partitionSensors2 = new PartitionSensorBuilder(metrics, principal2).build();
+    MetricsRequestContext context1 = createProduceContext(new MultiTenantPrincipal("userA", new TenantMetadata(tenant1, tenant1)));
+    PartitionSensors partitionSensors1 = new PartitionSensorBuilder(metrics, context1).build();
+    MetricsRequestContext context2 = createProduceContext(new MultiTenantPrincipal("userA", new TenantMetadata(tenant2, tenant2)));
+    PartitionSensors partitionSensors2 = new PartitionSensorBuilder(metrics, context2).build();
 
     PercentileMetrics tenant1Percentiles = new PercentileMetrics(metrics, Optional.of(tenant1));
     PercentileMetrics tenant2Percentiles = new PercentileMetrics(metrics, Optional.of(tenant2));
@@ -113,6 +125,51 @@ public class PartitionSensorsTest {
     tenant1Percentiles.assertValues(20500, 43050, 73800, 92250, 92250, 92250);
     tenant2Percentiles.assertValues(43050, 92250, 135300, 186550, 186550, 186550);
     brokerPercentiles.assertValues(30750, 57400, 92250, 159900, 186550, 186550);
+  }
+
+  @Test
+  public void testThroughputWithMultipleClientIds() {
+    String clientId1 = "producer-1";
+    String clientId2 = "producer-2";
+
+    String tenant = "tenantA";
+    String topic = "tenantA_topic-1";
+    MetricsRequestContext context1 = new MetricsRequestContext(
+        new MultiTenantPrincipal("userA", new TenantMetadata(tenant, tenant)),
+        clientId1,
+        ApiKeys.PRODUCE);
+    PartitionSensors partitionSensors1 = new PartitionSensorBuilder(metrics, context1).build();
+
+    MetricsRequestContext context2 = new MetricsRequestContext(
+        new MultiTenantPrincipal("userA", new TenantMetadata(tenant, tenant)),
+        clientId2,
+        ApiKeys.PRODUCE);
+    PartitionSensors partitionSensors2 = new PartitionSensorBuilder(metrics, context2).build();
+
+    for (int i = 0; i < 10; i++) {
+      partitionSensors1.recordBytesIn(new TopicPartition(topic, i), 1000 * i);
+    }
+    for (int i = 0; i < 10; i++) {
+      partitionSensors2.recordBytesIn(new TopicPartition(topic, i), 2000 * i);
+    }
+
+    for (int i = 0; i < 10; ++i) {
+      Map<String, String> tags = new HashMap<>();
+      tags.put(TenantMetrics.TENANT_TAG, tenant);
+      tags.put(TenantMetrics.CLIENT_ID_TAG, clientId1);
+      tags.put(PartitionSensors.TOPIC_TAG, topic);
+      tags.put(PartitionSensors.PARTITION_TAG, Integer.toString(i));
+      tags.put(JmxReporter.JMX_IGNORE_TAG, "");
+
+      KafkaMetric client1Total =
+          metrics.metrics().get(metrics.metricName("partition-bytes-in-total", TenantMetrics.GROUP, tags));
+
+      tags.put(TenantMetrics.CLIENT_ID_TAG, clientId2);
+      KafkaMetric client2Total =
+          metrics.metrics().get(metrics.metricName("partition-bytes-in-total", TenantMetrics.GROUP, tags));
+      assertEquals(i * 1000.0, client1Total.metricValue());
+      assertEquals(i * 2000.0, client2Total.metricValue());
+    }
   }
 
 

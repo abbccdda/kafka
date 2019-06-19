@@ -22,7 +22,7 @@ import static io.confluent.kafka.multitenant.metrics.TenantMetrics.GROUP;
 import static io.confluent.kafka.multitenant.metrics.TenantMetrics.TENANT_TAG;
 import static io.confluent.kafka.multitenant.metrics.TenantMetrics.USER_TAG;
 
-public class ApiSensorBuilder extends AbstractSensorBuilder<ApiSensors> {
+public class ApiSensorBuilder extends AbstractSensorBuilder<MultiTenantPrincipal, ApiSensors> {
 
   public static final long EXPIRY_SECONDS = TimeUnit.DAYS.toSeconds(7);
   private static final String REQUEST_TAG = "request";
@@ -85,7 +85,7 @@ public class ApiSensorBuilder extends AbstractSensorBuilder<ApiSensors> {
                           T sensorKey, String sensorName) {
     AbstractApiSensorCreator sensorCreator =
             (AbstractApiSensorCreator) sensorCreators.get(sensorKey);
-    return sensorCreator.createSensor(metrics, sensorName, principal, apiKey);
+    return sensorCreator.createSensor(metrics, sensorName, context, apiKey);
   }
 
   public void addErrorSensors(ApiSensors apiSensors, Set<Errors> errors) {
@@ -93,7 +93,7 @@ public class ApiSensorBuilder extends AbstractSensorBuilder<ApiSensors> {
   }
 
   private Map<Errors, Sensor> getOrCreateErrorSensors(Set<Errors> errors) {
-    String sensorSuffix = sensorSuffix("", principal);
+    String sensorSuffix = sensorSuffix("", context);
     Map<Errors, String> sensorsToFind = new HashMap<>();
     for (Errors error: errors) {
       String sensorName = String.format("%s:%s-%s%s", ERROR_COUNT, ERROR_TAG, error.name(),

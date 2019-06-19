@@ -3,6 +3,7 @@
 package io.confluent.kafka.multitenant;
 
 import io.confluent.kafka.multitenant.metrics.TenantMetrics;
+import io.confluent.kafka.multitenant.metrics.TenantMetrics.MetricsRequestContext;
 import io.confluent.kafka.multitenant.quota.TenantPartitionAssignor;
 import io.confluent.kafka.multitenant.schema.MultiTenantApis;
 import io.confluent.kafka.multitenant.schema.TenantContext;
@@ -722,20 +723,29 @@ public class MultiTenantRequestContext extends RequestContext {
   }
 
   private void updateRequestMetrics(ByteBuffer buffer) {
-    tenantMetrics.recordRequest(metrics, (MultiTenantPrincipal) principal, header.apiKey(),
-        calculateRequestSize(buffer));
+    tenantMetrics.recordRequest(
+        metrics,
+        new MetricsRequestContext((MultiTenantPrincipal) principal, header.clientId(), header.apiKey()),
+        calculateRequestSize(buffer)
+    );
   }
 
   private void updateResponseMetrics(AbstractResponse body, Send response) {
-    tenantMetrics.recordResponse(metrics, (MultiTenantPrincipal) principal, header.apiKey(),
-        response.size(), time.nanoseconds() - startNanos, body.errorCounts());
+    tenantMetrics.recordResponse(
+        metrics,
+        new MetricsRequestContext((MultiTenantPrincipal) principal, header.clientId(), header.apiKey()),
+        response.size(), time.nanoseconds() - startNanos, body.errorCounts()
+    );
   }
 
   private void updatePartitionBytesInMetrics(ProduceRequest request) {
     request.partitionRecordsOrFail().entrySet().forEach(entry -> {
       TopicPartition tp = entry.getKey();
       int size = entry.getValue().sizeInBytes();
-      tenantMetrics.recordPartitionBytesIn(metrics, (MultiTenantPrincipal) principal, tp, size);
+      tenantMetrics.recordPartitionBytesIn(
+          metrics,
+          new MetricsRequestContext((MultiTenantPrincipal) principal, header.clientId(), header.apiKey()),
+          tp, size);
     });
   }
 
@@ -743,7 +753,10 @@ public class MultiTenantRequestContext extends RequestContext {
     response.responseData().entrySet().forEach(entry -> {
       TopicPartition tp = entry.getKey();
       int size = entry.getValue().records.sizeInBytes();
-      tenantMetrics.recordPartitionBytesOut(metrics, (MultiTenantPrincipal) principal, tp, size);
+      tenantMetrics.recordPartitionBytesOut(
+          metrics,
+          new MetricsRequestContext((MultiTenantPrincipal) principal, header.clientId(), header.apiKey()),
+          tp, size);
     });
   }
 }
