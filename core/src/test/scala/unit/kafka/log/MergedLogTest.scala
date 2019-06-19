@@ -453,12 +453,25 @@ class MergedLogTest {
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
       leaderEpoch, java.util.UUID.randomUUID(), 0))
 
+    val pid = 137L
+    val epoch = 5.toShort
+    val seq = 0
+    val records_1 = MemoryRecords.withTransactionalRecords(CompressionType.NONE, pid, epoch, seq,
+      new SimpleRecord(mockTime.milliseconds - 1000, "foo".getBytes),
+      new SimpleRecord(mockTime.milliseconds - 1000, "bar".getBytes),
+      new SimpleRecord(mockTime.milliseconds - 1000, "baz".getBytes))
+
+    mergedLog.appendAsLeader(records_1, leaderEpoch = 0)
+    mergedLog.roll()
+    mergedLog.onHighWatermarkIncremented(mergedLog.logEndOffset)
+    assertEquals("expected an active producer", 1, mergedLog.producerStateManager.activeProducers.size)
+
     val result = TierTestUtils.uploadWithMetadata(tierPartitionState,
       topicIdPartition,
       leaderEpoch,
       UUID.randomUUID,
       0,
-      100,
+      3,
       10000,
       10000,
       10000,
@@ -468,29 +481,8 @@ class MergedLogTest {
     assertEquals(AppendResult.ACCEPTED, result)
     tierPartitionState.flush()
 
-    val epoch = 0.toShort
-    val sequence = 0
-    val pid = 1L
-
-    def appendToProducerState(stateManager: ProducerStateManager,
-                              producerId: Long,
-                              producerEpoch: Short,
-                              seq: Int,
-                              offset: Long,
-                              timestamp: Long,
-                              isTransactional: Boolean = false,
-                              isFromClient : Boolean = true): Unit = {
-      val producerAppendInfo = stateManager.prepareUpdate(producerId, isFromClient)
-      producerAppendInfo.append(producerEpoch, seq, seq, timestamp, offset, offset, isTransactional)
-      stateManager.update(producerAppendInfo)
-      stateManager.updateMapEndOffset(offset + 1)
-    }
-
-    appendToProducerState(mergedLog.producerStateManager, pid, epoch, sequence, 99L, 10000, isTransactional = true)
-    assertEquals(Some(99), mergedLog.producerStateManager.firstUnstableOffset.map(_.messageOffset))
     mergedLog.producerStateManager.takeSnapshot()
-    val producerState = mergedLog.producerStateManager.snapshotFileForOffset(100)
-
+    val producerState = mergedLog.producerStateManager.snapshotFileForOffset(3)
     def readProducerStateFile = {
       val buf = ByteBuffer.allocate(1000)
       val inputStream = new FileInputStream(producerState.get)
@@ -502,21 +494,15 @@ class MergedLogTest {
       buf.flip()
       buf
     }
+    assertEquals(1, mergedLog.deleteOldSegments())
 
     // restore producer state to restore ongoing transactions
     mergedLog.onRestoreTierState(tierPartitionState.endOffset().get(), new TierState(List(), Some(readProducerStateFile)))
 
-    // append some messages to test firstUnstableOffset check after restore
-    for (_ <- 0 until 10) {
-      val segmentStr = "foo"
-      val messageStr = "bar"
-      def createRecords = TestUtils.singletonRecords(("test" + segmentStr + messageStr).getBytes)
-      mergedLog.appendAsLeader(createRecords, 0)
-      mergedLog.roll()
-    }
+    assertEquals("expected an active producer after restore", 1, mergedLog.producerStateManager.activeProducers.size)
 
     assertEquals("first unstable offset should be the beginning of the local log after recovery",
-      100L,
+      3L,
       mergedLog.localLog.firstUnstableOffset.get.messageOffset)
     mergedLog.close()
   }

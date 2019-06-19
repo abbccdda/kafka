@@ -1044,7 +1044,7 @@ class Log(@volatile var dir: File,
    * is the local log start as we do not currently tier past the LSO.
    * @param logStartOffset log start offset
    */
-  private def updateFirstUnstableOffset(logStartOffset: Long): Unit = lock synchronized {
+  def updateFirstUnstableOffset(logStartOffset: Long): Unit = lock synchronized {
     checkIfMemoryMappedBufferClosed()
     val updatedFirstStableOffset = producerStateManager.firstUnstableOffset match {
       case Some(logOffsetMetadata) if logOffsetMetadata.messageOffsetOnly || logOffsetMetadata.messageOffset < logStartOffset =>

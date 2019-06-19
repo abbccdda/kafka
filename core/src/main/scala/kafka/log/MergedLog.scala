@@ -320,6 +320,10 @@ class MergedLog(private[log] val localLog: Log,
         // If there is no producer state to restore, just update the lastMapOffset to the restored segment end offset + 1
         localLog.producerStateManager.updateMapEndOffset(proposeLocalLogStart)
     }
+    // We do not currently archive past the first unstable offset.
+    // Until we do, we can assume that the first unstable offset is equivalent bounded
+    // by the local log start offset after recovery.
+    localLog.updateFirstUnstableOffset(localLog.localLogStartOffset)
 
     localLog.leaderEpochCache.get.clear()
     for (entry <- tierState.leaderEpochState)
