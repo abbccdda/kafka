@@ -52,6 +52,12 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
+import static kafka.tier.domain.TierRecordType.InitLeader;
+import static kafka.tier.domain.TierRecordType.SegmentDeleteComplete;
+import static kafka.tier.domain.TierRecordType.SegmentDeleteInitiate;
+import static kafka.tier.domain.TierRecordType.SegmentUploadComplete;
+import static kafka.tier.domain.TierRecordType.SegmentUploadInitiate;
+
 public class FileTierPartitionState implements TierPartitionState, AutoCloseable {
     private enum StateFileType {
         /**
@@ -140,7 +146,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         if (this.topicIdPartition != null && !this.topicIdPartition.equals(topicIdPartition))
             throw new IllegalStateException("TierPartitionState assigned a different "
                     + "topicIdPartition than already assigned (" + topicIdPartition
-                    + " " + this.topicIdPartition);
+                    + " " + this.topicIdPartition + ")");
         this.topicIdPartition = topicIdPartition;
         synchronized (lock) {
             maybeOpenChannel();
@@ -305,7 +311,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             flush();
             if (metadata.get().endOffset() < targetOffset)
                 throw new IllegalStateException("Metadata lookup for offset " + targetOffset +
-                        " returned unexpected segment " + metadata);
+                        " returned unexpected segment " + metadata + " for " + topicIdPartition);
             // listener is able to fire immediately
             promise.complete(metadata.get());
         } else {
@@ -331,25 +337,10 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     @Override
-    public AppendResult append(AbstractTierMetadata entry) throws IOException {
-        synchronized (lock) {
-            if (!status.isOpenForWrite())
-                return AppendResult.ILLEGAL;
-
-            switch (entry.type()) {
-                case InitLeader:
-                    return handleInitLeader((TierTopicInitLeader) entry);
-
-                case SegmentUploadInitiate:
-                case SegmentUploadComplete:
-                case SegmentDeleteInitiate:
-                case SegmentDeleteComplete:
-                    return maybeTransitionSegment((AbstractTierSegmentMetadata) entry);
-
-                default:
-                    throw new IllegalStateException("Unknown type " + entry.type());
-            }
-        }
+    public AppendResult append(AbstractTierMetadata metadata) throws IOException {
+        AppendResult result = appendMetadata(metadata);
+        log.debug("Processed append for {} with result {} ({})", metadata, result, topicIdPartition);
+        return result;
     }
 
     @Override
@@ -467,6 +458,27 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return Optional.empty();
     }
 
+    private AppendResult appendMetadata(AbstractTierMetadata entry) throws IOException {
+        synchronized (lock) {
+            if (!status.isOpenForWrite())
+                return AppendResult.ILLEGAL;
+
+            switch (entry.type()) {
+                case InitLeader:
+                    return handleInitLeader((TierTopicInitLeader) entry);
+
+                case SegmentUploadInitiate:
+                case SegmentUploadComplete:
+                case SegmentDeleteInitiate:
+                case SegmentDeleteComplete:
+                    return maybeTransitionSegment((AbstractTierSegmentMetadata) entry);
+
+                default:
+                    throw new IllegalStateException("Attempt to append unknown type " + entry.type() + " to " + topicIdPartition);
+            }
+        }
+    }
+
     private AppendResult handleInitLeader(TierTopicInitLeader initLeader) throws IOException {
         // We accept any epoch >= the current one, as there could be duplicate init leader messages for the current
         // epoch.
@@ -495,23 +507,23 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
         // Fence transition that do not belong to the current epoch
         if (metadata.tierEpoch() != state.currentEpoch) {
-            log.info("Fenced {} as currentEpoch={}.", metadata, state.currentEpoch);
+            log.info("Fenced {} as currentEpoch={} ({})", metadata, state.currentEpoch, topicIdPartition);
             return AppendResult.FENCED;
         }
 
         if (currentState != null) {
             if (currentState.state.equals(metadata.state())) {
                 // This is a duplicate transition
-                log.debug("Accepting duplicate transition for {}", metadata);
+                log.debug("Accepting duplicate transition for {} ({})", metadata, topicIdPartition);
                 return AppendResult.ACCEPTED;
             } else if (!currentState.state.canTransitionTo(metadata.state())) {
                 // This transition will not take us to the next valid state
-                throw new IllegalStateException("Illegal attempt to transition " + currentState + " to " + metadata);
+                throw new IllegalStateException("Illegal attempt to transition " + currentState + " to " + metadata + " for " + topicIdPartition);
             }
         } else {
             // If state for this object does not exist, then this must be uploadInitiate
             if (metadata.state() != TierObjectMetadata.State.SEGMENT_UPLOAD_INITIATE)
-                throw new IllegalStateException("Cannot complete transition for non-existent segment " + metadata);
+                throw new IllegalStateException("Cannot complete transition for non-existent segment " + metadata + " for " + topicIdPartition);
         }
 
         // If we are here, we know this transition is valid: it takes us to the next valid state, it is for the current
@@ -526,19 +538,19 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             case SEGMENT_DELETE_COMPLETE:
                 return handleDeleteComplete((TierSegmentDeleteComplete) metadata);
             default:
-                throw new IllegalStateException("Unexpected state " + metadata.state());
+                throw new IllegalStateException("Unexpected state " + metadata.state() + " for " + topicIdPartition);
         }
     }
 
     private TierObjectMetadata updateState(UUID objectId, TierObjectMetadata.State newState) throws IOException {
         SegmentState currentState = state.allSegments.get(objectId);
         if (currentState == null)
-            throw new IllegalStateException("No metadata found for " + objectId);
+            throw new IllegalStateException("No metadata found for " + objectId + " in " + topicIdPartition);
 
         TierObjectMetadata metadata = iterator(topicIdPartition, state.channel, currentState.position).next();
 
         if (!objectId.equals(metadata.objectId()))
-            throw new IllegalStateException("id mismatch. Expected: " + objectId + " Got: " + metadata.objectId());
+            throw new IllegalStateException("id mismatch. Expected: " + objectId + " Got: " + metadata.objectId() + " Partition: " + topicIdPartition);
 
         metadata.mutateState(newState);
         Utils.writeFully(state.channel, currentState.position + ENTRY_LENGTH_SIZE, metadata.payloadBuffer());
@@ -570,14 +582,15 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
         // This attempt to upload a segment must be fenced as it belongs to a previous epoch or covers an offset
         // range that has already been uploaded successfully.
-        log.info("Fencing uploadInitiate for {}. currentEndOffset={} currentEpoch={}.",
-                metadata, state.endOffset, state.currentEpoch);
+        log.info("Fencing uploadInitiate for {}. currentEndOffset={} currentEpoch={}. ({})",
+                metadata, state.endOffset, state.currentEpoch, topicIdPartition);
         return AppendResult.FENCED;
     }
 
     private AppendResult handleUploadComplete(TierSegmentUploadComplete uploadComplete) throws IOException {
         if (!uploadInProgress.objectId().equals(uploadComplete.objectId()))
-            throw new IllegalStateException("Expected " + uploadInProgress.objectId() + " to be in-progress but got " + uploadComplete.objectId());
+            throw new IllegalStateException("Expected " + uploadInProgress.objectId() + " to be in-progress " +
+                    "but got " + uploadComplete.objectId() + " for partition " + topicIdPartition);
 
         TierObjectMetadata metadata = updateState(uploadComplete.objectId(), TierObjectMetadata.State.SEGMENT_UPLOAD_COMPLETE);
 
@@ -733,7 +746,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
         if (currentPosition < channel.size())
             throw new StateCorruptedException("Could not read all bytes in file. position: " +
-                    currentPosition + " size: " + channel.size());
+                    currentPosition + " size: " + channel.size() + " for partition " + topicIdPartition);
 
         state.committedEndOffset = state.endOffset;
         channel.position(channel.size());
@@ -761,7 +774,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             case SEGMENT_UPLOAD_INITIATE:
                 if (uploadInProgress != null)
                     throw new IllegalStateException("Unexpected upload in progress " + uploadInProgress +
-                            " when appending " + metadata);
+                            " when appending " + metadata + " to " + topicIdPartition);
                 uploadInProgress = metadata.duplicate();
                 break;
 
@@ -782,7 +795,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 break;
 
             default:
-                throw new IllegalArgumentException("Unknown state " + metadata);
+                throw new IllegalArgumentException("Unknown state " + metadata + " for " + topicIdPartition);
         }
     }
 

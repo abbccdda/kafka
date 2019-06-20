@@ -609,14 +609,23 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
                                  boolean commitPositions) throws IOException {
         boolean processedMessages = false;
         for (ConsumerRecord<byte[], byte[]> record : consumer.poll(config.pollDuration)) {
-            final Optional<AbstractTierMetadata> entry =
-                    AbstractTierMetadata.deserialize(record.key(), record.value());
-            if (entry.isPresent()) {
-                processEntry(entry.get(), requiredState);
+            final Optional<AbstractTierMetadata> entryOpt = AbstractTierMetadata.deserialize(record.key(), record.value());
+            if (entryOpt.isPresent()) {
+                AbstractTierMetadata entry = entryOpt.get();
+                log.trace("Read {} at offset {} of partition {}", entry, record.offset(), record.partition());
+                processEntry(entry, record.partition(), record.offset(), requiredState);
+
                 if (commitPositions)
                     committer.updatePosition(record.partition(), record.offset() + 1);
 
                 processedMessages = true;
+            } else {
+                log.info("Skipping message at offset {} of partition {}. Message for {} "
+                        + "and type: {} cannot be deserialized.",
+                        record.offset(),
+                        record.partition(),
+                        AbstractTierMetadata.deserializeKey(record.key()),
+                        AbstractTierMetadata.getTypeId(record.value()));
             }
         }
         return processedMessages;
@@ -668,30 +677,38 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
     /**
      * Materialize a tier topic entry into the corresponding tier partition status.
      * @param entry The tier topic entry read from the tier topic.
+     * @param partition source partition for this metadata entry
+     * @param offset source offset for this metadata entry
      * @param requiredState TierPartitionState must be in this status in order to modify it; otherwise the entry will be ignored.
      */
-    private void processEntry(AbstractTierMetadata entry, TierPartitionStatus requiredState) throws IOException {
+    private void processEntry(AbstractTierMetadata entry,
+                              int partition,
+                              long offset,
+                              TierPartitionStatus requiredState) throws TierMetadataFatalException {
         final TopicIdPartition tpid = entry.topicIdPartition();
-
-        if (entry.type() == TierRecordType.PartitionDeleteInitiate) {
-            deletedPartitions.incrementAndGet();
-            resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.complete(AppendResult.ACCEPTED));
-        } else {
-            final Optional<TierPartitionState> tierPartitionStateOpt = tierMetadataManager.tierPartitionState(tpid);
-            if (tierPartitionStateOpt.isPresent()) {
-                TierPartitionState tierPartitionState = tierPartitionStateOpt.get();
-                if (tierPartitionState.status() == requiredState) {
-                    final AppendResult result = tierPartitionState.append(entry);
-                    log.debug("Read entry {}, append result {}", entry, result);
-                    // signal completion of this tier topic entry if this topic manager was the sender
-                    resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.complete(result));
-                } else {
-                    log.debug("TierPartitionState {} not in required state {}. Ignoring metadata {}.", tpid, requiredState, entry);
-                }
+        try {
+            if (entry.type() == TierRecordType.PartitionDeleteInitiate) {
+                deletedPartitions.incrementAndGet();
+                resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.complete(AppendResult.ACCEPTED));
             } else {
-                resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.completeExceptionally(
-                        new TierMetadataRetriableException("Tier partition state for " + tpid + " does not exist")));
+                final Optional<TierPartitionState> tierPartitionStateOpt = tierMetadataManager.tierPartitionState(tpid);
+                if (tierPartitionStateOpt.isPresent()) {
+                    TierPartitionState tierPartitionState = tierPartitionStateOpt.get();
+                    if (tierPartitionState.status() == requiredState) {
+                        final AppendResult result = tierPartitionState.append(entry);
+                        // signal completion of this tier topic entry if this topic manager was the sender
+                        resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.complete(result));
+                    } else {
+                        log.debug("TierPartitionState {} not in required state {}. Ignoring metadata {}.", tpid, requiredState, entry);
+                    }
+                } else {
+                    resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.completeExceptionally(
+                            new TierMetadataRetriableException("Tier partition state for " + tpid + " does not exist")));
+                }
             }
+        } catch (Exception e) {
+            throw new TierMetadataFatalException(String.format("Error processing "
+                    + "message %s at offset %d, partition %d", entry, offset, partition), e);
         }
     }
 

@@ -64,6 +64,15 @@ public abstract class AbstractTierMetadata {
         return value[0];
     }
 
+    public static TopicIdPartition deserializeKey(byte[] key) {
+        final ByteBuffer keyBuf = ByteBuffer.wrap(key);
+        final TierKafkaKey tierKey = TierKafkaKey.getRootAsTierKafkaKey(keyBuf);
+        return new TopicIdPartition(tierKey.topicName(),
+                new UUID(tierKey.topicId().mostSignificantBits(),
+                        tierKey.topicId().leastSignificantBits()),
+                tierKey.partition());
+    }
+
     /**
      * Deserializes byte key and value read from Tier State Topic into Tier Metadata.
      * @param key Key containing archived topic partition
@@ -72,13 +81,8 @@ public abstract class AbstractTierMetadata {
      * @throws TierMetadataDeserializationException
      */
     public static Optional<AbstractTierMetadata> deserialize(byte[] key, byte[] value) throws TierMetadataDeserializationException {
-        final ByteBuffer keyBuf = ByteBuffer.wrap(key);
         final ByteBuffer valueBuf = ByteBuffer.wrap(value);
-        final TierKafkaKey tierKey = TierKafkaKey.getRootAsTierKafkaKey(keyBuf);
-        final TopicIdPartition topicIdPartition = new TopicIdPartition(tierKey.topicName(),
-                new UUID(tierKey.topicId().mostSignificantBits(),
-                        tierKey.topicId().leastSignificantBits()),
-                tierKey.partition());
+        final TopicIdPartition topicIdPartition = deserializeKey(key);
 
         // deserialize value header with record type and tierEpoch
         final TierRecordType type = TierRecordType.toType(valueBuf.get());
