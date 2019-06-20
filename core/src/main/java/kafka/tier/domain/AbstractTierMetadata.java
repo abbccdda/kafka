@@ -56,7 +56,16 @@ public abstract class AbstractTierMetadata {
     }
 
     /**
-     * Deserializes byte key and value read from Tier Topic into Tier Metadata.
+     * Deserializes just the type from a value read from a Tier State Topic
+     * @param value value bytes
+     * @return TierRecordType
+     */
+    public static byte getTypeId(byte[] value) {
+        return value[0];
+    }
+
+    /**
+     * Deserializes byte key and value read from Tier State Topic into Tier Metadata.
      * @param key Key containing archived topic partition
      * @param value Value containing tier metadata.
      * @return AbstractTierMetadata if one could be deserialized. Empty if Tier Metadata ID unrecognized.
