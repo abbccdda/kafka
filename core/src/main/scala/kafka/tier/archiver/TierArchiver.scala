@@ -4,7 +4,8 @@
 
 package kafka.tier.archiver
 
-import java.util.concurrent.{CancellationException, ForkJoinPool, TimeUnit}
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.{CancellationException, Executors, ThreadFactory, TimeUnit}
 
 import com.yammer.metrics.core.Gauge
 import kafka.metrics.KafkaMetricsGroup
@@ -13,7 +14,7 @@ import kafka.tier.fetcher.CancellationContext
 import kafka.tier.store.TierObjectStore
 import kafka.tier.{TierMetadataManager, TierTopicAppender}
 import kafka.utils.{Logging, ShutdownableThread}
-import org.apache.kafka.common.utils.Time
+import org.apache.kafka.common.utils.{KafkaThread, Time}
 
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, ExecutionContextExecutor, Future}
@@ -51,11 +52,13 @@ final class TierArchiver(config: TierArchiverConfig,
                          time: Time = Time.SYSTEM) extends ShutdownableThread(name = "tier-archiver") with KafkaMetricsGroup with Logging {
 
   private val ctx: CancellationContext = CancellationContext.newContext()
-  private val executor = new ForkJoinPool(Runtime.getRuntime.availableProcessors, ForkJoinPool.defaultForkJoinWorkerThreadFactory, new Thread.UncaughtExceptionHandler {
-    override def uncaughtException(t: Thread, e: Throwable): Unit = {
-      fatal(s"uncaught exception in TierArchiver thread-${t.getId}", e)
+  private val executor = Executors.newFixedThreadPool(config.numThreads, new ThreadFactory {
+    val threadNum = new AtomicInteger(-1)
+    override def newThread(r: Runnable): Thread = {
+      val newThreadNum = threadNum.incrementAndGet()
+      KafkaThread.nonDaemon(s"ArchiverThread-$newThreadNum", r)
     }
-  }, true)
+  })
   private implicit val pool: ExecutionContextExecutor = ExecutionContext.fromExecutor(executor)
   private[tier] val taskQueue: TaskQueue[ArchiveTask] = new ArchiverTaskQueue[ArchiveTask](ctx.subContext(), time, schedulingLag, ArchiveTask.apply)
 

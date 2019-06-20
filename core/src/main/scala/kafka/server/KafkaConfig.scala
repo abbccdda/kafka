@@ -189,8 +189,8 @@ object Defaults {
   val TierMetadataRequestTimeoutMs = 30000
   val TierMetadataBootstrapServers = null
   val TierMetadataNamespace = null
-  val TierMetadataNumPartitions = 10:Short
-  val TierMetadataReplicationFactor = 3:Short
+  val TierMetadataNumPartitions = 10: Short
+  val TierMetadataReplicationFactor = 3: Short
   val TierBackend = ""
   val TierS3Bucket = null
   val TierS3Region = null
@@ -200,16 +200,16 @@ object Defaults {
   val TierS3AwsSecretAccessKey = null
   val TierS3EndpointOverride = null
   val TierS3SignerOverride = null
-  val TierFetcherNumThreads = 2:Integer
-  val TierObjectFetcherThreads = 1:Integer
-  val TierPartitionStateCommitInterval = 15000:Integer
+  val TierFetcherNumThreads = 2: Integer
+  val TierObjectFetcherThreads = 1: Integer
+  val TierPartitionStateCommitInterval = 15000: Integer
 
   /** Tiered storage retention configs **/
   val TierLocalHotsetBytes = -1L
   val TierLocalHotsetMs = 24 * 60 * 60 * 1000L
 
   /** Tiered storage archiver configs **/
-  val TierArchiverNumThreads = 10:Integer
+  val TierArchiverNumThreads = 4: Integer
 
   /** ********* Fetch Session Configuration **************/
   val MaxIncrementalFetchSessionCacheSlots = 1000

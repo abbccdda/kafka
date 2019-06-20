@@ -47,6 +47,8 @@ class TierArchiverStateTest {
   val blockingTaskExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
   val time = Time.SYSTEM
 
+  val maxWaitTime = 30 seconds
+
   var byteRate: Meter = _
 
   @Before
@@ -82,7 +84,7 @@ class TierArchiverStateTest {
     val replicaManager = mock(classOf[ReplicaManager])
     val task = ArchiveTask(ctx, topicIdPartition, 0)
     val nextStage = task.transition(time, tierTopicManager, tierObjectStore, replicaManager, Some(byteRate))
-    val result = Await.result(nextStage, 1 second)
+    val result = Await.result(nextStage, maxWaitTime)
     assertTrue("Should advance to BeforeUpload", result.state.isInstanceOf[BeforeUpload])
   }
 
@@ -94,7 +96,7 @@ class TierArchiverStateTest {
     when(tierTopicManager.becomeArchiver(topicIdPartition, 0))
       .thenReturn(CompletableFutureUtil.completed(AppendResult.FENCED))
 
-    Await.result(ArchiveTask.establishLeadership(BeforeLeader(0), topicIdPartition, tierTopicManager), 1 second)
+    Await.result(ArchiveTask.establishLeadership(BeforeLeader(0), topicIdPartition, tierTopicManager), maxWaitTime)
   }
 
   @Test(expected = classOf[TierArchiverFencedException])
@@ -114,7 +116,7 @@ class TierArchiverStateTest {
     when(tierPartitionState.tierEpoch).thenReturn(1)
     when(tierTopicManager.partitionState(topicIdPartition)).thenReturn(tierPartitionState)
 
-    Await.result(ArchiveTask.maybeInitiateUpload(BeforeUpload(0), topicIdPartition, time, tierTopicManager, tierObjectStore, replicaManager), 1 second)
+    Await.result(ArchiveTask.maybeInitiateUpload(BeforeUpload(0), topicIdPartition, time, tierTopicManager, tierObjectStore, replicaManager), maxWaitTime)
   }
 
   @Test
@@ -136,7 +138,7 @@ class TierArchiverStateTest {
     when(tierPartitionState.tierEpoch).thenReturn(0)
     when(tierTopicManager.partitionState(topicIdPartition)).thenReturn(tierPartitionState)
 
-    val result = Await.result(ArchiveTask.maybeInitiateUpload(BeforeUpload(0), topicIdPartition, time, tierTopicManager, tierObjectStore, replicaManager), 1 second)
+    val result = Await.result(ArchiveTask.maybeInitiateUpload(BeforeUpload(0), topicIdPartition, time, tierTopicManager, tierObjectStore, replicaManager), maxWaitTime)
     assertTrue("Should advance to BeforeUpload", result.isInstanceOf[BeforeUpload])
   }
 
@@ -166,7 +168,7 @@ class TierArchiverStateTest {
     log.appendAsFollower(TierTestUtils.createRecords(5, topicPartition, log.logEndOffset, 0))
     log.onHighWatermarkIncremented(log.logEndOffset)
 
-    val result = Await.result(ArchiveTask.maybeInitiateUpload(BeforeUpload(0), topicIdPartition, time, tierTopicManager, tierObjectStore, replicaManager), 1 second)
+    val result = Await.result(ArchiveTask.maybeInitiateUpload(BeforeUpload(0), topicIdPartition, time, tierTopicManager, tierObjectStore, replicaManager), maxWaitTime)
     assertTrue("Should advance to AfterUpload", result.isInstanceOf[Upload])
   }
 
@@ -221,7 +223,7 @@ class TierArchiverStateTest {
       }
     })
 
-    val result = Await.result(ArchiveTask.maybeInitiateUpload(BeforeUpload(newTierEpoch), topicIdPartition, time, tierTopicManager, tierObjectStore, replicaManager), 1 second)
+    val result = Await.result(ArchiveTask.maybeInitiateUpload(BeforeUpload(newTierEpoch), topicIdPartition, time, tierTopicManager, tierObjectStore, replicaManager), maxWaitTime)
     assertTrue("Should advance to Upload", result.isInstanceOf[Upload])
   }
 }
