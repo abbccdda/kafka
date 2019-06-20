@@ -21,8 +21,10 @@ import org.apache.kafka.common.errors.RetriableException
 import org.apache.kafka.common.utils.Time
 
 import scala.collection.JavaConverters._
+import scala.compat.java8.OptionConverters._
 import scala.collection.mutable
 import scala.concurrent.ExecutionException
+import scala.util.Try
 
 /**
   * Responsible for determining segments eligible for deletion in tiered storage due to retention. This module drives
@@ -149,10 +151,17 @@ class TierRetentionManager(scheduler: Scheduler,
       val topicIdPartition = topicPartitionAndEpoch.getKey
       val epoch = topicPartitionAndEpoch.getValue
 
+      // We should not attempt to delete segments until we have read our the InitLeader message
+      // that we emitted upon becoming the leader for this partition. If we do not wait, there may
+      // be DeleteInitiate/DeleteCompleted messages that we have not read, and will repeat
+      val leadershipEstablished = Try(replicaManager
+        .tierMetadataManager
+        .tierPartitionState(topicIdPartition).asScala.forall(_.tierEpoch == epoch)).getOrElse(false)
+
       // If deletion for this topic partition is already in progress, we do not queue any more segments for deletion
       // until we are done with the current set. This is because the segments we found for deletion may already be
       // queued for deletion.
-      if (!inProgress.containsKey(topicIdPartition)) {
+      if (!inProgress.containsKey(topicIdPartition) && leadershipEstablished) {
         replicaManager.getLog(topicIdPartition.topicPartition).foreach { log =>
           val tieredSegments = log.tieredLogSegments
           if (tieredSegments.nonEmpty) {

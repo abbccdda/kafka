@@ -17,9 +17,10 @@ import kafka.tier.state.FileTierPartitionStateFactory
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
 import kafka.tier.{TierMetadataManager, TierTopicManager, TopicIdPartition}
+import kafka.tier.domain.TierTopicInitLeader
 import kafka.utils.{MockTime, TestUtils}
 import org.junit.{After, Before, Test}
-import org.junit.Assert.assertEquals
+import org.junit.Assert.{assertEquals, assertTrue}
 import org.mockito.Mockito.{mock, when}
 import org.mockito.ArgumentMatchers.any
 import org.mockito.invocation.InvocationOnMock
@@ -74,6 +75,7 @@ class TierRetentionManagerTest {
 
       when(partition.topicPartition).thenReturn(log.topicPartition)
       when(replicaManager.getLog(topicPartition)).thenReturn(Some(log))
+      when(replicaManager.tierMetadataManager).thenReturn(tierMetadataManager)
 
       TestUtils.waitUntilTrue(() => {
         tierRetentionManager.makeTransitions()
@@ -84,6 +86,53 @@ class TierRetentionManagerTest {
       log.close()
     }
   }
+
+
+  @Test
+  def testWaitsForLeadership(): Unit = {
+    val segmentBytes = createRecords().sizeInBytes * 2
+    val retentionBytes = segmentBytes * 9
+    val partition = mock(classOf[Partition])
+
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, retentionBytes = retentionBytes, tierEnable = true)
+    val log = createLogWithOverlap(numTieredSegments = 15, numLocalSegments = 10, numOverlap = 5, logConfig, logDir)
+    val topicIdPartition = tierMetadataManager.tierPartitionState(topicPartition).get.topicIdPartition.get
+    try {
+      assertEquals(20, log.tieredLogSegments.size)
+
+      when(partition.topicPartition).thenReturn(log.topicPartition)
+      when(replicaManager.getLog(topicPartition)).thenReturn(Some(log))
+      when(replicaManager.tierMetadataManager).thenReturn(tierMetadataManager)
+
+      // check that the tier retention manager will not delete segments as becomeLeader has not been called
+      tierRetentionManager.makeTransitions()
+      time.sleep(logConfig.fileDeleteDelayMs)
+      assertEquals("expected no segments to be deleted because become leader has not been called",
+        20, log.tieredLogSegments.size)
+      assertEquals(0, tierMetadataManager.tierPartitionState(topicPartition).get().tierEpoch())
+
+      // becomeLeader for the partition. This will cause this partition to be
+      // checked in the TierRetentionManager, however it must first wait for the TierPartitionState
+      // to be at the right epoch before making any actions
+      tierMetadataManager.becomeLeader(topicIdPartition, 1)
+      tierRetentionManager.makeTransitions()
+      time.sleep(logConfig.fileDeleteDelayMs)
+      assertEquals("expected no segments to be deleted because metadata has not been read",
+        20, log.tieredLogSegments.size)
+
+      // write out the init marker at the expected epoch, this should trigger retention
+      tierMetadataManager.tierPartitionState(topicPartition).get().append(new TierTopicInitLeader(topicIdPartition, 1, UUID.randomUUID(), 10))
+      assertEquals(1, tierMetadataManager.tierPartitionState(topicPartition).get().tierEpoch())
+      tierRetentionManager.makeTransitions()
+      time.sleep(logConfig.fileDeleteDelayMs)
+      assertTrue("expected some segments to be deleted now that the leader epoch has been written",
+        log.tieredLogSegments.size < 20)
+
+    } finally {
+      log.close()
+    }
+  }
+
 
   @Test
   def testCollectDeletableSegments(): Unit = {
