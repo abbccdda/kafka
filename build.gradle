@@ -2338,12 +2338,15 @@ project(':ce-broker-plugins') {
     compile libs.jbcrypt
     compile libs.jose4j
     compile project(':clients')
-    compile project(':core')
+    // projects without a scala version suffix in their artifact id must
+    // not depend on projects that do
+    compileOnly project(':core')
     compile project(':ce-licensing')
     compile project(':ce-kafka-client-plugins')
     compile project(':ce-authorizer')
     compile project(':ce-rest-authorizer')
 
+    testCompile project(':core')
     testCompile project(':clients').sourceSets.test.output
     testCompile project(':core').sourceSets.test.output
 
@@ -2539,6 +2542,7 @@ project(':ce-auth-providers') {
     compile project(':ce-authorizer')
     compile project(':ce-rbac')
 
+    testCompile project(':core')
     testCompile project(':clients').sourceSets.test.output
     testCompile project(':core').sourceSets.test.output
     testCompile project(':ce-broker-plugins')
