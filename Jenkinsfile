@@ -33,7 +33,7 @@ def job = {
 
     stage("Test") {
         sh "./gradlew unitTest integrationTest " +
-                "--no-daemon --stacktrace --continue -PtestLoggingEvents=started,passed,skipped,failed -PmaxParallelForks=4"
+                "--no-daemon --stacktrace --continue -PtestLoggingEvents=started,passed,skipped,failed -PmaxParallelForks=4 -PignoreFailures=true"
     }
 }
 
