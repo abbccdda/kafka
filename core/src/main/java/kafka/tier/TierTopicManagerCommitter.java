@@ -120,7 +120,7 @@ public class TierTopicManagerCommitter implements Runnable {
      * Finally write offsets to disk.
      */
     private void closeResources() {
-        log.info("Closing tier partition resources.");
+        log.info("Closing tier committer resources.");
         try {
             // take a copy of the positions so that we don't commit positions
             // later than what we will flush.

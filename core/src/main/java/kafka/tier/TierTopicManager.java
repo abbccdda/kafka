@@ -24,17 +24,13 @@ import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.errors.AuthenticationException;
-import org.apache.kafka.common.errors.AuthorizationException;
 import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.WakeupException;
 import org.apache.kafka.common.internals.Topic;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
-import org.apache.kafka.common.utils.Exit;
 import org.apache.kafka.common.utils.KafkaThread;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,6 +55,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -88,6 +85,7 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
     private final AtomicBoolean cleaned = new AtomicBoolean(false);
     private final AtomicBoolean shutdown = new AtomicBoolean(false);
     private final TierTopicListeners resultListeners = new TierTopicListeners();
+    private final ReentrantReadWriteLock sendLock = new ReentrantReadWriteLock();
     private final Map<AbstractTierMetadata, CompletableFuture<AppendResult>> queuedRequests = new LinkedHashMap<>();
     private final AtomicLong deletedPartitions = new AtomicLong(0);  // temporary tracking for deleted partitions until we implement logic to delete them
 
@@ -159,7 +157,7 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
                             TierTopicManagerConfig config,
                             Supplier<String> bootstrapServersSupplier,
                             LogDirFailureChannel logDirFailureChannel,
-                            Metrics metrics) throws IOException {
+                            Metrics metrics) {
         this(config,
                 new ConsumerBuilder(config),
                 new ProducerBuilder(config),
@@ -286,10 +284,10 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
                     becomeReady(bootstrapServers);
                     final int producerPartitions = producer.partitionsFor(topicName).size();
                     if (producerPartitions != config.numPartitions) {
-                        log.error("Number of partitions {} on tier topic: {} " +
-                                        "does not match the number of partitions configured {}.",
-                                producerPartitions, topicName, config.numPartitions);
-                        fatal();
+                        throw new IllegalArgumentException(String.format("Number of "
+                                + "partitions %d on tier topic: %s " +
+                                        "does not match the number of partitions configured %d.",
+                                producerPartitions, topicName, config.numPartitions));
                     }
                     maybeStartCatchUpConsumer(new HashSet<>(Arrays.asList(TierPartitionStatus.INIT, TierPartitionStatus.CATCHUP)));
                 } else {
@@ -306,22 +304,8 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
             if (!shutdown.get()) {
                 throw e;
             }
-        } catch (IOException io) {
-            log.error("Unrecoverable IOException in TierTopicManager", io);
-            fatal();
-        } catch (AuthenticationException | AuthorizationException e) {
-            log.error("Unrecoverable authentication or authorization issue in TierTopicManager", e);
-            fatal();
-        } catch (KafkaException | IllegalStateException e) {
-            log.error("Unrecoverable error in work cycle", e);
-            fatal();
-        } catch (InterruptedException ie) {
-            log.error("Topic manager interrupted", ie);
-            fatal();
-        } catch (TierMetadataDeserializationException de) {
-            log.error("Tier topic: deserialization error encountered materializing tier topic.",
-                    de);
-            fatal();
+        } catch (Exception e) {
+            log.error("Unrecoverable exception in TierTopicManager", e);
         } finally {
             cleanup();
         }
@@ -388,33 +372,27 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
         return deletedPartitions.get();
     }
 
-    /**
-     * fatal condition for TierTopicManager
-     * Calls cleanup prior to calling exit, as System.exit will cause the broker's shutdown hook
-     * to be called, and this will cause TierTopicManager.shutdown to be called.
-     * shutdownInitiated needs countDown to be called or else the broker shutdown will deadlock.
-     */
-    private void fatal() {
-        cleanup();
-        Exit.exit(1);
-    }
-
     private void cleanup() {
-        if (cleaned.compareAndSet(false, true)) {
-            ready.set(false);
-            if (primaryConsumer != null)
-                primaryConsumer.close();
-            if (catchUpConsumer != null)
-                catchUpConsumer.close();
-            if (producer != null)
-                producer.close(Duration.ofSeconds(1));
+        sendLock.writeLock().lock();
+        try {
+            if (cleaned.compareAndSet(false, true)) {
+                ready.set(false);
+                if (primaryConsumer != null)
+                    primaryConsumer.close();
+                if (catchUpConsumer != null)
+                    catchUpConsumer.close();
+                if (producer != null)
+                    producer.close(Duration.ofSeconds(1));
 
-            committer.shutdown();
-            for (CompletableFuture<AppendResult> future : queuedRequests.values())
-                future.completeExceptionally(new TierMetadataFatalException("Tier topic manager shutting down"));
-            queuedRequests.clear();
+                committer.shutdown();
+                for (CompletableFuture<AppendResult> future : queuedRequests.values())
+                    future.completeExceptionally(new TierMetadataFatalException("Tier topic manager shutting down"));
+                queuedRequests.clear();
 
-            shutdownInitiated.countDown();
+                shutdownInitiated.countDown();
+            }
+        } finally {
+            sendLock.writeLock().unlock();
         }
     }
 
@@ -632,35 +610,44 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
     }
 
     private void addMetadata(AbstractTierMetadata metadata, CompletableFuture<AppendResult> future) {
-        synchronized (ready) {
-            if (!ready.get()) {
-                queuedRequests.put(metadata, future);
-                return;
-            }
-        }
+        sendLock.readLock().lock();
+        try {
+            if (cleaned.get())
+                throw new IllegalStateException("TierTopicManager thread has exited. Cannot add "
+                        + "metadata");
 
-        TopicIdPartition topicPartition = metadata.topicIdPartition();
-        // track this entry's materialization
-        resultListeners.addTracked(metadata, future);
-        producer.send(new ProducerRecord<>(topicName, partitioner.partitionId(topicPartition),
-                        metadata.serializeKey(),
-                        metadata.serializeValue()),
-                (recordMetadata, exception) -> {
-                    if (exception != null) {
-                        if (retriable(exception)) {
-                            future.completeExceptionally(
-                                    new TierMetadataRetriableException(
-                                            "Retriable exception sending tier metadata.",
-                                            exception));
-                        } else {
-                            future.completeExceptionally(
-                                    new TierMetadataFatalException(
-                                            "Fatal exception sending tier metadata.",
-                                            exception));
+            synchronized (ready) {
+                if (!ready.get()) {
+                    queuedRequests.put(metadata, future);
+                    return;
+                }
+            }
+
+            TopicIdPartition topicPartition = metadata.topicIdPartition();
+            // track this entry's materialization
+            resultListeners.addTracked(metadata, future);
+            producer.send(new ProducerRecord<>(topicName, partitioner.partitionId(topicPartition),
+                            metadata.serializeKey(),
+                            metadata.serializeValue()),
+                    (recordMetadata, exception) -> {
+                        if (exception != null) {
+                            if (retriable(exception)) {
+                                future.completeExceptionally(
+                                        new TierMetadataRetriableException(
+                                                "Retriable exception sending tier metadata.",
+                                                exception));
+                            } else {
+                                future.completeExceptionally(
+                                        new TierMetadataFatalException(
+                                                "Fatal exception sending tier metadata.",
+                                                exception));
+                            }
+                            resultListeners.getAndRemoveTracked(metadata);
                         }
-                        resultListeners.getAndRemoveTracked(metadata);
-                    }
-                });
+                    });
+        } finally {
+            sendLock.readLock().unlock();
+        }
     }
 
     /**

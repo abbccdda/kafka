@@ -10,6 +10,7 @@ import java.util
 import java.util.function.Supplier
 import java.util.Collections
 import java.util.{Optional, Properties, UUID}
+import java.util.concurrent.atomic.AtomicBoolean
 
 import kafka.log.LogConfig
 import kafka.server.LogDirFailureChannel
@@ -44,19 +45,6 @@ class TierTopicManagerTest {
   val producerBuilder = new MockProducerBuilder()
   val bootstrapSupplier = new Supplier[String] {
     override def get: String = { "" }
-  }
-
-   private def createExceptionTierTopicManager(consumerBuilder: TierTopicConsumerBuilder, tierTopicNumPartitions: Short): TierTopicManager = {
-    val tierTopicManagerConfig = new TierTopicManagerConfig("", "", tierTopicNumPartitions, 1.toShort, 3, clusterId, 5L, 30000, 500, logDirs)
-    new TierTopicManager(
-      tierTopicManagerConfig,
-      consumerBuilder,
-      producerBuilder,
-      bootstrapSupplier,
-      tierMetadataManager,
-      EasyMock.mock(classOf[LogDirFailureChannel])) {
-      override def doWork(): Boolean = throw new IOException("test correct shutdown.")
-    }
   }
 
   private def createTierTopicManager(consumerBuilder: TierTopicConsumerBuilder, tierTopicNumPartitions: Short): TierTopicManager = {
@@ -155,18 +143,29 @@ class TierTopicManagerTest {
   }
 
   @Test
-  def testTierTopicManagerShutdown(): Unit = {
-    val numPartitions: Short = 1
+  def testTierTopicManagerThreadDies(): Unit = {
+    val numPartitions : Short = 1
     val consumerBuilder = new MockConsumerBuilder(numPartitions, producerBuilder.producer())
-    val tierTopicManager = createExceptionTierTopicManager(consumerBuilder, numPartitions)
-    Exit.setExitProcedure(new Procedure {
-      override def execute(statusCode: Int, message: String): Unit = Thread.sleep(10000)
-    })
+    val tierTopicManagerConfig = new TierTopicManagerConfig("", "", numPartitions, 1.toShort, 3, clusterId, 5L, 30000, 500, logDirs)
+    val didWork = new AtomicBoolean(false)
+    val tierTopicManager = new TierTopicManager(
+      tierTopicManagerConfig,
+      consumerBuilder,
+      producerBuilder,
+      bootstrapSupplier,
+      tierMetadataManager,
+      EasyMock.mock(classOf[LogDirFailureChannel])) {
+      override def doWork(): Boolean = {
+        didWork.set(true)
+        throw new IOException("test correct shutdown.")
+      }
+    }
+
     tierTopicManager.becomeReady(bootstrapSupplier.get())
     tierTopicManager.startup()
-    val shutdownStart = System.currentTimeMillis()
+    TestUtils.waitUntilTrue(() => didWork.get(), "waited for doWork to run.")
+    TestUtils.waitUntilTrue(() => !tierTopicManager.isReady, "TierTopicManager should revert to !isReady")
     tierTopicManager.shutdown()
-    assertTrue(System.currentTimeMillis() - shutdownStart < 2000)
   }
 
   @Test

@@ -135,12 +135,6 @@ final class TierArchiver(config: TierArchiverConfig,
     }
   })
 
-  private def waitForTierTopicAppender(): Unit = {
-    while (!tierTopicAppender.isReady) {
-      Thread.sleep(1000)
-    }
-  }
-
   /**
     * Contains the set of currently executing ArchiveTasks.
     */
@@ -197,14 +191,15 @@ final class TierArchiver(config: TierArchiverConfig,
 
   override def doWork(): Unit = {
     try {
-      info("waiting for TierTopicAppender to start")
-      waitForTierTopicAppender()
-      info("TierTopicAppender is ready, starting archiver loop")
       while (!ctx.isCancelled) {
-        fillWorkingSet()
-        drainFutures()
-
-        cycleTimeMetric.mark()
+        if (tierTopicAppender.isReady) {
+          fillWorkingSet()
+          drainFutures()
+          cycleTimeMetric.mark()
+        } else {
+          info("TierTopicAppender is not ready. Backing off.")
+          Thread.sleep(1000)
+        }
       }
       info("exiting work loop")
     } catch {

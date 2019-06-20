@@ -17,6 +17,7 @@ import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
 import kafka.tier.{TierMetadataManager, TierTopicManager, TopicIdPartition}
 import kafka.utils.{Logging, Scheduler, threadsafe}
+import kafka.metrics.KafkaMetricsGroup
 import org.apache.kafka.common.errors.RetriableException
 import org.apache.kafka.common.utils.Time
 
@@ -37,9 +38,11 @@ class TierRetentionManager(scheduler: Scheduler,
                            tierTopicManager: TierTopicManager,
                            tierObjectStore: TierObjectStore,
                            retentionCheckMs: Long,
-                           time: Time = Time.SYSTEM) extends Logging {
+                           time: Time = Time.SYSTEM) extends Logging with KafkaMetricsGroup {
   private val inProgress = new util.HashMap[TopicIdPartition, Future[Option[State]]]()
   private val leaderReplicas = new ConcurrentHashMap[TopicIdPartition, Int]()
+  removeMetric("CyclesPerSec")
+  private val cycleTimeMetric = newMeter("CyclesPerSec", "TierRetentionManager cycles per second", TimeUnit.SECONDS)
 
   tierMetadataManager.addListener(this.getClass, new TierMetadataManager.ChangeListener {
     override def onBecomeLeader(topicIdPartition: TopicIdPartition, leaderEpoch: Int): Unit = {
@@ -178,11 +181,16 @@ class TierRetentionManager(scheduler: Scheduler,
   }
 
   private[retention] def makeTransitions(): Unit = {
-    // Check if any in progress deletion states have completed and transition them
-    makeTransitions(inProgress)
+    if (tierTopicManager.isReady) {
+      // Check if any in progress deletion states have completed and transition them
+      makeTransitions(inProgress)
 
-    // Check if we can add more segments to the state machine
-    deleteOldSegments(inProgress)
+      // Check if we can add more segments to the state machine
+      deleteOldSegments(inProgress)
+      cycleTimeMetric.mark()
+    } else {
+      info("TierTopicManager is not ready. Waiting for next retention pass.")
+    }
   }
 
   private[retention] def makeTransitions(inProgress: util.Map[TopicIdPartition, Future[Option[State]]]): Unit = {

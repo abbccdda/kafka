@@ -45,6 +45,7 @@ class TierRetentionManagerTest {
 
   @Before
   def setup(): Unit = {
+    when(tierTopicManager.isReady).thenReturn(true)
     when(tierTopicManager.addMetadata(any())).thenAnswer(new Answer[CompletableFuture[AppendResult]] {
       override def answer(invocation: InvocationOnMock): CompletableFuture[AppendResult] = {
         val metadata = invocation.getArgument(0).asInstanceOf[AbstractTierMetadata]
