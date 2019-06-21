@@ -148,6 +148,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                     + "topicIdPartition than already assigned (" + topicIdPartition
                     + " " + this.topicIdPartition + ")");
         this.topicIdPartition = topicIdPartition;
+        log.info("Setting topicIdPartition {}", topicIdPartition);
+
         synchronized (lock) {
             maybeOpenChannel();
         }
@@ -280,7 +282,6 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             if (!tieringEnabled || !status.isOpen())
                 throw new IllegalStateException("Illegal state " + status + " for tier partition. " +
                         "tieringEnabled: " + tieringEnabled + " basePath: " + basePath);
-
             setStatus(TierPartitionStatus.ONLINE);
         }
     }
@@ -332,6 +333,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 flush();
             } finally {
                 closeHandlers();
+                log.info("Tier partition state for {} closed.", topicIdPartition());
             }
         }
     }
@@ -398,6 +400,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     private void setStatus(TierPartitionStatus status) {
         this.status = status;
         dirty = true;
+        log.info("Status updated to {} for {}", status, topicIdPartition());
     }
 
     private static List<TierObjectMetadata> metadataForStates(TopicIdPartition topicIdPartition,
@@ -752,6 +755,9 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         channel.position(channel.size());
         state.currentEpoch = header.header.tierEpoch();
         status = header.status();
+
+        log.info("Opened tier partition state for {} in status {}. topicIdPartition: {} endOffset: {}",
+                topicPartition, status, topicIdPartition(), endOffset());
     }
 
     // As there may be arbitrary overlap between flushedSegments, it is possible for a new

@@ -76,8 +76,11 @@ public class TierMetadataManager {
                                                      File dir,
                                                      LogConfig logConfig) throws IOException {
         PartitionMetadata partitionMetadata = new PartitionMetadata(tierPartitionStateFactory, dir, topicPartition, logConfig, tierFeatureEnabled);
-        tierMetadata.put(new TopicPartition(topicPartition.topic(), topicPartition.partition()),
-                partitionMetadata);
+        tierMetadata.put(new TopicPartition(topicPartition.topic(), topicPartition.partition()), partitionMetadata);
+        // The TierTopicManager will start materializing ONLINE partitions on startup.
+        // We must ensure that the tierMetadata and tierMetadataById maps are in sync when a
+        // given partition is ONLINE or the TierTopicManager will miss metadata updates
+        partitionMetadata.tierPartitionState().topicIdPartition().ifPresent(tpid -> tierMetadataById.put(tpid, partitionMetadata));
         return partitionMetadata.tierPartitionState;
     }
 

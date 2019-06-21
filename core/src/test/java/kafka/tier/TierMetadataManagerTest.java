@@ -84,6 +84,11 @@ public class TierMetadataManagerTest {
                 config);
         assertEquals(TierPartitionStatus.CATCHUP, partitionState2.status());
 
+        // TierPartitionState was assigned a TopicIdPartition so we should be able to look it up
+        // via TopicIdPartition after initState
+        assertTrue(metadataManager2.tierPartitionState(TOPIC_ID_PARTITION.topicPartition()).isPresent());
+        assertTrue(metadataManager2.tierPartitionState(TOPIC_ID_PARTITION).isPresent());
+
         metadataManager2.delete(TOPIC_ID_PARTITION.topicPartition());
 
         assertEquals(0, onBecomeLeader);

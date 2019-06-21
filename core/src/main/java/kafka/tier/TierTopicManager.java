@@ -445,6 +445,14 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
         }
     }
 
+    /* package-private for testing purposes */
+    int numResultListeners() {
+        return resultListeners.results.values()
+                .stream()
+                .map(entry -> entry.values().size())
+                .reduce(0, Integer::sum);
+    }
+
     private List<TierPartitionState> collectPartitionsWithStatus(Set<TierPartitionStatus> transitionStatuses) {
         ArrayList<TierPartitionState> tierPartitionStates = new ArrayList<>();
         tierMetadataManager.tierEnabledPartitionStateIterator().forEachRemaining(tps -> {
@@ -467,7 +475,7 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
         if (states.isEmpty()) {
             stopCatchUpConsumer();
         } else {
-            List<TopicIdPartition> catchUpPartitions = getCatchUpPartititions(states);
+            List<TopicIdPartition> catchUpPartitions = getCatchUpPartitions(states);
             log.info("Assigning tier topic partitions to catch up consumer {}", catchUpPartitions);
             catchUpConsumer.assign(requiredPartitions(catchUpPartitions));
         }
@@ -479,7 +487,7 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
             if (!states.isEmpty()) {
                 for (TierPartitionState state : states)
                     state.beginCatchup();
-                List<TopicIdPartition> catchUpPartitions = getCatchUpPartititions(states);
+                List<TopicIdPartition> catchUpPartitions = getCatchUpPartitions(states);
                 catchUpConsumer = consumerBuilder.setupConsumer(bootstrapServersSupplier.get(), topicName, "catchup");
                 catchUpConsumer.assign(requiredPartitions(catchUpPartitions));
 
@@ -489,7 +497,7 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
         }
     }
 
-    private List<TopicIdPartition> getCatchUpPartititions(List<TierPartitionState> states) {
+    private List<TopicIdPartition> getCatchUpPartitions(List<TierPartitionState> states) {
         return states
                 .stream()
                 .map(TierPartitionState::topicIdPartition)

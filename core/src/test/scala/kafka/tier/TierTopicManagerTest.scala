@@ -20,14 +20,14 @@ import kafka.tier.client.TierTopicConsumerBuilder
 import kafka.tier.domain.{TierSegmentUploadComplete, TierSegmentUploadInitiate, TierTopicInitLeader}
 import kafka.tier.state.FileTierPartitionStateFactory
 import kafka.tier.state.TierPartitionState.AppendResult
+import kafka.tier.state.TierPartitionStatus
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.common.config.ConfluentTopicConfig
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.utils.Exit
-import org.apache.kafka.common.utils.Exit.Procedure
 import org.easymock.EasyMock
+import org.junit.After
 import org.junit.Assert._
 import org.junit.Test
 
@@ -47,7 +47,7 @@ class TierTopicManagerTest {
     override def get: String = { "" }
   }
 
-  private def createTierTopicManager(consumerBuilder: TierTopicConsumerBuilder, tierTopicNumPartitions: Short): TierTopicManager = {
+  private def createTierTopicManager(tierMetadataManager: TierMetadataManager, consumerBuilder: TierTopicConsumerBuilder, tierTopicNumPartitions: Short): TierTopicManager = {
     val tierTopicManagerConfig = new TierTopicManagerConfig("", "", tierTopicNumPartitions, 1.toShort, 3, clusterId, 5L, 30000, 500, logDirs)
     new TierTopicManager(
       tierTopicManagerConfig,
@@ -55,7 +55,14 @@ class TierTopicManagerTest {
       producerBuilder,
       bootstrapSupplier,
       tierMetadataManager,
-      EasyMock.mock(classOf[LogDirFailureChannel]))
+      EasyMock.mock(classOf[LogDirFailureChannel])) {
+      override def startup() {}
+    }
+  }
+
+  @After
+  def tearDown(): Unit = {
+    tierMetadataManager.close()
   }
 
   @Test
@@ -63,11 +70,11 @@ class TierTopicManagerTest {
     try {
       val numPartitions: Short = 1
       val consumerBuilder = new MockConsumerBuilder(numPartitions, producerBuilder.producer())
-      val tierTopicManager = createTierTopicManager(consumerBuilder, numPartitions)
+      val tierTopicManager = createTierTopicManager(tierMetadataManager, consumerBuilder, numPartitions)
       tierTopicManager.becomeReady(bootstrapSupplier.get())
 
       val archivedPartition1 = new TopicIdPartition("archivedTopic", UUID.randomUUID(), 0)
-      addReplica(archivedPartition1)
+      addReplica(tierMetadataManager, archivedPartition1)
       becomeLeader(consumerBuilder,
         tierTopicManager,
         archivedPartition1,
@@ -122,7 +129,7 @@ class TierTopicManagerTest {
 
       // add a second partition and ensure it catches up.
       val archivedPartition2 = new TopicIdPartition("archivedTopic", UUID.randomUUID(), 1)
-      addReplica(archivedPartition2)
+      addReplica(tierMetadataManager, archivedPartition2)
       becomeLeader(consumerBuilder,
         tierTopicManager,
         archivedPartition2,
@@ -134,6 +141,7 @@ class TierTopicManagerTest {
         consumerBuilder.logEndOffset)
 
       assertFalse(tierTopicManager.catchingUp())
+      assertEquals(0, tierTopicManager.numResultListeners())
     } finally {
       Option(new File(logDir).listFiles)
         .map(_.toList)
@@ -169,19 +177,19 @@ class TierTopicManagerTest {
   }
 
   @Test
-  def testCatchUpConsumer(): Unit = {
+  def testCatchUpConsumerReconcile(): Unit = {
     try {
       val numPartitions: Short = 1
       val consumerBuilder = new MockConsumerBuilder(numPartitions, producerBuilder.producer())
-      val tierTopicManager = createTierTopicManager(consumerBuilder, numPartitions)
+      val tierTopicManager = createTierTopicManager(tierMetadataManager, consumerBuilder, numPartitions)
       tierTopicManager.becomeReady(bootstrapSupplier.get())
       val topicId = UUID.randomUUID()
       val archivedPartition1 = new TopicIdPartition("archivedTopic", topicId, 0)
-      addReplica(archivedPartition1)
+      addReplica(tierMetadataManager, archivedPartition1)
       tierMetadataManager.becomeFollower(archivedPartition1)
 
       val archivedPartition2 = new TopicIdPartition("archivedTopic", topicId, 1)
-      addReplica(archivedPartition2)
+      addReplica(tierMetadataManager, archivedPartition2)
       tierMetadataManager.becomeFollower(archivedPartition2)
 
       tierTopicManager.processMigrations()
@@ -191,7 +199,44 @@ class TierTopicManagerTest {
       assertTrue(tierTopicManager.catchingUp())
       tierMetadataManager.delete(archivedPartition1.topicPartition())
       tierTopicManager.processMigrations()
+      assertFalse("tier topic manager should have stopped catching up due to deleted partitions", tierTopicManager.catchingUp())
+
+      assertEquals(0, tierTopicManager.numResultListeners())
+    } finally {
+      Option(new File(logDir).listFiles)
+        .map(_.toList)
+        .getOrElse(Nil)
+        .foreach(_.delete())
+    }
+  }
+
+  @Test
+  def testCatchUpConsumerSwitchToOnlineAndPrimary(): Unit = {
+    try {
+      val numPartitions: Short = 1
+      val consumerBuilder = new MockConsumerBuilder(numPartitions, producerBuilder.producer())
+      val tierTopicManager = createTierTopicManager(tierMetadataManager, consumerBuilder, numPartitions)
+      tierTopicManager.becomeReady(bootstrapSupplier.get())
+      val topicId = UUID.randomUUID()
+      val archivedPartition1 = new TopicIdPartition("archivedTopic", topicId, 0)
+      addReplica(tierMetadataManager, archivedPartition1)
+      tierMetadataManager.becomeFollower(archivedPartition1)
+
+      val archivedPartition2 = new TopicIdPartition("archivedTopic", topicId, 1)
+      addReplica(tierMetadataManager, archivedPartition2)
+      tierMetadataManager.becomeFollower(archivedPartition2)
+
+      tierTopicManager.processMigrations()
+      assertTrue(tierTopicManager.catchingUp())
+      assertEquals(TierPartitionStatus.CATCHUP, tierMetadataManager.tierPartitionState(archivedPartition1.topicPartition()).get().status())
+      assertEquals(TierPartitionStatus.CATCHUP, tierMetadataManager.tierPartitionState(archivedPartition2.topicPartition()).get().status())
+
+      tierTopicManager.doWork()
       assertFalse(tierTopicManager.catchingUp())
+      // partitions should have been set ONLINE after catchup
+      assertEquals(TierPartitionStatus.ONLINE, tierMetadataManager.tierPartitionState(archivedPartition1.topicPartition()).get().status())
+      assertEquals(TierPartitionStatus.ONLINE, tierMetadataManager.tierPartitionState(archivedPartition2.topicPartition()).get().status())
+      assertEquals(0, tierTopicManager.numResultListeners())
     } finally {
       Option(new File(logDir).listFiles)
         .map(_.toList)
@@ -222,13 +267,14 @@ class TierTopicManagerTest {
       EasyMock.replay(consumerBuilder)
       EasyMock.replay(consumer)
 
-      val tierTopicManager = createTierTopicManager(consumerBuilder, numPartitions)
+      val tierTopicManager = createTierTopicManager(tierMetadataManager, consumerBuilder, numPartitions)
 
       // set position for partition 2 on committer to test committed offset recovery
       tierTopicManager.committer().updatePosition(partition2.partition(), committedOffset)
       tierTopicManager.becomeReady(bootstrapSupplier.get())
       EasyMock.verify(consumerBuilder)
       EasyMock.verify(consumer)
+      assertEquals(0, tierTopicManager.numResultListeners())
 
     } finally {
       Option(new File(logDir).listFiles)
@@ -238,20 +284,104 @@ class TierTopicManagerTest {
     }
   }
 
+  @Test
+  def testResumeMaterializationOnStart(): Unit = {
+    val numPartitions: Short = 1
+    val consumerBuilder = new MockConsumerBuilder(numPartitions, producerBuilder.producer())
+    val tierTopicManager = createTierTopicManager(tierMetadataManager, consumerBuilder, numPartitions)
+
+    var epoch = 0
+    val topicIdPartition_1 = new TopicIdPartition("foo_1", UUID.randomUUID, 0)
+    val initLeader_1 = new TierTopicInitLeader(topicIdPartition_1, epoch, UUID.randomUUID, 0)
+    addReplica(tierMetadataManager, topicIdPartition_1)
+    tierMetadataManager.becomeLeader(topicIdPartition_1, epoch)
+    val initLeaderResult_1 = tierTopicManager.addMetadata(initLeader_1)
+    tierTopicManager.becomeReady(bootstrapSupplier.get)
+
+    TestUtils.waitUntilTrue(() => {
+      tierTopicManager.doWork()
+      consumerBuilder.moveRecordsFromProducer()
+      initLeaderResult_1.isDone
+    }, "Timeout waiting for futures to complete")
+    assertEquals(AppendResult.ACCEPTED, initLeaderResult_1.get)
+
+    assertEquals(TierPartitionStatus.ONLINE, tierMetadataManager.tierPartitionState(topicIdPartition_1.topicPartition()).get().status())
+
+    tierTopicManager.committer().flush()
+    assertEquals(Collections.singletonMap[Integer, Long](0, 1), tierTopicManager.committer().positions())
+
+    // another broker takes over archiving, but we do not materialize yet
+    epoch = 1
+    val initLeader_2 = new TierTopicInitLeader(topicIdPartition_1, epoch, UUID.randomUUID, 1)
+    tierTopicManager.shutdown()
+    val initLeaderResult_2 = tierTopicManager.addMetadata(initLeader_2)
+    assertFalse("second init leader should not have been materialized", initLeaderResult_2.isDone)
+
+    // open a new TierMetadataManager and TierTopicManager to test recovery of ONLINE partitions
+    val tierMetadataManager2 = new TierMetadataManager(new FileTierPartitionStateFactory(),
+      Optional.of(new MockInMemoryTierObjectStore(objectStoreConfig)),
+      new LogDirFailureChannel(1),
+      true)
+
+    // simulate log manager reopening log, and testing that resumption of ONLINE partition
+    // proceeds correctly
+    try {
+      addReplica(tierMetadataManager2, topicIdPartition_1)
+
+      assertEquals(TierPartitionStatus.ONLINE, tierMetadataManager2.tierPartitionState(topicIdPartition_1.topicPartition()).get().status())
+      assertEquals(TierPartitionStatus.ONLINE, tierMetadataManager2.tierPartitionState(topicIdPartition_1).get().status())
+
+      val tierTopicManager2 = createTierTopicManager(tierMetadataManager2, consumerBuilder, numPartitions)
+      try {
+        tierTopicManager2.becomeReady(bootstrapSupplier.get)
+
+        TestUtils.waitUntilTrue(() => {
+          tierTopicManager2.doWork()
+          consumerBuilder.moveRecordsFromProducer()
+          tierMetadataManager2.tierPartitionState(topicIdPartition_1).get().tierEpoch() == 1
+        }, "materialization of initLeader_2 message missed after restart")
+        assertEquals(Collections.singletonMap[Integer, Long](0, 2), tierTopicManager2.committer().positions())
+
+        // finally become leader again
+        epoch = 2
+        tierMetadataManager2.becomeLeader(topicIdPartition_1, epoch)
+        assertEquals(TierPartitionStatus.ONLINE, tierMetadataManager2.tierPartitionState(topicIdPartition_1.topicPartition()).get().status())
+        assertEquals(TierPartitionStatus.ONLINE, tierMetadataManager2.tierPartitionState(topicIdPartition_1).get().status())
+
+        val initLeader_3 = new TierTopicInitLeader(topicIdPartition_1, epoch, UUID.randomUUID, 0)
+        val initLeaderResult_3 = tierTopicManager2.addMetadata(initLeader_3)
+        TestUtils.waitUntilTrue(() => {
+          tierTopicManager2.doWork()
+          consumerBuilder.moveRecordsFromProducer()
+          initLeaderResult_3.isDone
+        }, "Timeout waiting for futures to complete")
+        assertEquals(AppendResult.ACCEPTED, initLeaderResult_3.get)
+
+        assertEquals(0, tierTopicManager2.numResultListeners())
+      } finally {
+        tierTopicManager2.shutdown()
+      }
+    } finally {
+      tierMetadataManager2.close()
+    }
+  }
+
+
+  @Test
   def testTrackAppendsBeforeReady(): Unit = {
     val numPartitions: Short = 1
     val consumerBuilder = new MockConsumerBuilder(numPartitions, producerBuilder.producer())
-    val tierTopicManager = createTierTopicManager(consumerBuilder, numPartitions)
+    val tierTopicManager = createTierTopicManager(tierMetadataManager, consumerBuilder, numPartitions)
 
     val epoch = 0
     val topicIdPartition_1 = new TopicIdPartition("foo_1", UUID.randomUUID, 0)
     val initLeader_1 = new TierTopicInitLeader(topicIdPartition_1, epoch, UUID.randomUUID, 0)
-    addReplica(topicIdPartition_1)
+    addReplica(tierMetadataManager, topicIdPartition_1)
     tierMetadataManager.becomeLeader(topicIdPartition_1, epoch)
 
     val topicIdPartition_2 = new TopicIdPartition("foo_2", UUID.randomUUID, 0)
     val initLeader_2 = new TierTopicInitLeader(topicIdPartition_2, epoch, UUID.randomUUID, 0)
-    addReplica(topicIdPartition_2)
+    addReplica(tierMetadataManager, topicIdPartition_2)
     tierMetadataManager.becomeLeader(topicIdPartition_2, epoch)
 
     val initLeaderResult_1 = tierTopicManager.addMetadata(initLeader_1)
@@ -266,9 +396,10 @@ class TierTopicManagerTest {
     }, "Timeout waiting for futures to complete")
     assertEquals(AppendResult.ACCEPTED, initLeaderResult_1.get)
     assertEquals(AppendResult.ACCEPTED, initLeaderResult_2.get)
+    assertEquals(0, tierTopicManager.numResultListeners())
   }
 
-  private def addReplica(topicIdPartition: TopicIdPartition): Unit = {
+  private def addReplica(tierMetadataManager: TierMetadataManager, topicIdPartition: TopicIdPartition): Unit = {
     val properties = new Properties()
     properties.put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true")
     val dir = new File(logDir + "/" + topicIdPartition.topicPartition.toString)
@@ -315,5 +446,6 @@ class TierTopicManagerTest {
     consumerBuilder.moveRecordsFromProducer()
     tierTopicManager.doWork()
     assertEquals(AppendResult.ACCEPTED, completeResult.get)
+    assertEquals(0, tierTopicManager.numResultListeners())
   }
 }
