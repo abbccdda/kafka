@@ -11,6 +11,7 @@ import kafka.tier.store.TierObjectStoreConfig;
 import kafka.tier.state.FileTierPartitionStateFactory;
 import kafka.tier.state.TierPartitionState;
 import kafka.tier.store.MockInMemoryTierObjectStore;
+import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Test;
@@ -18,8 +19,11 @@ import scala.collection.JavaConversions;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.UUID;
@@ -40,7 +44,7 @@ public class TierMetadataManagerTest {
 
     @After
     public void tearDown() throws IOException {
-        Files.deleteIfExists(dir.toPath());
+        Utils.delete(dir);
     }
 
     @Test
@@ -343,6 +347,47 @@ public class TierMetadataManagerTest {
         assertEquals(3, onBecomeLeader);
         assertEquals(2, onBecomeFollower);
         assertEquals(1, onDelete);
+    }
+
+    @Test
+    public void testTierEnabledLeaderPartitionStateIterator() throws IOException {
+        TierMetadataManager metadataManager = new TierMetadataManager(
+                new FileTierPartitionStateFactory(),
+                Optional.of(new MockInMemoryTierObjectStore(OBJECT_STORE_CONFIG)),
+                new LogDirFailureChannel(10),
+                true);
+        LogConfig tierEnableConfig = config(true, false);
+        LogConfig tierDisableConfig = config(false, false);
+
+        TopicIdPartition partition1 = new TopicIdPartition("foo-1", UUID.randomUUID(), 0);
+        TopicIdPartition partition2 = new TopicIdPartition("foo-2", UUID.randomUUID(), 0);
+        TopicIdPartition partition3 = new TopicIdPartition("foo-3", UUID.randomUUID(), 0);
+        TopicIdPartition partition4 = new TopicIdPartition("foo-4", UUID.randomUUID(), 0);
+
+        metadataManager.initState(partition1.topicPartition(), dir, tierEnableConfig);
+        metadataManager.becomeLeader(partition1, 0);
+
+        metadataManager.initState(partition2.topicPartition(), dir, tierDisableConfig);
+        metadataManager.becomeLeader(partition2, 0);
+
+        metadataManager.initState(partition3.topicPartition(), dir, tierEnableConfig);
+        metadataManager.becomeFollower(partition3);
+
+        metadataManager.initState(partition4.topicPartition(), dir, tierDisableConfig);
+        metadataManager.becomeFollower(partition4);
+
+        List<TopicIdPartition> tierEnabledPartitions = new LinkedList<>();
+        Iterator<TierPartitionState> it = metadataManager.tierEnabledPartitionStateIterator();
+        while (it.hasNext())
+            tierEnabledPartitions.add(it.next().topicIdPartition().get());
+
+        List<TopicIdPartition> tierEnabledLeaderPartitions = new LinkedList<>();
+        it = metadataManager.tierEnabledLeaderPartitionStateIterator();
+        while (it.hasNext())
+            tierEnabledLeaderPartitions.add(it.next().topicIdPartition().get());
+
+        assertEquals(Arrays.asList(partition1, partition3), tierEnabledPartitions);
+        assertEquals(Arrays.asList(partition1), tierEnabledLeaderPartitions);
     }
 
     private void addListener(TierMetadataManager metadataManager) {

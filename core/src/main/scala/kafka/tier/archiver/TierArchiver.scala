@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{CancellationException, Executors, ThreadFactory, TimeUnit}
 
 import com.yammer.metrics.core.Gauge
+import kafka.log.AbstractLog
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.{KafkaConfig, ReplicaManager}
 import kafka.tier.fetcher.CancellationContext
@@ -16,6 +17,7 @@ import kafka.tier.{TierMetadataManager, TierTopicAppender}
 import kafka.utils.{Logging, ShutdownableThread}
 import org.apache.kafka.common.utils.{KafkaThread, Time}
 
+import scala.collection.JavaConverters._
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, ExecutionContextExecutor, Future}
 import scala.util.Try
@@ -85,7 +87,7 @@ final class TierArchiver(config: TierArchiverConfig,
       case _: BeforeUpload =>
         replicaManager
           .getLog(task.topicPartition)
-          .map(log => log.tierableLogSegments.map(_.size).sum)
+          .map(log => TierArchiver.sizeOfTierableSegments(log))
       case _: Upload => Some(-2)
       case _: AfterUpload => Some(-3)
     }
@@ -94,20 +96,7 @@ final class TierArchiver(config: TierArchiverConfig,
   removeMetric("TotalLag")
   newGauge("TotalLag",
     new Gauge[Long] {
-      def value(): Long = {
-        taskQueue.withAllTasks(tasks => {
-          var totalSize = 0L
-          for (task <- tasks) {
-            replicaManager.getLog(task.topicPartition) match {
-              case Some(log) =>
-                val logSize = log.tierableLogSegments.map(_.size).sum
-                totalSize += logSize
-              case None =>
-            }
-          }
-          totalSize
-        })
-      }
+      def value(): Long = taskQueue.withAllTasks(tasks => TierArchiver.totalLag(replicaManager, tierMetadataManager))
     }
   )
 
@@ -218,5 +207,25 @@ final class TierArchiver(config: TierArchiverConfig,
     ctx.cancel()
     taskQueue.close()
     executor.shutdownNow()
+  }
+}
+
+object TierArchiver {
+  private[archiver] def sizeOfTierableSegments(log: AbstractLog): Long = {
+    log.tierableLogSegments.map(_.size.toLong).sum
+  }
+
+  private[archiver] def totalLag(replicaManager: ReplicaManager, tierMetadataManager: TierMetadataManager): Long = {
+    var totalSize = 0L
+
+    tierMetadataManager.tierEnabledLeaderPartitionStateIterator.asScala.foreach { partitionState =>
+      if (partitionState.tieringEnabled) {
+        replicaManager.getLog(partitionState.topicPartition) match {
+          case Some(log) => totalSize += sizeOfTierableSegments(log)
+          case None =>
+        }
+      }
+    }
+    totalSize
   }
 }

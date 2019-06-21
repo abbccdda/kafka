@@ -250,7 +250,7 @@ class MergedLog(private[log] val localLog: Log,
     val tierSize = tierPartitionState.totalSize
 
     val untieredSegments = localLogSegments(firstUntieredOffset, Long.MaxValue)
-    val untieredSize = untieredSegments.map(_.size).sum
+    val untieredSize = segmentsSize(untieredSegments)
 
     var size = tierSize + untieredSize
 
@@ -443,6 +443,10 @@ class MergedLog(private[log] val localLog: Log,
   // First tiered offset, if there is one
   private def firstTieredOffset: Option[Long] = {
     tierPartitionState.startOffset.asScala.map(Long2long)
+  }
+
+  private def segmentsSize(segments: Iterable[LogSegment]): Long = {
+    segments.map(_.size.toLong).sum
   }
 
   // Handle any IOExceptions by taking the log directory offline

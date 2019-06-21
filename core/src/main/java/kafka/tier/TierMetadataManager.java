@@ -261,6 +261,18 @@ public class TierMetadataManager {
     }
 
     /**
+     * Get an iterator over states for all topic partitions for which tiering is enabled and the current broker is the
+     * leader of.
+     */
+    public Iterator<TierPartitionState> tierEnabledLeaderPartitionStateIterator() {
+        return tierMetadata.values()
+                .stream()
+                .filter(partitionMetadata -> partitionMetadata.tieringEnabled() && partitionMetadata.epochIfLeader.isPresent())
+                .map(partitionMetadata -> partitionMetadata.tierPartitionState)
+                .iterator();
+    }
+
+    /**
      * Register a change listener.
      * @param clazz class to register the listener under
      * @param listener Listener to register
