@@ -53,6 +53,8 @@ final class TierArchiver(config: TierArchiverConfig,
                          tierObjectStore: TierObjectStore,
                          time: Time = Time.SYSTEM) extends ShutdownableThread(name = "tier-archiver") with KafkaMetricsGroup with Logging {
 
+  override protected def loggerName: String = classOf[TierArchiver].getName
+
   private val ctx: CancellationContext = CancellationContext.newContext()
   private val executor = Executors.newFixedThreadPool(config.numThreads, new ThreadFactory {
     val threadNum = new AtomicInteger(-1)
@@ -127,7 +129,7 @@ final class TierArchiver(config: TierArchiverConfig,
   /**
     * Contains the set of currently executing ArchiveTasks.
     */
-  var workingSet: List[Future[ArchiveTask]] = List()
+  @volatile var workingSet: List[Future[ArchiveTask]] = List()
 
   /**
     * Block until there is at least one task item in the workingSet. If there is a task item
@@ -173,7 +175,7 @@ final class TierArchiver(config: TierArchiverConfig,
     debug(s"${completed.size} tasks completed")
     for (taskFuture <- completed) {
       val task = Await.result(taskFuture, 0 seconds)
-      trace(s"completing task $task")
+      debug(s"completing task $task")
       taskQueue.done(task)
     }
   }

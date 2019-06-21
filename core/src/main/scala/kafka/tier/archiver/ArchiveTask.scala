@@ -182,6 +182,8 @@ final class ArchiveTask(override val ctx: CancellationContext,
 
 
 object ArchiveTask extends Logging {
+  override protected def loggerName: String = classOf[ArchiveTask].getName
+
   def apply(ctx: CancellationContext, topicIdPartition: TopicIdPartition, leaderEpoch: Int): ArchiveTask = {
     new ArchiveTask(ctx, topicIdPartition, BeforeLeader(leaderEpoch))
   }

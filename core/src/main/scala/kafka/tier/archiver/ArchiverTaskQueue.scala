@@ -6,10 +6,12 @@ package kafka.tier.archiver
 
 import java.time.{Duration, Instant}
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 import kafka.tier.TierMetadataManager
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.TopicIdPartition
+import kafka.utils.Logging
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.utils.Time
 
@@ -61,7 +63,9 @@ trait ArchiverTaskQueueTask {
 class ArchiverTaskQueue[T <: ArchiverTaskQueueTask](ctx: CancellationContext,
                                                     time: Time,
                                                     lagFn: T => Option[Long],
-                                                    taskFactoryFn: (CancellationContext, TopicIdPartition, Int) => T) extends TaskQueue[T] with AutoCloseable {
+                                                    taskFactoryFn: (CancellationContext, TopicIdPartition, Int) => T) extends TaskQueue[T] with AutoCloseable with Logging {
+
+  override def loggerName: String = classOf[ArchiverTaskQueue[T]].getName
 
   private val leadershipChangeQueue: UpdatableQueue[LeadershipChange] = new UpdatableQueue()
   @volatile private var tasks: Set[T] = Set()
@@ -100,10 +104,13 @@ class ArchiverTaskQueue[T <: ArchiverTaskQueueTask](ctx: CancellationContext,
     * @param topicIdPartition
     */
   private def cancelAndRemoveAll(topicIdPartition: TopicIdPartition): Unit = {
+    debug(s"canceling and removing all tasks matching $topicIdPartition")
+    val startingTaskCount = tasks.size
     processing.find(_.topicIdPartition == topicIdPartition).foreach(_.ctx.cancel())
     processing = processing.filterNot(_.topicIdPartition == topicIdPartition)
     tasks.find(_.topicIdPartition == topicIdPartition).foreach(_.ctx.cancel())
     tasks = tasks.filterNot(_.topicIdPartition == topicIdPartition)
+    debug(s"cancelled ${startingTaskCount - tasks.size} tasks")
   }
 
   /**
@@ -128,12 +135,14 @@ class ArchiverTaskQueue[T <: ArchiverTaskQueueTask](ctx: CancellationContext,
       val timeBeforePoll = time.hiResClockMs() // measure start time so we know when to stop polling
       leadershipChangeQueue.pop(remainingWaitDuration.toMillis, TimeUnit.MILLISECONDS) match {
         case Some(startLeadership: StartLeadership) =>
+          debug(s"handling StartLeadership for ${startLeadership.topicIdPartition} for leader epoch ${startLeadership.leaderEpoch}")
           val newTask = taskFactoryFn(ctx.subContext(), startLeadership.topicIdPartition, startLeadership.leaderEpoch)
           cancelAndRemoveAll(newTask.topicIdPartition)
           tasks += newTask
           newEntryProcessed = true
 
         case Some(stopLeadership: StopLeadership) =>
+          debug(s"handling StopLeadership for ${stopLeadership.topicIdPartition}")
           cancelAndRemoveAll(stopLeadership.topicIdPartition)
           newEntryProcessed = true
 
@@ -143,7 +152,7 @@ class ArchiverTaskQueue[T <: ArchiverTaskQueueTask](ctx: CancellationContext,
       // `leadershipChangeQueue.pop()` did not timeout, so we can assume that some work was done processing the `leadershipChangeQueue`.
       // In this case, we should update the `remainingWaitDuration` by subtracting out the time we spent waiting
       // for the item which was just processed.
-      val timeWaited = Duration.ofMillis(Math.min(time.hiResClockMs() - timeBeforePoll, 0))
+      val timeWaited = Duration.ofMillis(time.hiResClockMs() - timeBeforePoll)
       remainingWaitDuration = remainingWaitDuration.minus(timeWaited)
     }
     newEntryProcessed
@@ -199,11 +208,17 @@ class ArchiverTaskQueue[T <: ArchiverTaskQueueTask](ctx: CancellationContext,
     * canceled.
     */
   override def done(task: T): Unit = synchronized {
+    if (!processing.contains(task))
+      warn(s"done task $task not found in processing set")
     processing -= task
-    if (!tasks.contains(task))
+    if (!tasks.contains(task)) {
+      debug(s"cancelling done task $task due to it no longer being in the task set")
       task.ctx.cancel()
-    if (task.ctx.isCancelled)
+    }
+    if (task.ctx.isCancelled) {
+      debug(s"removing done task $task from the task set")
       tasks -= task
+    }
   }
 
   /**
