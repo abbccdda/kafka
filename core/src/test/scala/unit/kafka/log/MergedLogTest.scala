@@ -17,7 +17,7 @@ import kafka.server.{BrokerTopicStats, FetchDataInfo, LogDirFailureChannel, Tier
 import kafka.server.epoch.EpochEntry
 import kafka.tier.{TierMetadataManager, TierTestUtils, TierTimestampAndOffset, TopicIdPartition}
 import kafka.tier.domain.TierTopicInitLeader
-import kafka.tier.state.FileTierPartitionStateFactory
+import kafka.tier.state.{FileTierPartitionStateFactory, TierPartitionState}
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStore, TierObjectStoreConfig}
 import kafka.utils.{MockTime, Scheduler, TestUtils}
@@ -754,6 +754,56 @@ class MergedLogTest {
         mergedLog.localLog.logSegments.head.baseOffset,
         mergedLog.firstUnstableOffset.get.messageOffset)
     })
+  }
+
+  @Test
+  def testUniqueLogSegmentsPartialOverlapWithFirstSegment(): Unit = {
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true)
+    val log = createMergedLog(logConfig)
+
+    val epoch = 0
+    val tierPartitionState = tierMetadataManager.tierPartitionState(log.topicPartition).get
+    initializeTierPartitionState(tierPartitionState, epoch)
+
+    // Append a record at offset 110. This record will be appended to the segment with baseOffset = 0.
+    val records = TestUtils.records(
+      List(new SimpleRecord(mockTime.milliseconds, "k1".getBytes, "v1".getBytes)),
+      baseOffset = 110L, partitionLeaderEpoch = 0)
+    log.appendAsFollower(records)
+    log.maybeIncrementLogStartOffset(110L)
+    assertEquals(0L, log.localLogSegments.head.baseOffset)
+    assertEquals(110L, log.logStartOffset)
+    assertEquals(1, log.localLogSegments.size)
+
+    // Tier a segment at offset 100
+    val result = TierTestUtils.uploadWithMetadata(tierPartitionState,
+      topicIdPartition,
+      epoch,
+      UUID.randomUUID,
+      100,
+      200,
+      mockTime.milliseconds,
+      mockTime.milliseconds,
+      100,
+      false,
+      true)
+    assertEquals(AppendResult.ACCEPTED, result)
+    tierPartitionState.flush()
+
+    log.uniqueLogSegments(log.logStartOffset, Long.MaxValue) match {
+      case (tieredSegments, localSegments) =>
+        assertEquals(0, tieredSegments.size)
+        assertEquals(1, localSegments.size)
+        assertEquals(0, localSegments.head.baseOffset)
+    }
+  }
+
+  private def initializeTierPartitionState(tierPartitionState: TierPartitionState, epoch: Int): Unit = {
+    // append an init message
+    tierPartitionState.setTopicIdPartition(topicIdPartition)
+    tierPartitionState.onCatchUpComplete()
+    tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
+      epoch, java.util.UUID.randomUUID(), 0))
   }
 
   private def logRanges(log: MergedLog): LogRanges = {

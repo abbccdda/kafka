@@ -22,11 +22,9 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{KafkaStorageException, OffsetOutOfRangeException}
 import org.apache.kafka.common.record.MemoryRecords
 import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
-import org.apache.kafka.common.requests.FetchResponse.AbortedTransaction
 import org.apache.kafka.common.requests.ListOffsetRequest
 import org.apache.kafka.common.utils.{Time, Utils}
 
-import scala.collection.mutable.ListBuffer
 import scala.collection.JavaConverters._
 import scala.compat.java8.OptionConverters._
 
@@ -410,9 +408,18 @@ class MergedLog(private[log] val localLog: Log,
   // a point-in-time snapshot. Segments seen by the iterable could change as segments are added or deleted.
   // Visible for testing
   private[log] def uniqueLogSegments(from: Long, to: Long): (Iterable[TierLogSegment], Iterable[LogSegment]) = {
-    val localSegments = localLog.logSegments(from, to)
-    val localStartOffset = localSegments.headOption.map(_.baseOffset)
-    val tieredSegments = tieredLogSegments(from, localStartOffset.getOrElse(to))
+    val localSegments = localLogSegments(from, to)
+
+    // Get tiered segments in range [from, localStartOffset). If localStartOffset does not exist, get tiered segments
+    // in range [from, to).
+    val firstLocalSegmentOpt = localSegments.headOption
+    val tierLastOffsetToInclude = firstLocalSegmentOpt.map(_.baseOffset).getOrElse(to)
+    val tieredSegments =
+      if (from < tierLastOffsetToInclude)
+        tieredLogSegments(from, tierLastOffsetToInclude)
+      else
+        Iterable.empty
+
     (tieredSegments, localSegments)
   }
 
