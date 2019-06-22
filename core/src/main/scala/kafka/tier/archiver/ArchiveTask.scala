@@ -177,7 +177,7 @@ final class ArchiveTask(override val ctx: CancellationContext,
     }
   }
 
-  override def toString = s"ArchiveTask($topicIdPartition, retries=$totalRetryCount, state=${state.getClass.getName}, cancelled=${ctx.isCancelled})"
+  override def toString = s"ArchiveTask($topicIdPartition, retries=$totalRetryCount, state=${state.getClass.getName}, epoch=${state.leaderEpoch}, cancelled=${ctx.isCancelled})"
 }
 
 
