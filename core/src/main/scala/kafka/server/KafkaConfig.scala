@@ -209,7 +209,7 @@ object Defaults {
   val TierLocalHotsetMs = 24 * 60 * 60 * 1000L
 
   /** Tiered storage archiver configs **/
-  val TierArchiverNumThreads = 4: Integer
+  val TierArchiverNumThreads = 2: Integer
 
   /** ********* Fetch Session Configuration **************/
   val MaxIncrementalFetchSessionCacheSlots = 1000
