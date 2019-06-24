@@ -13,7 +13,6 @@ import kafka.tier.fetcher.{CancellationContext, TierSegmentReader}
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.utils.ByteBufferInputStream
 import org.apache.kafka.test.IntegrationTest
-import org.junit.Test
 import org.junit.experimental.categories.Category
 import org.junit.runner.RunWith
 import org.scalacheck.Gen

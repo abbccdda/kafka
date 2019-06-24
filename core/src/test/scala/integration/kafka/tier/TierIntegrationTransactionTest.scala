@@ -119,7 +119,7 @@ class TierIntegrationTransactionTest extends IntegrationTestHarness {
   /**
     * Waits until minNumSegments across all topic partitions are tiered.
     */
-  private def waitUntilSegmentsTiered(minNumSegments: Int = 1): Unit = {
+  private def waitUntilSegmentsTiered(minNumSegments: Int): Unit = {
     TestUtils.waitUntilTrue(() => {
       topicPartitions.forall(tp => {
         val leaderId = getLeaderForTopicPartition(tp)

@@ -233,7 +233,6 @@ class TierPartitionStateTest {
 
   @Test
   def testMultipleInitiatesScannedCorrectlyOnReload(): Unit = {
-    val numSegments = 20
     var epoch = 0
     var offset = 0
 

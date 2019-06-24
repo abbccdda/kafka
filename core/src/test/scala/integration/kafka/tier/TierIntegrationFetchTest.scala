@@ -39,32 +39,6 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
     serverConfig.put(KafkaConfig.TierS3BucketProp, "mybucket")
   }
 
-  private def configureMinio(): Unit = {
-    serverConfig.put(KafkaConfig.TierBackendProp, "S3")
-    serverConfig.put(KafkaConfig.TierS3BucketProp, "mybucket")
-    serverConfig.put(KafkaConfig.TierS3AwsAccessKeyIdProp, "admin")
-    serverConfig.put(KafkaConfig.TierS3AwsSecretAccessKeyProp, "password")
-    serverConfig.put(KafkaConfig.TierS3RegionProp, "us-east-1")
-    serverConfig.put(KafkaConfig.TierS3EndpointOverrideProp, "http://localhost:9000")
-    serverConfig.put(KafkaConfig.TierS3SignerOverrideProp, "AWSS3V4SignerType")
-    serverConfig.put(KafkaConfig.TierLocalHotsetBytesProp, "0")
-  }
-
-  private def configures3GcsCompatMode(): Unit = {
-    serverConfig.put(KafkaConfig.TierBackendProp, "S3")
-    serverConfig.put(KafkaConfig.TierS3BucketProp, "tiered-storage-gcs-compatibility-testing-lucas")
-    serverConfig.put(KafkaConfig.TierS3RegionProp, "us-east-1")
-    serverConfig.put(KafkaConfig.TierS3EndpointOverrideProp, "storage.googleapis.com")
-    serverConfig.put(KafkaConfig.TierLocalHotsetBytesProp, "0")
-  }
-
-  private def configureS3(): Unit = {
-    serverConfig.put(KafkaConfig.TierBackendProp, "S3")
-    serverConfig.put(KafkaConfig.TierS3BucketProp, "confluent-tier-system-test")
-    serverConfig.put(KafkaConfig.TierS3RegionProp, "us-west-2")
-    serverConfig.put(KafkaConfig.TierLocalHotsetBytesProp, "0")
-  }
-
   serverConfig.put(KafkaConfig.TierEnableProp, "false")
   serverConfig.put(KafkaConfig.TierFeatureProp, "true")
   serverConfig.put(KafkaConfig.TierMetadataNumPartitionsProp, "1")
@@ -126,7 +100,7 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
   /**
     * Waits until minNumSegments across all topic partitions are tiered.
     */
-  private def waitUntilSegmentsTiered(minNumSegments: Int = 1): Unit = {
+  private def waitUntilSegmentsTiered(minNumSegments: Int): Unit = {
     topicPartitions.foreach { tp =>
       val leaderId = getLeaderForTopicPartition(tp)
       val server = serverForId(leaderId)

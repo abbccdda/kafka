@@ -11,7 +11,6 @@ import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ExecutorServi
 import kafka.log.{AbstractLog, LogTest}
 import kafka.server.{BrokerTopicStats, KafkaConfig, ReplicaManager}
 import kafka.tier.{TierTopicAppender, TopicIdPartition}
-import kafka.tier.archiver.{AfterUpload, ArchiveTask, BeforeUpload, Upload}
 import kafka.tier.domain.{AbstractTierMetadata, TierTopicInitLeader}
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.{FileTierPartitionState, TierPartitionState}

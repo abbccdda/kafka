@@ -13,13 +13,9 @@ import kafka.server.KafkaConfig
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
-import org.apache.kafka.common.config.ConfluentTopicConfig
-import org.apache.kafka.common.config.TopicConfig
 import org.apache.kafka.common.internals.Topic
-import org.apache.kafka.common.TopicPartition
 import org.junit.Test
 import org.junit.Assert.assertTrue
-import org.junit.Before
 
 import scala.collection.JavaConverters._
 

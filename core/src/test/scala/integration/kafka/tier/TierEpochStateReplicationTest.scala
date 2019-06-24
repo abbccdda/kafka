@@ -24,7 +24,6 @@ import kafka.log.AbstractLog
 import kafka.server.KafkaConfig._
 import kafka.server.epoch.{LeaderEpochFileCache, EpochEntry}
 import kafka.server.{KafkaServer, KafkaConfig}
-import kafka.tier.TierTestUtils
 import kafka.utils.{TestUtils, Logging}
 import kafka.utils.TestUtils._
 import kafka.zk.ZooKeeperTestHarness

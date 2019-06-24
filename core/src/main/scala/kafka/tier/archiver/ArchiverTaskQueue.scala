@@ -6,7 +6,6 @@ package kafka.tier.archiver
 
 import java.time.{Duration, Instant}
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 
 import kafka.tier.TierMetadataManager
 import kafka.tier.fetcher.CancellationContext

@@ -24,7 +24,6 @@ class TierProducerStateReplicationTest extends IntegrationTestHarness with Loggi
   private val segmentBytes = 1024
   private val topicName = "topic"
   private val replicationFactor = brokerCount
-  private var partitionMapping: Map[Int, Int] = _
   // onshotProducer is used to produce to a single segment file, we use it to ensure
   // that a new replica sees a full history of producers, even if they don't exist in the
   // local log.
@@ -57,7 +56,7 @@ class TierProducerStateReplicationTest extends IntegrationTestHarness with Loggi
     topicProps.put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true")
     topicProps.put(TopicConfig.RETENTION_BYTES_CONFIG, "-1")
     topicProps.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "2")
-    partitionMapping = createTopic(topicName, replicationFactor = replicationFactor)
+    createTopic(topicName, replicationFactor = replicationFactor)
 
     val producerProps = new Properties()
     producerProps.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, "true")

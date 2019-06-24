@@ -6,7 +6,6 @@ package kafka.tier.archiver
 
 import java.util.concurrent.{CancellationException, TimeUnit}
 
-import kafka.tier.archiver.{UpdatableQueue, UpdatableQueueEntry}
 import org.apache.kafka.test.IntegrationTest
 import org.junit.experimental.categories.Category
 import org.junit.runner.RunWith

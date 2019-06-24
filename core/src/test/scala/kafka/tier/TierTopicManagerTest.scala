@@ -254,7 +254,6 @@ class TierTopicManagerTest {
       val partitions = util.Arrays.asList(partition1, partition2)
       val committedOffset = 300L
 
-      val producerBuilder = new MockProducerBuilder()
       val consumer: KafkaConsumer[Array[Byte], Array[Byte]] = EasyMock.createMock(classOf[KafkaConsumer[Array[Byte], Array[Byte]]])
       val consumerBuilder: ConsumerBuilder = EasyMock.createMock(classOf[ConsumerBuilder])
       EasyMock.expect(consumerBuilder.setupConsumer(EasyMock.anyString, EasyMock.anyString, EasyMock.anyString))

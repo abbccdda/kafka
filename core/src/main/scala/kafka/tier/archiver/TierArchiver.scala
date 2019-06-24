@@ -98,7 +98,7 @@ final class TierArchiver(config: TierArchiverConfig,
   removeMetric("TotalLag")
   newGauge("TotalLag",
     new Gauge[Long] {
-      def value(): Long = taskQueue.withAllTasks(tasks => TierArchiver.totalLag(replicaManager, tierMetadataManager))
+      def value(): Long = TierArchiver.totalLag(replicaManager, tierMetadataManager)
     }
   )
 

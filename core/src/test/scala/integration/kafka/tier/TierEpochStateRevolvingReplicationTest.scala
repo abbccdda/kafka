@@ -26,7 +26,6 @@ import kafka.server.epoch.LeaderEpochFileCache
 import kafka.server.{KafkaServer, KafkaConfig}
 import kafka.utils.{TestUtils, Logging}
 import kafka.utils.TestUtils._
-import kafka.tier.TierTestUtils
 import kafka.zk.ZooKeeperTestHarness
 import org.apache.kafka.clients.producer.{ProducerRecord, KafkaProducer}
 import org.apache.kafka.common.TopicPartition
@@ -36,7 +35,6 @@ import org.apache.kafka.common.utils.Exit.Procedure
 import org.junit.Assert.{assertEquals, assertFalse}
 import org.junit.{Before, After, Test}
 
-import scala.collection.JavaConverters._
 import scala.collection.Seq
 import scala.util.Random
 
@@ -148,13 +146,6 @@ class TierEpochStateRevolvingReplicationTest extends ZooKeeperTestHarness with L
   }
 
   private def start(server: KafkaServer): Unit = {
-    server.startup()
-    producer.close()
-    producer = createProducer
-  }
-
-  private def bounce(server: KafkaServer): Unit = {
-    server.shutdown()
     server.startup()
     producer.close()
     producer = createProducer
