@@ -173,6 +173,11 @@ done
 # CONFLUENT: classpath addition for releases with LSB-style layout
 CLASSPATH="$CLASSPATH":"$base_dir/share/java/kafka/*"
 
+# classpath for support confluent metadata-service with LSB-style layout
+CLASSPATH="$CLASSPATH":"$base_dir/share/java/confluent-metadata-service/*"
+CLASSPATH="$CLASSPATH":"$base_dir/share/java/rest-utils/*"
+CLASSPATH="$CLASSPATH":"$base_dir/share/java/confluent-common/*"
+
 # classpath for support-metrics-client jars
 CLASSPATH="$CLASSPATH:$base_dir/support-metrics-client/build/dependant-libs-${SCALA_VERSION}/*"
 CLASSPATH="$CLASSPATH:$base_dir/support-metrics-client/build/libs/*"
