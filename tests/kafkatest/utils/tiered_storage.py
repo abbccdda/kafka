@@ -21,6 +21,14 @@ def tier_server_props(bucket, feature=True, enable=False, region="us-west-2", ba
         [config_property.CONFLUENT_TIER_S3_REGION, region],
     ]
 
+def tier_set_configs(kafka, bucket, feature=True, enable=False, region="us-west-2", backend="S3",
+        metadata_replication_factor=3, hotset_bytes=1, hotset_ms=1):
+    """Helper for setting tier related configs directly on kafka service. Useful if we want to modify them directly later"""
+    configs = tier_server_props(bucket, feature, enable, region, backend, metadata_replication_factor, hotset_bytes, hotset_ms)
+    for node in kafka.nodes:
+        for config in configs:
+            node.config[config[0]] = config[1]
+
 class TierSupport():
     """Tiered storage helpers. Mix in only with KafkaService-based tests"""
 
@@ -54,10 +62,14 @@ class TierSupport():
 
     def add_log_metrics(self, topic, partitions=[0]):
         """Log-specific beans are not available at server startup"""
+        names = self.kafka.jmx_object_names
+        attrs = self.kafka.jmx_attributes
+        names = [] if names == None else names
+        attrs.append("Value") if "Value" not in attrs else attrs
         for p in partitions:
-            self.kafka.jmx_object_names += ["kafka.log:name=Size,partition={},topic={},type=Log".format(p, topic),
-                                            "kafka.log:name=NumLogSegments,partition={},topic={},type=Log".format(p, topic),
-                                            "kafka.log:name=TierSize,partition={},topic={},type=Log".format(p, topic)]
+            names += ["kafka.log:name=Size,partition={},topic={},type=Log".format(p, topic),
+                      "kafka.log:name=NumLogSegments,partition={},topic={},type=Log".format(p, topic),
+                      "kafka.log:name=TierSize,partition={},topic={},type=Log".format(p, topic)]
 
     def restart_jmx_tool(self):
         for knode in self.kafka.nodes:

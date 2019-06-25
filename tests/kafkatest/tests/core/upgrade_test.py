@@ -15,6 +15,7 @@
 
 from ducktape.mark import parametrize
 from ducktape.mark.resource import cluster
+from ducktape.utils.util import wait_until
 
 from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.services.kafka import KafkaService
@@ -23,9 +24,13 @@ from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
+from kafkatest.utils.tiered_storage import tier_set_configs, TierSupport
+from kafkatest.services.kafka import config_property
 from kafkatest.version import LATEST_0_8_2, LATEST_0_9, LATEST_0_10, LATEST_0_10_0, LATEST_0_10_1, LATEST_0_10_2, LATEST_0_11_0, LATEST_1_0, LATEST_1_1, LATEST_2_0, LATEST_2_1, LATEST_2_2, V_0_9_0_0, DEV_BRANCH, KafkaVersion
 
-class TestUpgrade(ProduceConsumeValidateTest):
+class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
+    TIER_S3_BUCKET = "confluent-tier-system-test"
+    PARTITIONS = 3
 
     def __init__(self, test_context):
         super(TestUpgrade, self).__init__(test_context=test_context)
@@ -40,10 +45,20 @@ class TestUpgrade(ProduceConsumeValidateTest):
         self.num_producers = 1
         self.num_consumers = 1
 
-    def perform_upgrade(self, from_kafka_version, to_message_format_version=None):
+    def perform_upgrade(self, from_kafka_version, to_message_format_version, tiered_storage):
+        if tiered_storage:
+            wait_until(lambda: self.producer.each_produced_at_least(25000),
+                       timeout_sec=120, backoff_sec=1,
+                       err_msg="Producer did not produce all messages in reasonable amount of time")
+        
         self.logger.info("First pass bounce - rolling upgrade")
         for node in self.kafka.nodes:
             self.kafka.stop_node(node)
+
+            if tiered_storage:
+                tier_set_configs(self.kafka, self.TIER_S3_BUCKET, feature = False, enable = False,
+                        hotset_bytes = -1, hotset_ms = -1, metadata_replication_factor=1)
+
             node.version = DEV_BRANCH
             node.config[config_property.INTER_BROKER_PROTOCOL_VERSION] = from_kafka_version
             node.config[config_property.MESSAGE_FORMAT_VERSION] = from_kafka_version
@@ -57,9 +72,22 @@ class TestUpgrade(ProduceConsumeValidateTest):
                 del node.config[config_property.MESSAGE_FORMAT_VERSION]
             else:
                 node.config[config_property.MESSAGE_FORMAT_VERSION] = to_message_format_version
+
+            node.config[config_property.CONFLUENT_TIER_FEATURE] = tiered_storage
             self.kafka.start_node(node)
 
+        # tiered storage currently requires a second bounce to enable tiering
+        # after tier.feature is enabled https://confluentinc.atlassian.net/browse/CPKAFKA-3159 
+        if tiered_storage:
+            self.logger.info("last bounce - tier enable")
+            for node in self.kafka.nodes:
+                self.kafka.stop_node(node)
+                node.config[config_property.CONFLUENT_TIER_ENABLE] = tiered_storage
+                self.kafka.start_node(node)
+
+
     @cluster(num_nodes=6)
+    @parametrize(from_kafka_version=str(LATEST_2_2), to_message_format_version=None, compression_types=["none"], tiered_storage=True)
     @parametrize(from_kafka_version=str(LATEST_2_2), to_message_format_version=None, compression_types=["none"])
     @parametrize(from_kafka_version=str(LATEST_2_2), to_message_format_version=None, compression_types=["zstd"])
     @parametrize(from_kafka_version=str(LATEST_2_1), to_message_format_version=None, compression_types=["none"])
@@ -90,7 +118,7 @@ class TestUpgrade(ProduceConsumeValidateTest):
     @cluster(num_nodes=7)
     @parametrize(from_kafka_version=str(LATEST_0_8_2), to_message_format_version=None, compression_types=["none"])
     @parametrize(from_kafka_version=str(LATEST_0_8_2), to_message_format_version=None, compression_types=["snappy"])
-    def test_upgrade(self, from_kafka_version, to_message_format_version, compression_types,
+    def test_upgrade(self, from_kafka_version, to_message_format_version, compression_types, tiered_storage=False,
                      security_protocol="PLAINTEXT"):
         """Test upgrade of Kafka broker cluster from various versions to the current version
 
@@ -112,7 +140,9 @@ class TestUpgrade(ProduceConsumeValidateTest):
         """
         self.kafka = KafkaService(self.test_context, num_nodes=3, zk=self.zk,
                                   version=KafkaVersion(from_kafka_version),
-                                  topics={self.topic: {"partitions": 3, "replication-factor": 3,
+                                  jmx_attributes=["Value"],
+                                  jmx_object_names=["kafka.server:type=ReplicaManager,name=UnderReplicatedPartitions"],
+                                  topics={self.topic: {"partitions": self.PARTITIONS, "replication-factor": 3,
                                                        'configs': {"min.insync.replicas": 2}}})
         self.kafka.security_protocol = security_protocol
         self.kafka.interbroker_security_protocol = security_protocol
@@ -134,8 +164,17 @@ class TestUpgrade(ProduceConsumeValidateTest):
                                         message_validator=is_int, version=KafkaVersion(from_kafka_version))
 
         self.run_produce_consume_validate(core_test_action=lambda: self.perform_upgrade(from_kafka_version,
-                                                                                        to_message_format_version))
+                                                                                        to_message_format_version,
+                                                                                        tiered_storage))
 
         cluster_id = self.kafka.cluster_id()
         assert cluster_id is not None
         assert len(cluster_id) == 22
+
+        if tiered_storage:
+            self.kafka.leader(self.topic)
+            self.add_log_metrics(self.topic)
+            self.kafka.jmx_object_names += ["kafka.tier.archiver:type=TierArchiver,name=TotalLag"]
+            self.restart_jmx_tool()
+            wait_until(lambda: self.tiering_started(self.topic),
+                       timeout_sec=120, backoff_sec=2, err_msg="no evidence of archival within timeout")
