@@ -2,6 +2,8 @@
 
 package io.confluent.security.test.integration.rbac;
 
+import static org.junit.Assert.assertThrows;
+
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.KafkaTestUtils.ClientBuilder;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
@@ -14,6 +16,7 @@ import io.confluent.security.test.utils.RbacClusters;
 import io.confluent.security.test.utils.RbacClusters.Config;
 import io.confluent.security.test.utils.RbacTestUtils;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import kafka.log.LogConfig$;
@@ -21,12 +24,14 @@ import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AlterConfigOp;
 import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.config.ConfigResource.Type;
+import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -158,6 +163,21 @@ public class RbacEndToEndAuthorizationTest {
     rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
   }
 
+  /**
+   * Tests that users with wildcard group role binding can use empty consumer group name.
+   * Also verifies that role bindings cannot be created with empty resource name.
+   */
+  @Test
+  public void testEmptyConsumerGroupName() throws Throwable {
+    setupRbacClusters(1);
+    verifyEmptyConsumerGroupName(DEVELOPER1, false);
+    verifyEmptyConsumerGroupName(RESOURCE_OWNER, true);
+
+    assertThrows(InvalidRequestException.class, () ->
+        rbacClusters.assignRole(KafkaPrincipal.USER_TYPE, DEVELOPER1, "DeveloperRead", clusterId,
+        Collections.singleton(new ResourcePattern("Group", "", PatternType.LITERAL))));
+  }
+
   @Test
   public void testAuthWriterFailover() throws Throwable {
     setupRbacClusters(2);
@@ -223,6 +243,13 @@ public class RbacEndToEndAuthorizationTest {
         Collections.emptySet());
     rbacClusters.assignRole(KafkaPrincipal.USER_TYPE, SYSTEM_ADMIN, "SystemAdmin", cluster,
         Collections.emptySet());
+  }
+
+  private void verifyEmptyConsumerGroupName(String user, boolean authorized) throws Throwable {
+    ClientBuilder clientBuilder = rbacClusters.clientBuilder(user);
+    KafkaTestUtils.verifyProduce(clientBuilder, APP1_TOPIC, true);
+    Collection<TopicPartition> partitions = Arrays.asList(new TopicPartition(APP1_TOPIC, 0), new TopicPartition(APP1_TOPIC, 1));
+    KafkaTestUtils.verifyConsume(clientBuilder, "", c -> c.assign(partitions), authorized);
   }
 }
 

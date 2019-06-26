@@ -141,9 +141,13 @@ public class KafkaTestUtils {
 
   public static void consumeRecords(KafkaConsumer<String, String> consumer, String topic,
       int first, int count) throws Exception {
+    consumer.subscribe(Collections.singleton(topic));
+    consumeRecords(consumer, first, count);
+  }
+
+  public static void consumeRecords(KafkaConsumer<String, String> consumer, int first, int count) throws Exception {
     int received = 0;
     long endTimeMs = System.currentTimeMillis() + 30000;
-    consumer.subscribe(Collections.singleton(topic));
     while (received < count && System.currentTimeMillis() < endTimeMs) {
       ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(1));
       received += records.count();
@@ -215,15 +219,29 @@ public class KafkaTestUtils {
                                           String topic,
                                           String consumerGroup,
                                           boolean authorized) throws Throwable {
+    verifyProduce(clientBuilder, topic, authorized);
+    verifyConsume(clientBuilder, consumerGroup, c -> c.subscribe(Collections.singleton(topic)), authorized);
+  }
+
+  public static void verifyProduce(ClientBuilder clientBuilder,
+                                   String topic,
+                                   boolean authorized) throws Throwable {
     try (KafkaProducer<String, String> producer = clientBuilder.buildProducer()) {
       KafkaTestUtils.sendRecords(producer, topic, 0, 10);
       assertTrue("No authorization exception from unauthorized client", authorized);
     } catch (AuthorizationException e) {
       assertFalse("Authorization exception from authorized client", authorized);
     }
+  }
+
+  public static void verifyConsume(ClientBuilder clientBuilder,
+                                   String consumerGroup,
+                                   java.util.function.Consumer<KafkaConsumer<String, String>> subscribeOrAssign,
+                                   boolean authorized) throws Throwable {
 
     try (KafkaConsumer<String, String> consumer = clientBuilder.buildConsumer(consumerGroup)) {
-      KafkaTestUtils.consumeRecords(consumer, topic, 0, 10);
+      subscribeOrAssign.accept(consumer);
+      KafkaTestUtils.consumeRecords(consumer, 0, 10);
       assertTrue("No authorization exception from unauthorized client", authorized);
     } catch (AuthorizationException e) {
       assertFalse("Authorization exception from authorized client", authorized);

@@ -124,12 +124,14 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
         addMatchingRules(rules.get(ResourcePattern.ALL), resourceRules, matchingPrincipals);
         addMatchingRules(rules.get(new ResourcePattern(ResourceType.ALL, resourceName, PatternType.LITERAL)), resourceRules, matchingPrincipals);
 
-        rules.subMap(
-            new ResourcePattern(resourceType.name(), resourceName, PatternType.PREFIXED), true,
-            new ResourcePattern(resourceType.name(), resourceName.substring(0, 1), PatternType.PREFIXED), true)
-            .entrySet().stream()
-            .filter(e -> resourceName.startsWith(e.getKey().name()))
-            .forEach(e -> addMatchingRules(e.getValue(), resourceRules, matchingPrincipals));
+        if (!resourceName.isEmpty()) {
+          rules.subMap(
+              new ResourcePattern(resourceType.name(), resourceName, PatternType.PREFIXED), true,
+              new ResourcePattern(resourceType.name(), resourceName.substring(0, 1), PatternType.PREFIXED), true)
+              .entrySet().stream()
+              .filter(e -> resourceName.startsWith(e.getKey().name()))
+              .forEach(e -> addMatchingRules(e.getValue(), resourceRules, matchingPrincipals));
+        }
       }
       nextScope = nextScope.parent();
     }

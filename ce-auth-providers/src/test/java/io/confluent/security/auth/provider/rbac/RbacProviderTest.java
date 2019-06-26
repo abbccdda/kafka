@@ -23,6 +23,7 @@ import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.rbac.RbacRoles;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -217,6 +218,29 @@ public class RbacProviderTest {
   @Test
   public void testFullNamePrefixedResourceAccessRules() {
     verifyResourceAccessRules(new ResourcePattern("Topic", "topic", PatternType.PREFIXED));
+  }
+
+  /**
+   * Verifies role-based authorization for empty resource name. Even though we disallow
+   * role bindings with empty resource name, authorization of empty resource name is supported
+   * since consumer group name may be empty.
+   */
+  @Test
+  public void testEmptyResourceName() {
+    KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
+    EmbeddedAuthorizer authorizer = rbacProvider.createRbacAuthorizer();
+
+    Action action = new Action(clusterA, new ResourceType("Topic"), "", new Operation("Read"));
+    List<Action> actions = Collections.singletonList(action);
+    assertEquals(AuthorizeResult.DENIED, authorizer.authorize(alice, "", actions).get(0));
+
+    ResourcePattern someResource = new ResourcePattern("Topic", "test", PatternType.LITERAL);
+    updateRoleBinding(alice, "Reader", clusterA, Collections.singleton(someResource));
+    assertEquals(AuthorizeResult.DENIED, authorizer.authorize(alice, "", actions).get(0));
+
+    ResourcePattern wildcard = new ResourcePattern("Topic", "*", PatternType.LITERAL);
+    updateRoleBinding(alice, "Reader", clusterA, Collections.singleton(wildcard));
+    assertEquals(AuthorizeResult.ALLOWED, authorizer.authorize(alice, "", actions).get(0));
   }
 
   private void verifyResourceAccessRules(ResourcePattern roleResource) {
