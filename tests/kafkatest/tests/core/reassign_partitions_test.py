@@ -24,13 +24,13 @@ from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
-from kafkatest.utils.tiered_storage import tier_server_props
+from kafkatest.utils.tiered_storage import TierSupport
 from os import environ
 from uuid import uuid1
 import random
 import time
 
-class ReassignPartitionsTest(ProduceConsumeValidateTest):
+class ReassignPartitionsTest(ProduceConsumeValidateTest, TierSupport):
     """
     These tests validate partition reassignment.
     Create a topic with few partitions, load some data, trigger partition re-assignment with and without broker failure,
@@ -141,13 +141,7 @@ class ReassignPartitionsTest(ProduceConsumeValidateTest):
             - Validate that every acked message was consumed
             """
 
-        if tier_feature and tier_enable:
-            self.enable_idempotence=False
-            jmx_object_names=["kafka.server:type=TierFetcher"]
-            jmx_attributes=["BytesFetchedTotal"]
-        else:
-            jmx_object_names=None
-            jmx_attributes=[]
+        self.enable_idempotence = True
 
         # We set the min.insync.replicas to match the replication factor because
         # it makes the test more stringent. If min.isr = 2 and
@@ -155,12 +149,6 @@ class ReassignPartitionsTest(ProduceConsumeValidateTest):
         # reassignment for upto one replica per partition, which is not
         # desirable for this test in particular.
         self.kafka = KafkaService(self.test_context, num_nodes=4, zk=self.zk,
-                                  jmx_object_names=jmx_object_names,
-                                  jmx_attributes=jmx_attributes,
-                                  server_prop_overides=tier_server_props(self.TIER_S3_BUCKET, tier_feature) + [
-                                      [config_property.LOG_ROLL_TIME_MS, "5000"],
-                                      [config_property.LOG_RETENTION_CHECK_INTERVAL_MS, "5000"],
-                                  ],
                                   topics={self.topic: {
                                       "partitions": self.num_partitions,
                                       "replication-factor": 3,
@@ -169,6 +157,17 @@ class ReassignPartitionsTest(ProduceConsumeValidateTest):
                                           "confluent.tier.enable": tier_enable,
                                       },
                                   }})
+
+        if tier_feature:
+            # use broker-default log.segment.bytes but override log.roll.ms
+            self.configure_tiering(self.TIER_S3_BUCKET, feature=tier_feature,
+                                   enable=tier_enable, log_segment_bytes=1024*1024*1024)
+            self.kafka.server_prop_overides.append([config_property.LOG_ROLL_TIME_MS, 5000])
+            if not tier_enable:
+                # do not await tier-related metrics with JmxTool
+                self.kafka.jmx_object_names = None
+                self.kafka.jmx_attributes = None
+
         self.kafka.start()
         if not reassign_from_offset_zero:
             self.move_start_offset()
