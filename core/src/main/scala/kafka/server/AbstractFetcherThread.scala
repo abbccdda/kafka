@@ -789,7 +789,7 @@ abstract class AbstractFetcherThread(name: String,
     } finally partitionMapLock.unlock()
   }
 
-  def partitionCount() = {
+  def partitionCount(): Int = {
     partitionMapLock.lockInterruptibly()
     try partitionStates.size
     finally partitionMapLock.unlock()

@@ -39,8 +39,8 @@ object TierTestUtils {
     log.flush()
 
     // ensure tierable portion of the log is below the highwatermark
-    if (log.getHighWatermark.getOrElse(0L) <= tierEndOffset)
-      log.onHighWatermarkIncremented(tierEndOffset + 1)
+    if (log.highWatermark <= tierEndOffset)
+      log.highWatermark = tierEndOffset + 1
 
     // ensure tierable portion of the log is below the firstUnstableOffset
     assertTrue(log.firstUnstableOffset.map(_.messageOffset).getOrElse(Long.MaxValue) > tierEndOffset)

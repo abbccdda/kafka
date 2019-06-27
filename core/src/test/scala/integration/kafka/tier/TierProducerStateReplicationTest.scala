@@ -88,7 +88,7 @@ class TierProducerStateReplicationTest extends IntegrationTestHarness with Loggi
   // Block on ISR reaching the expected count
   private def awaitISR(topicPartition: TopicPartition, expected: Int): Unit = {
     TestUtils.waitUntilTrue(() => {
-      leader(topicPartition).replicaManager.nonOfflinePartition(topicPartition).get.inSyncReplicas.map(_.brokerId).size == expected
+      leader(topicPartition).replicaManager.nonOfflinePartition(topicPartition).get.inSyncReplicas.size == expected
     }, "timed out waiting for replicas to join the ISR", 120000, 1000)
   }
 

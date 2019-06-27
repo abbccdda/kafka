@@ -7,7 +7,7 @@ package kafka.log
 import java.io.File
 import java.io.FileInputStream
 import java.nio.ByteBuffer
-import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, TimeUnit}
+import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, ScheduledFuture, TimeUnit}
 import java.util.{Optional, UUID}
 
 import com.yammer.metrics.Metrics
@@ -20,7 +20,7 @@ import kafka.tier.domain.TierTopicInitLeader
 import kafka.tier.state.{FileTierPartitionStateFactory, TierPartitionState}
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStore, TierObjectStoreConfig}
-import kafka.utils.{MockTime, Scheduler, TestUtils}
+import kafka.utils.{MockTask, MockTime, Scheduler, TestUtils}
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, RecordBatch, SimpleRecord}
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.junit.Assert.{assertEquals, assertTrue, fail}
@@ -106,7 +106,9 @@ class MergedLogTest {
       override def startup(): Unit = ()
       override def shutdown(): Unit = ()
       override def isStarted: Boolean = true
-      override def schedule(name: String, fun: () => Unit, delay: Long, period: Long, unit: TimeUnit): Unit = ()
+      override def schedule(name: String, fun: () => Unit, delay: Long, period: Long, unit: TimeUnit): ScheduledFuture[_] = {
+        MockTask(name, fun, mockTime.milliseconds + delay, period = period, mockTime)
+      }
     }
     val logConfig = LogTest.createLogConfig(segmentBytes = Int.MaxValue, tierEnable = true, tierLocalHotsetBytes = 1)
     val log = createMergedLog(logConfig, scheduler = noopScheduler)
@@ -121,7 +123,7 @@ class MergedLogTest {
 
     assertEquals("Each message should create a single log segment", log.localLogSegments.size, 11)
     // Set the high watermark to the active segments end offset and flush up to the 4th segment
-    log.onHighWatermarkIncremented(log.localLog.activeSegment.readNextOffset - 1)
+    log.highWatermark = log.localLog.activeSegment.readNextOffset - 1
     log.flush(4) // flushes up to 3, because the logic is flushing up to the provided offset - 1
 
     assertEquals("Expected tierable segments to include everything up to the segment before the last flushed segment segment",
@@ -154,7 +156,7 @@ class MergedLogTest {
 
     var expectedTierableSegments = 0
     log.localLogSegments.foreach { segment =>
-      log.onHighWatermarkIncremented(segment.baseOffset + 1)
+      log.highWatermark = segment.baseOffset + 1
       assertEquals(expectedTierableSegments, log.tierableLogSegments.size)
       expectedTierableSegments += 1
     }
@@ -367,7 +369,7 @@ class MergedLogTest {
         leaderEpoch = 0)
       lastOffset = appendInfo.lastOffset
     }
-    mergedLog.onHighWatermarkIncremented(lastOffset)
+    mergedLog.highWatermark = lastOffset
 
     assertEquals("expected 4 log segments", 4, mergedLog.localLogSegments.size)
     assertEquals("expected producer state manager to contain some state", false, mergedLog.producerStateManager.isEmpty)
@@ -463,7 +465,7 @@ class MergedLogTest {
 
     mergedLog.appendAsLeader(records_1, leaderEpoch = 0)
     mergedLog.roll()
-    mergedLog.onHighWatermarkIncremented(mergedLog.logEndOffset)
+    mergedLog.highWatermark = mergedLog.logEndOffset
     assertEquals("expected an active producer", 1, mergedLog.producerStateManager.activeProducers.size)
 
     val result = TierTestUtils.uploadWithMetadata(tierPartitionState,
@@ -558,7 +560,9 @@ class MergedLogTest {
       override def startup(): Unit = ()
       override def shutdown(): Unit = ()
       override def isStarted: Boolean = true
-      override def schedule(name: String, fun: () => Unit, delay: Long, period: Long, unit: TimeUnit): Unit = ()
+      override def schedule(name: String, fun: () => Unit, delay: Long, period: Long, unit: TimeUnit): ScheduledFuture[_] = {
+        MockTask(name, fun, mockTime.milliseconds + delay, period = period, mockTime)
+      }
     }
 
     val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = 1)
@@ -602,12 +606,12 @@ class MergedLogTest {
     assertEquals(0, log.tierableLogSegments.size)
 
     // no segments are tierable after recovery point and highwatermark move to the end of first tiered segment
-    log.onHighWatermarkIncremented(tieredSegments.head.readNextOffset - 1)
+    log.highWatermark = tieredSegments.head.readNextOffset - 1
     log.flush(1)
     assertEquals(0, log.tierableLogSegments.size)
 
     // all non tiered segments become tierable after recovery point and highwatermark move to the end of the log
-    log.onHighWatermarkIncremented(log.logEndOffset)
+    log.highWatermark = log.logEndOffset
     log.flush(log.logEndOffset)
     assertEquals(log.localLogSegments.size - tieredSegments.size - 1, log.tierableLogSegments.size)
     log.close()
@@ -619,7 +623,9 @@ class MergedLogTest {
       override def startup(): Unit = ()
       override def shutdown(): Unit = ()
       override def isStarted: Boolean = true
-      override def schedule(name: String, fun: () => Unit, delay: Long, period: Long, unit: TimeUnit): Unit = ()
+      override def schedule(name: String, fun: () => Unit, delay: Long, period: Long, unit: TimeUnit): ScheduledFuture[_] = {
+        MockTask(name, fun, mockTime.milliseconds + delay, period = period, mockTime)
+      }
     }
 
     val logConfig = LogTest.createLogConfig(segmentBytes = Int.MaxValue, tierEnable = true, tierLocalHotsetBytes = 1)
@@ -664,12 +670,12 @@ class MergedLogTest {
     assertEquals(0, log.tierableLogSegments.size)
 
     // no segments are tierable after recovery point and highwatermark move to the end of first tiered segment
-    log.onHighWatermarkIncremented(tieredSegments.head.readNextOffset - 1)
+    log.highWatermark = tieredSegments.head.readNextOffset - 1
     log.flush(1)
     assertEquals(0, log.tierableLogSegments.size)
 
     // all non tiered segments become tierable after recovery point and highwatermark move to the end of the log
-    log.onHighWatermarkIncremented(log.logEndOffset)
+    log.highWatermark = log.logEndOffset
     log.flush(log.logEndOffset)
     assertEquals(log.localLogSegments.size - tieredSegments.size - 1, log.tierableLogSegments.size)
 
@@ -702,7 +708,7 @@ class MergedLogTest {
     log.appendAsLeader(records_1, leaderEpoch = 0)
     log.roll()
     log.appendAsLeader(records_2, leaderEpoch = 0)
-    log.onHighWatermarkIncremented(log.logEndOffset)
+    log.highWatermark = log.logEndOffset
     assertEquals("expected two active producers", 2, log.producerStateManager.activeProducers.size)
 
     val numDeleted = log.deleteOldSegments()
@@ -738,7 +744,7 @@ class MergedLogTest {
     log.appendAsLeader(records_1, leaderEpoch = 0)
     log.roll()
     log.appendAsLeader(records_2, leaderEpoch = 0)
-    log.onHighWatermarkIncremented(log.logEndOffset)
+    log.highWatermark = log.logEndOffset
     assertEquals("expected two active producers", 2, log.producerStateManager.activeProducers.size)
 
     val numDeleted = log.deleteOldSegments()
@@ -760,6 +766,7 @@ class MergedLogTest {
   def testUniqueLogSegmentsPartialOverlapWithFirstSegment(): Unit = {
     val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true)
     val log = createMergedLog(logConfig)
+    log.highWatermark = 200  // Set high watermark greater than the start offsets that we will use below
 
     val epoch = 0
     val tierPartitionState = tierMetadataManager.tierPartitionState(log.topicPartition).get
@@ -887,7 +894,7 @@ object MergedLogTest {
         message += 1
       }
     }
-    log.onHighWatermarkIncremented(log.logEndOffset)
+    log.highWatermark = log.logEndOffset
     assertEquals(numTieredSegments + numLocalSegments + numOverlap, log.localLogSegments.size)
 
     // append an init message
@@ -924,7 +931,7 @@ object MergedLogTest {
     // reopen
     log = createMergedLog(tierMetadataManager, dir, logConfig, brokerTopicStats, scheduler, time, logStartOffset,
       recoveryPoint, maxProducerIdExpirationMs, producerIdExpirationCheckIntervalMs)
-    log.onHighWatermarkIncremented(log.logEndOffset)
+    log.highWatermark = log.logEndOffset
     tierPartitionState = tierMetadataManager.tierPartitionState(log.topicPartition).get
 
     // assert number of segments

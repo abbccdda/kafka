@@ -575,7 +575,7 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
       TestUtils.waitUntilTrue(() => {
         val leaderId = zkClient.getLeaderForPartition(tp).get
         val leader = servers.filter(_.config.brokerId == leaderId)(0)
-        leader.replicaManager.nonOfflinePartition(tp).get.inSyncReplicas.map(_.brokerId).size == replicationFactor
+        leader.replicaManager.nonOfflinePartition(tp).get.inSyncReplicas.size == replicationFactor
       }, "Timed out waiting for replicas to join ISR")
     }
 

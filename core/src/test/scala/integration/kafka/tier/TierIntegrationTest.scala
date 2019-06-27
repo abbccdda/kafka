@@ -413,7 +413,7 @@ class TierIntegrationTest {
       val records = createRecords(log.topicPartition, leaderEpoch, baseOffset + idx * recordsPerBatch, recordsPerBatch)
       log.appendAsFollower(records)
       log.flush()
-      log.onHighWatermarkIncremented(batches * recordsPerBatch)
+      log.highWatermark = batches * recordsPerBatch
     }
   }
 

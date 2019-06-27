@@ -102,7 +102,6 @@ class TierArchiverStateTest {
   @Test(expected = classOf[TierArchiverFencedException])
   def testBeforeUploadFenced(): Unit = {
     val log = mock(classOf[AbstractLog])
-    when(log.getHighWatermark).thenReturn(None)
 
     val tierObjectStore = new MockInMemoryTierObjectStore(objectStoreConfig)
     val topicIdPartition = new TopicIdPartition("foo", UUID.fromString("9808a113-1876-42fb-9396-6bc9baa0526b"), 0)
@@ -126,7 +125,6 @@ class TierArchiverStateTest {
     val tierObjectStore = new MockInMemoryTierObjectStore(objectStoreConfig)
 
     val log = mock(classOf[AbstractLog])
-    when(log.getHighWatermark).thenReturn(None)
     when(log.tierableLogSegments).thenReturn(List.empty[LogSegment])
     when(log.activeSegment).thenReturn(null)
 
@@ -166,7 +164,7 @@ class TierArchiverStateTest {
     log.appendAsFollower(TierTestUtils.createRecords(5, topicPartition, log.logEndOffset, 0))
     log.appendAsFollower(TierTestUtils.createRecords(5, topicPartition, log.logEndOffset, 0))
     log.appendAsFollower(TierTestUtils.createRecords(5, topicPartition, log.logEndOffset, 0))
-    log.onHighWatermarkIncremented(log.logEndOffset)
+    log.highWatermark = log.logEndOffset
 
     val result = Await.result(ArchiveTask.maybeInitiateUpload(BeforeUpload(0), topicIdPartition, time, tierTopicManager, tierObjectStore, replicaManager), maxWaitTime)
     assertTrue("Should advance to AfterUpload", result.isInstanceOf[Upload])
@@ -212,7 +210,7 @@ class TierArchiverStateTest {
 
     val newTierEpoch = 1
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition, newTierEpoch, UUID.randomUUID(), 0))
-    log.onHighWatermarkIncremented(log.logEndOffset)
+    log.highWatermark = log.logEndOffset
 
     val replicaManager = mock(classOf[ReplicaManager])
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))

@@ -44,7 +44,7 @@ class DelayedListOffsets(delayMs: Long,
       try {
         val partition = replicaManager.getPartitionOrException(tp, expectLeader = fetchOnlyFromLeader)
         val leaderEpoch = timestampAndOffset.get.leaderEpoch()
-        partition.localReplicaWithEpochOrException(leaderEpoch, requireLeader = fetchOnlyFromLeader)
+        partition.localLogWithEpochOrException(leaderEpoch, requireLeader = fetchOnlyFromLeader)
       } catch {
         case e: Exception =>
           pending.completeExceptionally(tp, e)

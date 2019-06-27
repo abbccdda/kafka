@@ -338,31 +338,29 @@ class MergedLog(private[log] val localLog: Log,
   def localLogEndOffset: Long = localLog.logEndOffset
 
   def tierableLogSegments: Iterable[LogSegment] = {
-    getHighWatermark.map { highWatermark =>
-      // We can tier all segments starting at first untiered offset until we reach a segment that:
-      // 1. contains the first unstable offset: we expect the first unstable offset to always be available locally
-      // 2. contains the highwatermark: we only tier messages that have been ack'd by all replicas
-      // 3. is the current active segment: we only tier immutable segments (that have been rolled already)
-      // 4. the segment end offset is less than the recovery point. This ensures we only upload segments that have been fsync'd.
-      val upperBoundOffset = Utils.min(firstUnstableOffset.map(_.messageOffset).getOrElse(logEndOffset), highWatermark, recoveryPoint)
+    // We can tier all segments starting at first untiered offset until we reach a segment that:
+    // 1. contains the first unstable offset: we expect the first unstable offset to always be available locally
+    // 2. contains the highwatermark: we only tier messages that have been ack'd by all replicas
+    // 3. is the current active segment: we only tier immutable segments (that have been rolled already)
+    // 4. the segment end offset is less than the recovery point. This ensures we only upload segments that have been fsync'd.
+    val upperBoundOffset = Utils.min(firstUnstableOffset.map(_.messageOffset).getOrElse(logEndOffset), highWatermark, recoveryPoint)
 
-      // After a leader failover, it is possible that the upperBoundOffset has not moved to the point where the previous
-      // leader tiered segments. No segments are tierable until the upperBoundOffset catches up with the tiered segments.
-      if (firstUntieredOffset > upperBoundOffset)
-        return Iterable.empty
+    // After a leader failover, it is possible that the upperBoundOffset has not moved to the point where the previous
+    // leader tiered segments. No segments are tierable until the upperBoundOffset catches up with the tiered segments.
+    if (firstUntieredOffset > upperBoundOffset)
+      return Iterable.empty
 
-      val candidateSegments = localLogSegments(firstUntieredOffset, upperBoundOffset).toArray
-      candidateSegments.lastOption match {
-        case Some(lastSegment) =>
-          nextLocalLogSegment(lastSegment) match {
-            case Some(nextSegment) if (upperBoundOffset >= nextSegment.baseOffset) => candidateSegments   // all segments are tierable
-            case _ => candidateSegments.dropRight(1)   // last segment contains `upperBoundOffset` or this is the active segment, so exclude it
-          }
+    val candidateSegments = localLogSegments(firstUntieredOffset, upperBoundOffset).toArray
+    candidateSegments.lastOption match {
+      case Some(lastSegment) =>
+        nextLocalLogSegment(lastSegment) match {
+          case Some(nextSegment) if (upperBoundOffset >= nextSegment.baseOffset) => candidateSegments   // all segments are tierable
+          case _ => candidateSegments.dropRight(1)   // last segment contains `upperBoundOffset` or this is the active segment, so exclude it
+        }
 
-        case None =>
-          Array.empty[LogSegment]
-      }
-    }.getOrElse(Array.empty[LogSegment]).toIterable
+      case None =>
+        Array.empty[LogSegment]
+    }
   }
 
   def baseOffsetFirstUntierableSegment: Option[Long] = {
@@ -534,6 +532,10 @@ class MergedLog(private[log] val localLog: Log,
     localLog.firstUnstableOffset
   }
 
+  override def lastStableOffset: Long = localLog.lastStableOffset
+
+  override def lastStableOffsetLag: Long = localLog.lastStableOffsetLag
+
   override def localLogSegments: Iterable[LogSegment] = localLog.logSegments
 
   override def localLogSegments(from: Long, to: Long): Iterable[LogSegment] = localLog.logSegments(from, to)
@@ -560,9 +562,19 @@ class MergedLog(private[log] val localLog: Log,
     localLog.appendAsFollower(records)
   }
 
-  override def onHighWatermarkIncremented(highWatermark: Long): Unit = localLog.onHighWatermarkIncremented(highWatermark)
+  override def highWatermarkMetadata: LogOffsetMetadata = localLog.highWatermarkMetadata
 
-  override def getHighWatermark: Option[Long] = localLog.getHighWatermark
+  override def highWatermarkMetadata_=(newHighWatermark: LogOffsetMetadata) : Unit = {
+    localLog.highWatermarkMetadata = newHighWatermark
+  }
+
+  override def highWatermark: Long = localLog.highWatermark
+
+  override def highWatermark_=(newHighWatermark: Long): Unit = localLog.highWatermark = newHighWatermark
+
+  override def offsetSnapshot: LogOffsetSnapshot = localLog.offsetSnapshot
+
+  override  def maybeFetchHighWatermarkOffsetMetadata(): Unit = localLog.maybeFetchHighWatermarkOffsetMetadata()
 
   override private[log] def lastRecordsOfActiveProducers: Map[Long, LastRecord] = localLog.lastRecordsOfActiveProducers
 
@@ -712,6 +724,10 @@ sealed trait AbstractLog {
     */
   def firstUnstableOffset: Option[LogOffsetMetadata]
 
+  def lastStableOffset: Long
+
+  def lastStableOffsetLag: Long
+
   /**
     * @return The total number of unique segments in this log. "Unique" is defined as the number of non-overlapping
     *         segments across local and tiered storage.
@@ -799,13 +815,17 @@ sealed trait AbstractLog {
     * may not be considered committed from by the replication protocol.
     * @return The current highwatermark of this log
     */
-  def getHighWatermark: Option[Long]
+  def highWatermark: Long
 
-  /**
-    * This method is invoked when this replica's highwatermark is updated.
-    * @param highWatermark The incremented highwatermark
-    */
-  def onHighWatermarkIncremented(highWatermark: Long): Unit
+  def highWatermark_=(newHighWatermark: Long): Unit
+
+  def highWatermarkMetadata: LogOffsetMetadata
+
+  def highWatermarkMetadata_=(newHighWatermark: LogOffsetMetadata): Unit
+
+  def offsetSnapshot: LogOffsetSnapshot
+
+  def maybeFetchHighWatermarkOffsetMetadata(): Unit
 
   /**
     * Lookup metadata for the log start offset. This is an expensive call and must be used with caution. The call blocks

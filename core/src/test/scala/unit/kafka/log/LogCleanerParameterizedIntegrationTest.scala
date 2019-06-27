@@ -22,7 +22,7 @@ import java.util.Properties
 
 import kafka.api.KAFKA_0_11_0_IV0
 import kafka.api.{KAFKA_0_10_0_IV1, KAFKA_0_9_0}
-import kafka.server.KafkaConfig
+import kafka.server.{KafkaConfig, LogOffsetMetadata}
 import kafka.server.checkpoints.OffsetCheckpointFile
 import kafka.utils._
 import org.apache.kafka.common.TopicPartition
@@ -40,7 +40,7 @@ import scala.collection._
  * This is an integration test that tests the fully integrated log cleaner
  */
 @RunWith(value = classOf[Parameterized])
-class LogCleanerParameterizedIntegrationTest(compressionCodec: String) extends AbstractLogCleanerIntegrationTest {
+class  LogCleanerParameterizedIntegrationTest(compressionCodec: String) extends AbstractLogCleanerIntegrationTest {
 
   val codec: CompressionType = CompressionType.forName(compressionCodec)
   val time = new MockTime()
@@ -102,7 +102,7 @@ class LogCleanerParameterizedIntegrationTest(compressionCodec: String) extends A
       val messages = writeDups(numKeys = numKeys, numDups = 3, log = log, codec = codec)
       val startSize = log.size
 
-      log.onHighWatermarkIncremented(log.logEndOffset)
+      log.highWatermark = log.logEndOffset
 
       val firstDirty = log.activeSegment.baseOffset
       cleaner.startup()
@@ -118,7 +118,11 @@ class LogCleanerParameterizedIntegrationTest(compressionCodec: String) extends A
     // should delete old segments
     log.localLogSegments.foreach(_.lastModified = time.milliseconds - (2 * retentionMs))
 
-    TestUtils.waitUntilTrue(() => log.numberOfSegments == 1, "There should only be 1 segment remaining", 10000L)
+    // Set the last modified time to an old value to force deletion of old segments
+    val endOffset = log.logEndOffset
+    log.localLogSegments.foreach(_.lastModified = time.milliseconds - (2 * retentionMs))
+    TestUtils.waitUntilTrue(() => log.logStartOffset == endOffset,
+      "Timed out waiting for deletion of old segments")
     assertEquals(1, log.numberOfSegments)
 
     cleaner.shutdown()

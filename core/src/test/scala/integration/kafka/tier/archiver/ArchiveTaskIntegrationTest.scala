@@ -137,7 +137,7 @@ class ArchiveTaskIntegrationTest {
         leaderEpoch = 0)
       lastOffset = appendInfo.lastOffset
     }
-    log.onHighWatermarkIncremented(lastOffset)
+    log.highWatermark = lastOffset
     assertEquals("expected 5 local log segments", 5, log.localLogSegments.size)
     assertEquals("expected 4 tierable segments", 4, log.tierableLogSegments.size)
     val baseOffsets = log.localLogSegments.map(_.baseOffset).toList

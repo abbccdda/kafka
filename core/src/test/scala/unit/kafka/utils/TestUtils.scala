@@ -853,7 +853,7 @@ object TestUtils extends Logging {
   }
 
   def isLeaderLocalOnBroker(topic: String, partitionId: Int, server: KafkaServer): Boolean = {
-    server.replicaManager.nonOfflinePartition(new TopicPartition(topic, partitionId)).exists(_.leaderReplicaIfLocal.isDefined)
+    server.replicaManager.nonOfflinePartition(new TopicPartition(topic, partitionId)).exists(_.leaderLogIfLocal.isDefined)
   }
 
   def findLeaderEpoch(brokerId: Int,
@@ -934,7 +934,7 @@ object TestUtils extends Logging {
     def newLeaderExists: Option[Int] = {
       servers.find { server =>
         server.config.brokerId != oldLeader &&
-          server.replicaManager.nonOfflinePartition(tp).exists(_.leaderReplicaIfLocal.isDefined)
+          server.replicaManager.nonOfflinePartition(tp).exists(_.leaderLogIfLocal.isDefined)
       }.map(_.config.brokerId)
     }
 
@@ -949,7 +949,7 @@ object TestUtils extends Logging {
                              timeout: Long = JTestUtils.DEFAULT_MAX_WAIT_MS): Int = {
     def leaderIfExists: Option[Int] = {
       servers.find { server =>
-        server.replicaManager.nonOfflinePartition(tp).exists(_.leaderReplicaIfLocal.isDefined)
+        server.replicaManager.nonOfflinePartition(tp).exists(_.leaderLogIfLocal.isDefined)
       }.map(_.config.brokerId)
     }
 
