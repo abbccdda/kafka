@@ -520,8 +520,15 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 log.debug("Accepting duplicate transition for {} ({})", metadata, topicIdPartition);
                 return AppendResult.ACCEPTED;
             } else if (!currentState.state.canTransitionTo(metadata.state())) {
-                // This transition will not take us to the next valid state
-                throw new IllegalStateException("Illegal attempt to transition " + currentState + " to " + metadata + " for " + topicIdPartition);
+                // We have seen this transition before so fence it. This can only happen in couple of scenarios:
+                // 1. We are reprocessing messages after an unclean shutdown.
+                // 2. We are reprocessing messages after catchup -> online transition, as the primary consumer could be
+                //    lagging the catchup consumer before the switch happened.
+                // We deal with this here for now but in future, we should be able to make this better and assert stronger
+                // guarantees by storing the last materialized offset in the tier partition state file and checking if we
+                // are reprocessing materialized offsets.
+                log.info("Fencing already processed transition for {} with currentState={} ({})", metadata, currentState, topicIdPartition);
+                return AppendResult.FENCED;
             }
         } else {
             // If state for this object does not exist, then this must be uploadInitiate
@@ -529,8 +536,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 throw new IllegalStateException("Cannot complete transition for non-existent segment " + metadata + " for " + topicIdPartition);
         }
 
-        // If we are here, we know this transition is valid: it takes us to the next valid state, it is for the current
-        // epoch, and is not a duplicate
+        // If we are here, we know this transition is valid: it takes us to the next valid state,
+        // it is for the current epoch, and is not a duplicate
         switch (metadata.state()) {
             case SEGMENT_UPLOAD_INITIATE:
                 return handleUploadInitiate((TierSegmentUploadInitiate) metadata);

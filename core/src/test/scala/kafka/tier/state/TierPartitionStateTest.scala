@@ -489,42 +489,132 @@ class TierPartitionStateTest {
   }
 
   @Test
-  def testDuplicateTransitions(): Unit = {
-    val objectId = UUID.randomUUID
+  def testIdempotencyDeleteAfterComplete(): Unit = {
     val initLeader = new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0)
-    val uploadInitiate = new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false)
-    val uploadComplete = new TierSegmentUploadComplete(tpid, 0, objectId)
-    val deleteInitiate = new TierSegmentDeleteInitiate(tpid, 0, objectId)
-    val deleteComplete = new TierSegmentDeleteComplete(tpid, 0, objectId)
+    val objectId1 = UUID.randomUUID
+    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false)
+    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1)
+    val deleteInitiate1 = new TierSegmentDeleteInitiate(tpid, 0, objectId1)
+    val deleteComplete1 = new TierSegmentDeleteComplete(tpid, 0, objectId1)
+    val objectId2 = UUID.randomUUID
+    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 0, objectId2, 10, 20, 100, 100, false, false, false)
+    val uploadComplete2 = new TierSegmentUploadComplete(tpid, 0, objectId2)
+    val deleteInitiate2 = new TierSegmentDeleteInitiate(tpid, 0, objectId2)
+    val deleteComplete2 = new TierSegmentDeleteComplete(tpid, 0, objectId2)
 
-    def testDuplicateAppend(metadata: AbstractTierMetadata, previousTransitions: Seq[AbstractTierMetadata]): Unit = {
-      assertEquals(AppendResult.ACCEPTED, state.append(metadata))
+    testDuplicateAppend(initLeader, Seq.empty, AppendResult.ACCEPTED)
 
-      // Transition to any of the previous states is illegal
-      previousTransitions.foreach { metadata =>
-        assertThrows(classOf[IllegalStateException], new ThrowingRunnable {
-          override def run(): Unit = state.append(metadata)
-        })
-      }
+    // try delete immediately after upload order
+    var currentTransitions: ListBuffer[AbstractTierMetadata] = ListBuffer()
+    for (transition <- Seq(uploadInitiate1, uploadComplete1, deleteInitiate1, deleteComplete1, uploadInitiate2, uploadComplete2, deleteInitiate2, deleteComplete2)) {
+      testDuplicateAppend(transition, currentTransitions, AppendResult.ACCEPTED)
+      currentTransitions += transition
+    }
+  }
 
-      val segments = state.segmentOffsets
-      val fencedSegments = state.fencedSegments
-      val size = state.totalSize
+  @Test
+  def testIdempotencyDelayedDelete(): Unit = {
+    val initLeader = new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0)
+    val objectId1 = UUID.randomUUID
+    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false)
+    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1)
+    val deleteInitiate1 = new TierSegmentDeleteInitiate(tpid, 0, objectId1)
+    val deleteComplete1 = new TierSegmentDeleteComplete(tpid, 0, objectId1)
+    val objectId2 = UUID.randomUUID
+    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 0, objectId2, 10, 20, 100, 100, false, false, false)
+    val uploadComplete2 = new TierSegmentUploadComplete(tpid, 0, objectId2)
+    val deleteInitiate2 = new TierSegmentDeleteInitiate(tpid, 0, objectId2)
+    val deleteComplete2 = new TierSegmentDeleteComplete(tpid, 0, objectId2)
 
-      // append duplicate
-      assertEquals(AppendResult.ACCEPTED, state.append(metadata))
+    testDuplicateAppend(initLeader, Seq.empty, AppendResult.ACCEPTED)
 
-      // assert the tier partition state does not change after a duplicate append
-      assertEquals(segments, state.segmentOffsets)
-      assertEquals(fencedSegments, state.fencedSegments)
-      assertEquals(size, state.totalSize)
+    // try delayed delete order
+    var currentTransitions: ListBuffer[AbstractTierMetadata] = ListBuffer()
+    for (transition <- Seq(uploadInitiate1, uploadComplete1, uploadInitiate2, uploadComplete2, deleteInitiate1, deleteComplete1, deleteInitiate2, deleteComplete2)) {
+      testDuplicateAppend(transition, currentTransitions, AppendResult.ACCEPTED)
+      currentTransitions += transition
+    }
+  }
+
+  @Test
+  def testIdempotencySimultaneousDelete(): Unit = {
+    val initLeader = new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0)
+    val objectId1 = UUID.randomUUID
+    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false)
+    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1)
+    val deleteInitiate1 = new TierSegmentDeleteInitiate(tpid, 0, objectId1)
+    val deleteComplete1 = new TierSegmentDeleteComplete(tpid, 0, objectId1)
+    val objectId2 = UUID.randomUUID
+    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 0, objectId2, 10, 20, 100, 100, false, false, false)
+    val uploadComplete2 = new TierSegmentUploadComplete(tpid, 0, objectId2)
+    val deleteInitiate2 = new TierSegmentDeleteInitiate(tpid, 0, objectId2)
+    val deleteComplete2 = new TierSegmentDeleteComplete(tpid, 0, objectId2)
+
+    testDuplicateAppend(initLeader, Seq.empty, AppendResult.ACCEPTED)
+
+    // try multiple simultaneous delete initiate orders, then stage the delete completes
+    var currentTransitions: ListBuffer[AbstractTierMetadata] = ListBuffer()
+    for (transition <- Seq(uploadInitiate1, uploadComplete1, uploadInitiate2, uploadComplete2, deleteInitiate1, deleteInitiate2, deleteComplete1, deleteComplete2)) {
+      testDuplicateAppend(transition, currentTransitions, AppendResult.ACCEPTED)
+      currentTransitions += transition
+    }
+  }
+
+  @Test
+  def testIdempotentencyFencing(): Unit = {
+    val initLeader1 = new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0)
+    val objectId1 = UUID.randomUUID
+    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false)
+    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1)
+    val deleteInitiate1 = new TierSegmentDeleteInitiate(tpid, 0, objectId1)
+    val deleteComplete1 = new TierSegmentDeleteComplete(tpid, 0, objectId1)
+    val initLeader2 = new TierTopicInitLeader(tpid, 1, java.util.UUID.randomUUID, 0)
+    val fencedUploadId = UUID.randomUUID
+    val fencedUploadInitiate = new TierSegmentUploadInitiate(tpid, 0, fencedUploadId, 10, 20, 100, 100, false, false, false)
+    val objectId2 = UUID.randomUUID
+    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 1, objectId2, 10, 20, 100, 100, false, false, false)
+    val uploadComplete2 = new TierSegmentUploadComplete(tpid, 1, objectId2)
+    val deleteInitiate2 = new TierSegmentDeleteInitiate(tpid, 1, objectId2)
+    val deleteComplete2 = new TierSegmentDeleteComplete(tpid, 1, objectId2)
+
+    testDuplicateAppend(initLeader1, Seq.empty, AppendResult.ACCEPTED)
+
+    // try delete immediately after upload order
+    var currentTransitions: ListBuffer[AbstractTierMetadata] = ListBuffer()
+    for (transition <- Seq(uploadInitiate1, uploadComplete1, deleteInitiate1, deleteComplete1, initLeader2)) {
+      testDuplicateAppend(transition, currentTransitions, AppendResult.ACCEPTED)
+      currentTransitions += transition
     }
 
-    testDuplicateAppend(initLeader, Seq.empty)
-    testDuplicateAppend(uploadInitiate, Seq.empty)
-    testDuplicateAppend(uploadComplete, Seq(uploadInitiate))
-    testDuplicateAppend(deleteInitiate, Seq(uploadInitiate, uploadComplete))
-    testDuplicateAppend(deleteComplete, Seq(uploadInitiate, uploadComplete, deleteInitiate))
+    // test fence case
+    testDuplicateAppend(fencedUploadInitiate, currentTransitions, AppendResult.FENCED)
+    currentTransitions += fencedUploadInitiate
+
+    for (transition <- Seq(uploadInitiate2, uploadComplete2, deleteInitiate2, deleteComplete2)) {
+      testDuplicateAppend(transition, currentTransitions, AppendResult.ACCEPTED)
+      currentTransitions += transition
+    }
+  }
+
+  private def testDuplicateAppend(metadata: AbstractTierMetadata, previousTransitions: Seq[AbstractTierMetadata], expected: AppendResult): Unit = {
+    assertEquals(metadata.toString, expected, state.append(metadata))
+
+    previousTransitions.foreach { metadata =>
+      val result = state.append(metadata)
+      assertTrue(Set(AppendResult.FENCED, AppendResult.ACCEPTED)(result))
+    }
+
+    val segments = state.segmentOffsets
+    val fencedSegments = state.fencedSegments
+    val size = state.totalSize
+
+    // append duplicate
+    assertEquals(expected, state.append(metadata))
+
+    // assert the tier partition state does not change after a duplicate append
+    assertEquals(segments, state.segmentOffsets)
+    assertEquals(fencedSegments, state.fencedSegments)
+    assertEquals(size, state.totalSize)
   }
 
   private def validateConsoleDumpedEntries(partitionDir: File, numSegments: Int): Unit = {

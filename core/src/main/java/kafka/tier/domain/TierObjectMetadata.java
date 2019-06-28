@@ -64,6 +64,12 @@ public class TierObjectMetadata {
             return state;
         }
 
+        /**
+         * Check if we can safely transition to the given state.
+         * @param newState The state to transition to
+         * @return True if transition to given state is permissible; false otherwise
+         * @throws IllegalStateException If attempt to transition to given state is illegal
+         */
         public boolean canTransitionTo(State newState) {
             raiseIfIllegal(this, newState);
             return nextStates.contains(newState.id);
