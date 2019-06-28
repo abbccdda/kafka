@@ -61,7 +61,7 @@ public class TenantLifecycleManagerTest {
         lifecycleManagerWithDeleteDelay = new TenantLifecycleManager(ConfluentConfigs.MULTITENANT_TENANT_DELETE_DELAY_MS_DEFAULT,
                 mockAdminClient);
 
-        // Add few tenants to TenatLifecycleManager
+        // Add few tenants to TenantLifecycleManager
         lifecycleManagerWithDeleteDelay.updateTenantState(LC_META_ABC);
         lifecycleManagerWithDeleteDelay.updateTenantState(LC_META_DED);
         lifecycleManagerWithDeleteDelay.updateTenantState(LC_META_MEH);
@@ -100,9 +100,6 @@ public class TenantLifecycleManagerTest {
         List<NewTopic> sampleTopics =
                 Collections.singletonList(new NewTopic(tc.addTenantPrefix("topic"), 3, (short) 1));
         mockAdminClient.createTopics(sampleTopics).all().get();
-
-        // first call to deleteTenants() does not do anything
-        lifecycleManager.deleteTenants();
 
         // load deleted tenant to state store and trigger delete
         lifecycleManager.updateTenantState(LC_META_DED);

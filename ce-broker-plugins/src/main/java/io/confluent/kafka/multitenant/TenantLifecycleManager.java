@@ -3,10 +3,8 @@ package io.confluent.kafka.multitenant;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import io.confluent.common.InterClusterConnection;
 import io.confluent.kafka.multitenant.schema.TenantContext;
-import io.confluent.kafka.server.plugins.policy.TopicPolicyConfig;
-import org.apache.kafka.clients.CommonClientConfigs;
+import io.confluent.kafka.multitenant.utils.Utils;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.DescribeAclsOptions;
 import org.apache.kafka.clients.admin.ListTopicsOptions;
@@ -32,7 +30,6 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -52,10 +49,9 @@ public class TenantLifecycleManager {
     private static final Logger LOG = LoggerFactory.getLogger(TenantLifecycleManager.class);
     private Long deleteDelayMs;
     private int deleteTopicBatchSize;
-    private final ExecutorService topicDeletionExecutor;
-    private final Properties adminClientProps = new Properties();
+    private ExecutorService topicDeletionExecutor;
     private AdminClient adminClient;
-    private AtomicBoolean initialDelete = new AtomicBoolean(false);
+    private AtomicBoolean adminClientCreated = new AtomicBoolean(false);
 
     enum State {
         ACTIVE,
@@ -83,26 +79,29 @@ public class TenantLifecycleManager {
             this.deleteTopicBatchSize = ConfluentConfigs.MULTITENANT_TENANT_DELETE_BATCH_SIZE_DEFAULT;
         else
             this.deleteTopicBatchSize = (int) deleteTopicBatchSizeValue;
+    }
 
-        // this shouldn't happen in real cluster, but we want to allow testing the cache without
-        // a cluster.
-        try {
-            this.adminClient = createAdminClient(configs);
-        } catch (Exception e) {
-            this.adminClient = null;
-            LOG.error("Could not connect to local physical cluster, so we can't actually delete tenants, "
-                    + "just mark them as deleted. Topics and ACLs will remain until this is fixed.");
+    public void createAdminClient(String endpoint) {
+        this.adminClient = Utils.createAdminClient(endpoint);
+        if (this.adminClient == null) {
+            // NOTE: This error is important in production - it means we don't clean tenants properly
+            // but test scenarios can set the admin client later and still pass
+            LOG.error("We will mark clusters as deleted but will not be able to delete topics and ACLs because we " +
+                    "failed to create admin client.");
+        } else {
+            adminClientCreated.compareAndSet(false, true);
         }
-
         this.topicDeletionExecutor = Executors.newSingleThreadExecutor(new ThreadFactoryBuilder().setNameFormat(
                 "tenant-topic-deletion-thread-%d").build());
     }
 
     // for unit tests
-    public TenantLifecycleManager(long deleteDelayMs, AdminClient adminClient) {
+    TenantLifecycleManager(long deleteDelayMs, AdminClient adminClient) {
         this.tenantLifecycleState = new ConcurrentHashMap<>();
         this.deleteDelayMs = deleteDelayMs;
         this.adminClient = adminClient;
+        if (this.adminClient != null)
+            adminClientCreated.compareAndSet(false, true);
         this.deleteTopicBatchSize = 10;
         this.topicDeletionExecutor = Executors.newSingleThreadExecutor(new ThreadFactoryBuilder().setNameFormat(
                 "tenant-topic-deletion-thread-%d").build());
@@ -178,25 +177,8 @@ public class TenantLifecycleManager {
     // Note that the retry logic here assumes that this method will be called on regular intervals.
     // Visible for testing
     public void deleteTenants() {
-        if (adminClient == null)
+        if (!adminClientCreated.get())
             return;
-
-        // This is a workaround for the following issue:
-        // PhysicalClusterMetadata may call deleteTenants just after broker startup. If we do
-        // this on main thread (current implementation), there are edge cases where admin client
-        // may not find any brokers and timeout, in which case we block the main thread for
-        // LIST_METADATA_TIMEOUT_MS, thus increasing broker startup time by
-        // LIST_METADATA_TIMEOUT_MS.
-        // Note that calling deleteTenants from another thread, but right during broker startup,
-        // has different edge cases. If this is the first broker to start, which also becomes a
-        // controller, admin client may ask for topic metadata before the broker gets topic info
-        // in its metadata cache. In this case, it will appear that a deleted tenant does not have
-        // any topics, so we mark this tenant deleted thus leaking the topics. This is a very
-        // unlikely scenario in cloud, since we don't normally shutdown the whole cluster.
-        // However, it's better to be safe and to skip the first tenant delete and delete on next retry
-        if (initialDelete.compareAndSet(false, true)) {
-            return;
-        }
 
         Set<String> deleteInProgressClusters = deleteInProgressClusters();
         if (deleteInProgressClusters.isEmpty())
@@ -302,45 +284,11 @@ public class TenantLifecycleManager {
         return tenantsWithNoACLs;
     }
 
-    private AdminClient createAdminClient(Map<String, ?> configs) {
-        Object listenerValue = configs.get(TopicPolicyConfig.INTERNAL_LISTENER_CONFIG);
-        String listener;
-        if (listenerValue == null)
-            listener = TopicPolicyConfig.DEFAULT_INTERNAL_LISTENER;
-        else
-            listener = listenerValue.toString();
-
-        try {
-            String bootstrapBroker = InterClusterConnection.getBootstrapBrokerForListener(listener, configs);
-
-            LOG.info("Using bootstrap servers {} for removing topics and ACLs of deleted tenants",
-                    bootstrapBroker);
-
-            adminClientProps.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapBroker);
-            return AdminClient.create(adminClientProps);
-        } catch (Exception e) {
-            // NOTE: This error is important in production - it means we don't clean tenants properly
-            // but test scenarios can set the admin client later and still pass
-            LOG.error("Failed to create admin client. We will make clusters as deleted but will not "
-                    + " be able to delete topics and ACLs.", e);
-            return null;
-        }
-    }
-
     public void close() {
-        topicDeletionExecutor.shutdownNow();
+        if (topicDeletionExecutor != null)
+            topicDeletionExecutor.shutdownNow();
         if (adminClient != null)
             adminClient.close(Duration.ofMillis(CLOSE_TIMEOUT_MS));
-    }
-
-    // For testing only
-    // Integration tests require creating this object before we know the port the broker is
-    // listening on, so we need to create PhysicalClusterMetadata with the broker (or before), then
-    // get the broker internal EndPoint, and then use that to update the admin client here.
-    public void updateAdminClient(Map<String, ?> configs) {
-        if (this.adminClient == null) {
-            this.adminClient = createAdminClient(configs);
-        }
     }
 
     private boolean active(LogicalClusterMetadata lcMeta) {

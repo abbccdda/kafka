@@ -400,6 +400,11 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         brokerState.newState(RunningAsBroker)
         shutdownLatch = new CountDownLatch(1)
 
+        if (multitenantMetadata != null) {
+          val endpoint = brokerInfo.broker.brokerEndPoint(config.interBrokerListenerName).connectionString()
+          multitenantMetadata.handleSocketServerInitialized(endpoint)
+        }
+        
         startupComplete.set(true)
 
         isStartingUp.set(false)

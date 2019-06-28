@@ -173,6 +173,11 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
     shutdown();
   }
 
+  @Override
+  public void handleSocketServerInitialized(String endpoint) {
+    tenantLifecycleManager.createAdminClient(endpoint);
+  }
+
   public static PhysicalClusterMetadata getInstance(String brokerSessionUuid) {
     synchronized (INSTANCES) {
       return INSTANCES.get(brokerSessionUuid);
