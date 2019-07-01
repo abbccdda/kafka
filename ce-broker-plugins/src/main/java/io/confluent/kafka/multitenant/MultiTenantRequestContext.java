@@ -24,6 +24,8 @@ import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicCo
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignmentCollection;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignment;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResult;
+import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
+import org.apache.kafka.common.message.IncrementalAlterConfigsResponseData;
 import org.apache.kafka.common.message.OffsetCommitRequestData;
 import org.apache.kafka.common.message.OffsetCommitResponseData;
 import org.apache.kafka.common.metrics.Metrics;
@@ -49,6 +51,8 @@ import org.apache.kafka.common.requests.CreatePartitionsRequest.PartitionDetails
 import org.apache.kafka.common.requests.DescribeConfigsResponse;
 import org.apache.kafka.common.requests.FetchResponse;
 import org.apache.kafka.common.requests.FindCoordinatorRequest;
+import org.apache.kafka.common.requests.IncrementalAlterConfigsRequest;
+import org.apache.kafka.common.requests.IncrementalAlterConfigsResponse;
 import org.apache.kafka.common.requests.ListGroupsResponse;
 import org.apache.kafka.common.requests.MetadataRequest;
 import org.apache.kafka.common.requests.MetadataResponse;
@@ -169,6 +173,8 @@ public class MultiTenantRequestContext extends RequestContext {
           body = transformOffsetCommitRequest((OffsetCommitRequest) body);
         } else if (body instanceof FindCoordinatorRequest) {
           body = transformFindCoordinatorRequest((FindCoordinatorRequest) body);
+        } else if (body instanceof IncrementalAlterConfigsRequest) {
+          body = transformIncrementalAlterConfigsRequest((IncrementalAlterConfigsRequest) body, apiVersion);
         }
 
       } catch (InvalidRequestException e) {
@@ -246,6 +252,8 @@ public class MultiTenantRequestContext extends RequestContext {
         filteredResponse = transformDeleteAclsResponse((DeleteAclsResponse) body);
       } else if (body instanceof OffsetCommitResponse) {
         filteredResponse = transformOffsetCommitResponse((OffsetCommitResponse) body);
+      } else if (body instanceof IncrementalAlterConfigsResponse) {
+        filteredResponse = transformIncrementalAlterConfigsResponse((IncrementalAlterConfigsResponse) body);
       }
 
 
@@ -324,8 +332,6 @@ public class MultiTenantRequestContext extends RequestContext {
     for (CreateableTopicConfig config: topicDetails.configs()) {
       if (allowConfigInRequest(config.name())) {
         filteredConfigs.add(new CreateableTopicConfig().setValue(config.value()).setName(config.name()));
-      } else {
-        handleNonUpdateableConfig(config.name());
       }
     }
     topicDetails.setConfigs(filteredConfigs);
@@ -372,8 +378,6 @@ public class MultiTenantRequestContext extends RequestContext {
       for (AlterConfigsRequest.ConfigEntry configEntry : resourceConfigEntry.getValue().entries()) {
         if (allowConfigInRequest(configEntry.name())) {
           filteredConfigs.add(configEntry);
-        } else {
-          handleNonUpdateableConfig(configEntry.name());
         }
       }
 
@@ -383,18 +387,68 @@ public class MultiTenantRequestContext extends RequestContext {
     return new AlterConfigsRequest.Builder(transformedConfigs, alterConfigsRequest.validateOnly()).build(version);
   }
 
+  private IncrementalAlterConfigsRequest transformIncrementalAlterConfigsRequest(
+          IncrementalAlterConfigsRequest incrementalAlterConfigsRequestRequest,
+          short version) {
+    Map<ConfigResource, IncrementalAlterConfigsRequestData.AlterableConfigCollection> configs =
+            incrementalAlterConfigsRequestRequest.data().resources().stream().collect(Collectors.toMap(
+                    alterConfigsResource ->
+                            new ConfigResource(
+                                    ConfigResource.Type.forId(alterConfigsResource.resourceType()),
+                                    alterConfigsResource.resourceName()),
+                    IncrementalAlterConfigsRequestData.AlterConfigsResource::configs
+    ));
+
+    IncrementalAlterConfigsRequestData.AlterConfigsResourceCollection transformedConfigs =
+            new IncrementalAlterConfigsRequestData.AlterConfigsResourceCollection();
+
+    for (Map.Entry<ConfigResource, IncrementalAlterConfigsRequestData.AlterableConfigCollection> resourceConfigEntry : configs.entrySet()) {
+      // Only transform topic configs
+      if (resourceConfigEntry.getKey().type() != ConfigResource.Type.TOPIC) {
+        transformedConfigs.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
+                .setResourceType(resourceConfigEntry.getKey().type().id())
+                .setResourceName(resourceConfigEntry.getKey().name())
+                .setConfigs(resourceConfigEntry.getValue()));
+        continue;
+      }
+
+      IncrementalAlterConfigsRequestData.AlterableConfigCollection filteredConfigs =
+              new IncrementalAlterConfigsRequestData.AlterableConfigCollection();
+      for (IncrementalAlterConfigsRequestData.AlterableConfig configEntry : resourceConfigEntry.getValue().valuesSet()) {
+        if (allowConfigInRequest(configEntry.name())) {
+          filteredConfigs.add(new IncrementalAlterConfigsRequestData.AlterableConfig()
+                  .setConfigOperation(configEntry.configOperation())
+                  .setName(configEntry.name())
+                  .setValue(configEntry.value()));
+        }
+      }
+
+      transformedConfigs.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
+              .setResourceType(resourceConfigEntry.getKey().type().id())
+              .setResourceName(resourceConfigEntry.getKey().name())
+              .setConfigs(filteredConfigs));
+    }
+
+    return new IncrementalAlterConfigsRequest.Builder(
+            new IncrementalAlterConfigsRequestData()
+                    .setResources(transformedConfigs)
+                    .setValidateOnly(incrementalAlterConfigsRequestRequest.data().validateOnly()))
+            .build(version);
+  }
+
   // To preserve compatibility with clients that perform config updates (for example, Replicator mirroring
   // topic configs from the source cluster), remove non-updateable configs prior to config policy validation.
   // For configs with a range of allowable values, and for min.insync.replicas (which must be equal to 2),
   // leave the configs in the request and let them fail the config policy, rather than changing their values.
   private boolean allowConfigInRequest(String key) {
-    log.trace("Allowing config {} in the request because it is updateable");
-    return MultiTenantConfigRestrictions.UPDATABLE_TOPIC_CONFIGS.contains(key) ||
-            key.equals(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG);
-  }
+    if (MultiTenantConfigRestrictions.UPDATABLE_TOPIC_CONFIGS.contains(key) ||
+            key.equals(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG)) {
+      log.trace("Allowing config {} in the request because it is updateable", key);
+      return true;
+    }
 
-  private void handleNonUpdateableConfig(String key) {
     log.info("Altering config property {} is disallowed, ignoring config.", key);
+    return false;
   }
 
   private AbstractRequest transformCreatePartitionsRequest(
@@ -567,6 +621,16 @@ public class MultiTenantRequestContext extends RequestContext {
   private OffsetCommitResponse transformOffsetCommitResponse(OffsetCommitResponse response) {
     for (OffsetCommitResponseData.OffsetCommitResponseTopic topic: response.data().topics()) {
       topic.setName(tenantContext.removeTenantPrefix(topic.name()));
+    }
+    return response;
+  }
+
+  private IncrementalAlterConfigsResponse transformIncrementalAlterConfigsResponse(
+          IncrementalAlterConfigsResponse response) {
+    for (IncrementalAlterConfigsResponseData.AlterConfigsResourceResult result: response.data().responses()) {
+      if (result.resourceType() == ConfigResource.Type.TOPIC.id()) {
+        result.setResourceName(tenantContext.removeTenantPrefix(result.resourceName()));
+      }
     }
     return response;
   }

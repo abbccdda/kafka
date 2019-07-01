@@ -38,6 +38,8 @@ import org.apache.kafka.common.message.DescribeGroupsRequestData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData;
 import org.apache.kafka.common.message.FindCoordinatorRequestData;
 import org.apache.kafka.common.message.HeartbeatRequestData;
+import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
+import org.apache.kafka.common.message.IncrementalAlterConfigsResponseData;
 import org.apache.kafka.common.message.InitProducerIdRequestData;
 import org.apache.kafka.common.message.JoinGroupRequestData;
 import org.apache.kafka.common.message.LeaveGroupRequestData;
@@ -101,6 +103,8 @@ import org.apache.kafka.common.requests.FetchRequest;
 import org.apache.kafka.common.requests.FetchResponse;
 import org.apache.kafka.common.requests.FindCoordinatorRequest;
 import org.apache.kafka.common.requests.HeartbeatRequest;
+import org.apache.kafka.common.requests.IncrementalAlterConfigsRequest;
+import org.apache.kafka.common.requests.IncrementalAlterConfigsResponse;
 import org.apache.kafka.common.requests.InitProducerIdRequest;
 import org.apache.kafka.common.requests.IsolationLevel;
 import org.apache.kafka.common.requests.JoinGroupRequest;
@@ -1831,6 +1835,114 @@ public class MultiTenantRequestContextTest {
     time.sleep(ApiSensorBuilder.EXPIRY_SECONDS * 1000 + 1);
     for (Sensor sensor : sensors)
       assertTrue("Sensor should have expired", sensor.hasExpired());
+  }
+
+  @Test
+  public void testIncrementalAlterConfigsRequest() {
+    for (short ver = ApiKeys.INCREMENTAL_ALTER_CONFIGS.oldestVersion(); ver <= ApiKeys.INCREMENTAL_ALTER_CONFIGS.latestVersion(); ver++) {
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.INCREMENTAL_ALTER_CONFIGS, ver);
+      IncrementalAlterConfigsRequestData.AlterConfigsResourceCollection resourceConfigs =
+              new IncrementalAlterConfigsRequestData.AlterConfigsResourceCollection();
+
+      IncrementalAlterConfigsRequestData.AlterableConfigCollection configEntries =
+              new IncrementalAlterConfigsRequestData.AlterableConfigCollection();
+      testConfigs().forEach(c -> configEntries.add(
+              new IncrementalAlterConfigsRequestData.AlterableConfig()
+                      .setName(c.name())
+                      .setValue(c.value())
+                      .setConfigOperation((byte) 0)));
+
+      resourceConfigs.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
+              .setResourceType(ConfigResource.Type.TOPIC.id())
+              .setResourceName("foo")
+              .setConfigs(configEntries));
+      resourceConfigs.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
+              .setResourceType(ConfigResource.Type.BROKER.id())
+              .setResourceName("blah")
+              .setConfigs(new IncrementalAlterConfigsRequestData.AlterableConfigCollection()));
+      resourceConfigs.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
+              .setResourceType(ConfigResource.Type.TOPIC.id())
+              .setResourceName("bar")
+              .setConfigs(new IncrementalAlterConfigsRequestData.AlterableConfigCollection()));
+      IncrementalAlterConfigsRequest inbound = new IncrementalAlterConfigsRequest.Builder(
+              new IncrementalAlterConfigsRequestData()
+                      .setResources(resourceConfigs)
+                      .setValidateOnly(false))
+              .build(ver);
+
+      IncrementalAlterConfigsRequest actual = (IncrementalAlterConfigsRequest) parseRequest(context, inbound);
+
+      IncrementalAlterConfigsRequestData.AlterableConfigCollection expectedConfigs =
+              new IncrementalAlterConfigsRequestData.AlterableConfigCollection();
+      transformedTestConfigs().forEach(c -> expectedConfigs.add(
+              new IncrementalAlterConfigsRequestData.AlterableConfig()
+                      .setName(c.name())
+                      .setValue(c.value())
+                      .setConfigOperation((byte) 0)));
+
+      IncrementalAlterConfigsRequestData.AlterConfigsResourceCollection expectedResources =
+              new IncrementalAlterConfigsRequestData.AlterConfigsResourceCollection();
+      expectedResources.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
+              .setResourceType(ConfigResource.Type.TOPIC.id())
+              .setResourceName("tenant_foo")
+              .setConfigs(expectedConfigs));
+      expectedResources.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
+              .setResourceType(ConfigResource.Type.BROKER.id())
+              .setResourceName("blah")
+              .setConfigs(new IncrementalAlterConfigsRequestData.AlterableConfigCollection()));
+      expectedResources.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
+              .setResourceType(ConfigResource.Type.TOPIC.id())
+              .setResourceName("tenant_bar")
+              .setConfigs(new IncrementalAlterConfigsRequestData.AlterableConfigCollection()));
+      IncrementalAlterConfigsRequest expected =
+              new IncrementalAlterConfigsRequest.Builder(new IncrementalAlterConfigsRequestData()
+                      .setResources(expectedResources)
+                      .setValidateOnly(false))
+              .build(ver);
+
+      // Configs should be transformed by removing non-updateable configs, except for min.insync.replicas
+      assertEquals(expected.data().resources().valuesSet(), actual.data().resources().valuesSet());
+
+      verifyRequestMetrics(ApiKeys.INCREMENTAL_ALTER_CONFIGS);
+    }
+  }
+
+  @Test
+  public void testIncrementalAlterConfigsResponse() throws IOException {
+    for (short ver = ApiKeys.INCREMENTAL_ALTER_CONFIGS.oldestVersion(); ver <= ApiKeys.INCREMENTAL_ALTER_CONFIGS.latestVersion(); ver++) {
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.INCREMENTAL_ALTER_CONFIGS, ver);
+
+      List<IncrementalAlterConfigsResponseData.AlterConfigsResourceResult> responses =
+              new ArrayList<>();
+      responses.add(new IncrementalAlterConfigsResponseData.AlterConfigsResourceResult()
+              .setResourceType(ConfigResource.Type.TOPIC.id())
+              .setResourceName("tenant_foo")
+              .setErrorCode(Errors.NONE.code())
+              .setErrorMessage(""));
+      responses.add(new IncrementalAlterConfigsResponseData.AlterConfigsResourceResult()
+              .setResourceType(ConfigResource.Type.BROKER.id())
+              .setResourceName("blah")
+              .setErrorCode(Errors.NONE.code())
+              .setErrorMessage(""));
+      responses.add(new IncrementalAlterConfigsResponseData.AlterConfigsResourceResult()
+              .setResourceType(ConfigResource.Type.TOPIC.id())
+              .setResourceName("tenant_bar")
+              .setErrorCode(Errors.NONE.code())
+              .setErrorMessage(""));
+      IncrementalAlterConfigsResponse outbound = new IncrementalAlterConfigsResponse(
+              new IncrementalAlterConfigsResponseData()
+                      .setResponses(responses));
+
+      Struct struct = parseResponse(ApiKeys.INCREMENTAL_ALTER_CONFIGS, ver, context.buildResponse(outbound));
+      IncrementalAlterConfigsResponse intercepted = new IncrementalAlterConfigsResponse(struct, ver);
+      assertEquals(
+              new HashSet<>(Arrays.asList("foo", "blah", "bar")),
+              intercepted.data().responses().stream()
+                      .map(IncrementalAlterConfigsResponseData.AlterConfigsResourceResult::resourceName)
+                      .collect(Collectors.toSet()));
+
+      verifyResponseMetrics(ApiKeys.INCREMENTAL_ALTER_CONFIGS, Errors.NONE);
+    }
   }
 
   private AbstractRequest parseRequest(MultiTenantRequestContext context, AbstractRequest request) {
