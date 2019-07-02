@@ -945,6 +945,7 @@ project(':core') {
     from(project.file("$rootDir/config")) { into "config/" }
     from "$rootDir/LICENSE"
     from "$rootDir/NOTICE"
+    from "$rootDir/COPYRIGHT"
     from(configurations.runtime) { into("libs/") }
     from(configurations.archives.artifacts.files) { into("libs/") }
     from(project.siteDocsTar) { into("site-docs/") }
