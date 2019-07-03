@@ -91,7 +91,8 @@ public class MetricsReporter extends BaseMetricsReporter {
   protected Collector metricsCollector() {
     TimeUtils time = new TimeUtils();
     CollectorType collectorType;
-    if (BaseSupportConfig.isAnonymousUser(kafkaSupportConfig.getCustomerId())) {
+    String customerId = kafkaSupportConfig.getCustomerId();
+    if (BaseSupportConfig.isAnonymousUser(customerId) || BaseSupportConfig.isTestUser(customerId)) {
       collectorType = CollectorType.BASIC;
     } else {
       collectorType = CollectorType.FULL;

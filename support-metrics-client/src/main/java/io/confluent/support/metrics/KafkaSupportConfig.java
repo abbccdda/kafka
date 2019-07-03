@@ -22,9 +22,6 @@ import java.util.Properties;
  */
 public class KafkaSupportConfig extends BaseSupportConfig {
 
-  private static final String
-      PROPRIETARY_PACKAGE_NAME =
-      "io.confluent.support.metrics.collectors.FullCollector";
   private static final Logger log = LoggerFactory.getLogger(KafkaSupportConfig.class);
 
   public static final String CONFLUENT_SUPPORT_METRICS_ENDPOINT_INSECURE_DEFAULT =
@@ -42,7 +39,7 @@ public class KafkaSupportConfig extends BaseSupportConfig {
       "https://support-metrics.confluent.io/test";
 
   public KafkaSupportConfig(Properties originals) {
-    super(setupProperties(originals));
+    super(originals);
   }
 
   @Override
@@ -70,28 +67,5 @@ public class KafkaSupportConfig extends BaseSupportConfig {
     } else {
       return CONFLUENT_SUPPORT_METRICS_ENDPOINT_INSECURE_CUSTOMER_DEFAULT;
     }
-  }
-
-  private static Properties setupProperties(Properties originals) {
-    try {
-      Class.forName(PROPRIETARY_PACKAGE_NAME);
-    } catch (ClassNotFoundException e) {
-      originals.setProperty(
-          KafkaSupportConfig.CONFLUENT_SUPPORT_CUSTOMER_ID_CONFIG,
-          KafkaSupportConfig.CONFLUENT_SUPPORT_CUSTOMER_ID_DEFAULT
-      );
-      log.warn(warningIfFullCollectorPackageMissing());
-    }
-
-    return originals;
-  }
-
-  private static String warningIfFullCollectorPackageMissing() {
-    return "The package "
-           + PROPRIETARY_PACKAGE_NAME
-           + " for collecting the full set of support metrics could not be loaded, so we are "
-           + "reverting to anonymous, basic metric collection. If you are a Confluent customer, "
-           + "please refer to the Confluent Platform documentation, section Proactive Support, "
-           + "on how to activate full metrics collection.";
   }
 }
