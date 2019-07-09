@@ -25,7 +25,8 @@ import kafka.utils.CoreUtils._
 import kafka.utils.Logging
 import org.apache.kafka.common.TopicPartition
 
-import scala.collection.mutable.ListBuffer
+import scala.collection.Seq
+import scala.collection.mutable.ArrayBuffer
 
 /**
  * Represents a cache of (LeaderEpoch => Offset) mappings for a particular replica.
@@ -43,7 +44,10 @@ class LeaderEpochFileCache(topicPartition: TopicPartition,
   this.logIdent = s"[LeaderEpochCache $topicPartition] "
 
   private val lock = new ReentrantReadWriteLock()
-  private var epochs: ListBuffer[EpochEntry] = inWriteLock(lock) { ListBuffer(checkpoint.read(): _*) }
+  private var epochs: ArrayBuffer[EpochEntry] = inWriteLock(lock) {
+    val read = checkpoint.read()
+    new ArrayBuffer(read.size) ++= read
+  }
 
   def file: File = checkpoint.file
 
@@ -238,7 +242,7 @@ class LeaderEpochFileCache(topicPartition: TopicPartition,
   }
 
   // Visible for testing
-  def epochEntries: ListBuffer[EpochEntry] = {
+  def epochEntries: Seq[EpochEntry] = {
     epochs
   }
 

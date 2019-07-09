@@ -19,6 +19,8 @@ package kafka.server
 import java.util.concurrent.TimeUnit
 import java.util.{Collections, Optional}
 
+import scala.collection.Seq
+
 import kafka.cluster.Partition
 import kafka.tier.fetcher.PendingFetch
 import kafka.tier.fetcher.TierFetchResult

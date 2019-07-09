@@ -38,6 +38,7 @@ import org.scalatest.Assertions.fail
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
+import scala.collection.Seq
 import scala.util.{Failure, Success, Try}
 
 class ControllerIntegrationTest extends ZooKeeperTestHarness {
@@ -575,7 +576,7 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
       TestUtils.waitUntilTrue(() => {
         val leaderId = zkClient.getLeaderForPartition(tp).get
         val leader = servers.filter(_.config.brokerId == leaderId)(0)
-        leader.replicaManager.nonOfflinePartition(tp).get.inSyncReplicas.size == replicationFactor
+        leader.replicaManager.nonOfflinePartition(tp).get.inSyncReplicaIds.size == replicationFactor
       }, "Timed out waiting for replicas to join ISR")
     }
 

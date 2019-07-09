@@ -52,6 +52,7 @@ import org.junit.{After, Before, Rule, Test}
 import org.scalatest.Assertions.intercept
 
 import scala.collection.JavaConverters._
+import scala.collection.Seq
 import scala.compat.java8.OptionConverters._
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future}
@@ -750,7 +751,6 @@ class AdminClientIntegrationTest extends IntegrationTestHarness with Logging {
     try {
       altered = alterResult.values.get(topic2).get
     } catch {
-      case e: ExecutionException =>
       case e: ExecutionException =>
         assertTrue(e.getCause.isInstanceOf[InvalidPartitionsException])
         assertEquals("Topic currently has 3 partitions, which is higher than the requested 2.", e.getCause.getMessage)

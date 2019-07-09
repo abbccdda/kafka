@@ -90,8 +90,8 @@ class AdminManager(val config: KafkaConfig,
     val metadata = toCreate.values.map(topic =>
       try {
         val configs = new Properties()
-        topic.configs().asScala.foreach { case entry =>
-          configs.setProperty(entry.name(), entry.value())
+        topic.configs.asScala.foreach { entry =>
+          configs.setProperty(entry.name, entry.value)
         }
         LogConfig.validate(configs)
 
@@ -133,17 +133,9 @@ class AdminManager(val config: KafkaConfig,
             val javaAssignments = if (topic.assignments().isEmpty) {
               null
             } else {
-              val map = new java.util.HashMap[Integer, java.util.List[Integer]]
-              assignments.foreach {
-                case (k, v) => {
-                  val list = new java.util.ArrayList[Integer]
-                  v.foreach {
-                    case i => list.add(Integer.valueOf(i))
-                  }
-                  map.put(k, list)
-                }
-              }
-              map
+              assignments.map { case (k, v) =>
+                (k: java.lang.Integer) -> v.map(i => i: java.lang.Integer).asJava
+              }.asJava
             }
             val javaConfigs = new java.util.HashMap[String, String]
             topic.configs().asScala.foreach(config => javaConfigs.put(config.name(), config.value()))
@@ -171,7 +163,7 @@ class AdminManager(val config: KafkaConfig,
         case e: Throwable =>
           error(s"Error processing create topic request $topic", e)
           CreatePartitionsMetadata(topic.name, Map(), ApiError.fromThrowable(e))
-      })
+      }).toIndexedSeq
 
     // 2. if timeout <= 0, validateOnly or no topics can proceed return immediately
     if (timeout <= 0 || validateOnly || !metadata.exists(_.error.is(Errors.NONE))) {
@@ -186,9 +178,8 @@ class AdminManager(val config: KafkaConfig,
       responseCallback(results)
     } else {
       // 3. else pass the assignments and errors to the delayed operation and set the keys
-      val delayedCreate = new DelayedCreatePartitions(timeout, metadata.toSeq, this, responseCallback)
-      val delayedCreateKeys = toCreate.values.map(
-        topic => new TopicKey(topic.name())).toSeq
+      val delayedCreate = new DelayedCreatePartitions(timeout, metadata, this, responseCallback)
+      val delayedCreateKeys = toCreate.values.map(topic => new TopicKey(topic.name)).toIndexedSeq
       // try to complete the request immediately, otherwise put it into the purgatory
       topicPurgatory.tryCompleteElseWatch(delayedCreate, delayedCreateKeys)
     }

@@ -22,7 +22,7 @@ ext {
   libs = [:]
   
   // Enabled by default when commands like `testAll` are invoked
-  defaultScalaVersions = [ '2.11', '2.12' ]
+  defaultScalaVersions = [ '2.11', '2.12', '2.13' ]
   // Available if -PscalaVersion is used. This is useful when we want to support a Scala version that has
   // a higher minimum Java requirement than Kafka. This was previously the case for Scala 2.12 and Java 7.
   availableScalaVersions = [ '2.11', '2.12', '2.13' ]
@@ -99,7 +99,6 @@ versions += [
   jopt: "5.0.4",
   junit: "4.13-beta-2",
   scalacheck: "1.14.0",
-  scalaJava8Compat: "0.9.0",
   kafka_0100: "0.10.0.1",
   kafka_0101: "0.10.1.1",
   kafka_0102: "0.10.2.2",
@@ -121,9 +120,10 @@ versions += [
   protobufPlugin: "0.8.6",
   reflections: "0.9.11",
   rocksDB: "5.18.3",
+  scalaCollectionCompat: "2.1.0",
   scalafmt: "1.5.1",
-  scalatest: "3.0.8",
   scalaJava8Compat : "0.9.0",
+  scalatest: "3.0.8",
   scoverage: "1.4.0",
   scoveragePlugin: "2.5.0",
   shadowPlugin: "4.0.4",
@@ -204,13 +204,13 @@ libs += [
   protobufUtil: "com.google.protobuf:protobuf-java-util:$versions.protobuf",
   reflections: "org.reflections:reflections:$versions.reflections",
   rocksDBJni: "org.rocksdb:rocksdbjni:$versions.rocksDB",
-  scalacheck: "org.scalacheck:scalacheck_"+versions["baseScala"]+":$versions.scalacheck",
+  scalaCollectionCompat: "org.scala-lang.modules:scala-collection-compat_$versions.baseScala:$versions.scalaCollectionCompat",
   scalaJava8Compat: "org.scala-lang.modules:scala-java8-compat_$versions.baseScala:$versions.scalaJava8Compat",
+  scalacheck: "org.scalacheck:scalacheck_"+versions["baseScala"]+":$versions.scalacheck",
   scalaLibrary: "org.scala-lang:scala-library:$versions.scala",
   scalaLogging: "com.typesafe.scala-logging:scala-logging_$versions.baseScala:$versions.scalaLogging",
   scalaReflect: "org.scala-lang:scala-reflect:$versions.scala",
   scalatest: "org.scalatest:scalatest_$versions.baseScala:$versions.scalatest",
-  scalaJava8Compat: "org.scala-lang.modules:scala-java8-compat_$versions.baseScala:$versions.scalaJava8Compat",
   scoveragePlugin: "org.scoverage:scalac-scoverage-plugin_$versions.baseScala:$versions.scoverage",
   scoverageRuntime: "org.scoverage:scalac-scoverage-runtime_$versions.baseScala:$versions.scoverage",
   slf4jApi: "org.slf4j:slf4j-api:$versions.slf4j",

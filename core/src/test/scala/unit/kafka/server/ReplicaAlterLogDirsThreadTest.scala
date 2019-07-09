@@ -19,7 +19,7 @@ package kafka.server
 import java.util.Optional
 
 import kafka.cluster.{BrokerEndPoint, Partition}
-import kafka.log.{AbstractLog, Log, LogManager}
+import kafka.log.{AbstractLog, LogManager}
 import kafka.server.AbstractFetcherThread.ResultWithPartitions
 import kafka.utils.{DelayedItem, TestUtils}
 import kafka.tier.TierMetadataManager
@@ -325,7 +325,6 @@ class ReplicaAlterLogDirsThreadTest {
     val responseCallback: Capture[Seq[(TopicPartition, FetchPartitionData)] => Unit]  = EasyMock.newCapture()
 
     val initialFetchOffset = 100
-    val futureReplicaLEO = 111
 
     //Stubs
     expect(replicaManager.getPartitionOrException(t1p0, expectLeader = false))

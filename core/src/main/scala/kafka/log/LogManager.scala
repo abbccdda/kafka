@@ -105,7 +105,7 @@ class LogManager(logDirs: Seq[File],
   private val preferredLogDirs = new ConcurrentHashMap[TopicPartition, String]()
 
   private def offlineLogDirs: Iterable[File] = {
-    val logDirsSet = mutable.Set[File](logDirs: _*)
+    val logDirsSet = mutable.Set[File]() ++= logDirs
     _liveLogDirs.asScala.foreach(logDirsSet -=)
     logDirsSet
   }
@@ -608,7 +608,7 @@ class LogManager(logDirs: Seq[File],
       partitionToLog <- logsByDir.get(dir.getAbsolutePath)
       checkpoint <- recoveryPointCheckpoints.get(dir)
     } {
-      checkpoint.write(partitionToLog.mapValues(_.recoveryPoint))
+      checkpoint.write(partitionToLog.map { case (tp, log) => tp -> log.recoveryPoint })
     }
   }
 
@@ -621,9 +621,9 @@ class LogManager(logDirs: Seq[File],
       checkpoint <- logStartOffsetCheckpoints.get(dir)
     } {
       try {
-        val logStartOffsets = partitionToLog.filter { case (_, log) =>
-          log.logStartOffset > log.baseOffsetOfFirstSegment
-        }.mapValues(_.logStartOffset)
+        val logStartOffsets = partitionToLog.collect {
+          case (k, log) if log.logStartOffset > log.baseOffsetOfFirstSegment => k -> log.logStartOffset
+        }
         checkpoint.write(logStartOffsets)
       } catch {
         case e: IOException =>

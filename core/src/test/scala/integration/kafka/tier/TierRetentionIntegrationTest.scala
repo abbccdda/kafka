@@ -130,7 +130,7 @@ class TierRetentionIntegrationTest extends IntegrationTestHarness {
 
   private def awaitISR(tp: TopicPartition, numReplicas: Int, leader: KafkaServer): Unit = {
     TestUtils.waitUntilTrue(() => {
-      leader.replicaManager.nonOfflinePartition(tp).get.inSyncReplicas.size == numReplicas
+      leader.replicaManager.nonOfflinePartition(tp).get.inSyncReplicaIds.size == numReplicas
     }, "Timed out waiting for replicas to join ISR")
   }
 }

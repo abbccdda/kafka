@@ -28,7 +28,7 @@ import kafka.common.{OffsetsOutOfOrderException, UnexpectedAppendOffsetException
 import kafka.log.Log.DeleteDirSuffix
 import kafka.server.checkpoints.LeaderEpochCheckpointFile
 import kafka.server.epoch.{EpochEntry, LeaderEpochFileCache}
-import kafka.server.{BrokerTopicStats, FetchDataInfo, KafkaConfig, LogDirFailureChannel}
+import kafka.server.{BrokerTopicStats, FetchDataInfo, KafkaConfig, LogDirFailureChannel, LogOffsetMetadata}
 import kafka.tier.TierMetadataManager
 import kafka.utils._
 import org.apache.kafka.common.{KafkaException, TopicPartition}
@@ -3306,7 +3306,21 @@ class LogTest {
     appendEndTxnMarkerAsLeader(log, pid4, epoch, ControlRecordType.COMMIT) // 90
 
     val abortedTransactions = allAbortedTransactions(log)
-    assertEquals(List(new AbortedTxn(pid1, 0L, 29L, 8L), new AbortedTxn(pid2, 8L, 74L, 36L)), abortedTransactions)
+    val expectedTransactions = List(
+      new AbortedTxn(pid1, 0L, 29L, 8L),
+      new AbortedTxn(pid2, 8L, 74L, 36L)
+    )
+    assertEquals(expectedTransactions, abortedTransactions)
+
+    // Verify caching of the segment position of the first unstable offset
+    log.highWatermark = 30L
+    assertCachedFirstUnstableOffset(log, expectedOffset = 8L)
+
+    log.highWatermark = 75L
+    assertCachedFirstUnstableOffset(log, expectedOffset = 36L)
+
+    log.highWatermark = log.logEndOffset
+    assertEquals(None, log.firstUnstableOffset)
   }
 
   @Test
@@ -3507,7 +3521,41 @@ class LogTest {
     appendAsFollower(log, MemoryRecords.readableRecords(buffer))
 
     val abortedTransactions = allAbortedTransactions(log)
-    assertEquals(List(new AbortedTxn(pid1, 0L, 29L, 8L), new AbortedTxn(pid2, 8L, 74L, 36L)), abortedTransactions)
+    val expectedTransactions = List(
+      new AbortedTxn(pid1, 0L, 29L, 8L),
+      new AbortedTxn(pid2, 8L, 74L, 36L)
+    )
+
+    assertEquals(expectedTransactions, abortedTransactions)
+
+    // Verify caching of the segment position of the first unstable offset
+    log.highWatermark = 30L
+    assertCachedFirstUnstableOffset(log, expectedOffset = 8L)
+
+    log.highWatermark = 75L
+    assertCachedFirstUnstableOffset(log, expectedOffset = 36L)
+
+    log.highWatermark = log.logEndOffset
+    assertEquals(None, log.firstUnstableOffset)
+  }
+
+  private def assertCachedFirstUnstableOffset(log: AbstractLog, expectedOffset: Long): Unit = {
+    assertTrue(log.firstUnstableOffset.isDefined)
+    val firstUnstableOffset = log.firstUnstableOffset.get
+    assertEquals(expectedOffset, firstUnstableOffset.messageOffset)
+    assertFalse(firstUnstableOffset.messageOffsetOnly)
+    assertValidLogOffsetMetadata(log, firstUnstableOffset)
+  }
+
+  private def assertValidLogOffsetMetadata(log: AbstractLog, offsetMetadata: LogOffsetMetadata): Unit = {
+    log.read(startOffset = offsetMetadata.messageOffset,
+      maxLength = 2048,
+      maxOffset = None,
+      minOneMessage = false,
+      includeAbortedTxns = false) match {
+      case readInfo: FetchDataInfo => assertEquals(offsetMetadata, readInfo.fetchOffsetMetadata)
+      case _ => fail("unexpected read from the tiered portion of the log")
+    }
   }
 
   @Test(expected = classOf[TransactionCoordinatorFencedException])
@@ -4035,7 +4083,7 @@ object LogTest {
                       brokerTopicStats: BrokerTopicStats,
                       time: Time,
                       scheduler: Scheduler,
-                      expectDeletedFiles: Boolean = false) = {
+                      expectDeletedFiles: Boolean = false): AbstractLog = {
     // Recover log file and check that after recovery, keys are as expected
     // and all temporary files have been deleted
     val recoveredLog = createLog(logDir, config, brokerTopicStats, scheduler, time)

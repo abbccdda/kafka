@@ -26,7 +26,7 @@ from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
 from kafkatest.utils.tiered_storage import tier_set_configs, TierSupport
 from kafkatest.services.kafka import config_property
-from kafkatest.version import LATEST_0_8_2, LATEST_0_9, LATEST_0_10, LATEST_0_10_0, LATEST_0_10_1, LATEST_0_10_2, LATEST_0_11_0, LATEST_1_0, LATEST_1_1, LATEST_2_0, LATEST_2_1, LATEST_2_2, V_0_9_0_0, DEV_BRANCH, KafkaVersion
+from kafkatest.version import LATEST_0_8_2, LATEST_0_9, LATEST_0_10, LATEST_0_10_0, LATEST_0_10_1, LATEST_0_10_2, LATEST_0_11_0, LATEST_1_0, LATEST_1_1, LATEST_2_0, LATEST_2_1, LATEST_2_2, LATEST_2_3, V_0_9_0_0, DEV_BRANCH, KafkaVersion
 
 class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
     TIER_S3_BUCKET = "confluent-tier-system-test"
@@ -50,7 +50,7 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             wait_until(lambda: self.producer.each_produced_at_least(25000),
                        timeout_sec=120, backoff_sec=1,
                        err_msg="Producer did not produce all messages in reasonable amount of time")
-        
+
         self.logger.info("First pass bounce - rolling upgrade")
         for node in self.kafka.nodes:
             self.kafka.stop_node(node)
@@ -77,7 +77,7 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             self.kafka.start_node(node)
 
         # tiered storage currently requires a second bounce to enable tiering
-        # after tier.feature is enabled https://confluentinc.atlassian.net/browse/CPKAFKA-3159 
+        # after tier.feature is enabled https://confluentinc.atlassian.net/browse/CPKAFKA-3159
         if tiered_storage:
             self.logger.info("last bounce - tier enable")
             for node in self.kafka.nodes:
@@ -87,6 +87,8 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
 
 
     @cluster(num_nodes=6)
+    @parametrize(from_kafka_version=str(LATEST_2_3), to_message_format_version=None, compression_types=["none"])
+    @parametrize(from_kafka_version=str(LATEST_2_3), to_message_format_version=None, compression_types=["zstd"])
     @parametrize(from_kafka_version=str(LATEST_2_2), to_message_format_version=None, compression_types=["none"], tiered_storage=True)
     @parametrize(from_kafka_version=str(LATEST_2_2), to_message_format_version=None, compression_types=["none"])
     @parametrize(from_kafka_version=str(LATEST_2_2), to_message_format_version=None, compression_types=["zstd"])
