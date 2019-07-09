@@ -101,13 +101,19 @@ case class Upload(leaderEpoch: Int, uploadInitiate: TierSegmentUploadInitiate, u
   * successful upload to tiered storage. After the TierTopicManager confirms that UploadComplete has been materialized,
   * we transition back to BeforeUpload to find the next segment to upload.
   */
-case class AfterUpload(leaderEpoch: Int, uploadInitiate: TierSegmentUploadInitiate) extends ArchiveTaskState
+case class AfterUpload(leaderEpoch: Int, uploadInitiate: TierSegmentUploadInitiate, uploadedSize: Long) extends ArchiveTaskState
 
 case class UploadableSegment(log: AbstractLog,
                              logSegment: LogSegment,
                              producerStateOpt: Option[File],
                              leaderEpochStateOpt: Option[File],
-                             abortedTxnIndexOpt: Option[ByteBuffer])
+                             abortedTxnIndexOpt: Option[ByteBuffer]) {
+
+  val uploadedSize: Long = logSegment.size + Seq(producerStateOpt.map(_.length),
+                                                  leaderEpochStateOpt.map(_.length),
+                                                  abortedTxnIndexOpt.map(bb => (bb.limit - bb.position).toLong)
+                                                ).map(_.getOrElse(0L)).sum
+}
 
 /**
   * Asynchronous state machine for archiving a topic partition.
@@ -357,7 +363,7 @@ object ArchiveTask extends Logging {
         }
 
         info(s"Uploaded segment for $topicIdPartition in ${time.milliseconds - startTime}ms")
-        AfterUpload(state.leaderEpoch, uploadInitiate)
+        AfterUpload(state.leaderEpoch, uploadInitiate, state.uploadableSegment.uploadedSize)
       }
     }
   }
@@ -376,7 +382,7 @@ object ArchiveTask extends Logging {
       .map {
         case AppendResult.ACCEPTED =>
           info(s"Finalized upload segment for $topicIdPartition in ${time.milliseconds - startTime} ms")
-          byteRateMetric.foreach(_.mark(state.uploadInitiate.size))
+          byteRateMetric.foreach(_.mark(state.uploadedSize))
           BeforeUpload(state.leaderEpoch)
         case AppendResult.ILLEGAL =>
           throw new TierArchiverFatalException(s"Tier archiver found tier partition $topicIdPartition in illegal status")
@@ -385,7 +391,7 @@ object ArchiveTask extends Logging {
       }
   }
 
-  private def uploadableSegment(log: AbstractLog, logSegment: LogSegment): UploadableSegment = {
+  private[archiver] def uploadableSegment(log: AbstractLog, logSegment: LogSegment): UploadableSegment = {
     try {
       val nextOffset = logSegment.readNextOffset
       val leaderEpochStateOpt = ArchiveTask.uploadableLeaderEpochState(log, nextOffset)

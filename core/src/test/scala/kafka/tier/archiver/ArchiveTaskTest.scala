@@ -5,11 +5,13 @@
 package kafka.tier.archiver
 
 import java.io.File
+import java.nio.ByteBuffer
 import java.util.Collections
-import java.util.concurrent.CompletableFuture
+import java.util.concurrent.{CompletableFuture, TimeUnit}
 import java.util.UUID
 
 import kafka.log.{AbstractLog, LogSegment, OffsetIndex, ProducerStateManager, TimeIndex}
+import kafka.metrics.KafkaMetricsGroup
 import kafka.server.ReplicaManager
 import kafka.server.epoch.LeaderEpochFileCache
 import kafka.tier.TierTopicManager
@@ -36,7 +38,7 @@ import scala.collection.JavaConverters._
 import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
 
-class ArchiveTaskTest {
+class ArchiveTaskTest extends KafkaMetricsGroup {
   val topicIdPartition = new TopicIdPartition("foo", UUID.fromString("cbf4eaed-cc00-47dc-b08c-f1f5685f085d"), 0)
   var ctx: CancellationContext = CancellationContext.newContext()
   var tierTopicManager: TierTopicManager = mock(classOf[TierTopicManager])
@@ -98,6 +100,91 @@ class ArchiveTaskTest {
 
     assertTrue("Expected segment tiering to fail due to fencing",
       Await.ready(nextState, 50 millis).value.get.isFailure)
+  }
+
+  @Test
+  def testMetadataSizeDuringUpload(): Unit = {
+    val leaderEpoch = 0
+    val logSegment = mockLogSegment(tmpFile)
+    val log = mockAbstractLog(logSegment)
+    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition,
+      leaderEpoch,
+      UUID.randomUUID,
+      logSegment.baseOffset,
+      logSegment.readNextOffset - 1,
+      logSegment.maxTimestampSoFar,
+      logSegment.size,
+      true,
+      true,
+      true)
+
+    val epochStateSize = 1000000000L
+    val producerStateSize = 2000000000L
+    val abortedTxnsLimit = 150
+    val abortedTxnsPos = 50
+    val expectedSize = logSegment.size + epochStateSize + producerStateSize + (abortedTxnsLimit - abortedTxnsPos)
+
+    val epochState = mock(classOf[File])
+    val producerState = mock(classOf[File])
+    val abortedTxns = ByteBuffer.wrap(new Array[Byte](abortedTxnsLimit))
+    abortedTxns.limit(abortedTxnsLimit)
+    abortedTxns.position(abortedTxnsPos)
+
+    val epochStateOpt = Some(epochState)
+    val producerStateOpt = Some(producerState)
+    val abortedTxnsOpt = Some(abortedTxns)
+
+    when(epochState.exists).thenReturn(true)
+    when(producerState.exists).thenReturn(true)
+    when(epochState.length).thenReturn(epochStateSize)
+    when(producerState.length).thenReturn(producerStateSize)
+
+    doNothing().when(tierObjectStore).putSegment(any(), any(), any(), any(), any(), any(), any())
+
+    val uploadableSegment = UploadableSegment(log, logSegment, producerStateOpt, epochStateOpt, abortedTxnsOpt)
+    val upload = Upload(leaderEpoch, uploadInitiate, uploadableSegment)
+
+    val uploadResult = ArchiveTask.upload(upload, topicIdPartition, time, tierObjectStore)
+    val afterUpload = Await.result(uploadResult, 1 second)
+
+    assertEquals("metadata size of AfterUpload object is incorrect value",
+      expectedSize, afterUpload.uploadedSize)
+
+    assertTrue("metadata size of AfterUpload object is negative and overflowed",
+      afterUpload.uploadedSize > 0)
+  }
+
+  @Test
+  def testMetadataSizeAfterUpload(): Unit = {
+    val testUploadSize = 400
+    val metricName = "BytesPerSec"
+
+    removeMetric(metricName)
+    val byteRate = newMeter(metricName, "bytes per second", TimeUnit.SECONDS)
+
+    val leaderEpoch = 0
+    val logSegment = mockLogSegment(tmpFile)
+    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition,
+      leaderEpoch,
+      UUID.randomUUID,
+      logSegment.baseOffset,
+      logSegment.readNextOffset - 1,
+      logSegment.maxTimestampSoFar,
+      logSegment.size,
+      true,
+      true,
+      true)
+
+    val afterUpload = AfterUpload(0, uploadInitiate, testUploadSize)
+
+    when(tierTopicManager.addMetadata(any(classOf[TierSegmentUploadInitiate]))).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
+    when(tierTopicManager.addMetadata(any(classOf[TierSegmentUploadComplete]))).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
+
+    val afterUploadResult = ArchiveTask.finalizeUpload(afterUpload, topicIdPartition, time, tierTopicManager, Some(byteRate))
+    Await.result(afterUploadResult, 1 second)
+
+    assertEquals("tier archiver mean rate shows no data uploaded to tiered storage",
+      testUploadSize, byteRate.count())
   }
 
   @Test
@@ -267,7 +354,7 @@ class ArchiveTaskTest {
     val beforeLeader = BeforeLeader(0)
     val beforeUpload = BeforeUpload(0)
     val upload = Upload(0, mock(classOf[TierSegmentUploadInitiate]), mock(classOf[UploadableSegment]))
-    val afterUpload = AfterUpload(0, mock(classOf[TierSegmentUploadInitiate]))
+    val afterUpload = AfterUpload(0, mock(classOf[TierSegmentUploadInitiate]), 0L)
 
     assertThrows(exception.getClass, new ThrowingRunnable {
       override def run(): Unit = beforeLeader.handleSegmentDeletedException(exception)
