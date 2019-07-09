@@ -59,6 +59,7 @@ if ( !versions.scala.contains('-') ) {
 }
 
 versions += [
+  opencensusProtoVersion: '0.2.0',
   activation: "1.1.1",
   amazons3client: "1.11.475",
   apacheda: "1.0.2",
@@ -137,6 +138,7 @@ versions += [
 ]
 
 libs += [
+  opencensusProto: "io.opencensus:opencensus-proto:$versions.opencensusProtoVersion",
   amazons3client: "com.amazonaws:aws-java-sdk-s3:$versions.amazons3client",
   activation: "javax.activation:activation:$versions.activation",
   apacheda: "org.apache.directory.api:api-all:$versions.apacheda",

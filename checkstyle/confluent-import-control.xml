@@ -78,6 +78,20 @@
 
   <subpackage name="metrics">
     <allow pkg="io.confluent.metrics" />
+    <allow pkg="io.opencensus" />
+    <allow pkg="io.confluent.monitoring" />
+    <allow pkg="io.confluent.serializers" />
+    <allow pkg="kafka" />
+    <allow pkg="scala" />
+    <allow pkg="org.apache.kafka.clients" />
+    <allow pkg="org.apache.kafka.common" />
+    <allow pkg="org.apache.kafka.test" />
+  </subpackage>
+
+  <subpackage name="telemetry">
+    <allow pkg="io.confluent.telemetry" />
+    <allow pkg="io.confluent.metrics" />
+    <allow pkg="io.opencensus" />
     <allow pkg="io.confluent.monitoring" />
     <allow pkg="io.confluent.serializers" />
     <allow pkg="kafka" />
