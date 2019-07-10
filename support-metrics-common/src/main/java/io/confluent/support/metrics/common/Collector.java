@@ -61,4 +61,8 @@ public abstract class Collector {
     this.runtimeState = runtimeState;
   }
 
+  public static String cpVersion(String kafkaVersion) {
+    return kafkaVersion.replace("-ce", "").replace("-ccs", "");
+  }
+
 }

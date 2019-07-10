@@ -23,7 +23,6 @@ import org.junit.Test;
 import io.confluent.support.metrics.SupportKafkaMetricsBasic;
 import io.confluent.support.metrics.common.Collector;
 import io.confluent.support.metrics.common.Uuid;
-import io.confluent.support.metrics.common.Version;
 import io.confluent.support.metrics.common.time.TimeUtils;
 
 import static org.junit.Assert.assertEquals;
@@ -58,8 +57,9 @@ public class BasicCollectorTest {
     assertTrue(unixTimeAtTestStart <= basicRecord.getTimestamp());
     assertTrue(basicRecord.getTimestamp() <= time.nowInUnixTime());
     assertEquals(AppInfoParser.getVersion(), basicRecord.getKafkaVersion());
-    assertEquals(Version.getVersion(), basicRecord.getConfluentPlatformVersion());
+    assertEquals(Collector.cpVersion(AppInfoParser.getVersion()), basicRecord.getConfluentPlatformVersion());
     assertEquals(metricsCollector.getRuntimeState().stateId(), basicRecord.getCollectorState().intValue());
     assertEquals(uuid.toString(), basicRecord.getBrokerProcessUUID());
   }
+
 }

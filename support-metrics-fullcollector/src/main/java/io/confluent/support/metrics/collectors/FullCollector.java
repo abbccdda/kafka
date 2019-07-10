@@ -44,7 +44,6 @@ import io.confluent.support.metrics.RuntimePropertiesRecord;
 import io.confluent.support.metrics.SupportKafkaMetricsEnhanced;
 import io.confluent.support.metrics.common.Collector;
 import io.confluent.support.metrics.common.Uuid;
-import io.confluent.support.metrics.common.Version;
 import io.confluent.support.metrics.common.kafka.KafkaUtilities;
 import io.confluent.support.metrics.common.time.TimeUtils;
 
@@ -122,10 +121,11 @@ public class FullCollector extends Collector {
             )
         )
     );
+    String kafkaVersion = AppInfoParser.getVersion();
     metricsRecord.setJvmStartTimeMs(rb.getStartTime());
     metricsRecord.setJvmUptimeMs(rb.getUptime());
-    metricsRecord.setKafkaVersion(AppInfoParser.getVersion());
-    metricsRecord.setConfluentPlatformVersion(Version.getVersion());
+    metricsRecord.setKafkaVersion(kafkaVersion);
+    metricsRecord.setConfluentPlatformVersion(cpVersion(kafkaVersion));
     metricsRecord.setCollectorState(this.getRuntimeState().stateId());
     metricsRecord.setBrokerProcessUUID(uuid.toString());
 

@@ -23,7 +23,6 @@ import io.confluent.support.metrics.RuntimePropertiesRecord;
 import io.confluent.support.metrics.SupportKafkaMetricsEnhanced;
 import io.confluent.support.metrics.common.Collector;
 import io.confluent.support.metrics.common.Uuid;
-import io.confluent.support.metrics.common.Version;
 import io.confluent.support.metrics.common.kafka.EmbeddedKafkaCluster;
 import io.confluent.support.metrics.common.time.TimeUtils;
 import kafka.server.KafkaConfig$;
@@ -88,7 +87,7 @@ public class FullCollectorSingleNodeClusterTest {
     assertThat(enhancedRecord.getJvmStartTimeMs()).isEqualTo(rb.getStartTime());
     assertThat(enhancedRecord.getJvmUptimeMs()).isLessThanOrEqualTo(rb.getUptime());
     assertThat(enhancedRecord.getKafkaVersion()).isEqualTo(AppInfoParser.getVersion());
-    assertThat(enhancedRecord.getConfluentPlatformVersion()).isEqualTo(Version.getVersion());
+    assertThat(enhancedRecord.getConfluentPlatformVersion()).isEqualTo(Collector.cpVersion(AppInfoParser.getVersion()));
     assertThat(enhancedRecord.getCollectorState()).isEqualTo(metricsCollector.getRuntimeState().stateId());
     assertThat(enhancedRecord.getBrokerProcessUUID()).isEqualTo(uuid.toString());
 
