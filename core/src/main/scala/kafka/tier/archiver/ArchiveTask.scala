@@ -111,7 +111,7 @@ case class UploadableSegment(log: AbstractLog,
 
   val uploadedSize: Long = logSegment.size + Seq(producerStateOpt.map(_.length),
                                                   leaderEpochStateOpt.map(_.length),
-                                                  abortedTxnIndexOpt.map(bb => (bb.limit - bb.position).toLong)
+                                                  abortedTxnIndexOpt.map(bb => (bb.limit() - bb.position()).toLong)
                                                 ).map(_.getOrElse(0L)).sum
 }
 
