@@ -2,7 +2,6 @@
 
 package io.confluent.security.auth.client.rest;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.security.auth.client.RestAuthorizer;
 import io.confluent.security.auth.client.RestClientConfig;
 import io.confluent.security.authorizer.Action;
@@ -30,7 +29,7 @@ import static org.junit.Assert.fail;
 public class RestClientTest {
 
     @Test
-    public void testFailOver() throws Exception {
+    public void testFailOver() {
         List<String> urllList = Arrays.asList("http://url1:80", "http://url2:80", "http://url3:80");
 
         Map<String, Object> configs = new HashMap<>();
@@ -61,16 +60,6 @@ public class RestClientTest {
 
         assertEquals(2, requestSender.attempt);
         assertEquals(2, requestSender.triedUrls.size());
-
-        // retries beyond urls size should fail
-        requestSender = new FailOverTestRequestSender(4);
-        restClient.requestSender(requestSender);
-        try {
-            authorizer.authorize(userPrincipal, "localhost", actionList);
-            fail("should have failed");
-        } catch (Exception e) {
-            // NoOp
-        }
     }
 
     @Test
@@ -88,9 +77,34 @@ public class RestClientTest {
         restClient.close();
     }
 
-    private static class FailOverTestRequestSender implements RequestSender {
+    @Test
+    public void testRetryRequestTimeout() {
+        List<String> urllList = Arrays.asList("http://url1:80");
+        int timeout = 30 * 1000;
 
-        private ObjectMapper jsonDeserializer = new ObjectMapper();
+        Map<String, Object> configs = new HashMap<>();
+        configs.put(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP, String.join(",", urllList));
+        // Prompts client to request ActiveUrls before returning control to caller
+        configs.put(RestClientConfig.ENABLE_METADATA_SERVER_URL_REFRESH, true);
+        configs.put(RestClientConfig.REQUEST_TIMEOUT_MS_CONFIG, timeout);
+
+        Time time = Time.SYSTEM;
+        long target = time.milliseconds() + timeout;
+        try {
+            /* Blocks fetching viable MDS nodes until timeout */
+            new RestClient(configs, time);
+            fail("should have failed");
+        } catch (RuntimeException e) {
+            /* NOOP */
+        }
+
+        if (time.milliseconds() < target) {
+            fail("Aborted before timeout");
+        }
+
+    }
+
+    private static class FailOverTestRequestSender implements RequestSender {
 
         int successAttempt;
         int attempt = 0;
@@ -117,7 +131,7 @@ public class RestClientTest {
     }
 
     @Test
-    public void testRequestTimeout() throws Exception {
+    public void testRequestTimeout() {
         List<String> urllList = Arrays.asList("http://url1:80", "http://url2:80", "http://url3:80");
 
         Map<String, Object> configs = new HashMap<>();
@@ -153,8 +167,6 @@ public class RestClientTest {
     }
 
     private static class TimeoutTestRequestSender implements RequestSender {
-
-        private ObjectMapper jsonDeserializer = new ObjectMapper();
 
         private final Time time;
         private final int sleepTime;

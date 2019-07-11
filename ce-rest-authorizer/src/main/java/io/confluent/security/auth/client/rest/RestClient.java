@@ -183,7 +183,7 @@ public class RestClient implements Closeable {
 
   // Exposed for testing
   List<String> getActiveMetadataServerURLs()
-          throws IOException, RestClientException, URISyntaxException {
+          throws RestClientException, URISyntaxException {
 
     RestRequest request = newRequest(String.format(ACTIVE_NODES_ENDPOINT, protocol));
     request.setCredentialProvider(credentialProvider());
@@ -238,13 +238,13 @@ public class RestClient implements Closeable {
   }
 
   public <T> T sendRequest(RestRequest request)
-          throws IOException, RestClientException, URISyntaxException {
+          throws RestClientException, URISyntaxException {
     long begin = time.milliseconds();
     long remainingWaitMs = requestTimeout;
     long elapsed;
 
     UrlSelector urlSelector = new UrlSelector(activeMetadataServerURLs);
-    for (int i = 0, n = urlSelector.size(); i < n; i++) {
+    while (true) {
       try {
         URI mds = new URI(urlSelector.current());
         request.setHost(mds.getHost());
@@ -253,18 +253,15 @@ public class RestClient implements Closeable {
                 remainingWaitMs);
       } catch (IOException e) {
         urlSelector.fail();
-        if (i == n - 1) {
-          throw e; // Raise the exception since we have no more urls to try
-        }
       }
 
       elapsed = time.milliseconds() - begin;
       if (elapsed >= requestTimeout) {
-        throw new TimeoutException("Request aborted due to timeout.");
+        break;
       }
       remainingWaitMs = requestTimeout - elapsed;
     }
-    throw new IOException("Internal HTTP retry error"); // Can't get here
+    throw new TimeoutException("Request aborted due to timeout.");
   }
 
   @Override
