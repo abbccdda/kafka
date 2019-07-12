@@ -116,7 +116,7 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
 
     public String keyPath(ObjectMetadata objectMetadata, FileType fileType) {
         return LOG_DATA_PREFIX
-                + "/" + objectMetadata.objectIdAsBase64()
+                + objectMetadata.objectIdAsBase64()
                 + "/" + objectMetadata.topicIdPartition().topicIdAsBase64()
                 + "/" + objectMetadata.topicIdPartition().partition()
                 + "/" + Log.filenamePrefixFromOffset(objectMetadata.baseOffet())

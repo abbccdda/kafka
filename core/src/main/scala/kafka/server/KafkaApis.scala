@@ -268,11 +268,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         else if (partition.topic == TRANSACTION_STATE_TOPIC_NAME)
           txnCoordinator.handleTxnImmigration(partition.partitionId, partition.getLeaderEpoch)
 
-        val topicId = leaderAndIsrRequest.topicIds().get(partition.topic)
-        if (topicId != null) {
-          val topicIdPartition = new TopicIdPartition(partition.topic, topicId, partition.topicPartition.partition)
-          tierMetadataManager.becomeLeader(topicIdPartition, partition.getLeaderEpoch)
-        }
+        tierMetadataManager.becomeLeader(partition.topicPartition, partition.getLeaderEpoch)
       }
 
       updatedFollowers.foreach { partition =>
@@ -281,10 +277,15 @@ class KafkaApis(val requestChannel: RequestChannel,
         else if (partition.topic == TRANSACTION_STATE_TOPIC_NAME)
           txnCoordinator.handleTxnEmigration(partition.partitionId, partition.getLeaderEpoch)
 
-        val topicId = leaderAndIsrRequest.topicIds().get(partition.topic)
-        if (topicId != null) {
-          val topicIdPartition = new TopicIdPartition(partition.topic, topicId, partition.topicPartition.partition)
-          tierMetadataManager.becomeFollower(topicIdPartition)
+        tierMetadataManager.becomeFollower(partition.topicPartition)
+      }
+
+      // Ensure topic IDs are set in TierMetadataManager
+      // This will only have an effect if they were not previously set
+      val topicIds = leaderAndIsrRequest.topicIds().asScala
+      leaderAndIsrRequest.partitionStates().keySet().asScala.foreach { tp =>
+        topicIds.get(tp.topic()).foreach { topicId =>
+          tierMetadataManager.ensureTopicIdPartition(new TopicIdPartition(tp.topic, topicId, tp.partition))
         }
       }
     }

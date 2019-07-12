@@ -319,7 +319,8 @@ class TierIntegrationTest {
     // Immigrate all test logs
     logs.foreach { log =>
       val topicIdPartition = new TopicIdPartition(log.topicPartition.topic(), UUID.randomUUID, log.topicPartition.partition())
-      tierMetadataManager.becomeLeader(topicIdPartition, leaderEpoch)
+      tierMetadataManager.becomeLeader(topicIdPartition.topicPartition(), leaderEpoch)
+      tierMetadataManager.ensureTopicIdPartition(topicIdPartition)
     }
 
     archiveAndMaterializeUntilTrue(() => {

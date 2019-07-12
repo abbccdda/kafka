@@ -4,7 +4,7 @@ import sys
 
 def tier_server_props(bucket, feature=True, enable=False, region="us-west-2", backend="S3",
                       metadata_replication_factor=3, hotset_bytes=1, hotset_ms=1,
-                      log_segment_bytes=102400, log_retention_check_interval=5000):
+                      log_segment_bytes=512000, log_retention_check_interval=5000):
     """Helper for building server_prop_overrides in Kafka tests that enable tiering"""
     return [
         # tiered storage does not support multiple logdirs

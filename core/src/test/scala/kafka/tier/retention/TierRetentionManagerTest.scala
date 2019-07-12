@@ -69,7 +69,8 @@ class TierRetentionManagerTest {
     val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, retentionBytes = retentionBytes, tierEnable = true)
     val log = createLogWithOverlap(numTieredSegments = 15, numLocalSegments = 10, numOverlap = 5, logConfig, logDir)
     val topicIdPartition = tierMetadataManager.tierPartitionState(topicPartition).get.topicIdPartition.get
-    tierMetadataManager.becomeLeader(topicIdPartition, 0)
+    tierMetadataManager.becomeLeader(topicIdPartition.topicPartition(), 0)
+    tierMetadataManager.ensureTopicIdPartition(topicIdPartition)
 
     try {
       assertEquals(20, log.tieredLogSegments.size)
@@ -115,7 +116,8 @@ class TierRetentionManagerTest {
       // becomeLeader for the partition. This will cause this partition to be
       // checked in the TierRetentionManager, however it must first wait for the TierPartitionState
       // to be at the right epoch before making any actions
-      tierMetadataManager.becomeLeader(topicIdPartition, 1)
+      tierMetadataManager.becomeLeader(topicIdPartition.topicPartition(), 1)
+      tierMetadataManager.ensureTopicIdPartition(topicIdPartition)
       tierRetentionManager.makeTransitions()
       time.sleep(logConfig.fileDeleteDelayMs)
       assertEquals("expected no segments to be deleted because metadata has not been read",

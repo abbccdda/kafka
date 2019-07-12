@@ -97,7 +97,7 @@ public class TierMetadataManager {
     public synchronized void delete(TopicPartition topicPartition) {
         PartitionMetadata partitionMetadata = tierMetadata.get(topicPartition);
         if (partitionMetadata != null) {
-            if (partitionMetadata.tieringEnabled()) {
+            if (partitionMetadata.tierable()) {
                 log.debug("Firing onDelete listeners for tiered topic {}", topicPartition);
                 Optional<TopicIdPartition> topicIdPartition =
                         partitionMetadata.tierPartitionState.topicIdPartition();
@@ -122,48 +122,46 @@ public class TierMetadataManager {
     /**
      * Called when replica is elected to be the leader. Fires off registered change listeners if partition is enabled
      * for tiering.
-     * @param topicIdPartition Topic id partition being elected leader
+     * @param topicPartition Topic id partition being elected leader
      * @param leaderEpoch Leader epoch
      */
-    public synchronized void becomeLeader(TopicIdPartition topicIdPartition, int leaderEpoch) {
-        PartitionMetadata partitionMetadata = tierMetadata.get(topicIdPartition.topicPartition());
+    public synchronized void becomeLeader(TopicPartition topicPartition, int leaderEpoch) {
+        PartitionMetadata partitionMetadata = tierMetadata.get(topicPartition);
         if (partitionMetadata == null)
-            throw new IllegalStateException("Tier metadata must exist for " + topicIdPartition);
+            throw new IllegalStateException("Tier metadata must exist for " + topicPartition);
 
-        setTopicIdPartition(partitionMetadata, topicIdPartition);
         partitionMetadata.epochIfLeader = OptionalInt.of(leaderEpoch);
-        if (partitionMetadata.tieringEnabled()) {
-            log.debug("Firing onBecomeLeader listeners for tiered topic {} leaderEpoch: {}", topicIdPartition, leaderEpoch);
-            changeListeners.values().forEach(listener -> listener.onBecomeLeader(topicIdPartition,
-                    leaderEpoch));
-        }
-    }
-
-    private void setTopicIdPartition(PartitionMetadata partitionMetadata, TopicIdPartition topicIdPartition) {
-        try {
-            partitionMetadata.setTopicIdPartition(topicIdPartition);
-            tierMetadataById.put(topicIdPartition, partitionMetadata);
-        } catch (IOException ioe) {
-            logDirFailureChannel.maybeAddOfflineLogDir(partitionMetadata.tierPartitionState().dir().getParent(),
-                    func(() -> "error setting TopicIdPartition " + topicIdPartition + " on "
-                            + "TierPartitionState"), ioe);
-        }
+        maybeFireListeners(topicPartition, partitionMetadata);
     }
 
     /**
      * Called when replica becomes follower. Fires off registered change listeners if partition is enabled for tiering.
-     * @param topicIdPartition Topic partition becoming follower
+     * @param topicPartition Topic partition becoming follower
      */
-    public synchronized void becomeFollower(TopicIdPartition topicIdPartition) {
-        PartitionMetadata partitionMetadata = tierMetadata.get(topicIdPartition.topicPartition());
+    public synchronized void becomeFollower(TopicPartition topicPartition) {
+        PartitionMetadata partitionMetadata = tierMetadata.get(topicPartition);
         if (partitionMetadata == null)
-            throw new IllegalStateException("Tier metadata must exist for " + topicIdPartition);
+            throw new IllegalStateException("Tier metadata must exist for " + topicPartition);
 
-        setTopicIdPartition(partitionMetadata, topicIdPartition);
         partitionMetadata.epochIfLeader = OptionalInt.empty();
-        if (partitionMetadata.tieringEnabled()) {
-            log.debug("Firing onBecomeFollower listeners for tiered topic {}", topicIdPartition);
-            changeListeners.values().forEach(listener -> listener.onBecomeFollower(topicIdPartition));
+        maybeFireListeners(topicPartition, partitionMetadata);
+    }
+
+    public synchronized void ensureTopicIdPartition(TopicIdPartition topicIdPartition) {
+        PartitionMetadata partitionMetadata = tierMetadata.get(topicIdPartition.topicPartition());
+        try {
+
+            if (partitionMetadata.setTopicIdPartition(topicIdPartition)) {
+                // a TopicIdPartition was not previously set, so we need to setup our
+                // tierMetadataById map and fire any listeners that would have been skipped in prior
+                // becomeLeader/becomeFollower calls
+                tierMetadataById.put(topicIdPartition, partitionMetadata);
+                maybeFireListeners(topicIdPartition.topicPartition(), partitionMetadata);
+            }
+        } catch (IOException ioe) {
+            logDirFailureChannel.maybeAddOfflineLogDir(partitionMetadata.tierPartitionState().dir().getParent(),
+                    func(() -> "error setting TopicIdPartition " + topicIdPartition + " on "
+                            + "TierPartitionState"), ioe);
         }
     }
 
@@ -180,26 +178,27 @@ public class TierMetadataManager {
 
         File dir = partitionMetadata.tierPartitionState.dir();
         try {
-            if (partitionMetadata.updateConfig(config, tierFeatureEnabled)) {
-                OptionalInt leaderEpoch = partitionMetadata.epochIfLeader;
-                Optional<TopicIdPartition> topicIdPartitionOpt = partitionMetadata.tierPartitionState.topicIdPartition();
-
-                if (topicIdPartitionOpt.isPresent()) {
-                    if (leaderEpoch.isPresent()) {
-                        int epoch = leaderEpoch.getAsInt();
-                        log.debug("Firing onBecomeLeader listeners on config change for tiered topic {} leaderEpoch: {}", topicPartition, epoch);
-                        changeListeners.values().forEach(listener -> listener.onBecomeLeader(topicIdPartitionOpt.get(), epoch));
-                    } else {
-                        log.debug("Firing onBecomeFollower listeners on config change for tiered topic {}", topicPartition);
-                        changeListeners.values().forEach(listener -> listener.onBecomeFollower(topicIdPartitionOpt.get()));
-                    }
-                } else {
-                    log.debug("Ignoring config change for tiered topic {} as TopicIdPartition has"
-                            + " not been associated with TierPartitionState.", topicPartition);
-                }
-            }
+            if (partitionMetadata.updateConfig(config, tierFeatureEnabled))
+                maybeFireListeners(topicPartition, partitionMetadata);
         } catch (IOException e) {
             handleIOException(dir, e, "Storage exception on configuration change");
+        }
+    }
+
+    private void maybeFireListeners(TopicPartition topicPartition, PartitionMetadata partitionMetadata) {
+        if (partitionMetadata.tierable()) {
+            partitionMetadata.tierPartitionState.topicIdPartition().ifPresent(topicIdPartition -> {
+                OptionalInt leaderEpoch = partitionMetadata.epochIfLeader;
+                if (leaderEpoch.isPresent()) {
+                    int epoch = leaderEpoch.getAsInt();
+                    log.debug("Firing onBecomeLeader listeners on change for tiered topic {} leaderEpoch: {}", topicPartition, epoch);
+                    changeListeners.values().forEach(listener -> listener.onBecomeLeader(topicIdPartition,
+                            epoch));
+                } else {
+                    log.debug("Firing onBecomeFollower listeners on change for tiered topic {}", topicPartition);
+                    changeListeners.values().forEach(listener -> listener.onBecomeFollower(topicIdPartition));
+                }
+            });
         }
     }
 
@@ -258,7 +257,7 @@ public class TierMetadataManager {
     public Iterator<TierPartitionState> tierEnabledPartitionStateIterator() {
         return tierMetadata.values()
                 .stream()
-                .filter(partitionMetadata -> partitionMetadata.tieringEnabled())
+                .filter(PartitionMetadata::tierable)
                 .map(partitionMetadata -> partitionMetadata.tierPartitionState)
                 .iterator();
     }
@@ -270,7 +269,7 @@ public class TierMetadataManager {
     public Iterator<TierPartitionState> tierEnabledLeaderPartitionStateIterator() {
         return tierMetadata.values()
                 .stream()
-                .filter(partitionMetadata -> partitionMetadata.tieringEnabled() && partitionMetadata.epochIfLeader.isPresent())
+                .filter(partitionMetadata -> partitionMetadata.tierable() && partitionMetadata.epochIfLeader.isPresent())
                 .map(partitionMetadata -> partitionMetadata.tierPartitionState)
                 .iterator();
     }
@@ -354,8 +353,8 @@ public class TierMetadataManager {
             this.tierPartitionState = tierPartitionStateFactory.initState(stateDir, topicPartition, tieringEnabled);
         }
 
-        private void setTopicIdPartition(TopicIdPartition topicIdPartition) throws IOException {
-            tierPartitionState.setTopicIdPartition(topicIdPartition);
+        private boolean setTopicIdPartition(TopicIdPartition topicIdPartition) throws IOException {
+            return tierPartitionState.setTopicIdPartition(topicIdPartition);
         }
 
         // Change tiering enabled configuration
@@ -371,6 +370,14 @@ public class TierMetadataManager {
             }
 
             return false;
+        }
+
+        boolean tieringEnabled() {
+            return tierPartitionState.tieringEnabled();
+        }
+
+        boolean tierable() {
+            return tieringEnabled() && tierPartitionState.topicIdPartition().isPresent();
         }
 
         private boolean isTieringEnabled(TopicPartition topicPartition, LogConfig config, boolean tierFeatureEnabled) {
@@ -389,10 +396,6 @@ public class TierMetadataManager {
 
         public TierPartitionState tierPartitionState() {
             return tierPartitionState;
-        }
-
-        public boolean tieringEnabled() {
-            return tierPartitionState.tieringEnabled();
         }
 
         public OptionalInt epochIfLeader() {

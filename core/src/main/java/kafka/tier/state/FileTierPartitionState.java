@@ -142,17 +142,25 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return Optional.ofNullable(topicIdPartition);
     }
 
-    public void setTopicIdPartition(TopicIdPartition topicIdPartition) throws IOException {
-        if (this.topicIdPartition != null && !this.topicIdPartition.equals(topicIdPartition))
-            throw new IllegalStateException("TierPartitionState assigned a different "
-                    + "topicIdPartition than already assigned (" + topicIdPartition
-                    + " " + this.topicIdPartition + ")");
+    public boolean setTopicIdPartition(TopicIdPartition topicIdPartition) throws IOException {
+        if (this.topicIdPartition != null) {
+           if (!this.topicIdPartition.equals(topicIdPartition)) {
+               throw new IllegalStateException("TierPartitionState assigned a different "
+                       + "topicIdPartition than already assigned (" + topicIdPartition
+                       + " " + this.topicIdPartition + ")");
+           } else {
+               return false;
+           }
+        }
+
         this.topicIdPartition = topicIdPartition;
         log.info("Setting topicIdPartition {}", topicIdPartition);
 
         synchronized (lock) {
             maybeOpenChannel();
         }
+
+        return true;
     }
 
     @Override

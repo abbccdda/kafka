@@ -76,7 +76,8 @@ class TierArchiverStateTest {
     tierTopicManager.becomeReady("fakebootstrap")
 
     tierMetadataManager.initState(topicIdPartition.topicPartition, new File(logDirs.get(0)), new LogConfig(properties))
-    tierMetadataManager.becomeLeader(topicIdPartition, 1)
+    tierMetadataManager.becomeLeader(topicIdPartition.topicPartition(), 1)
+    tierMetadataManager.ensureTopicIdPartition(topicIdPartition)
 
     while (tierTopicManager.doWork()) {}
 

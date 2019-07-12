@@ -55,9 +55,6 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
         for node in self.kafka.nodes:
             self.kafka.stop_node(node)
 
-            if tiered_storage:
-                tier_set_configs(self.kafka, self.TIER_S3_BUCKET, feature = False, enable = False,
-                        hotset_bytes = -1, hotset_ms = -1, metadata_replication_factor=1)
 
             node.version = DEV_BRANCH
             node.config[config_property.INTER_BROKER_PROTOCOL_VERSION] = from_kafka_version
@@ -74,22 +71,13 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
                 node.config[config_property.MESSAGE_FORMAT_VERSION] = to_message_format_version
 
             node.config[config_property.CONFLUENT_TIER_FEATURE] = tiered_storage
+            node.config[config_property.CONFLUENT_TIER_ENABLE] = tiered_storage
             self.kafka.start_node(node)
 
-        # tiered storage currently requires a second bounce to enable tiering
-        # after tier.feature is enabled https://confluentinc.atlassian.net/browse/CPKAFKA-3159
-        if tiered_storage:
-            self.logger.info("last bounce - tier enable")
-            for node in self.kafka.nodes:
-                self.kafka.stop_node(node)
-                node.config[config_property.CONFLUENT_TIER_ENABLE] = tiered_storage
-                self.kafka.start_node(node)
-
-
     @cluster(num_nodes=6)
+    @parametrize(from_kafka_version=str(LATEST_2_3), to_message_format_version=None, compression_types=["none"], tiered_storage=True)
     @parametrize(from_kafka_version=str(LATEST_2_3), to_message_format_version=None, compression_types=["none"])
     @parametrize(from_kafka_version=str(LATEST_2_3), to_message_format_version=None, compression_types=["zstd"])
-    @parametrize(from_kafka_version=str(LATEST_2_2), to_message_format_version=None, compression_types=["none"], tiered_storage=True)
     @parametrize(from_kafka_version=str(LATEST_2_2), to_message_format_version=None, compression_types=["none"])
     @parametrize(from_kafka_version=str(LATEST_2_2), to_message_format_version=None, compression_types=["zstd"])
     @parametrize(from_kafka_version=str(LATEST_2_1), to_message_format_version=None, compression_types=["none"])
@@ -146,6 +134,11 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
                                   jmx_object_names=["kafka.server:type=ReplicaManager,name=UnderReplicatedPartitions"],
                                   topics={self.topic: {"partitions": self.PARTITIONS, "replication-factor": 3,
                                                        'configs': {"min.insync.replicas": 2}}})
+
+        if tiered_storage:
+            tier_set_configs(self.kafka, self.TIER_S3_BUCKET, feature = False, enable = False,
+                    hotset_bytes = -1, hotset_ms = -1, metadata_replication_factor=3)
+
         self.kafka.security_protocol = security_protocol
         self.kafka.interbroker_security_protocol = security_protocol
         self.kafka.start()

@@ -250,9 +250,12 @@ class TierPartitionStateTest {
     assertEquals(2, initialFenced.size())
     // close state and reopen to allow scanning to check in progress uploads
     state.close()
-    // setting topic ID partition will cause TierPartitionState to be reopened
-    state.setTopicIdPartition(tpid)
-    val afterReloadFenced = state.fencedSegments()
+
+
+    val state2 = new FileTierPartitionState(dir, tp, true)
+    assertFalse(state2.setTopicIdPartition(tpid))
+
+    val afterReloadFenced = state2.fencedSegments()
     assertEquals(initialFenced, afterReloadFenced)
   }
 

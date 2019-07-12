@@ -186,11 +186,13 @@ class TierTopicManagerTest {
       val topicId = UUID.randomUUID()
       val archivedPartition1 = new TopicIdPartition("archivedTopic", topicId, 0)
       addReplica(tierMetadataManager, archivedPartition1)
-      tierMetadataManager.becomeFollower(archivedPartition1)
+      tierMetadataManager.becomeFollower(archivedPartition1.topicPartition())
+      tierMetadataManager.ensureTopicIdPartition(archivedPartition1)
 
       val archivedPartition2 = new TopicIdPartition("archivedTopic", topicId, 1)
       addReplica(tierMetadataManager, archivedPartition2)
-      tierMetadataManager.becomeFollower(archivedPartition2)
+      tierMetadataManager.becomeFollower(archivedPartition2.topicPartition())
+      tierMetadataManager.ensureTopicIdPartition(archivedPartition2)
 
       tierTopicManager.processMigrations()
       assertTrue(tierTopicManager.catchingUp())
@@ -220,11 +222,13 @@ class TierTopicManagerTest {
       val topicId = UUID.randomUUID()
       val archivedPartition1 = new TopicIdPartition("archivedTopic", topicId, 0)
       addReplica(tierMetadataManager, archivedPartition1)
-      tierMetadataManager.becomeFollower(archivedPartition1)
+      tierMetadataManager.becomeFollower(archivedPartition1.topicPartition())
+      tierMetadataManager.ensureTopicIdPartition(archivedPartition1)
 
       val archivedPartition2 = new TopicIdPartition("archivedTopic", topicId, 1)
       addReplica(tierMetadataManager, archivedPartition2)
-      tierMetadataManager.becomeFollower(archivedPartition2)
+      tierMetadataManager.becomeFollower(archivedPartition2.topicPartition())
+      tierMetadataManager.ensureTopicIdPartition(archivedPartition2)
 
       tierTopicManager.processMigrations()
       assertTrue(tierTopicManager.catchingUp())
@@ -293,7 +297,8 @@ class TierTopicManagerTest {
     val topicIdPartition_1 = new TopicIdPartition("foo_1", UUID.randomUUID, 0)
     val initLeader_1 = new TierTopicInitLeader(topicIdPartition_1, epoch, UUID.randomUUID, 0)
     addReplica(tierMetadataManager, topicIdPartition_1)
-    tierMetadataManager.becomeLeader(topicIdPartition_1, epoch)
+    tierMetadataManager.becomeLeader(topicIdPartition_1.topicPartition(), epoch)
+    tierMetadataManager.ensureTopicIdPartition(topicIdPartition_1)
     val initLeaderResult_1 = tierTopicManager.addMetadata(initLeader_1)
     tierTopicManager.becomeReady(bootstrapSupplier.get)
 
@@ -343,7 +348,8 @@ class TierTopicManagerTest {
 
         // finally become leader again
         epoch = 2
-        tierMetadataManager2.becomeLeader(topicIdPartition_1, epoch)
+        tierMetadataManager2.becomeLeader(topicIdPartition_1.topicPartition(), epoch)
+        tierMetadataManager2.ensureTopicIdPartition(topicIdPartition_1)
         assertEquals(TierPartitionStatus.ONLINE, tierMetadataManager2.tierPartitionState(topicIdPartition_1.topicPartition()).get().status())
         assertEquals(TierPartitionStatus.ONLINE, tierMetadataManager2.tierPartitionState(topicIdPartition_1).get().status())
 
@@ -376,12 +382,14 @@ class TierTopicManagerTest {
     val topicIdPartition_1 = new TopicIdPartition("foo_1", UUID.randomUUID, 0)
     val initLeader_1 = new TierTopicInitLeader(topicIdPartition_1, epoch, UUID.randomUUID, 0)
     addReplica(tierMetadataManager, topicIdPartition_1)
-    tierMetadataManager.becomeLeader(topicIdPartition_1, epoch)
+    tierMetadataManager.becomeLeader(topicIdPartition_1.topicPartition(), epoch)
+    tierMetadataManager.ensureTopicIdPartition(topicIdPartition_1)
 
     val topicIdPartition_2 = new TopicIdPartition("foo_2", UUID.randomUUID, 0)
     val initLeader_2 = new TierTopicInitLeader(topicIdPartition_2, epoch, UUID.randomUUID, 0)
     addReplica(tierMetadataManager, topicIdPartition_2)
-    tierMetadataManager.becomeLeader(topicIdPartition_2, epoch)
+    tierMetadataManager.becomeLeader(topicIdPartition_2.topicPartition(), epoch)
+    tierMetadataManager.ensureTopicIdPartition(topicIdPartition_2)
 
     val initLeaderResult_1 = tierTopicManager.addMetadata(initLeader_1)
     val initLeaderResult_2 = tierTopicManager.addMetadata(initLeader_2)
@@ -411,7 +419,8 @@ class TierTopicManagerTest {
                            topicIdPartition: TopicIdPartition,
                            epoch: Integer,
                            expected: AppendResult): Unit = {
-    tierMetadataManager.becomeLeader(topicIdPartition, epoch)
+    tierMetadataManager.becomeLeader(topicIdPartition.topicPartition(), epoch)
+    tierMetadataManager.ensureTopicIdPartition(topicIdPartition)
     // force immigration
     tierTopicManager.doWork()
     val result = tierTopicManager.becomeArchiver(topicIdPartition, epoch)

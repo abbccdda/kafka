@@ -60,9 +60,12 @@ public interface TierPartitionState {
      * Will open the TierPartitionState if tiering is enabled, and a TopicIdPartition was not
      * previously set or able to be read from the FileTierPartitionState header.
      * @param topicIdPartition
+     * @return true if a TopicIdPartition was not set and one has now been set, false otherwise
      * @throws IOException
+     * @throws IllegalStateException if a TopicIdPartition was supplied and it does not match the
+     * TopicIdPartition that was previously set
      */
-    void setTopicIdPartition(TopicIdPartition topicIdPartition) throws IOException;
+    boolean setTopicIdPartition(TopicIdPartition topicIdPartition) throws IOException;
 
     /**
      * Return the end offset spanned by the TierPartitionState that has been committed to disk.
