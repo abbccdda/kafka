@@ -189,7 +189,7 @@ object Defaults {
   val TierMetadataRequestTimeoutMs = 30000
   val TierMetadataBootstrapServers = null
   val TierMetadataNamespace = null
-  val TierMetadataNumPartitions = 10: Short
+  val TierMetadataNumPartitions = 50: Short
   val TierMetadataReplicationFactor = 3: Short
   val TierBackend = ""
   val TierS3Bucket = null
