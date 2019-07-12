@@ -275,24 +275,8 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
     public void run() {
         try {
             while (!ready.get() && !shutdown.get()) {
-                String bootstrapServers = this.bootstrapServersSupplier.get();
-                if (bootstrapServers.isEmpty()) {
-                    log.warn("Failed to lookup bootstrap servers. Retrying in {}", TOPIC_CREATION_BACKOFF_MS);
-                    Thread.sleep(TOPIC_CREATION_BACKOFF_MS);
-                } else if (TierTopicAdmin.ensureTopicCreated(bootstrapServers, topicName,
-                        config.numPartitions, config.replicationFactor)) {
-                    becomeReady(bootstrapServers);
-                    final int producerPartitions = producer.partitionsFor(topicName).size();
-                    if (producerPartitions != config.numPartitions) {
-                        throw new IllegalArgumentException(String.format("Number of "
-                                + "partitions %d on tier topic: %s " +
-                                        "does not match the number of partitions configured %d.",
-                                producerPartitions, topicName, config.numPartitions));
-                    }
-                    maybeStartCatchUpConsumer(new HashSet<>(Arrays.asList(TierPartitionStatus.INIT, TierPartitionStatus.CATCHUP)));
-                } else {
-                    log.warn("Failed to ensure tier topic has been created. Retrying in {}",
-                            TOPIC_CREATION_BACKOFF_MS);
+                if (!tryBecomeReady()) {
+                    log.warn("Failed to become ready. Retrying in {}ms", TOPIC_CREATION_BACKOFF_MS);
                     Thread.sleep(TOPIC_CREATION_BACKOFF_MS);
                 }
             }
@@ -336,11 +320,11 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
     /**
      * Ensure tier topic has been created and setup the backing consumer
      * and producer before signalling ready.
-     * @param boostrapServers the brokers to bootstrap the tier topic consumer and producer
+     * @param bootstrapServers the brokers to bootstrap the tier topic consumer and producer
      */
     // pubic for testing
-    public void becomeReady(String boostrapServers) {
-        primaryConsumer = consumerBuilder.setupConsumer(boostrapServers, topicName, "primary");
+    public void becomeReady(String bootstrapServers) {
+        primaryConsumer = consumerBuilder.setupConsumer(bootstrapServers, topicName, "primary");
         primaryConsumer.assign(partitions());
         for (TopicPartition partition: partitions()) {
             Long position = committer.positions().get(partition.partition());
@@ -356,7 +340,7 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
             }
         }
 
-        producer = producerBuilder.setupProducer(boostrapServers);
+        producer = producerBuilder.setupProducer(bootstrapServers);
         partitioner = new TierTopicPartitioner(config.numPartitions);
 
         synchronized (ready) {
@@ -655,6 +639,30 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
                     });
         } finally {
             sendLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Try to move the TierTopicManager to ready state. This will first try to create the tier state
+     * topic if it has not been created yet, and check that the topic has the expected number of
+     * partitions. It will then call becomeReady and start the catch up consumer if any
+     * partitions are in INIT or CATCHUP state.
+     * @return boolean for whether TierTopicManager moved to ready state
+     * @throws InterruptedException
+     */
+    private boolean tryBecomeReady() throws InterruptedException {
+        String bootstrapServers = this.bootstrapServersSupplier.get();
+        if (bootstrapServers.isEmpty()) {
+            log.warn("Failed to lookup bootstrap servers");
+            return false;
+        } else if (TierTopicAdmin.ensureTopicCreated(bootstrapServers, topicName,
+                config.numPartitions, config.replicationFactor)) {
+            becomeReady(bootstrapServers);
+            maybeStartCatchUpConsumer(new HashSet<>(Arrays.asList(TierPartitionStatus.INIT, TierPartitionStatus.CATCHUP)));
+            return true;
+        } else {
+            log.warn("Failed to ensure tier topic has been created");
+            return false;
         }
     }
 

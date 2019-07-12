@@ -7,10 +7,12 @@ package kafka.tier.topic;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.CreateTopicsResult;
+import org.apache.kafka.clients.admin.DescribeTopicsResult;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.TopicExistsException;
+import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,19 +43,38 @@ public class TierTopicAdmin {
      * @throws KafkaException
      * @throws InterruptedException
      */
-    public static boolean ensureTopicCreated(String bootstrapServers, String topicName,
-                                          int partitions, short replication)
-            throws KafkaException, InterruptedException {
-        log.debug("creating tier topic {} with partitions={}, replicationFactor={}", topicName,
-                partitions, replication);
+     public static boolean ensureTopicCreated(String bootstrapServers, String topicName,
+                                              int partitions, short replication) throws KafkaException, InterruptedException {
         Properties properties = new Properties();
+        properties.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 30000);
         properties.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         try (AdminClient admin = AdminClient.create(properties)) {
+            return ensureTopicCreated(admin, topicName, partitions, replication);
+        }
+    }
+
+    /**
+     * Create the tier state topic if one does not exist.
+     * If the tier state topic already exists, check that the partition count matches the configured
+     * partition count, throwing an exception if it does not match the expected count.
+     * @param admin Kafka Admin client
+     * @param topicName The Tier Topic topic name.
+     * @param partitions The number of partitions for the Tier Topic.
+     * @param replication The replication factor for the Tier Topic.
+     * @return boolean denoting whether the operation succeeded (true if topic already existed)
+     * @throws KafkaException
+     * @throws InterruptedException
+     */
+    static boolean ensureTopicCreated(AdminClient admin, String topicName, int partitions, short replication)
+            throws InterruptedException {
+        log.debug("creating tier topic {} with partitions={}, replicationFactor={}",
+                topicName, partitions, replication);
+        try {
             // we can't simply create the tier topic and check whether it already exists
             // as creation may be rejected if # live brokers < replication factor,
             // even if the topic already exists.
             // https://issues.apache.org/jira/browse/KAFKA-8125
-            if (topicExists(admin, topicName)) {
+            if (topicExists(admin, topicName, partitions)) {
                 return true;
             } else {
                 NewTopic newTopic =
@@ -61,32 +82,48 @@ public class TierTopicAdmin {
                                 .configs(TIER_TOPIC_CONFIG);
                 CreateTopicsResult result = admin.createTopics(Collections.singletonList(newTopic));
                 result.values().get(topicName).get();
+                return true;
             }
         } catch (ExecutionException e) {
             if (e.getCause() instanceof TopicExistsException) {
                 log.debug("{} topic has already been created.", topicName);
-                return true;
+                // When two brokers race to create the topic, and this broker did not succeed,
+                // we should return false and retry this request
+                return false;
             } else {
                 log.info("{} topic could not be created by tier topic manager", topicName, e);
                 return false;
             }
         }
-        return true;
     }
 
     /**
-     * Determines whether the tier topic exists
+     * Determines whether the tier topic exists and validates the partition count
+     * equals the expected partition count
      * @param adminClient the Kafka admin client
      * @param topicName the tier topic name
      * @return boolean denoting whether the topic exists
      */
-    private static boolean topicExists(AdminClient adminClient, String topicName) {
+    private static boolean topicExists(AdminClient adminClient,
+                                       String topicName,
+                                       int expectedPartitionCount)
+            throws InterruptedException, ExecutionException {
         try {
-            adminClient.describeTopics(Collections.singleton(topicName)).values().get(topicName).get();
+            DescribeTopicsResult describeTopicsResult =
+                    adminClient.describeTopics(Collections.singleton(topicName));
+            int currentPartitionCount =
+                    describeTopicsResult.values().get(topicName).get().partitions().size();
+            if (currentPartitionCount != expectedPartitionCount)
+                throw new IllegalArgumentException(String.format("Number of "
+                                + "partitions %d on tier topic: %s " +
+                                "does not match the number of partitions configured %d.",
+                        currentPartitionCount, topicName, expectedPartitionCount));
             return true;
-        } catch (Exception e) {
-            log.debug("error checking for existence of tier topic {}", topicName, e);
-            return false;
+        } catch (ExecutionException ee) {
+            if (ee.getCause() instanceof UnknownTopicOrPartitionException)
+                return false;
+
+            throw ee;
         }
     }
 }

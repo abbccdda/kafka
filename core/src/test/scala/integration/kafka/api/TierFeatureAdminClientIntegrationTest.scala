@@ -6,6 +6,7 @@ package kafka.api
 import java.util.concurrent.atomic.AtomicBoolean
 
 import kafka.server.KafkaConfig
+import kafka.utils.TestUtils
 import org.apache.kafka.common.utils.Exit
 import org.apache.kafka.common.utils.Exit.Procedure
 import org.junit.{After, Before}
@@ -49,4 +50,9 @@ class TierFeatureAdminClientIntegrationTest extends AdminClientIntegrationTest {
   override def testElectUncleanLeadersNoop(): Unit = { }
   override def testElectUncleanLeadersAndNoop(): Unit = { }
 
+  override def testCreateDeleteTopics(): Unit = {
+    super.testCreateDeleteTopics()
+    // wait until deletion has finished to test full controller tier topic deletion path
+    TestUtils.waitUntilTrue(() => zkClient.getTopicDeletions.isEmpty, "timed out waiting for topic deletions to complete")
+  }
 }
