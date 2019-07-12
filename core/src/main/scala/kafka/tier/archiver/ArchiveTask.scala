@@ -298,12 +298,13 @@ object ArchiveTask extends Logging {
             Future(state)
 
           case Some((log: AbstractLog, logSegment: LogSegment)) =>
-            val segment = uploadableSegment(log, logSegment)
+            val nextOffset: Long = logSegment.readNextOffset
+            val segment = uploadableSegment(log, logSegment, nextOffset)
             val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition,
               state.leaderEpoch,
               UUID.randomUUID,
               logSegment.baseOffset,
-              logSegment.readNextOffset - 1,
+              nextOffset - 1,
               logSegment.largestTimestamp,
               logSegment.size,
               segment.leaderEpochStateOpt.isDefined,
@@ -391,9 +392,8 @@ object ArchiveTask extends Logging {
       }
   }
 
-  private[archiver] def uploadableSegment(log: AbstractLog, logSegment: LogSegment): UploadableSegment = {
+  private[archiver] def uploadableSegment(log: AbstractLog, logSegment: LogSegment, nextOffset: Long): UploadableSegment = {
     try {
-      val nextOffset = logSegment.readNextOffset
       val leaderEpochStateOpt = ArchiveTask.uploadableLeaderEpochState(log, nextOffset)
       // The producer state snapshot for `logSegment` should be named with the next logSegment's base offset
       // Because we never upload the active segment, and a snapshot is created on roll, we expect that either
