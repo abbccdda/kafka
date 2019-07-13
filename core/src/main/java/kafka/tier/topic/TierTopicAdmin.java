@@ -4,6 +4,7 @@
 
 package kafka.tier.topic;
 
+import kafka.tier.exceptions.TierTopicIncorrectPartitionCountException;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.CreateTopicsResult;
@@ -44,7 +45,8 @@ public class TierTopicAdmin {
      * @throws InterruptedException
      */
      public static boolean ensureTopicCreated(String bootstrapServers, String topicName,
-                                              int partitions, short replication) throws KafkaException, InterruptedException {
+                                              int partitions, short replication) throws KafkaException,
+             TierTopicIncorrectPartitionCountException, InterruptedException {
         Properties properties = new Properties();
         properties.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 30000);
         properties.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
@@ -66,7 +68,7 @@ public class TierTopicAdmin {
      * @throws InterruptedException
      */
     static boolean ensureTopicCreated(AdminClient admin, String topicName, int partitions, short replication)
-            throws InterruptedException {
+            throws TierTopicIncorrectPartitionCountException, InterruptedException {
         log.debug("creating tier topic {} with partitions={}, replicationFactor={}",
                 topicName, partitions, replication);
         try {
@@ -104,19 +106,20 @@ public class TierTopicAdmin {
      * @param topicName the tier topic name
      * @return boolean denoting whether the topic exists
      */
-    private static boolean topicExists(AdminClient adminClient,
-                                       String topicName,
-                                       int expectedPartitionCount)
-            throws InterruptedException, ExecutionException {
+    static boolean topicExists(AdminClient adminClient,
+                               String topicName,
+                               int expectedPartitionCount)
+            throws InterruptedException, TierTopicIncorrectPartitionCountException, ExecutionException {
         try {
             DescribeTopicsResult describeTopicsResult =
                     adminClient.describeTopics(Collections.singleton(topicName));
             int currentPartitionCount =
                     describeTopicsResult.values().get(topicName).get().partitions().size();
             if (currentPartitionCount != expectedPartitionCount)
-                throw new IllegalArgumentException(String.format("Number of "
-                                + "partitions %d on tier topic: %s " +
-                                "does not match the number of partitions configured %d.",
+                throw new TierTopicIncorrectPartitionCountException(String.format("Number of "
+                                + "partitions %d on tier topic: %s "
+                                + "does not match the number of partitions configured %d. This may "
+                                + "be due to a newly created topic seeing incomplete metadata.",
                         currentPartitionCount, topicName, expectedPartitionCount));
             return true;
         } catch (ExecutionException ee) {

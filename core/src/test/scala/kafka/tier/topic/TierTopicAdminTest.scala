@@ -7,6 +7,7 @@ package kafka.tier.topic
 import java.util
 import java.util.Collections
 
+import kafka.tier.exceptions.TierTopicIncorrectPartitionCountException
 import org.apache.kafka.clients.admin.AdminClient
 import org.apache.kafka.clients.admin.CreateTopicsResult
 import org.apache.kafka.clients.admin.DescribeTopicsResult
@@ -71,7 +72,7 @@ class TierTopicAdminTest {
     when(adminClient.describeTopics(Collections.singleton(tierTopicName)))
       .thenReturn(describeTopicsResult)
 
-    assertThrows[IllegalArgumentException] {
+    assertThrows[TierTopicIncorrectPartitionCountException] {
       TierTopicAdmin.ensureTopicCreated(adminClient, tierTopicName, partitions, replication)
     }
   }
@@ -92,5 +93,27 @@ class TierTopicAdminTest {
       .thenReturn(describeTopicsResult)
 
     assertTrue(TierTopicAdmin.ensureTopicCreated(adminClient, tierTopicName, partitions, replication))
+  }
+
+  @Test
+  def topicExistsPartitionCountCheck(): Unit = {
+    val adminClient = mock(classOf[AdminClient])
+
+    val topicPartition1 = new TopicPartitionInfo(0, new Node(0, "", 0), new util.ArrayList[Node](), new util.ArrayList[Node]())
+    val topicPartition2 = new TopicPartitionInfo(1, new Node(1, "", 0), new util.ArrayList[Node](), new util.ArrayList[Node]())
+    val topicPartition3 = new TopicPartitionInfo(2, new Node(2, "", 0), new util.ArrayList[Node](), new util.ArrayList[Node]())
+
+    // topic does exist, but differs in number of partitions
+    val describeTopicsFut = new KafkaFutureImpl[TopicDescription]()
+    describeTopicsFut.complete(new TopicDescription(tierTopicName, true, util.Arrays.asList(topicPartition1, topicPartition2, topicPartition3)))
+    val describeTopicsResult: DescribeTopicsResult = mock(classOf[DescribeTopicsResult])
+    val describeTopicsValues = Collections.singletonMap[String, KafkaFuture[TopicDescription]](tierTopicName, describeTopicsFut)
+    when(describeTopicsResult.values()).thenReturn(describeTopicsValues)
+    when(adminClient.describeTopics(Collections.singleton(tierTopicName)))
+      .thenReturn(describeTopicsResult)
+
+    assertThrows[TierTopicIncorrectPartitionCountException] {
+      TierTopicAdmin.topicExists(adminClient, tierTopicName, partitions)
+    }
   }
 }

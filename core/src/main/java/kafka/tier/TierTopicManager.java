@@ -15,6 +15,7 @@ import kafka.tier.domain.TierTopicInitLeader;
 import kafka.tier.exceptions.TierMetadataDeserializationException;
 import kafka.tier.exceptions.TierMetadataFatalException;
 import kafka.tier.exceptions.TierMetadataRetriableException;
+import kafka.tier.exceptions.TierTopicIncorrectPartitionCountException;
 import kafka.tier.state.TierPartitionState;
 import kafka.tier.state.TierPartitionState.AppendResult;
 import kafka.tier.state.TierPartitionStatus;
@@ -651,17 +652,28 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
      * @throws InterruptedException
      */
     private boolean tryBecomeReady() throws InterruptedException {
-        String bootstrapServers = this.bootstrapServersSupplier.get();
-        if (bootstrapServers.isEmpty()) {
-            log.warn("Failed to lookup bootstrap servers");
-            return false;
-        } else if (TierTopicAdmin.ensureTopicCreated(bootstrapServers, topicName,
-                config.numPartitions, config.replicationFactor)) {
-            becomeReady(bootstrapServers);
-            maybeStartCatchUpConsumer(new HashSet<>(Arrays.asList(TierPartitionStatus.INIT, TierPartitionStatus.CATCHUP)));
-            return true;
-        } else {
-            log.warn("Failed to ensure tier topic has been created");
+        try {
+            String bootstrapServers = this.bootstrapServersSupplier.get();
+            if (bootstrapServers.isEmpty()) {
+                log.warn("Failed to lookup bootstrap servers");
+                return false;
+            } else if (TierTopicAdmin.ensureTopicCreated(bootstrapServers, topicName,
+                    config.numPartitions, config.replicationFactor)) {
+                becomeReady(bootstrapServers);
+                maybeStartCatchUpConsumer(new HashSet<>(Arrays.asList(TierPartitionStatus.INIT, TierPartitionStatus.CATCHUP)));
+                return true;
+            } else {
+                log.warn("Failed to ensure tier topic has been created");
+                return false;
+            }
+        } catch (TierTopicIncorrectPartitionCountException e) {
+            // Clients may fetch an incomplete set of topic partitions during startup.
+            // We will treat an incorrect partition count as retriable, and let the
+            // TierTopicManager backoff without becoming ready rather than throwing a fatal
+            // exception until these issues are resolved.
+            // https://issues.apache.org/jira/browse/KAFKA-8480
+            // https://issues.apache.org/jira/browse/KAFKA-8481
+            log.warn("Retriable error encountered checking for tier topic partition count", e);
             return false;
         }
     }
