@@ -260,7 +260,7 @@
     <!--TODO: we dont use the same header-->
     <suppress checks="RegexpHeader" files="."/>
     <suppress checks="CyclomaticComplexity" files="(LdapGroupManager|MultiTenantApis|MultiTenantRequestContext|MultiTenantAuthorizer|TenantQuotaCallback|TenantPartitionAssignor).java"/>
-    <suppress checks="NPathComplexity" files="MultiTenantApis|LdapGroupManager|SecretsLoader|TenantPartitionAssignor"/>
+    <suppress checks="NPathComplexity" files="MultiTenantApis|LdapGroupManager|SecretsLoader|TenantPartitionAssignor|CreateTopicPolicy"/>
     <suppress checks="JavaNCSS" files="TenantPartitionAssignor"/>
     <suppress checks="ClassDataAbstractionCoupling" files="(MultiTenantRequestContext|LdapGroupManager|OAuthBearerSecureTokenValidatorCallbackHandler|SecretsLoader).java"/>
     <suppress checks="BooleanExpressionComplexity" files="MultiTenantRequestContext"/>

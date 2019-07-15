@@ -1,9 +1,7 @@
 // (Copyright) [2017 - 2017] Confluent, Inc.
 package io.confluent.kafka.server.plugins.policy;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-
+import java.util.Arrays;
 import java.util.Optional;
 
 import io.confluent.common.InterClusterConnection;
@@ -16,9 +14,11 @@ import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.PolicyViolationException;
+import org.apache.kafka.common.internals.Topic;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.requests.MetadataResponse;
 import org.apache.kafka.server.policy.CreateTopicPolicy.RequestMetadata;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -60,10 +60,10 @@ public class CreateTopicPolicyTest {
     policy = new CreateTopicPolicy();
     policy.configure(config);
 
-    topicConfigs = ImmutableMap.<String, String>builder()
-        .put(TopicConfig.MAX_MESSAGE_BYTES_CONFIG, String.valueOf(MAX_MESSAGE_BYTES))
-        .put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, String.valueOf(MIN_IN_SYNC_REPLICAS))
-        .build();
+    topicConfigs = new HashMap<String, String>();
+    topicConfigs.put(TopicConfig.MAX_MESSAGE_BYTES_CONFIG, String.valueOf(MAX_MESSAGE_BYTES));
+    topicConfigs.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, String.valueOf(MIN_IN_SYNC_REPLICAS));
+    topicConfigs = Collections.unmodifiableMap(topicConfigs);
   }
 
   @Test
@@ -71,7 +71,7 @@ public class CreateTopicPolicyTest {
     final int currentPartitions = MAX_PARTITIONS / 2;
     final int requestedPartitions = MAX_PARTITIONS - currentPartitions - 1;
     try (AdminClientUnitTestEnv clientEnv = getAdminClientEnv()) {
-      prepareForOneValidateCall(clientEnv, ImmutableMap.of(TOPIC, currentPartitions));
+      prepareForOneValidateCall(clientEnv, Collections.singletonMap(TOPIC, currentPartitions));
       policy.ensureValidPartitionCount(clientEnv.adminClient(), TENANT_PREFIX, requestedPartitions);
     }
   }
@@ -81,7 +81,7 @@ public class CreateTopicPolicyTest {
     final int currentPartitions = MAX_PARTITIONS / 2;
     final int requestedPartitions = MAX_PARTITIONS - currentPartitions;
     try (AdminClientUnitTestEnv clientEnv = getAdminClientEnv()) {
-      prepareForOneValidateCall(clientEnv, ImmutableMap.of(TOPIC, currentPartitions));
+      prepareForOneValidateCall(clientEnv, Collections.singletonMap(TOPIC, currentPartitions));
       policy.ensureValidPartitionCount(clientEnv.adminClient(), TENANT_PREFIX, requestedPartitions);
     }
   }
@@ -89,7 +89,7 @@ public class CreateTopicPolicyTest {
   @Test
   public void testValidateDoesNotCountOtherTopicPartitions() {
     try (AdminClientUnitTestEnv clientEnv = getAdminClientEnv()) {
-      prepareForOneValidateCall(clientEnv, ImmutableMap.of(TOPIC, MAX_PARTITIONS));
+      prepareForOneValidateCall(clientEnv, Collections.singletonMap(TOPIC, MAX_PARTITIONS));
       policy.ensureValidPartitionCount(clientEnv.adminClient(), "badprefix_", MAX_PARTITIONS);
     }
   }
@@ -99,7 +99,7 @@ public class CreateTopicPolicyTest {
     final int currentPartitions = MAX_PARTITIONS / 2;
     final int requestedPartitions = MAX_PARTITIONS - currentPartitions + 1;
     try (AdminClientUnitTestEnv clientEnv = getAdminClientEnv()) {
-      prepareForOneValidateCall(clientEnv, ImmutableMap.of(TOPIC, currentPartitions));
+      prepareForOneValidateCall(clientEnv, Collections.singletonMap(TOPIC, currentPartitions));
       policy.ensureValidPartitionCount(clientEnv.adminClient(), TENANT_PREFIX, requestedPartitions);
     }
   }
@@ -108,7 +108,7 @@ public class CreateTopicPolicyTest {
   public void rejectsCurrentExceedMaxNumberOfPartitions() {
     final int currentPartitions = MAX_PARTITIONS / 2;
     try (AdminClientUnitTestEnv clientEnv = getAdminClientEnv()) {
-      prepareForOneValidateCall(clientEnv, ImmutableMap.of(TOPIC, currentPartitions));
+      prepareForOneValidateCall(clientEnv, Collections.singletonMap(TOPIC, currentPartitions));
       policy.ensureValidPartitionCount(clientEnv.adminClient(), TENANT_PREFIX, MAX_PARTITIONS + 1);
     }
   }
@@ -131,8 +131,7 @@ public class CreateTopicPolicyTest {
   // will throw exception because of failure to use AdminClient without kafka cluster
   @Test(expected = RuntimeException.class)
   public void validateNoReplicationNoTopicConfigGivenOk() throws Exception {
-    Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
-        .build();
+    Map<String, String> topicConfigs = Collections.<String, String>emptyMap();
     RequestMetadata requestMetadata = new RequestMetadata(TOPIC, 10, null, null, topicConfigs);
     validatePolicyAndEnsurePolicyNotViolated(policy, requestMetadata);
   }
@@ -140,16 +139,16 @@ public class CreateTopicPolicyTest {
   // will throw exception because of failure to use AdminClient without kafka cluster
   @Test(expected = RuntimeException.class)
   public void validateValidTopicConfigsOk() throws Exception {
-    Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
-        .put(TopicConfig.CLEANUP_POLICY_CONFIG, "delete")
-        .put(TopicConfig.MAX_MESSAGE_BYTES_CONFIG, "100")
-        .put(TopicConfig.MESSAGE_TIMESTAMP_DIFFERENCE_MAX_MS_CONFIG, "100")
-        .put(TopicConfig.MESSAGE_TIMESTAMP_TYPE_CONFIG, "CreateTime")
-        .put(TopicConfig.MIN_COMPACTION_LAG_MS_CONFIG, "100")
-        .put(TopicConfig.RETENTION_BYTES_CONFIG, "100")
-        .put(TopicConfig.RETENTION_MS_CONFIG, "135217728")
-        .put(TopicConfig.SEGMENT_MS_CONFIG, "600000")
-        .build();
+    Map<String, String> topicConfigs = new HashMap<>();
+    topicConfigs.put(TopicConfig.CLEANUP_POLICY_CONFIG, "delete");
+    topicConfigs.put(TopicConfig.MAX_MESSAGE_BYTES_CONFIG, "100");
+    topicConfigs.put(TopicConfig.MESSAGE_TIMESTAMP_DIFFERENCE_MAX_MS_CONFIG, "100");
+    topicConfigs.put(TopicConfig.MESSAGE_TIMESTAMP_TYPE_CONFIG, "CreateTime");
+    topicConfigs.put(TopicConfig.MIN_COMPACTION_LAG_MS_CONFIG, "100");
+    topicConfigs.put(TopicConfig.RETENTION_BYTES_CONFIG, "100");
+    topicConfigs.put(TopicConfig.RETENTION_MS_CONFIG, "135217728");
+    topicConfigs.put(TopicConfig.SEGMENT_MS_CONFIG, "600000");
+    topicConfigs = Collections.unmodifiableMap(topicConfigs);
     RequestMetadata requestMetadata = new RequestMetadata(TOPIC, 10, null, null, topicConfigs);
     validatePolicyAndEnsurePolicyNotViolated(policy, requestMetadata);
   }
@@ -157,24 +156,32 @@ public class CreateTopicPolicyTest {
   // will throw exception because of failure to use AdminClient without kafka cluster
   @Test(expected = RuntimeException.class)
   public void validateValidPartitionAssignmentOk() throws Exception {
-    List<Integer> part0Assignment = ImmutableList.of(0, 1, 2, 3, 4);
-    List<Integer> part1Assignment = ImmutableList.of(1, 2, 3, 4, 5);
+    List<Integer> part0Assignment = Arrays.asList(0, 1, 2, 3, 4);
+    List<Integer> part1Assignment = Arrays.asList(1, 2, 3, 4, 5);
+
+    HashMap<Integer, List<Integer>> replicaAssignments = new HashMap<>();
+    replicaAssignments.put(0, part0Assignment);
+    replicaAssignments.put(1, part1Assignment);
+
     RequestMetadata requestMetadata = new RequestMetadata(
         TOPIC, null, null,
-        ImmutableMap.of(0, part0Assignment,
-                        1, part1Assignment),
+        replicaAssignments,
         topicConfigs);
     validatePolicyAndEnsurePolicyNotViolated(policy, requestMetadata);
   }
 
   @Test(expected = PolicyViolationException.class)
   public void validatePartitionAssignmentWithInvalidNumberOfReplicasNotOk() throws Exception {
-    List<Integer> part0Assignment = ImmutableList.of(0, 1, 2, 3, 4, 5);
-    List<Integer> part1Assignment = ImmutableList.of(1, 2, 3, 4, 5, 6);
+    List<Integer> part0Assignment = Arrays.asList(0, 1, 2, 3, 4, 5);
+    List<Integer> part1Assignment = Arrays.asList(1, 2, 3, 4, 5, 6);
+
+    HashMap<Integer, List<Integer>> replicaAssignments = new HashMap<>();
+    replicaAssignments.put(0, part0Assignment);
+    replicaAssignments.put(1, part1Assignment);
+
     RequestMetadata requestMetadata = new RequestMetadata(
         TOPIC, null, null,
-        ImmutableMap.of(0, part0Assignment,
-                        1, part1Assignment),
+        replicaAssignments,
         topicConfigs);
     policy.validate(requestMetadata);
   }
@@ -182,29 +189,31 @@ public class CreateTopicPolicyTest {
   @Test(expected = PolicyViolationException.class)
   public void validatePartitionAssignmentWithNoReplicasNotOk() throws Exception {
     List<Integer> emptyAssignment = Collections.emptyList();
+
+    HashMap<Integer, List<Integer>> replicaAssignments = new HashMap<>();
+    replicaAssignments.put(0, emptyAssignment);
+    replicaAssignments.put(1, emptyAssignment);
+
     RequestMetadata requestMetadata = new RequestMetadata(
         TOPIC, null, null,
-        ImmutableMap.of(0, emptyAssignment,
-                        1, emptyAssignment),
+        replicaAssignments,
         topicConfigs);
     policy.validate(requestMetadata);
   }
 
   @Test(expected = PolicyViolationException.class)
   public void validateInvalidTopicConfigsNotOk() throws Exception {
-    Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
-        .put(TopicConfig.DELETE_RETENTION_MS_CONFIG, "100") // allowed
-        .put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "5")  // disallowed
-        .put(TopicConfig.RETENTION_MS_CONFIG, "135217728")  // allowed
-        .build();
+    HashMap<String, String> topicConfigs = new HashMap<>();
+    topicConfigs.put(TopicConfig.DELETE_RETENTION_MS_CONFIG, "100");
+    topicConfigs.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "5"); // disallowed
+    topicConfigs.put(TopicConfig.RETENTION_MS_CONFIG, "135217728"); // allowed
     RequestMetadata requestMetadata = new RequestMetadata(TOPIC, 10, null, null, topicConfigs);
     policy.validate(requestMetadata);
   }
 
   @Test(expected = PolicyViolationException.class)
   public void rejectsNoPartitionCountGiven() throws Exception {
-    Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
-        .build();
+    Map<String, String> topicConfigs = Collections.emptyMap();
     RequestMetadata requestMetadata = new RequestMetadata(TOPIC, null, null, null, topicConfigs);
     policy.validate(requestMetadata);
   }
@@ -218,9 +227,8 @@ public class CreateTopicPolicyTest {
 
   @Test(expected = PolicyViolationException.class)
   public void rejectsBadMinIsrs() throws Exception {
-    Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
-        .put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "3")
-        .build();
+    Map<String, String> topicConfigs = Collections.
+            singletonMap(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "3");
     RequestMetadata requestMetadata = new RequestMetadata(
         TOPIC, MAX_PARTITIONS, REPLICATION_FACTOR, null, topicConfigs);
     policy.validate(requestMetadata);
@@ -235,9 +243,8 @@ public class CreateTopicPolicyTest {
 
   @Test(expected = PolicyViolationException.class)
   public void rejectDeleteRetentionMsTooHigh() {
-    Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
-        .put(TopicConfig.DELETE_RETENTION_MS_CONFIG, "60566400001")
-        .build();
+    Map<String, String> topicConfigs = Collections.
+            singletonMap(TopicConfig.DELETE_RETENTION_MS_CONFIG, "60566400001");
     RequestMetadata requestMetadata = new RequestMetadata(
         TOPIC, MAX_PARTITIONS, REPLICATION_FACTOR, null, topicConfigs);
     policy.validate(requestMetadata);
@@ -245,9 +252,8 @@ public class CreateTopicPolicyTest {
 
   @Test(expected = PolicyViolationException.class)
   public void rejectSegmentBytesTooLow() {
-    Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
-        .put(TopicConfig.SEGMENT_BYTES_CONFIG, "" + (50 * 1024 * 1024 - 1))
-        .build();
+    Map<String, String> topicConfigs = Collections.
+            singletonMap(TopicConfig.SEGMENT_BYTES_CONFIG, "" + (50 * 1024 * 1024 - 1));
     RequestMetadata requestMetadata = new RequestMetadata(
         TOPIC, MAX_PARTITIONS, REPLICATION_FACTOR, null, topicConfigs);
     policy.validate(requestMetadata);
@@ -255,9 +261,8 @@ public class CreateTopicPolicyTest {
 
   @Test(expected = PolicyViolationException.class)
   public void rejectSegmentBytesTooHigh() {
-    Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
-        .put(TopicConfig.SEGMENT_BYTES_CONFIG, "1073741825")
-        .build();
+    Map<String, String> topicConfigs = Collections.
+            singletonMap(TopicConfig.SEGMENT_BYTES_CONFIG, "1073741825");
     RequestMetadata requestMetadata = new RequestMetadata(
         TOPIC, MAX_PARTITIONS, REPLICATION_FACTOR, null, topicConfigs);
     policy.validate(requestMetadata);
@@ -265,9 +270,8 @@ public class CreateTopicPolicyTest {
 
   @Test(expected = PolicyViolationException.class)
   public void rejectSegmentMsTooLow() {
-    Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
-            .put(TopicConfig.SEGMENT_MS_CONFIG, "" + (500 * 1000))
-            .build();
+    Map<String, String> topicConfigs = Collections.
+            singletonMap(TopicConfig.SEGMENT_MS_CONFIG, "" + (500 * 1000));
     RequestMetadata requestMetadata = new RequestMetadata(
         TOPIC, MAX_PARTITIONS, REPLICATION_FACTOR, null, topicConfigs);
     policy.validate(requestMetadata);
@@ -394,6 +398,57 @@ public class CreateTopicPolicyTest {
     topicPolicy.configure(config);
   }
 
+  @Test
+  public void testNumPartitions() {
+    Map<String, Integer> topicPartitions0 = new HashMap<>();
+    topicPartitions0.put("xyz_foo", 3);
+    topicPartitions0.put("xyz_bar", 3);
+    topicPartitions0.put(Topic.GROUP_METADATA_TOPIC_NAME, 3);
+    Map<String, Integer> topicPartitions1 = new HashMap<>();
+    topicPartitions1.put("xyz_foo", 3);
+    topicPartitions1.put(Topic.GROUP_METADATA_TOPIC_NAME, 3);
+    try (AdminClientUnitTestEnv clientEnv = getAdminClientEnv()) {
+      clientEnv.kafkaClient().prepareResponse(
+              MetadataResponse.prepareResponse(clientEnv.cluster().nodes(), CLUSTER_ID,
+                      clientEnv.cluster().controller().id(),
+                      createTopicMetadataList(clientEnv, Collections.emptySet(),
+                              topicPartitions0, Errors.NONE)));
+      clientEnv.kafkaClient().prepareResponse(
+              MetadataResponse.prepareResponse(clientEnv.cluster().nodes(), CLUSTER_ID,
+                      clientEnv.cluster().controller().id(),
+                      createTopicMetadataList(clientEnv, Collections.emptySet(),
+                              topicPartitions1, Errors.NONE)));
+      assertEquals(3, policy.numPartitions(clientEnv.adminClient(), "xyz_"));
+    }
+  }
+
+  @Test
+  public void testNumPartitionsError() {
+    Map<String, Integer> topicPartitions0 = new HashMap<>();
+    topicPartitions0.put("xyz_foo", 3);
+    topicPartitions0.put("xyz_bar", 3);
+    topicPartitions0.put(Topic.GROUP_METADATA_TOPIC_NAME, 3);
+    Map<String, Integer> topicPartitions1 = new HashMap<>();
+    topicPartitions1.put("xyz_foo", 3);
+    topicPartitions1.put("xyz_bar", 3);
+    topicPartitions1.put(Topic.GROUP_METADATA_TOPIC_NAME, 3);
+    try (AdminClientUnitTestEnv clientEnv = getAdminClientEnv()) {
+      clientEnv.kafkaClient().prepareResponse(
+              MetadataResponse.prepareResponse(clientEnv.cluster().nodes(), CLUSTER_ID,
+                      clientEnv.cluster().controller().id(),
+                      createTopicMetadataList(clientEnv, Collections.emptySet(),
+                              topicPartitions0, Errors.NONE)));
+      clientEnv.kafkaClient().prepareResponse(
+              MetadataResponse.prepareResponse(clientEnv.cluster().nodes(), CLUSTER_ID,
+                      clientEnv.cluster().controller().id(),
+                      createTopicMetadataList(clientEnv, Collections.emptySet(),
+                              topicPartitions1, Errors.CLUSTER_AUTHORIZATION_FAILED)));
+      policy.numPartitions(clientEnv.adminClient(), "xyz_");
+      Assert.fail("expected numPartitions to fail.");
+    } catch (PolicyViolationException e) {
+    }
+  }
+
   /**
    * Use this method to validate policy if expected test behavior is to throw RuntimeException
    * (because of failure to use AdminClient). Since PolicyViolationException extends
@@ -432,17 +487,30 @@ public class CreateTopicPolicyTest {
     return getAdminClientEnv(3, Collections.<String>emptySet());
   }
 
-  private static void prepareForOneValidateCall(AdminClientUnitTestEnv clientEnv,
-                                                Set<String> internalTopics,
-                                                Map<String, Integer> topicPartitions) {
+  private static List<MetadataResponse.TopicMetadata> createTopicMetadataList(
+          AdminClientUnitTestEnv clientEnv,
+          Set<String> internalTopics,
+          Map<String, Integer> topicPartitions,
+          Errors error) {
     List<MetadataResponse.TopicMetadata> topicMetadataList = new ArrayList<>();
     for (Map.Entry<String, Integer> topicPartition: topicPartitions.entrySet()) {
       topicMetadataList.add(
-          new MetadataResponse.TopicMetadata(Errors.NONE, topicPartition.getKey(),
-                                             internalTopics.contains(topicPartition.getKey()),
-                                             partitionMetadatas(clientEnv, topicPartition.getValue()))
+              new MetadataResponse.TopicMetadata(error, topicPartition.getKey(),
+                      internalTopics.contains(topicPartition.getKey()),
+                      partitionMetadatas(clientEnv, topicPartition.getValue()))
       );
     }
+    topicMetadataList.add(new MetadataResponse.TopicMetadata(
+            Errors.NONE, Topic.GROUP_METADATA_TOPIC_NAME, true,
+            partitionMetadatas(clientEnv, 3)));
+    return topicMetadataList;
+  }
+
+  private static void prepareForOneValidateCall(AdminClientUnitTestEnv clientEnv,
+                                                Set<String> internalTopics,
+                                                Map<String, Integer> topicPartitions) {
+    List<MetadataResponse.TopicMetadata> topicMetadataList =
+            createTopicMetadataList(clientEnv, internalTopics, topicPartitions, Errors.NONE);
 
     // each CreateTopicPolicy.ensureValidPartitionCount calls 3 admin client methods which expect
     // a response

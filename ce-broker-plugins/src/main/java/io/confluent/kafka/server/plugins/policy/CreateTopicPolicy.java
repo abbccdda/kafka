@@ -11,14 +11,20 @@ import org.apache.kafka.clients.admin.DescribeTopicsResult;
 import org.apache.kafka.clients.admin.ListTopicsOptions;
 import org.apache.kafka.clients.admin.ListTopicsResult;
 import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.PolicyViolationException;
+import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
+import org.apache.kafka.common.internals.Topic;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ExecutionException;
 
 public class CreateTopicPolicy implements org.apache.kafka.server.policy.CreateTopicPolicy {
 
@@ -100,36 +106,91 @@ public class CreateTopicPolicy implements org.apache.kafka.server.policy.CreateT
   @Override
   public void close() throws Exception {}
 
+  private void handleNumPartitionsException(String tenantPrefix, Throwable e, String text) {
+    if (e instanceof ExecutionException) {
+      e = e.getCause();
+    }
+    log.error("Unable to find the current number of client partitions for {}: {}",
+            tenantPrefix, text, e);
+    throw new PolicyViolationException("Failed to determine the current number of partitions.");
+  }
+
   /**
    * Returns current number of topic partitions for this tenant
    */
   int numPartitions(AdminClient adminClient, String tenantPrefix) {
-    ListTopicsOptions listTopicsOptions = new ListTopicsOptions().timeoutMs(TIMEOUT_MS);
-    DescribeTopicsOptions describeTopicsOptions = new DescribeTopicsOptions().timeoutMs(TIMEOUT_MS);
-    int totalCurrentPartitions = 0;
+    // List every topic in the cluster.
+    Collection<String> allTopicNames = null;
     try {
-      ListTopicsResult result = adminClient.listTopics(listTopicsOptions);
-      Collection<String> topicNames = result.names().get();
-      log.debug("Topics: {}", topicNames != null ? topicNames : "[]");
-      if (topicNames != null) {
-        DescribeTopicsResult topicsResult = adminClient.describeTopics(topicNames,
-                describeTopicsOptions);
-        Map<String, TopicDescription> topicDescriptionMap = topicsResult.all().get();
-        if (topicDescriptionMap != null) {
-          for (TopicDescription topicDescription : topicDescriptionMap.values()) {
-            if (topicDescription.partitions() != null
-                && TenantContext.hasTenantPrefix(tenantPrefix, topicDescription.name())) {
-              totalCurrentPartitions += topicDescription.partitions().size();
-            }
+      ListTopicsResult result = adminClient.listTopics(new ListTopicsOptions().
+              timeoutMs(TIMEOUT_MS));
+      allTopicNames = result.names().get();
+    } catch (Throwable e) {
+      handleNumPartitionsException(tenantPrefix, e, "listTopics had an unexpected error.");
+    }
+
+    // Now that we know every topic in the cluster, check which ones belong
+    // to this tenant, (that is, which ones start with the tenant's prefix.)
+    Set<String> topics = new HashSet<>();
+    if (log.isTraceEnabled()) {
+      log.trace("Listed topics {}", String.join(", ", allTopicNames));
+    }
+    for (String topicName : allTopicNames) {
+      if (TenantContext.hasTenantPrefix(tenantPrefix, topicName) ||
+              topicName.equals(Topic.GROUP_METADATA_TOPIC_NAME)) {
+        topics.add(topicName);
+      }
+    }
+    if (log.isTraceEnabled()) {
+      log.trace("Found topics that we want to describe for tenant prefix '{}': {}",
+              tenantPrefix, String.join(", ", topics));
+    } else {
+      log.debug("Found {} topic(s) that we want to describe for tenant prefix '{}'.",
+              topics.size(), tenantPrefix);
+    }
+
+    // Now, we will try to describe all the topics which belong to the tenant.
+    // We also attempt to describe __consumer_offsets, if it was listed originally.
+    // This topic is described as a a canary.  We know that this topic should always
+    // be describable.  If it is not, something is very wrong and we should abort.
+    DescribeTopicsResult result = null;
+    try {
+      result = adminClient.describeTopics(topics,
+              new DescribeTopicsOptions().timeoutMs(TIMEOUT_MS));
+    } catch (Throwable e) {
+      handleNumPartitionsException(tenantPrefix, e,
+          "describeTopics had an unexpected error.");
+    }
+
+    int numTenantPartitions = 0, numUnknownTopics = 0;
+    for (Map.Entry<String, KafkaFuture<TopicDescription>> entry : result.values().entrySet()) {
+      String topicName = entry.getKey();
+      try {
+        TopicDescription description = entry.getValue().get();
+        if (!topicName.equals(Topic.GROUP_METADATA_TOPIC_NAME)) {
+          numTenantPartitions += description.partitions().size();
+        }
+      } catch (Throwable e) {
+        if ((!topicName.equals(Topic.GROUP_METADATA_TOPIC_NAME)) &&
+                (e instanceof ExecutionException)) {
+          // Topics may have gone away in between being listed and being described.
+          // This may happen for two reasons.  One is that a topic may have been deleted
+          // and therefore genuinely no longer exist.  Another is the listTopics and
+          // describeTopics calls may have gone to different brokers that have slightly
+          // different information in their metadata caches.
+          // We ignore the missing topics here.
+          if (e.getCause() instanceof UnknownTopicOrPartitionException) {
+            numUnknownTopics++;
+            continue;
           }
         }
+        handleNumPartitionsException(tenantPrefix, e,
+            "unexpected error while describing the " + entry.getKey() + " topic.");
       }
-    } catch (Exception e) {
-      // no retry here because AdminClient already retries several times
-      log.error("Error getting topics descriptions for tenant prefix {}", tenantPrefix, e);
-      throw new PolicyViolationException("Failed to validate number of partitions.");
     }
-    return totalCurrentPartitions;
+    log.debug("Found {} partition(s) for tenant {}.  {} topic(s) could not be described.",
+            numTenantPartitions, tenantPrefix, numUnknownTopics);
+    return numTenantPartitions;
   }
 
   /**
