@@ -10,10 +10,12 @@ import org.apache.kafka.clients.consumer.MockConsumer;
 import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 import org.apache.kafka.clients.producer.MockProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Map;
 import java.util.HashMap;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -21,7 +23,8 @@ import java.util.stream.IntStream;
 public class MockConsumerBuilder implements TierTopicConsumerBuilder {
     private final short numPartitions;
     private final MockProducer<byte[], byte[]> producer;
-    private final ArrayList<MockConsumer<byte[], byte[]>> consumers = new ArrayList<>();
+    // MockConsumer map with key as clientIdSuffix
+    private final Map<String, MockConsumer<byte[], byte[]>> consumers = new HashMap<>();
     private final ArrayList<ConsumerRecord<byte[], byte[]>> records = new ArrayList<>();
     private long position = 0;
 
@@ -54,7 +57,8 @@ public class MockConsumerBuilder implements TierTopicConsumerBuilder {
             consumer.updateEndOffsets(endOffsets);
         }
 
-        consumers.add(consumer);
+        consumers.put(clientIdSuffix, consumer);
+
         return consumer;
     }
 
@@ -70,17 +74,25 @@ public class MockConsumerBuilder implements TierTopicConsumerBuilder {
         }
     }
 
-    ArrayList<MockConsumer<byte[], byte[]>> getConsumers() {
-        return consumers;
+    /** 
+     * Sets the mock consumer with clientIdSuffix to throw the provided exception at runtime.
+     * The mock consumer resets the exception after the first poll.
+     * @param clientIdSuffix the consumer clientIdSuffix
+     * @param exception exception thrown by mock consumer at runtime 
+     */
+    public synchronized void setConsumerException(String clientIdSuffix, KafkaException exception) {
+        MockConsumer<byte[], byte[]> consumer = consumers.get(clientIdSuffix);
+        consumer.setException(exception);
     }
 
     private void addRecord(ConsumerRecord<byte[], byte[]> record) {
         HashMap<TopicPartition, Long> endOffsets = new HashMap<>();
         endOffsets.put(new TopicPartition(record.topic(), record.partition()), record.offset());
-        consumers.removeIf(MockConsumer::closed);
+
+        consumers.entrySet().removeIf(entries -> entries.getValue().closed());
 
         records.add(record);
-        for (MockConsumer<byte[], byte[]> consumer: consumers) {
+        for (MockConsumer<byte[], byte[]> consumer: consumers.values()) {
             consumer.addRecord(record);
             consumer.updateEndOffsets(endOffsets);
         }

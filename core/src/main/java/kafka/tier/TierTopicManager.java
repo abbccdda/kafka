@@ -28,6 +28,7 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.RetriableException;
+import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.WakeupException;
 import org.apache.kafka.common.internals.Topic;
 import org.apache.kafka.common.metrics.MetricConfig;
@@ -313,7 +314,6 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
         final boolean primaryProcessed = pollConsumer(primaryConsumer, TierPartitionStatus.ONLINE, true);
         final boolean catchUpProcessed = catchUpConsumer != null
                 && pollConsumer(catchUpConsumer, TierPartitionStatus.CATCHUP, false);
-
         heartbeat.set(System.currentTimeMillis());
         return primaryProcessed || catchUpProcessed;
     }
@@ -537,11 +537,18 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
 
     /**
      * Checks whether catch up consumer has caught up to primary consumer.
-     * If caught up, shuts down the catch up consumer.
+     * Catches consumer TimeoutException and logs a warning. 
+     * If catch up consumer has reached the position of the primary consumer, 
+     * shuts down the catch up consumer.
      */
     private void checkCatchingUpComplete() {
-        if (catchingUp() && catchUpConsumerLag() == 0)
-            completeCatchUp();
+        try {
+            if (catchingUp() && catchUpConsumerLag() == 0)
+                completeCatchUp();
+        } catch (TimeoutException te) {
+            log.warn("Consumer TimeoutException, unable to check check catch up consumer progress. Waiting until next poll " 
+            + "iteration to check progress.", te);
+        }
     }
 
     private void stopCatchUpConsumer() {

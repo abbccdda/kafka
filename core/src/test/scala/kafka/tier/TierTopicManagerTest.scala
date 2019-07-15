@@ -26,6 +26,7 @@ import kafka.utils.TestUtils
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.common.config.ConfluentTopicConfig
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.errors.TimeoutException
 import org.easymock.EasyMock
 import org.junit.After
 import org.junit.Assert._
@@ -235,6 +236,16 @@ class TierTopicManagerTest {
       assertEquals(TierPartitionStatus.CATCHUP, tierMetadataManager.tierPartitionState(archivedPartition1.topicPartition()).get().status())
       assertEquals(TierPartitionStatus.CATCHUP, tierMetadataManager.tierPartitionState(archivedPartition2.topicPartition()).get().status())
 
+      // set kafka consumer to return TimeoutException and verify that cachingUp is true 
+      // in case the consumer raises TimeoutException on position() call doWork() will be 
+      // retried forever, therefore the test is emulating it by attempting it 3 times.
+      for (attempt <- 1 to 3) {
+        consumerBuilder.setConsumerException("catchup", new TimeoutException("Test exception"))
+        tierTopicManager.doWork()
+        assertTrue(tierTopicManager.catchingUp())
+      }
+      
+      // test the normal scenario (without consumer exception as exception is reset after position() call)
       tierTopicManager.doWork()
       assertFalse(tierTopicManager.catchingUp())
       // partitions should have been set ONLINE after catchup

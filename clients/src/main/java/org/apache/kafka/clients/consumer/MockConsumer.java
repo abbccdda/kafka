@@ -294,6 +294,13 @@ public class MockConsumer<K, V> implements Consumer<K, V> {
     @Override
     public synchronized long position(TopicPartition partition) {
         ensureNotClosed();
+        
+        if (exception != null) {
+            RuntimeException exception = this.exception;
+            this.exception = null;
+            throw exception;
+        }
+
         if (!this.subscriptions.isAssigned(partition))
             throw new IllegalArgumentException("You can only check the position for partitions assigned to this consumer.");
         SubscriptionState.FetchPosition position = this.subscriptions.position(partition);
