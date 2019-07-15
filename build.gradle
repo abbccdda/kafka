@@ -225,16 +225,9 @@ subprojects {
               afterEvaluate {
                   pom.artifactId = "${archivesBaseName}"
                   pom.project {
-                      name 'Apache Kafka'
+                      name 'Confluent Server'
                       packaging 'jar'
                       url 'https://kafka.apache.org'
-                      licenses {
-                          license {
-                              name 'The Apache Software License, Version 2.0'
-                              url 'https://www.apache.org/licenses/LICENSE-2.0.txt'
-                              distribution 'repo'
-                          }
-                      }
                   }
               }
           }
@@ -360,20 +353,20 @@ subprojects {
     }
   }
 
-  ext.licenseAndNotice = it.path.startsWith(':ce-') || it.path == ':support-metrics-fullcollector' ? [] : [ "$rootDir/LICENSE", "$rootDir/NOTICE" ]
+  ext.copyrightAndNotice = [ "$rootDir/COPYRIGHT", "$rootDir/NOTICE" ]
   jar {
-    from licenseAndNotice
+    from copyrightAndNotice
   }
 
   task srcJar(type: Jar) {
     classifier = 'sources'
-    from licenseAndNotice
+    from copyrightAndNotice
     from sourceSets.main.allSource
   }
 
   task javadocJar(type: Jar, dependsOn: javadoc) {
     classifier 'javadoc'
-    from licenseAndNotice
+    from copyrightAndNotice
     from javadoc.destinationDir
   }
 
@@ -396,13 +389,13 @@ subprojects {
   if(!sourceSets.test.allSource.isEmpty()) {
     task testJar(type: Jar) {
       classifier = 'test'
-      from licenseAndNotice
+      from copyrightAndNotice
       from sourceSets.test.output
     }
 
     task testSrcJar(type: Jar, dependsOn: testJar) {
       classifier = 'test-sources'
-      from licenseAndNotice
+      from copyrightAndNotice
       from sourceSets.test.allSource
     }
 
@@ -414,7 +407,7 @@ subprojects {
   plugins.withType(ScalaPlugin) {
     task scaladocJar(type:Jar) {
       classifier = 'scaladoc'
-      from licenseAndNotice
+      from copyrightAndNotice
       from scaladoc.destinationDir
     }
 
@@ -944,7 +937,6 @@ project(':core') {
     compression = Compression.GZIP
     from(project.file("$rootDir/bin")) { into "bin/" }
     from(project.file("$rootDir/config")) { into "config/" }
-    from "$rootDir/LICENSE"
     from "$rootDir/NOTICE"
     from "$rootDir/COPYRIGHT"
     from(configurations.runtime) { into("libs/") }
