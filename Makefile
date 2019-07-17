@@ -5,10 +5,21 @@ MASTER_BRANCH := master
 KAFKA_VERSION := $(shell awk 'sub(/.*version=/,""){print $1}' ./gradle.properties)
 VERSION_POST := -$(KAFKA_VERSION)
 
+ifeq ($(CONFLUENT_PLATFORM_PACKAGING),)
 include ./mk-include/cc-begin.mk
 include ./mk-include/cc-semver.mk
 include ./mk-include/cc-docker.mk
 include ./mk-include/cc-end.mk
+else
+.PHONY: clean
+clean:
+
+.PHONY: distclean
+distclean:
+
+%:
+	$(MAKE) -f debian/Makefile $@
+endif
 
 # Custom docker targets
 .PHONY: show-docker-all
