@@ -2,6 +2,7 @@
 package io.confluent.kafka.multitenant;
 
 import io.confluent.kafka.multitenant.metrics.ApiSensorBuilder;
+import io.confluent.kafka.multitenant.metrics.PartitionSensors;
 import io.confluent.kafka.multitenant.metrics.TenantMetrics;
 import io.confluent.kafka.multitenant.quota.TenantPartitionAssignor;
 import io.confluent.kafka.multitenant.quota.TestCluster;
@@ -233,13 +234,17 @@ public class MultiTenantRequestContextTest {
   public void testRequestSizeMetrics() {
     MultiTenantRequestContext context = newRequestContext(ApiKeys.PRODUCE, ApiKeys.PRODUCE.latestVersion());
     List<Integer> requestSizes = new ArrayList<>();
+    Map<TopicPartition, Integer> partitionCounts = new HashMap<>();
     for (int recordCount : Arrays.asList(1, 5, 10)) {
       Map<TopicPartition, MemoryRecords> partitionRecords = new HashMap<>();
-      partitionRecords.put(new TopicPartition("foo", 0),
+      TopicPartition tp = new TopicPartition("foo", 0);
+      partitionRecords.put(tp,
               MemoryRecords.withRecords(2, CompressionType.NONE, simpleRecords(recordCount).toArray(new SimpleRecord[recordCount])));
       ProduceRequest inbound = ProduceRequest.Builder.forMagic((byte) 2, (short) -1, 0, partitionRecords, null).build();
       parseRequest(context, inbound);
       requestSizes.add(context.calculateRequestSize(toByteBuffer(inbound)));
+      int count = partitionCounts.getOrDefault(tp, 0) + recordCount;
+      partitionCounts.put(tp, count);
     }
     double expectedAverage = requestSizes.stream().mapToInt(v -> v).average().orElseThrow(NoSuchElementException::new);
     double expectedMin = requestSizes.stream().mapToInt(v -> v).min().orElseThrow(NoSuchElementException::new);
@@ -251,6 +256,17 @@ public class MultiTenantRequestContextTest {
     assertEquals(expectedMax, (double) metrics.get("request-byte-max").metricValue(), 0.1);
     assertEquals(expectedAverage, (double) metrics.get("request-byte-avg").metricValue(), 0.1);
     assertEquals(expectedTotal, (int) ((double) metrics.get("request-byte-total").metricValue()));
+
+    this.metrics.metrics().forEach((name, metric) -> {
+      if (name.name().equals("partition-records-in-total")) {
+        String topic = name.tags().get(PartitionSensors.TOPIC_TAG);
+        int partition = Integer.parseInt(name.tags().get(PartitionSensors.PARTITION_TAG));
+        TopicPartition tp = new TopicPartition(topic, partition);
+
+        assertEquals((int) partitionCounts.get(context.tenantContext.removeTenantPrefix(tp)),
+                     (int) ((double) metric.metricValue()));
+      }
+    });
   }
 
   private List<SimpleRecord> simpleRecords(int recordCount) {

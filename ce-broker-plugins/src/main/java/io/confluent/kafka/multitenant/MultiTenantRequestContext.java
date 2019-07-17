@@ -35,7 +35,10 @@ import org.apache.kafka.common.network.Send;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Struct;
+import org.apache.kafka.common.record.BaseRecords;
 import org.apache.kafka.common.record.MemoryRecords;
+import org.apache.kafka.common.record.RecordBatch;
+import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.requests.AbstractRequest;
 import org.apache.kafka.common.requests.AbstractResponse;
 import org.apache.kafka.common.requests.AlterConfigsRequest;
@@ -85,6 +88,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -92,7 +96,7 @@ import org.slf4j.LoggerFactory;
 public class MultiTenantRequestContext extends RequestContext {
   private static final Logger log = LoggerFactory.getLogger(MultiTenantRequestContext.class);
 
-  private final TenantContext tenantContext;
+  final TenantContext tenantContext;
   private static final int BASE_HEADER_SIZE;
 
   private final Metrics metrics;
@@ -803,24 +807,41 @@ public class MultiTenantRequestContext extends RequestContext {
   }
 
   private void updatePartitionBytesInMetrics(ProduceRequest request) {
-    request.partitionRecordsOrFail().entrySet().forEach(entry -> {
-      TopicPartition tp = entry.getKey();
-      int size = entry.getValue().sizeInBytes();
-      tenantMetrics.recordPartitionBytesIn(
+    request.partitionRecordsOrFail().forEach((tp, value) -> {
+      int size = value.sizeInBytes();
+      tenantMetrics.recordPartitionStatsIn(
           metrics,
           new MetricsRequestContext((MultiTenantPrincipal) principal, header.clientId(), header.apiKey()),
-          tp, size);
+          tp, size, numRecords(value.batches()));
     });
   }
 
   private void updatePartitionBytesOutMetrics(FetchResponse<?> response) {
-    response.responseData().entrySet().forEach(entry -> {
-      TopicPartition tp = entry.getKey();
-      int size = entry.getValue().records.sizeInBytes();
-      tenantMetrics.recordPartitionBytesOut(
+    response.responseData().forEach((tp, value) -> {
+      int size = value.records.sizeInBytes();
+      tenantMetrics.recordPartitionStatsOut(
           metrics,
           new MetricsRequestContext((MultiTenantPrincipal) principal, header.clientId(), header.apiKey()),
-          tp, size);
+          tp, size, numRecords(value.records));
     });
+  }
+
+  private static int numRecords(BaseRecords records) {
+    if (records instanceof Records) {
+      return numRecords(((Records) records).batches());
+    } else {
+      return 0;
+    }
+  }
+
+  private static int numRecords(Iterable<? extends RecordBatch> batches) {
+    return StreamSupport
+        .stream(batches.spliterator(), false)
+        .mapToInt(b -> {
+          // only count records for formats that support it efficiently
+          Integer count = b.countOrNull();
+          return count != null ? count : 0;
+        })
+        .sum();
   }
 }

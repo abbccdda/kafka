@@ -13,6 +13,9 @@ import org.apache.kafka.common.metrics.Sensor;
 public class PartitionSensorBuilder extends AbstractSensorBuilder<MetricsRequestContext, PartitionSensors> {
   static final String BYTES_IN = "partition-bytes-in";
   static final String BYTES_OUT = "partition-bytes-out";
+  static final String RECORDS_IN = "partition-records-in";
+  static final String RECORDS_OUT = "partition-records-out";
+
   static final String BROKER_SENSOR_PREFIX = "broker-";
 
   private final Map<String, AbstractSensorCreator> partitionSensorCreators;

@@ -66,32 +66,32 @@ public class PartitionSensorsTest {
     PercentileMetrics percentiles = new PercentileMetrics(metrics, metricsTenant);
 
     for (int i = 0; i < 100; i++) {
-      partitionSensors.recordBytesIn(new TopicPartition(topic, i), 1000 * i);
+      partitionSensors.recordStatsIn(new TopicPartition(topic, i), 1000 * i, 1);
     }
 
     percentiles.assertValues(20500, 43050, 73800, 92250, 92250, 92250);
 
     for (int i = 0; i < 10; i++) {
-      partitionSensors.recordBytesIn(new TopicPartition(topic, i), 1000 * 1000);
+      partitionSensors.recordStatsIn(new TopicPartition(topic, i), 1000 * 1000, 1);
     }
     for (int i = 10; i < 15; i++) {
-      partitionSensors.recordBytesIn(new TopicPartition(topic, i), 2000 * 1000);
+      partitionSensors.recordStatsIn(new TopicPartition(topic, i), 2000 * 1000, 1);
     }
-    partitionSensors.recordBytesIn(new TopicPartition(topic, 15), 3000 * 1000);
+    partitionSensors.recordStatsIn(new TopicPartition(topic, 15), 3000 * 1000, 1);
     percentiles.assertValues(30750, 57400, 73800, 1939300, 2933550, 2933550);
 
     // Verify that samples are expired
     time.sleep(5000);
-    partitionSensors.recordBytesIn(new TopicPartition(topic, 0), 100);
+    partitionSensors.recordStatsIn(new TopicPartition(topic, 0), 100, 1);
     percentiles.percentiles.forEach(p -> assertEquals("Invalid metric " + p.metricName(), 0.0, (Double) p.metricValue(), 1));
 
     // Verify p99.9 by adding more samples
     for (int i = 0; i < 1000; i++) {
-      partitionSensors.recordBytesIn(new TopicPartition(topic, i), 10000);
+      partitionSensors.recordStatsIn(new TopicPartition(topic, i), 10000, 1);
     }
     percentiles.percentiles.forEach(p -> assertEquals("Invalid metric " + p.metricName(), 6150, (Double) p.metricValue(), 10));
 
-    partitionSensors.recordBytesIn(new TopicPartition(topic, 999), 1000 * 1000);
+    partitionSensors.recordStatsIn(new TopicPartition(topic, 999), 1000 * 1000, 1);
     percentiles.assertValues(6150, 6150, 6150, 6150, 6150, 953250);
   }
 
@@ -116,10 +116,10 @@ public class PartitionSensorsTest {
     PercentileMetrics brokerPercentiles = new PercentileMetrics(metrics, Optional.empty());
 
     for (int i = 0; i < 100; i++) {
-      partitionSensors1.recordBytesIn(new TopicPartition(tenant1Topic, i), 1000 * i);
+      partitionSensors1.recordStatsIn(new TopicPartition(tenant1Topic, i), 1000 * i, 100 * i);
     }
     for (int i = 0; i < 100; i++) {
-      partitionSensors2.recordBytesIn(new TopicPartition(tenant2Topic, i), 2000 * i);
+      partitionSensors2.recordStatsIn(new TopicPartition(tenant2Topic, i), 2000 * i, 200 * i);
     }
 
     tenant1Percentiles.assertValues(20500, 43050, 73800, 92250, 92250, 92250);
@@ -147,10 +147,10 @@ public class PartitionSensorsTest {
     PartitionSensors partitionSensors2 = new PartitionSensorBuilder(metrics, context2).build();
 
     for (int i = 0; i < 10; i++) {
-      partitionSensors1.recordBytesIn(new TopicPartition(topic, i), 1000 * i);
+      partitionSensors1.recordStatsIn(new TopicPartition(topic, i), 1000 * i, 100 * i);
     }
     for (int i = 0; i < 10; i++) {
-      partitionSensors2.recordBytesIn(new TopicPartition(topic, i), 2000 * i);
+      partitionSensors2.recordStatsIn(new TopicPartition(topic, i), 2000 * i, 200 * i);
     }
 
     for (int i = 0; i < 10; ++i) {
@@ -161,14 +161,21 @@ public class PartitionSensorsTest {
       tags.put(PartitionSensors.PARTITION_TAG, Integer.toString(i));
       tags.put(JmxReporter.JMX_IGNORE_TAG, "");
 
-      KafkaMetric client1Total =
+      KafkaMetric client1BytesIn =
           metrics.metrics().get(metrics.metricName("partition-bytes-in-total", TenantMetrics.GROUP, tags));
+      KafkaMetric client1RecordsIn =
+          metrics.metrics().get(metrics.metricName("partition-records-in-total", TenantMetrics.GROUP, tags));
 
       tags.put(TenantMetrics.CLIENT_ID_TAG, clientId2);
-      KafkaMetric client2Total =
+      KafkaMetric client2BytesIn =
           metrics.metrics().get(metrics.metricName("partition-bytes-in-total", TenantMetrics.GROUP, tags));
-      assertEquals(i * 1000.0, client1Total.metricValue());
-      assertEquals(i * 2000.0, client2Total.metricValue());
+      KafkaMetric client2RecordsIn =
+          metrics.metrics().get(metrics.metricName("partition-records-in-total", TenantMetrics.GROUP, tags));
+      assertEquals(i * 1000.0, client1BytesIn.metricValue());
+      assertEquals(i * 2000.0, client2BytesIn.metricValue());
+
+      assertEquals(i * 100.0, client1RecordsIn.metricValue());
+      assertEquals(i * 200.0, client2RecordsIn.metricValue());
     }
   }
 

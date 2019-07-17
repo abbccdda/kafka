@@ -27,40 +27,42 @@ import org.apache.kafka.common.metrics.stats.Percentiles.BucketSizing;
 import org.apache.kafka.common.metrics.stats.Rate;
 
 public class PartitionSensors {
-  static final String TOPIC_TAG = "topic";
-  static final String PARTITION_TAG = "partition";
+  public static final String TOPIC_TAG = "topic";
+  public static final String PARTITION_TAG = "partition";
   private static final long PARTITION_SENSOR_EXPIRY_SECONDS = 3600;
 
-  private final ThroughputSensors bytesIn;
-  private final ThroughputSensors bytesOut;
+  private final ThroughputSensors in;
+  private final ThroughputSensors out;
 
   public PartitionSensors(
       MetricsRequestContext context,
       Map<String, Sensor> sensors,
       PartitionSensorBuilder sensorBuilder) {
 
-    bytesIn = new ThroughputSensors(
+    in = new ThroughputSensors(
         context,
         PartitionSensorBuilder.BYTES_IN,
+        PartitionSensorBuilder.RECORDS_IN,
         sensors.get(PartitionSensorBuilder.BYTES_IN),
         sensors.get(PartitionSensorBuilder.BROKER_SENSOR_PREFIX + PartitionSensorBuilder.BYTES_IN),
         sensorBuilder
     );
-    bytesOut = new ThroughputSensors(
+    out = new ThroughputSensors(
         context,
         PartitionSensorBuilder.BYTES_OUT,
+        PartitionSensorBuilder.RECORDS_OUT,
         sensors.get(PartitionSensorBuilder.BYTES_OUT),
         sensors.get(PartitionSensorBuilder.BROKER_SENSOR_PREFIX + PartitionSensorBuilder.BYTES_OUT),
         sensorBuilder
     );
   }
 
-  public void recordBytesIn(TopicPartition tp, long bytes) {
-    this.bytesIn.record(tp, bytes);
+  public void recordStatsIn(TopicPartition tp, long bytes, long numRecords) {
+    this.in.record(tp, bytes, numRecords);
   }
 
-  public void recordBytesOut(TopicPartition tp, long bytes) {
-    this.bytesOut.record(tp, bytes);
+  public void recordStatsOut(TopicPartition tp, long bytes, long numRecords) {
+    this.out.record(tp, bytes, numRecords);
   }
 
   /**
@@ -80,20 +82,23 @@ public class PartitionSensors {
       }
     }
 
-    private final String name;
+    private final String bytesMetricName;
+    private final String recordsMetricName;
     private final String tenant;
     private final String clientId;
     private final PartitionSensorBuilder partitionSensorBuilder;
     private final TenantThroughputPercentiles tenantThroughputPercentiles;
     private final ThroughputPercentiles brokerThroughputPercentiles;
-    private final Map<TopicPartition, Sensor> partitionSensors;
+    private final Map<TopicPartition, PartitionDetailSensors> partitionSensors;
 
     ThroughputSensors(MetricsRequestContext context,
-                      String name,
+                      String bytesMetricName,
+                      String recordsMetricName,
                       Sensor tenantPercentilesSensor,
                       Sensor brokerPercentilesSensor,
                       PartitionSensorBuilder partitionSensorBuilder) {
-      this.name = name;
+      this.bytesMetricName = bytesMetricName;
+      this.recordsMetricName = recordsMetricName;
       this.tenant = context.principal().tenantMetadata().tenantName;
       this.clientId = context.clientId();
       this.partitionSensorBuilder = partitionSensorBuilder;
@@ -118,22 +123,24 @@ public class PartitionSensors {
       }
     }
 
-    void record(TopicPartition tp, long bytes) {
+    void record(TopicPartition tp, long bytes, long numRecords) {
       partitionPercentileSensor(tp).record(bytes);
-      partitionDetailSensor(tp).record(bytes);
+      partitionDetailSensors(tp).bytesSensor.record(bytes);
+      partitionDetailSensors(tp).recordsSensor.record(numRecords);
     }
+
 
     private Sensor partitionPercentileSensor(TopicPartition tp) {
       PartitionStat partitionStat = brokerThroughputPercentiles.partitionStats.get(tp);
       if (partitionStat != null) {
         return partitionStat.rateSensor;
       } else {
-        String sensorName = String.format("%s:%s-%s:%s-%s:%s-%s", name,
-            TENANT_TAG, tenant,
-            TOPIC_TAG, tp.topic(),
-            PARTITION_TAG, tp.partition());
+        String sensorName = String.format("%s:%s-%s:%s-%s:%s-%s", bytesMetricName,
+                                          TENANT_TAG, tenant,
+                                          TOPIC_TAG, tp.topic(),
+                                          PARTITION_TAG, tp.partition());
         PartitionSensorCreator sensorCreator =
-            new PartitionSensorCreator(name, name, tenant, tp, brokerThroughputPercentiles);
+            new PartitionSensorCreator(bytesMetricName, bytesMetricName, tenant, tp, brokerThroughputPercentiles);
         Map<String, AbstractSensorCreator> sensorCreators =
             Collections.singletonMap(sensorName, sensorCreator);
         Map<String, String> sensorsToFind = new HashMap<>(1);
@@ -143,35 +150,56 @@ public class PartitionSensors {
       }
     }
 
-    private Sensor partitionDetailSensor(TopicPartition tp) {
-      Sensor partitionSensor = partitionSensors.get(tp);
+    private PartitionDetailSensors partitionDetailSensors(TopicPartition tp) {
+      PartitionDetailSensors partitionSensor = partitionSensors.get(tp);
       if (partitionSensor != null) {
         return partitionSensor;
       } else {
-        String sensorName = String.format("%s:%s-%s:%s-%s:%s-%s,%s-%s", name,
-                                          TENANT_TAG, tenant,
-                                          CLIENT_ID_TAG, clientId,
-                                          TOPIC_TAG, tp.topic(),
-                                          PARTITION_TAG, tp.partition());
+        String bytesSensorName = String.format("%s:%s-%s:%s-%s:%s-%s,%s-%s", bytesMetricName,
+                                               TENANT_TAG, tenant,
+                                               CLIENT_ID_TAG, clientId,
+                                               TOPIC_TAG, tp.topic(),
+                                               PARTITION_TAG, tp.partition());
+        String recordsSensorName = String.format("%s:%s-%s:%s-%s:%s-%s,%s-%s", recordsMetricName,
+                                               TENANT_TAG, tenant,
+                                               CLIENT_ID_TAG, clientId,
+                                               TOPIC_TAG, tp.topic(),
+                                               PARTITION_TAG, tp.partition());
 
-        PartitionDetailSensorCreator sensorCreator =
-            new PartitionDetailSensorCreator(name, name, tenant, clientId, tp);
+        PartitionDetailSensorCreator bytesSensorCreator =
+            new PartitionDetailSensorCreator(bytesMetricName, bytesMetricName, tenant, clientId, tp);
+        PartitionDetailSensorCreator recordsSensorCreator =
+            new PartitionDetailSensorCreator(recordsMetricName, recordsMetricName, tenant, clientId, tp);
 
-        Map<String, AbstractSensorCreator> sensorCreators =
-            Collections.singletonMap(sensorName, sensorCreator);
+        Map<String, AbstractSensorCreator> sensorCreators = new HashMap<>(2);
+        sensorCreators.put(bytesSensorName, bytesSensorCreator);
+        sensorCreators.put(recordsSensorName, recordsSensorCreator);
 
-        Map<String, String> sensorsToFind = new HashMap<>(1);
-        sensorsToFind.put(sensorName, sensorName);
-        Sensor sensor = partitionSensorBuilder.getOrCreateSensors(sensorsToFind, sensorCreators)
-            .get(sensorName);
+        Map<String, String> sensorsToFind = new HashMap<>(2);
+        sensorsToFind.put(bytesSensorName, bytesSensorName);
+        sensorsToFind.put(recordsSensorName, recordsSensorName);
 
-        Sensor existing  = partitionSensors.putIfAbsent(tp, sensor);
+        Map<String, Sensor> s = partitionSensorBuilder.getOrCreateSensors(sensorsToFind, sensorCreators);
+        PartitionDetailSensors sensors = new PartitionDetailSensors(s.get(bytesSensorName),
+                                                                    s.get(recordsSensorName));
+
+        PartitionDetailSensors existing = partitionSensors.putIfAbsent(tp, sensors);
         if (existing == null) {
-          return sensor;
+          return sensors;
         } else {
           return existing;
         }
       }
+    }
+  }
+
+  static class PartitionDetailSensors {
+    final Sensor bytesSensor;
+    final Sensor recordsSensor;
+
+    public PartitionDetailSensors(Sensor bytesSensor, Sensor recordsSensor) {
+      this.bytesSensor = bytesSensor;
+      this.recordsSensor = recordsSensor;
     }
   }
 
@@ -364,5 +392,4 @@ public class PartitionSensors {
       return sensor;
     }
   }
-
 }

@@ -84,19 +84,22 @@ public class TenantMetrics {
     sensors.recordErrors(errorCounts);
   }
 
-  public void recordPartitionBytesIn(Metrics metrics,
+  public void recordPartitionStatsIn(Metrics metrics,
                                      MetricsRequestContext context,
                                      TopicPartition topicPartition,
-                                     int size) {
-    partitionSensors(metrics, context).recordBytesIn(topicPartition, size);
+                                     int size,
+                                     int numRecords) {
+    partitionSensors(metrics, context).recordStatsIn(topicPartition, size, numRecords);
   }
 
 
-  public void recordPartitionBytesOut(Metrics metrics,
+  public void recordPartitionStatsOut(Metrics metrics,
                                       MetricsRequestContext context,
                                       TopicPartition topicPartition,
-                                      int size) {
-    partitionSensors(metrics, context).recordBytesOut(topicPartition, size);
+                                      int size,
+                                      int numRecords) {
+    partitionSensors(metrics, context).recordStatsOut(topicPartition, size, numRecords);
+
   }
 
   private ApiSensors apiSensors(Metrics metrics, MetricsRequestContext context) {
