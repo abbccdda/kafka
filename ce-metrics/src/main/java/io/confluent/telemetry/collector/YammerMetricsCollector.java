@@ -143,7 +143,7 @@ public class YammerMetricsCollector implements MetricsCollector {
                     out.add(collectDelta(name + "/total", labels, ((Histogram) metric).count(), metricAddedInstant));
 
                 } else {
-                    log.warn("Unexpected metric type for {}", metricName);
+                    log.debug("Unexpected metric type for {}", metricName);
                 }
             } catch (Exception e) {
                 log.warn("Unexpected error in processing Yammer metric {}", metricName, e);
@@ -193,7 +193,7 @@ public class YammerMetricsCollector implements MetricsCollector {
 
         } else {
             // Ignoring Gauge (gauge.getKey()) with unhandled type.
-            log.warn("Ignoring {} value = {}", metricName, value);
+            log.debug("Ignoring {} value = {}", metricName, value);
             return Optional.empty();
         }
 
