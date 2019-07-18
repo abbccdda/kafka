@@ -240,7 +240,7 @@ class TierTopicManagerTest {
       // in case the consumer raises TimeoutException on position() call doWork() will be 
       // retried forever, therefore the test is emulating it by attempting it 3 times.
       for (attempt <- 1 to 3) {
-        consumerBuilder.setConsumerException("catchup", new TimeoutException("Test exception"))
+        consumerBuilder.setConsumerPositionException("catchup", new TimeoutException("Test position exception"))
         tierTopicManager.doWork()
         assertTrue(tierTopicManager.catchingUp())
       }

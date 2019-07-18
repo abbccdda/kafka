@@ -75,14 +75,14 @@ public class MockConsumerBuilder implements TierTopicConsumerBuilder {
     }
 
     /** 
-     * Sets the mock consumer with clientIdSuffix to throw the provided exception at runtime.
+     * Sets the mock consumer with clientIdSuffix to throw the provided exception on position() call.
      * The mock consumer resets the exception after the first poll.
      * @param clientIdSuffix the consumer clientIdSuffix
-     * @param exception exception thrown by mock consumer at runtime 
+     * @param exception exception thrown by mock consumer on position() call
      */
-    public synchronized void setConsumerException(String clientIdSuffix, KafkaException exception) {
+    public synchronized void setConsumerPositionException(String clientIdSuffix, KafkaException exception) {
         MockConsumer<byte[], byte[]> consumer = consumers.get(clientIdSuffix);
-        consumer.setException(exception);
+        consumer.setPositionException(exception);
     }
 
     private void addRecord(ConsumerRecord<byte[], byte[]> record) {
