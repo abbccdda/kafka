@@ -32,6 +32,8 @@ public class ConfluentConfigs {
     public static final String MULTITENANT_METADATA_CLASS_DEFAULT = null;
     public static final String MULTITENANT_METADATA_DIR_CONFIG = "multitenant.metadata.dir";
     public static final String MULTITENANT_METADATA_DIR_DEFAULT = null;
+    public static final String MULTITENANT_METADATA_SSL_CERTS_SPEC_CONFIG = "multitenant.metadata.ssl.certs.path";
+    public static final String MULTITENANT_METADATA_SSL_CERTS_SPEC_DEFAULT = null;
     public static final String MULTITENANT_METADATA_RELOAD_DELAY_MS_CONFIG = "multitenant.metadata"
             + ".reload.delay.ms";
     public static final Long MULTITENANT_METADATA_RELOAD_DELAY_MS_DEFAULT = TimeUnit.MINUTES.toMillis(10);

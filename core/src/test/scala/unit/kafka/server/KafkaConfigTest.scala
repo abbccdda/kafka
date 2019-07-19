@@ -783,6 +783,7 @@ class KafkaConfigTest {
         // Confluent Cloud configs
         case KafkaConfig.BrokerSessionUuidProp => // ignore string
         case ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG => // ignore string
+        case ConfluentConfigs.MULTITENANT_METADATA_SSL_CERTS_SPEC_CONFIG => // ignore string
         case ConfluentConfigs.MULTITENANT_METADATA_RELOAD_DELAY_MS_CONFIG => // ignore
         case ConfluentConfigs.MULTITENANT_TENANT_DELETE_DELAY_MS_CONFIG => // ignore
         case ConfluentConfigs.MULTITENANT_TENANT_DELETE_BATCH_SIZE_CONFIG => // ignore

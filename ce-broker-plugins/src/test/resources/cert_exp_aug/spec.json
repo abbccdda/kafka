@@ -1,0 +1,8 @@
+{
+"ssl_certificate_encoding":"PKCS12",
+"ssl_keystore_password":"mystorepassword",
+"ssl_keystore_filename":"pkcs.p12",
+"secret_id":1,
+"ssl_pem_fullchain_filename":"fullchain.pem",
+"ssl_pem_privkey_filename":"privkey.pem"
+}

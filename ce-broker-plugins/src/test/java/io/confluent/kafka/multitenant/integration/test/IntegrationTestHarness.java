@@ -63,24 +63,23 @@ public class IntegrationTestHarness {
     return physicalCluster.kafkaCluster().zkConnect();
   }
 
-  public KafkaProducer<String, String> createProducer(LogicalClusterUser user) {
+  public KafkaProducer<String, String> createProducer(LogicalClusterUser user, SecurityProtocol securityProtocol) {
     KafkaProducer<String, String> producer =  KafkaTestUtils.createProducer(
-        physicalCluster.bootstrapServers(),
-        SecurityProtocol.SASL_PLAINTEXT,
-        ScramMechanism.SCRAM_SHA_256.mechanismName(),
-        user.saslJaasConfig());
+            physicalCluster.bootstrapServers(),
+            securityProtocol,
+            ScramMechanism.SCRAM_SHA_256.mechanismName(),
+            user.saslJaasConfig());
     producers.add(producer);
     return producer;
   }
 
-  public KafkaConsumer<String, String> createConsumer(LogicalClusterUser user,
-      String consumerGroup) {
+  public KafkaConsumer<String, String> createConsumer(LogicalClusterUser user, String consumerGroup, SecurityProtocol securityProtocol) {
     KafkaConsumer<String, String> consumer = KafkaTestUtils.createConsumer(
-        physicalCluster.bootstrapServers(),
-        SecurityProtocol.SASL_PLAINTEXT,
-        ScramMechanism.SCRAM_SHA_256.mechanismName(),
-        user.saslJaasConfig(),
-        consumerGroup);
+            physicalCluster.bootstrapServers(),
+            securityProtocol,
+            ScramMechanism.SCRAM_SHA_256.mechanismName(),
+            user.saslJaasConfig(),
+            consumerGroup);
     consumers.add(consumer);
     return consumer;
   }
@@ -111,16 +110,27 @@ public class IntegrationTestHarness {
       LogicalClusterUser consumerUser,
       String topic,
       String consumerGroup,
-      int firstMessageIndex)
+      int firstMessageIndex,
+      SecurityProtocol securityProtocol)
       throws Throwable {
     String prefixedTopic = producerUser.tenantPrefix() + topic;
     physicalCluster.kafkaCluster().createTopic(prefixedTopic, 2, 1);
-    try (KafkaProducer<String, String> producer = createProducer(producerUser)) {
+    try (KafkaProducer<String, String> producer = createProducer(producerUser, securityProtocol)) {
       KafkaTestUtils.sendRecords(producer, topic, firstMessageIndex, 10);
     }
 
-    try (KafkaConsumer<String, String> consumer = createConsumer(consumerUser, consumerGroup)) {
+    try (KafkaConsumer<String, String> consumer = createConsumer(consumerUser, consumerGroup, securityProtocol)) {
       KafkaTestUtils.consumeRecords(consumer, topic, firstMessageIndex, 10);
     }
+  }
+
+  public void produceConsume(
+          LogicalClusterUser producerUser,
+          LogicalClusterUser consumerUser,
+          String topic,
+          String consumerGroup,
+          int firstMessageIndex)
+          throws Throwable {
+    produceConsume(producerUser, consumerUser, topic, consumerGroup, firstMessageIndex, SecurityProtocol.SASL_PLAINTEXT);
   }
 }

@@ -8,6 +8,7 @@ import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -58,6 +59,11 @@ public class TenantLifecycleManagerTest {
         lifecycleManagerWithDeleteDelay.updateTenantState(LC_META_ABC);
         lifecycleManagerWithDeleteDelay.updateTenantState(LC_META_DED);
         lifecycleManagerWithDeleteDelay.updateTenantState(LC_META_MEH);
+    }
+
+    @After
+    public void teardown() {
+        lifecycleManager.close();
     }
 
     @Test

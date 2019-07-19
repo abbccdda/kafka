@@ -35,6 +35,7 @@ import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourcePattern;
 import org.apache.kafka.common.resource.ResourcePatternFilter;
 import org.apache.kafka.common.resource.ResourceType;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
@@ -132,7 +133,7 @@ public class MultiTenantAuthorizerTest {
     String topic = "test.topic";
     String consumerGroup = "test.group";
     physicalCluster.kafkaCluster().createTopic(user1.withPrefix(topic), 3, 1);
-    try (KafkaConsumer<String, String> consumer = testHarness.createConsumer(user1, consumerGroup)) {
+    try (KafkaConsumer<String, String> consumer = testHarness.createConsumer(user1, consumerGroup, SecurityProtocol.SASL_PLAINTEXT)) {
       assertFalse(checkAuthorized(consumer, topic));
       AclCommand.main(SecurityTestUtils.addTopicAclArgs(testHarness.zkConnect(),
           user1.prefixedKafkaPrincipal(), user1.withPrefix(topic), Describe$.MODULE$, PatternType.LITERAL));
@@ -222,9 +223,9 @@ public class MultiTenantAuthorizerTest {
     physicalCluster.kafkaCluster().createTopic("tenantA_prefixed.test2.topic", 2, 1);
     physicalCluster.kafkaCluster().createTopic("tenantB_test1.topic", 1, 1);
 
-    KafkaConsumer<String, String> consumer1 = testHarness.createConsumer(user1, "test1.group");
-    KafkaConsumer<String, String> consumer2 = testHarness.createConsumer(user2, "test2.group");
-    KafkaConsumer<String, String> consumerB1 = testHarness.createConsumer(userB1, "test1.group");
+    KafkaConsumer<String, String> consumer1 = testHarness.createConsumer(user1, "test1.group", SecurityProtocol.SASL_PLAINTEXT);
+    KafkaConsumer<String, String> consumer2 = testHarness.createConsumer(user2, "test2.group", SecurityProtocol.SASL_PLAINTEXT);
+    KafkaConsumer<String, String> consumerB1 = testHarness.createConsumer(userB1, "test1.group", SecurityProtocol.SASL_PLAINTEXT);
 
     assertTrue(checkAuthorized(consumer1, "test1.topic"));
     assertFalse(checkAuthorized(consumer2, "test1.topic"));
@@ -540,7 +541,7 @@ public class MultiTenantAuthorizerTest {
   }
 
   private void verifyTopicAuthorizationFailure(LogicalClusterUser user, String topic) {
-    try (KafkaProducer<String, String> producer = testHarness.createProducer(user)) {
+    try (KafkaProducer<String, String> producer = testHarness.createProducer(user, SecurityProtocol.SASL_PLAINTEXT)) {
       try {
         producer.partitionsFor(topic);
         fail("Authorization should have failed");
@@ -554,7 +555,7 @@ public class MultiTenantAuthorizerTest {
       String topic,
       String group) {
 
-    try (KafkaConsumer<String, String> consumer = testHarness.createConsumer(user, group)) {
+    try (KafkaConsumer<String, String> consumer = testHarness.createConsumer(user, group, SecurityProtocol.SASL_PLAINTEXT)) {
       consumer.subscribe(Collections.singleton(topic));
       consumer.poll(Duration.ofSeconds(5));
       fail("Authorization should have failed");

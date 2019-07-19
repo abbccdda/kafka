@@ -83,6 +83,8 @@ public class TenantLifecycleManager {
 
     public void createAdminClient(String endpoint) {
         this.adminClient = Utils.createAdminClient(endpoint);
+        // this shouldn't happen in real cluster, but we want to allow testing the cache without
+        // a cluster.
         if (this.adminClient == null) {
             // NOTE: This error is important in production - it means we don't clean tenants properly
             // but test scenarios can set the admin client later and still pass

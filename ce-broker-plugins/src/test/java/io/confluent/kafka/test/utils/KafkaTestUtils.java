@@ -33,6 +33,7 @@ import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.config.SaslConfigs;
+import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.errors.AuthorizationException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourcePattern;
@@ -79,6 +80,8 @@ public class KafkaTestUtils {
     Properties props = new Properties();
     props.setProperty(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
     props.setProperty(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol.name);
+    if (securityProtocol.name.equals("SSL") || securityProtocol.name.equals("SASL_SSL"))
+      props.setProperty(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "");
     props.setProperty(SaslConfigs.SASL_MECHANISM, saslMechanism);
     props.setProperty(SaslConfigs.SASL_JAAS_CONFIG, jaasConfig);
     props.setProperty(SaslConfigs.SASL_KERBEROS_SERVICE_NAME, "kafka");
@@ -88,12 +91,46 @@ public class KafkaTestUtils {
     return props;
   }
 
+  public static Properties consumerProps(
+      String bootstrapServers,
+      SecurityProtocol securityProtocol,
+      String saslMechanism,
+      String jaasConfig,
+      String consumerGroup) {
+    Properties props = new Properties();
+    props.setProperty(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+    props.setProperty(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol.name);
+    if (securityProtocol.name.equals("SSL") || securityProtocol.name.equals("SASL_SSL"))
+      props.setProperty(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "");
+    props.setProperty(SaslConfigs.SASL_MECHANISM, saslMechanism);
+    props.setProperty(SaslConfigs.SASL_JAAS_CONFIG, jaasConfig);
+    props.setProperty(SaslConfigs.SASL_KERBEROS_SERVICE_NAME, "kafka");
+    props.setProperty(ConsumerConfig.GROUP_ID_CONFIG, consumerGroup);
+    props.setProperty(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
+            StringDeserializer.class.getName());
+    props.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
+            StringDeserializer.class.getName());
+    props.setProperty(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true");
+    props.setProperty(ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG, "10");
+    props.setProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+    return props;
+  }
+
   public static KafkaProducer<String, String> createProducer(
       String bootstrapServers,
       SecurityProtocol securityProtocol,
       String saslMechanism,
       String jaasConfig) {
     return new KafkaProducer<>(producerProps(bootstrapServers, securityProtocol, saslMechanism, jaasConfig));
+  }
+
+  public static KafkaConsumer<String, String> createConsumer(
+          String bootstrapServers,
+          SecurityProtocol securityProtocol,
+          String saslMechanism,
+          String jaasConfig,
+          String consumerGroup) {
+    return new KafkaConsumer<>(consumerProps(bootstrapServers, securityProtocol, saslMechanism, jaasConfig, consumerGroup));
   }
 
   public static void sendRecords(KafkaProducer<String, String> producer, String topic,
@@ -113,30 +150,6 @@ public class KafkaTestUtils {
         throw e.getCause();
       }
     }
-  }
-
-  public static KafkaConsumer<String, String> createConsumer(
-      String bootstrapServers,
-      SecurityProtocol securityProtocol,
-      String saslMechanism,
-      String jaasConfig,
-      String consumerGroup) {
-    Properties props = new Properties();
-    props.setProperty(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-    props.setProperty(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol.name);
-    props.setProperty(SaslConfigs.SASL_MECHANISM, saslMechanism);
-    props.setProperty(SaslConfigs.SASL_JAAS_CONFIG, jaasConfig);
-    props.setProperty(SaslConfigs.SASL_KERBEROS_SERVICE_NAME, "kafka");
-    props.setProperty(ConsumerConfig.GROUP_ID_CONFIG, consumerGroup);
-    props.setProperty(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
-        StringDeserializer.class.getName());
-    props.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
-        StringDeserializer.class.getName());
-    props.setProperty(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true");
-    props.setProperty(ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG, "10");
-    props.setProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-
-    return new KafkaConsumer<>(props);
   }
 
   public static void consumeRecords(KafkaConsumer<String, String> consumer, String topic,

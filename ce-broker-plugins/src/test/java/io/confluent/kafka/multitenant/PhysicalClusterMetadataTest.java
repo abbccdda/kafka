@@ -3,12 +3,15 @@
 package io.confluent.kafka.multitenant;
 
 import com.google.common.collect.ImmutableSet;
-
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.MockAdminClient;
 import org.apache.kafka.common.Cluster;
+import org.apache.kafka.common.Node;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.server.quota.ClientQuotaType;
 import org.apache.kafka.test.TestUtils;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -19,16 +22,27 @@ import static io.confluent.kafka.multitenant.Utils.LC_META_DED;
 import static io.confluent.kafka.multitenant.Utils.LC_META_ABC;
 import static io.confluent.kafka.multitenant.Utils.LC_META_XYZ;
 import static io.confluent.kafka.multitenant.Utils.LC_META_HEALTHCHECK;
+import static java.util.Collections.singletonList;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.fail;
-import static org.mockito.Mockito.spy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.spy;
 
-import java.io.File;
 import java.io.IOException;
+import java.io.File;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -45,8 +59,17 @@ public class PhysicalClusterMetadataTest {
   // logical metadata file creation involves creating dirs, moving files, creating/deleting symlinks
   // so we will use longer timeout than in other tests
   private static final long TEST_MAX_WAIT_MS = TimeUnit.SECONDS.toMillis(60);
+  private static final String SSL_CERTS_DIR = "mnt/sslcerts/";
+  private static final String BROKER_ID = "1";
+  private static final String BROKER_UUID = "test-uuid-3";
+  private static final URL TEST_SSL_CERTS_AUG = PhysicalClusterMetadataTest.class.getClass().getResource("/cert_exp_aug");
+  private static final URL TEST_SSL_CERTS_MAY = PhysicalClusterMetadataTest.class.getClass().getResource("/cert_exp_may");
+  private static final URL TEST_ROOT = PhysicalClusterMetadataTest.class.getClass().getResource("/");
 
+  private AdminClient mockAdminClient;
   private PhysicalClusterMetadata lcCache;
+  private String sslCertsPath;
+  private String endpoint;
 
   @Rule
   public TemporaryFolder tempFolder = new TemporaryFolder();
@@ -54,12 +77,16 @@ public class PhysicalClusterMetadataTest {
   @Before
   public void setUp() throws Exception {
     lcCache = new PhysicalClusterMetadata();
-    lcCache.configure(tempFolder.getRoot().getCanonicalPath(), TEST_CACHE_RELOAD_DELAY_MS);
-    // but not started, so we can test different initial state of the directory
+    Node node = new Node(1, "localhost", 9092);
+    endpoint = node.host() + ":" + node.port();
+    mockAdminClient = spy(new MockAdminClient(singletonList(node), node));
+    sslCertsPath = tempFolder.getRoot().getCanonicalPath() + "/" + SSL_CERTS_DIR + "spec.json";
+    String logicalClustersDir = tempFolder.getRoot().getCanonicalPath();
+    lcCache.configure(logicalClustersDir, TEST_CACHE_RELOAD_DELAY_MS, mockAdminClient, BROKER_ID, sslCertsPath);
   }
 
   @After
-  public void tearDown() throws Exception {
+  public void tearDown() {
     lcCache.shutdown();
   }
 
@@ -68,6 +95,7 @@ public class PhysicalClusterMetadataTest {
     final String brokerUUID = "test-uuid";
     Map<String, Object> configs = new HashMap<>();
     configs.put("broker.session.uuid", String.valueOf(brokerUUID));
+    configs.put("broker.id", "0");
     // will create directory if it does not exist
     configs.put(ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG,
                 tempFolder.getRoot().getCanonicalPath() + "/subdir/anotherdir/");
@@ -126,6 +154,8 @@ public class PhysicalClusterMetadataTest {
 
   @Test
   public void testStartWithInaccessibleDirShouldThrowException() throws IOException {
+    //tempFolder.newFolder("logical_clusters");
+    //File logicalCluster = new File(logicalClustersDir);
     assertTrue(tempFolder.getRoot().setReadable(false));
     try {
       lcCache.start();
@@ -365,7 +395,8 @@ public class PhysicalClusterMetadataTest {
     TenantQuotaCallback quotaCallback = setupCallbackAndTenant(
         LC_META_ABC.logicalClusterId(), numBrokers);
 
-    lcCache.configure(tempFolder.getRoot().getCanonicalPath(), TimeUnit.MINUTES.toMillis(60));
+    lcCache.configure(tempFolder.getRoot().getCanonicalPath(), TimeUnit.MINUTES.toMillis(60),
+            mockAdminClient, BROKER_ID, sslCertsPath);
     lcCache.start();
     assertEquals(ImmutableSet.of(), lcCache.logicalClusterIds());
 
@@ -416,7 +447,9 @@ public class PhysicalClusterMetadataTest {
   public void testListenerThreadShouldNotDieOnException() throws IOException, InterruptedException {
     // long retry period, to make sure we test the listener thread
     TenantLifecycleManager lifecycleManager = spy(new TenantLifecycleManager(0, null));
-    lcCache.configure(tempFolder.getRoot().getCanonicalPath(), TimeUnit.MINUTES.toMillis(60), lifecycleManager);
+    SslCertificateManager sslCertificateManager = new SslCertificateManager(BROKER_ID, sslCertsPath, mockAdminClient);
+    lcCache.configure(tempFolder.getRoot().getCanonicalPath(), TimeUnit.MINUTES.toMillis(60),
+            lifecycleManager, sslCertificateManager);
     lcCache.start();
 
     doThrow(new RuntimeException()).when(lifecycleManager).deleteTenants();
@@ -737,5 +770,394 @@ public class PhysicalClusterMetadataTest {
     }
     quotaCallback.updateClusterMetadata(testCluster.cluster());
     return quotaCallback;
+  }
+
+
+  private String fullchain1 = "-----BEGIN CERTIFICATE-----\n" +
+          "MIIFfDCCBGSgAwIBAgISBFmAQQIS/v9qbmrDF5BxHGeWMA0GCSqGSIb3DQEBCwUA\n" +
+          "MEoxCzAJBgNVBAYTAlVTMRYwFAYDVQQKEw1MZXQncyBFbmNyeXB0MSMwIQYDVQQD\n" +
+          "ExpMZXQncyBFbmNyeXB0IEF1dGhvcml0eSBYMzAeFw0xOTAzMDIwNDMwNDhaFw0x\n" +
+          "OTA1MzEwNDMwNDhaMC0xKzApBgNVBAMMIioudXMtY2VudHJhbDEuZ2NwLnByaXYu\n" +
+          "Y3BkZXYuY2xvdWQwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQD7fcdS\n" +
+          "HYnMBb7zL2Nez+Mfy0g2FEBAT+duDDPGlP9AVyw3D7mZxIhaIy/kz3oWguXrtvZA\n" +
+          "bvmLoTvnYm4suUD/iWpfr5OBOunnzSb772TbCTMjVrrVjjaKR+hHMscGMeV7O8yv\n" +
+          "G3urz8KA7ms66COIXWFE1cKTIfhTqoIj0sgQ0J+WuLHvqrn5V0F5P0oZ2rRBMcUS\n" +
+          "mO2/FGUgGMs/Tnh+6DdE1GuBeQxztLRMWTlKWKY6zKd5H305ef1uvGhMgDkBnR97\n" +
+          "0nFi6rjvbL+OXfQuYXf/rhR1MtjHTNprmGBVhqHci3oZdE1vFvnxUQ98nY/ibOgZ\n" +
+          "WrEXuXc9QN5MgZeJAgMBAAGjggJ3MIICczAOBgNVHQ8BAf8EBAMCBaAwHQYDVR0l\n" +
+          "BBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMCMAwGA1UdEwEB/wQCMAAwHQYDVR0OBBYE\n" +
+          "FL+UaLPv4/rIx38v2b2kw1YvJIOwMB8GA1UdIwQYMBaAFKhKamMEfd265tE5t6ZF\n" +
+          "Ze/zqOyhMG8GCCsGAQUFBwEBBGMwYTAuBggrBgEFBQcwAYYiaHR0cDovL29jc3Au\n" +
+          "aW50LXgzLmxldHNlbmNyeXB0Lm9yZzAvBggrBgEFBQcwAoYjaHR0cDovL2NlcnQu\n" +
+          "aW50LXgzLmxldHNlbmNyeXB0Lm9yZy8wLQYDVR0RBCYwJIIiKi51cy1jZW50cmFs\n" +
+          "MS5nY3AucHJpdi5jcGRldi5jbG91ZDBMBgNVHSAERTBDMAgGBmeBDAECATA3Bgsr\n" +
+          "BgEEAYLfEwEBATAoMCYGCCsGAQUFBwIBFhpodHRwOi8vY3BzLmxldHNlbmNyeXB0\n" +
+          "Lm9yZzCCAQQGCisGAQQB1nkCBAIEgfUEgfIA8AB2AHR+2oMxrTMQkSGcziVPQnDC\n" +
+          "v/1eQiAIxjc1eeYQe8xWAAABaTziKRUAAAQDAEcwRQIhAJ8fxSwNiqLbtz/pCCPY\n" +
+          "tA+yyTJ5jhwbxIxeDg7x1q6FAiA3ClZpy5EVG/ng997wyZjWW8n6dH9Owee8wjVV\n" +
+          "OXK1VAB2ACk8UZZUyDlluqpQ/FgH1Ldvv1h6KXLcpMMM9OVFR/R4AAABaTziKSoA\n" +
+          "AAQDAEcwRQIhAMPvT2P/PY6xux8Jf7T8ZhiluaSa8PUQDXqJNrd3I5rMAiBiaaAX\n" +
+          "JsWP2RZrUXGLECy8s5L8kUPD5ZpBmFCaxUnl6zANBgkqhkiG9w0BAQsFAAOCAQEA\n" +
+          "MChPeoJ15MwxFuVc2FuHFGyBWuKrOSMcQ+1l8T86IOV5xh8grnZO55hlO2jbfXkF\n" +
+          "sWQpSMyfi4QRyX3U5o9R4HzsnC2zmFoPZ6SkYM/SUJX6qY0asW5+WmQk920EXuuZ\n" +
+          "aP1lGAIbZXOI4OmJDBeVYzSFQOh8o5Mbsa9geGxUSLQoRf1KAjGIbsFlGwe+/7gN\n" +
+          "zpmPfciV+hwM9QGO3BXOV3MWdi8UvHppr9YpjuPbCNnVlm6Cqq8KxoKSa/DS1MrK\n" +
+          "1YMkFSGZJoDJFi5AAhBgUW1i5KEi1bfwleDQfJtoGcXH/0CpdnVfMWdYejHEyn2b\n" +
+          "IjD2mMLVhq9uEr1O6l9C5g==\n" +
+          "-----END CERTIFICATE-----\n" +
+          "\n" +
+          "-----BEGIN CERTIFICATE-----\n" +
+          "MIIEkjCCA3qgAwIBAgIQCgFBQgAAAVOFc2oLheynCDANBgkqhkiG9w0BAQsFADA/\n" +
+          "MSQwIgYDVQQKExtEaWdpdGFsIFNpZ25hdHVyZSBUcnVzdCBDby4xFzAVBgNVBAMT\n" +
+          "DkRTVCBSb290IENBIFgzMB4XDTE2MDMxNzE2NDA0NloXDTIxMDMxNzE2NDA0Nlow\n" +
+          "SjELMAkGA1UEBhMCVVMxFjAUBgNVBAoTDUxldCdzIEVuY3J5cHQxIzAhBgNVBAMT\n" +
+          "GkxldCdzIEVuY3J5cHQgQXV0aG9yaXR5IFgzMIIBIjANBgkqhkiG9w0BAQEFAAOC\n" +
+          "AQ8AMIIBCgKCAQEAnNMM8FrlLke3cl03g7NoYzDq1zUmGSXhvb418XCSL7e4S0EF\n" +
+          "q6meNQhY7LEqxGiHC6PjdeTm86dicbp5gWAf15Gan/PQeGdxyGkOlZHP/uaZ6WA8\n" +
+          "SMx+yk13EiSdRxta67nsHjcAHJyse6cF6s5K671B5TaYucv9bTyWaN8jKkKQDIZ0\n" +
+          "Z8h/pZq4UmEUEz9l6YKHy9v6Dlb2honzhT+Xhq+w3Brvaw2VFn3EK6BlspkENnWA\n" +
+          "a6xK8xuQSXgvopZPKiAlKQTGdMDQMc2PMTiVFrqoM7hD8bEfwzB/onkxEz0tNvjj\n" +
+          "/PIzark5McWvxI0NHWQWM6r6hCm21AvA2H3DkwIDAQABo4IBfTCCAXkwEgYDVR0T\n" +
+          "AQH/BAgwBgEB/wIBADAOBgNVHQ8BAf8EBAMCAYYwfwYIKwYBBQUHAQEEczBxMDIG\n" +
+          "CCsGAQUFBzABhiZodHRwOi8vaXNyZy50cnVzdGlkLm9jc3AuaWRlbnRydXN0LmNv\n" +
+          "bTA7BggrBgEFBQcwAoYvaHR0cDovL2FwcHMuaWRlbnRydXN0LmNvbS9yb290cy9k\n" +
+          "c3Ryb290Y2F4My5wN2MwHwYDVR0jBBgwFoAUxKexpHsscfrb4UuQdf/EFWCFiRAw\n" +
+          "VAYDVR0gBE0wSzAIBgZngQwBAgEwPwYLKwYBBAGC3xMBAQEwMDAuBggrBgEFBQcC\n" +
+          "ARYiaHR0cDovL2Nwcy5yb290LXgxLmxldHNlbmNyeXB0Lm9yZzA8BgNVHR8ENTAz\n" +
+          "MDGgL6AthitodHRwOi8vY3JsLmlkZW50cnVzdC5jb20vRFNUUk9PVENBWDNDUkwu\n" +
+          "Y3JsMB0GA1UdDgQWBBSoSmpjBH3duubRObemRWXv86jsoTANBgkqhkiG9w0BAQsF\n" +
+          "AAOCAQEA3TPXEfNjWDjdGBX7CVW+dla5cEilaUcne8IkCJLxWh9KEik3JHRRHGJo\n" +
+          "uM2VcGfl96S8TihRzZvoroed6ti6WqEBmtzw3Wodatg+VyOeph4EYpr/1wXKtx8/\n" +
+          "wApIvJSwtmVi4MFU5aMqrSDE6ea73Mj2tcMyo5jMd6jmeWUHK8so/joWUoHOUgwu\n" +
+          "X4Po1QYz+3dszkDqMp4fklxBwXRsW10KXzPMTZ+sOPAveyxindmjkW8lGy+QsRlG\n" +
+          "PfZ+G6Z6h7mjem0Y+iWlkYcV4PIWL1iwBi8saCbGS5jN2p8M+X+Q7UNKEkROb3N6\n" +
+          "KOqkqm57TH2H3eDJAkSnh6/DNFu0Qg==\n" +
+          "-----END CERTIFICATE-----\n";
+
+  private String privkey1 = "-----BEGIN RSA PRIVATE KEY-----\n" +
+          "MIIEowIBAAKCAQEA+33HUh2JzAW+8y9jXs/jH8tINhRAQE/nbgwzxpT/QFcsNw+5\n" +
+          "mcSIWiMv5M96FoLl67b2QG75i6E752JuLLlA/4lqX6+TgTrp580m++9k2wkzI1a6\n" +
+          "1Y42ikfoRzLHBjHlezvMrxt7q8/CgO5rOugjiF1hRNXCkyH4U6qCI9LIENCflrix\n" +
+          "76q5+VdBeT9KGdq0QTHFEpjtvxRlIBjLP054fug3RNRrgXkMc7S0TFk5SlimOsyn\n" +
+          "eR99OXn9brxoTIA5AZ0fe9JxYuq472y/jl30LmF3/64UdTLYx0zaa5hgVYah3It6\n" +
+          "GXRNbxb58VEPfJ2P4mzoGVqxF7l3PUDeTIGXiQIDAQABAoIBAH8DkEY1quGCyWSy\n" +
+          "u0IoRjJJjafaZHTWpjCbMw8JMz0AidEpPPifHKpBeS/bZXK3G34HwqjaI2hUvxdm\n" +
+          "S/SEf4JPmYzH9Pxgj7/FifnVdx90rwIbDHNMxtjh5jsHNyM20gqCMicB/1zPqhFJ\n" +
+          "2JhAo6l8V+LW/tUmY++FfwKusuJiKtq8gTAhaf+qr9ARnNwRQ0hq+BwEr6XD9ful\n" +
+          "rfLEIl3ecvaKXjj6b1inrG2yVN3coibNuDkLXY2EgJG64n1vTu6aBMj0P6HeiXiH\n" +
+          "m04OrTP43nQrKV/+7IzrBlqEMzHtj09OgWvXkV6NhIEWswkkY+HkzLj9hgoDdV4Z\n" +
+          "FmmmbV0CgYEA/O6cPK4K+ElrGvyJRlkRuD3WzZByaqJyeR6Jdm3qNCQ/9bI5PH/X\n" +
+          "gpPqHaFAA0RVlUiV4dZ5BksxW6Lvokbv/i1xlAs8TFobdr5+qcO518e5C8V+CCut\n" +
+          "y01LOj0I9ZvFdAHJP514QgHLHhG8/Ua5/kgFWtnZWi4mhak6T04NOk8CgYEA/oqx\n" +
+          "zzHHhpaWS4tfQEL0Ibxx1VKT8M4R3QkOnngLJonA1lfqSujIeodLZWm6uzcy30u7\n" +
+          "ikCuoKCxK0vE8dOltopwTtlTOuYI2JfdvmFaanOG/857VoFIQZmI8bakaQPr4PXe\n" +
+          "ffDZ22k4n4B7k05fZ1MqaCHnZPI1niamfGkJEqcCgYEA0G35BfAOTiiCQIzWusfv\n" +
+          "WDptZpygDMutNa46bQOKukkdA+VIUViwSYSGqsAUthx7wjc8fAx3Uv5nwDH2820t\n" +
+          "m/Hq5KqVl/2xIBs+2brWzMBi9xZaE3WbFCuv0GA3n94ryrsmEmw7i3la3n6TlMvR\n" +
+          "vX+wGfvnpu7dA8w+pteVAvUCgYAO//FWemJ9peYZcY8dZFSqoEY9Ae7B5ALdeako\n" +
+          "4X4WuUtp1ihyXaFixxJEWaStX6VZz0av8PvZb17BZGeosIY1aZcQrnHfKKsgyGJC\n" +
+          "083WNBSignJ2OIwfgYK2a8LohVijGxoPZeAQs/SoQZQGrDmnBxmapVTTeAp81V4+\n" +
+          "OppURQKBgFBqIIXH06SH4FVxTbo+cq6gOHuRIXyLR++AyzJyn8wVfHVJ01r6zhGd\n" +
+          "azTCm+fyfw/6jsJfK3b8mLjiz39GAM7vyvkVV5FKYC2wQldxPyow/MhmKBjdqp2p\n" +
+          "5gq8MSFaXoZOtRgMWdT4JPLTi7xp8429yRM8JK8E6A9+5aTkUM7H\n" +
+          "-----END RSA PRIVATE KEY-----\n";
+
+  private String fullchain2 = "-----BEGIN CERTIFICATE-----\n" +
+          "MIIFfDCCBGSgAwIBAgISA+SIWPXUZozkvzhi5xKWfne+MA0GCSqGSIb3DQEBCwUA\n" +
+          "MEoxCzAJBgNVBAYTAlVTMRYwFAYDVQQKEw1MZXQncyBFbmNyeXB0MSMwIQYDVQQD\n" +
+          "ExpMZXQncyBFbmNyeXB0IEF1dGhvcml0eSBYMzAeFw0xOTA1MTcwMzU5MTdaFw0x\n" +
+          "OTA4MTUwMzU5MTdaMC0xKzApBgNVBAMMIioudXMtY2VudHJhbDEuZ2NwLnByaXYu\n" +
+          "Y3BkZXYuY2xvdWQwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQD7fcdS\n" +
+          "HYnMBb7zL2Nez+Mfy0g2FEBAT+duDDPGlP9AVyw3D7mZxIhaIy/kz3oWguXrtvZA\n" +
+          "bvmLoTvnYm4suUD/iWpfr5OBOunnzSb772TbCTMjVrrVjjaKR+hHMscGMeV7O8yv\n" +
+          "G3urz8KA7ms66COIXWFE1cKTIfhTqoIj0sgQ0J+WuLHvqrn5V0F5P0oZ2rRBMcUS\n" +
+          "mO2/FGUgGMs/Tnh+6DdE1GuBeQxztLRMWTlKWKY6zKd5H305ef1uvGhMgDkBnR97\n" +
+          "0nFi6rjvbL+OXfQuYXf/rhR1MtjHTNprmGBVhqHci3oZdE1vFvnxUQ98nY/ibOgZ\n" +
+          "WrEXuXc9QN5MgZeJAgMBAAGjggJ3MIICczAOBgNVHQ8BAf8EBAMCBaAwHQYDVR0l\n" +
+          "BBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMCMAwGA1UdEwEB/wQCMAAwHQYDVR0OBBYE\n" +
+          "FL+UaLPv4/rIx38v2b2kw1YvJIOwMB8GA1UdIwQYMBaAFKhKamMEfd265tE5t6ZF\n" +
+          "Ze/zqOyhMG8GCCsGAQUFBwEBBGMwYTAuBggrBgEFBQcwAYYiaHR0cDovL29jc3Au\n" +
+          "aW50LXgzLmxldHNlbmNyeXB0Lm9yZzAvBggrBgEFBQcwAoYjaHR0cDovL2NlcnQu\n" +
+          "aW50LXgzLmxldHNlbmNyeXB0Lm9yZy8wLQYDVR0RBCYwJIIiKi51cy1jZW50cmFs\n" +
+          "MS5nY3AucHJpdi5jcGRldi5jbG91ZDBMBgNVHSAERTBDMAgGBmeBDAECATA3Bgsr\n" +
+          "BgEEAYLfEwEBATAoMCYGCCsGAQUFBwIBFhpodHRwOi8vY3BzLmxldHNlbmNyeXB0\n" +
+          "Lm9yZzCCAQQGCisGAQQB1nkCBAIEgfUEgfIA8AB3AHR+2oMxrTMQkSGcziVPQnDC\n" +
+          "v/1eQiAIxjc1eeYQe8xWAAABasQonMoAAAQDAEgwRgIhAJCoN9WGHlqLCDD6cBg2\n" +
+          "QLlwETH+I8J0n/k8NYnrBpGTAiEAvjwyafxyws7p6Ay2NosLJ9elSvqMepPfuGIO\n" +
+          "G7wis9gAdQBj8tvN6DvMLM8LcoQnV2szpI1hd4+9daY4scdoVEvYjQAAAWrEKJzr\n" +
+          "AAAEAwBGMEQCIE397fFPAFeDRaI7ByAE/hqwhQKeTf8sPc4nKB6f98QLAiAon1kz\n" +
+          "O99aKvICl8N7z63Y5rIAqV1jEde2Ie58KPzVgDANBgkqhkiG9w0BAQsFAAOCAQEA\n" +
+          "KQdMKH9f2twvcVcYX+nkyzwhc11sf8n5dt100DHnnU0sD3R6LvaYpGqy6F/52rMl\n" +
+          "DFC/Lj98Xp+aATEGv31CYfZBdd8yxJ1XKs3xm0avjhPW+amWnNz5T9MENCvTss6x\n" +
+          "hZKc18Xwj8ZQH8zw9+xTp5wi1x6kYyIfL6s2L76ogf3FgrqksVh8mHGkJbYs6hdj\n" +
+          "d4NbXhTwyVrimVLaFRX1ijULG2YX/E9uQXLqMorl0P+Sy+XywR5X+Y9I/You0wko\n" +
+          "YLMT+6MCieNjV2wR97Q+J2G8Hfg4gavUgd/SGiPvBtrmx51SANNzjA6GJzODfbjm\n" +
+          "Q6UBvzOlbr3oBx5+/yjtkg==\n" +
+          "-----END CERTIFICATE-----\n" +
+          "\n" +
+          "-----BEGIN CERTIFICATE-----\n" +
+          "MIIEkjCCA3qgAwIBAgIQCgFBQgAAAVOFc2oLheynCDANBgkqhkiG9w0BAQsFADA/\n" +
+          "MSQwIgYDVQQKExtEaWdpdGFsIFNpZ25hdHVyZSBUcnVzdCBDby4xFzAVBgNVBAMT\n" +
+          "DkRTVCBSb290IENBIFgzMB4XDTE2MDMxNzE2NDA0NloXDTIxMDMxNzE2NDA0Nlow\n" +
+          "SjELMAkGA1UEBhMCVVMxFjAUBgNVBAoTDUxldCdzIEVuY3J5cHQxIzAhBgNVBAMT\n" +
+          "GkxldCdzIEVuY3J5cHQgQXV0aG9yaXR5IFgzMIIBIjANBgkqhkiG9w0BAQEFAAOC\n" +
+          "AQ8AMIIBCgKCAQEAnNMM8FrlLke3cl03g7NoYzDq1zUmGSXhvb418XCSL7e4S0EF\n" +
+          "q6meNQhY7LEqxGiHC6PjdeTm86dicbp5gWAf15Gan/PQeGdxyGkOlZHP/uaZ6WA8\n" +
+          "SMx+yk13EiSdRxta67nsHjcAHJyse6cF6s5K671B5TaYucv9bTyWaN8jKkKQDIZ0\n" +
+          "Z8h/pZq4UmEUEz9l6YKHy9v6Dlb2honzhT+Xhq+w3Brvaw2VFn3EK6BlspkENnWA\n" +
+          "a6xK8xuQSXgvopZPKiAlKQTGdMDQMc2PMTiVFrqoM7hD8bEfwzB/onkxEz0tNvjj\n" +
+          "/PIzark5McWvxI0NHWQWM6r6hCm21AvA2H3DkwIDAQABo4IBfTCCAXkwEgYDVR0T\n" +
+          "AQH/BAgwBgEB/wIBADAOBgNVHQ8BAf8EBAMCAYYwfwYIKwYBBQUHAQEEczBxMDIG\n" +
+          "CCsGAQUFBzABhiZodHRwOi8vaXNyZy50cnVzdGlkLm9jc3AuaWRlbnRydXN0LmNv\n" +
+          "bTA7BggrBgEFBQcwAoYvaHR0cDovL2FwcHMuaWRlbnRydXN0LmNvbS9yb290cy9k\n" +
+          "c3Ryb290Y2F4My5wN2MwHwYDVR0jBBgwFoAUxKexpHsscfrb4UuQdf/EFWCFiRAw\n" +
+          "VAYDVR0gBE0wSzAIBgZngQwBAgEwPwYLKwYBBAGC3xMBAQEwMDAuBggrBgEFBQcC\n" +
+          "ARYiaHR0cDovL2Nwcy5yb290LXgxLmxldHNlbmNyeXB0Lm9yZzA8BgNVHR8ENTAz\n" +
+          "MDGgL6AthitodHRwOi8vY3JsLmlkZW50cnVzdC5jb20vRFNUUk9PVENBWDNDUkwu\n" +
+          "Y3JsMB0GA1UdDgQWBBSoSmpjBH3duubRObemRWXv86jsoTANBgkqhkiG9w0BAQsF\n" +
+          "AAOCAQEA3TPXEfNjWDjdGBX7CVW+dla5cEilaUcne8IkCJLxWh9KEik3JHRRHGJo\n" +
+          "uM2VcGfl96S8TihRzZvoroed6ti6WqEBmtzw3Wodatg+VyOeph4EYpr/1wXKtx8/\n" +
+          "wApIvJSwtmVi4MFU5aMqrSDE6ea73Mj2tcMyo5jMd6jmeWUHK8so/joWUoHOUgwu\n" +
+          "X4Po1QYz+3dszkDqMp4fklxBwXRsW10KXzPMTZ+sOPAveyxindmjkW8lGy+QsRlG\n" +
+          "PfZ+G6Z6h7mjem0Y+iWlkYcV4PIWL1iwBi8saCbGS5jN2p8M+X+Q7UNKEkROb3N6\n" +
+          "KOqkqm57TH2H3eDJAkSnh6/DNFu0Qg==\n" +
+          "-----END CERTIFICATE-----";
+
+  private String privkey2 = "-----BEGIN RSA PRIVATE KEY-----\n" +
+          "MIIEowIBAAKCAQEA+33HUh2JzAW+8y9jXs/jH8tINhRAQE/nbgwzxpT/QFcsNw+5\n" +
+          "mcSIWiMv5M96FoLl67b2QG75i6E752JuLLlA/4lqX6+TgTrp580m++9k2wkzI1a6\n" +
+          "1Y42ikfoRzLHBjHlezvMrxt7q8/CgO5rOugjiF1hRNXCkyH4U6qCI9LIENCflrix\n" +
+          "76q5+VdBeT9KGdq0QTHFEpjtvxRlIBjLP054fug3RNRrgXkMc7S0TFk5SlimOsyn\n" +
+          "eR99OXn9brxoTIA5AZ0fe9JxYuq472y/jl30LmF3/64UdTLYx0zaa5hgVYah3It6\n" +
+          "GXRNbxb58VEPfJ2P4mzoGVqxF7l3PUDeTIGXiQIDAQABAoIBAH8DkEY1quGCyWSy\n" +
+          "u0IoRjJJjafaZHTWpjCbMw8JMz0AidEpPPifHKpBeS/bZXK3G34HwqjaI2hUvxdm\n" +
+          "S/SEf4JPmYzH9Pxgj7/FifnVdx90rwIbDHNMxtjh5jsHNyM20gqCMicB/1zPqhFJ\n" +
+          "2JhAo6l8V+LW/tUmY++FfwKusuJiKtq8gTAhaf+qr9ARnNwRQ0hq+BwEr6XD9ful\n" +
+          "rfLEIl3ecvaKXjj6b1inrG2yVN3coibNuDkLXY2EgJG64n1vTu6aBMj0P6HeiXiH\n" +
+          "m04OrTP43nQrKV/+7IzrBlqEMzHtj09OgWvXkV6NhIEWswkkY+HkzLj9hgoDdV4Z\n" +
+          "FmmmbV0CgYEA/O6cPK4K+ElrGvyJRlkRuD3WzZByaqJyeR6Jdm3qNCQ/9bI5PH/X\n" +
+          "gpPqHaFAA0RVlUiV4dZ5BksxW6Lvokbv/i1xlAs8TFobdr5+qcO518e5C8V+CCut\n" +
+          "y01LOj0I9ZvFdAHJP514QgHLHhG8/Ua5/kgFWtnZWi4mhak6T04NOk8CgYEA/oqx\n" +
+          "zzHHhpaWS4tfQEL0Ibxx1VKT8M4R3QkOnngLJonA1lfqSujIeodLZWm6uzcy30u7\n" +
+          "ikCuoKCxK0vE8dOltopwTtlTOuYI2JfdvmFaanOG/857VoFIQZmI8bakaQPr4PXe\n" +
+          "ffDZ22k4n4B7k05fZ1MqaCHnZPI1niamfGkJEqcCgYEA0G35BfAOTiiCQIzWusfv\n" +
+          "WDptZpygDMutNa46bQOKukkdA+VIUViwSYSGqsAUthx7wjc8fAx3Uv5nwDH2820t\n" +
+          "m/Hq5KqVl/2xIBs+2brWzMBi9xZaE3WbFCuv0GA3n94ryrsmEmw7i3la3n6TlMvR\n" +
+          "vX+wGfvnpu7dA8w+pteVAvUCgYAO//FWemJ9peYZcY8dZFSqoEY9Ae7B5ALdeako\n" +
+          "4X4WuUtp1ihyXaFixxJEWaStX6VZz0av8PvZb17BZGeosIY1aZcQrnHfKKsgyGJC\n" +
+          "083WNBSignJ2OIwfgYK2a8LohVijGxoPZeAQs/SoQZQGrDmnBxmapVTTeAp81V4+\n" +
+          "OppURQKBgFBqIIXH06SH4FVxTbo+cq6gOHuRIXyLR++AyzJyn8wVfHVJ01r6zhGd\n" +
+          "azTCm+fyfw/6jsJfK3b8mLjiz39GAM7vyvkVV5FKYC2wQldxPyow/MhmKBjdqp2p\n" +
+          "5gq8MSFaXoZOtRgMWdT4JPLTi7xp8429yRM8JK8E6A9+5aTkUM7H\n" +
+          "-----END RSA PRIVATE KEY-----\n";
+
+  private String fullchain3 = "-----BEGIN CERTIFICATE-----\n" +
+          "MIIFfDCCBGSgAwIBAgISA+SIWPXUZozkvzhi5xKWfne+MA0GCSqGSIb3DQEBCwUA\n" +
+          "MEoxCzAJBgNVBAYTAlVTMRYwFAYDVQQKEw1MZXQncyBFbmNyeXB0MSMwIQYDVQQD\n" +
+          "ExpMZXQncyBFbmNyeXB0IEF1dGhvcml0eSBYMzAeFw0xOTA1MTcwMzU5MTdaFw0x\n" +
+          "OTA4MTUwMzU5MTdaMC0xKzApBgNVBAMMIioudXMtY2VudHJhbDEuZ2NwLnByaXYu\n" +
+          "Y3BkZXYuY2xvdWQwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQD7fcdS\n" +
+          "HYnMBb7zL2Nez+Mfy0g2FEBAT+duDDPGlP9AVyw3D7mZxIhaIy/kz3oWguXrtvZA\n" +
+          "bvmLoTvnYm4suUD/iWpfr5OBOunnzSb772TbCTMjVrrVjjaKR+hHMscGMeV7O8yv\n" +
+          "G3urz8KA7ms66COIXWFE1cKTIfhTqoIj0sgQ0J+WuLHvqrn5V0F5P0oZ2rRBMcUS\n" +
+          "mO2/FGUgGMs/Tnh+6DdE1GuBeQxztLRMWTlKWKY6zKd5H305ef1uvGhMgDkBnR97\n" +
+          "0nFi6rjvbL+OXfQuYXf/rhR1MtjHTNprmGBVhqHci3oZdE1vFvnxUQ98nY/ibOgZ\n" +
+          "WrEXuXc9QN5MgZeJAgMBAAGjggJ3MIICczAOBgNVHQ8BAf8EBAMCBaAwHQYDVR0l\n" +
+          "BBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMCMAwGA1UdEwEB/wQCMAAwHQYDVR0OBBYE\n" +
+          "FL+UaLPv4/rIx38v2b2kw1YvJIOwMB8GA1UdIwQYMBaAFKhKamMEfd265tE5t6ZF\n" +
+          "Ze/zqOyhMG8GCCsGAQUFBwEBBGMwYTAuBggrBgEFBQcwAYYiaHR0cDovL29jc3Au\n" +
+          "aW50LXgzLmxldHNlbmNyeXB0Lm9yZzAvBggrBgEFBQcwAoYjaHR0cDovL2NlcnQu\n" +
+          "aW50LXgzLmxldHNlbmNyeXB0Lm9yZy8wLQYDVR0RBCYwJIIiKi51cy1jZW50cmFs\n" +
+          "MS5nY3AucHJpdi5jcGRldi5jbG91ZDBMBgNVHSAERTBDMAgGBmeBDAECATA3Bgsr\n" +
+          "BgEEAYLfEwEBATAoMCYGCCsGAQUFBwIBFhpodHRwOi8vY3BzLmxldHNlbmNyeXB0\n" +
+          "Lm9yZzCCAQQGCisGAQQB1nkCBAIEgfUEgfIA8AB3AHR+2oMxrTMQkSGcziVPQnDC\n" +
+          "v/1eQiAIxjc1eeYQe8xWAAABasQonMoAAAQDAEgwRgIhAJCoN9WGHlqLCDD6cBg2\n" +
+          "QLlwETH+I8J0n/k8NYnrBpGTAiEAvjwyafxyws7p6Ay2NosLJ9elSvqMepPfuGIO\n" +
+          "G7wis9gAdQBj8tvN6DvMLM8LcoQnV2szpI1hd4+9daY4scdoVEvYjQAAAWrEKJzr\n" +
+          "AAAEAwBGMEQCIE397fFPAFeDRaI7ByAE/hqwhQKeTf8sPc4nKB6f98QLAiAon1kz\n" +
+          "O99aKvICl8N7z63Y5rIAqV1jEde2Ie58KPzVgDANBgkqhkiG9w0BAQsFAAOCAQEA\n" +
+          "KQdMKH9f2twvcVcYX+nkyzwhc11sf8n5dt100DHnnU0sD3R6LvaYpGqy6F/52rMl\n" +
+          "DFC/Lj98Xp+aATEGv31CYfZBdd8yxJ1XKs3xm0avjhPW+amWnNz5T9MENCvTss6x\n" +
+          "hZKc18Xwj8ZQH8zw9+xTp5wi1x6kYyIfL6s2L76ogf3FgrqksVh8mHGkJbYs6hdj\n" +
+          "d4NbXhTwyVrimVLaFRX1ijULG2YX/E9uQXLqMorl0P+Sy+XywR5X+Y9I/You0wko\n" +
+          "YLMT+6MCieNjV2wR97Q+J2G8Hfg4gavUgd/SGiPvBtrmx51SANNzjA6GJzODfbjm\n" +
+          "Q6UBvzOlbr3oBx5+/yjtkg==\n" +
+          "-----END CERTIFICATE-----\n" +
+          "\n" +
+          "-----BEGIN CERTIFICATE-----\n" +
+          "MIIEkjCCA3qgAwIBAgIQCgFBQgAAAVOFc2oLheynCDANBgkqhkiG9w0BAQsFADA/\n" +
+          "MSQwIgYDVQQKExtEaWdpdGFsIFNpZ25hdHVyZSBUcnVzdCBDby4xFzAVBgNVBAMT\n" +
+          "DkRTVCBSb290IENBIFgzMB4XDTE2MDMxNzE2NDA0NloXDTIxMDMxNzE2NDA0Nlow\n" +
+          "SjELMAkGA1UEBhMCVVMxFjAUBgNVBAoTDUxldCdzIEVuY3J5cHQxIzAhBgNVBAMT\n" +
+          "GkxldCdzIEVuY3J5cHQgQXV0aG9yaXR5IFgzMIIBIjANBgkqhkiG9w0BAQEFAAOC\n" +
+          "AQ8AMIIBCgKCAQEAnNMM8FrlLke3cl03g7NoYzDq1zUmGSXhvb418XCSL7e4S0EF\n" +
+          "q6meNQhY7LEqxGiHC6PjdeTm86dicbp5gWAf15Gan/PQeGdxyGkOlZHP/uaZ6WA8\n" +
+          "SMx+yk13EiSdRxta67nsHjcAHJyse6cF6s5K671B5TaYucv9bTyWaN8jKkKQDIZ0\n" +
+          "Z8h/pZq4UmEUEz9l6YKHy9v6Dlb2honzhT+Xhq+w3Brvaw2VFn3EK6BlspkENnWA\n" +
+          "a6xK8xuQSXgvopZPKiAlKQTGdMDQMc2PMTiVFrqoM7hD8bEfwzB/onkxEz0tNvjj\n" +
+          "/PIzark5McWvxI0NHWQWM6r6hCm21AvA2H3DkwIDAQABo4IBfTCCAXkwEgYDVR0T\n" +
+          "AQH/BAgwBgEB/wIBADAOBgNVHQ8BAf8EBAMCAYYwfwYIKwYBBQUHAQEEczBxMDIG\n" +
+          "CCsGAQUFBzABhiZodHRwOi8vaXNyZy50cnVzdGlkLm9jc3AuaWRlbnRydXN0LmNv\n" +
+          "bTA7BggrBgEFBQcwAoYvaHR0cDovL2FwcHMuaWRlbnRydXN0LmNvbS9yb290cy9k\n" +
+          "c3Ryb290Y2F4My5wN2MwHwYDVR0jBBgwFoAUxKexpHsscfrb4UuQdf/EFWCFiRAw\n" +
+          "VAYDVR0gBE0wSzAIBgZngQwBAgEwPwYLKwYBBAGC3xMBAQEwMDAuBggrBgEFBQcC\n" +
+          "ARYiaHR0cDovL2Nwcy5yb290LXgxLmxldHNlbmNyeXB0Lm9yZzA8BgNVHR8ENTAz\n" +
+          "MDGgL6AthitodHRwOi8vY3JsLmlkZW50cnVzdC5jb20vRFNUUk9PVENBWDNDUkwu\n" +
+          "Y3JsMB0GA1UdDgQWBBSoSmpjBH3duubRObemRWXv86jsoTANBgkqhkiG9w0BAQsF\n" +
+          "AAOCAQEA3TPXEfNjWDjdGBX7CVW+dla5cEilaUcne8IkCJLxWh9KEik3JHRRHGJo\n" +
+          "uM2VcGfl96S8TihRzZvoroed6ti6WqEBmtzw3Wodatg+VyOeph4EYpr/1wXKtx8/\n" +
+          "wApIvJSwtmVi4MFU5aMqrSDE6ea73Mj2tcMyo5jMd6jmeWUHK8so/joWUoHOUgwu\n" +
+          "X4Po1QYz+3dszkDqMp4fklxBwXRsW10KXzPMTZ+sOPAveyxindmjkW8lGy+QsRlG\n" +
+          "PfZ+G6Z6h7mjem0Y+iWlkYcV4PIWL1iwBi8saCbGS5jN2p8M+X+Q7UNKEkROb3N6\n" +
+          "KOqkqm57TH2H3eDJAkSnh6/DNFu0Qg==\n" +
+          "-----END CERTIFICATE-----";
+
+  private String privkey3 = "-----BEGIN RSA PRIVATE KEY-----\n" +
+          "MIIEowIBAAKCAQEA+33HUh2JzAW+8y9jXs/jH8tINhRAQE/nbgwzxpT/QFcsNw+5\n" +
+          "mcSIWiMv5M96FoLl67b2QG75i6E752JuLLlA/4lqX6+TgTrp580m++9k2wkzI1a6\n" +
+          "1Y42ikfoRzLHBjHlezvMrxt7q8/CgO5rOugjiF1hRNXCkyH4U6qCI9LIENCflrix\n" +
+          "76q5+VdBeT9KGdq0QTHFEpjtvxRlIBjLP054fug3RNRrgXkMc7S0TFk5SlimOsyn\n" +
+          "eR99OXn9brxoTIA5AZ0fe9JxYuq472y/jl30LmF3/64UdTLYx0zaa5hgVYah3It6\n" +
+          "GXRNbxb58VEPfJ2P4mzoGVqxF7l3PUDeTIGXiQIDAQABAoIBAH8DkEY1quGCyWSy\n" +
+          "u0IoRjJJjafaZHTWpjCbMw8JMz0AidEpPPifHKpBeS/bZXK3G34HwqjaI2hUvxdm\n" +
+          "S/SEf4JPmYzH9Pxgj7/FifnVdx90rwIbDHNMxtjh5jsHNyM20gqCMicB/1zPqhFJ\n" +
+          "2JhAo6l8V+LW/tUmY++FfwKusuJiKtq8gTAhaf+qr9ARnNwRQ0hq+BwEr6XD9ful\n" +
+          "rfLEIl3ecvaKXjj6b1inrG2yVN3coibNuDkLXY2EgJG64n1vTu6aBMj0P6HeiXiH\n" +
+          "m04OrTP43nQrKV/+7IzrBlqEMzHtj09OgWvXkV6NhIEWswkkY+HkzLj9hgoDdV4Z\n" +
+          "FmmmbV0CgYEA/O6cPK4K+ElrGvyJRlkRuD3WzZByaqJyeR6Jdm3qNCQ/9bI5PH/X\n" +
+          "gpPqHaFAA0RVlUiV4dZ5BksxW6Lvokbv/i1xlAs8TFobdr5+qcO518e5C8V+CCut\n" +
+          "y01LOj0I9ZvFdAHJP514QgHLHhG8/Ua5/kgFWtnZWi4mhak6T04NOk8CgYEA/oqx\n" +
+          "zzHHhpaWS4tfQEL0Ibxx1VKT8M4R3QkOnngLJonA1lfqSujIeodLZWm6uzcy30u7\n" +
+          "ikCuoKCxK0vE8dOltopwTtlTOuYI2JfdvmFaanOG/857VoFIQZmI8bakaQPr4PXe\n" +
+          "ffDZ22k4n4B7k05fZ1MqaCHnZPI1niamfGkJEqcCgYEA0G35BfAOTiiCQIzWusfv\n" +
+          "WDptZpygDMutNa46bQOKukkdA+VIUViwSYSGqsAUthx7wjc8fAx3Uv5nwDH2820t\n" +
+          "m/Hq5KqVl/2xIBs+2brWzMBi9xZaE3WbFCuv0GA3n94ryrsmEmw7i3la3n6TlMvR\n" +
+          "vX+wGfvnpu7dA8w+pteVAvUCgYAO//FWemJ9peYZcY8dZFSqoEY9Ae7B5ALdeako\n" +
+          "4X4WuUtp1ihyXaFixxJEWaStX6VZz0av8PvZb17BZGeosIY1aZcQrnHfKKsgyGJC\n" +
+          "083WNBSignJ2OIwfgYK2a8LohVijGxoPZeAQs/SoQZQGrDmnBxmapVTTeAp81V4+\n" +
+          "OppURQKBgFBqIIXH06SH4FVxTbo+cq6gOHuRIXyLR++AyzJyn8wVfHVJ01r6zhGd\n" +
+          "azTCm+fyfw/6jsJfK3b8mLjiz39GAM7vyvkVV5FKYC2wQldxPyow/MhmKBjdqp2p\n" +
+          "5gq8MSFaXoZOtRgMWdT4JPLTi7xp8429yRM8JK8E6A9+5aTkUM7H\n" +
+          "-----END RSA PRIVATE KEY-----\n";
+
+  @Test
+  public void testByteComparisonForPEMCertificateFiles() {
+
+    byte[] fullchain1Bytes = fullchain1.getBytes();
+    byte[] privkey1Bytes = privkey1.getBytes();
+
+    byte[] fullchain2Bytes = fullchain2.getBytes();
+    byte[] privkey2Bytes = privkey2.getBytes();
+
+    // certificates 1 and 2 are not same
+    assertFalse(Arrays.equals(fullchain1Bytes, fullchain2Bytes) && Arrays.equals(privkey1Bytes, privkey2Bytes));
+
+    byte[] fullchain3Bytes = fullchain3.getBytes();
+    byte[] privkey3Bytes = privkey3.getBytes();
+
+    // certificates 2 and 3 are same
+    assertTrue(Arrays.equals(fullchain2Bytes, fullchain3Bytes) && Arrays.equals(privkey3Bytes, privkey2Bytes));
+  }
+
+  @Test
+  public void testAdminClientCreatedWithRequiredConfigs() throws Exception {
+    Map<String, Object> configs = new HashMap<>();
+    configs.put("broker.id", "0");
+    configs.put("broker.session.uuid", BROKER_UUID);
+    configs.put(ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG,
+            tempFolder.getRoot().getCanonicalPath());
+    configs.put(ConfluentConfigs.MULTITENANT_METADATA_SSL_CERTS_SPEC_CONFIG,
+            tempFolder.getRoot().getCanonicalPath() + "/mnt/sslcerts/");
+    PhysicalClusterMetadata metadata = new PhysicalClusterMetadata();
+    metadata.configure(configs);
+    metadata.handleSocketServerInitialized(endpoint);
+    assertNotNull(metadata.sslCertificateManager.getAdminClient());
+    metadata.close(BROKER_UUID);
+  }
+
+  @Test
+  public void testAdminClientNotCreatedWithoutBrokerId() throws Exception {
+    Map<String, Object> configs = new HashMap<>();
+    configs.put("broker.session.uuid", BROKER_UUID);
+    configs.put(ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG,
+            tempFolder.getRoot().getCanonicalPath());
+    configs.put(ConfluentConfigs.MULTITENANT_METADATA_SSL_CERTS_SPEC_CONFIG,
+            tempFolder.getRoot().getCanonicalPath() + "/mnt/sslcerts/");
+    PhysicalClusterMetadata metadata = new PhysicalClusterMetadata();
+    metadata.configure(configs);
+    metadata.handleSocketServerInitialized(endpoint);
+    assertNull(metadata.sslCertificateManager.getAdminClient());
+    metadata.close(BROKER_UUID);
+  }
+
+  @Test
+  public void testAdminClientNotCreatedWithoutSpecConfig() throws Exception {
+    Map<String, Object> configs = new HashMap<>();
+    configs.put("broker.id", "0");
+    configs.put("broker.session.uuid", BROKER_UUID);
+    configs.put(ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG,
+            tempFolder.getRoot().getCanonicalPath());
+    PhysicalClusterMetadata metadata = new PhysicalClusterMetadata();
+    metadata.configure(configs);
+    metadata.handleSocketServerInitialized(endpoint);
+    assertNull(metadata.sslCertificateManager.getAdminClient());
+    metadata.close(BROKER_UUID);
+  }
+
+  @Test
+  public void testAdminClientNotCreatedWithMalformedSpecConfig() throws Exception {
+    Map<String, Object> configs = new HashMap<>();
+    configs.put("broker.id", "0");
+    configs.put("broker.session.uuid", BROKER_UUID);
+    configs.put(ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG,
+            tempFolder.getRoot().getCanonicalPath());
+    configs.put(ConfluentConfigs.MULTITENANT_METADATA_SSL_CERTS_SPEC_CONFIG, "tempfolderpathmntsslcerts");
+    PhysicalClusterMetadata metadata = new PhysicalClusterMetadata();
+    metadata.configure(configs);
+    metadata.handleSocketServerInitialized(endpoint);
+    assertNull(metadata.sslCertificateManager.getAdminClient());
+    metadata.close(BROKER_UUID);
+  }
+
+  @Test
+  public void testAdminClientInvocationOnIdenticalSslCertsSync() throws Exception {
+    Utils.syncCerts(tempFolder, TEST_SSL_CERTS_MAY, SSL_CERTS_DIR);
+    lcCache.start();
+    lcCache.sslCertificateManager.loadSslCertFiles(); // mock call from handleSocketServerInitialized
+    verify(mockAdminClient, times(1)).incrementalAlterConfigs(any(), any());
+    Utils.deleteFiles(tempFolder, SSL_CERTS_DIR);
+    Utils.syncCerts(tempFolder, TEST_SSL_CERTS_MAY, SSL_CERTS_DIR);
+    verify(mockAdminClient, timeout(TEST_MAX_WAIT_MS).times(1)).incrementalAlterConfigs(any(), any());
+  }
+
+  @Test
+  public void testAdminClientInvocationOnDifferentSslCertsSync() throws Exception {
+    Utils.syncCerts(tempFolder, TEST_SSL_CERTS_MAY, SSL_CERTS_DIR);
+    lcCache.start();
+    lcCache.sslCertificateManager.loadSslCertFiles(); // mock call from handleSocketServerInitialized
+    verify(mockAdminClient, timeout(TEST_MAX_WAIT_MS).times(1)).incrementalAlterConfigs(any(), any());
+    Utils.deleteFiles(tempFolder, SSL_CERTS_DIR);
+    Utils.syncCerts(tempFolder, TEST_SSL_CERTS_AUG, SSL_CERTS_DIR);
+    verify(mockAdminClient, timeout(TEST_MAX_WAIT_MS).times(2)).incrementalAlterConfigs(any(), any());
+    Utils.deleteFiles(tempFolder, SSL_CERTS_DIR);
+    Utils.syncCerts(tempFolder, TEST_SSL_CERTS_MAY, SSL_CERTS_DIR);
+    verify(mockAdminClient, timeout(TEST_MAX_WAIT_MS).times(3)).incrementalAlterConfigs(any(), any());
+  }
+
+  @Test
+  public void testWatchServiceDoesNotTerminateOnDirectoryDeletion() throws Exception {
+    String logicalClustersDir = tempFolder.getRoot().getCanonicalPath() + "logical_clusters";
+    lcCache.configure(logicalClustersDir, TEST_CACHE_RELOAD_DELAY_MS, mockAdminClient,
+            BROKER_ID, sslCertsPath);
+    Utils.syncCerts(tempFolder, TEST_SSL_CERTS_MAY, SSL_CERTS_DIR);
+    lcCache.start();
+    lcCache.sslCertificateManager.loadSslCertFiles();
+    assertTrue(Files.exists(Paths.get(logicalClustersDir)));
+    verify(mockAdminClient, timeout(TEST_MAX_WAIT_MS).times(1)).incrementalAlterConfigs(any(), any());
+    Files.delete(Paths.get(logicalClustersDir));
+    Utils.deleteFiles(tempFolder, SSL_CERTS_DIR);
+    Utils.syncCerts(tempFolder, TEST_SSL_CERTS_AUG, SSL_CERTS_DIR);
+    assertFalse(Files.exists(Paths.get(logicalClustersDir)));
+    verify(mockAdminClient, timeout(TEST_MAX_WAIT_MS).times(2)).incrementalAlterConfigs(any(), any());
   }
 }

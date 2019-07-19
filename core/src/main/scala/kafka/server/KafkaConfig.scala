@@ -1224,6 +1224,8 @@ object KafkaConfig {
                       ConfluentConfigs.MULTITENANT_METADATA_CLASS_DEFAULT, LOW)
       .defineInternal(ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG, STRING,
                       ConfluentConfigs.MULTITENANT_METADATA_DIR_DEFAULT, LOW)
+      .defineInternal(ConfluentConfigs.MULTITENANT_METADATA_SSL_CERTS_SPEC_CONFIG, STRING,
+                      ConfluentConfigs.MULTITENANT_METADATA_SSL_CERTS_SPEC_DEFAULT, LOW)
       .defineInternal(ConfluentConfigs.MULTITENANT_METADATA_RELOAD_DELAY_MS_CONFIG, LONG,
                       ConfluentConfigs.MULTITENANT_METADATA_RELOAD_DELAY_MS_DEFAULT, LOW, ConfluentConfigs.MULTITENANT_METADATA_RELOAD_DELAY_MS_DOC)
       .defineInternal(ConfluentConfigs.MULTITENANT_TENANT_DELETE_DELAY_MS_CONFIG, LONG,

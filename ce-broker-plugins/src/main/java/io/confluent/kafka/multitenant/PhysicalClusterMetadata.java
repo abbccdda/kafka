@@ -3,6 +3,7 @@
 package io.confluent.kafka.multitenant;
 
 import com.google.common.collect.Sets;
+import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.server.multitenant.MultiTenantMetadata;
@@ -18,16 +19,18 @@ import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.nio.file.StandardWatchEventKinds;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -53,10 +56,10 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
   private static final Long CLOSE_TIMEOUT_MS = TimeUnit.SECONDS.toMillis(30);
 
   private String logicalClustersDir;
-  // logical cluster ID --> LogicalClusterMetadata
+  private String sslCertsDir;
+  private List<String> watchDirs = new ArrayList<>();
   private final Map<String, LogicalClusterMetadata> logicalClusterMap;
-
-  final LogicalClustersChangeListener dirWatcher;
+  final MetadataChangeListener dirWatcher;
   private final Thread dirListenerThread;
   private final ScheduledExecutorService executorService;
   private long reloadDelaysMs;
@@ -76,13 +79,14 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
 
   // Public for testing
   public TenantLifecycleManager tenantLifecycleManager;
+  public SslCertificateManager sslCertificateManager;
 
   public PhysicalClusterMetadata() {
     this.state = new AtomicReference<>(State.NOT_READY);
     this.cacheLock = new ReentrantReadWriteLock();
     this.logicalClusterMap = new ConcurrentHashMap<>();
     this.staleLogicalClusters = new CopyOnWriteArraySet<>();
-    this.dirWatcher = new LogicalClustersChangeListener();
+    this.dirWatcher = new MetadataChangeListener();
     this.dirListenerThread = new Thread(this.dirWatcher, "confluent-tenants-change-listener");
     this.executorService = Executors.newSingleThreadScheduledExecutor(runnable -> {
       final Thread thread = new Thread(runnable, "physical-cluster-metadata-retry");
@@ -109,6 +113,8 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
   public void configure(Map<String, ?> configs) {
     String instanceKey = getInstanceKey(configs);
     tenantLifecycleManager = new TenantLifecycleManager(configs);
+    sslCertificateManager = new SslCertificateManager(configs);
+    this.sslCertsDir = sslCertificateManager.getSslCertDirForWatcher();
 
     Object dirConfigValue = configs.get(ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG);
     if (dirConfigValue == null) {
@@ -133,8 +139,7 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
         throw new UnsupportedOperationException(
             "PhysicalClusterMetadata instance already exists for broker session " + instanceKey);
       } else {
-        LOG.info("Skipping configuring this instance (broker session {}): Already configured.",
-                 instanceKey);
+        LOG.info("Skipping configuring this instance (broker session {}): Already configured.", instanceKey);
         return;
       }
     }
@@ -149,13 +154,20 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
   }
 
   // used by unit test
-  void configure(String logicalClustersDir, long reloadDelaysMs) {
-    configure(logicalClustersDir, reloadDelaysMs, new TenantLifecycleManager(0, null));
+  void configure(String logicalClustersDir, long reloadDelaysMs, AdminClient adminClient,
+                 String brokerId, String sslCertsPath) {
+    configure(logicalClustersDir, reloadDelaysMs,
+              new TenantLifecycleManager(0, null),
+              new SslCertificateManager(brokerId, sslCertsPath, adminClient));
   }
-  void configure(String logicalClustersDir, long reloadDelaysMs, TenantLifecycleManager lifecycleManager) {
+
+  void configure(String logicalClustersDir, long reloadDelaysMs,
+                 TenantLifecycleManager lifecycleManager, SslCertificateManager sslCertificateManager) {
     this.reloadDelaysMs = reloadDelaysMs;
     this.logicalClustersDir = logicalClustersDir;
     this.tenantLifecycleManager = lifecycleManager;
+    this.sslCertificateManager = sslCertificateManager;
+    this.sslCertsDir = sslCertificateManager.getSslCertDirForWatcher();
   }
 
   @Override
@@ -167,7 +179,7 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
         LOG.info("Removed instance for broker session {}", brokerSessionUuid);
       } else if (instance != null) {
         LOG.info("Closing instance that doesn't match the instance in the static map with the same"
-                 + " broker session {} will not remove that instance from the map.", brokerSessionUuid);
+                + " broker session {} will not remove that instance from the map.", brokerSessionUuid);
       }
     }
     shutdown();
@@ -176,12 +188,18 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
   @Override
   public void handleSocketServerInitialized(String endpoint) {
     tenantLifecycleManager.createAdminClient(endpoint);
+    sslCertificateManager.createAdminClient(endpoint);
+    sslCertificateManager.loadSslCertFiles();
   }
 
   public static PhysicalClusterMetadata getInstance(String brokerSessionUuid) {
     synchronized (INSTANCES) {
       return INSTANCES.get(brokerSessionUuid);
     }
+  }
+
+  private void addDirForWatchService(String dir) {
+    watchDirs.add(dir);
   }
 
   /**
@@ -194,13 +212,15 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
     if (State.CLOSED.equals(state.get())) {
       throw new IllegalStateException("Physical Cluster Metadata Cache already shut down.");
     }
-
     if (state.compareAndSet(State.NOT_READY, State.RUNNING)) {
+      addDirForWatchService(logicalClustersDir);
+      if (sslCertsDir != null)
+        addDirForWatchService(sslCertsDir);
       try {
-        dirWatcher.register(logicalClustersDir);
+        dirWatcher.register();
       } catch (IOException ioe) {
         state.compareAndSet(State.RUNNING, State.NOT_READY);
-        LOG.error("Failed to register watcher for dir={}", logicalClustersDir, ioe);
+        LOG.error("Failed to register watch service for = {}", watchDirs, ioe);
         dirWatcher.close();
         throw ioe;
       }
@@ -238,6 +258,7 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
       }
 
       tenantLifecycleManager.close();
+      sslCertificateManager.close();
 
       LOG.info("Closed Physical Cluster Metadata Cache");
     }
@@ -383,6 +404,7 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
     } finally {
       cacheLock.writeLock().unlock();
     }
+    sslCertificateManager.loadSslCertFiles();
   }
 
   /**
@@ -449,8 +471,6 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
         LOG.info("Added/Updated logical cluster {}", lcMeta);
       }
 
-
-
     } catch (Exception e) {
       LOG.error("Failed to load metadata file for logical cluster {}", logicalClusterId, e);
       markStale(logicalClusterId);
@@ -479,22 +499,27 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
     return Paths.get(logicalClustersDir, DATA_DIR_NAME);
   }
 
-  class LogicalClustersChangeListener implements Runnable {
+  class MetadataChangeListener implements Runnable {
 
     private WatchService watchService = null;
-    private Path logicalClustersDirPath = null;
+    private Path dirPath = null;
+    private Map<WatchKey, Path> watchKeyPathMap = new HashMap<>();
 
-    public void register(String watchDir) throws IOException {
+    void register() throws IOException {
       watchService = FileSystems.getDefault().newWatchService();
-      logicalClustersDirPath = Paths.get(watchDir);
-      if (!Files.exists(logicalClustersDirPath)) {
-        Files.createDirectories(logicalClustersDirPath);
+      for (String watchDir : watchDirs) {
+        dirPath = Paths.get(watchDir);
+        if (!Files.exists(dirPath)) {
+          Files.createDirectories(dirPath);
+        }
+        WatchKey watchkey = dirPath.register(watchService,
+                StandardWatchEventKinds.ENTRY_CREATE,
+                StandardWatchEventKinds.ENTRY_MODIFY,
+                StandardWatchEventKinds.ENTRY_DELETE,
+                StandardWatchEventKinds.OVERFLOW);
+        watchKeyPathMap.put(watchkey, dirPath);
+        LOG.info("Watch service registered for dirpath = {}", dirPath);
       }
-      logicalClustersDirPath.register(watchService,
-              StandardWatchEventKinds.ENTRY_CREATE,
-              StandardWatchEventKinds.ENTRY_MODIFY,
-              StandardWatchEventKinds.ENTRY_DELETE,
-              StandardWatchEventKinds.OVERFLOW);
     }
 
     public void close() {
@@ -503,9 +528,9 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
           watchService.close();
           // this is to be able to verify the watch service is closed in unit tests
           watchService = null;
-          LOG.info("Closed watcher for {}", logicalClustersDir);
+          LOG.info("Closed watcher for {}", watchKeyPathMap);
         } catch (IOException ioe) {
-          LOG.error("Failed to shutdown watcher for {}.", logicalClustersDir, ioe);
+          LOG.error("Failed to shutdown watcher for {}.", watchDirs, ioe);
         }
       }
     }
@@ -516,26 +541,28 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
     }
 
     public void run() {
-      LOG.info("Starting listening for changes in {}", logicalClustersDir);
+      for (WatchKey key : watchKeyPathMap.keySet()) {
+        LOG.info("Starting listening for changes in {}", watchKeyPathMap.get(key));
+      }
       try {
-        runWatcher(watchService, logicalClustersDirPath);
+        runWatcher(watchService, watchKeyPathMap);
       } catch (InterruptedException ie) {
-        LOG.warn("Watching {} was interrupted.", logicalClustersDir);
+        LOG.warn("Watching {} was interrupted.", watchKeyPathMap);
       } catch (Exception e) {
-        LOG.warn("Stopping watching {}", logicalClustersDir, e);
+        LOG.warn("Stopping watching. ", e);
       } finally {
         close();
       }
     }
 
-    private void runWatcher(WatchService watchService, Path watchDir) throws InterruptedException {
-      boolean valid = true;
-      while (valid) {
+    private void runWatcher(WatchService watchService, Map<WatchKey, Path> watchKeyPathMap)
+            throws InterruptedException {
+      while (!watchKeyPathMap.isEmpty()) {
         WatchKey watchKey = watchService.take();
         for (WatchEvent<?> event: watchKey.pollEvents()) {
           LOG.debug("Got event: {} {}", event.kind(), event.context());
           @SuppressWarnings("unchecked")
-          Path filename = watchDir.resolve(((WatchEvent<Path>) event).context());
+          Path filename = watchKeyPathMap.get(watchKey).resolve(((WatchEvent<Path>) event).context());
           // Logical metadata files in 'watchDir' that are visible to users are symbolic links into
           // the internal data directory 'watchDir/DATA_DIR_NAME'. For example,
           //     watchDir/lkc-abc.json         -> ..data/lkc-abc.json
@@ -551,7 +578,13 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
           // change in the above sequence. Also, since we are watching the directory update, we
           // are reloading all metadata files on every metadata sync (even if the sync
           // updates/creates one json file).
-          if (DATA_DIR_NAME.equals(filename.getFileName().toString())) {
+
+          String file = filename.getFileName().toString();
+
+          //monitor updates to ..data under sslcerts directory
+          if (sslCertsDir != null && filename.toString().contains(sslCertsDir) && file.equals(DATA_DIR_NAME)) {
+            sslCertificateManager.loadSslCertFiles();
+          } else if (DATA_DIR_NAME.equals(file)) {
             if (event.kind() == StandardWatchEventKinds.ENTRY_DELETE) {
               // The rename from ..data_tmp to ..data is atomic on most env, but on windows it is
               // delete ..data, create new symlink, and then delete ..data_tmp. We don't run on
@@ -565,9 +598,12 @@ public class PhysicalClusterMetadata implements MultiTenantMetadata {
             }
           }
         }
-        valid = watchKey.reset();
+        if (!watchKey.reset()) {
+          Path removedPath = watchKeyPathMap.remove(watchKey);
+          LOG.warn("Watch key no longer registered for {}.", removedPath);
+        }
       }
-      LOG.warn("Watch key no longer registered for {}. Stopped watching.", watchDir);
+      LOG.warn("No watch keys registered. Stopped watch service.");
     }
   }
 }

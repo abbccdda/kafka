@@ -394,7 +394,15 @@ public class MockAdminClient extends AdminClient {
     @Override
     public AlterConfigsResult incrementalAlterConfigs(Map<ConfigResource, Collection<AlterConfigOp>> configs,
                                                       AlterConfigsOptions options) {
-        throw new UnsupportedOperationException("Not implemented yet");
+        final Map<ConfigResource, KafkaFutureImpl<Void>> allFutures = new HashMap<>();
+
+        for (ConfigResource resource : configs.keySet()) {
+            KafkaFutureImpl<Void> future = new KafkaFutureImpl<>();
+            future.complete(null);
+            allFutures.put(resource, future);
+        }
+
+        return new AlterConfigsResult(new HashMap<>(allFutures));
     }
 
     @Override

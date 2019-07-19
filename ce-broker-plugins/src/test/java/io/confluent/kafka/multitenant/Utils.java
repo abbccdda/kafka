@@ -7,7 +7,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.junit.rules.TemporaryFolder;
 
+import java.io.File;
 import java.io.IOException;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -16,7 +18,10 @@ import java.util.Date;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+
 public class Utils {
+
   public static final LogicalClusterMetadata LC_META_XYZ =
       new LogicalClusterMetadata("lkc-xyz", "pkc-xyz", "xyz",
           "my-account", "k8s-abc", LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
@@ -54,6 +59,19 @@ public class Utils {
       new LogicalClusterMetadata("lkc-htc", "pkc-xyz", "external-healthcheck-pkc-xyz", "my-account",
                                  "k8s-abc", LogicalClusterMetadata.HEALTHCHECK_LOGICAL_CLUSTER_TYPE,
                                  null, null, null, null, null, null);
+
+  static final SslCertificateSpecification SSL_CERT_SPEC_NO_TYPE =
+          new SslCertificateSpecification(null, "mystorepassword",
+                  "pkcs.p12", 1, "fullchain.pem", "privkey.pem");
+
+  static final SslCertificateSpecification SSL_CERT_SPEC_NO_PKCSFILE =
+          new SslCertificateSpecification("PKCS12", "mystorepassword",
+                  null, 1, "fullchain.pem", "privkey.pem");
+
+  static final SslCertificateSpecification SSL_CERT_SPEC_NO_PEMFILES =
+          new SslCertificateSpecification("PKCS12", "mystorepassword",
+                  "pkcs.p12", 1, null, null);
+
 
   public static PhysicalClusterMetadata initiatePhysicalClusterMetadata(Map<String, Object> configs) throws IOException {
     return initiatePhysicalClusterMetadata(configs, ConfluentConfigs.MULTITENANT_METADATA_RELOAD_DELAY_MS_DEFAULT);
@@ -227,4 +245,55 @@ public class Utils {
     return mapper.writeValueAsString(lcMeta.lifecycleMetadata());
   }
 
+  static String sslCertSpecJsonString(SslCertificateSpecification sslSpec) {
+    String json = "{" +
+            "\"ssl_certificate_encoding\": \"" + sslSpec.sslKeystoreType() + "\"," +
+            "\"ssl_keystore_filename\": \"" + sslSpec.pkcsCertFilename() + "\"," +
+            "\"ssl_pem_fullchain_filename\": \"" + sslSpec.sslPemFullchainFilename() + "\"," +
+            "\"ssl_pem_privkey_filename\": \"" + sslSpec.sslPemPrivkeyFilename() + "\"" +
+            "}";
+    return json;
+  }
+
+  public static Path createSpecFile(TemporaryFolder tempFolder, SslCertificateSpecification sslSpec) throws IOException {
+    final Path newDir = tempFolder.newFolder().toPath();
+    Path sslSpecPath = Paths.get(newDir.toString(), "spec.json");
+    String jsonString = Utils.sslCertSpecJsonString(sslSpec);
+    Files.write(sslSpecPath, jsonString.getBytes());
+    return sslSpecPath;
+  }
+
+  public static void syncCerts(TemporaryFolder tempFolder, URL url, String dirPath) throws IOException {
+    String certs = url.getPath();
+    tempFolder.newFolder(dirPath + "..data");
+    String symlinkPath = tempFolder.getRoot().getCanonicalPath() + "/" + dirPath;
+    String certDirPath = symlinkPath + "..data";
+    File syncCertFile = new File(certs);
+    String[] certFiles = syncCertFile.list();
+    for (String certFile : certFiles) {
+        Files.copy(Paths.get(syncCertFile.getCanonicalPath(), certFile), Paths.get(certDirPath, certFile), REPLACE_EXISTING);
+        Files.createSymbolicLink(Paths.get(symlinkPath, certFile), Paths.get(certDirPath, certFile));
+    }
+  }
+
+  public static void deleteFiles(TemporaryFolder tempFolder, String dirPath) throws Exception {
+    String certDirPath = tempFolder.getRoot().getCanonicalPath() + "/" + dirPath;
+    String certDataDirPath = certDirPath + "..data";
+    File certDataDir = new File(certDataDirPath);
+    String[] files = certDataDir.list();
+    if (files == null)
+      return;
+    for (String file : files) {
+      Files.delete(Paths.get(certDataDirPath, file));
+      Files.delete(Paths.get(certDirPath, file));
+    }
+    Files.delete(Paths.get(certDataDirPath));
+  }
+
+  static void moveFile(String filename, URL sourceUrl, URL destUrl) throws IOException {
+    Path sourceDir = Paths.get(sourceUrl.getPath());
+    Path source = Paths.get(sourceDir.toString(), filename);
+    Path destDir = Paths.get(destUrl.getPath());
+    Files.move(source, destDir.resolve(source.getFileName()), REPLACE_EXISTING);
+  }
 }
