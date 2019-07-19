@@ -18,6 +18,7 @@ import scala.collection.immutable.Set;
 public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
 
   public static final String MAX_ACLS_PER_TENANT_PROP = "confluent.max.acls.per.tenant";
+  public static final int DEFAULT_MAX_ACLS_PER_TENANT_PROP = 1000;
   static final int ACLS_DISABLED = 0;
 
   private int maxAclsPerTenant;
@@ -27,7 +28,7 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
   public void configure(Map<String, ?> configs) {
     Map<String, Object>  authorizerConfigs = new HashMap<>(configs);
     String maxAcls = (String) configs.get(MAX_ACLS_PER_TENANT_PROP);
-    maxAclsPerTenant = maxAcls != null ? Integer.parseInt(maxAcls) : ACLS_DISABLED;
+    maxAclsPerTenant = maxAcls != null ? Integer.parseInt(maxAcls) : DEFAULT_MAX_ACLS_PER_TENANT_PROP;
     authorizationDisabled = maxAclsPerTenant == ACLS_DISABLED;
 
     authorizerConfigs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP,
@@ -138,7 +139,7 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
 
   private void checkAclsEnabled() {
     if (authorizationDisabled) {
-      throw new InvalidRequestException("Confluent Cloud Professional does not support ACLs");
+      throw new InvalidRequestException("ACLs are not enabled on this broker");
     }
   }
 }

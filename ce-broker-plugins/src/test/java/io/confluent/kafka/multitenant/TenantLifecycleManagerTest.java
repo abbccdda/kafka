@@ -2,14 +2,12 @@ package io.confluent.kafka.multitenant;
 
 import io.confluent.kafka.multitenant.schema.TenantContext;
 import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.clients.admin.DescribeAclsOptions;
 import org.apache.kafka.clients.admin.DescribeAclsResult;
 import org.apache.kafka.clients.admin.MockAdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.Node;
-import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
-import org.apache.kafka.common.errors.InvalidRequestException;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -27,6 +25,8 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.spy;
@@ -43,19 +43,12 @@ public class TenantLifecycleManagerTest {
     @Before
     public void setUp() throws Exception {
         // Using mock AdminClient for the tests
-        // Overriding describeACLs method because CCP does not support ACL operations at all
-        // and it signifies its lack of support with InvalidRequestException rather than
-        // UnsupportedOperationException. The class we are testing handles the real error correctly,
-        // and I don't want to add handling for exceptions that are only expected from the mock.
         Node node = new Node(1, "localhost", 9092);
-        mockAdminClient = spy(new MockAdminClient(singletonList(node), node) {
-            @Override
-            public DescribeAclsResult describeAcls(AclBindingFilter filter,
-                                                   DescribeAclsOptions options) {
-                throw new UnsupportedOperationException("Not implemented", new InvalidRequestException("Not "
-                        + "supported on this cluster"));
-            }
-        });
+        mockAdminClient = spy(new MockAdminClient(singletonList(node), node));
+        DescribeAclsResult emptyAcls = mock(DescribeAclsResult.class);
+        doReturn(KafkaFuture.completedFuture(Collections.emptySet())).when(emptyAcls).values();
+        doReturn(emptyAcls).when(mockAdminClient).describeAcls(any(), any());
+        doReturn(null).when(mockAdminClient).deleteAcls(any(), any()); // return value is ignored
 
         lifecycleManager = new TenantLifecycleManager(TEST_DELETE_DELAY_MS, mockAdminClient);
         lifecycleManagerWithDeleteDelay = new TenantLifecycleManager(ConfluentConfigs.MULTITENANT_TENANT_DELETE_DELAY_MS_DEFAULT,
@@ -114,6 +107,10 @@ public class TenantLifecycleManagerTest {
         // assert that our mocked admin client ran listTopics once to delete the tenant and one
         // to validate the topics are gone and the tenant is deleted
         verify(mockAdminClient, times(2)).listTopics(any());
+
+        // verify that acls are described and then deleted
+        verify(mockAdminClient, times(2)).describeAcls(any(), any());
+        verify(mockAdminClient, times(2)).deleteAcls(any(), any());
 
         // Try updating metadata and deleting tenants again and check that we are not calling the
         // admin client again because tenant was already deleted

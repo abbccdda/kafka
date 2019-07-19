@@ -389,7 +389,6 @@ public class MultiTenantAuthorizerTest {
   private void verifyAclsDisabledException(ExecutionException e) {
     Throwable cause = e.getCause();
     assertTrue("Unexpected exception: " + cause, cause instanceof InvalidRequestException);
-    assertTrue("Unexpected exception: " + cause, cause.getMessage().contains("does not support ACLs"));
   }
 
   @Test
