@@ -31,6 +31,7 @@ import org.apache.kafka.common.utils.Utils
 
 import scala.collection.{Map, mutable}
 import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList, Validator}
+import org.apache.kafka.server.interceptor.RecordInterceptor
 
 object Defaults {
   val SegmentSize = kafka.server.Defaults.LogSegmentBytes
@@ -106,6 +107,7 @@ case class LogConfig(props: java.util.Map[_, _], overriddenConfigs: Set[String] 
   val tierEnable = getBoolean(LogConfig.TierEnableProp)
   val tierLocalHotsetBytes = getLong(LogConfig.TierLocalHotsetBytesProp)
   val tierLocalHotsetMs = getLong(LogConfig.TierLocalHotsetMsProp)
+  val appendRecordInterceptors = getConfiguredInstances(LogConfig.AppendRecordInterceptorClassesProp, classOf[RecordInterceptor])
 
   def randomSegmentJitter: Long =
     if (segmentJitterMs == 0) 0 else Utils.abs(scala.util.Random.nextInt()) % math.min(segmentJitterMs, segmentMs)
@@ -151,6 +153,7 @@ object LogConfig {
   val TierEnableProp = ConfluentTopicConfig.TIER_ENABLE_CONFIG
   val TierLocalHotsetBytesProp = ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_CONFIG
   val TierLocalHotsetMsProp = ConfluentTopicConfig.TIER_LOCAL_HOTSET_MS_CONFIG
+  val AppendRecordInterceptorClassesProp = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG
 
   // Leave these out of TopicConfig for now as they are replication quota configs
   val LeaderReplicationThrottledReplicasProp = "leader.replication.throttled.replicas"
@@ -183,6 +186,7 @@ object LogConfig {
   val TierEnableDoc = ConfluentTopicConfig.TIER_ENABLE_DOC
   val TierLocalHotsetBytesDoc = ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_DOC
   val TierLocalHotsetMsDoc = ConfluentTopicConfig.TIER_LOCAL_HOTSET_MS_DOC
+  val AppendRecordInterceptorClassesDoc = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG_DOC
 
   val LeaderReplicationThrottledReplicasDoc = "A list of replicas for which log replication should be throttled on " +
     "the leader side. The list should describe a set of replicas in the form " +
@@ -304,6 +308,7 @@ object LogConfig {
       .defineInternal(TierEnableProp, BOOLEAN, Defaults.TierEnable, MEDIUM, TierEnableDoc, KafkaConfig.TierEnableProp)
       .defineInternal(TierLocalHotsetBytesProp, LONG, Defaults.TierLocalHotsetBytes, MEDIUM, TierLocalHotsetBytesDoc, KafkaConfig.TierLocalHotsetBytesProp)
       .defineInternal(TierLocalHotsetMsProp, LONG, Defaults.TierLocalHotsetMs, MEDIUM, TierLocalHotsetMsDoc, KafkaConfig.TierLocalHotsetMsProp)
+      .defineInternal(AppendRecordInterceptorClassesProp, LIST, Collections.emptyList(), LOW, AppendRecordInterceptorClassesDoc, AppendRecordInterceptorClassesProp)
 
       /* --- End Internal Configurations --- */
   }
@@ -394,7 +399,8 @@ object LogConfig {
     MessageDownConversionEnableProp -> KafkaConfig.LogMessageDownConversionEnableProp,
     TierEnableProp -> KafkaConfig.TierEnableProp,
     TierLocalHotsetBytesProp -> KafkaConfig.TierLocalHotsetBytesProp,
-    TierLocalHotsetMsProp -> KafkaConfig.TierLocalHotsetMsProp
+    TierLocalHotsetMsProp -> KafkaConfig.TierLocalHotsetMsProp,
+    AppendRecordInterceptorClassesProp -> KafkaConfig.AppendRecordInterceptorClassesProp
   )
 
 }

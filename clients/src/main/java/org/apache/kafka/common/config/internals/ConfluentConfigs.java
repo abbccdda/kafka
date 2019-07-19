@@ -55,6 +55,11 @@ public class ConfluentConfigs {
             + "deletion of deactivated tenants. We wait for each batch to complete before sending"
             + " another";
 
+    // TODO: for the above broker-level configs, we did not have the convention to add "confluent." to the configs;
+    // for new configs added below, they should be added with the prefix in ConfluentTopicConfig#CONFLUENT_PREFIX.
+
+    // for configs defined for both per-broker and per-topic, it should be defined in ConfluentTopicConfig instead.
+
     public static BrokerInterceptor buildBrokerInterceptor(Mode mode, Map<String, ?> configs) {
         if (mode == Mode.CLIENT)
             return null;

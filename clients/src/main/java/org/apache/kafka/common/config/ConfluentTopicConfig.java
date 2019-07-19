@@ -30,4 +30,11 @@ public class ConfluentTopicConfig {
             "controls the maximum time we will retain a log segment on broker-local storage before we will discard it to " +
             "free up space. Segments discarded from local store could continue to exist in tiered storage and remain " +
             "available for fetches depending on retention configurations. If set to -1, no time limit is applied.";
+
+    public static final String APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG = CONFLUENT_PREFIX + "append.record.interceptor.classes";
+    public static final String APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG_DOC = "A list of classes to use as interceptors. " +
+        "Implementing the <code>RecordInterceptor</code> interface allows you to intercept and possibly reject " +
+        "the records before they are appended from the produce request to the log at the Kafka broker. " +
+        "By default, there are no interceptors.";
+
 }

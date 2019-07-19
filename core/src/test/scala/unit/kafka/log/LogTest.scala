@@ -41,6 +41,7 @@ import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.requests.FetchResponse.AbortedTransaction
 import org.apache.kafka.common.requests.{ListOffsetRequest, ListOffsetResponse}
 import org.apache.kafka.common.utils.{Time, Utils}
+import org.apache.kafka.test.MockRecordInterceptor
 import org.easymock.EasyMock
 import org.junit.Assert._
 import org.junit.{After, Before, Test}
@@ -108,6 +109,19 @@ class LogTest {
 
     val snapshotFile = Log.producerSnapshotFile(tmpDir, offset)
     assertEquals(offset, Log.offsetFromFile(snapshotFile))
+  }
+
+  /**
+   * Tests that configured append record interceptor is indeed triggered
+   */
+  @Test
+  def testAppendWithInterceptorTriggered(): Unit = {
+    val log = createLog(logDir, LogTest.createLogConfig())
+    log.appendAsLeader(MemoryRecords.withRecords(CompressionType.NONE,
+      new SimpleRecord(RecordBatch.NO_TIMESTAMP, "key".getBytes, "value".getBytes)), leaderEpoch = 0)
+
+    assertEquals(1, MockRecordInterceptor.INTERCEPTED.size())
+    assertEquals(classOf[MockRecordInterceptor].getName, MockRecordInterceptor.CONFIGURED.get(LogConfig.AppendRecordInterceptorClassesProp))
   }
 
   /**
@@ -2143,13 +2157,6 @@ class LogTest {
   }
 
   @Test
-  def testAppendWithNoTimestamp(): Unit = {
-    val log = createLog(logDir, LogConfig())
-    log.appendAsLeader(MemoryRecords.withRecords(CompressionType.NONE,
-      new SimpleRecord(RecordBatch.NO_TIMESTAMP, "key".getBytes, "value".getBytes)), leaderEpoch = 0)
-  }
-
-  @Test
   def testCorruptLog() {
     // append some messages to create some segments
     val logConfig = LogTest.createLogConfig(segmentBytes = 1000, indexIntervalBytes = 1, maxMessageBytes = 64 * 1024)
@@ -3962,6 +3969,7 @@ object LogTest {
     logProps.put(LogConfig.TierEnableProp, tierEnable: java.lang.Boolean)
     logProps.put(LogConfig.TierLocalHotsetBytesProp, tierLocalHotsetBytes: java.lang.Long)
     logProps.put(LogConfig.TierLocalHotsetMsProp, tierLocalHotsetMs: java.lang.Long)
+    logProps.put(LogConfig.AppendRecordInterceptorClassesProp, classOf[MockRecordInterceptor].getName: String)
     LogConfig(logProps)
   }
 

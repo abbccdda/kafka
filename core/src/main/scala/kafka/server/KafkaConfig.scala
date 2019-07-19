@@ -29,7 +29,7 @@ import kafka.utils.CoreUtils
 import kafka.utils.Implicits._
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.Reconfigurable
-import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList}
+import org.apache.kafka.common.config.ConfigDef.{ConfigKey, Type, ValidList}
 import org.apache.kafka.common.config.internals.{BrokerSecurityConfigs, ConfluentConfigs}
 import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, ConfluentTopicConfig, SaslConfigs, SslClientAuth, SslConfigs, TopicConfig}
 import org.apache.kafka.common.metrics.Sensor
@@ -37,6 +37,7 @@ import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.record.{LegacyRecord, Records, TimestampType}
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.Utils
+import org.apache.kafka.server.interceptor.RecordInterceptor
 
 import scala.collection.JavaConverters._
 import scala.collection.{Map, Seq}
@@ -474,6 +475,10 @@ object KafkaConfig {
 
   /** Tiered storage archiver configs **/
   val TierArchiverNumThreadsProp = ConfluentPrefix + "tier.archiver.num.threads"
+
+  /** ********* Interceptor Configurations ***********/
+  val AppendRecordInterceptorClassesProp = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG
+  val BrokerInterceptorClassProp = ConfluentConfigs.BROKER_INTERCEPTOR_CLASS_CONFIG
 
   /** ********* Fetch Session Configuration **************/
   val MaxIncrementalFetchSessionCacheSlots = "max.incremental.fetch.session.cache.slots"
@@ -1217,8 +1222,8 @@ object KafkaConfig {
       .define(PasswordEncoderIterationsProp, INT, Defaults.PasswordEncoderIterations, atLeast(1024), LOW, PasswordEncoderIterationsDoc)
 
       /** ********* Confluent Configuration ****************/
-      .defineInternal(ConfluentConfigs.BROKER_INTERCEPTOR_CLASS_CONFIG, CLASS,
-        ConfluentConfigs.BROKER_INTERCEPTOR_CLASS_DEFAULT, LOW)
+      .defineInternal(BrokerInterceptorClassProp, CLASS, ConfluentConfigs.BROKER_INTERCEPTOR_CLASS_DEFAULT, LOW)
+      .defineInternal(AppendRecordInterceptorClassesProp, LIST, Collections.emptyList(), LOW)
       .defineInternal(BrokerSessionUuidProp, STRING, null, LOW)
       .defineInternal(ConfluentConfigs.MULTITENANT_METADATA_CLASS_CONFIG, CLASS,
                       ConfluentConfigs.MULTITENANT_METADATA_CLASS_DEFAULT, LOW)
@@ -1471,9 +1476,12 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierFetcherNumThreads = getInt(KafkaConfig.TierFetcherNumThreadsProp)
   val tierObjectFetcherThreads = getInt(KafkaConfig.TierObjectFetcherThreadsProp)
   val tierPartitionStateCommitIntervalMs = getInt(KafkaConfig.TierPartitionStateCommitIntervalProp)
-  def tierLocalHotsetBytes = getLong(KafkaConfig.TierLocalHotsetBytesProp)
-  def tierLocalHotsetMs = getLong(KafkaConfig.TierLocalHotsetMsProp)
+  val tierLocalHotsetBytes = getLong(KafkaConfig.TierLocalHotsetBytesProp)
+  val tierLocalHotsetMs = getLong(KafkaConfig.TierLocalHotsetMsProp)
   val tierArchiverNumThreads = getInt(KafkaConfig.TierArchiverNumThreadsProp)
+
+  /** ********* Interceptor Configuration ***********/
+  val appendRecordInterceptors = getConfiguredInstances(KafkaConfig.AppendRecordInterceptorClassesProp, classOf[RecordInterceptor])
 
   /** ********* Metric Configuration **************/
   val metricNumSamples = getInt(KafkaConfig.MetricNumSamplesProp)

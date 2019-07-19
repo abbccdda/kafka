@@ -22,7 +22,7 @@ import java.lang.{Long => JLong}
 import java.nio.file.{Files, NoSuchFileException}
 import java.text.NumberFormat
 import java.util.Map.{Entry => JEntry}
-import java.util.Optional
+import java.util.{Collections, Optional}
 import java.util.concurrent.atomic._
 import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, TimeUnit}
 import java.util.regex.Pattern
@@ -911,8 +911,13 @@ class Log(@volatile var dir: File,
           val offset = new LongRef(nextOffsetMetadata.messageOffset)
           appendInfo.firstOffset = Some(offset.value)
           val now = time.milliseconds
+          val recordInterceptors = if (isFromClient)
+            config.appendRecordInterceptors.asScala
+          else
+            Collections.emptyList().asScala
           val validateAndOffsetAssignResult = try {
             LogValidator.validateMessagesAndAssignOffsets(validRecords,
+              topicPartition,
               offset,
               time,
               now,
@@ -922,6 +927,7 @@ class Log(@volatile var dir: File,
               config.messageFormatVersion.recordVersion.value,
               config.messageTimestampType,
               config.messageTimestampDifferenceMaxMs,
+              recordInterceptors,
               leaderEpoch,
               isFromClient,
               interBrokerProtocolVersion)

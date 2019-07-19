@@ -60,6 +60,7 @@ import org.apache.kafka.common.utils.{AppInfoParser, LogContext, Time}
 import org.apache.kafka.common.{ClusterResource, ClusterResourceListener, Node}
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.security.auth.SecurityProtocol
+import org.apache.kafka.server.interceptor.RecordInterceptor
 import org.apache.kafka.server.multitenant.MultiTenantMetadata
 
 import scala.collection.JavaConverters._
@@ -98,6 +99,7 @@ object KafkaServer {
     logProps.put(LogConfig.TierEnableProp, kafkaConfig.tierEnable: java.lang.Boolean)
     logProps.put(LogConfig.TierLocalHotsetBytesProp, kafkaConfig.tierLocalHotsetBytes: java.lang.Long)
     logProps.put(LogConfig.TierLocalHotsetMsProp, kafkaConfig.tierLocalHotsetMs: java.lang.Long)
+    logProps.put(LogConfig.AppendRecordInterceptorClassesProp, kafkaConfig.appendRecordInterceptors: util.List[RecordInterceptor])
     logProps
   }
 
@@ -553,7 +555,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           metrics,
           time,
           "kafka-server-controlled-shutdown",
-          Map.empty.asJava,
+          Map.empty[String, String].asJava,
           false,
           channelBuilder,
           logContext
