@@ -80,14 +80,14 @@ public class DefaultRecord implements Record {
     private final ByteBuffer value;
     private final Header[] headers;
 
-    DefaultRecord(int sizeInBytes,
-                  byte attributes,
-                  long offset,
-                  long timestamp,
-                  int sequence,
-                  ByteBuffer key,
-                  ByteBuffer value,
-                  Header[] headers) {
+    protected DefaultRecord(int sizeInBytes,
+                            byte attributes,
+                            long offset,
+                            long timestamp,
+                            int sequence,
+                            ByteBuffer key,
+                            ByteBuffer value,
+                            Header[] headers) {
         this.sizeInBytes = sizeInBytes;
         this.attributes = attributes;
         this.offset = offset;
