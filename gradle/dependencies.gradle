@@ -72,6 +72,7 @@ versions += [
   bcpkix: "1.61",
   checkstyle: "8.20",
   downloadTaskPlugin: "3.4.3",
+  commonsCli: "1.4",
   gradle: "5.4.1",
   gradleVersionsPlugin: "0.21.0",
   grgit: "3.1.1",
@@ -133,7 +134,7 @@ versions += [
   spotbugsPlugin: "1.6.9",
   spotlessPlugin: "3.23.0",
   zkclient: "0.11",
-  zookeeper: "3.4.14",
+  zookeeper: "3.5.5",
   zstd: "1.4.0-1"
 ]
 
@@ -155,6 +156,7 @@ libs += [
   assertjCore: "org.assertj:assertj-core:$versions.assertj",
   avro: "org.apache.avro:avro:$versions.avro",
   bcpkix: "org.bouncycastle:bcpkix-jdk15on:$versions.bcpkix",
+  commonsCli: "commons-cli:commons-cli:$versions.commonsCli",
   easymock: "org.easymock:easymock:$versions.easymock",
   flatbuffers: "com.google.flatbuffers:flatbuffers-java:$versions.flatbuffers",
   flatbuffersCompiler: "$versions.flatbuffersCompiler",
@@ -216,6 +218,7 @@ libs += [
   slf4jApi: "org.slf4j:slf4j-api:$versions.slf4j",
   slf4jlog4j: "org.slf4j:slf4j-log4j12:$versions.slf4j",
   snappy: "org.xerial.snappy:snappy-java:$versions.snappy",
+  spotbugsAnnotation: "com.github.spotbugs:spotbugs-annotations:$versions.spotbugs",
   zkclient: "com.101tec:zkclient:$versions.zkclient",
   zookeeper: "org.apache.zookeeper:zookeeper:$versions.zookeeper",
   jfreechart: "jfreechart:jfreechart:$versions.jfreechart",

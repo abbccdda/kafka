@@ -26,6 +26,7 @@ import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaA
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResult;
 import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsResponseData;
+import org.apache.kafka.common.message.ListGroupsResponseData;
 import org.apache.kafka.common.message.OffsetCommitRequestData;
 import org.apache.kafka.common.message.OffsetCommitResponseData;
 import org.apache.kafka.common.metrics.Metrics;
@@ -534,13 +535,17 @@ public class MultiTenantRequestContext extends RequestContext {
   }
 
   private ListGroupsResponse filteredListGroupsResponse(ListGroupsResponse response) {
-    List<ListGroupsResponse.Group> filteredGroups = new ArrayList<>();
-    for (ListGroupsResponse.Group group : response.groups()) {
+    List<ListGroupsResponseData.ListedGroup> filteredGroups = new ArrayList<>();
+    for (ListGroupsResponseData.ListedGroup group : response.data().groups()) {
       if (tenantContext.hasTenantPrefix(group.groupId())) {
         filteredGroups.add(group);
       }
     }
-    return new ListGroupsResponse(response.throttleTimeMs(), response.error(), filteredGroups);
+    ListGroupsResponseData data = new ListGroupsResponseData();
+    data.setThrottleTimeMs(response.throttleTimeMs());
+    data.setErrorCode(response.data().errorCode());
+    data.setGroups(filteredGroups);
+    return new ListGroupsResponse(data);
   }
 
   private DescribeConfigsResponse filteredDescribeConfigsResponse(

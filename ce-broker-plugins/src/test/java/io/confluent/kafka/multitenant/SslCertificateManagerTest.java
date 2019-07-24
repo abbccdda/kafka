@@ -25,8 +25,8 @@ public class SslCertificateManagerTest {
     private static final String SSL_CERTS_DIR = "mnt/sslcerts/";
     private static final String DATA_DIR = "..data";
     private static final String BROKER_ID = "1";
-    private static final URL TEST_SSL_CERTS_AUG = SslCertificateManagerTest.class.getClass().getResource("/cert_exp_aug");
-    private static final URL TEST_ROOT = SslCertificateManagerTest.class.getClass().getResource("/");
+    private static final URL TEST_SSL_CERTS_AUG = SslCertificateManagerTest.class.getResource("/cert_exp_aug");
+    private static final URL TEST_ROOT = SslCertificateManagerTest.class.getResource("/");
 
     private AdminClient mockAdminClient;
     private SslCertificateManager sslCache;
@@ -36,6 +36,7 @@ public class SslCertificateManagerTest {
 
     @Before
     public void setUp() throws Exception {
+        System.out.println("root resource: " + TEST_ROOT.getPath());
         Node node = new Node(1, "localhost", 9092);
         String sslCertsPath = tempFolder.getRoot().getCanonicalPath() + "/" + SSL_CERTS_DIR + "spec.json";
         mockAdminClient = spy(new MockAdminClient(singletonList(node), node));

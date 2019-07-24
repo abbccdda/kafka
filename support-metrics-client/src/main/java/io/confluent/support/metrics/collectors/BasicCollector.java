@@ -61,5 +61,4 @@ public class BasicCollector extends Collector {
     metricsRecord.setClusterId(server.clusterId());
     return metricsRecord;
   }
-
 }

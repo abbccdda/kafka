@@ -31,6 +31,7 @@ import org.apache.kafka.common.requests.FetchRequest.PartitionData
 import org.easymock.EasyMock
 import EasyMock._
 import kafka.tier.TierMetadataManager
+import org.apache.kafka.common.replica.ClientMetadata
 import org.junit.Assert._
 import org.junit.{After, Test}
 
@@ -66,7 +67,8 @@ class ReplicaManagerQuotasTest {
       fetchMaxBytes = Int.MaxValue,
       hardMaxBytesLimit = false,
       readPartitionInfo = fetchInfo,
-      quota = quota)
+      quota = quota,
+      clientMetadata = None)
     assertEquals("Given two partitions, with only one throttled, we should get the first", 1,
       fetch.find(_._1 == topicPartition1).get._2.info.records.batches.asScala.size)
 
@@ -91,7 +93,8 @@ class ReplicaManagerQuotasTest {
       fetchMaxBytes = Int.MaxValue,
       hardMaxBytesLimit = false,
       readPartitionInfo = fetchInfo,
-      quota = quota)
+      quota = quota,
+      clientMetadata = None)
     assertEquals("Given two partitions, with both throttled, we should get no messages", 0,
       fetch.find(_._1 == topicPartition1).get._2.info.records.batches.asScala.size)
     assertEquals("Given two partitions, with both throttled, we should get no messages", 0,
@@ -115,7 +118,8 @@ class ReplicaManagerQuotasTest {
       fetchMaxBytes = Int.MaxValue,
       hardMaxBytesLimit = false,
       readPartitionInfo = fetchInfo,
-      quota = quota)
+      quota = quota,
+      clientMetadata = None)
     assertEquals("Given two partitions, with both non-throttled, we should get both messages", 1,
       fetch.find(_._1 == topicPartition1).get._2.info.records.batches.asScala.size)
     assertEquals("Given two partitions, with both non-throttled, we should get both messages", 1,
@@ -139,7 +143,8 @@ class ReplicaManagerQuotasTest {
       fetchMaxBytes = Int.MaxValue,
       hardMaxBytesLimit = false,
       readPartitionInfo = fetchInfo,
-      quota = quota)
+      quota = quota,
+      clientMetadata = None)
     assertEquals("Given two partitions, with only one throttled, we should get the first", 1,
       fetch.find(_._1 == topicPartition1).get._2.info.records.batches.asScala.size)
 
@@ -169,6 +174,7 @@ class ReplicaManagerQuotasTest {
 
       EasyMock.expect(replicaManager.shouldLeaderThrottle(EasyMock.anyObject[ReplicaQuota], EasyMock.anyObject[TopicPartition], EasyMock.anyObject[Int]))
         .andReturn(!isReplicaInSync).anyTimes()
+      EasyMock.expect(partition.getReplica(1)).andReturn(None)
       EasyMock.replay(replicaManager, partition)
 
       val tp = new TopicPartition("t1", 0)
@@ -181,9 +187,10 @@ class ReplicaManagerQuotasTest {
         fetchIsolation = FetchLogEnd,
         isFromFollower = true,
         replicaId = 1,
-        fetchPartitionStatus = List((tp, fetchPartitionStatus)))
+        fetchPartitionStatus = List((tp, fetchPartitionStatus))
+      )
       new DelayedFetch(delayMs = 600, fetchMetadata = fetchMetadata, replicaManager = replicaManager,
-        quota = null, responseCallback = null, tierFetchOpt = None) {
+        quota = null, clientMetadata = None, responseCallback = null, tierFetchOpt = None) {
         override def forceComplete(): Boolean = true
       }
     }
@@ -245,7 +252,7 @@ class ReplicaManagerQuotasTest {
     //create the two replicas
     for ((p, _) <- fetchInfo) {
       val partition = replicaManager.createPartition(p)
-      log.highWatermark = 5
+      log.updateHighWatermark(5)
       partition.leaderReplicaIdOpt = Some(leaderBrokerId)
       partition.setLog(log, isFutureLog = false)
 
@@ -275,14 +282,16 @@ class ReplicaManagerQuotasTest {
                                fetchMaxBytes: Int,
                                hardMaxBytesLimit: Boolean,
                                readPartitionInfo: Seq[(TopicPartition, PartitionData)],
-                               quota: ReplicaQuota): Seq[(TopicPartition, LogReadResult)] = {
+                               quota: ReplicaQuota,
+                               clientMetadata: Option[ClientMetadata]): Seq[(TopicPartition, LogReadResult)] = {
     val result = replicaManager.readFromLocalLog(replicaId,
       fetchOnlyFromLeader,
       fetchIsolation,
       fetchMaxBytes,
       hardMaxBytesLimit,
       readPartitionInfo,
-      quota)
+      quota,
+      clientMetadata)
     result.collect { case (topicPartition, result: LogReadResult) =>
       (topicPartition, result)
     }

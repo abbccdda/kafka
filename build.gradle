@@ -730,14 +730,13 @@ project(':core') {
     compile libs.amazons3client
     compile libs.netty
     compile libs.nettyTcNative
-    compile(libs.zkclient) {
-      exclude module: 'zookeeper'
-    }
     compile(libs.zookeeper) {
       exclude module: 'slf4j-log4j12'
       exclude module: 'log4j'
       exclude module: 'netty'
     }
+    // ZooKeeperMain depends on commons-cli but declares the dependency as `provided`
+    compile libs.commonsCli
 
     compileOnly libs.log4j
 
@@ -2259,6 +2258,13 @@ project(':ce-licensing') {
       exclude module: 'log4j'
       exclude module: 'netty'
     }
+
+    // Zookeeper depends on spotbugs but declares the dependency as `provided`
+    // It only uses dependency for annotation so if annotation isn't found a
+    // warning is generated. And as we compile with -Werror flag, it fails the build.
+    // So we have a corresponding compile only dependency.
+    compileOnly libs.spotbugsAnnotation
+
     compile project(':ce-serializers')
     compile project(':clients')
     compile project(':connect:api')

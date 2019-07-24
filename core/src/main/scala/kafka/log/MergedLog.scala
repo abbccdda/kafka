@@ -321,7 +321,7 @@ class MergedLog(private[log] val localLog: Log,
     // We do not currently archive past the first unstable offset.
     // Until we do, we can assume that the first unstable offset is equivalent bounded
     // by the local log start offset after recovery.
-    localLog.updateFirstUnstableOffset(localLog.localLogStartOffset)
+    localLog.maybeIncrementFirstUnstableOffset(localLog.localLogStartOffset)
 
     localLog.leaderEpochCache.get.clear()
     for (entry <- tierState.leaderEpochState)
@@ -343,7 +343,7 @@ class MergedLog(private[log] val localLog: Log,
     // 2. contains the highwatermark: we only tier messages that have been ack'd by all replicas
     // 3. is the current active segment: we only tier immutable segments (that have been rolled already)
     // 4. the segment end offset is less than the recovery point. This ensures we only upload segments that have been fsync'd.
-    val upperBoundOffset = Utils.min(firstUnstableOffset.map(_.messageOffset).getOrElse(logEndOffset), highWatermark, recoveryPoint)
+    val upperBoundOffset = Utils.min(firstUnstableOffset.getOrElse(logEndOffset), highWatermark, recoveryPoint)
 
     // After a leader failover, it is possible that the upperBoundOffset has not moved to the point where the previous
     // leader tiered segments. No segments are tierable until the upperBoundOffset catches up with the tiered segments.
@@ -526,7 +526,7 @@ class MergedLog(private[log] val localLog: Log,
 
   override def leaderEpochCache: Option[LeaderEpochFileCache] = localLog.leaderEpochCache
 
-  override def firstUnstableOffset: Option[LogOffsetMetadata] = {
+  override def firstUnstableOffset: Option[Long] = {
     // We guarantee that we never tier past the first unstable offset (see MergedLog#tierableLogSegments), i.e. the first
     // unstable offset must always be in the local portion of the log.
     localLog.firstUnstableOffset
@@ -562,19 +562,13 @@ class MergedLog(private[log] val localLog: Log,
     localLog.appendAsFollower(records)
   }
 
-  override def highWatermarkMetadata: LogOffsetMetadata = localLog.highWatermarkMetadata
-
-  override def highWatermarkMetadata_=(newHighWatermark: LogOffsetMetadata) : Unit = {
-    localLog.highWatermarkMetadata = newHighWatermark
-  }
-
   override def highWatermark: Long = localLog.highWatermark
 
-  override def highWatermark_=(newHighWatermark: Long): Unit = localLog.highWatermark = newHighWatermark
+  override def updateHighWatermark(hw: Long): Long = localLog.updateHighWatermark(hw)
 
-  override def offsetSnapshot: LogOffsetSnapshot = localLog.offsetSnapshot
+  override def maybeIncrementHighWatermark(newHighWatermark: LogOffsetMetadata): Option[LogOffsetMetadata] = localLog.maybeIncrementHighWatermark(newHighWatermark)
 
-  override  def maybeFetchHighWatermarkOffsetMetadata(): Unit = localLog.maybeFetchHighWatermarkOffsetMetadata()
+  override def fetchOffsetSnapshot: LogOffsetSnapshot = localLog.fetchOffsetSnapshot
 
   override private[log] def lastRecordsOfActiveProducers: Map[Long, LastRecord] = localLog.lastRecordsOfActiveProducers
 
@@ -722,7 +716,7 @@ sealed trait AbstractLog {
     *
     * @return the first unstable offset
     */
-  def firstUnstableOffset: Option[LogOffsetMetadata]
+  def firstUnstableOffset: Option[Long]
 
   def lastStableOffset: Long
 
@@ -817,15 +811,11 @@ sealed trait AbstractLog {
     */
   def highWatermark: Long
 
-  def highWatermark_=(newHighWatermark: Long): Unit
+  def updateHighWatermark(hw: Long): Long
 
-  def highWatermarkMetadata: LogOffsetMetadata
+  def maybeIncrementHighWatermark(newHighWatermark: LogOffsetMetadata): Option[LogOffsetMetadata]
 
-  def highWatermarkMetadata_=(newHighWatermark: LogOffsetMetadata): Unit
-
-  def offsetSnapshot: LogOffsetSnapshot
-
-  def maybeFetchHighWatermarkOffsetMetadata(): Unit
+  def fetchOffsetSnapshot: LogOffsetSnapshot
 
   /**
     * Lookup metadata for the log start offset. This is an expensive call and must be used with caution. The call blocks

@@ -29,7 +29,7 @@ public class Topic {
     public static final String TIER_TOPIC_NAME = "_confluent-tier-state";
     public static final String LEGAL_CHARS = "[a-zA-Z0-9._-]";
 
-    public static final Set<String> INTERNAL_TOPICS = Collections.unmodifiableSet(
+    private static final Set<String> INTERNAL_TOPICS = Collections.unmodifiableSet(
             Utils.mkSet(GROUP_METADATA_TOPIC_NAME, TRANSACTION_STATE_TOPIC_NAME, TIER_TOPIC_NAME));
 
     private static final int MAX_NAME_LENGTH = 249;

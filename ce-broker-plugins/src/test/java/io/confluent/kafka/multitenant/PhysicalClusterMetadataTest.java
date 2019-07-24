@@ -62,9 +62,8 @@ public class PhysicalClusterMetadataTest {
   private static final String SSL_CERTS_DIR = "mnt/sslcerts/";
   private static final String BROKER_ID = "1";
   private static final String BROKER_UUID = "test-uuid-3";
-  private static final URL TEST_SSL_CERTS_AUG = PhysicalClusterMetadataTest.class.getClass().getResource("/cert_exp_aug");
-  private static final URL TEST_SSL_CERTS_MAY = PhysicalClusterMetadataTest.class.getClass().getResource("/cert_exp_may");
-  private static final URL TEST_ROOT = PhysicalClusterMetadataTest.class.getClass().getResource("/");
+  private static final URL TEST_SSL_CERTS_AUG = PhysicalClusterMetadataTest.class.getResource("/cert_exp_aug");
+  private static final URL TEST_SSL_CERTS_MAY = PhysicalClusterMetadataTest.class.getResource("/cert_exp_may");
 
   private AdminClient mockAdminClient;
   private PhysicalClusterMetadata lcCache;

@@ -45,6 +45,7 @@ import org.apache.kafka.common.message.InitProducerIdRequestData;
 import org.apache.kafka.common.message.JoinGroupRequestData;
 import org.apache.kafka.common.message.LeaveGroupRequestData;
 import org.apache.kafka.common.errors.NotLeaderForPartitionException;
+import org.apache.kafka.common.message.ListGroupsResponseData;
 import org.apache.kafka.common.message.MetadataRequestData;
 import org.apache.kafka.common.message.MetadataRequestData.MetadataRequestTopic;
 import org.apache.kafka.common.message.SyncGroupRequestData;
@@ -721,16 +722,31 @@ public class MultiTenantRequestContextTest {
   public void testListGroupsResponse() throws IOException {
     for (short ver = ApiKeys.LIST_GROUPS.oldestVersion(); ver <= ApiKeys.LIST_GROUPS.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.LIST_GROUPS, ver);
-      ListGroupsResponse outbound = new ListGroupsResponse(0, Errors.NONE, Arrays.asList(
-          new ListGroupsResponse.Group("tenant_foo", "consumer"),
-          new ListGroupsResponse.Group("othertenant_foo", "consumer"),
-          new ListGroupsResponse.Group("tenant_bar", "consumer"),
-          new ListGroupsResponse.Group("othertenant_baz", "consumer")));
+
+      ListGroupsResponseData.ListedGroup fooTenant = new ListGroupsResponseData.ListedGroup();
+      fooTenant.setGroupId("tenant_foo");
+      fooTenant.setProtocolType("consumer");
+      ListGroupsResponseData.ListedGroup otherFooTenant = new ListGroupsResponseData.ListedGroup();
+      otherFooTenant.setGroupId("othertenant_foo");
+      otherFooTenant.setProtocolType("consumer");
+      ListGroupsResponseData.ListedGroup barTenant = new ListGroupsResponseData.ListedGroup();
+      barTenant.setGroupId("tenant_bar");
+      barTenant.setProtocolType("consumer");
+      ListGroupsResponseData.ListedGroup bazTenant = new ListGroupsResponseData.ListedGroup();
+      bazTenant.setGroupId("othertenant_baz");
+      bazTenant.setProtocolType("consumer");
+
+      ListGroupsResponseData data = new ListGroupsResponseData();
+      data.setThrottleTimeMs(0);
+      data.setErrorCode(Errors.NONE.code());
+      data.setGroups(Arrays.asList(fooTenant, otherFooTenant, barTenant, bazTenant));
+
+      ListGroupsResponse outbound = new ListGroupsResponse(data);
       Struct struct = parseResponse(ApiKeys.LIST_GROUPS, ver, context.buildResponse(outbound));
-      ListGroupsResponse intercepted = new ListGroupsResponse(struct);
-      assertEquals(2, intercepted.groups().size());
-      assertEquals("foo", intercepted.groups().get(0).groupId());
-      assertEquals("bar", intercepted.groups().get(1).groupId());
+      ListGroupsResponse intercepted = new ListGroupsResponse(new ListGroupsResponseData(struct, ver));
+      assertEquals(2, intercepted.data().groups().size());
+      assertEquals("foo", intercepted.data().groups().get(0).groupId());
+      assertEquals("bar", intercepted.data().groups().get(1).groupId());
       verifyResponseMetrics(ApiKeys.LIST_GROUPS, Errors.NONE);
     }
   }

@@ -243,9 +243,11 @@ class PartitionTest {
     val partition = setupPartitionWithMocks(leaderEpoch, isLeader = true)
 
     def assertSnapshotError(expectedError: Errors, currentLeaderEpoch: Optional[Integer]): Unit = {
-      partition.fetchOffsetSnapshotOrError(currentLeaderEpoch, fetchOnlyFromLeader = true) match {
-        case Left(_) => assertEquals(Errors.NONE, expectedError)
-        case Right(error) => assertEquals(expectedError, error)
+      try {
+        partition.fetchOffsetSnapshot(currentLeaderEpoch, fetchOnlyFromLeader = true)
+        assertEquals(Errors.NONE, expectedError)
+      } catch {
+        case error: ApiException => assertEquals(expectedError, Errors.forException(error))
       }
     }
 
@@ -263,9 +265,11 @@ class PartitionTest {
     def assertSnapshotError(expectedError: Errors,
                             currentLeaderEpoch: Optional[Integer],
                             fetchOnlyLeader: Boolean): Unit = {
-      partition.fetchOffsetSnapshotOrError(currentLeaderEpoch, fetchOnlyFromLeader = fetchOnlyLeader) match {
-        case Left(_) => assertEquals(expectedError, Errors.NONE)
-        case Right(error) => assertEquals(expectedError, error)
+      try {
+        partition.fetchOffsetSnapshot(currentLeaderEpoch, fetchOnlyFromLeader = fetchOnlyLeader)
+        assertEquals(Errors.NONE, expectedError)
+      } catch {
+        case error: ApiException => assertEquals(expectedError, Errors.forException(error))
       }
     }
 
@@ -740,7 +744,7 @@ class PartitionTest {
     assertOffset(0L, fetchLatestOffset(isolationLevel = Some(IsolationLevel.READ_UNCOMMITTED)))
     assertOffset(0L, fetchLatestOffset(isolationLevel = Some(IsolationLevel.READ_COMMITTED)))
 
-    partition.log.get.highWatermark = 1L
+    partition.log.get.updateHighWatermark(1L)
 
     assertOffset(3L, fetchLatestOffset(isolationLevel = None))
     assertOffset(1L, fetchLatestOffset(isolationLevel = Some(IsolationLevel.READ_UNCOMMITTED)))
@@ -1045,6 +1049,7 @@ class PartitionTest {
     assertEquals(time.milliseconds(), remoteReplica.lastCaughtUpTimeMs)
     assertEquals(6L, remoteReplica.logEndOffset)
     assertEquals(0L, remoteReplica.logStartOffset)
+
   }
 
   @Test

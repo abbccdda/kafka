@@ -41,10 +41,10 @@ object TierTestUtils {
 
     // ensure tierable portion of the log is below the highwatermark
     if (log.highWatermark <= tierEndOffset)
-      log.highWatermark = tierEndOffset + 1
+      log.updateHighWatermark(tierEndOffset + 1)
 
     // ensure tierable portion of the log is below the firstUnstableOffset
-    assertTrue(log.firstUnstableOffset.map(_.messageOffset).getOrElse(Long.MaxValue) > tierEndOffset)
+    assertTrue(log.firstUnstableOffset.getOrElse(Long.MaxValue) > tierEndOffset)
   }
 
   def createRecords(n: Int, partition: TopicPartition, baseOffset: Long, leaderEpoch: Int): MemoryRecords = {

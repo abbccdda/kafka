@@ -27,7 +27,6 @@ import java.util.concurrent.atomic._
 import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, TimeUnit}
 import java.util.regex.Pattern
 
-import com.yammer.metrics.core.Gauge
 import kafka.api.{ApiVersion, KAFKA_0_10_0_IV0}
 import kafka.common.{LogSegmentOffsetOverflowException, LongRef, OffsetsOutOfOrderException, UnexpectedAppendOffsetException}
 import kafka.message.{BrokerCompressionCodec, CompressionCodec, NoCompressionCodec}
@@ -273,14 +272,14 @@ class Log(@volatile var dir: File,
    * that this could result in disagreement between replicas depending on when they began replicating the log.
    * In the worst case, the LSO could be seen by a consumer to go backwards.
    */
-  @volatile var firstUnstableOffset: Option[LogOffsetMetadata] = None
+  @volatile private var firstUnstableOffsetMetadata: Option[LogOffsetMetadata] = None
 
   /* Keep track of the current high watermark in order to ensure that segments containing offsets at or above it are
    * not eligible for deletion. This means that the active segment is only eligible for deletion if the high watermark
    * equals the log end offset (which may never happen for a partition under consistent load). This is needed to
    * prevent the log start offset (which is exposed in fetch responses) from getting ahead of the high watermark.
    */
-  @volatile private[this] var _highWatermarkMetadata: LogOffsetMetadata = LogOffsetMetadata(0)
+  @volatile private var highWatermarkMetadata: LogOffsetMetadata = _
 
   /* the actual segments of the log */
   private val segments: ConcurrentNavigableMap[java.lang.Long, LogSegment] = new ConcurrentSkipListMap[java.lang.Long, LogSegment]
@@ -297,6 +296,8 @@ class Log(@volatile var dir: File,
     initializeLeaderEpochCache()
 
     val nextOffset = loadSegments()
+
+    highWatermarkMetadata = LogOffsetMetadata(localLogStartOffset)
 
     /* Calculate the offset of the next message */
     nextOffsetMetadata = LogOffsetMetadata(nextOffset, activeSegment.baseOffset, activeSegment.size)
@@ -319,63 +320,142 @@ class Log(@volatile var dir: File,
 
   def highWatermark: Long = highWatermarkMetadata.messageOffset
 
-  def highWatermark_=(newHighWatermark: Long): Unit = {
-    highWatermarkMetadata = LogOffsetMetadata(newHighWatermark)
-  }
-
-  def highWatermarkMetadata: LogOffsetMetadata = _highWatermarkMetadata
-
-  def highWatermarkMetadata_=(newHighWatermark: LogOffsetMetadata) : Unit = {
-    if (newHighWatermark.messageOffset < 0)
-      throw new IllegalArgumentException("High watermark offset should be non-negative")
-
-    lock synchronized {
-      _highWatermarkMetadata = newHighWatermark
-      producerStateManager.onHighWatermarkUpdated(newHighWatermark.messageOffset)
-      updateFirstUnstableOffset(localLogStartOffset)
-    }
-    trace(s"Setting high watermark [$newHighWatermark]")
-  }
-
-  /*
-   * Convert hw to local offset metadata by reading the log at the hw offset.
-   * If the hw offset is out of range, return the first offset of the first log segment as the offset metadata.
+  /**
+   * Update the high watermark to a new offset. The new high watermark will be lower
+   * bounded by the log start offset and upper bounded by the log end offset.
+   *
+   * This is intended to be called when initializing the high watermark or when updating
+   * it on a follower after receiving a Fetch response from the leader.
+   *
+   * @param hw the suggested new value for the high watermark
+   * @return the updated high watermark offset
    */
-  def maybeFetchHighWatermarkOffsetMetadata(): Unit = {
-    if (highWatermarkMetadata.messageOffsetOnly) {
-      highWatermarkMetadata = convertToOffsetMetadata(highWatermark).getOrElse {
-        convertToOffsetMetadata(localLogStartOffset).getOrElse {
-          val firstSegmentOffset = logSegments.head.baseOffset
-          LogOffsetMetadata(firstSegmentOffset, firstSegmentOffset, 0)
-        }
-      }
+  def updateHighWatermark(hw: Long): Long = {
+    val newHighWatermark = if (hw < localLogStartOffset)
+      localLogStartOffset
+    else if (hw > logEndOffset)
+      logEndOffset
+    else
+      hw
+    updateHighWatermarkMetadata(LogOffsetMetadata(newHighWatermark))
+    newHighWatermark
+  }
+
+  /**
+   * Update the high watermark to a new value if and only if it is larger than the old value. It is
+   * an error to update to a value which is larger than the log end offset.
+   *
+   * This method is intended to be used by the leader to update the high watermark after follower
+   * fetch offsets have been updated.
+   *
+   * @return the old high watermark, if updated by the new value
+   */
+  def maybeIncrementHighWatermark(newHighWatermark: LogOffsetMetadata): Option[LogOffsetMetadata] = {
+    if (newHighWatermark.messageOffset > logEndOffset)
+      throw new IllegalArgumentException(s"High watermark $newHighWatermark update exceeds current " +
+        s"log end offset $logEndOffsetMetadata")
+
+    val oldHighWatermark = fetchHighWatermarkMetadata
+
+    // Ensure that the high watermark increases monotonically. We also update the high watermark when the new
+    // offset metadata is on a newer segment, which occurs whenever the log is rolled to a new segment.
+    if (oldHighWatermark.messageOffset < newHighWatermark.messageOffset ||
+      (oldHighWatermark.messageOffset == newHighWatermark.messageOffset && oldHighWatermark.onOlderSegment(newHighWatermark))) {
+      updateHighWatermarkMetadata(newHighWatermark)
+      Some(oldHighWatermark)
+    } else {
+      None
     }
   }
 
   /**
-    * The last stable offset (LSO) is defined as the first offset such that all lower offsets have been "decided."
-    * Non-transactional messages are considered decided immediately, but transactional messages are only decided when
-    * the corresponding COMMIT or ABORT marker is written. This implies that the last stable offset will be equal
-    * to the high watermark if there are no transactional messages in the log. Note also that the LSO cannot advance
-    * beyond the high watermark.
-    */
-  def lastStableOffsetMetadata: LogOffsetMetadata = {
-    firstUnstableOffset match {
-      case Some(offsetMetadata) if offsetMetadata.messageOffset < highWatermark => offsetMetadata
-      case _ => highWatermarkMetadata
+   * Get the offset and metadata for the current high watermark. If offset metadata is not
+   * known, this will do a lookup in the index and cache the result.
+   */
+  def fetchHighWatermarkMetadata: LogOffsetMetadata = {
+    checkIfMemoryMappedBufferClosed()
+
+    val offsetMetadata = highWatermarkMetadata
+    if (offsetMetadata.messageOffsetOnly) {
+      lock.synchronized {
+        val fullOffset = convertToOffsetMetadataOrThrow(highWatermark)
+        updateHighWatermarkMetadata(fullOffset)
+        fullOffset
+      }
+    } else {
+      offsetMetadata
     }
   }
 
-  def lastStableOffset: Long = lastStableOffsetMetadata.messageOffset
+  private def updateHighWatermarkMetadata(newHighWatermark: LogOffsetMetadata): Unit = {
+    if (newHighWatermark.messageOffset < 0)
+      throw new IllegalArgumentException("High watermark offset should be non-negative")
+
+    lock synchronized {
+      highWatermarkMetadata = newHighWatermark
+      producerStateManager.onHighWatermarkUpdated(newHighWatermark.messageOffset)
+      maybeIncrementFirstUnstableOffset(localLogStartOffset)
+    }
+    trace(s"Setting high watermark $newHighWatermark")
+  }
+
+  /**
+   * Get the first unstable offset. Unlike the last stable offset, which is always defined,
+   * the first unstable offset only exists if there are transactions in progress.
+   *
+   * @return the first unstable offset, if it exists
+   */
+  private[log] def firstUnstableOffset: Option[Long] = firstUnstableOffsetMetadata.map(_.messageOffset)
+
+  private def fetchLastStableOffsetMetadata: LogOffsetMetadata = {
+    checkIfMemoryMappedBufferClosed()
+
+    firstUnstableOffsetMetadata match {
+      case Some(offsetMetadata) if offsetMetadata.messageOffset < highWatermark =>
+        if (offsetMetadata.messageOffsetOnly) {
+          lock synchronized {
+            val fullOffset = convertToOffsetMetadataOrThrow(offsetMetadata.messageOffset)
+            if (firstUnstableOffsetMetadata.contains(offsetMetadata))
+              firstUnstableOffsetMetadata = Some(fullOffset)
+            fullOffset
+          }
+        } else {
+          offsetMetadata
+        }
+      case _ => fetchHighWatermarkMetadata
+    }
+  }
+
+  /**
+   * The last stable offset (LSO) is defined as the first offset such that all lower offsets have been "decided."
+   * Non-transactional messages are considered decided immediately, but transactional messages are only decided when
+   * the corresponding COMMIT or ABORT marker is written. This implies that the last stable offset will be equal
+   * to the high watermark if there are no transactional messages in the log. Note also that the LSO cannot advance
+   * beyond the high watermark.
+   */
+  def lastStableOffset: Long = {
+    firstUnstableOffsetMetadata match {
+      case Some(offsetMetadata) if offsetMetadata.messageOffset < highWatermark => offsetMetadata.messageOffset
+      case _ => highWatermark
+    }
+  }
 
   def lastStableOffsetLag: Long = highWatermark - lastStableOffset
 
-  def offsetSnapshot: LogOffsetSnapshot = {
+  /**
+    * Fully materialize and return an offset snapshot including segment position info. This method will update
+    * the LogOffsetMetadata for the high watermark and last stable offset if they are message-only. Throws an
+    * offset out of range error if the segment info cannot be loaded.
+    */
+  def fetchOffsetSnapshot: LogOffsetSnapshot = {
+    val lastStable = fetchLastStableOffsetMetadata
+    val highWatermark = fetchHighWatermarkMetadata
+
     LogOffsetSnapshot(
-      logStartOffset = localLogStartOffset,
+      logStartOffset = mergedLogStartOffset,
       logEndOffset = logEndOffsetMetadata,
-      highWatermark =  highWatermarkMetadata,
-      lastStableOffset = lastStableOffsetMetadata)
+      highWatermark =  highWatermark,
+      lastStableOffset = lastStable)
   }
 
   val producerExpireCheck = scheduler.schedule(name = "PeriodicProducerExpirationCheck", fun = () => {
@@ -632,6 +712,12 @@ class Log(@volatile var dir: File,
 
   private def updateLogEndOffset(messageOffset: Long) {
     nextOffsetMetadata = LogOffsetMetadata(messageOffset, activeSegment.baseOffset, activeSegment.size)
+
+    // Update the high watermark in case it has gotten ahead of the log end offset
+    // following a truncation.
+    if (highWatermark > messageOffset) {
+      updateHighWatermarkMetadata(nextOffsetMetadata)
+    }
   }
 
   /**
@@ -761,7 +847,7 @@ class Log(@volatile var dir: File,
 
   private[log] def loadProducerState(lastOffset: Long, reloadFromCleanShutdown: Boolean): Unit = lock synchronized {
     rebuildProducerState(lastOffset, reloadFromCleanShutdown, producerStateManager)
-    updateFirstUnstableOffset(localLogStartOffset)
+    maybeIncrementFirstUnstableOffset(localLogStartOffset)
   }
 
   private def loadProducersFromLog(producerStateManager: ProducerStateManager, records: Records): Unit = {
@@ -1066,7 +1152,7 @@ class Log(@volatile var dir: File,
         producerStateManager.updateMapEndOffset(appendInfo.lastOffset + 1)
 
         // update the first unstable offset (which is used to compute LSO)
-        updateFirstUnstableOffset(localLogStartOffset)
+        maybeIncrementFirstUnstableOffset(localLogStartOffset)
 
         trace(s"Appended message set with last offset: ${appendInfo.lastOffset}, " +
           s"first offset: ${appendInfo.firstOffset}, " +
@@ -1115,8 +1201,9 @@ class Log(@volatile var dir: File,
    * is the local log start as we do not currently tier past the LSO.
    * @param logStartOffset log start offset
    */
-  def updateFirstUnstableOffset(logStartOffset: Long): Unit = lock synchronized {
+  def maybeIncrementFirstUnstableOffset(logStartOffset: Long): Unit = lock synchronized {
     checkIfMemoryMappedBufferClosed()
+
     val updatedFirstStableOffset = producerStateManager.firstUnstableOffset match {
       case Some(logOffsetMetadata) if logOffsetMetadata.messageOffsetOnly || logOffsetMetadata.messageOffset < logStartOffset =>
         val offset = math.max(logOffsetMetadata.messageOffset, logStartOffset)
@@ -1140,9 +1227,9 @@ class Log(@volatile var dir: File,
       case other => other
     }
 
-    if (updatedFirstStableOffset != this.firstUnstableOffset) {
+    if (updatedFirstStableOffset != this.firstUnstableOffsetMetadata) {
       debug(s"First unstable offset updated to $updatedFirstStableOffset")
-      this.firstUnstableOffset = updatedFirstStableOffset
+      this.firstUnstableOffsetMetadata = updatedFirstStableOffset
     }
   }
 
@@ -1152,7 +1239,7 @@ class Log(@volatile var dir: File,
   def maybeIncrementLogStartOffset(newLogStartOffset: Long) {
     if (newLogStartOffset > highWatermark)
       throw new OffsetOutOfRangeException(s"Cannot increment the log start offset to $newLogStartOffset of partition $topicPartition " +
-        s"since it is larger than the high watermark ${highWatermark}")
+        s"since it is larger than the high watermark $highWatermark")
 
     // We don't have to write the log start offset to log-start-offset-checkpoint immediately.
     // The deleteRecordsOffset may be lost only if all in-sync replicas of this broker are shutdown
@@ -1164,7 +1251,7 @@ class Log(@volatile var dir: File,
           info(s"Incrementing log start offset to $newLogStartOffset")
           leaderEpochCache.foreach(_.truncateFromStart(newLogStartOffset))
           producerStateManager.truncateHead(newLogStartOffset)
-          updateFirstUnstableOffset(newLogStartOffset)
+          maybeIncrementFirstUnstableOffset(newLogStartOffset)
         }
       }
     }
@@ -1582,17 +1669,25 @@ class Log(@volatile var dir: File,
   }
 
   /**
+    * Given a message offset, find its corresponding offset metadata in the log.
+    * If the message offset is out of range, throw an OffsetOutOfRangeException
+    */
+  private def convertToOffsetMetadataOrThrow(offset: Long): LogOffsetMetadata = {
+    val fetchDataInfo = read(offset,
+      maxLength = 1,
+      maxOffset = None,
+      minOneMessage = false,
+      includeAbortedTxns = false)
+    fetchDataInfo.fetchOffsetMetadata
+  }
+
+  /**
    * Given a message offset, find its corresponding offset metadata in the log.
    * If the message offset is out of range, return None to the caller.
    */
   def convertToOffsetMetadata(offset: Long): Option[LogOffsetMetadata] = {
     try {
-      val fetchDataInfo = read(offset,
-        maxLength = 1,
-        maxOffset = None,
-        minOneMessage = false,
-        includeAbortedTxns = false)
-      Some(fetchDataInfo.fetchOffsetMetadata)
+      Some(convertToOffsetMetadataOrThrow(offset))
     } catch {
       case _: OffsetOutOfRangeException => None
     }
@@ -2037,7 +2132,7 @@ class Log(@volatile var dir: File,
 
         producerStateManager.truncate()
         producerStateManager.updateMapEndOffset(newOffset)
-        updateFirstUnstableOffset(newOffset)
+        maybeIncrementFirstUnstableOffset(newOffset)
 
         this.recoveryPoint = math.min(newOffset, this.recoveryPoint)
       }
@@ -2079,8 +2174,8 @@ class Log(@volatile var dir: File,
     logString.append(s"Log(dir=$dir")
     logString.append(s", topic=${topicPartition.topic}")
     logString.append(s", partition=${topicPartition.partition}")
-    logString.append(s", highWatermark=$highWatermarkMetadata")
-    logString.append(s", lastStableOffset=$lastStableOffsetMetadata")
+    logString.append(s", highWatermark=$highWatermark")
+    logString.append(s", lastStableOffset=$lastStableOffset")
     logString.append(s", localLogStartOffset=$localLogStartOffset")
     logString.append(s", mergedLogStartOffset=$mergedLogStartOffset")
     logString.append(s", logEndOffset=$logEndOffset")

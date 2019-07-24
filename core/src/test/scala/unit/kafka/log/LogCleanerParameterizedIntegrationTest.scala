@@ -101,7 +101,7 @@ class  LogCleanerParameterizedIntegrationTest(compressionCodec: String) extends 
       val messages = writeDups(numKeys = numKeys, numDups = 3, log = log, codec = codec)
       val startSize = log.size
 
-      log.highWatermark = log.logEndOffset
+      log.updateHighWatermark(log.logEndOffset)
 
       val firstDirty = log.activeSegment.baseOffset
       cleaner.startup()

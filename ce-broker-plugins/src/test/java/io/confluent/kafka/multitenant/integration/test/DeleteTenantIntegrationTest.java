@@ -37,6 +37,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -191,8 +192,21 @@ public class DeleteTenantIntegrationTest {
             TEST_MAX_WAIT_MS,
             "Expecting that the tenant topics were deleted");
 
+        // Wait for metadata to propagate on second cluster
+        TestUtils.waitForCondition(
+            () -> {
+              try {
+                return adminClient22.listTopics().names().get().size() > 0;
+              } catch (Exception e) {
+                return false;
+              }
+            },
+            TEST_MAX_WAIT_MS,
+            "Expecting non zero tenant topics count.");
+
         // Make sure the other cluster still has topics!
-        assertTrue(adminClient22.listTopics().names().get().containsAll(expectedTopics));
+        Set<String> topics = adminClient22.listTopics().names().get();
+        assertTrue("topics: " + topics + ", expected Topics: " + expectedTopics, topics.containsAll(expectedTopics));
     }
 
     @Test
