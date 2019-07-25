@@ -40,7 +40,13 @@ data:
       "long_lived_producer_count": 6,
       "short_lived_producer_count": 6,
       "long_lived_consumer_count": 6,
-      "short_lived_consumer_count": 6
+      "short_lived_consumer_count": 6,
+      "short_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      },
+      "long_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      }
     },
     {
       "name": "baseline_soak_medium_topic_25p",
@@ -51,7 +57,13 @@ data:
       "short_lived_producer_count": 2,
       "long_lived_consumer_count": 2,
       "short_lived_consumer_count": 2,
-      "idempotence_enabled": true
+      "idempotence_enabled": true,
+      "short_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      },
+      "long_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      }
     },
     {
       "name": "baseline_soak_eos_topic_100p",
@@ -62,7 +74,13 @@ data:
       "short_lived_producer_count": 2,
       "long_lived_consumer_count": 2,
       "short_lived_consumer_count": 2,
-      "transactions_enabled": true
+      "transactions_enabled": true,
+      "short_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      },
+      "long_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      }
     }
   ]
 }
@@ -81,7 +99,13 @@ data:
       "long_lived_producer_count": 6,
       "short_lived_producer_count": 6,
       "long_lived_consumer_count": 6,
-      "short_lived_consumer_count": 6
+      "short_lived_consumer_count": 6,
+      "short_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      },
+      "long_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      }
     }
   ]
 }
@@ -100,7 +124,13 @@ data:
       "long_lived_producer_count": 2,
       "short_lived_producer_count": 2,
       "long_lived_consumer_count": 2,
-      "short_lived_consumer_count": 2
+      "short_lived_consumer_count": 2,
+      "short_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      },
+      "long_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      }
     },
     {
       "name": "tenant_soak_low_bandwidth_topic_16p",
@@ -111,7 +141,13 @@ data:
       "short_lived_producer_count": 1,
       "long_lived_consumer_count": 1,
       "short_lived_consumer_count": 1,
-      "idempotence_enabled": true
+      "idempotence_enabled": true,
+      "short_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      },
+      "long_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      }
     }
   ]
 }
@@ -130,7 +166,13 @@ data:
       "long_lived_producer_count": 6,
       "short_lived_producer_count": 6,
       "long_lived_consumer_count": 6,
-      "short_lived_consumer_count": 6
+      "short_lived_consumer_count": 6,
+      "short_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      },
+      "long_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      }
     }
   ]
 }
