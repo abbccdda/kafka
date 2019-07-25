@@ -55,6 +55,6 @@ final public class TopicIdPartition {
 
     @Override
     public String toString() {
-        return topic() + "-" + topicIdAsBase64() + "-" + partition();
+        return topicIdAsBase64() + "-" + topic() + "-" + partition();
     }
 }
