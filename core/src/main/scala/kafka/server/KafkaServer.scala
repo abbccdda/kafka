@@ -45,7 +45,7 @@ import kafka.tier.fetcher.TierStateFetcher
 import kafka.tier.retention.TierRetentionManager
 import kafka.tier.topic.{TierTopicManager, TierTopicManagerConfig}
 import kafka.utils._
-import kafka.zk.{BrokerInfo, KafkaZkClient}
+import kafka.zk.{AdminZkClient, BrokerInfo, KafkaZkClient}
 import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, CommonClientConfigs, ManualMetadataUpdater, NetworkClient, NetworkClientUtils}
 import org.apache.kafka.common.config.SaslConfigs
 import org.apache.kafka.common.internals.ClusterResourceListeners
@@ -319,7 +319,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         /* tiered storage components */
         if (config.tierFeature) {
           val tierTopicManagerConfig = new TierTopicManagerConfig(config, tieredBootstrapServersSupplier, _clusterId)
-          tierTopicManager = new TierTopicManager(tierMetadataManager, tierTopicManagerConfig, tieredBootstrapServersSupplier, logDirFailureChannel, metrics)
+          tierTopicManager = new TierTopicManager(tierMetadataManager, tierTopicManagerConfig, adminZkClientSupplier, tieredBootstrapServersSupplier, logDirFailureChannel, metrics)
           tierTopicManager.startup()
 
           val tierArchiverConfig = TierArchiverConfig(config)
@@ -442,6 +442,12 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
     clientConfigs.put(SaslConfigs.SASL_MECHANISM, config.saslMechanismInterBrokerProtocol)
     clientConfigs.put(KafkaConfig.BrokerIdProp, config.brokerId.toString)
     clientConfigs
+  }
+
+  private def adminZkClientSupplier: Supplier[AdminZkClient] = {
+    new Supplier[AdminZkClient] {
+      override def get(): AdminZkClient = new AdminZkClient(_zkClient)
+    }
   }
 
   private def tieredBootstrapServersSupplier: Supplier[String] = {

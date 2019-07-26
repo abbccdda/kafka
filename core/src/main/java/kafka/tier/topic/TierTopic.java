@@ -5,8 +5,7 @@
 package kafka.tier.topic;
 
 import kafka.tier.TopicIdPartition;
-import kafka.tier.exceptions.TierTopicIncorrectPartitionCountException;
-import org.apache.kafka.clients.admin.AdminClient;
+import kafka.zk.AdminZkClient;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.internals.Topic;
 
@@ -18,24 +17,29 @@ import java.util.stream.Collectors;
 
 public class TierTopic {
     private final String topicName;
-    private final Supplier<AdminClient> adminClientSupplier;
+    private final Supplier<AdminZkClient> adminZkClientSupplier;
 
     private TierTopicPartitioner partitioner;
     private OptionalInt numPartitions = OptionalInt.empty();
 
-    public TierTopic(String tierNamespace, Supplier<AdminClient> adminClientSupplier) {
+    public TierTopic(String tierNamespace, Supplier<AdminZkClient> adminZkClientSupplier) {
         this.topicName = topicName(tierNamespace);
-        this.adminClientSupplier = adminClientSupplier;
+        this.adminZkClientSupplier = adminZkClientSupplier;
     }
 
-    public boolean ensureTopic(int numPartitions,
-                               short replicationFactor) throws TierTopicIncorrectPartitionCountException, InterruptedException {
-        try (AdminClient adminClient = adminClientSupplier.get()) {
-            boolean created = TierTopicAdmin.ensureTopicCreated(adminClient, topicName, numPartitions, replicationFactor);
-            if (created)
-                setupPartitioner(numPartitions);
-            return created;
-        }
+    /**
+     * Check if tier topic exists. Create a new topic with the given configurations if it does not.
+     * @param configuredNumPartitions Configured number of partitions
+     * @param configuredReplicationFactor Configured replication factor
+     * @return Number of partitions in tier topic. Note that this may differ from the configured value if the topic
+     *         already exists.
+     * @throws Exception Caller is expected to handle any exceptions from the underlying zk client
+     */
+    public int ensureTopic(int configuredNumPartitions, short configuredReplicationFactor) {
+        int numPartitions = TierTopicAdmin.ensureTopic(adminZkClientSupplier.get(), topicName,
+                configuredNumPartitions, configuredReplicationFactor);
+        setupPartitioner(numPartitions);
+        return numPartitions;
     }
 
     /**

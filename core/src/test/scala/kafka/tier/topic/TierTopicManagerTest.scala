@@ -10,6 +10,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.Supplier
 import java.util.{Collections, Optional, Properties, UUID}
 
+import kafka.admin.AdminOperationException
 import kafka.log.LogConfig
 import kafka.server.LogDirFailureChannel
 import kafka.tier.client.{MockConsumerSupplier, MockProducerSupplier}
@@ -20,15 +21,16 @@ import kafka.tier.state.{FileTierPartitionStateFactory, TierPartitionStatus}
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
 import kafka.tier.{TierMetadataManager, TierTestUtils, TopicIdPartition}
 import kafka.utils.TestUtils
-import org.apache.kafka.clients.admin.{AdminClient, MockAdminClient}
+import kafka.zk.AdminZkClient
 import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.config.ConfluentTopicConfig
-import org.apache.kafka.common.errors.TimeoutException
+import org.apache.kafka.common.errors.{TimeoutException, TopicExistsException}
 import org.apache.kafka.common.utils.Utils
-import org.apache.kafka.common.{Node, TopicPartition}
+import org.apache.kafka.common.TopicPartition
 import org.junit.Assert._
 import org.junit.{After, Test}
+import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito._
 import org.scalatest.Assertions.assertThrows
 
@@ -64,11 +66,10 @@ class TierTopicManagerTest {
   private val catchupConsumerSupplier = new ConsumerSupplier("catchup",
     tierTopicPartitions,
     producerSupplier.producer)
-  private val adminClientSupplier = new Supplier[AdminClient] {
-    override def get(): AdminClient = {
-      val node = new Node(1, "localhost", 9092)
-      new MockAdminClient(Collections.singletonList(node), node)
-    }
+
+  private val adminZkClient = mock(classOf[AdminZkClient])
+  private val adminClientSupplier = new Supplier[AdminZkClient] {
+    override def get(): AdminZkClient = adminZkClient
   }
 
   private var files = List[File]()
@@ -455,7 +456,6 @@ class TierTopicManagerTest {
     }
   }
 
-
   @Test
   def testTrackAppendsBeforeReady(): Unit = {
     val tierTopicManager = createTierTopicManager(tierMetadataManager)
@@ -487,6 +487,48 @@ class TierTopicManagerTest {
     assertEquals(AppendResult.ACCEPTED, initLeaderResult_1.get)
     assertEquals(AppendResult.ACCEPTED, initLeaderResult_2.get)
     assertEquals(0, tierTopicManager.numResultListeners())
+  }
+
+  @Test
+  def testRetryOnUnknownExceptionDuringTopicCreation(): Unit = {
+    val tierTopicManager = createTierTopicManager(tierMetadataManager, becomeReady = false)
+    assertFalse(tierTopicManager.isReady)
+
+    // 1. first call to `createTopic` will throw `TimeoutException`
+    // 2. second call will throw `AdminOperationException`
+    // 3. third call will return without any exception
+    doThrow(new TimeoutException("timeout when creating topic"))
+        .doThrow(new AdminOperationException("admin operation exception"))
+        .doNothing()
+        .when(adminZkClient).createTopic(any(), any(), any(), any(), any(), any())
+
+    tierTopicManager.tryBecomeReady()
+    assertFalse(tierTopicManager.isReady)
+    verify(adminZkClient, times(1)).createTopic(any(), any(), any(), any(), any(), any())
+
+    tierTopicManager.tryBecomeReady()
+    assertFalse(tierTopicManager.isReady)
+    verify(adminZkClient, times(2)).createTopic(any(), any(), any(), any(), any(), any())
+
+    tierTopicManager.tryBecomeReady()
+    assertTrue(tierTopicManager.isReady)
+    verify(adminZkClient, times(3)).createTopic(any(), any(), any(), any(), any(), any())
+    assertEquals(tierTopicNumPartitions, tierTopicManager.tierTopic.numPartitions.getAsInt)
+  }
+
+  @Test
+  def testPartitionerSetupWhenTopicExists(): Unit = {
+    val existingPartitions = tierTopicNumPartitions - 2
+
+    val tierTopicManager = createTierTopicManager(tierMetadataManager, becomeReady = false)
+    assertFalse(tierTopicManager.isReady)
+
+    when(adminZkClient.createTopic(any(), any(), any(), any(), any(), any())).thenThrow(new TopicExistsException("topic exists"))
+    when(adminZkClient.numPartitions(Set(tierTopicName))).thenReturn(Map(tierTopicName -> existingPartitions))
+
+    tierTopicManager.tryBecomeReady()
+    assertTrue(tierTopicManager.isReady)
+    assertEquals(existingPartitions, tierTopicManager.tierTopic.numPartitions.getAsInt)
   }
 
   private def addReplica(tierMetadataManager: TierMetadataManager, topicIdPartition: TopicIdPartition): Unit = {

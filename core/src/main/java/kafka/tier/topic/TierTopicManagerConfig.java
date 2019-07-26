@@ -12,8 +12,8 @@ import java.util.function.Supplier;
 public class TierTopicManagerConfig {
     public final Supplier<String> bootstrapServersSupplier;
     public final String tierNamespace;
-    public final short numPartitions;
-    public final short replicationFactor;
+    public final short configuredNumPartitions;
+    public final short configuredReplicationFactor;
     public final int brokerId;
     public final String clusterId;
     public final Duration pollDuration;
@@ -23,8 +23,8 @@ public class TierTopicManagerConfig {
 
     public TierTopicManagerConfig(Supplier<String> bootstrapServersSupplier,
                                   String tierNamespace,
-                                  short numPartitions,
-                                  short replicationFactor,
+                                  short configuredNumPartitions,
+                                  short configuredReplicationFactor,
                                   int brokerId,
                                   String clusterId,
                                   Long pollDurationMs,
@@ -33,8 +33,8 @@ public class TierTopicManagerConfig {
                                   List<String> logDirs) {
         this.bootstrapServersSupplier = bootstrapServersSupplier;
         this.tierNamespace = tierNamespace;
-        this.numPartitions = numPartitions;
-        this.replicationFactor = replicationFactor;
+        this.configuredNumPartitions = configuredNumPartitions;
+        this.configuredReplicationFactor = configuredReplicationFactor;
         this.brokerId = brokerId;
         this.clusterId = clusterId;
         this.pollDuration = Duration.ofMillis(pollDurationMs);

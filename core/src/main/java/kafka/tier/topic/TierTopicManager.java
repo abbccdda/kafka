@@ -8,7 +8,6 @@ import kafka.server.LogDirFailureChannel;
 import kafka.tier.TierMetadataManager;
 import kafka.tier.TierTopicManagerCommitter;
 import kafka.tier.TopicIdPartition;
-import kafka.tier.client.TierTopicAdminClientSupplier;
 import kafka.tier.client.TierTopicConsumerSupplier;
 import kafka.tier.client.TierTopicProducerSupplier;
 import kafka.tier.domain.AbstractTierMetadata;
@@ -17,11 +16,10 @@ import kafka.tier.domain.TierTopicInitLeader;
 import kafka.tier.exceptions.TierMetadataDeserializationException;
 import kafka.tier.exceptions.TierMetadataFatalException;
 import kafka.tier.exceptions.TierMetadataRetriableException;
-import kafka.tier.exceptions.TierTopicIncorrectPartitionCountException;
 import kafka.tier.state.TierPartitionState;
 import kafka.tier.state.TierPartitionState.AppendResult;
 import kafka.tier.state.TierPartitionStatus;
-import org.apache.kafka.clients.admin.AdminClient;
+import kafka.zk.AdminZkClient;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -37,15 +35,15 @@ import org.apache.kafka.common.utils.KafkaThread;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Arrays;
-import java.util.HashMap;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.HashSet;
 import java.util.Set;
-import java.util.Collections;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -99,7 +97,7 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
      * @param primaryConsumerSupplier supplier for primary consumer instances
      * @param catchupConsumerSupplier supplier for catchup consumer instances
      * @param producerSupplier supplier for producer instances
-     * @param adminClientSupplier supplier for admin client instances
+     * @param adminZkClientSupplier supplier for admin zk client
      * @param bootstrapServersSupplier supplier for bootstrap server
      * @param tierMetadataManager TierMetadataManager instance
      * @param logDirFailureChannel log dir failure channel instance
@@ -108,7 +106,7 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
                             Supplier<Consumer<byte[], byte[]>> primaryConsumerSupplier,
                             Supplier<Consumer<byte[], byte[]>> catchupConsumerSupplier,
                             Supplier<Producer<byte[], byte[]>> producerSupplier,
-                            Supplier<AdminClient> adminClientSupplier,
+                            Supplier<AdminZkClient> adminZkClientSupplier,
                             Supplier<String> bootstrapServersSupplier,
                             TierMetadataManager tierMetadataManager,
                             LogDirFailureChannel logDirFailureChannel) {
@@ -120,7 +118,7 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
         this.bootstrapServersSupplier = bootstrapServersSupplier;
         this.committer = new TierTopicManagerCommitter(config, tierMetadataManager, logDirFailureChannel, shutdownInitiated);
 
-        this.tierTopic = new TierTopic(config.tierNamespace, adminClientSupplier);
+        this.tierTopic = new TierTopic(config.tierNamespace, adminZkClientSupplier);
         this.primaryConsumerSupplier = primaryConsumerSupplier;
         this.producerSupplier = producerSupplier;
 
@@ -150,13 +148,15 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
     /**
      * Primary public constructor for TierTopicManager.
      *
-     * @param tierMetadataManager Tier Metadata Manager instance
-     * @param config              TierTopicManagerConfig containing tiering configuration.
+     * @param tierMetadataManager TierMetadataManager instance
+     * @param config TierTopicManagerConfig containing tiering configuration.
+     * @param adminZkClientSupplier Supplier for admin zk client
      * @param logDirFailureChannel Log dir failure channel
-     * @param metrics             kafka metrics to track TierTopicManager metrics
+     * @param metrics Kafka metrics to track TierTopicManager metrics
      */
     public TierTopicManager(TierMetadataManager tierMetadataManager,
                             TierTopicManagerConfig config,
+                            Supplier<AdminZkClient> adminZkClientSupplier,
                             Supplier<String> bootstrapServersSupplier,
                             LogDirFailureChannel logDirFailureChannel,
                             Metrics metrics) {
@@ -164,7 +164,7 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
                 new TierTopicConsumerSupplier(config, "primary"),
                 new TierTopicConsumerSupplier(config, "catchup"),
                 new TierTopicProducerSupplier(config),
-                new TierTopicAdminClientSupplier(config),
+                adminZkClientSupplier,
                 bootstrapServersSupplier,
                 tierMetadataManager,
                 logDirFailureChannel);
@@ -523,37 +523,27 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
      * topic if it has not been created yet, and check that the topic has the expected number of
      * partitions. It will then call startProduceConsume, which will setup tier topic producer and consumers.
      * @return boolean for whether TierTopicManager moved to ready state
-     * @throws InterruptedException when thread is interrupted
      *
      * visible for testing
      */
-    public boolean tryBecomeReady() throws InterruptedException {
-        try {
-            if (bootstrapServersSupplier.get().isEmpty()) {
-                log.warn("Could not resolve bootstrap server. Will retry.");
-                return false;
-            }
-
-            // ensure tier topic is created; create one if not
-            boolean topicCreated = tierTopic.ensureTopic(config.numPartitions, config.replicationFactor);
-
-            if (topicCreated) {
-                startProduceConsume();
-                return true;
-            } else {
-                log.warn("Failed to ensure tier topic has been created. Will retry.");
-                return false;
-            }
-        } catch (TierTopicIncorrectPartitionCountException e) {
-            // Clients may fetch an incomplete set of topic partitions during startup.
-            // We will treat an incorrect partition count as retriable, and let the
-            // TierTopicManager backoff without becoming ready rather than throwing a fatal
-            // exception until these issues are resolved.
-            // https://issues.apache.org/jira/browse/KAFKA-8480
-            // https://issues.apache.org/jira/browse/KAFKA-8481
-            log.warn("Retriable error encountered checking for tier topic partition count", e);
+    public boolean tryBecomeReady() {
+        // wait until we have a non-empty bootstrap server
+        if (bootstrapServersSupplier.get().isEmpty()) {
+            log.info("Could not resolve bootstrap server. Will retry.");
             return false;
         }
+
+        // ensure tier topic is created; create one if not
+        try {
+            tierTopic.ensureTopic(config.configuredNumPartitions, config.configuredReplicationFactor);
+        } catch (Exception e) {
+            log.info("Caught exception when ensuring tier topic is created. Will retry.", e);
+            return false;
+        }
+
+        // start producer and consumer
+        startProduceConsume();
+        return true;
     }
 
     /**

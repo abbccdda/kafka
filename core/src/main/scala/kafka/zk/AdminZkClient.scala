@@ -441,5 +441,15 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
       .map(entityPath => (entityPath, fetchEntityConfig(rootEntityType, entityPath))).toMap
   }
 
+  /**
+    * Gets the partitions for the given topics
+    * @param topics the topics whose partitions we wish to get.
+    * @return the partition count for each topic from the given topics.
+    */
+  def numPartitions(topics: Set[String]): Map[String, Int] = {
+    zkClient.getPartitionsForTopics(topics).map { case (topic, partitions) =>
+      (topic, partitions.size)
+    }
+  }
 }
 

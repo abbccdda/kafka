@@ -21,8 +21,8 @@ import kafka.tier.store.TierObjectStore.FileType
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStore, TierObjectStoreConfig}
 import kafka.tier.topic.{TierTopic, TierTopicManager, TierTopicManagerConfig}
 import kafka.utils.{MockTime, TestUtils}
-import org.apache.kafka.clients.admin.{AdminClient, MockAdminClient}
-import org.apache.kafka.common.{Node, TopicPartition}
+import kafka.zk.AdminZkClient
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record.MemoryRecords.RecordFilter
 import org.apache.kafka.common.record._
 import org.easymock.EasyMock
@@ -377,12 +377,11 @@ class TierIntegrationTest {
   private def setupTierTopicManager(tierMetadataManager: TierMetadataManager): (TierTopicManager, MockConsumerSupplier[Array[Byte], Array[Byte]]) = {
     val producerSupplier = new MockProducerSupplier[Array[Byte], Array[Byte]]()
     val consumerSupplier = new MockConsumerSupplier[Array[Byte], Array[Byte]]("primary",
-      TierTopicManager.partitions(TierTopic.topicName(tierTopicManagerConfig.tierNamespace), tierTopicManagerConfig.numPartitions),
+      TierTopicManager.partitions(TierTopic.topicName(tierTopicManagerConfig.tierNamespace), tierTopicManagerConfig.configuredNumPartitions),
       producerSupplier.producer)
 
-    val node = new Node(1, "localhost", 9092)
-    val adminClientSupplier = new Supplier[AdminClient] {
-      override def get(): AdminClient = new MockAdminClient(Collections.singletonList(node), node)
+    val adminZkClientSupplier = new Supplier[AdminZkClient] {
+      override def get(): AdminZkClient = mock(classOf[AdminZkClient])
     }
 
     val tierTopicManager = new TierTopicManager(
@@ -390,7 +389,7 @@ class TierIntegrationTest {
       consumerSupplier,
       consumerSupplier,
       producerSupplier,
-      adminClientSupplier,
+      adminZkClientSupplier,
       bootstrapSupplier,
       tierMetadataManager,
       EasyMock.mock(classOf[LogDirFailureChannel]))

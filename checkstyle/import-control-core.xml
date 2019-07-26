@@ -106,6 +106,7 @@
       <allow class="kafka.log.Log" />
     </subpackage>
     <subpackage name="topic">
+      <allow class="kafka.zk.AdminZkClient" />
       <allow class="kafka.tier.TierMetadataManager" />
       <allow class="kafka.tier.TierTopicManagerCommitter" />
     </subpackage>

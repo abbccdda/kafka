@@ -2,15 +2,15 @@ package kafka.tier.topic
 
 import java.time.Duration
 import java.util
-import java.util.{Collections, Optional}
+import java.util.Optional
 import java.util.function.Supplier
 
-import kafka.tier.{TierMetadataManager, TierTestUtils, TopicIdPartition}
 import kafka.tier.client.{MockConsumerSupplier, MockProducerSupplier}
 import kafka.tier.state.{TierPartitionState, TierPartitionStatus}
-import org.apache.kafka.clients.admin.{AdminClient, MockAdminClient}
+import kafka.tier.{TierMetadataManager, TierTestUtils, TopicIdPartition}
+import kafka.zk.AdminZkClient
 import org.apache.kafka.clients.consumer.Consumer
-import org.apache.kafka.common.{Node, TopicPartition}
+import org.apache.kafka.common.TopicPartition
 import org.junit.Assert._
 import org.junit.{Before, Test}
 import org.mockito.Mockito.{mock, times, verify, when}
@@ -24,13 +24,12 @@ class TierCatchupConsumerTest {
   private val topicPartitionStates = setupTopicPartitionStates(topicIdPartitions, TierPartitionStatus.CATCHUP)
 
   private val numPartitions = 5.toShort
-  private val adminClientSupplier = new Supplier[AdminClient] {
-    override def get(): AdminClient = {
-      val node = new Node(1, "localhost", 9092)
-      new MockAdminClient(Collections.singletonList(node), node)
+  private val adminZkClientSupplier = new Supplier[AdminZkClient] {
+    override def get(): AdminZkClient = {
+      mock(classOf[AdminZkClient])
     }
   }
-  private val tierTopic = new TierTopic("namespace", adminClientSupplier)
+  private val tierTopic = new TierTopic("namespace", adminZkClientSupplier)
 
   private val producerSupplier = new MockProducerSupplier[Array[Byte], Array[Byte]]()
   private val consumerSupplier = new MockConsumerSupplier[Array[Byte], Array[Byte]]("catchup",
