@@ -6,7 +6,6 @@ package kafka.tier.topic;
 
 import kafka.tier.exceptions.TierTopicIncorrectPartitionCountException;
 import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.CreateTopicsResult;
 import org.apache.kafka.clients.admin.DescribeTopicsResult;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -20,7 +19,6 @@ import org.slf4j.LoggerFactory;
 import java.util.AbstractMap;
 import java.util.Collections;
 import java.util.Map;
-import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -33,27 +31,6 @@ public class TierTopicAdmin {
                     new AbstractMap.SimpleEntry<>(TopicConfig.RETENTION_MS_CONFIG, "-1"),
                     new AbstractMap.SimpleEntry<>(TopicConfig.RETENTION_BYTES_CONFIG, "-1"))
                     .collect(Collectors.toMap(e -> e.getKey(), e -> e.getValue())));
-
-    /**
-     * Create Tier Topic if one does not exist.
-     * @param bootstrapServers Bootstrap Servers for the brokers where Tier Topic should be stored.
-     * @param topicName The Tier Topic topic name.
-     * @param partitions The number of partitions for the Tier Topic.
-     * @param replication The replication factor for the Tier Topic.
-     * @return boolean denoting whether the operation succeeded (true if topic already existed)
-     * @throws KafkaException
-     * @throws InterruptedException
-     */
-     public static boolean ensureTopicCreated(String bootstrapServers, String topicName,
-                                              int partitions, short replication) throws KafkaException,
-             TierTopicIncorrectPartitionCountException, InterruptedException {
-        Properties properties = new Properties();
-        properties.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 30000);
-        properties.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        try (AdminClient admin = AdminClient.create(properties)) {
-            return ensureTopicCreated(admin, topicName, partitions, replication);
-        }
-    }
 
     /**
      * Create the tier state topic if one does not exist.
@@ -69,8 +46,7 @@ public class TierTopicAdmin {
      */
     static boolean ensureTopicCreated(AdminClient admin, String topicName, int partitions, short replication)
             throws TierTopicIncorrectPartitionCountException, InterruptedException {
-        log.debug("creating tier topic {} with partitions={}, replicationFactor={}",
-                topicName, partitions, replication);
+        log.debug("creating tier topic {} with partitions={}, replicationFactor={}", topicName, partitions, replication);
         try {
             // we can't simply create the tier topic and check whether it already exists
             // as creation may be rejected if # live brokers < replication factor,
@@ -79,9 +55,7 @@ public class TierTopicAdmin {
             if (topicExists(admin, topicName, partitions)) {
                 return true;
             } else {
-                NewTopic newTopic =
-                        new NewTopic(topicName, partitions, replication)
-                                .configs(TIER_TOPIC_CONFIG);
+                NewTopic newTopic = new NewTopic(topicName, partitions, replication).configs(TIER_TOPIC_CONFIG);
                 CreateTopicsResult result = admin.createTopics(Collections.singletonList(newTopic));
                 result.values().get(topicName).get();
                 return true;

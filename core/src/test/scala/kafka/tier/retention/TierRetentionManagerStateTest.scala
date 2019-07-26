@@ -10,7 +10,8 @@ import kafka.tier.domain.{TierSegmentDeleteComplete, TierSegmentDeleteInitiate}
 import kafka.tier.retention.TierRetentionManager.InitiateDelete
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
-import kafka.tier.{TierMetadataManager, TierTopicManager, TopicIdPartition}
+import kafka.tier.topic.TierTopicManager
+import kafka.tier.{TierMetadataManager, TopicIdPartition}
 import kafka.utils.{MockTime, TestUtils}
 import org.junit.Assert.{assertThrows, assertTrue}
 import org.junit.function.ThrowingRunnable

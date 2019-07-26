@@ -16,8 +16,9 @@ import kafka.tier.domain.AbstractTierMetadata
 import kafka.tier.state.FileTierPartitionStateFactory
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
-import kafka.tier.{TierMetadataManager, TierTopicManager, TopicIdPartition}
+import kafka.tier.{TierMetadataManager, TopicIdPartition}
 import kafka.tier.domain.TierTopicInitLeader
+import kafka.tier.topic.TierTopicManager
 import kafka.utils.{MockTime, TestUtils}
 import org.junit.{After, Before, Test}
 import org.junit.Assert.{assertEquals, assertTrue}

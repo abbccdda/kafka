@@ -25,7 +25,7 @@ import kafka.common._
 import kafka.controller.KafkaController.ElectLeadersCallback
 import kafka.metrics.{KafkaMetricsGroup, KafkaTimer}
 import kafka.server._
-import kafka.tier.TierTopicManager
+import kafka.tier.topic.TierTopicManager
 import kafka.utils._
 import kafka.zk.KafkaZkClient.UpdateLeaderAndIsrResult
 import kafka.zk._

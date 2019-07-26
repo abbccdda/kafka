@@ -22,9 +22,9 @@ import java.util.{Properties, UUID}
 import kafka.cluster.{Broker, EndPoint}
 import kafka.log.LogConfig
 import kafka.server.KafkaConfig
-import kafka.tier.TierTopicManager
 import kafka.tier.exceptions.TierMetadataRetriableException
 import kafka.tier.state.TierPartitionState.AppendResult
+import kafka.tier.topic.TierTopicManager
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.network.ListenerName

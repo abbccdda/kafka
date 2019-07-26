@@ -2,8 +2,9 @@
  Copyright 2018 Confluent Inc.
  */
 
-package kafka.tier;
+package kafka.tier.topic;
 
+import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.AbstractTierMetadata;
 import kafka.tier.state.TierPartitionState;
 import java.util.concurrent.CompletableFuture;

@@ -13,6 +13,7 @@ import kafka.server.KafkaServer
 import kafka.tier.domain.{TierSegmentUploadComplete, TierSegmentUploadInitiate}
 import kafka.tier.state.TierPartitionState
 import kafka.tier.state.TierPartitionState.AppendResult
+import kafka.tier.topic.TierTopicManager
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.internals.Topic
@@ -114,5 +115,21 @@ object TierTestUtils {
       val uploadComplete = new TierSegmentUploadComplete(uploadInitiate)
       tierPartitionState.append(uploadComplete)
     }
+  }
+
+  def randomTopicIdPartitions(numTopicUpperBound: Int, numPartitionUpperBound: Int): Set[TopicIdPartition] = {
+    var topicPartitions = Set[TopicIdPartition]()
+    val numTopics = TestUtils.random.nextInt(numTopicUpperBound) + 1
+
+    for (_ <- 0 until numTopics) {
+      val numPartitions = TestUtils.random.nextInt(numPartitionUpperBound) + 1
+      val topicId = UUID.randomUUID
+      val topicName = TestUtils.tempTopic()
+
+      for (partition <- 0 until numPartitions)
+        topicPartitions += new TopicIdPartition(topicName, topicId, partition)
+    }
+
+    topicPartitions
   }
 }

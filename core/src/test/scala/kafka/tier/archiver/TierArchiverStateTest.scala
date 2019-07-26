@@ -19,7 +19,8 @@ import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.state.{FileTierPartitionState, FileTierPartitionStateFactory, TierPartitionState}
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
-import kafka.tier.{TierMetadataManager, TierTestUtils, TierTopicManager, TopicIdPartition}
+import kafka.tier.topic.TierTopicManager
+import kafka.tier.{TierMetadataManager, TierTestUtils, TopicIdPartition}
 import kafka.utils.{MockTime, TestUtils}
 import org.apache.kafka.common.utils.Time
 import org.junit.Assert.assertTrue
@@ -73,13 +74,9 @@ class TierArchiverStateTest {
     val properties = new Properties()
     properties.put(KafkaConfig.TierEnableProp, "true")
 
-    tierTopicManager.becomeReady("fakebootstrap")
-
     tierMetadataManager.initState(topicIdPartition.topicPartition, new File(logDirs.get(0)), new LogConfig(properties))
     tierMetadataManager.becomeLeader(topicIdPartition.topicPartition(), 1)
     tierMetadataManager.ensureTopicIdPartition(topicIdPartition)
-
-    while (tierTopicManager.doWork()) {}
 
     val tierObjectStore = new MockInMemoryTierObjectStore(objectStoreConfig)
     val replicaManager = mock(classOf[ReplicaManager])

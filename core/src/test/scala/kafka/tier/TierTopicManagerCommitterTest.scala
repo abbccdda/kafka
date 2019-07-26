@@ -6,9 +6,11 @@ import java.io.FileWriter
 import java.util
 import java.util.{Collections, UUID}
 import java.util.concurrent.CountDownLatch
+import java.util.function.Supplier
 
 import kafka.server.LogDirFailureChannel
 import kafka.tier.state.TierPartitionState
+import kafka.tier.topic.TierTopicManagerConfig
 import kafka.utils.TestUtils
 import org.easymock.EasyMock
 import org.junit.Assert._
@@ -51,7 +53,9 @@ class TierTopicManagerCommitterTest {
     val file = new File(logDir)
     file.mkdir()
     val tierTopicManagerConfig = new TierTopicManagerConfig(
-      "bootstrap",
+      new Supplier[String] {
+        override def get(): String = "bootstrap"
+      },
       null,
       1,
       1,

@@ -10,12 +10,13 @@ import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ExecutorServi
 
 import kafka.log.{AbstractLog, LogTest}
 import kafka.server.{BrokerTopicStats, KafkaConfig, ReplicaManager}
-import kafka.tier.{TierTopicAppender, TopicIdPartition}
+import kafka.tier.TopicIdPartition
 import kafka.tier.domain.{AbstractTierMetadata, TierTopicInitLeader}
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.{FileTierPartitionState, TierPartitionState}
 import kafka.tier.store.TierObjectStore.FileType
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
+import kafka.tier.topic.TierTopicAppender
 import kafka.utils.{MockTime, TestUtils}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record.SimpleRecord

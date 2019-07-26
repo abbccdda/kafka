@@ -14,7 +14,6 @@ import kafka.log.{AbstractLog, LogSegment, OffsetIndex, ProducerStateManager, Ti
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.ReplicaManager
 import kafka.server.epoch.LeaderEpochFileCache
-import kafka.tier.TierTopicManager
 import kafka.tier.domain.{TierObjectMetadata, TierSegmentUploadComplete, TierSegmentUploadInitiate}
 import kafka.tier.exceptions.{TierMetadataRetriableException, TierObjectStoreRetriableException}
 import kafka.tier.fetcher.CancellationContext
@@ -23,6 +22,7 @@ import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
 import kafka.tier.TopicIdPartition
 import kafka.tier.archiver.ArchiveTask.SegmentDeletedException
+import kafka.tier.topic.TierTopicManager
 import kafka.utils.TestUtils
 import org.apache.kafka.common.record.FileRecords
 import org.apache.kafka.common.utils.{MockTime, Time}

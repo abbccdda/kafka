@@ -15,9 +15,10 @@ import kafka.tier.exceptions.TierArchiverFencedException
 import kafka.tier.retention.TierRetentionManager.InitiateDelete
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
-import kafka.tier.{TierMetadataManager, TierTopicManager, TopicIdPartition}
+import kafka.tier.{TierMetadataManager, TopicIdPartition}
 import kafka.utils.{Logging, Scheduler, threadsafe}
 import kafka.metrics.KafkaMetricsGroup
+import kafka.tier.topic.TierTopicManager
 import org.apache.kafka.common.errors.RetriableException
 import org.apache.kafka.common.utils.Time
 

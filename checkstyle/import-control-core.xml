@@ -80,6 +80,9 @@
     <subpackage name="client">
       <allow pkg="kafka.tier" />
     </subpackage>
+    <subpackage name="domain">
+      <allow class="com.google.flatbuffers.FlatBufferBuilder" />
+    </subpackage>
     <subpackage name="fetcher">
       <allow class="kafka.server.DelayedOperation" />
       <allow class="kafka.server.checkpoints.LeaderEpochCheckpointBuffer" />
@@ -93,12 +96,6 @@
       <allow class="kafka.log.Log" />
       <allow class="kafka.log.LogSegment" />
     </subpackage>
-    <subpackage name="domain">
-      <allow class="com.google.flatbuffers.FlatBufferBuilder" />
-    </subpackage>
-    <subpackage name="domain">
-      <allow class="com.google.flatbuffers.FlatBufferBuilder" />
-    </subpackage>
     <subpackage name="state">
       <allow class="com.google.flatbuffers.FlatBufferBuilder" />
       <allow class="kafka.log.Log" />
@@ -107,6 +104,10 @@
     </subpackage>
     <subpackage name="tools">
       <allow class="kafka.log.Log" />
+    </subpackage>
+    <subpackage name="topic">
+      <allow class="kafka.tier.TierMetadataManager" />
+      <allow class="kafka.tier.TierTopicManagerCommitter" />
     </subpackage>
   </subpackage>
 

@@ -22,9 +22,10 @@ import java.util.function.BiConsumer
 
 import kafka.log.LogConfig
 import kafka.server.KafkaConfig
-import kafka.tier.{TierTopicManager, TopicIdPartition}
+import kafka.tier.TopicIdPartition
 import kafka.tier.domain.TierPartitionDeleteInitiate
 import kafka.tier.state.TierPartitionState.AppendResult
+import kafka.tier.topic.TierTopicManager
 import kafka.utils.Logging
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.TopicPartition

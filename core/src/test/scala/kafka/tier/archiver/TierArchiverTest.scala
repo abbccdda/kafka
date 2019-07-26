@@ -13,7 +13,8 @@ import kafka.log.{AbstractLog, LogSegment}
 import kafka.server.ReplicaManager
 import kafka.tier.state.TierPartitionState
 import kafka.tier.store.TierObjectStore
-import kafka.tier.{TierMetadataManager, TierTopicManager, TopicIdPartition}
+import kafka.tier.topic.TierTopicManager
+import kafka.tier.{TierMetadataManager, TopicIdPartition}
 import kafka.utils.{MockTime, TestUtils}
 import org.junit.Assert.assertEquals
 import org.junit.Test

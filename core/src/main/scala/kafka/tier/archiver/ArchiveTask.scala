@@ -14,12 +14,13 @@ import kafka.log.{AbortedTxn, AbstractLog, LogSegment}
 import kafka.server.ReplicaManager
 import kafka.server.checkpoints.LeaderEpochCheckpointFile
 import kafka.tier.archiver.ArchiveTask.SegmentDeletedException
-import kafka.tier.{TierTopicAppender, TopicIdPartition}
+import kafka.tier.TopicIdPartition
 import kafka.tier.domain.{TierSegmentUploadComplete, TierSegmentUploadInitiate}
 import kafka.tier.exceptions.{TierArchiverFatalException, TierArchiverFencedException, TierMetadataRetriableException, TierObjectStoreRetriableException}
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
+import kafka.tier.topic.TierTopicAppender
 import kafka.utils.Logging
 import org.apache.kafka.common.errors.RetriableException
 import org.apache.kafka.common.utils.Time

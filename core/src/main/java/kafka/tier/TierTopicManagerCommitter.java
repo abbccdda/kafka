@@ -6,6 +6,8 @@ package kafka.tier;
 
 import kafka.server.LogDirFailureChannel;
 import kafka.tier.state.TierPartitionState;
+import kafka.tier.topic.TierTopicManager;
+import kafka.tier.topic.TierTopicManagerConfig;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,10 +54,10 @@ public class TierTopicManagerCommitter implements Runnable {
      * @param logDirFailureChannel Log dir failure channel
      * @param managerShutdownLatch Shutdown latch to signal to the TierTopicManager that it's safe to shutdown
      */
-    TierTopicManagerCommitter(TierTopicManagerConfig config,
-                              TierMetadataManager tierMetadataManager,
-                              LogDirFailureChannel logDirFailureChannel,
-                              CountDownLatch managerShutdownLatch) {
+    public TierTopicManagerCommitter(TierTopicManagerConfig config,
+                                     TierMetadataManager tierMetadataManager,
+                                     LogDirFailureChannel logDirFailureChannel,
+                                     CountDownLatch managerShutdownLatch) {
         this.config = config;
         this.tierMetadataManager = tierMetadataManager;
         this.logDirFailureChannel = logDirFailureChannel;

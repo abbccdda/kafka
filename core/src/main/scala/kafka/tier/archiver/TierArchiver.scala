@@ -13,7 +13,8 @@ import kafka.metrics.KafkaMetricsGroup
 import kafka.server.{KafkaConfig, ReplicaManager}
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.store.TierObjectStore
-import kafka.tier.{TierMetadataManager, TierTopicAppender}
+import kafka.tier.topic.TierTopicAppender
+import kafka.tier.TierMetadataManager
 import kafka.utils.{Logging, ShutdownableThread}
 import org.apache.kafka.common.utils.{KafkaThread, Time}
 

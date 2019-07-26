@@ -2,14 +2,15 @@
  Copyright 2018 Confluent Inc.
  */
 
-package kafka.tier;
+package kafka.tier.topic;
 
 import kafka.server.KafkaConfig;
 import java.time.Duration;
 import java.util.List;
+import java.util.function.Supplier;
 
 public class TierTopicManagerConfig {
-    public final String bootstrapServers;
+    public final Supplier<String> bootstrapServersSupplier;
     public final String tierNamespace;
     public final short numPartitions;
     public final short replicationFactor;
@@ -20,7 +21,7 @@ public class TierTopicManagerConfig {
     public final Integer requestTimeoutMs;
     public final List<String> logDirs;
 
-    public TierTopicManagerConfig(String bootstrapServers,
+    public TierTopicManagerConfig(Supplier<String> bootstrapServersSupplier,
                                   String tierNamespace,
                                   short numPartitions,
                                   short replicationFactor,
@@ -30,7 +31,7 @@ public class TierTopicManagerConfig {
                                   Integer requestTimeoutMs,
                                   Integer commitIntervalMs,
                                   List<String> logDirs) {
-        this.bootstrapServers = bootstrapServers;
+        this.bootstrapServersSupplier = bootstrapServersSupplier;
         this.tierNamespace = tierNamespace;
         this.numPartitions = numPartitions;
         this.replicationFactor = replicationFactor;
@@ -42,9 +43,8 @@ public class TierTopicManagerConfig {
         this.logDirs = logDirs;
     }
 
-    public TierTopicManagerConfig(KafkaConfig config,
-                                  String clusterId) {
-        this(config.tierMetadataBootstrapServers(),
+    public TierTopicManagerConfig(KafkaConfig config, Supplier<String> bootstrapServersSupplier, String clusterId) {
+        this(bootstrapServersSupplier,
                 config.tierMetadataNamespace(),
                 config.tierMetadataNumPartitions(),
                 config.tierMetadataReplicationFactor(),

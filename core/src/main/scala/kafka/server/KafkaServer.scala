@@ -40,9 +40,10 @@ import kafka.tier.archiver.{TierArchiver, TierArchiverConfig}
 import kafka.tier.fetcher.{TierFetcher, TierFetcherConfig}
 import kafka.tier.state.FileTierPartitionStateFactory
 import kafka.tier.store.{MockInMemoryTierObjectStore, S3TierObjectStore, TierObjectStore, TierObjectStoreConfig}
-import kafka.tier.{TierMetadataManager, TierTopicManager, TierTopicManagerConfig}
+import kafka.tier.TierMetadataManager
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.tier.retention.TierRetentionManager
+import kafka.tier.topic.{TierTopicManager, TierTopicManagerConfig}
 import kafka.utils._
 import kafka.zk.{BrokerInfo, KafkaZkClient}
 import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, CommonClientConfigs, ManualMetadataUpdater, NetworkClient, NetworkClientUtils}
@@ -317,7 +318,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         /* tiered storage components */
         if (config.tierFeature) {
-          val tierTopicManagerConfig = new TierTopicManagerConfig(config, _clusterId)
+          val tierTopicManagerConfig = new TierTopicManagerConfig(config, tieredBootstrapServersSupplier, _clusterId)
           tierTopicManager = new TierTopicManager(tierMetadataManager, tierTopicManagerConfig, tieredBootstrapServersSupplier, logDirFailureChannel, metrics)
           tierTopicManager.startup()
 

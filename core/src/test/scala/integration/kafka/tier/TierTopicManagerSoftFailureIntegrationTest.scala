@@ -10,7 +10,9 @@ import java.util.Properties
 import javax.management.ObjectName
 import kafka.api.IntegrationTestHarness
 import kafka.server.KafkaConfig
+import kafka.tier.client.TierTopicProducerSupplier
 import kafka.utils.TestUtils
+import org.apache.kafka.clients.admin.ListTopicsOptions
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.internals.Topic
@@ -19,7 +21,7 @@ import org.junit.Assert.assertTrue
 
 import scala.collection.JavaConverters._
 
-class TierIntegrationTopicMangerSoftFailureTest extends IntegrationTestHarness {
+class TierTopicManagerSoftFailureIntegrationTest extends IntegrationTestHarness {
   override protected def brokerCount: Int = 1
   serverConfig.put(KafkaConfig.TierPartitionStateCommitIntervalProp, "5")
   serverConfig.put(KafkaConfig.TierBackendProp, "mock")
@@ -34,18 +36,19 @@ class TierIntegrationTopicMangerSoftFailureTest extends IntegrationTestHarness {
 
   @Test
   def testSoftFailure(): Unit = {
-    TestUtils.waitUntilTrue(() => servers.head.tierTopicManager.isReady, s"timeout waiting for TierTopicManager ready")
+    servers.foreach { server =>
+      TestUtils.waitUntilTrue(server.tierTopicManager.isReady, "timed out waiting for TierTopicManager to be ready")
+    }
 
     val properties = new Properties()
-    properties.put(ProducerConfig.CLIENT_ID_CONFIG, "__kafka.tiertopicmanager")
+    properties.put(ProducerConfig.CLIENT_ID_CONFIG, TierTopicProducerSupplier.clientId("clusterId", 0, 0))
     val producer = createProducer(configOverrides = properties)
     try {
       val keyBytes = new Array[Byte](Byte.MaxValue) // bad payload
       val valBytes = new Array[Byte](33)
       // force a deserialization error in the TierTopicManager
       producer.send(new ProducerRecord[Array[Byte],Array[Byte]](Topic.TIER_TOPIC_NAME, 0, 0L, keyBytes, valBytes)).get()
-    }
-    finally {
+    } finally {
       producer.close()
     }
 
