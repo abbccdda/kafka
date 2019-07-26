@@ -374,6 +374,27 @@ class LogTest {
     assertEquals(startOffset, log.logEndOffset)
   }
 
+  @Test
+  def testLogDelete(): Unit = {
+    val logConfig = LogTest.createLogConfig()
+    val log = createLog(logDir, logConfig)
+
+    for (i <- 0 to 100) {
+      val record = new SimpleRecord(mockTime.milliseconds, i.toString.getBytes)
+      log.appendAsLeader(TestUtils.records(List(record)), leaderEpoch = 0)
+      log.roll()
+    }
+
+    assertTrue(log.localLogSegments.size > 0)
+    assertFalse(logDir.listFiles.isEmpty)
+
+    // delete the log
+    log.delete()
+
+    assertEquals(0, log.localLogSegments.size)
+    assertFalse(logDir.exists)
+  }
+
   private def testProducerSnapshotsRecoveryAfterUncleanShutdown(messageFormatVersion: String): Unit = {
     val logConfig = LogTest.createLogConfig(segmentBytes = 64 * 10, messageFormatVersion = messageFormatVersion)
     var log = createLog(logDir, logConfig)
