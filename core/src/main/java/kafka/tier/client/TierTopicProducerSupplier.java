@@ -13,8 +13,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 public class TierTopicProducerSupplier implements Supplier<Producer<byte[], byte[]>> {
+    private static final String CLIENT_TYPE = "producer";
     private static final String SEPARATOR = "-";
-    private static final String CLIENT_ID_PREFIX = "__TierProducer";
 
     private final TierTopicManagerConfig config;
     private final AtomicInteger instanceId = new AtomicInteger(0);
@@ -29,12 +29,9 @@ public class TierTopicProducerSupplier implements Supplier<Producer<byte[], byte
         return new KafkaProducer<>(properties(config, clientId));
     }
 
-    public static boolean matches(String clientId) {
-        return clientId.startsWith(CLIENT_ID_PREFIX);
-    }
-
+    // visible for testing
     public static String clientId(String clusterId, int brokerId, long instanceId) {
-        return CLIENT_ID_PREFIX + SEPARATOR +
+        return TierTopicClient.clientIdPrefix(CLIENT_TYPE) + SEPARATOR +
                 clusterId + SEPARATOR +
                 brokerId + SEPARATOR +
                 instanceId;

@@ -13,8 +13,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 public class TierTopicConsumerSupplier implements Supplier<Consumer<byte[], byte[]>> {
+    private static final String CLIENT_TYPE = "consumer";
     private static final String SEPARATOR = "-";
-    private static final String CLIENT_ID_PREFIX = "__TierConsumer";
 
     private final TierTopicManagerConfig config;
     private final String clientIdSuffix;
@@ -27,7 +27,7 @@ public class TierTopicConsumerSupplier implements Supplier<Consumer<byte[], byte
 
     @Override
     public Consumer<byte[], byte[]> get() {
-        String clientId = clientId(config, instanceId.getAndIncrement(), clientIdSuffix);
+        String clientId = clientId(config.clusterId, config.brokerId, instanceId.getAndIncrement(), clientIdSuffix);
         return new KafkaConsumer<>(properties(config.bootstrapServersSupplier.get(), clientId));
     }
 
@@ -42,10 +42,11 @@ public class TierTopicConsumerSupplier implements Supplier<Consumer<byte[], byte
         return properties;
     }
 
-    private static String clientId(TierTopicManagerConfig config, int instanceId, String clientIdSuffix) {
-        return CLIENT_ID_PREFIX + SEPARATOR +
-                config.clusterId + SEPARATOR +
-                config.brokerId + SEPARATOR +
+    // visible for testing
+    static String clientId(String clusterId, int brokerId, int instanceId, String clientIdSuffix) {
+        return TierTopicClient.clientIdPrefix(CLIENT_TYPE) + SEPARATOR +
+                clusterId + SEPARATOR +
+                brokerId + SEPARATOR +
                 instanceId + SEPARATOR +
                 clientIdSuffix;
     }
