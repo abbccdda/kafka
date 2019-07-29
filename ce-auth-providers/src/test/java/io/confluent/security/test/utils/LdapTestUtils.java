@@ -15,7 +15,6 @@ import io.confluent.kafka.test.utils.SecurityTestUtils;
 import java.util.HashMap;
 import kafka.server.KafkaConfig$;
 import kafka.utils.TestUtils;
-import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.network.Mode;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
@@ -87,7 +86,6 @@ public class LdapTestUtils {
     for (Map.Entry<String, String> entry : ldapServer.ldapClientConfigs().entrySet()) {
       props.put(LdapConfig.CONFIG_PREFIX + entry.getKey(), entry.getValue());
     }
-    props.put(LdapConfig.CONFIG_PREFIX + SaslConfigs.SASL_KERBEROS_SERVICE_NAME, "ldap");
     props.put(LdapAuthorizer.LICENSE_PROP, LicenseTestUtils.generateLicense());
 
     // Due a to timing issue in Apache DS persistent search (https://issues.apache.org/jira/browse/DIRSERVER-2257),

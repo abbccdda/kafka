@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
@@ -200,6 +201,9 @@ public class LdapConfig extends AbstractConfig {
   public static final long JNDI_CONNECT_TIMEOUT_MS_DEFAULT = 30000;
   public static final long JNDI_READ_TIMEOUT_MS_DEFAULT = 30000;
 
+  private static final String SASL_KERBEROS_LDAP_SERVICE_NAME_DOC = "The Kerberos principal name"
+      + " that LDAP service runs as. The value is 'ldap' in all standard LDAP deployments.";
+
 
   static {
     CONFIG = new ConfigDef()
@@ -258,20 +262,33 @@ public class LdapConfig extends AbstractConfig {
             USER_DN_NAME_PATTERN_DEFAULT,
             Importance.LOW, USER_DN_NAME_PATTERN_DOC)
         .define(USER_PASSWORD_ATTRIBUTE_PROP, Type.STRING, null,
-            Importance.LOW, USER_PASSWORD_ATTRIBUTE_DOC);
+            Importance.LOW, USER_PASSWORD_ATTRIBUTE_DOC)
+        .define(CONFIG_PREFIX + SaslConfigs.SASL_KERBEROS_SERVICE_NAME, Type.STRING, "ldap",
+            Importance.LOW, SASL_KERBEROS_LDAP_SERVICE_NAME_DOC);
+
 
     // Add all SSL configs with Ldap prefix (we don't want to use base configs defined in the
     // broker, but we want to define these to configure SSL configs with consistent defaults).
     ConfigDef securityDefs = new ConfigDef();
     SslConfigs.addClientSslSupport(securityDefs);
     SaslConfigs.addClientSaslSupport(securityDefs);
-    securityDefs.configKeys().values().forEach(configKey ->
-        CONFIG.define(CONFIG_PREFIX + configKey.name,
-            configKey.type,
-            configKey.defaultValue,
-            configKey.validator,
-            configKey.importance,
-            configKey.documentation));
+    Set<String> unusedOrRedefinedSecurityConfigs = Utils.mkSet(
+        SaslConfigs.SASL_KERBEROS_SERVICE_NAME,            // Uses different default for LDAP
+        SaslConfigs.SASL_MECHANISM,                        // Specified in ldap.java.naming.security.authentication
+        SaslConfigs.SASL_CLIENT_CALLBACK_HANDLER_CLASS,    // Not supported for LDAP
+        SaslConfigs.SASL_LOGIN_REFRESH_BUFFER_SECONDS,     // Only for OAUTHBEARER, not supported
+        SaslConfigs.SASL_LOGIN_REFRESH_MIN_PERIOD_SECONDS, // Only for OAUTHBEARER, not supported
+        SaslConfigs.SASL_LOGIN_REFRESH_WINDOW_FACTOR,      // Only for OAUTHBEARER, not supported
+        SaslConfigs.SASL_LOGIN_REFRESH_WINDOW_JITTER);     // Only for OAUTHBEARER, not supported
+    securityDefs.configKeys().values()
+        .stream().filter(k -> !unusedOrRedefinedSecurityConfigs.contains(k.name))
+        .forEach(configKey ->
+            CONFIG.define(CONFIG_PREFIX + configKey.name,
+                configKey.type,
+                configKey.defaultValue,
+                configKey.validator,
+                configKey.importance,
+                configKey.documentation));
   }
 
   public enum SearchMode {
