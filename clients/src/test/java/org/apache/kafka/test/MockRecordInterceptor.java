@@ -4,6 +4,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.record.Record;
 import org.apache.kafka.server.interceptor.RecordInterceptor;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -28,6 +29,10 @@ public class MockRecordInterceptor implements RecordInterceptor {
     @Override
     public RecordInterceptorResponse onAppend(TopicPartition tp, Record record) {
         INTERCEPTED.add(record);
+
+        // for testing purposes
+        if (record.value().equals(ByteBuffer.wrap("reject me".getBytes())))
+            return RecordInterceptorResponse.REJECT;
 
         return RecordInterceptorResponse.ACCEPT;
     }

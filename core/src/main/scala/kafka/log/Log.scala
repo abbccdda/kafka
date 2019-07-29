@@ -218,6 +218,9 @@ class Log(@volatile var dir: File,
   /* last time it was flushed */
   private val lastFlushedTime = new AtomicLong(time.milliseconds)
 
+  // InterceptorMetrics instance to log metrics related to interceptor failure
+  private val interceptorStats = new InterceptorStats
+
   private[log] def setMergedLogStartOffsetCbk(callback: () => Long): Unit = {
     mergedLogStartOffsetCbk = callback
   }
@@ -816,6 +819,9 @@ class Log(@volatile var dir: File,
         logSegments.foreach(_.close())
       }
     }
+
+    // close the InterceptorMetrics group in registry
+    interceptorStats.close()
   }
 
   /**
@@ -928,9 +934,11 @@ class Log(@volatile var dir: File,
               config.messageTimestampType,
               config.messageTimestampDifferenceMaxMs,
               recordInterceptors,
+              interceptorStats,
               leaderEpoch,
               isFromClient,
-              interBrokerProtocolVersion)
+              interBrokerProtocolVersion,
+              brokerTopicStats)
           } catch {
             case e: IOException =>
               throw new KafkaException(s"Error validating messages while appending to log $name", e)
@@ -1265,7 +1273,13 @@ class Log(@volatile var dir: File,
       }
 
       // check the validity of the message by checking CRC
-      batch.ensureValid()
+      try {
+        batch.ensureValid()
+      } catch {
+        case e: InvalidRecordException =>
+          brokerTopicStats.topicStats(topicPartition.topic).invalidMessageCrcRecordsPerSec.mark()
+          throw e
+      }
 
       if (batch.maxTimestamp > maxTimestamp) {
         maxTimestamp = batch.maxTimestamp

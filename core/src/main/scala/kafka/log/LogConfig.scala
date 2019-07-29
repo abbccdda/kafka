@@ -286,7 +286,7 @@ object LogConfig {
         MEDIUM, UncleanLeaderElectionEnableDoc, KafkaConfig.UncleanLeaderElectionEnableProp)
       .define(MinInSyncReplicasProp, INT, Defaults.MinInSyncReplicas, atLeast(1), MEDIUM, MinInSyncReplicasDoc,
         KafkaConfig.MinInSyncReplicasProp)
-      .define(CompressionTypeProp, STRING, Defaults.CompressionType, in(BrokerCompressionCodec.brokerCompressionOptions:_*),
+      .define(CompressionTypeProp, STRING, Defaults.CompressionType, in(BrokerCompressionCodec.brokerCompressionOptions: _*),
         MEDIUM, CompressionTypeDoc, KafkaConfig.CompressionTypeProp)
       .define(PreAllocateEnableProp, BOOLEAN, Defaults.PreAllocateEnable, MEDIUM, PreAllocateEnableDoc,
         KafkaConfig.LogPreAllocateProp)
@@ -310,7 +310,7 @@ object LogConfig {
       .defineInternal(TierLocalHotsetMsProp, LONG, Defaults.TierLocalHotsetMs, MEDIUM, TierLocalHotsetMsDoc, KafkaConfig.TierLocalHotsetMsProp)
       .defineInternal(AppendRecordInterceptorClassesProp, LIST, Collections.emptyList(), LOW, AppendRecordInterceptorClassesDoc, AppendRecordInterceptorClassesProp)
 
-      /* --- End Internal Configurations --- */
+    /* --- End Internal Configurations --- */
   }
 
   def apply(): LogConfig = LogConfig(new Properties())
@@ -320,8 +320,8 @@ object LogConfig {
   def serverConfigName(configName: String): Option[String] = configDef.serverConfigName(configName)
 
   /**
-   * Create a log config instance using the given properties and defaults
-   */
+    * Create a log config instance using the given properties and defaults
+    */
   def fromProps(defaults: java.util.Map[_ <: Object, _ <: Object], overrides: Properties): LogConfig = {
     val props = new Properties()
     defaults.asScala.foreach { case (k, v) => props.put(k, v) }
@@ -331,11 +331,11 @@ object LogConfig {
   }
 
   /**
-   * Check that property names are valid
-   */
+    * Check that property names are valid
+    */
   def validateNames(props: Properties) {
     val names = configNames
-    for(name <- props.asScala.keys)
+    for (name <- props.asScala.keys)
       if (!names.contains(name))
         throw new InvalidConfigurationException(s"Unknown topic config name: $name")
   }
@@ -343,8 +343,8 @@ object LogConfig {
   private[kafka] def configKeys: Map[String, ConfigKey] = configDef.configKeys.asScala
 
   def validateValues(props: java.util.Map[_, _]): Unit = {
-    val minCompactionLag =  props.get(MinCompactionLagMsProp).asInstanceOf[Long]
-    val maxCompactionLag =  props.get(MaxCompactionLagMsProp).asInstanceOf[Long]
+    val minCompactionLag = props.get(MinCompactionLagMsProp).asInstanceOf[Long]
+    val maxCompactionLag = props.get(MaxCompactionLagMsProp).asInstanceOf[Long]
     if (minCompactionLag > maxCompactionLag) {
       throw new InvalidConfigurationException(s"conflict topic config setting $MinCompactionLagMsProp " +
         s"($minCompactionLag) > $MaxCompactionLagMsProp ($maxCompactionLag)")
@@ -352,8 +352,8 @@ object LogConfig {
   }
 
   /**
-   * Check that the given properties contain only valid log config names and that all values can be parsed and are valid
-   */
+    * Check that the given properties contain only valid log config names and that all values can be parsed and are valid
+    */
   def validate(props: Properties) {
     validateNames(props)
     val valueMaps = configDef.parse(props)
@@ -369,9 +369,9 @@ object LogConfig {
   }
 
   /**
-   * Map topic config to the broker config with highest priority. Some of these have additional synonyms
-   * that can be obtained using [[kafka.server.DynamicBrokerConfig#brokerConfigSynonyms]]
-   */
+    * Map topic config to the broker config with highest priority. Some of these have additional synonyms
+    * that can be obtained using [[kafka.server.DynamicBrokerConfig#brokerConfigSynonyms]]
+    */
   val TopicConfigSynonyms = Map(
     SegmentBytesProp -> KafkaConfig.LogSegmentBytesProp,
     SegmentMsProp -> KafkaConfig.LogRollTimeMillisProp,

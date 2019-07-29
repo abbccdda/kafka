@@ -23,6 +23,7 @@ import java.nio.file.{Files, Paths}
 import java.util.regex.Pattern
 import java.util.{Collections, Optional, Properties}
 
+import com.yammer.metrics.Metrics
 import kafka.api.{ApiVersion, KAFKA_0_11_0_IV0}
 import kafka.common.{OffsetsOutOfOrderException, UnexpectedAppendOffsetException}
 import kafka.log.Log.DeleteDirSuffix
@@ -58,6 +59,7 @@ class LogTest {
   val tmpDir = TestUtils.tempDir()
   val logDir = TestUtils.randomPartitionLogDir(tmpDir)
   val mockTime = new MockTime()
+  def metricsKeySet = Metrics.defaultRegistry.allMetrics.keySet.asScala
 
   @Before
   def setUp() {
@@ -122,6 +124,25 @@ class LogTest {
 
     assertEquals(1, MockRecordInterceptor.INTERCEPTED.size())
     assertEquals(classOf[MockRecordInterceptor].getName, MockRecordInterceptor.CONFIGURED.get(LogConfig.AppendRecordInterceptorClassesProp))
+  }
+
+  @Test
+  def testAppendSingleRecordRejectedByInterceptorMetricsLogged(): Unit = {
+    val log = createLog(logDir, LogTest.createLogConfig())
+
+    try {
+      log.appendAsLeader(MemoryRecords.withRecords(CompressionType.NONE,
+        new SimpleRecord(RecordBatch.NO_TIMESTAMP, "key".getBytes, "reject me".getBytes)), leaderEpoch = 0)
+      Assertions.fail("InvalidRecordException should have been thrown")
+    } catch {
+      case _: InvalidRecordException => // GOOD
+    }
+
+    assertEquals(metricsKeySet.count(_.getMBeanName.startsWith(
+      s"kafka.log:type=InterceptorMetrics," +
+      s"name=TotalRejectedRecordsPerSec," +
+      s"topic=${log.topicPartition.topic}," +
+      s"interceptorClassName=${classOf[MockRecordInterceptor].getName}")), 1)
   }
 
   /**
@@ -1623,20 +1644,24 @@ class LogTest {
       log.appendAsLeader(messageSetWithUnkeyedMessage, leaderEpoch = 0)
       fail("Compacted topics cannot accept a message without a key.")
     } catch {
-      case _: CorruptRecordException => // this is good
+      case _: InvalidRecordException => // this is good
     }
     try {
       log.appendAsLeader(messageSetWithOneUnkeyedMessage, leaderEpoch = 0)
       fail("Compacted topics cannot accept a message without a key.")
     } catch {
-      case _: CorruptRecordException => // this is good
+      case _: InvalidRecordException => // this is good
     }
     try {
       log.appendAsLeader(messageSetWithCompressedUnkeyedMessage, leaderEpoch = 0)
       fail("Compacted topics cannot accept a message without a key.")
     } catch {
-      case _: CorruptRecordException => // this is good
+      case _: InvalidRecordException => // this is good
     }
+
+    // check if metric for NoKeyCompactedTopicRecordsPerSec is logged
+    assertEquals(metricsKeySet.count(_.getMBeanName == s"kafka.server:type=BrokerTopicMetrics," +
+      s"name=NoKeyCompactedTopicRecordsPerSec,topic=${log.topicPartition.topic}"), 1)
 
     // the following should succeed without any InvalidMessageException
     log.appendAsLeader(messageSetWithKeyedMessage, leaderEpoch = 0)

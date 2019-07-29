@@ -20,10 +20,12 @@ import java.nio.ByteBuffer
 import java.util.Collections
 import java.util.concurrent.TimeUnit
 
+import com.yammer.metrics.Metrics
 import kafka.api.{ApiVersion, KAFKA_2_0_IV1, KAFKA_2_3_IV1}
 import kafka.common.LongRef
 import kafka.message._
 import org.apache.kafka.common.TopicPartition
+import kafka.server.BrokerTopicStats
 import org.apache.kafka.common.errors.{InvalidTimestampException, UnsupportedCompressionTypeException, UnsupportedForMessageFormatException}
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.utils.Time
@@ -31,6 +33,7 @@ import org.apache.kafka.server.interceptor.RecordInterceptor
 import org.apache.kafka.test.TestUtils
 import org.junit.Assert._
 import org.junit.Test
+import org.scalatest.Assertions
 import org.scalatest.Assertions.{assertThrows, intercept}
 
 import scala.collection.JavaConverters._
@@ -38,8 +41,10 @@ import scala.collection.JavaConverters._
 class LogValidatorTest {
 
   val time = Time.SYSTEM
-
   val topicPartition = new TopicPartition("topic", 0)
+  val brokerTopicStats = new BrokerTopicStats
+  val interceptorStats = new InterceptorStats
+  val metricsKeySet = Metrics.defaultRegistry.allMetrics.keySet.asScala
 
   @Test
   def testOnlyOneBatch(): Unit = {
@@ -78,9 +83,13 @@ class LogValidatorTest {
   }
 
   private def checkMismatchMagic(batchMagic: Byte, recordMagic: Byte, compressionType: CompressionType): Unit = {
-    assertThrows[InvalidRecordException] {
+    try {
       validateMessages(recordsWithInvalidInnerMagic(batchMagic, recordMagic, compressionType), batchMagic, compressionType, compressionType)
+      Assertions.fail("InvalidRecordException should have been thrown")
+    } catch {
+      case _: InvalidRecordException => // GOOD
     }
+    assertEquals(metricsKeySet.count(_.getMBeanName.startsWith("kafka.server:type=BrokerTopicMetrics,name=InvalidMagicNumberRecordsPerSec")), 1)
   }
 
   private def validateMessages(records: MemoryRecords, magic: Byte, sourceCompressionType: CompressionType, targetCompressionType: CompressionType): Unit = {
@@ -96,9 +105,11 @@ class LogValidatorTest {
       TimestampType.CREATE_TIME,
       1000L,
       Collections.emptyList[RecordInterceptor].asScala,
+      interceptorStats,
       RecordBatch.NO_PRODUCER_EPOCH,
       isFromClient = true,
-      KAFKA_2_3_IV1
+      KAFKA_2_3_IV1,
+      brokerTopicStats
     )
   }
 
@@ -123,9 +134,11 @@ class LogValidatorTest {
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
     val validatedRecords = validatedResults.validatedRecords
     assertEquals("message set size should not change", records.records.asScala.size, validatedRecords.records.asScala.size)
     validatedRecords.batches.asScala.foreach(batch => validateLogAppendTime(now, 1234L, batch))
@@ -163,9 +176,11 @@ class LogValidatorTest {
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
     val validatedRecords = validatedResults.validatedRecords
 
     assertEquals("message set size should not change", records.records.asScala.size, validatedRecords.records.asScala.size)
@@ -207,9 +222,11 @@ class LogValidatorTest {
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
     val validatedRecords = validatedResults.validatedRecords
 
     assertEquals("message set size should not change", records.records.asScala.size,
@@ -267,9 +284,11 @@ class LogValidatorTest {
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
   }
 
   @Test
@@ -311,9 +330,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats,
       partitionLeaderEpoch = partitionLeaderEpoch,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
     val validatedRecords = validatingResults.validatedRecords
 
     var i = 0
@@ -380,9 +401,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats,
       partitionLeaderEpoch = partitionLeaderEpoch,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
     val validatedRecords = validatingResults.validatedRecords
 
     var i = 0
@@ -433,9 +456,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
     val validatedRecords = validatedResults.validatedRecords
 
     for (batch <- validatedRecords.batches.asScala) {
@@ -477,9 +502,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
     val validatedRecords = validatedResults.validatedRecords
 
     for (batch <- validatedRecords.batches.asScala) {
@@ -534,9 +561,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = partitionLeaderEpoch,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
     val validatedRecords = validatedResults.validatedRecords
 
     var i = 0
@@ -587,9 +616,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
   }
 
   @Test(expected = classOf[InvalidTimestampException])
@@ -610,9 +641,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
   }
 
   @Test(expected = classOf[InvalidTimestampException])
@@ -633,9 +666,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
   }
 
   @Test(expected = classOf[InvalidTimestampException])
@@ -656,9 +691,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
   }
 
   @Test
@@ -678,9 +715,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion).validatedRecords, offset)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
 
   @Test
@@ -700,9 +739,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion).validatedRecords, offset)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
 
   @Test
@@ -723,9 +764,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion).validatedRecords
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats).validatedRecords
     checkOffsets(messageWithOffset, offset)
   }
 
@@ -747,9 +790,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion).validatedRecords
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats).validatedRecords
     checkOffsets(messageWithOffset, offset)
   }
 
@@ -772,9 +817,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion).validatedRecords
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats).validatedRecords
     checkOffsets(compressedMessagesWithOffset, offset)
   }
 
@@ -797,9 +844,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion).validatedRecords
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats).validatedRecords
     checkOffsets(compressedMessagesWithOffset, offset)
   }
 
@@ -820,9 +869,11 @@ class LogValidatorTest {
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
     checkOffsets(validatedResults.validatedRecords, offset)
     verifyRecordConversionStats(validatedResults.recordConversionStats, numConvertedRecords = 3, records,
       compressed = false)
@@ -845,9 +896,11 @@ class LogValidatorTest {
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
     checkOffsets(validatedResults.validatedRecords, offset)
     verifyRecordConversionStats(validatedResults.recordConversionStats, numConvertedRecords = 3, records,
       compressed = false)
@@ -870,9 +923,11 @@ class LogValidatorTest {
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
     checkOffsets(validatedResults.validatedRecords, offset)
     verifyRecordConversionStats(validatedResults.recordConversionStats, numConvertedRecords = 3, records,
       compressed = true)
@@ -895,9 +950,11 @@ class LogValidatorTest {
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
     checkOffsets(validatedResults.validatedRecords, offset)
     verifyRecordConversionStats(validatedResults.recordConversionStats, numConvertedRecords = 3, records,
       compressed = true)
@@ -920,9 +977,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
   }
 
   @Test
@@ -942,9 +1001,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = false,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
     val batches = TestUtils.toList(result.validatedRecords.batches)
     assertEquals(1, batches.size)
     val batch = batches.get(0)
@@ -969,9 +1030,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion).validatedRecords, offset)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
 
   @Test
@@ -992,9 +1055,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion).validatedRecords, offset)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
 
   @Test
@@ -1014,9 +1079,11 @@ class LogValidatorTest {
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion).validatedRecords, offset)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
 
   @Test
@@ -1036,9 +1103,11 @@ class LogValidatorTest {
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion).validatedRecords, offset)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
 
   @Test
@@ -1059,9 +1128,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion).validatedRecords, offset)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
 
   @Test
@@ -1082,9 +1153,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion).validatedRecords, offset)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
 
   @Test(expected = classOf[UnsupportedForMessageFormatException])
@@ -1107,9 +1180,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion).validatedRecords, offset)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
 
   @Test(expected = classOf[UnsupportedForMessageFormatException])
@@ -1132,9 +1207,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion).validatedRecords, offset)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
 
   @Test
@@ -1155,9 +1232,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion).validatedRecords, offset)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
 
   @Test
@@ -1178,9 +1257,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion).validatedRecords, offset)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
 
   @Test(expected = classOf[InvalidRecordException])
@@ -1205,9 +1286,11 @@ class LogValidatorTest {
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = KAFKA_2_0_IV1)
+      interBrokerProtocolVersion = KAFKA_2_0_IV1,
+      brokerTopicStats = brokerTopicStats)
   }
 
   @Test(expected = classOf[InvalidRecordException])
@@ -1242,9 +1325,11 @@ class LogValidatorTest {
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
       interceptors = Collections.emptyList().asScala,
+      interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
       isFromClient = true,
-      interBrokerProtocolVersion = ApiVersion.latestVersion)
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      brokerTopicStats = brokerTopicStats)
   }
 
   private def createRecords(magicValue: Byte,
