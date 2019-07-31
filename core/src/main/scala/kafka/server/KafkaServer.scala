@@ -101,6 +101,7 @@ object KafkaServer {
     logProps.put(LogConfig.TierLocalHotsetBytesProp, kafkaConfig.tierLocalHotsetBytes: java.lang.Long)
     logProps.put(LogConfig.TierLocalHotsetMsProp, kafkaConfig.tierLocalHotsetMs: java.lang.Long)
     logProps.put(LogConfig.AppendRecordInterceptorClassesProp, kafkaConfig.appendRecordInterceptors: util.List[RecordInterceptor])
+    logProps.put(LogConfig.SchemaValidationEnableProp, kafkaConfig.schemaValidationEnable: java.lang.Boolean)
     logProps
   }
 

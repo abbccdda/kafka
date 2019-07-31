@@ -37,4 +37,8 @@ public class ConfluentTopicConfig {
         "the records before they are appended from the produce request to the log at the Kafka broker. " +
         "By default, there are no interceptors.";
 
+    private static final String SCHEMA_VALIDATION = "schema.validation";
+
+    public static final String SCHEMA_VALIDATION_CONFIG = CONFLUENT_PREFIX + SCHEMA_VALIDATION;
+    public static final String SCHEMA_VALIDATION_DOC = "True if schema validation is enabled for this topic.";
 }

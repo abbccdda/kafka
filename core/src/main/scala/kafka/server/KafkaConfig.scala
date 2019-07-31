@@ -29,7 +29,7 @@ import kafka.utils.CoreUtils
 import kafka.utils.Implicits._
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.Reconfigurable
-import org.apache.kafka.common.config.ConfigDef.{ConfigKey, Type, ValidList}
+import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList}
 import org.apache.kafka.common.config.internals.{BrokerSecurityConfigs, ConfluentConfigs}
 import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, ConfluentTopicConfig, SaslConfigs, SslClientAuth, SslConfigs, TopicConfig}
 import org.apache.kafka.common.metrics.Sensor
@@ -476,6 +476,9 @@ object KafkaConfig {
 
   /** Tiered storage archiver configs **/
   val TierArchiverNumThreadsProp = ConfluentPrefix + "tier.archiver.num.threads"
+
+  /** Policy enforcement configs **/
+  val SchemaValidationEnableProp = ConfluentTopicConfig.SCHEMA_VALIDATION_CONFIG
 
   /** ********* Interceptor Configurations ***********/
   val AppendRecordInterceptorClassesProp = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG
@@ -1228,6 +1231,7 @@ object KafkaConfig {
       .defineInternal(BrokerInterceptorClassProp, CLASS, ConfluentConfigs.BROKER_INTERCEPTOR_CLASS_DEFAULT, LOW)
       .defineInternal(AppendRecordInterceptorClassesProp, LIST, Collections.emptyList(), LOW)
       .defineInternal(BrokerSessionUuidProp, STRING, null, LOW)
+      .defineInternal(SchemaValidationEnableProp, BOOLEAN, false, LOW)
       .defineInternal(ConfluentConfigs.MULTITENANT_METADATA_CLASS_CONFIG, CLASS,
                       ConfluentConfigs.MULTITENANT_METADATA_CLASS_DEFAULT, LOW)
       .defineInternal(ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG, STRING,
@@ -1486,6 +1490,8 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
 
   /** ********* Interceptor Configuration ***********/
   val appendRecordInterceptors = getConfiguredInstances(KafkaConfig.AppendRecordInterceptorClassesProp, classOf[RecordInterceptor])
+
+  val schemaValidationEnable = getBoolean(KafkaConfig.SchemaValidationEnableProp)
 
   /** ********* Metric Configuration **************/
   val metricNumSamples = getInt(KafkaConfig.MetricNumSamplesProp)
