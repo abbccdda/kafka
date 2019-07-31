@@ -13,7 +13,7 @@ import java.util.{Optional, UUID}
 import com.yammer.metrics.Metrics
 import com.yammer.metrics.core.Gauge
 import kafka.log.MergedLogTest.LogRanges
-import kafka.server.{BrokerTopicStats, FetchDataInfo, LogDirFailureChannel, TierFetchDataInfo, TierState}
+import kafka.server.{BrokerTopicStats, FetchDataInfo, FetchLogEnd, LogDirFailureChannel, TierFetchDataInfo, TierState}
 import kafka.server.epoch.EpochEntry
 import kafka.tier.{TierMetadataManager, TierTestUtils, TierTimestampAndOffset, TopicIdPartition}
 import kafka.tier.domain.TierTopicInitLeader
@@ -63,7 +63,7 @@ class MergedLogTest {
     val offsetsToRead = List(tierStart, tierStart + 1, tierEnd - 1, tierEnd)
 
     offsetsToRead.foreach { offset =>
-      val result = log.read(offset, Int.MaxValue, None, true, false)
+      val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true)
       result match {
         case tierResult: TierFetchDataInfo => {
           val segmentBaseOffset = tierPartitionState.segmentOffsets.floor(offset)
@@ -176,7 +176,7 @@ class MergedLogTest {
     val offsetsToRead = List(overlapStart, overlapStart + 1, overlapEnd - 1, overlapEnd)
 
     offsetsToRead.foreach { offset =>
-      val result = log.read(offset, Int.MaxValue, None, true, false)
+      val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true)
       result match {
         case localResult: FetchDataInfo => assertEquals(offset, localResult.records.records.iterator.next.offset)
         case _ => fail(s"Unexpected $result")
@@ -197,7 +197,7 @@ class MergedLogTest {
     val offsetsToRead = List(localStart, localStart + 1, localEnd - 1, localEnd)
 
     offsetsToRead.foreach { offset =>
-      val result = log.read(offset, Int.MaxValue, None, true, false)
+      val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true)
       result match {
         case localResult: FetchDataInfo => assertEquals(offset, localResult.records.records.iterator.next.offset)
         case _ => fail(s"Unexpected $result")

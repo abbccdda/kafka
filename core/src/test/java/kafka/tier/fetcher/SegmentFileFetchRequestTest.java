@@ -40,7 +40,6 @@ import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.stream.IntStream;
-import java.util.stream.StreamSupport;
 
 public class SegmentFileFetchRequestTest {
     private MockTime mockTime = new MockTime();
@@ -67,7 +66,7 @@ public class SegmentFileFetchRequestTest {
             long targetOffset = 149L;
             PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
                     Optional.empty(),
-                    metadata, key -> { }, targetOffset, 1024, Long.MAX_VALUE, IsolationLevel.READ_UNCOMMITTED, Collections.emptyList());
+                    metadata, key -> { }, targetOffset, 1024, IsolationLevel.READ_UNCOMMITTED, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
 
@@ -109,7 +108,7 @@ public class SegmentFileFetchRequestTest {
 
             Long targetOffset = 150L;
             PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore, Optional.empty(),
-                    metadata, key -> { }, targetOffset, 1024, Long.MAX_VALUE, IsolationLevel.READ_UNCOMMITTED, Collections.emptyList());
+                    metadata, key -> { }, targetOffset, 1024, IsolationLevel.READ_UNCOMMITTED, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
 
@@ -117,49 +116,6 @@ public class SegmentFileFetchRequestTest {
                     result.records.batches().iterator().hasNext());
 
             Assert.assertEquals("Should return empty records", result.records, MemoryRecords.EMPTY);
-
-        } catch (IOException e) {
-            e.printStackTrace();
-            Assert.fail("Unexpected exception");
-        } finally {
-            ctx.close();
-            segment.close();
-            tierObjectStore.close();
-        }
-    }
-
-    @Test
-    public void targetOffsetAndMaxOffsetTest() {
-        CancellationContext ctx = CancellationContext.newContext();
-        TierObjectStore tierObjectStore =
-                new MockInMemoryTierObjectStore(new TierObjectStoreConfig());
-        TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
-                UUID.randomUUID(), 0);
-        TopicPartition topicPartition = topicIdPartition.topicPartition();
-
-        LogSegment segment = createSegment(0L, 3, 50);
-
-        try {
-            TierObjectStore.ObjectMetadata metadata =
-                    new TierObjectStore.ObjectMetadata(segmentMetadata(topicIdPartition, segment,
-                            false));
-            putSegment(tierObjectStore, segment, metadata, Optional.empty());
-            long targetOffset = 51L;
-            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
-                    Optional.empty(), metadata, key -> { }, targetOffset, 1024,
-                    100L, IsolationLevel.READ_UNCOMMITTED, Collections.emptyList());
-
-            currentThreadExecutor.execute(pendingFetch);
-            TierFetchResult result = pendingFetch.finish().get(topicPartition);
-
-            Assert.assertTrue("Records should be complete",
-                    result.records.batches().iterator().hasNext());
-
-            Assert.assertNotEquals("Should return records", result.records, MemoryRecords.EMPTY);
-
-            Assert.assertFalse("Results should not include records at or beyond max offset",
-                    StreamSupport.stream(result.records.records().spliterator(), false)
-                            .anyMatch(r -> r.offset() >= 100L));
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -233,7 +189,7 @@ public class SegmentFileFetchRequestTest {
             putSegment(tierObjectStore, segment, metadata, serializedAbortedTxns);
             long targetOffset = 0L;
             PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore, Optional.empty(),
-                    metadata, key -> { }, targetOffset, 1024, 100,
+                    metadata, key -> { }, targetOffset, 1024,
                     IsolationLevel.READ_COMMITTED, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
@@ -279,7 +235,7 @@ public class SegmentFileFetchRequestTest {
             putSegment(tierObjectStore, segment, metadata, serializedAbortedTxns);
             long targetOffset = 0L;
             PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore, Optional.empty(),
-                    metadata, key -> { }, targetOffset, 1024, 100,
+                    metadata, key -> { }, targetOffset, 1024,
                     IsolationLevel.READ_COMMITTED, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
@@ -333,7 +289,7 @@ public class SegmentFileFetchRequestTest {
             tierObjectStore.throwExceptionOnTransactionFetch = true;
 
             PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore, Optional.empty(),
-                    metadata, key -> { }, 0L, 1024, 100,
+                    metadata, key -> { }, 0L, 1024,
                     IsolationLevel.READ_COMMITTED, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
@@ -350,7 +306,7 @@ public class SegmentFileFetchRequestTest {
             tierObjectStore.throwExceptionOnSegmentFetch = true;
 
             pendingFetch = new PendingFetch(ctx, tierObjectStore, Optional.empty(),
-                    metadata, key -> { }, 0L, 1024, 100,
+                    metadata, key -> { }, 0L, 1024,
                     IsolationLevel.READ_COMMITTED, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             result = pendingFetch.finish().get(topicPartition);

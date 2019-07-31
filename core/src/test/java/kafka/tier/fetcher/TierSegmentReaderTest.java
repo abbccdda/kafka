@@ -44,27 +44,24 @@ public class TierSegmentReaderTest {
         combinedBuffer.put(records2);
         combinedBuffer.flip();
 
-        testExpected(combinedBuffer, 0L, Long.MAX_VALUE, 0L, 5L);
-        testExpected(combinedBuffer, 1L, Long.MAX_VALUE, 0L, 5L);
-        testExpected(combinedBuffer, 2L, Long.MAX_VALUE, 0L, 5L);
-        testExpected(combinedBuffer, 3L, Long.MAX_VALUE, 3L, 5L);
-        testExpected(combinedBuffer, 4L, Long.MAX_VALUE, 3L, 5L);
-        testExpected(combinedBuffer, 5L, Long.MAX_VALUE, 3L, 5L);
-        testExpected(combinedBuffer, 6L, Long.MAX_VALUE, null, null);
-        testExpected(combinedBuffer, 7L, Long.MAX_VALUE, null, null);
-        testExpected(combinedBuffer, 0L, 3L, 0L, 2L);
-        testExpected(combinedBuffer, 3L, 4L, null, null);
-        testExpected(combinedBuffer, 4L, 5L, null, null);
+        testExpected(combinedBuffer, 0L, 0L, 5L);
+        testExpected(combinedBuffer, 1L, 0L, 5L);
+        testExpected(combinedBuffer, 2L, 0L, 5L);
+        testExpected(combinedBuffer, 3L, 3L, 5L);
+        testExpected(combinedBuffer, 4L, 3L, 5L);
+        testExpected(combinedBuffer, 5L, 3L, 5L);
+        testExpected(combinedBuffer, 6L, null, null);
+        testExpected(combinedBuffer, 7L, null, null);
     }
 
-    private void testExpected(ByteBuffer combinedBuffer, Long target, Long maxOffset,
+    private void testExpected(ByteBuffer combinedBuffer, Long target,
                               Long expectedStart, Long expectedEnd) {
         combinedBuffer.position(0);
         try {
             ByteBufferInputStream is = new ByteBufferInputStream(combinedBuffer);
             CancellationContext cancellationContext = CancellationContext.newContext();
             MemoryRecords records =
-                    TierSegmentReader.loadRecords(cancellationContext.subContext(), is, 1000, maxOffset, target);
+                    TierSegmentReader.loadRecords(cancellationContext.subContext(), is, 1000, target);
 
             Long firstOffset = null;
             Long lastOffset = null;

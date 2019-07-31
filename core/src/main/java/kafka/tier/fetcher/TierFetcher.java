@@ -12,7 +12,6 @@ import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.requests.IsolationLevel;
 import org.apache.kafka.common.utils.LogContext;
 import org.slf4j.Logger;
-import scala.compat.java8.OptionConverters;
 
 import java.util.List;
 import java.util.Map;
@@ -86,7 +85,6 @@ public class TierFetcher {
                 logger.debug("Fetching " + firstFetchMetadata.topicPartition() + " from tiered storage");
                 final long targetOffset = firstFetchMetadata.fetchStartOffset();
                 final int maxBytes = firstFetchMetadata.maxBytes();
-                final long maxOffset = OptionConverters.toJava(firstFetchMetadata.maxOffset()).map(v -> (Long) v).orElse(Long.MAX_VALUE);
                 final CancellationContext cancellationContext = this.cancellationContext.subContext();
                 final PendingFetch newFetch =
                         new PendingFetch(
@@ -97,7 +95,6 @@ public class TierFetcher {
                                 fetchCompletionCallback,
                                 targetOffset,
                                 maxBytes,
-                                maxOffset,
                                 isolationLevel,
                                 ignoredTopicPartitions);
                 executorService.execute(newFetch);

@@ -193,15 +193,14 @@ class MergedLog(private[log] val localLog: Log,
 
   override def read(startOffset: Long,
                     maxLength: Int,
-                    maxOffset: Option[Long],
-                    minOneMessage: Boolean,
-                    includeAbortedTxns: Boolean): AbstractFetchDataInfo = {
+                    isolation: FetchIsolation,
+                    minOneMessage: Boolean): AbstractFetchDataInfo = {
     maybeHandleIOException(s"Exception while reading from $topicPartition in dir ${dir.getParent}") {
       val logEndOffset = this.logEndOffset
       try {
-        readLocal(startOffset, maxLength, maxOffset, minOneMessage, includeAbortedTxns)
+        readLocal(startOffset, maxLength, isolation, minOneMessage)
       } catch {
-        case _: OffsetOutOfRangeException => readTier(startOffset, maxLength, maxOffset, minOneMessage, logEndOffset)
+        case _: OffsetOutOfRangeException => readTier(startOffset, maxLength, minOneMessage, logEndOffset)
       }
     }
   }
@@ -371,7 +370,6 @@ class MergedLog(private[log] val localLog: Log,
   // segment.
   private def readTier(startOffset: Long,
                        maxLength: Int,
-                       maxOffset: Option[Long],
                        minOneMessage: Boolean,
                        logEndOffset: Long): TierFetchDataInfo = {
     val tieredSegments = TierUtils.tieredSegments(tieredOffsets(startOffset, Long.MaxValue), tierPartitionState, tierMetadataManager.tierObjectStore)
@@ -383,7 +381,7 @@ class MergedLog(private[log] val localLog: Log,
         s"$tierEndOffset and localLogStartOffset: ${localLog.localLogStartOffset}")
 
     for (segment <- tieredSegments.iterator().asScala) {
-      val fetchInfoOpt = segment.read(startOffset, maxOffset, maxLength, segment.size, minOneMessage)
+      val fetchInfoOpt = segment.read(startOffset, maxLength, segment.size, minOneMessage)
       fetchInfoOpt match {
         case Some(fetchInfo) =>
           return fetchInfo
@@ -481,10 +479,9 @@ class MergedLog(private[log] val localLog: Log,
 
   override def readLocal(startOffset: Long,
                          maxLength: Int,
-                         maxOffset: Option[Long],
-                         minOneMessage: Boolean,
-                         includeAbortedTxns: Boolean): FetchDataInfo = {
-    localLog.read(startOffset, maxLength, maxOffset, minOneMessage, includeAbortedTxns)
+                         isolation: FetchIsolation,
+                         minOneMessage: Boolean): FetchDataInfo = {
+    localLog.read(startOffset, maxLength, isolation, minOneMessage)
   }
 
   override def fetchOffsetByTimestamp(targetTimestamp: Long): Option[TimestampAndOffset] = {
@@ -835,19 +832,18 @@ sealed trait AbstractLog {
     *
     * @param startOffset The offset to begin reading at
     * @param maxLength The maximum number of bytes to read
-    * @param maxOffset The offset to read up to, exclusive. (i.e. this offset NOT included in the resulting message set)
+    * @param isolation The fetch isolation, which controls the maximum offset we are allowed to read
     * @param minOneMessage If this is true, the first message will be returned even if it exceeds `maxLength` (if one exists)
-    * @param includeAbortedTxns Whether or not to lookup aborted transactions for fetched data
     * @throws OffsetOutOfRangeException If startOffset is beyond the log end offset or before the log start offset
     * @return The fetch data information including fetch starting offset metadata and messages read.
     */
-  def read(startOffset: Long, maxLength: Int, maxOffset: Option[Long], minOneMessage: Boolean, includeAbortedTxns: Boolean): AbstractFetchDataInfo
+  def read(startOffset: Long, maxLength: Int, isolation: FetchIsolation, minOneMessage: Boolean): AbstractFetchDataInfo
 
   /**
     * Variant of AbstractLog#read that limits read to local store only.
     * Note: this is visible for testing only
     */
-  def readLocal(startOffset: Long, maxLength: Int, maxOffset: Option[Long], minOneMessage: Boolean, includeAbortedTxns: Boolean): FetchDataInfo
+  def readLocal(startOffset: Long, maxLength: Int, isolation: FetchIsolation, minOneMessage: Boolean): FetchDataInfo
 
   /**
     * Collect all aborted transactions between "startOffset" and "upperBoundOffset".

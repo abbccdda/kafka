@@ -92,9 +92,8 @@ class SimpleFetchTest {
     EasyMock.expect(log.read(
       startOffset = 0,
       maxLength = fetchSize,
-      maxOffset = Some(partitionHW),
-      minOneMessage = true,
-      includeAbortedTxns = false))
+      isolation = FetchHighWatermark,
+      minOneMessage = true))
       .andReturn(FetchDataInfo(
         LogOffsetMetadata(0L, 0L, 0),
         MemoryRecords.withRecords(CompressionType.NONE, recordToHW)
@@ -102,9 +101,8 @@ class SimpleFetchTest {
     EasyMock.expect(log.read(
       startOffset = 0,
       maxLength = fetchSize,
-      maxOffset = None,
-      minOneMessage = true,
-      includeAbortedTxns = false))
+      isolation = FetchLogEnd,
+      minOneMessage = true))
       .andReturn(FetchDataInfo(
         LogOffsetMetadata(0L, 0L, 0),
         MemoryRecords.withRecords(CompressionType.NONE, recordToLEO)

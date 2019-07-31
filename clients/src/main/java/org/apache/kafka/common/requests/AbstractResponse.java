@@ -81,7 +81,7 @@ public abstract class AbstractResponse extends AbstractRequestResponse {
             case OFFSET_COMMIT:
                 return new OffsetCommitResponse(struct, version);
             case OFFSET_FETCH:
-                return new OffsetFetchResponse(struct);
+                return new OffsetFetchResponse(struct, version);
             case FIND_COORDINATOR:
                 return new FindCoordinatorResponse(struct, version);
             case JOIN_GROUP:
@@ -155,7 +155,7 @@ public abstract class AbstractResponse extends AbstractRequestResponse {
             case DESCRIBE_DELEGATION_TOKEN:
                 return new DescribeDelegationTokenResponse(struct);
             case DELETE_GROUPS:
-                return new DeleteGroupsResponse(struct);
+                return new DeleteGroupsResponse(struct, version);
             case ELECT_LEADERS:
                 return new ElectLeadersResponse(struct, version);
             case INCREMENTAL_ALTER_CONFIGS:

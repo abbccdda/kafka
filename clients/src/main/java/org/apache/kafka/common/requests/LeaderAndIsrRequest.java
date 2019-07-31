@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Collections;
 
 import static org.apache.kafka.common.protocol.CommonFields.PARTITION_ID;
 import static org.apache.kafka.common.protocol.CommonFields.TOPIC_NAME;
@@ -50,6 +51,10 @@ public class LeaderAndIsrRequest extends AbstractControlRequest implements Leade
     private static final Field.Array ISR = new Field.Array("isr", INT32, "The in sync replica ids.");
     private static final Field.Int32 ZK_VERSION = new Field.Int32("zk_version", "The ZK version.");
     private static final Field.Array REPLICAS = new Field.Array("replicas", INT32, "The replica ids.");
+    private static final Field.Array ADDING_REPLICAS = new Field.Array("adding_replicas", INT32,
+            "The replica ids we are in the process of adding to the replica set during a reassignment.");
+    private static final Field.Array REMOVING_REPLICAS = new Field.Array("removing_replicas", INT32,
+            "The replica ids we are in the process of removing from the replica set during a reassignment.");
     private static final Field.Bool IS_NEW = new Field.Bool("is_new", "Whether the replica should have existed on the broker or not");
 
     // live_leaders fields
@@ -90,10 +95,27 @@ public class LeaderAndIsrRequest extends AbstractControlRequest implements Leade
             REPLICAS,
             IS_NEW);
 
+    private static final Field PARTITION_STATES_V3 = PARTITION_STATES.withFields(
+            PARTITION_ID,
+            CONTROLLER_EPOCH,
+            LEADER,
+            LEADER_EPOCH,
+            ISR,
+            ZK_VERSION,
+            REPLICAS,
+            ADDING_REPLICAS,
+            REMOVING_REPLICAS,
+            IS_NEW);
+
     // TOPIC_STATES_V2 normalizes TOPIC_STATES_V1 to make it more memory efficient
     private static final Field TOPIC_STATES_V2 = TOPIC_STATES.withFields(
             TOPIC_NAME,
             PARTITION_STATES_V2);
+
+    // TOPIC_STATES_V3 adds two new fields - adding_replicas and removing_replicas
+    private static final Field TOPIC_STATES_V3 = TOPIC_STATES.withFields(
+            TOPIC_NAME,
+            PARTITION_STATES_V3);
 
     private static final Field LIVE_LEADERS_V0 = LIVE_LEADERS.withFields(
             END_POINT_ID,
@@ -123,8 +145,17 @@ public class LeaderAndIsrRequest extends AbstractControlRequest implements Leade
             TOPIC_STATES_V2,
             LIVE_LEADERS_V0);
 
+    // LEADER_AND_ISR_REQUEST_V3 added two new fields - adding_replicas and removing_replicas.
+    // These fields respectively specify the replica IDs we want to add or remove as part of a reassignment
+    private static final Schema LEADER_AND_ISR_REQUEST_V3 = new Schema(
+            CONTROLLER_ID,
+            CONTROLLER_EPOCH,
+            BROKER_EPOCH,
+            TOPIC_STATES_V3,
+            LIVE_LEADERS_V0);
+
     public static Schema[] schemaVersions() {
-        return new Schema[]{LEADER_AND_ISR_REQUEST_V0, LEADER_AND_ISR_REQUEST_V1, LEADER_AND_ISR_REQUEST_V2};
+        return new Schema[]{LEADER_AND_ISR_REQUEST_V0, LEADER_AND_ISR_REQUEST_V1, LEADER_AND_ISR_REQUEST_V2, LEADER_AND_ISR_REQUEST_V3};
     }
 
     public static class Builder extends AbstractControlRequest.Builder<LeaderAndIsrRequest> {
@@ -224,7 +255,7 @@ public class LeaderAndIsrRequest extends AbstractControlRequest implements Leade
                 for (Map.Entry<Integer, PartitionState> partitionEntry : partitionMap.entrySet()) {
                     Struct partitionStateData = topicStateData.instance(PARTITION_STATES);
                     partitionStateData.set(PARTITION_ID, partitionEntry.getKey());
-                    partitionEntry.getValue().setStruct(partitionStateData);
+                    partitionEntry.getValue().setStruct(partitionStateData, version);
                     partitionStatesData.add(partitionStateData);
                 }
                 topicStateData.set(PARTITION_STATES, partitionStatesData.toArray());
@@ -238,7 +269,7 @@ public class LeaderAndIsrRequest extends AbstractControlRequest implements Leade
                 TopicPartition topicPartition = entry.getKey();
                 partitionStateData.set(TOPIC_NAME, topicPartition.topic());
                 partitionStateData.set(PARTITION_ID, topicPartition.partition());
-                entry.getValue().setStruct(partitionStateData);
+                entry.getValue().setStruct(partitionStateData, version);
                 partitionStatesData.add(partitionStateData);
             }
             struct.set(PARTITION_STATES, partitionStatesData.toArray());
@@ -270,6 +301,7 @@ public class LeaderAndIsrRequest extends AbstractControlRequest implements Leade
             case 0:
             case 1:
             case 2:
+            case 3:
                 return new LeaderAndIsrResponse(error, responses);
             default:
                 throw new IllegalArgumentException(String.format("Version %d is not valid. Valid versions for %s are 0 to %d",
@@ -304,6 +336,8 @@ public class LeaderAndIsrRequest extends AbstractControlRequest implements Leade
 
     public static final class PartitionState {
         public final BasePartitionState basePartitionState;
+        public final List<Integer> addingReplicas;
+        public final List<Integer> removingReplicas;
         public final boolean isNew;
 
         public PartitionState(int controllerEpoch,
@@ -313,7 +347,29 @@ public class LeaderAndIsrRequest extends AbstractControlRequest implements Leade
                               int zkVersion,
                               List<Integer> replicas,
                               boolean isNew) {
+            this(controllerEpoch,
+                 leader,
+                 leaderEpoch,
+                 isr,
+                 zkVersion,
+                 replicas,
+                 Collections.emptyList(),
+                 Collections.emptyList(),
+                 isNew);
+        }
+
+        public PartitionState(int controllerEpoch,
+                              int leader,
+                              int leaderEpoch,
+                              List<Integer> isr,
+                              int zkVersion,
+                              List<Integer> replicas,
+                              List<Integer> addingReplicas,
+                              List<Integer> removingReplicas,
+                              boolean isNew) {
             this.basePartitionState = new BasePartitionState(controllerEpoch, leader, leaderEpoch, isr, zkVersion, replicas);
+            this.addingReplicas = addingReplicas;
+            this.removingReplicas = removingReplicas;
             this.isNew = isNew;
         }
 
@@ -335,6 +391,21 @@ public class LeaderAndIsrRequest extends AbstractControlRequest implements Leade
                 replicas.add((Integer) r);
 
             this.basePartitionState = new BasePartitionState(controllerEpoch, leader, leaderEpoch, isr, zkVersion, replicas);
+
+            List<Integer> addingReplicas = new ArrayList<>();
+            if (struct.hasField(ADDING_REPLICAS)) {
+                for (Object r : struct.get(ADDING_REPLICAS))
+                    addingReplicas.add((Integer) r);
+            }
+            this.addingReplicas = addingReplicas;
+
+            List<Integer> removingReplicas = new ArrayList<>();
+            if (struct.hasField(REMOVING_REPLICAS)) {
+                for (Object r : struct.get(REMOVING_REPLICAS))
+                    removingReplicas.add((Integer) r);
+            }
+            this.removingReplicas = removingReplicas;
+
             this.isNew = struct.getOrElse(IS_NEW, false);
         }
 
@@ -346,18 +417,23 @@ public class LeaderAndIsrRequest extends AbstractControlRequest implements Leade
                 ", isr=" + Utils.join(basePartitionState.isr, ",") +
                 ", zkVersion=" + basePartitionState.zkVersion +
                 ", replicas=" + Utils.join(basePartitionState.replicas, ",") +
+                ", addingReplicas=" + Utils.join(addingReplicas, ",") +
+                ", removingReplicas=" + Utils.join(removingReplicas, ",") +
                 ", isNew=" + isNew + ")";
         }
 
-        void setStruct(Struct struct) {
+        protected void setStruct(Struct struct, short version) {
             struct.set(CONTROLLER_EPOCH, basePartitionState.controllerEpoch);
             struct.set(LEADER, basePartitionState.leader);
             struct.set(LEADER_EPOCH, basePartitionState.leaderEpoch);
             struct.set(ISR, basePartitionState.isr.toArray());
             struct.set(ZK_VERSION, basePartitionState.zkVersion);
             struct.set(REPLICAS, basePartitionState.replicas.toArray());
+            if (version >= 3) {
+                struct.set(ADDING_REPLICAS, addingReplicas.toArray());
+                struct.set(REMOVING_REPLICAS, removingReplicas.toArray());
+            }
             struct.setIfExists(IS_NEW, isNew);
         }
     }
-
 }

@@ -40,7 +40,6 @@ public class TierSegmentReader {
     public static MemoryRecords loadRecords(CancellationContext cancellationContext,
                                             InputStream inputStream,
                                             int maxBytes,
-                                            long maxOffset,
                                             long targetOffset) throws IOException {
 
         RecordBatch firstBatch = null;
@@ -59,10 +58,6 @@ public class TierSegmentReader {
 
         if (firstBatch == null) {
             return MemoryRecords.EMPTY;
-        } else if (firstBatch.baseOffset() <= maxOffset && firstBatch.lastOffset() >= maxOffset) {
-            // The first batch of the given InputStream contains maxOffset, return empty
-            // records.
-            return MemoryRecords.EMPTY;
         }
 
         final int firstBatchSize = firstBatch.sizeInBytes();
@@ -73,12 +68,7 @@ public class TierSegmentReader {
         while (!cancellationContext.isCancelled() && buffer.position() < buffer.limit()) {
             final int positionCheckpoint = buffer.position();
             try {
-                RecordBatch batch = readBatchInto(inputStream, buffer);
-                if (batch.baseOffset() <= maxOffset && batch.lastOffset() >= maxOffset) {
-                    // We found a batch containing our max offset, rollback the buffer and exit.
-                    buffer.position(positionCheckpoint);
-                    break;
-                }
+                readBatchInto(inputStream, buffer);
             } catch (IOException | IndexOutOfBoundsException ignored) {
                 buffer.position(positionCheckpoint);
                 break;

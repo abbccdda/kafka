@@ -307,7 +307,7 @@ class TierSegmentReaderPropertyTest extends FunSuite with Checkers {
         val inputStream = segmentViewDefinition.bytesAsInputStream()
         val bytesAvailable = segmentViewDefinition.bytesAvailable()
         val cancellationContext = CancellationContext.newContext()
-        val resultMemoryRecords = TierSegmentReader.loadRecords(cancellationContext, inputStream, bytesAvailable, Long.MaxValue, 0)
+        val resultMemoryRecords = TierSegmentReader.loadRecords(cancellationContext, inputStream, bytesAvailable, 0)
         val resultRecords = SegmentViewDefinition.flattenMemoryRecords(List(resultMemoryRecords))
 
         segmentViewDefinition.checkRecordBatchCountAndSize(resultRecords) &&
@@ -325,7 +325,7 @@ class TierSegmentReaderPropertyTest extends FunSuite with Checkers {
         val cancellationContext = CancellationContext.newContext()
         val targetOffset = loadRecordsRequestDef.targetOffset
         val maxBytes = loadRecordsRequestDef.maxBytes
-        val resultMemoryRecords = TierSegmentReader.loadRecords(cancellationContext, inputStream, maxBytes, Long.MaxValue, targetOffset)
+        val resultMemoryRecords = TierSegmentReader.loadRecords(cancellationContext, inputStream, maxBytes, targetOffset)
         val resultRecordBatches = SegmentViewDefinition.flattenMemoryRecords(List(resultMemoryRecords))
         loadRecordsRequestDef.checkRecordBatches(resultRecordBatches)
       }}

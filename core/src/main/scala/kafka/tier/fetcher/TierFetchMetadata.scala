@@ -8,13 +8,12 @@ import kafka.tier.domain.TierObjectMetadata
 import org.apache.kafka.common.TopicPartition
 import kafka.tier.store.TierObjectStore
 
-case class TierFetchMetadata(val topicPartition: TopicPartition,
-                             val fetchStartOffset: Long,
-                             val maxOffset: Option[Long],
-                             val maxBytes: Integer,
-                             val maxPosition: Long,
-                             val minOneMessage: Boolean,
-                             val segmentMetadata: TierObjectStore.ObjectMetadata,
-                             val transactionMetadata: Option[List[TierObjectMetadata]],
-                             val segmentBaseOffset: Long,
-                             val segmentSize: Int)
+case class TierFetchMetadata(topicPartition: TopicPartition,
+                             fetchStartOffset: Long,
+                             maxBytes: Integer,
+                             maxPosition: Long,
+                             minOneMessage: Boolean,
+                             segmentMetadata: TierObjectStore.ObjectMetadata,
+                             transactionMetadata: Option[List[TierObjectMetadata]],
+                             segmentBaseOffset: Long,
+                             segmentSize: Int)

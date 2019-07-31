@@ -205,7 +205,7 @@ public class ConfluentLeaderAndIsrRequest extends AbstractControlRequest impleme
                 for (Map.Entry<Integer, PartitionState> partitionEntry : partitionMap.entrySet()) {
                     Struct partitionStateData = topicStateData.instance(PARTITION_STATES);
                     partitionStateData.set(PARTITION_ID, partitionEntry.getKey());
-                    partitionEntry.getValue().setStruct(partitionStateData);
+                    partitionEntry.getValue().setStruct(partitionStateData, version);
                     partitionStatesData.add(partitionStateData);
                 }
                 topicStateData.set(PARTITION_STATES, partitionStatesData.toArray());
@@ -219,7 +219,7 @@ public class ConfluentLeaderAndIsrRequest extends AbstractControlRequest impleme
                 TopicPartition topicPartition = entry.getKey();
                 partitionStateData.set(TOPIC_NAME, topicPartition.topic());
                 partitionStateData.set(PARTITION_ID, topicPartition.partition());
-                entry.getValue().setStruct(partitionStateData);
+                entry.getValue().setStruct(partitionStateData, version);
                 partitionStatesData.add(partitionStateData);
             }
             struct.set(PARTITION_STATES, partitionStatesData.toArray());

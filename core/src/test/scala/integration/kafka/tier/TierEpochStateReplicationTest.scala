@@ -169,7 +169,7 @@ class TierEpochStateReplicationTest extends ZooKeeperTestHarness with Logging {
 
   private def latestRecord(leader: KafkaServer, offset: Int = -1, partition: Int = 0): RecordBatch = {
     val segment = getLog(leader, partition).activeSegment
-    val records = segment.read(0, None, Integer.MAX_VALUE).records
+    val records = segment.read(0, Integer.MAX_VALUE).records
     records.batches().asScala.toSeq.last
   }
 

@@ -233,6 +233,10 @@ public abstract class AbstractRequest extends AbstractRequestResponse {
                 return new ElectLeadersRequest(struct, apiVersion);
             case INCREMENTAL_ALTER_CONFIGS:
                 return new IncrementalAlterConfigsRequest(struct, apiVersion);
+            case ALTER_PARTITION_REASSIGNMENTS:
+                return new AlterPartitionReassignmentsRequest(struct, apiVersion);
+            case LIST_PARTITION_REASSIGNMENTS:
+                return new ListPartitionReassignmentsRequest(struct, apiVersion);
             default:
                 return maybeParseInternalRequest(apiKey, apiVersion, struct);
         }

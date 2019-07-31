@@ -35,7 +35,6 @@ public class PendingFetch implements Runnable {
     private final Consumer<DelayedOperationKey> fetchCompletionCallback;
     private final long targetOffset;
     private final int maxBytes;
-    private final long maxOffset;
     private final List<TopicPartition> ignoredTopicPartitions;
     private final UUID requestId = UUID.randomUUID();
     private final CompletableFuture<TierFetchResult> transferPromise;
@@ -48,7 +47,6 @@ public class PendingFetch implements Runnable {
                  Consumer<DelayedOperationKey> fetchCompletionCallback,
                  long targetOffset,
                  int maxBytes,
-                 long maxOffset,
                  IsolationLevel isolationLevel,
                  List<TopicPartition> ignoredTopicPartitions) {
         this.cancellationContext = cancellationContext;
@@ -58,7 +56,6 @@ public class PendingFetch implements Runnable {
         this.fetchCompletionCallback = fetchCompletionCallback;
         this.targetOffset = targetOffset;
         this.maxBytes = maxBytes;
-        this.maxOffset = maxOffset;
         this.ignoredTopicPartitions = ignoredTopicPartitions;
         this.transferPromise = new CompletableFuture<>();
         this.isolationLevel = isolationLevel;
@@ -123,7 +120,7 @@ public class PendingFetch implements Runnable {
                 final OffsetPosition offsetPosition = fetchOffsetPosition();
                 try (final TierObjectStoreResponse response = fetchSegment(offsetPosition)) {
                     final MemoryRecords records = TierSegmentReader.loadRecords(cancellationContext,
-                            response.getInputStream(), maxBytes, maxOffset, targetOffset);
+                            response.getInputStream(), maxBytes, targetOffset);
                     if (objectMetadata.hasAbortedTxns() && isolationLevel == IsolationLevel.READ_COMMITTED) {
                         List<AbortedTxn> abortedTxns = fetchAbortedTxns(records);
                         completeFetch(records, abortedTxns, null);

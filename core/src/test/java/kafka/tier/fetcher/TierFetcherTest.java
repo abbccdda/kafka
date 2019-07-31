@@ -67,7 +67,6 @@ public class TierFetcherTest {
         try {
             int maxBytes = 600;
             TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicIdPartition.topicPartition(), 0,
-                    Option.apply(1000L),
                     maxBytes, 1000L, true, tierObjectMetadata,
                     Option.empty(), 0, 1000);
 
@@ -142,7 +141,7 @@ public class TierFetcherTest {
         TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
         try {
             TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicIdPartition.topicPartition(), 0,
-                    Option.apply(1000L), 10000, 1000L, true, tierObjectMetadata,
+                    10000, 1000L, true, tierObjectMetadata,
                     Option.empty(), 0, 1000);
 
             CompletableFuture<Boolean> f = new CompletableFuture<>();
@@ -215,7 +214,7 @@ public class TierFetcherTest {
             TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
             try {
                 TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicIdPartition.topicPartition(), 100,
-                        Option.apply(1000L), 10000, 1000L, true,
+                        10000, 1000L, true,
                         tierObjectMetadata, Option.empty(), 0, 1000);
                 CompletableFuture<Boolean> f = new CompletableFuture<>();
 
@@ -366,7 +365,7 @@ public class TierFetcherTest {
                 int maxBytes = 600;
                 TierFetchMetadata fetchMetadata =
                         new TierFetchMetadata(topicIdPartition.topicPartition(), 0,
-                        Option.apply(1000L), maxBytes, 1000L, true,
+                        maxBytes, 1000L, true,
                         tierObjectMetadata, Option.empty(), 0, 1000);
 
                 CompletableFuture<Boolean> f = new CompletableFuture<>();
