@@ -170,40 +170,35 @@ public class MultiTenantApis {
         case METADATA:
           if (field != null && field.name.equals("name")) {
             return Optional.some(
-                new StringTenantTransformer(type, TenantContext.ValueType.TOPIC,
-                    TenantTransform.ADD_PREFIX));
+                new StringTenantTransformer(type, TenantTransform.ADD_PREFIX));
           }
           break;
 
         case DELETE_TOPICS:
           if (field != null && field.name.equals("topic_names")) {
             return Optional.some(
-                new ArrayTenantTransformer(type, TenantContext.ValueType.TOPIC,
-                    TenantTransform.ADD_PREFIX));
+                new ArrayTenantTransformer(type, TenantTransform.ADD_PREFIX));
           }
           break;
 
         case DESCRIBE_GROUPS:
           if (field != null && field.name.equals("groups")) {
             return Optional.some(
-                new ArrayTenantTransformer(type, TenantContext.ValueType.GROUP,
-                    TenantTransform.ADD_PREFIX));
+                new ArrayTenantTransformer(type, TenantTransform.ADD_PREFIX));
           }
           break;
 
         case DELETE_GROUPS:
           if (field != null && field.name.equals("groups_names")) {
             return Optional.some(
-                new ArrayTenantTransformer(type, TenantContext.ValueType.GROUP,
-                    TenantTransform.ADD_PREFIX));
+                new ArrayTenantTransformer(type, TenantTransform.ADD_PREFIX));
           }
           break;
 
         case FIND_COORDINATOR:
           if (field != null && field.name.equals("key")) {
             return Optional.some(
-                new StringTenantTransformer(type, TenantContext.ValueType.GROUP,
-                    TenantTransform.ADD_PREFIX));
+                new StringTenantTransformer(type, TenantTransform.ADD_PREFIX));
           }
           break;
 
@@ -211,10 +206,10 @@ public class MultiTenantApis {
         case OFFSET_FETCH:
           if (field != null) {
             if (field.name.equals("group_id")) {
-              return Optional.some(new StringTenantTransformer(type, TenantContext.ValueType.GROUP,
+              return Optional.some(new StringTenantTransformer(type,
                       TenantTransform.ADD_PREFIX));
             } else if (field.name.equals("name")) {
-              return Optional.some(new StringTenantTransformer(type, TenantContext.ValueType.TOPIC,
+              return Optional.some(new StringTenantTransformer(type,
                       TenantTransform.ADD_PREFIX));
             }
           }
@@ -225,8 +220,7 @@ public class MultiTenantApis {
           // auto-generated from schema; it does not leverage CommonFields.GROUP_ID.
           if (field != null && field.name.equals("group_id")) {
             return Optional.some(
-                    new StringTenantTransformer(type, TenantContext.ValueType.GROUP,
-                            TenantTransform.ADD_PREFIX));
+                    new StringTenantTransformer(type, TenantTransform.ADD_PREFIX));
           }
           break;
 
@@ -268,7 +262,7 @@ public class MultiTenantApis {
       TenantContext.ValueType valueType = commonTransformableType(field);
       if (valueType != null) {
         return Optional.some(
-            new StringTenantTransformer(type, valueType, TenantTransform.ADD_PREFIX));
+            new StringTenantTransformer(type, TenantTransform.ADD_PREFIX));
       }
 
       return Optional.none();
@@ -291,13 +285,11 @@ public class MultiTenantApis {
           if (field != null && field.name.equals("cluster_id")) {
             // Unlike the usual paths, the cluster id actually needs the tenant prefix
             // added in the response to ensure that each tenant sees a different id.
-            return Optional.some(
-                new ClusterIdSubstitution(type));
+            return Optional.some(new ClusterIdSubstitution(type));
           }
           if (field != null && field.name.equals("name")) {
             return Optional.some(
-                new StringTenantTransformer(type, TenantContext.ValueType.TOPIC,
-                    TenantTransform.REMOVE_PREFIX));
+                new StringTenantTransformer(type, TenantTransform.REMOVE_PREFIX));
           }
 
           break;
@@ -337,8 +329,7 @@ public class MultiTenantApis {
               return Optional.some(new ErrorMessageSanitizer(type));
             } else if (field.name.equals("name")) {
               return Optional.some(
-                      new StringTenantTransformer(type, TenantContext.ValueType.TOPIC,
-                              TenantTransform.REMOVE_PREFIX));
+                      new StringTenantTransformer(type, TenantTransform.REMOVE_PREFIX));
             }
           }
           break;
@@ -346,22 +337,21 @@ public class MultiTenantApis {
         case DELETE_TOPICS:
           if (field != null && field.name.equals("name")) {
             return Optional.some(
-                    new StringTenantTransformer(type, TenantContext.ValueType.TOPIC,
-                            TenantTransform.REMOVE_PREFIX));
+                    new StringTenantTransformer(type, TenantTransform.REMOVE_PREFIX));
           }
           break;
 
         case DESCRIBE_GROUPS:
           if ((field != null) && field.name.equals("group_id")) {
             return Optional.some(
-                new StringTenantTransformer(type, TenantContext.ValueType.GROUP, TenantTransform.REMOVE_PREFIX));
+                new StringTenantTransformer(type, TenantTransform.REMOVE_PREFIX));
           }
           break;
 
         case OFFSET_COMMIT:
         case OFFSET_FETCH:
           if (field != null && field.name.equals("name")) {
-              return Optional.some(new StringTenantTransformer(type, TenantContext.ValueType.TOPIC,
+              return Optional.some(new StringTenantTransformer(type,
                       TenantTransform.REMOVE_PREFIX));
           }
           break;
@@ -373,7 +363,7 @@ public class MultiTenantApis {
       TenantContext.ValueType valueType = commonTransformableType(field);
       if (valueType != null) {
         return Optional.some(
-            new StringTenantTransformer(type, valueType, TenantTransform.REMOVE_PREFIX));
+            new StringTenantTransformer(type, TenantTransform.REMOVE_PREFIX));
       }
 
       if (field != null && field.name.equals(CommonFields.ERROR_MESSAGE.name)) {
@@ -470,13 +460,10 @@ public class MultiTenantApis {
   }
 
   private static class StringTenantTransformer extends AbstractTenantTransformer {
-    private final TenantContext.ValueType valueType;
 
-    private StringTenantTransformer(Type fieldType, TenantContext.ValueType valueType,
-                                    TenantTransform transform) {
+    private StringTenantTransformer(Type fieldType, TenantTransform transform) {
       super(fieldType, transform);
       ensureStringType(fieldType);
-      this.valueType = valueType;
     }
 
     @Override
@@ -497,8 +484,7 @@ public class MultiTenantApis {
 
   private static class ArrayTenantTransformer extends AbstractTenantTransformer {
 
-    private ArrayTenantTransformer(Type type, TenantContext.ValueType valueType,
-                                   TenantTransform transform) {
+    private ArrayTenantTransformer(Type type, TenantTransform transform) {
       super(type, transform);
       ensureArrayType(type);
       ensureStringType(((ArrayOf) type).type());
