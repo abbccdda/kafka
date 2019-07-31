@@ -5,6 +5,7 @@ package io.confluent.kafka.server.plugins.policy;
 import io.confluent.common.InterClusterConnection;
 import io.confluent.kafka.multitenant.schema.TenantContext;
 import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.DescribeTopicsOptions;
 import org.apache.kafka.clients.admin.DescribeTopicsResult;
@@ -118,7 +119,7 @@ public class CreateTopicPolicy implements org.apache.kafka.server.policy.CreateT
   /**
    * Returns current number of topic partitions for this tenant
    */
-  int numPartitions(AdminClient adminClient, String tenantPrefix) {
+  int numPartitions(Admin adminClient, String tenantPrefix) {
     // List every topic in the cluster.
     Collection<String> allTopicNames = null;
     try {
@@ -202,7 +203,7 @@ public class CreateTopicPolicy implements org.apache.kafka.server.policy.CreateT
    * @param partitionsCount requested number of partitions or the delta if validating a createPartitions request
    * @throws PolicyViolationException if requested number of partitions cannot be created
    */
-  void ensureValidPartitionCount(AdminClient adminClient,
+  void ensureValidPartitionCount(Admin adminClient,
                                  String tenantPrefix,
                                  int partitionsCount) throws PolicyViolationException {
     if (partitionsCount > maxPartitionsPerTenant) {

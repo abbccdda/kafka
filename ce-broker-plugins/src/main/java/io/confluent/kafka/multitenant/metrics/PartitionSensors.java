@@ -2,19 +2,8 @@
 
 package io.confluent.kafka.multitenant.metrics;
 
-import static io.confluent.kafka.multitenant.metrics.TenantMetrics.CLIENT_ID_TAG;
-import static io.confluent.kafka.multitenant.metrics.TenantMetrics.GROUP;
-import static io.confluent.kafka.multitenant.metrics.TenantMetrics.TENANT_TAG;
-
 import io.confluent.kafka.multitenant.metrics.TenantMetrics.MetricsRequestContext;
 import io.confluent.kafka.multitenant.schema.TenantContext;
-import java.lang.reflect.Field;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.metrics.JmxReporter;
@@ -25,6 +14,19 @@ import org.apache.kafka.common.metrics.stats.Percentile;
 import org.apache.kafka.common.metrics.stats.Percentiles;
 import org.apache.kafka.common.metrics.stats.Percentiles.BucketSizing;
 import org.apache.kafka.common.metrics.stats.Rate;
+import org.apache.kafka.common.metrics.stats.WindowedSum;
+
+import java.lang.reflect.Field;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+
+import static io.confluent.kafka.multitenant.metrics.TenantMetrics.CLIENT_ID_TAG;
+import static io.confluent.kafka.multitenant.metrics.TenantMetrics.GROUP;
+import static io.confluent.kafka.multitenant.metrics.TenantMetrics.TENANT_TAG;
 
 public class PartitionSensors {
   public static final String TOPIC_TAG = "topic";
@@ -270,7 +272,7 @@ public class PartitionSensors {
    * Sampled total stat for a partition used to track partition byte rates.
    * Sub-class is to enable identifying partitions for which all samples have become obsolete.
    */
-  private static class PartitionStat extends Rate.SampledTotal {
+  private static class PartitionStat extends WindowedSum {
 
     final Sensor rateSensor;
     Rate rateStat;

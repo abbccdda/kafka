@@ -6,7 +6,7 @@ import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.metrics.Sensor;
-import org.apache.kafka.common.metrics.stats.Total;
+import org.apache.kafka.common.metrics.stats.CumulativeSum;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -92,7 +92,7 @@ public class ConnectionSensorBuilder extends AbstractSensorBuilder<MultiTenantPr
     }
 
     /**
-     * Creates a {@link Sensor} with a {@link Total} stat
+     * Creates a {@link Sensor} with a {@link CumulativeSum} stat
      *  which is incremented/decremented whenever a connection is established/dropped respectively
      */
     Sensor createSensor(Metrics metrics, String sensorName, MultiTenantPrincipal principal) {
@@ -100,7 +100,7 @@ public class ConnectionSensorBuilder extends AbstractSensorBuilder<MultiTenantPr
       Map<String, String> metricTags = tenantTags(principal);
       MetricName countMetricName = metrics.metricName(name + "-count", GROUP,
               String.format("The current number of %s", descriptiveName), metricTags);
-      sensor.add(countMetricName, new Total());
+      sensor.add(countMetricName, new CumulativeSum());
 
       return sensor;
     }

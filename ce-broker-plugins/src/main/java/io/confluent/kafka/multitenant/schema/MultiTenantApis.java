@@ -13,10 +13,10 @@ import org.apache.kafka.common.protocol.types.Field;
 import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
 import org.apache.kafka.common.protocol.types.Type;
-
-import java.util.EnumMap;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.SecurityUtils;
+
+import java.util.EnumMap;
 
 /**
  * A cache of {@link TransformableSchema} for Kafka APIs which apply the multi-tenant
@@ -113,6 +113,8 @@ public class MultiTenantApis {
       case ELECT_LEADERS:
       case CONFLUENT_LEADER_AND_ISR:
       case TIER_LIST_OFFSET:
+      case LIST_PARTITION_REASSIGNMENTS:
+      case ALTER_PARTITION_REASSIGNMENTS:
         return false;
 
       default:
@@ -175,7 +177,7 @@ public class MultiTenantApis {
 
         case DELETE_TOPICS:
           if (field != null && field.name.equals("topic_names")) {
-            return Optional.<TransformableType<TenantContext>>some(
+            return Optional.some(
                 new ArrayTenantTransformer(type, TenantContext.ValueType.TOPIC,
                     TenantTransform.ADD_PREFIX));
           }
@@ -183,25 +185,38 @@ public class MultiTenantApis {
 
         case DESCRIBE_GROUPS:
           if (field != null && field.name.equals("groups")) {
-            return Optional.<TransformableType<TenantContext>>some(
+            return Optional.some(
                 new ArrayTenantTransformer(type, TenantContext.ValueType.GROUP,
                     TenantTransform.ADD_PREFIX));
           }
           break;
 
         case DELETE_GROUPS:
-          if (field != null && field.name.equals("groups")) {
-            return Optional.<TransformableType<TenantContext>>some(
+          if (field != null && field.name.equals("groups_names")) {
+            return Optional.some(
                 new ArrayTenantTransformer(type, TenantContext.ValueType.GROUP,
                     TenantTransform.ADD_PREFIX));
           }
           break;
 
         case FIND_COORDINATOR:
-          if (field != null && field.name.equals("coordinator_key")) {
+          if (field != null && field.name.equals("key")) {
             return Optional.some(
                 new StringTenantTransformer(type, TenantContext.ValueType.GROUP,
                     TenantTransform.ADD_PREFIX));
+          }
+          break;
+
+        case OFFSET_COMMIT:
+        case OFFSET_FETCH:
+          if (field != null) {
+            if (field.name.equals("group_id")) {
+              return Optional.some(new StringTenantTransformer(type, TenantContext.ValueType.GROUP,
+                      TenantTransform.ADD_PREFIX));
+            } else if (field.name.equals("name")) {
+              return Optional.some(new StringTenantTransformer(type, TenantContext.ValueType.TOPIC,
+                      TenantTransform.ADD_PREFIX));
+            }
           }
           break;
 
@@ -287,9 +302,15 @@ public class MultiTenantApis {
 
           break;
 
-        case DESCRIBE_CONFIGS:
-        case ALTER_CONFIGS:
         case INCREMENTAL_ALTER_CONFIGS:
+          if (field != null && field.name.equals("responses") && type instanceof Schema) {
+            return Optional.some(
+                    new ConfigResourceTenantTransformer(type, TenantTransform.REMOVE_PREFIX));
+          }
+          break;
+
+        case ALTER_CONFIGS:
+        case DESCRIBE_CONFIGS:
           if (field != null && field.name.equals("resources") && type instanceof Schema) {
             return Optional.some(
                 new ConfigResourceTenantTransformer(type, TenantTransform.REMOVE_PREFIX));
@@ -314,13 +335,17 @@ public class MultiTenantApis {
           if (field != null) {
             if (field.name.equals("error_message")) {
               return Optional.some(new ErrorMessageSanitizer(type));
+            } else if (field.name.equals("name")) {
+              return Optional.some(
+                      new StringTenantTransformer(type, TenantContext.ValueType.TOPIC,
+                              TenantTransform.REMOVE_PREFIX));
             }
           }
           break;
 
         case DELETE_TOPICS:
           if (field != null && field.name.equals("name")) {
-            return Optional.<TransformableType<TenantContext>>some(
+            return Optional.some(
                     new StringTenantTransformer(type, TenantContext.ValueType.TOPIC,
                             TenantTransform.REMOVE_PREFIX));
           }
@@ -330,6 +355,14 @@ public class MultiTenantApis {
           if ((field != null) && field.name.equals("group_id")) {
             return Optional.some(
                 new StringTenantTransformer(type, TenantContext.ValueType.GROUP, TenantTransform.REMOVE_PREFIX));
+          }
+          break;
+
+        case OFFSET_COMMIT:
+        case OFFSET_FETCH:
+          if (field != null && field.name.equals("name")) {
+              return Optional.some(new StringTenantTransformer(type, TenantContext.ValueType.TOPIC,
+                      TenantTransform.REMOVE_PREFIX));
           }
           break;
 

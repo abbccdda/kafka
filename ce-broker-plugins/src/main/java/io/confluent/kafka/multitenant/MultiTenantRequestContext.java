@@ -16,19 +16,15 @@ import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.errors.InvalidRequestException;
+import org.apache.kafka.common.message.CreateTopicsRequestData;
+import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignment;
+import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignmentCollection;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopicCollection;
-import org.apache.kafka.common.message.CreateTopicsRequestData;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfig;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfigCollection;
-import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignmentCollection;
-import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignment;
-import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResult;
 import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
-import org.apache.kafka.common.message.IncrementalAlterConfigsResponseData;
 import org.apache.kafka.common.message.ListGroupsResponseData;
-import org.apache.kafka.common.message.OffsetCommitRequestData;
-import org.apache.kafka.common.message.OffsetCommitResponseData;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.network.NetworkSend;
@@ -44,24 +40,19 @@ import org.apache.kafka.common.requests.AbstractRequest;
 import org.apache.kafka.common.requests.AbstractResponse;
 import org.apache.kafka.common.requests.AlterConfigsRequest;
 import org.apache.kafka.common.requests.CreateAclsRequest;
-import org.apache.kafka.common.requests.CreateTopicsResponse;
+import org.apache.kafka.common.requests.CreatePartitionsRequest;
+import org.apache.kafka.common.requests.CreatePartitionsRequest.PartitionDetails;
+import org.apache.kafka.common.requests.CreateTopicsRequest;
 import org.apache.kafka.common.requests.DeleteAclsRequest;
 import org.apache.kafka.common.requests.DeleteAclsResponse;
 import org.apache.kafka.common.requests.DescribeAclsRequest;
 import org.apache.kafka.common.requests.DescribeAclsResponse;
-import org.apache.kafka.common.requests.CreateTopicsRequest;
-import org.apache.kafka.common.requests.CreatePartitionsRequest;
-import org.apache.kafka.common.requests.CreatePartitionsRequest.PartitionDetails;
 import org.apache.kafka.common.requests.DescribeConfigsResponse;
 import org.apache.kafka.common.requests.FetchResponse;
-import org.apache.kafka.common.requests.FindCoordinatorRequest;
 import org.apache.kafka.common.requests.IncrementalAlterConfigsRequest;
-import org.apache.kafka.common.requests.IncrementalAlterConfigsResponse;
 import org.apache.kafka.common.requests.ListGroupsResponse;
 import org.apache.kafka.common.requests.MetadataRequest;
 import org.apache.kafka.common.requests.MetadataResponse;
-import org.apache.kafka.common.requests.OffsetCommitRequest;
-import org.apache.kafka.common.requests.OffsetCommitResponse;
 import org.apache.kafka.common.requests.ProduceRequest;
 import org.apache.kafka.common.requests.RequestAndSize;
 import org.apache.kafka.common.requests.RequestContext;
@@ -77,6 +68,8 @@ import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
@@ -90,9 +83,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class MultiTenantRequestContext extends RequestContext {
   private static final Logger log = LoggerFactory.getLogger(MultiTenantRequestContext.class);
@@ -174,10 +164,6 @@ public class MultiTenantRequestContext extends RequestContext {
           updatePartitionBytesInMetrics((ProduceRequest) body);
         } else if (body instanceof AlterConfigsRequest) {
           body = transformAlterConfigsRequest((AlterConfigsRequest) body, apiVersion);
-        } else if (body instanceof OffsetCommitRequest) {
-          body = transformOffsetCommitRequest((OffsetCommitRequest) body);
-        } else if (body instanceof FindCoordinatorRequest) {
-          body = transformFindCoordinatorRequest((FindCoordinatorRequest) body);
         } else if (body instanceof IncrementalAlterConfigsRequest) {
           body = transformIncrementalAlterConfigsRequest((IncrementalAlterConfigsRequest) body, apiVersion);
         }
@@ -246,8 +232,6 @@ public class MultiTenantRequestContext extends RequestContext {
         filteredResponse = filteredMetadataResponse((MetadataResponse) body);
       } else if (body instanceof ListGroupsResponse) {
         filteredResponse = filteredListGroupsResponse((ListGroupsResponse) body);
-      } else if (body instanceof CreateTopicsResponse) {
-        filteredResponse = transformCreateTopicsResponse((CreateTopicsResponse) body);
       } else if (body instanceof DescribeConfigsResponse
               && !tenantContext.principal.tenantMetadata().allowDescribeBrokerConfigs) {
         filteredResponse = filteredDescribeConfigsResponse((DescribeConfigsResponse) body);
@@ -255,10 +239,6 @@ public class MultiTenantRequestContext extends RequestContext {
         filteredResponse = filteredDescribeAclsResponse((DescribeAclsResponse) body);
       } else if (body instanceof DeleteAclsResponse) {
         filteredResponse = transformDeleteAclsResponse((DeleteAclsResponse) body);
-      } else if (body instanceof OffsetCommitResponse) {
-        filteredResponse = transformOffsetCommitResponse((OffsetCommitResponse) body);
-      } else if (body instanceof IncrementalAlterConfigsResponse) {
-        filteredResponse = transformIncrementalAlterConfigsResponse((IncrementalAlterConfigsResponse) body);
       }
 
 
@@ -317,18 +297,6 @@ public class MultiTenantRequestContext extends RequestContext {
                     .setTimeoutMs(topicsRequest.data().timeoutMs())
                     .setValidateOnly(topicsRequest.data().validateOnly()))
             .build(version);
-  }
-
-  private OffsetCommitRequest transformOffsetCommitRequest(OffsetCommitRequest request) {
-    for (OffsetCommitRequestData.OffsetCommitRequestTopic topic: request.data().topics()) {
-      topic.setName(tenantContext.addTenantPrefix(topic.name()));
-    }
-    return request;
-  }
-
-  private FindCoordinatorRequest transformFindCoordinatorRequest(FindCoordinatorRequest request) {
-    request.data().setKey(tenantContext.addTenantPrefix(request.data().key()));
-    return request;
   }
 
   private void removeFilteredConfigs(CreatableTopic topicDetails) {
@@ -527,13 +495,6 @@ public class MultiTenantRequestContext extends RequestContext {
             response.clusterId(), controllerId, filteredTopics);
   }
 
-  private CreateTopicsResponse transformCreateTopicsResponse(CreateTopicsResponse response) {
-    for (CreatableTopicResult topicResult: response.data().topics()) {
-        topicResult.setName(tenantContext.removeTenantPrefix(topicResult.name()));
-    }
-    return response;
-  }
-
   private ListGroupsResponse filteredListGroupsResponse(ListGroupsResponse response) {
     List<ListGroupsResponseData.ListedGroup> filteredGroups = new ArrayList<>();
     for (ListGroupsResponseData.ListedGroup group : response.data().groups()) {
@@ -625,23 +586,6 @@ public class MultiTenantRequestContext extends RequestContext {
       return new DeleteAclsResponse.AclFilterResponse(r.error(), deletions);
     }).collect(Collectors.toList());
     return new DeleteAclsResponse(response.throttleTimeMs(), responses);
-  }
-
-  private OffsetCommitResponse transformOffsetCommitResponse(OffsetCommitResponse response) {
-    for (OffsetCommitResponseData.OffsetCommitResponseTopic topic: response.data().topics()) {
-      topic.setName(tenantContext.removeTenantPrefix(topic.name()));
-    }
-    return response;
-  }
-
-  private IncrementalAlterConfigsResponse transformIncrementalAlterConfigsResponse(
-          IncrementalAlterConfigsResponse response) {
-    for (IncrementalAlterConfigsResponseData.AlterConfigsResourceResult result: response.data().responses()) {
-      if (result.resourceType() == ConfigResource.Type.TOPIC.id()) {
-        result.setResourceName(tenantContext.removeTenantPrefix(result.resourceName()));
-      }
-    }
-    return response;
   }
 
   private boolean isUnsupportedApiVersionsRequest() {
