@@ -10,6 +10,16 @@ import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
 import io.opencensus.proto.metrics.v1.Point;
+import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.MetricName;
+import org.apache.kafka.common.metrics.KafkaMetric;
+import org.apache.kafka.common.metrics.Measurable;
+import org.apache.kafka.common.metrics.MetricsReporter;
+import org.apache.kafka.common.metrics.stats.CumulativeSum;
+import org.apache.kafka.common.metrics.stats.WindowedCount;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.lang.reflect.Field;
 import java.time.Clock;
 import java.time.Instant;
@@ -23,15 +33,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
-import org.apache.kafka.common.KafkaException;
-import org.apache.kafka.common.MetricName;
-import org.apache.kafka.common.metrics.KafkaMetric;
-import org.apache.kafka.common.metrics.Measurable;
-import org.apache.kafka.common.metrics.MetricsReporter;
-import org.apache.kafka.common.metrics.stats.Count;
-import org.apache.kafka.common.metrics.stats.Total;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class KafkaMetricsCollector implements MetricsCollector {
     public static final String KAFKA_METRICS_LIB = "kafka";
@@ -138,7 +139,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
                 Measurable measurable = metric.measurable();
                 double value = (Double) entry.getValue().metricValue();
 
-                if (measurable instanceof Count || measurable instanceof Total) {
+                if (measurable instanceof WindowedCount || measurable instanceof CumulativeSum) {
                     out.add(MetricsUtils.metricWithSinglePointTimeseries(name,
                             MetricDescriptor.Type.CUMULATIVE_DOUBLE,
                             labels,

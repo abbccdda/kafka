@@ -21,8 +21,8 @@ import org.apache.kafka.common.metrics.Measurable;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.metrics.Sensor;
-import org.apache.kafka.common.metrics.stats.Count;
-import org.apache.kafka.common.metrics.stats.Total;
+import org.apache.kafka.common.metrics.stats.CumulativeSum;
+import org.apache.kafka.common.metrics.stats.WindowedCount;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -52,7 +52,7 @@ public class KafkaMetricsCollectorTest {
   @Test
   public void testMeasurableCounter() {
     Sensor sensor = metrics.sensor("test");
-    sensor.add(metricName, new Count());
+    sensor.add(metricName, new WindowedCount());
 
     sensor.record();
     sensor.record();
@@ -85,7 +85,7 @@ public class KafkaMetricsCollectorTest {
   @Test
   public void testMeasurableTotal() {
     Sensor sensor = metrics.sensor("test");
-    sensor.add(metricName, new Total());
+    sensor.add(metricName, new CumulativeSum());
 
     sensor.record(10L);
     sensor.record(5L);
@@ -228,7 +228,7 @@ public class KafkaMetricsCollectorTest {
 
     MetricName metricName = metrics.metricName("name1", "group1", tags);
     Sensor sensor = metrics.sensor("test");
-    sensor.add(metricName, new Count());
+    sensor.add(metricName, new WindowedCount());
 
     sensor.record();
     sensor.record();
@@ -267,7 +267,7 @@ public class KafkaMetricsCollectorTest {
 
     MetricName metricName = metrics.metricName("name1", "group1", tags);
     Sensor sensor = metrics.sensor("test");
-    sensor.add(metricName, new Count());
+    sensor.add(metricName, new CumulativeSum());
 
     sensor.record();
     sensor.record();
