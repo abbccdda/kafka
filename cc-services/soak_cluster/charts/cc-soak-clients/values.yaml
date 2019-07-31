@@ -1,5 +1,10 @@
 image:
-  repository: confluent-docker.jfrog.io/confluentinc
+  # The repository for the docker image. This is different across cloud providers and environments.
+  # Azure Devel: cclouddevel.azurecr.io/confluentinc
+  # AWS Devel: 037803949979.dkr.ecr.us-west-2.amazonaws.com/confluentinc
+  # GCP Devel: us.gcr.io/cc-devel
+  # CPD: confluent-docker.jfrog.io/confluentinc
+  repository: ""
   name: cc-soak-clients
   tag: 0.243.0-5.4.0-ce-SNAPSHOT
   pullPolicy: IfNotPresent

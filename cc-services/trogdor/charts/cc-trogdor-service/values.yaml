@@ -6,7 +6,12 @@ coordinatorReplicaCount: 1
 agentReplicaCount: 6
 
 image:
-  repository: confluent-docker.jfrog.io/confluentinc
+  # The repository for the docker image. This is different across cloud providers and environments.
+  # Azure Devel: cclouddevel.azurecr.io/confluentinc
+  # AWS Devel: 037803949979.dkr.ecr.us-west-2.amazonaws.com/confluentinc
+  # GCP Devel: us.gcr.io/cc-devel
+  # CPD: confluent-docker.jfrog.io/confluentinc
+  repository: ""
   name: cc-trogdor
   tag: 0.109.0-2.3.0-SNAPSHOT
   pullPolicy: IfNotPresent
