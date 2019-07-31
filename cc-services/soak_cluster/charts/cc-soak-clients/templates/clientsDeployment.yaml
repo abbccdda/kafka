@@ -50,7 +50,11 @@ spec:
           args: ["-f", "/dev/null"]
           env:
             - name: TROGDOR_HOST
-              value: "http://cc-trogdor-service-coordinator.{{ .Values.trogdorNamespace | .Release.Namespace}}.svc:{{ .Values.trogdorCoordinatorPort }}"
+              {{- if eq .Values.trogdorNamespace "" }}
+              value: "http://cc-trogdor-service-coordinator.{{ .Release.Namespace }}.svc:{{ .Values.trogdorCoordinatorPort }}"
+              {{- else }}
+              value: "http://cc-trogdor-service-coordinator.{{ .Values.trogdorNamespace }}.svc:{{ .Values.trogdorCoordinatorPort }}"
+              {{- end }}
             - name: PERFORMANCE_TEST_CONFIG_PATH
               value: "{{ .Values.performanceTestConfigPath }}"
             - name: TROGDOR_BOOTSTRAPSERVERS
