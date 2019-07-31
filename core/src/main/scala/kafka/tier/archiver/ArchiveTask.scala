@@ -178,9 +178,8 @@ final class ArchiveTask(override val ctx: CancellationContext,
         info(s"Retrying ${this.state} as segment was deleted", e)
         this
       case e: Throwable =>
-        error(s"$topicIdPartition encountered a fatal exception", e)
         ctx.cancel()
-        throw e
+        throw new TierArchiverFatalException(s"$topicIdPartition encountered a fatal exception", e)
     }
   }
 

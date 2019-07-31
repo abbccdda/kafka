@@ -197,9 +197,6 @@ final class TierArchiver(config: TierArchiverConfig,
     } catch {
       case _: InterruptedException | _: CancellationException =>
         info("archiver shutting down")
-      case t: Throwable =>
-        fatal("caught fatal exception while archiving", t)
-        throw t
     }
   }
 
