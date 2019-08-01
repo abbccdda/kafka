@@ -24,14 +24,14 @@ import kafka.api.{ApiVersion, ApiVersionValidator}
 import kafka.message.BrokerCompressionCodec
 import kafka.server.{KafkaConfig, ThrottledReplicaListValidator}
 import kafka.utils.Implicits._
+import org.apache.kafka.server.interceptor.RecordInterceptor
 import org.apache.kafka.common.errors.InvalidConfigurationException
 import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfluentTopicConfig, TopicConfig}
+import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList, Validator}
 import org.apache.kafka.common.record.{LegacyRecord, TimestampType}
 import org.apache.kafka.common.utils.Utils
 
 import scala.collection.{Map, mutable}
-import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList, Validator}
-import org.apache.kafka.server.interceptor.RecordInterceptor
 
 object Defaults {
   val SegmentSize = kafka.server.Defaults.LogSegmentBytes
@@ -107,7 +107,15 @@ case class LogConfig(props: java.util.Map[_, _], overriddenConfigs: Set[String] 
   val tierEnable = getBoolean(LogConfig.TierEnableProp)
   val tierLocalHotsetBytes = getLong(LogConfig.TierLocalHotsetBytesProp)
   val tierLocalHotsetMs = getLong(LogConfig.TierLocalHotsetMsProp)
+
   val appendRecordInterceptors = getConfiguredInstances(LogConfig.AppendRecordInterceptorClassesProp, classOf[RecordInterceptor])
+
+  // if schema validation is enabled, construct the schema validation interceptor
+  val schemaValidationEnable = getBoolean(LogConfig.SchemaValidationEnableProp)
+  if (schemaValidationEnable) {
+    val recordSchemaValidatorClassName = "io.confluent.kafka.schemaregistry.validator.RecordSchemaValidator"
+    appendRecordInterceptors.add(getConfiguredInstance(recordSchemaValidatorClassName, classOf[RecordInterceptor]))
+  }
 
   def randomSegmentJitter: Long =
     if (segmentJitterMs == 0) 0 else Utils.abs(scala.util.Random.nextInt()) % math.min(segmentJitterMs, segmentMs)
@@ -154,6 +162,7 @@ object LogConfig {
   val TierLocalHotsetBytesProp = ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_CONFIG
   val TierLocalHotsetMsProp = ConfluentTopicConfig.TIER_LOCAL_HOTSET_MS_CONFIG
   val AppendRecordInterceptorClassesProp = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG
+  val SchemaValidationEnableProp = ConfluentTopicConfig.SCHEMA_VALIDATION_CONFIG
 
   // Leave these out of TopicConfig for now as they are replication quota configs
   val LeaderReplicationThrottledReplicasProp = "leader.replication.throttled.replicas"
@@ -303,6 +312,13 @@ object LogConfig {
       .define(MessageDownConversionEnableProp, BOOLEAN, Defaults.MessageDownConversionEnable, LOW,
         MessageDownConversionEnableDoc, KafkaConfig.LogMessageDownConversionEnableProp)
 
+      /* --- Begin Confluent Configurations --- */
+
+      .define(SchemaValidationEnableProp, BOOLEAN, false, MEDIUM, ConfluentTopicConfig.SCHEMA_VALIDATION_DOC, KafkaConfig.SchemaValidationEnableProp)
+
+      /* --- End Confluent Configurations --- */
+
+
       /* --- Begin Internal Configurations --- */
 
       .defineInternal(TierEnableProp, BOOLEAN, Defaults.TierEnable, MEDIUM, TierEnableDoc, KafkaConfig.TierEnableProp)
@@ -400,7 +416,8 @@ object LogConfig {
     TierEnableProp -> KafkaConfig.TierEnableProp,
     TierLocalHotsetBytesProp -> KafkaConfig.TierLocalHotsetBytesProp,
     TierLocalHotsetMsProp -> KafkaConfig.TierLocalHotsetMsProp,
-    AppendRecordInterceptorClassesProp -> KafkaConfig.AppendRecordInterceptorClassesProp
+    AppendRecordInterceptorClassesProp -> KafkaConfig.AppendRecordInterceptorClassesProp,
+    SchemaValidationEnableProp -> KafkaConfig.SchemaValidationEnableProp
   )
 
 }

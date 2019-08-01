@@ -1705,9 +1705,9 @@ public class MultiTenantRequestContextTest {
     for (short ver = ApiKeys.DESCRIBE_CONFIGS.oldestVersion(); ver <= ApiKeys.DESCRIBE_CONFIGS.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.DESCRIBE_CONFIGS, ver);
       Map<ConfigResource, Collection<String>> requestedResources = new HashMap<>();
-      requestedResources.put(new ConfigResource(ConfigResource.Type.TOPIC, "foo"), Collections.<String>emptyList());
-      requestedResources.put(new ConfigResource(ConfigResource.Type.BROKER, "blah"), Collections.<String>emptyList());
-      requestedResources.put(new ConfigResource(ConfigResource.Type.TOPIC, "bar"), Collections.<String>emptyList());
+      requestedResources.put(new ConfigResource(ConfigResource.Type.TOPIC, "foo"), Collections.emptyList());
+      requestedResources.put(new ConfigResource(ConfigResource.Type.BROKER, "blah"), Collections.emptyList());
+      requestedResources.put(new ConfigResource(ConfigResource.Type.TOPIC, "bar"), Collections.emptyList());
       DescribeConfigsRequest inbound = new DescribeConfigsRequest.Builder(requestedResources).build(ver);
       DescribeConfigsRequest intercepted = (DescribeConfigsRequest) parseRequest(context, inbound);
       assertEquals(mkSet(new ConfigResource(ConfigResource.Type.TOPIC, "tenant_foo"),
@@ -1734,13 +1734,18 @@ public class MultiTenantRequestContextTest {
     Set<DescribeConfigsResponse.ConfigSynonym> emptySynonyms = Collections.emptySet();
     Collection<DescribeConfigsResponse.ConfigEntry> brokerConfigEntries = asList(
       new DescribeConfigsResponse.ConfigEntry("message.max.bytes", "10000", brokerSource, false, false, emptySynonyms),
-      new DescribeConfigsResponse.ConfigEntry("num.network.threads", "5", brokerSource, false, false, emptySynonyms)
+      new DescribeConfigsResponse.ConfigEntry("num.network.threads", "5", brokerSource, false, false, emptySynonyms),
+      new DescribeConfigsResponse.ConfigEntry("broker.interceptor.class", "bar", brokerSource, false, false, emptySynonyms),
+      new DescribeConfigsResponse.ConfigEntry("confluent.schema.validation", "true", brokerSource, false, false, emptySynonyms),
+      new DescribeConfigsResponse.ConfigEntry("confluent.append.record.interceptor.classes", "foo,bar", brokerSource, false, false, emptySynonyms)
     );
     Collection<DescribeConfigsResponse.ConfigEntry> topicConfigEntries = asList(
       new DescribeConfigsResponse.ConfigEntry("retention.bytes", "10000000", topicSource, false, false, emptySynonyms),
       new DescribeConfigsResponse.ConfigEntry("min.insync.replicas", "2", topicSource, false, false, emptySynonyms),
       new DescribeConfigsResponse.ConfigEntry("min.cleanable.dirty.ratio", "0.5", topicSource, false, false, emptySynonyms),
-      new DescribeConfigsResponse.ConfigEntry("confluent.tier.enable", "true", topicSource, false, false, emptySynonyms)
+      new DescribeConfigsResponse.ConfigEntry("confluent.tier.enable", "true", topicSource, false, false, emptySynonyms),
+      new DescribeConfigsResponse.ConfigEntry("confluent.schema.validation", "true", brokerSource, false, false, emptySynonyms),
+      new DescribeConfigsResponse.ConfigEntry("confluent.append.record.interceptor.classes", "foo,bar", brokerSource, false, false, emptySynonyms)
     );
 
     for (short ver = ApiKeys.DESCRIBE_CONFIGS.oldestVersion(); ver <= ApiKeys.DESCRIBE_CONFIGS.latestVersion(); ver++) {
@@ -1751,7 +1756,7 @@ public class MultiTenantRequestContextTest {
       resourceErrors.put(new ConfigResource(ConfigResource.Type.BROKER, "blah"), new DescribeConfigsResponse.Config(new ApiError(Errors.NONE, ""),
           brokerConfigEntries));
       resourceErrors.put(new ConfigResource(ConfigResource.Type.TOPIC, "tenant_bar"), new DescribeConfigsResponse.Config(new ApiError(Errors.NONE, ""),
-          Collections.<DescribeConfigsResponse.ConfigEntry>emptyList()));
+          Collections.emptyList()));
 
       DescribeConfigsResponse outbound = new DescribeConfigsResponse(0, resourceErrors);
       Struct struct = parseResponse(ApiKeys.DESCRIBE_CONFIGS, ver, context.buildResponse(outbound));
@@ -1762,6 +1767,9 @@ public class MultiTenantRequestContextTest {
 
       Collection<DescribeConfigsResponse.ConfigEntry> interceptedTopicConfigs =
               intercepted.configs().get(new ConfigResource(ConfigResource.Type.TOPIC, "foo")).entries();
+
+      assertTrue(intercepted.configs().get(new ConfigResource(ConfigResource.Type.TOPIC, "bar")).entries().isEmpty());
+
       Map<String, Boolean> topicReadOnlyMap = new HashMap<>();
       for (DescribeConfigsResponse.ConfigEntry configEntry : interceptedTopicConfigs) {
         topicReadOnlyMap.put(configEntry.name(), configEntry.isReadOnly());
@@ -1772,7 +1780,9 @@ public class MultiTenantRequestContextTest {
                 mkEntry("retention.bytes", Boolean.FALSE),
                 mkEntry("min.insync.replicas", Boolean.FALSE),
                 mkEntry("min.cleanable.dirty.ratio", Boolean.FALSE),
-                mkEntry("confluent.tier.enable", Boolean.FALSE)),
+                mkEntry("confluent.tier.enable", Boolean.FALSE),
+                mkEntry("confluent.schema.validation", Boolean.FALSE),
+                mkEntry("confluent.append.record.interceptor.classes", Boolean.FALSE)),
             topicReadOnlyMap);
       } else {
         assertEquals(
@@ -1790,7 +1800,14 @@ public class MultiTenantRequestContextTest {
         interceptedEntries.add(configEntry.name());
       }
       if (allowDescribeBrokerConfigs) {
-        assertEquals(mkSet("message.max.bytes", "num.network.threads"), interceptedEntries);
+        assertEquals(
+            mkSet(
+                "message.max.bytes",
+                "num.network.threads",
+                "broker.interceptor.class",
+                "confluent.schema.validation",
+                "confluent.append.record.interceptor.classes"),
+            interceptedEntries);
       } else {
         assertEquals(mkSet("message.max.bytes"), interceptedEntries);
       }
