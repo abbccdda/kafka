@@ -12,6 +12,7 @@ import io.confluent.license.test.utils.LicenseTestUtils;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.ResourcePattern;
+import io.confluent.security.store.NotMasterWriterException;
 import io.confluent.security.test.utils.RbacClusters;
 import io.confluent.security.test.utils.RbacClusters.Config;
 import io.confluent.security.test.utils.RbacTestUtils;
@@ -19,6 +20,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import kafka.log.LogConfig$;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AlterConfigOp;
@@ -32,11 +34,13 @@ import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.config.ConfigResource.Type;
 import org.apache.kafka.common.errors.InvalidRequestException;
+import org.apache.kafka.common.errors.NotLeaderForPartitionException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.test.IntegrationTest;
+import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -185,9 +189,23 @@ public class RbacEndToEndAuthorizationTest {
     rbacClusters.restartMasterWriter();
 
     rbacClusters.produceConsume(DEVELOPER2, APP1_TOPIC, APP1_CONSUMER_GROUP, false);
-    rbacClusters.assignRole(KafkaPrincipal.USER_TYPE, DEVELOPER2, "ResourceOwner", clusterId,
-        Utils.mkSet(new ResourcePattern("Group", APP1_CONSUMER_GROUP, PatternType.LITERAL),
-            new ResourcePattern("Topic", APP1_TOPIC, PatternType.LITERAL)));
+
+    TestUtils.waitForCondition(() -> {
+      try {
+        rbacClusters.assignRole(KafkaPrincipal.USER_TYPE, DEVELOPER2, "ResourceOwner", clusterId,
+            Utils.mkSet(new ResourcePattern("Group", APP1_CONSUMER_GROUP, PatternType.LITERAL),
+                new ResourcePattern("Topic", APP1_TOPIC, PatternType.LITERAL)));
+        return true;
+      } catch (ExecutionException e) {
+        if (!(e.getCause() instanceof NotLeaderForPartitionException) && !(e.getCause() instanceof NotMasterWriterException))
+          throw new RuntimeException(e);
+        else
+          return false;
+      } catch (Exception e) {
+        throw new RuntimeException(e);
+      }
+    }, "Role binding not updated within timeout");
+
     rbacClusters.waitUntilAccessAllowed(DEVELOPER2, APP1_TOPIC);
     rbacClusters.produceConsume(DEVELOPER2, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
     RbacTestUtils.verifyMetadataStoreMetrics();

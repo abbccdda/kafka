@@ -11,6 +11,7 @@ import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.KafkaTestUtils.ClientBuilder;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
 import io.confluent.license.test.utils.LicenseTestUtils;
+import io.confluent.security.auth.metadata.AuthStore;
 import io.confluent.security.auth.metadata.MetadataServiceConfig;
 import io.confluent.security.auth.provider.rbac.RbacProvider;
 import io.confluent.security.auth.store.data.UserKey;
@@ -23,6 +24,7 @@ import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.minikdc.MiniKdcWithLdapService;
 import io.confluent.security.store.kafka.KafkaStoreConfig;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -156,9 +158,18 @@ public class RbacClusters {
     int index = authWriters.indexOf(masterWriter);
     KafkaServer masterWriterBroker = metadataCluster.brokers().get(index);
 
+    KafkaServer anotherBroker = metadataCluster.brokers().get((index + 1) % config.numMetadataServers);
+    AuthStore authStore = rbacProvider(anotherBroker).authStore();
+    waitForActiveNodes(authStore, config.numMetadataServers);
+
     masterWriterBroker.shutdown();
-    TestUtils.waitForCondition(() -> !currentMasterWriter().equals(Optional.of(masterWriter)),
-        "Master writer not reset after broker failure");
+
+    waitForActiveNodes(authStore, config.numMetadataServers - 1);
+    TestUtils.waitForCondition(() -> {
+      URL masterUrl = authStore.masterWriterUrl("http");
+      return masterUrl == null || masterUrl.getPort() != 8000 + index;
+    }, () -> "Master writer not reset after broker failure, master=" + authStore.masterWriterUrl("http"));
+
     masterWriterBroker.startup();
     updateAuthWriters();
 
@@ -171,8 +182,14 @@ public class RbacClusters {
       }
     });
 
+    waitForActiveNodes(authStore, config.numMetadataServers);
     TestUtils.waitForCondition(() -> currentMasterWriter().isPresent(),
         "Master writer not re-elected after broker failure");
+  }
+
+  private void waitForActiveNodes(AuthStore authStore, int expectedCount) throws Exception {
+    TestUtils.waitForCondition(() -> authStore.activeNodeUrls("http").size() == expectedCount,
+        () -> "Unexpected nodes " + authStore.activeNodeUrls("http"));
   }
 
   private Optional<KafkaAuthWriter> currentMasterWriter() {
@@ -338,11 +355,14 @@ public class RbacClusters {
     return users;
   }
 
+  private RbacProvider rbacProvider(KafkaServer kafkaServer) {
+    ConfluentServerAuthorizer authorizer = (ConfluentServerAuthorizer) kafkaServer.authorizer().get();
+    return (RbacProvider) authorizer.metadataProvider();
+  }
+
   private KafkaAuthWriter kafkaAuthWriter(KafkaServer kafkaServer) {
     try {
-      ConfluentServerAuthorizer authorizer = (ConfluentServerAuthorizer) kafkaServer.authorizer()
-          .get();
-      RbacProvider rbacProvider = (RbacProvider) authorizer.metadataProvider();
+      RbacProvider rbacProvider = rbacProvider(kafkaServer);
       TestUtils.waitForCondition(() -> rbacProvider.authStore() != null,
           "Metadata server not created");
       TestUtils.waitForCondition(() -> rbacProvider.authStore().writer() != null,
