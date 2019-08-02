@@ -747,9 +747,9 @@ class KafkaApisTest {
           val onChange = onLeadershipChange.getValue
 
           // TopicPartition foo-0 should have becomeLeader called by virtue of being a newly assigned leader (passed via updatedLeaders)
-          val updatedLeaders = Seq(new Partition(topicIdPartition0.topicPartition(), 0, ApiVersion.latestVersion, brokerId, null, null, null, null, null))
+          val updatedLeaders = Seq(new Partition(topicIdPartition0.topicPartition(), 0, ApiVersion.latestVersion, brokerId, false, null, null, null, null, null))
           // TopicPartition foo-1 should have becomeLeader as it was not previously assigned a topic ID
-          val updatedFollowers = Seq(new Partition(topicIdPartition1.topicPartition(), 0, ApiVersion.latestVersion, brokerId, null, null, null, null, null))
+          val updatedFollowers = Seq(new Partition(topicIdPartition1.topicPartition(), 0, ApiVersion.latestVersion, brokerId, false, null, null, null, null, null))
           onChange(updatedLeaders, updatedFollowers)
           response
         }

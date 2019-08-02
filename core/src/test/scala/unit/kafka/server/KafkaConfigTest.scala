@@ -711,6 +711,9 @@ class KafkaConfigTest {
         case KafkaConfig.TierLocalHotsetBytesProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1.2", "3.4")
         case KafkaConfig.TierLocalHotsetMsProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1.2", "3.4")
 
+        // Observer configs
+        case KafkaConfig.ObserverFeatureProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_boolean", "0")
+
         case KafkaConfig.ProducerQuotaBytesPerSecondDefaultProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0")
         case KafkaConfig.ConsumerQuotaBytesPerSecondDefaultProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0")
         case KafkaConfig.NumQuotaSamplesProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0")

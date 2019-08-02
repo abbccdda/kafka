@@ -50,6 +50,7 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
 
 class PartitionTest {
+  import PartitionTest._
 
   val brokerId = 101
   val topicPartition = new TopicPartition("test-topic", 0)
@@ -83,6 +84,7 @@ class PartitionTest {
       replicaLagTimeMaxMs = Defaults.ReplicaLagTimeMaxMs,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       localBrokerId = brokerId,
+      observerFeature = false,
       time,
       stateStore,
       delayedOperations,
@@ -522,6 +524,8 @@ class PartitionTest {
       }
     }
 
+    mockAliveBrokers(metadataCache, replicas)
+
     when(stateStore.expandIsr(controllerEpoch, new LeaderAndIsr(leader, leaderEpoch,
       List(leader, follower2, follower1), 1)))
       .thenReturn(Some(2))
@@ -807,6 +811,8 @@ class PartitionTest {
     val batch3 = TestUtils.records(records = List(new SimpleRecord("k6".getBytes, "v1".getBytes),
                                                   new SimpleRecord("k7".getBytes, "v2".getBytes)))
 
+    mockAliveBrokers(metadataCache, Seq(leader, follower1, follower2))
+
     val leaderState = new LeaderAndIsrRequest.PartitionState(controllerEpoch, leader, leaderEpoch, isr, 1, replicas, true)
     assertTrue("Expected first makeLeader() to return 'leader changed'",
                partition.makeLeader(controllerId, leaderState, 0, offsetCheckpoints))
@@ -888,6 +894,7 @@ class PartitionTest {
         replicaLagTimeMaxMs = Defaults.ReplicaLagTimeMaxMs,
         interBrokerProtocolVersion = ApiVersion.latestVersion,
         localBrokerId = brokerId,
+        observerFeature = false,
         time,
         stateStore,
         delayedOperations,
@@ -1065,6 +1072,7 @@ class PartitionTest {
     val isr = List[Integer](brokerId).asJava
 
     doNothing().when(delayedOperations).checkAndCompleteFetch()
+    mockAliveBrokers(metadataCache, replicas)
 
     partition.createLogIfNotExists(brokerId, isNew = false, isFutureReplica = false, offsetCheckpoints)
     assertTrue(
@@ -1121,15 +1129,23 @@ class PartitionTest {
     val controllerEpoch = 0
     val leaderEpoch = 5
     val remoteBrokerId = brokerId + 1
-    val replicas = List[Integer](brokerId, remoteBrokerId).asJava
+    val replicas = List(brokerId, remoteBrokerId)
     val isr = List[Integer](brokerId).asJava
 
     doNothing().when(delayedOperations).checkAndCompleteFetch()
+    mockAliveBrokers(metadataCache, replicas)
 
     partition.createLogIfNotExists(brokerId, isNew = false, isFutureReplica = false, offsetCheckpoints)
-    assertTrue("Expected become leader transition to succeed",
-      partition.makeLeader(controllerId, new LeaderAndIsrRequest.PartitionState(controllerEpoch, brokerId,
-        leaderEpoch, isr, 1, replicas, true), 0, offsetCheckpoints))
+    assertTrue(
+      "Expected become leader transition to succeed",
+      partition.makeLeader(
+        controllerId,
+        new LeaderAndIsrRequest.PartitionState(
+          controllerEpoch, brokerId, leaderEpoch, isr, 1, replicas.map(Int.box).asJava, true),
+        0,
+        offsetCheckpoints
+      )
+    )
     assertEquals(Set(brokerId), partition.inSyncReplicaIds)
 
     val remoteReplica = partition.getReplica(remoteBrokerId).get
@@ -1169,6 +1185,7 @@ class PartitionTest {
     val isr = List[Integer](brokerId, remoteBrokerId).asJava
 
     doNothing().when(delayedOperations).checkAndCompleteFetch()
+    mockAliveBrokers(metadataCache, replicas)
 
     val initializeTimeMs = time.milliseconds()
     partition.createLogIfNotExists(brokerId, isNew = false, isFutureReplica = false, offsetCheckpoints)
@@ -1221,6 +1238,7 @@ class PartitionTest {
     val isr = List[Integer](brokerId, remoteBrokerId).asJava
 
     doNothing().when(delayedOperations).checkAndCompleteFetch()
+    mockAliveBrokers(metadataCache, replicas)
 
     val initializeTimeMs = time.milliseconds()
     partition.createLogIfNotExists(brokerId, isNew = false, isFutureReplica = false, offsetCheckpoints)
@@ -1288,6 +1306,7 @@ class PartitionTest {
     val isr = List[Integer](brokerId, remoteBrokerId).asJava
 
     doNothing().when(delayedOperations).checkAndCompleteFetch()
+    mockAliveBrokers(metadataCache, replicas)
 
     val initializeTimeMs = time.milliseconds()
     partition.createLogIfNotExists(brokerId, isNew = false, isFutureReplica = false, offsetCheckpoints)
@@ -1337,16 +1356,24 @@ class PartitionTest {
     val controllerEpoch = 0
     val leaderEpoch = 5
     val remoteBrokerId = brokerId + 1
-    val replicas = List[Integer](brokerId, remoteBrokerId).asJava
+    val replicas = List(brokerId, remoteBrokerId)
     val isr = List[Integer](brokerId, remoteBrokerId).asJava
 
     doNothing().when(delayedOperations).checkAndCompleteFetch()
+    mockAliveBrokers(metadataCache, replicas)
 
     val initializeTimeMs = time.milliseconds()
     partition.createLogIfNotExists(brokerId, isNew = false, isFutureReplica = false, offsetCheckpoints)
-    assertTrue("Expected become leader transition to succeed",
-      partition.makeLeader(controllerId, new LeaderAndIsrRequest.PartitionState(controllerEpoch, brokerId,
-        leaderEpoch, isr, 1, replicas, true), 0, offsetCheckpoints))
+    assertTrue(
+      "Expected become leader transition to succeed",
+      partition.makeLeader(
+        controllerId,
+        new LeaderAndIsrRequest.PartitionState(
+          controllerEpoch, brokerId, leaderEpoch, isr, 1, replicas.map(Int.box).asJava, true),
+        0,
+        offsetCheckpoints
+      )
+    )
     assertEquals(Set(brokerId, remoteBrokerId), partition.inSyncReplicaIds)
     assertEquals(0L, partition.localLogOrException.highWatermark)
 
@@ -1418,4 +1445,19 @@ class PartitionTest {
     }
   }
 
+}
+
+object PartitionTest {
+  def mockAliveBrokers(metadataCache: MetadataCache, ids: Iterable[Int]): Unit = {
+    val aliveBrokers = ids.map { brokerId =>
+      TestUtils.createBroker(brokerId, s"host$brokerId", brokerId)
+    }.toSeq
+
+    when(metadataCache.getAliveBrokers).thenReturn(aliveBrokers)
+
+    ids.foreach { brokerId =>
+      when(metadataCache.getAliveBroker(brokerId))
+        .thenReturn(Option(TestUtils.createBroker(brokerId, s"host$brokerId", brokerId)))
+    }
+  }
 }

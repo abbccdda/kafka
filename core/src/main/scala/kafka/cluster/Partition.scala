@@ -138,6 +138,7 @@ object Partition extends KafkaMetricsGroup {
       replicaLagTimeMaxMs = replicaManager.config.replicaLagTimeMaxMs,
       interBrokerProtocolVersion = replicaManager.config.interBrokerProtocolVersion,
       localBrokerId = replicaManager.config.brokerId,
+      observerFeature = replicaManager.config.observerFeature,
       time = time,
       stateStore = zkIsrBackingStore,
       delayedOperations = delayedOperations,
@@ -150,6 +151,7 @@ object Partition extends KafkaMetricsGroup {
     removeMetric("UnderReplicated", tags)
     removeMetric("UnderMinIsr", tags)
     removeMetric("InSyncReplicasCount", tags)
+    removeMetric("CaughtUpReplicas", tags)
     removeMetric("ReplicasCount", tags)
     removeMetric("LastStableOffsetLag", tags)
     removeMetric("AtMinIsr", tags)
@@ -163,6 +165,7 @@ class Partition(val topicPartition: TopicPartition,
                 replicaLagTimeMaxMs: Long,
                 interBrokerProtocolVersion: ApiVersion,
                 localBrokerId: Int,
+                observerFeature: Boolean,
                 time: Time,
                 stateStore: PartitionStateStore,
                 delayedOperations: DelayedOperations,
@@ -192,6 +195,8 @@ class Partition(val topicPartition: TopicPartition,
   @volatile var log: Option[AbstractLog] = None
   // If ReplicaAlterLogDir command is in progress, this is future location of the log
   @volatile var futureLog: Option[AbstractLog] = None
+  // Save the caught up set so that we don't grab a lock during metric reporting
+  @volatile var caughtUpReplicas = Set.empty[Int]
 
   /* Epoch of the controller that last changed the leader. This needs to be initialized correctly upon broker startup.
    * One way of doing that is through the controller's start replica state change command. When a new broker starts up
@@ -216,6 +221,15 @@ class Partition(val topicPartition: TopicPartition,
     new Gauge[Int] {
       def value: Int = {
         if (isLeader) inSyncReplicaIds.size else 0
+      }
+    },
+    tags
+  )
+
+  newGauge("CaughtUpReplicas",
+    new Gauge[Int] {
+      def value: Int = {
+        caughtUpReplicas.size
       }
     },
     tags
@@ -258,7 +272,7 @@ class Partition(val topicPartition: TopicPartition,
   )
 
   def isUnderReplicated: Boolean =
-    isLeader && inSyncReplicaIds.size < allReplicaIds.size
+    isLeader && inSyncReplicaIds.size < sizeOfOfflineOrIsrEligibleReplicas
 
   def isUnderMinIsr: Boolean = {
     leaderLogIfLocal.exists { inSyncReplicaIds.size < _.config.minInSyncReplicas }
@@ -609,6 +623,13 @@ class Partition(val topicPartition: TopicPartition,
         val followerFetchOffset = followerFetchOffsetMetadata.messageOffset
         val leaderHWIncremented = maybeExpandIsr(followerReplica, followerFetchTimeMs)
 
+        // Compate the new caughtUpReplicas with the old value
+        val newCaughtUpReplicas = computeCaughtUpReplicas;
+        if (newCaughtUpReplicas != caughtUpReplicas) {
+          debug(s"After updating follower caught up replica set changed from $caughtUpReplicas to $newCaughtUpReplicas")
+          caughtUpReplicas = newCaughtUpReplicas
+        }
+
         // some delayed operations may be unblocked after HW or LW changed
         if (leaderLWIncremented || leaderHWIncremented)
           tryCompleteDelayedRequests()
@@ -668,7 +689,9 @@ class Partition(val topicPartition: TopicPartition,
       leaderLogIfLocal match {
         case Some(leaderLog) =>
           val leaderHighwatermark = leaderLog.highWatermark
-          if (!inSyncReplicaIds.contains(followerReplica.brokerId) && isFollowerInSync(followerReplica, leaderHighwatermark)) {
+          if (!inSyncReplicaIds.contains(followerReplica.brokerId) &&
+              isFollowerInSync(followerReplica, leaderHighwatermark) &&
+              isBrokerIsrEligible(followerReplica.brokerId)) {
             val newInSyncReplicaIds = inSyncReplicaIds + followerReplica.brokerId
             info(s"Expanding ISR from ${inSyncReplicaIds.mkString(",")} " +
               s"to ${newInSyncReplicaIds.mkString(",")}")
@@ -687,6 +710,50 @@ class Partition(val topicPartition: TopicPartition,
   private def isFollowerInSync(followerReplica: Replica, highWatermark: Long): Boolean = {
     val followerEndOffset = followerReplica.logEndOffset
     followerEndOffset >= highWatermark && leaderEpochStartOffsetOpt.exists(followerEndOffset >= _)
+  }
+
+  private[this] def isBrokerIsrEligible(brokerId: Int): Boolean = {
+    !observerFeature ||
+    leaderLogIfLocal.map { leaderLog =>
+      Observer.isBrokerIsrEligible(
+        leaderLog.config.topicPlacementConstraints,
+        allReplicaIds,
+        metadataCache.getAliveBroker,
+        localBrokerId,  // This should be the leader since leaderLogIfLocal is Some.
+        brokerId
+      )
+    }.getOrElse(false)
+  }
+
+  private[this] def sizeOfOfflineOrIsrEligibleReplicas: Int = {
+    if (observerFeature) {
+      leaderLogIfLocal.iterator.flatMap { leaderLog =>
+        metadataCache.getAliveBroker(localBrokerId).iterator.flatMap { leader =>
+          Observer.brokerIdsOfflineOrIsrEligible(
+            leaderLog.config.topicPlacementConstraints,
+            allReplicaIds,
+            metadataCache.getAliveBroker(_),
+            leader.id
+          )
+        }
+      }.size
+    } else {
+      allReplicaIds.size
+    }
+  }
+
+  private[this] def computeCaughtUpReplicas: Set[Int] = {
+    leaderLogIfLocal.iterator.flatMap { leaderLog =>
+      val caughtUpFollowers = remoteReplicasMap.iterator.flatMap { case (id, replica) =>
+        if (isFollowerInSync(replica, leaderLog.highWatermark)) {
+          Some(id)
+        } else {
+          None
+        }
+      }
+      
+      caughtUpFollowers ++ Iterator(localBrokerId)
+    }.toSet
   }
 
   /*
@@ -805,6 +872,13 @@ class Partition(val topicPartition: TopicPartition,
     val leaderHWIncremented = inWriteLock(leaderIsrUpdateLock) {
       leaderLogIfLocal match {
         case Some(leaderLog) =>
+          // Compate the new caughtUpReplicas with the old value
+          val newCaughtUpReplicas = computeCaughtUpReplicas;
+          if (newCaughtUpReplicas != caughtUpReplicas) {
+            debug(s"After replica lag time caught up replica set changed from $caughtUpReplicas to $newCaughtUpReplicas")
+            caughtUpReplicas = newCaughtUpReplicas
+          }
+
           val outOfSyncReplicaIds = getOutOfSyncReplicas(replicaMaxLagTimeMs)
           if (outOfSyncReplicaIds.nonEmpty) {
             val newInSyncReplicaIds = inSyncReplicaIds -- outOfSyncReplicaIds
@@ -843,8 +917,10 @@ class Partition(val topicPartition: TopicPartition,
                                   currentTimeMs: Long,
                                   maxLagMs: Long): Boolean = {
     val followerReplica = getReplicaOrException(replicaId)
-    followerReplica.logEndOffset != leaderEndOffset &&
+    val outOfSync = followerReplica.logEndOffset != leaderEndOffset &&
       (currentTimeMs - followerReplica.lastCaughtUpTimeMs) > maxLagMs
+
+    !isBrokerIsrEligible(replicaId) || outOfSync
   }
 
   def getOutOfSyncReplicas(maxLagMs: Long): Set[Int] = {

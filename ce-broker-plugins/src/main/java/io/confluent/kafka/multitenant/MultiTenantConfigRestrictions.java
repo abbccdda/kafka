@@ -38,6 +38,7 @@ public class MultiTenantConfigRestrictions {
   public static boolean visibleTopicConfig(String configName) {
     return !configName.startsWith("confluent.tier") &&
         !configName.startsWith("confluent.append.record.interceptor") &&
-        !configName.startsWith("confluent.schema.validation");
+        !configName.startsWith("confluent.schema.validation") &&
+        !configName.equals("confluent.placement.constraints");
   }
 }

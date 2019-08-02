@@ -120,4 +120,8 @@
     <allow pkg="org.apache.kafka.clients" />
   </subpackage>
 
+  <subpackage name="common">
+      <!-- TopicPlacement needs JSON SerDe support -->
+    <allow pkg="com.fasterxml.jackson" />
+  </subpackage>
 </import-control>

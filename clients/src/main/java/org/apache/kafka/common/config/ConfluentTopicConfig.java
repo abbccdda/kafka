@@ -41,4 +41,9 @@ public class ConfluentTopicConfig {
 
     public static final String SCHEMA_VALIDATION_CONFIG = CONFLUENT_PREFIX + SCHEMA_VALIDATION;
     public static final String SCHEMA_VALIDATION_DOC = "True if schema validation is enabled for this topic.";
+
+    public static final String TOPIC_PLACEMENT_CONSTRAINTS_CONFIG = CONFLUENT_PREFIX + "placement.constraints";
+    public static final String TOPIC_PLACEMENT_CONSTRAINTS_DOC = "This configuration is a JSON object that controls the set of " +
+        "brokers (replicas) which will always be allowed to join the ISR. And the set of brokers (observers) which are not " +
+        "allowed to join the ISR.";
 }

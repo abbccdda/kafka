@@ -331,8 +331,10 @@ class AdminManager(val config: KafkaConfig,
         val filteredConfigPairs = configs.filter { case (configName, _) =>
           /* Only allow tier configs when confluent.tier.feature is enabled */
           val tierFeatureCheck = config.tierFeature || !configName.startsWith(KafkaConfig.ConfluentTierPrefix)
+          // Only allow placement constraint if the observer feature is enabled
+          val observerCheck = config.observerFeature || !configName.equals(LogConfig.TopicPlacementConstraintsProp)
           /* Always returns true if configNames is None */
-          tierFeatureCheck && configNames.forall(_.contains(configName))
+          tierFeatureCheck && observerCheck && configNames.forall(_.contains(configName))
         }.toIndexedSeq
 
         val configEntries = filteredConfigPairs.map { case (name, value) => createConfigEntry(name, value) }

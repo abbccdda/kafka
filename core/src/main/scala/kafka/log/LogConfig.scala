@@ -18,9 +18,8 @@
 package kafka.log
 
 import java.util.{Collections, Locale, Properties}
-
-import scala.collection.JavaConverters._
 import kafka.api.{ApiVersion, ApiVersionValidator}
+import kafka.common.TopicPlacement
 import kafka.message.BrokerCompressionCodec
 import kafka.server.{KafkaConfig, ThrottledReplicaListValidator}
 import kafka.utils.Implicits._
@@ -31,6 +30,7 @@ import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList, Validator
 import org.apache.kafka.common.record.{LegacyRecord, TimestampType}
 import org.apache.kafka.common.utils.Utils
 
+import scala.collection.JavaConverters._
 import scala.collection.{Map, mutable}
 
 object Defaults {
@@ -109,6 +109,11 @@ case class LogConfig(props: java.util.Map[_, _], overriddenConfigs: Set[String] 
   val tierLocalHotsetMs = getLong(LogConfig.TierLocalHotsetMsProp)
 
   val appendRecordInterceptors = getConfiguredInstances(LogConfig.AppendRecordInterceptorClassesProp, classOf[RecordInterceptor])
+  val topicPlacementConstraints: TopicPlacement = {
+    Option(getString(LogConfig.TopicPlacementConstraintsProp)).map { value =>
+      TopicPlacement.parse(value)
+    }.getOrElse(TopicPlacement.empty())
+  }
 
   // if schema validation is enabled, construct the schema validation interceptor
   val schemaValidationEnable = getBoolean(LogConfig.SchemaValidationEnableProp)
@@ -163,6 +168,7 @@ object LogConfig {
   val TierLocalHotsetMsProp = ConfluentTopicConfig.TIER_LOCAL_HOTSET_MS_CONFIG
   val AppendRecordInterceptorClassesProp = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG
   val SchemaValidationEnableProp = ConfluentTopicConfig.SCHEMA_VALIDATION_CONFIG
+  val TopicPlacementConstraintsProp = ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG
 
   // Leave these out of TopicConfig for now as they are replication quota configs
   val LeaderReplicationThrottledReplicasProp = "leader.replication.throttled.replicas"
@@ -196,6 +202,7 @@ object LogConfig {
   val TierLocalHotsetBytesDoc = ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_DOC
   val TierLocalHotsetMsDoc = ConfluentTopicConfig.TIER_LOCAL_HOTSET_MS_DOC
   val AppendRecordInterceptorClassesDoc = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG_DOC
+  val TopicPlacementConstraintsDoc = ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_DOC
 
   val LeaderReplicationThrottledReplicasDoc = "A list of replicas for which log replication should be throttled on " +
     "the leader side. The list should describe a set of replicas in the form " +
@@ -235,6 +242,18 @@ object LogConfig {
                        documentation: String, serverDefaultConfigName: String): LogConfigDef = {
       super.defineInternal(name, defType, defaultValue, importance, documentation)
       serverDefaultConfigNames.put(name, serverDefaultConfigName)
+      this
+    }
+
+    def defineTopicOnly(
+      name: String,
+      defType: ConfigDef.Type,
+      defaultValue: Any,
+      validator: Validator,
+      importance: ConfigDef.Importance,
+      documentation: String
+    ): LogConfigDef = {
+      super.define(name, defType, defaultValue, validator, importance, documentation)
       this
     }
 
@@ -311,6 +330,14 @@ object LogConfig {
         FollowerReplicationThrottledReplicasDoc, FollowerReplicationThrottledReplicasProp)
       .define(MessageDownConversionEnableProp, BOOLEAN, Defaults.MessageDownConversionEnable, LOW,
         MessageDownConversionEnableDoc, KafkaConfig.LogMessageDownConversionEnableProp)
+      .defineTopicOnly(
+        TopicPlacementConstraintsProp,
+        STRING,
+        null,
+        TopicPlacement.VALIDATOR,
+        LOW,
+        TopicPlacementConstraintsDoc
+      )
 
       /* --- Begin Confluent Configurations --- */
 

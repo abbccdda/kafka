@@ -20,7 +20,10 @@ import java.io.File
 import java.util.Properties
 import java.util.concurrent.atomic.AtomicBoolean
 
+import kafka.cluster.Partition
 import kafka.log.AbstractLog
+import kafka.log.LogConfig
+import kafka.log.LogManager
 import kafka.tier.TierMetadataManager
 import kafka.cluster.Partition
 import kafka.log.LogManager
@@ -59,8 +62,23 @@ class IsrExpirationTest {
     EasyMock.expect(logManager.liveLogDirs).andReturn(Array.empty[File]).anyTimes()
     EasyMock.replay(logManager)
 
-    replicaManager = new ReplicaManager(configs.head, metrics, time, null, null, logManager, new AtomicBoolean(false),
-      QuotaFactory.instantiate(configs.head, metrics, time, ""), new BrokerTopicStats, new MetadataCache(configs.head.brokerId),
+    val metadataCache: MetadataCache = EasyMock.createMock(classOf[MetadataCache])
+    val aliveBrokers: Seq[Int] = configs.map(_.brokerId)
+    EasyMock
+      .expect(metadataCache.getAliveBrokers)
+      .andReturn(aliveBrokers.map(id => TestUtils.createBroker(id, s"broker$id", id)))
+      .anyTimes()
+    aliveBrokers.foreach { id =>
+      EasyMock
+        .expect(metadataCache.getAliveBroker(id))
+        .andReturn(Option(TestUtils.createBroker(id, s"broker$id", id)))
+        .anyTimes()
+    }
+    EasyMock.replay(metadataCache)
+
+    replicaManager = new ReplicaManager(
+      configs.head, metrics, time, null, null, logManager, new AtomicBoolean(false),
+      QuotaFactory.instantiate(configs.head, metrics, time, ""), new BrokerTopicStats, metadataCache,
       new LogDirFailureChannel(configs.head.logDirs.size), EasyMock.createMock(classOf[TierMetadataManager]))
   }
 
@@ -236,6 +254,7 @@ class IsrExpirationTest {
     EasyMock.expect(log.dir).andReturn(TestUtils.tempDir()).anyTimes()
     EasyMock.expect(log.logEndOffsetMetadata).andReturn(LogOffsetMetadata(leaderLogEndOffset)).anyTimes()
     EasyMock.expect(log.logEndOffset).andReturn(leaderLogEndOffset).anyTimes()
+    EasyMock.expect(log.config).andReturn(LogConfig(new Properties)).anyTimes()
     EasyMock.replay(log)
     log
   }

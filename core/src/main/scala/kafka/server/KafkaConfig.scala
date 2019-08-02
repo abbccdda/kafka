@@ -212,6 +212,9 @@ object Defaults {
   /** Tiered storage archiver configs **/
   val TierArchiverNumThreads = 2: Integer
 
+  /** Observer configs **/
+  val ObserverFeature = false
+
   /** ********* Fetch Session Configuration **************/
   val MaxIncrementalFetchSessionCacheSlots = 1000
 
@@ -479,6 +482,9 @@ object KafkaConfig {
 
   /** Policy enforcement configs **/
   val SchemaValidationEnableProp = ConfluentTopicConfig.SCHEMA_VALIDATION_CONFIG
+
+  /** Observer configs **/
+  val ObserverFeatureProp = ConfluentPrefix + "observer.feature"
 
   /** ********* Interceptor Configurations ***********/
   val AppendRecordInterceptorClassesProp = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG
@@ -852,6 +858,9 @@ object KafkaConfig {
   /** Tiered storage archiver configs **/
   val TierArchiverNumThreadsDoc = "The size of the threadpool used for TierArchiver state transitions."
 
+  /** Observer configs **/
+  val ObserverFeatureDoc = "Feature flag that enables the observer feature."
+
   /** ********* Fetch Session Configuration **************/
   val MaxIncrementalFetchSessionCacheSlotsDoc = "The maximum number of incremental fetch sessions that we will maintain."
 
@@ -1146,6 +1155,9 @@ object KafkaConfig {
       .defineInternal(TierLocalHotsetBytesProp, LONG, Defaults.TierLocalHotsetBytes, HIGH, TierLocalHotsetBytesDoc)
       .defineInternal(TierLocalHotsetMsProp, LONG, Defaults.TierLocalHotsetMs, HIGH, TierLocalHotsetMsDoc)
       .defineInternal(TierArchiverNumThreadsProp, INT, Defaults.TierArchiverNumThreads, atLeast(1), MEDIUM, TierArchiverNumThreadsDoc)
+
+      /** ********* Observer Configuration **************/
+      .defineInternal(ObserverFeatureProp, BOOLEAN, Defaults.ObserverFeature, MEDIUM, ObserverFeatureDoc)
 
     /** ********* Fetch Session Configuration **************/
       .define(MaxIncrementalFetchSessionCacheSlots, INT, Defaults.MaxIncrementalFetchSessionCacheSlots, atLeast(0), MEDIUM, MaxIncrementalFetchSessionCacheSlotsDoc)
@@ -1487,6 +1499,9 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierLocalHotsetBytes = getLong(KafkaConfig.TierLocalHotsetBytesProp)
   val tierLocalHotsetMs = getLong(KafkaConfig.TierLocalHotsetMsProp)
   val tierArchiverNumThreads = getInt(KafkaConfig.TierArchiverNumThreadsProp)
+
+  /** ********* Interceptor Configuration ***********/
+  val observerFeature = getBoolean(KafkaConfig.ObserverFeatureProp)
 
   /** ********* Interceptor Configuration ***********/
   val appendRecordInterceptors = getConfiguredInstances(KafkaConfig.AppendRecordInterceptorClassesProp, classOf[RecordInterceptor])
