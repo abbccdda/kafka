@@ -1,3 +1,5 @@
+// (Copyright) [2019 - 2019] Confluent, Inc.
+
 package org.apache.kafka.server.interceptor;
 
 import java.io.Closeable;

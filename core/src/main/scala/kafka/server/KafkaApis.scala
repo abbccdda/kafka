@@ -362,14 +362,13 @@ class KafkaApis(val requestChannel: RequestChannel,
       sendResponseExemptThrottle(request, new UpdateMetadataResponse(Errors.STALE_BROKER_EPOCH))
     } else {
       val deletedPartitions = replicaManager.maybeUpdateMetadataCache(correlationId, updateMetadataRequest)
+      val updatedPartitions = updateMetadataRequest.partitionStates.keySet.asScala
+      val allPartitions = metadataCache.getAllPartitions()
+      adminManager.metadataUpdated(allPartitions, updatedPartitions)
+
       if (deletedPartitions.nonEmpty)
         groupCoordinator.handleDeletedPartitions(deletedPartitions)
 
-      if (adminManager.hasDelayedTopicOperations) {
-        updateMetadataRequest.partitionStates.keySet.asScala.map(_.topic).foreach { topic =>
-          adminManager.tryCompleteDelayedTopicOperations(topic)
-        }
-      }
       quotas.clientQuotaCallback.foreach { callback =>
         if (callback.updateClusterMetadata(metadataCache.getClusterMetadata(clusterId, request.context.listenerName))) {
           quotas.fetch.updateQuotaMetricConfigs()
@@ -378,7 +377,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         }
       }
       if (replicaManager.hasDelayedElectionOperations) {
-        updateMetadataRequest.partitionStates.asScala.foreach { case (tp, _) =>
+        updatedPartitions.foreach { tp =>
           replicaManager.tryCompleteElection(TopicPartitionOperationKey(tp))
         }
       }

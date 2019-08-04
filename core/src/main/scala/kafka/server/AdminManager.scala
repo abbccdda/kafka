@@ -26,6 +26,7 @@ import kafka.utils._
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.clients.admin.AlterConfigOp
 import org.apache.kafka.clients.admin.AlterConfigOp.OpType
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.ConfigDef.ConfigKey
 import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, ConfigResource}
 import org.apache.kafka.common.errors.{ApiException, InvalidConfigurationException, InvalidPartitionsException, InvalidReplicaAssignmentException, InvalidRequestException, ReassignmentInProgressException, UnknownTopicOrPartitionException}
@@ -39,6 +40,7 @@ import org.apache.kafka.common.requests.CreateTopicsRequest._
 import org.apache.kafka.common.requests.DescribeConfigsResponse.ConfigSource
 import org.apache.kafka.common.requests.{AlterConfigsRequest, ApiError, DescribeConfigsResponse}
 import org.apache.kafka.common.security.auth.KafkaPrincipal
+import org.apache.kafka.server.interceptor.TopicMetadataListener
 import org.apache.kafka.server.policy.{AlterConfigPolicy, CreateTopicPolicy}
 import org.apache.kafka.server.policy.CreateTopicPolicy.RequestMetadata
 
@@ -414,6 +416,17 @@ class AdminManager(val config: KafkaConfig,
           resource -> ApiError.fromThrowable(e)
       }
     }.toMap
+  }
+
+  def metadataUpdated(allPartitions: Set[TopicPartition], updatedPartitions: Set[TopicPartition]): Unit = {
+    createTopicPolicy.collect { case l: TopicMetadataListener => l }.foreach { l =>
+      l.topicMetadataUpdated(allPartitions.asJava)
+    }
+    if (hasDelayedTopicOperations) {
+      updatedPartitions.map(_.topic).foreach { topic =>
+        tryCompleteDelayedTopicOperations(topic)
+      }
+    }
   }
 
   private def alterTopicConfigs(resource: ConfigResource, validateOnly: Boolean,
