@@ -21,7 +21,8 @@ import java.util
 import java.util.{Collections, Properties}
 
 import joptsimple._
-import kafka.common.AdminCommandFailedException
+import kafka.cluster.{Broker, Observer}
+import kafka.common.{AdminCommandFailedException, TopicPlacement}
 import kafka.log.LogConfig
 import kafka.server.ConfigType
 import kafka.utils.Implicits._
@@ -31,7 +32,7 @@ import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin.{Admin, ConfigEntry, ListTopicsOptions, NewPartitions, NewTopic, AdminClient => JAdminClient, Config => JConfig}
 import org.apache.kafka.common.{Node, TopicPartition, TopicPartitionInfo}
 import org.apache.kafka.common.config.ConfigResource.Type
-import org.apache.kafka.common.config.{ConfigResource, TopicConfig}
+import org.apache.kafka.common.config.{ConfigResource, ConfluentTopicConfig, TopicConfig}
 import org.apache.kafka.common.errors.{InvalidTopicException, TopicExistsException}
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.security.JaasUtils
@@ -138,12 +139,44 @@ object TopicCommand extends Logging {
       !hasLeader || !liveBrokers.contains(info.leader.id)
     }
 
-    def printDescription(): Unit = {
+    private def maybeTopicPlacement: Option[TopicPlacement] = {
+      config.flatMap { cfg =>
+        Option(cfg.get(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG))
+          .flatMap(entry => Option(entry.value))
+          .map(TopicPlacement.parse)
+      }
+    }
+
+    def liveObservers(liveBrokersIds: Set[Int]): Option[Seq[Int]] = {
+      maybeTopicPlacement.flatMap { placement =>
+        val leaderId = Option(info.leader).map(_.id).getOrElse(-1)
+        val allReplicaIds = info.replicas.asScala.map(_.id)
+
+        def brokerIfLive(id: Int): Option[Broker] = {
+          if (liveBrokersIds.contains(id)) {
+            info.replicas.asScala.find(_.id == id).map { node =>
+              Broker(id, Seq(), Option(node.rack))
+            }
+          } else {
+            None
+          }
+        }
+
+        val isr = info.isr.asScala.map(_.id).toSet
+        val isrEligibleBrokerIds = Observer.brokersIdsIsrEligible(placement, allReplicaIds, brokerIfLive, leaderId)
+        val observers: Set[Int] = (allReplicaIds.toSet & liveBrokersIds) -- isrEligibleBrokerIds -- isr
+        Some(observers.toSeq)
+      }
+    }
+
+    def printDescription(liveBrokerIds: Set[Int]): Unit = {
       print("\tTopic: " + topic)
       print("\tPartition: " + info.partition)
       print("\tLeader: " + (if (hasLeader) info.leader.id else "none"))
       print("\tReplicas: " + info.replicas.asScala.map(_.id).mkString(","))
       print("\tIsr: " + info.isr.asScala.map(_.id).mkString(","))
+      val observers = liveObservers(liveBrokerIds)
+      print(if (observers.isEmpty) "" else s"\tLiveObservers: ${observers.get.mkString(",")}")
       print(if (markedForDeletion) "\tMarkedForDeletion: true" else "")
       println()
     }
@@ -181,7 +214,7 @@ object TopicCommand extends Logging {
 
     def maybePrintPartitionDescription(desc: PartitionDescription): Unit = {
       if (shouldPrintTopicPartition(desc))
-        desc.printDescription()
+        desc.printDescription(liveBrokers)
     }
   }
 

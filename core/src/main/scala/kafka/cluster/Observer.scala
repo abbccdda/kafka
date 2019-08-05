@@ -19,13 +19,12 @@ object Observer {
     brokerId: Int
   ): Boolean = {
     brokerId == leaderId || // Broker is the leader
-    Some(brokerId) == allReplicaIds.headOption ||  // Broker is the preferred replicas
+    allReplicaIds.headOption.contains(brokerId) ||  // Broker is the preferred replicas
     (
       // Broker matches the replicas constraint
       allReplicaIds.contains(brokerId) &&
       aliveBrokers(brokerId)
-        .map(broker => topicPlacement.matchesReplicas(brokerAttributes(broker).asJava))
-        .getOrElse(false)
+        .exists(broker => topicPlacement.matchesReplicas(brokerAttributes(broker).asJava))
     )
   }
 
