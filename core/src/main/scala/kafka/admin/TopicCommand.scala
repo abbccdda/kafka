@@ -113,14 +113,47 @@ object TopicCommand extends Logging {
   case class PartitionDescription(topic: String,
                                   info: TopicPartitionInfo,
                                   config: Option[JConfig],
-                                  markedForDeletion: Boolean) {
+                                  markedForDeletion: Boolean,
+                                  liveBrokerIds: Set[Int]) {
+    private val placement = config.flatMap { cfg =>
+      Option(cfg.get(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG))
+        .flatMap(entry => Option(entry.value))
+        .map(TopicPlacement.parse)
+    }
+
+    private val allReplicaIds = info.replicas.asScala.map(_.id)
+    private val offlineReplicaIds = allReplicaIds.toSet -- liveBrokerIds
+    private val isrEligibleBrokerIds = placement.map(computeIsrEligibleBrokerIds).getOrElse(allReplicaIds.toSet)
+
+    val liveObserverIds: Option[Set[Int]] = placement.map { _ =>
+      (allReplicaIds.toSet & liveBrokerIds) -- isrEligibleBrokerIds -- currentIsr
+    }
+
+    private def computeIsrEligibleBrokerIds(placement: TopicPlacement): Set[Int] = {
+      def brokerIfLive(id: Int): Option[Broker] = {
+        if (liveBrokerIds.contains(id)) {
+          info.replicas.asScala.find(_.id == id).map { node =>
+            Broker(id, Seq(), Option(node.rack))
+          }
+        } else {
+          None
+        }
+      }
+
+      val leaderId = Option(info.leader).map(_.id).getOrElse(-1)
+      Observer.brokerIdsIsrEligible(placement, allReplicaIds, brokerIfLive, leaderId)
+    }
+
+    private def currentIsr: Set[Int] = {
+      info.isr.asScala.map(_.id).toSet
+    }
 
     private def minIsrCount: Option[Int] = {
       config.map(_.get(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG).value.toInt)
     }
 
     def hasUnderReplicatedPartitions: Boolean = {
-      info.isr.size < info.replicas.size
+      info.isr.size < isrEligibleBrokerIds.size + offlineReplicaIds.size
     }
 
     private def hasLeader: Boolean = {
@@ -139,44 +172,14 @@ object TopicCommand extends Logging {
       !hasLeader || !liveBrokers.contains(info.leader.id)
     }
 
-    private def maybeTopicPlacement: Option[TopicPlacement] = {
-      config.flatMap { cfg =>
-        Option(cfg.get(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG))
-          .flatMap(entry => Option(entry.value))
-          .map(TopicPlacement.parse)
-      }
-    }
-
-    def liveObservers(liveBrokersIds: Set[Int]): Option[Seq[Int]] = {
-      maybeTopicPlacement.flatMap { placement =>
-        val leaderId = Option(info.leader).map(_.id).getOrElse(-1)
-        val allReplicaIds = info.replicas.asScala.map(_.id)
-
-        def brokerIfLive(id: Int): Option[Broker] = {
-          if (liveBrokersIds.contains(id)) {
-            info.replicas.asScala.find(_.id == id).map { node =>
-              Broker(id, Seq(), Option(node.rack))
-            }
-          } else {
-            None
-          }
-        }
-
-        val isr = info.isr.asScala.map(_.id).toSet
-        val isrEligibleBrokerIds = Observer.brokerIdsIsrEligible(placement, allReplicaIds, brokerIfLive, leaderId)
-        val observers: Set[Int] = (allReplicaIds.toSet & liveBrokersIds) -- isrEligibleBrokerIds -- isr
-        Some(observers.toSeq)
-      }
-    }
-
-    def printDescription(liveBrokerIds: Set[Int]): Unit = {
+    def printDescription(): Unit = {
       print("\tTopic: " + topic)
       print("\tPartition: " + info.partition)
       print("\tLeader: " + (if (hasLeader) info.leader.id else "none"))
       print("\tReplicas: " + info.replicas.asScala.map(_.id).mkString(","))
       print("\tIsr: " + info.isr.asScala.map(_.id).mkString(","))
-      val observers = liveObservers(liveBrokerIds)
-      print(if (observers.isEmpty) "" else s"\tLiveObservers: ${observers.get.mkString(",")}")
+      print("\tOffline: " + offlineReplicaIds.mkString(","))
+      print(if (liveObserverIds.isEmpty) "" else s"\tLiveObservers: ${liveObserverIds.get.mkString(",")}")
       print(if (markedForDeletion) "\tMarkedForDeletion: true" else "")
       println()
     }
@@ -214,7 +217,7 @@ object TopicCommand extends Logging {
 
     def maybePrintPartitionDescription(desc: PartitionDescription): Unit = {
       if (shouldPrintTopicPartition(desc))
-        desc.printDescription(liveBrokers)
+        desc.printDescription()
     }
   }
 
@@ -324,7 +327,8 @@ object TopicCommand extends Logging {
 
         if (describeOptions.describePartitions) {
           for (partition <- sortedPartitions) {
-            val partitionDesc = PartitionDescription(topicName, partition, Some(config), markedForDeletion = false)
+            val partitionDesc = PartitionDescription(topicName, partition, Some(config), markedForDeletion = false,
+              liveBrokers.toSet)
             describeOptions.maybePrintPartitionDescription(partitionDesc)
           }
         }
@@ -459,7 +463,7 @@ object TopicCommand extends Logging {
                   assignedReplicas.map(asNode).toList.asJava,
                   isr.map(asNode).toList.asJava)
 
-                val partitionDesc = PartitionDescription(topic, info, config = None, markedForDeletion)
+                val partitionDesc = PartitionDescription(topic, info, config = None, markedForDeletion, liveBrokerIds)
                 describeOptions.maybePrintPartitionDescription(partitionDesc)
               }
             }
