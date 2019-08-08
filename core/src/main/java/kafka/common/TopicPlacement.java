@@ -84,14 +84,33 @@ final public class TopicPlacement {
         return observers;
     }
 
+    /**
+     * Determines if a set of attributes matches the replicas constraints.
+     *
+     * Returns true if any of the following is true:
+     *
+     * 1. Replicas constraints is empty. If the topic is configured without a replicas
+     *    constraints then assume that there aren't any observers constraints. Hence,
+     *    all of the brokers should be replicas.
+     * 2. At least one of the replicas constraints matches the broker's attributes.
+     */
     public boolean matchesReplicas(Map<String, String> attributes) {
         return replicas.isEmpty() ||
-            replicas.stream().anyMatch(constraintCount -> constraintCount.matches(attributes));
+            replicas
+                .stream()
+                .anyMatch(constraintCount -> constraintCount.matches(attributes));
     }
 
+    /**
+     * Determines if a set of attributes matches the observers constraints.
+     *
+     * Returns true if at least one of the observers constraints matches the broker's
+     * attributes.
+     */
     public boolean matchesObservers(Map<String, String> attributes) {
-        return observers.isEmpty() ||
-            observers.stream().anyMatch(constraintCount -> constraintCount.matches(attributes));
+        return observers
+            .stream()
+            .anyMatch(constraintCount -> constraintCount.matches(attributes));
     }
 
     private static final ObjectMapper JSON_SERDE;
@@ -167,7 +186,12 @@ final public class TopicPlacement {
             if (value == null) throw new ConfigException(name, o, "Value must be a String");
 
             try {
-                TopicPlacement.parse(value);
+                TopicPlacement topicPlacement = TopicPlacement.parse(value);
+
+                if (!topicPlacement.observers().isEmpty() &&
+                    topicPlacement.replicas().isEmpty()) {
+                    throw new ConfigException(name, o, "Replicas constraints must be specified if observers constraints are specified");
+                }
             } catch (IllegalArgumentException e) {
                 throw new ConfigException(name, o, e.getMessage());
             }

@@ -62,13 +62,12 @@ class ObserverAwarePartitionDescriptionTest {
       new ConfigEntry(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, placementConstraint)
     ).asJava))
     val desc = TopicCommand.PartitionDescription(topic, info, config, markedForDeletion = false)
-    assertEquals(Some(Seq(2, 3)), desc.liveObservers(Set(0, 1, 2, 3)))
+    assertEquals(Some(Seq.empty), desc.liveObservers(Set(0, 1, 2, 3)))
   }
 
   @Test
-  def testObserversNotMatchingReplicaOrObserverConstraint(): Unit = {
-    // Any replica which doesn't match the replica constraint is treated as an observer.
-    // We do not care whether it matches the current observer constraint
+  def testObserversCanOnlyMatchObserverConstraint(): Unit = {
+    // Any replica which doesn't match the observer constraint is treated as a sync replica.
     val placementConstraint = """{"version":1,"replicas":[{"constraints":{"rack":"r1"}}],""" +
       """"observers":[{"constraints":{"rack":"r3"}}]}"""
     val topic = "foo"
@@ -78,14 +77,15 @@ class ObserverAwarePartitionDescriptionTest {
       new ConfigEntry(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, placementConstraint)
     ).asJava))
     val desc = TopicCommand.PartitionDescription(topic, info, config, markedForDeletion = false)
-    assertEquals(Some(Seq(2, 3)), desc.liveObservers(Set(0, 1, 2, 3)))
+    assertEquals(Some(Seq.empty), desc.liveObservers(Set(0, 1, 2, 3)))
   }
 
   @Test
   def testIsrReplicasAreNotObservers(): Unit = {
     // Replicas in the ISR are never counted among the observers even if they do not
     // match the replica constraint
-    val placementConstraint = """{"version":1,"replicas":[{"constraints":{"rack":"r1"}}]}"""
+    val placementConstraint = """{"version":1,"replicas":[{"constraints":{"rack":"r1"}}],""" +
+      """"observers":[{"constraints":{"rack":"r2"}}]}"""
     val topic = "foo"
     val isr = Set(2, 3)
     val info = partitionInfo(Some(0), isr)
@@ -93,13 +93,14 @@ class ObserverAwarePartitionDescriptionTest {
       new ConfigEntry(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, placementConstraint)
     ).asJava))
     val desc = TopicCommand.PartitionDescription(topic, info, config, markedForDeletion = false)
-    assertEquals(Some(Seq()), desc.liveObservers(Set(0, 1, 2, 3)))
+    assertEquals(Some(Seq.empty), desc.liveObservers(Set(0, 1, 2, 3)))
   }
 
   @Test
   def testOfflineReplicasAreNotObservers(): Unit = {
     // Offline replicas are not counted among live observers
-    val placementConstraint = """{"version":1,"replicas":[{"constraints":{"rack":"r1"}}]}"""
+    val placementConstraint = """{"version":1,"replicas":[{"constraints":{"rack":"r1"}}],""" +
+      """"observers":[{"constraints":{"rack":"r2"}}]}"""
     val topic = "foo"
     val isr = Set(0, 1)
     val info = partitionInfo(Some(0), isr)

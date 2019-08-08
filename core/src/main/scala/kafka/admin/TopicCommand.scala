@@ -163,7 +163,7 @@ object TopicCommand extends Logging {
         }
 
         val isr = info.isr.asScala.map(_.id).toSet
-        val isrEligibleBrokerIds = Observer.brokersIdsIsrEligible(placement, allReplicaIds, brokerIfLive, leaderId)
+        val isrEligibleBrokerIds = Observer.brokerIdsIsrEligible(placement, allReplicaIds, brokerIfLive, leaderId)
         val observers: Set[Int] = (allReplicaIds.toSet & liveBrokersIds) -- isrEligibleBrokerIds -- isr
         Some(observers.toSeq)
       }
