@@ -22,7 +22,7 @@ import kafka.utils.{Logging, TestUtils}
 import kafka.zk.{ConfigEntityChangeNotificationZNode, DeleteTopicsTopicZNode, ZooKeeperTestHarness}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{ConfigException, ConfigResource}
-import org.apache.kafka.common.errors.{InvalidPartitionsException, InvalidReplicationFactorException, TopicExistsException}
+import org.apache.kafka.common.errors.{InvalidConfigurationException, InvalidPartitionsException, InvalidReplicationFactorException, TopicExistsException}
 import org.apache.kafka.common.internals.Topic
 import org.junit.Assert._
 import org.junit.rules.TestName
@@ -112,6 +112,45 @@ class TopicCommandTest extends ZooKeeperTestHarness with Logging with RackAwareT
     assertEquals(List(3, 2), replicas1)
     val replicas2 = zkClient.getReplicasForPartition(new TopicPartition(testTopicName, 2))
     assertEquals(List(1, 0), replicas2)
+  }
+
+  @Test
+  def testCreateWithSchemaValidationEnabled(): Unit = {
+    val brokers = List(0)
+    TestUtils.createBrokersInZk(zkClient, brokers)
+
+    val configResource = new ConfigResource(ConfigResource.Type.TOPIC, testTopicName)
+    topicService.createTopic(new TopicCommandOptions(
+      Array("--partitions", "1", "--replication-factor", "1", "--topic", configResource.name(), "--config", "confluent.schema.validation=true")
+    ))
+
+    val configs = zkClient.getEntityConfigs(ConfigType.Topic, testTopicName)
+    assertEquals(true, java.lang.Boolean.valueOf(configs.getProperty("confluent.schema.validation")))
+  }
+
+  @Test
+  def testCreateWithInvalidBrokerOptions(): Unit = {
+    val brokers = List(0)
+    TestUtils.createBrokersInZk(zkClient, brokers)
+
+    val invalidSchemaValidatorConfigs = Array(
+      "confluent.schema.registry.url=bogus",
+      "confluent.key.subject.name.strategy=SomeStrategy",
+      "confluent.value.subject.name.strategy=SomeStrategy",
+      "confluent.max.schemas.per.subject=3",
+      "confluent.schema.registry.max.cache.size=10000",
+      "confluent.schema.registry.max.retries=3",
+      "confluent.schema.registry.retries.wait.ms=0"
+    )
+
+    for (cfg <- invalidSchemaValidatorConfigs) {
+      intercept[InvalidConfigurationException] {
+        topicService.createTopic(new TopicCommandOptions(
+          Array("--partitions", "1", "--replication-factor", "1", "--topic", testTopicName,
+            "--config", cfg)
+        ))
+      }
+    }
   }
 
   @Test
