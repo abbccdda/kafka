@@ -22,6 +22,8 @@ import org.apache.kafka.server.interceptor.BrokerInterceptor;
 import org.apache.kafka.server.interceptor.DefaultBrokerInterceptor;
 import org.apache.kafka.server.multitenant.MultiTenantMetadata;
 
+import static org.apache.kafka.common.config.ConfluentTopicConfig.CONFLUENT_PREFIX;
+
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -57,6 +59,45 @@ public class ConfluentConfigs {
 
     // TODO: for the above broker-level configs, we did not have the convention to add "confluent." to the configs;
     // for new configs added below, they should be added with the prefix in ConfluentTopicConfig#CONFLUENT_PREFIX.
+
+    // the following are copied from AbstractKafkaAvroSerDeConfig, we duplicate these const strings here in order
+    // to avoid introducing the dependency of schema-registry
+    private static final String SCHEMA_REGISTRY_URL = "schema.registry.url";
+    private static final String KEY_SUBJECT_NAME_STRATEGY = "key.subject.name.strategy";
+    private static final String VALUE_SUBJECT_NAME_STRATEGY = "value.subject.name.strategy";
+
+    public static final String SCHEMA_REGISTRY_URL_CONFIG = CONFLUENT_PREFIX + SCHEMA_REGISTRY_URL;
+    public static final String SCHEMA_REGISTRY_URL_DOC =
+        "Comma-separated list of URLs for schema registry instances that can be used to "
+            + "look up schemas.";
+
+    // default TopicNameStrategy.class cannot be defined here, but should be in the plugin that can
+    // depend on schema.registry
+    public static final String KEY_SUBJECT_NAME_STRATEGY_CONFIG = CONFLUENT_PREFIX + KEY_SUBJECT_NAME_STRATEGY;
+    public static final String KEY_SUBJECT_NAME_STRATEGY_DOC =
+        "Determines how to construct the subject name under which the key schema is registered "
+            + "with the schema registry. By default, <topic>-key is used as subject.";
+
+
+    public static final String VALUE_SUBJECT_NAME_STRATEGY_CONFIG = CONFLUENT_PREFIX + VALUE_SUBJECT_NAME_STRATEGY;
+    public static final String VALUE_SUBJECT_NAME_STRATEGY_DOC =
+        "Determines how to construct the subject name under which the value schema is registered "
+            + "with the schema registry. By default, <topic>-value is used as subject.";
+
+    public static final String MAX_CACHE_SIZE_CONFIG = CONFLUENT_PREFIX + "schema.registry.max.cache.size";
+    public static final String MAX_CACHE_SIZE_DOC =
+        "Maximum size of each LRU cache used to cache responses from the schema registry. "
+            + "There is one cache to hold the ID to schema mappings and another to hold "
+            + "the schemas that are registered to a subject.";
+    public static final int MAX_CACHE_SIZE_DEFAULT = 10_000;
+
+    public static final String MAX_RETRIES_CONFIG = CONFLUENT_PREFIX + "schema.registry.max.retries";
+    public static final String MAX_RETRIES_DOC = "Maximum number of times to retry schema registry read operations.";
+    public static final int MAX_RETRIES_DEFAULT = 1;
+
+    public static final String RETRIES_WAIT_MS_CONFIG = CONFLUENT_PREFIX + "schema.registry.retries.wait.ms";
+    public static final String RETRIES_WAIT_MS_DOC = "Time in milliseconds to wait before each retry.";
+    public static final int RETRIES_WAIT_MS_DEFAULT = 0;
 
     // for configs defined for both per-broker and per-topic, it should be defined in ConfluentTopicConfig instead.
 

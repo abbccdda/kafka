@@ -22,6 +22,7 @@ import java.net.{InetAddress, SocketTimeoutException}
 import java.util
 import java.util.concurrent._
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
+import java.util.function
 import java.util.function.Supplier
 
 import com.yammer.metrics.core.Gauge
@@ -38,9 +39,9 @@ import kafka.security.CredentialProvider
 import kafka.security.auth.{Authorizer, AuthorizerWithKafkaStore}
 import kafka.tier.archiver.{TierArchiver, TierArchiverConfig}
 import kafka.tier.fetcher.{TierFetcher, TierFetcherConfig}
-import kafka.tier.state.FileTierPartitionStateFactory
+import kafka.tier.state.{FileTierPartitionStateFactory, TierPartitionState}
 import kafka.tier.store.{MockInMemoryTierObjectStore, S3TierObjectStore, TierObjectStore, TierObjectStoreConfig}
-import kafka.tier.TierMetadataManager
+import kafka.tier.{TierMetadataManager, TopicIdPartition}
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.tier.retention.TierRetentionManager
 import kafka.tier.topic.{TierTopicManager, TierTopicManagerConfig}
@@ -61,7 +62,6 @@ import org.apache.kafka.common.utils.{AppInfoParser, LogContext, Time}
 import org.apache.kafka.common.{ClusterResource, ClusterResourceListener, Node}
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.security.auth.SecurityProtocol
-import org.apache.kafka.server.interceptor.RecordInterceptor
 import org.apache.kafka.server.multitenant.MultiTenantMetadata
 
 import scala.collection.JavaConverters._
@@ -100,8 +100,29 @@ object KafkaServer {
     logProps.put(LogConfig.TierEnableProp, kafkaConfig.tierEnable: java.lang.Boolean)
     logProps.put(LogConfig.TierLocalHotsetBytesProp, kafkaConfig.tierLocalHotsetBytes: java.lang.Long)
     logProps.put(LogConfig.TierLocalHotsetMsProp, kafkaConfig.tierLocalHotsetMs: java.lang.Long)
-    logProps.put(LogConfig.AppendRecordInterceptorClassesProp, kafkaConfig.appendRecordInterceptors: util.List[RecordInterceptor])
     logProps.put(LogConfig.SchemaValidationEnableProp, kafkaConfig.schemaValidationEnable: java.lang.Boolean)
+
+    // confluent configs needed for topic-level overrides
+    // we use computeIfAbsent for those configs that do not have default values (i.e. the default value are null)
+    logProps.computeIfAbsent(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG, new function.Function[String, Object] {
+      override def apply(t: String): Object = kafkaConfig.getString(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG)
+    })
+    logProps.computeIfAbsent(ConfluentConfigs.KEY_SUBJECT_NAME_STRATEGY_CONFIG, new function.Function[String, Object] {
+      override def apply(t: String): Object = kafkaConfig.getString(ConfluentConfigs.KEY_SUBJECT_NAME_STRATEGY_CONFIG)
+    })
+    logProps.computeIfAbsent(ConfluentConfigs.VALUE_SUBJECT_NAME_STRATEGY_CONFIG, new function.Function[String, Object] {
+      override def apply(t: String): Object = kafkaConfig.getString(ConfluentConfigs.VALUE_SUBJECT_NAME_STRATEGY_CONFIG)
+    })
+    logProps.put(ConfluentConfigs.MAX_CACHE_SIZE_CONFIG, kafkaConfig.getInt(ConfluentConfigs.MAX_CACHE_SIZE_CONFIG))
+    logProps.put(ConfluentConfigs.MAX_RETRIES_CONFIG, kafkaConfig.getInt(ConfluentConfigs.MAX_RETRIES_CONFIG))
+    logProps.put(ConfluentConfigs.RETRIES_WAIT_MS_CONFIG, kafkaConfig.getInt(ConfluentConfigs.RETRIES_WAIT_MS_CONFIG))
+
+    // we should not pass in the rendered interceptor classes but the original list of string class names
+    // this is because the LogConfig itself is expected to construct the interceptor class;
+    // it also means that we will have different instance of the interceptor class on broker and topic-level,
+    // which should be fine since we do not guarantee any sharing of interceptors anyways
+    logProps.put(LogConfig.AppendRecordInterceptorClassesProp, kafkaConfig.getList(KafkaConfig.AppendRecordInterceptorClassesProp))
+
     logProps
   }
 

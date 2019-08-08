@@ -18,6 +18,7 @@
 package kafka.log
 
 import java.util.{Collections, Locale, Properties}
+
 import kafka.api.{ApiVersion, ApiVersionValidator}
 import kafka.common.TopicPlacement
 import kafka.message.BrokerCompressionCodec
@@ -27,8 +28,12 @@ import org.apache.kafka.server.interceptor.RecordInterceptor
 import org.apache.kafka.common.errors.InvalidConfigurationException
 import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfluentTopicConfig, TopicConfig}
 import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList, Validator}
+import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.record.{LegacyRecord, TimestampType}
 import org.apache.kafka.common.utils.Utils
+
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 
 import scala.collection.JavaConverters._
 import scala.collection.{Map, mutable}
@@ -73,6 +78,9 @@ object Defaults {
 
 case class LogConfig(props: java.util.Map[_, _], overriddenConfigs: Set[String] = Set.empty)
   extends AbstractConfig(LogConfig.configDef, props, false) {
+
+  val log: Logger = LoggerFactory.getLogger(getClass())
+
   /**
    * Important note: Any configuration parameter that is passed along from KafkaConfig to LogConfig
    * should also go in [[kafka.server.KafkaServer.copyKafkaConfigToLog]].
@@ -118,8 +126,16 @@ case class LogConfig(props: java.util.Map[_, _], overriddenConfigs: Set[String] 
   // if schema validation is enabled, construct the schema validation interceptor
   val schemaValidationEnable = getBoolean(LogConfig.SchemaValidationEnableProp)
   if (schemaValidationEnable) {
-    val recordSchemaValidatorClassName = "io.confluent.kafka.schemaregistry.validator.RecordSchemaValidator"
-    appendRecordInterceptors.add(getConfiguredInstance(recordSchemaValidatorClassName, classOf[RecordInterceptor]))
+    // the schema registry url could only be from the broker-level configs, hence no need to check overrides
+    val schemaRegistryUrl = props.get(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG).asInstanceOf[String]
+    if (schemaRegistryUrl == null) {
+      log.warn(LogConfig.SchemaValidationEnableProp + " is enabled but there is no " +
+        ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG + " specified at the broker side, will not add the corresponding validator")
+    } else {
+      val recordSchemaValidatorClassName: String = "io.confluent.kafka.schemaregistry.validator.RecordSchemaValidator"
+      appendRecordInterceptors.addAll(
+        getConfiguredInstances(Collections.singletonList(recordSchemaValidatorClassName), classOf[RecordInterceptor], props.asInstanceOf[java.util.Map[String, Object]]))
+    }
   }
 
   def randomSegmentJitter: Long =

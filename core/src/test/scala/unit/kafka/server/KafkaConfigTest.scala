@@ -786,11 +786,20 @@ class KafkaConfigTest {
 
         // Confluent Cloud configs
         case KafkaConfig.BrokerSessionUuidProp => // ignore string
+        case KafkaConfig.SchemaValidationEnableProp => // ignore string
+        case KafkaConfig.AppendRecordInterceptorClassesProp => // ignore list
         case ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG => // ignore string
         case ConfluentConfigs.MULTITENANT_METADATA_SSL_CERTS_SPEC_CONFIG => // ignore string
         case ConfluentConfigs.MULTITENANT_METADATA_RELOAD_DELAY_MS_CONFIG => // ignore
         case ConfluentConfigs.MULTITENANT_TENANT_DELETE_DELAY_MS_CONFIG => // ignore
         case ConfluentConfigs.MULTITENANT_TENANT_DELETE_BATCH_SIZE_CONFIG => // ignore
+
+        case ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG =>
+        case ConfluentConfigs.KEY_SUBJECT_NAME_STRATEGY_CONFIG =>
+        case ConfluentConfigs.VALUE_SUBJECT_NAME_STRATEGY_CONFIG =>
+        case ConfluentConfigs.MAX_CACHE_SIZE_CONFIG =>
+        case ConfluentConfigs.MAX_RETRIES_CONFIG =>
+        case ConfluentConfigs.RETRIES_WAIT_MS_CONFIG =>
 
         case _ => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1")
       }

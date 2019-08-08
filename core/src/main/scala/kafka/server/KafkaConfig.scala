@@ -1242,8 +1242,16 @@ object KafkaConfig {
       /** ********* Confluent Configuration ****************/
       .defineInternal(BrokerInterceptorClassProp, CLASS, ConfluentConfigs.BROKER_INTERCEPTOR_CLASS_DEFAULT, LOW)
       .defineInternal(AppendRecordInterceptorClassesProp, LIST, Collections.emptyList(), LOW)
-      .defineInternal(BrokerSessionUuidProp, STRING, null, LOW)
+
       .defineInternal(SchemaValidationEnableProp, BOOLEAN, false, LOW)
+      .defineInternal(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG, STRING, null, LOW)
+      .defineInternal(ConfluentConfigs.KEY_SUBJECT_NAME_STRATEGY_CONFIG, STRING, null, LOW)  // we cannot define default here but only in the plugin
+      .defineInternal(ConfluentConfigs.VALUE_SUBJECT_NAME_STRATEGY_CONFIG, STRING, null, LOW)  // we cannot define default here but only in the plugin
+      .defineInternal(ConfluentConfigs.MAX_CACHE_SIZE_CONFIG, INT, ConfluentConfigs.MAX_CACHE_SIZE_DEFAULT, LOW)
+      .defineInternal(ConfluentConfigs.MAX_RETRIES_CONFIG, INT, ConfluentConfigs.MAX_RETRIES_DEFAULT, LOW)
+      .defineInternal(ConfluentConfigs.RETRIES_WAIT_MS_CONFIG, INT, ConfluentConfigs.RETRIES_WAIT_MS_DEFAULT, LOW)
+
+      .defineInternal(BrokerSessionUuidProp, STRING, null, LOW)
       .defineInternal(ConfluentConfigs.MULTITENANT_METADATA_CLASS_CONFIG, CLASS,
                       ConfluentConfigs.MULTITENANT_METADATA_CLASS_DEFAULT, LOW)
       .defineInternal(ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG, STRING,

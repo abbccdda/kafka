@@ -11,7 +11,7 @@ package org.apache.kafka.common.config;
  */
 // This is a public API, so we should not remove or alter keys without a discussion and a deprecation period.
 public class ConfluentTopicConfig {
-    private static final String CONFLUENT_PREFIX = "confluent.";
+    public static final String CONFLUENT_PREFIX = "confluent.";
 
     public static final String TIER_ENABLE_CONFIG = CONFLUENT_PREFIX + "tier.enable";
     public static final String TIER_ENABLE_DOC = "True if this topic has tiered storage enabled.";
