@@ -31,9 +31,33 @@ def job = {
       }
     }
 
-    stage("Test") {
-        sh "./gradlew unitTest integrationTest " +
-                "--no-daemon --stacktrace --continue -PtestLoggingEvents=started,passed,skipped,failed -PmaxParallelForks=4 -PignoreFailures=true"
+    stage("Run Tests and build cp-downstream-builds") {
+        def testTargets = [
+                    "Step run-tests"           : {
+                        echo "Running unit and integration tests"
+                        sh "./gradlew unitTest integrationTest " +
+                                "--no-daemon --stacktrace --continue -PtestLoggingEvents=started,passed,skipped,failed -PmaxParallelForks=4 -PignoreFailures=true"
+                    },
+                    "Step cp-downstream-builds": {
+                        echo "Building cp-downstream-builds"
+                        if (config.isPrJob) {
+                            def muckrakeBranch = env.CHANGE_TARGET
+                            def forkRepo = "${env.CHANGE_FORK}/ce-kafka.git"
+                            def forkBranch = env.CHANGE_BRANCH
+                            echo "Schedule test-cp-downstream-builds with :"
+                            echo "Muckrake branch : ${muckrakeBranch}"
+                            echo "PR fork repo : ${forkRepo}"
+                            echo "PR fork branch : ${forkBranch}"
+                            buildResult = build job: 'test-cp-downstream-builds', parameters: [
+                                    [$class: 'StringParameterValue', name: 'BRANCH', value: muckrakeBranch],
+                                    [$class: 'StringParameterValue', name: 'KAFKA_REPO', value: forkRepo],
+                                    [$class: 'StringParameterValue', name: 'KAFKA_BRANCH', value: forkBranch]],
+                                    propagate: true, wait: true
+                        }
+                    }
+        ]
+
+        parallel testTargets
     }
 }
 
