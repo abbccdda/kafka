@@ -17,11 +17,13 @@
 package kafka.server
 
 import kafka.server.QuotaType._
-import kafka.utils.Logging
+import kafka.utils.{CoreUtils, Logging}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.server.quota.ClientQuotaCallback
 import org.apache.kafka.common.utils.Time
+
+import org.apache.kafka.common.config.internals.ConfluentConfigs
 
 object QuotaType  {
   case object Fetch extends QuotaType
@@ -77,7 +79,8 @@ object QuotaFactory extends Logging {
     ClientQuotaManagerConfig(
       quotaBytesPerSecondDefault = cfg.producerQuotaBytesPerSecondDefault,
       numQuotaSamples = cfg.numQuotaSamples,
-      quotaWindowSizeSeconds = cfg.quotaWindowSizeSeconds
+      quotaWindowSizeSeconds = cfg.quotaWindowSizeSeconds,
+      backpressureEnabled = backpressureEnabledInConfig(cfg, Produce)
     )
   }
 
@@ -87,14 +90,16 @@ object QuotaFactory extends Logging {
     ClientQuotaManagerConfig(
       quotaBytesPerSecondDefault = cfg.consumerQuotaBytesPerSecondDefault,
       numQuotaSamples = cfg.numQuotaSamples,
-      quotaWindowSizeSeconds = cfg.quotaWindowSizeSeconds
+      quotaWindowSizeSeconds = cfg.quotaWindowSizeSeconds,
+      backpressureEnabled = backpressureEnabledInConfig(cfg, Fetch)
     )
   }
 
   def clientRequestConfig(cfg: KafkaConfig): ClientQuotaManagerConfig = {
     ClientQuotaManagerConfig(
       numQuotaSamples = cfg.numQuotaSamples,
-      quotaWindowSizeSeconds = cfg.quotaWindowSizeSeconds
+      quotaWindowSizeSeconds = cfg.quotaWindowSizeSeconds,
+      backpressureEnabled = backpressureEnabledInConfig(cfg, Request)
     )
   }
 
@@ -110,6 +115,30 @@ object QuotaFactory extends Logging {
       numQuotaSamples = cfg.numAlterLogDirsReplicationQuotaSamples,
       quotaWindowSizeSeconds = cfg.alterLogDirsReplicationQuotaWindowSizeSeconds
     )
+  }
+
+  /**
+   * Returns true if broker is configured for tenant-level quotas, in which case broker tracks
+   * active tenants and can be configured to apply back-pressure mechanisms.
+   */
+  def isMultiTenant(cfg: KafkaConfig): Boolean = {
+    val quotaCallbackStr: String = Option(cfg.originalsStrings.get(KafkaConfig.ClientQuotaCallbackClassProp))
+      .map(_.toString).getOrElse("")
+    quotaCallbackStr.contains(ConfluentConfigs.TENANT_QUOTA_CALLBACK_CLASS)
+  }
+
+  /**
+   * Returns true if broker back-pressure is enabled in the broker config for the given quota
+   * type, which requires tenant-level quotas to be configured as well.
+   *
+   * Backpressure fo any replication-type quotas is not supported even though this method could
+   * return true for a replication-type quota (e.g., FollowerReplication) since it could be
+   * listed in the config.
+   */
+  def backpressureEnabledInConfig(cfg: KafkaConfig, quotaType: QuotaType): Boolean = {
+    isMultiTenant(cfg) && Option(cfg.getString(ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG)).exists { backpressureTypeProp =>
+      val backressureTypesList = CoreUtils.parseCsvList(backpressureTypeProp)
+      backressureTypesList.exists(backpressureType => backpressureType == quotaType.toString.toLowerCase)}
   }
 
 }

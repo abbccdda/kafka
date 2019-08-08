@@ -28,6 +28,8 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public class ConfluentConfigs {
+    private static final String CONFLUENT_PREFIX = "confluent.";
+
     public static final String BROKER_INTERCEPTOR_CLASS_CONFIG = "broker.interceptor.class";
     public static final Class<?> BROKER_INTERCEPTOR_CLASS_DEFAULT = DefaultBrokerInterceptor.class;
     public static final String MULTITENANT_METADATA_CLASS_CONFIG = "multitenant.metadata.class";
@@ -58,7 +60,7 @@ public class ConfluentConfigs {
             + " another";
 
     // TODO: for the above broker-level configs, we did not have the convention to add "confluent." to the configs;
-    // for new configs added below, they should be added with the prefix in ConfluentTopicConfig#CONFLUENT_PREFIX.
+    // for new configs added below, they should be added with CONFLUENT_PREFIX
 
     // the following are copied from AbstractKafkaAvroSerDeConfig, we duplicate these const strings here in order
     // to avoid introducing the dependency of schema-registry
@@ -100,6 +102,19 @@ public class ConfluentConfigs {
     public static final int RETRIES_WAIT_MS_DEFAULT = 0;
 
     // for configs defined for both per-broker and per-topic, it should be defined in ConfluentTopicConfig instead.
+
+    // used to check if the broker is configured for tenant-level quotas (by verifying that
+    // "client.quota.callback.class" config is set to TenantQuotaCallback)
+    public static final String TENANT_QUOTA_CALLBACK_CLASS = "io.confluent.kafka.multitenant.quota.TenantQuotaCallback";
+
+    public static final String BACKPRESSURE_TYPES_CONFIG = CONFLUENT_PREFIX + "backpressure.types";
+    public static final String BACKPRESSURE_TYPES_DEFAULT = null;
+    public static final String BACKPRESSURE_TYPES_DOC =
+        "Comma separated list of resource types for which broker back-pressure is enabled. "
+        + "Backpressure is not enabled by default. Accepted values: 'request', 'produce', 'fetch'."
+        + "Invalid values are ignored. This config is ignored if client.quota.callback.class is "
+        + "not set, or set to class other than TenantQuotaCallback. In other words, broker"
+        + " back-pressure can be enabled for multi-tenant clusters only.";
 
     public static BrokerInterceptor buildBrokerInterceptor(Mode mode, Map<String, ?> configs) {
         if (mode == Mode.CLIENT)

@@ -793,6 +793,7 @@ class KafkaConfigTest {
         case ConfluentConfigs.MULTITENANT_METADATA_RELOAD_DELAY_MS_CONFIG => // ignore
         case ConfluentConfigs.MULTITENANT_TENANT_DELETE_DELAY_MS_CONFIG => // ignore
         case ConfluentConfigs.MULTITENANT_TENANT_DELETE_BATCH_SIZE_CONFIG => // ignore
+        case ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG => // ignore
 
         case ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG =>
         case ConfluentConfigs.KEY_SUBJECT_NAME_STRATEGY_CONFIG =>

@@ -55,7 +55,8 @@ case class ClientQuotaManagerConfig(quotaBytesPerSecondDefault: Long =
                                     numQuotaSamples: Int =
                                         ClientQuotaManagerConfig.DefaultNumQuotaSamples,
                                     quotaWindowSizeSeconds: Int =
-                                        ClientQuotaManagerConfig.DefaultQuotaWindowSizeSeconds)
+                                        ClientQuotaManagerConfig.DefaultQuotaWindowSizeSeconds,
+                                    backpressureEnabled: Boolean = false)
 
 object ClientQuotaManagerConfig {
   val QuotaBytesPerSecondDefault = Long.MaxValue
@@ -211,6 +212,8 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
    * return true until the next broker restart, even if all quotas are subsequently deleted.
    */
   def quotasEnabled: Boolean = quotaTypesEnabled != QuotaTypes.NoQuotas
+
+  def backpressureEnabled: Boolean = config.backpressureEnabled
 
   /**
     * Records that a user/clientId changed produced/consumed bytes being throttled at the specified time. If quota has

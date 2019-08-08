@@ -1264,6 +1264,8 @@ object KafkaConfig {
         ConfluentConfigs.MULTITENANT_TENANT_DELETE_DELAY_MS_DEFAULT, LOW, ConfluentConfigs.MULTITENANT_TENANT_DELETE_DELAY_MS_DOC)
       .defineInternal(ConfluentConfigs.MULTITENANT_TENANT_DELETE_BATCH_SIZE_CONFIG, INT,
         ConfluentConfigs.MULTITENANT_TENANT_DELETE_BATCH_SIZE_DEFAULT, LOW, ConfluentConfigs.MULTITENANT_TENANT_DELETE_BATCH_SIZE_DOC)
+      .defineInternal(ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG, STRING,
+                      ConfluentConfigs.BACKPRESSURE_TYPES_DEFAULT, LOW, ConfluentConfigs.BACKPRESSURE_TYPES_DOC)
   }
 
   def configNames() = configDef.names().asScala.toList.sorted
