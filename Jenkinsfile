@@ -58,6 +58,7 @@ def job = {
         ]
 
         parallel testTargets
+        return null
     }
 }
 
