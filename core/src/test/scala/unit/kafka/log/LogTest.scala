@@ -314,7 +314,7 @@ class LogTest {
         new SimpleRecord(RecordBatch.NO_TIMESTAMP, "key".getBytes, "reject me".getBytes)), leaderEpoch = 0)
       Assertions.fail("InvalidRecordException should have been thrown")
     } catch {
-      case _: InvalidRecordException => // GOOD
+      case _: UnsupportedForMessageFormatException => // GOOD
     }
 
     assertEquals(metricsKeySet.count(_.getMBeanName.startsWith(

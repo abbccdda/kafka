@@ -167,7 +167,9 @@ private[kafka] object LogValidator extends Logging {
     for (interceptor <- interceptors) {
       if (interceptor.onAppend(topicPartition, record) == RecordInterceptorResponse.REJECT) {
         interceptorStats.logRejectedRecords(topicPartition.topic, interceptor.getClass.getName)
-        throw new InvalidRecordException(s"Log record $record is rejected by the record interceptor ${interceptor.getClass.getName}")
+        // TODO: we cannot use the InvalidRecordException until KIP-467 is in place;
+        //       for now we should use a fatal error and unsupported format is least confusing
+        throw new UnsupportedForMessageFormatException(s"Log record $record is rejected by the record interceptor ${interceptor.getClass.getName}")
       }
     }
   }
