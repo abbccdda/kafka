@@ -62,7 +62,7 @@ class ObserverAwarePartitionDescriptionTest {
   @Test
   def testObserversWithOnlyReplicaConstraintConfigured(): Unit = {
     // Replicas not matching the replica constraint are treated as observers
-    val config = configWithPlacement("""{"version":1,"replicas":[{"constraints":{"rack":"r1"}}]}""")
+    val config = configWithPlacement("""{"version":1,"replicas":[{"count": 1, "constraints":{"rack":"r1"}}]}""")
     val isr = Set(0, 1)
     val info = partitionInfo(Some(0), isr)
     val liveBrokerIds = Set(0, 1, 2, 3)
@@ -73,8 +73,8 @@ class ObserverAwarePartitionDescriptionTest {
 
   @Test
   def testObserversMatchingObserverConstraint(): Unit = {
-    val config = configWithPlacement("""{"version":1,"replicas":[{"constraints":{"rack":"r1"}}],""" +
-      """"observers":[{"constraints":{"rack":"r2"}}]}""")
+    val config = configWithPlacement("""{"version":1,"replicas":[{"count": 1, "constraints":{"rack":"r1"}}],""" +
+      """"observers":[{"count": 1, "constraints":{"rack":"r2"}}]}""")
     val isr = Set(0, 1)
     val info = partitionInfo(Some(0), isr)
     val liveBrokerIds = Set(0, 1, 2, 3)
@@ -86,8 +86,8 @@ class ObserverAwarePartitionDescriptionTest {
   @Test
   def testObserversCanOnlyMatchObserverConstraint(): Unit = {
     // Any replica which doesn't match the observer constraint is treated as a sync replica.
-    val config = configWithPlacement("""{"version":1,"replicas":[{"constraints":{"rack":"r1"}}],""" +
-      """"observers":[{"constraints":{"rack":"r3"}}]}""")
+    val config = configWithPlacement("""{"version":1,"replicas":[{"count": 1, "constraints":{"rack":"r1"}}],""" +
+      """"observers":[{"count": 1, "constraints":{"rack":"r3"}}]}""")
     val isr = Set(0, 1)
     val info = partitionInfo(Some(0), isr)
     val liveBrokerIds = Set(0, 1, 2, 3)
@@ -100,8 +100,8 @@ class ObserverAwarePartitionDescriptionTest {
   def testIsrReplicasAreNotObservers(): Unit = {
     // Replicas in the ISR are never counted among the observers even if they do not
     // match the replica constraint
-    val config = configWithPlacement("""{"version":1,"replicas":[{"constraints":{"rack":"r1"}}],""" +
-      """"observers":[{"constraints":{"rack":"r2"}}]}""")
+    val config = configWithPlacement("""{"version":1,"replicas":[{"count": 1, "constraints":{"rack":"r1"}}],""" +
+      """"observers":[{"count": 1, "constraints":{"rack":"r2"}}]}""")
     val isr = Set(0, 1, 2)
     val info = partitionInfo(Some(0), isr)
     val liveBrokerIds = Set(0, 1, 2, 3)
@@ -113,8 +113,8 @@ class ObserverAwarePartitionDescriptionTest {
   @Test
   def testOfflineReplicasAreNotObservers(): Unit = {
     // Offline replicas are not counted among live observers
-    val config = configWithPlacement("""{"version":1,"replicas":[{"constraints":{"rack":"r1"}}],""" +
-      """"observers":[{"constraints":{"rack":"r2"}}]}""")
+    val config = configWithPlacement("""{"version":1,"replicas":[{"count": 1, "constraints":{"rack":"r1"}}],""" +
+      """"observers":[{"count": 1, "constraints":{"rack":"r2"}}]}""")
     val isr = Set(0, 1)
     val info = partitionInfo(Some(0), isr)
     val liveBrokerIds = Set(0, 1, 2)
@@ -128,8 +128,8 @@ class ObserverAwarePartitionDescriptionTest {
   @Test
   def testIsUnderReplicatedWhenReplicaConstraintMatchingBrokerNotInIsr(): Unit = {
     // A partition is considered an URP if eligible in sync replicas is less than current ISR
-    val config = configWithPlacement("""{"version":1,"replicas":[{"constraints":{"rack":"r1"}}],""" +
-      """"observers":[{"constraints":{"rack":"r2"}}]}""")
+    val config = configWithPlacement("""{"version":1,"replicas":[{"count": 1, "constraints":{"rack":"r1"}}],""" +
+      """"observers":[{"count": 1, "constraints":{"rack":"r2"}}]}""")
     val isr = Set(0)
     val info = partitionInfo(Some(0), isr)
     val liveBrokerIds = Set(0, 1, 2, 3)
@@ -140,8 +140,8 @@ class ObserverAwarePartitionDescriptionTest {
 
   @Test
   def testNoLiveObserversIfCurrentLeaderMatchesObserverConstraint(): Unit = {
-    val config = configWithPlacement("""{"version":1,"replicas":[{"constraints":{"rack":"r1"}}],""" +
-      """"observers":[{"constraints":{"rack":"r2"}}]}""")
+    val config = configWithPlacement("""{"version":1,"replicas":[{"count": 1, "constraints":{"rack":"r1"}}],""" +
+      """"observers":[{"count": 1, "constraints":{"rack":"r2"}}]}""")
     val isr = Set(0)
     val info = partitionInfo(Some(3), isr)
     val liveBrokerIds = Set(0, 1, 2, 3)

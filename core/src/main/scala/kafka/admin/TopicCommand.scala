@@ -84,9 +84,14 @@ object TopicCommand extends Logging {
     val partitions: Option[Integer] = opts.partitions
     val replicationFactor: Option[Integer] = opts.replicationFactor
     val replicaAssignment: Option[Map[Int, List[Int]]] = opts.replicaAssignment
+    val replicaPlacement: Option[String] = opts.replicaPlacement
     val configsToAdd: Properties = parseTopicConfigsToBeAdded(opts)
     val configsToDelete: Seq[String] = parseTopicConfigsToBeDeleted(opts)
     val rackAwareMode: RackAwareMode = opts.rackAwareMode
+
+    replicaPlacement.map(Utils.readFileAsString)
+      .map { jsonString => TopicPlacement.parse(jsonString).toJson }
+      .foreach(configsToAdd.put(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, _))
 
     def hasReplicaAssignment: Boolean = replicaAssignment.isDefined
     def hasPartitions: Boolean = partitions.isDefined
@@ -541,6 +546,10 @@ object TopicCommand extends Logging {
       println(s"WARNING: The configuration ${LogConfig.MessageFormatVersionProp}=${props.getProperty(LogConfig.MessageFormatVersionProp)} is specified. " +
         s"This configuration will be ignored if the version is newer than the inter.broker.protocol.version specified in the broker.")
     }
+    if (props.containsKey(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG)) {
+      throw new IllegalArgumentException("Configuration cannot contain 'confluent.placement.constraints' option. " +
+        "Use --replica-placement command line option instead.")
+    }
     props
   }
 
@@ -624,6 +633,10 @@ object TopicCommand extends Logging {
                            .describedAs("broker_id_for_part1_replica1 : broker_id_for_part1_replica2 , " +
                                         "broker_id_for_part2_replica1 : broker_id_for_part2_replica2 , ...")
                            .ofType(classOf[String])
+    private val replicaPlacementOpt = parser.accepts("replica-placement", ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_DOC)
+      .withRequiredArg
+      .describedAs("Replica placement JSON file path.")
+      .ofType(classOf[String])
     private val reportUnderReplicatedPartitionsOpt = parser.accepts("under-replicated-partitions",
       "if set when describing topics, only show under replicated partitions")
     private val reportUnavailablePartitionsOpt = parser.accepts("unavailable-partitions",
@@ -674,6 +687,7 @@ object TopicCommand extends Logging {
         Some(parseReplicaAssignment(options.valueOf(replicaAssignmentOpt)))
       else
         None
+    def replicaPlacement: Option[String] = valueAsOption(replicaPlacementOpt)
     def rackAwareMode: RackAwareMode = if (has(disableRackAware)) RackAwareMode.Disabled else RackAwareMode.Enforced
     def reportUnderReplicatedPartitions: Boolean = has(reportUnderReplicatedPartitionsOpt)
     def reportUnavailablePartitions: Boolean = has(reportUnavailablePartitionsOpt)
@@ -707,8 +721,10 @@ object TopicCommand extends Logging {
         CommandLineUtils.checkRequiredArgs(parser, options, topicOpt)
       if (!has(listOpt) && !has(describeOpt))
         CommandLineUtils.checkRequiredArgs(parser, options, topicOpt)
-      if (has(createOpt) && !has(replicaAssignmentOpt) && has(zkConnectOpt))
+      if (has(createOpt) && !has(replicaAssignmentOpt) && !has(replicaPlacementOpt) && has(zkConnectOpt))
         CommandLineUtils.checkRequiredArgs(parser, options, partitionsOpt, replicationFactorOpt)
+      if (has(replicaPlacementOpt))
+        CommandLineUtils.checkRequiredArgs(parser, options, createOpt, partitionsOpt)
       if (has(bootstrapServerOpt) && has(alterOpt)) {
         CommandLineUtils.checkInvalidArgsSet(parser, options, Set(bootstrapServerOpt, configOpt), Set(alterOpt))
         CommandLineUtils.checkRequiredArgs(parser, options, partitionsOpt)
@@ -720,8 +736,10 @@ object TopicCommand extends Logging {
       CommandLineUtils.checkInvalidArgs(parser, options, partitionsOpt, allTopicLevelOpts -- Set(alterOpt, createOpt))
       CommandLineUtils.checkInvalidArgs(parser, options, replicationFactorOpt, allTopicLevelOpts -- Set(createOpt))
       CommandLineUtils.checkInvalidArgs(parser, options, replicaAssignmentOpt, allTopicLevelOpts -- Set(createOpt,alterOpt))
-      if(options.has(createOpt))
-          CommandLineUtils.checkInvalidArgs(parser, options, replicaAssignmentOpt, Set(partitionsOpt, replicationFactorOpt))
+      if(options.has(createOpt)) {
+        CommandLineUtils.checkInvalidArgs(parser, options, replicaAssignmentOpt, Set(partitionsOpt, replicationFactorOpt, replicaPlacementOpt))
+        CommandLineUtils.checkInvalidArgs(parser, options, replicaPlacementOpt, Set(replicaAssignmentOpt, replicationFactorOpt))
+      }
       CommandLineUtils.checkInvalidArgs(parser, options, reportUnderReplicatedPartitionsOpt,
         allTopicLevelOpts -- Set(describeOpt) ++ allReplicationReportOpts - reportUnderReplicatedPartitionsOpt + topicsWithOverridesOpt)
       CommandLineUtils.checkInvalidArgs(parser, options, reportUnderMinIsrPartitionsOpt,
@@ -745,6 +763,5 @@ object TopicCommand extends Logging {
       Exit.exit(0)
     }
   }
-
 }
 

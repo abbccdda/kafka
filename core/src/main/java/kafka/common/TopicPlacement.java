@@ -5,6 +5,7 @@ package kafka.common;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -12,7 +13,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.OptionalInt;
 import org.apache.kafka.common.config.ConfigDef.Validator;
 import org.apache.kafka.common.config.ConfigException;
 
@@ -21,13 +21,14 @@ import org.apache.kafka.common.config.ConfigException;
  * {
  *   "replicas": [
  *     {
- *       "count": 2,
+ *       "count": 3,
  *       "constraints": {
  *         "region": "east",
  *         "zone": "b",
  *       }
  *     },
  *     {
+ *       "count": 1,
  *       "constraints: {
  *         "region": "east",
  *         "zone": "c"
@@ -36,7 +37,8 @@ import org.apache.kafka.common.config.ConfigException;
  *   ],
  *   "observers": [
  *     {
- *       "contraints": {
+ *       "count": 2,
+ *       "constraints": {
  *         "region": "west",
  *         "zone": "b"
  *       }
@@ -125,9 +127,34 @@ final public class TopicPlacement {
             if (topicPlacement.version() != 1) {
                 throw new IllegalArgumentException("Version " + topicPlacement.version() + " is not supported");
             }
+            if (!topicPlacement.observers().isEmpty() && topicPlacement.replicas().isEmpty()) {
+                throw new IllegalArgumentException("Replicas constraints must be specified if observers constraints are specified");
+            }
+            for (ConstraintCount constraint: topicPlacement.replicas) {
+                if (constraint.count() == 0) {
+                    throw new IllegalArgumentException("Replica constraint count cannot be zero.");
+                }
+            }
+            for (ConstraintCount constraint: topicPlacement.observers) {
+                if (constraint.count() == 0) {
+                    throw new IllegalArgumentException("Observer constraint count cannot be zero.");
+                }
+            }
             return topicPlacement;
         } catch (IOException e) {
             throw new IllegalArgumentException("Exception while parsing placement configuration", e);
+        }
+    }
+
+    /**
+     * Serialize this object back to json string. This is used to generate a compact json string
+     * that gets saved as part of topic configuration.
+     */
+    public String toJson() {
+        try {
+            return JSON_SERDE.writeValueAsString(this);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -138,19 +165,19 @@ final public class TopicPlacement {
     }
 
     public static final class ConstraintCount {
-        private final OptionalInt count;
+        private final int count;
         private final Map<String, String> constraints;
 
         @JsonCreator
         private ConstraintCount(
-                @JsonProperty("count") OptionalInt count,
+                @JsonProperty("count") int count,
                 @JsonProperty("constraints") Map<String, String> constraints) {
             this.count = count;
             this.constraints = constraints;
         }
 
         @JsonProperty("count")
-        public OptionalInt count() {
+        public int count() {
             return count;
         }
 
@@ -181,17 +208,8 @@ final public class TopicPlacement {
         @Override
         public void ensureValid(String name, Object o) {
             if (o == null) return;
-
-            String value = (String) o;
-            if (value == null) throw new ConfigException(name, o, "Value must be a String");
-
             try {
-                TopicPlacement topicPlacement = TopicPlacement.parse(value);
-
-                if (!topicPlacement.observers().isEmpty() &&
-                    topicPlacement.replicas().isEmpty()) {
-                    throw new ConfigException(name, o, "Replicas constraints must be specified if observers constraints are specified");
-                }
+                TopicPlacement.parse((String) o);
             } catch (IllegalArgumentException e) {
                 throw new ConfigException(name, o, e.getMessage());
             }

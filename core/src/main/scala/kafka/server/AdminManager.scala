@@ -18,8 +18,11 @@ package kafka.server
 
 import java.util.{Collections, Properties}
 
+import kafka.admin
 import kafka.admin.{AdminOperationException, AdminUtils}
-import kafka.common.TopicAlreadyMarkedForDeletionException
+import kafka.cluster.Observer
+import kafka.common.TopicPlacement.ConstraintCount
+import kafka.common.{TopicAlreadyMarkedForDeletionException, TopicPlacement}
 import kafka.log.LogConfig
 import kafka.metrics.KafkaMetricsGroup
 import kafka.utils._
@@ -28,7 +31,7 @@ import org.apache.kafka.clients.admin.AlterConfigOp
 import org.apache.kafka.clients.admin.AlterConfigOp.OpType
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.ConfigDef.ConfigKey
-import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, ConfigResource}
+import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, ConfigResource, ConfluentTopicConfig, TopicConfig}
 import org.apache.kafka.common.errors.{ApiException, InvalidConfigurationException, InvalidPartitionsException, InvalidReplicaAssignmentException, InvalidRequestException, ReassignmentInProgressException, UnknownTopicOrPartitionException}
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
@@ -108,9 +111,20 @@ class AdminManager(val config: KafkaConfig,
         val resolvedReplicationFactor = if (topic.replicationFactor == NO_REPLICATION_FACTOR)
           defaultReplicationFactor else topic.replicationFactor
 
+        val replicaPlacementJson = Option(configs.get(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG)).map(_.toString)
+        if (replicaPlacementJson.nonEmpty) {
+          if (!topic.assignments().isEmpty) {
+            throw new InvalidRequestException("Both assignments and replicaPlacement are set. Both cannot be " +
+              "used at the same time.")
+          }
+          if (topic.replicationFactor != NO_REPLICATION_FACTOR) {
+            throw new InvalidRequestException("Both replicationFactor and replicaPlacement are set. Both cannot be " +
+              "used at the same time.")
+          }
+        }
+
         val assignments = if (topic.assignments().isEmpty) {
-          AdminUtils.assignReplicasToBrokers(
-            brokers, resolvedNumPartitions, resolvedReplicationFactor)
+          Observer.getReplicaAssignment(brokers, replicaPlacementJson, resolvedNumPartitions, resolvedReplicationFactor)
         } else {
           val assignments = new mutable.HashMap[Int, Seq[Int]]
           // Note: we don't check that replicaAssignment contains unknown brokers - unlike in add-partitions case,

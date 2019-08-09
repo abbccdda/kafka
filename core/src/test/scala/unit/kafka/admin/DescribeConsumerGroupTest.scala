@@ -627,7 +627,8 @@ class DescribeConsumerGroupTest extends ConsumerGroupCommandTest {
           service.collectGroupMembers(group, true)
           fail("The consumer group command should fail due to low initialization timeout (verbose)")
         } catch {
-          case e: ExecutionException => assert(e.getCause.isInstanceOf[TimeoutException]) // OK
+          case e: ExecutionException => assert(e.getCause.isInstanceOf[TimeoutException],
+            s"type: ${e.getClass.getName}, msg: ${e.getMessage}, stack trace: ${e.getStackTraceString} ") // OK
         }
     }
   }

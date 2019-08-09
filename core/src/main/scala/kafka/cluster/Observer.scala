@@ -4,8 +4,15 @@
 package kafka.cluster
 
 import java.util.{Map => JMap}
+
+import kafka.admin
+import kafka.admin.{AdminUtils, BrokerMetadata}
 import kafka.common.TopicPlacement
+import kafka.common.TopicPlacement.ConstraintCount
+import org.apache.kafka.common.errors.InvalidConfigurationException
+
 import scala.collection.JavaConverters._
+import scala.collection.{Map, Seq, mutable}
 
 object Observer {
   private[this] def brokerAttributes(broker: Broker): JMap[String, String] = {
@@ -80,5 +87,114 @@ object Observer {
       aliveBrokers,
       leader
     ) ++ offlineReplicas
+  }
+
+  /**
+   * Perform assignment of replica to the list of brokers passed in as argument. The method can do assignment
+   * for multiple partitions at a time, that allows it to evenly spread the assignment among the brokers. It
+   * returns the assignment as "partition id" => "list of brokers".
+   */
+  def getReplicaAssignment(brokers: Seq[admin.BrokerMetadata],
+                           replicaPlacementJson: Option[String],
+                           resolvedNumPartitions: Int,
+                           resolvedReplicationFactor: Int): Map[Int, Seq[Int]] = {
+    val startAssignment: Map[Int, Seq[Int]] = mutable.Map[Int, Seq[Int]]()
+    /**
+     * Partition the brokers into different sets along with number of brokers that need to be picked from the set.
+     * As an example, for following broker configuration:
+     *
+     * rack-1 => broker0, broker1, broker2, broker3, broker5, broker6
+     * rack-2 => broker7, broker8, broker9
+     *
+     * and placement constraint asking 4 replicas in rack-1 and 2 in rack-2, we will get following:
+     * [
+     *   (4, [broker0, broker1, broker2, broker3, broker5, broker6]),
+     *   (2, [broker7, broker8, broker9])
+     * ]
+     *
+     * For the case where constraints are empty (getOrElse case below), the result will be:
+     * [(resolvedReplicationFactor, [broker0, broker1, broker2, broker3, broker5, broker6, broker7, broker8, broker9])]
+     *
+     * Once partitioning is done, treat each partition as a normal replica assignment job. Use
+     * AdminUtils to assign replicas and then merge the result and return it.
+     */
+    val constraints: Option[Seq[TopicPlacement.ConstraintCount]] = replicaPlacementJson.map(TopicPlacement.parse)
+      .map(topicPlacement => topicPlacement.replicas().asScala ++ topicPlacement.observers().asScala)
+      .filter(_.nonEmpty) // If TopicPlacement has no constraint (both observers and replicas empty), return None
+
+    val partitionedBrokers: Seq[(Int, Seq[admin.BrokerMetadata])] = constraints.map(partitionBrokersByConstraint(brokers))
+      .getOrElse(mutable.Buffer((resolvedReplicationFactor.toInt, brokers)))
+
+    validatePartitioning(partitionedBrokers)
+
+    partitionedBrokers
+      .map { case (replicationFactor, brokerList) => AdminUtils.assignReplicasToBrokers(brokerList, resolvedNumPartitions, replicationFactor) }
+      .foldLeft(startAssignment)(mergeAssignmentMap)
+  }
+
+  /**
+   * Method goes over each placement constraint and collects the broker that match that constraint. Returns a list
+   * of tuple from "constraint replica count => broker metadata". The replica count is used to assign these many
+   * replicas among the list of associated brokers.
+   */
+  private[cluster] def partitionBrokersByConstraint(brokers: Seq[kafka.admin.BrokerMetadata])
+         (constraints: Seq[ConstraintCount]): Seq[(Int, Seq[kafka.admin.BrokerMetadata])] = {
+    constraints.map(constraint => {
+      val matchedBrokers = brokers.filter(broker => brokerMatchesPlacementConstraint(broker, constraint))
+      if (matchedBrokers.size < constraint.count())
+        throw new InvalidConfigurationException(s"Number of broker found (${matchedBrokers.size}) matching " +
+          s"constraint $constraint is less than required count ${constraint.count()}")
+      (constraint.count(), matchedBrokers)
+    })
+  }
+
+  /**
+   * Validate that when we partition brokers based on constraints, we don't have one broker satisfying
+   * multiple constraints. Otherwise the broker may get assigned multiple copies of a partition replica.
+   */
+  private[cluster] def validatePartitioning(partitionedBrokers: Seq[(Int, Seq[BrokerMetadata])]): Unit = {
+    partitionedBrokers.size match {
+      case 1 => partitionedBrokers.head._2.toSet.size == partitionedBrokers.head._2.size
+      case _ =>
+      val listOfPartitionedBrokers: Seq[Set[admin.BrokerMetadata]] = partitionedBrokers.map(_._2.toSet)
+      val commonBrokers = listOfPartitionedBrokers.reduceLeft(_ & _)
+      if (commonBrokers.nonEmpty) {
+        throw new InvalidConfigurationException(s"${commonBrokers} satisfy more than one placement constraints.")
+      }
+    }
+  }
+
+  /**
+   * Merge two assignment map containing "partition id -> seq[broker id]" into one assignment map. When applying
+   * placement constraint we get one map for each constraint, which we need to merge. This method can be used
+   * in "fold" call to do that.
+   */
+  private[cluster] def mergeAssignmentMap(mergedAssignment: Map[Int, Seq[Int]], currentAssignment: Map[Int, Seq[Int]]): Map[Int, Seq[Int]] = {
+    mergedAssignment ++ currentAssignment.map {
+      case (partitionId, replicaIds) =>
+        partitionId -> mergeReplicaLists(mergedAssignment.getOrElse(partitionId, Seq.empty), replicaIds)
+    }
+  }
+
+  /**
+   * Merge two list of replicas assigned to a partition based on two constraints. If a replica exists in both lists
+   * then throw exception as we want constraints to produce disjoint set.
+   */
+  private[cluster] def mergeReplicaLists(brokerList1: Seq[Int], brokerList2: Seq[Int]): Seq[Int] = {
+    val commonReplicas = brokerList1.view.intersect(brokerList2)
+    if (commonReplicas.nonEmpty) {
+      throw new InvalidConfigurationException(s"Replica with ids (${commonReplicas.force}) satisfy more than one placement constraints.")
+    }
+    brokerList1 ++ brokerList2
+  }
+
+  /**
+   * A simple predicate that matches if a broker "rack" matches to that specified in the constraint. This will be
+   * used to filter out brokers that satisfy a placement constraint.
+   */
+  private[cluster] def brokerMatchesPlacementConstraint(broker: kafka.admin.BrokerMetadata, constraint: ConstraintCount): Boolean = {
+    broker.rack.exists { rack =>
+      constraint.matches(Map("rack" -> rack).asJava)
+    }
   }
 }

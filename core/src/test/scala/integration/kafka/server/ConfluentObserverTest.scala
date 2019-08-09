@@ -203,9 +203,9 @@ object ConfluentObserverTest {
     observerRack: Option[String]
   ): String = {
     val observers = observerRack.fold("") { rack =>
-      s""","observers":[{"constraints":{"rack":"$rack"}}]"""
+      s""","observers":[{"count": 1, "constraints":{"rack":"$rack"}}]"""
     }
 
-    s"""{"version":1,"replicas":[{"constraints":{"rack":"$replicaRack"}}]$observers}"""
+    s"""{"version":1,"replicas":[{"count": 3, "constraints":{"rack":"$replicaRack"}}]$observers}"""
   }
 }

@@ -42,8 +42,28 @@ public class ConfluentTopicConfig {
     public static final String SCHEMA_VALIDATION_CONFIG = CONFLUENT_PREFIX + SCHEMA_VALIDATION;
     public static final String SCHEMA_VALIDATION_DOC = "True if schema validation is enabled for this topic.";
 
+    private static final String LINE_SEPARATOR = System.lineSeparator();
     public static final String TOPIC_PLACEMENT_CONSTRAINTS_CONFIG = CONFLUENT_PREFIX + "placement.constraints";
     public static final String TOPIC_PLACEMENT_CONSTRAINTS_DOC = "This configuration is a JSON object that controls the set of " +
         "brokers (replicas) which will always be allowed to join the ISR. And the set of brokers (observers) which are not " +
-        "allowed to join the ISR.";
+        "allowed to join the ISR. The format of JSON is:" + LINE_SEPARATOR +
+            "{" + LINE_SEPARATOR +
+            "  \"version\": 1," + LINE_SEPARATOR +
+            "  \"replicas\": [" + LINE_SEPARATOR +
+            "    {" + LINE_SEPARATOR +
+            "      \"count\": 2," + LINE_SEPARATOR +
+            "      \"constraints\": {\"rack\": \"east-1\"}" + LINE_SEPARATOR +
+            "    }," + LINE_SEPARATOR +
+            "    {" + LINE_SEPARATOR +
+            "      \"count\": 1," + LINE_SEPARATOR +
+            "      \"constraints\": {\"rack\": \"east-2\"}" + LINE_SEPARATOR +
+            "    }" + LINE_SEPARATOR +
+            "  ]," + LINE_SEPARATOR +
+            "  \"observers\":[" + LINE_SEPARATOR +
+            "    {" + LINE_SEPARATOR +
+            "      \"count\": 1," + LINE_SEPARATOR +
+            "      \"constraints\": {\"rack\": \"west-1\"}" + LINE_SEPARATOR +
+            "    }" + LINE_SEPARATOR +
+            "  ]" + LINE_SEPARATOR +
+            "}";
 }
