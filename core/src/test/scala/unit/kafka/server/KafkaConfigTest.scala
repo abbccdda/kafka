@@ -786,7 +786,6 @@ class KafkaConfigTest {
 
         // Confluent Cloud configs
         case KafkaConfig.BrokerSessionUuidProp => // ignore string
-        case KafkaConfig.SchemaValidationEnableProp => // ignore string
         case KafkaConfig.AppendRecordInterceptorClassesProp => // ignore list
         case ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG => // ignore string
         case ConfluentConfigs.MULTITENANT_METADATA_SSL_CERTS_SPEC_CONFIG => // ignore string

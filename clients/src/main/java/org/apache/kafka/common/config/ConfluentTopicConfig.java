@@ -39,8 +39,11 @@ public class ConfluentTopicConfig {
 
     private static final String SCHEMA_VALIDATION = "schema.validation";
 
-    public static final String SCHEMA_VALIDATION_CONFIG = CONFLUENT_PREFIX + SCHEMA_VALIDATION;
-    public static final String SCHEMA_VALIDATION_DOC = "True if schema validation is enabled for this topic.";
+    public static final String KEY_SCHEMA_VALIDATION_CONFIG = CONFLUENT_PREFIX + "key." + SCHEMA_VALIDATION;
+    public static final String KEY_SCHEMA_VALIDATION_DOC = "True if schema validation at record key is enabled for this topic.";
+
+    public static final String VALUE_SCHEMA_VALIDATION_CONFIG = CONFLUENT_PREFIX + "value." + SCHEMA_VALIDATION;
+    public static final String VALUE_SCHEMA_VALIDATION_DOC = "True if schema validation at record value is enabled for this topic.";
 
     private static final String LINE_SEPARATOR = System.lineSeparator();
     public static final String TOPIC_PLACEMENT_CONSTRAINTS_CONFIG = CONFLUENT_PREFIX + "placement.constraints";

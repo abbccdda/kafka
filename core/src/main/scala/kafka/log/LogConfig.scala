@@ -124,12 +124,13 @@ case class LogConfig(props: java.util.Map[_, _], overriddenConfigs: Set[String] 
   }
 
   // if schema validation is enabled, construct the schema validation interceptor
-  val schemaValidationEnable = getBoolean(LogConfig.SchemaValidationEnableProp)
-  if (schemaValidationEnable) {
+  val keySchemaValidationEnable = getBoolean(LogConfig.KeySchemaValidationEnableProp)
+  val valueSchemaValidationEnable = getBoolean(LogConfig.ValueSchemaValidationEnableProp)
+  if (keySchemaValidationEnable || valueSchemaValidationEnable) {
     // the schema registry url could only be from the broker-level configs, hence no need to check overrides
     val schemaRegistryUrl = props.get(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG).asInstanceOf[String]
     if (schemaRegistryUrl == null) {
-      log.warn(LogConfig.SchemaValidationEnableProp + " is enabled but there is no " +
+      log.warn(LogConfig.KeySchemaValidationEnableProp + " and / or " + valueSchemaValidationEnable + " is enabled but there is no " +
         ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG + " specified at the broker side, will not add the corresponding validator")
     } else {
       val recordSchemaValidatorClassName: String = "io.confluent.kafka.schemaregistry.validator.RecordSchemaValidator"
@@ -183,7 +184,8 @@ object LogConfig {
   val TierLocalHotsetBytesProp = ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_CONFIG
   val TierLocalHotsetMsProp = ConfluentTopicConfig.TIER_LOCAL_HOTSET_MS_CONFIG
   val AppendRecordInterceptorClassesProp = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG
-  val SchemaValidationEnableProp = ConfluentTopicConfig.SCHEMA_VALIDATION_CONFIG
+  val KeySchemaValidationEnableProp = ConfluentTopicConfig.KEY_SCHEMA_VALIDATION_CONFIG
+  val ValueSchemaValidationEnableProp = ConfluentTopicConfig.VALUE_SCHEMA_VALIDATION_CONFIG
   val TopicPlacementConstraintsProp = ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG
 
   // Leave these out of TopicConfig for now as they are replication quota configs
@@ -259,6 +261,12 @@ object LogConfig {
                serverDefaultConfigName: String): LogConfigDef = {
       super.define(name, defType, importance, documentation)
       serverDefaultConfigNames.put(name, serverDefaultConfigName)
+      this
+    }
+
+    override def define(name: String, defType: ConfigDef.Type, defaultValue: Any, importance: ConfigDef.Importance,
+               documentation: String): LogConfigDef = {
+      super.define(name, defType, defaultValue, importance, documentation)
       this
     }
 
@@ -369,7 +377,8 @@ object LogConfig {
 
       /* --- Begin Confluent Configurations --- */
 
-      .define(SchemaValidationEnableProp, BOOLEAN, false, MEDIUM, ConfluentTopicConfig.SCHEMA_VALIDATION_DOC, KafkaConfig.SchemaValidationEnableProp)
+      .define(KeySchemaValidationEnableProp, BOOLEAN, false, MEDIUM, ConfluentTopicConfig.KEY_SCHEMA_VALIDATION_DOC) // we do not have this config at broker-level
+      .define(ValueSchemaValidationEnableProp, BOOLEAN, false, MEDIUM, ConfluentTopicConfig.VALUE_SCHEMA_VALIDATION_DOC) // we do not have this config at broker-level
 
       /* --- End Confluent Configurations --- */
 
@@ -471,8 +480,7 @@ object LogConfig {
     TierEnableProp -> KafkaConfig.TierEnableProp,
     TierLocalHotsetBytesProp -> KafkaConfig.TierLocalHotsetBytesProp,
     TierLocalHotsetMsProp -> KafkaConfig.TierLocalHotsetMsProp,
-    AppendRecordInterceptorClassesProp -> KafkaConfig.AppendRecordInterceptorClassesProp,
-    SchemaValidationEnableProp -> KafkaConfig.SchemaValidationEnableProp
+    AppendRecordInterceptorClassesProp -> KafkaConfig.AppendRecordInterceptorClassesProp
   )
 
 }

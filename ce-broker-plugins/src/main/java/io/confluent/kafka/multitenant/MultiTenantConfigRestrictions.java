@@ -18,7 +18,8 @@ public class MultiTenantConfigRestrictions {
       "log.cleaner.delete.retention.ms",
       "log.segment.bytes",
       "default.replication.factor",
-      "num.partitions"
+      "num.partitions",
+      "confluent.schema.registry.url"
   );
 
   // Topic configs that are modifiable by cloud users
@@ -38,7 +39,8 @@ public class MultiTenantConfigRestrictions {
   public static boolean visibleTopicConfig(String configName) {
     return !configName.startsWith("confluent.tier") &&
         !configName.startsWith("confluent.append.record.interceptor") &&
-        !configName.startsWith("confluent.schema.validation") &&
+        !configName.startsWith("confluent.key.schema.validation") &&
+        !configName.startsWith("confluent.value.schema.validation") &&
         !configName.equals("confluent.placement.constraints");
   }
 }

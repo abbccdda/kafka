@@ -100,7 +100,6 @@ object KafkaServer {
     logProps.put(LogConfig.TierEnableProp, kafkaConfig.tierEnable: java.lang.Boolean)
     logProps.put(LogConfig.TierLocalHotsetBytesProp, kafkaConfig.tierLocalHotsetBytes: java.lang.Long)
     logProps.put(LogConfig.TierLocalHotsetMsProp, kafkaConfig.tierLocalHotsetMs: java.lang.Long)
-    logProps.put(LogConfig.SchemaValidationEnableProp, kafkaConfig.schemaValidationEnable: java.lang.Boolean)
 
     // confluent configs needed for topic-level overrides
     // we use computeIfAbsent for those configs that do not have default values (i.e. the default value are null)

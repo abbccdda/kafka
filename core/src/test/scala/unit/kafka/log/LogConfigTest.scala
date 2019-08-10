@@ -43,7 +43,9 @@ class LogConfigTest {
     assertTrue(KafkaConfig.LogRetentionTimeMillisProp != null)
     assertTrue(LogConfig.configNames.forall { config =>
       config match {
-        case LogConfig.TopicPlacementConstraintsProp =>
+        case LogConfig.TopicPlacementConstraintsProp |
+             LogConfig.KeySchemaValidationEnableProp |
+             LogConfig.ValueSchemaValidationEnableProp =>
           // These properties are topic only and don't have a server configuraiton.
           true
         case _ =>

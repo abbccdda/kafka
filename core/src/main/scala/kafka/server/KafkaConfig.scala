@@ -480,9 +480,6 @@ object KafkaConfig {
   /** Tiered storage archiver configs **/
   val TierArchiverNumThreadsProp = ConfluentPrefix + "tier.archiver.num.threads"
 
-  /** Policy enforcement configs **/
-  val SchemaValidationEnableProp = ConfluentTopicConfig.SCHEMA_VALIDATION_CONFIG
-
   /** Observer configs **/
   val ObserverFeatureProp = ConfluentPrefix + "observer.feature"
 
@@ -1243,7 +1240,6 @@ object KafkaConfig {
       .defineInternal(BrokerInterceptorClassProp, CLASS, ConfluentConfigs.BROKER_INTERCEPTOR_CLASS_DEFAULT, LOW)
       .defineInternal(AppendRecordInterceptorClassesProp, LIST, Collections.emptyList(), LOW)
 
-      .defineInternal(SchemaValidationEnableProp, BOOLEAN, false, LOW)
       .defineInternal(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG, STRING, null, LOW)
       .defineInternal(ConfluentConfigs.KEY_SUBJECT_NAME_STRATEGY_CONFIG, STRING, null, LOW)  // we cannot define default here but only in the plugin
       .defineInternal(ConfluentConfigs.VALUE_SUBJECT_NAME_STRATEGY_CONFIG, STRING, null, LOW)  // we cannot define default here but only in the plugin
@@ -1515,8 +1511,6 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
 
   /** ********* Interceptor Configuration ***********/
   val appendRecordInterceptors = getConfiguredInstances(KafkaConfig.AppendRecordInterceptorClassesProp, classOf[RecordInterceptor])
-
-  val schemaValidationEnable = getBoolean(KafkaConfig.SchemaValidationEnableProp)
 
   /** ********* Metric Configuration **************/
   val metricNumSamples = getInt(KafkaConfig.MetricNumSamplesProp)

@@ -17,6 +17,7 @@
 package kafka.admin
 
 import kafka.admin.TopicCommand.{TopicCommandOptions, ZookeeperTopicService}
+import kafka.log.LogConfig
 import kafka.server.ConfigType
 import kafka.utils.{Logging, TestUtils}
 import kafka.zk.{ConfigEntityChangeNotificationZNode, DeleteTopicsTopicZNode, ZooKeeperTestHarness}
@@ -121,11 +122,13 @@ class TopicCommandTest extends ZooKeeperTestHarness with Logging with RackAwareT
 
     val configResource = new ConfigResource(ConfigResource.Type.TOPIC, testTopicName)
     topicService.createTopic(new TopicCommandOptions(
-      Array("--partitions", "1", "--replication-factor", "1", "--topic", configResource.name(), "--config", "confluent.schema.validation=true")
+      Array("--partitions", "1", "--replication-factor", "1", "--topic", configResource.name(),
+        "--config", "confluent.key.schema.validation=true", "--config", "confluent.value.schema.validation=true")
     ))
 
     val configs = zkClient.getEntityConfigs(ConfigType.Topic, testTopicName)
-    assertEquals(true, java.lang.Boolean.valueOf(configs.getProperty("confluent.schema.validation")))
+    assertEquals(true, java.lang.Boolean.valueOf(configs.getProperty(LogConfig.KeySchemaValidationEnableProp)))
+    assertEquals(true, java.lang.Boolean.valueOf(configs.getProperty(LogConfig.ValueSchemaValidationEnableProp)))
   }
 
   @Test

@@ -1736,7 +1736,6 @@ public class MultiTenantRequestContextTest {
       new DescribeConfigsResponse.ConfigEntry("message.max.bytes", "10000", brokerSource, false, false, emptySynonyms),
       new DescribeConfigsResponse.ConfigEntry("num.network.threads", "5", brokerSource, false, false, emptySynonyms),
       new DescribeConfigsResponse.ConfigEntry("broker.interceptor.class", "bar", brokerSource, false, false, emptySynonyms),
-      new DescribeConfigsResponse.ConfigEntry("confluent.schema.validation", "true", brokerSource, false, false, emptySynonyms),
       new DescribeConfigsResponse.ConfigEntry("confluent.append.record.interceptor.classes", "foo,bar", brokerSource, false, false, emptySynonyms)
     );
     Collection<DescribeConfigsResponse.ConfigEntry> topicConfigEntries = asList(
@@ -1744,7 +1743,7 @@ public class MultiTenantRequestContextTest {
       new DescribeConfigsResponse.ConfigEntry("min.insync.replicas", "2", topicSource, false, false, emptySynonyms),
       new DescribeConfigsResponse.ConfigEntry("min.cleanable.dirty.ratio", "0.5", topicSource, false, false, emptySynonyms),
       new DescribeConfigsResponse.ConfigEntry("confluent.tier.enable", "true", topicSource, false, false, emptySynonyms),
-      new DescribeConfigsResponse.ConfigEntry("confluent.schema.validation", "true", brokerSource, false, false, emptySynonyms),
+      new DescribeConfigsResponse.ConfigEntry("confluent.key.schema.validation", "true", brokerSource, false, false, emptySynonyms),
       new DescribeConfigsResponse.ConfigEntry("confluent.append.record.interceptor.classes", "foo,bar", brokerSource, false, false, emptySynonyms)
     );
 
@@ -1781,7 +1780,7 @@ public class MultiTenantRequestContextTest {
                 mkEntry("min.insync.replicas", Boolean.FALSE),
                 mkEntry("min.cleanable.dirty.ratio", Boolean.FALSE),
                 mkEntry("confluent.tier.enable", Boolean.FALSE),
-                mkEntry("confluent.schema.validation", Boolean.FALSE),
+                mkEntry("confluent.key.schema.validation", Boolean.FALSE),
                 mkEntry("confluent.append.record.interceptor.classes", Boolean.FALSE)),
             topicReadOnlyMap);
       } else {
@@ -1805,7 +1804,6 @@ public class MultiTenantRequestContextTest {
                 "message.max.bytes",
                 "num.network.threads",
                 "broker.interceptor.class",
-                "confluent.schema.validation",
                 "confluent.append.record.interceptor.classes"),
             interceptedEntries);
       } else {
