@@ -36,6 +36,8 @@ import org.mockito.Mockito._
 import org.mockito.invocation.InvocationOnMock
 import org.mockito.stubbing.Answer
 
+import scala.collection.mutable
+
 class TopicDeletionManagerTest {
 
   private val brokerId = 1
@@ -89,12 +91,6 @@ class TopicDeletionManagerTest {
     assertTrue(deletionManager.isDeleteTopicEnabled)
     deletionManager.init(Set.empty, Set.empty)
 
-    when(deletionClient.completeDeleteTopic(any())).thenAnswer(new Answer[Unit] {
-      override def answer(invocation: InvocationOnMock): Unit = {
-        deletionManager.finishTopicDelete(invocation.getArgument(0))
-      }
-    })
-
     val fooPartitions = controllerContext.partitionsForTopic("foo")
     val fooReplicas = controllerContext.replicasForPartition(fooPartitions).toSet
 
@@ -120,9 +116,13 @@ class TopicDeletionManagerTest {
 
   @Test
   def testBasicDeletionOfTieredTopic(): Unit = {
-    val properties = new Properties()
-    properties.setProperty(LogConfig.TierEnableProp, "true")
-    when(deletionClient.topicConfig(any(), any())).thenReturn(LogConfig.fromProps(config.originals, properties))
+    val brokerProperties = TestUtils.createBrokerConfig(brokerId, "zkConnect")
+    brokerProperties.put(KafkaConfig.TierFeatureProp, "true")
+    val config = KafkaConfig.fromProps(brokerProperties)
+
+    val topicProperties = new Properties()
+    topicProperties.setProperty(LogConfig.TierEnableProp, "true")
+    when(deletionClient.topicConfig(any(), any())).thenReturn(LogConfig.fromProps(config.originals, topicProperties))
 
     val controllerContext = initContext(
       brokers = Seq(1, 2, 3),
@@ -185,9 +185,13 @@ class TopicDeletionManagerTest {
 
   @Test
   def testExceptionWhenDeletingTieredTopic(): Unit = {
-    val properties = new Properties()
-    properties.setProperty(LogConfig.TierEnableProp, "true")
-    when(deletionClient.topicConfig(any(), any())).thenReturn(LogConfig.fromProps(config.originals, properties))
+    val brokerProperties = TestUtils.createBrokerConfig(brokerId, "zkConnect")
+    brokerProperties.put(KafkaConfig.TierFeatureProp, "true")
+    val config = KafkaConfig.fromProps(brokerProperties)
+
+    val topicProperties = new Properties()
+    topicProperties.setProperty(LogConfig.TierEnableProp, "true")
+    when(deletionClient.topicConfig(any(), any())).thenReturn(LogConfig.fromProps(config.originals, topicProperties))
 
     val controllerContext = initContext(
       brokers = Seq(1, 2, 3),
@@ -270,12 +274,6 @@ class TopicDeletionManagerTest {
       partitionStateMachine, deletionClient, None)
     assertTrue(deletionManager.isDeleteTopicEnabled)
     deletionManager.init(Set.empty, Set.empty)
-
-    when(deletionClient.completeDeleteTopic(any())).thenAnswer(new Answer[Unit] {
-      override def answer(invocation: InvocationOnMock): Unit = {
-        deletionManager.finishTopicDelete(invocation.getArgument(0))
-      }
-    })
 
     val fooPartitions = controllerContext.partitionsForTopic("foo")
     val fooReplicas = controllerContext.replicasForPartition(fooPartitions).toSet
@@ -386,6 +384,63 @@ class TopicDeletionManagerTest {
     assertEquals(onlineReplicas, controllerContext.replicasInState("foo", ReplicaDeletionSuccessful))
     assertEquals(offlineReplicas, controllerContext.replicasInState("foo", ReplicaDeletionStarted))
 
+  }
+
+  @Test
+  def testMultipleTieredTopicDeletions(): Unit = {
+    val brokerProperties = TestUtils.createBrokerConfig(brokerId, "zkConnect")
+    brokerProperties.put(KafkaConfig.TierFeatureProp, "true")
+    val config = KafkaConfig.fromProps(brokerProperties)
+
+    val topicProperties = new Properties()
+    topicProperties.setProperty(LogConfig.TierEnableProp, "true")
+    when(deletionClient.topicConfig(any(), any())).thenReturn(LogConfig.fromProps(config.originals, topicProperties))
+
+    val tierTopicManager = mock(classOf[TierTopicManager])
+    when(tierTopicManager.addMetadata(any())).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
+
+    val controllerContext = initContext(
+      brokers = Seq(1, 2, 3),
+      topics = Set("foo", "bar"),
+      numPartitions = 2,
+      replicationFactor = 3,
+      addTopicId = true)
+    val replicaStateMachine = new MockReplicaStateMachine(controllerContext)
+    replicaStateMachine.startup()
+
+    val partitionStateMachine = new MockPartitionStateMachine(controllerContext, uncleanLeaderElectionEnabled = false)
+    partitionStateMachine.startup()
+
+    val deletionManager = new TopicDeletionManager(config, controllerContext, replicaStateMachine,
+      partitionStateMachine, deletionClient, Some(tierTopicManager))
+    assertTrue(deletionManager.isDeleteTopicEnabled)
+    deletionManager.init(Set.empty, Set.empty)
+
+    val deletionsBeingCompleted = mutable.ListBuffer[String]()
+
+    when(deletionClient.completeDeleteTopic(any())).thenAnswer(new Answer[Unit] {
+      override def answer(invocation: InvocationOnMock): Unit = {
+        deletionsBeingCompleted += invocation.getArgument(0)
+      }
+    })
+
+    val fooPartitions = controllerContext.partitionsForTopic("foo")
+    val fooReplicas = controllerContext.replicasForPartition(fooPartitions).toSet
+
+    val barPartitions = controllerContext.partitionsForTopic("bar")
+    val barReplicas = controllerContext.replicasForPartition(barPartitions).toSet
+
+    // complete deletion for "foo"
+    deletionManager.enqueueTopicsForDeletion(Set("foo"))
+    deletionManager.completeReplicaDeletion(fooReplicas)
+
+    assertEquals(List("foo"), deletionsBeingCompleted)
+
+    // complete deletion for "bar"
+    deletionManager.enqueueTopicsForDeletion(Set("bar"))
+    deletionManager.completeReplicaDeletion(barReplicas)
+
+    assertEquals(List("foo", "bar"), deletionsBeingCompleted)
   }
 
   def initContext(brokers: Seq[Int],

@@ -31,9 +31,8 @@ import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.RetriableException
 
-import scala.collection.Set
+import scala.collection.{Set, immutable}
 import scala.collection.mutable.ListBuffer
-import scala.collection.immutable
 
 
 trait DeletionClient {
@@ -123,9 +122,9 @@ class ControllerDeletionClient(controller: KafkaController, zkClient: KafkaZkCli
  *    6.1 If a tiered topic is being deleted, the teardown logic in TopicDeletionManager#prepareCompleteDeleteTopic
  *        initiates a write to the tier topic indicating the start of deletion of tiered partitions. The write to
  *        tier topic and subsequent readback is completed asynchronously without blocking the controller event thread.
- *        Regardless of whether the topic is tiered or not, we exit this stage by adding a CompleteTopicDeletion event
- *        to the controller event queue. For tiered topics, this is done after we have successfully read back the initiate
- *        delete messages from the tier topic.
+ *        We exit this stage by adding a CompleteTopicDeletion event to the controller event queue. This is done after
+ *        we have successfully read back the initiate delete messages from the tier topic. If the topic is not tiered,
+ *        we directly go to step 6.2 below.
  *    6.2 After successful completion of the previous stage, topic deletion teardown mode deletes all topic state from
  *        the controllerContext as well as from zookeeper. This is the only time the /brokers/topics/<topic> path gets
  *        deleted. On the other hand, if no replica is in TopicDeletionStarted state and at least one replica is in
@@ -169,6 +168,7 @@ class TopicDeletionManager(config: KafkaConfig,
    */
   def enqueueTopicsForDeletion(topics: Set[String]) {
     if (isDeleteTopicEnabled) {
+      controllerContext.topicsWithDeletionBeingCompleted --= topics
       controllerContext.queueTopicDeletion(topics)
       resumeDeletions()
     }
@@ -263,14 +263,16 @@ class TopicDeletionManager(config: KafkaConfig,
    * Topic deletion can be retried if -
    * 1. Topic deletion is not already complete
    * 2. Topic deletion is currently not in progress for that topic
-   * 3. Topic is currently marked ineligible for deletion
+   * 3. Topic is not marked ineligible for deletion
+   * 4. Topic delete completion is not in progress
    * @param topic Topic
    * @return Whether or not deletion can be retried for the topic
    */
   private def isTopicEligibleForDeletion(topic: String): Boolean = {
     controllerContext.isTopicQueuedUpForDeletion(topic) &&
       !isTopicDeletionInProgress(topic) &&
-      !isTopicIneligibleForDeletion(topic)
+      !isTopicIneligibleForDeletion(topic) &&
+      !controllerContext.topicsWithDeletionBeingCompleted.contains(topic)
   }
 
   /**
@@ -285,85 +287,93 @@ class TopicDeletionManager(config: KafkaConfig,
     replicaStateMachine.handleStateChanges(failedReplicas.toSeq, OfflineReplica)
   }
 
-  /**
-    * If this is a tiered topic, initiate deletion for it. This involves writing a PartitionDeleteInitiate message
-    * to the tier topic for all partitions being deleted. The actual deletion of topic state in ZK is delayed until
-    * messages for all partitions have been written to the tier topic and read back successfully.
-    * @param topic The topic being deleted
-    * @return true if writing to the tier topic was initiated; false otherwise
-    */
-  private def maybeDeleteTieredTopic(topic: String): Boolean = {
-    val topicConfig = client.topicConfig(topic, config)
-    if (topicConfig.tierEnable && !topicConfig.compact) {
-      val replicasForDeletedTopic = controllerContext.replicasInState(topic, ReplicaDeletionSuccessful)
-      val tierTopicManager = tierTopicManagerOpt.get
-      val topicId = controllerContext.topicIds(topic)
-
-      val partitionsForDeletedTopic = replicasForDeletedTopic.map(_.topicPartition).toSet
-      val appendResults = ListBuffer[CompletableFuture[AppendResult]]()
-
-      partitionsForDeletedTopic.foreach { partition =>
-        val topicIdPartition = new TopicIdPartition(topic, topicId, partition.partition)
-        val deleteInitiate = new TierPartitionDeleteInitiate(topicIdPartition, controllerContext.epoch, UUID.randomUUID)
-        appendResults += tierTopicManager.addMetadata(deleteInitiate)
-      }
-      val futures = CompletableFuture.allOf(appendResults:_*)
-
-      def maybeRetryDeletion(t: Throwable): Unit = {
-        val isRetriable =
-          t match {
-            case _: RetriableException => true
-            case e if e.getCause != null && e.getCause.isInstanceOf[RetriableException] => true
-            case _ => false
-          }
-
-        if (isRetriable) {
-          info(s"Retrying topic deletion for tiered topic $topic", t)
-          try {
-            client.retryDeletion()
-          } catch {
-            case e: Exception => error(s"Error deleting tiered topic $topic", e)
-          }
-        } else {
-          error(s"Error deleting tiered topic $topic", t)
-        }
-      }
-
-      futures.whenComplete(new BiConsumer[Void, Throwable] {
-        override def accept(result: Void, t: Throwable): Unit = {
-          if (t != null) {
-            maybeRetryDeletion(t)
-          } else {
-            val results = appendResults.map { appendResult =>
-              try {
-                appendResult.get
-              } catch {
-                case e: Exception =>
-                  maybeRetryDeletion(e)
-                  return
-              }
-            }
-
-            if (results.forall(_ == AppendResult.ACCEPTED))
-              client.completeDeleteTopic(topic)
-            else
-              maybeRetryDeletion(new IllegalStateException(s"Unexpected result $results"))
-          }
-        }
-      })
-
-      true
+  private def tieredDeletionNeeded(topic: String): Boolean = {
+    if (config.tierFeature) {
+      val topicConfig = client.topicConfig(topic, config)
+      topicConfig.tierEnable && !topicConfig.compact
     } else {
       false
     }
   }
 
-  private def prepareCompleteDeleteTopic(topic: String) {
+  /**
+    * Initiate deletion for for a tiered topic. This involves writing a PartitionDeleteInitiate message to the tier topic
+    * for all partitions being deleted. The actual deletion of topic state in ZK is delayed until messages for all
+    * partitions have been written to the tier topic and read back successfully.
+    * @param topic The topic being deleted
+    */
+  private def asyncDeleteTieredTopic(topic: String): Unit = {
+    val replicasForDeletedTopic = controllerContext.replicasInState(topic, ReplicaDeletionSuccessful)
+    val tierTopicManager = tierTopicManagerOpt.get
+    val topicId = controllerContext.topicIds(topic)
+
+    val partitionsForDeletedTopic = replicasForDeletedTopic.map(_.topicPartition).toSet
+    val appendResults = ListBuffer[CompletableFuture[AppendResult]]()
+
+    partitionsForDeletedTopic.foreach { partition =>
+      val topicIdPartition = new TopicIdPartition(topic, topicId, partition.partition)
+      val deleteInitiate = new TierPartitionDeleteInitiate(topicIdPartition, controllerContext.epoch, UUID.randomUUID)
+      appendResults += tierTopicManager.addMetadata(deleteInitiate)
+    }
+    val futures = CompletableFuture.allOf(appendResults:_*)
+
+    def maybeRetryDeletion(t: Throwable): Unit = {
+      val isRetriable =
+        t match {
+          case _: RetriableException => true
+          case e if e.getCause != null && e.getCause.isInstanceOf[RetriableException] => true
+          case _ => false
+        }
+
+      if (isRetriable) {
+        info(s"Retrying topic deletion for tiered topic $topic", t)
+        try {
+          client.retryDeletion()
+        } catch {
+          case e: Exception => error(s"Error deleting tiered topic $topic", e)
+        }
+      } else {
+        error(s"Error deleting tiered topic $topic", t)
+      }
+    }
+
+    futures.whenComplete(new BiConsumer[Void, Throwable] {
+      override def accept(result: Void, t: Throwable): Unit = {
+        if (t != null) {
+          maybeRetryDeletion(t)
+        } else {
+          val results = appendResults.map { appendResult =>
+            try {
+              appendResult.get
+            } catch {
+              case e: Exception =>
+                maybeRetryDeletion(e)
+                return
+            }
+          }
+
+          if (results.forall(_ == AppendResult.ACCEPTED))
+            client.completeDeleteTopic(topic)
+          else
+            maybeRetryDeletion(new IllegalStateException(s"Unexpected result $results"))
+        }
+      }
+    })
+  }
+
+  private def prepareCompleteDeleteTopic(topic: String): Unit = {
     // deregister partition change listener on the deleted topic. This is to prevent the partition change listener
     // firing before the new topic listener when a deleted topic gets auto created
     client.mutePartitionModifications(topic)
-    if (!maybeDeleteTieredTopic(topic))
-      client.completeDeleteTopic(topic)
+
+    // Track the topic as being deleted
+    controllerContext.topicsWithDeletionBeingCompleted += topic
+
+    // If this is a tiered topic, initiate topic deletion for it. If the topic is not tiered, initiate delete completion.
+    if (tieredDeletionNeeded(topic))
+      asyncDeleteTieredTopic(topic)
+    else
+      finishTopicDelete(topic)
   }
 
   /**
@@ -378,6 +388,8 @@ class TopicDeletionManager(config: KafkaConfig,
     controllerContext.topicsWithDeletionStarted -= topic
     client.deleteTopic(topic, controllerContext.epochZkVersion)
     controllerContext.removeTopic(topic)
+    controllerContext.topicsWithDeletionBeingCompleted -= topic
+    info(s"Deletion of topic $topic successfully completed")
   }
 
   /**
@@ -464,12 +476,16 @@ class TopicDeletionManager(config: KafkaConfig,
     if (topicsQueuedForDeletion.nonEmpty)
       info(s"Handling deletion for topics ${topicsQueuedForDeletion.mkString(",")}")
 
-    topicsQueuedForDeletion.foreach { topic =>
+    // Resume deletion for topics that are queued for deletion. We exclude topics that are pending completion so that
+    // we do not reprocess them.
+    topicsQueuedForDeletion
+      .diff(controllerContext.topicsWithDeletionBeingCompleted)
+      .foreach { topic =>
       // if all replicas are marked as deleted successfully, then topic deletion is done
       if (controllerContext.areAllReplicasInState(topic, ReplicaDeletionSuccessful)) {
         // prepare to clear up all state for this topic from controller cache and zookeeper
+        info(s"All replicas for $topic have been successfully deleted. Preparing to complete topic deletion.")
         prepareCompleteDeleteTopic(topic)
-        info(s"Deletion of topic $topic successfully completed")
       } else if (!controllerContext.isAnyReplicaInState(topic, ReplicaDeletionStarted)) {
         // if you come here, then no replica is in TopicDeletionStarted and all replicas are not in
         // TopicDeletionSuccessful. That means, that either given topic haven't initiated deletion

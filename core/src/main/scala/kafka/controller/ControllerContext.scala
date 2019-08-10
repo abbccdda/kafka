@@ -65,7 +65,7 @@ class ControllerContext {
    */
   val topicsWithDeletionStarted = mutable.Set.empty[String]
   val topicsIneligibleForDeletion = mutable.Set.empty[String]
-
+  val topicsWithDeletionBeingCompleted = mutable.Set.empty[String]
 
   def partitionReplicaAssignment(topicPartition: TopicPartition): Seq[Int] = {
     partitionAssignments.getOrElse(topicPartition.topic, mutable.Map.empty)
@@ -222,6 +222,7 @@ class ControllerContext {
     topicsToBeDeleted.clear()
     topicsWithDeletionStarted.clear()
     topicsIneligibleForDeletion.clear()
+    topicsWithDeletionBeingCompleted.clear()
     shuttingDownBrokerIds.clear()
     epoch = 0
     epochZkVersion = 0
