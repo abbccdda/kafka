@@ -2,6 +2,7 @@ package kafka.server
 
 import java.util.{Properties, UUID}
 import java.util.Collections
+import java.util.concurrent.ExecutionException
 
 import kafka.integration.KafkaServerTestHarness
 import kafka.tier.TierTestUtils
@@ -9,10 +10,12 @@ import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.admin.AdminClient
 import org.apache.kafka.clients.admin.AdminClientConfig
+import org.apache.kafka.clients.admin.Config
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.config.ConfluentTopicConfig
 import org.apache.kafka.common.config.TopicConfig
+import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
 import org.apache.kafka.common.internals.Topic
 import org.junit.Assert._
 import org.junit.Test
@@ -132,17 +135,30 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
 
   private def assertTierStateTopicConfigs(): Unit = {
     val client = AdminClient.create(createAdminClientConfig())
+    var result : Config = null
     try {
-      val existingTopic = new ConfigResource(ConfigResource.Type.TOPIC, Topic.TIER_TOPIC_NAME)
-      val describeConfigs = client.describeConfigs(Collections.singletonList(existingTopic)).values.get(existingTopic).get()
-      assertEquals("-1", describeConfigs.entries().asScala
-        .find(_.name() == TopicConfig.RETENTION_BYTES_CONFIG).get.value())
-      assertEquals("-1", describeConfigs.entries().asScala
-        .find(_.name() == TopicConfig.RETENTION_MS_CONFIG).get.value())
-      assertEquals(TopicConfig.CLEANUP_POLICY_DELETE, describeConfigs.entries().asScala
-        .find(_.name() == TopicConfig.CLEANUP_POLICY_CONFIG).get.value())
+      TestUtils.waitUntilTrue(() => {
+        try {
+          val existingTopic = new ConfigResource(ConfigResource.Type.TOPIC, Topic.TIER_TOPIC_NAME)
+          result = client.describeConfigs(Collections.singletonList(existingTopic)).values.get(existingTopic).get()
+          true
+        } catch {
+          case ee: ExecutionException =>
+            if (ee.getCause.isInstanceOf[UnknownTopicOrPartitionException])
+              false
+            else
+              throw ee.getCause
+        }
+      }, "timed waiting to find tier state topic")
     } finally {
       client.close()
     }
+
+    assertEquals("-1", result.entries().asScala
+      .find(_.name() == TopicConfig.RETENTION_BYTES_CONFIG).get.value())
+    assertEquals("-1", result.entries().asScala
+      .find(_.name() == TopicConfig.RETENTION_MS_CONFIG).get.value())
+    assertEquals(TopicConfig.CLEANUP_POLICY_DELETE, result.entries().asScala
+      .find(_.name() == TopicConfig.CLEANUP_POLICY_CONFIG).get.value())
   }
 }
