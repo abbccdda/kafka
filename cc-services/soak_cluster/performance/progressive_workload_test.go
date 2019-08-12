@@ -9,9 +9,12 @@ import (
 )
 
 var topicSpec = &trogdor.TopicSpec{
-	NumPartitions:     30,
-	ReplicationFactor: 3,
-	TopicName:         "topic",
+	TopicName: "topic",
+	PartitionsSpec: &trogdor.PartitionsSpec{
+		NumPartitions:        uint64(30),
+		ReplicationFactor:    3,
+		PartitionsSpecConfig: adminConfig.ToPartitionSpecConfig(),
+	},
 }
 var clientNodes = []string{
 	"a", "b", "c",

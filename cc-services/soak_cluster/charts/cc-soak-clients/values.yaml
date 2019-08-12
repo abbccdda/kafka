@@ -4,9 +4,9 @@ image:
   # AWS Devel: 037803949979.dkr.ecr.us-west-2.amazonaws.com/confluentinc
   # GCP Devel: us.gcr.io/cc-devel
   # CPD: confluent-docker.jfrog.io/confluentinc
-  repository: ""
+  repository: "confluent-docker.jfrog.io/confluentinc"
   name: cc-soak-clients
-  tag: 0.243.0-5.4.0-ce-SNAPSHOT
+  tag: 0.378.0-5.4.0-ce-SNAPSHOT-2-g40db18aa4
   pullPolicy: IfNotPresent
 trogdorCoordinatorPort: 9002
 trogdorNamespace: ""  # optional; if you want to explicitly specify the namespace Trogdor is spawned in
@@ -15,11 +15,10 @@ apiSecret: "null"
 bootstrapServer: "null"
 topicConfigPath: "/mnt/config/topic/enterprise-topics.json"
 performanceTestConfigPath: "/mnt/config/performance/performance_test.json"
-shortLivedTaskMs: "900000"
+shortLivedTaskMs: "900000" # 15 minutes
 shortLivedTaskRescheduleDelayMs: "0"
-shortLivedTaskMinutes: "15" # sum of shortLivedTaskMs + shortLivedTaskRescheduleDelayMs; used to configure the frequency of the status reporter
-longLivedTaskMs: "604800000"
-logRetentionMs: "10800000"
+longLivedTaskMs: "604800000" # 7 days
+logRetentionMs: "10800000" # 3 hours
 LingerMs: "0"
 debugLogs: "true"
 agentCount: "6" # as much as agentReplicaCount in cc-trogdor-service

@@ -202,8 +202,10 @@ func writeSoakTestConfigFile(t *testing.T, topics SoakTestConfig) string {
 
 func TestConsecutiveTasks(t *testing.T) {
 	mediumTopic := trogdor.TopicSpec{
-		NumPartitions:     16,
-		ReplicationFactor: 3,
+		PartitionsSpec: &trogdor.PartitionsSpec{
+			NumPartitions:     uint64(16),
+			ReplicationFactor: 3,
+		},
 	}
 	startConfig := trogdor.ScenarioConfig{
 		ScenarioID: trogdor.TaskId{
@@ -258,8 +260,10 @@ func TestConsecutiveTasks(t *testing.T) {
 
 func TestConsecutiveTasksFailsIfStartMsIsZero(t *testing.T) {
 	mediumTopic := trogdor.TopicSpec{
-		NumPartitions:     16,
-		ReplicationFactor: 3,
+		PartitionsSpec: &trogdor.PartitionsSpec{
+			NumPartitions:     uint64(16),
+			ReplicationFactor: 3,
+		},
 	}
 	startConfig := &trogdor.ScenarioConfig{
 		ScenarioID: trogdor.TaskId{

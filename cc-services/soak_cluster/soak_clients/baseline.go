@@ -138,9 +138,12 @@ func createTopicTasks(topicConfig TopicConfiguration, clientNodes []string, exis
 	longLivedMs uint64, shortLivedMs uint64, shortLivedReschedDelayMs uint64, bootstrapServers string) []trogdor.TaskSpec {
 	var tasks []trogdor.TaskSpec
 	topic := trogdor.TopicSpec{
-		NumPartitions:     uint64(topicConfig.PartitionsCount),
-		ReplicationFactor: 3,
-		TopicName:         topicConfig.Name,
+		TopicName: topicConfig.Name,
+		PartitionsSpec: &trogdor.PartitionsSpec{
+			NumPartitions:        uint64(topicConfig.PartitionsCount),
+			ReplicationFactor:    3,
+			PartitionsSpecConfig: adminConfig.ToPartitionSpecConfig(),
+		},
 	}
 	logutil.Debug(logger, "Creating tasks for topic configuration: %+v", topicConfig)
 	var producerOptions trogdor.ProducerOptions

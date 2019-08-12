@@ -101,9 +101,12 @@ func (workload *Workload) getSteps(startTime time.Time) ([]*Step, time.Duration)
 // Returns all the Trogdor tasks that should be ran as part of this workload
 func (workload *Workload) CreateTest(trogdorAgentsCount int, bootstrapServers string) (tasks []trogdor.TaskSpec, err error) {
 	topicSpec := &trogdor.TopicSpec{
-		NumPartitions:     workload.PartitionCount,
-		ReplicationFactor: 3,
-		TopicName:         workload.topicName(),
+		TopicName: workload.topicName(),
+		PartitionsSpec: &trogdor.PartitionsSpec{
+			NumPartitions:        uint64(workload.PartitionCount),
+			ReplicationFactor:    3,
+			PartitionsSpecConfig: adminConfig.ToPartitionSpecConfig(),
+		},
 	}
 	clientNodes := common.TrogdorAgentPodNames(trogdorAgentsCount)
 

@@ -12,7 +12,6 @@ data:
   "sasl.mechanism": "PLAIN",
   "sasl.jaas.config": "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"{{ .Values.apiKey }}\" password=\"{{ .Values.apiSecret }}\";",
   "security.protocol": "SASL_SSL",
-  "retention.ms": {{ .Values.logRetentionMs }},
   "linger.ms": {{ .Values.LingerMs }}
 }
 '

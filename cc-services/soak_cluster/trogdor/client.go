@@ -34,6 +34,14 @@ type AdminConf struct {
 	SslTruststoreType                  string `json:"ssl.truststore.type,omitempty"`
 }
 
+func (a *AdminConf) ToPartitionSpecConfig() *PartitionsSpecConfig {
+	partitionsSpecConfig := &PartitionsSpecConfig{}
+	if a.RetentionMs != 0 {
+		partitionsSpecConfig.RetentionMs = a.RetentionMs
+	}
+	return partitionsSpecConfig
+}
+
 type producerSpec struct {
 	Class                string                    `json:"class"`
 	StartMs              uint64                    `json:"startMs"`
@@ -48,7 +56,7 @@ type producerSpec struct {
 	ProducerConf         *AdminConf                `json:"producerConf,omitempty"`
 	CommonClientConf     *AdminConf                `json:"commonClientConf,omitempty"`
 	AdminClientConf      *AdminConf                `json:"adminClientConf,omitempty"`
-	ActiveTopics         json.RawMessage           `json:"activeTopics"`
+	ActiveTopics         map[string]PartitionsSpec `json:"activeTopics"`
 }
 
 type consumerSpec struct {
@@ -68,18 +76,18 @@ type consumerSpec struct {
 }
 
 type roundTripSpec struct {
-	Class                string             `json:"class"`
-	StartMs              uint64             `json:"startMs"`
-	DurationMs           uint64             `json:"durationMs"`
-	ClientNode           string             `json:"clientNode,omitempty"`
-	BootstrapServers     string             `json:"bootstrapServers"`
-	TargetMessagesPerSec uint64             `json:"targetMessagesPerSec"`
-	MaxMessages          uint64             `json:"maxMessages"`
-	ValueGenerator       ValueGeneratorSpec `json:"valueGenerator"`
-	ProducerConf         *AdminConf         `json:"producerConf,omitempty"`
-	CommonClientConf     *AdminConf         `json:"commonClientConf,omitempty"`
-	AdminClientConf      *AdminConf         `json:"adminClientConf,omitempty"`
-	ActiveTopics         json.RawMessage    `json:"activeTopics"`
+	Class                string                    `json:"class"`
+	StartMs              uint64                    `json:"startMs"`
+	DurationMs           uint64                    `json:"durationMs"`
+	ClientNode           string                    `json:"clientNode,omitempty"`
+	BootstrapServers     string                    `json:"bootstrapServers"`
+	TargetMessagesPerSec uint64                    `json:"targetMessagesPerSec"`
+	MaxMessages          uint64                    `json:"maxMessages"`
+	ValueGenerator       ValueGeneratorSpec        `json:"valueGenerator"`
+	ProducerConf         *AdminConf                `json:"producerConf,omitempty"`
+	CommonClientConf     *AdminConf                `json:"commonClientConf,omitempty"`
+	AdminClientConf      *AdminConf                `json:"adminClientConf,omitempty"`
+	ActiveTopics         map[string]PartitionsSpec `json:"activeTopics"`
 }
 
 // a structured name of a Trogdor task
@@ -181,9 +189,18 @@ type KeyGeneratorSpec struct {
 }
 
 type TopicSpec struct {
-	NumPartitions     uint64 `json:"numPartitions"`
-	ReplicationFactor uint64 `json:"replicationFactor"`
-	TopicName         string
+	PartitionsSpec *PartitionsSpec
+	TopicName      string
+}
+
+type PartitionsSpec struct {
+	NumPartitions        uint64                `json:"numPartitions"`
+	ReplicationFactor    uint64                `json:"replicationFactor"`
+	PartitionsSpecConfig *PartitionsSpecConfig `json:"configs"`
+}
+
+type PartitionsSpecConfig struct {
+	RetentionMs int64 `json:"retention.ms,omitempty"`
 }
 
 type ScenarioSpec struct {
@@ -240,12 +257,10 @@ func (r *AdminConf) ParseConfig(adminConfFile string) error {
 
 }
 
-func (r *TopicSpec) ReturnTopicSpecRawJson() json.RawMessage {
-	raw := json.RawMessage{}
-	jsonString := fmt.Sprintf(`{"%s": { "numPartitions": %d, "replicationFactor": %d}}`, r.TopicName, r.NumPartitions, r.ReplicationFactor)
-	json.Unmarshal([]byte(jsonString), &raw)
-
-	return raw
+func (r *TopicSpec) toMap() map[string]PartitionsSpec {
+	m := make(map[string]PartitionsSpec)
+	m[r.TopicName] = *r.PartitionsSpec
+	return m
 }
 
 func (r *ScenarioSpec) createAgentTasks(scenarioConfig ScenarioConfig, scenario []TaskSpec) []TaskSpec {
@@ -262,8 +277,6 @@ func (r *ScenarioSpec) createAgentTasks(scenarioConfig ScenarioConfig, scenario 
 
 		case PRODUCE_BENCH_SPEC_CLASS:
 			{
-				activeTopics := scenarioConfig.TopicSpec.ReturnTopicSpecRawJson()
-
 				produceBenchSpecData := producerSpec{
 					Class:                scenarioConfig.Class,
 					StartMs:              scenarioConfig.StartMs,
@@ -275,7 +288,7 @@ func (r *ScenarioSpec) createAgentTasks(scenarioConfig ScenarioConfig, scenario 
 					ValueGenerator:       scenarioConfig.ProducerOptions.ValueGenerator,
 					KeyGenerator:         scenarioConfig.ProducerOptions.KeyGenerator,
 					CommonClientConf:     &scenarioConfig.AdminConf,
-					ActiveTopics:         activeTopics,
+					ActiveTopics:         scenarioConfig.TopicSpec.toMap(),
 				}
 				if scenarioConfig.ProducerOptions.TransactionGenerator.Type != "" {
 					produceBenchSpecData.TransactionGenerator = &scenarioConfig.ProducerOptions.TransactionGenerator
