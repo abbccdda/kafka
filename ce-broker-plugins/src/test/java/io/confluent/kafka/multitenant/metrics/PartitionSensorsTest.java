@@ -60,38 +60,38 @@ public class PartitionSensorsTest {
     MultiTenantPrincipal principal = new MultiTenantPrincipal("userA", new TenantMetadata(tenant, tenant));
     MetricsRequestContext context = createProduceContext(principal);
 
-    PartitionSensors partitionSensors = new PartitionSensorBuilder(metrics, context).build();
+    PartitionSensors partitionSensors = new PartitionSensorBuilder(metrics, context, true).build();
 
     String topic = tenant + "_topic";
     PercentileMetrics percentiles = new PercentileMetrics(metrics, metricsTenant);
 
     for (int i = 0; i < 100; i++) {
-      partitionSensors.recordStatsIn(new TopicPartition(topic, i), 1000 * i, 1);
+      partitionSensors.recordStatsIn(new TopicPartition(topic, i), 1000 * i, 1, time.milliseconds());
     }
 
     percentiles.assertValues(20500, 43050, 73800, 92250, 92250, 92250);
 
     for (int i = 0; i < 10; i++) {
-      partitionSensors.recordStatsIn(new TopicPartition(topic, i), 1000 * 1000, 1);
+      partitionSensors.recordStatsIn(new TopicPartition(topic, i), 1000 * 1000, 1, time.milliseconds());
     }
     for (int i = 10; i < 15; i++) {
-      partitionSensors.recordStatsIn(new TopicPartition(topic, i), 2000 * 1000, 1);
+      partitionSensors.recordStatsIn(new TopicPartition(topic, i), 2000 * 1000, 1, time.milliseconds());
     }
-    partitionSensors.recordStatsIn(new TopicPartition(topic, 15), 3000 * 1000, 1);
+    partitionSensors.recordStatsIn(new TopicPartition(topic, 15), 3000 * 1000, 1, time.milliseconds());
     percentiles.assertValues(30750, 57400, 73800, 1939300, 2933550, 2933550);
 
     // Verify that samples are expired
     time.sleep(5000);
-    partitionSensors.recordStatsIn(new TopicPartition(topic, 0), 100, 1);
+    partitionSensors.recordStatsIn(new TopicPartition(topic, 0), 100, 1, time.milliseconds());
     percentiles.percentiles.forEach(p -> assertEquals("Invalid metric " + p.metricName(), 0.0, (Double) p.metricValue(), 1));
 
     // Verify p99.9 by adding more samples
     for (int i = 0; i < 1000; i++) {
-      partitionSensors.recordStatsIn(new TopicPartition(topic, i), 10000, 1);
+      partitionSensors.recordStatsIn(new TopicPartition(topic, i), 10000, 1, time.milliseconds());
     }
     percentiles.percentiles.forEach(p -> assertEquals("Invalid metric " + p.metricName(), 6150, (Double) p.metricValue(), 10));
 
-    partitionSensors.recordStatsIn(new TopicPartition(topic, 999), 1000 * 1000, 1);
+    partitionSensors.recordStatsIn(new TopicPartition(topic, 999), 1000 * 1000, 1, time.milliseconds());
     percentiles.assertValues(6150, 6150, 6150, 6150, 6150, 953250);
   }
 
@@ -107,24 +107,39 @@ public class PartitionSensorsTest {
     String tenant2Topic = tenant2 + "_topic";
 
     MetricsRequestContext context1 = createProduceContext(new MultiTenantPrincipal("userA", new TenantMetadata(tenant1, tenant1)));
-    PartitionSensors partitionSensors1 = new PartitionSensorBuilder(metrics, context1).build();
+    PartitionSensors partitionSensors1 = new PartitionSensorBuilder(metrics, context1, true).build();
     MetricsRequestContext context2 = createProduceContext(new MultiTenantPrincipal("userA", new TenantMetadata(tenant2, tenant2)));
-    PartitionSensors partitionSensors2 = new PartitionSensorBuilder(metrics, context2).build();
+    PartitionSensors partitionSensors2 = new PartitionSensorBuilder(metrics, context2, true).build();
 
     PercentileMetrics tenant1Percentiles = new PercentileMetrics(metrics, Optional.of(tenant1));
     PercentileMetrics tenant2Percentiles = new PercentileMetrics(metrics, Optional.of(tenant2));
     PercentileMetrics brokerPercentiles = new PercentileMetrics(metrics, Optional.empty());
 
     for (int i = 0; i < 100; i++) {
-      partitionSensors1.recordStatsIn(new TopicPartition(tenant1Topic, i), 1000 * i, 100 * i);
+      partitionSensors1.recordStatsIn(new TopicPartition(tenant1Topic, i), 1000 * i, 100 * i, time.milliseconds());
     }
     for (int i = 0; i < 100; i++) {
-      partitionSensors2.recordStatsIn(new TopicPartition(tenant2Topic, i), 2000 * i, 200 * i);
+      partitionSensors2.recordStatsIn(new TopicPartition(tenant2Topic, i), 2000 * i, 200 * i, time.milliseconds());
     }
 
     tenant1Percentiles.assertValues(20500, 43050, 73800, 92250, 92250, 92250);
     tenant2Percentiles.assertValues(43050, 92250, 135300, 186550, 186550, 186550);
     brokerPercentiles.assertValues(30750, 57400, 92250, 159900, 186550, 186550);
+  }
+
+  @Test
+  public void testThroughputPercentilesDisabledByDefault() {
+    String tenant = "tenant1";
+    String topic = tenant + "_topic";
+    MultiTenantPrincipal principal = new MultiTenantPrincipal("userA", new TenantMetadata(tenant, tenant));
+    MetricsRequestContext context = createProduceContext(principal);
+
+    PartitionSensors partitionSensors = new PartitionSensorBuilder(metrics, context).build();
+    PercentileMetrics percentiles = new PercentileMetrics(metrics, Optional.of(tenant));
+    for (int i = 0; i < 100; i++) {
+      partitionSensors.recordStatsIn(new TopicPartition(topic, i), 1000 * i, 1, time.milliseconds());
+    }
+    percentiles.assertValues(Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN);
   }
 
   @Test
@@ -138,19 +153,19 @@ public class PartitionSensorsTest {
         new MultiTenantPrincipal("userA", new TenantMetadata(tenant, tenant)),
         clientId1,
         ApiKeys.PRODUCE);
-    PartitionSensors partitionSensors1 = new PartitionSensorBuilder(metrics, context1).build();
+    PartitionSensors partitionSensors1 = new PartitionSensorBuilder(metrics, context1, true).build();
 
     MetricsRequestContext context2 = new MetricsRequestContext(
         new MultiTenantPrincipal("userA", new TenantMetadata(tenant, tenant)),
         clientId2,
         ApiKeys.PRODUCE);
-    PartitionSensors partitionSensors2 = new PartitionSensorBuilder(metrics, context2).build();
+    PartitionSensors partitionSensors2 = new PartitionSensorBuilder(metrics, context2, true).build();
 
     for (int i = 0; i < 10; i++) {
-      partitionSensors1.recordStatsIn(new TopicPartition(topic, i), 1000 * i, 100 * i);
+      partitionSensors1.recordStatsIn(new TopicPartition(topic, i), 1000 * i, 100 * i, time.milliseconds());
     }
     for (int i = 0; i < 10; i++) {
-      partitionSensors2.recordStatsIn(new TopicPartition(topic, i), 2000 * i, 200 * i);
+      partitionSensors2.recordStatsIn(new TopicPartition(topic, i), 2000 * i, 200 * i, time.milliseconds());
     }
 
     for (int i = 0; i < 10; ++i) {

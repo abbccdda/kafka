@@ -17,11 +17,19 @@ public class PartitionSensorBuilder extends AbstractSensorBuilder<MetricsRequest
   static final String RECORDS_OUT = "partition-records-out";
 
   static final String BROKER_SENSOR_PREFIX = "broker-";
+  static final boolean DEFAULT_PARTITION_PERCENTILES_METRICS_ENABLED = false;
 
   private final Map<String, AbstractSensorCreator> partitionSensorCreators;
+  private final boolean partitionPercentileMetricsEnabled;
 
   public PartitionSensorBuilder(Metrics metrics, MetricsRequestContext context) {
+    this(metrics, context, DEFAULT_PARTITION_PERCENTILES_METRICS_ENABLED);
+  }
+
+  public PartitionSensorBuilder(Metrics metrics, MetricsRequestContext context,
+                                boolean partitionPercentileMetricsEnabled) {
     super(metrics, context);
+    this.partitionPercentileMetricsEnabled = partitionPercentileMetricsEnabled;
     String tenant = context.principal().tenantMetadata().tenantName;
 
     partitionSensorCreators = new HashMap<>(4);
@@ -39,7 +47,7 @@ public class PartitionSensorBuilder extends AbstractSensorBuilder<MetricsRequest
   public PartitionSensors build() {
     Map<String, Sensor> sensors = getOrCreateSuffixedSensors();
 
-    return new PartitionSensors(context, sensors, this);
+    return new PartitionSensors(context, sensors, this, partitionPercentileMetricsEnabled);
   }
 
   @Override

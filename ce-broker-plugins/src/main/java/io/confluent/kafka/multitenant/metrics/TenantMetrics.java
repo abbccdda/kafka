@@ -62,13 +62,13 @@ public class TenantMetrics {
     }
   }
 
-  public void recordRequest(Metrics metrics, MetricsRequestContext context, long requestSize) {
+  public void recordRequest(Metrics metrics, MetricsRequestContext context, long requestSize, long currentTimeMs) {
     ApiSensors sensors = apiSensors(metrics, context);
-    sensors.recordRequest(requestSize);
+    sensors.recordRequest(requestSize, currentTimeMs);
   }
 
   public void recordResponse(Metrics metrics, MetricsRequestContext context,
-      long responseSize, long responseTimeNanos, Map<Errors, Integer> errorCounts) {
+      long responseSize, long responseTimeNanos, Map<Errors, Integer> errorCounts, long currentTimeMs) {
 
     MultiTenantPrincipal principal = context.principal();
     ApiKeys apiKey = context.apiKey();
@@ -80,16 +80,17 @@ public class TenantMetrics {
       builder.addErrorSensors(sensors, newErrors);
     }
 
-    sensors.recordResponse(responseSize, responseTimeNanos);
-    sensors.recordErrors(errorCounts);
+    sensors.recordResponse(responseSize, responseTimeNanos, currentTimeMs);
+    sensors.recordErrors(errorCounts, currentTimeMs);
   }
 
   public void recordPartitionStatsIn(Metrics metrics,
                                      MetricsRequestContext context,
                                      TopicPartition topicPartition,
                                      int size,
-                                     int numRecords) {
-    partitionSensors(metrics, context).recordStatsIn(topicPartition, size, numRecords);
+                                     int numRecords,
+                                     long timeMs) {
+    partitionSensors(metrics, context).recordStatsIn(topicPartition, size, numRecords, timeMs);
   }
 
 
@@ -97,8 +98,9 @@ public class TenantMetrics {
                                       MetricsRequestContext context,
                                       TopicPartition topicPartition,
                                       int size,
-                                      int numRecords) {
-    partitionSensors(metrics, context).recordStatsOut(topicPartition, size, numRecords);
+                                      int numRecords,
+                                      long timeMs) {
+    partitionSensors(metrics, context).recordStatsOut(topicPartition, size, numRecords, timeMs);
 
   }
 

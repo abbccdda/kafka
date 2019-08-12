@@ -28,19 +28,19 @@ public class ApiSensors {
     this.errorRates = new EnumMap<>(Errors.class);
   }
 
-  public void recordRequest(long requestSize) {
-    requestRate.record();
-    requestByteRate.record(requestSize);
+  public void recordRequest(long requestSize, long currentTimeMs) {
+    requestRate.record(1.0, currentTimeMs);
+    requestByteRate.record(requestSize, currentTimeMs);
   }
 
-  public void recordResponse(long responseSize, long responseTimeNanos) {
-    responseByteRate.record(responseSize);
-    responseTime.record(responseTimeNanos);
+  public void recordResponse(long responseSize, long responseTimeNanos, long currentTimeMs) {
+    responseByteRate.record(responseSize, currentTimeMs);
+    responseTime.record(responseTimeNanos, currentTimeMs);
   }
 
-  public void recordErrors(Map<Errors, Integer> errorCounts) {
+  public void recordErrors(Map<Errors, Integer> errorCounts, long currentTimeMs) {
     for (Map.Entry<Errors, Integer> entry : errorCounts.entrySet()) {
-      errorRates.get(entry.getKey()).record(entry.getValue());
+      errorRates.get(entry.getKey()).record(entry.getValue(), currentTimeMs);
     }
   }
 

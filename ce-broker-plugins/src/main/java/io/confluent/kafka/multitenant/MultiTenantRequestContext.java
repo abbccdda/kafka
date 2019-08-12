@@ -92,6 +92,7 @@ public class MultiTenantRequestContext extends RequestContext {
 
   private final Metrics metrics;
   private final TenantMetrics tenantMetrics;
+  private final MetricsRequestContext metricsRequestContext;
   private final TenantPartitionAssignor partitionAssignor;
   private final Time time;
   private final long startNanos;
@@ -124,6 +125,8 @@ public class MultiTenantRequestContext extends RequestContext {
     this.tenantContext = new TenantContext((MultiTenantPrincipal) principal);
     this.metrics = metrics;
     this.tenantMetrics = tenantMetrics;
+    this.metricsRequestContext = new MetricsRequestContext(
+        (MultiTenantPrincipal) principal, header.clientId(), header.apiKey());
     this.partitionAssignor = partitionAssignor;
     this.time = time;
     this.startNanos = time.nanoseconds();
@@ -131,7 +134,8 @@ public class MultiTenantRequestContext extends RequestContext {
 
   @Override
   public RequestAndSize parseRequest(ByteBuffer buffer) {
-    updateRequestMetrics(buffer);
+    final long requestTimestampMs = time.milliseconds();
+    updateRequestMetrics(buffer, requestTimestampMs);
     if (isUnsupportedApiVersionsRequest()) {
       return super.parseRequest(buffer);
     }
@@ -161,7 +165,7 @@ public class MultiTenantRequestContext extends RequestContext {
         } else if (body instanceof CreatePartitionsRequest && partitionAssignor != null) {
           body = transformCreatePartitionsRequest((CreatePartitionsRequest) body, apiVersion);
         } else if (body instanceof ProduceRequest) {
-          updatePartitionBytesInMetrics((ProduceRequest) body);
+          updatePartitionBytesInMetrics((ProduceRequest) body, requestTimestampMs);
         } else if (body instanceof AlterConfigsRequest) {
           body = transformAlterConfigsRequest((AlterConfigsRequest) body, apiVersion);
         } else if (body instanceof IncrementalAlterConfigsRequest) {
@@ -198,6 +202,7 @@ public class MultiTenantRequestContext extends RequestContext {
 
   @Override
   public Send buildResponse(AbstractResponse body) {
+    final long responseTimestampMs = time.milliseconds();
     if (requestParsingFailed) {
       // Since we did not successfully parse the inbound request, the response should
       // not be transformed.
@@ -206,7 +211,7 @@ public class MultiTenantRequestContext extends RequestContext {
 
     if (isUnsupportedApiVersionsRequest()) {
       Send response = super.buildResponse(body);
-      updateResponseMetrics(body, response);
+      updateResponseMetrics(body, response, responseTimestampMs);
       return response;
     }
 
@@ -220,8 +225,8 @@ public class MultiTenantRequestContext extends RequestContext {
       // in-place transformation of the returned topic partitions.
       @SuppressWarnings("unchecked")
       Send response = transformFetchResponse((FetchResponse<MemoryRecords>) body, apiVersion, responseHeader);
-      updateResponseMetrics(body, response);
-      updatePartitionBytesOutMetrics((FetchResponse) body);
+      updateResponseMetrics(body, response, responseTimestampMs);
+      updatePartitionBytesOutMetrics((FetchResponse) body, responseTimestampMs);
       return response;
     } else {
       // Since the Metadata and ListGroups APIs allow users to fetch metadata for all topics or
@@ -252,7 +257,7 @@ public class MultiTenantRequestContext extends RequestContext {
       schema.write(buffer, responseBodyStruct, tenantContext);
       buffer.flip();
       Send response = new NetworkSend(connectionId, buffer);
-      updateResponseMetrics(body, response);
+      updateResponseMetrics(body, response, responseTimestampMs);
       return response;
     }
   }
@@ -739,39 +744,41 @@ public class MultiTenantRequestContext extends RequestContext {
         + buffer.remaining(); // request body
   }
 
-  private void updateRequestMetrics(ByteBuffer buffer) {
+  private void updateRequestMetrics(ByteBuffer buffer, long currentTimeMs) {
     tenantMetrics.recordRequest(
         metrics,
-        new MetricsRequestContext((MultiTenantPrincipal) principal, header.clientId(), header.apiKey()),
-        calculateRequestSize(buffer)
+        metricsRequestContext,
+        calculateRequestSize(buffer),
+        currentTimeMs
     );
   }
 
-  private void updateResponseMetrics(AbstractResponse body, Send response) {
+  private void updateResponseMetrics(AbstractResponse body, Send response, long currentTimeMs) {
     tenantMetrics.recordResponse(
         metrics,
-        new MetricsRequestContext((MultiTenantPrincipal) principal, header.clientId(), header.apiKey()),
-        response.size(), time.nanoseconds() - startNanos, body.errorCounts()
+        metricsRequestContext,
+        response.size(), time.nanoseconds() - startNanos, body.errorCounts(), currentTimeMs
     );
   }
 
-  private void updatePartitionBytesInMetrics(ProduceRequest request) {
+  private void updatePartitionBytesInMetrics(ProduceRequest request, long currentTimeMs) {
     request.partitionRecordsOrFail().forEach((tp, value) -> {
       int size = value.sizeInBytes();
       tenantMetrics.recordPartitionStatsIn(
           metrics,
-          new MetricsRequestContext((MultiTenantPrincipal) principal, header.clientId(), header.apiKey()),
-          tp, size, numRecords(value.batches()));
+          metricsRequestContext,
+          tp, size, numRecords(value.batches()), currentTimeMs);
     });
+
   }
 
-  private void updatePartitionBytesOutMetrics(FetchResponse<?> response) {
+  private void updatePartitionBytesOutMetrics(FetchResponse<?> response, long currentTimeMs) {
     response.responseData().forEach((tp, value) -> {
       int size = value.records.sizeInBytes();
       tenantMetrics.recordPartitionStatsOut(
           metrics,
-          new MetricsRequestContext((MultiTenantPrincipal) principal, header.clientId(), header.apiKey()),
-          tp, size, numRecords(value.records));
+          metricsRequestContext,
+          tp, size, numRecords(value.records), currentTimeMs);
     });
   }
 

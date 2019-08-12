@@ -35,12 +35,13 @@ public class PartitionSensors {
 
   private final ThroughputSensors in;
   private final ThroughputSensors out;
+  private final boolean partitionPercentilesMetricsEnabled;
 
   public PartitionSensors(
       MetricsRequestContext context,
       Map<String, Sensor> sensors,
-      PartitionSensorBuilder sensorBuilder) {
-
+      PartitionSensorBuilder sensorBuilder,
+      boolean enablePartitionPercentilesMetrics) {
     in = new ThroughputSensors(
         context,
         PartitionSensorBuilder.BYTES_IN,
@@ -57,14 +58,18 @@ public class PartitionSensors {
         sensors.get(PartitionSensorBuilder.BROKER_SENSOR_PREFIX + PartitionSensorBuilder.BYTES_OUT),
         sensorBuilder
     );
+    partitionPercentilesMetricsEnabled = enablePartitionPercentilesMetrics;
   }
 
-  public void recordStatsIn(TopicPartition tp, long bytes, long numRecords) {
-    this.in.record(tp, bytes, numRecords);
+  /**
+  * @param timeMs The current POSIX time in milliseconds
+  */
+  public void recordStatsIn(TopicPartition tp, long bytes, long numRecords, long timeMs) {
+    this.in.record(tp, bytes, numRecords, timeMs, partitionPercentilesMetricsEnabled);
   }
 
-  public void recordStatsOut(TopicPartition tp, long bytes, long numRecords) {
-    this.out.record(tp, bytes, numRecords);
+  public void recordStatsOut(TopicPartition tp, long bytes, long numRecords, long timeMs) {
+    this.out.record(tp, bytes, numRecords, timeMs, partitionPercentilesMetricsEnabled);
   }
 
   /**
@@ -125,12 +130,13 @@ public class PartitionSensors {
       }
     }
 
-    void record(TopicPartition tp, long bytes, long numRecords) {
-      partitionPercentileSensor(tp).record(bytes);
-      partitionDetailSensors(tp).bytesSensor.record(bytes);
-      partitionDetailSensors(tp).recordsSensor.record(numRecords);
+    void record(TopicPartition tp, long bytes, long numRecords, long currentTimeMs, boolean recordPertitionPercentiles) {
+      if (recordPertitionPercentiles) {
+        partitionPercentileSensor(tp).record(bytes, currentTimeMs);
+      }
+      partitionDetailSensors(tp).bytesSensor.record(bytes, currentTimeMs);
+      partitionDetailSensors(tp).recordsSensor.record(numRecords, currentTimeMs);
     }
-
 
     private Sensor partitionPercentileSensor(TopicPartition tp) {
       PartitionStat partitionStat = brokerThroughputPercentiles.partitionStats.get(tp);
