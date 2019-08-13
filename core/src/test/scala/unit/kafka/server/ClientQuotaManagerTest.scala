@@ -71,7 +71,8 @@ class ClientQuotaManagerTest {
 
   private def maybeRecord(quotaManager: ClientQuotaManager, user: String, clientId: String, value: Double): Int = {
     val principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, user)
-    quotaManager.maybeRecordAndGetThrottleTimeMs(Session(principal, null), clientId, value, time.milliseconds())
+    val session = Session(principal, null)
+    quotaManager.maybeRecordAndGetThrottleTimeMs(session, clientId, value, time.milliseconds())
   }
 
   private def throttle(quotaManager: ClientQuotaManager, user: String, clientId: String, throttleTimeMs: Int,
@@ -314,7 +315,7 @@ class ClientQuotaManagerTest {
   @Test
   def testRequestPercentageQuotaViolation() {
     val metrics = newMetrics
-    val quotaManager = new ClientRequestQuotaManager(config, metrics, time, "", None)
+    val quotaManager = new ClientRequestQuotaManager(config, metrics, time, "", None, None)
     quotaManager.updateQuota(Some("ANONYMOUS"), Some("test-client"), Some("test-client"), Some(Quota.upperBound(1)))
     val queueSizeMetric = metrics.metrics().get(metrics.metricName("queue-size", "Request", ""))
     def millisToPercent(millis: Double) = millis * 1000 * 1000 * ClientQuotaManagerConfig.NanosToPercentagePerSecond
@@ -435,6 +436,33 @@ class ClientQuotaManagerTest {
     } finally {
       clientMetrics.shutdown()
     }
+  }
+
+  @Test
+  def testUniversalityOfActiveTenants(): Unit = {
+    val metrics = newMetrics
+    val activeTenantsManager = new ActiveTenantsManager(metrics, time, 1)
+    val quotaManager = new ClientQuotaManager(config, metrics, Produce, time, "", None, Option(activeTenantsManager))
+    val requestQuotaManager = new ClientRequestQuotaManager(config, metrics, time, "", None, Option(activeTenantsManager))
+    var activeTenants = scala.collection.mutable.Set[Map[String, String]]()
+
+    try {
+      maybeRecord(quotaManager, "User1", "Client1", 100)
+      activeTenants += metricTags("", "Client1")
+      assertEquals(activeTenants, activeTenantsManager.getActiveTenants())
+
+      maybeRecord(requestQuotaManager, "User3", "Client3", 100)
+      activeTenants += metricTags("", "Client3")
+      assertEquals(activeTenants, activeTenantsManager.getActiveTenants())
+    } finally {
+      quotaManager.shutdown()
+      requestQuotaManager.shutdown()
+      metrics.close()
+    }
+  }
+
+  def metricTags(user: String, clientId: String): Map[String, String] = {
+    Map("user" -> user, "client-id" -> clientId)
   }
 
   def newMetrics: Metrics = {

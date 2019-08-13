@@ -69,6 +69,8 @@ object ClientQuotaManagerConfig {
   val NanosToPercentagePerSecond = 100.0 / TimeUnit.SECONDS.toNanos(1)
 
   val UnlimitedQuota = Quota.upperBound(Long.MaxValue)
+
+  val ActiveWindowLenMs = 10000
 }
 
 object QuotaTypes {
@@ -162,7 +164,8 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
                          private val quotaType: QuotaType,
                          private val time: Time,
                          threadNamePrefix: String,
-                         clientQuotaCallback: Option[ClientQuotaCallback] = None) extends Logging {
+                         clientQuotaCallback: Option[ClientQuotaCallback] = None,
+                         activeTenantsManager: Option[ActiveTenantsManager] = None) extends Logging {
   private val staticConfigClientIdQuota = Quota.upperBound(config.quotaBytesPerSecondDefault)
   private val clientQuotaType = quotaTypeToClientQuotaType(quotaType)
   @volatile private var quotaTypesEnabled = clientQuotaCallback match {
@@ -215,6 +218,8 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
 
   def backpressureEnabled: Boolean = config.backpressureEnabled
 
+  def tenantLevelQuotasEnabled: Boolean = activeTenantsManager.isDefined
+
   /**
     * Records that a user/clientId changed produced/consumed bytes being throttled at the specified time. If quota has
     * been violated, return throttle time in milliseconds. Throttle time calculation may be overridden by sub-classes.
@@ -239,6 +244,10 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
   def recordAndGetThrottleTimeMs(session: Session, clientId: String, value: Double, timeMs: Long): Int = {
     var throttleTimeMs = 0
     val clientSensors = getOrCreateQuotaSensors(session, clientId)
+    if (tenantLevelQuotasEnabled) {
+      val tenantsManager = activeTenantsManager.get
+      tenantsManager.trackActiveTenant(clientSensors.metricTags, timeMs)
+    }
     try {
       clientSensors.quotaSensor.record(value, timeMs)
     } catch {

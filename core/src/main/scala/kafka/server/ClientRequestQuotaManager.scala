@@ -31,8 +31,9 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
                                 private val metrics: Metrics,
                                 private val time: Time,
                                 threadNamePrefix: String,
-                                quotaCallback: Option[ClientQuotaCallback])
-                                extends ClientQuotaManager(config, metrics, QuotaType.Request, time, threadNamePrefix, quotaCallback) {
+                                quotaCallback: Option[ClientQuotaCallback],
+                                activeTenantsManager: Option[ActiveTenantsManager])
+                                extends ClientQuotaManager(config, metrics, QuotaType.Request, time, threadNamePrefix, quotaCallback, activeTenantsManager) {
   val maxThrottleTimeMs = TimeUnit.SECONDS.toMillis(this.config.quotaWindowSizeSeconds)
   def exemptSensor = getOrCreateSensor(exemptSensorName, exemptMetricName)
 
@@ -87,5 +88,4 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
   private def exemptSensorName: String = "exempt-" + QuotaType.Request
 
   private def nanosToPercentage(nanos: Long): Double = nanos * ClientQuotaManagerConfig.NanosToPercentagePerSecond
-
 }

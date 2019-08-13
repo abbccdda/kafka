@@ -69,6 +69,10 @@ public class BrokerBackpressureTest {
                 broker.quotaManagers().produce().backpressureEnabled());
     assertFalse("Expected request backpressure to be disabled",
                 broker.quotaManagers().request().backpressureEnabled());
+
+    assertFalse(broker.quotaManagers().fetch().tenantLevelQuotasEnabled());
+    assertFalse(broker.quotaManagers().produce().tenantLevelQuotasEnabled());
+    assertFalse(broker.quotaManagers().request().tenantLevelQuotasEnabled());
   }
 
   @Test
@@ -82,6 +86,10 @@ public class BrokerBackpressureTest {
                 broker.quotaManagers().produce().backpressureEnabled());
     assertFalse("Expected request backpressure to be disabled",
                 broker.quotaManagers().request().backpressureEnabled());
+
+    assertTrue(broker.quotaManagers().fetch().tenantLevelQuotasEnabled());
+    assertTrue(broker.quotaManagers().produce().tenantLevelQuotasEnabled());
+    assertTrue(broker.quotaManagers().request().tenantLevelQuotasEnabled());
   }
 
   @Test
