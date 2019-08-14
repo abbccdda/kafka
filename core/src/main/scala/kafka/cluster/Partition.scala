@@ -819,11 +819,16 @@ class Partition(val topicPartition: TopicPartition,
    * Returns true if the HW was incremented, and false otherwise.
    * Note There is no need to acquire the leaderIsrUpdate lock here
    * since all callers of this private API acquire that lock
+   *
+   * Confluent Kafka Observers should not participate when calculating the high watermark. Exclude them by
+   * checking if the caught up broker are eligible to join the ISR.
    */
   private def maybeIncrementLeaderHW(leaderLog: AbstractLog, curTime: Long = time.milliseconds): Boolean = {
     val replicaLogEndOffsets = remoteReplicas.filter { replica =>
-      curTime - replica.lastCaughtUpTimeMs <= replicaLagTimeMaxMs || inSyncReplicaIds.contains(replica.brokerId)
+      (isBrokerIsrEligible(replica.brokerId) && curTime - replica.lastCaughtUpTimeMs <= replicaLagTimeMaxMs) ||
+      inSyncReplicaIds.contains(replica.brokerId)
     }.map(_.logEndOffsetMetadata)
+
     val newHighWatermark = (replicaLogEndOffsets + leaderLog.logEndOffsetMetadata).min(new LogOffsetMetadata.OffsetOrdering)
     leaderLog.maybeIncrementHighWatermark(newHighWatermark) match {
       case Some(oldHighWatermark) =>

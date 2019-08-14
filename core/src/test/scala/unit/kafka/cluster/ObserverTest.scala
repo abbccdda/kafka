@@ -1,3 +1,6 @@
+/*
+ * Copyright 2019 Confluent Inc.
+ */
 package kafka.cluster
 
 import kafka.admin.BrokerMetadata
