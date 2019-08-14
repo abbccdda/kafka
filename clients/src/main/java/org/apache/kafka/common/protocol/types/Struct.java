@@ -299,6 +299,7 @@ public class Struct {
         ByteBuffer buf = (ByteBuffer) result;
         byte[] arr = new byte[buf.remaining()];
         buf.get(arr);
+        buf.flip();
         return arr;
     }
 

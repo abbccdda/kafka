@@ -18,6 +18,7 @@
 package kafka.metrics
 
 import java.util.Properties
+
 import javax.management.ObjectName
 import com.yammer.metrics.Metrics
 import com.yammer.metrics.core.{Meter, MetricPredicate}
@@ -31,6 +32,7 @@ import scala.collection._
 import scala.collection.JavaConverters._
 import scala.util.matching.Regex
 import kafka.log.LogConfig
+import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
 import org.scalatest.Assertions
 
@@ -140,8 +142,8 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
     topicConfig.setProperty(LogConfig.CleanupPolicyProp, LogConfig.Compact)
     createTopic(topic, 1, numNodes, topicConfig)
     try {
-      TestUtils.generateAndProduceMessages(servers, topic, nMessages)
-      Assertions.fail("Exception should have been thrown")
+      TestUtils.produceMessages(servers, List(new ProducerRecord[Array[Byte], Array[Byte]](topic, "test".getBytes)))
+      Assertions.fail("Exception should have been thrown since a compacted topic cannot accept a message without keys")
     } catch {
       case _: Exception => // GOOD
     }
