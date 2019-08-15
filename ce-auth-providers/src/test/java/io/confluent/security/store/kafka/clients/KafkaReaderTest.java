@@ -254,7 +254,7 @@ public class KafkaReaderTest {
     startReader();
     TestUtils.waitForCondition(() -> statusListener.readerSuccessCount.get() > 0, "Success not propagated");
     assertEquals(0, statusListener.readerFailureCount.get());
-    consumer.setException(new KafkaException("Test exception"));
+    consumer.setPollException(new KafkaException("Test exception"));
     TestUtils.waitForCondition(() -> statusListener.readerFailureCount.get() > 0, "Failure not propagated");
     // Exception is reset after poll in MockConsumer, so we should see successful polls
     TestUtils.waitForCondition(() -> statusListener.readerSuccessCount.get() > 0, "Success not propagated");

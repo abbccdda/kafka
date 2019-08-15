@@ -375,7 +375,7 @@ public class LicenseStoreTest {
         consumer.schedulePollTask(new Runnable() {
           @Override
           public void run() {
-            consumer.setException(Errors.COORDINATOR_NOT_AVAILABLE.exception());
+            consumer.setPollException(Errors.COORDINATOR_NOT_AVAILABLE.exception());
           }
         });
         consumer.scheduleNopPollTask();
