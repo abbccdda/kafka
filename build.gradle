@@ -2117,14 +2117,24 @@ project(':connect:basic-auth-extension') {
 }
 
 project(':ce-metrics') {
+  
+  // Note, this repositories{} block should be promoted to the allprojects{} block if the pattern
+  // of using CP libraries outside this monorepo grows beyond the ce-metrics project.
   repositories {
+    mavenLocal()
     maven {
       name 'confluent-nexus-central'
-      url 'https://nexus.confluent.io/repository/maven-releases'
+      url 'https://nexus.confluent.io/repository/maven-public'
     }
   }
   apply plugin: 'com.github.johnrengelman.shadow'
   apply plugin: 'net.linguica.maven-settings'
+
+  if (project.hasProperty('mavenSettingsFile')) {
+    mavenSettings {
+      userSettingsFileName project.mavenSettingsFile
+    }
+  }
 
   group = "io.confluent"
   archivesBaseName = "confluent-metrics"
