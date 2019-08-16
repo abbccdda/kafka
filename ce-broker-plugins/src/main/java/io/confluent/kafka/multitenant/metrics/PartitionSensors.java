@@ -359,6 +359,9 @@ public class PartitionSensors {
 
     protected Sensor createSensor(Metrics metrics, String sensorName) {
       Map<String, String> tags = new HashMap<>();
+      // do not expose per partition throughput stats used to compute the top-level per-tenant
+      // percentile metrics: exposing a large number of JMX metrics can be resource intensive
+      tags.put(JmxReporter.JMX_IGNORE_TAG, "");
       tags.put(TenantMetrics.TENANT_TAG, tenant);
       tags.put(TOPIC_TAG, tp.topic());
       tags.put(PARTITION_TAG, String.valueOf(tp.partition()));
