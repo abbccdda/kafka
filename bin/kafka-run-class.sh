@@ -188,6 +188,9 @@ CLASSPATH="$CLASSPATH":"$base_dir/share/java/confluent-metadata-service/*"
 CLASSPATH="$CLASSPATH":"$base_dir/share/java/rest-utils/*"
 CLASSPATH="$CLASSPATH":"$base_dir/share/java/confluent-common/*"
 
+# classpath for schema validator
+CLASSPATH="$CLASSPATH":"$base_dir/share/java/confluent-security/schema-validator/*"
+
 # classpath for support-metrics-client jars
 CLASSPATH="$CLASSPATH:$base_dir/support-metrics-client/build/dependant-libs-${SCALA_VERSION}/*"
 CLASSPATH="$CLASSPATH:$base_dir/support-metrics-client/build/libs/*"
