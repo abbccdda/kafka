@@ -40,7 +40,6 @@ buildscript {
     classpath "com.commercehub.gradle.plugin:gradle-avro-plugin:$versions.avroPlugin"
     classpath "com.google.protobuf:protobuf-gradle-plugin:$versions.protobufPlugin"
     classpath "de.undercouch:gradle-download-task:$versions.downloadTaskPlugin"
-    classpath "net.linguica.gradle:maven-settings-plugin:0.5"
   }
 }
 
@@ -2117,38 +2116,18 @@ project(':connect:basic-auth-extension') {
 }
 
 project(':ce-metrics') {
-  
-  // Note, this repositories{} block should be promoted to the allprojects{} block if the pattern
-  // of using CP libraries outside this monorepo grows beyond the ce-metrics project.
-  repositories {
-    mavenLocal()
-    maven {
-      name 'confluent-nexus-central'
-      url 'https://nexus.confluent.io/repository/maven-public'
-    }
-  }
   apply plugin: 'com.github.johnrengelman.shadow'
-  apply plugin: 'net.linguica.maven-settings'
-
-  if (project.hasProperty('mavenSettingsFile')) {
-    mavenSettings {
-      userSettingsFileName project.mavenSettingsFile
-    }
-  }
-
   group = "io.confluent"
   archivesBaseName = "confluent-metrics"
   jar.enabled = false
   jar.dependsOn 'shadowJar'
 
   dependencies {
-    compile(libs.protobuf) {
-      // Force our version of protobuf instead of letting gradle pick the latest
-      // version among ourselves and our transitive dependencies
-      force = true
+    compile libs.protobuf
+    compile(libs.opencensusProto) {
+      exclude group: "com.google.protobuf", module: "protobuf-java"
+      exclude group: "com.google.code.findbugs", module: "jsr305"
     }
-    compile libs.opencensusProto
-    compile libs.telemetryApi
     compile libs.bcpkix
     compile libs.guava
     compile libs.jose4j
@@ -2188,8 +2167,7 @@ project(':ce-metrics') {
       include(dependency(libs.guava))
       include(dependency(libs.protobuf))
       include(dependency(libs.protobufUtil))
-      include(dependency(libs.telemetryApi))
-      include(dependency('io.opencensus:opencensus-proto'))
+      include(dependency(libs.opencensusProto))
     }
     dependsOn 'copyDependantLibs'
   }

@@ -11,57 +11,54 @@ def config = jobConfig {
 
 
 def job = {
+    // Per KAFKA-7524, Scala 2.12 is the default, yet we currently support the previous minor version.
+    stage("Check compilation compatibility with Scala 2.11") {
+        sh "gradle"
+        sh "./gradlew clean compileJava compileScala compileTestJava compileTestScala " +
+                "--no-daemon --stacktrace -PscalaVersion=2.11"
+    }
 
-    configFileProvider([configFile(fileId: 'jenkins-maven-global-settings', variable: 'ORG_GRADLE_PROJECT_mavenSettingsFile')]) {
-        // Per KAFKA-7524, Scala 2.12 is the default, yet we currently support the previous minor version.
-        stage("Check compilation compatibility with Scala 2.11") {
-            sh "gradle"
-            sh "./gradlew clean compileJava compileScala compileTestJava compileTestScala " +
-                    "--no-daemon --stacktrace -PscalaVersion=2.11"
-        }
+    stage("Compile and validate") {
+        sh "./gradlew clean assemble spotlessScalaCheck checkstyleMain checkstyleTest spotbugsMain " +
+                "--no-daemon --stacktrace --continue -PxmlSpotBugsReport=true"
+    }
 
-        stage("Compile and validate") {
-            sh "./gradlew clean assemble spotlessScalaCheck checkstyleMain checkstyleTest spotbugsMain " +
-                    "--no-daemon --stacktrace --continue -PxmlSpotBugsReport=true"
-        }
-
-        if (config.publish && config.isDevJob) {
-          configFileProvider([configFile(fileId: 'Gradle Nexus Settings', variable: 'GRADLE_NEXUS_SETTINGS')]) {
-              stage("Publish to nexus") {
-                  sh "./gradlew --init-script ${GRADLE_NEXUS_SETTINGS} --no-daemon uploadArchivesAll"
-              }
+    if (config.publish && config.isDevJob) {
+      configFileProvider([configFile(fileId: 'Gradle Nexus Settings', variable: 'GRADLE_NEXUS_SETTINGS')]) {
+          stage("Publish to nexus") {
+              sh "./gradlew --init-script ${GRADLE_NEXUS_SETTINGS} --no-daemon uploadArchivesAll"
           }
-        }
+      }
+    }
 
-        stage("Run Tests and build cp-downstream-builds") {
-            def testTargets = [
-                        "Step run-tests"           : {
-                            echo "Running unit and integration tests"
-                            sh "./gradlew unitTest integrationTest " +
-                                    "--no-daemon --stacktrace --continue -PtestLoggingEvents=started,passed,skipped,failed -PmaxParallelForks=4 -PignoreFailures=true"
-                        },
-                        "Step cp-downstream-builds": {
-                            echo "Building cp-downstream-builds"
-                            if (config.isPrJob) {
-                                def muckrakeBranch = env.CHANGE_TARGET
-                                def forkRepo = "${env.CHANGE_FORK}/ce-kafka.git"
-                                def forkBranch = env.CHANGE_BRANCH
-                                echo "Schedule test-cp-downstream-builds with :"
-                                echo "Muckrake branch : ${muckrakeBranch}"
-                                echo "PR fork repo : ${forkRepo}"
-                                echo "PR fork branch : ${forkBranch}"
-                                buildResult = build job: 'test-cp-downstream-builds', parameters: [
-                                        [$class: 'StringParameterValue', name: 'BRANCH', value: muckrakeBranch],
-                                        [$class: 'StringParameterValue', name: 'KAFKA_REPO', value: forkRepo],
-                                        [$class: 'StringParameterValue', name: 'KAFKA_BRANCH', value: forkBranch]],
-                                        propagate: true, wait: true
-                            }
+    stage("Run Tests and build cp-downstream-builds") {
+        def testTargets = [
+                    "Step run-tests"           : {
+                        echo "Running unit and integration tests"
+                        sh "./gradlew unitTest integrationTest " +
+                                "--no-daemon --stacktrace --continue -PtestLoggingEvents=started,passed,skipped,failed -PmaxParallelForks=4 -PignoreFailures=true"
+                    },
+                    "Step cp-downstream-builds": {
+                        echo "Building cp-downstream-builds"
+                        if (config.isPrJob) {
+                            def muckrakeBranch = env.CHANGE_TARGET
+                            def forkRepo = "${env.CHANGE_FORK}/ce-kafka.git"
+                            def forkBranch = env.CHANGE_BRANCH
+                            echo "Schedule test-cp-downstream-builds with :"
+                            echo "Muckrake branch : ${muckrakeBranch}"
+                            echo "PR fork repo : ${forkRepo}"
+                            echo "PR fork branch : ${forkBranch}"
+                            buildResult = build job: 'test-cp-downstream-builds', parameters: [
+                                    [$class: 'StringParameterValue', name: 'BRANCH', value: muckrakeBranch],
+                                    [$class: 'StringParameterValue', name: 'KAFKA_REPO', value: forkRepo],
+                                    [$class: 'StringParameterValue', name: 'KAFKA_BRANCH', value: forkBranch]],
+                                    propagate: true, wait: true
                         }
-            ]
+                    }
+        ]
 
-            parallel testTargets
-            return null
-        }
+        parallel testTargets
+        return null
     }
 }
 

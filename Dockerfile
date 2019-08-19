@@ -9,8 +9,7 @@ COPY . /home/gradle
 
 WORKDIR /home/gradle
 
-RUN mkdir -p /home/gradle/.m2/repository \
-  && cp -r .m2 /root/
+RUN mkdir -p /home/gradle/.m2/repository
 
 RUN gradle && ./gradlew clean releaseTarGz -x signArchives --stacktrace -PpackageMetricsReporter=true && ./gradlew install --stacktrace
 

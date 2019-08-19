@@ -46,9 +46,3 @@ build-docker-cc-services:
 push-docker-cc-services:
 	make VERSION=$(VERSION) BASE_IMAGE=$(IMAGE_REPO)/$(IMAGE_NAME) BASE_VERSION=$(IMAGE_VERSION) -C cc-services/soak_cluster push-docker
 	make VERSION=$(VERSION) BASE_IMAGE=$(IMAGE_REPO)/$(IMAGE_NAME) BASE_VERSION=$(IMAGE_VERSION) -C cc-services/trogdor push-docker
-
-.PHONY: copy-maven-settings
-copy-maven-settings:
-	mkdir -p ./.m2 && cp ~/.m2/settings.xml ./.m2/
-
-build-docker: copy-maven-settings
