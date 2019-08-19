@@ -31,7 +31,7 @@ class TierRetentionManagerTest {
   val time = new MockTime
   val scheduler = time.scheduler
   val replicaManager = mock(classOf[ReplicaManager])
-  val tierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig)
+  val tierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))
   val tierMetadataManager = new TierMetadataManager(new FileTierPartitionStateFactory(),
     Optional.of(tierObjectStore),
     new LogDirFailureChannel(1),

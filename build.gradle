@@ -737,6 +737,7 @@ project(':core') {
     }
     // ZooKeeperMain depends on commons-cli but declares the dependency as `provided`
     compile libs.commonsCli
+    compile libs.googlecloudstorage
 
     compileOnly libs.log4j
 
@@ -2349,6 +2350,7 @@ project(':ce-broker-plugins') {
 
   dependencies {
     compile libs.bcpkix
+    compile libs.failureaccess
     compile libs.gson
     compile libs.guava
     compile libs.jacksonDatabind
@@ -2401,6 +2403,7 @@ project(':ce-broker-plugins') {
       include(dependency(libs.guava))
       include(dependency(libs.protobuf))
       include(dependency(libs.protobufUtil))
+      include(dependency(libs.failureaccess))
     }
     dependsOn 'copyDependantLibs'
   }

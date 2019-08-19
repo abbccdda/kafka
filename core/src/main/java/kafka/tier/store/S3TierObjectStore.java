@@ -26,7 +26,6 @@ import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.s3.model.S3ObjectInputStream;
 import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.amazonaws.services.s3.model.UploadPartResult;
-import kafka.log.Log;
 import kafka.tier.exceptions.TierObjectStoreFatalException;
 import kafka.tier.exceptions.TierObjectStoreRetriableException;
 import org.apache.kafka.common.utils.ByteBufferInputStream;
@@ -37,15 +36,11 @@ import java.io.File;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 public class S3TierObjectStore implements TierObjectStore {
-    // LOG_DATA_PREFIX is where segment, offset index, time index, transaction index, leader
-    // epoch state checkpoint, and producer state snapshot data are stored.
-    private final static String LOG_DATA_PREFIX = "0";
     private final static Logger log = LoggerFactory.getLogger(S3TierObjectStore.class);
     private final String clusterId;
     private final int brokerId;
@@ -54,12 +49,12 @@ public class S3TierObjectStore implements TierObjectStore {
     private final int partUploadSize;
     private AmazonS3 client;
 
-    public S3TierObjectStore(TierObjectStoreConfig config) {
+    public S3TierObjectStore(S3TierObjectStoreConfig config) {
         this(client(config), config);
     }
 
     // used for testing
-    S3TierObjectStore(AmazonS3 client, TierObjectStoreConfig config) {
+    S3TierObjectStore(AmazonS3 client, S3TierObjectStoreConfig config) {
         this.clusterId = config.clusterId;
         this.brokerId = config.brokerId;
         this.client = client;
@@ -74,7 +69,7 @@ public class S3TierObjectStore implements TierObjectStore {
                                              FileType fileType,
                                              Integer byteOffsetStart,
                                              Integer byteOffsetEnd) {
-        final String key = keyPath(objectMetadata, fileType);
+        final String key = TierObjectStoreUtils.keyPath(objectMetadata, fileType);
         final GetObjectRequest request = new GetObjectRequest(bucket, key);
         if (byteOffsetStart != null && byteOffsetEnd != null)
             request.setRange(byteOffsetStart, byteOffsetEnd);
@@ -106,24 +101,20 @@ public class S3TierObjectStore implements TierObjectStore {
                            Optional<File> producerStateSnapshotData,
                            Optional<ByteBuffer> transactionIndexData,
                            Optional<File> epochState) {
-        Map<String, String> metadata = new HashMap<>();
-        metadata.put("metadata_version", Integer.toString(objectMetadata.version()));
-        metadata.put("topic", objectMetadata.topicIdPartition().topic());
-        metadata.put("cluster_id", clusterId);
-        metadata.put("broker_id", Integer.toString(brokerId));
+        Map<String, String> metadata = TierObjectStoreUtils.createSegmentMetadata(objectMetadata, clusterId, brokerId);
 
         try {
             if (segmentData.length() <= partUploadSize)
-                putFile(keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
+                putFile(TierObjectStoreUtils.keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
             else
-                putFileMultipart(keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
+                putFileMultipart(TierObjectStoreUtils.keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
 
-            putFile(keyPath(objectMetadata, FileType.OFFSET_INDEX), metadata, offsetIndexData);
-            putFile(keyPath(objectMetadata, FileType.TIMESTAMP_INDEX), metadata, timestampIndexData);
-            producerStateSnapshotData.ifPresent(file -> putFile(keyPath(objectMetadata, FileType.PRODUCER_STATE), metadata, file));
-            transactionIndexData.ifPresent(abortedTxnsBuf -> putBuf(keyPath(objectMetadata,
+            putFile(TierObjectStoreUtils.keyPath(objectMetadata, FileType.OFFSET_INDEX), metadata, offsetIndexData);
+            putFile(TierObjectStoreUtils.keyPath(objectMetadata, FileType.TIMESTAMP_INDEX), metadata, timestampIndexData);
+            producerStateSnapshotData.ifPresent(file -> putFile(TierObjectStoreUtils.keyPath(objectMetadata, FileType.PRODUCER_STATE), metadata, file));
+            transactionIndexData.ifPresent(abortedTxnsBuf -> putBuf(TierObjectStoreUtils.keyPath(objectMetadata,
                     FileType.TRANSACTION_INDEX), metadata, abortedTxnsBuf));
-            epochState.ifPresent(file -> putFile(keyPath(objectMetadata, FileType.EPOCH_STATE), metadata, file));
+            epochState.ifPresent(file -> putFile(TierObjectStoreUtils.keyPath(objectMetadata, FileType.EPOCH_STATE), metadata, file));
         } catch (AmazonServiceException e) {
             throw new TierObjectStoreRetriableException("Failed to upload segment " + objectMetadata, e);
         } catch (ClientExecutionTimeoutException e) {
@@ -137,7 +128,7 @@ public class S3TierObjectStore implements TierObjectStore {
     public void deleteSegment(ObjectMetadata objectMetadata) {
         List<DeleteObjectsRequest.KeyVersion> keys = new ArrayList<>();
         for (FileType type : FileType.values())
-            keys.add(new DeleteObjectsRequest.KeyVersion(keyPath(objectMetadata, type)));
+            keys.add(new DeleteObjectsRequest.KeyVersion(TierObjectStoreUtils.keyPath(objectMetadata, type)));
         DeleteObjectsRequest request = new DeleteObjectsRequest(bucket).withKeys(keys);
         log.debug("Deleting " + keys);
 
@@ -155,17 +146,6 @@ public class S3TierObjectStore implements TierObjectStore {
     @Override
     public void close() {
         this.client.shutdown();
-    }
-
-    public String keyPath(ObjectMetadata objectMetadata, FileType fileType) {
-        return LOG_DATA_PREFIX
-                + "/" + objectMetadata.objectIdAsBase64()
-                + "/" + objectMetadata.topicIdPartition().topicIdAsBase64()
-                + "/" + objectMetadata.topicIdPartition().partition()
-                + "/" + Log.filenamePrefixFromOffset(objectMetadata.baseOffet())
-                + "_" + objectMetadata.tierEpoch()
-                + "_v" + objectMetadata.version()
-                + "." + fileType.suffix();
     }
 
     private com.amazonaws.services.s3.model.ObjectMetadata putObjectMetadata(Map<String, String> userMetadata) {
@@ -223,7 +203,7 @@ public class S3TierObjectStore implements TierObjectStore {
         client.completeMultipartUpload(completeMultipartUploadRequest);
     }
 
-    private static AmazonS3 client(TierObjectStoreConfig config) {
+    private static AmazonS3 client(S3TierObjectStoreConfig config) {
         final ClientConfiguration clientConfiguration = new ClientConfiguration();
         final AmazonS3ClientBuilder builder = AmazonS3ClientBuilder.standard();
         builder.setClientConfiguration(clientConfiguration);

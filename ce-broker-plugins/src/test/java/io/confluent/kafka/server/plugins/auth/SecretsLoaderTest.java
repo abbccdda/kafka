@@ -35,7 +35,7 @@ public class SecretsLoaderTest {
         "\"hash_function\": \"none\"" +
         "}}}";
     tempFile = tempFolder.newFile("apikeys.json");
-    Files.write(origJson, tempFile, Charsets.UTF_8);
+    Files.asCharSink(tempFile, Charsets.UTF_8).write(origJson);
   }
 
   @Test
@@ -59,7 +59,7 @@ public class SecretsLoaderTest {
     Map<String, KeyConfigEntry> keys = loader.get();
     assertEquals("PLAIN", keys.get("key1").saslMechanism);
 
-    Files.write(newJson, tempFile, Charsets.UTF_8);
+    Files.asCharSink(tempFile, Charsets.UTF_8).write(newJson);
 
     keys = loader.get();
     assertEquals("Original value remains until refresh", "PLAIN", keys.get("key1").saslMechanism);
@@ -96,7 +96,8 @@ public class SecretsLoaderTest {
 
   @Test
   public void shouldThrowConfigExceptionOnParseError() throws Exception {
-    Files.write(":not=valid", tempFile, Charsets.UTF_8);
+    Files.asCharSink(tempFile, Charsets.UTF_8).write(":not=valid");
+
     try {
       SecretsLoader.loadFile(tempFile.getPath());
       fail("Did not throw exception");
@@ -107,7 +108,8 @@ public class SecretsLoaderTest {
 
   @Test
   public void shouldThrowConfigExceptionOnMissingValue() throws Exception {
-    Files.write("{\"keys\": {\"key1\": null}}", tempFile, Charsets.UTF_8);
+    Files.asCharSink(tempFile, Charsets.UTF_8).write("{\"keys\": {\"key1\": null}}");
+
     try {
       SecretsLoader.loadFile(tempFile.getPath());
       fail("Did not throw exception");
@@ -118,7 +120,8 @@ public class SecretsLoaderTest {
 
   @Test
   public void shouldThrowConfigExceptionOnMissingFields() throws Exception {
-    Files.write("{\"keys\": {\"key1\": {}}}", tempFile, Charsets.UTF_8);
+    Files.asCharSink(tempFile, Charsets.UTF_8).write("{\"keys\": {\"key1\": {}}}");
+
     try {
       SecretsLoader.loadFile(tempFile.getPath());
       fail("Did not throw exception");

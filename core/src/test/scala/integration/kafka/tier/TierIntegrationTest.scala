@@ -69,7 +69,7 @@ class TierIntegrationTest {
   val mBeanServer: MBeanServer = ManagementFactory.getPlatformMBeanServer
 
   def setup(numLogs: Integer = 2, numArchiverThreads: Integer = 10): Unit = {
-    val tierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig())
+    val tierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))
     val tierMetadataManager = new TierMetadataManager(new FileTierPartitionStateFactory(),
       Optional.of(tierObjectStore), new LogDirFailureChannel(1), true)
     val (tierTopicManager, consumerBuilder) = setupTierTopicManager(tierMetadataManager)

@@ -35,7 +35,7 @@ class MergedLogTest {
   val logDir = TestUtils.randomPartitionLogDir(tmpDir)
   val mockTime = new MockTime()
   val tierMetadataManager = new TierMetadataManager(new FileTierPartitionStateFactory(),
-    Optional.of(new MockInMemoryTierObjectStore(new TierObjectStoreConfig())),
+    Optional.of(new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))),
     new LogDirFailureChannel(1),
     true)
   val props = TestUtils.createBrokerConfig(0, "127.0.0.1:1", port = -1)

@@ -9,4 +9,8 @@ public class TierObjectStoreFatalException extends RuntimeException {
   public TierObjectStoreFatalException(String message, Throwable cause) {
     super(message, cause);
   }
+
+  public TierObjectStoreFatalException(String message) {
+    super(message);
+  }
 }

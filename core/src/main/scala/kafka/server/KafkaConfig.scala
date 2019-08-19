@@ -204,6 +204,10 @@ object Defaults {
   val TierFetcherNumThreads = 2: Integer
   val TierObjectFetcherThreads = 1: Integer
   val TierPartitionStateCommitInterval = 15000: Integer
+  val TierGcsBucket = null
+  val TierGcsRegion = null
+  val TierGcsWriteChunkSize = 0
+  val TierGcsReadChunkSize = 0
 
   /** Tiered storage retention configs **/
   val TierLocalHotsetBytes = -1L
@@ -469,6 +473,12 @@ object KafkaConfig {
   val TierS3AwsSecretAccessKeyProp = ConfluentPrefix + "tier.s3.aws.secret.access.key"
   val TierS3EndpointOverrideProp = ConfluentPrefix + "tier.s3.aws.endpoint.override"
   val TierS3SignerOverrideProp = ConfluentPrefix + "tier.s3.aws.signer.override"
+
+  /** Tiered storage GCS configs **/
+  val TierGcsBucketProp = ConfluentPrefix + "tier.gcs.bucket"
+  val TierGcsRegionProp = ConfluentPrefix + "tier.gcs.region"
+  val TierGcsWriteChunkSizeProp = ConfluentPrefix + "tier.gcs.write.chunk.size"
+  val TierGcsReadChunkSizeProp = ConfluentPrefix + "tier.gcs.read.chunk.size"
 
   /** Tiered storage fetcher configs */
   val TierFetcherNumThreadsProp = ConfluentPrefix + "tier.fetcher.num.threads"
@@ -847,6 +857,10 @@ object KafkaConfig {
   val TierFetcherNumThreadsDoc = "The size of the threadpool used by the TierFetcher. Roughly corresponds to # of concurrent fetch requests."
   val TierObjectFetcherThreadsDoc  = "The size of the threadpool use by the tier object fetcher. Currently this option is the concurrency factor for tier state fetches made by the replica fetcher threads."
   val TierPartitionStateCommitIntervalDoc = "The frequency in milliseconds that the TierTopicManager commits updates to TierPartitionState files. Decreasing this interval will reduce batching of updates. Increasing this interval will increase the time taken for tiered log segments from being deleted from local disk. "
+  val TierGcsBucketDoc = "The GCS bucket to use for tiered storage."
+  val TierGcsRegionDoc = "The GCS region to use for tiered storage."
+  val TierGcsWriteChunkSizeDoc = "The GCS chunk size for write requests between the broker and storage. If null, then the default value from the GCS implementation is used."
+  val TierGcsReadChunkSizeDoc = "The GCS chunk size for read requests between the broker and storage. If null, then the default value from the GCS implementation is used."
 
   /** Tiered storage retention configs **/
   val TierLocalHotsetBytesDoc = ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_DOC
@@ -1131,7 +1145,7 @@ object KafkaConfig {
       /** ********* Tier management configuration ***********/
       .defineInternal(TierFeatureProp, BOOLEAN, Defaults.TierFeature, MEDIUM, TierFeatureDoc)
       .defineInternal(TierEnableProp, BOOLEAN, Defaults.TierEnable, MEDIUM, TierEnableDoc)
-      .defineInternal(TierBackendProp, STRING, Defaults.TierBackend, in("S3", "mock", ""), MEDIUM, TierBackendDoc)
+      .defineInternal(TierBackendProp, STRING, Defaults.TierBackend, in("S3", "GCS", "mock", ""), MEDIUM, TierBackendDoc)
       .defineInternal(TierMetadataBootstrapServersProp, STRING, Defaults.TierMetadataBootstrapServers, MEDIUM, TierMetadataBootstrapServersDoc)
       .defineInternal(TierMetadataMaxPollMsProp, LONG, Defaults.TierMetadataMaxPollMs, atLeast(1), MEDIUM, TierMetadataMaxPollMsDoc)
       .defineInternal(TierMetadataRequestTimeoutMsProp, INT, Defaults.TierMetadataRequestTimeoutMs, atLeast(1), MEDIUM, TierMetadataRequestTimeoutMsDoc)
@@ -1152,6 +1166,10 @@ object KafkaConfig {
       .defineInternal(TierLocalHotsetBytesProp, LONG, Defaults.TierLocalHotsetBytes, HIGH, TierLocalHotsetBytesDoc)
       .defineInternal(TierLocalHotsetMsProp, LONG, Defaults.TierLocalHotsetMs, HIGH, TierLocalHotsetMsDoc)
       .defineInternal(TierArchiverNumThreadsProp, INT, Defaults.TierArchiverNumThreads, atLeast(1), MEDIUM, TierArchiverNumThreadsDoc)
+      .defineInternal(TierGcsBucketProp, STRING, Defaults.TierGcsBucket, HIGH, TierGcsBucketDoc)
+      .defineInternal(TierGcsRegionProp, STRING, Defaults.TierGcsRegion, HIGH, TierGcsRegionDoc)
+      .defineInternal(TierGcsWriteChunkSizeProp, INT, Defaults.TierGcsWriteChunkSize, atLeast(0), LOW, TierGcsWriteChunkSizeDoc)
+      .defineInternal(TierGcsReadChunkSizeProp, INT, Defaults.TierGcsReadChunkSize, atLeast(0), LOW, TierGcsReadChunkSizeDoc)
 
       /** ********* Observer Configuration **************/
       .defineInternal(ObserverFeatureProp, BOOLEAN, Defaults.ObserverFeature, MEDIUM, ObserverFeatureDoc)
@@ -1505,6 +1523,10 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierLocalHotsetBytes = getLong(KafkaConfig.TierLocalHotsetBytesProp)
   val tierLocalHotsetMs = getLong(KafkaConfig.TierLocalHotsetMsProp)
   val tierArchiverNumThreads = getInt(KafkaConfig.TierArchiverNumThreadsProp)
+  val tierGcsBucket = getString(KafkaConfig.TierGcsBucketProp)
+  val tierGcsRegion = getString(KafkaConfig.TierGcsRegionProp)
+  val tierGcsWriteChunkSize = getInt(KafkaConfig.TierGcsWriteChunkSizeProp)
+  val tierGcsReadChunkSize = getInt(KafkaConfig.TierGcsReadChunkSizeProp)
 
   /** ********* Interceptor Configuration ***********/
   val observerFeature = getBoolean(KafkaConfig.ObserverFeatureProp)
@@ -1759,27 +1781,5 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
         s"${KafkaConfig.FailedAuthenticationDelayMsProp}=$failedAuthenticationDelayMs should always be less than" +
           s" ${KafkaConfig.ConnectionsMaxIdleMsProp}=$connectionsMaxIdleMs to prevent failed" +
           s" authentication responses from timing out")
-
-    /* Begin tiered storage checks */
-    if (tierFeature.booleanValue()) {
-      if (tierBackend == null)
-        throw new IllegalArgumentException(s"${KafkaConfig.TierBackendProp} must be set if ${KafkaConfig.TierFeatureProp} property is set.")
-
-      if (tierBackend == "S3" && tierS3Region == null && tierS3EndpointOverride == null)
-        throw new IllegalArgumentException(s"${KafkaConfig.TierS3RegionProp} or ${KafkaConfig.TierS3EndpointOverrideProp} must be set if ${KafkaConfig.TierBackendProp} property is set to $tierBackend.")
-
-      if (tierBackend == "S3" && tierS3Bucket == null)
-        throw new IllegalArgumentException(s"${KafkaConfig.TierS3BucketProp} must be set if ${KafkaConfig.TierBackendProp} property is set to $tierBackend.")
-
-      if (tierBackend == "S3" && tierS3EndpointOverride != null && tierS3Region == null)
-        throw new IllegalArgumentException(s"${KafkaConfig.TierS3RegionProp} must be set if ${KafkaConfig.TierS3EndpointOverrideProp} is set.")
-
-      if (tierS3AwsAccessKeyId == null && tierS3AwsSecretAccessKey != null)
-        throw new IllegalArgumentException(s"${KafkaConfig.TierS3AwsAccessKeyIdProp} must be set if ${KafkaConfig.TierS3AwsSecretAccessKeyProp} is set.")
-
-      if (tierS3AwsAccessKeyId != null && tierS3AwsSecretAccessKey == null)
-        throw new IllegalArgumentException(s"${KafkaConfig.TierS3AwsSecretAccessKeyProp} must be set if ${KafkaConfig.TierS3AwsAccessKeyIdProp} is set.")
-    }
-    /* End tiered storage checks */
   }
 }

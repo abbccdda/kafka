@@ -42,7 +42,7 @@ class TierTopicManagerTest {
   private type ProducerSupplier = MockProducerSupplier[Array[Byte], Array[Byte]]
 
   private val clusterId = "mycluster"
-  private val objectStoreConfig = new TierObjectStoreConfig()
+  private val objectStoreConfig = new TierObjectStoreConfig("cluster", 1)
   private val tempDir = TestUtils.tempDir()
   private val logDir = tempDir.getAbsolutePath
   private val logDirs = new util.ArrayList(util.Collections.singleton(logDir))

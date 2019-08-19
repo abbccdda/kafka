@@ -40,7 +40,7 @@ import kafka.security.auth.{Authorizer, AuthorizerWithKafkaStore}
 import kafka.tier.archiver.{TierArchiver, TierArchiverConfig}
 import kafka.tier.fetcher.{TierFetcher, TierFetcherConfig}
 import kafka.tier.state.{FileTierPartitionStateFactory, TierPartitionState}
-import kafka.tier.store.{MockInMemoryTierObjectStore, S3TierObjectStore, TierObjectStore, TierObjectStoreConfig}
+import kafka.tier.store.{MockInMemoryTierObjectStore, S3TierObjectStore, S3TierObjectStoreConfig, GcsTierObjectStore, GcsTierObjectStoreConfig, TierObjectStore, TierObjectStoreConfig}
 import kafka.tier.{TierMetadataManager, TopicIdPartition}
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.tier.retention.TierRetentionManager
@@ -296,10 +296,10 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size)
 
         if (config.tierFeature) {
-          val objectStoreConfig = new TierObjectStoreConfig(clusterId, config)
           tierObjectStore = config.tierBackend match {
-            case "S3" => Some(new S3TierObjectStore(objectStoreConfig))
-            case "mock" => Some(new MockInMemoryTierObjectStore(objectStoreConfig))
+            case "S3" => Some(new S3TierObjectStore(new S3TierObjectStoreConfig(clusterId, config)))
+            case "GCS" => Some(new GcsTierObjectStore(new GcsTierObjectStoreConfig(clusterId, config)))
+            case "mock" => Some(new MockInMemoryTierObjectStore(new TierObjectStoreConfig(clusterId, config)))
             case v => throw new IllegalStateException(s"Unknown TierObjectStore type: %s".format(v))
           }
 

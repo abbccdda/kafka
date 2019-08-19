@@ -93,6 +93,7 @@
     </subpackage>
     <subpackage name="store">
       <allow pkg="com.amazonaws" />
+      <allow pkg="com.google" />
       <allow class="kafka.log.Log" />
       <allow class="kafka.log.LogSegment" />
     </subpackage>

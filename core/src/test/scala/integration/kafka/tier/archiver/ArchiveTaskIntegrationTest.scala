@@ -93,7 +93,7 @@ class ArchiveTaskIntegrationTest {
 
   @Test
   def testArchiveTaskEmptyLog(): Unit = {
-    val tierObjectStore: MockInMemoryTierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig())
+    val tierObjectStore: MockInMemoryTierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))
     val ctx = CancellationContext.newContext()
     val task = new ArchiveTask(ctx, topicIdPartition, BeforeUpload(0))
     val leaderEpoch = 0
@@ -115,7 +115,7 @@ class ArchiveTaskIntegrationTest {
 
   @Test
   def testArchiveTaskUploadsProducerState(): Unit = {
-    val tierObjectStore: MockInMemoryTierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig())
+    val tierObjectStore: MockInMemoryTierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))
     val ctx = CancellationContext.newContext()
     val task = new ArchiveTask(ctx, topicIdPartition, BeforeUpload(0))
     val leaderEpoch = 0

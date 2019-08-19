@@ -36,7 +36,7 @@ import static org.junit.Assert.assertFalse;
 public class TierMetadataManagerTest {
     private static final TopicIdPartition TOPIC_ID_PARTITION = new TopicIdPartition(
             "myTopic", UUID.randomUUID(), 0);
-    private static final TierObjectStoreConfig OBJECT_STORE_CONFIG = new TierObjectStoreConfig();
+    private static final TierObjectStoreConfig OBJECT_STORE_CONFIG = new TierObjectStoreConfig("cluster", 1);
     private final File dir = TestUtils.tempDirectory();
     private int onBecomeLeader = 0;
     private int onBecomeFollower = 0;

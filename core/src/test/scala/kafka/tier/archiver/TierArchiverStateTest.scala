@@ -40,7 +40,7 @@ class TierArchiverStateTest {
   val tierTopicName = "_confluent-tier-state"
   val tierTopicNumPartitions: Short = 1
   val logDirs = new util.ArrayList(Collections.singleton(System.getProperty("java.io.tmpdir")))
-  val objectStoreConfig = new TierObjectStoreConfig()
+  val objectStoreConfig = new TierObjectStoreConfig("cluster", 1)
   val tierMetadataManager = new TierMetadataManager(new FileTierPartitionStateFactory(),
     Optional.of(new MockInMemoryTierObjectStore(objectStoreConfig)),
     new LogDirFailureChannel(1),

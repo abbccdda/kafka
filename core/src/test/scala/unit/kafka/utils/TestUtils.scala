@@ -1022,7 +1022,7 @@ object TestUtils extends Logging {
 
   def createTierMetadataManager(logDirs: Seq[File]): TierMetadataManager =
     new TierMetadataManager(new FileTierPartitionStateFactory,
-      Optional.of(new MockInMemoryTierObjectStore(new TierObjectStoreConfig())),
+      Optional.of(new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))),
       new LogDirFailureChannel(logDirs.size),
       false)
 

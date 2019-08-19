@@ -706,6 +706,10 @@ class KafkaConfigTest {
         case KafkaConfig.TierS3SignerOverrideProp => // ignore string
         case KafkaConfig.TierS3SseAlgorithmProp => assertPropertyInvalid(getBaseProperties(), name, "notanssealgorithm")
         case KafkaConfig.TierS3MultipartUploadSizeProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0", "-2")
+        case KafkaConfig.TierGcsRegionProp => // ignore string
+        case KafkaConfig.TierGcsBucketProp => // ignore string
+        case KafkaConfig.TierGcsWriteChunkSizeProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-2")
+        case KafkaConfig.TierGcsReadChunkSizeProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-2")
         case KafkaConfig.TierBackendProp => assertPropertyInvalid(getBaseProperties(), name, "notanimplementation")
         case KafkaConfig.TierFetcherNumThreadsProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0", "-2")
         case KafkaConfig.TierLocalHotsetBytesProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1.2", "3.4")
