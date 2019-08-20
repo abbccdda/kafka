@@ -114,12 +114,16 @@ class AdminManager(val config: KafkaConfig,
 
         val replicaPlacementJson = Option(configs.get(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG)).map(_.toString)
         if (replicaPlacementJson.nonEmpty) {
+          if (!config.observerFeature) {
+            throw new InvalidRequestException(s"Configuration ${ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG}" +
+              s" can only be specified if ${KafkaConfig.ObserverFeatureProp} is enabled.")
+          }
           if (!topic.assignments().isEmpty) {
-            throw new InvalidRequestException("Both assignments and replicaPlacement are set. Both cannot be " +
+            throw new InvalidRequestException(s"Both assignments and ${ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG} are set. Both cannot be " +
               "used at the same time.")
           }
           if (topic.replicationFactor != NO_REPLICATION_FACTOR) {
-            throw new InvalidRequestException("Both replicationFactor and replicaPlacement are set. Both cannot be " +
+            throw new InvalidRequestException(s"Both replicationFactor and ${ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG} are set. Both cannot be " +
               "used at the same time.")
           }
         }
