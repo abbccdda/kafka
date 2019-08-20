@@ -2,7 +2,7 @@
  Copyright 2018 Confluent Inc.
  */
 
-package kafka.tier.archiver
+package kafka.tier.tasks.archive
 
 import java.io.File
 import java.nio.ByteBuffer
@@ -21,7 +21,8 @@ import kafka.tier.state.TierPartitionState
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
 import kafka.tier.TopicIdPartition
-import kafka.tier.archiver.ArchiveTask.SegmentDeletedException
+import kafka.tier.tasks.CompletableFutureUtil
+import kafka.tier.tasks.archive.ArchiveTask.SegmentDeletedException
 import kafka.tier.topic.TierTopicManager
 import kafka.utils.TestUtils
 import org.apache.kafka.common.record.FileRecords
@@ -320,7 +321,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
 
   @Test
   def testArchiverTaskSetsPauseOnRetry(): Unit = {
-    val task = new ArchiveTask(ctx, topicIdPartition, BeforeLeader(0))
+    val task = new ArchiveTask(ctx, topicIdPartition, BeforeLeader(0), ArchiverMetrics(None, None))
 
     when(tierTopicManager.becomeArchiver(topicIdPartition, 0)).thenThrow(
       new TierMetadataRetriableException("something"),
@@ -342,7 +343,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
 
   @Test
   def testCancelledArchiveTaskDoesNotProgress(): Unit = {
-    val task = new ArchiveTask(ctx, topicIdPartition, BeforeLeader(0))
+    val task = new ArchiveTask(ctx, topicIdPartition, BeforeLeader(0), ArchiverMetrics(None, None))
     ctx.cancel()
     val result = Await.result(task.transition(time, tierTopicManager, tierObjectStore, replicaManager), 1 second)
     assertTrue("expected task to remain in BeforeLeader", result.state.isInstanceOf[BeforeLeader])
@@ -371,7 +372,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
   @Test
   def testHandlingForSegmentDeletedExceptionDuringTransition(): Unit = {
     val beforeUpload = mock(classOf[BeforeUpload])
-    val task = new ArchiveTask(ctx, topicIdPartition, beforeUpload)
+    val task = new ArchiveTask(ctx, topicIdPartition, beforeUpload, ArchiverMetrics(None, None))
     val exception = new SegmentDeletedException("segment deleted", new Exception)
 
     when(tierTopicManager.partitionState(topicIdPartition)).thenThrow(exception)

@@ -11,14 +11,17 @@ import java.util
 import java.util.{Collections, Optional, UUID}
 import java.util.function.Supplier
 
-import javax.management.{MBeanServer, ObjectName}
+import com.yammer.metrics.Metrics
+import com.yammer.metrics.core.Gauge
+import javax.management.MBeanServer
 import kafka.log._
 import kafka.server.{BrokerTopicStats, LogDirFailureChannel, ReplicaManager}
-import kafka.tier.archiver._
+import kafka.tier.tasks.archive._
 import kafka.tier.client.{MockConsumerSupplier, MockProducerSupplier}
 import kafka.tier.state.{FileTierPartitionStateFactory, TierPartitionStatus}
 import kafka.tier.store.TierObjectStore.FileType
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStore, TierObjectStoreConfig}
+import kafka.tier.tasks.{TierTasks, TierTasksConfig}
 import kafka.tier.topic.{TierTopic, TierTopicManager, TierTopicManagerConfig}
 import kafka.utils.{MockTime, TestUtils}
 import kafka.zk.AdminZkClient
@@ -58,13 +61,13 @@ class TierIntegrationTest {
   )
   var tierMetadataManager: TierMetadataManager = _
   var tempDir: File = _
-  var tierArchiver: TierArchiver = _
+  var tierTasks: TierTasks = _
   var replicaManager: ReplicaManager = _
   var tierObjectStore: MockInMemoryTierObjectStore = _
   var logs: Seq[MergedLog] = _
   var tierTopicManager: TierTopicManager = _
   var consumerSupplier: MockConsumerSupplier[Array[Byte], Array[Byte]] = _
-  val maxWaitTimeMs = 2000L
+  val maxWaitTimeMs = 20 * 1000
 
   val mBeanServer: MBeanServer = ManagementFactory.getPlatformMBeanServer
 
@@ -77,9 +80,10 @@ class TierIntegrationTest {
     val tempDir = TestUtils.tempDir()
     val logs = createLogs(numLogs, logConfig, tempDir, tierMetadataManager)
     val replicaManager = mockReplicaManager(logs)
-    val tierArchiver = new TierArchiver(TierArchiverConfig(numArchiverThreads), replicaManager, tierMetadataManager, tierTopicManager, tierObjectStore, mockTime)
+    val tierTasks = new TierTasks(TierTasksConfig(numArchiverThreads, mainLoopBackoffMs = 20, maxRetryBackoffMs = 20),
+      replicaManager, tierMetadataManager, tierTopicManager, tierObjectStore, mockTime)
 
-    this.tierArchiver = tierArchiver
+    this.tierTasks = tierTasks
     this.replicaManager = replicaManager
     this.tierObjectStore = tierObjectStore
     this.tierMetadataManager = tierMetadataManager
@@ -91,7 +95,7 @@ class TierIntegrationTest {
 
   @After
   def teardown(): Unit = {
-    tierArchiver.shutdown()
+    tierTasks.shutdown()
     replicaManager.shutdown()
     tierObjectStore.close()
     tierTopicManager.shutdown()
@@ -102,22 +106,22 @@ class TierIntegrationTest {
   @Test
   def testArchiverImmigrate(): Unit = {
     setup()
-    tierArchiver.start()
-    waitForImmigration(logs, 1, tierArchiver, tierTopicManager, consumerSupplier)
+    tierTasks.start()
+    waitForImmigration(logs, 1, tierTasks, tierTopicManager, consumerSupplier)
     // Emigrate one partition
-    tierArchiver.taskQueue.onBecomeFollower(logs.head.topicIdPartition.get)
+    tierMetadataManager.becomeFollower(logs.head.topicPartition)
 
-    TestUtils.waitUntilTrue(() => tierArchiver.taskQueue.withAllTasks(_.size == 1),
+    TestUtils.waitUntilTrue(() => tierTasks.archiverTaskQueue.withAllTasks(_.size == 1),
       "Archiver should process pending emigrations", 2000L)
 
     // Re-immigrate with valid epoch
-    tierArchiver.taskQueue.onBecomeLeader(logs.head.topicIdPartition.get, 2)
+    tierMetadataManager.becomeLeader(logs.head.topicPartition, 2)
 
     TestUtils.waitUntilTrue(() => {
       consumerSupplier.moveRecordsFromProducer()
       tierTopicManager.doWork()
 
-      tierArchiver.taskQueue.withAllTasks(tasks => {
+      tierTasks.archiverTaskQueue.withAllTasks(tasks => {
         tasks.forall(task => {
           task.state.isInstanceOf[BeforeUpload] || task.state.isInstanceOf[AfterUpload]
         })
@@ -128,7 +132,7 @@ class TierIntegrationTest {
   @Test
   def testArchiverUploadAndMaterialize(): Unit = {
     setup(numLogs = 10)
-    tierArchiver.start()
+    tierTasks.start()
 
     val numBatches = 6
     val leaderEpoch = 1
@@ -136,7 +140,7 @@ class TierIntegrationTest {
     // Write batches
     logs.foreach { log => writeRecordBatches(log, leaderEpoch, 0L, numBatches, 4) }
 
-    waitForImmigration(logs, leaderEpoch, tierArchiver, tierTopicManager, consumerSupplier)
+    waitForImmigration(logs, leaderEpoch, tierTasks, tierTopicManager, consumerSupplier)
 
     logs.foreach { log =>
       assertEquals(s"topic manager should materialize entry for ${log.topicPartition}",
@@ -153,7 +157,7 @@ class TierIntegrationTest {
         tierPartitionState.flush()
         tierPartitionState.numSegments >= 1
       }
-    }, "Should materialize segments", tierArchiver, tierTopicManager, consumerSupplier)
+    }, "Should materialize segments", tierTopicManager, consumerSupplier)
 
     logs.foreach { log =>
       assertEquals("batch 1: segment should be materialized with correct offset relationship",
@@ -171,7 +175,7 @@ class TierIntegrationTest {
         tierPartitionState.flush()
         tierPartitionState.numSegments >= 2 && tierPartitionState.committedEndOffset == tierPartitionState.endOffset
       }
-    }, "Should materialize segments", tierArchiver, tierTopicManager, consumerSupplier)
+    }, "Should materialize segments", tierTopicManager, consumerSupplier)
 
 
     validatePartitionStateContainedInObjectStore(tierTopicManager, tierObjectStore, logs)
@@ -192,7 +196,7 @@ class TierIntegrationTest {
         tierPartitionState.flush()
         tierPartitionState.numSegments >= 3 && tierPartitionState.committedEndOffset == tierPartitionState.endOffset
       }
-    }, "Should materialize segments", tierArchiver, tierTopicManager, consumerSupplier)
+    }, "Should materialize segments", tierTopicManager, consumerSupplier)
 
     logs.foreach { log =>
       assertEquals("batch 3: segment should be materialized with correct offset relationship",
@@ -207,12 +211,12 @@ class TierIntegrationTest {
   @Test
   def testArchiverUploadAndMaterializeWhenWriteHappensAfterBecomeLeader(): Unit = {
     setup(numLogs = 10)
-    tierArchiver.start()
+    tierTasks.start()
 
     val leaderEpoch = 1
 
     // Immigrate all test logs
-    waitForImmigration(logs, leaderEpoch, tierArchiver, tierTopicManager, consumerSupplier)
+    waitForImmigration(logs, leaderEpoch, tierTasks, tierTopicManager, consumerSupplier)
 
     validatePartitionStateContainedInObjectStore(tierTopicManager, tierObjectStore, logs)
 
@@ -226,7 +230,7 @@ class TierIntegrationTest {
         tierPartitionState.flush()
         tierPartitionState.numSegments > 0 && tierPartitionState.committedEndOffset == tierPartitionState.endOffset
       }
-    }, "Should materialize segments", tierArchiver, tierTopicManager, consumerSupplier)
+    }, "Should materialize segments", tierTopicManager, consumerSupplier)
 
     logs.foreach { log =>
       assertEquals("Segment should be materialized with correct offset relationship",
@@ -242,23 +246,21 @@ class TierIntegrationTest {
     val maxConcurrentUploads = 2
     val nLogs = 3
     setup(nLogs, maxConcurrentUploads)
-    tierArchiver.start()
+    tierTasks.start()
 
     val batches = 3
     val recordsPerBatch = 4
     val leaderEpoch = 1
 
-    waitForImmigration(logs, leaderEpoch, tierArchiver, tierTopicManager, consumerSupplier)
+    waitForImmigration(logs, leaderEpoch, tierTasks, tierTopicManager, consumerSupplier)
 
     // Write two batches to all partitions
     logs.foreach { log => writeRecordBatches(log, leaderEpoch, 0L, batches, recordsPerBatch) }
 
-    // two partitions should be chosen initially, and both should be materialized fully in parallel
-    // and the other partition should not be materialized at al
+    // eventually, we would have tiered all segments
     archiveAndMaterializeUntilTrue(() => {
-      logs.count(_.tierableLogSegments.isEmpty) == nLogs
-    }, s"Expected all logs to eventually become tiered",
-      tierArchiver, tierTopicManager, consumerSupplier)
+      logs.forall(_.tierableLogSegments.isEmpty) && logs.forall(_.tieredLogSegments.toIterator.nonEmpty)
+    }, s"Expected all logs to eventually become tiered", tierTopicManager, consumerSupplier)
   }
 
   @Test
@@ -269,13 +271,9 @@ class TierIntegrationTest {
     val leaderEpoch = 1
 
     setup(numLogs)
-    tierArchiver.start()
+    tierTasks.start()
 
-    val bean = tierArchiver.metricName("TotalLag", Map.empty).getMBeanName
-
-    def totalLag: Long = mBeanServer
-      .getAttribute(new ObjectName(bean), "Value")
-      .asInstanceOf[Long]
+    def totalLag: Long = metricValue("TotalLag")
 
     def awaitMaterializeBatchAndAssertLag(archivedBatches: Int): Unit = {
       archiveAndMaterializeUntilTrue(() => {
@@ -284,7 +282,7 @@ class TierIntegrationTest {
           tierPartitionState.flush()
           tierPartitionState.numSegments >= archivedBatches && tierPartitionState.committedEndOffset == tierPartitionState.endOffset
         }
-      }, s"Should materialize segments for batch $archivedBatches or greater", tierArchiver, tierTopicManager, consumerSupplier)
+      }, s"Should materialize segments for batch $archivedBatches or greater", tierTopicManager, consumerSupplier)
 
       // one more tick for the transition from AfterUpload to BeforeUpload
 
@@ -294,8 +292,12 @@ class TierIntegrationTest {
     // when tracking no partitions, lag should be zero
     assertEquals(0, totalLag)
 
-    // immigrate all test logs
-    waitForImmigration(logs, leaderEpoch, tierArchiver, tierTopicManager, consumerSupplier)
+    // become leader for all partitions
+    logs.foreach { log =>
+      val topicIdPartition = new TopicIdPartition(log.topicPartition.topic(), UUID.randomUUID, log.topicPartition.partition())
+      tierMetadataManager.becomeLeader(topicIdPartition.topicPartition, leaderEpoch)
+      tierMetadataManager.ensureTopicIdPartition(topicIdPartition)
+    }
 
     assertEquals(0, totalLag)
 
@@ -307,6 +309,9 @@ class TierIntegrationTest {
     // assert initial lag based on the sum of expected log end offsets
     // minus the last segment
     assertEquals(logs.map(_.tierableLogSegments.map(_.size).sum).sum, totalLag)
+
+    // wait until all partitions are immigrated
+    waitForImmigration(logs, leaderEpoch, tierTasks, tierTopicManager, consumerSupplier, becomeLeader = false)
 
     // assert lag after each batch is materialized by the archiver
     (1 until batches).foreach(awaitMaterializeBatchAndAssertLag)
@@ -320,14 +325,17 @@ class TierIntegrationTest {
     */
   private def waitForImmigration(logs: Seq[MergedLog],
                                  leaderEpoch: Int,
-                                 tierArchiver: TierArchiver,
+                                 tierTasks: TierTasks,
                                  tierTopicManager: TierTopicManager,
-                                 consumerBuilder: MockConsumerSupplier[Array[Byte], Array[Byte]]): Unit = {
+                                 consumerSupplier: MockConsumerSupplier[Array[Byte], Array[Byte]],
+                                 becomeLeader: Boolean = true): Unit = {
     // Immigrate all test logs
-    logs.foreach { log =>
-      val topicIdPartition = new TopicIdPartition(log.topicPartition.topic(), UUID.randomUUID, log.topicPartition.partition())
-      tierMetadataManager.becomeLeader(topicIdPartition.topicPartition(), leaderEpoch)
-      tierMetadataManager.ensureTopicIdPartition(topicIdPartition)
+    if (becomeLeader) {
+      logs.foreach { log =>
+        val topicIdPartition = new TopicIdPartition(log.topicPartition.topic(), UUID.randomUUID, log.topicPartition.partition())
+        tierMetadataManager.becomeLeader(topicIdPartition.topicPartition(), leaderEpoch)
+        tierMetadataManager.ensureTopicIdPartition(topicIdPartition)
+      }
     }
 
     archiveAndMaterializeUntilTrue(() => {
@@ -336,25 +344,25 @@ class TierIntegrationTest {
           tps.status() == TierPartitionStatus.ONLINE
         }
       }
-    }, "Expect leadership to materialize", tierArchiver, tierTopicManager, consumerBuilder)
+    }, "Expect leadership to materialize", tierTopicManager, consumerSupplier)
+
     TestUtils.waitUntilTrue(() => {
-      consumerBuilder.moveRecordsFromProducer()
+      consumerSupplier.moveRecordsFromProducer()
       tierTopicManager.doWork()
-      tierArchiver.taskQueue.withAllTasks(tasks => {
+      tierTasks.archiverTaskQueue.withAllTasks(tasks => {
         tasks.size == logs.size && tasks.forall(task => {
-          task.state.isInstanceOf[BeforeUpload] || task.state.isInstanceOf[AfterUpload]
+          !task.state.isInstanceOf[BeforeLeader]
         })
       })
-    }, "Expect zero BeforeLeader")
+    }, s"Expect zero BeforeLeader in ${tierTasks.archiverTaskQueue}")
   }
 
   private def archiveAndMaterializeUntilTrue(pred: () => Boolean,
                                              msg: String,
-                                             tierArchiver: TierArchiver,
                                              tierTopicManager: TierTopicManager,
-                                             consumerBuilder: MockConsumerSupplier[Array[Byte], Array[Byte]]): Unit = {
+                                             consumerSupplier: MockConsumerSupplier[Array[Byte], Array[Byte]]): Unit = {
     TestUtils.waitUntilTrue(() => {
-      consumerBuilder.moveRecordsFromProducer()
+      consumerSupplier.moveRecordsFromProducer()
       tierTopicManager.doWork()
       pred()
     }, msg, maxWaitTimeMs)
@@ -429,9 +437,9 @@ class TierIntegrationTest {
     (0 until batches).foreach { idx =>
       val records = createRecords(log.topicPartition, leaderEpoch, baseOffset + idx * recordsPerBatch, recordsPerBatch)
       log.appendAsFollower(records)
-      log.flush()
-      log.updateHighWatermark(batches * recordsPerBatch)
     }
+    log.flush()
+    log.updateHighWatermark(batches * recordsPerBatch)
   }
 
   private def createRecords(topicPartition: TopicPartition, leaderEpoch: Int, baseOffset: Long, numRecords: Int): MemoryRecords = {
@@ -448,5 +456,9 @@ class TierIntegrationTest {
     }, filtered, Int.MaxValue, BufferSupplier.NO_CACHING)
     filtered.flip()
     MemoryRecords.readableRecords(filtered)
+  }
+
+  private def metricValue(name: String): Long = {
+    Metrics.defaultRegistry.allMetrics.asScala.filterKeys(_.getName == name).values.head.asInstanceOf[Gauge[Long]].value()
   }
 }

@@ -2,10 +2,11 @@
  Copyright 2018 Confluent Inc.
  */
 
-package kafka.tier.archiver
+package kafka.tier.tasks.archive
 
-import java.util.concurrent.{CancellationException, TimeUnit}
+import java.util.concurrent.CancellationException
 
+import kafka.tier.tasks.{UpdatableQueue, UpdatableQueueEntry}
 import org.apache.kafka.test.IntegrationTest
 import org.junit.experimental.categories.Category
 import org.junit.runner.RunWith
@@ -113,7 +114,7 @@ object UpdatableQueueSpec extends Commands {
     override type Result = Option[QueueEntry]
 
     override def run(sut: UpdatableQueue[QueueEntry]): Result = {
-      sut.pop(0, TimeUnit.MILLISECONDS)
+      sut.poll()
     }
     override def nextState(state: State): State = {
       if (state.queue.isEmpty && state.values.isEmpty || state.closed) {
@@ -182,7 +183,7 @@ class UpdatableQueuePropertyTest extends FunSuite with Checkers {
         var results = Map[QueueEntry#Key, QueueEntry]()
         var pollResult: Option[QueueEntry] = None
         do {
-          pollResult = queue.pop(0, TimeUnit.MILLISECONDS)
+          pollResult = queue.poll()
           pollResult match {
             case None =>
             case Some(result) =>

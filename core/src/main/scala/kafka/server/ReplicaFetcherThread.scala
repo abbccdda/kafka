@@ -28,7 +28,7 @@ import kafka.log.LogAppendInfo
 import kafka.server.AbstractFetcherThread.ResultWithPartitions
 import kafka.server.epoch.EpochEntry
 import kafka.tier.TierMetadataManager
-import kafka.tier.archiver.CompletableFutureUtil
+import kafka.tier.tasks.CompletableFutureUtil
 import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.tier.store.TierObjectStore

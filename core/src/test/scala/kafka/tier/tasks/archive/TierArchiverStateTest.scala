@@ -2,7 +2,7 @@
  * Copyright 2019 Confluent Inc.
  */
 
-package kafka.tier.archiver
+package kafka.tier.tasks.archive
 
 import java.io.File
 import java.nio.file.Paths
@@ -19,6 +19,7 @@ import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.state.{FileTierPartitionState, FileTierPartitionStateFactory, TierPartitionState}
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
+import kafka.tier.tasks.CompletableFutureUtil
 import kafka.tier.topic.TierTopicManager
 import kafka.tier.{TierMetadataManager, TierTestUtils, TopicIdPartition}
 import kafka.utils.{MockTime, TestUtils}
@@ -80,8 +81,8 @@ class TierArchiverStateTest {
 
     val tierObjectStore = new MockInMemoryTierObjectStore(objectStoreConfig)
     val replicaManager = mock(classOf[ReplicaManager])
-    val task = ArchiveTask(ctx, topicIdPartition, 0)
-    val nextStage = task.transition(time, tierTopicManager, tierObjectStore, replicaManager, Some(byteRate))
+    val task = ArchiveTask(ctx, topicIdPartition, 0, ArchiverMetrics(None, None))
+    val nextStage = task.transition(time, tierTopicManager, tierObjectStore, replicaManager)
     val result = Await.result(nextStage, maxWaitTime)
     assertTrue("Should advance to BeforeUpload", result.state.isInstanceOf[BeforeUpload])
   }

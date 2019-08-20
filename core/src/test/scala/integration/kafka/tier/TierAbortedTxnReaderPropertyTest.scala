@@ -5,7 +5,7 @@
 package integration.kafka.tier
 
 import kafka.log.AbortedTxn
-import kafka.tier.archiver.ArchiveTask
+import kafka.tier.tasks.archive.ArchiveTask
 import kafka.tier.fetcher.{CancellationContext, TierAbortedTxnReader}
 import org.apache.kafka.common.utils.ByteBufferInputStream
 import org.apache.kafka.test.IntegrationTest

@@ -2,7 +2,7 @@ package kafka.tier.fetcher
 
 
 import kafka.log.AbortedTxn
-import kafka.tier.archiver.ArchiveTask
+import kafka.tier.tasks.archive.ArchiveTask
 import org.apache.kafka.common.utils.ByteBufferInputStream
 import org.junit.Test
 import org.junit.Assert

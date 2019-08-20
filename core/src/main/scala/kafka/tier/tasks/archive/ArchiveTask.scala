@@ -2,18 +2,16 @@
  Copyright 2018 Confluent Inc.
  */
 
-package kafka.tier.archiver
+package kafka.tier.tasks.archive
 
 import java.io.{File, IOException}
 import java.nio.ByteBuffer
-import java.time.Instant
 import java.util.UUID
 
 import com.yammer.metrics.core.Meter
 import kafka.log.{AbortedTxn, AbstractLog, LogSegment}
 import kafka.server.ReplicaManager
 import kafka.server.checkpoints.LeaderEpochCheckpointFile
-import kafka.tier.archiver.ArchiveTask.SegmentDeletedException
 import kafka.tier.TopicIdPartition
 import kafka.tier.domain.{TierSegmentUploadComplete, TierSegmentUploadInitiate}
 import kafka.tier.exceptions.{TierArchiverFatalException, TierArchiverFencedException, TierMetadataRetriableException, TierObjectStoreRetriableException}
@@ -21,6 +19,8 @@ import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
 import kafka.tier.topic.TierTopicAppender
+import kafka.tier.tasks.TierTask
+import kafka.tier.tasks.archive.ArchiveTask.SegmentDeletedException
 import kafka.utils.Logging
 import org.apache.kafka.common.errors.RetriableException
 import org.apache.kafka.common.utils.Time
@@ -28,7 +28,7 @@ import org.apache.kafka.common.utils.Time
 import scala.compat.java8.FutureConverters._
 import scala.compat.java8.OptionConverters._
 import scala.concurrent.{ExecutionContext, Future, blocking}
-import scala.util.{Random, Try}
+import scala.util.Try
 
 /*
 ArchiveTask follows a state machine progression. Each call to `transition` can either successfully transition to the
@@ -121,61 +121,39 @@ case class UploadableSegment(log: AbstractLog,
   */
 final class ArchiveTask(override val ctx: CancellationContext,
                         override val topicIdPartition: TopicIdPartition,
-                        var state: ArchiveTaskState) extends ArchiverTaskQueueTask with Logging {
-
-  @volatile var totalRetryCount: Int = 0
-  @volatile private var retryCount: Int = 0
-  @volatile private var _pausedUntil: Option[Instant] = None
+                        var state: ArchiveTaskState,
+                        archiverMetrics: ArchiverMetrics) extends TierTask[ArchiveTask](archiverMetrics.retryRateOpt) with Logging {
 
   override def loggerName: String = classOf[ArchiveTask].getName
 
-  override def pausedUntil: Option[Instant] = _pausedUntil
-
-  /**
-    * Pause this task for later retry
-    */
-  private def retryTaskLater(time: Time, maxRetryBackoffMs: Int): Unit = {
-    retryCount += 1
-    totalRetryCount += 1
-    val now = Instant.ofEpochMilli(time.milliseconds())
-    val pauseMs = Math.min(maxRetryBackoffMs, Random.nextInt(retryCount) * 1000)
-    warn(s"pausing archiving of $topicIdPartition for ${pauseMs}ms")
-    _pausedUntil = Some(now.plusMillis(pauseMs))
-  }
-
-  def transition(time: Time,
-                 tierTopicAppender: TierTopicAppender,
-                 tierObjectStore: TierObjectStore,
-                 replicaManager: ReplicaManager,
-                 byteRateMetric: Option[Meter] = None,
-                 maxRetryBackoffMs: Option[Int] = None)(implicit ec: ExecutionContext): Future[ArchiveTask] = {
+  override def transition(time: Time,
+                          tierTopicAppender: TierTopicAppender,
+                          tierObjectStore: TierObjectStore,
+                          replicaManager: ReplicaManager,
+                          maxRetryBackoffMs: Option[Int] = None)(implicit ec: ExecutionContext): Future[ArchiveTask] = {
     val newState = state match {
       case _ if ctx.isCancelled => Future(state)
       case s: BeforeLeader => ArchiveTask.establishLeadership(s, topicIdPartition, tierTopicAppender)
       case s: BeforeUpload => ArchiveTask.maybeInitiateUpload(s, topicIdPartition, time, tierTopicAppender, tierObjectStore, replicaManager)
       case s: Upload => ArchiveTask.upload(s, topicIdPartition, time, tierObjectStore)
-      case s: AfterUpload => ArchiveTask.finalizeUpload(s, topicIdPartition, time, tierTopicAppender, byteRateMetric)
+      case s: AfterUpload => ArchiveTask.finalizeUpload(s, topicIdPartition, time, tierTopicAppender, archiverMetrics.byteRateOpt)
     }
 
-    newState.map {
-      result =>
-        this.retryCount = 0
-        this._pausedUntil = None
-        this.state = result
-        this
+    newState.map { result =>
+      onSuccessfulTransition()
+      state = result
+      this
     }.recover {
-      case _: TierMetadataRetriableException | _: TierObjectStoreRetriableException =>
-        info(s"encountered a retriable exception archiving $topicIdPartition")
-        retryTaskLater(time, maxRetryBackoffMs.getOrElse(5000))
+      case e @ (_: TierMetadataRetriableException | _: TierObjectStoreRetriableException) =>
+        retryTaskLater(maxRetryBackoffMs.getOrElse(5000), time.hiResClockMs(), e)
         this
       case e: TierArchiverFencedException =>
         info(s"$topicIdPartition was fenced, stopping archival process", e)
         ctx.cancel()
         this
       case e: SegmentDeletedException =>
-        this.state = state.handleSegmentDeletedException(e)
-        retryTaskLater(time, maxRetryBackoffMs.getOrElse(5000))
-        info(s"Retrying ${this.state} as segment was deleted", e)
+        state = state.handleSegmentDeletedException(e)
+        retryTaskLater(maxRetryBackoffMs.getOrElse(5000), time.hiResClockMs(), e)
         this
       case e: Throwable =>
         ctx.cancel()
@@ -183,15 +161,14 @@ final class ArchiveTask(override val ctx: CancellationContext,
     }
   }
 
-  override def toString = s"ArchiveTask($topicIdPartition, retries=$totalRetryCount, state=${state.getClass.getName}, epoch=${state.leaderEpoch}, cancelled=${ctx.isCancelled})"
+  override def toString = s"ArchiveTask($topicIdPartition, state=${state.getClass.getName}, epoch=${state.leaderEpoch}, cancelled=${ctx.isCancelled})"
 }
-
 
 object ArchiveTask extends Logging {
   override protected def loggerName: String = classOf[ArchiveTask].getName
 
-  def apply(ctx: CancellationContext, topicIdPartition: TopicIdPartition, leaderEpoch: Int): ArchiveTask = {
-    new ArchiveTask(ctx, topicIdPartition, BeforeLeader(leaderEpoch))
+  def apply(ctx: CancellationContext, topicIdPartition: TopicIdPartition, leaderEpoch: Int, archiverMetrics: ArchiverMetrics): ArchiveTask = {
+    new ArchiveTask(ctx, topicIdPartition, BeforeLeader(leaderEpoch), archiverMetrics)
   }
 
   private def assertSegmentFileAccess(uploadableSegment: UploadableSegment): Unit = {
@@ -253,7 +230,7 @@ object ArchiveTask extends Logging {
     maybeAbortedTxnsBuf
   }
 
-  private[archiver] def establishLeadership(state: BeforeLeader,
+  private[archive] def establishLeadership(state: BeforeLeader,
                                             topicIdPartition: TopicIdPartition,
                                             tierTopicAppender: TierTopicAppender)
                                            (implicit ec: ExecutionContext): Future[BeforeUpload] = {
@@ -275,7 +252,7 @@ object ArchiveTask extends Logging {
       }
   }
 
-  private[archiver] def maybeInitiateUpload(state: BeforeUpload,
+  private[archive] def maybeInitiateUpload(state: BeforeUpload,
                                             topicIdPartition: TopicIdPartition,
                                             time: Time,
                                             tierTopicAppender: TierTopicAppender,
@@ -328,7 +305,7 @@ object ArchiveTask extends Logging {
     }.flatMap(identity)
   }
 
-  private[archiver] def upload(state: Upload,
+  private[archive] def upload(state: Upload,
                                topicIdPartition: TopicIdPartition,
                                time: Time,
                                tierObjectStore: TierObjectStore)
@@ -360,7 +337,7 @@ object ArchiveTask extends Logging {
             leaderEpochStateOpt.asJava)
         } catch {
           case e: Exception if !segmentExists(state.uploadableSegment.log, logSegment) =>
-            throw new SegmentDeletedException(s"Segment $logSegment of $topicIdPartition deleted when tiering", e)
+            throw SegmentDeletedException(s"Segment $logSegment of $topicIdPartition deleted when tiering", e)
         }
 
         info(s"Uploaded segment for $topicIdPartition in ${time.milliseconds - startTime}ms")
@@ -369,7 +346,7 @@ object ArchiveTask extends Logging {
     }
   }
 
-  private[archiver] def finalizeUpload(state: AfterUpload,
+  private[archive] def finalizeUpload(state: AfterUpload,
                                        topicIdPartition: TopicIdPartition,
                                        time: Time,
                                        tierTopicAppender: TierTopicAppender,
@@ -392,7 +369,7 @@ object ArchiveTask extends Logging {
       }
   }
 
-  private[archiver] def uploadableSegment(log: AbstractLog, logSegment: LogSegment, nextOffset: Long): UploadableSegment = {
+  private[archive] def uploadableSegment(log: AbstractLog, logSegment: LogSegment, nextOffset: Long): UploadableSegment = {
     try {
       val leaderEpochStateOpt = ArchiveTask.uploadableLeaderEpochState(log, nextOffset)
       // The producer state snapshot for `logSegment` should be named with the next logSegment's base offset
@@ -403,7 +380,7 @@ object ArchiveTask extends Logging {
       UploadableSegment(log, logSegment, producerStateOpt, leaderEpochStateOpt, abortedTransactions)
     } catch {
       case e: Exception if !segmentExists(log, logSegment) =>
-        throw new SegmentDeletedException(s"Segment $logSegment of ${log.topicPartition} deleted when tiering", e)
+        throw SegmentDeletedException(s"Segment $logSegment of ${log.topicPartition} deleted when tiering", e)
     }
   }
 

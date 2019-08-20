@@ -20,33 +20,34 @@ package kafka.tier
 import java.util.Properties
 import java.util.concurrent.atomic.AtomicBoolean
 
+import kafka.api.IntegrationTestHarness
 import kafka.log.AbstractLog
-import kafka.server.KafkaConfig._
 import kafka.server.epoch.LeaderEpochFileCache
-import kafka.server.{KafkaServer, KafkaConfig}
-import kafka.utils.{TestUtils, Logging}
-import kafka.utils.TestUtils._
-import kafka.zk.ZooKeeperTestHarness
-import org.apache.kafka.clients.producer.{ProducerRecord, KafkaProducer}
+import kafka.server.{KafkaConfig, KafkaServer}
+import kafka.utils.{Logging, TestUtils}
+import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.config.{TopicConfig, ConfluentTopicConfig}
+import org.apache.kafka.common.config.{ConfluentTopicConfig, TopicConfig}
 import org.apache.kafka.common.utils.Exit
 import org.apache.kafka.common.utils.Exit.Procedure
 import org.junit.Assert.{assertEquals, assertFalse}
-import org.junit.{Before, After, Test}
-
-import scala.collection.Seq
-import scala.util.Random
+import org.junit.{After, Before, Test}
 
 // TODO: we can remove this test once we have significant system tests.
-class TierEpochStateRevolvingReplicationTest extends ZooKeeperTestHarness with Logging {
+class TierEpochStateRevolvingReplicationTest extends IntegrationTestHarness with Logging {
+  override protected val brokerCount: Int = 3
 
   val topic = "topic1"
   val msg = new Array[Byte](1000)
-  val msgBigger = new Array[Byte](10000)
-  var brokers: Seq[KafkaServer] = null
-  var producer: KafkaProducer[Array[Byte], Array[Byte]] = null
   val exited = new AtomicBoolean(false)
+
+  serverConfig.put(KafkaConfig.TierEnableProp, "false")
+  serverConfig.put(KafkaConfig.TierFeatureProp, "true")
+  serverConfig.put(KafkaConfig.TierBackendProp, "mock")
+  serverConfig.put(KafkaConfig.TierS3BucketProp, "mybucket")
+  serverConfig.put(KafkaConfig.TierPartitionStateCommitIntervalProp, "5")
+  serverConfig.put(KafkaConfig.TierMetadataNumPartitionsProp, "1")
+  serverConfig.put(KafkaConfig.LogCleanupIntervalMsProp, "5")
 
   @Before
   override def setUp() {
@@ -58,73 +59,66 @@ class TierEpochStateRevolvingReplicationTest extends ZooKeeperTestHarness with L
 
   @After
   override def tearDown() {
-    producer.close()
-    TestUtils.shutdownServers(brokers)
-    super.tearDown()
     assertFalse(exited.get())
+    super.tearDown()
   }
 
   @Test
   def testTierStateRestoreToReplication(): Unit = {
-    //Given 3 brokers
-    brokers = (100 to 102).map(createBroker(_))
-
     val properties = new Properties()
     properties.put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true")
-    properties.put(TopicConfig.SEGMENT_BYTES_CONFIG, "50000")
+    properties.put(TopicConfig.SEGMENT_BYTES_CONFIG, "2000")
     properties.put(TopicConfig.RETENTION_BYTES_CONFIG, "-1")
+    properties.put(ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_CONFIG, "0")
     properties.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "2")
 
-    //A single partition topic with 3 replicas
-    TestUtils.createTopic(zkClient, topic, Map(0 -> Seq(100, 101, 102)), brokers, properties)
-    producer = createProducer
+    // create partition with 3 replicas
     val tp = new TopicPartition(topic, 0)
+    val leaderId = createTopic(topic, numPartitions = 1, replicationFactor = 3, topicConfig = properties).head._2
+    val leader = servers.find(_.config.brokerId == leaderId).get
+    awaitISR(tp, 3, leader)
+
+    val producer = createProducer()
 
     // since we use RF = 3 on the tier topic,
     // we must make sure the tier topic is up before we start stopping brokers
-    brokers.foreach(b => TierTestUtils.awaitTierTopicPartition(b, 0))
+    servers.foreach(b => TierTestUtils.awaitTierTopicPartition(b, 0))
 
-    producer.send(new ProducerRecord(topic, 0, null, msg)).get
+    for (_ <- 0 until 3) {
+      val followerToShutdown = servers.map(_.config.brokerId).filter(_ != leaderId).head
 
-    awaitISR(tp, 3)
+      // stop the follower before writing anything
+      killBroker(followerToShutdown)
+      awaitISR(tp, 2, leader)
 
-    for (i <- 0 to 5) {
-      val followerToShutdown = randomFollower()
-
-      //Stop the follower before writing anything
-      stop(followerToShutdown)
-      awaitISR(tp, 2)
+      producer.send(new ProducerRecord(tp.topic, tp.partition, null, msg)).get
 
       val logEndPriorToProduce = leader.replicaManager.logManager.getLog(tp).get.localLogEndOffset
 
       // a follower is now shutdown, write a bunch of messages
-      for (i <- 0 until 1000) {
-        producer.send(new ProducerRecord(topic, 0, null, msg)).get
-      }
+      for (_ <- 0 until 4)
+        producer.send(new ProducerRecord(tp.topic, tp.partition, null, msg)).get
 
       TestUtils.waitUntilTrue(() => {
-        // delete some segments so that replication will happen
+        // wait for log start offset to be greater than the end we saw
         val leaderLog = leader.replicaManager.logManager.getLog(tp)
-        leaderLog.get.deleteOldSegments()
         leaderLog.get.localLogStartOffset > logEndPriorToProduce
       }, "timed out waiting for segment tiering and deletion",
         60000)
 
-      start(followerToShutdown)
-      awaitISR(tp, 3)
+      restartDeadBrokers()
+      awaitISR(tp, 3, leader)
 
       // send one more message so that final epochs match, since leader epoch won't be attached
       // to epoch state in follower unless there is an additional message
       producer.send(new ProducerRecord(topic, 0, null, msg)).get
 
-      for (broker <- brokers) {
+      for (broker <- servers)
         waitForLogEndOffsetToMatch(leader, broker, 0)
-      }
 
       // check all the broker epoch entries match
-      for (broker <- brokers) {
+      for (broker <- servers)
         assertEquals(epochCache(broker).epochEntries, epochCache(leader).epochEntries)
-      }
     }
   }
 
@@ -139,53 +133,14 @@ class TierEpochStateRevolvingReplicationTest extends ZooKeeperTestHarness with L
     broker.logManager.getLog(new TopicPartition(topic, partition)).orNull
   }
 
-  private def stop(server: KafkaServer): Unit = {
-    server.shutdown()
-    producer.close()
-    producer = createProducer
-  }
-
-  private def start(server: KafkaServer): Unit = {
-    server.startup()
-    producer.close()
-    producer = createProducer
-  }
-
   private def epochCache(broker: KafkaServer): LeaderEpochFileCache = {
     val log = getLog(broker, 0)
     log.leaderEpochCache.get
   }
 
-  private def awaitISR(tp: TopicPartition, numReplicas: Int): Unit = {
+  private def awaitISR(tp: TopicPartition, numReplicas: Int, leader: KafkaServer): Unit = {
     TestUtils.waitUntilTrue(() => {
       leader.replicaManager.nonOfflinePartition(tp).get.inSyncReplicaIds.size == numReplicas
     }, "Timed out waiting for replicas to join ISR")
-  }
-
-  private def createProducer: KafkaProducer[Array[Byte], Array[Byte]] = {
-    TestUtils.createProducer(getBrokerListStrFromServers(brokers), acks = -1)
-  }
-
-  private def leader(): KafkaServer = {
-    assertEquals(3, brokers.size)
-    val leaderId = zkClient.getLeaderForPartition(new TopicPartition(topic, 0)).get
-    brokers.filter(_.config.brokerId == leaderId)(0)
-  }
-
-  private def randomFollower(): KafkaServer = {
-    assertEquals(3, brokers.size)
-    val leader = zkClient.getLeaderForPartition(new TopicPartition(topic, 0)).get
-    Random.shuffle(brokers.filter(_.config.brokerId != leader).toList).head
-  }
-
-  private def createBroker(id: Int, enableUncleanLeaderElection: Boolean = false): KafkaServer = {
-    val config = createBrokerConfig(id, zkConnect)
-    config.setProperty(KafkaConfig.UncleanLeaderElectionEnableProp, enableUncleanLeaderElection.toString)
-    config.setProperty(KafkaConfig.TierBackendProp, "mock")
-    config.setProperty(KafkaConfig.TierFeatureProp, "true")
-    config.setProperty(KafkaConfig.TierMetadataReplicationFactorProp, "3")
-    config.setProperty(KafkaConfig.TierMetadataNumPartitionsProp, "1")
-    config.setProperty(KafkaConfig.TierLocalHotsetBytesProp, "0")
-    createServer(fromProps(config))
   }
 }

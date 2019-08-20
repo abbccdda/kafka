@@ -2,7 +2,7 @@
  Copyright 2018 Confluent Inc.
  */
 
-package kafka.tier.archiver
+package kafka.tier.tasks.archive
 
 import java.io.File
 import java.util.{UUID, function}
@@ -95,7 +95,7 @@ class ArchiveTaskIntegrationTest {
   def testArchiveTaskEmptyLog(): Unit = {
     val tierObjectStore: MockInMemoryTierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))
     val ctx = CancellationContext.newContext()
-    val task = new ArchiveTask(ctx, topicIdPartition, BeforeUpload(0))
+    val task = new ArchiveTask(ctx, topicIdPartition, BeforeUpload(0), ArchiverMetrics(None, None))
     val leaderEpoch = 0
 
     val tierTopicManger: MockTierTopicManager = new MockTierTopicManager()
@@ -105,7 +105,7 @@ class ArchiveTaskIntegrationTest {
     val log = LogTest.createLog(logDir, logConfig, brokerTopicStats, mockTime.scheduler, mockTime)
     val mockReplicaManager = logProvidingReplicaManager(topicIdPartition.topicPartition(), log)
     val nextState = Await.result(task.transition(mockTime, tierTopicManger, tierObjectStore,
-      mockReplicaManager, None, None), transitionWaitTime)
+      mockReplicaManager), transitionWaitTime)
 
     assertTrue("expected to be in BeforeUpload", nextState.state.isInstanceOf[BeforeUpload])
     assertFalse("expected task to not be cancelled", nextState.ctx.isCancelled)
@@ -117,7 +117,7 @@ class ArchiveTaskIntegrationTest {
   def testArchiveTaskUploadsProducerState(): Unit = {
     val tierObjectStore: MockInMemoryTierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))
     val ctx = CancellationContext.newContext()
-    val task = new ArchiveTask(ctx, topicIdPartition, BeforeUpload(0))
+    val task = new ArchiveTask(ctx, topicIdPartition, BeforeUpload(0), ArchiverMetrics(None, None))
     val leaderEpoch = 0
 
     val tierTopicManger: MockTierTopicManager = new MockTierTopicManager()
@@ -147,17 +147,17 @@ class ArchiveTaskIntegrationTest {
       " 4 segments", 4, snapshotFiles.size)
 
     val maybeUpload = Await.result(
-      task.transition(mockTime, tierTopicManger, tierObjectStore, mockReplicaManager, None, None), transitionWaitTime)
+      task.transition(mockTime, tierTopicManger, tierObjectStore, mockReplicaManager), transitionWaitTime)
     assertEquals("expected successful transition to Upload", classOf[Upload], maybeUpload.state.getClass)
     val maybeAfterUpload = Await.result(
-      task.transition(mockTime, tierTopicManger, tierObjectStore, mockReplicaManager, None, None), transitionWaitTime)
+      task.transition(mockTime, tierTopicManger, tierObjectStore, mockReplicaManager), transitionWaitTime)
     assertEquals("expected successful transition to afterUpload", classOf[AfterUpload], maybeAfterUpload.state.getClass)
 
     val objectCounts = tierObjectStore.getObjectCounts
     assertEquals("expected 1 segment file", 1, objectCounts.get(FileType.SEGMENT))
     assertEquals("expected 1 producer state", 1, objectCounts.get(FileType.PRODUCER_STATE))
 
-    val maybeBeforeUpload = Await.result(maybeAfterUpload.transition(mockTime, tierTopicManger, tierObjectStore, mockReplicaManager, None, None), transitionWaitTime)
+    val maybeBeforeUpload = Await.result(maybeAfterUpload.transition(mockTime, tierTopicManger, tierObjectStore, mockReplicaManager), transitionWaitTime)
     assertTrue("expected successful transition to beforeUpload", maybeBeforeUpload.state.isInstanceOf[BeforeUpload])
 
     val tierPartitionState = tierTopicManger.partitionState(topicIdPartition)

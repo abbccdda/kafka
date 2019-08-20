@@ -17,12 +17,13 @@ import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.internals.Topic
 import org.junit.Test
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 
 import scala.collection.JavaConverters._
 
 class TierTopicManagerSoftFailureIntegrationTest extends IntegrationTestHarness {
   override protected def brokerCount: Int = 1
+
   serverConfig.put(KafkaConfig.TierPartitionStateCommitIntervalProp, "5")
   serverConfig.put(KafkaConfig.TierBackendProp, "mock")
   serverConfig.put(KafkaConfig.TierS3BucketProp, "mybucket")
@@ -39,6 +40,7 @@ class TierTopicManagerSoftFailureIntegrationTest extends IntegrationTestHarness 
     servers.foreach { server =>
       TestUtils.waitUntilTrue(server.tierTopicManager.isReady, "timed out waiting for TierTopicManager to be ready")
     }
+    TestUtils.waitUntilTrue(() => tierTasksCyclesCount > 0, "Timed out waiting for cycle count to be non-zero")
 
     val properties = new Properties()
     properties.put(ProducerConfig.CLIENT_ID_CONFIG, TierTopicProducerSupplier.clientId("clusterId", 0, 0))
@@ -53,41 +55,19 @@ class TierTopicManagerSoftFailureIntegrationTest extends IntegrationTestHarness 
     }
 
     TestUtils.waitUntilTrue(() => !servers.head.tierTopicManager.isReady, s"timeout waiting for TierTopicManager to no longer be ready to uncaught exception")
+    val countAfterNotReady = tierTasksCyclesCount
 
-    val mBeanServer = ManagementFactory.getPlatformMBeanServer
-    val List(retentionCountAfterNotReady) = mBeanServer
-      .getAttributes(new ObjectName("kafka.tier.retention:type=TierRetentionManager,name=CyclesPerSec"), Array("Count"))
+    // sleep for a while to test that TierTasks thread no longer cycles
+    Thread.sleep(3000)
+
+    assertEquals(countAfterNotReady, tierTasksCyclesCount)
+  }
+
+  private def tierTasksCyclesCount: Long = {
+    ManagementFactory.getPlatformMBeanServer
+      .getAttributes(new ObjectName("kafka.tier.tasks:type=TierTasks,name=CyclesPerSec"), Array("Count"))
       .asList.asScala
       .map { attr => attr.getValue.asInstanceOf[Long] }
-      .toList
-
-    assertTrue( "retention thread should have checked at least once", retentionCountAfterNotReady > 0)
-
-    val List(archiverCountAfterNotReady) = mBeanServer
-      .getAttributes(new ObjectName("kafka.tier.archiver:type=TierArchiver,name=CyclesPerSec"), Array("Count"))
-      .asList.asScala
-      .map { attr => attr.getValue.asInstanceOf[Long] }
-      .toList
-
-    assertTrue("archiver thread should have checked at least once", retentionCountAfterNotReady > 0)
-
-    // sleep for a while to test that retention no longer cycles
-    Thread.sleep(1000)
-
-    val List(latestArchiverCount) = mBeanServer
-      .getAttributes(new ObjectName("kafka.tier.archiver:type=TierArchiver,name=CyclesPerSec"), Array("Count"))
-      .asList.asScala
-      .map { attr => attr.getValue.asInstanceOf[Long] }
-      .toList
-
-    assertTrue(latestArchiverCount == archiverCountAfterNotReady)
-
-    val List(latestRetentionCount) = mBeanServer
-      .getAttributes(new ObjectName("kafka.tier.retention:type=TierRetentionManager,name=CyclesPerSec"), Array("Count"))
-      .asList.asScala
-      .map { attr => attr.getValue.asInstanceOf[Long] }
-      .toList
-
-    assertTrue(latestRetentionCount == retentionCountAfterNotReady)
+      .head
   }
 }

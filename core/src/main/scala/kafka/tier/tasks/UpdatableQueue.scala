@@ -2,9 +2,8 @@
  Copyright 2018 Confluent Inc.
  */
 
-package kafka.tier.archiver
+package kafka.tier.tasks
 
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.{Condition, Lock, ReentrantLock}
 
 import scala.collection.mutable
@@ -26,19 +25,6 @@ final class UpdatableQueue[T <: UpdatableQueueEntry] {
   private val items: mutable.Map[T#Key, T] = mutable.Map()
   private val queue: mutable.Queue[T#Key] = mutable.Queue()
   private var closed: Boolean = false
-
-  /**
-    * Close the queue, unblocking all pollers.
-    */
-  def close(): Unit = {
-    lock.lock()
-    try {
-      closed = true
-      cond.signalAll()
-    } finally {
-      lock.unlock()
-    }
-  }
 
   /**
     * Enqueue item, replacing any item with a matching T#Key.
@@ -81,38 +67,58 @@ final class UpdatableQueue[T <: UpdatableQueueEntry] {
   }
 
   /**
-    * Pop the oldest item in this queue, waiting if necessary.
+    * Poll the oldest item in this queue if an item is available. This method is non-blocking and returns immediately
+    * regardless of whether an item is present in the queue.
+    * @return Optional item removed from the queue if one was present; None otherwise
     */
-  def pop(): T = {
-    pop(Long.MaxValue, TimeUnit.DAYS).get
+  def poll(): Option[T] = {
+    lock.lock()
+    try {
+      if (closed)
+        throw new CancellationException("queue closed")
+
+      if (queue.isEmpty) {
+        None
+      } else {
+        val key = queue.dequeue()
+        items.remove(key) match {
+          case Some(item) => Some(item)
+          case None => throw new IllegalStateException("Illegal queue state")
+        }
+      }
+    } finally {
+      lock.unlock()
+    }
   }
 
   /**
-    * Pop the oldest item in this queue, waiting up to the specified timeout.
-    * @return Some(item) if the pop operation completed before the specified timeout, otherwise None.
+    * Remove and return the oldest item in this queue, blocking until an item is available.
+    * @return The oldest item in the queue
     */
-  def pop(timeout: Long, unit: TimeUnit): Option[T] = {
+  def take(): T = {
+    lock.lock()
+
+    try {
+      while (!closed && queue.isEmpty)
+        cond.await()
+
+      if (closed)
+        throw new CancellationException("queue closed")
+
+      poll().get
+    } finally {
+      lock.unlock()
+    }
+  }
+
+  /**
+    * Close the queue, unblocking all pollers.
+    */
+  def close(): Unit = {
     lock.lock()
     try {
-      if (!closed) {
-        while (queue.isEmpty) {
-          if (closed) {
-            throw new CancellationException("queue closed")
-          } else {
-            if (!cond.await(timeout, unit)) {
-              // await timed out, return early
-              return None
-            }
-            // await did not time out,
-          }
-        }
-        val key = queue.dequeue()
-        items.remove(key) match {
-          case Some(item) => return Some(item)
-          case None => throw new IllegalStateException("illegal queue state")
-        }
-      }
-      throw new CancellationException("queue closed")
+      closed = true
+      cond.signalAll()
     } finally {
       lock.unlock()
     }

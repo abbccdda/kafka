@@ -2,7 +2,7 @@
  * Copyright 2019 Confluent Inc.
  */
 
-package kafka.tier.archiver
+package kafka.tier.tasks.archive
 
 import java.util
 import java.util.UUID
@@ -11,8 +11,10 @@ import com.yammer.metrics.Metrics
 import com.yammer.metrics.core.Gauge
 import kafka.log.{AbstractLog, LogSegment}
 import kafka.server.ReplicaManager
+import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState
 import kafka.tier.store.TierObjectStore
+import kafka.tier.tasks.TierTasksConfig
 import kafka.tier.topic.TierTopicManager
 import kafka.tier.{TierMetadataManager, TopicIdPartition}
 import kafka.utils.{MockTime, TestUtils}
@@ -23,6 +25,7 @@ import org.mockito.invocation.InvocationOnMock
 import org.mockito.stubbing.Answer
 
 import scala.collection.JavaConverters._
+import scala.concurrent.ExecutionContext.Implicits.global
 
 class TierArchiverTest {
   @Test
@@ -57,10 +60,11 @@ class TierArchiverTest {
     val tierTopicManager: TierTopicManager = mock(classOf[TierTopicManager])
     val tierObjectStore: TierObjectStore = mock(classOf[TierObjectStore])
     val time = new MockTime()
+    val config = TierTasksConfig(numThreads = 2)
 
     TestUtils.clearYammerMetrics()
-    new TierArchiver(TierArchiverConfig(), replicaManager, tierMetadataManager,
-      tierTopicManager, tierObjectStore, time)
+    new TierArchiver(config, replicaManager, tierMetadataManager,
+      tierTopicManager, tierObjectStore, CancellationContext.newContext(), config.numThreads, time)
     assertEquals(17179869176L, metricValue("TotalLag"))
   }
 

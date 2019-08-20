@@ -2,7 +2,7 @@
  Copyright 2018 Confluent Inc.
  */
 
-package kafka.tier.archiver
+package kafka.tier.tasks
 
 import java.util.concurrent._
 

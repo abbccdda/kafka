@@ -89,7 +89,7 @@
       <allow class="kafka.server.epoch.EpochEntry" />
       <allow class="kafka.log.TimestampOffset" />
       <allow class="kafka.tier.TierTimestampAndOffset"/>
-      <allow class="kafka.tier.archiver.ArchiveTask"/>
+      <allow class="kafka.tier.tasks.archive.ArchiveTask"/>
     </subpackage>
     <subpackage name="store">
       <allow pkg="com.amazonaws" />

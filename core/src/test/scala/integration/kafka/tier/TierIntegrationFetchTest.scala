@@ -194,7 +194,7 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
       bytesFetchedTotal > 100)
 
     val List(meanArchiveRate) = mBeanServer
-      .getAttributes(new ObjectName("kafka.tier.archiver:type=TierArchiver,name=BytesPerSec"), Array("MeanRate"))
+      .getAttributes(new ObjectName("kafka.tier.tasks.archive:type=TierArchiver,name=BytesPerSec"), Array("MeanRate"))
       .asList.asScala
       .map { attr => attr.getValue.asInstanceOf[Double] }
       .toList
