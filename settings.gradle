@@ -51,4 +51,5 @@ include 'clients',
     'ce-rest-authorizer', 
     'ce-rbac', 
     'ce-auth-providers',
-    'ce-aegis'
+    'ce-aegis',
+    'ce-audit'

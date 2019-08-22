@@ -1,0 +1,88 @@
+syntax = "proto3";
+package audit;
+
+option java_package = "io.confluent.security.audit";
+option java_outer_classname = "AuditLogProto";
+option java_multiple_files = true;
+
+import "google/protobuf/struct.proto";
+
+// Audit log payload in a CloudEvents envelope
+// Note that this envelope proto produces JSON to match the CloudEvents spec
+// It is NOT wire-compatible with the current CloudEvents protobuf format
+message CloudEventsAuditLog {
+  string specversion = 1;
+  string type = 2;
+  string source = 3;
+  string id = 4;
+  string time = 5;
+  string subject = 6;
+  AuditLog data = 7;
+}
+
+// Audit log payload
+message AuditLog {
+  // The resource identifier of the service that received the request that is being authorized
+  string service_name = 1;
+
+  // The type of request that is being authorized
+  string method_name = 2;
+
+  // The resource identifier of the target of the request
+  string resource_name = 3;
+
+  AuthenticationInfo authentication_info = 4;
+  AuthorizationInfo authorization_info = 5;
+  google.protobuf.Struct request = 6;
+  google.protobuf.Struct request_metadata = 7;
+}
+
+message AuthenticationInfo {
+  // The user identifier for the requester
+  string principal = 1;
+}
+
+message AuthorizationInfo {
+  // whether the requested Authorization is allowed
+  bool granted = 1;
+
+  // The operation being authorized
+  string operation = 2;
+
+  // The resource type the operation is on
+  string resource_type = 3;
+
+  // The name of the resource
+  string resource_name = 4;
+
+  // The kind of resource pattern used to match the resource
+  string pattern_type = 5;
+
+  oneof authorization {
+    AclAuthorizationInfo acl_authorization = 6;
+    RbacAuthorizationInfo rbac_authorization = 7;
+  };
+}
+
+message AclAuthorizationInfo {
+  string permission_type = 1;
+
+  // Hosts the principal has permission from
+  string host = 2;
+}
+
+message RbacAuthorizationInfo {
+  // The role that this was authorized for
+  string role = 1;
+
+  // The scope that this was authorized in
+  AuthorizationScope scope = 2;
+}
+
+
+message AuthorizationScope {
+  // Path elements in the outer scopes, outermost first
+  repeated string outer_scope = 1;
+
+  map<string, string> clusters = 2;
+}

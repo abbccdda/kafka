@@ -197,7 +197,8 @@ subprojects {
     if (!project.name.equals('support-metrics-client') &&
         !project.name.equals('support-metrics-common') &&
         !project.name.equals('support-metrics-fullcollector') &&
-        !project.name.equals('ce-serializers')) {
+        !project.name.equals('ce-serializers') &&
+        !project.name.equals('ce-audit')) {
       // Do not enable -Werror for subprojects with automatically generated code.
       // We can't fix the warnings in automatically generated code.
       options.compilerArgs << "-Werror"
@@ -669,7 +670,8 @@ def pkgs = [
     'ce-rbac',
     'ce-auth-providers',
     'ce-metrics',
-    'ce-aegis'
+    'ce-aegis',
+    'ce-audit'
 ] + connectPkgs
 
 /** Create one task per default Scala version */
@@ -990,6 +992,7 @@ project(':core') {
     from(project(':ce-rbac').configurations.runtime) { into("libs/") }
     from(project(':ce-auth-providers').jar) { into("libs/") }
     from(project(':ce-auth-providers').configurations.runtime) { into("libs/") }
+    from(project(':ce-audit').jar) { into("libs/") }
     exclude('confluent-serializers*')
     exclude('confluent-licensing*')
     duplicatesStrategy 'exclude'
@@ -2653,6 +2656,66 @@ project(':ce-aegis') {
   checkstyle {
     configProperties = checkstyleConfigProperties("confluent-import-control.xml")
   }
+}
+
+project(':ce-audit') {
+  apply plugin: 'com.google.protobuf'
+  group = "io.confluent"
+  archivesBaseName = "confluent-audit"
+
+  dependencies {
+    compile libs.protobuf
+    compile libs.protobufUtil
+    compile project(':ce-authorizer')
+    compile project(':clients')
+    testCompile libs.junit
+    testCompile project(':clients').sourceSets.test.output
+  }
+
+  tasks.create(name: "copyDependantLibs", type: Copy) {
+    from (configurations.testRuntime) {
+      include('slf4j-log4j12*')
+      include('log4j*jar')
+    }
+    from (configurations.runtime) {
+    }
+    into "$buildDir/dependant-libs"
+    duplicatesStrategy 'exclude'
+  }
+
+  protobuf {
+    protoc {
+      // Download the protoc executable from repositories.
+      artifact = "com.google.protobuf:protoc:${versions.protobuf}"
+    }
+  }
+
+  jar {
+    dependsOn 'copyDependantLibs'
+    // Move '.proto' files to 'proto/' directory to match layout in 5.2.x
+    eachFile { file ->
+      if (file.path.endsWith('.proto')) {
+        file.path = "proto/$file.path"
+      }
+    }
+  }
+
+  checkstyle {
+    configProperties = checkstyleConfigProperties("confluent-import-control.xml")
+  }
+
+  sourceSets {
+    main {
+      proto {
+        srcDir 'src/main/resources/protobuf'
+      }
+      java {
+        srcDirs "src/main/java", "${protobuf.generatedFilesBaseDir}/main/java"
+      }
+    }
+  }
+
+  compileJava.dependsOn 'generateProto'
 }
 
 task aggregatedJavadoc(type: Javadoc) {

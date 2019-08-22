@@ -297,4 +297,10 @@
               files="LicenseManagerTest.java"/>
     <suppress checks="MethodLength"
               files="LicenseManagerTest.java"/>
+
+    <!-- ce-audit exclusions -->
+    <suppress checks=".+"
+      files="ce-audit/build/generated/.+.java$"/>
+    <!-- uses protobuf generated classes -->
+    <suppress checks="ImportControl" files="ProtobufToJsonTest.java"/>
 </suppressions>
