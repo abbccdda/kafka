@@ -16,6 +16,8 @@
  */
 package kafka.admin
 
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import java.util
 import java.util.Properties
 
@@ -27,6 +29,7 @@ import kafka.utils.{Exit, Logging}
 import kafka.zk.{AdminZkClient, BrokerInfo, KafkaZkClient, ZooKeeperTestHarness}
 import org.apache.kafka.clients.admin._
 import org.apache.kafka.common.config.{ConfigException, ConfigResource}
+import org.apache.kafka.common.config.ConfluentTopicConfig
 import org.apache.kafka.common.internals.KafkaFutureImpl
 import org.apache.kafka.common.Node
 import org.apache.kafka.common.errors.InvalidConfigurationException
@@ -837,4 +840,71 @@ class ConfigCommandTest extends ZooKeeperTestHarness with Logging {
     override def changeTopicConfig(topic: String, configs: Properties): Unit = {}
   }
 
+  @Test
+  def testReplicaPlacementSetsProperty(): Unit = {
+    val file = Files.createTempFile("config-command", ".json")
+
+    try {
+      val content = """{"version":1,"replicas":[],"observers":[]}"""
+      Files.write(file, content.getBytes(StandardCharsets.UTF_8))
+
+      val config = new ConfigCommandOptions(
+        Array(
+          "--zookeeper", "localhost:2181",
+          "--entity-name", "1",
+          "--entity-type", "topics",
+          "--alter",
+          "--replica-placement", s"$file"
+        )
+      )
+      config.checkArgs()
+
+      val props = ConfigCommand.parseConfigsToBeAdded(config)
+      assertEquals(1, props.size())
+      assertEquals(content, props.getProperty(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG))
+    } finally {
+      Files.delete(file)
+    }
+  }
+
+  @Test(expected = classOf[IllegalArgumentException])
+  def testInvalidReplicaPlacementProperty(): Unit = {
+    val file = Files.createTempFile("config-command", ".json")
+
+    try {
+      val content = """not a json object"""
+      Files.write(file, content.getBytes(StandardCharsets.UTF_8))
+
+      val config = new ConfigCommandOptions(
+        Array(
+          "--zookeeper", "localhost:2181",
+          "--entity-name", "1",
+          "--entity-type", "topics",
+          "--alter",
+          "--replica-placement", s"$file"
+        )
+      )
+      config.checkArgs()
+
+      ConfigCommand.parseConfigsToBeAdded(config)
+    } finally {
+      Files.delete(file)
+    }
+  }
+
+  @Test(expected = classOf[IllegalArgumentException])
+  def testIllegalToSetReplicaPlacementWithAddConfig(): Unit = {
+    val config = new ConfigCommandOptions(
+      Array(
+        "--zookeeper", "localhost:2181",
+        "--entity-name", "1",
+        "--entity-type", "topics",
+        "--alter",
+        "--add-config", s"${ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG}=anything"
+      )
+    )
+    config.checkArgs()
+
+    ConfigCommand.parseConfigsToBeAdded(config)
+  }
 }

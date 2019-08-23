@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit
 import java.util.{Collections, Properties}
 
 import joptsimple._
+import kafka.common.TopicPlacement
 import kafka.common.Config
 import kafka.log.LogConfig
 import kafka.server.{ConfigEntityName, ConfigType, Defaults, DynamicBrokerConfig, DynamicConfig, KafkaConfig}
@@ -29,7 +30,7 @@ import kafka.utils.Implicits._
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin.{Admin, AlterConfigOp, AlterConfigsOptions, ConfigEntry, DescribeConfigsOptions, AdminClient => JAdminClient, Config => JConfig}
-import org.apache.kafka.common.config.{ConfigResource, LogLevelConfig}
+import org.apache.kafka.common.config.{ConfigResource, ConfluentTopicConfig, LogLevelConfig}
 import org.apache.kafka.common.config.types.Password
 import org.apache.kafka.common.errors.InvalidConfigurationException
 import org.apache.kafka.common.security.JaasUtils
@@ -253,6 +254,25 @@ object ConfigCommand extends Config {
           s"This configuration will be ignored if the version is newer than the inter.broker.protocol.version specified in the broker.")
       }
     }
+
+    parseReplicaPlacementConfig(props, opts)
+  }
+
+  private[this] def parseReplicaPlacementConfig(props: Properties, opts: ConfigCommandOptions): Properties = {
+    if (props.containsKey(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG)) {
+      throw new IllegalArgumentException(
+        s"When adding the ${ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG} configuration please use the --replica-placement flag"
+      )
+    }
+
+    if (opts.options.has(opts.replicaPlacementOpt)) {
+      val jsonString = Utils.readFileAsString(opts.options.valueOf(opts.replicaPlacementOpt))
+      props.setProperty(
+        ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG,
+        TopicPlacement.parse(jsonString).toJson
+      )
+    }
+
     props
   }
 
@@ -528,6 +548,10 @@ object ConfigCommand extends Config {
             s"Entity types '${ConfigType.User}' and '${ConfigType.Client}' may be specified together to update config for clients of a specific user.")
             .withRequiredArg
             .ofType(classOf[String])
+    val replicaPlacementOpt = parser.accepts("replica-placement", ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_DOC)
+      .withRequiredArg
+      .describedAs("Replica placement JSON file path.")
+      .ofType(classOf[String])
     val deleteConfig = parser.accepts("delete-config", "config keys to remove 'k1,k2'")
             .withRequiredArg
             .ofType(classOf[String])
@@ -535,7 +559,9 @@ object ConfigCommand extends Config {
     val forceOpt = parser.accepts("force", "Suppress console prompts")
     options = parser.parse(args : _*)
 
-    val allOpts: Set[OptionSpec[_]] = Set(alterOpt, describeOpt, entityType, entityName, addConfig, deleteConfig, helpOpt)
+    val allOpts: Set[OptionSpec[_]] = Set(
+      alterOpt, describeOpt, entityType, entityName, addConfig, deleteConfig, replicaPlacementOpt, helpOpt
+    )
 
     def checkArgs() {
       // should have exactly one action
@@ -544,7 +570,9 @@ object ConfigCommand extends Config {
         CommandLineUtils.printUsageAndDie(parser, "Command must include exactly one action: --describe, --alter")
       // check required args
       CommandLineUtils.checkInvalidArgs(parser, options, alterOpt, Set(describeOpt))
-      CommandLineUtils.checkInvalidArgs(parser, options, describeOpt, Set(alterOpt, addConfig, deleteConfig))
+      CommandLineUtils.checkInvalidArgs(
+        parser, options, describeOpt, Set(alterOpt, addConfig, deleteConfig, replicaPlacementOpt)
+      )
 
       val entityTypeVals = options.valuesOf(entityType).asScala
       val (allowedEntityTypes, connectOptString) = if (options.has(bootstrapServerOpt))
@@ -589,10 +617,12 @@ object ConfigCommand extends Config {
         } else if (!options.has(entityName))
           throw new IllegalArgumentException(s"--entity-name must be specified with --alter of ${entityTypeVals.mkString(",")}")
 
-        val isAddConfigPresent: Boolean = options.has(addConfig)
-        val isDeleteConfigPresent: Boolean = options.has(deleteConfig)
-        if(! isAddConfigPresent && ! isDeleteConfigPresent)
-          throw new IllegalArgumentException("At least one of --add-config or --delete-config must be specified with --alter")
+        val isAddConfigPresent = options.has(addConfig)
+        val isReplicaPlacementPresent = options.has(replicaPlacementOpt)
+        val isDeleteConfigPresent = options.has(deleteConfig)
+
+        if(!isAddConfigPresent && !isReplicaPlacementPresent && ! isDeleteConfigPresent)
+          throw new IllegalArgumentException("At least one of --add-config, --delete-config or --replica-placement must be specified with --alter")
       }
     }
   }
