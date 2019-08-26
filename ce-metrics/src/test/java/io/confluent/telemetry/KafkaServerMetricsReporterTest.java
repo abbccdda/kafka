@@ -1,6 +1,7 @@
 package io.confluent.telemetry;
 
 import io.confluent.metrics.reporter.integration.MetricReporterClusterTestHarness;
+import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 import io.confluent.telemetry.reporter.KafkaServerMetricsReporter;
 import io.confluent.telemetry.serde.OpencensusMetricsProto;
 import io.opencensus.proto.metrics.v1.LabelKey;
@@ -41,7 +42,7 @@ public class KafkaServerMetricsReporterTest extends MetricReporterClusterTestHar
     public void setUp() throws Exception {
         super.setUp();
         consumer = createNewConsumer();
-        consumer.subscribe(Collections.singleton(ConfluentTelemetryConfig.DEFAULT_TOPIC_CONFIG));
+        consumer.subscribe(Collections.singleton(KafkaExporterConfig.DEFAULT_TOPIC_NAME));
     }
 
     @After
@@ -52,12 +53,12 @@ public class KafkaServerMetricsReporterTest extends MetricReporterClusterTestHar
 
     protected void injectMetricReporterProperties(Properties props, String brokerList) {
         props.setProperty(KafkaConfig.MetricReporterClassesProp(), "io.confluent.telemetry.reporter.KafkaServerMetricsReporter");
-        props.setProperty(ConfluentTelemetryConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
-        props.setProperty(ConfluentTelemetryConfig.TOPIC_REPLICAS_CONFIG, "1");
-        props.setProperty(ConfluentTelemetryConfig.PUBLISH_PERIOD_CONFIG, "500");
+        props.setProperty(KafkaExporterConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
+        props.setProperty(KafkaExporterConfig.TOPIC_REPLICAS_CONFIG, "1");
+        props.setProperty(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG, "500");
         props.setProperty(ConfluentTelemetryConfig.WHITELIST_CONFIG, "");
-        props.setProperty("confluent.telemetry.metrics.reporter.labels.region", "test");
-        props.setProperty("confluent.telemetry.metrics.reporter.labels.pkc", "pkc-bar");
+        props.setProperty(ConfluentTelemetryConfig.PREFIX_LABELS + "region", "test");
+        props.setProperty(ConfluentTelemetryConfig.PREFIX_LABELS + "pkc", "pkc-bar");
         props.setProperty(ConfluentTelemetryConfig.DEBUG_ENABLED, "true");
 
         // force flush every message so that we can generate some Yammer timer metrics

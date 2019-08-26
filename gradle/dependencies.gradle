@@ -66,7 +66,7 @@ versions += [
   apachedaLdapCodec: "1.0.0",
   apacheds: "2.0.0-M24",
   argparse4j: "0.7.0",
-  assertj: "2.2.0",
+  assertj: "3.13.2",
   avro: "1.9.0",
   avroPlugin: "0.17.0",
   bcpkix: "1.62",

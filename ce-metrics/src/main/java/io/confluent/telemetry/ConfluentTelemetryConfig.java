@@ -3,78 +3,44 @@
 package io.confluent.telemetry;
 
 import com.google.common.base.Joiner;
-import io.confluent.monitoring.common.MonitoringProducerDefaults;
 import io.confluent.monitoring.common.TimeBucket;
+import io.confluent.telemetry.collector.VolumeMetricsCollector.VolumeMetricsCollectorConfig;
+import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
-import org.apache.kafka.clients.producer.ProducerConfig;
+import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
-import org.apache.kafka.common.config.ConfigException;
-import org.apache.kafka.common.config.TopicConfig;
-import org.apache.kafka.common.record.TimestampType;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
-import java.util.concurrent.TimeUnit;
 
 public class ConfluentTelemetryConfig extends AbstractConfig {
 
-    public static final String METRICS_REPORTER_PREFIX = "confluent.telemetry.metrics.reporter.";
-    public static final String METRICS_REPORTER_TAGS_PREFIX = "confluent.telemetry.metrics.reporter.labels.";
-    public static final String METRICS_REPORTER_TOPIC_PREFIX = "confluent.telemetry.metrics.reporter.topic.";
-    public static final String BOOTSTRAP_SERVERS_CONFIG =
-            METRICS_REPORTER_PREFIX + ProducerConfig.BOOTSTRAP_SERVERS_CONFIG;
-    public static final String BOOTSTRAP_SERVERS_DOC = "Bootstrap servers for the KafkaExporter cluster "
-            + "metrics will be published to. The metrics cluster may be different from the cluster(s) "
-            + "whose metrics are being collected. Several production KafkaExporter clusters can publish to a "
-            + "single metrics cluster, for example.";
-    // metrics topic default settings should be consistent with
-    // control center default metrics topic settings
-    // to ensure topics have the same settings regardless of which one starts first
-    public static final String TOPIC_CONFIG = METRICS_REPORTER_PREFIX + "topic";
-    public static final String DEFAULT_TOPIC_CONFIG = "_confluent-telemetry-metrics";
-    public static final String TOPIC_DOC = "Topic on which metrics data will be written.";
-    public static final String TOPIC_CREATE_CONFIG = METRICS_REPORTER_PREFIX + "topic.create";
-    public static final boolean DEFAULT_TOPIC_CREATE_CONFIG = true;
-    public static final String TOPIC_CREATE_DOC = "Create the metrics topic if it does not exist.";
-    public static final String TOPIC_PARTITIONS_CONFIG = METRICS_REPORTER_PREFIX + "topic.partitions";
-    public static final int DEFAULT_TOPIC_PARTITIONS_CONFIG = 12;
-    public static final String TOPIC_PARTITIONS_DOC = "Number of partitions in the metrics topic.";
-    public static final String TOPIC_REPLICAS_CONFIG = METRICS_REPORTER_PREFIX + "topic.replicas";
-    public static final int DEFAULT_TOPIC_REPLICAS_CONFIG = 3;
-    public static final String TOPIC_REPLICAS_DOC =
-            "Number of replicas in the metric topic. It must not be higher than the number "
-                    + "of brokers in the KafkaExporter cluster.";
-    public static final String TOPIC_RETENTION_MS_CONFIG =
-            METRICS_REPORTER_PREFIX + "topic.retention.ms";
-    public static final long DEFAULT_TOPIC_RETENTION_MS_CONFIG = TimeUnit.DAYS.toMillis(3);
-    public static final String TOPIC_RETENTION_MS_DOC = "Retention time for the metrics topic.";
-    public static final String TOPIC_RETENTION_BYTES_CONFIG =
-            METRICS_REPORTER_PREFIX + "topic.retention.bytes";
-    public static final long DEFAULT_TOPIC_RETENTION_BYTES_CONFIG = -1L;
-    public static final String TOPIC_RETENTION_BYTES_DOC = "Retention bytes for the metrics topic.";
-    public static final String TOPIC_ROLL_MS_CONFIG = METRICS_REPORTER_PREFIX + "topic.roll.ms";
-    public static final long DEFAULT_TOPIC_ROLL_MS_CONFIG = TimeUnit.HOURS.toMillis(4);
-    public static final String TOPIC_ROLL_MS_DOC = "Log rolling time for the metrics topic.";
-    public static final String TOPIC_MAX_MESSAGE_BYTES_CONFIG =
-            METRICS_REPORTER_PREFIX + "topic." + TopicConfig.MAX_MESSAGE_BYTES_CONFIG;
-    public static final int DEFAULT_TOPIC_MAX_MESSAGE_BYTES_CONFIG =
-            MonitoringProducerDefaults.MAX_REQUEST_SIZE;
-    public static final String
-            TOPIC_MAX_MESSAGE_BYTES_DOC = "Maximum message size for the metrics topic.";
-    public static final String PUBLISH_PERIOD_CONFIG = METRICS_REPORTER_PREFIX + "publish.ms";
-    public static final Long DEFAULT_PUBLISH_PERIOD = TimeBucket.SIZE;
-    public static final String PUBLISH_PERIOD_DOC = "The metrics reporter will publish new metrics "
-            + "to the metrics topic in intervals defined by this setting. This means that control "
+    public static final String PREFIX = "confluent.telemetry.";
+    public static final String PREFIX_LABELS = PREFIX + "labels.";
+    public static final String PREFIX_EXPORTER = PREFIX + "exporter.";
+    public static final String PREFIX_METRICS_COLLECTOR = PREFIX + "metrics.collector.";
+
+    public static final String COLLECT_INTERVAL_CONFIG = PREFIX_METRICS_COLLECTOR + "interval.ms";
+    public static final Long DEFAULT_COLLECT_INTERVAL = TimeBucket.SIZE;
+    public static final String COLLECT_INTERVAL_DOC = "The metrics reporter will collect new metrics "
+            + "from the system in intervals defined by this setting. This means that control "
             + "center system health data lags by this duration, or that rebalancer may compute a plan "
             + "based on broker data that is stale by this duration. The default is a reasonable value "
             + "for production environments and it typically does not need to be changed.";
-    public static final String WHITELIST_CONFIG = METRICS_REPORTER_PREFIX + "whitelist";
+
+    public static final String WHITELIST_CONFIG = PREFIX_METRICS_COLLECTOR + "whitelist";
+    public static final String WHITELIST_DOC =
+        "Regex matching the converted (snake_case) metric name to be published to the "
+        + "metrics topic.\n\nBy default this includes all the metrics required by Confluent "
+        + "Control Center and Confluent Auto Data Balancer. This should typically never be "
+        + "modified unless requested by Confluent.";
+    public static final String DEFAULT_WHITELIST;
+
     public static final List<String> DEFAULT_BROKER_MONITORING_METRICS = Collections.unmodifiableList(
             Arrays.asList(
                 "active_controller_count",
@@ -116,231 +82,81 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
                 "zookeeper_expires_per_sec"
             )
     );
-    public static final String DEFAULT_WHITELIST;
-    public static final String WHITELIST_DOC =
-            "Regex matching the converted (snake_case) metric name to be published to the "
-                    + "metrics topic.\n\nBy default this includes all the metrics required by Confluent "
-                    + "Control Center and Confluent Auto Data Balancer. This should typically never be "
-                    + "modified unless requested by Confluent.";
-    public static final String
-            VOLUME_METRICS_REFRESH_PERIOD_MS =
-            METRICS_REPORTER_PREFIX + "volume.metrics.refresh.ms";
-    public static final long DEFAULT_VOLUME_METRICS_REFRESH_PERIOD = 15000L;
-    public static final String VOLUME_METRICS_REFRESH_PERIOD_DOC =
-            "The minimum interval at which to fetch new volume metrics.";
-
-    public static final String DEBUG_ENABLED = METRICS_REPORTER_PREFIX + "debug.enabled";
-    public static final boolean DEFAULT_DEBUG_ENABLED = false;
-    public static final String DEBUG_ENABLED_DOC = "Enable debug metadata for metrics collection";
-
-    private static final ConfigDef CONFIG;
 
     static {
-        Joiner defaultWhitelistBuilder = Joiner.on(".*|.*");
         StringBuilder builder = new StringBuilder(".*");
-        defaultWhitelistBuilder.appendTo(builder, DEFAULT_BROKER_MONITORING_METRICS);
+        Joiner.on(".*|.*").appendTo(builder, DEFAULT_BROKER_MONITORING_METRICS);
         builder.append(".*");
         DEFAULT_WHITELIST = builder.toString();
     }
 
-    static {
-        CONFIG = new ConfigDef()
-                .define(
-                        BOOTSTRAP_SERVERS_CONFIG,
-                        ConfigDef.Type.STRING,
-                        ConfigDef.Importance.HIGH,
-                        BOOTSTRAP_SERVERS_DOC
-                ).define(
-                        TOPIC_CONFIG,
-                        ConfigDef.Type.STRING,
-                        DEFAULT_TOPIC_CONFIG,
-                        ConfigDef.Importance.LOW,
-                        TOPIC_DOC
-                ).define(
-                        TOPIC_CREATE_CONFIG,
-                        ConfigDef.Type.BOOLEAN,
-                        DEFAULT_TOPIC_CREATE_CONFIG,
-                        ConfigDef.Importance.LOW,
-                        TOPIC_CREATE_DOC
-                ).define(
-                        TOPIC_PARTITIONS_CONFIG,
-                        ConfigDef.Type.INT,
-                        DEFAULT_TOPIC_PARTITIONS_CONFIG,
-                        ConfigDef.Importance.LOW,
-                        TOPIC_PARTITIONS_DOC
-                ).define(
-                        TOPIC_REPLICAS_CONFIG,
-                        ConfigDef.Type.INT,
-                        DEFAULT_TOPIC_REPLICAS_CONFIG,
-                        ConfigDef.Importance.LOW,
-                        TOPIC_REPLICAS_DOC
-                ).define(
-                        TOPIC_RETENTION_MS_CONFIG,
-                        ConfigDef.Type.LONG,
-                        DEFAULT_TOPIC_RETENTION_MS_CONFIG,
-                        ConfigDef.Importance.LOW,
-                        TOPIC_RETENTION_MS_DOC
-                ).define(
-                        TOPIC_RETENTION_BYTES_CONFIG,
-                        ConfigDef.Type.LONG,
-                        DEFAULT_TOPIC_RETENTION_BYTES_CONFIG,
-                        ConfigDef.Importance.LOW,
-                        TOPIC_RETENTION_BYTES_DOC
-                ).define(
-                        TOPIC_ROLL_MS_CONFIG,
-                        ConfigDef.Type.LONG,
-                        DEFAULT_TOPIC_ROLL_MS_CONFIG,
-                        ConfigDef.Importance.LOW,
-                        TOPIC_ROLL_MS_DOC
-                ).define(
-                        TOPIC_MAX_MESSAGE_BYTES_CONFIG,
-                        ConfigDef.Type.INT,
-                        DEFAULT_TOPIC_MAX_MESSAGE_BYTES_CONFIG,
-                        ConfigDef.Range.atLeast(0),
-                        ConfigDef.Importance.MEDIUM,
-                        TOPIC_MAX_MESSAGE_BYTES_DOC
-                ).define(
-                        PUBLISH_PERIOD_CONFIG,
-                        ConfigDef.Type.LONG,
-                        DEFAULT_PUBLISH_PERIOD,
-                        ConfigDef.Importance.LOW,
-                        PUBLISH_PERIOD_DOC
-                ).define(
-                        WHITELIST_CONFIG,
-                        ConfigDef.Type.STRING,
-                        DEFAULT_WHITELIST,
-                        ConfigDef.Importance.LOW,
-                        WHITELIST_DOC
-                ).define(
-                        VOLUME_METRICS_REFRESH_PERIOD_MS,
-                        ConfigDef.Type.LONG,
-                        DEFAULT_VOLUME_METRICS_REFRESH_PERIOD,
-                        ConfigDef.Importance.LOW,
-                        VOLUME_METRICS_REFRESH_PERIOD_DOC
-                ).define(
-                        DEBUG_ENABLED,
-                        ConfigDef.Type.BOOLEAN,
-                        DEFAULT_DEBUG_ENABLED,
-                        ConfigDef.Importance.LOW,
-                        DEBUG_ENABLED_DOC
-                );
-    }
+    public static final String DEBUG_ENABLED = PREFIX + "debug.enabled";
+    public static final String DEBUG_ENABLED_DOC = "Enable debug metadata for metrics collection";
+    public static final boolean DEFAULT_DEBUG_ENABLED = false;
+
+    private static final ConfigDef CONFIG = new ConfigDef()
+        .define(
+                COLLECT_INTERVAL_CONFIG,
+                ConfigDef.Type.LONG,
+                DEFAULT_COLLECT_INTERVAL,
+                ConfigDef.Importance.LOW,
+                COLLECT_INTERVAL_DOC
+        ).define(
+                WHITELIST_CONFIG,
+                ConfigDef.Type.STRING,
+                DEFAULT_WHITELIST,
+                ConfigDef.Importance.LOW,
+                WHITELIST_DOC
+        ).define(
+                DEBUG_ENABLED,
+                ConfigDef.Type.BOOLEAN,
+                DEFAULT_DEBUG_ENABLED,
+                ConfigDef.Importance.LOW,
+                DEBUG_ENABLED_DOC
+        );
+
     public static final Predicate<MetricKey> ALWAYS_TRUE = metricKey -> true;
 
+    public static final String LEGACY_PREFIX = "confluent.telemetry.metrics.reporter.";
 
-    public ConfluentTelemetryConfig(Properties props) {
-        super(CONFIG, props);
-    }
+    private static final ConfigPropertyTranslater DEPRECATION_TRANSLATER =
+        new ConfigPropertyTranslater.Builder()
+            .withTranslation(LEGACY_PREFIX + "whitelist", WHITELIST_CONFIG)
+            .withTranslation(LEGACY_PREFIX + "publish.ms", COLLECT_INTERVAL_CONFIG)
+            .build();
 
-    public ConfluentTelemetryConfig(Map<String, ?> clientConfigs) {
-        super(CONFIG, clientConfigs);
+    private final KafkaExporterConfig kafkaExporterConfig;
+    private final VolumeMetricsCollectorConfig volumeMetricsCollectorConfig;
+
+
+    public ConfluentTelemetryConfig(Map<String, ?> originals) {
+        super(CONFIG, DEPRECATION_TRANSLATER.translate(originals));
+        this.kafkaExporterConfig = new KafkaExporterConfig(originals);
+        this.volumeMetricsCollectorConfig = new VolumeMetricsCollectorConfig(originals);
     }
 
     public static void main(String[] args) {
         System.out.println(CONFIG.toRst());
     }
 
-    private Map<String, Object> producerConfigDefaults() {
-        Map<String, Object> defaults = new HashMap<>();
-        defaults.putAll(MonitoringProducerDefaults.PRODUCER_CONFIG_DEFAULTS);
-        defaults.put(
-                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
-                "org.apache.kafka.common.serialization.ByteArraySerializer"
-        );
-        defaults.put(
-                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
-                "io.confluent.telemetry.serde.OpencensusMetricsProto"
-        );
-        defaults.put(ProducerConfig.CLIENT_ID_CONFIG, "confluent-telemetry-metrics-reporter");
-        return defaults;
-    }
-
-    public Properties getProducerProperties() {
-        Properties props = new Properties();
-        props.putAll(producerConfigDefaults());
-        props.putAll(getClientProperties());
-        return props;
-    }
-
-    public Properties getClientProperties() {
-        Properties props = new Properties();
-        for (Map.Entry<String, ?> entry : super.originals().entrySet()) {
-            if (entry.getKey().startsWith(METRICS_REPORTER_PREFIX)) {
-                props.put(entry.getKey().substring(METRICS_REPORTER_PREFIX.length()), entry.getValue());
-            }
-        }
-
-        // we require bootstrap servers
-        Object bootstrap = props.get(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG);
-        if (bootstrap == null) {
-            throw new ConfigException(
-                    "Missing required property "
-                            + METRICS_REPORTER_PREFIX
-                            + ProducerConfig.BOOTSTRAP_SERVERS_CONFIG
-            );
-        }
-        return props;
-    }
-
-    public Map<String, String> tags() {
+    public Map<String, String> getLabels() {
         Map<String, String> labels = new HashMap<>();
         for (Map.Entry<String, ?> entry : super.originals().entrySet()) {
-            if (entry.getKey().startsWith(METRICS_REPORTER_TAGS_PREFIX)) {
-                labels.put(entry.getKey().substring(METRICS_REPORTER_TAGS_PREFIX.length()), (String) entry.getValue());
+            if (entry.getKey().startsWith(PREFIX_LABELS)) {
+                labels.put(entry.getKey().substring(PREFIX_LABELS.length()), (String) entry.getValue());
             }
         }
         return labels;
     }
 
-    public Map<String, String> topicConfig() {
-        int topicReplicas = getInt(ConfluentTelemetryConfig.TOPIC_REPLICAS_CONFIG);
-        // set minIsr to be consistent with
-        // control center {@link io.confluent.controlcenter.util.TopicInfo.Builder.setReplication}
-        Integer minIsr = Math.min(3, topicReplicas < 3 ? 1 : topicReplicas - 1);
-
-        final Map<String, String> topicConfig = new HashMap<>();
-        topicConfig.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, minIsr.toString());
-        topicConfig.put(TopicConfig.RETENTION_MS_CONFIG,
-                getLong(ConfluentTelemetryConfig.TOPIC_RETENTION_MS_CONFIG).toString());
-        topicConfig.put(TopicConfig.RETENTION_BYTES_CONFIG,
-                getLong(ConfluentTelemetryConfig.TOPIC_RETENTION_BYTES_CONFIG).toString());
-        topicConfig.put(TopicConfig.SEGMENT_MS_CONFIG,
-                getLong(ConfluentTelemetryConfig.TOPIC_ROLL_MS_CONFIG).toString());
-        topicConfig.put(TopicConfig.MAX_MESSAGE_BYTES_CONFIG,
-                getInt(ConfluentTelemetryConfig.TOPIC_MAX_MESSAGE_BYTES_CONFIG).toString());
-        topicConfig.put(TopicConfig.MESSAGE_TIMESTAMP_TYPE_CONFIG, TimestampType.CREATE_TIME.name);
-
-        return topicConfig;
-    }
-
-
-    public String[] getBrokerLogVolumes() {
-        String logDirsString = null;
-        if (originals().containsKey("log.dirs")) {
-            logDirsString = (String) originals().get("log.dirs");
-        }
-        if (logDirsString == null) {
-            if (originals().containsKey("log.dir")) {
-                logDirsString = (String) originals().get("log.dir");
-            }
-        }
-        String[] volumeMetricsLogDirs = null;
-        if (logDirsString != null) {
-            volumeMetricsLogDirs = logDirsString.split("\\s*,\\s*");
-        }
-
-        return volumeMetricsLogDirs;
-    }
-
-
     public String getBrokerId() {
-        return (String) originals().get("broker.id");
+        return (String) originals().get(KafkaConfig.BrokerIdProp());
     }
 
     /**
      * Get a predicate that filters metrics based on the whitelist configuration.
      */
-    public Predicate<MetricKey> metricFilter() {
+    public Predicate<MetricKey> getMetricFilter() {
         // Configure the PatternPredicate.
         String regexString = getString(ConfluentTelemetryConfig.WHITELIST_CONFIG).trim();
 
@@ -354,5 +170,13 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         // metric name -> label key -> label value
 
         return metricNameAndLabels -> patternPredicate.test(metricNameAndLabels.getName());
+    }
+
+    public KafkaExporterConfig getKafkaExporterConfig() {
+        return kafkaExporterConfig;
+    }
+
+    public VolumeMetricsCollectorConfig getVolumeMetricsCollectorConfig() {
+        return volumeMetricsCollectorConfig;
     }
 }

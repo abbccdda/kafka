@@ -4,14 +4,19 @@ package io.confluent.telemetry.collector;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Verify;
+import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsUtils;
+import io.confluent.telemetry.collector.YammerMetricsCollector.Builder;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor;
 import io.opencensus.proto.metrics.v1.Point;
 import java.time.Instant;
 import java.util.function.Predicate;
+import kafka.server.KafkaConfig;
+import org.apache.kafka.common.config.AbstractConfig;
+import org.apache.kafka.common.config.ConfigDef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,6 +39,48 @@ import java.util.concurrent.TimeUnit;
 
 public class VolumeMetricsCollector implements MetricsCollector {
 
+    public static class VolumeMetricsCollectorConfig extends AbstractConfig {
+        public static final String PREFIX = ConfluentTelemetryConfig.PREFIX_METRICS_COLLECTOR + "volume.";
+
+        public static final String VOLUME_METRICS_UPDATE_PERIOD_MS = PREFIX + "update.ms";
+        public static final long DEFAULT_VOLUME_METRICS_UPDATE_PERIOD = 15000L;
+        public static final String VOLUME_METRICS_UPDATE_PERIOD_DOC =
+            "The minimum interval at which to fetch new volume metrics.";
+
+        private static final ConfigDef CONFIG = new ConfigDef()
+            .define(
+                VOLUME_METRICS_UPDATE_PERIOD_MS,
+                ConfigDef.Type.LONG,
+                DEFAULT_VOLUME_METRICS_UPDATE_PERIOD,
+                ConfigDef.Importance.LOW,
+                VOLUME_METRICS_UPDATE_PERIOD_DOC
+            );
+
+        public VolumeMetricsCollectorConfig(Map<?, ?> originals) {
+            super(CONFIG, originals);
+        }
+
+        String[] getBrokerLogVolumes() {
+            String logDirsString = null;
+            Map<String, ?> originals = originals();
+            if (originals.containsKey(KafkaConfig.LogDirsProp())) {
+                logDirsString = (String) originals.get(KafkaConfig.LogDirsProp());
+            }
+            if (logDirsString == null) {
+                if (originals.containsKey(KafkaConfig.LogDirProp())) {
+                    logDirsString = (String) originals.get(KafkaConfig.LogDirProp());
+                }
+            }
+
+            return logDirsString == null ? null : logDirsString.split("\\s*,\\s*");
+        }
+
+        long getUpdatePeriodMs() {
+            return getLong(VOLUME_METRICS_UPDATE_PERIOD_MS);
+        }
+
+    }
+
     public static final String VOLUME_LABEL = "volume";
     private static final Logger log = LoggerFactory.getLogger(VolumeMetricsCollector.class);
     private final Predicate<MetricKey> metricFilter;
@@ -54,7 +101,6 @@ public class VolumeMetricsCollector implements MetricsCollector {
      */
     private Map<String, Map<String, String>> labelsCache = new HashMap<>();
 
-    private final String domain;
     /**
      * The minimum time in milliseconds that we will go in between updates.
      */
@@ -63,20 +109,20 @@ public class VolumeMetricsCollector implements MetricsCollector {
     /**
      * The log directories to fetch information about.
      */
-    private String[] logDirs;
-    private Context context;
+    private final String[] logDirs;
+    private final Context context;
     private final String diskTotalBytesName;
     private final String diskUsableBytesName;
 
-    public VolumeMetricsCollector(String domain, long updatePeriodMs, String[] logDirs, Context ctx,
-        Predicate<MetricKey> metricFilter) {
-        this.domain = domain;
-        this.updatePeriodMs = updatePeriodMs;
-        this.logDirs = logDirs;
-        this.context = ctx;
-        this.metricFilter = metricFilter;
-        diskTotalBytesName = MetricsUtils.fullMetricName(this.domain, "volume", "disk_total_bytes");
-        diskUsableBytesName = MetricsUtils.fullMetricName(this.domain, "volume", "disk_usable_bytes");
+    private VolumeMetricsCollector(Builder builder) {
+        updatePeriodMs = builder.updatePeriodMs;
+        logDirs = builder.logDirs;
+        context = builder.context;
+        metricFilter = builder.metricFilter;
+
+        String domain = builder.domain;
+        diskTotalBytesName = MetricsUtils.fullMetricName(domain, "volume", "disk_total_bytes");
+        diskUsableBytesName = MetricsUtils.fullMetricName(domain, "volume", "disk_usable_bytes");
     }
 
     private synchronized Map<String, String> labelsFor(String volumeName) {
@@ -234,6 +280,17 @@ public class VolumeMetricsCollector implements MetricsCollector {
         return new Builder();
     }
 
+    /**
+     * Create a new Builder using values from the {@link ConfluentTelemetryConfig}.
+     */
+    public static Builder newBuilder(ConfluentTelemetryConfig config) {
+        VolumeMetricsCollectorConfig collectorConfig = config.getVolumeMetricsCollectorConfig();
+        return new Builder()
+            .setMetricFilter(config.getMetricFilter())
+            .setLogDirs(collectorConfig.getBrokerLogVolumes())
+            .setUpdatePeriodMs(collectorConfig.getUpdatePeriodMs());
+    }
+
     public static class Builder {
         private String domain;
         private long updatePeriodMs;
@@ -275,7 +332,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
 
             Verify.verify(this.updatePeriodMs > 0, "update interval cannot be less than 1");
 
-            return new VolumeMetricsCollector(this.domain, this.updatePeriodMs, this.logDirs, this.context, this.metricFilter);
+            return new VolumeMetricsCollector(this);
         }
 
     }

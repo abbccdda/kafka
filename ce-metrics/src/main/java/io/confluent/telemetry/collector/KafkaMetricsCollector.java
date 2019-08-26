@@ -2,10 +2,12 @@ package io.confluent.telemetry.collector;
 
 import com.google.common.base.Strings;
 import com.google.protobuf.Timestamp;
+import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsUtils;
 import io.confluent.telemetry.collector.LastValueTracker.InstantAndValue;
+import io.confluent.telemetry.collector.VolumeMetricsCollector.Builder;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
@@ -225,6 +227,14 @@ public class KafkaMetricsCollector implements MetricsCollector {
         labels.putAll(MetricsUtils.cleanLabelNames(metricName.tags()));
 
         return new MetricKey(name, labels);
+    }
+
+    /**
+     * Create a new Builder using values from the {@link ConfluentTelemetryConfig}.
+     */
+    public static Builder newBuilder(ConfluentTelemetryConfig config) {
+      return newBuilder()
+          .setMetricFilter(config.getMetricFilter());
     }
 
     public static Builder newBuilder() {

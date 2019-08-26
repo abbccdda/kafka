@@ -10,7 +10,7 @@ import io.confluent.telemetry.collector.KafkaMetricsCollector;
 import io.confluent.telemetry.collector.VolumeMetricsCollector;
 import io.confluent.telemetry.collector.YammerMetricsCollector;
 import io.confluent.telemetry.exporter.Exporter;
-import io.confluent.telemetry.exporter.KafkaExporter;
+import io.confluent.telemetry.exporter.kafka.KafkaExporter;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -51,7 +51,7 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
 
         ConfluentTelemetryConfig cfg = new ConfluentTelemetryConfig(this.configs);
 
-        Map<String, String> labels = cfg.tags();
+        Map<String, String> labels = cfg.getLabels();
         labels.put(CLUSTER_ID_LABEL, this.clusterId);
         labels.put(SERVER_ID_LABEL, cfg.getBrokerId());
 
@@ -59,50 +59,36 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
 
         // Set context with labels
         KafkaMetricsCollector kafkaMetricsCollector =
-            KafkaMetricsCollector.newBuilder()
+            KafkaMetricsCollector.newBuilder(cfg)
                 .setContext(ctx)
                 .setDomain(DOMAIN)
                 .setLedger(kafkaMetricsStateLedger)
-                .setMetricFilter(cfg.metricFilter())
                 .build();
 
-        CPUMetricsCollector cpuMetrics = CPUMetricsCollector.newBuilder()
+        CPUMetricsCollector cpuMetrics = CPUMetricsCollector.newBuilder(cfg)
                 .setDomain(DOMAIN)
                 .setContext(ctx)
-                .setMetricFilter(cfg.metricFilter())
                 .build();
 
-        VolumeMetricsCollector volumeMetrics = VolumeMetricsCollector.newBuilder()
+        VolumeMetricsCollector volumeMetrics = VolumeMetricsCollector.newBuilder(cfg)
                 .setContext(ctx)
                 .setDomain(DOMAIN)
-                .setLogDirs(cfg.getBrokerLogVolumes())
-                .setUpdatePeriodMs(cfg.getLong(ConfluentTelemetryConfig.VOLUME_METRICS_REFRESH_PERIOD_MS))
-                .setMetricFilter(cfg.metricFilter())
                 .build();
 
-        YammerMetricsCollector yammerMetrics = YammerMetricsCollector.newBuilder()
+        YammerMetricsCollector yammerMetrics = YammerMetricsCollector.newBuilder(cfg)
                 .setContext(ctx)
                 .setDomain(DOMAIN)
                 .setMetricsRegistry(Metrics.defaultRegistry())
-                .setMetricFilter(cfg.metricFilter())
                 .build();
 
-        this.exporter = KafkaExporter.newBuilder()
-                .setAdminClientProperties(cfg.getClientProperties())
-                .setCreateTopic(cfg.getBoolean(ConfluentTelemetryConfig.TOPIC_CREATE_CONFIG))
-                .setTopicConfig(cfg.topicConfig())
-                .setTopicName(cfg.getString(ConfluentTelemetryConfig.TOPIC_CONFIG))
-                .setTopicPartitions(cfg.getInt(ConfluentTelemetryConfig.TOPIC_PARTITIONS_CONFIG))
-                .setTopicReplicas(cfg.getInt(ConfluentTelemetryConfig.TOPIC_REPLICAS_CONFIG))
-                .setProducerProperties(cfg.getProducerProperties())
-                .setContext(ctx)
+        this.exporter = KafkaExporter.newBuilder(cfg)
                 .build();
 
         this.collectorTask = new MetricsCollectorTask(
             ctx,
             this.exporter,
             Arrays.asList(kafkaMetricsCollector, cpuMetrics, volumeMetrics, yammerMetrics),
-            cfg.getLong(ConfluentTelemetryConfig.PUBLISH_PERIOD_CONFIG));
+            cfg.getLong(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG));
 
         this.collectorTask.start();
     }

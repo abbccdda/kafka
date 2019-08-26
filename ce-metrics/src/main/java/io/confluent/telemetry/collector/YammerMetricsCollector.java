@@ -12,9 +12,11 @@ import com.yammer.metrics.core.MetricsRegistry;
 import com.yammer.metrics.core.MetricsRegistryListener;
 import com.yammer.metrics.core.Timer;
 import io.confluent.metrics.YammerMetricsUtils;
+import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsUtils;
+import io.confluent.telemetry.collector.CPUMetricsCollector.Builder;
 import io.confluent.telemetry.collector.LastValueTracker.InstantAndValue;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor;
@@ -318,6 +320,14 @@ public class YammerMetricsCollector implements MetricsCollector {
 
         return MetricsUtils
             .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.SUMMARY, labels, point);
+    }
+
+    /**
+     * Create a new Builder using values from the {@link ConfluentTelemetryConfig}.
+     */
+    public static Builder newBuilder(ConfluentTelemetryConfig config) {
+        return newBuilder()
+            .setMetricFilter(config.getMetricFilter());
     }
 
     public static Builder newBuilder() {

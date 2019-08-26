@@ -2,9 +2,11 @@
 
 package io.confluent.telemetry.collector;
 
+import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsUtils;
+import io.confluent.telemetry.collector.KafkaMetricsCollector.Builder;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor;
 import io.opencensus.proto.metrics.v1.Point;
@@ -42,6 +44,14 @@ public class CPUMetricsCollector implements MetricsCollector {
             log.warn("CPU metric is not available on this operating system");
             this.osBean = Optional.empty();
         }
+    }
+
+    /**
+     * Create a new Builder using values from the {@link ConfluentTelemetryConfig}.
+     */
+    public static Builder newBuilder(ConfluentTelemetryConfig config) {
+        return newBuilder()
+            .setMetricFilter(config.getMetricFilter());
     }
 
     @Override

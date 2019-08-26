@@ -1,7 +1,7 @@
-package io.confluent.telemetry.exporter;
+package io.confluent.telemetry.exporter.kafka;
 
-import com.google.common.base.Verify;
-import io.confluent.telemetry.Context;
+import io.confluent.telemetry.ConfluentTelemetryConfig;
+import io.confluent.telemetry.exporter.Exporter;
 import io.opencensus.proto.metrics.v1.Metric;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -25,7 +25,6 @@ import java.util.concurrent.ExecutionException;
 public class KafkaExporter implements Exporter {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaExporter.class);
-    private Context context;
 
     private boolean isTopicCreated = false;
     private Properties adminClientProperties;
@@ -35,27 +34,16 @@ public class KafkaExporter implements Exporter {
     private int topicPartitions;
     private Map<String, String> topicConfig;
 
-    private Properties producerProperties;
     private KafkaProducer<byte[], Metric> producer;
 
-    public KafkaExporter(Context context,
-                         Properties adminClientProperties,
-                         String topicName,
-                         boolean createTopic,
-                         int topicReplicas,
-                         int topicPartitions,
-                         Map<String, String> topicConfig,
-                         Properties producerProperties) {
-
-        this.context = context;
-        this.adminClientProperties = adminClientProperties;
-        this.topicName = topicName;
-        this.createTopic = createTopic;
-        this.topicReplicas = topicReplicas;
-        this.topicPartitions = topicPartitions;
-        this.topicConfig = topicConfig;
-        this.producerProperties = producerProperties;
-        this.producer = new KafkaProducer<>(this.producerProperties);
+    public KafkaExporter(Builder builder) {
+        this.adminClientProperties = Objects.requireNonNull(builder.adminClientProperties);
+        this.topicName = Objects.requireNonNull(builder.topicName);
+        this.topicConfig = Objects.requireNonNull(builder.topicConfig);
+        this.createTopic = builder.createTopic;
+        this.topicReplicas = builder.topicReplicas;
+        this.topicPartitions = builder.topicPartitions;
+        this.producer = new KafkaProducer<>(Objects.requireNonNull(builder.producerProperties));
     }
 
     public boolean ensureTopic() {
@@ -168,9 +156,22 @@ public class KafkaExporter implements Exporter {
         return new Builder();
     }
 
+  /**
+   * Create a new Builder using values from the {@link ConfluentTelemetryConfig}.
+   */
+    public static Builder newBuilder(ConfluentTelemetryConfig config) {
+        KafkaExporterConfig exporterConfig = config.getKafkaExporterConfig();
+        return new Builder()
+            .setCreateTopic(exporterConfig.isCreateTopic())
+            .setTopicConfig(exporterConfig.getTopicConfig())
+            .setTopicName(exporterConfig.getTopicName())
+            .setTopicReplicas(exporterConfig.getTopicReplicas())
+            .setTopicPartitions(exporterConfig.getTopicPartitions())
+            .setProducerProperties(exporterConfig.getProducerProperties())
+            .setAdminClientProperties(exporterConfig.getProducerProperties());
+    }
+
     public static final class Builder {
-        private Context context;
-        private boolean isTopicCreated = false;
         private Properties adminClientProperties;
         private String topicName;
         private boolean createTopic;
@@ -180,11 +181,6 @@ public class KafkaExporter implements Exporter {
         private Properties producerProperties;
 
         private Builder() {
-        }
-
-        public Builder setContext(Context context) {
-            this.context = context;
-            return this;
         }
 
         public Builder setAdminClientProperties(Properties adminClientProperties) {
@@ -222,26 +218,8 @@ public class KafkaExporter implements Exporter {
             return this;
         }
 
-
         public KafkaExporter build() {
-
-            Objects.requireNonNull(this.context);
-            Objects.requireNonNull(this.adminClientProperties);
-            Objects.requireNonNull(this.topicName);
-            Objects.requireNonNull(this.topicConfig);
-            Objects.requireNonNull(this.producerProperties);
-            Verify.verify(this.topicReplicas > 0, "topic needs atleast 1 replica");
-            Verify.verify(this.topicPartitions > 0, "topic needs atleast 1 partition");
-
-            return new KafkaExporter(
-                    this.context,
-                    this.adminClientProperties,
-                    this.topicName,
-                    this.createTopic,
-                    this.topicReplicas,
-                    this.topicPartitions,
-                    this.topicConfig,
-                    this.producerProperties);
+            return new KafkaExporter(this);
         }
     }
 }

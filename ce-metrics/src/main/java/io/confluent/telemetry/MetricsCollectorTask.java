@@ -26,17 +26,17 @@ public class MetricsCollectorTask {
     private final Context context;
     private final Exporter exporter;
     private final Collection<MetricsCollector> collectors;
-    private final long reportIntervalMs;
+    private final long collectIntervalMs;
     private final ConcurrentMap<MetricsCollector, AtomicLong> metricsCollected = new ConcurrentHashMap<>();
     private final ConcurrentMap<MetricsCollector, AtomicLong> metricsSent = new ConcurrentHashMap<>();
 
-    public MetricsCollectorTask(Context ctx, Exporter client, Collection<MetricsCollector> collectors, long reportIntervalMs) {
-        Verify.verify(reportIntervalMs > 0, "reporting interval cannot be less than 1");
+    public MetricsCollectorTask(Context ctx, Exporter client, Collection<MetricsCollector> collectors, long collectIntervalMs) {
+        Verify.verify(collectIntervalMs > 0, "collection interval cannot be less than 1");
 
         this.exporter = Objects.requireNonNull(client);
         this.collectors = Objects.requireNonNull(collectors);
         this.context = Objects.requireNonNull(ctx);
-        this.reportIntervalMs = reportIntervalMs;
+        this.collectIntervalMs = collectIntervalMs;
 
         executor.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
         executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
@@ -111,20 +111,20 @@ public class MetricsCollectorTask {
     }
 
     public void start() {
-        log.info("Starting Confluent telemetry reporter with an interval of {} ms", this.reportIntervalMs);
-        schedule(this.reportIntervalMs);
+        log.info("Starting Confluent telemetry reporter with an interval of {} ms", this.collectIntervalMs);
+        schedule();
     }
 
-    public void schedule(long reportIntervalMs) {
+    private void schedule() {
         executor.scheduleAtFixedRate(
-                () -> report(),
-                reportIntervalMs,
-                reportIntervalMs,
+                this::report,
+                collectIntervalMs,
+                collectIntervalMs,
                 TimeUnit.MILLISECONDS
         );
     }
 
-    public void report() {
+    private void report() {
         try {
             for (MetricsCollector collector : collectors) {
                 try {
