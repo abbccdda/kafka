@@ -121,6 +121,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
 
     private static final ConfigPropertyTranslater DEPRECATION_TRANSLATER =
         new ConfigPropertyTranslater.Builder()
+            .withPrefixTranslation(LEGACY_PREFIX + "labels.", PREFIX_LABELS)
             .withTranslation(LEGACY_PREFIX + "whitelist", WHITELIST_CONFIG)
             .withTranslation(LEGACY_PREFIX + "publish.ms", COLLECT_INTERVAL_CONFIG)
             .build();
