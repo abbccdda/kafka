@@ -37,28 +37,28 @@ class ActiveTenantsManagerTest {
 
     activeTenantsManager.trackActiveTenant(metricTags1, time.milliseconds())
     activeTenants += metricTags1
-    assertEquals(activeTenants, activeTenantsManager.getActiveTenants())
+    assertEquals(activeTenants, activeTenantsManager.getActiveTenants)
 
     time.sleep(1)
     activeTenantsManager.trackActiveTenant(metricTags2, time.milliseconds())
     activeTenants += metricTags2
-    assertEquals(activeTenants, activeTenantsManager.getActiveTenants())
+    assertEquals(activeTenants, activeTenantsManager.getActiveTenants)
 
     time.sleep(1)
     activeTenantsManager.trackActiveTenant(metricTags1, time.milliseconds())
     activeTenants += metricTags1
-    assertEquals(activeTenants, activeTenantsManager.getActiveTenants())
+    assertEquals(activeTenants, activeTenantsManager.getActiveTenants)
 
     time.sleep(2)
     // Client2 should not be an active tenant anymore
     activeTenants -= metricTags2
-    assertEquals(activeTenants, activeTenantsManager.getActiveTenants())
+    assertEquals(activeTenants, activeTenantsManager.getActiveTenants)
 
     time.sleep(3)
     // All clients should be removed once $timeWindowMs passes
     activeTenants -= metricTags1
     activeTenants -= metricTags2
-    assertEquals(activeTenants, activeTenantsManager.getActiveTenants())
+    assertEquals(activeTenants, activeTenantsManager.getActiveTenants)
   }
 
   @Test

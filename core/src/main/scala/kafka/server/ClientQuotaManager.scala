@@ -16,6 +16,7 @@
  */
 package kafka.server
 
+import java.util.concurrent.atomic.AtomicLong
 import java.{lang, util}
 import java.util.concurrent.{ConcurrentHashMap, DelayQueue, TimeUnit}
 import java.util.concurrent.locks.ReentrantReadWriteLock
@@ -33,6 +34,7 @@ import org.apache.kafka.common.utils.{Sanitizer, Time}
 import org.apache.kafka.server.quota.{ClientQuotaCallback, ClientQuotaEntity, ClientQuotaType}
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 
 /**
  * Represents the sensors aggregated per client
@@ -56,7 +58,9 @@ case class ClientQuotaManagerConfig(quotaBytesPerSecondDefault: Long =
                                         ClientQuotaManagerConfig.DefaultNumQuotaSamples,
                                     quotaWindowSizeSeconds: Int =
                                         ClientQuotaManagerConfig.DefaultQuotaWindowSizeSeconds,
-                                    backpressureEnabled: Boolean = false)
+                                    backpressureEnabled: Boolean = false,
+                                    backpressureCheckFrequencyMs: Long =
+                                        ClientQuotaManagerConfig.DefaultBackpressureCheckFrequencyMs)
 
 object ClientQuotaManagerConfig {
   val QuotaBytesPerSecondDefault = Long.MaxValue
@@ -70,7 +74,10 @@ object ClientQuotaManagerConfig {
 
   val UnlimitedQuota = Quota.upperBound(Long.MaxValue)
 
-  val ActiveWindowLenMs = 10000
+  // Time window in which a tenant is considered active
+  val DefaultActiveWindowMs = 1 * TimeUnit.MINUTES.toMillis(1)
+  // How often to auto-tune tenants' quotas when broker back-pressure is enabled
+  val DefaultBackpressureCheckFrequencyMs = 5 * TimeUnit.MINUTES.toMillis(1)
 }
 
 object QuotaTypes {
@@ -180,6 +187,10 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
   private[server] val throttledChannelReaper = new ThrottledChannelReaper(delayQueue, threadNamePrefix)
   private val quotaCallback = clientQuotaCallback.getOrElse(new DefaultQuotaCallback)
 
+  private val lastBackpressureCheckTimeMs = new AtomicLong(time.milliseconds())
+
+  private var brokerQuotaLimit: Double = Long.MaxValue
+
   private val delayQueueSensor = metrics.sensor(quotaType + "-delayQueue")
   delayQueueSensor.add(metrics.metricName("queue-size",
     quotaType.toString,
@@ -244,12 +255,9 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
   def recordAndGetThrottleTimeMs(session: Session, clientId: String, value: Double, timeMs: Long): Int = {
     var throttleTimeMs = 0
     val clientSensors = getOrCreateQuotaSensors(session, clientId)
-    if (tenantLevelQuotasEnabled) {
-      val tenantsManager = activeTenantsManager.get
-      tenantsManager.trackActiveTenant(clientSensors.metricTags, timeMs)
-    }
     try {
       clientSensors.quotaSensor.record(value, timeMs)
+      maybeTrackTenantsAndAutoTuneQuota(clientSensors, timeMs)
     } catch {
       case _: QuotaViolationException =>
         // Compute the delay
@@ -323,6 +331,21 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
 
   private def quotaLimit(metricTags: util.Map[String, String]): Double = {
     Option(quotaCallback.quotaLimit(clientQuotaType, metricTags)).map(_.toDouble).getOrElse(Long.MaxValue)
+  }
+
+  /**
+    * Returns the dynamic quota for the client with the specified (non-encoded) user principal and client-id.
+    *
+    * Note: it is meant to be used by tests only
+    */
+  private[server] def dynamicQuota(user: String, clientId: String): Quota = {
+    val metricTags = Map("user"-> user, "client-id"-> clientId)
+    Quota.upperBound(dynamicQuotaLimit(metricTags))
+  }
+
+  private def dynamicQuotaLimit(metricTags: Map[String, String], defaultVal: Option[Double] = None): Double = {
+    val clientMetric = metrics.metrics().get(clientRateMetricName(metricTags))
+    if (clientMetric != null) clientMetric.config.quota.bound() else defaultVal.getOrElse(quotaLimit(metricTags.asJava))
   }
 
   /*
@@ -411,6 +434,103 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
       None,
       new Rate
     )
+  }
+
+  // package scope for testing purposes
+  private[server] def setBrokerQuotaLimit(cap: Double): Unit = {
+    brokerQuotaLimit = cap
+  }
+
+  def getBrokerQuotaLimit: Double = brokerQuotaLimit
+
+  def maybeTrackTenantsAndAutoTuneQuota(clientSensors: ClientSensors, timeMs: Long): Unit = {
+    if (tenantLevelQuotasEnabled) {
+      val tenantsManager = activeTenantsManager.getOrElse(throw new IllegalStateException("ActiveTenantsManager not available"))
+      tenantsManager.trackActiveTenant(clientSensors.metricTags, timeMs, resetQuotaCallback)
+
+      val activeTenants = tenantsManager.getActiveTenants(resetQuotaCallback)
+      val lastCheck = lastBackpressureCheckTimeMs.get()
+      if (backpressureEnabled && lastCheck + config.backpressureCheckFrequencyMs < timeMs) {
+        if (lastBackpressureCheckTimeMs.compareAndSet(lastCheck, timeMs)) {
+          maybeAutoTuneQuota(activeTenants, timeMs)
+        }
+      }
+    }
+  }
+
+  def maybeAutoTuneQuota(activeTenants: mutable.Set[Map[String, String]], timeMs: Long): Unit = {
+    var backpressured = false
+    var totalUsage = 0.0
+    activeTenants.foreach((metricTags: Map[String, String]) => {
+      val clientMetric = metrics.metrics().get(clientRateMetricName(metricTags))
+      if (clientMetric != null) {
+        totalUsage += clientMetric.metricValue.asInstanceOf[Double]
+        backpressured = backpressured || quotaLimit(metricTags.asJava) != dynamicQuotaLimit(metricTags)
+      } else {
+        activeTenants.remove(metricTags)
+      }
+    })
+
+    if (backpressured || totalUsage > getBrokerQuotaLimit) {
+      autoTuneQuota(activeTenants, totalUsage)
+    }
+  }
+
+  /*
+   * This function ensures tenants do not use more resources than the broker has to offer by
+   * dynamically tuning active tenants’ quotas that would restrict a tenant’s usage.
+   *
+   * Auto-tuning happens by sorting tenants by their usages, and allocating each tenant enough broker
+   * resources to satisfy their desired usage up to a “fair limit”. The fair limit is computed to be
+   * broker-capacity / # of active tenants.
+   * While iterating through the sorted active tenants, the resources given to one tenant is subtracted
+   * from the total available, so the remaining resources are redistributed evenly among the remaining
+   * tenants. This means that if a tenant does not need resources up to their fair limit, there will be
+   * more remaining resources for other tenants to use.
+   */
+  def autoTuneQuota(activeTenants: mutable.Set[Map[String, String]], totalUsage: Double): Unit = {
+    debug(s"Auto-tuning active tenants' $clientQuotaType quotas when total tenant usage is $totalUsage and broker quota limit is $getBrokerQuotaLimit")
+
+    val sortedTenants = activeTenants.toList.sortWith((metricTags1: Map[String, String], metricTags2: Map[String, String]) => {
+      val clientMetric1 = metrics.metrics().get(clientRateMetricName(metricTags1))
+      val clientMetric2 = metrics.metrics().get(clientRateMetricName(metricTags2))
+      clientMetric1.metricValue.asInstanceOf[Double] < clientMetric2.metricValue.asInstanceOf[Double]
+    })
+
+    var remainingClients = sortedTenants.size
+    var remainingCapacity = getBrokerQuotaLimit
+
+    for (metricTags <- sortedTenants) {
+      val clientMetric = metrics.metrics().get(clientRateMetricName(metricTags))
+      val clientUsage = clientMetric.metricValue.asInstanceOf[Double]
+
+      var newLimit = remainingCapacity / remainingClients
+      newLimit = scala.math.min(newLimit, quotaLimit(metricTags.asJava))
+
+      // Update quota in metric config only. The quotaCallback's quotas will not be modified,
+      // because it is the client's original quota while the metric config quota is the client's
+      // dynamic quota used temporarily for auto-tuning.
+      if (newLimit != clientMetric.config.quota.bound) {
+        debug(s"Setting quota for quota-id $metricTags to $newLimit in MetricConfig")
+        clientMetric.config(getQuotaMetricConfig(newLimit))
+      }
+
+      remainingClients -= 1
+      remainingCapacity -= scala.math.min(clientUsage, newLimit)
+    }
+  }
+
+  def resetQuotaCallback(metricTags: Map[String, String]): Unit = {
+    val clientMetric = metrics.metrics().get(clientRateMetricName(metricTags))
+    if (clientMetric != null) {
+      val dynamicLimit = dynamicQuotaLimit(metricTags)
+      val originalLimit = quotaLimit(metricTags.asJava)
+
+      if (dynamicLimit != originalLimit) {
+        info(s"Quota-id $metricTags is inactive after ${activeTenantsManager.get.activeTimeWindowMs} of inactivity. Setting quota to $originalLimit in MetricConfig")
+        clientMetric.config(getQuotaMetricConfig(originalLimit))
+      }
+    }
   }
 
   /**

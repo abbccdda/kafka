@@ -7,7 +7,6 @@ package kafka.server
 import java.util.concurrent.ConcurrentHashMap
 import java.util.function.BiConsumer
 
-import kafka.utils.Logging
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.metrics.stats.Value
 import org.apache.kafka.common.utils.Time
@@ -27,12 +26,12 @@ case class TenantInfo(timestamp: Long, metricTags: Map[String, String])
   *
   * @param metrics @Metrics Metrics instance
   * @param time @Time object to use
-  * @param timeWindowMs @Long length of active window in milliseconds
+  * @param activeTimeWindowMs @Long length of active window in milliseconds
   */
 
 class ActiveTenantsManager(private val metrics: Metrics,
                            private val time: Time,
-                           private val timeWindowMs: Long) {
+                           val activeTimeWindowMs: Long) {
 
   private val activeWindow = new ConcurrentHashMap[String, TenantInfo]()
   private var lastRecordTimeMs = time.milliseconds()
@@ -40,18 +39,33 @@ class ActiveTenantsManager(private val metrics: Metrics,
   private val activeTenantsSensor = metrics.sensor("ActiveTenants")
   activeTenantsSensor.add(metrics.metricName("active-tenants-count",
     "multi-tenant-metrics",
-    s"The number of active tenants over a $timeWindowMs window"), new Value())
+    s"The number of active tenants over a $activeTimeWindowMs window"), new Value())
 
   def trackActiveTenant(metricTags: Map[String, String], timeMs: Long): Unit = {
+    trackActiveTenant(metricTags, timeMs, _ => Unit)
+  }
+
+  def trackActiveTenant(metricTags: Map[String, String], timeMs: Long, resetQuotaCallback: Map[String, String] => Unit): Unit = {
     activeWindow.put(metricTags.toString(), TenantInfo(timeMs, metricTags))
-    if (lastRecordTimeMs + timeWindowMs < timeMs) {
+    maybeRecordNumActiveTenants(timeMs, resetQuotaCallback)
+  }
+
+  private def maybeRecordNumActiveTenants(timeMs: Long, resetQuotaCallback: Map[String, String] => Unit): Unit = {
+    if (lastRecordTimeMs + activeTimeWindowMs < timeMs) {
+      recordNumActiveTenants(timeMs, resetQuotaCallback)
       lastRecordTimeMs = timeMs
-      recordNumActiveTenants(timeMs)
     }
   }
 
-  def getActiveTenants(): mutable.Set[Map[String, String]] = {
-    pruneInactiveTenants(time.milliseconds())
+  private def recordNumActiveTenants(timeMs: Long, resetQuotaCallback: Map[String, String] => Unit): Unit = {
+    pruneInactiveTenants(timeMs, resetQuotaCallback)
+    activeTenantsSensor.record(activeWindow.size, timeMs)
+  }
+
+  def getActiveTenants(): mutable.Set[Map[String, String]] = getActiveTenants(_ => Unit)
+
+  def getActiveTenants(resetQuotaCallback: Map[String, String] => Unit): mutable.Set[Map[String, String]] = {
+    pruneInactiveTenants(time.milliseconds(), resetQuotaCallback)
     val s = mutable.Set[Map[String, String]]()
     activeWindow.forEach(toBiConsumer((_: String, tenantInfo: TenantInfo) => {
       s += tenantInfo.metricTags
@@ -59,22 +73,18 @@ class ActiveTenantsManager(private val metrics: Metrics,
     s
   }
 
-  private def recordNumActiveTenants(timeMs: Long): Unit = {
-    pruneInactiveTenants(timeMs)
-    activeTenantsSensor.record(activeWindow.size, timeMs)
-  }
-
-  private def pruneInactiveTenants(timeMs: Long): Unit = {
-    activeWindow.forEach(toBiConsumer((metricTag: String, tenantInfo: TenantInfo) => {
+  private def pruneInactiveTenants(timeMs: Long, resetQuotaCallback: Map[String, String] => Unit): Unit = {
+    activeWindow.forEach(toBiConsumer((metricTags: String, tenantInfo: TenantInfo) => {
       // If trackActiveTenant() updates a tenant's timestamp in between a pruning iteration, remove() will not
       // remove the tenant with the new timestamp. It will only remove that which matches both key and value.
-      if (tenantInfo.timestamp + timeWindowMs < timeMs) {
-        activeWindow.remove(metricTag, tenantInfo)
+      if (tenantInfo.timestamp + activeTimeWindowMs < timeMs) {
+        resetQuotaCallback(tenantInfo.metricTags)
+        activeWindow.remove(metricTags, tenantInfo)
       }
     }))
   }
 
-  implicit def toBiConsumer[T, U](op: (T, U) => Unit): BiConsumer[T, U] = {
+  private implicit def toBiConsumer[T, U](op: (T, U) => Unit): BiConsumer[T, U] = {
     new BiConsumer[T, U] {
       override def accept(t: T, u: U): Unit = op.apply(t, u)
     }

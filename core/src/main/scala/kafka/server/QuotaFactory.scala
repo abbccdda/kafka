@@ -63,7 +63,7 @@ object QuotaFactory extends Logging {
     val clientQuotaCallback = Option(cfg.getConfiguredInstance(KafkaConfig.ClientQuotaCallbackClassProp,
       classOf[ClientQuotaCallback]))
     val activeTenantsManager = if (isMultiTenant(cfg))
-        Option(new ActiveTenantsManager(metrics, time, ClientQuotaManagerConfig.ActiveWindowLenMs))
+        Option(new ActiveTenantsManager(metrics, time, ClientQuotaManagerConfig.DefaultActiveWindowMs))
       else
         None
     QuotaManagers(

@@ -36,6 +36,7 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
                                 extends ClientQuotaManager(config, metrics, QuotaType.Request, time, threadNamePrefix, quotaCallback, activeTenantsManager) {
   val maxThrottleTimeMs = TimeUnit.SECONDS.toMillis(this.config.quotaWindowSizeSeconds)
   def exemptSensor = getOrCreateSensor(exemptSensorName, exemptMetricName)
+  var brokerQuotaLimit: Double = Long.MaxValue
 
   def recordExempt(value: Double) {
     exemptSensor.record(value)
@@ -88,4 +89,11 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
   private def exemptSensorName: String = "exempt-" + QuotaType.Request
 
   private def nanosToPercentage(nanos: Long): Double = nanos * ClientQuotaManagerConfig.NanosToPercentagePerSecond
+
+  override def getBrokerQuotaLimit: Double = brokerQuotaLimit
+
+  // package scope for testing purposes only
+  override private[server] def setBrokerQuotaLimit(cap: Double): Unit = {
+    brokerQuotaLimit = cap
+  }
 }
