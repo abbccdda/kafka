@@ -47,6 +47,13 @@ bash tests/docker/ducker-ak up -j 'openjdk:11'; tests/docker/run_tests.sh
   - The docker containers are named knode01, knode02 etc.
    These nodes can't be used for any other purpose.
 
+Setup for tests with tiered storage support
+-------------------------------------------
+Tests with tiered storage support require an additional step so that brokers have the right access to S3 bucket. This can be done by running the following before running the test:
+```
+docker_args="--build-arg aws_access_key_id=$(aws configure get aws_access_key_id) --build-arg aws_secret_access_key=$(aws configure get aws_secret_access_key)" ./tests/docker/ducker-ak up
+```
+
 Examining CI run
 ----------------
 * Set BUILD_ID is travis ci's build id. E.g. build id is 169519874 for the following build

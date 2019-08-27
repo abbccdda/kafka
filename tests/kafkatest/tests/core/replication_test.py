@@ -21,7 +21,7 @@ from ducktape.mark.resource import cluster
 
 from kafkatest.tests.end_to_end import EndToEndTest
 from kafkatest.services.kafka import config_property
-from kafkatest.utils.tiered_storage import TierSupport
+from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry
 
 import signal
 
@@ -118,8 +118,11 @@ class ReplicationTest(EndToEndTest, TierSupport):
             enable_idempotence=[True])
     @matrix(failure_mode=["clean_shutdown", "hard_shutdown", "clean_bounce", "hard_bounce"],
             broker_type=["leader"],
-            security_protocol=["PLAINTEXT", "SASL_SSL"],
-            tiered_storage=[True, False])
+            security_protocol=["PLAINTEXT"],
+            tiered_storage=[True])
+    @matrix(failure_mode=["clean_shutdown", "hard_shutdown", "clean_bounce", "hard_bounce"],
+            broker_type=["leader"],
+            security_protocol=["PLAINTEXT", "SASL_SSL"])
     @matrix(failure_mode=["clean_shutdown", "hard_shutdown", "clean_bounce", "hard_bounce"],
             broker_type=["controller"],
             security_protocol=["PLAINTEXT", "SASL_SSL"])
@@ -157,8 +160,9 @@ class ReplicationTest(EndToEndTest, TierSupport):
                           interbroker_sasl_mechanism=interbroker_sasl_mechanism)
 
         if tiered_storage:
-            self.configure_tiering(self.TIER_S3_BUCKET, enable=True, log_segment_bytes=102400
-                                   # Use shorter interval to help ensure hotset retention is invoked before the consumer finishes
+            # Use shorter log retention check interval to help ensure hotset retention is invoked before the consumer finishes
+            self.configure_tiering(self.TIER_S3_BUCKET, enable=True,
+                                   log_segment_bytes=102400,
                                    log_retention_check_interval=1000)
 
         self.kafka.start()
@@ -186,5 +190,5 @@ class ReplicationTest(EndToEndTest, TierSupport):
                             min_records=25000)
         if tiered_storage:
             self.kafka.read_jmx_output_all_nodes()
-            tier_bytes_fetched = self.kafka.maximum_jmx_value["kafka.server:type=TierFetcher:BytesFetchedTotal"]
+            tier_bytes_fetched = self.kafka.maximum_jmx_value[str(TieredStorageMetricsRegistry.FETCHER_BYTES_FETCHED)]
             assert tier_bytes_fetched > 0

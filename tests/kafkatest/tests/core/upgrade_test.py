@@ -25,7 +25,7 @@ from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
 from kafkatest.version import LATEST_0_8_2, LATEST_0_9, LATEST_0_10, LATEST_0_10_0, LATEST_0_10_1, LATEST_0_10_2, LATEST_0_11_0, LATEST_1_0, LATEST_1_1, LATEST_2_0, LATEST_2_1, LATEST_2_2, LATEST_2_3, V_0_9_0_0, V_0_11_0_0, DEV_BRANCH, KafkaVersion
-from kafkatest.utils.tiered_storage import tier_set_configs, TierSupport
+from kafkatest.utils.tiered_storage import tier_set_configs, TierSupport, TieredStorageMetricsRegistry
 from kafkatest.services.kafka import config_property
 
 class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
@@ -54,7 +54,6 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
         self.logger.info("First pass bounce - rolling upgrade")
         for node in self.kafka.nodes:
             self.kafka.stop_node(node)
-
 
             node.version = DEV_BRANCH
             node.config[config_property.INTER_BROKER_PROTOCOL_VERSION] = from_kafka_version
@@ -173,7 +172,7 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
         if tiered_storage:
             self.kafka.leader(self.topic)
             self.add_log_metrics(self.topic)
-            self.kafka.jmx_object_names += ["kafka.tier.archiver:type=TierArchiver,name=TotalLag"]
+            self.kafka.jmx_object_names += [TieredStorageMetricsRegistry.ARCHIVER_LAG.mbean]
             self.restart_jmx_tool()
             wait_until(lambda: self.tiering_started(self.topic),
                        timeout_sec=120, backoff_sec=2, err_msg="no evidence of archival within timeout")

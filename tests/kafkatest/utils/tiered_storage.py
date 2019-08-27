@@ -4,7 +4,7 @@ import sys
 
 def tier_server_props(bucket, feature=True, enable=False, region="us-west-2", backend="S3",
                       metadata_replication_factor=3, hotset_bytes=1, hotset_ms=1,
-                      log_segment_bytes=1024000, log_retention_check_interval=5000, log_roll_time = 1000):
+                      log_segment_bytes=1024000, log_retention_check_interval=5000, log_roll_time = 3000):
     """Helper for building server_prop_overrides in Kafka tests that enable tiering"""
     return [
         # tiered storage does not support multiple logdirs
@@ -30,35 +30,61 @@ def tier_set_configs(kafka, bucket, feature=True, enable=False, region="us-west-
         for config in configs:
             node.config[config[0]] = config[1]
 
+class TieredStorageMetric:
+    def __init__(self, mbean, attribute):
+        self.mbean = mbean
+        self.attribute = attribute
+
+    def __str__(self):
+        return self.mbean + ":" + self.attribute
+
+class TieredStorageMetricsRegistry:
+    ARCHIVER_LAG = TieredStorageMetric("kafka.tier.tasks.archive:type=TierArchiver,name=TotalLag", "Value")
+    FETCHER_BYTES_FETCHED = TieredStorageMetric("kafka.server:type=TierFetcher", "BytesFetchedTotal")
+
+    @staticmethod
+    def log_tier_size(topic, partition):
+        return TieredStorageMetric("kafka.log:type=Log,name=TierSize,topic={},partition={}".format(topic, partition), "Value")
+
+    @staticmethod
+    def log_local_size(topic, partition):
+        return TieredStorageMetric("kafka.log:type=Log,name=Size,topic={},partition={}".format(topic, partition), "Value")
+
+    @staticmethod
+    def num_log_segments(topic, partition):
+        return TieredStorageMetric("kafka.log:type=Log,name=NumLogSegments,topic={},partition={}".format(topic, partition), "Value")
+
 class TierSupport():
     """Tiered storage helpers. Mix in only with KafkaService-based tests"""
 
     def configure_tiering(self, bucket, **server_props_kwargs):
-        self.kafka.jmx_object_names = ["kafka.server:type=TierFetcher",
-                                       "kafka.tier.archiver:type=TierArchiver,name=TotalLag"]
-        self.kafka.jmx_attributes = ["BytesFetchedTotal", "Value"]
+        self.kafka.jmx_object_names = [TieredStorageMetricsRegistry.ARCHIVER_LAG.mbean,
+                                       TieredStorageMetricsRegistry.FETCHER_BYTES_FETCHED.mbean]
+        self.kafka.jmx_attributes = [TieredStorageMetricsRegistry.ARCHIVER_LAG.attribute,
+                                     TieredStorageMetricsRegistry.FETCHER_BYTES_FETCHED.attribute]
         self.kafka.server_prop_overides = tier_server_props(bucket, **server_props_kwargs)
 
     def tiering_completed(self, topic, partition=0):
         self.kafka.read_jmx_output_all_nodes()
-        # N.B. for some reason the bean tag order is different in the results. Compare object names in add_log_metrics.
-        log_segs_key = "kafka.log:type=Log,name=NumLogSegments,topic={},partition={}:Value".format(topic, partition)
-        max_log_segments = self.kafka.maximum_jmx_value.get(log_segs_key, -1)
+        num_log_segments_metric = str(TieredStorageMetricsRegistry.num_log_segments(topic, partition))
+        max_log_segments = self.kafka.maximum_jmx_value.get(num_log_segments_metric, -1)
         if max_log_segments < 2:
+            self.logger.debug("Waiting for sufficient segments to be created for tiering to kick in")
             return False
 
         for node_stats in self.kafka.jmx_stats:
             last_jmx_entry = sorted(node_stats.items(), key=lambda kv: kv[0])[-1][1]
-            last_lag = last_jmx_entry.get("kafka.tier.archiver:type=TierArchiver,name=TotalLag:Value", -1)
-            last_segments = last_jmx_entry.get(log_segs_key, -1)
-            if last_lag != 0 or last_segments != 1:
+            archiver_lag = last_jmx_entry.get(str(TieredStorageMetricsRegistry.ARCHIVER_LAG), -1)
+            num_log_segments = last_jmx_entry.get(num_log_segments_metric, -1)
+            if archiver_lag != 0 or num_log_segments != 1:
+                self.logger.debug("Archiving not complete. lag: " + str(archiver_lag) + " num_log_segments: " + str(num_log_segments))
                 return False
 
         return True
 
     def tiering_started(self, topic, partition=0):
         self.kafka.read_jmx_output_all_nodes()
-        tier_size = self.kafka.maximum_jmx_value.get("kafka.log:type=Log,name=TierSize,topic={},partition={}:Value".format(topic, partition), -1)
+        tier_size = self.kafka.maximum_jmx_value.get(str(TieredStorageMetricsRegistry.log_tier_size(topic, partition)), -1)
         return tier_size > 0
 
     def add_log_metrics(self, topic, partitions=[0]):
@@ -68,9 +94,9 @@ class TierSupport():
         names = [] if names == None else names
         attrs.append("Value") if "Value" not in attrs else attrs
         for p in partitions:
-            names += ["kafka.log:name=Size,partition={},topic={},type=Log".format(p, topic),
-                      "kafka.log:name=NumLogSegments,partition={},topic={},type=Log".format(p, topic),
-                      "kafka.log:name=TierSize,partition={},topic={},type=Log".format(p, topic)]
+            names += [TieredStorageMetricsRegistry.log_local_size(topic, p).mbean,
+                      TieredStorageMetricsRegistry.num_log_segments(topic, p).mbean,
+                      TieredStorageMetricsRegistry.log_tier_size(topic, p).mbean]
 
     def restart_jmx_tool(self):
         for knode in self.kafka.nodes:
@@ -78,3 +104,4 @@ class TierSupport():
             idx = self.kafka.idx(knode)
             self.kafka.started[idx-1] = False
             self.kafka.start_jmx_tool(idx, knode)
+

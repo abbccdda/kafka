@@ -24,7 +24,7 @@ from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
-from kafkatest.utils.tiered_storage import TierSupport
+from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry
 from os import environ
 from uuid import uuid1
 import random
@@ -186,6 +186,6 @@ class ReassignPartitionsTest(ProduceConsumeValidateTest, TierSupport):
 
         if tier_feature and tier_enable:
             self.kafka.read_jmx_output_all_nodes()
-            tier_bytes_fetched = self.kafka.maximum_jmx_value["kafka.server:type=TierFetcher:BytesFetchedTotal"]
+            tier_bytes_fetched = self.kafka.maximum_jmx_value[str(TieredStorageMetricsRegistry.FETCHER_BYTES_FETCHED)]
             self.logger.info("Bytes fetched from S3 {}".format(tier_bytes_fetched))
             self.logger.info("Producer acked {}".format(self.producer.acked))

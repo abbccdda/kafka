@@ -1,20 +1,16 @@
-from os import environ
-from time import sleep
-
 from ducktape.mark import matrix
 from ducktape.utils.util import wait_until
-from ducktape.mark.resource import cluster
 
-from kafkatest.services.verifiable_consumer import VerifiableConsumer
 from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.services.kafka import KafkaService
-from kafkatest.services.kafka import config_property
 from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
-from kafkatest.utils.tiered_storage import TierSupport
-from kafkatest.version import LATEST_0_8_2, LATEST_0_9, LATEST_0_10_0, LATEST_0_10_1, LATEST_0_10_2, LATEST_0_11_0, LATEST_1_0, LATEST_1_1, LATEST_2_0, LATEST_2_1, LATEST_2_2, DEV_BRANCH, KafkaVersion
+from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry
+from kafkatest.version import LATEST_0_10_1, LATEST_0_10_2, LATEST_0_11_0, LATEST_1_0, LATEST_1_1, LATEST_2_0, \
+    LATEST_2_1, LATEST_2_2, DEV_BRANCH, KafkaVersion
+
 
 class TierRoundtripTest(ProduceConsumeValidateTest, TierSupport):
     """
@@ -105,9 +101,10 @@ class TierRoundtripTest(ProduceConsumeValidateTest, TierSupport):
         self.validate()
 
         self.kafka.read_jmx_output_all_nodes()
-        tier_bytes_fetched = self.kafka.maximum_jmx_value["kafka.server:type=TierFetcher:BytesFetchedTotal"]
-        log_size_key = "kafka.log:type=Log,name=Size,topic={},partition=0:Value".format(self.topic)
-        log_segs_key = "kafka.log:type=Log,name=NumLogSegments,topic={},partition=0:Value".format(self.topic)
+        tier_bytes_fetched = self.kafka.maximum_jmx_value[str(TieredStorageMetricsRegistry.FETCHER_BYTES_FETCHED)]
+        log_size_key = str(TieredStorageMetricsRegistry.log_local_size(self.topic, 0))
+        log_segs_key = str(TieredStorageMetricsRegistry.num_log_segments(self.topic, 0))
+
         log_size = self.kafka.maximum_jmx_value[log_size_key]
         log_segments = self.kafka.maximum_jmx_value[log_segs_key]
         self.logger.info("{} bytes fetched from S3 of {} total bytes, in {} segments".format(tier_bytes_fetched, log_size, log_segments))

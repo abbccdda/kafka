@@ -20,7 +20,7 @@ from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.transactional_message_copier import TransactionalMessageCopier
 from kafkatest.services.kafka import config_property
 from kafkatest.services.monitor.jmx import JmxMixin
-from kafkatest.utils.tiered_storage import TierSupport
+from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry
 from kafkatest.utils import is_int
 
 from ducktape.tests.test import Test
@@ -289,5 +289,5 @@ class TransactionsTest(Test, TierSupport):
 
         if tier:
             self.kafka.read_jmx_output_all_nodes()
-            tier_bytes_fetched = self.kafka.maximum_jmx_value["kafka.server:type=TierFetcher:BytesFetchedTotal"]
+            tier_bytes_fetched = self.kafka.maximum_jmx_value[str(TieredStorageMetricsRegistry.FETCHER_BYTES_FETCHED)]
             assert tier_bytes_fetched > 0
