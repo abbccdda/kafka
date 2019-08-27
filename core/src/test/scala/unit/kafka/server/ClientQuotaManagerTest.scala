@@ -679,28 +679,23 @@ class ClientQuotaManagerTest {
     quotaManager.setBrokerQuotaLimit(250)
 
     try {
-      // Client usage is right at broker quota limit
-      for (_ <- 0 until 10) {
-        assertEquals(0, maybeRecord(quotaManager, "", "Client1", 250))
-        time.sleep(1000)
-      }
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
-      assertEquals(quotaManager.quota("", "Client1").bound(), quotaManager.dynamicQuota("", "Client1").bound(), 0)
-
       // Client wants to use more than the broker quota limit, so gets throttled
-      val throttleTimeMs = maybeRecord(quotaManager, "", "Client1", 300)
-      time.sleep(Math.max(1000, throttleTimeMs))
+      for (_ <- 0 until 10) {
+        val throttleTimeMs = maybeRecord(quotaManager, "", "Client1", 300)
+        time.sleep(Math.max(1000, throttleTimeMs))
+      }
       quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
       assertEquals(250.0, quotaManager.dynamicQuota("", "Client1").bound(), 0)
 
-      // Broker quota limit expands which slowly allows client to use more
+      // Broker quota limit expands which allows client to use more
       quotaManager.setBrokerQuotaLimit(500)
-      for (_ <- 0 until 11) {
-        val throttleTimeMs = maybeRecord(quotaManager, "", "Client1", 300)
-        time.sleep(Math.max(1000, throttleTimeMs))
-        quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
-      }
-      assertEquals(quotaManager.quota("", "Client1").bound(), quotaManager.dynamicQuota("", "Client1").bound(), 0)
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      assertEquals(500.0, quotaManager.dynamicQuota("", "Client1").bound(), 0)
+
+      // Broker quota limit shrinks which allows client to use less
+      quotaManager.setBrokerQuotaLimit(250)
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      assertEquals(250.0, quotaManager.dynamicQuota("", "Client1").bound(), 0)
     } finally {
       quotaManager.shutdown()
       metrics.close()
@@ -708,7 +703,71 @@ class ClientQuotaManagerTest {
   }
 
   @Test
-  def testAutotuneWithClientUsageDecreasingAfterThrottled(): Unit = {
+  def testAutoTuneWithChangingOriginalClientQuota(): Unit = {
+    val metrics = newMetrics
+    val activeTenantsManager = new ActiveTenantsManager(metrics, time, 10000)
+    val quotaManager = new ClientQuotaManager(config, metrics, Produce, time, "", None, Option(activeTenantsManager))
+    quotaManager.setBrokerQuotaLimit(250)
+
+    try {
+      // Client wants to use more than the broker quota limit, so gets throttled
+      for (_ <- 0 until 10) {
+        val throttleTimeMs = maybeRecord(quotaManager, "", "Client1", 300)
+        time.sleep(Math.max(1000, throttleTimeMs))
+      }
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      assertEquals(250.0, quotaManager.dynamicQuota("", "Client1").bound(), 0)
+
+      // Increase original client quota; after auto-tuning, quota can't surpass broker quota limit
+      quotaManager.updateQuota(None, Some("Client1"), Some("Client1"), Some(new Quota(300, true)))
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      assertEquals(250.0, quotaManager.dynamicQuota("", "Client1").bound(), 0)
+
+      // Decrease original client quota; after auto-tuning, quota can't surpass original quota limit
+      quotaManager.updateQuota(None, Some("Client1"), Some("Client1"), Some(new Quota(200, true)))
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      assertEquals(200.0, quotaManager.dynamicQuota("", "Client1").bound(), 0)
+    } finally {
+      quotaManager.shutdown()
+      metrics.close()
+    }
+  }
+
+  @Test
+  def testAutoTuneWhenClientStopsSendingLoad(): Unit = {
+    val metrics = newMetrics
+    val activeTenantsManager = new ActiveTenantsManager(metrics, time, 10000)
+    val quotaManager = new ClientQuotaManager(config, metrics, Produce, time, "", None, Option(activeTenantsManager))
+    quotaManager.setBrokerQuotaLimit(500)
+    // capacity = 500MB/s, so fairLimit = 250MB/s
+
+    try {
+      // usage of C1 = 200 MB/s and usage of C2 = 400 MB/s
+      for (_ <- 0 until 10) {
+        val throttleTimeMs1 = maybeRecord(quotaManager, "", "C1", 200)
+        val throttleTimeMs2 = maybeRecord(quotaManager, "", "C2", 400)
+        time.sleep(Math.max(1000, Math.max(throttleTimeMs1, throttleTimeMs2)))
+      }
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      assertEquals(250.0, quotaManager.dynamicQuota("", "C1").bound(), 0)
+      assertEquals(300.0, quotaManager.dynamicQuota("", "C2").bound(), 0)
+
+      // usage of C1 = 0 MB/s (stops sending load) and usage of C2 = 400MB/s
+      for (_ <- 0 until 10) {
+        val throttleTimeMs1 = maybeRecord(quotaManager, "", "C2", 400)
+        time.sleep(Math.max(1000, throttleTimeMs1))
+      }
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      assertEquals(500.0, quotaManager.dynamicQuota("", "C1").bound(), 0)
+      assertEquals(500.0, quotaManager.dynamicQuota("", "C2").bound(), 0)
+    } finally {
+      quotaManager.shutdown()
+      metrics.close()
+    }
+  }
+
+  @Test
+  def testAutoTuneWhenClientUsageDecreasingAfterThrottled(): Unit = {
     val metrics = newMetrics
     val activeTenantsManager = new ActiveTenantsManager(metrics, time, 10000)
     val quotaManager = new ClientQuotaManager(config, metrics, Produce, time, "", None, Option(activeTenantsManager))
@@ -731,7 +790,6 @@ class ClientQuotaManagerTest {
       // Usage of C1 = 290MB/s (throttled) and usage of C2 = 170MB/s (decreases).
       val throttleTimeMs1 = maybeRecord(quotaManager, "", "C1", 100)
       assertEquals(0, maybeRecord(quotaManager, "", "C2", 100))
-      println(throttleTimeMs1)
       time.sleep(Math.max(1000, throttleTimeMs1))
 
       // Second auto-tune: limits of C1 = 330MB/s and C2 = 250MB/s
