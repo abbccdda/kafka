@@ -63,6 +63,8 @@ public class ProtoToFlatJson implements Deserializer<String> {
             for (TimeSeries ts : metric.getTimeseriesList()) {
 
                 HashMap<String, Object> labels = new HashMap<>();
+                labels.putAll(metric.getResource().getLabelsMap());
+                labels.put("resource_type", metric.getResource().getType());
 
                 // Add labels to record.
                 for (int i = 0; i < metric.getMetricDescriptor().getLabelKeysCount(); i++) {

@@ -6,6 +6,8 @@ import io.confluent.telemetry.reporter.KafkaServerMetricsReporter;
 import io.confluent.telemetry.serde.OpencensusMetricsProto;
 import io.opencensus.proto.metrics.v1.LabelKey;
 import io.opencensus.proto.metrics.v1.Metric;
+import io.opencensus.proto.resource.v1.Resource;
+import java.util.Map;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -35,8 +37,9 @@ import static org.junit.Assert.fail;
 
 public class KafkaServerMetricsReporterTest extends MetricReporterClusterTestHarness {
 
-    protected KafkaConsumer<byte[], byte[]> consumer;
-    protected Serde<Metric> serde = new OpencensusMetricsProto();
+    private KafkaConsumer<byte[], byte[]> consumer;
+    private Serde<Metric> serde = new OpencensusMetricsProto();
+    private Map<String, String> resourceLabels;
 
     @Before
     public void setUp() throws Exception {
@@ -88,19 +91,25 @@ public class KafkaServerMetricsReporterTest extends MetricReporterClusterTestHar
 
                 // Verify labels
 
-                // Check the broker labels are present
-                assertTrue(labelExists(m, KafkaServerMetricsReporter.CLUSTER_ID_LABEL));
-                assertEquals(getLabelValueFromFirstTimeSeries(m, KafkaServerMetricsReporter.CLUSTER_ID_LABEL), servers.get(0).clusterId());
+                // Check the resource labels are present
+                Resource resource = m.getResource();
+                assertEquals(TelemetryResourceType.KAFKA.toCanonicalString(), resource.getType());
 
-                assertTrue(labelExists(m, KafkaServerMetricsReporter.SERVER_ID_LABEL));
-                assertTrue(brokerIds.contains(getLabelValueFromFirstTimeSeries(m, KafkaServerMetricsReporter.SERVER_ID_LABEL)));
+                resourceLabels = resource.getLabelsMap();
+                assertEquals(
+                    servers.get(0).clusterId(),
+                    resourceLabels.get(KafkaServerMetricsReporter.LABEL_CLUSTER_ID)
+                );
+
+                assertTrue(
+                    brokerIds.contains(
+                        resourceLabels.get(KafkaServerMetricsReporter.LABEL_BROKER_ID)
+                    )
+                );
 
                 // Check that the labels from the config are present.
-                assertTrue(labelExists(m, "region"));
-                assertEquals(getLabelValueFromFirstTimeSeries(m, "region"), "test");
-
-                assertTrue(labelExists(m, "pkc"));
-                assertEquals(getLabelValueFromFirstTimeSeries(m, "pkc"), "pkc-bar");
+                assertEquals(resourceLabels.get("region"), "test");
+                assertEquals(resourceLabels.get("pkc"), "pkc-bar");
 
                 // Check that we get all kinds of metrics
                 assertTrue(labelExists(m, LIBRARY));

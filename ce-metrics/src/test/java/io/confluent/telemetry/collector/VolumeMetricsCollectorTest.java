@@ -3,16 +3,23 @@ package io.confluent.telemetry.collector;
 import static io.confluent.telemetry.collector.MetricsTestUtils.toMap;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 import io.confluent.telemetry.Context;
+import io.confluent.telemetry.ResourceBuilderFacade;
+import io.confluent.telemetry.TelemetryResourceType;
 import io.opencensus.proto.metrics.v1.Metric;
-import java.util.List;
 import org.junit.Test;
 
 public class VolumeMetricsCollectorTest {
 
-  Context context = new Context(ImmutableMap.of("test", "value"));
+  private final Context context = new Context(
+      new ResourceBuilderFacade(TelemetryResourceType.KAFKA)
+          .withVersion("mockVersion")
+          .withId("mockId")
+          .build()
+  );
 
   @Test
   public void collectFilterTotalBytes() {
@@ -24,12 +31,12 @@ public class VolumeMetricsCollectorTest {
         .setMetricFilter(key -> !key.getName().contains("disk_total_bytes"))
         .build();
 
-    List<Metric> out = metrics.collect();
+    Metric metric = Iterables.getOnlyElement(metrics.collect());
 
-    assertEquals(1, out.size());
-    assertEquals("test/volume/disk_usable_bytes", out.get(0).getMetricDescriptor().getName());
-    assertEquals("value", toMap(out.get(0).getMetricDescriptor(), out.get(0).getTimeseries(0)).get("test"));
-    assertNotNull(out.get(0).getTimeseries(0).getStartTimestamp());
+    assertEquals(context.getResource(), metric.getResource());
+    assertEquals("test/volume/disk_usable_bytes", metric.getMetricDescriptor().getName());
+    assertTrue(toMap(metric.getMetricDescriptor(), metric.getTimeseries(0)).containsKey("volume"));
+    assertNotNull(metric.getTimeseries(0).getStartTimestamp());
   }
 
   @Test
@@ -42,12 +49,12 @@ public class VolumeMetricsCollectorTest {
         .setMetricFilter(key -> !key.getName().contains("disk_usable_bytes"))
         .build();
 
-    List<Metric> out = metrics.collect();
+    Metric metric = Iterables.getOnlyElement(metrics.collect());
 
-    assertEquals(1, out.size());
-    assertEquals("test/volume/disk_total_bytes", out.get(0).getMetricDescriptor().getName());
-    assertEquals("value", toMap(out.get(0).getMetricDescriptor(), out.get(0).getTimeseries(0)).get("test"));
-    assertNotNull(out.get(0).getTimeseries(0).getStartTimestamp());
+    assertEquals(context.getResource(), metric.getResource());
+    assertEquals("test/volume/disk_total_bytes", metric.getMetricDescriptor().getName());
+    assertTrue(toMap(metric.getMetricDescriptor(), metric.getTimeseries(0)).containsKey("volume"));
+    assertNotNull(metric.getTimeseries(0).getStartTimestamp());
   }
 
   @Test
@@ -62,11 +69,12 @@ public class VolumeMetricsCollectorTest {
 
     // collect twice so that we have a cached set of labels.
     metrics.collect();
-    List<Metric> out = metrics.collect();
 
-    assertEquals(1, out.size());
-    assertEquals("test/volume/disk_total_bytes", out.get(0).getMetricDescriptor().getName());
-    assertEquals("value", toMap(out.get(0).getMetricDescriptor(), out.get(0).getTimeseries(0)).get("test"));
+    Metric metric = Iterables.getOnlyElement(metrics.collect());
+
+    assertEquals(context.getResource(), metric.getResource());
+    assertEquals("test/volume/disk_total_bytes", metric.getMetricDescriptor().getName());
+    assertTrue(toMap(metric.getMetricDescriptor(), metric.getTimeseries(0)).containsKey("volume"));
   }
 
 }

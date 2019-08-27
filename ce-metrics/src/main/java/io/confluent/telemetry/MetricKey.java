@@ -1,5 +1,6 @@
 package io.confluent.telemetry;
 
+import com.google.common.collect.ImmutableMap;
 import java.util.Map;
 import java.util.Objects;
 
@@ -28,7 +29,7 @@ public class MetricKey {
    */
   public MetricKey(String name, Map<String, String> labels) {
     this.name = Objects.requireNonNull(name, "name");
-    this.labels = Objects.requireNonNull(labels, "labels");
+    this.labels = ImmutableMap.copyOf(labels);
   }
 
   public String getName() {

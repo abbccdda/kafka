@@ -133,7 +133,6 @@ public class VolumeMetricsCollector implements MetricsCollector {
                 labels.put(MetricsCollector.LIBRARY, NO_LIBRARY);
                 labels.put(ORIGINAL, "none");
             }
-            labels.putAll(this.context.labels());
             labels.put(VOLUME_LABEL, volumeName);
             labelsCache.put(volumeName, labels);
         }
@@ -150,7 +149,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
             Map<String, String> labels = labelsFor(volumeInfo.name());
 
             if (metricFilter.test(new MetricKey(diskTotalBytesName, labels))) {
-                out.add(MetricsUtils.metricWithSinglePointTimeseries(
+                out.add(context.metricWithSinglePointTimeseries(
                     diskTotalBytesName,
                     MetricDescriptor.Type.GAUGE_INT64,
                     labels,
@@ -162,7 +161,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
             }
 
             if (metricFilter.test(new MetricKey(diskUsableBytesName, labels))) {
-                out.add(MetricsUtils.metricWithSinglePointTimeseries(
+                out.add(context.metricWithSinglePointTimeseries(
                     diskUsableBytesName,
                     MetricDescriptor.Type.GAUGE_INT64,
                     labels,

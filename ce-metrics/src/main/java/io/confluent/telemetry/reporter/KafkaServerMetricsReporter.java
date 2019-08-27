@@ -1,16 +1,19 @@
 package io.confluent.telemetry.reporter;
 
-import com.google.common.collect.ImmutableMap;
+import com.google.common.annotations.VisibleForTesting;
 import com.yammer.metrics.Metrics;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricsCollectorTask;
+import io.confluent.telemetry.ResourceBuilderFacade;
+import io.confluent.telemetry.TelemetryResourceType;
 import io.confluent.telemetry.collector.CPUMetricsCollector;
 import io.confluent.telemetry.collector.KafkaMetricsCollector;
 import io.confluent.telemetry.collector.VolumeMetricsCollector;
 import io.confluent.telemetry.collector.YammerMetricsCollector;
 import io.confluent.telemetry.exporter.Exporter;
 import io.confluent.telemetry.exporter.kafka.KafkaExporter;
+import io.opencensus.proto.resource.v1.Resource;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +21,7 @@ import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.MetricsReporter;
+import org.apache.kafka.common.utils.AppInfoParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,13 +30,18 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
     private static final Logger log = LoggerFactory.getLogger(KafkaServerMetricsReporter.class);
 
     private static final String DOMAIN = "io.confluent.kafka.server";
-    public static final String CLUSTER_ID_LABEL = "cluster_id";
 
-    // Server is generic and is applicable for all CP services. KafkaServerMetricsReporter id is ambiguous as some replica fetcher metrics
-    // have a broker_id tag with the target replica as value.
-    public static final String SERVER_ID_LABEL = "server_id";
+    /**
+     * Included for compatibility with existing tags.
+     * <code>kafka_id</code> is the canonical resource identifier
+     * (following the <code>${resource-type}_id</code> format)
+     */
+    @VisibleForTesting
+    public static final String LABEL_CLUSTER_ID = "cluster_id";
 
-    private volatile String clusterId;
+    @VisibleForTesting
+    public static final String LABEL_BROKER_ID = "broker_id";
+
     private Map<String, ?> configs;
     private MetricsCollectorTask collectorTask;
     private Exporter exporter;
@@ -46,18 +55,18 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
             return;
         }
 
-
-        this.clusterId = clusterResource.clusterId();
-
         ConfluentTelemetryConfig cfg = new ConfluentTelemetryConfig(this.configs);
 
-        Map<String, String> labels = cfg.getLabels();
-        labels.put(CLUSTER_ID_LABEL, this.clusterId);
-        labels.put(SERVER_ID_LABEL, cfg.getBrokerId());
+        Resource resource = new ResourceBuilderFacade(TelemetryResourceType.KAFKA)
+            .withVersion(AppInfoParser.getVersion())
+            .withId(clusterResource.clusterId())
+            .withLabel(LABEL_CLUSTER_ID, clusterResource.clusterId())
+            .withLabel(LABEL_BROKER_ID, cfg.getBrokerId())
+            .withLabels(cfg.getLabels())
+            .build();
 
-        Context ctx = new Context(ImmutableMap.copyOf(labels), cfg.getBoolean(ConfluentTelemetryConfig.DEBUG_ENABLED));
+        Context ctx = new Context(resource, cfg.getBoolean(ConfluentTelemetryConfig.DEBUG_ENABLED), true);
 
-        // Set context with labels
         KafkaMetricsCollector kafkaMetricsCollector =
             KafkaMetricsCollector.newBuilder(cfg)
                 .setContext(ctx)

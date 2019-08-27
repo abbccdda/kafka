@@ -7,7 +7,7 @@ import org.apache.kafka.common.errors.SerializationException;
 import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.serialization.Deserializer;
 
-public class ProtoToJson implements Deserializer {
+public class ProtoToJson implements Deserializer<String> {
 
     @Override
     public void configure(Map configs, boolean isKey) {
@@ -20,7 +20,7 @@ public class ProtoToJson implements Deserializer {
     }
 
     @Override
-    public Object deserialize(String topic, byte[] data) {
+    public String deserialize(String topic, byte[] data) {
         if (data == null) {
             return null;
         }
@@ -35,7 +35,7 @@ public class ProtoToJson implements Deserializer {
     }
 
     @Override
-    public Object deserialize(String topic, Headers headers, byte[] data) {
+    public String deserialize(String topic, Headers headers, byte[] data) {
         return deserialize(topic, data);
     }
 

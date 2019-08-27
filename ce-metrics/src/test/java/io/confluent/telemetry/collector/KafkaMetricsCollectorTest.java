@@ -6,8 +6,9 @@ import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.google.common.collect.ImmutableMap;
 import io.confluent.telemetry.Context;
+import io.confluent.telemetry.ResourceBuilderFacade;
+import io.confluent.telemetry.TelemetryResourceType;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
 import java.time.Clock;
@@ -35,7 +36,12 @@ public class KafkaMetricsCollectorTest {
   private MetricName metricName;
   private KafkaMetricsCollector.StateLedger ledger;
 
-  private final Context emptyContext = new Context(ImmutableMap.<String, String>builder().build());
+  private final Context context = new Context(
+      new ResourceBuilderFacade(TelemetryResourceType.KAFKA)
+          .withVersion("mockVersion")
+          .withId("mockId")
+          .build()
+  );
 
   @Before
   public void setUp() {
@@ -61,7 +67,7 @@ public class KafkaMetricsCollectorTest {
     metrics.addReporter(ledger);
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
-        .setContext(emptyContext)
+        .setContext(context)
         .setDomain("test-domain")
         .setLedger(ledger)
         .build();
@@ -94,7 +100,7 @@ public class KafkaMetricsCollectorTest {
     metrics.addReporter(ledger);
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
-        .setContext(emptyContext)
+        .setContext(context)
         .setDomain("test-domain")
         .setLedger(ledger)
         .build();
@@ -106,6 +112,8 @@ public class KafkaMetricsCollectorTest {
     Metric counter = result.stream().filter(metric -> metric.getMetricDescriptor().getName().equals("test-domain/group1/name1")).findFirst().get();
     Metric delta = result.stream().filter(metric -> metric.getMetricDescriptor().getName().equals("test-domain/group1/name1/delta")).findFirst().get();
 
+    assertEquals("Resource should match", context.getResource(), counter.getResource());
+    assertEquals("Resource should match", context.getResource(), delta.getResource());
     assertEquals("Types should match", Type.CUMULATIVE_DOUBLE, counter.getMetricDescriptor().getType());
     assertEquals("Types should match", Type.GAUGE_DOUBLE, delta.getMetricDescriptor().getType());
     assertEquals("Labels should match", labels, toMap(counter.getMetricDescriptor(), counter.getTimeseries(0)));
@@ -125,7 +133,7 @@ public class KafkaMetricsCollectorTest {
     metrics.addReporter(ledger);
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
-        .setContext(emptyContext)
+        .setContext(context)
         .setDomain("test-domain")
         .setLedger(ledger)
         .build();
@@ -136,6 +144,7 @@ public class KafkaMetricsCollectorTest {
 
     Metric counter = result.stream().filter(metric -> metric.getMetricDescriptor().getName().equals("test-domain/group1/name1")).findFirst().get();
 
+    assertEquals("Resource should match", context.getResource(), counter.getResource());
     assertEquals("Types should match", Type.GAUGE_DOUBLE, counter.getMetricDescriptor().getType());
     assertEquals("Labels should match", labels, toMap(counter.getMetricDescriptor(), counter.getTimeseries(0)));
     assertEquals("Value should match", 100L, counter.getTimeseries(0).getPoints(0).getDoubleValue(), 1e-9);
@@ -154,7 +163,7 @@ public class KafkaMetricsCollectorTest {
     metrics.addReporter(ledger);
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
-        .setContext(emptyContext)
+        .setContext(context)
         .setDomain("test-domain")
         .setLedger(ledger)
         .build();
@@ -165,6 +174,7 @@ public class KafkaMetricsCollectorTest {
 
     Metric counter = result.stream().filter(metric -> metric.getMetricDescriptor().getName().equals("test-domain/group1/name1")).findFirst().get();
 
+    assertEquals("Resource should match", context.getResource(), counter.getResource());
     assertEquals("Types should match", Type.GAUGE_DOUBLE, counter.getMetricDescriptor().getType());
     assertEquals("Labels should match", labels, toMap(counter.getMetricDescriptor(), counter.getTimeseries(0)));
     assertEquals("Value should match", 99d, counter.getTimeseries(0).getPoints(0).getDoubleValue(), 1e-9);
@@ -178,7 +188,7 @@ public class KafkaMetricsCollectorTest {
     metrics.addReporter(ledger);
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
-        .setContext(new Context(ImmutableMap.<String, String>builder().build()))
+        .setContext(context)
         .setDomain("test-domain")
         .setLedger(ledger)
         .build();
@@ -217,7 +227,7 @@ public class KafkaMetricsCollectorTest {
     metrics.addReporter(ledger);
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
-        .setContext(emptyContext)
+        .setContext(context)
         .setDomain("test-domain")
         .setLedger(ledger)
         .setClock(clock)
@@ -255,7 +265,7 @@ public class KafkaMetricsCollectorTest {
     metrics.addReporter(ledger);
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
-        .setContext(emptyContext)
+        .setContext(context)
         .setDomain("test-domain")
         .setLedger(ledger)
         .setClock(clock)
@@ -306,7 +316,7 @@ public class KafkaMetricsCollectorTest {
     metrics.addReporter(ledger);
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
-        .setContext(emptyContext)
+        .setContext(context)
         .setDomain("test-domain")
         .setLedger(ledger)
         .setMetricFilter(metric -> !metric.getName().endsWith("/count"))
@@ -318,6 +328,7 @@ public class KafkaMetricsCollectorTest {
 
     Metric counter = result.get(0);
 
+    assertEquals("Resource should match", context.getResource(), counter.getResource());
     assertEquals("Types should match", Type.GAUGE_DOUBLE, counter.getMetricDescriptor().getType());
     assertEquals("Labels should match", labels, toMap(counter.getMetricDescriptor(), counter.getTimeseries(0)));
     assertEquals("Value should match", 100L, counter.getTimeseries(0).getPoints(0).getDoubleValue(), 1e-9);

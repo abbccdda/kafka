@@ -6,12 +6,6 @@ import static com.google.common.base.CaseFormat.UPPER_CAMEL;
 
 import com.google.common.base.Joiner;
 import com.google.protobuf.Timestamp;
-import io.opencensus.proto.metrics.v1.LabelKey;
-import io.opencensus.proto.metrics.v1.LabelValue;
-import io.opencensus.proto.metrics.v1.Metric;
-import io.opencensus.proto.metrics.v1.MetricDescriptor;
-import io.opencensus.proto.metrics.v1.Point;
-import io.opencensus.proto.metrics.v1.TimeSeries;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
@@ -38,32 +32,6 @@ public class MetricsUtils {
 
     public static Instant toInstant(Timestamp timestamp) {
         return Instant.ofEpochSecond(timestamp.getSeconds(), timestamp.getNanos());
-    }
-    
-    public static Metric metricWithSinglePointTimeseries(String name, MetricDescriptor.Type type, Map<String, String> labels, Point point) {
-        return metricWithSinglePointTimeseries(name, type, labels, point, null);
-    }
-
-    public static Metric metricWithSinglePointTimeseries(String name, MetricDescriptor.Type type, Map<String, String> labels, Point point, Timestamp startTimestamp) {
-        MetricDescriptor.Builder desc = MetricDescriptor.newBuilder().setName(name).setType(type);
-
-        TimeSeries.Builder ts = TimeSeries.newBuilder().addPoints(point);
-
-        if (startTimestamp != null) {
-            ts.setStartTimestamp(startTimestamp);
-        }
-
-        for (String label : labels.keySet()) {
-            desc.addLabelKeys(LabelKey.newBuilder().setKey(label).build());
-            ts.addLabelValues(LabelValue.newBuilder().setValue(labels.get(label)).build());
-        }
-
-        Metric metric = Metric.newBuilder()
-            .setMetricDescriptor(desc.build())
-            .addTimeseries(ts.build())
-            .build();
-
-        return metric;
     }
 
     /**

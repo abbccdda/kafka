@@ -6,6 +6,9 @@ import static org.junit.Assert.assertThrows;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.confluent.telemetry.MetricsUtils;
+import io.confluent.telemetry.MetricBuilderFacade;
+import io.confluent.telemetry.ResourceBuilderFacade;
+import io.confluent.telemetry.TelemetryResourceType;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
 import io.opencensus.proto.metrics.v1.Point;
@@ -13,7 +16,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Collections;
-import java.util.Map;
 import org.apache.kafka.common.errors.SerializationException;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.Headers;
@@ -23,20 +25,26 @@ import org.junit.Test;
 
 public class ProtoToJsonTest {
 
-  final Map<String, String> labels = Collections.singletonMap("label1", "value1");
-
   @Test
   public void deserializeNoHeadersMatches() {
     Instant now = Instant.now();
     Clock clock = Clock.fixed(now, ZoneId.systemDefault());
     Point point = Point.newBuilder().setInt64Value(100L).setTimestamp(MetricsUtils.now(clock)).build();
-    Metric metric = MetricsUtils
-        .metricWithSinglePointTimeseries("name", Type.CUMULATIVE_INT64, labels, point);
+    Metric metric = new MetricBuilderFacade()
+        .withResource(new ResourceBuilderFacade(TelemetryResourceType.KAFKA)
+            .withVersion("mockVersion")
+            .withId("mockId")
+            .build())
+        .withName("name")
+        .withType(Type.CUMULATIVE_INT64)
+        .withLabels(Collections.singletonMap("label1", "value1"))
+        .addSinglePointTimeseries(point)
+        .build();
 
-    Object result = new ProtoToJson().deserialize("topic", metric.toByteArray());
+    String result = new ProtoToJson().deserialize("topic", metric.toByteArray());
 
     final Headers headers = new RecordHeaders(new Header[]{new RecordHeader("key", "value".getBytes())});
-    Object result2 = new ProtoToJson().deserialize("topic", headers, metric.toByteArray());
+    String result2 = new ProtoToJson().deserialize("topic", headers, metric.toByteArray());
 
     assertEquals(result, result2);
   }

@@ -9,7 +9,10 @@ import com.google.protobuf.DoubleValue;
 import com.google.protobuf.Int64Value;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Timestamp;
+import io.confluent.telemetry.MetricBuilderFacade;
 import io.confluent.telemetry.MetricsUtils;
+import io.confluent.telemetry.ResourceBuilderFacade;
+import io.confluent.telemetry.TelemetryResourceType;
 import io.opencensus.proto.metrics.v1.DistributionValue;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
@@ -18,8 +21,6 @@ import io.opencensus.proto.metrics.v1.SummaryValue;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
-import java.util.Collections;
-import java.util.Map;
 import org.apache.kafka.common.errors.SerializationException;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.Headers;
@@ -29,15 +30,25 @@ import org.junit.Test;
 
 public class ProtoToFlatJsonTest {
 
-  final Map<String, String> labels = Collections.singletonMap("label1", "value1");
+  private final MetricBuilderFacade metricBuilder = new MetricBuilderFacade()
+      .withResource(new ResourceBuilderFacade(TelemetryResourceType.KAFKA)
+          .withVersion("mockVersion")
+          .withId("mockId")
+          .withLabel("resource_label_1", "resource_value_1")
+          .withLabel("resource_label_2", "resource_value_2")
+          .build())
+      .withLabel("label1", "value1");
 
   @Test
   public void deserializeNoHeadersMatches() {
     Instant now = Instant.now();
     Clock clock = Clock.fixed(now, ZoneId.systemDefault());
     Point point = Point.newBuilder().setInt64Value(100L).setTimestamp(MetricsUtils.now(clock)).build();
-    Metric metric = MetricsUtils
-        .metricWithSinglePointTimeseries("name", Type.CUMULATIVE_INT64, labels, point);
+    Metric metric = metricBuilder.clone()
+        .withName("name")
+        .withType(Type.CUMULATIVE_INT64)
+        .addSinglePointTimeseries(point)
+        .build();
 
     String result = new ProtoToFlatJson().deserialize("topic", metric.toByteArray());
     final Headers headers = new RecordHeaders(new Header[]{new RecordHeader("key", "value".getBytes())});
@@ -52,12 +63,15 @@ public class ProtoToFlatJsonTest {
     Instant now = Instant.now();
     Clock clock = Clock.fixed(now, ZoneId.systemDefault());
     Point point = Point.newBuilder().setDoubleValue(100d).setTimestamp(MetricsUtils.now(clock)).build();
-    Metric metric = MetricsUtils
-        .metricWithSinglePointTimeseries("double_total", Type.CUMULATIVE_DOUBLE, labels, point);
+    Metric metric = metricBuilder.clone()
+        .withName("double_total")
+        .withType(Type.CUMULATIVE_DOUBLE)
+        .addSinglePointTimeseries(point)
+        .build();
 
     String result = new ProtoToFlatJson(true).deserialize("topic", metric.toByteArray());
 
-    assertEquals(String.format("{\"doubleValue\":100.0,\"label1\":\"value1\",\"name\":\"double_total\",\"timestamp\":%s,\"type\":\"CUMULATIVE_DOUBLE\"}", now.toEpochMilli()), result);
+    assertEquals(String.format("{\"doubleValue\":100.0,\"kafka_id\":\"mockId\",\"kafka_version\":\"mockVersion\",\"label1\":\"value1\",\"name\":\"double_total\",\"resource_label_1\":\"resource_value_1\",\"resource_label_2\":\"resource_value_2\",\"resource_type\":\"kafka\",\"timestamp\":%s,\"type\":\"CUMULATIVE_DOUBLE\"}", now.toEpochMilli()), result);
   }
 
   @Test
@@ -65,12 +79,15 @@ public class ProtoToFlatJsonTest {
     Instant now = Instant.now();
     Clock clock = Clock.fixed(now, ZoneId.systemDefault());
     Point point = Point.newBuilder().setInt64Value(100L).setTimestamp(MetricsUtils.now(clock)).build();
-    Metric metric = MetricsUtils
-        .metricWithSinglePointTimeseries("gauge_long_count", Type.GAUGE_INT64, labels, point);
+    Metric metric = metricBuilder.clone()
+        .withName("gauge_long_count")
+        .withType(Type.GAUGE_INT64)
+        .addSinglePointTimeseries(point)
+        .build();
 
     String result = new ProtoToFlatJson(true).deserialize("topic", metric.toByteArray());
 
-    assertEquals(String.format("{\"int64Value\":100,\"label1\":\"value1\",\"name\":\"gauge_long_count\",\"timestamp\":%s,\"type\":\"GAUGE_INT64\"}", now.toEpochMilli()), result);
+    assertEquals(String.format("{\"int64Value\":100,\"kafka_id\":\"mockId\",\"kafka_version\":\"mockVersion\",\"label1\":\"value1\",\"name\":\"gauge_long_count\",\"resource_label_1\":\"resource_value_1\",\"resource_label_2\":\"resource_value_2\",\"resource_type\":\"kafka\",\"timestamp\":%s,\"type\":\"GAUGE_INT64\"}", now.toEpochMilli()), result);
   }
 
   @Test
@@ -89,12 +106,15 @@ public class ProtoToFlatJsonTest {
         .setSnapshot(snapshot)
         .build();
     Point point = Point.newBuilder().setSummaryValue(summaryValue).setTimestamp(MetricsUtils.now(clock)).build();
-    Metric metric = MetricsUtils
-        .metricWithSinglePointTimeseries("info_summary", Type.SUMMARY, labels, point);
+    Metric metric = metricBuilder.clone()
+        .withName("info_summary")
+        .withType(Type.SUMMARY)
+        .addSinglePointTimeseries(point)
+        .build();
 
     String result = new ProtoToFlatJson(true).deserialize("topic", metric.toByteArray());
 
-    assertEquals(String.format("{\"50.0\":100.0,\"count\":2,\"label1\":\"value1\",\"name\":\"info_summary\",\"sum\":100.0,\"timestamp\":%s,\"type\":\"SUMMARY\"}", now.toEpochMilli()), result);
+    assertEquals(String.format("{\"50.0\":100.0,\"count\":2,\"kafka_id\":\"mockId\",\"kafka_version\":\"mockVersion\",\"label1\":\"value1\",\"name\":\"info_summary\",\"resource_label_1\":\"resource_value_1\",\"resource_label_2\":\"resource_value_2\",\"resource_type\":\"kafka\",\"sum\":100.0,\"timestamp\":%s,\"type\":\"SUMMARY\"}", now.toEpochMilli()), result);
 
   }
 
@@ -104,12 +124,15 @@ public class ProtoToFlatJsonTest {
     Clock clock = Clock.fixed(now, ZoneId.systemDefault());
     DistributionValue distribution = DistributionValue.newBuilder().setCount(5).setSum(369.73).setSumOfSquaredDeviation(1.0942).build();
     Point point = Point.newBuilder().setDistributionValue(distribution).setTimestamp(MetricsUtils.now(clock)).build();
-    Metric metric = MetricsUtils
-        .metricWithSinglePointTimeseries("example_distribution", Type.GAUGE_DISTRIBUTION, labels, point);
+    Metric metric = metricBuilder.clone()
+        .withName("example_distribution")
+        .withType(Type.GAUGE_DISTRIBUTION)
+        .addSinglePointTimeseries(point)
+        .build();
 
     String result = new ProtoToFlatJson(true).deserialize("topic", metric.toByteArray());
 
-    assertEquals(String.format("{\"count\":5,\"label1\":\"value1\",\"name\":\"example_distribution\",\"sum\":369.73,\"timestamp\":%s,\"type\":\"GAUGE_DISTRIBUTION\",\"variance\":1.0942}", now.toEpochMilli()), result);
+    assertEquals(String.format("{\"count\":5,\"kafka_id\":\"mockId\",\"kafka_version\":\"mockVersion\",\"label1\":\"value1\",\"name\":\"example_distribution\",\"resource_label_1\":\"resource_value_1\",\"resource_label_2\":\"resource_value_2\",\"resource_type\":\"kafka\",\"sum\":369.73,\"timestamp\":%s,\"type\":\"GAUGE_DISTRIBUTION\",\"variance\":1.0942}", now.toEpochMilli()), result);
   }
 
   @Test
@@ -119,12 +142,15 @@ public class ProtoToFlatJsonTest {
     Timestamp startTs = MetricsUtils.toTimestamp(startInstant);
     Clock clock = Clock.fixed(now, ZoneId.systemDefault());
     Point point = Point.newBuilder().setInt64Value(100L).setTimestamp(MetricsUtils.now(clock)).build();
-    Metric metric = MetricsUtils
-        .metricWithSinglePointTimeseries("gauge_long_count", Type.GAUGE_INT64, labels, point, startTs);
+    Metric metric = metricBuilder.clone()
+        .withName("gauge_long_count")
+        .withType(Type.GAUGE_INT64)
+        .addSinglePointTimeseries(point, startTs)
+        .build();
 
     String result = new ProtoToFlatJson(true).deserialize("topic", metric.toByteArray());
 
-    assertEquals(String.format("{\"int64Value\":100,\"label1\":\"value1\",\"name\":\"gauge_long_count\",\"startTimestamp\":%s,\"timestamp\":%s,\"type\":\"GAUGE_INT64\"}", startInstant.toEpochMilli(), now.toEpochMilli()), result);
+    assertEquals(String.format("{\"int64Value\":100,\"kafka_id\":\"mockId\",\"kafka_version\":\"mockVersion\",\"label1\":\"value1\",\"name\":\"gauge_long_count\",\"resource_label_1\":\"resource_value_1\",\"resource_label_2\":\"resource_value_2\",\"resource_type\":\"kafka\",\"startTimestamp\":%s,\"timestamp\":%s,\"type\":\"GAUGE_INT64\"}", startInstant.toEpochMilli(), now.toEpochMilli()), result);
   }
 
   @Test

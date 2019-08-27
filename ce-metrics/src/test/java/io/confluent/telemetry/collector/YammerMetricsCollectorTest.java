@@ -6,7 +6,6 @@ import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.DoubleValue;
 import com.google.protobuf.Int64Value;
 import com.yammer.metrics.core.Counter;
@@ -18,6 +17,8 @@ import com.yammer.metrics.core.MetricsRegistry;
 import com.yammer.metrics.core.Timer;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
+import io.confluent.telemetry.ResourceBuilderFacade;
+import io.confluent.telemetry.TelemetryResourceType;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
 import io.opencensus.proto.metrics.v1.SummaryValue;
@@ -38,18 +39,22 @@ public class YammerMetricsCollectorTest {
   private YammerMetricsCollector.Builder collectorBuilder;
   private MetricsRegistry metricsRegistry;
   private MetricName metricName;
-  private Map<String, String> labels;
+
+  private final Context context = new Context(
+      new ResourceBuilderFacade(TelemetryResourceType.KAFKA)
+          .withVersion("mockVersion")
+          .withId("mockId")
+          .build()
+  );
 
   @Before
   public void setUp() {
     metricsRegistry = new MetricsRegistry();
     collectorBuilder = YammerMetricsCollector.newBuilder()
-        .setContext(new Context(ImmutableMap.<String, String>builder().build()))
+        .setContext(context)
         .setDomain("test-domain")
         .setMetricsRegistry(metricsRegistry);
     metricName = new MetricName("group1", "type1", "name1", "scope1");
-    labels = new HashMap<>();
-
   }
 
   @Test
@@ -70,9 +75,9 @@ public class YammerMetricsCollectorTest {
     // Name, Type, value, labels
     Metric metric = result.get(0);
 
+    assertEquals("Resource should match", context.getResource(), metric.getResource());
     assertEquals("Name should match", "test-domain/type1/name1", metric.getMetricDescriptor().getName());
     assertEquals("Type should match", Type.GAUGE_INT64, metric.getMetricDescriptor().getType());
-    assertEquals("labels should match", labels, toMap(metric.getMetricDescriptor(), metric.getTimeseries(0)));
     assertEquals("values should match", 100L, metric.getTimeseries(0).getPoints(0).getInt64Value());
   }
 
@@ -93,17 +98,17 @@ public class YammerMetricsCollectorTest {
         .filter(m -> m.getMetricDescriptor().getName().equals("test-domain/type1/name1/total"))
         .findFirst().get();
 
+    assertEquals("Resource should match", context.getResource(), meterMetric.getResource());
     assertEquals("Type should match", Type.CUMULATIVE_INT64, meterMetric.getMetricDescriptor().getType());
-    assertEquals("labels should match", labels, toMap(meterMetric.getMetricDescriptor(), meterMetric.getTimeseries(0)));
     assertEquals("values should match", 100L, meterMetric.getTimeseries(0).getPoints(0).getInt64Value());
 
 
     // getAndSet metric.
     Metric deltaMetric = result.stream().filter(m -> m.getMetricDescriptor().getName().contains("/delta")).findFirst().get();
 
+    assertEquals("Resource should match", context.getResource(), deltaMetric.getResource());
     assertEquals("Name should match", "test-domain/type1/name1/total/delta", deltaMetric.getMetricDescriptor().getName());
     assertEquals("Type should match", Type.GAUGE_INT64, deltaMetric.getMetricDescriptor().getType());
-    assertEquals("labels should match", labels, toMap(deltaMetric.getMetricDescriptor(), deltaMetric.getTimeseries(0)));
     assertEquals("values should match", 100L, deltaMetric.getTimeseries(0).getPoints(0).getInt64Value());
 
 
@@ -166,24 +171,24 @@ public class YammerMetricsCollectorTest {
         )
         .build();
 
+    assertEquals("Resource should match", context.getResource(), summaryMetric.getResource());
     assertEquals("Type should match", Type.SUMMARY, summaryMetric.getMetricDescriptor().getType());
-    assertEquals("labels should match", labels, toMap(summaryMetric.getMetricDescriptor(), summaryMetric.getTimeseries(0)));
     assertEquals("summaries should match", expectedSummary, summaryMetric.getTimeseries(0).getPoints(0).getSummaryValue());
 
     // time getAndSet
     Metric deltaMetric = result.stream().filter(m -> m.getMetricDescriptor().getName().contains("/time/delta")).findFirst().get();
 
+    assertEquals("Resource should match", context.getResource(), deltaMetric.getResource());
     assertEquals("Name should match", "test-domain/type1/name1/time/delta", deltaMetric.getMetricDescriptor().getName());
     assertEquals("Type should match", Type.GAUGE_DOUBLE, deltaMetric.getMetricDescriptor().getType());
-    assertEquals("labels should match", labels, toMap(deltaMetric.getMetricDescriptor(), deltaMetric.getTimeseries(0)));
     assertEquals("values should match", 110d, deltaMetric.getTimeseries(0).getPoints(0).getDoubleValue(), 1e-9);
 
     // total getAndSet
     deltaMetric = result.stream().filter(m -> m.getMetricDescriptor().getName().contains("/total/delta")).findFirst().get();
 
+    assertEquals("Resource should match", context.getResource(), deltaMetric.getResource());
     assertEquals("Name should match", "test-domain/type1/name1/total/delta", deltaMetric.getMetricDescriptor().getName());
     assertEquals("Type should match", Type.GAUGE_INT64, deltaMetric.getMetricDescriptor().getType());
-    assertEquals("labels should match", labels, toMap(deltaMetric.getMetricDescriptor(), deltaMetric.getTimeseries(0)));
     assertEquals("values should match", 2L, deltaMetric.getTimeseries(0).getPoints(0).getInt64Value());
   }
 
@@ -237,24 +242,24 @@ public class YammerMetricsCollectorTest {
         )
         .build();
 
+    assertEquals("Resource should match", context.getResource(), summaryMetric.getResource());
     assertEquals("Type should match", Type.SUMMARY, summaryMetric.getMetricDescriptor().getType());
-    assertEquals("labels should match", labels, toMap(summaryMetric.getMetricDescriptor(), summaryMetric.getTimeseries(0)));
     assertEquals("summaries should match", expectedSummary, summaryMetric.getTimeseries(0).getPoints(0).getSummaryValue());
 
     // time getAndSet
     Metric deltaMetric = result.stream().filter(m -> m.getMetricDescriptor().getName().contains("/time/delta")).findFirst().get();
 
+    assertEquals("Resource should match", context.getResource(), deltaMetric.getResource());
     assertEquals("Name should match", "test-domain/type1/name1/time/delta", deltaMetric.getMetricDescriptor().getName());
     assertEquals("Type should match", Type.GAUGE_DOUBLE, deltaMetric.getMetricDescriptor().getType());
-    assertEquals("labels should match", labels, toMap(deltaMetric.getMetricDescriptor(), deltaMetric.getTimeseries(0)));
     assertEquals("values should match", 110d, deltaMetric.getTimeseries(0).getPoints(0).getDoubleValue(), 1e-9);
 
     // total getAndSet
     deltaMetric = result.stream().filter(m -> m.getMetricDescriptor().getName().contains("/total/delta")).findFirst().get();
 
+    assertEquals("Resource should match", context.getResource(), deltaMetric.getResource());
     assertEquals("Name should match", "test-domain/type1/name1/total/delta", deltaMetric.getMetricDescriptor().getName());
     assertEquals("Type should match", Type.GAUGE_INT64, deltaMetric.getMetricDescriptor().getType());
-    assertEquals("labels should match", labels, toMap(deltaMetric.getMetricDescriptor(), deltaMetric.getTimeseries(0)));
     assertEquals("values should match", 2L, deltaMetric.getTimeseries(0).getPoints(0).getInt64Value());
   }
 
@@ -436,7 +441,6 @@ public class YammerMetricsCollectorTest {
                 toMap(m.getMetricDescriptor(), m.getTimeseries(0)))));
 
     Map<String, String> metric1Labels = new HashMap<>();
-    metric1Labels.putAll(labels);
     metric1Labels.put("foo", "bar");
     Metric deltaMetric = deltaMetrics
         .get(new MetricKey("test-domain/counter/test/delta", metric1Labels)).get(0);
@@ -447,7 +451,6 @@ public class YammerMetricsCollectorTest {
 
 
     Map<String, String> metric2Labels = new HashMap<>();
-    metric2Labels.putAll(labels);
     metric2Labels.put("baz", "boo");
     deltaMetric = deltaMetrics
         .get(new MetricKey("test-domain/counter/test/delta", metric2Labels)).get(0);

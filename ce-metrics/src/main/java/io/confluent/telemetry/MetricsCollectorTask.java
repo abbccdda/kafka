@@ -65,13 +65,13 @@ public class MetricsCollectorTask {
      */
     private Metric buildMetricsCollectedMetric(MetricsCollector collector, long additionalMetrics) {
         String collectorName = collector.getClass().getSimpleName();
-        Map<String, String> labels = new HashMap<>(context.labels());
+        Map<String, String> labels = new HashMap<>();
         if (context.isDebugEnabled()) {
             labels.put(MetricsCollector.LIBRARY, MetricsCollector.NO_LIBRARY);
             labels.put(MetricsCollector.ORIGINAL, "none");
         }
         labels.put("collector", collectorName);
-        return MetricsUtils.metricWithSinglePointTimeseries(
+        return context.metricWithSinglePointTimeseries(
             "io.confluent.telemetry/metrics_collector_task/metrics_collected_total",
             Type.CUMULATIVE_INT64,
             labels,
@@ -89,13 +89,13 @@ public class MetricsCollectorTask {
 
     private Metric buildMetricsSentMetric(MetricsCollector collector) {
         String collectorName = collector.getClass().getSimpleName();
-        Map<String, String> labels = new HashMap<>(context.labels());
+        Map<String, String> labels = new HashMap<>();
         labels.put("collector", collectorName);
         if (context.isDebugEnabled()) {
             labels.put(MetricsCollector.LIBRARY, MetricsCollector.NO_LIBRARY);
             labels.put(MetricsCollector.ORIGINAL, "none");
         }
-        return MetricsUtils.metricWithSinglePointTimeseries(
+        return context.metricWithSinglePointTimeseries(
             "io.confluent.telemetry/metrics_collector_task/metrics_sent_total",
             Type.CUMULATIVE_INT64,
             labels,

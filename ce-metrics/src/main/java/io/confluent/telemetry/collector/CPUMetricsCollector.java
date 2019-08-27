@@ -69,7 +69,6 @@ public class CPUMetricsCollector implements MetricsCollector {
             labels.put(MetricsCollector.LIBRARY, NO_LIBRARY);
             labels.put(ORIGINAL, "none");
         }
-        labels.putAll(this.context.labels());
 
         if (!metricFilter.test(new MetricKey(name, labels))) {
             return out;
@@ -77,7 +76,7 @@ public class CPUMetricsCollector implements MetricsCollector {
 
         double cpuUtil = osBean.get().getProcessCpuLoad();
 
-        out.add(MetricsUtils.metricWithSinglePointTimeseries(
+        out.add(context.metricWithSinglePointTimeseries(
                 name,
                 MetricDescriptor.Type.GAUGE_DOUBLE,
                 labels,

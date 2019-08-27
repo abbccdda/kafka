@@ -7,33 +7,47 @@ import static org.junit.Assert.assertThrows;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.confluent.telemetry.MetricsUtils;
+import io.confluent.telemetry.MetricBuilderFacade;
+import io.confluent.telemetry.ResourceBuilderFacade;
+import io.confluent.telemetry.TelemetryResourceType;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
 import io.opencensus.proto.metrics.v1.Point;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
-import java.util.Collections;
-import java.util.Map;
 import org.apache.kafka.common.errors.SerializationException;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.apache.kafka.common.header.internals.RecordHeaders;
+import org.junit.Before;
 import org.junit.Test;
 
 public class OpencensusMetricsProtoTest {
 
-  final Map<String, String> labels = Collections.singletonMap("label1", "value1");
+  private Metric metric;
 
-  @Test
-  public void deserializeNoHeadersMatches() {
+  @Before
+  public void setUp() throws Exception {
     Instant now = Instant.now();
     Clock clock = Clock.fixed(now, ZoneId.systemDefault());
     Point point = Point.newBuilder().setInt64Value(100L).setTimestamp(MetricsUtils.now(clock)).build();
-    Metric metric = MetricsUtils
-        .metricWithSinglePointTimeseries("name", Type.CUMULATIVE_INT64, labels, point);
+    metric = new MetricBuilderFacade()
+        .withResource(new ResourceBuilderFacade(TelemetryResourceType.KAFKA)
+            .withVersion("mockVersion")
+            .withId("mockId")
+            .build()
+        )
+        .withName("name")
+        .withType(Type.CUMULATIVE_INT64)
+        .withLabel("label1", "value1")
+        .addSinglePointTimeseries(point)
+        .build();
+  }
 
+  @Test
+  public void deserializeNoHeadersMatches() {
     Object result = new OpencensusMetricsProto().deserialize("topic", metric.toByteArray());
 
     final Headers headers = new RecordHeaders(new Header[]{new RecordHeader("key", "value".getBytes())});
@@ -44,13 +58,6 @@ public class OpencensusMetricsProtoTest {
 
   @Test
   public void serializeDeserialize() {
-
-    Instant now = Instant.now();
-    Clock clock = Clock.fixed(now, ZoneId.systemDefault());
-    Point point = Point.newBuilder().setInt64Value(100L).setTimestamp(MetricsUtils.now(clock)).build();
-    Metric metric = MetricsUtils
-        .metricWithSinglePointTimeseries("name", Type.CUMULATIVE_INT64, labels, point);
-
     byte[] result = new OpencensusMetricsProto().serialize("topic", metric);
 
     Metric result2 = new OpencensusMetricsProto().deserialize("topic", result);

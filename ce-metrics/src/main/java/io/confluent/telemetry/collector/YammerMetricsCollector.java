@@ -93,7 +93,6 @@ public class YammerMetricsCollector implements MetricsCollector {
             labels.put(ORIGINAL, Strings.nullToEmpty(metricName.getGroup() + ":" + metricName.getType() + ":" + metricName.getName()));
             labels.put(LIBRARY, YAMMER_METRICS);
         }
-        labels.putAll(this.context.labels());
         labels.putAll(MetricsUtils.cleanLabelNames(filterTags(YammerMetricsUtils.extractTags(mbeanName))));
 
         return new MetricKey(name, labels);
@@ -180,17 +179,17 @@ public class YammerMetricsCollector implements MetricsCollector {
 
         if (value instanceof Integer || value instanceof Long) {
             point.setInt64Value(((Number) value).longValue());
-            return Optional.of(MetricsUtils
+            return Optional.of(context
                 .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.GAUGE_INT64, labels, point.build()));
 
         } else if (value instanceof Float || value instanceof Double) {
             point.setDoubleValue(((Number) value).doubleValue());
-            return Optional.of(MetricsUtils
+            return Optional.of(context
                 .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.GAUGE_DOUBLE, labels, point.build()));
 
         } else if (value instanceof Boolean) {
             point.setInt64Value(((Boolean) value) ? 1 : 0);
-            return Optional.of(MetricsUtils
+            return Optional.of(context
                 .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.GAUGE_INT64, labels, point.build()));
 
         } else {
@@ -206,7 +205,7 @@ public class YammerMetricsCollector implements MetricsCollector {
                 .setTimestamp(MetricsUtils.now(clock))
                 .setInt64Value(counter.count())
                 .build();
-        return MetricsUtils.metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.CUMULATIVE_INT64, labels, point);
+        return context.metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.CUMULATIVE_INT64, labels, point);
     }
 
 
@@ -225,7 +224,7 @@ public class YammerMetricsCollector implements MetricsCollector {
             .setInt64Value(delta)
             .build();
 
-        return MetricsUtils
+        return context
             .metricWithSinglePointTimeseries(metricName + "/delta", Type.GAUGE_INT64, labels, point, MetricsUtils
                 .toTimestamp(start));
     }
@@ -249,7 +248,7 @@ public class YammerMetricsCollector implements MetricsCollector {
             .setDoubleValue(delta)
             .build();
 
-        return Optional.of(MetricsUtils
+        return Optional.of(context
             .metricWithSinglePointTimeseries(metricName + "/delta", Type.GAUGE_DOUBLE, labels, point, MetricsUtils
                 .toTimestamp(start)));
     }
@@ -260,7 +259,7 @@ public class YammerMetricsCollector implements MetricsCollector {
                 .setTimestamp(MetricsUtils.now(clock))
                 .setInt64Value(meter.count())
                 .build();
-        return MetricsUtils.metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.CUMULATIVE_INT64, labels, point);
+        return context.metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.CUMULATIVE_INT64, labels, point);
     }
 
     private Metric collectHistogram(String metricName, Map<String, String> labels, Histogram histogram) {
@@ -318,7 +317,7 @@ public class YammerMetricsCollector implements MetricsCollector {
                 .setSummaryValue(summaryValue)
                 .build();
 
-        return MetricsUtils
+        return context
             .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.SUMMARY, labels, point);
     }
 

@@ -73,7 +73,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
         for (Map.Entry<MetricName, KafkaMetric> entry : ledger.getMetrics()) {
             MetricName originalMetricName = entry.getKey();
             KafkaMetric metric = entry.getValue();
-            MetricKey metricKey = toMetricKey(originalMetricName, context.labels());
+            MetricKey metricKey = toMetricKey(originalMetricName);
             String name = metricKey.getName();
             Map<String, String> labels = metricKey.getLabels();
 
@@ -142,7 +142,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
                 double value = (Double) entry.getValue().metricValue();
 
                 if (measurable instanceof WindowedCount || measurable instanceof CumulativeSum) {
-                    out.add(MetricsUtils.metricWithSinglePointTimeseries(name,
+                    out.add(context.metricWithSinglePointTimeseries(name,
                             MetricDescriptor.Type.CUMULATIVE_DOUBLE,
                             labels,
                             Point.newBuilder()
@@ -158,10 +158,10 @@ public class KafkaMetricsCollector implements MetricsCollector {
                         .setDoubleValue(instantAndValue.getValue())
                         .build();
                     Timestamp startTimestamp = MetricsUtils.toTimestamp(instantAndValue.getIntervalStart());
-                    out.add(MetricsUtils
+                    out.add(context
                         .metricWithSinglePointTimeseries(deltaName, Type.GAUGE_DOUBLE, labels, point, startTimestamp));
                 } else {
-                    out.add(MetricsUtils.metricWithSinglePointTimeseries(name,
+                    out.add(context.metricWithSinglePointTimeseries(name,
                             MetricDescriptor.Type.GAUGE_DOUBLE,
                             labels,
                             Point.newBuilder()
@@ -174,7 +174,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
                 // Collect the metric only if its value is a double.
                 if (entry.getValue().metricValue() instanceof Double) {
                     double value = (Double) entry.getValue().metricValue();
-                    out.add(MetricsUtils.metricWithSinglePointTimeseries(name,
+                    out.add(context.metricWithSinglePointTimeseries(name,
                             MetricDescriptor.Type.GAUGE_DOUBLE,
                             labels,
                             Point.newBuilder()
@@ -211,7 +211,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
     }
 
     // Package private for testing.
-    MetricKey toMetricKey(MetricName metricName, Map<String, String> contextLabels) {
+    MetricKey toMetricKey(MetricName metricName) {
         String group = Strings.nullToEmpty(metricName.group());
         String rawName = Strings.nullToEmpty(metricName.name());
         String name = MetricsUtils.fullMetricName(this.domain, group, rawName);
@@ -223,7 +223,6 @@ public class KafkaMetricsCollector implements MetricsCollector {
                     .nullToEmpty(metricName.name()));
             labels.put(MetricsCollector.LIBRARY, KAFKA_METRICS_LIB);
         }
-        labels.putAll(contextLabels);
         labels.putAll(MetricsUtils.cleanLabelNames(metricName.tags()));
 
         return new MetricKey(name, labels);
