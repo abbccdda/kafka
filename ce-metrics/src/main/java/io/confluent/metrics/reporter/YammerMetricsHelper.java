@@ -10,6 +10,7 @@ import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.core.MetricsRegistry;
 import com.yammer.metrics.core.Timer;
 
+import com.yammer.metrics.stats.Snapshot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -126,13 +127,14 @@ public class YammerMetricsHelper {
     timerBuilder.setMean(timer.mean());
     timerBuilder.setStdDev(timer.stdDev());
     timerBuilder.setSum(timer.sum());
-    timerBuilder.setMedian(timer.getSnapshot().getMedian());
-    timerBuilder.setPercentile75Th(timer.getSnapshot().get75thPercentile());
-    timerBuilder.setPercentile95Th(timer.getSnapshot().get95thPercentile());
-    timerBuilder.setPercentile98Th(timer.getSnapshot().get98thPercentile());
-    timerBuilder.setPercentile99Th(timer.getSnapshot().get99thPercentile());
-    timerBuilder.setPercentile999Th(timer.getSnapshot().get999thPercentile());
-    timerBuilder.setSize(timer.getSnapshot().size());
+    Snapshot snapshot = timer.getSnapshot();
+    timerBuilder.setMedian(snapshot.getMedian());
+    timerBuilder.setPercentile75Th(snapshot.get75thPercentile());
+    timerBuilder.setPercentile95Th(snapshot.get95thPercentile());
+    timerBuilder.setPercentile98Th(snapshot.get98thPercentile());
+    timerBuilder.setPercentile99Th(snapshot.get99thPercentile());
+    timerBuilder.setPercentile999Th(snapshot.get999thPercentile());
+    timerBuilder.setSize(snapshot.size());
     timerBuilder.setOneMinuteRate(timer.oneMinuteRate());
     timerBuilder.setFiveMinuteRate(timer.fiveMinuteRate());
     timerBuilder.setFifteenMinuteRate(timer.fifteenMinuteRate());
@@ -152,13 +154,14 @@ public class YammerMetricsHelper {
     histogramBuilder.setMean(histogram.mean());
     histogramBuilder.setStdDev(histogram.stdDev());
     histogramBuilder.setSum(histogram.sum());
-    histogramBuilder.setMedian(histogram.getSnapshot().getMedian());
-    histogramBuilder.setPercentile75Th(histogram.getSnapshot().get75thPercentile());
-    histogramBuilder.setPercentile95Th(histogram.getSnapshot().get95thPercentile());
-    histogramBuilder.setPercentile98Th(histogram.getSnapshot().get98thPercentile());
-    histogramBuilder.setPercentile99Th(histogram.getSnapshot().get99thPercentile());
-    histogramBuilder.setPercentile999Th(histogram.getSnapshot().get999thPercentile());
-    histogramBuilder.setSize(histogram.getSnapshot().size());
+    Snapshot snapshot = histogram.getSnapshot();
+    histogramBuilder.setMedian(snapshot.getMedian());
+    histogramBuilder.setPercentile75Th(snapshot.get75thPercentile());
+    histogramBuilder.setPercentile95Th(snapshot.get95thPercentile());
+    histogramBuilder.setPercentile98Th(snapshot.get98thPercentile());
+    histogramBuilder.setPercentile99Th(snapshot.get99thPercentile());
+    histogramBuilder.setPercentile999Th(snapshot.get999thPercentile());
+    histogramBuilder.setSize(snapshot.size());
     return histogramBuilder.build();
   }
 
