@@ -484,7 +484,9 @@ class AdminClientIntegrationTest extends IntegrationTestHarness with Logging {
     // calculate the config count for a server, filtering out
     // tier related broker configs for comparison with topic describe
     def tierFeatureFilteredConfigCount(server: KafkaServer): Long = {
-      server.config.values.keySet().asScala.filterNot(config => !tierFeature && config.startsWith(KafkaConfig.ConfluentTierPrefix)).size
+      server.config.values.keySet().asScala.filterNot(config =>
+        !tierFeature && config.startsWith(KafkaConfig.ConfluentTierPrefix) ||
+        config.equals(LogConfig.AppendRecordInterceptorClassesProp)).size
     }
 
     assertEquals(tierFeatureFilteredConfigCount(servers(1)), configs.get(brokerResource1).entries.size)

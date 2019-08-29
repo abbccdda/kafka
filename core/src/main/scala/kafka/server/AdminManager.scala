@@ -354,8 +354,10 @@ class AdminManager(val config: KafkaConfig,
           val tierFeatureCheck = config.tierFeature || !configName.startsWith(KafkaConfig.ConfluentTierPrefix)
           // Only allow placement constraint if the observer feature is enabled
           val observerCheck = config.observerFeature || !configName.equals(LogConfig.TopicPlacementConstraintsProp)
+          // Do not allow record interceptor classes since for now as we would only have built-in implementations
+          val recordInterceptorCheck = !configName.equals(LogConfig.AppendRecordInterceptorClassesProp)
           /* Always returns true if configNames is None */
-          tierFeatureCheck && observerCheck && configNames.forall(_.contains(configName))
+          tierFeatureCheck && observerCheck && recordInterceptorCheck && configNames.forall(_.contains(configName))
         }.toIndexedSeq
 
         val configEntries = filteredConfigPairs.map { case (name, value) => createConfigEntry(name, value) }

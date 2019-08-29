@@ -31,7 +31,6 @@ import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList, Validator
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.record.{LegacyRecord, TimestampType}
 import org.apache.kafka.common.utils.Utils
-
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 

@@ -1016,7 +1016,7 @@ object LogManager {
             logDirFailureChannel: LogDirFailureChannel,
             tierMetadataManager: TierMetadataManager): LogManager = {
     val defaultProps = KafkaServer.copyKafkaConfigToLog(config)
-
+    KafkaServer.augmentWithKafkaConfig(defaultProps, config)
     LogConfig.validateValues(defaultProps)
     val defaultLogConfig = LogConfig(defaultProps)
 

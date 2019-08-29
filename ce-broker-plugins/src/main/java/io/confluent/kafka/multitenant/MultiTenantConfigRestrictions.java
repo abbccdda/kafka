@@ -38,7 +38,7 @@ public class MultiTenantConfigRestrictions {
 
   public static boolean visibleTopicConfig(String configName) {
     return !configName.startsWith("confluent.tier") &&
-        !configName.startsWith("confluent.append.record.interceptor") &&
+        // we will not allow users to turn on / off schema validation in CC for now
         !configName.startsWith("confluent.key.schema.validation") &&
         !configName.startsWith("confluent.value.schema.validation") &&
         !configName.equals("confluent.placement.constraints");

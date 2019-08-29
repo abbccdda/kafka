@@ -100,20 +100,7 @@ object KafkaServer {
     logProps.put(LogConfig.TierLocalHotsetBytesProp, kafkaConfig.tierLocalHotsetBytes: java.lang.Long)
     logProps.put(LogConfig.TierLocalHotsetMsProp, kafkaConfig.tierLocalHotsetMs: java.lang.Long)
 
-    // confluent configs needed for topic-level overrides
-    // we use computeIfAbsent for those configs that do not have default values (i.e. the default value are null)
-    logProps.computeIfAbsent(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG, new function.Function[String, Object] {
-      override def apply(t: String): Object = kafkaConfig.getString(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG)
-    })
-    logProps.computeIfAbsent(ConfluentConfigs.KEY_SUBJECT_NAME_STRATEGY_CONFIG, new function.Function[String, Object] {
-      override def apply(t: String): Object = kafkaConfig.getString(ConfluentConfigs.KEY_SUBJECT_NAME_STRATEGY_CONFIG)
-    })
-    logProps.computeIfAbsent(ConfluentConfigs.VALUE_SUBJECT_NAME_STRATEGY_CONFIG, new function.Function[String, Object] {
-      override def apply(t: String): Object = kafkaConfig.getString(ConfluentConfigs.VALUE_SUBJECT_NAME_STRATEGY_CONFIG)
-    })
-    logProps.put(ConfluentConfigs.MAX_CACHE_SIZE_CONFIG, kafkaConfig.getInt(ConfluentConfigs.MAX_CACHE_SIZE_CONFIG))
-    logProps.put(ConfluentConfigs.MAX_RETRIES_CONFIG, kafkaConfig.getInt(ConfluentConfigs.MAX_RETRIES_CONFIG))
-    logProps.put(ConfluentConfigs.RETRIES_WAIT_MS_CONFIG, kafkaConfig.getInt(ConfluentConfigs.RETRIES_WAIT_MS_CONFIG))
+    // confluent configs needed for topic-level overrides below:
 
     // we should not pass in the rendered interceptor classes but the original list of string class names
     // this is because the LogConfig itself is expected to construct the interceptor class;
@@ -122,6 +109,24 @@ object KafkaServer {
     logProps.put(LogConfig.AppendRecordInterceptorClassesProp, kafkaConfig.getList(KafkaConfig.AppendRecordInterceptorClassesProp))
 
     logProps
+  }
+
+  private [kafka] def augmentWithKafkaConfig(logProps: util.Map[String, Object], kafkaConfig: KafkaConfig) {
+    // we augment the props with broker-level kafka configs for configuring the interceptor
+    if (kafkaConfig != null) {
+      logProps.computeIfAbsent(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG, new function.Function[String, Object] {
+        override def apply(t: String): Object = kafkaConfig.getString(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG)
+      })
+      logProps.computeIfAbsent(ConfluentConfigs.KEY_SUBJECT_NAME_STRATEGY_CONFIG, new function.Function[String, Object] {
+        override def apply(t: String): Object = kafkaConfig.getString(ConfluentConfigs.KEY_SUBJECT_NAME_STRATEGY_CONFIG)
+      })
+      logProps.computeIfAbsent(ConfluentConfigs.VALUE_SUBJECT_NAME_STRATEGY_CONFIG, new function.Function[String, Object] {
+        override def apply(t: String): Object = kafkaConfig.getString(ConfluentConfigs.VALUE_SUBJECT_NAME_STRATEGY_CONFIG)
+      })
+      logProps.put(ConfluentConfigs.MAX_CACHE_SIZE_CONFIG, kafkaConfig.getInt(ConfluentConfigs.MAX_CACHE_SIZE_CONFIG))
+      logProps.put(ConfluentConfigs.MAX_RETRIES_CONFIG, kafkaConfig.getInt(ConfluentConfigs.MAX_RETRIES_CONFIG))
+      logProps.put(ConfluentConfigs.RETRIES_WAIT_MS_CONFIG, kafkaConfig.getInt(ConfluentConfigs.RETRIES_WAIT_MS_CONFIG))
+    }
   }
 
   private[server] def metricConfig(kafkaConfig: KafkaConfig): MetricConfig = {
