@@ -32,6 +32,11 @@
     <allow pkg="javax.security"/>
     <allow pkg="org.apache.kafka.common"/>
     <allow pkg="org.apache.kafka.clients.producer"/>
+    <allow pkg="kafka.cluster"/>
+    <allow pkg="kafka.log"/>
+    <allow pkg="kafka.server"/>
+    <allow pkg="kafka.tier"/>
+
 
     <subpackage name="cache">
     </subpackage>

@@ -141,6 +141,8 @@ abstract class AbstractFetcherThread(name: String,
 
   protected def latestEpoch(topicPartition: TopicPartition): Option[Int]
 
+  protected def logStartOffset(topicPartition: TopicPartition): Long
+
   protected def logEndOffset(topicPartition: TopicPartition): Long
 
   protected def endOffsetForEpoch(topicPartition: TopicPartition, epoch: Int): Option[OffsetAndEpoch]
@@ -184,8 +186,7 @@ abstract class AbstractFetcherThread(name: String,
   override def doWork() {
     maybeTruncate()
     maybeFetch()
-    maybeCompleteTierMaterialization()
-    maybeCompleteTierRestoreState()
+    maybeTransitionTierStates()
   }
 
   private def maybeFetch(): Unit = {
@@ -341,57 +342,57 @@ abstract class AbstractFetcherThread(name: String,
     ResultWithPartitions(fetchOffsets, partitionsWithError)
   }
 
-  private def maybeCompleteTierRestoreState(): Unit = inLock(partitionMapLock) {
-    val newStates: Map[TopicPartition, PartitionFetchState] = partitionStates.partitionStates.asScala.map { state =>
-      val currentFetchState = state.value
-      val fetchState =
-        state.value.state match {
-          case tierState: FetchingTierState if tierState.completionStatus.isDone =>
-            // We've now fetched the tier state, and will restore the tier state into the leader epoch cache
-            // and producer state, and truncate the local log aligned to the end of the restored state.
-            try {
-              val proposedLocalLogStart = tierState.tierObjectMetadata.endOffset + 1
-              debug(s"Restoring tier state ${tierState.tierObjectMetadata}")
-              onRestoreTierState(state.topicPartition, proposedLocalLogStart, tierState.completionStatus.get())
-              PartitionFetchState(proposedLocalLogStart, currentFetchState.currentLeaderEpoch, state.value.delay, Fetching)
-            } catch {
-              case ee: ExecutionException =>
-                error("Exception fetching tier state.", ee.getCause)
-                PartitionFetchState(state.value.fetchOffset, currentFetchState.currentLeaderEpoch, new DelayedItem(fetchBackOffMs), Fetching)
-            }
-          case _ => currentFetchState
+  private def maybeTransitionTierStates(): Unit = inLock(partitionMapLock) {
+    partitionStates.stream().forEach { new Consumer[PartitionStates.PartitionState[PartitionFetchState]] {
+        override def accept(state: PartitionStates.PartitionState[PartitionFetchState]): Unit = {
+          val currentFetchState = state.value
+          currentFetchState.state match {
+            case tierState: FetchingTierState if tierState.completionStatus.isDone =>
+              transitionFetchingTierState(state, currentFetchState, tierState)
+            case tierState: MaterializingTierMetadata if tierState.completionStatus.isDone =>
+              transitionMaterializingTierMetadata(state, currentFetchState, tierState)
+            case _ =>
+          }
         }
-      (state.topicPartition, fetchState)
-    }.toMap
-
-    partitionStates.set(newStates.asJava)
+      }
+    }
   }
 
-  private def maybeCompleteTierMaterialization(): Unit = inLock(partitionMapLock) {
-    val newStates: Map[TopicPartition, PartitionFetchState] = partitionStates.partitionStates.asScala.map { state =>
-      val currentFetchState = state.value
-      val fetchState =
-        state.value.state match {
-          case tierState: MaterializingTierMetadata if tierState.completionStatus.isDone =>
-            try {
-              // We've found a tiered segment and tier state that aligns with the start of the
-              // leader's log. Next we will start a fetch of the tier state from object storage.
-              val topicPartition = state.topicPartition
-              val tierObjectMetadata = tierState.completionStatus.get
-              val completionStatus = fetchTierState(topicPartition, tierObjectMetadata)
-              currentFetchState.copy(state = FetchingTierState(completionStatus, tierObjectMetadata, currentFetchState.state))
-            } catch {
-              case ee: ExecutionException =>
-                error("Exception completing tier materialization. Retrying initial fetch.", ee.getCause)
-                PartitionFetchState(state.value.fetchOffset, currentFetchState.currentLeaderEpoch,
-                  new DelayedItem(fetchBackOffMs), Fetching)
-            }
-          case _ => currentFetchState
-        }
-      (state.topicPartition, fetchState)
-    }.toMap
+  private def transitionMaterializingTierMetadata(state: PartitionStates.PartitionState[PartitionFetchState],
+                                                  currentFetchState: PartitionFetchState,
+                                                  tierState: MaterializingTierMetadata): Unit = {
+    try {
+      // We've found a tiered segment and tier state that aligns with the start of the
+      // leader's log. Next we will start a fetch of the tier state from object storage.
+      val topicPartition = state.topicPartition
+      val tierObjectMetadata = tierState.completionStatus.get
+      val completionStatus = fetchTierState(topicPartition, tierObjectMetadata)
+      partitionStates.update(state.topicPartition, currentFetchState.copy(state = FetchingTierState(completionStatus, tierObjectMetadata, currentFetchState.state)))
+    } catch {
+      case ee: ExecutionException =>
+        error("Exception completing tier materialization. Retrying initial fetch.", ee.getCause)
+        partitionStates.update(state.topicPartition,
+          PartitionFetchState(state.value.fetchOffset, currentFetchState.currentLeaderEpoch, new DelayedItem(fetchBackOffMs), Fetching))
+    }
+  }
 
-    partitionStates.set(newStates.asJava)
+  private def transitionFetchingTierState(state: PartitionStates.PartitionState[PartitionFetchState],
+                                          currentFetchState: PartitionFetchState,
+                                          tierState: FetchingTierState): Unit = {
+    // We've now fetched the tier state, and will restore the tier state into the leader epoch cache
+    // and producer state, and truncate the local log aligned to the end of the restored state.
+    try {
+      val proposedLocalLogStart = tierState.tierObjectMetadata.endOffset + 1
+      debug(s"Restoring tier state ${tierState.tierObjectMetadata}")
+      onRestoreTierState(state.topicPartition, proposedLocalLogStart, tierState.completionStatus.get())
+      partitionStates.update(state.topicPartition,
+        PartitionFetchState(proposedLocalLogStart, currentFetchState.currentLeaderEpoch, state.value.delay, Fetching))
+    } catch {
+      case ee: ExecutionException =>
+        error("Exception fetching tier state.", ee.getCause)
+        partitionStates.update(state.topicPartition,
+          PartitionFetchState(state.value.fetchOffset, currentFetchState.currentLeaderEpoch, new DelayedItem(fetchBackOffMs), Fetching))
+    }
   }
 
   private def onPartitionFenced(tp: TopicPartition): Unit = inLock(partitionMapLock) {

@@ -118,6 +118,10 @@ class ReplicaFetcherThread(name: String,
     replicaMgr.localLogOrException(topicPartition).latestEpoch
   }
 
+  override protected def logStartOffset(topicPartition: TopicPartition): Long = {
+    replicaMgr.localLogOrException(topicPartition).logStartOffset
+  }
+
   override protected def logEndOffset(topicPartition: TopicPartition): Long = {
     replicaMgr.localLogOrException(topicPartition).logEndOffset
   }
@@ -317,7 +321,7 @@ class ReplicaFetcherThread(name: String,
       // We will not include a replica in the fetch request if it should be throttled.
       if (fetchState.isReadyForFetch && !shouldFollowerThrottle(quota, topicPartition)) {
         try {
-          val logStartOffset = replicaMgr.localLogOrException(topicPartition).logStartOffset
+          val logStartOffset = this.logStartOffset(topicPartition)
           builder.add(topicPartition, new FetchRequest.PartitionData(
             fetchState.fetchOffset, logStartOffset, fetchSize, Optional.of(fetchState.currentLeaderEpoch)))
         } catch {
