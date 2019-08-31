@@ -122,10 +122,24 @@ final public class TopicPlacement {
     }
 
     public static TopicPlacement parse(String value) {
+        if (value.trim().isEmpty()) {
+            // Since we have configure the empty string "" as the default value for
+            // ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG we need this
+            // to succeed and return the empty value for topic placement
+            return TopicPlacement.empty();
+        }
+
         try {
             TopicPlacement topicPlacement = JSON_SERDE.readValue(value, TopicPlacement.class);
+
+            if (topicPlacement == null) {
+                throw new IllegalArgumentException("Value cannot be the JSON null: " + value);
+            }
+
             if (topicPlacement.version() != 1) {
-                throw new IllegalArgumentException("Version " + topicPlacement.version() + " is not supported");
+                throw new IllegalArgumentException(
+                        "Version " + topicPlacement.version() +
+                        " is not supported or the version property was not specified");
             }
             if (!topicPlacement.observers().isEmpty() && topicPlacement.replicas().isEmpty()) {
                 throw new IllegalArgumentException("Replicas constraints must be specified if observers constraints are specified");
@@ -140,6 +154,7 @@ final public class TopicPlacement {
                     throw new IllegalArgumentException("Observer constraint count cannot be zero.");
                 }
             }
+
             return topicPlacement;
         } catch (IOException e) {
             throw new IllegalArgumentException("Exception while parsing placement configuration", e);
@@ -173,7 +188,9 @@ final public class TopicPlacement {
                 @JsonProperty("count") int count,
                 @JsonProperty("constraints") Map<String, String> constraints) {
             this.count = count;
-            this.constraints = constraints;
+            this.constraints = constraints == null ? Collections.emptyMap() : constraints;
+
+            this.constraints.values().removeIf(value -> value == null || value.trim().isEmpty());
         }
 
         @JsonProperty("count")

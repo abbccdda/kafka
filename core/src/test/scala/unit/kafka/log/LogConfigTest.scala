@@ -89,7 +89,7 @@ class LogConfigTest {
       case LogConfig.MessageFormatVersionProp => assertPropertyInvalid(name, "")
       case LogConfig.TierLocalHotsetBytesProp => assertPropertyInvalid(name, "not_a_number", "-0.1", "1.2")
       case LogConfig.TierLocalHotsetMsProp => assertPropertyInvalid(name, "not_a_number", "-0.1", "1.2")
-      case LogConfig.TopicPlacementConstraintsProp => assertPropertyInvalid(name, "json only", "")
+      case LogConfig.TopicPlacementConstraintsProp => assertPropertyInvalid(name, "json only", "null")
       case _ => assertPropertyInvalid(name, "not_a_number", "-1")
     })
   }

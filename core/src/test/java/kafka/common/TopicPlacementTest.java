@@ -12,6 +12,7 @@ import org.junit.Test;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertEquals;
 
 final public class TopicPlacementTest {
     @Test
@@ -132,6 +133,37 @@ final public class TopicPlacementTest {
         assertTrue(serializedJson.length() < platformIndependentJson.length());
     }
 
+    /**
+     * Test that the empty string decodes to the empty/default topic placement
+     */
+    @Test
+    public void testEmptyStringParsesToEmptyTopicPlacement() {
+        assertEquals(TopicPlacement.empty(), TopicPlacement.parse(""));
+    }
+
+    /**
+     * Test that parse handles a few common null cases
+     */
+    @Test
+    public void testSuccessfulHandlingOfNullProperties() {
+        String input = "{\"version\":1,\"replicas\":null,\"observers\":null}";
+        TopicPlacement placement = TopicPlacement.parse(input);
+        assertTrue(placement.replicas().isEmpty());
+        assertTrue(placement.observers().isEmpty());
+
+        input = "{\"version\":1,\"replicas\":[{\"count\":1,\"constraints\":null}]," +
+            "\"observers\":[{\"count\":1,\"constraints\":null}]}";
+        placement = TopicPlacement.parse(input);
+        assertTrue(placement.replicas().stream().allMatch(constraint -> constraint.constraints().isEmpty()));
+        assertTrue(placement.observers().stream().allMatch(constraint -> constraint.constraints().isEmpty()));
+
+        input = "{\"version\":1,\"replicas\":[{\"count\":1,\"constraints\":{\"rack\":null}}]," +
+            "\"observers\":[{\"count\":1,\"constraints\":{\"rack\":null}}]}";
+        placement = TopicPlacement.parse(input);
+        assertTrue(placement.replicas().stream().allMatch(constraint -> constraint.constraints().isEmpty()));
+        assertTrue(placement.observers().stream().allMatch(constraint -> constraint.constraints().isEmpty()));
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void testMissingReplicaCount() {
         String placementJson = "{\"version\": 1, " +
@@ -148,5 +180,15 @@ final public class TopicPlacementTest {
                 "{\"count\": 1, \"constraints\": {\"rack\": \"east-2\"}}]," +
                 "\"observers\": [{\"constraints\": {\"rack\": \"west-1\"}}]}";
         TopicPlacement.parse(placementJson);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testFailsWithStringNull() {
+        TopicPlacement.parse("null");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testFailsWithEmptyJsonObject() {
+        TopicPlacement.parse("{}");
     }
 }

@@ -73,6 +73,13 @@ object Defaults {
   val TierEnable = kafka.server.Defaults.TierEnable
   val TierLocalHotsetBytes = kafka.server.Defaults.TierLocalHotsetBytes
   val TierLocalHotsetMs = kafka.server.Defaults.TierLocalHotsetMs
+
+  /* Use the empty string instead of null. With a default value of null some clients may
+   * not handle it correctly when calling DescribeConfig. Some clients may send the string
+   * "null" for a value in AlterConfig. This causes the JSON decoder to return null and
+   * results in a null pointer exception when validating the JSON object.
+   */
+  val TopicPlacementConstraints = ""
 }
 
 case class LogConfig(props: java.util.Map[_, _], overriddenConfigs: Set[String] = Set.empty)
@@ -368,7 +375,7 @@ object LogConfig {
       .defineTopicOnly(
         TopicPlacementConstraintsProp,
         STRING,
-        null,
+        Defaults.TopicPlacementConstraints,
         TopicPlacement.VALIDATOR,
         LOW,
         TopicPlacementConstraintsDoc
