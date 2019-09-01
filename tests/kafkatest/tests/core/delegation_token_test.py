@@ -110,7 +110,7 @@ client.id=console-consumer
         self.delegation_tokens.renew_delegation_token(dt["hmac"], new_expirydate_ms)
 
     def test_delegation_token_lifecycle(self):
-        self.kafka.start()
+        self.kafka.start(use_zk_to_create_topic=True)
         self.delegation_tokens = DelegationTokens(self.kafka, self.test_context)
 
         self.generate_delegation_token()

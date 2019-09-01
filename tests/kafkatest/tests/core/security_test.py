@@ -75,7 +75,7 @@ class SecurityTest(EndToEndTest):
 
         self.create_kafka(security_protocol=security_protocol,
                           interbroker_security_protocol=interbroker_security_protocol)
-        self.kafka.start()
+        self.kafka.start(use_zk_to_create_topic=True)
 
         # We need more verbose logging to catch the expected errors
         self.create_and_start_clients(log_level="DEBUG")

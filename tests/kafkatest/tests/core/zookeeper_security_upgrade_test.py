@@ -106,9 +106,9 @@ class ZooKeeperSecurityUpgradeTest(ProduceConsumeValidateTest):
             self.acls.set_acls(security_protocol, self.kafka, self.topic, self.group)
 
         if self.no_sasl:
-            self.kafka.start()
+            self.kafka.start(use_zk_to_create_topic=True)
         else:
-            self.kafka.start(self.zk.zk_principals)
+            self.kafka.start(self.zk.zk_principals, use_zk_to_create_topic=True)
 
         #Create Producer and Consumer
         self.create_producer_and_consumer()
