@@ -167,7 +167,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
 
   @Override
   public boolean mayDeny() {
-    return false;
+    return true;
   }
 
   @Override
@@ -187,10 +187,18 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
                                      Set<KafkaPrincipal> groupPrincipals,
                                      Scope scope,
                                      ResourcePattern resource) {
-    return authCache.rbacRules(scope,
-                               resource,
-                               userPrincipal(sessionPrincipal),
-                               groupPrincipals);
+    Set<AccessRule> rbacRules = authCache.rbacRules(scope,
+        resource,
+        userPrincipal(sessionPrincipal),
+        groupPrincipals);
+
+    Set<AccessRule> aclRules = authCache.aclRules(scope,
+        resource,
+        userPrincipal(sessionPrincipal),
+        groupPrincipals);
+
+    rbacRules.addAll(aclRules);
+    return rbacRules;
   }
 
   @Override

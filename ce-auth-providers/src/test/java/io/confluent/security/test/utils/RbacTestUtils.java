@@ -10,11 +10,14 @@ import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Meter;
 import com.yammer.metrics.core.Metric;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
+import io.confluent.security.auth.store.data.AclBindingKey;
+import io.confluent.security.auth.store.data.AclBindingValue;
 import io.confluent.security.auth.store.data.RoleBindingKey;
 import io.confluent.security.auth.store.data.RoleBindingValue;
 import io.confluent.security.auth.store.data.UserKey;
 import io.confluent.security.auth.store.data.UserValue;
 import io.confluent.security.auth.store.kafka.KafkaAuthStore;
+import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import java.util.ArrayList;
@@ -52,6 +55,22 @@ public class RbacTestUtils {
                                        String role,
                                        Scope scope) {
     RoleBindingKey key = new RoleBindingKey(principal, role, scope);
+    authCache.remove(key);
+  }
+
+  public static void updateAclBinding(DefaultAuthCache authCache,
+                                      ResourcePattern resourcePattern,
+                                      Scope scope,
+                                      Set<AccessRule> accessRules) {
+    AclBindingKey key = new AclBindingKey(resourcePattern, scope);
+    AclBindingValue value = new AclBindingValue(accessRules == null ? Collections.emptySet() : accessRules);
+    authCache.put(key, value);
+  }
+
+  public static void deleteAclBinding(DefaultAuthCache authCache,
+                                      ResourcePattern resourcePattern,
+                                      Scope scope) {
+    AclBindingKey key = new AclBindingKey(resourcePattern, scope);
     authCache.remove(key);
   }
 

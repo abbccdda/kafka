@@ -17,6 +17,9 @@ import io.confluent.security.auth.store.data.AuthKey;
 import io.confluent.security.auth.store.data.AuthValue;
 import io.confluent.security.auth.store.data.RoleBindingKey;
 import io.confluent.security.auth.store.data.RoleBindingValue;
+import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.Operation;
+import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourcePatternFilter;
 import io.confluent.security.authorizer.ResourceType;
@@ -45,6 +48,8 @@ import java.util.stream.Collectors;
 import javax.naming.Context;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.NotLeaderForPartitionException;
@@ -323,6 +328,16 @@ public class KafkaAuthWriterTest {
     authWriter.removeRoleBinding(alice, "Operator", invalidScope);
   }
 
+  @Test(expected = InvalidScopeException.class)
+  public void testInvalidScopeAddAclBinding() throws Exception {
+    authWriter.createAcls(invalidScope, null);
+  }
+
+  @Test(expected = InvalidScopeException.class)
+  public void testInvalidScopeDeleteAclBinding() throws Exception {
+    authWriter.deleteAcls(invalidScope, null, null);
+  }
+
   @Test(expected = NotMasterWriterException.class)
   public void testNoMasterWriter() throws Exception {
     authStore.makeMasterWriter(-1);
@@ -476,6 +491,63 @@ public class KafkaAuthWriterTest {
     TestUtils.waitForCondition(() -> authStore.writer().ready(), "Writer not ready");
   }
 
+  @Test
+  public void testAclBinding() {
+    // 1. create alice topicA binding
+    AclBinding aliceTopicABinding = topicBinding("Alice", "TopicA", new Operation("Read"), PermissionType.ALLOW);
+    authWriter.createAcls(clusterA, aliceTopicABinding).toCompletableFuture().join();
+
+    //verify the created alice topicA binding
+    assertEquals(Collections.singleton(aliceTopicABinding), aclRules(clusterA, aliceTopicABinding.toFilter()));
+
+    // 2. create alice topicB binding
+    AclBinding aliceTopicBBinding = topicBinding("Alice", "TopicB", new Operation("Read"), PermissionType.ALLOW);
+    authWriter.createAcls(clusterA, aliceTopicBBinding).toCompletableFuture().join();
+
+    //verify the created alice topicB binding
+    assertEquals(Collections.singleton(aliceTopicBBinding), aclRules(clusterA, aliceTopicBBinding.toFilter()));
+
+    // 3. create bob topicA binding
+    AclBinding bobTopicABinding = topicBinding("Bob", "TopicA", new Operation("Write"), PermissionType.ALLOW);
+    authWriter.createAcls(clusterA, bobTopicABinding).toCompletableFuture().join();
+
+    //verify the created bob topicA binding
+    assertEquals(Collections.singleton(bobTopicABinding), aclRules(clusterA, bobTopicABinding.toFilter()));
+
+    //get All created bindings
+    Set<AclBinding> allBindings = new HashSet<>();
+    allBindings.add(aliceTopicABinding);
+    allBindings.add(aliceTopicBBinding);
+    allBindings.add(bobTopicABinding);
+    assertEquals(allBindings, aclRules(clusterA, AclBindingFilter.ANY));
+
+    // Remove alice topicA Binding
+    Collection<AclBinding> deletedBindings = authWriter.deleteAcls(clusterA, aliceTopicABinding.toFilter(),
+        r -> true).toCompletableFuture().join();
+    assertEquals(Collections.singleton(aliceTopicABinding), new HashSet<>(deletedBindings));
+
+    //get All bindings
+    allBindings.clear();
+    allBindings.add(aliceTopicBBinding);
+    allBindings.add(bobTopicABinding);
+    assertEquals(allBindings, aclRules(clusterA, AclBindingFilter.ANY));
+
+    // Remove bob topicA Binding
+    deletedBindings = authWriter.deleteAcls(clusterA, bobTopicABinding.toFilter(),
+        r -> true).toCompletableFuture().join();
+    assertEquals(Collections.singleton(bobTopicABinding), new HashSet<>(deletedBindings));
+
+    //get All bindings
+    assertEquals(Collections.singleton(aliceTopicBBinding), aclRules(clusterA, AclBindingFilter.ANY));
+
+    // delete remaining Bindings
+    deletedBindings = authWriter.deleteAcls(clusterA, AclBindingFilter.ANY,
+        r -> true).toCompletableFuture().join();
+    assertEquals(Collections.singleton(aliceTopicBBinding), new HashSet<>(deletedBindings));
+
+    assertTrue(authCache.aclBindings(clusterA, AclBindingFilter.ANY, r -> true).isEmpty());
+  }
+
   private void createAuthStoreWithProduceFailure(RuntimeException exception, int failureIndex, AuthEntryType exceptionEntryType) {
     AtomicInteger count = new AtomicInteger();
     authStore = new MockAuthStore(rbacRoles, time, rootScope, numPartitions, storeNodeId) {
@@ -536,5 +608,19 @@ public class KafkaAuthWriterTest {
       Throwable cause = e.getCause();
       assertTrue("Unexpected exception " + cause, exceptionClass.isInstance(cause));
     }
+  }
+
+  private AclBinding topicBinding(String userName,
+                                  String topic,
+                                  Operation operation,
+                                  PermissionType permissionType) {
+    ResourcePattern resourcePattern = new ResourcePattern("Topic", topic, PatternType.LITERAL);
+    KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "username");
+    AccessRule accessRule = new AccessRule(principal, permissionType, "", operation, "");
+    return new AclBinding(ResourcePattern.to(resourcePattern), AccessRule.to(accessRule));
+  }
+
+  private Set<AclBinding> aclRules(Scope scope, AclBindingFilter filter) {
+    return new HashSet<>(authCache.aclBindings(scope, filter, r -> true));
   }
 }

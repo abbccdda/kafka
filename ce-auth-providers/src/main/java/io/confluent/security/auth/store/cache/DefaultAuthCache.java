@@ -3,6 +3,8 @@
 package io.confluent.security.auth.store.cache;
 
 import io.confluent.security.auth.metadata.AuthCache;
+import io.confluent.security.auth.store.data.AclBindingKey;
+import io.confluent.security.auth.store.data.AclBindingValue;
 import io.confluent.security.auth.store.data.AuthEntryType;
 import io.confluent.security.auth.store.data.AuthKey;
 import io.confluent.security.auth.store.data.AuthValue;
@@ -37,7 +39,12 @@ import java.util.NavigableMap;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
+
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclBindingFilter;
+import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.record.InvalidRecordException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -67,6 +74,8 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
   private final Map<KafkaPrincipal, UserMetadata> users;
   private final Map<RoleBindingKey, RoleBindingValue> roleBindings;
   private final Map<Scope, NavigableMap<ResourcePattern, Set<AccessRule>>> rbacAccessRules;
+  private final Map<Scope, NavigableMap<ResourcePattern, Set<AccessRule>>> aclAccessRules;
+
   private final Map<Integer, StatusValue> partitionStatus;
 
   public DefaultAuthCache(RbacRoles rbacRoles, Scope rootScope) {
@@ -75,6 +84,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     this.users = new ConcurrentHashMap<>();
     this.roleBindings = new ConcurrentHashMap<>();
     this.rbacAccessRules = new ConcurrentHashMap<>();
+    this.aclAccessRules = new ConcurrentHashMap<>();
     this.partitionStatus = new ConcurrentHashMap<>();
   }
 
@@ -105,6 +115,14 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
                                    ResourcePattern resource,
                                    KafkaPrincipal userPrincipal,
                                    Collection<KafkaPrincipal> groupPrincipals) {
+    return getAccessRules(resourceScope, resource, userPrincipal, groupPrincipals, rbacAccessRules);
+  }
+
+  private Set<AccessRule> getAccessRules(final Scope resourceScope,
+                                         final ResourcePattern resource,
+                                         final KafkaPrincipal userPrincipal,
+                                         final Collection<KafkaPrincipal> groupPrincipals,
+                                         final Map<Scope, NavigableMap<ResourcePattern, Set<AccessRule>>> accessRules) {
     ensureNotFailed();
     if (!this.rootScope.containsScope(resourceScope))
       throw new InvalidScopeException("This authorization cache does not contain scope " + resourceScope);
@@ -114,7 +132,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     Set<AccessRule> resourceRules = new HashSet<>();
     Scope nextScope = resourceScope;
     while (nextScope != null) {
-      NavigableMap<ResourcePattern, Set<AccessRule>> rules = rbacRules(nextScope);
+      NavigableMap<ResourcePattern, Set<AccessRule>> rules = scopeRules(nextScope, accessRules);
       if (rules != null) {
         String resourceName = resource.name();
         ResourceType resourceType = resource.resourceType();
@@ -197,6 +215,55 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
   }
 
   @Override
+  public Set<AccessRule> aclRules(final Scope resourceScope,
+                                  final ResourcePattern resource,
+                                  final KafkaPrincipal userPrincipal,
+                                  final Collection<KafkaPrincipal> groupPrincipals) {
+    return getAccessRules(resourceScope, resource, userPrincipal, groupPrincipals, aclAccessRules);
+  }
+
+  @Override
+  public Map<ResourcePattern, Set<AccessRule>> aclRules(final Scope scope) {
+    ensureNotFailed();
+    return Collections.unmodifiableMap(scopeRules(scope, aclAccessRules));
+  }
+
+  @Override
+  public Collection<AclBinding> aclBindings(final Scope scope,
+                                            final AclBindingFilter aclBindingFilter,
+                                            final Predicate<ResourcePattern> resourceAccess) {
+    ensureNotFailed();
+    if (!this.rootScope.containsScope(scope))
+      throw new InvalidScopeException("This authorization cache does not contain scope " + scope);
+
+    if (aclBindingFilter.isUnknown()) {
+      throw new InvalidRequestException("The AclBindingFilter "
+          + "must not contain UNKNOWN elements.");
+    }
+
+    Set<AclBinding> aclBindings = new HashSet<>();
+    Scope nextScope = scope;
+    while (nextScope != null) {
+      NavigableMap<ResourcePattern, Set<AccessRule>> rules = scopeRules(nextScope, aclAccessRules);
+      if (rules != null) {
+        for (Map.Entry<ResourcePattern, Set<AccessRule>> e : rules.entrySet()) {
+          ResourcePattern resourcePattern = e.getKey();
+          if (!resourceAccess.test(resourcePattern))
+            continue;
+          Set<AccessRule> accessRules = e.getValue();
+          for (AccessRule accessRule : accessRules) {
+            AclBinding fixture = new AclBinding(ResourcePattern.to(resourcePattern), AccessRule.to(accessRule));
+            if (aclBindingFilter.matches(fixture))
+              aclBindings.add(fixture);
+          }
+        }
+      }
+      nextScope = nextScope.parent();
+    }
+    return aclBindings;
+  }
+
+  @Override
   public AuthValue get(AuthKey key) {
     switch (key.entryType()) {
       case ROLE_BINDING:
@@ -208,6 +275,14 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
       case STATUS:
         StatusKey statusKey = (StatusKey) key;
         return partitionStatus.get(statusKey.partition());
+      case ACL_BINDING:
+        AclBindingKey aclBindingKey = (AclBindingKey) key;
+        NavigableMap<ResourcePattern, Set<AccessRule>> scopeRules = aclAccessRules.get(aclBindingKey.scope());
+        if (scopeRules != null) {
+          Set<AccessRule> accessRules = scopeRules.get(aclBindingKey.resourcePattern());
+          return accessRules == null ? null : new AclBindingValue(accessRules);
+        }
+        return null;
       default:
         throw new IllegalArgumentException("Unknown key type " + key.entryType());
     }
@@ -221,6 +296,8 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     switch (key.entryType()) {
       case ROLE_BINDING:
         return updateRoleBinding((RoleBindingKey) key, (RoleBindingValue) value);
+      case ACL_BINDING:
+        return updateAclBinding((AclBindingKey) key, (AclBindingValue) value);
       case USER:
         return updateUser((UserKey) key, (UserValue) value);
       case STATUS:
@@ -240,6 +317,8 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     switch (key.entryType()) {
       case ROLE_BINDING:
         return removeRoleBinding((RoleBindingKey) key);
+      case ACL_BINDING:
+        return removeAclBinding((AclBindingKey) key);
       case USER:
         UserMetadata oldUser = users.remove(((UserKey) key).principal());
         return oldUser == null ? null : new UserValue(oldUser.groups());
@@ -342,6 +421,11 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     return rbacAccessRules.getOrDefault(scope, NO_RULES);
   }
 
+  private NavigableMap<ResourcePattern, Set<AccessRule>> scopeRules(Scope scope,
+                                                               Map<Scope, NavigableMap<ResourcePattern, Set<AccessRule>>> accessRules) {
+    return accessRules.getOrDefault(scope, NO_RULES);
+  }
+
   private Map<ResourcePattern, Set<AccessRule>> accessRules(RoleBindingKey roleBindingKey,
                                                             RoleBindingValue roleBindingValue) {
     Map<ResourcePattern, Set<AccessRule>> accessRules = new HashMap<>();
@@ -402,5 +486,37 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
 
   private RoleBinding roleBinding(RoleBindingKey key, RoleBindingValue value) {
     return new RoleBinding(key.principal(), key.role(), key.scope(), value.resources());
+  }
+
+  private AclBindingValue updateAclBinding(AclBindingKey key, AclBindingValue value) {
+    Scope scope = key.scope();
+    if (!this.rootScope.containsScope(scope))
+      return null;
+
+    AclBindingValue oldValue = (AclBindingValue) get(key);
+    NavigableMap<ResourcePattern, Set<AccessRule>> scopeRules =
+        aclAccessRules.computeIfAbsent(scope, s -> new ConcurrentSkipListMap<>());
+
+    scopeRules.computeIfAbsent(key.resourcePattern(), x -> ConcurrentHashMap.newKeySet()).clear();
+    scopeRules.get(key.resourcePattern()).addAll(value.accessRules());
+    return oldValue;
+  }
+
+  private AclBindingValue removeAclBinding(AclBindingKey key) {
+    Scope scope = key.scope();
+    if (!this.rootScope.containsScope(scope))
+      return null;
+
+    NavigableMap<ResourcePattern, Set<AccessRule>> scopeRules = aclAccessRules.get(key.scope());
+    if (scopeRules != null) {
+      Set<AccessRule> accessRules = scopeRules.get(key.resourcePattern());
+      if (accessRules != null) {
+        AclBindingValue existing = new AclBindingValue(accessRules);
+        scopeRules.remove(key.resourcePattern());
+        return existing;
+      } else
+        return null;
+    }
+    return null;
   }
 }

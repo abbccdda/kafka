@@ -11,6 +11,7 @@ import io.confluent.kafka.test.utils.SecurityTestUtils;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.auth.provider.ldap.LdapConfig;
+import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.test.utils.LdapTestUtils;
 import io.confluent.security.test.utils.RbacClusters;
 import io.confluent.security.test.utils.RbacTestUtils;
@@ -114,7 +115,7 @@ public class ConfluentServerAuthorizerTest {
 
       // Access allowed by role, but denied by ACL
       addTopicAcls(developer1, "app2", PatternType.PREFIXED, AclPermissionType.DENY);
-      waitForAccess(adminClient, auditTopic, false);
+      waitForAccess(adminClient, APP2_TOPIC, false);
     }
 
     SecurityTestUtils.verifyAuthorizerLicense(rbacClusters.kafkaCluster, LicenseStatus.FREE_TIER);
@@ -209,6 +210,63 @@ public class ConfluentServerAuthorizerTest {
       throws Exception {
     TestUtils.waitForCondition(() -> canAccess(adminClient, topic) == authorized,
         "Access control not applied");
+  }
+
+  @Test
+  public void testRbacWithCentralizedAcls() throws Throwable {
+    rbacConfig = rbacConfig.withLdapGroups();
+    rbacClusters = new RbacClusters(rbacConfig);
+    initializeRbacClusters();
+    KafkaPrincipal dev1Principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, DEVELOPER1);
+
+    rbacClusters.createCentralizedAcl(dev1Principal, "Read", clusterId,
+        new io.confluent.security.authorizer.ResourcePattern("Topic", APP1_TOPIC, PatternType.LITERAL), PermissionType.ALLOW);
+    rbacClusters.createCentralizedAcl(dev1Principal, "Read", clusterId,
+        new io.confluent.security.authorizer.ResourcePattern("Group", APP1_CONSUMER_GROUP, PatternType.LITERAL), PermissionType.ALLOW);
+    rbacClusters.createCentralizedAcl(dev1Principal, "Write", clusterId,
+        new io.confluent.security.authorizer.ResourcePattern("Topic", APP1_TOPIC, PatternType.LITERAL), PermissionType.ALLOW);
+
+    rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
+
+    String auditTopic = "__audit_topic";
+    rbacClusters.kafkaCluster.createTopic(auditTopic, 1, 1);
+
+    ClientBuilder clientBuilder = rbacClusters.clientBuilder(DEVELOPER1);
+    KafkaPrincipal auditors = new KafkaPrincipal(AccessRule.GROUP_PRINCIPAL_TYPE, "Auditors");
+    KafkaPrincipal developer1 = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, DEVELOPER1);
+    try (AdminClient adminClient = clientBuilder.buildAdminClient()) {
+      waitForAccess(adminClient, auditTopic, false);
+
+      // Access granted using prefixed ACL for group
+      addTopicAcls(auditors, "__audit", PatternType.PREFIXED, AclPermissionType.ALLOW);
+      KafkaPrincipal grpPrincipal = new KafkaPrincipal(AccessRule.GROUP_PRINCIPAL_TYPE, "Auditors");
+
+      rbacClusters.createCentralizedAcl(grpPrincipal,
+          "Describe",
+          clusterId,
+          new io.confluent.security.authorizer.ResourcePattern("Topic", "__audit", PatternType.PREFIXED),
+          PermissionType.ALLOW);
+      waitForAccess(adminClient, auditTopic, false);
+
+      rbacClusters.updateUserGroup(DEVELOPER1, auditors.getName());
+      waitForAccess(adminClient, auditTopic, true);
+
+      // Access denied using literal ACL for user
+      rbacClusters.createCentralizedAcl(developer1,
+          "Describe",
+          clusterId,
+          new io.confluent.security.authorizer.ResourcePattern("Topic", auditTopic, PatternType.LITERAL),
+          PermissionType.DENY);
+      waitForAccess(adminClient, auditTopic, false);
+
+      // Access allowed by role, but denied by ACL
+      rbacClusters.createCentralizedAcl(developer1,
+          "Describe",
+          clusterId,
+          new io.confluent.security.authorizer.ResourcePattern("Topic", "app2", PatternType.PREFIXED),
+          PermissionType.DENY);
+      waitForAccess(adminClient, APP2_TOPIC, false);
+    }
   }
 }
 

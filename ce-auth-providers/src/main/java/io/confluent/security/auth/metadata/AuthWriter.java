@@ -7,6 +7,10 @@ import io.confluent.security.authorizer.ResourcePatternFilter;
 import io.confluent.security.authorizer.Scope;
 import java.util.Collection;
 import java.util.concurrent.CompletionStage;
+import java.util.function.Predicate;
+
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 
 /**
@@ -92,4 +96,30 @@ public interface AuthWriter {
    */
   CompletionStage<Void> replaceResourceRoleBinding(KafkaPrincipal principal, String role, Scope scope, Collection<ResourcePattern> resources);
 
+  /**
+   * Creates ACL rules for a given AclBinding. This method will block until the local cache is
+   * up-to-date and the new binding is queued for update with the updated rules.
+   * <p>
+   * Requestor should have AlterAccess permission for the specified resources to perform this operation.
+   *
+   * @param scope Scope at which ACL bindings are added
+   * @param aclBinding  AclBinding to add
+   * @return a stage that is completed when update completes
+   */
+  CompletionStage<Void> createAcls(Scope scope, AclBinding aclBinding);
+
+  /**
+   * Deletes all ACL rules that match the provided filters. This method will block until the local cache is
+   * up-to-date and the new binding is queued for update with the updated rules.
+   * <p>
+   * Requestor should have AlterAccess permission for the specified resources to perform this operation.
+   *
+   * @param scope Scope at which ACL bindings are deleted
+   * @param aclBindingFilter AclBindingFilter to match the rules
+   * @param resourceAccess predicate to check delete permission on resources
+   * @return a stage that is completed when update completes
+   */
+  CompletionStage<Collection<AclBinding>> deleteAcls(Scope scope,
+                                                     AclBindingFilter aclBindingFilter,
+                                                     Predicate<ResourcePattern> resourceAccess);
 }

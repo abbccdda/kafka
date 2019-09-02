@@ -5,6 +5,7 @@ package io.confluent.security.authorizer;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Objects;
 import org.apache.kafka.common.resource.PatternType;
+import org.apache.kafka.common.utils.SecurityUtils;
 
 /**
  * Represents a resource pattern that can be used to define an {@link AccessRule}. This uses
@@ -90,5 +91,26 @@ public class ResourcePattern implements Comparable<ResourcePattern> {
 
   public static ResourcePattern all(ResourceType resourceType) {
     return new ResourcePattern(resourceType, org.apache.kafka.common.resource.ResourcePattern.WILDCARD_RESOURCE, PatternType.LITERAL);
+  }
+
+  public static ResourcePattern from(org.apache.kafka.common.resource.ResourcePattern resourcePattern) {
+    return new ResourcePattern(
+        SecurityUtils.toPascalCase(resourcePattern.resourceType().name()),
+        resourcePattern.name(),
+        resourcePattern.patternType());
+  }
+
+  public static org.apache.kafka.common.resource.ResourcePattern to(ResourcePattern resourcePattern) {
+    return new org.apache.kafka.common.resource.ResourcePattern(
+        SecurityUtils.resourceType(resourcePattern.resourceType.name()),
+        resourcePattern.name(),
+        resourcePattern.patternType());
+  }
+
+  public static ResourcePattern from(org.apache.kafka.common.resource.ResourcePatternFilter resourcePattern) {
+    return new ResourcePattern(
+        SecurityUtils.toPascalCase(resourcePattern.resourceType().name()),
+        resourcePattern.name(),
+        resourcePattern.patternType());
   }
 }

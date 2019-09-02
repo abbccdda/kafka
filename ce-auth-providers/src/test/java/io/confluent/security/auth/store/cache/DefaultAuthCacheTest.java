@@ -12,6 +12,8 @@ import io.confluent.security.auth.store.data.StatusValue;
 import io.confluent.security.auth.store.kafka.KafkaAuthStore;
 import io.confluent.security.auth.store.kafka.MockAuthStore;
 import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.Operation;
+import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourcePatternFilter;
 import io.confluent.security.authorizer.ResourceType;
@@ -24,10 +26,16 @@ import io.confluent.security.rbac.UserMetadata;
 import io.confluent.security.store.MetadataStoreException;
 import io.confluent.security.store.MetadataStoreStatus;
 import io.confluent.security.test.utils.RbacTestUtils;
+
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import org.apache.kafka.common.acl.AccessControlEntryFilter;
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.MockTime;
@@ -269,6 +277,123 @@ public class DefaultAuthCacheTest {
     assertEquals(groups, authCache.groups(alice));
   }
 
+  @Test
+  public void testAclBindings() {
+    Scope clusterA = new Scope.Builder("org1").withKafkaCluster("clusterA").build();
+    authStore.close();
+    this.authStore = MockAuthStore.create(rbacRoles, time, Scope.intermediateScope("org1"), 1, 1);
+    authCache = authStore.authCache();
+
+    KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
+    Set<KafkaPrincipal> emptyGroups = Collections.emptySet();
+    ResourcePattern topicA = new ResourcePattern("Topic", "topicA", PatternType.LITERAL);
+    AccessRule readRule = new AccessRule(alice, PermissionType.ALLOW, "", new Operation("Read"), "");
+    RbacTestUtils.updateAclBinding(authCache, topicA, clusterA, Collections.singleton(readRule));
+    verifyAclPermissions(clusterA, alice, topicA, "Read");
+
+    Scope clusterB = new Scope.Builder("org1").withKafkaCluster("clusterB").build();
+    AccessRule alterRule = new AccessRule(alice, PermissionType.ALLOW, "", new Operation("Alter"), "");
+    RbacTestUtils.updateAclBinding(authCache, clusterResource, clusterB, Collections.singleton(alterRule));
+    verifyAclPermissions(clusterB, alice, clusterResource, "Alter");
+    verifyAclPermissions(clusterA, alice, clusterResource);
+    verifyAclPermissions(clusterA, alice, topicA, "Read");
+
+    Scope clusterC = new Scope.Builder("org2").withKafkaCluster("clusterC").build();
+    RbacTestUtils.updateAclBinding(authCache, topicA, clusterC, Collections.singleton(alterRule));
+    try {
+      authCache.aclRules(clusterC, topicA, alice, emptyGroups);
+      fail("Exception not thrown for unknown cluster");
+    } catch (InvalidScopeException e) {
+      // Expected exception
+    }
+
+    verifyAclPermissions(clusterB, alice, clusterResource, "Alter");
+    verifyAclPermissions(clusterA, alice, clusterResource);
+    verifyAclPermissions(clusterA, alice, topicA, "Read");
+
+    RbacTestUtils.deleteAclBinding(authCache, topicA, clusterA);
+    assertTrue(authCache.aclRules(clusterA, topicA, alice, emptyGroups).isEmpty());
+
+    RbacTestUtils.deleteAclBinding(authCache, clusterResource, clusterB);
+    assertTrue(authCache.aclRules(clusterB, clusterResource, alice, emptyGroups).isEmpty());
+  }
+
+  @Test
+  public void testAclBindingSearch() {
+    Scope clusterA = new Scope.Builder("org1").withKafkaCluster("clusterA").build();
+    authStore.close();
+    this.authStore = MockAuthStore.create(rbacRoles, time, Scope.intermediateScope("org1"), 1, 1);
+    authCache = authStore.authCache();
+
+    // create alice topicA/Read rule
+    KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
+    ResourcePattern topicA = new ResourcePattern("Topic", "topicA", PatternType.LITERAL);
+    AccessRule topicARule = new AccessRule(alice, PermissionType.ALLOW, "", new Operation("Read"), "");
+    RbacTestUtils.updateAclBinding(authCache, topicA, clusterA, Collections.singleton(topicARule));
+
+    // verify alice topicA/Read rule
+    AclBindingFilter topicRuleFilter = new AclBindingFilter(ResourcePattern.to(topicA).toFilter(), AccessRule.to(topicARule).toFilter());
+    AclBinding topicABinding = new AclBinding(ResourcePattern.to(topicA), AccessRule.to(topicARule));
+    Collection<AclBinding> results = authCache.aclBindings(clusterA, topicRuleFilter, r -> true);
+    assertEquals(Collections.singleton(topicABinding), results);
+
+    // create alice topicB/Write rule
+    ResourcePattern topicB = new ResourcePattern("Topic", "mytopicB", PatternType.LITERAL);
+    AccessRule topicBRule = new AccessRule(alice, PermissionType.ALLOW, "", new Operation("Write"), "");
+    RbacTestUtils.updateAclBinding(authCache, topicB, clusterA, Collections.singleton(topicBRule));
+
+    // verify alice topicB/Write rule
+    AclBindingFilter topicBRuleFilter = new AclBindingFilter(ResourcePattern.to(topicB).toFilter(), AccessRule.to(topicBRule).toFilter());
+    AclBinding topicBBinding = new AclBinding(ResourcePattern.to(topicB), AccessRule.to(topicBRule));
+    results = authCache.aclBindings(clusterA, topicBRuleFilter, r -> true);
+    assertEquals(Collections.singleton(topicBBinding), results);
+
+    // create bob topicC/All rule
+    KafkaPrincipal bob = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Bob");
+    ResourcePattern topicC = new ResourcePattern("Topic", "topic", PatternType.PREFIXED);
+    AccessRule topicCRule = new AccessRule(bob, PermissionType.ALLOW, "", new Operation("All"), "");
+    RbacTestUtils.updateAclBinding(authCache, topicC, clusterA, Collections.singleton(topicCRule));
+    AclBinding topicCBinding = new AclBinding(ResourcePattern.to(topicC), AccessRule.to(topicCRule));
+
+    // get all bindings without resource permission
+    assertTrue(authCache.aclBindings(clusterA, AclBindingFilter.ANY, r -> false).isEmpty());
+
+    // get all the bindings with resource permission
+    results = authCache.aclBindings(clusterA, AclBindingFilter.ANY, r -> true);
+    Set<AclBinding> expectedBindings = new HashSet<>();
+    expectedBindings.add(topicABinding);
+    expectedBindings.add(topicBBinding);
+    expectedBindings.add(topicCBinding);
+    assertEquals(expectedBindings, results);
+
+    // get all the bindings with only topicA resource permission
+    results = authCache.aclBindings(clusterA, AclBindingFilter.ANY, r -> r.name().equals("topicA"));
+    assertEquals(Collections.singleton(topicABinding), results);
+
+    //get topicA bindings without permission
+    AclBindingFilter topicABindingFilter = new AclBindingFilter(ResourcePattern.to(topicA).toFilter(), AccessControlEntryFilter.ANY);
+    assertTrue(authCache.aclBindings(clusterA, topicABindingFilter, r -> false).isEmpty());
+
+    //get topicA bindings with permission
+    results = authCache.aclBindings(clusterA, topicABindingFilter, r -> r.name().equals("topicA"));
+    assertEquals(Collections.singleton(topicABinding), results);
+
+    //test delete bindings
+    RbacTestUtils.deleteAclBinding(authCache, topicA, clusterA);
+    results = authCache.aclBindings(clusterA, AclBindingFilter.ANY, r -> true);
+    expectedBindings = new HashSet<>();
+    expectedBindings.add(topicBBinding);
+    expectedBindings.add(topicCBinding);
+    assertEquals(expectedBindings, results);
+
+    RbacTestUtils.deleteAclBinding(authCache, topicB, clusterA);
+    results = authCache.aclBindings(clusterA, AclBindingFilter.ANY, r -> true);
+    assertEquals(Collections.singleton(topicCBinding), results);
+
+    RbacTestUtils.deleteAclBinding(authCache, topicC, clusterA);
+    assertTrue(authCache.aclBindings(clusterA, AclBindingFilter.ANY, r -> true).isEmpty());
+  }
+
   private void verifyCacheFailed() {
     try {
       authCache.groups(new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice"));
@@ -289,6 +414,17 @@ public class DefaultAuthCacheTest {
                                  ResourcePattern resource,
                                  String... expectedOps) {
     Set<String> actualOps = authCache.rbacRules(scope, resource, principal, Collections.emptySet())
+        .stream()
+        .filter(r -> r.principal().equals(principal))
+        .map(r -> r.operation().name()).collect(Collectors.toSet());
+    assertEquals(Utils.mkSet(expectedOps), actualOps);
+  }
+
+  private void verifyAclPermissions(Scope scope,
+                                    KafkaPrincipal principal,
+                                    ResourcePattern resource,
+                                    String... expectedOps) {
+    Set<String> actualOps = authCache.aclRules(scope, resource, principal, Collections.emptySet())
         .stream()
         .filter(r -> r.principal().equals(principal))
         .map(r -> r.operation().name()).collect(Collectors.toSet());

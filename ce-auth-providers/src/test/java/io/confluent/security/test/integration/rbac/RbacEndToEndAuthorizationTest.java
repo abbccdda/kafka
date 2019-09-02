@@ -11,6 +11,7 @@ import io.confluent.license.License;
 import io.confluent.license.test.utils.LicenseTestUtils;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
 import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.store.NotMasterWriterException;
 import io.confluent.security.test.utils.RbacClusters;
@@ -268,6 +269,57 @@ public class RbacEndToEndAuthorizationTest {
     KafkaTestUtils.verifyProduce(clientBuilder, APP1_TOPIC, true);
     Collection<TopicPartition> partitions = Arrays.asList(new TopicPartition(APP1_TOPIC, 0), new TopicPartition(APP1_TOPIC, 1));
     KafkaTestUtils.verifyConsume(clientBuilder, "", c -> c.assign(partitions), authorized);
+  }
+
+  @Test
+  public void testProduceConsumeWithCentralizedAcl() throws Throwable {
+    setupRbacClustersWithCentralizedAcl(1);
+    rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
+    rbacClusters.produceConsume(DEVELOPER2, APP1_TOPIC, APP1_CONSUMER_GROUP, false);
+    rbacClusters.produceConsume(DEVELOPER2, APP2_TOPIC, APP2_CONSUMER_GROUP, true);
+    rbacClusters.produceConsume(RESOURCE_OWNER, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
+    rbacClusters.produceConsume(RESOURCE_OWNER, APP2_TOPIC, APP1_CONSUMER_GROUP, true);
+  }
+
+  private void setupRbacClustersWithCentralizedAcl(int numMetadataServers) throws Exception {
+    for (int i = 1; i < numMetadataServers; i++)
+      config = config.addMetadataServer();
+    rbacClusters = new RbacClusters(config.withLicense());
+
+    rbacClusters.kafkaCluster.createTopic(APP1_TOPIC, 2, 1);
+    rbacClusters.kafkaCluster.createTopic(APP2_TOPIC, 2, 1);
+    clusterId = rbacClusters.kafkaClusterId();
+
+    initializeCentralizedAcl();
+  }
+
+  private void initializeCentralizedAcl() throws Exception {
+    KafkaPrincipal developer1 = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, DEVELOPER1);
+    KafkaPrincipal developer2 = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, DEVELOPER2);
+    KafkaPrincipal resourceOwner = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, RESOURCE_OWNER);
+
+    rbacClusters.createCentralizedAcl(developer1, "Read", clusterId,
+        new ResourcePattern("Topic", APP1_TOPIC, PatternType.LITERAL), PermissionType.ALLOW);
+    rbacClusters.createCentralizedAcl(developer1, "Read", clusterId,
+        new ResourcePattern("Group", APP1_CONSUMER_GROUP, PatternType.LITERAL), PermissionType.ALLOW);
+    rbacClusters.createCentralizedAcl(developer1, "Write", clusterId,
+        new ResourcePattern("Topic", APP1_TOPIC, PatternType.LITERAL), PermissionType.ALLOW);
+
+    rbacClusters.createCentralizedAcl(developer2, "Read", clusterId,
+        new ResourcePattern("Topic", "app2", PatternType.PREFIXED), PermissionType.ALLOW);
+    rbacClusters.createCentralizedAcl(developer2, "Read", clusterId,
+        new ResourcePattern("Group", "app2", PatternType.PREFIXED), PermissionType.ALLOW);
+    rbacClusters.createCentralizedAcl(developer2, "Write", clusterId,
+        new ResourcePattern("Topic", "app2", PatternType.PREFIXED), PermissionType.ALLOW);
+
+    rbacClusters.createCentralizedAcl(resourceOwner, "All", clusterId,
+        new ResourcePattern("Topic", "*", PatternType.LITERAL), PermissionType.ALLOW);
+    rbacClusters.createCentralizedAcl(resourceOwner, "All", clusterId,
+        new ResourcePattern("Group", "*", PatternType.LITERAL), PermissionType.ALLOW);
+
+    rbacClusters.waitUntilAccessAllowed(DEVELOPER1, APP1_TOPIC);
+    rbacClusters.waitUntilAccessAllowed(DEVELOPER2, APP2_TOPIC);
+    rbacClusters.waitUntilAccessAllowed(RESOURCE_OWNER, APP1_TOPIC);
   }
 }
 

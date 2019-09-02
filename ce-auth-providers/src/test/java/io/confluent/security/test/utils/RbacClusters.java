@@ -20,6 +20,8 @@ import io.confluent.security.auth.store.kafka.KafkaAuthStore;
 import io.confluent.security.auth.store.kafka.KafkaAuthWriter;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
+import io.confluent.security.authorizer.Operation;
+import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.minikdc.MiniKdcWithLdapService;
@@ -42,6 +44,7 @@ import kafka.server.KafkaConfig$;
 import kafka.server.KafkaServer;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.config.internals.BrokerSecurityConfigs;
@@ -133,6 +136,19 @@ public class RbacClusters {
       UserValue value = new UserValue(groupPrincipals);
       masterWriter().writeExternalEntry(key, value, 1);
     }
+  }
+
+  public void createCentralizedAcl(KafkaPrincipal principal,
+                                   String operation,
+                                   String clusterId,
+                                   ResourcePattern resourcePattern,
+                                   PermissionType permissionType) throws Exception {
+    AccessRule accessRule =  new AccessRule(principal, permissionType, "*",
+        new Operation(operation), "test");
+    AclBinding aclBinding = new AclBinding(ResourcePattern.to(resourcePattern), AccessRule.to(accessRule));
+
+    masterWriter().createAcls(Scope.kafkaClusterScope(clusterId), aclBinding)
+        .toCompletableFuture().get(30, TimeUnit.SECONDS);
   }
 
   public void shutdown() {

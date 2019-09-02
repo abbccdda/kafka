@@ -9,6 +9,8 @@ import static org.junit.Assert.fail;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.security.auth.metadata.MetadataServiceConfig;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
+import io.confluent.security.auth.store.data.AclBindingKey;
+import io.confluent.security.auth.store.data.AclBindingValue;
 import io.confluent.security.auth.store.data.RoleBindingKey;
 import io.confluent.security.auth.store.data.RoleBindingValue;
 import io.confluent.security.authorizer.AccessRule;
@@ -16,13 +18,16 @@ import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.EmbeddedAuthorizer;
 import io.confluent.security.authorizer.Operation;
+import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.rbac.RbacRoles;
+
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -354,6 +359,68 @@ public class RbacProviderTest {
     Action action = new Action(scope, resourceType, "name", op);
     assertEquals(expectedResult,
         authorizer.authorize(principal, "localhost", Collections.singletonList(action)).get(0));
+  }
+
+  @Test
+  public void testLiteralResourceAclRules() {
+    verifyAclRules(new ResourcePattern("Topic", topic.name(), PatternType.LITERAL));
+  }
+
+  @Test
+  public void testWildcardResourceAclRules() {
+    verifyAclRules(new ResourcePattern("Topic", "*", PatternType.LITERAL));
+  }
+
+  @Test
+  public void testPrefixedResourceAclRules() {
+    verifyAclRules(new ResourcePattern("Topic", "top", PatternType.PREFIXED));
+  }
+
+  @Test
+  public void testSingleCharPrefixedResourceAclRules() {
+    verifyAclRules(new ResourcePattern("Topic", "t", PatternType.PREFIXED));
+  }
+
+  @Test
+  public void testFullNamePrefixedResourceAclRules() {
+    verifyAclRules(new ResourcePattern("Topic", "topic", PatternType.PREFIXED));
+  }
+
+  private void verifyAclRules(ResourcePattern resourcePattern) {
+    KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
+    KafkaPrincipal admin = new KafkaPrincipal(AccessRule.GROUP_PRINCIPAL_TYPE, "admin");
+    Set<KafkaPrincipal> groups = Collections.singleton(admin);
+    Set<KafkaPrincipal> emptyGroups = Collections.emptySet();
+
+    List<AccessRule> accessRules = new LinkedList<>();
+    accessRules.add(new AccessRule(alice, PermissionType.ALLOW, "", new Operation("Read"), ""));
+    updateAclBinding(clusterA, resourcePattern, accessRules);
+    verifyRules(accessRules(alice, emptyGroups, clusterResource));
+    verifyRules(accessRules(alice, emptyGroups, topic), "Read");
+
+    accessRules.add(new AccessRule(admin, PermissionType.ALLOW, "", new Operation("Write"), ""));
+    updateAclBinding(clusterA, resourcePattern, accessRules);
+    verifyRules(accessRules(alice, groups, topic),  "Write", "Read");
+
+    accessRules.add(new AccessRule(alice, PermissionType.ALLOW, "", new Operation("Write"), ""));
+    updateAclBinding(clusterA, resourcePattern, accessRules);
+    verifyRules(accessRules(alice, emptyGroups, topic), "Write", "Read");
+
+    deleteAclBinding(clusterA, resourcePattern);
+    verifyRules(accessRules(alice, groups, topic));
+  }
+
+  private void updateAclBinding(Scope scope,
+                                ResourcePattern resourcePattern,
+                                List<AccessRule> accessRule) {
+    AclBindingKey key = new AclBindingKey(resourcePattern, scope);
+    AclBindingValue value = new AclBindingValue(accessRule);
+    authCache.put(key, value);
+  }
+
+  private void deleteAclBinding(Scope scope, ResourcePattern resourcePattern) {
+    AclBindingKey key = new AclBindingKey(resourcePattern, scope);
+    authCache.remove(key);
   }
 }
 

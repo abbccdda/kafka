@@ -12,6 +12,10 @@ import io.confluent.security.rbac.UserMetadata;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
+
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 
 /**
@@ -85,4 +89,40 @@ public interface AuthCache {
    * @return RBAC role definitions
    */
   RbacRoles rbacRoles();
+
+
+  /**
+   * Returns the ACL rules corresponding to the provided principal that match
+   * the specified resource.
+   *
+   * @param resourceScope Scope of the resource
+   * @param resource Resource pattern to match
+   * @param userPrincipal User principal
+   * @param groupPrincipals Set of group principals of the user
+   * @return Set of access rules that match the principals and resource
+   */
+  Set<AccessRule> aclRules(Scope resourceScope,
+                           ResourcePattern resource,
+                           KafkaPrincipal userPrincipal,
+                           Collection<KafkaPrincipal> groupPrincipals);
+
+  /**
+   * Returns the ACL rules for all resources of given scope
+   *
+   * @param scope Scope of the resources
+   * @return ACL rules for all resources of given scope
+   */
+  Map<ResourcePattern, Set<AccessRule>> aclRules(Scope scope);
+
+  /**
+   * Returns ACL bindings which match the provided filter.
+   *
+   * @param scope Scope of the acl search.
+   * @param aclBindingFilter AclBindingFilter to match
+   * @param resourceAccess predicate to check resource access permission
+   * @return Set of ACL bindings which match the provided aclBindingFilter
+   */
+  Collection<AclBinding> aclBindings(Scope scope,
+                                     AclBindingFilter aclBindingFilter,
+                                     Predicate<ResourcePattern> resourceAccess);
 }

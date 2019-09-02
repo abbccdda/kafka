@@ -12,7 +12,8 @@ import java.util.Objects;
 @JsonSubTypes(value = {
     @JsonSubTypes.Type(value = RoleBindingKey.class, name = "RoleBinding"),
     @JsonSubTypes.Type(value = UserKey.class, name = "User"),
-    @JsonSubTypes.Type(value = StatusKey.class, name = "Status")
+    @JsonSubTypes.Type(value = StatusKey.class, name = "Status"),
+    @JsonSubTypes.Type(value = AclBindingKey.class, name = "AclBinding")
 })
 public abstract class AuthKey {
 
