@@ -1395,6 +1395,7 @@ project(':support-metrics-client') {
     // they only need ConfluentSubmitter
     compileOnly project(':core')
     compile project(':support-metrics-common')
+    compile project(':ce-kafka-client-plugins')
 
     testCompile project(':core')
     testCompile project(':core').sourceSets.test.output
@@ -2316,6 +2317,9 @@ project(':ce-kafka-client-plugins') {
     compile project(':clients')
     compile project(':ce-rest-authorizer')
     compile libs.jacksonDatabind
+    compile libs.bc_fips
+    compile libs.bcpkix_fips
+    compile libs.bctls_fips
     testCompile libs.junit
     testCompile libs.powermockJunit4
     testCompile libs.powermockEasymock

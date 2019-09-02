@@ -49,6 +49,7 @@
       <allow pkg="io.confluent.license" />
       <allow pkg="io.confluent.serializers" />
       <allow pkg="io.confluent.support.metrics" />
+      <allow pkg="io.confluent.kafka.security.fips" />
       <allow pkg="kafka" />
       <allow pkg="org.apache.avro" />
       <allow pkg="org.apache.commons.compress" />

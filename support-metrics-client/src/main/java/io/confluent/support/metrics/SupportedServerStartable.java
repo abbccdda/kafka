@@ -19,6 +19,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Properties;
+import java.util.Map;
+import java.util.HashMap;
 
 import kafka.metrics.KafkaMetricsReporter;
 import kafka.metrics.KafkaMetricsReporter$;
@@ -27,6 +29,10 @@ import kafka.server.KafkaServer;
 import kafka.utils.VerifiableProperties;
 import scala.Option;
 import scala.collection.Seq;
+import scala.collection.JavaConverters;
+
+import io.confluent.kafka.security.fips.FipsValidator;
+import io.confluent.kafka.security.fips.config.FipsSecurityConfig;
 
 /**
  * Starts a Kafka broker plus an associated "support metrics" collection thread for this broker.
@@ -44,12 +50,19 @@ public class SupportedServerStartable {
 
   private final KafkaServer server;
   private MetricsReporter metricsReporter = null;
+  private boolean isFipsEnabled = false;
 
   public SupportedServerStartable(Properties brokerConfiguration) {
     Seq<KafkaMetricsReporter>
         reporters =
         KafkaMetricsReporter$.MODULE$.startReporters(new VerifiableProperties(brokerConfiguration));
     KafkaConfig serverConfig = KafkaConfig.fromProps(brokerConfiguration);
+
+    /* Check FIPS mode */
+    if (isFipsEnabled = Boolean.parseBoolean(brokerConfiguration.getProperty(FipsSecurityConfig.ENABLE_FIPS_CONFIG))) {
+      checkFips1402(brokerConfiguration);
+    }
+
     Option<String> noThreadNamePrefix = Option.empty();
     server = new KafkaServer(serverConfig, Time.SYSTEM, noThreadNamePrefix, reporters);
 
@@ -70,6 +83,14 @@ public class SupportedServerStartable {
       // We log at WARN level to increase the visibility of this information.
       log.warn(legalDisclaimerProactiveSupportDisabled());
     }
+  }
+
+  private void checkFips1402(Properties brokerConfiguration) {
+    /* check TLS Cipher algorithm and TLS protocol versions */
+    FipsValidator.validateFipsTls(new HashMap<String, Object>((Map) brokerConfiguration));
+    /* check Broker protocol */
+    KafkaConfig serverConfig = KafkaConfig.fromProps(brokerConfiguration);
+    FipsValidator.validateFipsBrokerProtocol(JavaConverters.mapAsJavaMapConverter(serverConfig.listenerSecurityProtocolMap()).asJava());
   }
 
   private void createAndInitializeMetricsReporter(KafkaSupportConfig kafkaSupportConfig) {
@@ -178,4 +199,10 @@ public class SupportedServerStartable {
     return getMetricsReporter() != null;
   }
 
+  /**
+   * This method is protected for unit testing
+   */
+  protected final boolean fipsEnabled() {
+    return isFipsEnabled;
+  }
 }

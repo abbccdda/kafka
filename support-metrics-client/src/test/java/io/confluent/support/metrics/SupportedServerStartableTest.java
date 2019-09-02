@@ -23,6 +23,9 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import io.confluent.kafka.security.fips.config.FipsSecurityConfig;
+import io.confluent.kafka.security.fips.exceptions.InvalidFipsBrokerProtocolException;
+
 public class SupportedServerStartableTest {
 
   private Properties defaultBrokerConfiguration() throws IOException {
@@ -100,5 +103,25 @@ public class SupportedServerStartableTest {
     assertTrue(supportedServerStartable.getMetricsReporter().reportingEnabled());
     assertTrue(supportedServerStartable.getMetricsReporter().sendToConfluentEnabled());
     assertFalse(supportedServerStartable.getMetricsReporter().sendToKafkaEnabled());
+  }
+
+  @Test
+  public void testEnableFipsModeOnKafka() throws IOException {
+    Properties brokerConfiguration = defaultBrokerConfiguration();
+    brokerConfiguration.setProperty(FipsSecurityConfig.ENABLE_FIPS_CONFIG, "true");
+    brokerConfiguration.setProperty("listeners", "INTERNAL://:9093,EXTERNAL://:9092");
+    brokerConfiguration.setProperty("advertised.listeners", "INTERNAL://:9093,EXTERNAL://:9092");
+    brokerConfiguration.setProperty("inter.broker.listener.name", "INTERNAL");
+    brokerConfiguration.setProperty("listener.security.protocol.map", "INTERNAL:SSL,EXTERNAL:SASL_SSL");
+    SupportedServerStartable supportedServerStartable = new SupportedServerStartable(brokerConfiguration);
+
+    assertTrue(supportedServerStartable.fipsEnabled());
+  }
+
+  @Test(expected = InvalidFipsBrokerProtocolException.class)
+  public void testInvalidFipsConfigEnableFipsModeOnKafka() throws IOException {
+    Properties brokerConfiguration = defaultBrokerConfiguration();
+    brokerConfiguration.setProperty(FipsSecurityConfig.ENABLE_FIPS_CONFIG, "true");
+    SupportedServerStartable supportedServerStartable = new SupportedServerStartable(brokerConfiguration);
   }
 }
