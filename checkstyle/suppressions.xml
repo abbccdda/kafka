@@ -299,8 +299,11 @@
               files="LicenseManagerTest.java"/>
 
     <!-- ce-audit exclusions -->
-    <suppress checks=".+"
-      files="ce-audit/build/generated/.+.java$"/>
+    <suppress checks=".+" files="ce-audit/build/generated/.+.java$"/>
     <!-- uses protobuf generated classes -->
     <suppress checks="ImportControl" files="ProtobufToJsonTest.java"/>
+    <!-- use protobuf generated classes -->
+    <suppress checks="ImportControl" files="ce-audit/src/test/java/io/confluent/security/audit/*"/>
+    <suppress checks="ImportControl" files="ce-audit/src/main/java/io/confluent/security/audit/appender/.*"/>
+
 </suppressions>

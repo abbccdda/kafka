@@ -671,7 +671,8 @@ def pkgs = [
     'ce-auth-providers',
     'ce-metrics',
     'ce-aegis',
-    'ce-audit'
+    'ce-audit',
+    'ce-resource-names'
 ] + connectPkgs
 
 /** Create one task per default Scala version */
@@ -993,6 +994,7 @@ project(':core') {
     from(project(':ce-auth-providers').jar) { into("libs/") }
     from(project(':ce-auth-providers').configurations.runtime) { into("libs/") }
     from(project(':ce-audit').jar) { into("libs/") }
+    from(project(':ce-resource-names').jar) { into("libs/") }
     exclude('confluent-serializers*')
     exclude('confluent-licensing*')
     duplicatesStrategy 'exclude'
@@ -2722,6 +2724,32 @@ project(':ce-audit') {
   }
 
   compileJava.dependsOn 'generateProto'
+}
+
+project(':ce-resource-names') {
+  group = "io.confluent"
+  archivesBaseName = "confluent-resource-names"
+
+  dependencies {
+    compile libs.guava
+    compile libs.slf4jApi
+    testCompile libs.junit
+  }
+
+  tasks.create(name: "copyDependantLibs", type: Copy) {
+    from (configurations.testRuntime) {
+      include('slf4j-log4j12*')
+      include('log4j*jar')
+    }
+    from (configurations.runtime) {
+    }
+    into "$buildDir/dependant-libs"
+    duplicatesStrategy 'exclude'
+  }
+
+  checkstyle {
+    configProperties = checkstyleConfigProperties("confluent-import-control.xml")
+  }
 }
 
 task aggregatedJavadoc(type: Javadoc) {

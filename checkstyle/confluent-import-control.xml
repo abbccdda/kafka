@@ -226,4 +226,12 @@
       <allow pkg="org.apache.kafka.server" />
     </subpackage>
   </subpackage>
-  </import-control>
+
+  <subpackage name="crn">
+    <allow pkg="io.confluent.common" />
+    <allow pkg="io.confluent.crn" />
+    <allow pkg="io.confluent.security.authorizer" />
+    <allow pkg="org.apache.kafka.common" />
+  </subpackage>
+
+</import-control>
