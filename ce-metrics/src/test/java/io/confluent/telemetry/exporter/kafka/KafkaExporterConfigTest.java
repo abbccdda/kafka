@@ -52,7 +52,7 @@ public class KafkaExporterConfigTest {
         .build();
 
     ConfluentTelemetryConfig telemetryConfig = new ConfluentTelemetryConfig(properties);
-    KafkaExporterConfig exporterConfig = telemetryConfig.getKafkaExporterConfig();
+    KafkaExporterConfig exporterConfig = telemetryConfig.createKafkaExporterConfig().get();
 
     Properties producerProperties = exporterConfig.getProducerProperties();
     assertThat(producerProperties).contains(

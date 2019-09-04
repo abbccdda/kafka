@@ -10,6 +10,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -24,16 +25,18 @@ public class MetricsCollectorTask {
 
     private final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
     private final Context context;
-    private final Exporter exporter;
+    private final Set<Exporter> exporters;
     private final Collection<MetricsCollector> collectors;
     private final long collectIntervalMs;
     private final ConcurrentMap<MetricsCollector, AtomicLong> metricsCollected = new ConcurrentHashMap<>();
     private final ConcurrentMap<MetricsCollector, AtomicLong> metricsSent = new ConcurrentHashMap<>();
 
-    public MetricsCollectorTask(Context ctx, Exporter client, Collection<MetricsCollector> collectors, long collectIntervalMs) {
+    public MetricsCollectorTask(Context ctx, Set<Exporter> exporters, Collection<MetricsCollector> collectors, long collectIntervalMs) {
         Verify.verify(collectIntervalMs > 0, "collection interval cannot be less than 1");
 
-        this.exporter = Objects.requireNonNull(client);
+        this.exporters = Objects.requireNonNull(exporters);
+        Verify.verify(!exporters.isEmpty(), "At least one exporter must be enabled");
+
         this.collectors = Objects.requireNonNull(collectors);
         this.context = Objects.requireNonNull(ctx);
         this.collectIntervalMs = collectIntervalMs;
@@ -53,6 +56,7 @@ public class MetricsCollectorTask {
      * "additionalMetrics" that were collected by the collector.
      */
     private long metricsCollectedAddAndGet(MetricsCollector collector, long additionalMetrics) {
+        // FIXME This is incorrect (https://confluentinc.atlassian.net/browse/METRICS-577)
         AtomicLong currCount = metricsCollected
             .getOrDefault(collector, new AtomicLong());
 
@@ -66,11 +70,10 @@ public class MetricsCollectorTask {
     private Metric buildMetricsCollectedMetric(MetricsCollector collector, long additionalMetrics) {
         String collectorName = collector.getClass().getSimpleName();
         Map<String, String> labels = new HashMap<>();
+        labels.put(MetricsCollector.LABEL_COLLECTOR, collectorName);
         if (context.isDebugEnabled()) {
-            labels.put(MetricsCollector.LIBRARY, MetricsCollector.NO_LIBRARY);
-            labels.put(MetricsCollector.ORIGINAL, "none");
+            labels.put(MetricsCollector.LABEL_LIBRARY, MetricsCollector.LIBRARY_NONE);
         }
-        labels.put("collector", collectorName);
         return context.metricWithSinglePointTimeseries(
             "io.confluent.telemetry/metrics_collector_task/metrics_collected_total",
             Type.CUMULATIVE_INT64,
@@ -84,6 +87,7 @@ public class MetricsCollectorTask {
      * Get total number of metrics sent by the collector of the given name.
      */
     private long metricsSent(MetricsCollector collector) {
+        // FIXME This is incorrect (https://confluentinc.atlassian.net/browse/METRICS-576)
         return metricsSent.getOrDefault(collector, new AtomicLong()).get();
     }
 
@@ -92,8 +96,7 @@ public class MetricsCollectorTask {
         Map<String, String> labels = new HashMap<>();
         labels.put("collector", collectorName);
         if (context.isDebugEnabled()) {
-            labels.put(MetricsCollector.LIBRARY, MetricsCollector.NO_LIBRARY);
-            labels.put(MetricsCollector.ORIGINAL, "none");
+            labels.put(MetricsCollector.LABEL_LIBRARY, MetricsCollector.LIBRARY_NONE);
         }
         return context.metricWithSinglePointTimeseries(
             "io.confluent.telemetry/metrics_collector_task/metrics_sent_total",
@@ -117,36 +120,33 @@ public class MetricsCollectorTask {
 
     private void schedule() {
         executor.scheduleAtFixedRate(
-                this::report,
+                this::collectAndExport,
                 collectIntervalMs,
                 collectIntervalMs,
                 TimeUnit.MILLISECONDS
         );
     }
 
-    private void report() {
+    private void collectAndExport() {
+        collectors.forEach(this::collectAndExport);
+    }
+
+    private void collectAndExport(MetricsCollector collector) {
         try {
-            for (MetricsCollector collector : collectors) {
+            Collection<Metric> metrics = collector.collect();
+            log.trace("Collected {} metrics from {}", metrics.size(), collector);
+            metrics.add(buildMetricsCollectedMetric(collector, metrics.size()));
+            metrics.add(buildMetricsSentMetric(collector));
+
+            for (Exporter exporter : exporters) {
                 try {
-                    Collection<Metric> m = collector.collect();
-                    log.trace("Collected {} metrics from {}", m.size(), collector.toString());
-                    m.add(buildMetricsCollectedMetric(collector, m.size()));
-                    m.add(buildMetricsSentMetric(collector));
-
-                    try {
-                        exporter.write(m);
-                        log.trace("Sent {} metrics", m.size());
-                        updateMetricsSent(collector, m.size());
-                    } catch (Exception e) {
-                        log.error("Error while sending metrics for {}", collector, e);
-                    }
-
-                } catch (Exception e) {
-                    log.error("Error while reporting metrics for {}", collector, e);
+                    exporter.export(metrics);
+                } catch (Throwable t) {
+                    log.error("Error exporting metrics via {}", exporter, t);
                 }
             }
         } catch (Throwable t) {
-            log.error("Error while collecting metrics", t);
+            log.error("Error while collecting metrics for {}", collector, t);
         }
     }
 

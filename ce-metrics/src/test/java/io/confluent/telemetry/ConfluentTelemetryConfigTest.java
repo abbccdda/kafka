@@ -80,4 +80,17 @@ public class ConfluentTelemetryConfigTest {
     );
   }
 
+  @Test
+  public void testExportersEnabled() {
+    builder
+        .put("confluent.telemetry.exporter.kafka.enabled", false)
+        .put("confluent.telemetry.exporter.file.enabled", true)
+        .put("confluent.telemetry.exporter.file.dir", "/tmp");
+
+    ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
+
+    assertThat(config.createKafkaExporterConfig()).isEmpty();
+    assertThat(config.createFileExporterConfig()).isPresent();
+  }
+
 }

@@ -5,7 +5,9 @@ package io.confluent.telemetry;
 import com.google.common.base.Joiner;
 import io.confluent.monitoring.common.TimeBucket;
 import io.confluent.telemetry.collector.VolumeMetricsCollector.VolumeMetricsCollectorConfig;
+import io.confluent.telemetry.exporter.file.FileExporterConfig;
 import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
+import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import kafka.server.KafkaConfig;
@@ -94,6 +96,14 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     public static final String DEBUG_ENABLED_DOC = "Enable debug metadata for metrics collection";
     public static final boolean DEFAULT_DEBUG_ENABLED = false;
 
+    static final String EXPORTER_KAFKA_ENABLED_CONFIG = KafkaExporterConfig.PREFIX + "enabled";
+    static final String EXPORTER_KAFKA_ENABLED_DOC = "True if the KafkaExporter is enabled.";
+    static final boolean EXPORTER_KAFKA_ENABLED_DEFAULT = true;
+
+    static final String EXPORTER_FILE_ENABLED_CONFIG = FileExporterConfig.PREFIX + "enabled";
+    static final String EXPORTER_FILE_ENABLED_DOC = "True if the FileExporter is enabled.";
+    static final boolean EXPORTER_FILE_ENABLED_DEFAULT = false;
+
     private static final ConfigDef CONFIG = new ConfigDef()
         .define(
                 COLLECT_INTERVAL_CONFIG,
@@ -113,6 +123,18 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
                 DEFAULT_DEBUG_ENABLED,
                 ConfigDef.Importance.LOW,
                 DEBUG_ENABLED_DOC
+        ).define(
+                EXPORTER_KAFKA_ENABLED_CONFIG,
+                ConfigDef.Type.BOOLEAN,
+                EXPORTER_KAFKA_ENABLED_DEFAULT,
+                ConfigDef.Importance.LOW,
+                EXPORTER_KAFKA_ENABLED_DOC
+        ).define(
+                EXPORTER_FILE_ENABLED_CONFIG,
+                ConfigDef.Type.BOOLEAN,
+                EXPORTER_FILE_ENABLED_DEFAULT,
+                ConfigDef.Importance.LOW,
+                EXPORTER_FILE_ENABLED_DOC
         );
 
     public static final Predicate<MetricKey> ALWAYS_TRUE = metricKey -> true;
@@ -126,13 +148,10 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
             .withTranslation(LEGACY_PREFIX + "publish.ms", COLLECT_INTERVAL_CONFIG)
             .build();
 
-    private final KafkaExporterConfig kafkaExporterConfig;
     private final VolumeMetricsCollectorConfig volumeMetricsCollectorConfig;
-
 
     public ConfluentTelemetryConfig(Map<String, ?> originals) {
         super(CONFIG, DEPRECATION_TRANSLATER.translate(originals));
-        this.kafkaExporterConfig = new KafkaExporterConfig(originals);
         this.volumeMetricsCollectorConfig = new VolumeMetricsCollectorConfig(originals);
     }
 
@@ -173,8 +192,22 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         return metricNameAndLabels -> patternPredicate.test(metricNameAndLabels.getName());
     }
 
-    public KafkaExporterConfig getKafkaExporterConfig() {
-        return kafkaExporterConfig;
+    /**
+     * Create a {@link KafkaExporterConfig} from these properties if enabled
+     */
+    public Optional<KafkaExporterConfig> createKafkaExporterConfig() {
+        return getBoolean(EXPORTER_KAFKA_ENABLED_CONFIG)
+            ? Optional.of(new KafkaExporterConfig(this.originals()))
+            : Optional.empty();
+    }
+
+    /**
+     * Create a {@link FileExporterConfig} from these properties if enabled
+     */
+    public Optional<FileExporterConfig> createFileExporterConfig() {
+        return getBoolean(EXPORTER_FILE_ENABLED_CONFIG)
+            ? Optional.of(new FileExporterConfig(this.originals()))
+            : Optional.empty();
     }
 
     public VolumeMetricsCollectorConfig getVolumeMetricsCollectorConfig() {

@@ -8,7 +8,6 @@ import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsUtils;
-import io.confluent.telemetry.collector.YammerMetricsCollector.Builder;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor;
 import io.opencensus.proto.metrics.v1.Point;
@@ -130,8 +129,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
         if (labels == null) {
             labels = new HashMap<>();
             if (context.isDebugEnabled()) {
-                labels.put(MetricsCollector.LIBRARY, NO_LIBRARY);
-                labels.put(ORIGINAL, "none");
+                labels.put(MetricsCollector.LABEL_LIBRARY, MetricsCollector.LIBRARY_NONE);
             }
             labels.put(VOLUME_LABEL, volumeName);
             labelsCache.put(volumeName, labels);

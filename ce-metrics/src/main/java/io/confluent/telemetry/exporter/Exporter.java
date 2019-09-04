@@ -8,10 +8,10 @@ import java.util.Collection;
 public interface Exporter extends AutoCloseable {
 
     /*
-     * Write the metrics to the backend service. This method takes care
+     * Export the metrics to the destination. This method takes care
      * of batching, serialization and retries.
      */
-    void write(Collection<Metric> metrics) throws RuntimeException;
+    void export(Collection<Metric> metrics) throws Exception;
 }
 
 

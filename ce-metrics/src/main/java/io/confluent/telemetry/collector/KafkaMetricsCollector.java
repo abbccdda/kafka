@@ -7,7 +7,6 @@ import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsUtils;
 import io.confluent.telemetry.collector.LastValueTracker.InstantAndValue;
-import io.confluent.telemetry.collector.VolumeMetricsCollector.Builder;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
@@ -218,10 +217,10 @@ public class KafkaMetricsCollector implements MetricsCollector {
 
         Map<String, String> labels = new HashMap<>();
         if (context.isDebugEnabled()) {
-            labels.put(MetricsCollector.ORIGINAL,
+            labels.put(MetricsCollector.LABEL_ORIGINAL,
                 Strings.nullToEmpty(metricName.group()) + ":" + Strings
                     .nullToEmpty(metricName.name()));
-            labels.put(MetricsCollector.LIBRARY, KAFKA_METRICS_LIB);
+            labels.put(MetricsCollector.LABEL_LIBRARY, KAFKA_METRICS_LIB);
         }
         labels.putAll(MetricsUtils.cleanLabelNames(metricName.tags()));
 

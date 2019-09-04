@@ -28,8 +28,8 @@ import java.util.Properties;
 import java.util.stream.Collectors;
 
 import static io.confluent.telemetry.collector.KafkaMetricsCollector.KAFKA_METRICS_LIB;
-import static io.confluent.telemetry.collector.MetricsCollector.LIBRARY;
-import static io.confluent.telemetry.collector.MetricsCollector.NO_LIBRARY;
+import static io.confluent.telemetry.collector.MetricsCollector.LABEL_LIBRARY;
+import static io.confluent.telemetry.collector.MetricsCollector.LIBRARY_NONE;
 import static io.confluent.telemetry.collector.YammerMetricsCollector.YAMMER_METRICS;
 import static junit.framework.TestCase.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -73,7 +73,7 @@ public class KafkaServerMetricsReporterTest extends MetricReporterClusterTestHar
         long startMs = System.currentTimeMillis();
 
         List<String> brokerIds = servers.stream().map(s -> "" + s.config().brokerId()).collect(Collectors.toList());
-        List<String> libs = Arrays.asList(KAFKA_METRICS_LIB, NO_LIBRARY, YAMMER_METRICS);
+        List<String> libs = Arrays.asList(KAFKA_METRICS_LIB, LIBRARY_NONE, YAMMER_METRICS);
 
         boolean kafkaMetricsPresent = false, yammerMetricsPresent = false, cpuVolumeMetricsPresent = false;
 
@@ -112,9 +112,9 @@ public class KafkaServerMetricsReporterTest extends MetricReporterClusterTestHar
                 assertEquals(resourceLabels.get("pkc"), "pkc-bar");
 
                 // Check that we get all kinds of metrics
-                assertTrue(labelExists(m, LIBRARY));
+                assertTrue(labelExists(m, LABEL_LIBRARY));
 
-                String lib = getLabelValueFromFirstTimeSeries(m, LIBRARY);
+                String lib = getLabelValueFromFirstTimeSeries(m, LABEL_LIBRARY);
                 assertTrue(libs.contains(lib));
 
                 switch (lib) {
@@ -124,7 +124,7 @@ public class KafkaServerMetricsReporterTest extends MetricReporterClusterTestHar
                     case YAMMER_METRICS:
                         yammerMetricsPresent = true;
                         break;
-                    case NO_LIBRARY:
+                    case LIBRARY_NONE:
                         cpuVolumeMetricsPresent = true;
                         break;
                 }

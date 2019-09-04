@@ -16,7 +16,6 @@ import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsUtils;
-import io.confluent.telemetry.collector.CPUMetricsCollector.Builder;
 import io.confluent.telemetry.collector.LastValueTracker.InstantAndValue;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor;
@@ -90,8 +89,8 @@ public class YammerMetricsCollector implements MetricsCollector {
         String mbeanName = Strings.nullToEmpty(metricName.getMBeanName());
         Map<String, String> labels = new HashMap<>();
         if (context.isDebugEnabled()) {
-            labels.put(ORIGINAL, Strings.nullToEmpty(metricName.getGroup() + ":" + metricName.getType() + ":" + metricName.getName()));
-            labels.put(LIBRARY, YAMMER_METRICS);
+            labels.put(LABEL_ORIGINAL, Strings.nullToEmpty(metricName.getGroup() + ":" + metricName.getType() + ":" + metricName.getName()));
+            labels.put(LABEL_LIBRARY, YAMMER_METRICS);
         }
         labels.putAll(MetricsUtils.cleanLabelNames(filterTags(YammerMetricsUtils.extractTags(mbeanName))));
 

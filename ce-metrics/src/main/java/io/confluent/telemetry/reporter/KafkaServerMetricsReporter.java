@@ -1,6 +1,8 @@
 package io.confluent.telemetry.reporter;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSet.Builder;
 import com.yammer.metrics.Metrics;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
@@ -12,11 +14,13 @@ import io.confluent.telemetry.collector.KafkaMetricsCollector;
 import io.confluent.telemetry.collector.VolumeMetricsCollector;
 import io.confluent.telemetry.collector.YammerMetricsCollector;
 import io.confluent.telemetry.exporter.Exporter;
+import io.confluent.telemetry.exporter.file.FileExporter;
 import io.confluent.telemetry.exporter.kafka.KafkaExporter;
 import io.opencensus.proto.resource.v1.Resource;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.metrics.KafkaMetric;
@@ -42,10 +46,10 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
     @VisibleForTesting
     public static final String LABEL_BROKER_ID = "broker_id";
 
-    private Map<String, ?> configs;
+    private ConfluentTelemetryConfig config;
     private MetricsCollectorTask collectorTask;
-    private Exporter exporter;
     private KafkaMetricsCollector.StateLedger kafkaMetricsStateLedger = new KafkaMetricsCollector.StateLedger();
+    private Set<Exporter> exporters;
 
     @Override
     public void onUpdate(ClusterResource clusterResource) {
@@ -55,49 +59,44 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
             return;
         }
 
-        ConfluentTelemetryConfig cfg = new ConfluentTelemetryConfig(this.configs);
-
         Resource resource = new ResourceBuilderFacade(TelemetryResourceType.KAFKA)
             .withVersion(AppInfoParser.getVersion())
             .withId(clusterResource.clusterId())
             .withLabel(LABEL_CLUSTER_ID, clusterResource.clusterId())
-            .withLabel(LABEL_BROKER_ID, cfg.getBrokerId())
-            .withLabels(cfg.getLabels())
+            .withLabel(LABEL_BROKER_ID, config.getBrokerId())
+            .withLabels(config.getLabels())
             .build();
 
-        Context ctx = new Context(resource, cfg.getBoolean(ConfluentTelemetryConfig.DEBUG_ENABLED), true);
+        Context ctx = new Context(resource, config.getBoolean(ConfluentTelemetryConfig.DEBUG_ENABLED), true);
 
         KafkaMetricsCollector kafkaMetricsCollector =
-            KafkaMetricsCollector.newBuilder(cfg)
+            KafkaMetricsCollector.newBuilder(config)
                 .setContext(ctx)
                 .setDomain(DOMAIN)
                 .setLedger(kafkaMetricsStateLedger)
                 .build();
 
-        CPUMetricsCollector cpuMetrics = CPUMetricsCollector.newBuilder(cfg)
+        CPUMetricsCollector cpuMetrics = CPUMetricsCollector.newBuilder(config)
                 .setDomain(DOMAIN)
                 .setContext(ctx)
                 .build();
 
-        VolumeMetricsCollector volumeMetrics = VolumeMetricsCollector.newBuilder(cfg)
+        VolumeMetricsCollector volumeMetrics = VolumeMetricsCollector.newBuilder(config)
                 .setContext(ctx)
                 .setDomain(DOMAIN)
                 .build();
 
-        YammerMetricsCollector yammerMetrics = YammerMetricsCollector.newBuilder(cfg)
+        YammerMetricsCollector yammerMetrics = YammerMetricsCollector.newBuilder(config)
                 .setContext(ctx)
                 .setDomain(DOMAIN)
                 .setMetricsRegistry(Metrics.defaultRegistry())
                 .build();
 
-        this.exporter = KafkaExporter.newBuilder(cfg)
-                .build();
-
         this.collectorTask = new MetricsCollectorTask(
             ctx,
-            this.exporter,
+            exporters,
             Arrays.asList(kafkaMetricsCollector, cpuMetrics, volumeMetrics, yammerMetrics),
-            cfg.getLong(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG));
+            config.getLong(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG));
 
         this.collectorTask.start();
     }
@@ -107,8 +106,21 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
      */
     @Override
     public void configure(Map<String, ?> configs) {
-        this.configs = configs;
+        this.config = new ConfluentTelemetryConfig(configs);
         this.kafkaMetricsStateLedger.configure(configs);
+
+        this.exporters = initExporters();
+    }
+
+    private Set<Exporter> initExporters() {
+        Builder<Exporter> builder = ImmutableSet.builder();
+        config.createKafkaExporterConfig().ifPresent(cfg -> {
+            builder.add(KafkaExporter.newBuilder(cfg).build());
+        });
+        config.createFileExporterConfig().ifPresent(cfg -> {
+            builder.add(FileExporter.newBuilder(cfg).build());
+        });
+        return builder.build();
     }
 
     /**
@@ -119,10 +131,12 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
         log.info("Stopping KafkaServerMetricsReporter collectorTask");
         this.kafkaMetricsStateLedger.close();
         collectorTask.close();
-        try {
-            exporter.close();
-        } catch (Exception e) {
-            log.error("Error while closing {}", exporter, e);
+        for (Exporter exporter : exporters) {
+            try {
+                exporter.close();
+            } catch (Exception e) {
+                log.error("Error while closing {}", exporter, e);
+            }
         }
     }
 

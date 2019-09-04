@@ -6,7 +6,6 @@ import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsUtils;
-import io.confluent.telemetry.collector.KafkaMetricsCollector.Builder;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor;
 import io.opencensus.proto.metrics.v1.Point;
@@ -66,8 +65,7 @@ public class CPUMetricsCollector implements MetricsCollector {
 
         Map<String, String> labels = new HashMap<>();
         if (context.isDebugEnabled()) {
-            labels.put(MetricsCollector.LIBRARY, NO_LIBRARY);
-            labels.put(ORIGINAL, "none");
+            labels.put(MetricsCollector.LABEL_LIBRARY, MetricsCollector.LIBRARY_NONE);
         }
 
         if (!metricFilter.test(new MetricKey(name, labels))) {

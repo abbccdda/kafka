@@ -27,14 +27,14 @@ public class KafkaExporter implements Exporter {
     private static final Logger log = LoggerFactory.getLogger(KafkaExporter.class);
 
     private boolean isTopicCreated = false;
-    private Properties adminClientProperties;
-    private String topicName;
-    private boolean createTopic;
-    private int topicReplicas;
-    private int topicPartitions;
-    private Map<String, String> topicConfig;
+    private final Properties adminClientProperties;
+    private final String topicName;
+    private final boolean createTopic;
+    private final int topicReplicas;
+    private final int topicPartitions;
+    private final Map<String, String> topicConfig;
 
-    private KafkaProducer<byte[], Metric> producer;
+    private final KafkaProducer<byte[], Metric> producer;
 
     public KafkaExporter(Builder builder) {
         this.adminClientProperties = Objects.requireNonNull(builder.adminClientProperties);
@@ -46,7 +46,7 @@ public class KafkaExporter implements Exporter {
         this.producer = new KafkaProducer<>(Objects.requireNonNull(builder.producerProperties));
     }
 
-    public boolean ensureTopic() {
+    private boolean ensureTopic() {
 
         try (final AdminClient adminClient = AdminClient.create(this.adminClientProperties)) {
             try {
@@ -81,7 +81,7 @@ public class KafkaExporter implements Exporter {
     }
 
     @Override
-    public void write(Collection<Metric> metrics) throws RuntimeException {
+    public void export(Collection<Metric> metrics) throws RuntimeException {
 
         try {
             if (this.createTopic) {
@@ -138,8 +138,6 @@ public class KafkaExporter implements Exporter {
         } catch (InterruptException e) {
             // broker is shutting shutdown, interrupt flag is taken care of by
             // InterruptException constructor
-        } catch (Throwable t) {
-            log.warn("Failed to publish metrics message in the reporter", t);
         }
     }
 
@@ -159,16 +157,15 @@ public class KafkaExporter implements Exporter {
   /**
    * Create a new Builder using values from the {@link ConfluentTelemetryConfig}.
    */
-    public static Builder newBuilder(ConfluentTelemetryConfig config) {
-        KafkaExporterConfig exporterConfig = config.getKafkaExporterConfig();
+    public static Builder newBuilder(KafkaExporterConfig config) {
         return new Builder()
-            .setCreateTopic(exporterConfig.isCreateTopic())
-            .setTopicConfig(exporterConfig.getTopicConfig())
-            .setTopicName(exporterConfig.getTopicName())
-            .setTopicReplicas(exporterConfig.getTopicReplicas())
-            .setTopicPartitions(exporterConfig.getTopicPartitions())
-            .setProducerProperties(exporterConfig.getProducerProperties())
-            .setAdminClientProperties(exporterConfig.getProducerProperties());
+            .setCreateTopic(config.isCreateTopic())
+            .setTopicConfig(config.getTopicConfig())
+            .setTopicName(config.getTopicName())
+            .setTopicReplicas(config.getTopicReplicas())
+            .setTopicPartitions(config.getTopicPartitions())
+            .setProducerProperties(config.getProducerProperties())
+            .setAdminClientProperties(config.getProducerProperties());
     }
 
     public static final class Builder {
