@@ -2734,6 +2734,7 @@ project(':ce-resource-names') {
     compile libs.guava
     compile libs.slf4jApi
     testCompile libs.junit
+    testCompile project(':clients').sourceSets.test.output
   }
 
   tasks.create(name: "copyDependantLibs", type: Copy) {
