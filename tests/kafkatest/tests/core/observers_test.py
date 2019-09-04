@@ -106,7 +106,7 @@ class ObserversTest(ProduceConsumeValidateTest):
 
     def setUp(self):
         self.zk.start()
-        self.kafka.start()
+        self.kafka.start(use_zk_to_create_topic=False)
         # Get the nodes for each rack
         self.rack_a_nodes = set()
         self.rack_b_nodes = set()
@@ -172,7 +172,7 @@ class ObserversTest(ProduceConsumeValidateTest):
            "isr %s contains rack-c nodes %s" % (isr, self.rack_c_nodes)
 
     def get_field_from_describe_topic(self, field_name):
-        described_topic = self.kafka.describe_topic(self.topic)
+        described_topic = self.kafka.describe_topic(self.topic, use_zk_to_describe_topic=False)
         self.logger.debug(described_topic)
         topic_partitions = self.kafka.parse_describe_topic(described_topic)["partitions"]
         all_observers = [set(partition[field_name]) for partition in topic_partitions]
@@ -233,26 +233,26 @@ class ObserversTest(ProduceConsumeValidateTest):
 
         # Stop nodes in rack-a and confirm leadership gets transferred to a rack-b node
         self.stop_nodes(self.rack_a_nodes)
-        self.logger.debug(self.kafka.describe_topic(self.topic))
+        self.logger.debug(self.kafka.describe_topic(self.topic, use_zk_to_describe_topic=False))
         self.check_leadership(self.rack_b_nodes)
         self.validate_observers(self.get_node_indexes(self.rack_b_nodes))
 
         # Stop rack-b node and confirm that there is no leader
         self.stop_nodes(self.rack_b_nodes)
-        self.logger.debug(self.kafka.describe_topic(self.topic))
+        self.logger.debug(self.kafka.describe_topic(self.topic, use_zk_to_describe_topic=False))
         self.check_no_leader()
 
         # Now do unclean leader election to make observer leader
         for partition in range(0, self.num_partitions):
             self.kafka.perform_leader_election(self.topic, partition, "unclean")
-        self.logger.debug(self.kafka.describe_topic(self.topic))
+        self.logger.debug(self.kafka.describe_topic(self.topic, use_zk_to_describe_topic=False))
         self.check_leadership(self.rack_c_nodes)
 
         # Bring all nodes back up again and check that leadership transfers back
         self.start_nodes(self.rack_a_nodes | self.rack_b_nodes)
         for partition in range(0, self.num_partitions):
             self.kafka.perform_leader_election(self.topic, partition, "preferred")
-        self.logger.debug(self.kafka.describe_topic(self.topic))
+        self.logger.debug(self.kafka.describe_topic(self.topic, use_zk_to_describe_topic=False))
         self.check_leadership(self.rack_a_nodes | self.rack_b_nodes)
         self.validate_observers(self.get_node_indexes(self.rack_a_nodes | self.rack_b_nodes))
 
@@ -271,7 +271,7 @@ class ObserversTest(ProduceConsumeValidateTest):
         for partition in range(0, self.num_partitions):
             self.kafka.perform_leader_election(self.topic, partition, "unclean")
         self.check_leadership(self.rack_c_nodes)
-        self.logger.debug(self.kafka.describe_topic(self.topic))
+        self.logger.debug(self.kafka.describe_topic(self.topic, use_zk_to_describe_topic=False))
 
         self.producer = VerifiableProducer(self.test_context,
                                            self.num_producers,
@@ -290,11 +290,11 @@ class ObserversTest(ProduceConsumeValidateTest):
         def move_leader_back_to_replica():
             # Bring all replica nodes back up again and perform preferred leader election
             self.start_nodes(self.rack_a_nodes | self.rack_b_nodes)
-            self.logger.debug(self.kafka.describe_topic(self.topic))
+            self.logger.debug(self.kafka.describe_topic(self.topic, use_zk_to_describe_topic=False))
 
             for partition in range(0, self.num_partitions):
                 self.kafka.perform_leader_election(self.topic, partition, "preferred")
-            self.logger.debug(self.kafka.describe_topic(self.topic))
+            self.logger.debug(self.kafka.describe_topic(self.topic, use_zk_to_describe_topic=False))
             # Make sure leadership goes back to replica nodes
             self.check_leadership(self.rack_a_nodes | self.rack_b_nodes)
 

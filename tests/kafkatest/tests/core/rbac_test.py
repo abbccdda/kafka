@@ -79,7 +79,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                               ["confluent.authorizer.access.rule.providers", "ACL,FILE_RBAC"],
                               ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH]
                           ])
-        self.kafka.start(use_zk_to_create_topic=True)
+        self.kafka.start()
         self.create_roles(self.kafka, "User:" + SecurityConfig.SCRAM_CLIENT_USER)
         self.validate_access()
 
@@ -105,7 +105,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                               ["ldap.java.naming.provider.url", self.minildap.ldap_url],
                               ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH]
                           ])
-        self.kafka.start(use_zk_to_create_topic=True)
+        self.kafka.start()
         self.create_roles(self.kafka, "Group:" + RbacTest.CLIENT_GROUP)
         self.validate_access()
 
@@ -129,7 +129,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                           authorizer_class_name=KafkaService.SIMPLE_AUTHORIZER)
 
         self.set_acls("User:" + SecurityConfig.SCRAM_CLIENT_USER)
-        self.kafka.start(use_zk_to_create_topic=True)
+        self.kafka.start()
         self.start_producer_and_consumer()
 
 	server_prop_overides=[
@@ -165,7 +165,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                           ])
 
         self.set_acls("Group:" + RbacTest.CLIENT_GROUP)
-        self.kafka.start(use_zk_to_create_topic=True)
+        self.kafka.start()
         self.start_producer_and_consumer()
 
 	server_prop_overides=[
@@ -202,7 +202,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                               ["ldap.java.naming.provider.url", self.minildap.ldap_url],
                               ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH]
                           ])
-        self.kafka.start_concurrently(use_zk_to_create_topic=True)
+        self.kafka.start_concurrently()
 
         self.create_roles(self.kafka, "Group:" + RbacTest.CLIENT_GROUP)
         self.start_producer_and_consumer()
