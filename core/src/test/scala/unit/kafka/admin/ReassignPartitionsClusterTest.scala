@@ -45,11 +45,11 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
   def zkUpdateDelay(): Unit = Thread.sleep(delayMs)
 
   @Before
-  override def setUp() {
+  override def setUp(): Unit = {
     super.setUp()
   }
 
-  def startBrokers(brokerIds: Seq[Int], tierFeature: Boolean = false) {
+  def startBrokers(brokerIds: Seq[Int], tierFeature: Boolean = false): Unit = {
     servers = brokerIds.map { i =>
       val logDirCount = if (tierFeature) 1 else 3
       val props = createBrokerConfig(i, zkConnect, enableControlledShutdown = false, logDirCount = logDirCount)
@@ -77,7 +77,7 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
   }
 
   @After
-  override def tearDown() {
+  override def tearDown(): Unit = {
     if (adminClient != null) {
       adminClient.close()
       adminClient = null
@@ -155,7 +155,7 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
   }
 
   @Test
-  def shouldMoveSinglePartitionWithinBroker() {
+  def shouldMoveSinglePartitionWithinBroker(): Unit = {
     // Given a single replica on server 100
     startBrokers(Seq(100, 101))
     adminClient = createAdminClient(servers)
@@ -172,7 +172,7 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
   }
 
   @Test
-  def shouldExpandCluster() {
+  def shouldExpandCluster(): Unit = {
     val brokers = Array(100, 101, 102)
     startBrokers(brokers)
     adminClient = createAdminClient(servers)
@@ -214,7 +214,7 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
   }
 
   @Test
-  def shouldShrinkCluster() {
+  def shouldShrinkCluster(): Unit = {
     //Given partitions on 3 of 3 brokers
     val brokers = Array(100, 101, 102)
     startBrokers(brokers)
@@ -236,7 +236,7 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
   }
 
   @Test
-  def shouldMoveSubsetOfPartitions() {
+  def shouldMoveSubsetOfPartitions(): Unit = {
     //Given partitions on 3 of 3 brokers
     val brokers = Array(100, 101, 102)
     startBrokers(brokers)
@@ -287,7 +287,7 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
   }
 
   @Test
-  def shouldExecuteThrottledReassignment() {
+  def shouldExecuteThrottledReassignment(): Unit = {
 
     //Given partitions on 3 of 3 brokers
     val brokers = Array(100, 101, 102)
@@ -331,7 +331,7 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
 
 
   @Test
-  def shouldOnlyThrottleMovingReplicas() {
+  def shouldOnlyThrottleMovingReplicas(): Unit = {
     //Given 6 brokers, two topics
     val brokers = Array(100, 101, 102, 103, 104, 105)
     startBrokers(brokers)
@@ -376,7 +376,7 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
   }
 
   @Test
-  def shouldChangeThrottleOnRerunAndRemoveOnVerify() {
+  def shouldChangeThrottleOnRerunAndRemoveOnVerify(): Unit = {
     //Given partitions on 3 of 3 brokers
     val brokers = Array(100, 101, 102)
     startBrokers(brokers)
@@ -427,7 +427,7 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
   }
 
   @Test(expected = classOf[AdminCommandFailedException])
-  def shouldFailIfProposedDoesNotMatchExisting() {
+  def shouldFailIfProposedDoesNotMatchExisting(): Unit = {
     //Given a single replica on server 100
     startBrokers(Seq(100, 101))
     createTopic(zkClient, topicName, Map(0 -> Seq(100)), servers = servers)
@@ -438,7 +438,7 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
   }
 
   @Test(expected = classOf[AdminCommandFailedException])
-  def shouldFailIfProposedHasEmptyReplicaList() {
+  def shouldFailIfProposedHasEmptyReplicaList(): Unit = {
     //Given a single replica on server 100
     startBrokers(Seq(100, 101))
     createTopic(zkClient, topicName, Map(0 -> Seq(100)), servers = servers)
@@ -449,7 +449,7 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
   }
 
   @Test(expected = classOf[AdminCommandFailedException])
-  def shouldFailIfProposedHasInvalidBrokerID() {
+  def shouldFailIfProposedHasInvalidBrokerID(): Unit = {
     //Given a single replica on server 100
     startBrokers(Seq(100, 101))
     createTopic(zkClient, topicName, Map(0 -> Seq(100)), servers = servers)
@@ -460,7 +460,7 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
   }
 
   @Test(expected = classOf[AdminCommandFailedException])
-  def shouldFailIfProposedHasInvalidLogDir() {
+  def shouldFailIfProposedHasInvalidLogDir(): Unit = {
     // Given a single replica on server 100
     startBrokers(Seq(100, 101))
     adminClient = createAdminClient(servers)
@@ -472,7 +472,7 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
   }
 
   @Test(expected = classOf[AdminCommandFailedException])
-  def shouldFailIfProposedHasInconsistentReplicasAndLogDirs() {
+  def shouldFailIfProposedHasInconsistentReplicasAndLogDirs(): Unit = {
     // Given a single replica on server 100
     startBrokers(Seq(100, 101))
     adminClient = createAdminClient(servers)
@@ -485,7 +485,7 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
   }
 
   @Test
-  def shouldPerformThrottledReassignmentOverVariousTopics() {
+  def shouldPerformThrottledReassignmentOverVariousTopics(): Unit = {
     val throttle = Throttle(1000L)
 
     startBrokers(Seq(0, 1, 2, 3))
@@ -530,7 +530,7 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
    * often enough to detect a regression.
    */
   @Test
-  def shouldPerformMultipleReassignmentOperationsOverVariousTopics() {
+  def shouldPerformMultipleReassignmentOperationsOverVariousTopics(): Unit = {
     startBrokers(Seq(0, 1, 2, 3))
 
     createTopic(zkClient, "orders", Map(0 -> List(0, 1, 2), 1 -> List(0, 1, 2)), servers)
@@ -649,7 +649,7 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
     assertEquals(Seq.empty, zkClient.getReplicasForPartition(new TopicPartition("customers", 0)))
   }
 
-  def waitForReassignmentToComplete(pause: Long = 100L) {
+  def waitForReassignmentToComplete(pause: Long = 100L): Unit = {
     waitUntilTrue(() => !zkClient.reassignPartitionsInProgress,
       s"Znode ${ReassignPartitionsZNode.path} wasn't deleted", pause = pause)
   }

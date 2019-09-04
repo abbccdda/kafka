@@ -686,7 +686,7 @@ class LogCleanerTest {
    * Test log cleaning with logs containing messages larger than default message size
    */
   @Test
-  def testLargeMessage() {
+  def testLargeMessage(): Unit = {
     val largeMessageSize = 1024 * 1024
     // Create cleaner with very small default max message size
     val cleaner = makeCleaner(Int.MaxValue, maxMessageSize=1024)
@@ -717,7 +717,7 @@ class LogCleanerTest {
    * Test log cleaning with logs containing messages larger than topic's max message size
    */
   @Test
-  def testMessageLargerThanMaxMessageSize() {
+  def testMessageLargerThanMaxMessageSize(): Unit = {
     val (log, offsetMap) = createLogWithMessagesLargerThanMaxSize(largeMessageSize = 1024 * 1024)
 
     val cleaner = makeCleaner(Int.MaxValue, maxMessageSize=1024)
@@ -731,7 +731,7 @@ class LogCleanerTest {
    * where header is corrupt
    */
   @Test
-  def testMessageLargerThanMaxMessageSizeWithCorruptHeader() {
+  def testMessageLargerThanMaxMessageSizeWithCorruptHeader(): Unit = {
     val (log, offsetMap) = createLogWithMessagesLargerThanMaxSize(largeMessageSize = 1024 * 1024)
     val file = new RandomAccessFile(log.localLogSegments.head.log.file, "rw")
     file.seek(Records.MAGIC_OFFSET)
@@ -749,7 +749,7 @@ class LogCleanerTest {
    * where message size is corrupt and larger than bytes available in log segment.
    */
   @Test
-  def testCorruptMessageSizeLargerThanBytesAvailable() {
+  def testCorruptMessageSizeLargerThanBytesAvailable(): Unit = {
     val (log, offsetMap) = createLogWithMessagesLargerThanMaxSize(largeMessageSize = 1024 * 1024)
     val file = new RandomAccessFile(log.localLogSegments.head.log.file, "rw")
     file.setLength(1024)
@@ -1251,7 +1251,7 @@ class LogCleanerTest {
     val end = 500
     writeToLog(log, (start until end) zip (start until end))
 
-    def checkRange(map: FakeOffsetMap, start: Int, end: Int) {
+    def checkRange(map: FakeOffsetMap, start: Int, end: Int): Unit = {
       val stats = new CleanerStats()
       cleaner.buildOffsetMap(log, start, end, map, stats)
       val endOffset = map.latestOffset + 1
@@ -1471,7 +1471,7 @@ class LogCleanerTest {
    * This test verifies that messages corrupted by KAFKA-4298 are fixed by the cleaner
    */
   @Test
-  def testCleanCorruptMessageSet() {
+  def testCleanCorruptMessageSet(): Unit = {
     val codec = CompressionType.GZIP
 
     val logProps = new Properties()

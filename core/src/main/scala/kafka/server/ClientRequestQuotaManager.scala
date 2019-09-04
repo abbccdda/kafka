@@ -38,7 +38,7 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
   def exemptSensor = getOrCreateSensor(exemptSensorName, exemptMetricName)
   var brokerQuotaLimit: Double = Long.MaxValue
 
-  def recordExempt(value: Double) {
+  def recordExempt(value: Double): Unit = {
     exemptSensor.record(value)
   }
 

@@ -49,7 +49,7 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
   val nMessages = 2
 
   @Test
-  def testMetricsReporterAfterDeletingTopic() {
+  def testMetricsReporterAfterDeletingTopic(): Unit = {
     val topic = "test-topic-metric"
     createTopic(topic, 1, 1)
     adminZkClient.deleteTopic(topic)
@@ -58,7 +58,7 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
   }
 
   @Test
-  def testBrokerTopicMetricsUnregisteredAfterDeletingTopic() {
+  def testBrokerTopicMetricsUnregisteredAfterDeletingTopic(): Unit = {
     val topic = "test-broker-topic-metric"
     createTopic(topic, 2, 1)
     // Produce a few messages to create the metrics
@@ -76,6 +76,20 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
     // Check if clusterId metric exists.
     val metrics = Metrics.defaultRegistry.allMetrics
     assertEquals(metrics.keySet.asScala.count(_.getMBeanName == "kafka.server:type=KafkaServer,name=ClusterId"), 1)
+  }
+
+  @Test
+  def testGeneralBrokerTopicMetricsAreGreedilyRegistered(): Unit = {
+    val topic = "test-broker-topic-metric"
+    createTopic(topic, 2, 1)
+
+    // The broker metrics for all topics should be greedily registered
+    assertTrue("General topic metrics don't exist", topicMetrics(None).nonEmpty)
+    assertEquals(servers.head.brokerTopicStats.allTopicsStats.metricMap.size, topicMetrics(None).size)
+    // topic metrics should be lazily registered
+    assertTrue("Topic metrics aren't lazily registered", topicMetricGroups(topic).isEmpty)
+    TestUtils.generateAndProduceMessages(servers, topic, nMessages)
+    assertTrue("Topic metrics aren't registered", topicMetricGroups(topic).nonEmpty)
   }
 
   @Test
@@ -161,17 +175,21 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
     assertEquals(metrics.keySet.asScala.count(_.getMBeanName == "kafka.controller:type=KafkaController,name=PreferredReplicaImbalanceCount"), 1)
     assertEquals(metrics.keySet.asScala.count(_.getMBeanName == "kafka.controller:type=KafkaController,name=GlobalTopicCount"), 1)
     assertEquals(metrics.keySet.asScala.count(_.getMBeanName == "kafka.controller:type=KafkaController,name=GlobalPartitionCount"), 1)
+    assertEquals(metrics.keySet.asScala.count(_.getMBeanName == "kafka.controller:type=KafkaController,name=TopicsToDeleteCount"), 1)
+    assertEquals(metrics.keySet.asScala.count(_.getMBeanName == "kafka.controller:type=KafkaController,name=ReplicasToDeleteCount"), 1)
+    assertEquals(metrics.keySet.asScala.count(_.getMBeanName == "kafka.controller:type=KafkaController,name=TopicsIneligibleToDeleteCount"), 1)
+    assertEquals(metrics.keySet.asScala.count(_.getMBeanName == "kafka.controller:type=KafkaController,name=ReplicasIneligibleToDeleteCount"), 1)
   }
 
   @Test
-  def testInvalidRecordMetricsNotInitialized(): Unit = {
+  def testAggregateRecordMetricsInitialized(): Unit = {
     val metrics = Metrics.defaultRegistry.allMetrics
 
-    // no records have been rejected/failed yet so all these metrics have not been initialized
-    assertEquals(metrics.keySet.asScala.count(_.getMBeanName.startsWith("kafka.server:type=BrokerTopicMetrics,name=NoKeyCompactedTopicRecordsPerSec")), 0)
-    assertEquals(metrics.keySet.asScala.count(_.getMBeanName.startsWith("kafka.server:type=BrokerTopicMetrics,name=InvalidMagicNumberRecordsPerSec")), 0)
-    assertEquals(metrics.keySet.asScala.count(_.getMBeanName.startsWith("kafka.server:type=BrokerTopicMetrics,name=InvalidMessageCrcRecordsPerSec")), 0)
-    assertEquals(metrics.keySet.asScala.count(_.getMBeanName.startsWith("kafka.server:type=BrokerTopicMetrics,name=NonIncreasingOffsetRecordsPerSec")), 0)
+    // We expect the aggregate metrics to be initialized greedily
+    assertEquals(1, metrics.keySet.asScala.count(_.getMBeanName.startsWith("kafka.server:type=BrokerTopicMetrics,name=NoKeyCompactedTopicRecordsPerSec")))
+    assertEquals(1, metrics.keySet.asScala.count(_.getMBeanName.startsWith("kafka.server:type=BrokerTopicMetrics,name=InvalidMagicNumberRecordsPerSec")))
+    assertEquals(1, metrics.keySet.asScala.count(_.getMBeanName.startsWith("kafka.server:type=BrokerTopicMetrics,name=InvalidMessageCrcRecordsPerSec")))
+    assertEquals(1, metrics.keySet.asScala.count(_.getMBeanName.startsWith("kafka.server:type=BrokerTopicMetrics,name=NonIncreasingOffsetRecordsPerSec")))
   }
 
   /**
@@ -197,9 +215,18 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
       .count
   }
 
+  private def topicMetrics(topic: Option[String]): Set[String] = {
+    val metricNames = Metrics.defaultRegistry.allMetrics().keySet.asScala.map(_.getMBeanName)
+    filterByTopicMetricRegex(metricNames, topic)
+  }
+
   private def topicMetricGroups(topic: String): Set[String] = {
-    val topicMetricRegex = new Regex(".*BrokerTopicMetrics.*("+topic+")$")
     val metricGroups = Metrics.defaultRegistry.groupedMetrics(MetricPredicate.ALL).keySet.asScala
-    metricGroups.filter(topicMetricRegex.pattern.matcher(_).matches)
+    filterByTopicMetricRegex(metricGroups, Some(topic))
+  }
+
+  private def filterByTopicMetricRegex(metrics: Set[String], topic: Option[String]): Set[String] = {
+    val pattern = (".*BrokerTopicMetrics.*" + topic.map(t => s"($t)$$").getOrElse("")).r.pattern
+    metrics.filter(pattern.matcher(_).matches())
   }
 }

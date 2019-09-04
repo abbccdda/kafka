@@ -163,7 +163,7 @@ class DelayedFetch(delayMs: Long,
       false
   }
 
-  override def onExpiration() {
+  override def onExpiration(): Unit = {
     tierFetchOpt.foreach(_.cancel())
     if (fetchMetadata.isFromFollower)
       DelayedFetchMetrics.followerExpiredRequestMeter.mark()
@@ -191,7 +191,7 @@ class DelayedFetch(delayMs: Long,
   /**
    * Upon completion, read whatever data is available and pass to the complete callback
    */
-  override def onComplete() {
+  override def onComplete(): Unit = {
     val tierFetchCompleted = tierFetchOpt.exists(_.isComplete)
     // If the tierFetch is not completed, then it's safe to assume that this request timed out. It should have been
     // canceled in `onExpiration()`. In order to prevent blocking the expiration thread, we will only retrieve

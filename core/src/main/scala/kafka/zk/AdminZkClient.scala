@@ -52,7 +52,7 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
                   replicationFactor: Int,
                   topicConfig: Properties = new Properties,
                   rackAwareMode: RackAwareMode = RackAwareMode.Enforced,
-                  createTopicId: Boolean = false) {
+                  createTopicId: Boolean = false): Unit = {
     val brokerMetadatas = getBrokerMetadatas(rackAwareMode)
     val replicaAssignment = AdminUtils.assignReplicasToBrokers(brokerMetadatas, partitions, replicationFactor)
     createTopicWithAssignment(topic, topicConfig, replicaAssignment, createTopicId)
@@ -139,7 +139,7 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
   }
 
   private def writeTopicPartitionAssignment(topic: String, replicaAssignment: Map[Int, Seq[Int]],
-                                            isUpdate: Boolean, createTopicId: Boolean = false) {
+                                            isUpdate: Boolean, createTopicId: Boolean = false): Unit = {
     try {
       val assignment = replicaAssignment.map { case (partitionId, replicas) => (new TopicPartition(topic,partitionId), replicas) }.toMap
 
@@ -165,7 +165,7 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
    * Creates a delete path for a given topic
    * @param topic
    */
-  def deleteTopic(topic: String) {
+  def deleteTopic(topic: String): Unit = {
     if (zkClient.topicExists(topic)) {
       try {
         zkClient.createDeleteTopicPath(topic)
@@ -300,7 +300,7 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
    *                 existing configs need to be deleted, it should be done prior to invoking this API
    *
    */
-  def changeClientIdConfig(sanitizedClientId: String, configs: Properties) {
+  def changeClientIdConfig(sanitizedClientId: String, configs: Properties): Unit = {
     DynamicConfig.Client.validate(configs)
     changeEntityConfig(ConfigType.Client, sanitizedClientId, configs)
   }
@@ -315,7 +315,7 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
    *                 existing configs need to be deleted, it should be done prior to invoking this API
    *
    */
-  def changeUserOrUserClientIdConfig(sanitizedEntityName: String, configs: Properties) {
+  def changeUserOrUserClientIdConfig(sanitizedEntityName: String, configs: Properties): Unit = {
     if (sanitizedEntityName == ConfigEntityName.Default || sanitizedEntityName.contains("/clients"))
       DynamicConfig.Client.validate(configs)
     else
@@ -384,7 +384,7 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     DynamicConfig.Broker.validate(configs)
   }
 
-  private def changeEntityConfig(rootEntityType: String, fullSanitizedEntityName: String, configs: Properties) {
+  private def changeEntityConfig(rootEntityType: String, fullSanitizedEntityName: String, configs: Properties): Unit = {
     val sanitizedEntityPath = rootEntityType + '/' + fullSanitizedEntityName
     zkClient.setOrCreateEntityConfigs(rootEntityType, fullSanitizedEntityName, configs)
 
