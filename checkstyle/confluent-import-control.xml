@@ -188,6 +188,12 @@
       <allow pkg="org.apache.commons.lang.text" />
       <allow pkg="org.apache.directory" />
     </subpackage>
+
+    <subpackage name="audit">
+      <allow pkg="io.confluent.crn" />
+      <allow pkg="io.confluent.security.audit" />
+      <allow pkg="io.confluent.security.audit.appender" />
+    </subpackage>
   </subpackage>
 
   <subpackage name="aegis">

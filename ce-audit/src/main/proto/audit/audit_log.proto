@@ -7,21 +7,8 @@ option java_multiple_files = true;
 
 import "google/protobuf/struct.proto";
 
-// Audit log payload in a CloudEvents envelope
-// Note that this envelope proto produces JSON to match the CloudEvents spec
-// It is NOT wire-compatible with the current CloudEvents protobuf format
-message CloudEventsAuditLog {
-  string specversion = 1;
-  string type = 2;
-  string source = 3;
-  string id = 4;
-  string time = 5;
-  string subject = 6;
-  AuditLog data = 7;
-}
-
 // Audit log payload
-message AuditLog {
+message AuditLogEntry {
   // The resource identifier of the service that received the request that is being authorized
   string service_name = 1;
 
@@ -61,6 +48,7 @@ message AuthorizationInfo {
   oneof authorization {
     AclAuthorizationInfo acl_authorization = 6;
     RbacAuthorizationInfo rbac_authorization = 7;
+    bool super_user_authorization = 8;
   };
 }
 

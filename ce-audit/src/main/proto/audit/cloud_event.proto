@@ -1,0 +1,21 @@
+syntax = "proto3";
+package audit; // Todo: what is the right package?
+
+option java_package = "io.confluent.security.audit";
+option java_outer_classname = "CloudEventProto";
+option java_multiple_files = true;
+
+import "google/protobuf/any.proto";
+import "audit/audit_log.proto";
+
+// Note that this envelope proto produces JSON to match the CloudEvents spec
+// It is NOT wire-compatible with the current CloudEvents protobuf format
+message CloudEvent {
+  string specversion = 1;
+  string type = 2;
+  string source = 3;
+  string id = 4;
+  string time = 5;
+  string subject = 6;
+  google.protobuf.Any data = 7;
+}
