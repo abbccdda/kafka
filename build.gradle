@@ -2135,6 +2135,23 @@ project(':connect:basic-auth-extension') {
 }
 
 project(':ce-metrics') {
+
+  // Note, this repositories{} block should be promoted to the allprojects{} block if the pattern
+  // of using CP libraries outside this monorepo grows beyond the ce-metrics project.
+  repositories {
+    mavenLocal()
+    maven {
+      name 'confluent-nexus'
+      // We do not use mavenUrl property here since that is required to be a writeable repo (i.e. maven-releases)
+      // whereas we want to use a virtual repo for fetching dependencies
+      url 'https://nexus.confluent.io/repository/maven-public'
+      credentials {
+        username = mavenUsername
+        password = mavenPassword
+      }
+    }
+  }
+
   apply plugin: 'com.github.johnrengelman.shadow'
   group = "io.confluent"
   archivesBaseName = "confluent-metrics"
@@ -2142,11 +2159,16 @@ project(':ce-metrics') {
   jar.dependsOn 'shadowJar'
 
   dependencies {
-    compile libs.protobuf
+    compile(libs.protobuf) {
+      // Force our version of protobuf instead of letting gradle pick the latest
+      // version among ourselves and our transitive dependencies
+      force = true
+    }
+
     compile(libs.opencensusProto) {
-      exclude group: "com.google.protobuf", module: "protobuf-java"
       exclude group: "com.google.code.findbugs", module: "jsr305"
     }
+    compile libs.telemetryApi
     compile libs.bcpkix
     compile libs.guava
     compile libs.jose4j
@@ -2189,6 +2211,7 @@ project(':ce-metrics') {
       include(dependency(libs.protobuf))
       include(dependency(libs.protobufUtil))
       include(dependency(libs.opencensusProto))
+      include(dependency(libs.telemetryApi))
     }
     dependsOn 'copyDependantLibs'
   }

@@ -9,7 +9,11 @@ COPY . /home/gradle
 
 WORKDIR /home/gradle
 
-RUN mkdir -p /home/gradle/.m2/repository
+# /root/.gradle is a docker volume so we can't copy files into it
+ENV GRADLE_USER_HOME=/root/gradle-home
+
+RUN mkdir -p /root/.m2/repository $GRADLE_USER_HOME \
+  && cp ./tmp/gradle/gradle.properties $GRADLE_USER_HOME
 
 RUN gradle && ./gradlew clean releaseTarGz -x signArchives --stacktrace -PpackageMetricsReporter=true && ./gradlew install --stacktrace
 

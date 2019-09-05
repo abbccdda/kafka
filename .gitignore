@@ -62,3 +62,4 @@ support-metrics-common/src/test/generated
 .semaphore-cache/
 .ssh
 vendor/
+/tmp/

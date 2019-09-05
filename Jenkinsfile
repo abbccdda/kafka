@@ -11,24 +11,31 @@ def config = jobConfig {
 
 
 def job = {
-    // Per KAFKA-7524, Scala 2.12 is the default, yet we currently support the previous minor version.
-    stage("Check compilation compatibility with Scala 2.11") {
-        sh "gradle"
-        sh "./gradlew clean compileJava compileScala compileTestJava compileTestScala " +
-                "--no-daemon --stacktrace -PscalaVersion=2.11"
-    }
 
-    stage("Compile and validate") {
-        sh "./gradlew clean assemble spotlessScalaCheck checkstyleMain checkstyleTest spotbugsMain " +
-                "--no-daemon --stacktrace --continue -PxmlSpotBugsReport=true"
-    }
+    withCredentials([usernamePassword(
+        credentialsId: 'Jenkins Nexus Account',
+        usernameVariable: 'ORG_GRADLE_PROJECT_mavenUsername',
+        passwordVariable: 'ORG_GRADLE_PROJECT_mavenPassword'
+    )]) {
 
-    if (config.publish && config.isDevJob) {
-      configFileProvider([configFile(fileId: 'Gradle Nexus Settings', variable: 'GRADLE_NEXUS_SETTINGS')]) {
-          stage("Publish to nexus") {
-              sh "./gradlew --init-script ${GRADLE_NEXUS_SETTINGS} --no-daemon uploadArchivesAll"
-          }
-      }
+        // Per KAFKA-7524, Scala 2.12 is the default, yet we currently support the previous minor version.
+        stage("Check compilation compatibility with Scala 2.11") {
+            sh "gradle"
+            sh "./gradlew clean compileJava compileScala compileTestJava compileTestScala " +
+                    "--no-daemon --stacktrace -PscalaVersion=2.11"
+        }
+
+        stage("Compile and validate") {
+            sh "./gradlew clean assemble spotlessScalaCheck checkstyleMain checkstyleTest spotbugsMain " +
+                    "--no-daemon --stacktrace --continue -PxmlSpotBugsReport=true"
+        }
+
+        if (config.publish && config.isDevJob) {
+            stage("Publish to nexus") {
+                def mavenUrl = 'https://nexus.confluent.io/repository/maven-snapshots/'
+                sh "./gradlew -PmavenUrl=${mavenUrl} --no-daemon uploadArchivesAll"
+            }
+        }
     }
 
     stage("Run Tests and build cp-downstream-builds") {

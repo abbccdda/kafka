@@ -4,6 +4,8 @@ BASE_VERSION := v2.4.0
 MASTER_BRANCH := master
 KAFKA_VERSION := $(shell awk 'sub(/.*version=/,""){print $1}' ./gradle.properties)
 VERSION_POST := -$(KAFKA_VERSION)
+DOCKER_BUILD_PRE  += copy-gradle-properties
+DOCKER_BUILD_POST += clean-gradle-properties
 
 ifeq ($(CONFLUENT_PLATFORM_PACKAGING),)
 include ./mk-include/cc-begin.mk
@@ -46,3 +48,13 @@ build-docker-cc-services:
 push-docker-cc-services:
 	make VERSION=$(VERSION) BASE_IMAGE=$(IMAGE_REPO)/$(IMAGE_NAME) BASE_VERSION=$(IMAGE_VERSION) -C cc-services/soak_cluster push-docker
 	make VERSION=$(VERSION) BASE_IMAGE=$(IMAGE_REPO)/$(IMAGE_NAME) BASE_VERSION=$(IMAGE_VERSION) -C cc-services/trogdor push-docker
+
+GRADLE_TEMP = ./tmp/gradle/
+.PHONY: copy-gradle-properties
+copy-gradle-properties:
+	mkdir -p $(GRADLE_TEMP)
+	cp ~/.gradle/gradle.properties $(GRADLE_TEMP)
+
+.PHONY: clean-gradle-properties
+clean-gradle-properties:
+	rm -rf $(GRADLE_TEMP)
