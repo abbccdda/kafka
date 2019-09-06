@@ -205,6 +205,8 @@ public class S3TierObjectStore implements TierObjectStore {
 
     private static AmazonS3 client(S3TierObjectStoreConfig config) {
         final ClientConfiguration clientConfiguration = new ClientConfiguration();
+        clientConfiguration.setUserAgentPrefix("APN/1.0 Confluent/1.0 TieredStorageS3/1.0");
+
         final AmazonS3ClientBuilder builder = AmazonS3ClientBuilder.standard();
         builder.setClientConfiguration(clientConfiguration);
 
