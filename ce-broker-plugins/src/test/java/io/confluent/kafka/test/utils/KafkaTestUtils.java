@@ -10,6 +10,7 @@ import java.lang.reflect.Modifier;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
@@ -28,6 +29,8 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.ClusterResource;
+import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclOperation;
@@ -43,6 +46,7 @@ import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.apache.kafka.test.TestUtils;
 
 public class KafkaTestUtils {
@@ -330,6 +334,36 @@ public class KafkaTestUtils {
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
+  }
+
+  public static AuthorizerServerInfo serverInfo(String clusterId, SecurityProtocol... protocols) {
+    List<Endpoint> endpoints = new ArrayList<>(protocols.length);
+    int port = 9092;
+    for (SecurityProtocol protocol : protocols) {
+      endpoints.add(new Endpoint(protocol.name, protocol, "localhost", port++));
+    }
+
+    return new AuthorizerServerInfo() {
+      @Override
+      public ClusterResource clusterResource() {
+        return new ClusterResource(clusterId);
+      }
+
+      @Override
+      public int brokerId() {
+        return 0;
+      }
+
+      @Override
+      public Collection<Endpoint> endpoints() {
+        return endpoints;
+      }
+
+      @Override
+      public Endpoint interBrokerEndpoint() {
+        return endpoints.get(0);
+      }
+    };
   }
 
   private static boolean isUnexpectedThread(Thread thread) {

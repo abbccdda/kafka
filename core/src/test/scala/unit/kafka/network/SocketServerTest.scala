@@ -32,7 +32,7 @@ import kafka.security.CredentialProvider
 import kafka.server.{KafkaConfig, ThrottledChannel}
 import kafka.utils.Implicits._
 import kafka.utils.{CoreUtils, TestUtils}
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.{Endpoint, TopicPartition}
 import org.apache.kafka.common.memory.MemoryPool
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.KafkaChannel.ChannelMuteState
@@ -220,11 +220,13 @@ class SocketServerTest {
       val socket1 = connect(testableServer, config.controlPlaneListenerName.get, localAddr = InetAddress.getLocalHost)
       sendAndReceiveControllerRequest(socket1, testableServer)
 
-      val startFuture = executor.submit(CoreUtils.runnable(testableServer.startDataPlaneProcessors(Some(externalReadyFuture))))
+      val externalListener = new ListenerName("EXTERNAL")
+      val externalEndpoint = new Endpoint(externalListener.value, SecurityProtocol.PLAINTEXT, "localhost", 0)
+      val futures =  Map(externalEndpoint -> externalReadyFuture)
+      val startFuture = executor.submit(CoreUtils.runnable(testableServer.startDataPlaneProcessors(futures)))
       TestUtils.waitUntilTrue(() => listenerStarted(config.interBrokerListenerName), "Inter-broker listener not started")
       assertFalse("Socket server startup did not wait for future to complete", startFuture.isDone)
 
-      val externalListener = new ListenerName("EXTERNAL")
       assertFalse(listenerStarted(externalListener))
 
       externalReadyFuture.complete(null)

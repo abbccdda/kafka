@@ -19,23 +19,30 @@
 package io.confluent.kafka.security.authorizer;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
+import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import kafka.network.RequestChannel.Session;
-import kafka.security.auth.Acl;
-import kafka.security.auth.Authorizer;
-import kafka.security.auth.Operation;
-import kafka.security.auth.Resource;
-import kafka.security.auth.SimpleAclAuthorizer;
-import kafka.security.auth.SimpleAclAuthorizerTest;
+import java.util.concurrent.CompletableFuture;
+import kafka.security.authorizer.AclAuthorizer;
+import kafka.security.authorizer.AclAuthorizerTest;
 import kafka.server.KafkaConfig$;
-import org.apache.kafka.common.security.auth.KafkaPrincipal;
-import scala.collection.immutable.Set;
+import org.apache.kafka.common.Endpoint;
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclBindingFilter;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
+import org.apache.kafka.server.authorizer.AclCreateResult;
+import org.apache.kafka.server.authorizer.AclDeleteResult;
+import org.apache.kafka.server.authorizer.Action;
+import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
+import org.apache.kafka.server.authorizer.AuthorizationResult;
+import org.apache.kafka.server.authorizer.Authorizer;
+import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 
 // Note: This test is useful during the early stages of development to ensure consistency
 // with Apache Kafka SimpleAclAuthorizer. It can be removed once the code is stable if it
 // becomes hard to maintain.
-public class ConfluentServerAuthorizerTest extends SimpleAclAuthorizerTest {
+public class ConfluentServerAuthorizerTest extends AclAuthorizerTest {
 
   @Override
   public void setUp() {
@@ -47,9 +54,12 @@ public class ConfluentServerAuthorizerTest extends SimpleAclAuthorizerTest {
 
     try {
       Map<String, Object> authorizerConfigs = authorizerConfigs();
-      authorizerConfigs.put(SimpleAclAuthorizer.SuperUsersProp(), superUsers);
+      authorizerConfigs.put(AclAuthorizer.SuperUsersProp(), superUsers);
       authorizer.configure(authorizerConfigs);
       authorizer2.configure(authorizerConfigs);
+      AuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL);
+      ((ConfluentServerAuthorizer) authorizer).configureServerInfo(serverInfo);
+      ((ConfluentServerAuthorizer) authorizer2).configureServerInfo(serverInfo);
     } catch (Exception e) {
       throw new RuntimeException("Confluent authorizer set up failed", e);
     }
@@ -62,7 +72,7 @@ public class ConfluentServerAuthorizerTest extends SimpleAclAuthorizerTest {
   }
 
   protected Authorizer createAuthorizer() {
-    return new ConfluentServerAuthorizer();
+    return new TestAuthorizer();
   }
 
   protected Map<String, Object> authorizerConfigs() {
@@ -73,17 +83,17 @@ public class ConfluentServerAuthorizerTest extends SimpleAclAuthorizerTest {
 
   private String initialize(Authorizer authorizer, Authorizer authorizer2) {
     try {
-      String superUsers = KafkaTestUtils.fieldValue(this, SimpleAclAuthorizerTest.class, "superUsers");
-      SimpleAclAuthorizer simpleAuthorizer = KafkaTestUtils.fieldValue(this,
-          SimpleAclAuthorizerTest.class, "simpleAclAuthorizer");
-      simpleAuthorizer.close();
-      SimpleAclAuthorizer simpleAuthorizer2 = KafkaTestUtils.fieldValue(this,
-          SimpleAclAuthorizerTest.class, "simpleAclAuthorizer2");
-      simpleAuthorizer2.close();
-      KafkaTestUtils.setFinalField(this, SimpleAclAuthorizerTest.class,
-          "simpleAclAuthorizer", simpleAclAuthorizer(authorizer));
-      KafkaTestUtils.setFinalField(this, SimpleAclAuthorizerTest.class,
-          "simpleAclAuthorizer2", simpleAclAuthorizer(authorizer2));
+      String superUsers = KafkaTestUtils.fieldValue(this, AclAuthorizerTest.class, "superUsers");
+      AclAuthorizer aclAuthorizer = KafkaTestUtils.fieldValue(this,
+          AclAuthorizerTest.class, "aclAuthorizer");
+      aclAuthorizer.close();
+      AclAuthorizer aclAuthorizer2 = KafkaTestUtils.fieldValue(this,
+          AclAuthorizerTest.class, "aclAuthorizer2");
+      aclAuthorizer2.close();
+      KafkaTestUtils.setFinalField(this, AclAuthorizerTest.class,
+          "aclAuthorizer", aclAuthorizer(authorizer));
+      KafkaTestUtils.setFinalField(this, AclAuthorizerTest.class,
+          "aclAuthorizer2", aclAuthorizer(authorizer2));
 
       return superUsers;
     } catch (Exception e) {
@@ -91,53 +101,68 @@ public class ConfluentServerAuthorizerTest extends SimpleAclAuthorizerTest {
     }
   }
 
-  protected SimpleAclAuthorizer simpleAclAuthorizer(Authorizer authorizer) throws Exception {
-    return new SimpleAclAuthorizer() {
+  protected AclAuthorizer aclAuthorizer(Authorizer authorizer) {
+    return new AclAuthorizer() {
       @Override
       public void configure(Map<String, ?> javaConfigs) {
         authorizer.configure(javaConfigs);
       }
 
       @Override
-      public boolean authorize(Session session, Operation operation, Resource resource) {
-        return authorizer.authorize(session, operation, resource);
+      public Map<Endpoint, CompletableFuture<Void>> start(AuthorizerServerInfo serverInfo) {
+        return authorizer.start(serverInfo);
       }
 
       @Override
-      public void addAcls(Set<Acl> acls, Resource resource) {
-        authorizer.addAcls(acls, resource);
+      public List<AuthorizationResult> authorize(AuthorizableRequestContext requestContext,
+          List<Action> actions) {
+        return authorizer.authorize(requestContext, actions);
       }
 
       @Override
-      public boolean removeAcls(Set<Acl> aclsTobeRemoved, Resource resource) {
-        return authorizer.removeAcls(aclsTobeRemoved, resource);
+      public List<AclCreateResult> createAcls(AuthorizableRequestContext requestContext,
+          List<AclBinding> aclBindings) {
+        return authorizer.createAcls(requestContext, aclBindings);
       }
 
       @Override
-      public boolean removeAcls(Resource resource) {
-        return authorizer.removeAcls(resource);
+      public List<AclDeleteResult> deleteAcls(AuthorizableRequestContext requestContext,
+          List<AclBindingFilter> aclBindingFilters) {
+        return authorizer.deleteAcls(requestContext, aclBindingFilters);
       }
 
       @Override
-      public Set<Acl> getAcls(Resource resource) {
-        return authorizer.getAcls(resource);
-      }
-
-      @Override
-      public scala.collection.immutable.Map<Resource, Set<Acl>> getAcls(KafkaPrincipal principal) {
-        return authorizer.getAcls(principal);
-      }
-
-      @Override
-      public scala.collection.immutable.Map<Resource, Set<Acl>> getAcls() {
-        return authorizer.getAcls();
+      public Iterable<AclBinding> acls(AclBindingFilter filter) {
+        return authorizer.acls(filter);
       }
 
       @Override
       public void close() {
-        authorizer.close();
+        try {
+          authorizer.close();
+        } catch (IOException e) {
+          throw new RuntimeException(e);
+        }
       }
     };
+  }
+
+  private static class TestAuthorizer extends ConfluentServerAuthorizer {
+
+    volatile AuthorizerServerInfo serverInfo;
+
+    @Override
+    public void configure(Map<String, ?> configs) {
+      super.configure(configs);
+      if (serverInfo != null)
+        configureServerInfo(serverInfo);
+    }
+
+    @Override
+    public void configureServerInfo(AuthorizerServerInfo serverInfo) {
+      this.serverInfo = serverInfo;
+      super.configureServerInfo(serverInfo);
+    }
   }
 }
 

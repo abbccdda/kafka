@@ -12,6 +12,7 @@ import static org.junit.Assert.fail;
 import io.confluent.security.authorizer.provider.ProviderFailedException;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -24,10 +25,14 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import org.apache.kafka.common.ClusterResource;
+import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Test;
@@ -39,6 +44,7 @@ public class EmbeddedAuthorizerTest {
   private final KafkaPrincipal group = new KafkaPrincipal(AccessRule.GROUP_PRINCIPAL_TYPE, "groupA");
   private final ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"), "testTopic", PatternType.LITERAL);
   private final Scope scope = Scope.kafkaClusterScope("testScope");
+  private final AuthorizerServerInfo serverInfo = serverInfo("testScope");
 
   @After
   public void tearDown() {
@@ -182,6 +188,7 @@ public class EmbeddedAuthorizerTest {
     props.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "TEST");
     props.put(ConfluentAuthorizerConfig.INIT_TIMEOUT_PROP, "10");
     authorizer.configure(props);
+    authorizer.configureServerInfo(serverInfo);
     CompletableFuture<Void> future = authorizer.start(Collections.emptyMap());
     Throwable t = assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
     assertEquals(org.apache.kafka.common.errors.TimeoutException.class, t.getCause().getClass());
@@ -196,6 +203,7 @@ public class EmbeddedAuthorizerTest {
     props.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "TEST");
     props.put(ConfluentAuthorizerConfig.INIT_TIMEOUT_PROP, "10");
     authorizer.configure(props);
+    authorizer.configureServerInfo(serverInfo);
     Throwable t = assertThrows(CompletionException.class, () -> authorizer.start(Collections.emptyMap()));
     assertEquals(org.apache.kafka.common.errors.TimeoutException.class, t.getCause().getClass());
     assertFalse(authorizer.ready());
@@ -218,6 +226,7 @@ public class EmbeddedAuthorizerTest {
     };
     props.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "TEST");
     authorizer.configure(props);
+    authorizer.configureServerInfo(serverInfo);
     CompletableFuture<Void> future = authorizer.start(Collections.emptyMap());
     assertFalse(future.isDone());
     assertFalse(authorizer.ready());
@@ -240,6 +249,7 @@ public class EmbeddedAuthorizerTest {
     props.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "TEST");
     props.put(ConfluentAuthorizerConfig.INIT_TIMEOUT_PROP, "10");
     authorizer.configure(props);
+    authorizer.configureServerInfo(serverInfo);
     CompletableFuture<Void> future = authorizer.start(Collections.emptyMap());
     Throwable t = assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
     assertEquals(org.apache.kafka.common.errors.TimeoutException.class, t.getCause().getClass());
@@ -258,6 +268,7 @@ public class EmbeddedAuthorizerTest {
     };
     props.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "TEST");
     authorizer.configure(props);
+    authorizer.configureServerInfo(serverInfo);
     CompletableFuture<Void> future = authorizer.start(Collections.emptyMap());
     Throwable t = assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
     assertEquals(org.apache.kafka.common.KafkaException.class, t.getCause().getClass());
@@ -275,10 +286,36 @@ public class EmbeddedAuthorizerTest {
     props.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, accessRuleProvider);
     props.put(TestGroupProvider.TEST_PROVIDER_PROP, groupProvider);
     authorizer.configure(props);
+    authorizer.configureServerInfo(serverInfo);
+    authorizer.start(Collections.emptyMap()).join();
   }
 
   private Action action(String operation) {
     return new Action(scope, topic.resourceType(), topic.name(), new Operation(operation));
   }
 
+  private AuthorizerServerInfo serverInfo(String clusterId) {
+    Endpoint endpoint = new Endpoint("PLAINTEXT", SecurityProtocol.PLAINTEXT, "localhost", 9092);
+    return new AuthorizerServerInfo() {
+      @Override
+      public ClusterResource clusterResource() {
+        return new ClusterResource(clusterId);
+      }
+
+      @Override
+      public int brokerId() {
+        return 0;
+      }
+
+      @Override
+      public Collection<Endpoint> endpoints() {
+        return Collections.singleton(endpoint);
+      }
+
+      @Override
+      public Endpoint interBrokerEndpoint() {
+        return endpoint;
+      }
+    };
+  }
 }

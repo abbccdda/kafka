@@ -28,10 +28,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.kafka.common.utils.Utils;
-import org.apache.kafka.common.ClusterResource;
-import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,7 +38,7 @@ import org.slf4j.LoggerFactory;
  * Cross-component embedded authorizer that implements common authorization logic. This
  * authorizer loads configured providers and uses them to perform authorization.
  */
-public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
+public class EmbeddedAuthorizer implements Authorizer {
 
   protected static final Logger log = LoggerFactory.getLogger("kafka.authorizer.logger");
 
@@ -48,6 +47,7 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
   private final Set<Provider> providersCreated;
   private GroupProvider groupProvider;
   private List<AccessRuleProvider> accessRuleProviders;
+  private ConfluentAuthorizerConfig authorizerConfig;
   private MetadataProvider metadataProvider;
   private boolean allowEveryoneIfNoAcl;
   private Set<KafkaPrincipal> superUsers;
@@ -74,18 +74,16 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
   }
 
   @Override
-  public void onUpdate(ClusterResource clusterResource) {
-    String clusterId = clusterResource.clusterId();
-    log.debug("Configuring scope for Kafka cluster with cluster id {}", clusterId);
-    this.clusterId = clusterId;
-    this.scope = Scope.kafkaClusterScope(clusterId);
-  }
-
-  @Override
   public void configure(Map<String, ?> configs) {
-    ConfluentAuthorizerConfig authorizerConfig = new ConfluentAuthorizerConfig(configs);
+    authorizerConfig = new ConfluentAuthorizerConfig(configs);
     allowEveryoneIfNoAcl = authorizerConfig.allowEveryoneIfNoAcl;
     superUsers = authorizerConfig.superUsers;
+  }
+
+  public void configureServerInfo(AuthorizerServerInfo serverInfo) {
+    this.clusterId = serverInfo.clusterResource().clusterId();
+    log.debug("Configuring scope for Kafka cluster with cluster id {}", clusterId);
+    this.scope = Scope.kafkaClusterScope(clusterId);
 
     ConfluentAuthorizerConfig.Providers providers = authorizerConfig.createProviders(clusterId);
     providersCreated.addAll(providers.accessRuleProviders);
@@ -101,13 +99,15 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
     initTimeout = authorizerConfig.initTimeout;
     if (groupProvider != null && groupProvider.usesMetadataFromThisKafkaCluster())
       usesMetadataFromThisKafkaCluster = true;
-    else if (accessRuleProviders.stream().anyMatch(AccessRuleProvider::usesMetadataFromThisKafkaCluster))
+    else if (accessRuleProviders.stream()
+        .anyMatch(AccessRuleProvider::usesMetadataFromThisKafkaCluster))
       usesMetadataFromThisKafkaCluster = true;
     else
-      usesMetadataFromThisKafkaCluster = metadataProvider != null && metadataProvider.usesMetadataFromThisKafkaCluster();
+      usesMetadataFromThisKafkaCluster =
+          metadataProvider != null && metadataProvider.usesMetadataFromThisKafkaCluster();
   }
 
-  @Override
+    @Override
   public List<AuthorizeResult> authorize(KafkaPrincipal sessionPrincipal, String host, List<Action> actions) {
     return  actions.stream()
         .map(action -> authorize(sessionPrincipal, host, action))
@@ -136,13 +136,32 @@ public class EmbeddedAuthorizer implements Authorizer, ClusterResourceListener {
   }
 
   public CompletableFuture<Void> start(Map<String, ?> interBrokerListenerConfigs) {
-    Set<Provider> providers = new HashSet<>(); // Use a set to remove duplicates
+    ConfluentAuthorizerConfig.Providers providers = authorizerConfig.createProviders(clusterId);
+    providersCreated.addAll(providers.accessRuleProviders);
+    if (providers.groupProvider != null)
+      providersCreated.add(providers.groupProvider);
+    if (providers.metadataProvider != null)
+      providersCreated.add(providers.metadataProvider);
+
+    configureProviders(providers.accessRuleProviders,
+        providers.groupProvider,
+        providers.metadataProvider);
+
+    initTimeout = authorizerConfig.initTimeout;
+    if (groupProvider != null && groupProvider.usesMetadataFromThisKafkaCluster())
+      usesMetadataFromThisKafkaCluster = true;
+    else if (accessRuleProviders.stream().anyMatch(AccessRuleProvider::usesMetadataFromThisKafkaCluster))
+      usesMetadataFromThisKafkaCluster = true;
+    else
+      usesMetadataFromThisKafkaCluster = metadataProvider != null && metadataProvider.usesMetadataFromThisKafkaCluster();
+
+    Set<Provider> allProviders = new HashSet<>(); // Use a set to remove duplicates
     if (groupProvider != null)
-      providers.add(groupProvider);
-    providers.addAll(accessRuleProviders);
+      allProviders.add(groupProvider);
+    allProviders.addAll(accessRuleProviders);
     if (metadataProvider != null)
-      providers.add(metadataProvider);
-    List<CompletableFuture<Void>> futures = providers.stream()
+      allProviders.add(metadataProvider);
+    List<CompletableFuture<Void>> futures = allProviders.stream()
         .map(provider -> provider.start(interBrokerListenerConfigs))
         .map(CompletionStage::toCompletableFuture)
         .collect(Collectors.toList());

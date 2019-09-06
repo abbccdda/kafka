@@ -24,8 +24,9 @@ import com.yammer.metrics.Metrics
 import kafka.api.{ApiVersion, KAFKA_2_0_IV1, KAFKA_2_3_IV1}
 import kafka.common.LongRef
 import kafka.message._
-import org.apache.kafka.common.TopicPartition
 import kafka.server.BrokerTopicStats
+import kafka.utils.TestUtils.meterCount
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{InvalidTimestampException, UnsupportedCompressionTypeException, UnsupportedForMessageFormatException}
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.utils.Time
@@ -89,7 +90,8 @@ class LogValidatorTest {
     } catch {
       case _: InvalidRecordException => // GOOD
     }
-    assertEquals(2, metricsKeySet.count(_.getMBeanName.startsWith("kafka.server:type=BrokerTopicMetrics,name=InvalidMagicNumberRecordsPerSec")))
+    assertEquals(metricsKeySet.count(_.getMBeanName.endsWith(s"${BrokerTopicStats.InvalidMagicNumberRecordsPerSec}")), 1)
+    assertTrue(meterCount(s"${BrokerTopicStats.InvalidMagicNumberRecordsPerSec}") > 0)
   }
 
   private def validateMessages(records: MemoryRecords, magic: Byte, sourceCompressionType: CompressionType, targetCompressionType: CompressionType): Unit = {
@@ -1264,6 +1266,33 @@ class LogValidatorTest {
       brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
 
+  @Test
+  def testNonIncreasingOffsetRecordBatchHasMetricsLogged(): Unit = {
+    val records = createNonIncreasingOffsetRecords(RecordBatch.MAGIC_VALUE_V2)
+    records.batches().asScala.head.setLastOffset(2)
+    assertThrows[InvalidRecordException] {
+      LogValidator.validateMessagesAndAssignOffsets(records,
+        topicPartition,
+        offsetCounter = new LongRef(0L),
+        time = time,
+        now = System.currentTimeMillis(),
+        sourceCodec = DefaultCompressionCodec,
+        targetCodec = DefaultCompressionCodec,
+        compactedTopic = false,
+        magic = RecordBatch.MAGIC_VALUE_V0,
+        timestampType = TimestampType.CREATE_TIME,
+        timestampDiffMaxMs = 5000L,
+        interceptors = Collections.emptyList().asScala,
+        interceptorStats,
+        partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+        isFromClient = true,
+        interBrokerProtocolVersion = ApiVersion.latestVersion,
+        brokerTopicStats = brokerTopicStats)
+    }
+    assertEquals(metricsKeySet.count(_.getMBeanName.endsWith(s"${BrokerTopicStats.InvalidOffsetOrSequenceRecordsPerSec}")), 1)
+    assertTrue(meterCount(s"${BrokerTopicStats.InvalidOffsetOrSequenceRecordsPerSec}") > 0)
+  }
+
   @Test(expected = classOf[InvalidRecordException])
   def testCompressedBatchWithoutRecordsNotAllowed(): Unit = {
     testBatchWithoutRecordsNotAllowed(DefaultCompressionCodec, DefaultCompressionCodec)
@@ -1340,6 +1369,17 @@ class LogValidatorTest {
     builder.appendWithOffset(0, timestamp, null, "hello".getBytes)
     builder.appendWithOffset(1, timestamp, null, "there".getBytes)
     builder.appendWithOffset(2, timestamp, null, "beautiful".getBytes)
+    builder.build()
+  }
+
+  private def createNonIncreasingOffsetRecords(magicValue: Byte,
+                                               timestamp: Long = RecordBatch.NO_TIMESTAMP,
+                                               codec: CompressionType = CompressionType.NONE): MemoryRecords = {
+    val buf = ByteBuffer.allocate(512)
+    val builder = MemoryRecords.builder(buf, magicValue, codec, TimestampType.CREATE_TIME, 0L)
+    builder.appendWithOffset(0, timestamp, null, "hello".getBytes)
+    builder.appendWithOffset(2, timestamp, null, "there".getBytes)
+    builder.appendWithOffset(3, timestamp, null, "beautiful".getBytes)
     builder.build()
   }
 

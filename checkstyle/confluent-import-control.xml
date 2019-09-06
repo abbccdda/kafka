@@ -162,6 +162,7 @@
     <allow pkg="kafka" />
     <allow pkg="org.apache.kafka.clients" />
     <allow pkg="org.apache.kafka.common" />
+    <allow pkg="org.apache.kafka.server.authorizer" />
     <allow pkg="org.apache.kafka.test" />
     <allow pkg="scala" />
 

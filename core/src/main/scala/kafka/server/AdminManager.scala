@@ -18,11 +18,9 @@ package kafka.server
 
 import java.util.{Collections, Properties}
 
-import kafka.admin
-import kafka.admin.{AdminOperationException, AdminUtils}
+import kafka.admin.AdminOperationException
 import kafka.cluster.Observer
-import kafka.common.TopicPlacement.ConstraintCount
-import kafka.common.{TopicAlreadyMarkedForDeletionException, TopicPlacement}
+import kafka.common.TopicAlreadyMarkedForDeletionException
 import kafka.log.LogConfig
 import kafka.utils.Log4jController
 import kafka.metrics.KafkaMetricsGroup
@@ -723,7 +721,7 @@ class AdminManager(val config: KafkaConfig,
         .filter(perBrokerConfig || _.source == ConfigSource.DYNAMIC_DEFAULT_BROKER_CONFIG)
     val synonyms = if (!includeSynonyms) List.empty else allSynonyms
     val source = if (allSynonyms.isEmpty) ConfigSource.DEFAULT_CONFIG else allSynonyms.head.source
-    val readOnly = !allNames.exists(DynamicBrokerConfig.AllDynamicConfigs.contains)
+    val readOnly = !DynamicBrokerConfig.AllDynamicConfigs.contains(name)
     new DescribeConfigsResponse.ConfigEntry(name, valueAsString, source, isSensitive, readOnly, synonyms.asJava)
   }
 }

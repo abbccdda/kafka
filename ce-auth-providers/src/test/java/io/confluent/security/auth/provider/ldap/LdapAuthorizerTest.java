@@ -3,6 +3,7 @@
 package io.confluent.security.auth.provider.ldap;
 
 import io.confluent.kafka.security.ldap.authorizer.LdapAuthorizer;
+import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.license.InvalidLicenseException;
 import io.confluent.license.test.utils.LicenseTestUtils;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
@@ -14,9 +15,12 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
 import kafka.admin.AclCommand;
@@ -37,13 +41,19 @@ import kafka.security.auth.Operation$;
 import kafka.security.auth.Read$;
 import kafka.security.auth.Resource;
 import kafka.security.auth.ResourceType;
-import kafka.security.auth.SimpleAclAuthorizer;
 import kafka.security.auth.Topic$;
 import kafka.security.auth.Write$;
+import kafka.security.authorizer.AclAuthorizer;
+import kafka.security.authorizer.AuthorizerUtils;
 import kafka.server.KafkaConfig$;
+import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.MockTime;
+import org.apache.kafka.server.authorizer.Action;
+import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
+import org.apache.kafka.server.authorizer.AuthorizationResult;
 import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
@@ -164,7 +174,9 @@ public class LdapAuthorizerTest {
 
     miniKdcWithLdapService.shutdown();
     TestUtils.waitForCondition(() -> {
-      return !ldapAuthorizer.authorize(session("adminUser"), Read$.MODULE$, topicResource);
+      AuthorizableRequestContext requestContext = AuthorizerUtils.sessionToRequestContext(session("adminUser"));
+      Action action = new Action(AclOperation.READ, topicResource.toPattern(), 1, true, true);
+      return ldapAuthorizer.authorize(requestContext, Collections.singletonList(action)).get(0) == AuthorizationResult.DENIED;
     }, "LDAP failure not detected");
   }
 
@@ -207,8 +219,8 @@ public class LdapAuthorizerTest {
     miniKdcWithLdapService.createGroup("adminGroup", "adminUser");
     miniKdcWithLdapService.createGroup("guestGroup", "guest");
 
-    authorizerConfig.put(SimpleAclAuthorizer.SuperUsersProp(), "Group:adminGroup");
-    authorizerConfig.put(SimpleAclAuthorizer.AllowEveryoneIfNoAclIsFoundProp(),
+    authorizerConfig.put(AclAuthorizer.SuperUsersProp(), "Group:adminGroup");
+    authorizerConfig.put(AclAuthorizer.AllowEveryoneIfNoAclIsFoundProp(),
         String.valueOf(allowIfNoAcl));
     configureLdapAuthorizer();
 
@@ -281,7 +293,7 @@ public class LdapAuthorizerTest {
 
   private void configureLdapAuthorizer() throws Exception {
     ldapAuthorizer.configure(authorizerConfig);
-    ldapAuthorizer.start(authorizerConfig).get();
+    ldapAuthorizer.start(KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL)).values().forEach(CompletableFuture::join);
   }
 
   private void verifyAuthorizer() throws Exception {
@@ -295,7 +307,7 @@ public class LdapAuthorizerTest {
   private void verifyAuthorizerLicenseFailure() {
     ldapAuthorizer.configure(authorizerConfig);
     try {
-      ldapAuthorizer.start(authorizerConfig).get();
+      ldapAuthorizer.start(KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL)).values().forEach(CompletableFuture::join);
     } catch (Exception e) {
       Throwable cause = e.getCause();
       while (cause != null && !(cause instanceof InvalidLicenseException)) {
@@ -327,8 +339,11 @@ public class LdapAuthorizerTest {
   }
 
   private void verifyAuthorization(String user, Resource resource, Operation op, boolean allowed) {
+    List<AuthorizationResult> expectedResults = Collections.singletonList(allowed ? AuthorizationResult.ALLOWED : AuthorizationResult.DENIED);
+    AuthorizableRequestContext requestContext = AuthorizerUtils.sessionToRequestContext(session(user));
+    Action action = new Action(op.toJava(), resource.toPattern(), 1, true, true);
     assertEquals("Incorrect authorization result for op " + op,
-        allowed, ldapAuthorizer.authorize(session(user), op, resource));
+        expectedResults, ldapAuthorizer.authorize(requestContext, Collections.singletonList(action)));
   }
 
   private Void addTopicAcl(KafkaPrincipal principal, Resource topic, Operation op) {

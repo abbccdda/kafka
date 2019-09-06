@@ -21,7 +21,7 @@ import java.util.Properties
 
 import javax.management.ObjectName
 import com.yammer.metrics.Metrics
-import com.yammer.metrics.core.{Meter, MetricPredicate}
+import com.yammer.metrics.core.MetricPredicate
 import org.junit.Test
 import org.junit.Assert._
 import kafka.integration.KafkaServerTestHarness
@@ -128,25 +128,25 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
 
     // Consume messages to make bytesOut tick
     TestUtils.consumeTopicRecords(servers, topic, nMessages)
-    val initialReplicationBytesIn = meterCount(replicationBytesIn)
-    val initialReplicationBytesOut = meterCount(replicationBytesOut)
-    val initialBytesIn = meterCount(bytesIn)
-    val initialBytesOut = meterCount(bytesOut)
+    val initialReplicationBytesIn = TestUtils.meterCount(replicationBytesIn)
+    val initialReplicationBytesOut = TestUtils.meterCount(replicationBytesOut)
+    val initialBytesIn = TestUtils.meterCount(bytesIn)
+    val initialBytesOut = TestUtils.meterCount(bytesOut)
 
     // BytesOut doesn't include replication, so it shouldn't have changed
-    assertEquals(initialBytesOut, meterCount(bytesOut))
+    assertEquals(initialBytesOut, TestUtils.meterCount(bytesOut))
 
     // Produce a few messages to make the metrics tick
     TestUtils.generateAndProduceMessages(servers, topic, nMessages)
 
-    assertTrue(meterCount(replicationBytesIn) > initialReplicationBytesIn)
-    assertTrue(meterCount(replicationBytesOut) > initialReplicationBytesOut)
-    assertTrue(meterCount(bytesIn) > initialBytesIn)
+    assertTrue(TestUtils.meterCount(replicationBytesIn) > initialReplicationBytesIn)
+    assertTrue(TestUtils.meterCount(replicationBytesOut) > initialReplicationBytesOut)
+    assertTrue(TestUtils.meterCount(bytesIn) > initialBytesIn)
 
     // Consume messages to make bytesOut tick
     TestUtils.consumeTopicRecords(servers, topic, nMessages)
 
-    assertTrue(meterCount(bytesOut) > initialBytesOut)
+    assertTrue(TestUtils.meterCount(bytesOut) > initialBytesOut)
   }
 
   @Test
@@ -162,8 +162,8 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
       case _: Exception => // GOOD
     }
     // now the metric should kick in
-    assertEquals(Metrics.defaultRegistry.allMetrics.keySet.asScala.count(_.getMBeanName.endsWith(s"name=NoKeyCompactedTopicRecordsPerSec,topic=$topic")), 1)
-    assertTrue(meterCount(s"name=NoKeyCompactedTopicRecordsPerSec,topic=$topic") > 0)
+    assertEquals(1, Metrics.defaultRegistry.allMetrics.keySet.asScala.count(_.getMBeanName.endsWith(s"name=NoKeyCompactedTopicRecordsPerSec")))
+    assertTrue(TestUtils.meterCount(s"name=NoKeyCompactedTopicRecordsPerSec") > 0)
   }
 
   @Test
@@ -203,16 +203,6 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
     assertEquals(metrics.keySet.asScala.count(_.getMBeanName == "kafka.server:type=SessionExpireListener,name=SessionState"), 1)
     assertEquals(metrics.keySet.asScala.count(_.getMBeanName == "kafka.server:type=SessionExpireListener,name=ZooKeeperExpiresPerSec"), 1)
     assertEquals(metrics.keySet.asScala.count(_.getMBeanName == "kafka.server:type=SessionExpireListener,name=ZooKeeperDisconnectsPerSec"), 1)
-  }
-
-  private def meterCount(metricName: String): Long = {
-    Metrics.defaultRegistry.allMetrics.asScala
-      .filterKeys(_.getMBeanName.endsWith(metricName))
-      .values
-      .headOption
-      .getOrElse(fail(s"Unable to find metric $metricName"))
-      .asInstanceOf[Meter]
-      .count
   }
 
   private def topicMetrics(topic: Option[String]): Set[String] = {

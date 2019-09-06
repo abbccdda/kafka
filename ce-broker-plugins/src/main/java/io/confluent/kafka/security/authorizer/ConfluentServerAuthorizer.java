@@ -23,25 +23,36 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
-import kafka.network.RequestChannel;
 import kafka.network.RequestChannel.Session;
-import kafka.security.auth.Acl;
-import kafka.security.auth.Authorizer;
-import kafka.security.auth.AuthorizerWithKafkaStore;
 import kafka.security.auth.Operation;
+import kafka.security.auth.Operation$;
 import kafka.security.auth.Resource;
+import kafka.security.authorizer.AuthorizerUtils;
+import kafka.server.KafkaConfig$;
+import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.errors.InvalidRequestException;
+import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.resource.PatternType;
-import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.authorizer.AclCreateResult;
+import org.apache.kafka.server.authorizer.AclDeleteResult;
+import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
+import org.apache.kafka.server.authorizer.AuthorizationResult;
+import org.apache.kafka.server.authorizer.Authorizer;
+import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 
-
-public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements AuthorizerWithKafkaStore {
+public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Authorizer {
 
   private static final Set<String> UNSCOPED_PROVIDERS =
       Utils.mkSet(AccessRuleProviders.ACL.name(), AccessRuleProviders.MULTI_TENANT.name());
@@ -56,6 +67,7 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
   private final Time time;
   private LicenseValidator licenseValidator;
   private Authorizer aclAuthorizer;
+  private Map<String, Object> configs;
 
   public ConfluentServerAuthorizer() {
     this(Time.SYSTEM);
@@ -68,6 +80,12 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
   @Override
   public void configure(Map<String, ?> configs) {
     super.configure(configs);
+    this.configs = new HashMap<>(configs);
+  }
+
+  // Visibility for tests
+  public void configureServerInfo(AuthorizerServerInfo serverInfo) {
+    super.configureServerInfo(serverInfo);
 
     Optional<Authorizer> aclProvider = accessRuleProviders().stream()
         .filter(a -> a instanceof AclProvider)
@@ -91,7 +109,51 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
   }
 
   @Override
-  public boolean authorize(RequestChannel.Session session, Operation operation, Resource resource) {
+  public Map<Endpoint, CompletableFuture<Void>> start(AuthorizerServerInfo serverInfo) {
+    configureServerInfo(serverInfo);
+    CompletableFuture<Void> startFuture = super.start(interBrokerClientConfigs(serverInfo));
+
+    Map<Endpoint, CompletableFuture<Void>> futures = new HashMap<>(serverInfo.endpoints().size());
+    serverInfo.endpoints().forEach(endpoint -> {
+      if (endpoint.equals(serverInfo.interBrokerEndpoint())) {
+        futures.put(endpoint, CompletableFuture.completedFuture(null));
+      } else {
+        futures.put(endpoint, startFuture);
+      }
+    });
+    return futures;
+  }
+
+  @Override
+  public List<AuthorizationResult> authorize(AuthorizableRequestContext requestContext,
+      List<org.apache.kafka.server.authorizer.Action> actions) {
+    Session session = new Session(requestContext.principal(), requestContext.clientAddress());
+    return actions.stream().map(action -> {
+      boolean allowed = authorize(requestContext,
+          Operation$.MODULE$.fromJava(action.operation()),
+          AuthorizerUtils.convertToResource(action.resourcePattern()));
+      return allowed ? AuthorizationResult.ALLOWED : AuthorizationResult.DENIED;
+    }).collect(Collectors.toList());
+  }
+
+  @Override
+  public List<AclCreateResult> createAcls(AuthorizableRequestContext requestContext,
+                                          List<AclBinding> aclBindings) {
+    return aclAuthorizer.createAcls(requestContext, aclBindings);
+  }
+
+  @Override
+  public List<AclDeleteResult> deleteAcls(AuthorizableRequestContext requestContext,
+                                          List<AclBindingFilter> aclBindingFilters) {
+    return aclAuthorizer.deleteAcls(requestContext, aclBindingFilters);
+  }
+
+  @Override
+  public Iterable<AclBinding> acls(AclBindingFilter filter) {
+    return aclAuthorizer.acls(filter);
+  }
+
+  public boolean authorize(AuthorizableRequestContext requestContext, Operation operation, Resource resource) {
     if (ready())
       licenseValidator.verifyLicense();
 
@@ -103,40 +165,10 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
                                AclMapper.resourceType(resource.resourceType()),
                                resource.name(),
                                AclMapper.operation(operation));
-    String host = session.clientAddress().getHostAddress();
+    String host = requestContext.clientAddress().getHostAddress();
 
-    List<AuthorizeResult> result = super.authorize(session.principal(), host, Collections.singletonList(action));
+    List<AuthorizeResult> result = super.authorize(requestContext.principal(), host, Collections.singletonList(action));
     return result.get(0) == AuthorizeResult.ALLOWED;
-  }
-
-  @Override
-  public void addAcls(scala.collection.immutable.Set<Acl> acls, Resource resource) {
-    aclAuthorizer.addAcls(acls, resource);
-  }
-
-  @Override
-  public boolean removeAcls(scala.collection.immutable.Set<Acl> acls, Resource resource) {
-    return aclAuthorizer.removeAcls(acls, resource);
-  }
-
-  @Override
-  public boolean removeAcls(Resource resource) {
-    return aclAuthorizer.removeAcls(resource);
-  }
-
-  @Override
-  public scala.collection.immutable.Set<Acl> getAcls(Resource resource) {
-    return aclAuthorizer.getAcls(resource);
-  }
-
-  @Override
-  public scala.collection.immutable.Map<Resource, scala.collection.immutable.Set<Acl>> getAcls(KafkaPrincipal principal) {
-    return aclAuthorizer.getAcls(principal);
-  }
-
-  @Override
-  public scala.collection.immutable.Map<Resource, scala.collection.immutable.Set<Acl>> getAcls() {
-    return aclAuthorizer.getAcls();
   }
 
   @Override
@@ -144,10 +176,41 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
     log.debug("Closing Kafka authorizer");
     super.close();
     try {
-      licenseValidator.close();
+      if (licenseValidator != null)
+        licenseValidator.close();
     } catch (Exception e) {
       log.error("Failed to close license validator", e);
     }
+  }
+
+  private Map<String, Object> interBrokerClientConfigs(AuthorizerServerInfo serverInfo) {
+    Map<String, Object>  clientConfigs = new HashMap<>();
+    Endpoint endpoint = serverInfo.interBrokerEndpoint();
+    ListenerName listenerName = new ListenerName(endpoint.listener());
+    String listenerPrefix = listenerName.configPrefix();
+    clientConfigs.putAll(configs);
+    updatePrefixedConfigs(configs, clientConfigs, listenerPrefix);
+
+    SecurityProtocol securityProtocol = serverInfo.interBrokerEndpoint().securityProtocol();
+    if (securityProtocol == SecurityProtocol.SASL_PLAINTEXT || securityProtocol == SecurityProtocol.SASL_SSL) {
+      String mechanism = (String) configs.get(KafkaConfig$.MODULE$.SaslMechanismInterBrokerProtocolProp());
+      clientConfigs.put(SaslConfigs.SASL_MECHANISM, mechanism);
+      String mechanismPrefix = listenerName.saslMechanismConfigPrefix(mechanism);
+      updatePrefixedConfigs(configs, clientConfigs, mechanismPrefix);
+    }
+    clientConfigs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, endpoint.host() + ":" + endpoint.port());
+    clientConfigs.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol.name);
+    clientConfigs.put(KafkaConfig$.MODULE$.BrokerIdProp(), serverInfo.brokerId());
+    return clientConfigs;
+  }
+
+  private void updatePrefixedConfigs(Map<String, Object> srcConfigs, Map<String, Object> dstConfigs, String prefix) {
+    srcConfigs.entrySet().stream()
+        .filter(e -> e.getKey().startsWith(prefix))
+        .forEach(e -> {
+          dstConfigs.remove(e.getKey());
+          dstConfigs.put(e.getKey().substring(prefix.length()), e.getValue());
+        });
   }
 
   /**
@@ -203,7 +266,7 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
           String.format("Confluent Authorizer license validation failed."
               + " Please specify a valid license in the config " + licensePropName
               + " to enable authorization using %s. Kafka brokers may be started with basic"
-              + " user-principal based authorization using 'kafka.security.auth.SimpleAclAuthorizer'"
+              + " user-principal based authorization using 'kafka.security.authorizer.AclAuthorizer'"
               + " without a license.", this.getClass().getName()), e);
     }
   }
@@ -236,37 +299,30 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
     }
 
     @Override
-    public boolean authorize(Session session, Operation operation, Resource resource) {
+    public Map<Endpoint, CompletableFuture<Void>> start(AuthorizerServerInfo serverInfo) {
+      return Collections.emptyMap();
+    }
+
+    @Override
+    public List<AuthorizationResult> authorize(AuthorizableRequestContext requestContext,
+        List<org.apache.kafka.server.authorizer.Action> actions) {
       throw new IllegalStateException("Authprization not supported by this provider");
     }
 
     @Override
-    public void addAcls(scala.collection.immutable.Set<Acl> acls, Resource resource) {
+    public List<AclCreateResult> createAcls(AuthorizableRequestContext requestContext,
+        List<AclBinding> aclBindings) {
       throw EXCEPTION;
     }
 
     @Override
-    public boolean removeAcls(scala.collection.immutable.Set<Acl> acls, Resource resource) {
+    public List<AclDeleteResult> deleteAcls(AuthorizableRequestContext requestContext,
+        List<AclBindingFilter> aclBindingFilters) {
       throw EXCEPTION;
     }
 
     @Override
-    public boolean removeAcls(Resource resource) {
-      throw EXCEPTION;
-    }
-
-    @Override
-    public scala.collection.immutable.Set<Acl> getAcls(Resource resource) {
-      throw EXCEPTION;
-    }
-
-    @Override
-    public scala.collection.immutable.Map<Resource, scala.collection.immutable.Set<Acl>> getAcls(KafkaPrincipal principal) {
-      throw EXCEPTION;
-    }
-
-    @Override
-    public scala.collection.immutable.Map<Resource, scala.collection.immutable.Set<Acl>> getAcls() {
+    public Iterable<AclBinding> acls(AclBindingFilter filter) {
       throw EXCEPTION;
     }
 

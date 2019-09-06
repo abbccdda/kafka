@@ -198,6 +198,8 @@ subprojects {
         !project.name.equals('support-metrics-common') &&
         !project.name.equals('support-metrics-fullcollector') &&
         !project.name.equals('ce-serializers') &&
+	!project.name.equals('ce-auth-providers') &&
+	!project.name.equals('ce-broker-plugins') &&
         !project.name.equals('ce-audit')) {
       // Do not enable -Werror for subprojects with automatically generated code.
       // We can't fix the warnings in automatically generated code.
@@ -1187,6 +1189,7 @@ project(':clients') {
     include "**/org/apache/kafka/common/security/scram/*"
     include "**/org/apache/kafka/common/security/token/delegation/*"
     include "**/org/apache/kafka/common/security/oauthbearer/*"
+    include "**/org/apache/kafka/server/authorizer/*"
     include "**/org/apache/kafka/server/policy/*"
     include "**/org/apache/kafka/server/quota/*"
   }

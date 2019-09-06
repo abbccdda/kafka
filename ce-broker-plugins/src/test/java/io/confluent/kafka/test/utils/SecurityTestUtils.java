@@ -30,6 +30,10 @@ import kafka.security.auth.Authorizer;
 import kafka.security.auth.Operation;
 import kafka.security.auth.Resource;
 import kafka.server.KafkaServer;
+import org.apache.kafka.common.acl.AccessControlEntry;
+import org.apache.kafka.common.acl.AccessControlEntryFilter;
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.authenticator.CredentialCache;
@@ -184,6 +188,28 @@ public class SecurityTestUtils {
       org.apache.kafka.test.TestUtils.waitForCondition(() -> {
         Set<Acl> acls = JavaConversions.setAsJavaSet(authorizer.getAcls(resource));
         boolean matches = acls.stream().anyMatch(acl -> acl.operation().equals(op) && acl.principal().equals(principal));
+        return deleted != matches;
+      }, "ACLs not updated");
+    } catch (InterruptedException e) {
+      throw new RuntimeException("Wait was interrupted", e);
+    }
+  }
+
+  public static void waitForAclUpdate(org.apache.kafka.server.authorizer.Authorizer authorizer, KafkaPrincipal principal, Resource resource,
+      Operation op, boolean deleted) {
+    try {
+      org.apache.kafka.test.TestUtils.waitForCondition(() -> {
+        Iterable<AclBinding> acls = authorizer.acls(new AclBindingFilter(resource.toPattern().toFilter(),
+            AccessControlEntryFilter.ANY));
+        boolean matches = false;
+        for (AclBinding acl : acls) {
+          AccessControlEntry entry = acl.entry();
+          if (entry.operation().equals(op.toJava()) && entry.principal()
+              .equals(principal.toString())) {
+            matches = true;
+            break;
+          }
+        }
         return deleted != matches;
       }, "ACLs not updated");
     } catch (InterruptedException e) {

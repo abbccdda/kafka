@@ -86,7 +86,7 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
   @Override
   public boolean verifyLicense() {
     long now = time.milliseconds();
-    boolean valid = licenseStatus.active;
+    boolean valid = licenseStatus != null && licenseStatus.active;
     String errorMessage = valid ? null : this.errorMessage;
     if (errorMessage != null  && now - lastExpiryErrorLogMs > EXPIRY_LOG_INTERVAL_MS) {
       log.error(errorMessage);

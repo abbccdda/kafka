@@ -7,18 +7,25 @@ import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
-import kafka.network.RequestChannel;
-import kafka.security.auth.Operation;
 import kafka.security.auth.ResourceType;
-import kafka.security.auth.SimpleAclAuthorizer;
+import kafka.security.authorizer.AclAuthorizer;
+import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.server.authorizer.Action;
+import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
+import org.apache.kafka.server.authorizer.AuthorizationResult;
+import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.collection.JavaConversions;
 
-public class AclProvider extends SimpleAclAuthorizer implements AccessRuleProvider {
+public class AclProvider extends AclAuthorizer implements AccessRuleProvider {
 
   private static final Logger log = LoggerFactory.getLogger("kafka.authorizer.logger");
 
@@ -52,18 +59,23 @@ public class AclProvider extends SimpleAclAuthorizer implements AccessRuleProvid
                                      ResourcePattern resource) {
     ResourceType resourceType = AclMapper.kafkaResourceType(resource.resourceType());
     KafkaPrincipal userPrincipal = userPrincipal(sessionPrincipal);
-    return JavaConversions.setAsJavaSet(getMatchingAcls(resourceType, resource.name())).stream()
+    return JavaConversions.setAsJavaSet(matchingAcls(resourceType, resource.name())).stream()
         .map(AclMapper::accessRule)
         .filter(acl -> userOrGroupAcl(acl, userPrincipal, groupPrincipals))
         .collect(Collectors.toSet());
   }
 
   @Override
-  public boolean authorize(RequestChannel.Session session,
-                           Operation operation,
-                           kafka.security.auth.Resource resource) {
+  public Map<Endpoint, CompletableFuture<Void>> start(AuthorizerServerInfo serverInfo) {
+    return Collections.emptyMap();
+  }
+
+  @Override
+  public List<AuthorizationResult> authorize(AuthorizableRequestContext requestContext,
+                                             List<Action> actions) {
     throw new IllegalStateException("This provider should be used for authorization only using the AccessRuleProvider interface");
   }
+
 
   @Override
   public boolean needsLicense() {

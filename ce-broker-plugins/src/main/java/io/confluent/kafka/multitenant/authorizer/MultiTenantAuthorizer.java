@@ -6,14 +6,18 @@ import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import kafka.security.auth.Acl;
-import kafka.security.auth.Resource;
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
-import scala.collection.JavaConversions;
-import scala.collection.immutable.Set;
+import org.apache.kafka.common.utils.SecurityUtils;
+import org.apache.kafka.server.authorizer.AclCreateResult;
+import org.apache.kafka.server.authorizer.AclDeleteResult;
+import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 
 public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
 
@@ -37,10 +41,11 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
   }
 
   @Override
-  public void addAcls(Set<Acl> acls, Resource resource) {
+  public List<AclCreateResult> createAcls(AuthorizableRequestContext requestContext,
+                                          List<AclBinding> aclBindings) {
     checkAclsEnabled();
-    if (acls.isEmpty()) {
-      return;
+    if (aclBindings.isEmpty()) {
+      return Collections.emptyList();
     }
 
     // Sanity check tenant ACLs. All tenant ACLs have principal containing tenant prefix
@@ -51,59 +56,41 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
     // with non-tenant principals (e.g broker ACLs will not specify tenant resource names)
     // We don't have a way to verify this, but describe/delete filters rely on this assumption.
     String firstTenantPrefix = null;
-    KafkaPrincipal firstPrincipal = acls.head().principal();
+    KafkaPrincipal firstPrincipal = SecurityUtils.parseKafkaPrincipal(aclBindings.get(0).entry().principal());
     if (MultiTenantPrincipal.isTenantPrincipal(firstPrincipal)) {
       firstTenantPrefix = tenantPrefix(firstPrincipal.getName());
-      if (!resource.name().startsWith(firstTenantPrefix)) {
-        log.error("Unexpected ACL request for resource {} without tenant prefix {}",
-            resource, firstTenantPrefix);
-        throw new IllegalStateException("Internal error: Could not create ACLs for " + resource);
-      }
       if (maxAclsPerTenant != Integer.MAX_VALUE
-          && acls.size() + tenantAclCount(firstTenantPrefix) > maxAclsPerTenant) {
+          && aclBindings.size() + tenantAclCount(firstTenantPrefix) > maxAclsPerTenant) {
         throw new InvalidRequestException("ACLs not created since it will exceed the limit "
             + maxAclsPerTenant);
       }
     }
 
     final String tenantPrefix = firstTenantPrefix;
-    java.util.Set<Acl> aclsToAdd = JavaConversions.setAsJavaSet(acls);
-    if (aclsToAdd.stream().anyMatch(acl -> !inScope(acl.principal(), tenantPrefix))) {
-      log.error("ACL requests contain invalid tenant principal {}", aclsToAdd);
-      throw new IllegalStateException("Internal error: Could not create ACLs for " + resource);
+    if (aclBindings.stream().anyMatch(acl -> !inScope(acl.entry().principal(), tenantPrefix))) {
+      log.error("ACL requests contain invalid tenant principal {}", aclBindings);
+      throw new IllegalStateException("Internal error: Could not create ACLs for " + aclBindings);
+    }
+    if (aclBindings.stream().anyMatch(acl -> !acl.pattern().name().startsWith(tenantPrefix))) {
+      log.error("Unexpected ACL request for resources {} without tenant prefix {}",
+          aclBindings, firstTenantPrefix);
+      throw new IllegalStateException("Internal error: Could not create ACLs for " + aclBindings);
     }
 
-    super.addAcls(acls, resource);
+    return super.createAcls(requestContext, aclBindings);
   }
 
   @Override
-  public boolean removeAcls(scala.collection.immutable.Set<Acl> aclsTobeRemoved, Resource resource) {
+  public List<AclDeleteResult> deleteAcls(AuthorizableRequestContext requestContext,
+                                          List<AclBindingFilter> aclBindingFilters) {
     checkAclsEnabled();
-    return super.removeAcls(aclsTobeRemoved, resource);
+    return super.deleteAcls(requestContext, aclBindingFilters);
   }
 
   @Override
-  public boolean removeAcls(Resource resource) {
+  public Iterable<AclBinding> acls(AclBindingFilter filter) {
     checkAclsEnabled();
-    return super.removeAcls(resource);
-  }
-
-  @Override
-  public scala.collection.immutable.Set<Acl> getAcls(Resource resource) {
-    checkAclsEnabled();
-    return super.getAcls(resource);
-  }
-
-  @Override
-  public scala.collection.immutable.Map<Resource, scala.collection.immutable.Set<Acl>> getAcls(KafkaPrincipal principal) {
-    checkAclsEnabled();
-    return super.getAcls(principal);
-  }
-
-  @Override
-  public scala.collection.immutable.Map<Resource, scala.collection.immutable.Set<Acl>> getAcls() {
-    checkAclsEnabled();
-    return super.getAcls();
+    return super.acls(filter);
   }
 
   private String tenantPrefix(String name) {
@@ -115,13 +102,14 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
     }
   }
 
-  // Check whether `principal` is within the same tenant (or non-tenant) scope
+  // Check whether `principalStr` is within the same tenant (or non-tenant) scope
   // If `tenantPrefix` is non-null, principal must be a tenant principal with
   // the same prefix since ACL requests cannot contain ACLs of multiple tenants.
   // If `tenantPrefix` is null, principal must not be a tenant principal since
   // requests on listeners without the tenant interceptor are not allowed to
   // access tenant ACLs.
-  private boolean inScope(KafkaPrincipal principal, String tenantPrefix) {
+  private boolean inScope(String principalStr, String tenantPrefix) {
+    KafkaPrincipal principal = SecurityUtils.parseKafkaPrincipal(principalStr);
     if (tenantPrefix != null && !tenantPrefix.isEmpty()) {
       return MultiTenantPrincipal.isTenantPrincipal(principal)
           && principal.getName().startsWith(tenantPrefix);
@@ -131,10 +119,12 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
   }
 
   private long tenantAclCount(String tenantPrefix) {
-    return JavaConversions.asJavaCollection(getAcls().values()).stream()
-        .flatMap(acls -> JavaConversions.asJavaCollection(acls).stream())
-        .filter(acl -> inScope(acl.principal(), tenantPrefix))
-        .count();
+    int count = 0;
+    for (AclBinding binding : acls(AclBindingFilter.ANY)) {
+      if (inScope(binding.entry().principal(), tenantPrefix))
+        count++;
+    }
+    return count;
   }
 
   private void checkAclsEnabled() {

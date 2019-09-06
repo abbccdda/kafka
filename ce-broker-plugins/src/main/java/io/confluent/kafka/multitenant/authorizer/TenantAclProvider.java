@@ -102,7 +102,7 @@ public class TenantAclProvider extends AclProvider {
       resource = new ResourcePattern(resource.resourceType(), prefixedCluster, PatternType.LITERAL);
     }
 
-    return JavaConversions.setAsJavaSet(getMatchingAcls(resourceType, resource.name())).stream()
+    return JavaConversions.setAsJavaSet(matchingAcls(resourceType, resource.name())).stream()
         .map(AclMapper::accessRule)
         .filter(acl -> userAcl(acl, userPrincipal, wildcardPrincipal))
         .collect(Collectors.toSet());
@@ -118,7 +118,7 @@ public class TenantAclProvider extends AclProvider {
     return false;
   }
 
-  private boolean isSuperUser(KafkaPrincipal userPrincipal) {
+  public boolean isSuperUser(KafkaPrincipal userPrincipal) {
     return (userPrincipal instanceof MultiTenantPrincipal)
         && ((MultiTenantPrincipal) userPrincipal).tenantMetadata().isSuperUser;
   }

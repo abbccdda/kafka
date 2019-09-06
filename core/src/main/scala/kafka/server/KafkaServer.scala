@@ -28,7 +28,7 @@ import java.util.function.Supplier
 import com.yammer.metrics.core.Gauge
 import kafka.api.{KAFKA_0_9_0, KAFKA_2_2_IV0}
 import kafka.cluster.Broker
-import kafka.common.{GenerateBrokerIdException, InconsistentBrokerIdException, InconsistentClusterIdException, InconsistentBrokerMetadataException}
+import kafka.common.{GenerateBrokerIdException, InconsistentBrokerIdException, InconsistentBrokerMetadataException, InconsistentClusterIdException}
 import kafka.controller.KafkaController
 import kafka.coordinator.group.GroupCoordinator
 import kafka.coordinator.transaction.TransactionCoordinator
@@ -36,12 +36,10 @@ import kafka.log.{LogConfig, LogManager}
 import kafka.metrics.{KafkaMetricsGroup, KafkaMetricsReporter}
 import kafka.network.SocketServer
 import kafka.security.CredentialProvider
-import kafka.security.auth.{Authorizer, AuthorizerWithKafkaStore}
-import kafka.tier.fetcher.{TierFetcher, TierFetcherConfig}
-import kafka.tier.state.{FileTierPartitionStateFactory, TierPartitionState}
+import kafka.tier.fetcher.{TierFetcher, TierFetcherConfig, TierStateFetcher}
+import kafka.tier.state.FileTierPartitionStateFactory
 import kafka.tier.store.{MockInMemoryTierObjectStore, S3TierObjectStore, S3TierObjectStoreConfig, GcsTierObjectStore, GcsTierObjectStoreConfig, TierObjectStore, TierObjectStoreConfig}
-import kafka.tier.{TierMetadataManager, TopicIdPartition}
-import kafka.tier.fetcher.TierStateFetcher
+import kafka.tier.TierMetadataManager
 import kafka.tier.tasks.{TierTasks, TierTasksConfig}
 import kafka.tier.topic.{TierTopicManager, TierTopicManagerConfig}
 import kafka.utils._
@@ -58,9 +56,10 @@ import org.apache.kafka.common.security.scram.internals.ScramMechanism
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache
 import org.apache.kafka.common.security.{JaasContext, JaasUtils}
 import org.apache.kafka.common.utils.{AppInfoParser, LogContext, Time}
-import org.apache.kafka.common.{ClusterResource, ClusterResourceListener, Node}
+import org.apache.kafka.common.{ClusterResource, Endpoint, Node}
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.security.auth.SecurityProtocol
+import org.apache.kafka.server.authorizer.Authorizer
 import org.apache.kafka.server.multitenant.MultiTenantMetadata
 
 import scala.collection.JavaConverters._
@@ -375,14 +374,13 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         transactionCoordinator.startup()
 
         /* Get the authorizer and initialize it if one is specified.*/
-        authorizer = Option(config.authorizerClassName).filter(_.nonEmpty).map { authorizerClassName =>
-          val authZ = CoreUtils.createObject[Authorizer](authorizerClassName)
-          authZ match {
-            case clusterListener: ClusterResourceListener => clusterListener.onUpdate(new ClusterResource(clusterId))
-            case _ =>
-          }
-          authZ.configure(config.originals())
-          authZ
+        authorizer = config.authorizer
+        authorizer.foreach(_.configure(config.originals))
+        val authorizerFutures: Map[Endpoint, CompletableFuture[Void]] = authorizer match {
+          case Some(authZ) =>
+            authZ.start(brokerInfo.broker.toServerInfo(clusterId, config)).asScala
+          case None =>
+            brokerInfo.broker.endPoints.map{ ep => (ep.asInstanceOf[Endpoint], CompletableFuture.completedFuture[Void](null)) }.toMap
         }
 
         val fetchManager = new FetchManager(Time.SYSTEM,
@@ -422,11 +420,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         dynamicConfigManager = new DynamicConfigManager(zkClient, dynamicConfigHandlers)
         dynamicConfigManager.startup()
 
-        socketServer.startControlPlaneProcessor()
-        val authorizerFuture = authorizer.collect {
-          case a : AuthorizerWithKafkaStore => a.start(interBrokerClientConfigs(brokerInfo))
-        }
-        socketServer.startDataPlaneProcessors(authorizerFuture)
+        socketServer.startControlPlaneProcessor(authorizerFutures)
+        socketServer.startDataPlaneProcessors(authorizerFutures)
         brokerState.newState(RunningAsBroker)
         shutdownLatch = new CountDownLatch(1)
 
@@ -449,26 +444,6 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         shutdown()
         throw e
     }
-  }
-
-  private def interBrokerClientConfigs(brokerInfo: BrokerInfo) : util.Map[String, _] = {
-    val clientConfigs = new util.HashMap[String, AnyRef]
-    val listenerPrefix = config.interBrokerListenerName.configPrefix
-    clientConfigs.putAll(config.originals)
-    clientConfigs.putAll(config.originalsWithPrefix(listenerPrefix))
-    clientConfigs.keySet.removeAll(config.originalsWithPrefix(listenerPrefix, false).keySet)
-    val securityProtocol = config.interBrokerSecurityProtocol
-    if (securityProtocol == SecurityProtocol.SASL_PLAINTEXT || securityProtocol == SecurityProtocol.SASL_SSL) {
-      val mechanismPrefix = config.interBrokerListenerName.saslMechanismConfigPrefix(config.saslMechanismInterBrokerProtocol)
-      clientConfigs.putAll(config.originalsWithPrefix(mechanismPrefix))
-      clientConfigs.keySet.removeAll(config.originalsWithPrefix(mechanismPrefix, false).keySet)
-    }
-    val endpoint = brokerInfo.broker.brokerEndPoint(config.interBrokerListenerName)
-    clientConfigs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, endpoint.host + ":" + endpoint.port)
-    clientConfigs.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol.name)
-    clientConfigs.put(SaslConfigs.SASL_MECHANISM, config.saslMechanismInterBrokerProtocol)
-    clientConfigs.put(KafkaConfig.BrokerIdProp, config.brokerId.toString)
-    clientConfigs
   }
 
   private def adminZkClientSupplier: Supplier[AdminZkClient] = {
@@ -518,7 +493,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
     val isZkSecurityEnabled = JaasUtils.isZkSecurityEnabled()
 
     if (secureAclsEnabled && !isZkSecurityEnabled)
-      throw new java.lang.SecurityException(s"${KafkaConfig.ZkEnableSecureAclsProp} is true, but the verification of the JAAS login file failed.")
+      throw new java.lang.SecurityException(s"${KafkaConfig.ZkEnableSecureAclsProp} is true, but the " +
+        s"verification of the JAAS login file failed ${JaasUtils.zkSecuritySysConfigString}")
 
     // make sure chroot path exists
     chrootOption.foreach { chroot =>

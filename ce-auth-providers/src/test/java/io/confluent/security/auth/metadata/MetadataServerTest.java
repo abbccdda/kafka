@@ -9,6 +9,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.security.auth.metadata.MockMetadataServer.ServerState;
 import io.confluent.security.auth.provider.rbac.RbacProvider;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
@@ -28,8 +29,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.kafka.common.resource.PatternType;
-import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
@@ -126,8 +127,8 @@ public class MetadataServerTest {
     configs.put("listeners", "PLAINTEXT://localhost:9092");
     configs.put("super.users", "User:admin;Group:adminGroup");
     configs.putAll(configOverrides);
-    authorizer.onUpdate(new ClusterResource("clusterA"));
     authorizer.configure(configs);
+    authorizer.configureServerInfo(KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL));
     authorizer.start(configs).get();
   }
 
