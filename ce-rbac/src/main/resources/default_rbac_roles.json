@@ -89,6 +89,10 @@
         "scopeType" : "Cluster",
         "allowedOperations" : [
           {
+            "resourceType" : "Topic",
+            "operations" : ["Describe"]
+          },
+          {
             "resourceType" : "Connector",
             "operations" : ["ReadStatus", "Pause", "Resume", "Scale"]
           },
