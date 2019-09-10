@@ -4,6 +4,10 @@
 package io.confluent.crn;
 
 import io.confluent.crn.ConfluentResourceName.Element;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -246,5 +250,106 @@ public class ConfluentResourceNameTest {
     Assert.assertThrows(CrnSyntaxException.class, () -> {
       ConfluentResourceName.fromString("twas brillig and the slithy toves");
     });
+  }
+
+  @Test
+  public void testEquals() throws CrnSyntaxException {
+    Assert.assertEquals(ConfluentResourceName.fromString(
+        "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks"),
+        ConfluentResourceName.fromString(
+            "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks")
+    );
+    Assert.assertNotEquals(ConfluentResourceName.fromString(
+        "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks"),
+        ConfluentResourceName.fromString(
+            "crn://mds.example.com/kafka=lkc-a1b2c3/topic=clicks")
+    );
+    Assert.assertNotEquals(ConfluentResourceName.fromString(
+        "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks"),
+        ConfluentResourceName.fromString(
+            "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clocks")
+    );
+    Assert.assertNotEquals(ConfluentResourceName.fromString(
+        "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks*"),
+        ConfluentResourceName.fromString(
+            "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks")
+    );
+    Assert.assertNotEquals(ConfluentResourceName.fromString(
+        "crn://confluent.cloud/organization=123/kafka=lkc-a1b2c3/topic=clicks"),
+        ConfluentResourceName.fromString(
+            "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks")
+    );
+    Assert.assertNotEquals(ConfluentResourceName.fromString(
+        "crn://confluent.cloud/organization=123/kafka=lkc-a1b2c3"),
+        ConfluentResourceName.fromString(
+            "crn://confluent.cloud/organization=123/kafka=lkc-a1b2c3/topic=clicks")
+    );
+  }
+
+  @Test
+  public void testComparePrefixes() throws CrnSyntaxException {
+    Assert.assertEquals(1,
+        ConfluentResourceName.fromString(
+            "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks")
+            .compareTo(
+                ConfluentResourceName.fromString(
+                    "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks*")
+            ));
+    Assert.assertEquals(-1,
+        ConfluentResourceName.fromString(
+            "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks*")
+            .compareTo(
+                ConfluentResourceName.fromString(
+                    "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks")
+            ));
+    Assert.assertEquals(0,
+        ConfluentResourceName.fromString(
+            "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks*")
+            .compareTo(
+                ConfluentResourceName.fromString(
+                    "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks*")
+            ));
+  }
+
+  @Test
+  public void testSort() throws CrnSyntaxException {
+    List<String> unsorted = Arrays.asList(
+        "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks",
+        "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks2",
+        "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clocks",
+        "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks*",
+        "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=cli*",
+        "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*",
+        "crn://confluent.cloud/organization=123/kafka=lkc-a1b2c3/topic=clicks",
+        "crn://confluent.cloud/organization=123/kafka=*/topic=clicks",
+        "crn://confluent.cloud/organization=123/kafka=*/topic=*",
+        "crn://confluent.cloud/organization=123/kafka=lkc-a1b2c3",
+        "crn://confluent.cloud/organization=123/kafka=lkc-a1b2c3/topic=*");
+
+    List<String> sorted = unsorted.stream()
+        .flatMap(s -> {
+          try {
+            return Stream.of(ConfluentResourceName.fromString(s));
+          } catch (CrnSyntaxException e) {
+            return Stream.empty();
+          }
+        }).sorted()
+        .map(ConfluentResourceName::toString)
+        .collect(Collectors.toList()); //Collectors.joining("\",\n\""));
+
+    Assert.assertEquals(
+        Arrays.asList(
+            "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*",
+            "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=cli*",
+            "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks*",
+            "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks",
+            "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks2",
+            "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clocks",
+            "crn://confluent.cloud/organization=123/kafka=*/topic=*",
+            "crn://confluent.cloud/organization=123/kafka=*/topic=clicks",
+            "crn://confluent.cloud/organization=123/kafka=lkc-a1b2c3",
+            "crn://confluent.cloud/organization=123/kafka=lkc-a1b2c3/topic=*",
+            "crn://confluent.cloud/organization=123/kafka=lkc-a1b2c3/topic=clicks"),
+        sorted);
   }
 }
