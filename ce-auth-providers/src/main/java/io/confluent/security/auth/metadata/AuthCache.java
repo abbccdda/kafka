@@ -65,6 +65,24 @@ public interface AuthCache {
   Set<RoleBinding> rbacRoleBindings(RoleBindingFilter filter);
 
   /**
+   * Returns role bindings for the given principal and the principals groups across all
+   * known scopes.
+   *
+   * @param principal The the principal to lookup rolebindings for
+   * @return Set of role bindings for that principal and it's groups
+   */
+  Set<RoleBinding> rbacRoleBindings(KafkaPrincipal principal);
+
+  /**
+   * Returns role bindings for the given principal and the principals groups limited to the
+   * defined set of Scopes.
+   *
+   * @param principal The the principal to lookup rolebindings for
+   * @return Set of role bindings for that principal and it's groups in the provided scopes
+   */
+  Set<RoleBinding> rbacRoleBindings(KafkaPrincipal principal, Set<Scope> scopes);
+
+  /**
    * Returns metadata for the specified user principal if available or null if user is not known.
    *
    * @param userPrincipal KafkaPrincipal of user
@@ -76,6 +94,13 @@ public interface AuthCache {
    * Returns user metadata for all users.
    */
   Map<KafkaPrincipal, UserMetadata> users();
+
+  /**
+   * Returns all Scopes known by the backend, regardless of whether or not they actually exist.
+   *
+   * @return Set of all {@code Scopes} known by this AuthCache
+   */
+  Set<Scope> knownScopes();
 
   /**
    * Returns the root scope of this cache. The cache discards entries with scope that is

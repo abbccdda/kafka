@@ -2,6 +2,7 @@
 
 package io.confluent.security.auth.store.cache;
 
+import com.google.common.collect.ImmutableSet;
 import io.confluent.security.auth.metadata.AuthCache;
 import io.confluent.security.auth.store.data.AclBindingKey;
 import io.confluent.security.auth.store.data.AclBindingValue;
@@ -196,12 +197,47 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
   }
 
   @Override
+  public Set<RoleBinding> rbacRoleBindings(KafkaPrincipal principal) {
+    ensureNotFailed();
+
+    final Set<KafkaPrincipal> groups = this.groups(principal);
+
+    return roleBindings.entrySet().stream()
+        .filter(entry ->
+            principal.equals(entry.getKey().principal())
+            || groups.contains(entry.getKey().principal())
+        ).map(e -> roleBinding(e.getKey(), e.getValue()))
+        .collect(Collectors.toSet());
+  }
+
+  @Override
+  public Set<RoleBinding> rbacRoleBindings(KafkaPrincipal principal, Set<Scope> scopes) {
+    ensureNotFailed();
+
+    final Set<KafkaPrincipal> groups = this.groups(principal);
+
+    return roleBindings.entrySet().stream()
+        .filter(entry -> scopes.contains(entry.getKey().scope()))
+        .filter(entry ->
+            principal.equals(entry.getKey().principal())
+            || groups.contains(entry.getKey().principal())
+        ).map(e -> roleBinding(e.getKey(), e.getValue()))
+        .collect(Collectors.toSet());
+  }
+
+  @Override
   public UserMetadata userMetadata(KafkaPrincipal userPrincipal) {
     return users.get(userPrincipal);
   }
 
   public Map<KafkaPrincipal, UserMetadata> users() {
     return Collections.unmodifiableMap(users);
+  }
+
+  @Override
+  public Set<Scope> knownScopes() {
+    ensureNotFailed();
+    return ImmutableSet.copyOf(rbacAccessRules.keySet());
   }
 
   @Override

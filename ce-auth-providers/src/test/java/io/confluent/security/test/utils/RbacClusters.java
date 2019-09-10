@@ -116,11 +116,19 @@ public class RbacClusters {
                          String role,
                          String clusterId,
                          Set<ResourcePattern> resources) throws Exception {
+    assignRole(principalType, userName, role, Scope.kafkaClusterScope(clusterId), resources);
+  }
+
+  public void assignRole(String principalType,
+                         String userName,
+                         String role,
+                         Scope scope,
+                         Set<ResourcePattern> resources) throws Exception {
     KafkaPrincipal principal = new KafkaPrincipal(principalType, userName);
     masterWriter().replaceResourceRoleBinding(
         principal,
         role,
-        Scope.kafkaClusterScope(clusterId),
+        scope,
         resources).toCompletableFuture().get(30, TimeUnit.SECONDS);
   }
 

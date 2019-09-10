@@ -7,6 +7,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.google.common.collect.ImmutableSet;
 import io.confluent.security.auth.store.data.StatusKey;
 import io.confluent.security.auth.store.data.StatusValue;
 import io.confluent.security.auth.store.kafka.KafkaAuthStore;
@@ -202,6 +203,90 @@ public class DefaultAuthCacheTest {
     RbacTestUtils.deleteUser(authCache, alice);
     assertEquals(Collections.emptySet(), authCache.groups(alice));
     assertNull(authCache.userMetadata(alice));
+  }
+
+  @Test
+  public void testGetRolesBindingsForPrincipal() {
+    authStore.close();
+    this.authStore = MockAuthStore.create(rbacRoles, time, Scope.ROOT_SCOPE, 1, 1);
+    authCache = authStore.authCache();
+
+    Scope clusterA = Scope.kafkaClusterScope("clusterA");
+    Scope clusterB = Scope.kafkaClusterScope("clusterB");
+    Scope clusterC = Scope.kafkaClusterScope("clusterC");
+
+    KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
+    KafkaPrincipal bob = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Bob");
+
+    RoleBinding aliceClusterA = new RoleBinding(alice, "ClusterAdmin", clusterA, Collections.emptyList());
+    RoleBinding aliceClusterB = new RoleBinding(alice, "ClusterAdmin", clusterB, Collections.emptyList());
+    RoleBinding bobClusterA = new RoleBinding(bob, "ClusterAdmin", clusterA, Collections.emptyList());
+    RoleBinding bobClusterC = new RoleBinding(bob, "ClusterAdmin", clusterC, Collections.emptyList());
+
+    // register a few role-bindings scopes from different users
+    RbacTestUtils.updateRoleBinding(authCache, alice, "ClusterAdmin", clusterA, Collections.emptySet());
+    RbacTestUtils.updateRoleBinding(authCache, bob, "ClusterAdmin", clusterA, Collections.emptySet());
+    RbacTestUtils.updateRoleBinding(authCache, alice, "ClusterAdmin", clusterB, Collections.emptySet());
+    RbacTestUtils.updateRoleBinding(authCache, bob, "ClusterAdmin", clusterC, Collections.emptySet());
+
+    assertEquals(ImmutableSet.of(aliceClusterA, aliceClusterB), authCache.rbacRoleBindings(alice));
+    assertEquals(ImmutableSet.of(bobClusterA, bobClusterC), authCache.rbacRoleBindings(bob));
+  }
+
+  @Test
+  public void testGetRolesBindingsForPrincipalAndScope() {
+    authStore.close();
+    this.authStore = MockAuthStore.create(rbacRoles, time, Scope.ROOT_SCOPE, 1, 1);
+    authCache = authStore.authCache();
+
+    Scope clusterA = Scope.kafkaClusterScope("clusterA");
+    Scope clusterB = Scope.kafkaClusterScope("clusterB");
+    Scope clusterC = Scope.kafkaClusterScope("clusterC");
+
+    KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
+    KafkaPrincipal bob = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Bob");
+
+    RoleBinding aliceClusterA = new RoleBinding(alice, "ClusterAdmin", clusterA, Collections.emptyList());
+    RoleBinding aliceClusterB = new RoleBinding(alice, "ClusterAdmin", clusterB, Collections.emptyList());
+    RoleBinding bobClusterA = new RoleBinding(bob, "ClusterAdmin", clusterA, Collections.emptyList());
+    RoleBinding bobClusterC = new RoleBinding(bob, "ClusterAdmin", clusterC, Collections.emptyList());
+
+    // register a few role-bindings scopes from different users
+    RbacTestUtils.updateRoleBinding(authCache, alice, "ClusterAdmin", clusterA, Collections.emptySet());
+    RbacTestUtils.updateRoleBinding(authCache, bob, "ClusterAdmin", clusterA, Collections.emptySet());
+    RbacTestUtils.updateRoleBinding(authCache, alice, "ClusterAdmin", clusterB, Collections.emptySet());
+    RbacTestUtils.updateRoleBinding(authCache, bob, "ClusterAdmin", clusterC, Collections.emptySet());
+
+    assertEquals(ImmutableSet.of(aliceClusterA), authCache.rbacRoleBindings(alice, Collections.singleton(clusterA)));
+    assertEquals(ImmutableSet.of(bobClusterC), authCache.rbacRoleBindings(bob, Collections.singleton(clusterC)));
+    assertEquals(Collections.emptySet(), authCache.rbacRoleBindings(alice, Collections.singleton(Scope.kafkaClusterScope("clusterX"))));
+  }
+
+  @Test
+  public void testKnownScopes() {
+    authStore.close();
+    this.authStore = MockAuthStore.create(rbacRoles, time, Scope.ROOT_SCOPE, 1, 1);
+    authCache = authStore.authCache();
+
+    Scope clusterA = Scope.kafkaClusterScope("clusterA");
+    Scope clusterB = Scope.kafkaClusterScope("clusterB");
+    Scope clusterC = Scope.kafkaClusterScope("clusterC");
+    Scope clusterD = Scope.kafkaClusterScope("clusterD");
+
+    KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
+    KafkaPrincipal bob = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Bob");
+
+    // register a few role-bindings scopes from different users
+    RbacTestUtils.updateRoleBinding(authCache, alice, "ClusterAdmin", clusterA, Collections.emptySet());
+    RbacTestUtils.updateRoleBinding(authCache, bob, "ClusterAdmin", clusterA, Collections.emptySet());
+    RbacTestUtils.updateRoleBinding(authCache, alice, "ClusterAdmin", clusterB, Collections.emptySet());
+    RbacTestUtils.updateRoleBinding(authCache, bob, "ClusterAdmin", clusterC, Collections.emptySet());
+    RbacTestUtils.updateRoleBinding(authCache, bob, "ClusterAdmin", clusterD, Collections.emptySet());
+
+    // Delete a role binding to leave the Scope empty
+    RbacTestUtils.deleteRoleBinding(authCache, bob, "ClusterAdmin", clusterD);
+
+    assertEquals(ImmutableSet.of(clusterA, clusterB, clusterC, clusterD), authCache.knownScopes());
   }
 
   @Test
