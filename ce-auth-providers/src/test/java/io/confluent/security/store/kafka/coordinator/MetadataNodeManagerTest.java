@@ -5,7 +5,6 @@ package io.confluent.security.store.kafka.coordinator;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.security.store.kafka.KafkaStoreConfig;
@@ -68,7 +67,7 @@ public class MetadataNodeManagerTest {
     assertEquals(MetadataServiceAssignment.LATEST_VERSION, assignment.version());
     nodeManager.onAssigned(assignment, 1);
     waitForMasterWriter(writerUrl);
-    assertTrue(nodeManager.metadataWriter.active.get());
+    TestUtils.waitForCondition(() -> nodeManager.metadataWriter.active.get(), "Writer not active");
     assertEquals(1, nodeManager.metadataWriter.generationId);
 
     nodeManager.onRevoked(1);
@@ -114,7 +113,7 @@ public class MetadataNodeManagerTest {
     URL writerUrl = activeNodes.get(writerId).url("http");
     nodeManager.onAssigned(assignment((short) 0, writerId), 3);
     waitForMasterWriter(writerUrl);
-    assertTrue(nodeManager.metadataWriter.active.get());
+    TestUtils.waitForCondition(() -> nodeManager.metadataWriter.active.get(), "Writer not active");
 
     writerId = String.valueOf(3);
     writerUrl = activeNodes.get(writerId).url("http");
@@ -126,7 +125,7 @@ public class MetadataNodeManagerTest {
     writerUrl = activeNodes.get(writerId).url("http");
     nodeManager.onAssigned(assignment((short) 0, writerId), 5);
     waitForMasterWriter(writerUrl);
-    assertTrue(nodeManager.metadataWriter.active.get());
+    TestUtils.waitForCondition(() -> nodeManager.metadataWriter.active.get(), "Writer not active");
     assertEquals(activeUrls, nodeManager.activeNodeUrls("http"));
   }
 
@@ -137,7 +136,7 @@ public class MetadataNodeManagerTest {
     nodeManager.onAssigned(assignment((short) 0, writerId), 3);
     waitForMasterWriter(writerUrl);
     assertEquals(activeUrls, nodeManager.activeNodeUrls("http"));
-    assertTrue(nodeManager.metadataWriter.active.get());
+    TestUtils.waitForCondition(() -> nodeManager.metadataWriter.active.get(), "Writer not active");
 
     writerId = String.valueOf(3);
     nodeManager.onAssigned(assignment((short) 1, writerId), 4);
@@ -152,13 +151,13 @@ public class MetadataNodeManagerTest {
     URL writerUrl = activeNodes.get(writerId).url("http");
     nodeManager.onAssigned(assignment((short) 0, writerId), 3);
     waitForMasterWriter(writerUrl);
-    assertTrue(nodeManager.metadataWriter.active.get());
+    TestUtils.waitForCondition(() -> nodeManager.metadataWriter.active.get(), "Writer not active");
     assertEquals(3, nodeManager.metadataWriter.generationId);
 
     // Test older generation resign is ignored
     nodeManager.onWriterResigned(2);
     waitForMasterWriter(writerUrl);
-    assertTrue(nodeManager.metadataWriter.active.get());
+    TestUtils.waitForCondition(() -> nodeManager.metadataWriter.active.get(), "Writer not active");
     assertEquals(3, nodeManager.metadataWriter.generationId);
 
     // Test current generation resign is processed
