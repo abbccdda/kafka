@@ -344,6 +344,13 @@ class ReplicaManager(val config: KafkaConfig,
     }
   )
 
+  val notCaughtUpPartitionCount = newGauge(
+    "NotCaughtUpPartitionCount",
+    new Gauge[Int] {
+      def value(): Int = leaderPartitionsIterator.count(_.isNotCaughtUp)
+    }
+  )
+
   val isrExpandRate: Meter = newMeter("IsrExpandsPerSec", "expands", TimeUnit.SECONDS)
   val isrShrinkRate: Meter = newMeter("IsrShrinksPerSec", "shrinks", TimeUnit.SECONDS)
   val failedIsrUpdatesRate: Meter = newMeter("FailedIsrUpdatesPerSec", "failedUpdates", TimeUnit.SECONDS)
@@ -1863,6 +1870,7 @@ class ReplicaManager(val config: KafkaConfig,
     removeMetric("UnderReplicatedPartitions")
     removeMetric("UnderMinIsrPartitionCount")
     removeMetric("AtMinIsrPartitionCount")
+    removeMetric("NotCaughtUpPartitionCount")
   }
 
   // High watermark do not need to be checkpointed only when under unit tests

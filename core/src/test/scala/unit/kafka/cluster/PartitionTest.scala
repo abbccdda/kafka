@@ -1422,7 +1422,9 @@ class PartitionTest {
       "InSyncReplicasCount",
       "ReplicasCount",
       "LastStableOffsetLag",
-      "AtMinIsr")
+      "AtMinIsr",
+      "IsNotCaughtUp"
+    )
 
     def getMetric(metric: String): Option[Metric] = {
       Metrics.defaultRegistry().allMetrics().asScala.filterKeys { metricName =>

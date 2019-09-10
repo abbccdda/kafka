@@ -155,6 +155,7 @@ object Partition extends KafkaMetricsGroup {
     removeMetric("ReplicasCount", tags)
     removeMetric("LastStableOffsetLag", tags)
     removeMetric("AtMinIsr", tags)
+    removeMetric("IsNotCaughtUp", tags)
   }
 }
 
@@ -271,8 +272,20 @@ class Partition(val topicPartition: TopicPartition,
     tags
   )
 
+  newGauge("IsNotCaughtUp",
+    new Gauge[Int] {
+      def value: Int = {
+        if (isNotCaughtUp) 1 else 0
+      }
+    },
+    tags
+  )
+
   def isUnderReplicated: Boolean =
     isLeader && inSyncReplicaIds.size < sizeOfOfflineOrIsrEligibleReplicas
+
+  def isNotCaughtUp: Boolean =
+    isLeader && caughtUpReplicas.size < allReplicaIds.size
 
   def isUnderMinIsr: Boolean = {
     leaderLogIfLocal.exists { inSyncReplicaIds.size < _.config.minInSyncReplicas }
