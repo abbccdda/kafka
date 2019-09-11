@@ -15,7 +15,7 @@
       "test_name": "test-produce",
       "test_parameters": {
         "workload_type": "Produce",
-        "step_duration_ms": 100,
+        "step_duration_ms": 60000,
         "partition_count": 10,
         "step_cooldown_ms": 60000,
         "start_throughput_mbs": 10,

@@ -78,6 +78,10 @@ func (ptc *PerformanceTestConfig) ParseTest(context *ScenarioContext) error {
 			return errors.Wrapf(err, "error while trying to parse progressive workload test parameters")
 		}
 		progressiveWorkload.Name = ptc.Name
+		err = progressiveWorkload.validate()
+		if err != nil {
+			return errors.Wrapf(err, "error while validating")
+		}
 		ptc.schedulableTest = progressiveWorkload
 	case TAIL_CONSUMER_TEST_TYPE:
 		tailConsumer := newTailConsumer()

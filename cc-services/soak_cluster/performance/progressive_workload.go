@@ -19,6 +19,10 @@ type Workload struct {
 	EndThroughputMbs      float32 `json:"end_throughput_mbs"`
 	ThroughputIncreaseMbs float32 `json:"throughput_increase_per_step_mbs"`
 	MessageSizeBytes      uint64  `json:"message_size_bytes"`
+	MessagePaddingBytes   uint64  `json:"message_padding_bytes"`
+	TasksPerStep          int     `json:"tasks_per_step"`
+	SlowStartPerStepMs    uint64  `json:"slow_start_per_step_ms"`
+	TopicName             string  `json:"topic_name"`
 
 	steps     []*Step
 	duration  time.Duration
@@ -50,7 +54,10 @@ func (workload *Workload) TopicNames() []string {
 }
 
 func (workload *Workload) topicName() string {
-	return workload.Name + "-topic"
+	if workload.TopicName == "" {
+		return workload.Name + "-topic"
+	}
+	return workload.TopicName
 }
 
 // creates all the Steps that this Workload will consist of
@@ -151,6 +158,9 @@ type Step struct {
 func (step *Step) tasks(topicSpec *trogdor.TopicSpec, clientNodes []string, bootstrapServers string) ([]trogdor.TaskSpec, error) {
 	var err error
 	taskCount := len(clientNodes)
+	if step.workload.TasksPerStep > 0 {
+		taskCount = step.workload.TasksPerStep
+	}
 	spec := trogdor.ScenarioSpec{
 		UsedNames: map[string]bool{},
 	}
@@ -160,12 +170,13 @@ func (step *Step) tasks(topicSpec *trogdor.TopicSpec, clientNodes []string, boot
 	case PRODUCE_WORKLOAD_TYPE:
 		{
 			messageSize := step.workload.MessageSizeBytes
+			messagePadding := step.workload.MessagePaddingBytes
 			var producerOptions trogdor.ProducerOptions
 			if messageSize == 0 {
 				producerOptions = defaultProducerOptions
 			} else {
 				producerOptions = trogdor.ProducerOptions{
-					ValueGenerator: trogdor.ValueGeneratorSpec{ValueType: "uniformRandom", Size: messageSize, Padding: 100},
+					ValueGenerator: trogdor.ValueGeneratorSpec{ValueType: "uniformRandom", Size: messageSize, Padding: messagePadding},
 					KeyGenerator:   trogdor.DefaultKeyGeneratorSpec,
 				}
 			}
@@ -173,18 +184,20 @@ func (step *Step) tasks(topicSpec *trogdor.TopicSpec, clientNodes []string, boot
 			stepScenario := trogdor.ScenarioConfig{
 				ScenarioID: trogdor.TaskId{
 					TaskType: step.workload.Name + "-produce-workload",
-					Desc:     fmt.Sprintf("Step %d", step.number),
+					StartMs:  common.TimeToUnixMilli(step.startTime),
+					Desc:     fmt.Sprintf("topic-%s-step-%d-start-%d", topicSpec.TopicName, step.number, common.TimeToUnixMilli(step.startTime)),
 				},
-				Class:            trogdor.PRODUCE_BENCH_SPEC_CLASS,
-				TaskCount:        taskCount,
-				TopicSpec:        *topicSpec,
-				DurationMs:       uint64(step.endTime.Sub(step.startTime) / time.Millisecond),
-				StartMs:          common.TimeToUnixMilli(step.startTime),
-				BootstrapServers: bootstrapServers,
-				MessagesPerSec:   producerOptions.MessagesPerSec(step.throughputMbs),
-				AdminConf:        adminConfig,
-				ProducerOptions:  producerOptions,
-				ClientNodes:      clientNodes,
+				Class:              trogdor.PRODUCE_BENCH_SPEC_CLASS,
+				TaskCount:          taskCount,
+				TopicSpec:          *topicSpec,
+				DurationMs:         uint64(step.endTime.Sub(step.startTime) / time.Millisecond),
+				StartMs:            common.TimeToUnixMilli(step.startTime),
+				BootstrapServers:   bootstrapServers,
+				MessagesPerSec:     producerOptions.MessagesPerSec(step.throughputMbs),
+				AdminConf:          adminConfig,
+				ProducerOptions:    producerOptions,
+				ClientNodes:        clientNodes,
+				SlowStartPerStepMs: step.workload.SlowStartPerStepMs,
 			}
 			spec.CreateScenario(stepScenario)
 		}
@@ -196,7 +209,25 @@ func (step *Step) tasks(topicSpec *trogdor.TopicSpec, clientNodes []string, boot
 }
 
 func newWorkload() *Workload {
-	return &Workload{}
+	return &Workload{
+		MessagePaddingBytes: trogdor.DefaultValueGeneratorSpec.Padding,
+	}
+}
+
+func (workload *Workload) validate() error {
+	if workload.StepDurationMs < 0 {
+		return errors.Errorf(
+			"progressive workload %s cannot have a negative step duration %d",
+			workload.Name, workload.StepDurationMs,
+		)
+	}
+	if workload.MessagePaddingBytes > 0 && workload.MessageSizeBytes == 0 {
+		return errors.Errorf(
+			"progressive workload %s cannot have message_padding_bytes specified when message_size_bytes is %d",
+			workload.Name, workload.MessageSizeBytes,
+		)
+	}
+	return nil
 }
 
 func (workload *Workload) GetStartTime() (time.Time, error) {

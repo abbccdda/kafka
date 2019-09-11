@@ -228,18 +228,19 @@ func (po *ProducerOptions) MessagesPerSec(throughputMbPerSec float32) uint64 {
 
 // a Scenario is a composition of multiple identical Trogdor tasks split across multiple Trogdor agents
 type ScenarioConfig struct {
-	ScenarioID       TaskId
-	Class            string
-	TaskCount        int
-	TopicSpec        TopicSpec
-	DurationMs       uint64
-	StartMs          uint64
-	BootstrapServers string
-	MessagesPerSec   uint64 // the total messages per second we want this scenario to have
-	AdminConf        AdminConf
-	ProducerOptions  ProducerOptions
-	ConsumerOptions  ConsumerOptions
-	ClientNodes      []string // all the configured trogdor nodes
+	ScenarioID         TaskId
+	Class              string
+	TaskCount          int
+	TopicSpec          TopicSpec
+	DurationMs         uint64
+	StartMs            uint64
+	BootstrapServers   string
+	MessagesPerSec     uint64 // the total messages per second we want this scenario to have
+	AdminConf          AdminConf
+	ProducerOptions    ProducerOptions
+	ConsumerOptions    ConsumerOptions
+	ClientNodes        []string // all the configured trogdor nodes
+	SlowStartPerStepMs uint64
 }
 
 const PRODUCE_BENCH_SPEC_CLASS = "org.apache.kafka.trogdor.workload.ProduceBenchSpec"
@@ -267,7 +268,16 @@ func (r *ScenarioSpec) createAgentTasks(scenarioConfig ScenarioConfig, scenario 
 	rawSpec := json.RawMessage{}
 
 	clientNodesCount := len(scenarioConfig.ClientNodes)
+	startMs := scenarioConfig.StartMs
+	durationMs := scenarioConfig.DurationMs
 	for agentIdx := 0; agentIdx < scenarioConfig.TaskCount; agentIdx++ {
+		// Slow start: Delay each additional task, if specified.
+		if scenarioConfig.SlowStartPerStepMs > 0 {
+			// Note: We are explicitly ignoring checks for invalid states here (eg: negative duration), and are letting
+			//       the test executor handle them.  The revert logic there is much better.
+			startMs = scenarioConfig.StartMs + (uint64(agentIdx) * scenarioConfig.SlowStartPerStepMs)
+			durationMs = scenarioConfig.DurationMs - (uint64(agentIdx) * scenarioConfig.SlowStartPerStepMs)
+		}
 		durationSeconds := uint64(scenarioConfig.DurationMs) / 1000
 		messagesPerSec := scenarioConfig.MessagesPerSec / uint64(scenarioConfig.TaskCount)
 		maxMessages := durationSeconds * messagesPerSec
@@ -279,8 +289,8 @@ func (r *ScenarioSpec) createAgentTasks(scenarioConfig ScenarioConfig, scenario 
 			{
 				produceBenchSpecData := producerSpec{
 					Class:                scenarioConfig.Class,
-					StartMs:              scenarioConfig.StartMs,
-					DurationMs:           scenarioConfig.DurationMs,
+					StartMs:              startMs,
+					DurationMs:           durationMs,
 					ProducerNode:         clientNode,
 					BootstrapServers:     scenarioConfig.BootstrapServers,
 					TargetMessagesPerSec: messagesPerSec,
@@ -300,8 +310,8 @@ func (r *ScenarioSpec) createAgentTasks(scenarioConfig ScenarioConfig, scenario 
 			{
 				consumeBenchSpecData := consumerSpec{
 					Class:                scenarioConfig.Class,
-					StartMs:              scenarioConfig.StartMs,
-					DurationMs:           scenarioConfig.DurationMs,
+					StartMs:              startMs,
+					DurationMs:           durationMs,
 					ConsumerNode:         clientNode,
 					BootstrapServers:     scenarioConfig.BootstrapServers,
 					TargetMessagesPerSec: messagesPerSec,

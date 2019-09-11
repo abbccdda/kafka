@@ -102,3 +102,33 @@ func TestStepTasksCreatesAsManyTasksAsAgentNodes(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, len(agentNodes), len(tasks))
 }
+
+func TestStepTasksCreatesMoreTasksThanAgentNodes(t *testing.T) {
+	tasksPerStep := 18
+	step := Step{
+		throughputMbs: 10,
+		startTime:     time.Now(),
+		endTime:       time.Now().Add(time.Duration(1000)),
+		workload: &Workload{
+			Type:         PRODUCE_WORKLOAD_TYPE,
+			TasksPerStep: tasksPerStep,
+		},
+	}
+	agentNodes := []string{
+		"a", "b", "c",
+	}
+
+	tasks, err := step.tasks(topicSpec, agentNodes, "localhost:9092")
+	assert.Nil(t, err)
+	assert.Equal(t, tasksPerStep, len(tasks))
+
+	agentNodes = []string{"a"}
+	tasks, err = step.tasks(topicSpec, agentNodes, "localhost:9092")
+	assert.Nil(t, err)
+	assert.Equal(t, tasksPerStep, len(tasks))
+
+	agentNodes = []string{"a", "a", "a", "a", "a", "a"}
+	tasks, err = step.tasks(topicSpec, agentNodes, "localhost:9092")
+	assert.Nil(t, err)
+	assert.Equal(t, tasksPerStep, len(tasks))
+}

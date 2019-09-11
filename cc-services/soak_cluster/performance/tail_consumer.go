@@ -14,10 +14,14 @@ type TailConsumer struct {
 	Name string
 
 	// the ProduceTestName must refer to a test that implements the TopicWithTests interface
-	ProduceTestName string        `json:"topics_from_test"`
-	Fanout          int           `json:"fanout"`
-	Topics          []string      `json:"topics"`
-	Duration        time.Duration `json:"duration"`
+	ProduceTestName       string        `json:"topics_from_test"`
+	Fanout                int           `json:"fanout"`
+	Topics                []string      `json:"topics"`
+	Duration              time.Duration `json:"duration"`
+	StepMessagesPerSecond uint64        `json:"step_messages_per_second"`
+	TasksPerStep          int           `json:"tasks_per_step"`
+	SlowStartPerStepMs    uint64        `json:"slow_start_per_step_ms"`
+	ConsumerGroup         string        `json:"consumer_group"`
 
 	startTime time.Time
 	endTime   time.Time
@@ -25,6 +29,13 @@ type TailConsumer struct {
 
 func (tc *TailConsumer) testName() string {
 	return tc.Name + "-tail-consumer"
+}
+
+func (tc *TailConsumer) consumerGroup(i int) string {
+	if tc.ConsumerGroup == "" {
+		return fmt.Sprintf("%s-%d", tc.testName(), i)
+	}
+	return tc.ConsumerGroup
 }
 
 func (tc *TailConsumer) CreateTest(trogdorAgentsCount int, bootstrapServers string) (tasks []trogdor.TaskSpec, err error) {
@@ -37,8 +48,16 @@ func (tc *TailConsumer) CreateTest(trogdorAgentsCount int, bootstrapServers stri
 	clientNodes := common.TrogdorAgentPodNames(trogdorAgentsCount)
 
 	taskCount := len(clientNodes)
+	if tc.TasksPerStep > 0 {
+		taskCount = tc.TasksPerStep
+	}
 	spec := trogdor.ScenarioSpec{
 		UsedNames: map[string]bool{},
+	}
+
+	messagesPerSecond := tc.StepMessagesPerSecond
+	if messagesPerSecond == 0 {
+		messagesPerSecond = math.MaxInt32
 	}
 
 	startTime, err := tc.GetStartTime()
@@ -52,23 +71,25 @@ func (tc *TailConsumer) CreateTest(trogdorAgentsCount int, bootstrapServers stri
 
 	for i := 1; i <= tc.Fanout; i++ {
 		consumerOptions := trogdor.ConsumerOptions{
-			ConsumerGroup: fmt.Sprintf("%s-%d", tc.testName(), i),
+			ConsumerGroup: tc.consumerGroup(i),
 		}
 		scenConfig := trogdor.ScenarioConfig{
 			ScenarioID: trogdor.TaskId{
 				TaskType: tc.testName(),
-				Desc:     fmt.Sprintf("topic-%s-fanout-%d", topic.TopicName, i),
+				StartMs:  common.TimeToUnixMilli(startTime),
+				Desc:     fmt.Sprintf("topic-%s-fanout-%d-start-%d", topic.TopicName, i, common.TimeToUnixMilli(startTime)),
 			},
-			Class:            trogdor.CONSUME_BENCH_SPEC_CLASS,
-			TaskCount:        taskCount,
-			TopicSpec:        topic,
-			DurationMs:       uint64(endTime.Sub(startTime) / time.Millisecond),
-			StartMs:          common.TimeToUnixMilli(startTime),
-			BootstrapServers: bootstrapServers,
-			MessagesPerSec:   math.MaxInt32,
-			AdminConf:        adminConfig,
-			ConsumerOptions:  consumerOptions,
-			ClientNodes:      clientNodes,
+			Class:              trogdor.CONSUME_BENCH_SPEC_CLASS,
+			TaskCount:          taskCount,
+			TopicSpec:          topic,
+			DurationMs:         uint64(endTime.Sub(startTime) / time.Millisecond),
+			StartMs:            common.TimeToUnixMilli(startTime),
+			BootstrapServers:   bootstrapServers,
+			MessagesPerSec:     messagesPerSecond,
+			AdminConf:          adminConfig,
+			ConsumerOptions:    consumerOptions,
+			ClientNodes:        clientNodes,
+			SlowStartPerStepMs: tc.SlowStartPerStepMs,
 		}
 		spec.CreateScenario(scenConfig)
 		tasks = append(tasks, spec.TaskSpecs...)

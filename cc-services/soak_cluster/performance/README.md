@@ -7,8 +7,20 @@ We use Kafka's Trogdor framework to achieve this and plan on supporting multiple
 Each kind of test has a different type, specified in a JSON format.
 Currently supported types:   
 * `ProgressiveWorkload`
+* `TailConsume`
 
 The framework allows you to schedule multiple tests at once with flexible schedules (one after the other, overlapping, etc)
+
+### Definitions
+
+There can be confusion when reading this code because we divide it into many subdivisions of work, all with similar names.  Here is what each subdivision means.
+
+* `Workload` (*Java*) - What is actually running inside Trogdor.
+* `Task` - This is the smallest unit of work in the Go client.  This has a 1:1 mapping to a `workload` within Trogdor.
+* `Step` - A group of `task` all sharing the same configuration.  In general, a step has an equal number of tasks as trogdor agents, but that can be overridden. 
+* `Fanout` - This should be a property of a `step` and will duplicate the tasks linearly.  For example: A fanout of 2 will double the tasks, and a fanout of 3 will triple it. 
+* `Scenario` - A scenario is a metadata wrapper around `step` configurations.
+* `Workload` (*Go*) - An overarching configuration that defines all `scenario` configurations.
 
 ### General JSON Parameters
 * scenario_name
@@ -27,23 +39,32 @@ The framework allows you to schedule multiple tests at once with flexible schedu
 We define a progressive workload as a continuous series of test scenarios where each step progressively issues more load on the cluster.
 Each step essentially consists of multiple Trogdor tasks. We schedule exactly one Trogdor task per Trogdor agent at any one given time.
 
-* single_duration_ms - the duration of a single iteration
-* step_cooldown_ms - a configurable amount of time in between each iteration
-* start_throughput_mbs - the throughput, in MB/s, we want to start at
-* end_throughput_mbs - the throughput, in MB/s, we want this test to end at (inclusive)
-* throughput_increase_mbs - the amount of throughput we want to progressively increase each step by
-* message_size_bytes - an approximation of the message size. We always add 100 of the same bytes as padding to the end of the message to simulate a partly-compressible workload
+* `workload_type` - This currently only supports `"Produce"`.
+* `topic_name` (*optional*) - The topic to produce to.  The default is derived from the name parameter: `[workload_name]-topic`. 
+* `partition_count` - The number of partitions the topic should have.
+* `step_duration_ms` - The duration, in milliseconds, of a single iteration.
+* `start_throughput_mbs` - The throughput, in MB/s, we want to start at.
+* `end_throughput_mbs` - The throughput, in MB/s, we want this test to end at (inclusive).
+* `step_cooldown_ms` (*optional*) - A configurable amount of time, in milliseconds, in between each iteration.  Only applicable if the start and end throughput are different.
+* `throughput_increase_mbs` (*optional*) - The amount of throughput we want to progressively increase each step by.  Only applicable if the start and end throughput are different.
+* `message_size_bytes` (*optional*) - An approximation of the message size.  The default is 900 bytes.
+* `message_padding_bytes` (*optional*) - The amount of bytewise 0's to append the end of the message as padding so compression can work.  The default is 100 bytes, and this value is not used unless `message_size_bytes` is specified as well.
+* `tasks_per_step` (*optional*) - The number of Trogdor tasks to create per step.  The default is equal to the number of trogdor agents.
+* `slow_start_per_step_ms` (*optional*) - If specified, each task in a given step will be progressively delayed by this amount, in milliseconds, as a way to ramp up the load.  The task numbered N will start delayed by `(N-1) * [slow_start_per_step_ms]` milliseconds, and it's duration will be shortened by the same amount of time. The default is 0, or no ramp up.
 
 #### Tail Consumer
 A tail consumer test consists of multiple consumers subscribed to a topic. They read from the end of the log at all times with no throttling.
 We schedule exactly one Trogdor ConsumeBench task per Trogdor agent **for every** consumer group at any one given time.
 
-* fanout - defines the number of consumer groups
-* topics_from_test - the name of the test that produces to topics which consumers of this test will subscribe to.
+* `fanout` (*optional*) - Defines the number of consumer groups and sets the number of tasks created as `[fanout] * [number of trogdor agents]`.  If `consumer_group` is specified, the test will not create a different consumer group for each fanout.
+* `topics_from_test` (*optional*) - The name of the test that produces to topics which consumers of this test will subscribe to.  One and only one of this or `topics` below must be set.
     * It is expected for this produce test to be defined in the scenario, the tail consumer to be scheduled to run until the end of said produce test and for the topics field to not be populated.
-* topics - mutually-exclusive with _topics_from_test_; the topics these consumers will subscribe to 
-* duration - optional; the duration this test should run for
-
+* `topics` (*optional*) - The topics these consumers will subscribe to.  One and only one of this or `topics_from_test` below must be set.
+* `duration` (*optional*) - The duration, as a Go [duration](https://golang.org/pkg/time/#ParseDuration) construct, that this test will run.
+* `step_messages_per_second` (*optional*) - The number of messages per second this workload will limit itself to.  Note: This number is divided between each task per step (fanout).  The default is `math.MaxInt32`.
+* `tasks_per_step` (*optional*) = The number of Trogdor tasks to create per step (fanout).  The default is equal to the number of trogdor agents.
+* `slow_start_per_step_ms` (*optional*) - If specified, each task in a given step (fanout) will be progressively delayed by this amount, in milliseconds, as a way to ramp up the load.  The task numbered N will start delayed by `(N-1) * [slow_start_per_step_ms]` milliseconds, and it's duration will be shortened by the same amount of time. The default is 0, or no ramp up.
+* `consumer_group` (*optional*) - Override the generated consumer groups and use this one instead.  If specified, `fanout` does not generate new consumer groups, and all tasks are part of the same one.
 
 ##### Single Test Example
 See [example.json](example.json) for a sample configuration.
@@ -53,10 +74,10 @@ A configuration like
   "scenario_name": "ExampleTest",
   "test_definitions": {
     "test_type": "ProgressiveWorkload",
-    "test_name": "test",
+    "test_name": "test-produce",
     "test_parameters": {
       "workload_type": "Produce",
-      "step_duration_ms": 100,
+      "step_duration_ms": 60000,
       "partition_count": 10,
       "step_cooldown_ms": 60000,
       "start_throughput_mbs": 10,
@@ -67,7 +88,7 @@ A configuration like
   }
 }
 ```
-would result in 3 steps, consisting of the following throughputs (1 MB/s, 4 MB/s, 7 MB/s). Each step would last one minute and there would be one minute of downtime in between each step.
+would result in 3 steps, consisting of the following throughputs (10 MB/s, 15 MB/s, 20 MB/s). Each step would last one minute and there would be one minute of downtime in between each step.
 Note that the _schedule_ field is optional. If omitted, all tasks get scheduled at once.
 
 ##### Multi-Test Example
@@ -75,12 +96,17 @@ Note that the _schedule_ field is optional. If omitted, all tasks get scheduled 
 {
   "scenario_name": "TestCPKAFKA",
   "schedule": {
+    "A": {},
     "B": {
       "start_delay": "1m",
       "start_after_begin": ["A"]
     },
-    "A": {},
     "C": {
+      "run_until_end_of": ["A"]
+    },
+    "D": {
+      "start_delay": "0s",
+      "start_after_begin": ["B"],
       "run_until_end_of": ["B"]
     }
   },
@@ -90,7 +116,7 @@ Note that the _schedule_ field is optional. If omitted, all tasks get scheduled 
       "test_name": "A",
       "test_parameters": {
         "workload_type": "Produce",
-        "step_duration_ms": 100,
+        "step_duration_ms": 60000,
         "partition_count": 10,
         "step_cooldown_ms": 60000,
         "start_throughput_mbs": 10,
@@ -104,7 +130,7 @@ Note that the _schedule_ field is optional. If omitted, all tasks get scheduled 
       "test_name": "B",
       "test_parameters": {
         "workload_type": "Produce",
-        "step_duration_ms": 300,
+        "step_duration_ms": 30000,
         "partition_count": 15,
         "step_cooldown_ms": 1000,
         "start_throughput_mbs": 10,
@@ -120,11 +146,19 @@ Note that the _schedule_ field is optional. If omitted, all tasks get scheduled 
         "fanout": 2,
         "topics_from_test": "A"
       }
+    },
+    {
+      "test_type": "TailConsume",
+      "test_name": "D",
+      "test_parameters": {
+        "fanout": 2,
+        "topics_from_test": "B"
+      }
     }
   ]
 }
 ```
-In this example, we have two produce tasks. The second task, _B_, will start one minute after _A_ starts. Task _C_ will start in the beginning with _A_ and run until _B_ ends. 
+In this example, we have two produce tasks. The second task, _B_, will start one minute after _A_ starts. Task _C_ will start in the beginning with _A_ and run until _A_ ends, and task _D_ will start with _B_ and run until _B_ ends. 
 
 ## How to Run
 Pre-requisite: Have Trogdor and the soak clients helm charts deployed. (see [cc-services/README.md](../../README.md))

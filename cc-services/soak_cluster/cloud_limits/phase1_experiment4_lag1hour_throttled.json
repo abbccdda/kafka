@@ -1,0 +1,97 @@
+{
+    "scenario_name": "CloudLimitsPhase1Experiment4-Lag1Hour-Throttled",
+    "schedule": {
+        "consume1": {
+            "start_delay": "10s",
+            "start_after_begin": [
+                "produce"
+            ]
+        },
+        "consume2": {
+            "start_delay": "10s",
+            "start_after_begin": [
+                "produce"
+            ]
+        },
+        "consume3": {
+            "start_delay": "10s",
+            "start_after_begin": [
+                "produce"
+            ]
+        },
+        "consume4": {
+            "start_delay": "1h",
+            "start_after_begin": [
+                "produce"
+            ]
+        },
+        "produce": {}
+    },
+    "test_definitions": [
+        {
+            "test_type": "ProgressiveWorkload",
+            "test_name": "produce",
+            "test_parameters": {
+                "workload_type": "Produce",
+                "partition_count": 108,
+                "topic_name": "experiment4-topic108",
+                "step_duration_ms": 14400000,
+                "slow_start_per_step_ms": 5000,
+                "start_throughput_mbs": 225,
+                "end_throughput_mbs": 225,
+                "tasks_per_step": 9,
+                "message_size_bytes": 512,
+                "message_padding_bytes": 0
+            }
+        },
+        {
+            "test_type": "TailConsume",
+            "test_name": "consume1",
+            "test_parameters": {
+                "topics": ["experiment4-topic108"],
+                "fanout": 1,
+                "duration": "4h",
+                "slow_start_per_step_ms": 5000,
+                "tasks_per_step": 9,
+                "consumer_group": "test1"
+            }
+        },
+        {
+            "test_type": "TailConsume",
+            "test_name": "consume2",
+            "test_parameters": {
+                "topics": ["experiment4-topic108"],
+                "fanout": 1,
+                "duration": "4h",
+                "slow_start_per_step_ms": 5000,
+                "tasks_per_step": 9,
+                "consumer_group": "test2"
+            }
+        },
+        {
+            "test_type": "TailConsume",
+            "test_name": "consume3",
+            "test_parameters": {
+                "topics": ["experiment4-topic108"],
+                "fanout": 1,
+                "duration": "4h",
+                "slow_start_per_step_ms": 5000,
+                "tasks_per_step": 9,
+                "consumer_group": "test3"
+            }
+        },
+        {
+            "test_type": "TailConsume",
+            "test_name": "consume4",
+            "test_parameters": {
+                "topics": ["experiment4-topic108"],
+                "fanout": 1,
+                "duration": "4h",
+                "slow_start_per_step_ms": 5000,
+                "tasks_per_step": 9,
+                "consumer_group": "test4",
+                "task_messages_per_second": 54700
+            }
+        }
+    ]
+}
