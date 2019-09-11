@@ -33,3 +33,7 @@ nodeSelector: {}
 tolerations: []
 
 agentAffinity: []
+
+jvm:
+  Xmx: 4096M
+  Xms: 4096M
