@@ -2354,8 +2354,8 @@ project(':ce-kafka-client-plugins') {
   archivesBaseName = "kafka-client-plugins"
 
   dependencies {
-    compile project(':clients')
-    compile project(':ce-rest-authorizer')
+    compile project(':clients') exclude group: 'org.bouncycastle', module: 'bcpkix-jdk15on'
+    compile project(':ce-rest-authorizer') exclude group: 'org.bouncycastle', module: 'bcpkix-jdk15on'
     compile libs.jacksonDatabind
     compile libs.bc_fips
     compile libs.bcpkix_fips

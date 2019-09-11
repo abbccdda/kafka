@@ -15,12 +15,14 @@
 package io.confluent.support.metrics;
 
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.common.network.ListenerName;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Properties;
 import java.util.Map;
-import java.util.HashMap;
+import java.util.Set;
 
 import kafka.metrics.KafkaMetricsReporter;
 import kafka.metrics.KafkaMetricsReporter$;
@@ -60,8 +62,10 @@ public class SupportedServerStartable {
 
     /* Check FIPS mode */
     if (isFipsEnabled = Boolean.parseBoolean(brokerConfiguration.getProperty(FipsSecurityConfig.ENABLE_FIPS_CONFIG))) {
-      checkFips1402(brokerConfiguration);
+      checkFips1402(serverConfig);
     }
+
+    log.info("FIPS mode is enabled: {}", isFipsEnabled);
 
     Option<String> noThreadNamePrefix = Option.empty();
     server = new KafkaServer(serverConfig, Time.SYSTEM, noThreadNamePrefix, reporters);
@@ -85,12 +89,13 @@ public class SupportedServerStartable {
     }
   }
 
-  private void checkFips1402(Properties brokerConfiguration) {
+  private void checkFips1402(KafkaConfig brokerConfiguration) {
     /* check TLS Cipher algorithm and TLS protocol versions */
-    FipsValidator.validateFipsTls(new HashMap<String, Object>((Map) brokerConfiguration));
+    Map<ListenerName, SecurityProtocol> listenerSecurityProtocolMap = JavaConverters.mapAsJavaMapConverter(brokerConfiguration.listenerSecurityProtocolMap()).asJava();
+    Set<ListenerName> listenerNames = listenerSecurityProtocolMap.keySet();
+    listenerNames.forEach(name -> FipsValidator.validateFipsTls(brokerConfiguration.valuesWithPrefixOverride(name.configPrefix())));
     /* check Broker protocol */
-    KafkaConfig serverConfig = KafkaConfig.fromProps(brokerConfiguration);
-    FipsValidator.validateFipsBrokerProtocol(JavaConverters.mapAsJavaMapConverter(serverConfig.listenerSecurityProtocolMap()).asJava());
+    FipsValidator.validateFipsBrokerProtocol(listenerSecurityProtocolMap);
   }
 
   private void createAndInitializeMetricsReporter(KafkaSupportConfig kafkaSupportConfig) {

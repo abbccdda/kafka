@@ -25,6 +25,7 @@ import static org.junit.Assert.assertTrue;
 
 import io.confluent.kafka.security.fips.config.FipsSecurityConfig;
 import io.confluent.kafka.security.fips.exceptions.InvalidFipsBrokerProtocolException;
+import io.confluent.kafka.security.fips.exceptions.InvalidFipsTlsVersionException;
 
 public class SupportedServerStartableTest {
 
@@ -113,15 +114,38 @@ public class SupportedServerStartableTest {
     brokerConfiguration.setProperty("advertised.listeners", "INTERNAL://:9093,EXTERNAL://:9092");
     brokerConfiguration.setProperty("inter.broker.listener.name", "INTERNAL");
     brokerConfiguration.setProperty("listener.security.protocol.map", "INTERNAL:SSL,EXTERNAL:SASL_SSL");
+    brokerConfiguration.setProperty("listener.name.internal.ssl.enabled.protocols", "TLSv1.2,TLSv1.1");
+    brokerConfiguration.setProperty("listener.name.internal.ssl.cipher.suites", "TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA,TLS_DHE_DSS_WITH_AES_128_CBC_SHA");
+    brokerConfiguration.setProperty("listener.name.external.ssl.enabled.protocols", "TLSv1.2,TLSv1.1");
+    brokerConfiguration.setProperty("listener.name.external.ssl.cipher.suites", "TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA,TLS_DHE_DSS_WITH_AES_128_CBC_SHA");
     SupportedServerStartable supportedServerStartable = new SupportedServerStartable(brokerConfiguration);
 
     assertTrue(supportedServerStartable.fipsEnabled());
   }
 
   @Test(expected = InvalidFipsBrokerProtocolException.class)
-  public void testInvalidFipsConfigEnableFipsModeOnKafka() throws IOException {
+  public void testInvalidFipsBrokerProtocolConfigEnableFipsModeOnKafka() throws IOException {
     Properties brokerConfiguration = defaultBrokerConfiguration();
     brokerConfiguration.setProperty(FipsSecurityConfig.ENABLE_FIPS_CONFIG, "true");
+    brokerConfiguration.setProperty("listeners", "INTERNAL://:9093,EXTERNAL://:9092");
+    brokerConfiguration.setProperty("advertised.listeners", "INTERNAL://:9093,EXTERNAL://:9092");
+    brokerConfiguration.setProperty("inter.broker.listener.name", "INTERNAL");
+    brokerConfiguration.setProperty("listener.security.protocol.map", "INTERNAL:SSL,EXTERNAL:SASL_PLAINTEXT");
+    brokerConfiguration.setProperty("listener.name.internal.ssl.enabled.protocols", "TLSv1.2,TLSv1.1");
+    brokerConfiguration.setProperty("listener.name.external.ssl.enabled.protocols", "TLSv1.2,TLSv1.1");
+    SupportedServerStartable supportedServerStartable = new SupportedServerStartable(brokerConfiguration);
+  }
+
+  @Test(expected = InvalidFipsTlsVersionException.class)
+  public void testInvalidFipsTlsConfigEnableFipsModeOnKafka() throws IOException {
+    Properties brokerConfiguration = defaultBrokerConfiguration();
+    brokerConfiguration.setProperty(FipsSecurityConfig.ENABLE_FIPS_CONFIG, "true");
+    brokerConfiguration.setProperty("listeners", "INTERNAL://:9093,EXTERNAL://:9092");
+    brokerConfiguration.setProperty("advertised.listeners", "INTERNAL://:9093,EXTERNAL://:9092");
+    brokerConfiguration.setProperty("inter.broker.listener.name", "INTERNAL");
+    brokerConfiguration.setProperty("listener.security.protocol.map", "INTERNAL:SSL,EXTERNAL:SASL_SSL");
+    brokerConfiguration.setProperty("listener.name.internal.ssl.enabled.protocols", "TLSv1.2,TLSv1.0");
+    brokerConfiguration.setProperty("listener.name.external.ssl.enabled.protocols", "TLSv1.2,TLSv1.0");
     SupportedServerStartable supportedServerStartable = new SupportedServerStartable(brokerConfiguration);
   }
 }
