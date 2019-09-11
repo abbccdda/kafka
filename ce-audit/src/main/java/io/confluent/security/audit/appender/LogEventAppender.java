@@ -1,7 +1,6 @@
 package io.confluent.security.audit.appender;
 
 import com.google.protobuf.InvalidProtocolBufferException;
-import com.google.protobuf.util.JsonFormat;
 import io.confluent.security.audit.CloudEvent;
 import io.confluent.security.audit.CloudEventUtils;
 import io.confluent.security.audit.EventLogConfig;
@@ -28,10 +27,7 @@ public class LogEventAppender implements EventAppender {
   @Override
   public void append(CloudEvent event) throws RuntimeException {
     try {
-      log.info(JsonFormat.printer()
-          .omittingInsignificantWhitespace()
-          .usingTypeRegistry(CloudEventUtils.dataTypeRegistry())
-          .print(event));
+      log.info(CloudEventUtils.toJsonString(event));
     } catch (InvalidProtocolBufferException e) {
       log.warn("Failed to log Audit Log Message", e);
     }

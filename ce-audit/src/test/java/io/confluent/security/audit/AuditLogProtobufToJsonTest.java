@@ -9,7 +9,6 @@ import static org.junit.Assert.assertEquals;
 import com.google.protobuf.Any;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Value;
-import com.google.protobuf.util.JsonFormat;
 import org.junit.Test;
 
 public class AuditLogProtobufToJsonTest {
@@ -66,10 +65,7 @@ public class AuditLogProtobufToJsonTest {
         ))
         .build();
 
-    String jsonString = JsonFormat.printer()
-        .omittingInsignificantWhitespace()
-        .usingTypeRegistry(CloudEventUtils.dataTypeRegistry())
-        .print(message);
+    String jsonString = CloudEventUtils.toJsonString(message);
 
     /*
 
@@ -176,10 +172,7 @@ public class AuditLogProtobufToJsonTest {
                 .build()))
         .build();
 
-    String jsonString = JsonFormat.printer()
-        .omittingInsignificantWhitespace()
-        .usingTypeRegistry(CloudEventUtils.dataTypeRegistry())
-        .print(message);
+    String jsonString = CloudEventUtils.toJsonString(message);
 
     /*
 

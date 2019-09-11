@@ -1,7 +1,9 @@
 package io.confluent.security.audit;
 
 import com.google.protobuf.Any;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
+import com.google.protobuf.util.JsonFormat;
 import com.google.protobuf.util.JsonFormat.TypeRegistry;
 import java.time.Instant;
 import java.util.UUID;
@@ -49,4 +51,13 @@ public class CloudEventUtils {
     return dataTypeRegistry;
   }
 
+  /**
+   * Return the JSON string for this CloudEvent
+   */
+  public static String toJsonString(CloudEvent event) throws InvalidProtocolBufferException {
+    return JsonFormat.printer()
+        .omittingInsignificantWhitespace()
+        .usingTypeRegistry(dataTypeRegistry)
+        .print(event);
+  }
 }

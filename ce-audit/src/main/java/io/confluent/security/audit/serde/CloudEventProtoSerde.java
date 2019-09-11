@@ -61,5 +61,4 @@ public class CloudEventProtoSerde implements Serde<CloudEvent>, Serializer<Cloud
     return this;
   }
 
-
 }

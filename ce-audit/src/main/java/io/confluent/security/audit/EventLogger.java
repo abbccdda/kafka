@@ -8,11 +8,11 @@ import org.apache.kafka.common.Reconfigurable;
 import org.apache.kafka.common.config.ConfigException;
 
 /**
- * This creates a logger that writes events to the configured appender. This enforces
- * that for any given logger name, there is a single appender, to allow us to be sure
- * that we have only one Kafka Producer for each event log.
+ * This creates a logger that writes events to the configured appender. This enforces that for any
+ * given logger name, there is a single appender, to allow us to be sure that we have only one Kafka
+ * Producer for each event log.
  */
-public class EventLogger implements Reconfigurable {
+public class EventLogger implements Reconfigurable, AutoCloseable {
 
   private static ConcurrentHashMap<String, EventLogger> namedLoggers = new ConcurrentHashMap<>();
   private EventAppender eventAppender;
@@ -54,5 +54,11 @@ public class EventLogger implements Reconfigurable {
   public void configure(Map<String, ?> configs) {
     // since this can only be called on an instance that is already configured...
     reconfigure(configs);
+  }
+
+  public void close() throws Exception {
+    if (eventAppender != null) {
+      eventAppender.close();
+    }
   }
 }

@@ -76,8 +76,7 @@ public class KafkaTestUtils {
     return serverConfig;
   }
 
-  public static Properties producerProps(
-      String bootstrapServers,
+  public static Properties securityProps(String bootstrapServers,
       SecurityProtocol securityProtocol,
       String saslMechanism,
       String jaasConfig) {
@@ -89,6 +88,15 @@ public class KafkaTestUtils {
     props.setProperty(SaslConfigs.SASL_MECHANISM, saslMechanism);
     props.setProperty(SaslConfigs.SASL_JAAS_CONFIG, jaasConfig);
     props.setProperty(SaslConfigs.SASL_KERBEROS_SERVICE_NAME, "kafka");
+    return props;
+  }
+
+  public static Properties producerProps(
+      String bootstrapServers,
+      SecurityProtocol securityProtocol,
+      String saslMechanism,
+      String jaasConfig) {
+    Properties props = securityProps(bootstrapServers, securityProtocol, saslMechanism, jaasConfig);
     props.setProperty(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
     props.setProperty(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
         StringSerializer.class.getName());
@@ -101,14 +109,7 @@ public class KafkaTestUtils {
       String saslMechanism,
       String jaasConfig,
       String consumerGroup) {
-    Properties props = new Properties();
-    props.setProperty(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-    props.setProperty(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol.name);
-    if (securityProtocol.name.equals("SSL") || securityProtocol.name.equals("SASL_SSL"))
-      props.setProperty(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "");
-    props.setProperty(SaslConfigs.SASL_MECHANISM, saslMechanism);
-    props.setProperty(SaslConfigs.SASL_JAAS_CONFIG, jaasConfig);
-    props.setProperty(SaslConfigs.SASL_KERBEROS_SERVICE_NAME, "kafka");
+    Properties props = securityProps(bootstrapServers, securityProtocol, saslMechanism, jaasConfig);
     props.setProperty(ConsumerConfig.GROUP_ID_CONFIG, consumerGroup);
     props.setProperty(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
             StringDeserializer.class.getName());
