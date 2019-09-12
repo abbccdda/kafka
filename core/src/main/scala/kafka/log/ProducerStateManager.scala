@@ -833,8 +833,8 @@ class ProducerStateManager(val topicPartition: TopicPartition,
     else
       None
   }
-
-  private def listSnapshotFiles: Seq[File] = ProducerStateManager.listSnapshotFiles(logDir)
+  // visible for testing
+  private[log] def listSnapshotFiles: Seq[File] = ProducerStateManager.listSnapshotFiles(logDir)
 
   /**
     * Locate and return the snapshot file for a given offset. Typically, snapshot files are created on log roll with

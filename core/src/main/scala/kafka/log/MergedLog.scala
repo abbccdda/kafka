@@ -235,6 +235,12 @@ class MergedLog(private[log] val localLog: Log,
       else
         maybeIncrementLogStartOffset(firstTieredOffset.getOrElse(localLogStartOffset))
 
+      if (hotsetDeleted > 0) {
+        // maybeIncrementLogStartOffset will set the new local log start offset, delete any
+        // producer state snapshot files prior to this.
+        localLog.producerStateManager.deleteSnapshotsBefore(localLogStartOffset)
+      }
+
       retentionDeleted + hotsetDeleted
     }
   }

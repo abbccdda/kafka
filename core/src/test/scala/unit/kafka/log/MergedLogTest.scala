@@ -442,6 +442,89 @@ class MergedLogTest {
   }
 
   @Test
+  def testRetentionDeletesProducerStateSnapshotsAboveLocalLogStartOffset(): Unit = {
+    val segmentBytes = 1024
+    // Setup infinite retention, but with a hotset of 2 segments (2 * segmentBytes).
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = segmentBytes * 2, retentionBytes = -1, retentionMs = 100)
+    val mergedLog = createMergedLog(logConfig)
+    val tierPartitionState = tierMetadataManager.tierPartitionState(mergedLog.topicPartition).get
+    val leaderEpoch = 0
+    // establish tier leadership for topicIdPartition
+    tierPartitionState.setTopicIdPartition(topicIdPartition)
+    tierPartitionState.onCatchUpComplete()
+    tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
+      leaderEpoch, java.util.UUID.randomUUID(), 0))
+    val pid1 = 1L
+    var lastOffset = 0L
+    for (i <- 0 to 20) {
+      val appendInfo = mergedLog.appendAsLeader(TestUtils.records(Seq(new SimpleRecord(mockTime
+        .milliseconds(), new
+          Array[Byte](128))),
+        producerId = pid1, producerEpoch = 0, sequence = i),
+        leaderEpoch = 0)
+      lastOffset = appendInfo.lastOffset
+    }
+
+    mergedLog.updateHighWatermark(lastOffset)
+    assertEquals(mergedLog.tieredLogSegments.size, 0)
+    assertEquals("expected 5 log segments", 5, mergedLog.localLogSegments.size)
+    assertEquals("expected producer state manager to contain some state", false, mergedLog.producerStateManager.isEmpty)
+    val snapshotFiles = mergedLog.producerStateManager.listSnapshotFiles
+    // 4 snapshot files, one for each segment except the active segment
+    assertEquals("expected 4 producer state files", snapshotFiles.size, 4)
+
+    // tier the first 3 segments
+    mergedLog.localLogSegments.take(3).foreach {
+      segment =>
+        val hasProducerState = mergedLog.producerStateManager.snapshotFileForOffset(segment.readNextOffset).isDefined
+        val result = TierTestUtils.uploadWithMetadata(tierPartitionState,
+          topicIdPartition,
+          leaderEpoch,
+          UUID.randomUUID,
+          segment.baseOffset,
+          segment.readNextOffset - 1,
+          segment.largestTimestamp,
+          segment.lastModified,
+          segment.size,
+          false,
+          true,
+          hasProducerState)
+        assertEquals(AppendResult.ACCEPTED, result)
+        tierPartitionState.flush()
+    }
+
+    mergedLog.deleteOldSegments()
+    assertTrue("expected to local log start offset to be greater than the merged log start offset",
+      mergedLog.localLogStartOffset > mergedLog.logStartOffset
+    )
+    assertTrue("expected no tiered data to be deleted, so the mergedLog start offset is 0",
+      mergedLog.logStartOffset == 0)
+    assertTrue("expected only 1 snapshot file for each on-disk segment",
+      mergedLog.localLogSegments.size == mergedLog.producerStateManager.listSnapshotFiles.length
+    )
+    mergedLog.producerStateManager
+      .listSnapshotFiles
+      .map(_.getName)
+      .map(_.split('.')(0).toLong)
+      .sorted
+      .zip(mergedLog.localLogSegments)
+      .foreach {
+        case ((snapshotFileNameOffset, segment)) => {
+          assertEquals("expected snapshot file to match segment base offset", snapshotFileNameOffset, segment.baseOffset)
+        }
+      }
+
+    // ensure that even if we delete all data due to retention, we maintain one producer
+    // snapshot file for the active segment.
+    mockTime.sleep(1000)
+    mergedLog.deleteOldSegments()
+    assertTrue(mergedLog.localLogSegments.size == 1)
+    assertTrue("expected only 1 snapshot file for each on-disk segment",
+      1 == mergedLog.producerStateManager.listSnapshotFiles.length
+    )
+  }
+
+  @Test
   def testRestoreProducerStateFirstUnstableOffset(): Unit = {
     val segmentBytes = 1024
     // Setup retention to only keep 2 segments total
