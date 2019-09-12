@@ -393,7 +393,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           fetchManager, brokerTopicStats, clusterId, time, tokenManager, tierMetadataManager)
 
 
-        dataPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.dataPlaneRequestChannel, dataPlaneRequestProcessor, time,
+        dataPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config, config.brokerId, socketServer.dataPlaneRequestChannel, dataPlaneRequestProcessor, time,
           config.numIoThreads, s"${SocketServer.DataPlaneMetricPrefix}RequestHandlerAvgIdlePercent", SocketServer.DataPlaneThreadPrefix)
 
         socketServer.controlPlaneRequestChannelOpt.foreach { controlPlaneRequestChannel =>
@@ -401,8 +401,14 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
             kafkaController, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
             fetchManager, brokerTopicStats, clusterId, time, tokenManager, tierMetadataManager)
 
-          controlPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.controlPlaneRequestChannelOpt.get, controlPlaneRequestProcessor, time,
-            1, s"${SocketServer.ControlPlaneMetricPrefix}RequestHandlerAvgIdlePercent", SocketServer.ControlPlaneThreadPrefix)
+          controlPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config,
+            config.brokerId,
+            socketServer.controlPlaneRequestChannelOpt.get,
+            controlPlaneRequestProcessor,
+            time,
+            1,
+            s"${SocketServer.ControlPlaneMetricPrefix}RequestHandlerAvgIdlePercent",
+            SocketServer.ControlPlaneThreadPrefix)
         }
 
         Mx4jLoader.maybeLoad()

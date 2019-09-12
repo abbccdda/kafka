@@ -356,6 +356,14 @@ public enum ApiKeys {
         return apiVersion >= oldestVersion() && apiVersion <= latestVersion();
     }
 
+    public static ApiKeys findByName(String name) {
+        for (ApiKeys apiKey : ApiKeys.values()) {
+            if (apiKey.name.equals(name))
+                return apiKey;
+        }
+        return null;
+    }
+
     private static String toHtml() {
         final StringBuilder b = new StringBuilder();
         b.append("<table class=\"data-table\"><tbody>\n");

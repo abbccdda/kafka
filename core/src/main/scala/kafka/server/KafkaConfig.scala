@@ -37,6 +37,7 @@ import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigExceptio
 import org.apache.kafka.common.metrics.Sensor
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.record.{LegacyRecord, Records, TimestampType}
+import org.apache.kafka.common.requests.RequestLogFilter
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.Utils
 import org.apache.kafka.server.interceptor.RecordInterceptor
@@ -499,6 +500,8 @@ object KafkaConfig {
   /** ********* Interceptor Configurations ***********/
   val AppendRecordInterceptorClassesProp = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG
   val BrokerInterceptorClassProp = ConfluentConfigs.BROKER_INTERCEPTOR_CLASS_CONFIG
+
+  val RequestLogFilterClass = ConfluentConfigs.REQUEST_LOG_FILTER_CLASS_CONFIG
 
   /** ********* Fetch Session Configuration **************/
   val MaxIncrementalFetchSessionCacheSlots = "max.incremental.fetch.session.cache.slots"
@@ -1288,6 +1291,9 @@ object KafkaConfig {
         ConfluentConfigs.MULTITENANT_TENANT_DELETE_BATCH_SIZE_DEFAULT, LOW, ConfluentConfigs.MULTITENANT_TENANT_DELETE_BATCH_SIZE_DOC)
       .defineInternal(ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG, STRING,
                       ConfluentConfigs.BACKPRESSURE_TYPES_DEFAULT, LOW, ConfluentConfigs.BACKPRESSURE_TYPES_DOC)
+
+      .defineInternal(ConfluentConfigs.REQUEST_LOG_FILTER_CLASS_CONFIG, CLASS,
+        ConfluentConfigs.REQUEST_LOG_FILTER_DEFAULT, LOW, ConfluentConfigs.REQUEST_LOG_FILTER_CLASS_DOC)
   }
 
   def configNames() = configDef.names().asScala.toList.sorted
@@ -1602,6 +1608,13 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val replicationQuotaWindowSizeSeconds = getInt(KafkaConfig.ReplicationQuotaWindowSizeSecondsProp)
   val numAlterLogDirsReplicationQuotaSamples = getInt(KafkaConfig.NumAlterLogDirsReplicationQuotaSamplesProp)
   val alterLogDirsReplicationQuotaWindowSizeSeconds = getInt(KafkaConfig.AlterLogDirsReplicationQuotaWindowSizeSecondsProp)
+
+  def newRequestLogFilter(): RequestLogFilter = {
+    val filter = Option(getConfiguredInstance(KafkaConfig.RequestLogFilterClass, classOf[RequestLogFilter]))
+        .getOrElse(RequestLogFilter.MATCH_NONE)
+    addReconfigurable(filter)
+    filter
+  }
 
   /** ********* Transaction Configuration **************/
   val transactionIdExpirationMs = getInt(KafkaConfig.TransactionalIdExpirationMsProp)

@@ -2867,8 +2867,11 @@ class KafkaApis(val requestChannel: RequestChannel,
       case Some(response) =>
         val responseSend = request.context.buildResponse(response)
         val responseString =
-          if (RequestChannel.isRequestLoggingEnabled) Some(response.toString(request.context.apiVersion))
-          else None
+          // We use the request start time when request log filtering only because it's conveniently available.
+          if (request.shouldLogRequest)
+            Some(response.toString(request.context.apiVersion))
+          else
+            None
         new RequestChannel.SendResponse(request, responseSend, responseString, onComplete)
       case None =>
         new RequestChannel.NoOpResponse(request)

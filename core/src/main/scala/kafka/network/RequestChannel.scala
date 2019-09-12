@@ -83,6 +83,7 @@ object RequestChannel extends Logging {
     @volatile var apiRemoteCompleteTimeNanos = -1L
     @volatile var messageConversionsTimeNanos = 0L
     @volatile var temporaryMemoryBytes = 0L
+    @volatile var shouldLogRequest = false
     @volatile var recordNetworkThreadTimeCallback: Option[Long => Unit] = None
 
     val session = Session(context.principal, context.clientAddress)
@@ -179,13 +180,16 @@ object RequestChannel extends Logging {
       // the total time spent on authentication, which may be significant for SASL/SSL.
       recordNetworkThreadTimeCallback.foreach(record => record(networkThreadTimeNanos))
 
-      if (isRequestLoggingEnabled) {
+      if (shouldLogRequest) {
         val detailsEnabled = requestLogger.underlying.isTraceEnabled
-        val responseString = response.responseString.getOrElse(
-          throw new IllegalStateException("responseAsString should always be defined if request logging is enabled"))
         val builder = new StringBuilder(256)
         builder.append("Completed request:").append(requestDesc(detailsEnabled))
-          .append(",response:").append(responseString)
+
+        response.responseString.foreach { responseString =>
+          builder.append(",response:").append(responseString)
+        }
+
+        builder
           .append(" from connection ").append(context.connectionId)
           .append(";totalTime:").append(totalTimeMs)
           .append(",requestQueueTime:").append(requestQueueTimeMs)
@@ -201,7 +205,7 @@ object RequestChannel extends Logging {
           builder.append(",temporaryMemoryBytes:").append(temporaryMemoryBytes)
         if (messageConversionsTimeMs > 0)
           builder.append(",messageConversionsTime:").append(messageConversionsTimeMs)
-        requestLogger.debug(builder.toString)
+        requestLogger.info(builder.toString)
       }
     }
 

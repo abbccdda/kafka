@@ -17,12 +17,11 @@
 package org.apache.kafka.common.config.internals;
 
 import org.apache.kafka.common.network.Mode;
+import org.apache.kafka.common.requests.SamplingRequestLogFilter;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.interceptor.BrokerInterceptor;
 import org.apache.kafka.server.interceptor.DefaultBrokerInterceptor;
 import org.apache.kafka.server.multitenant.MultiTenantMetadata;
-
-import static org.apache.kafka.common.config.ConfluentTopicConfig.CONFLUENT_PREFIX;
 
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -115,6 +114,12 @@ public class ConfluentConfigs {
         + "Invalid values are ignored. This config is ignored if client.quota.callback.class is "
         + "not set, or set to class other than TenantQuotaCallback. In other words, broker"
         + " back-pressure can be enabled for multi-tenant clusters only.";
+
+    public static final String REQUEST_LOG_FILTER_CLASS_CONFIG = CONFLUENT_PREFIX + "request.log.filter.class";
+    public static final String REQUEST_LOG_FILTER_DEFAULT = SamplingRequestLogFilter.class.getName();
+    public static final String REQUEST_LOG_FILTER_CLASS_DOC = "Class of request log filter which can be " +
+            "used to select a subset of requests for logging. Every request handler thread will get a separate " +
+            "instance of this class and is only consulted if the request log level is set to INFO or higher.";
 
     public static BrokerInterceptor buildBrokerInterceptor(Mode mode, Map<String, ?> configs) {
         if (mode == Mode.CLIENT)

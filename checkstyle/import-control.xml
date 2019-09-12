@@ -67,6 +67,7 @@
       <allow pkg="org.apache.kafka.common.network" />
       <allow pkg="org.apache.kafka.server.interceptor" />
       <allow pkg="org.apache.kafka.server.multitenant" />
+      <allow pkg="org.apache.kafka.common.requests" />
       <!-- for testing -->
       <allow pkg="org.apache.kafka.common.metrics" />
     </subpackage>
