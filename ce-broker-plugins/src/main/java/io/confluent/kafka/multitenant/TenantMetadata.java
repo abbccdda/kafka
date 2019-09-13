@@ -54,6 +54,16 @@ public class TenantMetadata {
     return Objects.hash(tenantName, clusterId);
   }
 
+  @Override
+  public String toString() {
+    return "TenantMetadata(" +
+            "tenantName='" + tenantName + "'" +
+            ", clusterId='" + clusterId + "'" +
+            ", allowDescribeBrokerConfigs=" + allowDescribeBrokerConfigs +
+            ", isSuperUser=" + isSuperUser +
+            ")";
+  }
+
   public static class Builder {
     public final String tenantName;
     public final String clusterId;
