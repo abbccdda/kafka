@@ -24,12 +24,11 @@ die() {
 
 # This script must be installed in the .git/hooks directory.
 # It checks for the Confluent-README.md file in the project root directory.
+# If it is, we only allow pushing to ce-kafka repos.
 
 if [[ -e "${DIR}/../../Confluent-README.md" ]]; then
-    if [[ $GIT_REMOTE =~ apache ]] ; then
-        die "FATAL: This appears to be a Confluent branch, but \
-you are attempting to push it to an Apache remote.  \
-Please ensure that you are pushing to the correct \
-git remote."
+    if [[ ! $GIT_REMOTE =~ .*/ce-kafka(\.git|$) ]]; then
+        die "FATAL: Attempt to push to $GIT_REMOTE. Pushing to repos other \
+          than ce-kafka is not permissible."
     fi
 fi
