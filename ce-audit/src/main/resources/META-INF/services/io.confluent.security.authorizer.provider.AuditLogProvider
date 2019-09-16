@@ -1,0 +1,4 @@
+# (Copyright) [2019 - 2019] Confluent, Inc.
+
+io.confluent.security.audit.provider.ConfluentAuditLogProvider
+

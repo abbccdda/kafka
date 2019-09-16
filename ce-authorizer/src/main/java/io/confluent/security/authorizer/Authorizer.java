@@ -2,6 +2,7 @@
 
 package io.confluent.security.authorizer;
 
+import io.confluent.security.authorizer.utils.AuthorizerUtils;
 import java.io.Closeable;
 import java.util.List;
 import org.apache.kafka.common.Configurable;
@@ -29,5 +30,20 @@ public interface Authorizer extends Configurable, Closeable {
    * @return List of authorization results, one for each of the provided actions, in the order
    *         they appear in `actions`.
    */
-  List<AuthorizeResult> authorize(KafkaPrincipal sessionPrincipal, String host, List<Action> actions);
+  default List<AuthorizeResult> authorize(KafkaPrincipal sessionPrincipal, String host, List<Action> actions) {
+    return authorize(AuthorizerUtils.newRequestContext(RequestContext.MDS, sessionPrincipal, host), actions);
+  }
+
+  /**
+   * Performs authorization for each of the provided `actions` and returns the result of each
+   * authorization.
+   *
+   * @param requestContext Request context including principal and additional context for auditing
+   * @param actions        List of actions being authorized including the resource and operation
+   *                       for each action.
+   *
+   * @return List of authorization results, one for each of the provided actions, in the order
+   *         they appear in `actions`.
+   */
+  List<AuthorizeResult> authorize(RequestContext requestContext, List<Action> actions);
 }

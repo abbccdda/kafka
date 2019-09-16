@@ -5,7 +5,7 @@ package io.confluent.security.auth.store.data;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.acl.AclRule;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -15,16 +15,16 @@ import java.util.Set;
 
 public class AclBindingValue extends AuthValue {
 
-  private final Set<AccessRule> accessRules;
+  private final Set<AclRule> aclRules;
 
   @JsonCreator
-  public AclBindingValue(@JsonProperty("accessRules") Collection<AccessRule> accessRules) {
-    this.accessRules = accessRules == null ? Collections.emptySet() : new HashSet<>(accessRules);
+  public AclBindingValue(@JsonProperty("aclRules") Collection<AclRule> aclRules) {
+    this.aclRules = aclRules == null ? Collections.emptySet() : new HashSet<>(aclRules);
   }
 
   @JsonProperty
-  public Collection<AccessRule> accessRules() {
-    return accessRules;
+  public Collection<AclRule> aclRules() {
+    return aclRules;
   }
 
   @JsonIgnore
@@ -47,18 +47,18 @@ public class AclBindingValue extends AuthValue {
 
     AclBindingValue that = (AclBindingValue) o;
 
-    return Objects.equals(accessRules, that.accessRules);
+    return Objects.equals(aclRules, that.aclRules);
   }
 
   @Override
   public int hashCode() {
-    return 31 * super.hashCode() + Objects.hash(accessRules);
+    return 31 * super.hashCode() + Objects.hash(aclRules);
   }
 
   @Override
   public String toString() {
     return "AclBindingValue{" +
-        "accessRules=" + accessRules +
+        "accessRules=" + aclRules +
         '}';
   }
 }

@@ -17,7 +17,7 @@ import io.confluent.security.auth.store.data.AuthKey;
 import io.confluent.security.auth.store.data.AuthValue;
 import io.confluent.security.auth.store.data.RoleBindingKey;
 import io.confluent.security.auth.store.data.RoleBindingValue;
-import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.acl.AclRule;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.authorizer.ResourcePattern;
@@ -616,8 +616,8 @@ public class KafkaAuthWriterTest {
                                   PermissionType permissionType) {
     ResourcePattern resourcePattern = new ResourcePattern("Topic", topic, PatternType.LITERAL);
     KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "username");
-    AccessRule accessRule = new AccessRule(principal, permissionType, "", operation, "");
-    return new AclBinding(ResourcePattern.to(resourcePattern), AccessRule.to(accessRule));
+    AclRule accessRule = new AclRule(principal, permissionType, "", operation);
+    return new AclBinding(ResourcePattern.to(resourcePattern), accessRule.toAccessControlEntry());
   }
 
   private Set<AclBinding> aclRules(Scope scope, AclBindingFilter filter) {

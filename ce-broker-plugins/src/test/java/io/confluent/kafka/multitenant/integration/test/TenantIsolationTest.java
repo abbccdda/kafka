@@ -19,8 +19,8 @@ import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
-import kafka.security.auth.SimpleAclAuthorizer;
-import kafka.security.auth.SimpleAclAuthorizer$;
+import kafka.security.authorizer.AclAuthorizer;
+import kafka.security.authorizer.AclAuthorizer$;
 import kafka.server.KafkaConfig$;
 
 import org.apache.kafka.clients.admin.AdminClient;
@@ -84,8 +84,8 @@ public class TenantIsolationTest {
 
   private Properties brokerProps() throws IOException {
     Properties props = new Properties();
-    props.put(KafkaConfig$.MODULE$.AuthorizerClassNameProp(), SimpleAclAuthorizer.class.getName());
-    props.put(SimpleAclAuthorizer$.MODULE$.AllowEveryoneIfNoAclIsFoundProp(), "true");
+    props.put(KafkaConfig$.MODULE$.AuthorizerClassNameProp(), AclAuthorizer.class.getName());
+    props.put(AclAuthorizer$.MODULE$.AllowEveryoneIfNoAclIsFoundProp(), "true");
     props.put(ConfluentConfigs.MULTITENANT_METADATA_CLASS_CONFIG,
               "io.confluent.kafka.multitenant.PhysicalClusterMetadata");
     props.put(ConfluentConfigs.MULTITENANT_METADATA_DIR_CONFIG,

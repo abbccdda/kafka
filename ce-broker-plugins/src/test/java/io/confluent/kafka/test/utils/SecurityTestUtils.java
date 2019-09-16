@@ -21,12 +21,9 @@ import java.io.File;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 import javax.security.auth.login.Configuration;
 import kafka.admin.ConfigCommand;
-import kafka.security.auth.Acl;
-import kafka.security.auth.Authorizer;
 import kafka.security.auth.Operation;
 import kafka.security.auth.Resource;
 import kafka.server.KafkaServer;
@@ -41,7 +38,6 @@ import org.apache.kafka.common.security.authenticator.LoginManager;
 import org.apache.kafka.common.security.scram.ScramCredential;
 import org.apache.kafka.common.security.scram.internals.ScramMechanism;
 import org.apache.kafka.test.TestUtils;
-import scala.collection.JavaConversions;
 
 public class SecurityTestUtils {
 
@@ -180,19 +176,6 @@ public class SecurityTestUtils {
         "--operation=" + op,
         "--allow-principal=" + principal
     };
-  }
-
-  public static void waitForAclUpdate(Authorizer authorizer, KafkaPrincipal principal, Resource resource,
-      Operation op, boolean deleted) {
-    try {
-      org.apache.kafka.test.TestUtils.waitForCondition(() -> {
-        Set<Acl> acls = JavaConversions.setAsJavaSet(authorizer.getAcls(resource));
-        boolean matches = acls.stream().anyMatch(acl -> acl.operation().equals(op) && acl.principal().equals(principal));
-        return deleted != matches;
-      }, "ACLs not updated");
-    } catch (InterruptedException e) {
-      throw new RuntimeException("Wait was interrupted", e);
-    }
   }
 
   public static void waitForAclUpdate(org.apache.kafka.server.authorizer.Authorizer authorizer, KafkaPrincipal principal, Resource resource,

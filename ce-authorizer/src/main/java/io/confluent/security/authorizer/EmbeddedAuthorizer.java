@@ -2,7 +2,11 @@
 
 package io.confluent.security.authorizer;
 
+import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
+import io.confluent.security.authorizer.AuthorizePolicy.SuperUser;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
+import io.confluent.security.authorizer.provider.AuditLogProvider;
+import io.confluent.security.authorizer.provider.DefaultAuditLogProvider;
 import io.confluent.security.authorizer.provider.MetadataProvider;
 import io.confluent.security.authorizer.provider.Provider;
 import io.confluent.security.authorizer.provider.ProviderFailedException;
@@ -47,6 +51,7 @@ public class EmbeddedAuthorizer implements Authorizer {
   private final Set<Provider> providersCreated;
   private GroupProvider groupProvider;
   private List<AccessRuleProvider> accessRuleProviders;
+  private AuditLogProvider auditLogProvider;
   private ConfluentAuthorizerConfig authorizerConfig;
   private MetadataProvider metadataProvider;
   private boolean allowEveryoneIfNoAcl;
@@ -94,7 +99,8 @@ public class EmbeddedAuthorizer implements Authorizer {
 
     configureProviders(providers.accessRuleProviders,
         providers.groupProvider,
-        providers.metadataProvider);
+        providers.metadataProvider,
+        providers.auditLogProvider);
 
     initTimeout = authorizerConfig.initTimeout;
     if (groupProvider != null && groupProvider.usesMetadataFromThisKafkaCluster())
@@ -107,10 +113,10 @@ public class EmbeddedAuthorizer implements Authorizer {
           metadataProvider != null && metadataProvider.usesMetadataFromThisKafkaCluster();
   }
 
-    @Override
-  public List<AuthorizeResult> authorize(KafkaPrincipal sessionPrincipal, String host, List<Action> actions) {
+  @Override
+  public List<AuthorizeResult> authorize(RequestContext requestContext, List<Action> actions) {
     return  actions.stream()
-        .map(action -> authorize(sessionPrincipal, host, action))
+        .map(action -> authorize(requestContext, action))
         .collect(Collectors.toList());
   }
 
@@ -135,6 +141,14 @@ public class EmbeddedAuthorizer implements Authorizer {
     return metadataProvider;
   }
 
+  protected List<AccessRuleProvider> accessRuleProviders() {
+    return accessRuleProviders;
+  }
+
+  protected AuditLogProvider auditLogProvider() {
+    return auditLogProvider;
+  }
+
   public CompletableFuture<Void> start(Map<String, ?> interBrokerListenerConfigs) {
     ConfluentAuthorizerConfig.Providers providers = authorizerConfig.createProviders(clusterId);
     providersCreated.addAll(providers.accessRuleProviders);
@@ -143,9 +157,8 @@ public class EmbeddedAuthorizer implements Authorizer {
     if (providers.metadataProvider != null)
       providersCreated.add(providers.metadataProvider);
 
-    configureProviders(providers.accessRuleProviders,
-        providers.groupProvider,
-        providers.metadataProvider);
+    configureProviders(providers.accessRuleProviders, providers.groupProvider,
+        providers.metadataProvider, providers.auditLogProvider);
 
     initTimeout = authorizerConfig.initTimeout;
     if (groupProvider != null && groupProvider.usesMetadataFromThisKafkaCluster())
@@ -182,16 +195,14 @@ public class EmbeddedAuthorizer implements Authorizer {
     return future;
   }
 
-  protected List<AccessRuleProvider> accessRuleProviders() {
-    return accessRuleProviders;
-  }
-
   protected void configureProviders(List<AccessRuleProvider> accessRuleProviders,
                                     GroupProvider groupProvider,
-                                    MetadataProvider metadataProvider) {
+                                    MetadataProvider metadataProvider,
+                                    AuditLogProvider auditLogProvider) {
     this.accessRuleProviders = accessRuleProviders;
     this.groupProvider = groupProvider;
     this.metadataProvider = metadataProvider;
+    this.auditLogProvider = auditLogProvider == null ? new DefaultAuditLogProvider() : auditLogProvider;
   }
 
   protected boolean ready() {
@@ -202,13 +213,16 @@ public class EmbeddedAuthorizer implements Authorizer {
     return superUsers.contains(principal);
   }
 
-  private AuthorizeResult authorize(KafkaPrincipal sessionPrincipal, String host, Action action) {
+  private AuthorizeResult authorize(RequestContext requestContext, Action action) {
     try {
-      boolean authorized;
+      AuthorizePolicy authorizePolicy;
+      KafkaPrincipal sessionPrincipal = requestContext.principal();
+      String host = requestContext.clientAddress().getHostAddress();
       KafkaPrincipal userPrincipal = userPrincipal(sessionPrincipal);
+
       if (isSuperUser(userPrincipal, action)) {
         log.debug("principal = {} is a super user, allowing operation without checking any providers.", userPrincipal);
-        authorized = true;
+        authorizePolicy = new SuperUser(PolicyType.SUPER_USER, userPrincipal);
       } else {
         Set<KafkaPrincipal> groupPrincipals = groupProvider.groups(sessionPrincipal);
         Optional<KafkaPrincipal> superGroup = groupPrincipals.stream()
@@ -216,13 +230,15 @@ public class EmbeddedAuthorizer implements Authorizer {
         if (superGroup.isPresent()) {
           log.debug("principal = {} belongs to super group {}, allowing operation without checking acls.",
               userPrincipal, superGroup.get());
-          authorized = true;
+          authorizePolicy = new SuperUser(PolicyType.SUPER_GROUP, superGroup.get());
         } else {
-          authorized = authorize(sessionPrincipal, groupPrincipals, host, action);
+          authorizePolicy = authorize(sessionPrincipal, groupPrincipals, host, action);
         }
       }
-      logAuditMessage(sessionPrincipal, authorized, action.operation(), action.resourcePattern(), host);
-      return authorized ? AuthorizeResult.ALLOWED : AuthorizeResult.DENIED;
+
+      AuthorizeResult authorizeResult = authorizePolicy.policyType().accessGranted() ? AuthorizeResult.ALLOWED : AuthorizeResult.DENIED;
+      logAuditMessage(requestContext, action, authorizeResult, authorizePolicy);
+      return authorizeResult;
 
     } catch (InvalidScopeException e) {
       log.error("Authorizer failed with unknown scope: {}", action.scope(), e);
@@ -236,14 +252,21 @@ public class EmbeddedAuthorizer implements Authorizer {
     }
   }
 
-  private boolean authorize(KafkaPrincipal sessionPrincipal,
+  private AuthorizePolicy authorize(KafkaPrincipal sessionPrincipal,
       Set<KafkaPrincipal> groupPrincipals,
       String host,
       Action action) {
 
+    Scope scope = action.scope();
     if (accessRuleProviders.stream()
-        .anyMatch(p -> p.isSuperUser(sessionPrincipal, groupPrincipals, action.scope()))) {
-      return true;
+        .anyMatch(p -> p.isSuperUser(sessionPrincipal, scope))) {
+      return new SuperUser(PolicyType.SUPER_USER, sessionPrincipal);
+    }
+    Optional<KafkaPrincipal> superGroup = groupPrincipals.stream()
+        .filter(principal -> accessRuleProviders.stream().anyMatch(p -> p.isSuperUser(principal, scope)))
+        .findAny();
+    if (superGroup.isPresent()) {
+      return new SuperUser(PolicyType.SUPER_GROUP, superGroup.get());
     }
 
     ResourcePattern resource = action.resourcePattern();
@@ -251,21 +274,23 @@ public class EmbeddedAuthorizer implements Authorizer {
     Set<AccessRule> rules = new HashSet<>();
     accessRuleProviders.stream()
         .filter(AccessRuleProvider::mayDeny)
-        .forEach(p -> rules.addAll(p.accessRules(sessionPrincipal, groupPrincipals, action.scope(), action.resourcePattern())));
+        .forEach(p -> rules.addAll(p.accessRules(sessionPrincipal, groupPrincipals, scope, action.resourcePattern())));
 
     // Check if there is any Deny acl match that would disallow this operation.
-    if (aclMatch(operation, resource, host, PermissionType.DENY, rules))
-      return false;
+    Optional<AuthorizePolicy> authorizePolicy;
+    if ((authorizePolicy = aclMatch(operation, resource, host, PermissionType.DENY, rules)).isPresent())
+      return authorizePolicy.get();
 
     accessRuleProviders.stream()
         .filter(p -> !p.mayDeny())
-        .forEach(p -> rules.addAll(p.accessRules(sessionPrincipal, groupPrincipals, action.scope(), action.resourcePattern())));
+        .forEach(p -> rules.addAll(p.accessRules(sessionPrincipal, groupPrincipals, scope, action.resourcePattern())));
 
     // Check if there are any Allow ACLs which would allow this operation.
-    if (allowOps(operation).stream().anyMatch(op -> aclMatch(op, resource, host, PermissionType.ALLOW, rules)))
-      return true;
+    authorizePolicy = allowOps(operation).stream()
+        .flatMap(op -> aclMatch(op, resource, host, PermissionType.ALLOW, rules).map(Stream::of).orElse(Stream.empty()))
+        .findAny();
 
-    return isEmptyAclAndAuthorized(resource, rules);
+    return authorizePolicy.orElse(authorizePolicyWithNoMatchingRule(resource, rules));
   }
 
   @Override
@@ -283,28 +308,29 @@ public class EmbeddedAuthorizer implements Authorizer {
     return scope;
   }
 
-  private boolean aclMatch(Operation op,
-      ResourcePattern resource,
-      String host, PermissionType permissionType,
-      Collection<AccessRule> permissions) {
-    for (AccessRule acl : permissions) {
-      if (acl.permissionType().equals(permissionType)
-          && (op.equals(acl.operation()) || acl.operation().equals(Operation.ALL))
-          && (acl.host().equals(host) || acl.host().equals(AccessRule.ALL_HOSTS))) {
-        log.debug("operation = {} on resource = {} from host = {} is {} based on acl = {}",
-            op, resource, host, permissionType, acl.sourceDescription());
-        return true;
+  private Optional<AuthorizePolicy> aclMatch(Operation op,
+                                             ResourcePattern resource,
+                                             String host, PermissionType permissionType,
+                                             Collection<AccessRule> rules) {
+    for (AccessRule rule : rules) {
+      if (rule.permissionType().equals(permissionType)
+          && (op.equals(rule.operation()) || rule.operation().equals(Operation.ALL))
+          && (rule.host().equals(host) || rule.host().equals(AccessRule.ALL_HOSTS))) {
+        AuthorizePolicy policy = rule.toAuthorizePolicy();
+        log.debug("operation = {} on resource = {} from host = {} is {} based on policy = {}",
+            op, resource, host, permissionType, policy);
+        return Optional.of(policy);
       }
     }
-    return false;
+    return Optional.empty();
   }
 
-  private boolean isEmptyAclAndAuthorized(ResourcePattern resource, Set<AccessRule> acls) {
+  private AuthorizePolicy authorizePolicyWithNoMatchingRule(ResourcePattern resource, Set<AccessRule> acls) {
     if (acls.isEmpty()) {
       log.debug("No acl found for resource {}, authorized = {}", resource, allowEveryoneIfNoAcl);
-      return allowEveryoneIfNoAcl;
+      return allowEveryoneIfNoAcl ? AuthorizePolicy.ALLOW_ON_NO_RULE : AuthorizePolicy.DENY_ON_NO_RULE;
     } else {
-      return false;
+      return AuthorizePolicy.NO_MATCHING_RULE;
     }
   }
 
@@ -314,26 +340,11 @@ public class EmbeddedAuthorizer implements Authorizer {
         : sessionPrincipal;
   }
 
-  /**
-   * Log using the same format as SimpleAclAuthorizer:
-   * <pre>
-   *  def logMessage: String = {
-   *    val authResult = if (authorized) "Allowed" else "Denied"
-   *    s"Principal = $principal is $authResult Operation = $operation from host = $host on
-   * resource
-   * = $resource"
-   *  }
-   * </pre>
-   */
-  private void logAuditMessage(KafkaPrincipal principal, boolean authorized,
-      Operation op,
-      ResourcePattern resource, String host) {
-    String logMessage = "Principal = {} is {} Operation = {} from host = {} on resource = {}";
-    if (authorized) {
-      log.debug(logMessage, principal, "Allowed", op, host, resource);
-    } else {
-      log.info(logMessage, principal, "Denied", op, host, resource);
-    }
+  private void logAuditMessage(RequestContext requestContext,
+                               Action action,
+                               AuthorizeResult authorizeResult,
+                               AuthorizePolicy authorizePolicy) {
+    auditLogProvider.log(requestContext, action, authorizeResult, authorizePolicy);
   }
 
   // Allowing read, write, delete, or alter implies allowing describe.

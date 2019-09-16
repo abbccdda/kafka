@@ -19,6 +19,8 @@ import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
+import io.confluent.security.authorizer.provider.AuditLogProvider;
+import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import io.confluent.security.authorizer.provider.GroupProvider;
 import io.confluent.security.authorizer.provider.MetadataProvider;
@@ -176,8 +178,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   }
 
   @Override
-  public boolean isSuperUser(KafkaPrincipal sessionPrincipal,
-                             Set<KafkaPrincipal> groupPrincipals,
+  public boolean isSuperUser(KafkaPrincipal principal,
                              Scope scope) {
     return false; // All roles are handled using access rules from the policy
   }
@@ -267,7 +268,9 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
 
   private class RbacAuthorizer extends EmbeddedAuthorizer {
     RbacAuthorizer() {
-      configureProviders(Collections.singletonList(RbacProvider.this), RbacProvider.this, null);
+      AuditLogProvider auditLogProvider =
+          ConfluentBuiltInProviders.loadAuditLogProvider(RbacProvider.this.configs);
+      configureProviders(Collections.singletonList(RbacProvider.this), RbacProvider.this, null, auditLogProvider);
     }
 
     /**

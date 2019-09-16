@@ -15,16 +15,15 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal;
 public interface AccessRuleProvider extends Provider {
 
   /**
-   * Returns true if either the session's user principal or one of the provided group
-   * principals is a super user. All operations are authorized for super-users without
-   * checking any access rules.
+   * Returns true if the provided principal is a super user. All operations are authorized
+   * for super-users without checking any access rules.
    *
-   * @param sessionPrincipal User principal from the Session
-   * @param groupPrincipals List of group principals of the user, which may be empty
+   * @param principal User principal from the Session or the group principal of a group that
+   *                  the user belongs to.
    * @param scope Scope of resource being access
    * @return true if super-user or super-group
    */
-  boolean isSuperUser(KafkaPrincipal sessionPrincipal, Set<KafkaPrincipal> groupPrincipals, Scope scope);
+  boolean isSuperUser(KafkaPrincipal principal, Scope scope);
 
   /**
    * Returns the set of access rules for the user and group principals that match the provided

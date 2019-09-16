@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
 import kafka.network.RequestChannel.Session;
 import kafka.security.auth.Operation;
@@ -34,6 +35,7 @@ import kafka.server.KafkaConfig$;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.Reconfigurable;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.config.AbstractConfig;
@@ -52,7 +54,8 @@ import org.apache.kafka.server.authorizer.AuthorizationResult;
 import org.apache.kafka.server.authorizer.Authorizer;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 
-public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Authorizer {
+public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Authorizer,
+    Reconfigurable {
 
   private static final Set<String> UNSCOPED_PROVIDERS =
       Utils.mkSet(AccessRuleProviders.ACL.name(), AccessRuleProviders.MULTI_TENANT.name());
@@ -83,6 +86,26 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
     this.configs = new HashMap<>(configs);
   }
 
+  @Override
+  public Set<String> reconfigurableConfigs() {
+    if (auditLogProvider() != null)
+      return auditLogProvider().reconfigurableConfigs();
+    else
+      return Collections.emptySet();
+  }
+
+  @Override
+  public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
+    if (auditLogProvider() != null)
+      auditLogProvider().validateReconfiguration(configs);
+  }
+
+  @Override
+  public void reconfigure(Map<String, ?> configs) {
+    if (auditLogProvider() != null)
+      auditLogProvider().reconfigure(configs);
+  }
+
   // Visibility for tests
   public void configureServerInfo(AuthorizerServerInfo serverInfo) {
     super.configureServerInfo(serverInfo);
@@ -109,7 +132,7 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
   }
 
   @Override
-  public Map<Endpoint, CompletableFuture<Void>> start(AuthorizerServerInfo serverInfo) {
+  public Map<Endpoint, ? extends CompletionStage<Void>> start(AuthorizerServerInfo serverInfo) {
     configureServerInfo(serverInfo);
     CompletableFuture<Void> startFuture = super.start(interBrokerClientConfigs(serverInfo));
 
@@ -137,14 +160,14 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
   }
 
   @Override
-  public List<AclCreateResult> createAcls(AuthorizableRequestContext requestContext,
-                                          List<AclBinding> aclBindings) {
+  public List<? extends CompletionStage<AclCreateResult>> createAcls(
+      AuthorizableRequestContext requestContext, List<AclBinding> aclBindings) {
     return aclAuthorizer.createAcls(requestContext, aclBindings);
   }
 
   @Override
-  public List<AclDeleteResult> deleteAcls(AuthorizableRequestContext requestContext,
-                                          List<AclBindingFilter> aclBindingFilters) {
+  public List<? extends CompletionStage<AclDeleteResult>> deleteAcls(
+      AuthorizableRequestContext requestContext, List<AclBindingFilter> aclBindingFilters) {
     return aclAuthorizer.deleteAcls(requestContext, aclBindingFilters);
   }
 
@@ -167,7 +190,9 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
                                AclMapper.operation(operation));
     String host = requestContext.clientAddress().getHostAddress();
 
-    List<AuthorizeResult> result = super.authorize(requestContext.principal(), host, Collections.singletonList(action));
+    List<AuthorizeResult> result = super.authorize(
+        io.confluent.security.authorizer.utils.AuthorizerUtils.kafkaRequestContext(requestContext),
+        Collections.singletonList(action));
     return result.get(0) == AuthorizeResult.ALLOWED;
   }
 
@@ -240,6 +265,8 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
         needsLicense = true;
       if (metadataProvider() != null && metadataProvider().needsLicense())
         needsLicense = true;
+      if (auditLogProvider() != null && auditLogProvider().needsLicense())
+        needsLicense = true;
       if (needsLicense)
         licenseValidator = new ConfluentLicenseValidator(time);
       else
@@ -310,14 +337,14 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
     }
 
     @Override
-    public List<AclCreateResult> createAcls(AuthorizableRequestContext requestContext,
-        List<AclBinding> aclBindings) {
+    public List<? extends CompletionStage<AclCreateResult>> createAcls(
+        AuthorizableRequestContext requestContext, List<AclBinding> aclBindings) {
       throw EXCEPTION;
     }
 
     @Override
-    public List<AclDeleteResult> deleteAcls(AuthorizableRequestContext requestContext,
-        List<AclBindingFilter> aclBindingFilters) {
+    public List<? extends CompletionStage<AclDeleteResult>> deleteAcls(
+        AuthorizableRequestContext requestContext, List<AclBindingFilter> aclBindingFilters) {
       throw EXCEPTION;
     }
 

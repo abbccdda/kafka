@@ -19,7 +19,7 @@ public class SuperUserProvider implements AccessRuleProvider {
   }
 
   @Override
-  public boolean isSuperUser(KafkaPrincipal sessionPrincipal, Set<KafkaPrincipal> groupPrincipals, Scope scope) {
+  public boolean isSuperUser(KafkaPrincipal principal, Scope scope) {
     return true;
   }
 

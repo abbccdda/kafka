@@ -20,7 +20,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
 import kafka.admin.AclCommand;
@@ -293,7 +292,8 @@ public class LdapAuthorizerTest {
 
   private void configureLdapAuthorizer() throws Exception {
     ldapAuthorizer.configure(authorizerConfig);
-    ldapAuthorizer.start(KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL)).values().forEach(CompletableFuture::join);
+    ldapAuthorizer.start(KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL)).values()
+        .forEach(stage -> stage.toCompletableFuture().join());
   }
 
   private void verifyAuthorizer() throws Exception {
@@ -307,7 +307,8 @@ public class LdapAuthorizerTest {
   private void verifyAuthorizerLicenseFailure() {
     ldapAuthorizer.configure(authorizerConfig);
     try {
-      ldapAuthorizer.start(KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL)).values().forEach(CompletableFuture::join);
+      ldapAuthorizer.start(KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL)).values()
+          .forEach(stage -> stage.toCompletableFuture().join());
     } catch (Exception e) {
       Throwable cause = e.getCause();
       while (cause != null && !(cause instanceof InvalidLicenseException)) {

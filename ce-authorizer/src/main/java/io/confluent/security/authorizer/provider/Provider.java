@@ -9,7 +9,7 @@ import java.util.concurrent.CompletionStage;
 import org.apache.kafka.common.Configurable;
 
 /**
- * Interface used by providers of user to group mapping used for authorization.
+ * Interface used by providers used for authorization.
  */
 public interface Provider extends Configurable, Closeable {
 

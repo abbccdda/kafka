@@ -35,11 +35,10 @@ public class TestAccessRuleProvider implements AccessRuleProvider {
 
 
   @Override
-  public boolean isSuperUser(KafkaPrincipal sessionPrincipal,
-                             Set<KafkaPrincipal> groupPrincipals,
+  public boolean isSuperUser(KafkaPrincipal principal,
                              Scope scope) {
     validate(scope);
-    return superUsers.contains(sessionPrincipal) || groupPrincipals.stream().anyMatch(superUsers::contains);
+    return superUsers.contains(principal);
   }
 
   @Override

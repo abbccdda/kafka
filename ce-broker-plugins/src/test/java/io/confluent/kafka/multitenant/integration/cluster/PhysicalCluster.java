@@ -15,7 +15,7 @@ import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import kafka.security.auth.SimpleAclAuthorizer$;
+import kafka.security.authorizer.AclAuthorizer$;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.common.config.internals.BrokerSecurityConfigs;
 import org.apache.kafka.common.security.auth.AuthenticationContext;
@@ -80,7 +80,7 @@ public class PhysicalCluster {
     instance = this;
     kafkaCluster.startZooKeeper();
 
-    overrideProps.setProperty(SimpleAclAuthorizer$.MODULE$.SuperUsersProp(),
+    overrideProps.setProperty(AclAuthorizer$.MODULE$.SuperUsersProp(),
         BROKER_PRINCIPAL.toString());
     kafkaCluster.startBrokers(numberOfBrokers, KafkaTestUtils.brokerConfig(overrideProps));
   }

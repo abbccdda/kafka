@@ -22,6 +22,7 @@ import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.acl.AclRule;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.rbac.RbacRoles;
 
@@ -66,16 +67,16 @@ public class RbacProviderTest {
     Set<KafkaPrincipal> groups = Collections.emptySet();
 
     updateRoleBinding(alice, "SystemAdmin", clusterA, null);
-    assertFalse(rbacProvider.isSuperUser(alice, groups, clusterA));
+    assertFalse(rbacProvider.isSuperUser(alice, clusterA));
     verifyRules(accessRules(alice, groups, clusterResource), "All");
     verifyRules(accessRules(alice, groups, topic), "All");
 
     // Delete non-existing role
     deleteRoleBinding(alice, "SystemAdmin", clusterB);
-    assertFalse(rbacProvider.isSuperUser(alice, groups, clusterA));
+    assertFalse(rbacProvider.isSuperUser(alice, clusterA));
 
     deleteRoleBinding(alice, "SystemAdmin", clusterA);
-    assertFalse(rbacProvider.isSuperUser(alice, groups, clusterA));
+    assertFalse(rbacProvider.isSuperUser(alice, clusterA));
   }
 
   @Test
@@ -85,14 +86,14 @@ public class RbacProviderTest {
     Set<KafkaPrincipal> groups = Collections.singleton(admin);
 
     updateRoleBinding(admin, "SystemAdmin", clusterA, Collections.emptySet());
-    assertFalse(rbacProvider.isSuperUser(alice, groups, clusterA));
+    assertFalse(rbacProvider.isSuperUser(alice, clusterA));
+    assertFalse(rbacProvider.isSuperUser(admin, clusterA));
     verifyRules(accessRules(alice, groups, clusterResource), "All");
     verifyRules(accessRules(alice, groups, topic), "All");
 
-    assertFalse(rbacProvider.isSuperUser(alice, Collections.emptySet(), clusterA));
-
     deleteRoleBinding(admin, "SystemAdmin", clusterA);
-    assertFalse(rbacProvider.isSuperUser(alice, groups, clusterA));
+    assertFalse(rbacProvider.isSuperUser(alice, clusterA));
+    assertFalse(rbacProvider.isSuperUser(admin, clusterA));
 
   }
 
@@ -119,7 +120,7 @@ public class RbacProviderTest {
     verifyAccess(authorizer, admin, metadataCluster, topic.resourceType(), alterAccess, AuthorizeResult.ALLOWED);
     verifyAccess(authorizer, admin, otherCluster, topic.resourceType(), alterAccess, AuthorizeResult.ALLOWED);
 
-    // Super user roles have access to all resources within the role binding scope
+    // SystemAdmin role has access to all resources within the role binding scope
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
     updateRoleBinding(alice, "SystemAdmin", metadataCluster, Collections.emptySet());
     verifyAccess(authorizer, alice, metadataCluster, RbacProvider.SECURITY_METADATA, alter, AuthorizeResult.ALLOWED);
@@ -392,17 +393,17 @@ public class RbacProviderTest {
     Set<KafkaPrincipal> groups = Collections.singleton(admin);
     Set<KafkaPrincipal> emptyGroups = Collections.emptySet();
 
-    List<AccessRule> accessRules = new LinkedList<>();
-    accessRules.add(new AccessRule(alice, PermissionType.ALLOW, "", new Operation("Read"), ""));
+    List<AclRule> accessRules = new LinkedList<>();
+    accessRules.add(new AclRule(alice, PermissionType.ALLOW, "", new Operation("Read")));
     updateAclBinding(clusterA, resourcePattern, accessRules);
     verifyRules(accessRules(alice, emptyGroups, clusterResource));
     verifyRules(accessRules(alice, emptyGroups, topic), "Read");
 
-    accessRules.add(new AccessRule(admin, PermissionType.ALLOW, "", new Operation("Write"), ""));
+    accessRules.add(new AclRule(admin, PermissionType.ALLOW, "", new Operation("Write")));
     updateAclBinding(clusterA, resourcePattern, accessRules);
     verifyRules(accessRules(alice, groups, topic),  "Write", "Read");
 
-    accessRules.add(new AccessRule(alice, PermissionType.ALLOW, "", new Operation("Write"), ""));
+    accessRules.add(new AclRule(alice, PermissionType.ALLOW, "", new Operation("Write")));
     updateAclBinding(clusterA, resourcePattern, accessRules);
     verifyRules(accessRules(alice, emptyGroups, topic), "Write", "Read");
 
@@ -412,7 +413,7 @@ public class RbacProviderTest {
 
   private void updateAclBinding(Scope scope,
                                 ResourcePattern resourcePattern,
-                                List<AccessRule> accessRule) {
+                                List<AclRule> accessRule) {
     AclBindingKey key = new AclBindingKey(resourcePattern, scope);
     AclBindingValue value = new AclBindingValue(accessRule);
     authCache.put(key, value);

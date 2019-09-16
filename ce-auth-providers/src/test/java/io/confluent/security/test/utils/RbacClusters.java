@@ -24,6 +24,7 @@ import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.acl.AclRule;
 import io.confluent.security.minikdc.MiniKdcWithLdapService;
 import io.confluent.security.store.kafka.KafkaStoreConfig;
 import java.net.URL;
@@ -151,9 +152,9 @@ public class RbacClusters {
                                    String clusterId,
                                    ResourcePattern resourcePattern,
                                    PermissionType permissionType) throws Exception {
-    AccessRule accessRule =  new AccessRule(principal, permissionType, "*",
-        new Operation(operation), "test");
-    AclBinding aclBinding = new AclBinding(ResourcePattern.to(resourcePattern), AccessRule.to(accessRule));
+    AclRule accessRule =  new AclRule(principal, permissionType, "*",
+        new Operation(operation));
+    AclBinding aclBinding = new AclBinding(ResourcePattern.to(resourcePattern), accessRule.toAccessControlEntry());
 
     masterWriter().createAcls(Scope.kafkaClusterScope(clusterId), aclBinding)
         .toCompletableFuture().get(30, TimeUnit.SECONDS);
@@ -335,6 +336,7 @@ public class RbacClusters {
     if (config.enableTokenLogin) {
       attachTokenListener(serverConfig, config.publicKey);
     }
+    serverConfig.putAll(config.serverConfigOverrides);
 
     return serverConfig;
   }
@@ -400,6 +402,7 @@ public class RbacClusters {
 
   public static class Config {
     private final Properties metadataClusterPropOverrides = new Properties();
+    private final Properties serverConfigOverrides = new Properties();
     private int numMetadataServers = 1;
     private String brokerUser;
     private List<String> userNames;
@@ -444,6 +447,11 @@ public class RbacClusters {
 
     public Config overrideMetadataBrokerConfig(String name, String value) {
       metadataClusterPropOverrides.setProperty(name, value);
+      return this;
+    }
+
+    public Config overrideBrokerConfig(String name, String value) {
+      serverConfigOverrides.setProperty(name, value);
       return this;
     }
   }

@@ -9,7 +9,9 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.provider.ProviderFailedException;
+import io.confluent.security.authorizer.utils.AuthorizerUtils;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collection;
@@ -66,39 +68,41 @@ public class EmbeddedAuthorizerTest {
 
     TestGroupProvider.groups.remove(principal);
     List<AuthorizeResult> result =
-        authorizer.authorize(principal, "localhost", Arrays.asList(action("Write"), action("Read"), action("Alter")));
+        authorizer.authorize(requestContext(principal, "127.0.0.1"), Arrays.asList(action("Write"), action("Read"), action("Alter")));
     assertEquals(Arrays.asList(AuthorizeResult.DENIED, AuthorizeResult.DENIED, AuthorizeResult.DENIED), result);
   }
 
   private void verifyAccessRules(KafkaPrincipal userPrincipal, KafkaPrincipal rulePrincipal) {
 
+    RequestContext requestContext = requestContext(userPrincipal, "127.0.0.1");
     Action write = action("Write");
     List<AuthorizeResult> result;
-    result = authorizer.authorize(userPrincipal, "localhost", Collections.singletonList(write));
+    result = authorizer.authorize(requestContext, Collections.singletonList(write));
     assertEquals(Collections.singletonList(AuthorizeResult.DENIED), result);
 
     Action read = action("Read");
-    result = authorizer.authorize(userPrincipal, "localhost", Arrays.asList(read, write));
+    result = authorizer.authorize(requestContext, Arrays.asList(read, write));
     assertEquals(Arrays.asList(AuthorizeResult.DENIED, AuthorizeResult.DENIED), result);
 
+    PolicyType policyType = PolicyType.ALLOW_ROLE;
     Set<AccessRule> topicRules = new HashSet<>();
     TestAccessRuleProvider.accessRules.put(topic, topicRules);
-    topicRules.add(new AccessRule(rulePrincipal, PermissionType.ALLOW, "localhost", read.operation(), ""));
+    topicRules.add(new AccessRule(topic, rulePrincipal, PermissionType.ALLOW, "127.0.0.1", read.operation(), policyType, ""));
 
-    result = authorizer.authorize(userPrincipal, "localhost", Arrays.asList(read, write));
+    result = authorizer.authorize(requestContext, Arrays.asList(read, write));
     assertEquals(Arrays.asList(AuthorizeResult.ALLOWED, AuthorizeResult.DENIED), result);
-    result = authorizer.authorize(userPrincipal, "localhost", Arrays.asList(write, read));
+    result = authorizer.authorize(requestContext, Arrays.asList(write, read));
     assertEquals(Arrays.asList(AuthorizeResult.DENIED, AuthorizeResult.ALLOWED), result);
 
-    topicRules.add(new AccessRule(rulePrincipal, PermissionType.ALLOW, "localhost", write.operation(), ""));
-    result = authorizer.authorize(userPrincipal, "localhost", Arrays.asList(write, read));
+    topicRules.add(new AccessRule(topic, rulePrincipal, PermissionType.ALLOW, "127.0.0.1", write.operation(), policyType, ""));
+    result = authorizer.authorize(requestContext, Arrays.asList(write, read));
     assertEquals(Arrays.asList(AuthorizeResult.ALLOWED, AuthorizeResult.ALLOWED), result);
 
     Action alter = action("Alter");
-    result = authorizer.authorize(userPrincipal, "localhost", Arrays.asList(write, read, alter));
+    result = authorizer.authorize(requestContext, Arrays.asList(write, read, alter));
     assertEquals(Arrays.asList(AuthorizeResult.ALLOWED, AuthorizeResult.ALLOWED, AuthorizeResult.DENIED), result);
     TestAccessRuleProvider.superUsers.add(rulePrincipal);
-    result = authorizer.authorize(userPrincipal, "localhost", Arrays.asList(write, read, alter));
+    result = authorizer.authorize(requestContext, Arrays.asList(write, read, alter));
     assertEquals(Arrays.asList(AuthorizeResult.ALLOWED, AuthorizeResult.ALLOWED, AuthorizeResult.ALLOWED), result);
   }
 
@@ -126,11 +130,11 @@ public class EmbeddedAuthorizerTest {
   private void verifyProviderFailure(AuthorizeResult expectedResult) {
     Action write = action("Write");
     List<AuthorizeResult> result;
-    result = authorizer.authorize(principal, "localhost", Collections.singletonList(write));
+    result = authorizer.authorize(requestContext(principal, "127.0.0.1"), Collections.singletonList(write));
     assertEquals(Collections.singletonList(expectedResult), result);
 
     TestAccessRuleProvider.superUsers.add(principal);
-    result = authorizer.authorize(principal, "localhost", Collections.singletonList(write));
+    result = authorizer.authorize(requestContext(principal, "127.0.0.1"), Collections.singletonList(write));
     assertEquals(Collections.singletonList(expectedResult), result);
   }
 
@@ -140,11 +144,11 @@ public class EmbeddedAuthorizerTest {
 
     Action write = new Action(Scope.kafkaClusterScope("someScope"), topic.resourceType(), topic.name(), new Operation("Write"));
     List<AuthorizeResult> result;
-    result = authorizer.authorize(principal, "localhost", Collections.singletonList(write));
+    result = authorizer.authorize(requestContext(principal, "127.0.0.1"), Collections.singletonList(write));
     assertEquals(Collections.singletonList(AuthorizeResult.UNKNOWN_SCOPE), result);
 
     TestAccessRuleProvider.superUsers.add(principal);
-    result = authorizer.authorize(principal, "localhost", Collections.singletonList(write));
+    result = authorizer.authorize(requestContext(principal, "127.0.0.1"), Collections.singletonList(write));
     assertEquals(Collections.singletonList(AuthorizeResult.UNKNOWN_SCOPE), result);
   }
 
@@ -295,7 +299,7 @@ public class EmbeddedAuthorizerTest {
   }
 
   private AuthorizerServerInfo serverInfo(String clusterId) {
-    Endpoint endpoint = new Endpoint("PLAINTEXT", SecurityProtocol.PLAINTEXT, "localhost", 9092);
+    Endpoint endpoint = new Endpoint("PLAINTEXT", SecurityProtocol.PLAINTEXT, "127.0.0.1", 9092);
     return new AuthorizerServerInfo() {
       @Override
       public ClusterResource clusterResource() {
@@ -317,5 +321,9 @@ public class EmbeddedAuthorizerTest {
         return endpoint;
       }
     };
+  }
+
+  private RequestContext requestContext(KafkaPrincipal principal, String host) {
+    return AuthorizerUtils.newRequestContext(RequestContext.KAFKA, principal, host);
   }
 }

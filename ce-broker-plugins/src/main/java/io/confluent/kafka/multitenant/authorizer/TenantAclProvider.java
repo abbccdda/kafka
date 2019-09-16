@@ -73,11 +73,9 @@ public class TenantAclProvider extends AclProvider {
   }
 
   @Override
-  public boolean isSuperUser(KafkaPrincipal sessionPrincipal,
-                             Set<KafkaPrincipal> groupPrincipals,
+  public boolean isSuperUser(KafkaPrincipal principal,
                              Scope scope) {
-    return authorizationDisabled || super.isSuperUser(sessionPrincipal, groupPrincipals, scope)
-      || isSuperUser(sessionPrincipal) || groupPrincipals.stream().anyMatch(this::isSuperUser);
+    return authorizationDisabled || super.isSuperUser(principal, scope) || isSuperUser(principal);
   }
 
   @Override

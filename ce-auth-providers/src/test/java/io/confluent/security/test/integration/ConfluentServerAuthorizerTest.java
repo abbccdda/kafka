@@ -2,28 +2,48 @@
 
 package io.confluent.security.test.integration;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.KafkaTestUtils.ClientBuilder;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
+import io.confluent.security.auth.provider.audit.MockAuditLogProvider;
+import io.confluent.security.auth.provider.audit.MockAuditLogProvider.AuditLogEntry;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.auth.provider.ldap.LdapConfig;
+import io.confluent.security.authorizer.AuthorizePolicy;
+import io.confluent.security.authorizer.AuthorizePolicy.AccessRulePolicy;
+import io.confluent.security.authorizer.AuthorizePolicy.NoMatchingRule;
+import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
+import io.confluent.security.authorizer.AuthorizePolicy.SuperUser;
+import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.PermissionType;
+import io.confluent.security.rbac.RoleBinding;
 import io.confluent.security.test.utils.LdapTestUtils;
 import io.confluent.security.test.utils.RbacClusters;
 import io.confluent.security.test.utils.RbacTestUtils;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Queue;
+import java.util.concurrent.ExecutionException;
 import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.AlterConfigOp;
+import org.apache.kafka.clients.admin.AlterConfigOp.OpType;
+import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
+import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.errors.AuthorizationException;
+import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourcePattern;
 import org.apache.kafka.common.resource.ResourceType;
@@ -266,6 +286,111 @@ public class ConfluentServerAuthorizerTest {
           new io.confluent.security.authorizer.ResourcePattern("Topic", "app2", PatternType.PREFIXED),
           PermissionType.DENY);
       waitForAccess(adminClient, APP2_TOPIC, false);
+    }
+  }
+
+  @Test
+  public void testAuditLog() throws Throwable {
+    rbacConfig = rbacConfig.withLdapGroups()
+        .overrideBrokerConfig(MockAuditLogProvider.AUDIT_LOG_SIZE_CONFIG, "10000");
+    rbacClusters = new RbacClusters(rbacConfig);
+    initializeRbacClusters();
+
+    // Verify inter-broker logs
+    verifyAuditLogEntry(BROKER_USER, "kafka-cluster", "ClusterAction",
+        AuthorizeResult.ALLOWED, PolicyType.SUPER_USER);
+
+    // Verify RBAC authorization logs
+    rbacClusters.produceConsume(RESOURCE_OWNER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
+    verifyAuditLogEntry(RESOURCE_OWNER1, APP1_TOPIC, "Write",
+        AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE);
+
+    // Verify deny logs
+    rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, false);
+    verifyAuditLogEntry(DEVELOPER1, APP1_TOPIC, "Describe",
+        AuthorizeResult.DENIED, PolicyType.DENY_ON_NO_RULE);
+
+    // Verify ZK-based ACL logs
+    addAcls(KafkaPrincipal.USER_TYPE, DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, PatternType.LITERAL);
+    rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
+    verifyAuditLogEntry(DEVELOPER1, APP1_TOPIC, "Write",
+        AuthorizeResult.ALLOWED, PolicyType.ALLOW_ACL);
+
+    // Verify centralized ACL logs
+    KafkaPrincipal dev1Principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, DEVELOPER1);
+    String app3Group = "app3-consumer-group";
+    rbacClusters.createCentralizedAcl(dev1Principal, "Read", clusterId,
+        new io.confluent.security.authorizer.ResourcePattern("Topic", APP2_TOPIC, PatternType.LITERAL), PermissionType.ALLOW);
+    rbacClusters.createCentralizedAcl(dev1Principal, "Read", clusterId,
+        new io.confluent.security.authorizer.ResourcePattern("Group", app3Group, PatternType.LITERAL), PermissionType.ALLOW);
+    rbacClusters.createCentralizedAcl(dev1Principal, "Write", clusterId,
+        new io.confluent.security.authorizer.ResourcePattern("Topic", APP2_TOPIC, PatternType.LITERAL), PermissionType.ALLOW);
+    rbacClusters.produceConsume(DEVELOPER1, APP2_TOPIC, app3Group, true);
+    verifyAuditLogEntry(DEVELOPER1, app3Group, "Read",
+        AuthorizeResult.ALLOWED, PolicyType.ALLOW_ACL);
+
+    ClientBuilder clientBuilder = rbacClusters.clientBuilder(BROKER_USER);
+    try (AdminClient adminClient = clientBuilder.buildAdminClient()) {
+      ConfigResource broker = new ConfigResource(ConfigResource.Type.BROKER,
+          String.valueOf(rbacClusters.kafkaCluster.brokers().get(0).config().brokerId()));
+
+      // Verify provider reconfiguration
+      ConfigEntry entry = new ConfigEntry(MockAuditLogProvider.AUDIT_LOG_SIZE_CONFIG, "20000");
+      Collection<AlterConfigOp> configs = Collections.singleton(new AlterConfigOp(entry, OpType.SET));
+      adminClient.incrementalAlterConfigs(Collections.singletonMap(broker, configs)).all().get();
+      TestUtils.waitForCondition(() -> MockAuditLogProvider.logSize == 20000, "Custom config not updated");
+
+      // Verify that invalid reconfiguration fails
+      ConfigEntry invalidEntry = new ConfigEntry(MockAuditLogProvider.AUDIT_LOG_SIZE_CONFIG, "invalid");
+      Collection<AlterConfigOp> invalidConfigs = Collections.singleton(new AlterConfigOp(invalidEntry, OpType.SET));
+      ExecutionException e = assertThrows(ExecutionException.class, () ->
+          adminClient.incrementalAlterConfigs(Collections.singletonMap(broker, invalidConfigs)).all().get());
+      assertTrue("Unexpected exception " + e.getCause(), e.getCause() instanceof InvalidRequestException);
+    }
+  }
+
+  private void verifyAuditLogEntry(String userName,
+      String resourceName,
+      String operation,
+      AuthorizeResult result,
+      PolicyType policyType) {
+    Queue<AuditLogEntry> entries = MockAuditLogProvider.AUDIT_LOG;
+    assertFalse("No audit log entries", entries.isEmpty());
+    boolean hasEntry = entries.stream().anyMatch(e -> e.requestContext.principal().getName().equals(userName) &&
+        e.action.resourceName().equals(resourceName) &&
+        e.action.operation().name().equals(operation) &&
+        e.authorizeResult == result &&
+        e.authorizePolicy.policyType() == policyType);
+    assertTrue("Entry not found for " + policyType + ", logs=" + entries, hasEntry);
+    entries.forEach(this::verifyAuditLogEntry);
+  }
+
+  private void verifyAuditLogEntry(AuditLogEntry entry) {
+    AuthorizePolicy policy = entry.authorizePolicy;
+    switch (policy.policyType()) {
+      case SUPER_USER:
+      case SUPER_GROUP:
+        assertTrue("Unexpected policy " + policy, policy instanceof SuperUser);
+        assertNotNull(((SuperUser) policy).principal());
+        break;
+      case NO_MATCHING_RULE:
+      case ALLOW_ON_NO_RULE:
+      case DENY_ON_NO_RULE:
+        assertTrue("Unexpected policy " + policy, policy instanceof NoMatchingRule);
+        break;
+      case ALLOW_ACL:
+      case DENY_ACL:
+        assertTrue("Unexpected policy " + policy, policy instanceof AccessRulePolicy);
+        AccessRulePolicy aclRule = (AccessRulePolicy) policy;
+        assertTrue("Unexpected source " + aclRule.sourceMetadata(), aclRule.sourceMetadata() instanceof AclBinding);
+        break;
+      case ALLOW_ROLE:
+        assertTrue("Unexpected policy " + policy, policy instanceof AccessRulePolicy);
+        AccessRulePolicy rbacRule = (AccessRulePolicy) policy;
+        assertTrue("Unexpected source " + rbacRule.sourceMetadata(), rbacRule.sourceMetadata() instanceof RoleBinding);
+        break;
+      default:
+          fail("Unexpected authorize policy in audit log entry: " + policy);
     }
   }
 }

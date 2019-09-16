@@ -78,6 +78,16 @@ public class ConfluentBuiltInProviders {
     return new EmptyMetadataProvider();
   }
 
+  public static AuditLogProvider loadAuditLogProvider(Map<String, ?> configs) {
+    ServiceLoader<AuditLogProvider> providers = ServiceLoader.load(AuditLogProvider.class);
+    for (AuditLogProvider provider : providers) {
+      if (provider.providerConfigured(configs)) {
+        return provider;
+      }
+    }
+    return new DefaultAuditLogProvider();
+  }
+
   /**
    * Provider selection without using explicit provider configs for metadata providers.
    *   - Only LdapAuthorizer uses the LDAP group provider. RBAC uses groups from metadata topic

@@ -3,15 +3,20 @@
 package io.confluent.kafka.security.authorizer.acl;
 
 import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.Operation;
+import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import java.util.HashMap;
 import java.util.Map;
-import kafka.security.auth.Acl;
 import kafka.security.auth.Operation$;
 import kafka.security.auth.PermissionType;
 import kafka.security.auth.PermissionType$;
 import kafka.security.auth.ResourceType$;
+import org.apache.kafka.common.acl.AccessControlEntry;
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclPermissionType;
+import org.apache.kafka.common.utils.SecurityUtils;
 import scala.collection.JavaConversions;
 
 
@@ -89,11 +94,14 @@ public class AclMapper {
       return value;
   }
 
-  public static AccessRule accessRule(Acl acl) {
-    return new AccessRule(acl.principal(),
-        permissionType(acl.permissionType()),
-        acl.host(),
-        operation(acl.operation()),
-        acl.toString());
+  public static AccessRule accessRule(AclBinding aclBinding) {
+    AccessControlEntry ace = aclBinding.entry();
+    return new AccessRule(ResourcePattern.from(aclBinding.pattern()),
+        SecurityUtils.parseKafkaPrincipal(ace.principal()),
+        permissionType(PermissionType$.MODULE$.fromJava(ace.permissionType())),
+        ace.host(),
+        operation(Operation$.MODULE$.fromJava(ace.operation())),
+        ace.permissionType() == AclPermissionType.ALLOW ? PolicyType.ALLOW_ACL : PolicyType.DENY_ACL,
+        aclBinding);
   }
 }

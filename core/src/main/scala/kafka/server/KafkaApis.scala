@@ -2318,7 +2318,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         val createResults = auth.createAcls(request.context, validBindings.asJava)
 
         val aclCreationResults = aclBindings.map { acl =>
-          val result = errorResults.getOrElse(acl, createResults.get(validBindings.indexOf(acl)))
+          val result = errorResults.getOrElse(acl, createResults.get(validBindings.indexOf(acl)).toCompletableFuture.get)
           new AclCreationResponse(result.exception.asScala.map(ApiError.fromThrowable).getOrElse(ApiError.NONE))
         }
 
@@ -2341,7 +2341,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         def toErrorCode(exception: Optional[ApiException]): ApiError = {
           exception.asScala.map(ApiError.fromThrowable).getOrElse(ApiError.NONE)
         }
-        val filterResponses = results.asScala.map { result =>
+        val filterResponses = results.asScala.map(_.toCompletableFuture.get).map { result =>
           val deletions = result.aclBindingDeleteResults().asScala.toList.map { deletionResult =>
             new AclDeletionResult(toErrorCode(deletionResult.exception), deletionResult.aclBinding)
           }.asJava

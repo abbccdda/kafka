@@ -23,7 +23,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import kafka.security.authorizer.AclAuthorizer;
 import kafka.security.authorizer.AclAuthorizerTest;
 import kafka.server.KafkaConfig$;
@@ -109,7 +109,7 @@ public class ConfluentServerAuthorizerTest extends AclAuthorizerTest {
       }
 
       @Override
-      public Map<Endpoint, CompletableFuture<Void>> start(AuthorizerServerInfo serverInfo) {
+      public Map<Endpoint, ? extends CompletionStage<Void>> start(AuthorizerServerInfo serverInfo) {
         return authorizer.start(serverInfo);
       }
 
@@ -119,15 +119,16 @@ public class ConfluentServerAuthorizerTest extends AclAuthorizerTest {
         return authorizer.authorize(requestContext, actions);
       }
 
+
       @Override
-      public List<AclCreateResult> createAcls(AuthorizableRequestContext requestContext,
-          List<AclBinding> aclBindings) {
+      public List<? extends CompletionStage<AclCreateResult>> createAcls(
+          AuthorizableRequestContext requestContext, List<AclBinding> aclBindings) {
         return authorizer.createAcls(requestContext, aclBindings);
       }
 
       @Override
-      public List<AclDeleteResult> deleteAcls(AuthorizableRequestContext requestContext,
-          List<AclBindingFilter> aclBindingFilters) {
+      public List<? extends CompletionStage<AclDeleteResult>> deleteAcls(
+          AuthorizableRequestContext requestContext, List<AclBindingFilter> aclBindingFilters) {
         return authorizer.deleteAcls(requestContext, aclBindingFilters);
       }
 

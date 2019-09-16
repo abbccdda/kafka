@@ -5,6 +5,7 @@ package io.confluent.security.authorizer;
 import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
 
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
+import io.confluent.security.authorizer.provider.AuditLogProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders;
 import io.confluent.security.authorizer.provider.GroupProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
@@ -134,6 +135,11 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
         providers);
     providers.add(metadataProvider);
 
+    AuditLogProvider auditLogProvider = createProvider(AuditLogProvider.class,
+        ConfluentBuiltInProviders::loadAuditLogProvider,
+        providers);
+    providers.add(auditLogProvider);
+
     if (clusterId != null) {
       ClusterResource clusterResource = new ClusterResource(clusterId);
       providers.forEach(provider -> {
@@ -144,7 +150,7 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
     }
     providers.forEach(provider -> provider.configure(originals()));
 
-    return new Providers(accessRuleProviders, groupProvider, metadataProvider);
+    return new Providers(accessRuleProviders, groupProvider, metadataProvider, auditLogProvider);
   }
 
   @SuppressWarnings("unchecked")
@@ -169,13 +175,16 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
     public final List<AccessRuleProvider> accessRuleProviders;
     public final GroupProvider groupProvider;
     public final MetadataProvider metadataProvider;
+    public final AuditLogProvider auditLogProvider;
 
     private Providers(List<AccessRuleProvider> accessRuleProviders,
         GroupProvider groupProvider,
-        MetadataProvider metadataProvider) {
+        MetadataProvider metadataProvider,
+        AuditLogProvider auditLogProvider) {
       this.accessRuleProviders = accessRuleProviders;
       this.groupProvider = groupProvider;
       this.metadataProvider = metadataProvider;
+      this.auditLogProvider = auditLogProvider;
     }
   }
 

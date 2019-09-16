@@ -35,8 +35,7 @@ public class AclProvider extends AclAuthorizer implements AccessRuleProvider {
   }
 
   @Override
-  public boolean isSuperUser(KafkaPrincipal sessionPrincipal,
-                             Set<KafkaPrincipal> groupPrincipals,
+  public boolean isSuperUser(KafkaPrincipal principal,
                              Scope scope) {
     // `super.users` config is checked by the authorizer before checking with providers
     return false;

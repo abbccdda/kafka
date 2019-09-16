@@ -34,8 +34,7 @@ public class LogEventAppender implements EventAppender {
   }
 
   @Override
-  public void close() throws Exception {
-
+  public void close() {
   }
 
   @Override

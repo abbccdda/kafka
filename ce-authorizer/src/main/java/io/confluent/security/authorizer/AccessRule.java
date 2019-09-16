@@ -1,17 +1,11 @@
-// (Copyright) [2018 - 2019] Confluent, Inc.
+// (Copyright) [2019 - 2019] Confluent, Inc.
 
 package io.confluent.security.authorizer;
 
+import io.confluent.security.authorizer.AuthorizePolicy.AccessRulePolicy;
+import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import java.util.Objects;
-
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import org.apache.kafka.common.acl.AccessControlEntry;
-import org.apache.kafka.common.acl.AccessControlEntryFilter;
-import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
-import org.apache.kafka.common.utils.SecurityUtils;
 
 /**
  * Encapsulates an access rule which may be derived from an ACL or RBAC policy.
@@ -25,49 +19,60 @@ public class AccessRule {
   public static final String GROUP_PRINCIPAL_TYPE = "Group";
   public static final KafkaPrincipal WILDCARD_GROUP_PRINCIPAL = new KafkaPrincipal(GROUP_PRINCIPAL_TYPE, "*");
 
+  private final ResourcePattern resourcePattern;
   private final KafkaPrincipal principal;
   private final PermissionType permissionType;
-  @JsonInclude(JsonInclude.Include.ALWAYS)
   private final String host;
   private final Operation operation;
-  private final String sourceDescription;
+  private final PolicyType policyType;
+  private final Object sourceMetadata;
 
-  @JsonCreator
-  public AccessRule(@JsonProperty("principal") KafkaPrincipal principal,
-                    @JsonProperty("permissionType") PermissionType permissionType,
-                    @JsonProperty("host") String host,
-                    @JsonProperty("operation") Operation operation,
-                    @JsonProperty("sourceDescription") String sourceDescription) {
-    this.principal = principal;
-    this.permissionType = permissionType;
-    this.operation = operation;
+  public AccessRule(ResourcePattern resourcePattern,
+                    KafkaPrincipal principal,
+                    PermissionType permissionType,
+                    String host,
+                    Operation operation,
+                    PolicyType policyType,
+                    Object sourceMetadata) {
+    this.resourcePattern = Objects.requireNonNull(resourcePattern);
+    this.principal = Objects.requireNonNull(principal);
+    this.permissionType = Objects.requireNonNull(permissionType);
     this.host = host;
-    this.sourceDescription = sourceDescription;
+    this.operation = Objects.requireNonNull(operation);
+    this.policyType = Objects.requireNonNull(policyType);
+    this.sourceMetadata = Objects.requireNonNull(sourceMetadata);
   }
 
-  @JsonProperty
+  public ResourcePattern resourcePattern() {
+    return resourcePattern;
+  }
+
   public KafkaPrincipal principal() {
     return principal;
   }
 
-  @JsonProperty
   public PermissionType permissionType() {
     return permissionType;
   }
 
-  @JsonProperty
   public String host() {
     return host;
   }
 
-  @JsonProperty
   public Operation operation() {
     return operation;
   }
 
-  @JsonProperty
-  public String sourceDescription() {
-    return sourceDescription;
+  public PolicyType policyType() {
+    return policyType;
+  }
+
+  public Object sourceMetadata() {
+    return sourceMetadata;
+  }
+
+  public AuthorizePolicy toAuthorizePolicy() {
+    return new AccessRulePolicy(policyType, sourceMetadata, resourcePattern);
   }
 
   @Override
@@ -80,44 +85,22 @@ public class AccessRule {
     }
 
     AccessRule that = (AccessRule) o;
-    return Objects.equals(this.principal, that.principal) &&
+    return Objects.equals(this.resourcePattern, that.resourcePattern) &&
+        Objects.equals(this.principal, that.principal) &&
         Objects.equals(this.permissionType, that.permissionType) &&
         Objects.equals(this.host, that.host) &&
         Objects.equals(this.operation, that.operation) &&
-        Objects.equals(this.sourceDescription, that.sourceDescription);
+        Objects.equals(this.policyType, that.policyType);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(principal, permissionType, host, operation, sourceDescription);
+    return Objects.hash(resourcePattern, principal, permissionType, host, operation, policyType);
   }
 
   @Override
   public String toString() {
-    return String.format("%s has %s permission for operation %s from host %s (source: %s)",
-        principal, permissionType, operation, host, sourceDescription);
-  }
-
-  public static AccessRule from(final AccessControlEntry entry) {
-    return new AccessRule(SecurityUtils.parseKafkaPrincipal(entry.principal()),
-        PermissionType.valueOf(entry.permissionType().name()),
-        entry.host(),
-        new Operation(SecurityUtils.toPascalCase(entry.operation().name())),
-        entry.toString());
-  }
-
-  public static AccessControlEntry to(final  AccessRule rule) {
-    return new AccessControlEntry(rule.principal.toString(),
-        rule.host,
-        SecurityUtils.operation(rule.operation.name()),
-        AclPermissionType.fromString(rule.permissionType.name()));
-  }
-
-  public static AccessRule from(final AccessControlEntryFilter filter) {
-    return new AccessRule(SecurityUtils.parseKafkaPrincipal(filter.principal()),
-        PermissionType.valueOf(filter.permissionType().name()),
-        filter.host(),
-        new Operation(SecurityUtils.toPascalCase(filter.operation().name())),
-        filter.toString());
+    return String.format("%s has %s permission for operation %s on %s from host %s (source: %s: %s)",
+        principal, permissionType, operation, resourcePattern, host, policyType, sourceMetadata);
   }
 }

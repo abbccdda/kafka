@@ -17,9 +17,9 @@ import io.confluent.security.auth.store.data.RoleBindingValue;
 import io.confluent.security.auth.store.data.UserKey;
 import io.confluent.security.auth.store.data.UserValue;
 import io.confluent.security.auth.store.kafka.KafkaAuthStore;
-import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.acl.AclRule;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -61,7 +61,7 @@ public class RbacTestUtils {
   public static void updateAclBinding(DefaultAuthCache authCache,
                                       ResourcePattern resourcePattern,
                                       Scope scope,
-                                      Set<AccessRule> accessRules) {
+                                      Set<AclRule> accessRules) {
     AclBindingKey key = new AclBindingKey(resourcePattern, scope);
     AclBindingValue value = new AclBindingValue(accessRules == null ? Collections.emptySet() : accessRules);
     authCache.put(key, value);

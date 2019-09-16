@@ -10,6 +10,7 @@ import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.Authorizer;
 import io.confluent.security.auth.client.rest.RestClient;
+import io.confluent.security.authorizer.RequestContext;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,11 +75,17 @@ public class RestAuthorizer implements Authorizer {
     this.restClient = new RestClient(configs);
   }
 
+  @SuppressWarnings("deprecation")
   @Override
   public List<AuthorizeResult> authorize(final KafkaPrincipal sessionPrincipal,
                                          final String host, final List<Action> actions) {
 
     return doAuthorize(newAuthorizeRequest(sessionPrincipal, host, actions));
+  }
+
+  @Override
+  public List<AuthorizeResult> authorize(RequestContext requestContext, List<Action> actions) {
+    return doAuthorize(newAuthorizeRequest(requestContext.principal(), requestContext.clientAddress().getHostAddress(), actions));
   }
 
   public List<AuthorizeResult> authorize(HttpCredentialProvider credentialProvider,

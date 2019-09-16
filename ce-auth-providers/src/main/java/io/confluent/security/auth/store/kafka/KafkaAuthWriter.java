@@ -16,6 +16,7 @@ import io.confluent.security.auth.store.data.RoleBindingValue;
 import io.confluent.security.auth.store.data.StatusKey;
 import io.confluent.security.auth.store.data.StatusValue;
 import io.confluent.security.auth.store.external.ExternalStore;
+import io.confluent.security.authorizer.acl.AclRule;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourcePatternFilter;
@@ -287,8 +288,8 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriterForAcl(scope, resourcePattern);
     CachedRecord<AuthKey, AuthValue> existingRecord =
         waitForExistingAclBinding(partitionWriter, scope, resourcePattern);
-    Set<AccessRule> updatedRules = accessRules(existingRecord);
-    updatedRules.add(AccessRule.from(aclBinding.entry()));
+    Set<AclRule> updatedRules = accessRules(existingRecord);
+    updatedRules.add(AclRule.from(aclBinding));
     log.debug("New Acl binding scope={} resourcePattern={} accessRules={}", scope, resourcePattern, updatedRules);
     return partitionWriter.write(existingRecord.key(),
         new AclBindingValue(updatedRules),
@@ -307,12 +308,12 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     //If filter matches with at-most one rule
     if (filter.matchesAtMostOne()) {
       ResourcePattern resourcePattern = ResourcePattern.from(filter.patternFilter());
-      AccessRule accessRule = AccessRule.from(filter.entryFilter());
+      AclRule accessRule = AclRule.from(filter.entryFilter());
 
       if (resourceAccess.test(resourcePattern)) {
         CompletionStage<Void> completableFuture = deleteAclRules(scope, resourcePattern,
             Collections.singletonList(accessRule));
-        deletedBindings.add(new AclBinding(ResourcePattern.to(resourcePattern), AccessRule.to(accessRule)));
+        deletedBindings.add(new AclBinding(ResourcePattern.to(resourcePattern), accessRule.toAccessControlEntry()));
         return completableFuture.thenApply(s -> deletedBindings);
       }
 
@@ -320,19 +321,19 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
 
     } else { // If filter matches with more than one rule
       Collection<AclBinding> matchedBindings = aclBindings(scope, filter, resourceAccess);
-      Map<ResourcePattern, List<AccessRule>> toDeleteRules = new HashMap<>();
+      Map<ResourcePattern, List<AclRule>> toDeleteRules = new HashMap<>();
 
       //Collect all to be deleted rules for each resource
       for (AclBinding aclBinding : matchedBindings) {
         ResourcePattern resourcePattern = ResourcePattern.from(aclBinding.pattern());
-        AccessRule accessRule = AccessRule.from(aclBinding.entry());
+        AclRule accessRule = AclRule.from(aclBinding);
         toDeleteRules.computeIfAbsent(resourcePattern, v -> new LinkedList<>()).add(accessRule);
         deletedBindings.add(aclBinding);
       }
 
       List<CompletableFuture<Void>> futuresList = new LinkedList<>();
       //call delete for each resource.
-      for (Map.Entry<ResourcePattern, List<AccessRule>> entry : toDeleteRules.entrySet()) {
+      for (Map.Entry<ResourcePattern, List<AclRule>> entry : toDeleteRules.entrySet()) {
         CompletableFuture<Void> cs = (CompletableFuture<Void>) deleteAclRules(scope, entry.getKey(), entry.getValue());
         futuresList.add(cs);
       }
@@ -343,11 +344,11 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
 
   private CompletionStage<Void> deleteAclRules(final Scope scope,
                                                final ResourcePattern resourcePattern,
-                                               final Collection<AccessRule> deletedRules) {
+                                               final Collection<AclRule> deletedRules) {
     KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriterForAcl(scope, resourcePattern);
     CachedRecord<AuthKey, AuthValue> existingRecord =
         waitForExistingAclBinding(partitionWriter, scope, resourcePattern);
-    Set<AccessRule> updatedRules = accessRules(existingRecord);
+    Set<AclRule> updatedRules = accessRules(existingRecord);
     updatedRules.removeAll(deletedRules);
     if (!updatedRules.isEmpty()) {
       AclBindingValue value = new AclBindingValue(updatedRules);
@@ -387,8 +388,8 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
               KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriterForAcl(scope, resourcePattern);
               CachedRecord<AuthKey, AuthValue> existingRecord =
                   waitForExistingAclBinding(partitionWriter, scope, resourcePattern);
-              for (AccessRule accessRule : accessRules(existingRecord)) {
-                AclBinding fixture = new AclBinding(ResourcePattern.to(resourcePattern), AccessRule.to(accessRule));
+              for (AclRule accessRule : accessRules(existingRecord)) {
+                AclBinding fixture = new AclBinding(ResourcePattern.to(resourcePattern), accessRule.toAccessControlEntry());
                 if (aclBindingFilter.matches(fixture))
                   aclBindings.add(fixture);
               }
@@ -438,13 +439,13 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     return partitionWriter(partition(key));
   }
 
-  private Set<AccessRule> accessRules(CachedRecord<AuthKey, AuthValue> record) {
-    Set<AccessRule> accessRules = new HashSet<>();
+  private Set<AclRule> accessRules(CachedRecord<AuthKey, AuthValue> record) {
+    Set<AclRule> accessRules = new HashSet<>();
     AuthValue value = record.value();
     if (value != null) {
       if (!(value instanceof AclBindingValue))
         throw new IllegalArgumentException("Invalid record key=" + record.key() + ", value=" + value);
-      accessRules.addAll(((AclBindingValue) value).accessRules());
+      accessRules.addAll(((AclBindingValue) value).aclRules());
     }
     return accessRules;
   }

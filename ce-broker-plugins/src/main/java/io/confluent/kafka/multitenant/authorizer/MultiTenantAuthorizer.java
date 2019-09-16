@@ -10,6 +10,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletionStage;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.errors.InvalidRequestException;
@@ -41,8 +42,8 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
   }
 
   @Override
-  public List<AclCreateResult> createAcls(AuthorizableRequestContext requestContext,
-                                          List<AclBinding> aclBindings) {
+  public List<? extends CompletionStage<AclCreateResult>> createAcls(
+      AuthorizableRequestContext requestContext, List<AclBinding> aclBindings) {
     checkAclsEnabled();
     if (aclBindings.isEmpty()) {
       return Collections.emptyList();
@@ -81,8 +82,8 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
   }
 
   @Override
-  public List<AclDeleteResult> deleteAcls(AuthorizableRequestContext requestContext,
-                                          List<AclBindingFilter> aclBindingFilters) {
+  public List<? extends CompletionStage<AclDeleteResult>> deleteAcls(
+      AuthorizableRequestContext requestContext, List<AclBindingFilter> aclBindingFilters) {
     checkAclsEnabled();
     return super.deleteAcls(requestContext, aclBindingFilters);
   }

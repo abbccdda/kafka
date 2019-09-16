@@ -16,11 +16,13 @@ import io.confluent.security.auth.store.data.StatusValue;
 import io.confluent.security.auth.store.data.UserKey;
 import io.confluent.security.auth.store.data.UserValue;
 import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.acl.AclRule;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.rbac.AccessPolicy;
 import io.confluent.security.rbac.RbacRoles;
@@ -116,60 +118,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
                                    ResourcePattern resource,
                                    KafkaPrincipal userPrincipal,
                                    Collection<KafkaPrincipal> groupPrincipals) {
-    return getAccessRules(resourceScope, resource, userPrincipal, groupPrincipals, rbacAccessRules);
-  }
-
-  private Set<AccessRule> getAccessRules(final Scope resourceScope,
-                                         final ResourcePattern resource,
-                                         final KafkaPrincipal userPrincipal,
-                                         final Collection<KafkaPrincipal> groupPrincipals,
-                                         final Map<Scope, NavigableMap<ResourcePattern, Set<AccessRule>>> accessRules) {
-    ensureNotFailed();
-    if (!this.rootScope.containsScope(resourceScope))
-      throw new InvalidScopeException("This authorization cache does not contain scope " + resourceScope);
-
-    Set<KafkaPrincipal> matchingPrincipals = matchingPrincipals(userPrincipal, groupPrincipals);
-
-    Set<AccessRule> resourceRules = new HashSet<>();
-    Scope nextScope = resourceScope;
-    while (nextScope != null) {
-      NavigableMap<ResourcePattern, Set<AccessRule>> rules = scopeRules(nextScope, accessRules);
-      if (rules != null) {
-        String resourceName = resource.name();
-        ResourceType resourceType = resource.resourceType();
-
-        addMatchingRules(rules.get(resource), resourceRules, matchingPrincipals);
-        addMatchingRules(rules.get(ResourcePattern.all(resourceType)), resourceRules, matchingPrincipals);
-        addMatchingRules(rules.get(ResourcePattern.ALL), resourceRules, matchingPrincipals);
-        addMatchingRules(rules.get(new ResourcePattern(ResourceType.ALL, resourceName, PatternType.LITERAL)), resourceRules, matchingPrincipals);
-
-        if (!resourceName.isEmpty()) {
-          rules.subMap(
-              new ResourcePattern(resourceType.name(), resourceName, PatternType.PREFIXED), true,
-              new ResourcePattern(resourceType.name(), resourceName.substring(0, 1), PatternType.PREFIXED), true)
-              .entrySet().stream()
-              .filter(e -> resourceName.startsWith(e.getKey().name()))
-              .forEach(e -> addMatchingRules(e.getValue(), resourceRules, matchingPrincipals));
-        }
-      }
-      nextScope = nextScope.parent();
-    }
-    return resourceRules;
-  }
-
-  private void addMatchingRules(Collection<AccessRule> inputRules,
-                                Collection<AccessRule> outputRules,
-                                Set<KafkaPrincipal> principals) {
-    if (inputRules != null)
-      inputRules.stream().filter(r -> principals.contains(r.principal())).forEach(outputRules::add);
-  }
-
-  private Set<KafkaPrincipal> matchingPrincipals(KafkaPrincipal userPrincipal,
-                                                 Collection<KafkaPrincipal> groupPrincipals) {
-    HashSet<KafkaPrincipal> principals = new HashSet<>(groupPrincipals.size() + 1);
-    principals.addAll(groupPrincipals);
-    principals.add(userPrincipal);
-    return principals;
+    return matchAccessRules(resourceScope, resource, userPrincipal, groupPrincipals, rbacAccessRules);
   }
 
   @Override
@@ -255,7 +204,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
                                   final ResourcePattern resource,
                                   final KafkaPrincipal userPrincipal,
                                   final Collection<KafkaPrincipal> groupPrincipals) {
-    return getAccessRules(resourceScope, resource, userPrincipal, groupPrincipals, aclAccessRules);
+    return matchAccessRules(resourceScope, resource, userPrincipal, groupPrincipals, aclAccessRules);
   }
 
   @Override
@@ -288,7 +237,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
             continue;
           Set<AccessRule> accessRules = e.getValue();
           for (AccessRule accessRule : accessRules) {
-            AclBinding fixture = new AclBinding(ResourcePattern.to(resourcePattern), AccessRule.to(accessRule));
+            AclBinding fixture = new AclBinding(ResourcePattern.to(resourcePattern), AclRule.accessControlEntry(accessRule));
             if (aclBindingFilter.matches(fixture))
               aclBindings.add(fixture);
           }
@@ -316,7 +265,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
         NavigableMap<ResourcePattern, Set<AccessRule>> scopeRules = aclAccessRules.get(aclBindingKey.scope());
         if (scopeRules != null) {
           Set<AccessRule> accessRules = scopeRules.get(aclBindingKey.resourcePattern());
-          return accessRules == null ? null : new AclBindingValue(accessRules);
+          return accessRules == null ? null : aclBindingValue(accessRules);
         }
         return null;
       default:
@@ -393,6 +342,59 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     return statusValue != null ? statusValue.status() : MetadataStoreStatus.UNKNOWN;
   }
 
+  private Set<AccessRule> matchAccessRules(final Scope resourceScope,
+                                           final ResourcePattern resource,
+                                           final KafkaPrincipal userPrincipal,
+                                           final Collection<KafkaPrincipal> groupPrincipals,
+                                           final Map<Scope, NavigableMap<ResourcePattern, Set<AccessRule>>> accessRules) {
+    ensureNotFailed();
+    if (!this.rootScope.containsScope(resourceScope))
+      throw new InvalidScopeException("This authorization cache does not contain scope " + resourceScope);
+
+    Set<KafkaPrincipal> matchingPrincipals = matchingPrincipals(userPrincipal, groupPrincipals);
+
+    Set<AccessRule> resourceRules = new HashSet<>();
+    Scope nextScope = resourceScope;
+    while (nextScope != null) {
+      NavigableMap<ResourcePattern, Set<AccessRule>> rules = scopeRules(nextScope, accessRules);
+      if (rules != null) {
+        String resourceName = resource.name();
+        ResourceType resourceType = resource.resourceType();
+
+        addMatchingRules(rules.get(resource), resourceRules, matchingPrincipals);
+        addMatchingRules(rules.get(ResourcePattern.all(resourceType)), resourceRules, matchingPrincipals);
+        addMatchingRules(rules.get(ResourcePattern.ALL), resourceRules, matchingPrincipals);
+        addMatchingRules(rules.get(new ResourcePattern(ResourceType.ALL, resourceName, PatternType.LITERAL)), resourceRules, matchingPrincipals);
+
+        if (!resourceName.isEmpty()) {
+          rules.subMap(
+              new ResourcePattern(resourceType.name(), resourceName, PatternType.PREFIXED), true,
+              new ResourcePattern(resourceType.name(), resourceName.substring(0, 1), PatternType.PREFIXED), true)
+              .entrySet().stream()
+              .filter(e -> resourceName.startsWith(e.getKey().name()))
+              .forEach(e -> addMatchingRules(e.getValue(), resourceRules, matchingPrincipals));
+        }
+      }
+      nextScope = nextScope.parent();
+    }
+    return resourceRules;
+  }
+
+  private void addMatchingRules(Collection<AccessRule> inputRules,
+                                Collection<AccessRule> outputRules,
+                                Set<KafkaPrincipal> principals) {
+    if (inputRules != null)
+      inputRules.stream().filter(r -> principals.contains(r.principal())).forEach(outputRules::add);
+  }
+
+  private Set<KafkaPrincipal> matchingPrincipals(KafkaPrincipal userPrincipal,
+      Collection<KafkaPrincipal> groupPrincipals) {
+    HashSet<KafkaPrincipal> principals = new HashSet<>(groupPrincipals.size() + 1);
+    principals.addAll(groupPrincipals);
+    principals.add(userPrincipal);
+    return principals;
+  }
+
   private RoleBindingValue updateRoleBinding(RoleBindingKey key, RoleBindingValue value) {
     Scope scope = key.scope();
     if (!this.rootScope.containsScope(scope))
@@ -458,7 +460,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
   }
 
   private NavigableMap<ResourcePattern, Set<AccessRule>> scopeRules(Scope scope,
-                                                               Map<Scope, NavigableMap<ResourcePattern, Set<AccessRule>>> accessRules) {
+      Map<Scope, NavigableMap<ResourcePattern, Set<AccessRule>>> accessRules) {
     return accessRules.getOrDefault(scope, NO_RULES);
   }
 
@@ -481,8 +483,8 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
       for (ResourcePattern resource : resources) {
         Set<AccessRule> resourceRules = new HashSet<>();
         for (Operation op : accessPolicy.allowedOperations(resource.resourceType())) {
-          AccessRule rule = new AccessRule(principal, PermissionType.ALLOW, WILDCARD_HOST, op,
-              String.valueOf(roleBindingKey));
+          AccessRule rule = new AccessRule(resource, principal, PermissionType.ALLOW,
+              WILDCARD_HOST, op, PolicyType.ALLOW_ROLE, roleBinding(roleBindingKey, roleBindingValue));
           resourceRules.add(rule);
         }
         accessRules.put(resource, resourceRules);
@@ -524,6 +526,20 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     return new RoleBinding(key.principal(), key.role(), key.scope(), value.resources());
   }
 
+  private AclBindingValue aclBindingValue(Set<AccessRule> rules) {
+    return new AclBindingValue(rules.stream()
+        .map(AclRule::from)
+        .collect(Collectors.toSet()));
+  }
+
+  private AccessRule accessRule(ResourcePattern resource, AclRule rule) {
+    org.apache.kafka.common.resource.ResourcePattern kafkaResource = ResourcePattern.to(resource);
+    AclBinding aclBinding = new AclBinding(kafkaResource, rule.toAccessControlEntry());
+    PolicyType policyType = rule.permissionType() == PermissionType.ALLOW ? PolicyType.ALLOW_ACL : PolicyType.DENY_ACL;
+    return new AccessRule(resource, rule.principal(), rule.permissionType(),
+        rule.host(), rule.operation(), policyType, aclBinding);
+  }
+
   private AclBindingValue updateAclBinding(AclBindingKey key, AclBindingValue value) {
     Scope scope = key.scope();
     if (!this.rootScope.containsScope(scope))
@@ -534,7 +550,10 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
         aclAccessRules.computeIfAbsent(scope, s -> new ConcurrentSkipListMap<>());
 
     scopeRules.computeIfAbsent(key.resourcePattern(), x -> ConcurrentHashMap.newKeySet()).clear();
-    scopeRules.get(key.resourcePattern()).addAll(value.accessRules());
+    Set<AccessRule> rules = value.aclRules().stream()
+        .map(aclRule -> accessRule(key.resourcePattern(), aclRule))
+        .collect(Collectors.toSet());
+    scopeRules.get(key.resourcePattern()).addAll(rules);
     return oldValue;
   }
 
@@ -547,7 +566,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     if (scopeRules != null) {
       Set<AccessRule> accessRules = scopeRules.get(key.resourcePattern());
       if (accessRules != null) {
-        AclBindingValue existing = new AclBindingValue(accessRules);
+        AclBindingValue existing = aclBindingValue(accessRules);
         scopeRules.remove(key.resourcePattern());
         return existing;
       } else
