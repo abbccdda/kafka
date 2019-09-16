@@ -215,15 +215,17 @@ func TestConsecutiveTasks(t *testing.T) {
 		Class:            trogdor.CONSUME_BENCH_SPEC_CLASS,
 		DurationMs:       5,
 		TaskCount:        3,
-		TopicSpec:        mediumTopic,
 		BootstrapServers: "",
 		StartMs:          10,
-		MessagesPerSec:   750,
 		AdminConf:        adminConfig,
-		ConsumerOptions: trogdor.ConsumerOptions{
-			ConsumerGroup: "cg-1",
+		ClientNodes:      common.ShuffleSlice(clientNodes),
+		ConsumerTestConfig: trogdor.ConsumerTestConfig{
+			TopicSpec:      mediumTopic,
+			MessagesPerSec: 750,
+			ConsumerOptions: trogdor.ConsumerOptions{
+				ConsumerGroup: "cg-1",
+			},
 		},
-		ClientNodes: shuffleSlice(clientNodes),
 	}
 	firstConfig := trogdor.ScenarioConfig{}
 	copier.Copy(&firstConfig, &startConfig)
@@ -270,15 +272,17 @@ func TestConsecutiveTasksFailsIfStartMsIsZero(t *testing.T) {
 			TaskType: "ShortLivedConsume",
 			Desc:     "MediumTopic",
 		},
-		Class:          trogdor.CONSUME_BENCH_SPEC_CLASS,
-		TaskCount:      3,
-		TopicSpec:      mediumTopic,
-		MessagesPerSec: 75,
-		ConsumerOptions: trogdor.ConsumerOptions{
-			ConsumerGroup: "cg-1",
-		},
+		Class:            trogdor.CONSUME_BENCH_SPEC_CLASS,
+		TaskCount:        3,
 		DurationMs:       5,
 		BootstrapServers: "",
+		ConsumerTestConfig: trogdor.ConsumerTestConfig{
+			TopicSpec:      mediumTopic,
+			MessagesPerSec: 75,
+			ConsumerOptions: trogdor.ConsumerOptions{
+				ConsumerGroup: "cg-1",
+			},
+		},
 	}
 	_, err := consecutiveTasks(*startConfig, 25, shortLivedTaskRescheduleDelayMs)
 	assert.Error(t, err)

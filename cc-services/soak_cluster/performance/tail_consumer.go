@@ -14,14 +14,14 @@ type TailConsumer struct {
 	Name string
 
 	// the ProduceTestName must refer to a test that implements the TopicWithTests interface
-	ProduceTestName       string        `json:"topics_from_test"`
-	Fanout                int           `json:"fanout"`
-	Topics                []string      `json:"topics"`
-	Duration              time.Duration `json:"duration"`
-	StepMessagesPerSecond uint64        `json:"step_messages_per_second"`
-	TasksPerStep          int           `json:"tasks_per_step"`
-	SlowStartPerStepMs    uint64        `json:"slow_start_per_step_ms"`
-	ConsumerGroup         string        `json:"consumer_group"`
+	ProduceTestName       string          `json:"topics_from_test"`
+	Fanout                int             `json:"fanout"`
+	Topics                []string        `json:"topics"`
+	Duration              common.Duration `json:"duration"`
+	StepMessagesPerSecond uint64          `json:"step_messages_per_second"`
+	TasksPerStep          int             `json:"tasks_per_step"`
+	SlowStartPerStepMs    uint64          `json:"slow_start_per_step_ms"`
+	ConsumerGroup         string          `json:"consumer_group"`
 
 	startTime time.Time
 	endTime   time.Time
@@ -81,15 +81,17 @@ func (tc *TailConsumer) CreateTest(trogdorAgentsCount int, bootstrapServers stri
 			},
 			Class:              trogdor.CONSUME_BENCH_SPEC_CLASS,
 			TaskCount:          taskCount,
-			TopicSpec:          topic,
 			DurationMs:         uint64(endTime.Sub(startTime) / time.Millisecond),
 			StartMs:            common.TimeToUnixMilli(startTime),
 			BootstrapServers:   bootstrapServers,
-			MessagesPerSec:     messagesPerSecond,
 			AdminConf:          adminConfig,
-			ConsumerOptions:    consumerOptions,
 			ClientNodes:        clientNodes,
 			SlowStartPerStepMs: tc.SlowStartPerStepMs,
+			ConsumerTestConfig: trogdor.ConsumerTestConfig{
+				TopicSpec:       topic,
+				MessagesPerSec:  messagesPerSecond,
+				ConsumerOptions: consumerOptions,
+			},
 		}
 		spec.CreateScenario(scenConfig)
 		tasks = append(tasks, spec.TaskSpecs...)
@@ -108,7 +110,7 @@ func newTailConsumer() *TailConsumer {
 
 func (tc *TailConsumer) validate() error {
 	if (tc.Duration) < 0 {
-		return errors.Errorf("tail consumer %s cannot have a negative duration %s", tc.Name, tc.Duration)
+		return errors.Errorf("tail consumer %s cannot have a negative duration %s", tc.Name, tc.GetDuration())
 	}
 	if tc.ProduceTestName != "" {
 		if len(tc.Topics) != 0 {
@@ -122,7 +124,7 @@ func (tc *TailConsumer) validate() error {
 }
 
 func (tc *TailConsumer) GetDuration() time.Duration {
-	return tc.Duration
+	return time.Duration(tc.Duration)
 }
 
 func (tc *TailConsumer) GetStartTime() (time.Time, error) {

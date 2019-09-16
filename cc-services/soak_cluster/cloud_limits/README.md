@@ -43,5 +43,18 @@ This is identical to *Experiment 3*, but we're running with a different ratio an
     * This consumer remains lagged behind for the remainder of the test.
 
 ---
-## `admin.conf` Configuration File
+### `admin.conf` Configuration File
 The `admin.conf` configuration file has all the additional configuration parameters we need to add to the soak client CLI to get these tests to behave as we expect.  This file needs to be merged with `/mnt/config/client/client_properties.json` locally, and then the `TROGDOR_ADMIN_CONF` environment variable needs to be changed to point to the modified local file.
+
+### `connection_stress.json`
+This file contains the example needed to create a connection stress test that will create and close 450 connections per second.
+
+### `sustained_connections.json`
+This file contains the example needed to create a sustained connections test with the following properties:
+* 9 tasks each running for 4 hours total.
+* Each task attempts to create 324 total connections, evenly split between producer, consumer, and admin.
+* Each task uses 36 threads to maintain the pool of connections at the rate of once every 10 seconds.
+* The producer tasks produce a 512 byte message to topic-1.
+* The consumer tasks read one single message from a random partition of topic-1.
+
+With the 2.4x average divisor, we can expect (324*9)/2.4 = 1215 connections on the cluster with this test.

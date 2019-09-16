@@ -12,7 +12,6 @@ import (
 	"github.com/jinzhu/copier"
 	"github.com/pkg/errors"
 	"io/ioutil"
-	"math/rand"
 	"time"
 )
 
@@ -175,14 +174,16 @@ func createTopicTasks(topicConfig TopicConfiguration, clientNodes []string, exis
 		},
 		Class:            trogdor.PRODUCE_BENCH_SPEC_CLASS,
 		TaskCount:        topicConfig.LongLivedProduceCount,
-		TopicSpec:        topic,
 		DurationMs:       longLivedMs,
 		StartMs:          0, // start immediately
 		BootstrapServers: bootstrapServers,
-		MessagesPerSec:   messagesPerSec(topicConfig.longLivedProduceTaskThroughput(), producerOptions),
 		AdminConf:        producerAdminConfig,
-		ProducerOptions:  producerOptions,
-		ClientNodes:      shuffleSlice(clientNodes),
+		ClientNodes:      common.ShuffleSlice(clientNodes),
+		ProducerTestConfig: trogdor.ProducerTestConfig{
+			TopicSpec:       topic,
+			MessagesPerSec:  messagesPerSec(topicConfig.longLivedProduceTaskThroughput(), producerOptions),
+			ProducerOptions: producerOptions,
+		},
 	}
 	logutil.Debug(logger, "longLivingProducersScenarioConfig: %+v", longLivingProducersScenarioConfig)
 	longLivingProducersScenario := &trogdor.ScenarioSpec{
@@ -198,14 +199,16 @@ func createTopicTasks(topicConfig TopicConfiguration, clientNodes []string, exis
 		},
 		Class:            trogdor.CONSUME_BENCH_SPEC_CLASS,
 		TaskCount:        topicConfig.LongLivedConsumeCount,
-		TopicSpec:        topic,
 		DurationMs:       longLivedMs,
 		StartMs:          0, // start immediately
 		BootstrapServers: bootstrapServers,
-		MessagesPerSec:   messagesPerSec(topicConfig.longLivedConsumeTaskThroughput(), producerOptions),
 		AdminConf:        adminConfig,
-		ConsumerOptions:  longLivedConsumerOptions,
-		ClientNodes:      shuffleSlice(clientNodes),
+		ClientNodes:      common.ShuffleSlice(clientNodes),
+		ConsumerTestConfig: trogdor.ConsumerTestConfig{
+			TopicSpec:       topic,
+			MessagesPerSec:  messagesPerSec(topicConfig.longLivedConsumeTaskThroughput(), producerOptions),
+			ConsumerOptions: longLivedConsumerOptions,
+		},
 	}
 
 	logutil.Debug(logger, "longLivingConsumersScenarioConfig: %+v", longLivingConsumersScenarioConfig)
@@ -226,13 +229,15 @@ func createTopicTasks(topicConfig TopicConfiguration, clientNodes []string, exis
 		Class:            trogdor.PRODUCE_BENCH_SPEC_CLASS,
 		DurationMs:       shortLivedMs,
 		TaskCount:        topicConfig.ShortLivedProduceCount,
-		TopicSpec:        topic,
 		StartMs:          nowMs,
 		BootstrapServers: bootstrapServers,
-		MessagesPerSec:   messagesPerSec(topicConfig.shortLivedProduceTaskThroughput(), producerOptions),
 		AdminConf:        producerAdminConfig,
-		ProducerOptions:  producerOptions,
-		ClientNodes:      shuffleSlice(clientNodes),
+		ClientNodes:      common.ShuffleSlice(clientNodes),
+		ProducerTestConfig: trogdor.ProducerTestConfig{
+			TopicSpec:       topic,
+			MessagesPerSec:  messagesPerSec(topicConfig.shortLivedProduceTaskThroughput(), producerOptions),
+			ProducerOptions: producerOptions,
+		},
 	}
 
 	logutil.Debug(logger, "initial shortLivedProducersScenarioConfig: %+v", shortLivedProducersScenarioConfig)
@@ -257,13 +262,15 @@ func createTopicTasks(topicConfig TopicConfiguration, clientNodes []string, exis
 		Class:            trogdor.CONSUME_BENCH_SPEC_CLASS,
 		DurationMs:       shortLivedMs,
 		TaskCount:        topicConfig.ShortLivedConsumeCount,
-		TopicSpec:        topic,
 		StartMs:          nowMs,
 		BootstrapServers: bootstrapServers,
-		MessagesPerSec:   messagesPerSec(topicConfig.shortLivedConsumeTaskThroughput(), producerOptions),
 		AdminConf:        adminConfig,
-		ConsumerOptions:  shortLivedConsumerOptions,
-		ClientNodes:      shuffleSlice(clientNodes),
+		ClientNodes:      common.ShuffleSlice(clientNodes),
+		ConsumerTestConfig: trogdor.ConsumerTestConfig{
+			TopicSpec:       topic,
+			MessagesPerSec:  messagesPerSec(topicConfig.shortLivedConsumeTaskThroughput(), producerOptions),
+			ConsumerOptions: shortLivedConsumerOptions,
+		},
 	}
 
 	logutil.Debug(logger, "initial shortLivedConsumersScenarioConfig: %+v", shortLivedConsumersScenarioConfig)
@@ -322,17 +329,4 @@ func messagesPerSec(throughputMbPerSec float32, producerOptions trogdor.Producer
 
 func percentOf(part int, all int) float32 {
 	return float32(percent.PercentOf(part, all)) / 100
-}
-
-// Fisher-Yates shuffle
-func shuffleSlice(vals []string) []string {
-	n := len(vals)
-	cpy := make([]string, n)
-	copy(cpy, vals)
-	rand.Seed(time.Now().UnixNano())
-	for i := n - 1; i > 0; i-- {
-		j := rand.Intn(i + 1)
-		cpy[i], cpy[j] = cpy[j], cpy[i]
-	}
-	return cpy
 }

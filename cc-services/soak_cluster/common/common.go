@@ -1,12 +1,15 @@
 package common
 
 import (
+	"encoding/json"
 	"fmt"
 	logutil "github.com/confluentinc/cc-utils/log"
 	"github.com/confluentinc/ce-kafka/cc-services/soak_cluster/trogdor"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
+	"github.com/pkg/errors"
 	"github.com/spf13/viper"
+	"math/rand"
 	"os"
 	"sync"
 	"time"
@@ -146,4 +149,44 @@ func StringSliceContains(list []string, element string) bool {
 		}
 	}
 	return false
+}
+
+// Fisher-Yates shuffle
+func ShuffleSlice(vals []string) []string {
+	n := len(vals)
+	cpy := make([]string, n)
+	copy(cpy, vals)
+	rand.Seed(time.Now().UnixNano())
+	for i := n - 1; i > 0; i-- {
+		j := rand.Intn(i + 1)
+		cpy[i], cpy[j] = cpy[j], cpy[i]
+	}
+	return cpy
+}
+
+type Duration time.Duration
+
+func (d Duration) MarshalJSON() ([]byte, error) {
+	return json.Marshal(fmt.Sprintf("%s", time.Duration(d)))
+}
+
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var v interface{}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	switch value := v.(type) {
+	case float64:
+		*d = Duration(time.Duration(value))
+		return nil
+	case string:
+		tmp, err := time.ParseDuration(value)
+		if err != nil {
+			return err
+		}
+		*d = Duration(tmp)
+		return nil
+	default:
+		return errors.New("invalid duration")
+	}
 }

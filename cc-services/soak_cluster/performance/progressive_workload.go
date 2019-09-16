@@ -189,15 +189,17 @@ func (step *Step) tasks(topicSpec *trogdor.TopicSpec, clientNodes []string, boot
 				},
 				Class:              trogdor.PRODUCE_BENCH_SPEC_CLASS,
 				TaskCount:          taskCount,
-				TopicSpec:          *topicSpec,
 				DurationMs:         uint64(step.endTime.Sub(step.startTime) / time.Millisecond),
 				StartMs:            common.TimeToUnixMilli(step.startTime),
 				BootstrapServers:   bootstrapServers,
-				MessagesPerSec:     producerOptions.MessagesPerSec(step.throughputMbs),
 				AdminConf:          adminConfig,
-				ProducerOptions:    producerOptions,
 				ClientNodes:        clientNodes,
 				SlowStartPerStepMs: step.workload.SlowStartPerStepMs,
+				ProducerTestConfig: trogdor.ProducerTestConfig{
+					TopicSpec:       *topicSpec,
+					MessagesPerSec:  producerOptions.MessagesPerSec(step.throughputMbs),
+					ProducerOptions: producerOptions,
+				},
 			}
 			spec.CreateScenario(stepScenario)
 		}

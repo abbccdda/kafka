@@ -56,6 +56,8 @@ type TestWithTopics interface {
 
 const PROGRESSIVE_WORKLOAD_TEST_TYPE = "ProgressiveWorkload"
 const TAIL_CONSUMER_TEST_TYPE = "TailConsume"
+const CONNECTION_STRESS_TEST_TYPE = "ConnectionStress"
+const SUSTAINED_CONNECTION_TEST_TYPE = "SustainedConnection"
 
 func (ptc *PerformanceTestConfig) CreateTest(trogdorAgentsCount int, bootstrapServers string) ([]trogdor.TaskSpec, error) {
 	return ptc.schedulableTest.CreateTest(trogdorAgentsCount, bootstrapServers)
@@ -80,9 +82,10 @@ func (ptc *PerformanceTestConfig) ParseTest(context *ScenarioContext) error {
 		progressiveWorkload.Name = ptc.Name
 		err = progressiveWorkload.validate()
 		if err != nil {
-			return errors.Wrapf(err, "error while validating")
+			return errors.Wrapf(err, "error while validating progressive workload")
 		}
 		ptc.schedulableTest = progressiveWorkload
+
 	case TAIL_CONSUMER_TEST_TYPE:
 		tailConsumer := newTailConsumer()
 		err := json.Unmarshal(ptc.Parameters, tailConsumer)
@@ -92,7 +95,7 @@ func (ptc *PerformanceTestConfig) ParseTest(context *ScenarioContext) error {
 		tailConsumer.Name = ptc.Name
 		err = tailConsumer.validate()
 		if err != nil {
-			return errors.Wrapf(err, "error while validating")
+			return errors.Wrapf(err, "error while validating tail consumer workload")
 		}
 
 		if tailConsumer.ProduceTestName != "" {
@@ -105,6 +108,33 @@ func (ptc *PerformanceTestConfig) ParseTest(context *ScenarioContext) error {
 		}
 
 		ptc.schedulableTest = tailConsumer
+
+	case CONNECTION_STRESS_TEST_TYPE:
+		connectionStressWorkload := newConnectionStress()
+		err := json.Unmarshal(ptc.Parameters, connectionStressWorkload)
+		if err != nil {
+			return errors.Wrapf(err, "error while trying to parse connection stress test parameters")
+		}
+		connectionStressWorkload.Name = ptc.Name
+		err = connectionStressWorkload.validate()
+		if err != nil {
+			return errors.Wrapf(err, "error while validating connection stress workload")
+		}
+		ptc.schedulableTest = connectionStressWorkload
+
+	case SUSTAINED_CONNECTION_TEST_TYPE:
+		sustainedConnectionWorkload := newSustainedConnection()
+		err := json.Unmarshal(ptc.Parameters, sustainedConnectionWorkload)
+		if err != nil {
+			return errors.Wrapf(err, "error while trying to parse sustained connection test parameters")
+		}
+		sustainedConnectionWorkload.Name = ptc.Name
+		err = sustainedConnectionWorkload.validate()
+		if err != nil {
+			return errors.Wrapf(err, "error while validating sustained connection workload")
+		}
+		ptc.schedulableTest = sustainedConnectionWorkload
+
 	default:
 		return fmt.Errorf("test type %s is not supported", ptc.Type)
 	}

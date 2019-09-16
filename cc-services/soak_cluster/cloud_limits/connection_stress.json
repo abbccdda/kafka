@@ -1,0 +1,17 @@
+{
+  "scenario_name": "ConnectionStressTest",
+  "test_definitions": [
+    {
+      "test_type": "ConnectionStress",
+      "test_name": "stress",
+      "test_parameters": {
+        "duration": "4h",
+        "target_connections_per_sec": 10,
+        "num_threads": 5,
+        "tasks_per_step": 9,
+        "fanout": 1,
+        "action": "FETCH_METADATA"
+      }
+    }
+  ]
+}

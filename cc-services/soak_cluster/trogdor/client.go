@@ -90,6 +90,38 @@ type roundTripSpec struct {
 	ActiveTopics         map[string]PartitionsSpec `json:"activeTopics"`
 }
 
+type ConnectionStressSpec struct {
+	Class                   string     `json:"class"`
+	StartMs                 uint64     `json:"startMs"`
+	DurationMs              uint64     `json:"durationMs"`
+	ClientNode              string     `json:"clientNode,omitempty"`
+	BootstrapServers        string     `json:"bootstrapServers"`
+	TargetConnectionsPerSec int        `json:"targetConnectionsPerSec"`
+	NumThreads              int        `json:"numThreads"`
+	Action                  string     `json:"action"`
+	CommonClientConf        *AdminConf `json:"commonClientConf,omitempty"`
+}
+
+type SustainedConnectionSpec struct {
+	Class                   string             `json:"class"`
+	StartMs                 uint64             `json:"startMs"`
+	DurationMs              uint64             `json:"durationMs"`
+	BootstrapServers        string             `json:"bootstrapServers"`
+	ProducerConnectionCount uint64             `json:"producerConnectionCount"`
+	ConsumerConnectionCount uint64             `json:"consumerConnectionCount"`
+	MetadataConnectionCount uint64             `json:"metadataConnectionCount"`
+	NumThreads              uint64             `json:"numThreads"`
+	RefreshRateMs           uint64             `json:"refreshRateMs"`
+	ClientNode              string             `json:"clientNode,omitempty"`
+	ConsumerConf            *AdminConf         `json:"consumerConf,omitempty"`
+	ProducerConf            *AdminConf         `json:"producerConf,omitempty"`
+	AdminClientConf         *AdminConf         `json:"adminClientConf,omitempty"`
+	CommonClientConf        *AdminConf         `json:"commonClientConf,omitempty"`
+	KeyGenerator            KeyGeneratorSpec   `json:"keyGenerator,omitempty"`
+	ValueGenerator          ValueGeneratorSpec `json:"valueGenerator,omitempty"`
+	TopicName               string             `json:"topicName,omitempty"`
+}
+
 // a structured name of a Trogdor task
 type TaskId struct {
 	TaskType    string
@@ -226,25 +258,56 @@ func (po *ProducerOptions) MessagesPerSec(throughputMbPerSec float32) uint64 {
 	return uint64(math.Round(throughputBytesPerSec / float64(messageSizeBytes)))
 }
 
-// a Scenario is a composition of multiple identical Trogdor tasks split across multiple Trogdor agents
+type ProducerTestConfig struct {
+	TopicSpec       TopicSpec
+	MessagesPerSec  uint64 // the total messages per second we want this scenario to have
+	ProducerOptions ProducerOptions
+}
+
+type ConsumerTestConfig struct {
+	TopicSpec       TopicSpec
+	MessagesPerSec  uint64 // the total messages per second we want this scenario to have
+	ConsumerOptions ConsumerOptions
+}
+
+type ConnectionStressTestConfig struct {
+	TargetConnectionsPerSec int
+	NumThreads              int
+	Action                  string
+}
+
+type SustainedConnectionTestConfig struct {
+	ProducerConnectionCount uint64
+	ConsumerConnectionCount uint64
+	MetadataConnectionCount uint64
+	NumThreads              uint64
+	RefreshRateMs           uint64
+	KeyGenerator            KeyGeneratorSpec
+	ValueGenerator          ValueGeneratorSpec
+	TopicName               string
+}
+
 type ScenarioConfig struct {
 	ScenarioID         TaskId
 	Class              string
 	TaskCount          int
-	TopicSpec          TopicSpec
 	DurationMs         uint64
+	SlowStartPerStepMs uint64
 	StartMs            uint64
 	BootstrapServers   string
-	MessagesPerSec     uint64 // the total messages per second we want this scenario to have
 	AdminConf          AdminConf
-	ProducerOptions    ProducerOptions
-	ConsumerOptions    ConsumerOptions
 	ClientNodes        []string // all the configured trogdor nodes
-	SlowStartPerStepMs uint64
+
+	ProducerTestConfig            ProducerTestConfig
+	ConsumerTestConfig            ConsumerTestConfig
+	ConnectionStressTestConfig    ConnectionStressTestConfig
+	SustainedConnectionTestConfig SustainedConnectionTestConfig
 }
 
 const PRODUCE_BENCH_SPEC_CLASS = "org.apache.kafka.trogdor.workload.ProduceBenchSpec"
 const CONSUME_BENCH_SPEC_CLASS = "org.apache.kafka.trogdor.workload.ConsumeBenchSpec"
+const CONNECTION_STRESS_SPEC_CLASS = "org.apache.kafka.trogdor.workload.ConnectionStressSpec"
+const SUSTAINED_CONNECTION_SPEC_CLASS = "org.apache.kafka.trogdor.workload.SustainedConnectionSpec"
 
 func (r *AdminConf) ParseConfig(adminConfFile string) error {
 	raw, err := ioutil.ReadFile(adminConfFile)
@@ -271,6 +334,7 @@ func (r *ScenarioSpec) createAgentTasks(scenarioConfig ScenarioConfig, scenario 
 	startMs := scenarioConfig.StartMs
 	durationMs := scenarioConfig.DurationMs
 	for agentIdx := 0; agentIdx < scenarioConfig.TaskCount; agentIdx++ {
+
 		// Slow start: Delay each additional task, if specified.
 		if scenarioConfig.SlowStartPerStepMs > 0 {
 			// Note: We are explicitly ignoring checks for invalid states here (eg: negative duration), and are letting
@@ -278,15 +342,15 @@ func (r *ScenarioSpec) createAgentTasks(scenarioConfig ScenarioConfig, scenario 
 			startMs = scenarioConfig.StartMs + (uint64(agentIdx) * scenarioConfig.SlowStartPerStepMs)
 			durationMs = scenarioConfig.DurationMs - (uint64(agentIdx) * scenarioConfig.SlowStartPerStepMs)
 		}
-		durationSeconds := uint64(scenarioConfig.DurationMs) / 1000
-		messagesPerSec := scenarioConfig.MessagesPerSec / uint64(scenarioConfig.TaskCount)
-		maxMessages := durationSeconds * messagesPerSec
 
 		clientNode := scenarioConfig.ClientNodes[agentIdx%clientNodesCount]
 		switch class := scenarioConfig.Class; class {
 
 		case PRODUCE_BENCH_SPEC_CLASS:
 			{
+				durationSeconds := uint64(scenarioConfig.DurationMs) / 1000
+				messagesPerSec := scenarioConfig.ProducerTestConfig.MessagesPerSec / uint64(scenarioConfig.TaskCount)
+				maxMessages := durationSeconds * messagesPerSec
 				produceBenchSpecData := producerSpec{
 					Class:                scenarioConfig.Class,
 					StartMs:              startMs,
@@ -295,19 +359,22 @@ func (r *ScenarioSpec) createAgentTasks(scenarioConfig ScenarioConfig, scenario 
 					BootstrapServers:     scenarioConfig.BootstrapServers,
 					TargetMessagesPerSec: messagesPerSec,
 					MaxMessages:          maxMessages,
-					ValueGenerator:       scenarioConfig.ProducerOptions.ValueGenerator,
-					KeyGenerator:         scenarioConfig.ProducerOptions.KeyGenerator,
+					ValueGenerator:       scenarioConfig.ProducerTestConfig.ProducerOptions.ValueGenerator,
+					KeyGenerator:         scenarioConfig.ProducerTestConfig.ProducerOptions.KeyGenerator,
 					CommonClientConf:     &scenarioConfig.AdminConf,
-					ActiveTopics:         scenarioConfig.TopicSpec.toMap(),
+					ActiveTopics:         scenarioConfig.ProducerTestConfig.TopicSpec.toMap(),
 				}
-				if scenarioConfig.ProducerOptions.TransactionGenerator.Type != "" {
-					produceBenchSpecData.TransactionGenerator = &scenarioConfig.ProducerOptions.TransactionGenerator
+				if scenarioConfig.ProducerTestConfig.ProducerOptions.TransactionGenerator.Type != "" {
+					produceBenchSpecData.TransactionGenerator = &scenarioConfig.ProducerTestConfig.ProducerOptions.TransactionGenerator
 				}
 				rawSpec, _ = json.Marshal(produceBenchSpecData)
 			}
 
 		case CONSUME_BENCH_SPEC_CLASS:
 			{
+				durationSeconds := uint64(scenarioConfig.DurationMs) / 1000
+				messagesPerSec := scenarioConfig.ConsumerTestConfig.MessagesPerSec / uint64(scenarioConfig.TaskCount)
+				maxMessages := durationSeconds * messagesPerSec
 				consumeBenchSpecData := consumerSpec{
 					Class:                scenarioConfig.Class,
 					StartMs:              startMs,
@@ -317,14 +384,50 @@ func (r *ScenarioSpec) createAgentTasks(scenarioConfig ScenarioConfig, scenario 
 					TargetMessagesPerSec: messagesPerSec,
 					MaxMessages:          maxMessages,
 					CommonClientConf:     &scenarioConfig.AdminConf,
-					ConsumerGroup:        scenarioConfig.ConsumerOptions.ConsumerGroup, // trogdor will generate a random group if given an empty one
-					ActiveTopics:         []string{scenarioConfig.TopicSpec.TopicName},
+					ConsumerGroup:        scenarioConfig.ConsumerTestConfig.ConsumerOptions.ConsumerGroup, // trogdor will generate a random group if given an empty one
+					ActiveTopics:         []string{scenarioConfig.ConsumerTestConfig.TopicSpec.TopicName},
 				}
-				if scenarioConfig.ConsumerOptions.RecordBatchVerifier != nil &&
-					scenarioConfig.ConsumerOptions.RecordBatchVerifier.Type != "" {
-					consumeBenchSpecData.RecordBatchVerifier = scenarioConfig.ConsumerOptions.RecordBatchVerifier
+				if scenarioConfig.ConsumerTestConfig.ConsumerOptions.RecordBatchVerifier != nil &&
+					scenarioConfig.ConsumerTestConfig.ConsumerOptions.RecordBatchVerifier.Type != "" {
+					consumeBenchSpecData.RecordBatchVerifier = scenarioConfig.ConsumerTestConfig.ConsumerOptions.RecordBatchVerifier
 				}
 				rawSpec, _ = json.Marshal(consumeBenchSpecData)
+			}
+
+		case CONNECTION_STRESS_SPEC_CLASS:
+			{
+				connectionStressSpecData := ConnectionStressSpec{
+					Class:                   scenarioConfig.Class,
+					StartMs:                 startMs,
+					DurationMs:              durationMs,
+					ClientNode:              clientNode,
+					BootstrapServers:        scenarioConfig.BootstrapServers,
+					TargetConnectionsPerSec: scenarioConfig.ConnectionStressTestConfig.TargetConnectionsPerSec,
+					NumThreads:              scenarioConfig.ConnectionStressTestConfig.NumThreads,
+					Action:                  scenarioConfig.ConnectionStressTestConfig.Action,
+					CommonClientConf:        &scenarioConfig.AdminConf,
+				}
+				rawSpec, _ = json.Marshal(connectionStressSpecData)
+			}
+		case SUSTAINED_CONNECTION_SPEC_CLASS:
+			{
+				sustainedConnectionSpecData := SustainedConnectionSpec{
+					Class:                   scenarioConfig.Class,
+					StartMs:                 startMs,
+					DurationMs:              durationMs,
+					ClientNode:              clientNode,
+					BootstrapServers:        scenarioConfig.BootstrapServers,
+					ProducerConnectionCount: scenarioConfig.SustainedConnectionTestConfig.ProducerConnectionCount,
+					ConsumerConnectionCount: scenarioConfig.SustainedConnectionTestConfig.ConsumerConnectionCount,
+					MetadataConnectionCount: scenarioConfig.SustainedConnectionTestConfig.MetadataConnectionCount,
+					NumThreads:              scenarioConfig.SustainedConnectionTestConfig.NumThreads,
+					RefreshRateMs:           scenarioConfig.SustainedConnectionTestConfig.RefreshRateMs,
+					CommonClientConf:        &scenarioConfig.AdminConf,
+					KeyGenerator:            scenarioConfig.SustainedConnectionTestConfig.KeyGenerator,
+					ValueGenerator:          scenarioConfig.SustainedConnectionTestConfig.ValueGenerator,
+					TopicName:               scenarioConfig.SustainedConnectionTestConfig.TopicName,
+				}
+				rawSpec, _ = json.Marshal(sustainedConnectionSpecData)
 			}
 		}
 

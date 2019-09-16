@@ -50,7 +50,7 @@ Each step essentially consists of multiple Trogdor tasks. We schedule exactly on
 * `message_size_bytes` (*optional*) - An approximation of the message size.  The default is 900 bytes.
 * `message_padding_bytes` (*optional*) - The amount of bytewise 0's to append the end of the message as padding so compression can work.  The default is 100 bytes, and this value is not used unless `message_size_bytes` is specified as well.
 * `tasks_per_step` (*optional*) - The number of Trogdor tasks to create per step.  The default is equal to the number of trogdor agents.
-* `slow_start_per_step_ms` (*optional*) - If specified, each task in a given step will be progressively delayed by this amount, in milliseconds, as a way to ramp up the load.  The task numbered N will start delayed by `(N-1) * [slow_start_per_step_ms]` milliseconds, and it's duration will be shortened by the same amount of time. The default is 0, or no ramp up.
+* `slow_start_per_step_ms` (*optional*) - If specified, each task in a given step will be progressively delayed by this amount, in milliseconds, as a way to ramp up the load.  The task numbered N will start delayed by `(N-1) * [slow_start_per_step_ms]` milliseconds, and its duration will be shortened by the same amount of time. The default is 0, or no ramp up.
 
 #### Tail Consumer
 A tail consumer test consists of multiple consumers subscribed to a topic. They read from the end of the log at all times with no throttling.
@@ -63,8 +63,38 @@ We schedule exactly one Trogdor ConsumeBench task per Trogdor agent **for every*
 * `duration` (*optional*) - The duration, as a Go [duration](https://golang.org/pkg/time/#ParseDuration) construct, that this test will run.
 * `step_messages_per_second` (*optional*) - The number of messages per second this workload will limit itself to.  Note: This number is divided between each task per step (fanout).  The default is `math.MaxInt32`.
 * `tasks_per_step` (*optional*) = The number of Trogdor tasks to create per step (fanout).  The default is equal to the number of trogdor agents.
-* `slow_start_per_step_ms` (*optional*) - If specified, each task in a given step (fanout) will be progressively delayed by this amount, in milliseconds, as a way to ramp up the load.  The task numbered N will start delayed by `(N-1) * [slow_start_per_step_ms]` milliseconds, and it's duration will be shortened by the same amount of time. The default is 0, or no ramp up.
+* `slow_start_per_step_ms` (*optional*) - If specified, each task in a given step (fanout) will be progressively delayed by this amount, in milliseconds, as a way to ramp up the load.  The task numbered N will start delayed by `(N-1) * [slow_start_per_step_ms]` milliseconds, and its duration will be shortened by the same amount of time. The default is 0, or no ramp up.
 * `consumer_group` (*optional*) - Override the generated consumer groups and use this one instead.  If specified, `fanout` does not generate new consumer groups, and all tasks are part of the same one.
+
+#### Connection Stress
+This creates a test that creates and closes connections rapidly.
+
+* `duration` - The duration, as a Go [duration](https://golang.org/pkg/time/#ParseDuration) construct, that this test will run.
+* `target_connections_per_sec` - The number of connections to create and close per second.  For best results, this should be a multiple of `num_threads`.
+* `num_threads` - The number of threads used per task/fanout.  Overall work is split between all available threads.
+* `action` - The action this test will take.  Valid values are:
+  * `CONNECT` - This uses basic Java connection classes to initiate a TCP connection, skipping all Kafka client code.
+  * `FETCH_METADATA` - This uses the Kafka AdminClient to perform a fetch of basic cluster metadata.
+* `tasks_per_step` (*optional*) - The number of Trogdor tasks to create per step.  The default is equal to the number of trogdor agents.
+* `slow_start_per_step_ms` (*optional*) - If specified, each task in a given step will be progressively delayed by this amount, in milliseconds, as a way to ramp up the load.  The task numbered N will start delayed by `(N-1) * [slow_start_per_step_ms]` milliseconds, and its duration will be shortened by the same amount of time. The default is 0, or no ramp up.
+* `fanout` - The amount of times to duplicate this workload as a new step.
+
+#### Sustained Connections
+This creates a test that generates sustained connections against Kafka. There are three different components we can stress with this, KafkaConsumer, KafkaProducer, and AdminClient. This test tries to use minimal bandwidth per connection to reduce overhead impacts.
+
+* `duration` - The duration, as a Go [duration](https://golang.org/pkg/time/#ParseDuration) construct, that this test will run.
+* `producer_connection_count` - The total amount of producer connections to maintain per task.
+* `consumer_connection_count` - The total amount of consumer connections to maintain per task.
+* `metadata_connection_count` - The total amount of metadata connections to maintain per task.
+* `num_threads` - The number of threads used per task/fanout to maintain the above connections.
+* `refresh_rate_ms` - The rate in which to refresh every connection.
+* `topic_name` (*optional*) - The topic that this test will run against.  This must be specified if either `producerConnectionCount` or `consumerConnectionCount` are greater than 0.
+* `message_size_bytes` (*optional*) - The size, in bytes, for the produce task to use when sending records.  The default is 512 bytes.
+* `tasks_per_step` (*optional*) - The number of Trogdor tasks to create per step.  The default is equal to the number of trogdor agents.
+* `slow_start_per_step_ms` (*optional*) - If specified, each task in a given step will be progressively delayed by this amount, in milliseconds, as a way to ramp up the load.  The task numbered N will start delayed by `(N-1) * [slow_start_per_step_ms]` milliseconds, and its duration will be shortened by the same amount of time. The default is 0, or no ramp up.
+* `fanout` - The amount of times to duplicate this workload as a new step.
+
+*Note: If a 1:1:1 connection ratio is used, you don't see an equal number of connections on the brokers as are specified in the test.  Testing has shown results with a decrease of 2.4x the number of connections specified.  For example, 333:333:333 connections will result in about 999/2.4 = 413 connections on the cluster.*
 
 ##### Single Test Example
 See [example.json](example.json) for a sample configuration.

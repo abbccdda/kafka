@@ -1,0 +1,21 @@
+{
+  "scenario_name": "SustainedConnectionTest",
+  "test_definitions": [
+    {
+      "test_type": "SustainedConnection",
+      "test_name": "stress1",
+      "test_parameters": {
+        "duration": "4h",
+        "producer_connection_count": 108,
+        "consumer_connection_count": 108,
+        "metadata_connection_count": 108,
+        "num_threads": 36,
+        "tasks_per_step": 9,
+        "fanout": 1,
+        "refresh_rate_ms": 10000,
+        "topic_name": "topic-1",
+        "message_size_bytes": 512
+      }
+    }
+  ]
+}

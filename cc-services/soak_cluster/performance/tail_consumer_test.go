@@ -1,6 +1,7 @@
 package performance
 
 import (
+	"github.com/confluentinc/ce-kafka/cc-services/soak_cluster/common"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
@@ -10,7 +11,7 @@ func TestValidateWorksCorrectly(t *testing.T) {
 	testNameAndTopicsDefined := TailConsumer{
 		ProduceTestName: "test",
 		Topics:          []string{"a"},
-		Duration:        time.Duration(100),
+		Duration:        common.Duration(100),
 	}
 	err := testNameAndTopicsDefined.validate()
 	assert.NotNil(t, err)
@@ -18,34 +19,34 @@ func TestValidateWorksCorrectly(t *testing.T) {
 	// we currently support one only due to trogdor client limitations
 	multipleTopicsDefined := TailConsumer{
 		Topics:   []string{"a", "b"},
-		Duration: time.Duration(100),
+		Duration: common.Duration(100),
 	}
 	err = multipleTopicsDefined.validate()
 	assert.NotNil(t, err)
 
 	noTopicsNorProduceTestDefined := TailConsumer{
-		Duration: time.Duration(100),
+		Duration: common.Duration(100),
 	}
 	err = noTopicsNorProduceTestDefined.validate()
 	assert.NotNil(t, err)
 
 	negativeDuration := TailConsumer{
 		Topics:   []string{"a"},
-		Duration: time.Duration(-100),
+		Duration: common.Duration(-100),
 	}
 	err = negativeDuration.validate()
 	assert.NotNil(t, err)
 
 	validDefinition := TailConsumer{
 		Topics:   []string{"a"},
-		Duration: time.Duration(100),
+		Duration: common.Duration(100),
 	}
 	err = validDefinition.validate()
 	assert.Nil(t, err)
 
 	validDefinition2 := TailConsumer{
 		ProduceTestName: "a",
-		Duration:        time.Duration(100),
+		Duration:        common.Duration(100),
 	}
 	err = validDefinition2.validate()
 	assert.Nil(t, err)
@@ -61,7 +62,7 @@ func TestCreateTestReturnsCorrectNumberOfTasks(t *testing.T) {
 			expectedTaskCount := trogdorAgents * fanout
 			consumerTest := TailConsumer{
 				Fanout:    fanout,
-				Duration:  time.Duration(100),
+				Duration:  common.Duration(100),
 				Topics:    []string{"a"},
 				startTime: time.Now(),
 				endTime:   time.Now(),
@@ -80,7 +81,7 @@ func TestCreateTestReturnsCorrectNumberOfTasks(t *testing.T) {
 func TestCreateTestReturnsErrorIfNoTopicsPopulated(t *testing.T) {
 	noTopicsConsumer := TailConsumer{
 		ProduceTestName: "a",
-		Duration:        time.Duration(100),
+		Duration:        common.Duration(100),
 	}
 	err := noTopicsConsumer.validate()
 	assert.Nil(t, err)
