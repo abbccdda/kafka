@@ -17,10 +17,8 @@ import io.confluent.security.audit.EventLogConfig;
 import io.confluent.security.audit.EventLogger;
 import io.confluent.security.audit.appender.KafkaEventAppender;
 import java.time.Duration;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -39,27 +37,18 @@ public class KafkaEventAppenderTest {
 
   private static final String BROKER_USER = "kafka";
 
-  private static final KafkaPrincipal EVENT_LOG_WRITER =
-      new KafkaPrincipal(KafkaPrincipal.USER_TYPE,
-          EventLogConfig.DEFAULT_EVENT_LOG_PRINCIPAL_CONFIG);
-
   private static final KafkaPrincipal EVENT_LOG_READER =
       new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "eventLogReader");
 
-  private EventLogClusters.Config eventLogConfig;
+  private EventLogClusters.Config eventLogClustersConfig;
   private EventLogClusters eventLogClusters;
-  private String clusterId;
 
   private KafkaConsumer<byte[], CloudEvent> consumer;
   private EventLogger logger;
 
   @Before
   public void setUp() throws Throwable {
-    List<String> otherUsers = Arrays.asList(
-        EVENT_LOG_READER.getName(),
-        EVENT_LOG_WRITER.getName()
-    );
-    eventLogConfig = new EventLogClusters.Config()
+    eventLogClustersConfig = new EventLogClusters.Config()
         .users(BROKER_USER, EventLogConfig.DEFAULT_EVENT_LOG_PRINCIPAL_CONFIG, "eventLogReader");
   }
 
@@ -100,14 +89,15 @@ public class KafkaEventAppenderTest {
 
     KafkaConsumer<byte[], CloudEvent> consumer = new KafkaConsumer<>(consumerProperties);
 
-    consumer.subscribe(Collections.singleton(EventLogConfig.DEFAULT_TOPIC_CONFIG));
+    consumer.subscribe(Collections.singleton(EventLogConfig.DEFAULT_TOPIC));
     return consumer;
 
   }
 
   private EventLogger logger(String name, Map<String, String> configOverrides) {
     HashMap<String, String> config = new HashMap<>();
-    Properties producerProperties = eventLogClusters.producerProps(EVENT_LOG_WRITER.getName());
+    Properties producerProperties = eventLogClusters
+        .producerProps(eventLogClusters.logWriterUser());
     for (String key : producerProperties.stringPropertyNames()) {
       config.put(EVENT_LOGGER_PREFIX + key, producerProperties.getProperty(key));
     }
@@ -138,8 +128,7 @@ public class KafkaEventAppenderTest {
 
   @Test
   public void testEventLoggedOnNewTopic() throws Throwable {
-    eventLogClusters = new EventLogClusters(eventLogConfig);
-    initializeEventLogClusters();
+    eventLogClusters = new EventLogClusters(eventLogClustersConfig);
 
     consumer = consumer("event-log");
     logger = logger("testEventLoggedOnNewTopic");
@@ -154,15 +143,19 @@ public class KafkaEventAppenderTest {
 
   @Test
   public void testEventLoggedOnNewTopicWithoutPermissions() throws Throwable {
-    eventLogClusters = new EventLogClusters(eventLogConfig);
-    initializeEventLogClusters();
+    eventLogClusters = new EventLogClusters(eventLogClustersConfig);
 
     // topic should exist for the reader, but is not the topic we're writing to
-    eventLogClusters.kafkaCluster.createTopic(EventLogConfig.DEFAULT_TOPIC_CONFIG, 2, 1);
+    eventLogClusters.kafkaCluster.createTopic(EventLogConfig.DEFAULT_TOPIC, 2, 1);
+
+    String allowedTopic = EventLogConfig.EVENT_TOPIC_PREFIX + "_allowed";
+    String deniedTopic = EventLogConfig.EVENT_TOPIC_PREFIX + "_denied";
 
     consumer = consumer("event-log");
-    logger = logger("testEventLoggedOnNewTopic",
-        Utils.mkMap(Utils.mkEntry(EventLogConfig.TOPIC_CONFIG, "some_topic")));
+    logger = logger("testEventLoggedOnNewTopicWithoutPermissions",
+        Utils.mkMap(Utils.mkEntry(EventLogConfig.ROUTER_CONFIG,
+            String.format("{\"default_topics\":{\"allowed\":\"%s\",\"denied\":\"%s\"}}",
+                allowedTopic, deniedTopic))));
 
     CloudEvent sentEvent = sampleEvent();
     logger.log(sentEvent);
@@ -174,13 +167,12 @@ public class KafkaEventAppenderTest {
 
   @Test
   public void testEventLoggedOnExistingTopic() throws Throwable {
-    eventLogClusters = new EventLogClusters(eventLogConfig);
-    initializeEventLogClusters();
+    eventLogClusters = new EventLogClusters(eventLogClustersConfig);
 
-    eventLogClusters.kafkaCluster.createTopic(EventLogConfig.DEFAULT_TOPIC_CONFIG, 2, 1);
+    eventLogClusters.kafkaCluster.createTopic(EventLogConfig.DEFAULT_TOPIC, 2, 1);
 
     consumer = consumer("event-log");
-    logger = logger("testEventLogged");
+    logger = logger("testEventLoggedOnExistingTopic");
 
     CloudEvent sentEvent = sampleEvent();
     logger.log(sentEvent);
@@ -191,8 +183,71 @@ public class KafkaEventAppenderTest {
   }
 
 
-  private void initializeEventLogClusters() throws Exception {
-    this.clusterId = eventLogClusters.kafkaClusterId();
+  @Test
+  public void testSuppressAuditLoggerPrincipalEvents() throws Throwable {
+    eventLogClusters = new EventLogClusters(eventLogClustersConfig);
+
+    eventLogClusters.kafkaCluster.createTopic(EventLogConfig.DEFAULT_TOPIC, 2, 1);
+
+    AuditLogEntry entry = AuditLogEntry.newBuilder()
+        .setAuthenticationInfo(AuthenticationInfo.newBuilder()
+            .setPrincipal(EventLogConfig.DEFAULT_EVENT_LOG_PRINCIPAL_CONFIG)
+            .build())
+        .build();
+    CloudEvent sentEvent = CloudEventUtils
+        .wrap("event_type", "crn://authority/kafka=source", "crn://authority/kafka=subject", entry);
+
+    consumer = consumer("event-log");
+    logger = logger("testSuppressAuditLoggerPrincipalEvents");
+
+    logger.log(sentEvent);
+
+    CloudEvent receivedEvent = firstReceivedEvent(consumer, 10000);
+    assertNull(receivedEvent);
+  }
+
+
+  @Test
+  public void testSuppressAuditLoggerNondefaultPrincipalEvents() throws Throwable {
+    String eventLogPrincipal = "my_event_log_principal";
+    eventLogClustersConfig = new EventLogClusters.Config()
+        .users(BROKER_USER, eventLogPrincipal, "eventLogReader")
+        .overrideClusterConfig(EventLogConfig.EVENT_LOG_PRINCIPAL_CONFIG, eventLogPrincipal);
+
+    eventLogClusters = new EventLogClusters(eventLogClustersConfig);
+
+    /* The Default principal now appears in logs... */
+    AuditLogEntry entry = AuditLogEntry.newBuilder()
+        .setAuthenticationInfo(AuthenticationInfo.newBuilder()
+            .setPrincipal(EventLogConfig.DEFAULT_EVENT_LOG_PRINCIPAL_CONFIG)
+            .build())
+        .build();
+    CloudEvent sentEvent = CloudEventUtils
+        .wrap("event_type", "crn://authority/kafka=source", "crn://authority/kafka=subject", entry);
+
+    consumer = consumer("event-log");
+    logger = logger("testSuppressAuditLoggerNondefaultPrincipalEvents",
+        Utils.mkMap(
+            Utils.mkEntry(EventLogConfig.EVENT_LOG_PRINCIPAL_CONFIG, "User:" + eventLogPrincipal)));
+
+    logger.log(sentEvent);
+
+    CloudEvent receivedEvent = firstReceivedEvent(consumer, 10000);
+    assertNotNull(receivedEvent);
+    assertEquals(sentEvent, receivedEvent);
+
+    /* But the custom principal does not */
+    AuditLogEntry entry2 = AuditLogEntry.newBuilder()
+        .setAuthenticationInfo(AuthenticationInfo.newBuilder()
+            .setPrincipal(eventLogPrincipal)
+            .build())
+        .build();
+    CloudEvent sentEven2 = CloudEventUtils
+        .wrap("event_type", "crn://authority/kafka=source", "crn://authority/kafka=subject",
+            entry2);
+
+    CloudEvent receivedEvent2 = firstReceivedEvent(consumer, 10000);
+    assertNull(receivedEvent2);
   }
 
 }

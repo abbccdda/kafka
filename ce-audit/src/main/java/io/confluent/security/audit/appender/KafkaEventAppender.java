@@ -1,9 +1,12 @@
 package io.confluent.security.audit.appender;
 
 import com.google.protobuf.InvalidProtocolBufferException;
+import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.CloudEvent;
 import io.confluent.security.audit.CloudEventUtils;
 import io.confluent.security.audit.EventLogConfig;
+import io.confluent.security.audit.router.AuditLogRouter;
+import io.confluent.security.audit.router.EventTopicRouter;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Map;
@@ -20,6 +23,8 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
+import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.utils.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,14 +36,15 @@ public class KafkaEventAppender implements EventAppender {
   private static final Logger log = LoggerFactory.getLogger(KafkaEventAppender.class);
 
   private ConcurrentHashMap<String, Boolean> isTopicCreated = new ConcurrentHashMap<>();
-  private String defaultTopicName;
   private boolean createTopic;
   private int topicReplicas;
   private int topicPartitions;
   private Map<String, String> topicConfig;
   private Properties producerProperties;
   private Properties adminClientProperties;
+  private KafkaPrincipal eventLogPrincipal;
   private KafkaProducer<byte[], CloudEvent> producer;
+  private EventTopicRouter topicRouter;
 
   public KafkaEventAppender() {
 
@@ -48,14 +54,15 @@ public class KafkaEventAppender implements EventAppender {
   public void configure(Map<String, ?> configs) {
     EventLogConfig eventLogConfig = new EventLogConfig(configs);
 
-    this.defaultTopicName = eventLogConfig.getString(EventLogConfig.TOPIC_CONFIG);
     this.createTopic = eventLogConfig.getBoolean(EventLogConfig.TOPIC_CREATE_CONFIG);
     this.topicReplicas = eventLogConfig.getInt(EventLogConfig.TOPIC_REPLICAS_CONFIG);
     this.topicPartitions = eventLogConfig.getInt(EventLogConfig.TOPIC_PARTITIONS_CONFIG);
     this.topicConfig = eventLogConfig.topicConfig();
     this.producerProperties = eventLogConfig.producerProperties();
     this.adminClientProperties = eventLogConfig.clientProperties();
-    // this.topicRouter = topicRouter;
+    this.eventLogPrincipal = eventLogConfig.eventLogPrincipal();
+    this.topicRouter = new AuditLogRouter(eventLogConfig.routerJsonConfig(),
+        eventLogConfig.getInt(EventLogConfig.ROUTER_CACHE_ENTRIES_CONFIG));
     this.producer = new KafkaProducer<>(this.producerProperties);
   }
 
@@ -95,14 +102,21 @@ public class KafkaEventAppender implements EventAppender {
 
   @Override
   public void append(CloudEvent event) throws RuntimeException {
-    // depending on the configuration, this may produce a message on one of
-    // the configured topics. For example, if Produce logging is turned on
-    // and topic_2 is whitelisted, and configured to send to audit_topic_2,
-    // that determination will be made here.
-
-    String topicName = this.defaultTopicName;
-
     try {
+      AuditLogEntry auditLogEntry = event.getData().unpack(AuditLogEntry.class);
+      KafkaPrincipal eventPrincipal =
+          SecurityUtils.parseKafkaPrincipal(
+              auditLogEntry.getAuthenticationInfo().getPrincipal());
+      if (eventLogPrincipal.equals(eventPrincipal)) {
+        // suppress all events concerning the principal that is doing this logging
+        // to make sure we don't loop infinitely
+        return;
+      }
+
+      // A default route should have matched, even if no explicit routing is configured
+      String topicName = this.topicRouter.topic(event).orElseThrow(
+          () -> new ConfigException("No route configured"));
+
       if (this.createTopic) {
         if (!this.isTopicCreated.getOrDefault(topicName, false)) {
           this.isTopicCreated.put(topicName, ensureTopic(topicName));

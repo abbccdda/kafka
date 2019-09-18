@@ -29,14 +29,16 @@ public class EventLogClusters {
   private final SecurityProtocol kafkaSecurityProtocol = SecurityProtocol.SASL_PLAINTEXT;
   private final String kafkaSaslMechanism = "SCRAM-SHA-256";
   public final EmbeddedKafkaCluster kafkaCluster;
-  private final Map<String, User> users;
+  private final Map<String, User> users = new HashMap<>();
+  private String logWriterUser;
 
   public EventLogClusters(EventLogClusters.Config config) throws Exception {
     this.config = config;
     kafkaCluster = new EmbeddedKafkaCluster();
     kafkaCluster.startZooKeeper();
-    users = createUsers(kafkaCluster, config.brokerUser, config.eventLoggerUser,
-        config.logReaderUser);
+    createBrokerUser(config.brokerUser);
+    createLogWriterUser(config.logWriterUser);
+    createLogReaderUser(config.logReaderUser);
     kafkaCluster.startBrokers(1, serverConfig());
   }
 
@@ -104,48 +106,62 @@ public class EventLogClusters {
     //    ConfluentServerAuthorizer.class.getName());
     serverConfig.setProperty("super.users", "User:" + config.brokerUser);
     serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL");
+    serverConfig.putAll(config.clusterPropOverrides);
     return serverConfig;
   }
 
-  private Map<String, User> createUsers(EmbeddedKafkaCluster cluster,
-      String brokerUser, String eventLoggerUser, String logReaderUser) {
-    Map<String, User> users = new HashMap<>();
-    users.put(brokerUser, User.createScramUser(cluster, brokerUser));
-    users.put(eventLoggerUser, User.createScramUser(cluster, eventLoggerUser));
-    users.put(logReaderUser, User.createScramUser(cluster, logReaderUser));
-
-    String zkConnect = cluster.zkConnect();
+  private void createBrokerUser(String brokerUser) {
+    users.put(brokerUser, User.createScramUser(kafkaCluster, brokerUser));
+    String zkConnect = kafkaCluster.zkConnect();
     KafkaPrincipal brokerPrincipal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, brokerUser);
     AclCommand.main(SecurityTestUtils
         .clusterAclArgs(zkConnect, brokerPrincipal, ClusterAction$.MODULE$.name()));
     AclCommand
         .main(SecurityTestUtils.clusterAclArgs(zkConnect, brokerPrincipal, Alter$.MODULE$.name()));
     AclCommand.main(SecurityTestUtils.topicBrokerReadAclArgs(zkConnect, brokerPrincipal));
+  }
 
+  public void createLogWriterUser(String logWriterUser) {
+    users.put(logWriterUser, User.createScramUser(kafkaCluster, logWriterUser));
+    String zkConnect = kafkaCluster.zkConnect();
     KafkaPrincipal eventLoggerPrincipal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE,
-        eventLoggerUser);
+        logWriterUser);
     AclCommand.main(SecurityTestUtils
-        .produceAclArgs(zkConnect, eventLoggerPrincipal, EventLogConfig.DEFAULT_TOPIC_CONFIG,
+        .produceAclArgs(zkConnect, eventLoggerPrincipal, EventLogConfig.EVENT_TOPIC_PREFIX,
             PatternType.PREFIXED));
+    this.logWriterUser = logWriterUser;
+  }
 
+  public void createLogReaderUser(String logReaderUser) {
+    users.put(logReaderUser, User.createScramUser(kafkaCluster, logReaderUser));
+    String zkConnect = kafkaCluster.zkConnect();
     KafkaPrincipal logReaderPrincipal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, logReaderUser);
     AclCommand.main(SecurityTestUtils
-        .consumeAclArgs(zkConnect, logReaderPrincipal, EventLogConfig.DEFAULT_TOPIC_CONFIG,
+        .consumeAclArgs(zkConnect, logReaderPrincipal, EventLogConfig.EVENT_TOPIC_PREFIX,
             "event-log", PatternType.PREFIXED));
-    return users;
+  }
+
+  public String logWriterUser() {
+    return logWriterUser;
   }
 
   public static class Config {
 
     private String brokerUser;
-    private String eventLoggerUser;
+    private String logWriterUser;
     private String logReaderUser;
+    private final Properties clusterPropOverrides = new Properties();
 
     public EventLogClusters.Config users(String brokerUser, String eventLoggerUser,
         String logReaderUser) {
       this.brokerUser = brokerUser;
-      this.eventLoggerUser = eventLoggerUser;
+      this.logWriterUser = eventLoggerUser;
       this.logReaderUser = logReaderUser;
+      return this;
+    }
+
+    public Config overrideClusterConfig(String name, String value) {
+      clusterPropOverrides.setProperty(name, value);
       return this;
     }
   }
