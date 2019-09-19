@@ -17,7 +17,8 @@
   "apiKey": 32766,
   "type": "response",
   "name": "ConfluentLeaderAndIsrResponse",
-  "validVersions": "0",
+  // Version 1 is the same as version 0.
+  "validVersions": "0-1",
   "fields": [
     { "name": "ErrorCode", "type": "int16", "versions": "0+",
       "about": "The error code, or 0 if there was no error." },

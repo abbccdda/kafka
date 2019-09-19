@@ -376,7 +376,7 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
   def addLeaderAndIsrRequestForBrokers(brokerIds: Seq[Int],
                                        topicPartition: TopicPartition,
                                        leaderIsrAndControllerEpoch: LeaderIsrAndControllerEpoch,
-                                       replicas: Seq[Int],
+                                       replicaAssignment: PartitionReplicaAssignment,
                                        isNew: Boolean): Unit = {
     brokerIds.filter(_ >= 0).foreach { brokerId =>
       val result = leaderAndIsrRequestMap.getOrElseUpdate(brokerId, mutable.Map.empty)
@@ -386,7 +386,9 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
         leaderIsrAndControllerEpoch.leaderAndIsr.leaderEpoch,
         leaderIsrAndControllerEpoch.leaderAndIsr.isr.map(Integer.valueOf).asJava,
         leaderIsrAndControllerEpoch.leaderAndIsr.zkVersion,
-        replicas.map(Integer.valueOf).asJava,
+        replicaAssignment.replicas.map(Integer.valueOf).asJava,
+        replicaAssignment.addingReplicas.map(Integer.valueOf).asJava,
+        replicaAssignment.removingReplicas.map(Integer.valueOf).asJava,
         isNew || alreadyNew))
     }
 
@@ -459,13 +461,16 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
             .toSet
             .map((topic: String) => (topic, controllerContext.topicIds(topic)))
             .toMap
-          val leaderAndIsrRequestVersion: Short = 0
+          val leaderAndIsrRequestVersion: Short =
+            if (config.interBrokerProtocolVersion >= KAFKA_2_4_IV0) 1
+            else 0
           val leaderAndIsrRequestBuilder = new ConfluentLeaderAndIsrRequest.Builder(leaderAndIsrRequestVersion, controllerId, controllerEpoch,
             brokerEpoch, topicIds.asJava, leaderAndIsrPartitionStates.asJava, leaders.asJava)
           sendRequest(broker, leaderAndIsrRequestBuilder, (r: AbstractResponse) => sendEvent(LeaderAndIsrResponseReceived(r, broker)))
         } else {
           val leaderAndIsrRequestVersion: Short =
-            if (config.interBrokerProtocolVersion >= KAFKA_2_2_IV0) 2
+            if (config.interBrokerProtocolVersion >= KAFKA_2_4_IV0) 3
+            else if (config.interBrokerProtocolVersion >= KAFKA_2_2_IV0) 2
             else if (config.interBrokerProtocolVersion >= KAFKA_1_0_IV0) 1
             else 0
 

@@ -46,8 +46,10 @@ public class ConfluentLeaderAndIsrResponse extends AbstractResponse implements L
             ERROR_CODE,
             PARTITIONS_V0);
 
+    private static final Schema LEADER_AND_ISR_RESPONSE_V1 = LEADER_AND_ISR_RESPONSE_V0;
+
     public static Schema[] schemaVersions() {
-        return new Schema[]{LEADER_AND_ISR_RESPONSE_V0};
+        return new Schema[]{LEADER_AND_ISR_RESPONSE_V0, LEADER_AND_ISR_RESPONSE_V1};
     }
 
     /**

@@ -53,6 +53,10 @@ public class ConfluentLeaderAndIsrRequest extends AbstractControlRequest impleme
     private static final Field.Array ISR = new Field.Array("isr", INT32, "The in sync replica ids.");
     private static final Field.Int32 ZK_VERSION = new Field.Int32("zk_version", "The ZK version.");
     private static final Field.Array REPLICAS = new Field.Array("replicas", INT32, "The replica ids.");
+    private static final Field.Array ADDING_REPLICAS = new Field.Array("adding_replicas", INT32,
+            "The replica ids we are in the process of adding to the replica set during a reassignment.");
+    private static final Field.Array REMOVING_REPLICAS = new Field.Array("removing_replicas", INT32,
+            "The replica ids we are in the process of removing from the replica set during a reassignment.");
     private static final Field.Bool IS_NEW = new Field.Bool("is_new", "Whether the replica should have existed on the broker or not");
 
     // live_leaders fields
@@ -70,10 +74,28 @@ public class ConfluentLeaderAndIsrRequest extends AbstractControlRequest impleme
             REPLICAS,
             IS_NEW);
 
+    private static final Field PARTITION_STATES_V1 = PARTITION_STATES.withFields(
+            PARTITION_ID,
+            CONTROLLER_EPOCH,
+            LEADER,
+            LEADER_EPOCH,
+            ISR,
+            ZK_VERSION,
+            REPLICAS,
+            ADDING_REPLICAS,
+            REMOVING_REPLICAS,
+            IS_NEW);
+
     private static final Field TOPIC_STATES_V0 = TOPIC_STATES.withFields(
             TOPIC_NAME,
             TOPIC_ID,
             PARTITION_STATES_V0);
+
+    // TOPIC_STATES_V1 adds two new fields - adding_replicas and removing_replicas
+    private static final Field TOPIC_STATES_V1 = TOPIC_STATES.withFields(
+            TOPIC_NAME,
+            TOPIC_ID,
+            PARTITION_STATES_V1);
 
     private static final Field LIVE_LEADERS_V0 = LIVE_LEADERS.withFields(
             END_POINT_ID,
@@ -87,8 +109,17 @@ public class ConfluentLeaderAndIsrRequest extends AbstractControlRequest impleme
             TOPIC_STATES_V0,
             LIVE_LEADERS_V0);
 
+    // CONFLUENT_LEADER_AND_ISR_REQUEST_V1 added two new fields - adding_replicas and removing_replicas.
+    // These fields respectively specify the replica IDs we want to add or remove as part of a reassignment
+    private static final Schema CONFLUENT_LEADER_AND_ISR_REQUEST_V1 = new Schema(
+            CONTROLLER_ID,
+            CONTROLLER_EPOCH,
+            BROKER_EPOCH,
+            TOPIC_STATES_V1,
+            LIVE_LEADERS_V0);
+
     public static Schema[] schemaVersions() {
-        return new Schema[]{CONFLUENT_LEADER_AND_ISR_REQUEST_V0};
+        return new Schema[]{CONFLUENT_LEADER_AND_ISR_REQUEST_V0, CONFLUENT_LEADER_AND_ISR_REQUEST_V1};
     }
 
     public static class Builder extends AbstractControlRequest.Builder<ConfluentLeaderAndIsrRequest> {
@@ -205,7 +236,7 @@ public class ConfluentLeaderAndIsrRequest extends AbstractControlRequest impleme
                 for (Map.Entry<Integer, PartitionState> partitionEntry : partitionMap.entrySet()) {
                     Struct partitionStateData = topicStateData.instance(PARTITION_STATES);
                     partitionStateData.set(PARTITION_ID, partitionEntry.getKey());
-                    partitionEntry.getValue().setStruct(partitionStateData, version);
+                    partitionEntry.getValue().setStruct(partitionStateData, partitionStateVersion());
                     partitionStatesData.add(partitionStateData);
                 }
                 topicStateData.set(PARTITION_STATES, partitionStatesData.toArray());
@@ -219,7 +250,7 @@ public class ConfluentLeaderAndIsrRequest extends AbstractControlRequest impleme
                 TopicPartition topicPartition = entry.getKey();
                 partitionStateData.set(TOPIC_NAME, topicPartition.topic());
                 partitionStateData.set(PARTITION_ID, topicPartition.partition());
-                entry.getValue().setStruct(partitionStateData, version);
+                entry.getValue().setStruct(partitionStateData, partitionStateVersion());
                 partitionStatesData.add(partitionStateData);
             }
             struct.set(PARTITION_STATES, partitionStatesData.toArray());
@@ -237,6 +268,18 @@ public class ConfluentLeaderAndIsrRequest extends AbstractControlRequest impleme
         return struct;
     }
 
+    /**
+     * Because we reuse the AK LeaderAndIsr PartitionState object,
+     * we need to map our ConfluentLeaderAndIsr versions to the PartitionState version we want
+     */
+    private short partitionStateVersion() {
+        if (version() >= 1) {
+            return 3;
+        } else {
+            return 2;
+        }
+    }
+
     @Override
     public ConfluentLeaderAndIsrResponse getErrorResponse(int throttleTimeMs, Throwable e) {
         Errors error = Errors.forException(e);
@@ -249,6 +292,7 @@ public class ConfluentLeaderAndIsrRequest extends AbstractControlRequest impleme
         short versionId = version();
         switch (versionId) {
             case 0:
+            case 1:
                 return new ConfluentLeaderAndIsrResponse(error, responses);
             default:
                 throw new IllegalArgumentException(String.format("Version %d is not valid. Valid versions for %s are 0 to %d",

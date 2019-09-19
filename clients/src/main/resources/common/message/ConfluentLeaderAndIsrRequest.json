@@ -17,7 +17,8 @@
   "apiKey": 32766,
   "type": "request",
   "name": "ConfluentLeaderAndIsrRequest",
-  "validVersions": "0",
+  // Version 1 adds AddingReplicas and RemovingReplicas
+  "validVersions": "0-1",
   "fields": [
     { "name": "ControllerId", "type": "int32", "versions": "0+", "entityType": "brokerId",
       "about": "The current controller ID." },
@@ -47,6 +48,10 @@
           "about": "The ZooKeeper version." },
         { "name": "Replicas", "type": "[]int32", "versions": "0+",
           "about": "The replica IDs." },
+        { "name": "AddingReplicas", "type": "[]int32", "versions": "1+", "ignorable": true,
+          "about": "The replica IDs that we are adding this partition to, or null if no replicas are being added." },
+        { "name": "RemovingReplicas", "type": "[]int32", "versions": "1+", "ignorable": true,
+          "about": "The replica IDs that we are removing this partition from, or null if no replicas are being removed." },
         { "name": "IsNew", "type": "bool", "versions": "0+", "default": "false", 
           "about": "Whether the replica should have existed on the broker or not." }
       ]}

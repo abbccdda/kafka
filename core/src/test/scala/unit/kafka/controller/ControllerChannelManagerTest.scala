@@ -62,7 +62,7 @@ class ControllerChannelManagerTest {
     partitions.foreach { case (partition, leaderAndIsr) =>
       val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)
       context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
-      batch.addLeaderAndIsrRequestForBrokers(Seq(2), partition, leaderIsrAndControllerEpoch, Seq(1, 2, 3), isNew = false)
+      batch.addLeaderAndIsrRequestForBrokers(Seq(2), partition, leaderIsrAndControllerEpoch, replicaAssignment(Seq(1, 2, 3)), isNew = false)
     }
     batch.sendRequestsToBrokers(controllerEpoch)
 
@@ -111,7 +111,7 @@ class ControllerChannelManagerTest {
     partitions.foreach { case (partition, leaderAndIsr) =>
       val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)
       context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
-      batch.addLeaderAndIsrRequestForBrokers(Seq(2), partition, leaderIsrAndControllerEpoch, Seq(1, 2, 3), isNew = false)
+      batch.addLeaderAndIsrRequestForBrokers(Seq(2), partition, leaderIsrAndControllerEpoch, PartitionReplicaAssignment(Seq(1, 2, 3), Seq(), Seq()), isNew = false)
     }
     batch.sendRequestsToBrokers(controllerEpoch)
 
@@ -152,8 +152,8 @@ class ControllerChannelManagerTest {
     context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
 
     batch.newBatch()
-    batch.addLeaderAndIsrRequestForBrokers(Seq(2), partition, leaderIsrAndControllerEpoch, Seq(1, 2, 3), isNew = true)
-    batch.addLeaderAndIsrRequestForBrokers(Seq(2), partition, leaderIsrAndControllerEpoch, Seq(1, 2, 3), isNew = false)
+    batch.addLeaderAndIsrRequestForBrokers(Seq(2), partition, leaderIsrAndControllerEpoch, replicaAssignment(Seq(1, 2, 3)), isNew = true)
+    batch.addLeaderAndIsrRequestForBrokers(Seq(2), partition, leaderIsrAndControllerEpoch, replicaAssignment(Seq(1, 2, 3)), isNew = false)
     batch.sendRequestsToBrokers(controllerEpoch)
 
     val leaderAndIsrRequests = batch.collectLeaderAndIsrRequestsFor(2)
@@ -183,7 +183,7 @@ class ControllerChannelManagerTest {
     context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
 
     batch.newBatch()
-    batch.addLeaderAndIsrRequestForBrokers(Seq(1, 2, 3), partition, leaderIsrAndControllerEpoch, Seq(1, 2, 3), isNew = false)
+    batch.addLeaderAndIsrRequestForBrokers(Seq(1, 2, 3), partition, leaderIsrAndControllerEpoch, replicaAssignment(Seq(1, 2, 3)), isNew = false)
     batch.sendRequestsToBrokers(controllerEpoch)
 
     assertEquals(0, batch.sentEvents.size)
@@ -228,7 +228,7 @@ class ControllerChannelManagerTest {
     context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
 
     batch.newBatch()
-    batch.addLeaderAndIsrRequestForBrokers(Seq(2), partition, leaderIsrAndControllerEpoch, Seq(1, 2, 3), isNew = false)
+    batch.addLeaderAndIsrRequestForBrokers(Seq(2), partition, leaderIsrAndControllerEpoch, replicaAssignment(Seq(1, 2, 3)), isNew = false)
     batch.sendRequestsToBrokers(controllerEpoch)
 
     val leaderAndIsrRequests = batch.collectLeaderAndIsrRequestsFor(2, expectedLeaderAndIsrVersion)
@@ -711,6 +711,8 @@ class ControllerChannelManagerTest {
     props.put(KafkaConfig.InterBrokerProtocolVersionProp, ApiVersion.latestVersion.version)
     KafkaConfig.fromProps(props)
   }
+
+  private def replicaAssignment(replicas: Seq[Int]): PartitionReplicaAssignment = PartitionReplicaAssignment(replicas, Seq(), Seq())
 
   private def initContext(brokers: Seq[Int],
                           topicIds: mutable.Map[String, UUID],
