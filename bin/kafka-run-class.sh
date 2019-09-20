@@ -159,6 +159,9 @@ CLASSPATH="${CLASSPATH}:${base_dir}/ce-broker-plugins/build/dependant-libs/*"
 CLASSPATH="${CLASSPATH}:${base_dir}/ce-auth-providers/build/libs/*"
 CLASSPATH="${CLASSPATH}:${base_dir}/ce-auth-providers/build/dependant-libs/*"
 
+CLASSPATH="${CLASSPATH}:${base_dir}/ce-rest-server/build/libs/*"
+CLASSPATH="${CLASSPATH}:${base_dir}/ce-rest-server/build/dependant-libs/*"
+
 for cc_pkg in "api" "transforms" "runtime" "file" "json" "tools" "basic-auth-extension"
 do
   for file in "$base_dir"/connect/${cc_pkg}/build/libs/connect-${cc_pkg}*.jar;

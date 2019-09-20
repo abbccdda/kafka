@@ -16,15 +16,18 @@
  */
 package org.apache.kafka.common.config.internals;
 
+import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.network.Mode;
 import org.apache.kafka.common.requests.SamplingRequestLogFilter;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.interceptor.BrokerInterceptor;
 import org.apache.kafka.server.interceptor.DefaultBrokerInterceptor;
 import org.apache.kafka.server.multitenant.MultiTenantMetadata;
+import org.apache.kafka.server.rest.RestServer;
 
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+
 
 public class ConfluentConfigs {
     private static final String CONFLUENT_PREFIX = "confluent.";
@@ -121,6 +124,10 @@ public class ConfluentConfigs {
             "used to select a subset of requests for logging. Every request handler thread will get a separate " +
             "instance of this class and is only consulted if the request log level is set to INFO or higher.";
 
+    public static final String REST_SERVER_CLASS_CONFIG = CONFLUENT_PREFIX + "rest.server.class";
+    public static final String REST_SERVER_CLASS_DOC = "The fully qualified name of a class that implements " + RestServer.class.getName()
+        + " interface, which is used by the broker to start the Rest Server.";
+
     public static BrokerInterceptor buildBrokerInterceptor(Mode mode, Map<String, ?> configs) {
         if (mode == Mode.CLIENT)
             return null;
@@ -146,5 +153,17 @@ public class ConfluentConfigs {
             meta.configure(configs);
         }
         return meta;
+    }
+
+    public static RestServer buildRestServer(AbstractConfig configs) {
+        RestServer server = null;
+        if (configs.getClass(REST_SERVER_CLASS_CONFIG) != null) {
+            @SuppressWarnings("unchecked")
+            Class<? extends RestServer> restServerClass =
+                (Class<? extends RestServer>) configs.getClass(REST_SERVER_CLASS_CONFIG);
+            server = Utils.newInstance(restServerClass);
+            server.configure(configs.originals());
+        }
+        return server;
     }
 }

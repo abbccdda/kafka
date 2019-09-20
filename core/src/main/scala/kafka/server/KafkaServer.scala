@@ -61,6 +61,7 @@ import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.server.authorizer.Authorizer
 import org.apache.kafka.server.multitenant.MultiTenantMetadata
+import org.apache.kafka.server.rest.{BrokerProxy, RestServer}
 
 import scala.collection.JavaConverters._
 import scala.collection.{Map, Seq, mutable}
@@ -205,6 +206,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   private var _brokerTopicStats: BrokerTopicStats = null
 
   var multitenantMetadata: MultiTenantMetadata = null
+
+  var restServer: RestServer = null
 
   def clusterId: String = _clusterId
 
@@ -435,7 +438,14 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           val endpoint = brokerInfo.broker.brokerEndPoint(config.interBrokerListenerName).connectionString()
           multitenantMetadata.handleSocketServerInitialized(endpoint)
         }
-        
+
+        restServer = ConfluentConfigs.buildRestServer(config)
+        if (restServer != null) {
+          restServer.startup(new BrokerProxy {
+            override def clusterId(): String = _clusterId
+          })
+        }
+
         startupComplete.set(true)
 
         isStartingUp.set(false)
@@ -719,6 +729,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         if (dynamicConfigManager != null)
           CoreUtils.swallow(dynamicConfigManager.shutdown(), this)
+
+        if (restServer != null)
+          CoreUtils.swallow(restServer.shutdown(), this)
 
         // Stop socket server to stop accepting any more connections and requests.
         // Socket server will be shutdown towards the end of the sequence.

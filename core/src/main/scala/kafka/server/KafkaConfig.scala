@@ -42,6 +42,7 @@ import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.Utils
 import org.apache.kafka.server.interceptor.RecordInterceptor
 import org.apache.kafka.server.authorizer.Authorizer
+import org.apache.kafka.server.rest.RestServer
 
 import scala.collection.JavaConverters._
 import scala.collection.{Map, Seq}
@@ -1266,6 +1267,8 @@ object KafkaConfig {
       .define(PasswordEncoderIterationsProp, INT, Defaults.PasswordEncoderIterations, atLeast(1024), LOW, PasswordEncoderIterationsDoc)
 
       /** ********* Confluent Configuration ****************/
+      .defineInternal(ConfluentConfigs.REST_SERVER_CLASS_CONFIG, CLASS, null, LOW)
+
       .defineInternal(BrokerInterceptorClassProp, CLASS, ConfluentConfigs.BROKER_INTERCEPTOR_CLASS_DEFAULT, LOW)
       .defineInternal(AppendRecordInterceptorClassesProp, LIST, Collections.emptyList(), LOW)
 
