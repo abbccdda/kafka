@@ -54,7 +54,7 @@ abstract class TierTask[T <: TierTask[T]](retryRateOpt: Option[Meter]) extends L
     retryRateOpt.foreach(_.mark())
     val now = Instant.ofEpochMilli(nowMs)
     val pauseMs = Math.min(maxRetryBackoffMs, (Random.nextInt(retryCount) + 1) * 1000)
-    debug(s"retrying $this after ${pauseMs}ms", t)
+    warn(s"retrying $this after ${pauseMs}ms", t)
     _pausedUntil = Some(now.plusMillis(pauseMs))
   }
 
