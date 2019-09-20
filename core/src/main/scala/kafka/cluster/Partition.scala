@@ -196,8 +196,6 @@ class Partition(val topicPartition: TopicPartition,
   @volatile var log: Option[AbstractLog] = None
   // If ReplicaAlterLogDir command is in progress, this is future location of the log
   @volatile var futureLog: Option[AbstractLog] = None
-  // Save the caught up set so that we don't grab a lock during metric reporting
-  @volatile var caughtUpReplicas = Set.empty[Int]
 
   /* Epoch of the controller that last changed the leader. This needs to be initialized correctly upon broker startup.
    * One way of doing that is through the controller's start replica state change command. When a new broker starts up
@@ -230,7 +228,7 @@ class Partition(val topicPartition: TopicPartition,
   newGauge("CaughtUpReplicas",
     new Gauge[Int] {
       def value: Int = {
-        caughtUpReplicas.size
+        caughtUpReplicaCount
       }
     },
     tags
@@ -285,7 +283,7 @@ class Partition(val topicPartition: TopicPartition,
     isLeader && inSyncReplicaIds.size < sizeOfOfflineOrIsrEligibleReplicas
 
   def isNotCaughtUp: Boolean =
-    isLeader && caughtUpReplicas.size < allReplicaIds.size
+    isLeader && caughtUpReplicaCount < allReplicaIds.size
 
   def isUnderMinIsr: Boolean = {
     leaderLogIfLocal.exists { inSyncReplicaIds.size < _.config.minInSyncReplicas }
@@ -647,13 +645,6 @@ class Partition(val topicPartition: TopicPartition,
           false
         }
 
-        // Compate the new caughtUpReplicas with the old value
-        val newCaughtUpReplicas = computeCaughtUpReplicas;
-        if (newCaughtUpReplicas != caughtUpReplicas) {
-          debug(s"After updating follower caught up replica set changed from $caughtUpReplicas to $newCaughtUpReplicas")
-          caughtUpReplicas = newCaughtUpReplicas
-        }
-
         // some delayed operations may be unblocked after HW or LW changed
         if (leaderLWIncremented || leaderHWIncremented)
           tryCompleteDelayedRequests()
@@ -759,18 +750,15 @@ class Partition(val topicPartition: TopicPartition,
     }
   }
 
-  private[this] def computeCaughtUpReplicas: Set[Int] = {
-    leaderLogIfLocal.iterator.flatMap { leaderLog =>
-      val caughtUpFollowers = remoteReplicasMap.iterator.flatMap { case (id, replica) =>
-        if (isFollowerInSync(replica, leaderLog.highWatermark)) {
-          Some(id)
-        } else {
-          None
-        }
-      }
-      
-      caughtUpFollowers ++ Iterator(localBrokerId)
-    }.toSet
+  // public for jmh benchmarking
+  def caughtUpReplicaCount: Int = {
+    // caughtUpReplicaCount will be called twice for each partition that the broker
+    // is a leader for. Care should be taken to keep it fast.
+    leaderLogIfLocal.map { leaderLog =>
+      val hwm = leaderLog.highWatermark
+      // remote replicas in sync + leader
+      remoteReplicasMap.values.count(isFollowerInSync(_, hwm)) + 1
+    }.getOrElse(0)
   }
 
   /*
@@ -908,13 +896,6 @@ class Partition(val topicPartition: TopicPartition,
     val leaderHWIncremented = inWriteLock(leaderIsrUpdateLock) {
       leaderLogIfLocal match {
         case Some(leaderLog) =>
-          // Compate the new caughtUpReplicas with the old value
-          val newCaughtUpReplicas = computeCaughtUpReplicas;
-          if (newCaughtUpReplicas != caughtUpReplicas) {
-            debug(s"After replica lag time caught up replica set changed from $caughtUpReplicas to $newCaughtUpReplicas")
-            caughtUpReplicas = newCaughtUpReplicas
-          }
-
           val outOfSyncReplicaIds = getOutOfSyncReplicas(replicaMaxLagTimeMs)
           if (outOfSyncReplicaIds.nonEmpty) {
             val newInSyncReplicaIds = inSyncReplicaIds -- outOfSyncReplicaIds

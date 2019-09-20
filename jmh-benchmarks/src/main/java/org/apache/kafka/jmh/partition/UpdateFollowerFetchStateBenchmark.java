@@ -178,4 +178,10 @@ public class UpdateFollowerFetchStateBenchmark {
         partition.updateFollowerFetchState(2, new LogOffsetMetadata(nextOffset, nextOffset, 0),
                 0, 1, 100);
     }
+
+    @Benchmark
+    @OutputTimeUnit(TimeUnit.NANOSECONDS)
+    public int caughtUpReplicaCount() {
+        return partition.caughtUpReplicaCount();
+    }
 }
