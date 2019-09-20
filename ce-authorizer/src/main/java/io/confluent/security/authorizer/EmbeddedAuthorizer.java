@@ -56,6 +56,8 @@ public class EmbeddedAuthorizer implements Authorizer {
   private MetadataProvider metadataProvider;
   private boolean allowEveryoneIfNoAcl;
   private Set<KafkaPrincipal> superUsers;
+  protected Set<KafkaPrincipal> brokerUsers;
+  protected String interBrokerListener;
   private Duration initTimeout;
   private boolean usesMetadataFromThisKafkaCluster;
   private volatile boolean ready;
@@ -75,6 +77,7 @@ public class EmbeddedAuthorizer implements Authorizer {
   public EmbeddedAuthorizer() {
     this.providersCreated = new HashSet<>();
     this.superUsers = Collections.emptySet();
+    this.brokerUsers = Collections.emptySet();
     this.scope = Scope.ROOT_SCOPE; // Scope is only required for broker authorizers using RBAC
   }
 
@@ -83,12 +86,14 @@ public class EmbeddedAuthorizer implements Authorizer {
     authorizerConfig = new ConfluentAuthorizerConfig(configs);
     allowEveryoneIfNoAcl = authorizerConfig.allowEveryoneIfNoAcl;
     superUsers = authorizerConfig.superUsers;
+    brokerUsers = authorizerConfig.brokerUsers;
   }
 
   public void configureServerInfo(AuthorizerServerInfo serverInfo) {
     this.clusterId = serverInfo.clusterResource().clusterId();
     log.debug("Configuring scope for Kafka cluster with cluster id {}", clusterId);
     this.scope = Scope.kafkaClusterScope(clusterId);
+    this.interBrokerListener = serverInfo.interBrokerEndpoint().listener();
 
     ConfluentAuthorizerConfig.Providers providers = authorizerConfig.createProviders(clusterId);
     providersCreated.addAll(providers.accessRuleProviders);

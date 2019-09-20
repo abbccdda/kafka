@@ -70,12 +70,19 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
   private static final String SUPER_USERS_DOC = "Semicolon-separated list of principals of"
       + " super users who are allowed access to all resources.";
 
+  public static final String BROKER_USERS_PROP = "broker.users";
+  private static final String BROKER_USERS_DEFAULT = "";
+  private static final String BROKER_USERS_DOC = "Semicolon-separated list of principals of"
+      + " users who are allowed access to all resources on inter broker listener.";
+
   static {
     CONFIG = new ConfigDef()
         .define(ALLOW_IF_NO_ACLS_PROP, Type.BOOLEAN, ALLOW_IF_NO_ACLS_DEFAULT,
             Importance.MEDIUM, ALLOW_IF_NO_ACLS_DOC)
         .define(SUPER_USERS_PROP, Type.STRING, SUPER_USERS_DEFAULT,
             Importance.MEDIUM, SUPER_USERS_DOC)
+        .define(BROKER_USERS_PROP, Type.STRING, BROKER_USERS_DEFAULT,
+            Importance.MEDIUM, BROKER_USERS_DOC)
         .define(ACCESS_RULE_PROVIDERS_PROP, Type.LIST, ACCESS_RULE_PROVIDERS_DEFAULT,
             Importance.MEDIUM, ACCESS_RULE_PROVIDERS_DOC)
         .define(LICENSE_PROP, Type.STRING, LICENSE_DEFAULT,
@@ -85,6 +92,7 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
   }
   public final boolean allowEveryoneIfNoAcl;
   public Set<KafkaPrincipal> superUsers;
+  public Set<KafkaPrincipal> brokerUsers;
   public final Duration initTimeout;
 
   public ConfluentAuthorizerConfig(Map<?, ?> props) {
@@ -95,11 +103,12 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
     if (getList(ACCESS_RULE_PROVIDERS_PROP).isEmpty())
       throw new ConfigException("No access rule providers specified");
 
-    this.superUsers = parseSuperUsers(getString(ConfluentAuthorizerConfig.SUPER_USERS_PROP));
+    this.superUsers = parseUsers(getString(ConfluentAuthorizerConfig.SUPER_USERS_PROP));
+    this.brokerUsers = parseUsers(getString(ConfluentAuthorizerConfig.BROKER_USERS_PROP));
     initTimeout = Duration.ofMillis(getInt(INIT_TIMEOUT_PROP));
   }
 
-  public static Set<KafkaPrincipal> parseSuperUsers(String su) {
+  public static Set<KafkaPrincipal> parseUsers(String su) {
     if (su != null && !su.trim().isEmpty()) {
       String[] users = su.split(";");
       return Arrays.stream(users)

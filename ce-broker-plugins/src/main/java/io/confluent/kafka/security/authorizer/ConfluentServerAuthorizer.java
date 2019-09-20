@@ -26,7 +26,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
-import kafka.network.RequestChannel.Session;
 import kafka.security.auth.Operation;
 import kafka.security.auth.Operation$;
 import kafka.security.auth.Resource;
@@ -44,6 +43,7 @@ import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.resource.PatternType;
+import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
@@ -150,7 +150,6 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
   @Override
   public List<AuthorizationResult> authorize(AuthorizableRequestContext requestContext,
       List<org.apache.kafka.server.authorizer.Action> actions) {
-    Session session = new Session(requestContext.principal(), requestContext.clientAddress());
     return actions.stream().map(action -> {
       boolean allowed = authorize(requestContext,
           Operation$.MODULE$.fromJava(action.operation()),
@@ -184,11 +183,15 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
       throw new IllegalArgumentException("Only literal resources are supported, got: "
           + resource.patternType());
     }
+
+    if (allowBrokerUsersOnInterBrokerListener(requestContext, requestContext.principal())) {
+      return true;
+    }
+
     Action action = new Action(scope(),
                                AclMapper.resourceType(resource.resourceType()),
                                resource.name(),
                                AclMapper.operation(operation));
-    String host = requestContext.clientAddress().getHostAddress();
 
     List<AuthorizeResult> result = super.authorize(
         io.confluent.security.authorizer.utils.AuthorizerUtils.kafkaRequestContext(requestContext),
@@ -206,6 +209,14 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
     } catch (Exception e) {
       log.error("Failed to close license validator", e);
     }
+  }
+
+  private boolean allowBrokerUsersOnInterBrokerListener(AuthorizableRequestContext requestContext, KafkaPrincipal principal) {
+    if (interBrokerListener.equals(requestContext.listener()) && brokerUsers.contains(principal)) {
+      log.debug("principal = {} is a broker user, allowing operation without checking any providers.", principal);
+      return true;
+    }
+    return false;
   }
 
   private Map<String, Object> interBrokerClientConfigs(AuthorizerServerInfo serverInfo) {

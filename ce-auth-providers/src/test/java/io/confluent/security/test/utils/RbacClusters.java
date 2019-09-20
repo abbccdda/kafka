@@ -9,7 +9,6 @@ import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.KafkaTestUtils.ClientBuilder;
-import io.confluent.kafka.test.utils.SecurityTestUtils;
 import io.confluent.license.test.utils.LicenseTestUtils;
 import io.confluent.security.auth.metadata.AuthStore;
 import io.confluent.security.auth.metadata.MetadataServiceConfig;
@@ -38,9 +37,6 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import kafka.admin.AclCommand;
-import kafka.security.auth.Alter$;
-import kafka.security.auth.ClusterAction$;
 import kafka.server.KafkaConfig$;
 import kafka.server.KafkaServer;
 import org.apache.kafka.clients.CommonClientConfigs;
@@ -352,7 +348,7 @@ public class RbacClusters {
     serverConfig.setProperty(KafkaConfig$.MODULE$.AuthorizerClassNameProp(),
         ConfluentServerAuthorizer.class.getName());
     serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL,RBAC");
-    serverConfig.setProperty("super.users", "User:" + config.brokerUser);
+    serverConfig.setProperty("broker.users", "User:" + config.brokerUser);
     int metadataPort = 8000 + index;
     serverConfig.setProperty(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP,
         "http://0.0.0.0:" + metadataPort);
@@ -373,11 +369,6 @@ public class RbacClusters {
         .map(name -> User.createScramUser(cluster, name))
         .forEach(user -> users.put(user.name, user));
 
-    String zkConnect = cluster.zkConnect();
-    KafkaPrincipal brokerPrincipal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, brokerUser);
-    AclCommand.main(SecurityTestUtils.clusterAclArgs(zkConnect, brokerPrincipal, ClusterAction$.MODULE$.name()));
-    AclCommand.main(SecurityTestUtils.clusterAclArgs(zkConnect, brokerPrincipal, Alter$.MODULE$.name()));
-    AclCommand.main(SecurityTestUtils.topicBrokerReadAclArgs(zkConnect, brokerPrincipal));
     return users;
   }
 

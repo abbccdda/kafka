@@ -104,7 +104,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
     }
     // Allow security metadata access for broker's configured super-user in the metadata cluster
     this.configuredSuperUsers =
-        ConfluentAuthorizerConfig.parseSuperUsers((String) configs.get(ConfluentAuthorizerConfig.SUPER_USERS_PROP));
+        ConfluentAuthorizerConfig.parseUsers((String) configs.get(ConfluentAuthorizerConfig.SUPER_USERS_PROP));
   }
 
   @Override
