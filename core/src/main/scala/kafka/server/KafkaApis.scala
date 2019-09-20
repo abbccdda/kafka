@@ -1732,7 +1732,8 @@ class KafkaApis(val requestChannel: RequestChannel,
         apiVersionRequest.getErrorResponse(requestThrottleMs, Errors.UNSUPPORTED_VERSION.exception)
       else
         ApiVersionsResponse.apiVersionsResponse(requestThrottleMs,
-          config.interBrokerProtocolVersion.recordVersion.value)
+          config.interBrokerProtocolVersion.recordVersion.value,
+          request.context.listenerName == config.interBrokerListenerName)
     }
     sendResponseMaybeThrottle(request, createResponseCallback)
   }

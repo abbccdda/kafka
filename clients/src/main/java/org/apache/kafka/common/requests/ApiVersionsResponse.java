@@ -61,6 +61,7 @@ public class ApiVersionsResponse extends AbstractResponse {
 
     // initialized lazily to avoid circular initialization dependence with ApiKeys
     private static volatile ApiVersionsResponse defaultApiVersionsResponse;
+    private static volatile ApiVersionsResponse defaultInterBrokerApiVersionsResponse;
 
     public static Schema[] schemaVersions() {
         return new Schema[]{API_VERSIONS_RESPONSE_V0, API_VERSIONS_RESPONSE_V1, API_VERSIONS_RESPONSE_V2};
@@ -145,11 +146,11 @@ public class ApiVersionsResponse extends AbstractResponse {
         return struct;
     }
 
-    public static ApiVersionsResponse apiVersionsResponse(int throttleTimeMs, byte maxMagic) {
+    public static ApiVersionsResponse apiVersionsResponse(int throttleTimeMs, byte maxMagic, boolean isInterBrokerListener) {
         if (maxMagic == RecordBatch.CURRENT_MAGIC_VALUE && throttleTimeMs == DEFAULT_THROTTLE_TIME) {
-            return defaultApiVersionsResponse();
+            return defaultApiVersionsResponse(isInterBrokerListener);
         }
-        return createApiVersionsResponse(throttleTimeMs, maxMagic);
+        return createApiVersionsResponse(throttleTimeMs, maxMagic, isInterBrokerListener);
     }
 
     @Override
@@ -187,9 +188,16 @@ public class ApiVersionsResponse extends AbstractResponse {
     }
 
     public static ApiVersionsResponse createApiVersionsResponse(int throttleTimeMs, final byte minMagic) {
+        return createApiVersionsResponse(throttleTimeMs, minMagic, false);
+    }
+
+    private static ApiVersionsResponse createApiVersionsResponse(int throttleTimeMs,
+                                                                 byte minMagic,
+                                                                 boolean includeInternalApis) {
         List<ApiVersionsResponse.ApiVersion> versionList = new ArrayList<>();
         for (ApiKeys apiKey : ApiKeys.values()) {
-            if (apiKey.minRequiredInterBrokerMagic <= minMagic) {
+            if (apiKey.minRequiredInterBrokerMagic <= minMagic &&
+                    (includeInternalApis || !apiKey.isInternal)) {
                 versionList.add(new ApiVersionsResponse.ApiVersion(apiKey));
             }
         }
@@ -197,6 +205,17 @@ public class ApiVersionsResponse extends AbstractResponse {
     }
 
     public static ApiVersionsResponse defaultApiVersionsResponse() {
+        return defaultApiVersionsResponse(false);
+    }
+
+    public static ApiVersionsResponse defaultApiVersionsResponse(boolean isInterBrokerListener) {
+        if (isInterBrokerListener) {
+            if (defaultInterBrokerApiVersionsResponse == null)
+                defaultInterBrokerApiVersionsResponse = createApiVersionsResponse(DEFAULT_THROTTLE_TIME,
+                        RecordBatch.CURRENT_MAGIC_VALUE, true);
+            return defaultInterBrokerApiVersionsResponse;
+        }
+
         if (defaultApiVersionsResponse == null)
             defaultApiVersionsResponse = createApiVersionsResponse(DEFAULT_THROTTLE_TIME, RecordBatch.CURRENT_MAGIC_VALUE);
         return defaultApiVersionsResponse;

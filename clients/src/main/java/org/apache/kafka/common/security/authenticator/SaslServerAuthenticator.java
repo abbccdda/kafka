@@ -116,6 +116,7 @@ public class SaslServerAuthenticator implements Authenticator {
 
     private final SecurityProtocol securityProtocol;
     private final ListenerName listenerName;
+    private final boolean isInterBrokerListener;
     private final String connectionId;
     private final Map<String, Subject> subjects;
     private final TransportLayer transportLayer;
@@ -149,6 +150,7 @@ public class SaslServerAuthenticator implements Authenticator {
                                    Map<String, Subject> subjects,
                                    KerberosShortNamer kerberosNameParser,
                                    ListenerName listenerName,
+                                   boolean isInterBrokerListener,
                                    SecurityProtocol securityProtocol,
                                    TransportLayer transportLayer,
                                    Map<String, Long> connectionsMaxReauthMsByMechanism,
@@ -157,6 +159,7 @@ public class SaslServerAuthenticator implements Authenticator {
         this.connectionId = connectionId;
         this.subjects = subjects;
         this.listenerName = listenerName;
+        this.isInterBrokerListener = isInterBrokerListener;
         this.securityProtocol = securityProtocol;
         this.enableKafkaSaslAuthenticateHeaders = false;
         this.transportLayer = transportLayer;
@@ -568,7 +571,7 @@ public class SaslServerAuthenticator implements Authenticator {
 
     // Visible to override for testing
     protected ApiVersionsResponse apiVersionsResponse() {
-        return ApiVersionsResponse.defaultApiVersionsResponse();
+        return ApiVersionsResponse.defaultApiVersionsResponse(isInterBrokerListener);
     }
 
     // Visible to override for testing

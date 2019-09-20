@@ -136,7 +136,7 @@ public class NodeApiVersionsTest {
     @Test
     public void testUsableVersionLatestVersions() {
         List<ApiVersion> versionList = new LinkedList<>();
-        for (ApiVersion apiVersion: ApiVersionsResponse.defaultApiVersionsResponse().apiVersions()) {
+        for (ApiVersion apiVersion: ApiVersionsResponse.defaultApiVersionsResponse(true).apiVersions()) {
             versionList.add(apiVersion);
         }
         // Add an API key that we don't know about.

@@ -20,9 +20,8 @@ package kafka.server
 import java.net.InetAddress
 import java.nio.charset.StandardCharsets
 import java.util
-import java.util.{Collections, Optional}
+import java.util.{Collections, Optional, UUID}
 import java.util.Arrays.asList
-import java.util.UUID
 
 import kafka.api.{ApiVersion, KAFKA_0_10_2_IV0, KAFKA_2_2_IV1}
 import kafka.controller.KafkaController
@@ -95,8 +94,12 @@ class KafkaApisTest {
     metrics.close()
   }
 
-  def createKafkaApis(interBrokerProtocolVersion: ApiVersion = ApiVersion.latestVersion): KafkaApis = {
-    val properties = TestUtils.createBrokerConfig(brokerId, "zk")
+  def createKafkaApis(interBrokerProtocolVersion: ApiVersion = ApiVersion.latestVersion,
+                      enableSaslPlaintext: Boolean = false,
+                      interBrokerSecurityProtocol: Option[SecurityProtocol] = None): KafkaApis = {
+    val properties = TestUtils.createBrokerConfig(brokerId, "zk",
+      enableSaslPlaintext = enableSaslPlaintext,
+      interBrokerSecurityProtocol = interBrokerSecurityProtocol)
     properties.put(KafkaConfig.InterBrokerProtocolVersionProp, interBrokerProtocolVersion.toString)
     properties.put(KafkaConfig.LogMessageFormatVersionProp, interBrokerProtocolVersion.toString)
     new KafkaApis(requestChannel,
@@ -830,6 +833,43 @@ class KafkaApisTest {
     createKafkaApis().handleLeaveGroupRequest(leaveRequest)
 
     EasyMock.replay(groupCoordinator)
+  }
+
+  private def testApiVersionsRequest(kafkaApis: KafkaApis,
+                                     isInterBrokerListener: Boolean) = {
+    val (apiVersionRequest, request) = buildRequest(new ApiVersionsRequest.Builder)
+
+    val requestFromInterBrokerListener = kafkaApis.config.interBrokerListenerName == request.context.listenerName
+    assertEquals(isInterBrokerListener, requestFromInterBrokerListener)
+
+    val capturedResponse = expectNoThrottling()
+
+    EasyMock.replay(replicaManager, clientRequestQuotaManager, requestChannel)
+    kafkaApis.handleApiVersionsRequest(request)
+
+    val response = readResponse(ApiKeys.API_VERSIONS, apiVersionRequest, capturedResponse)
+      .asInstanceOf[ApiVersionsResponse]
+
+    val supportedApis = response.apiVersions().asScala.map(apiVersion => ApiKeys.forId(apiVersion.apiKey)).toSet
+
+    if (isInterBrokerListener)
+      assertEquals(ApiKeys.values.toSet, supportedApis)
+    else
+      assertEquals(ApiKeys.publicExposedApis.asScala.toSet, supportedApis)
+  }
+
+  @Test
+  def testHandleApiVersionsInterBrokerListener(): Unit = {
+    val kafkaApis = createKafkaApis()
+    testApiVersionsRequest(kafkaApis, isInterBrokerListener = true)
+  }
+
+  @Test
+  def testHandleApiVersionsExternalListener(): Unit = {
+    val kafkaApis = createKafkaApis(
+      enableSaslPlaintext = true,
+      interBrokerSecurityProtocol = Some(SecurityProtocol.SASL_PLAINTEXT))
+    testApiVersionsRequest(kafkaApis, isInterBrokerListener = false)
   }
 
   /**
