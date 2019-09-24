@@ -214,7 +214,7 @@
           },
           {
             "resourceType" : "Subject",
-            "operations" : ["Write"]
+            "operations" : ["Write", "ReadCompatibility"]
           },
           {
             "resourceType" : "Connector",
