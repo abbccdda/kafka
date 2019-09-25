@@ -170,6 +170,8 @@ public class EmbeddedAuthorizer implements Authorizer {
       usesMetadataFromThisKafkaCluster = true;
     else if (accessRuleProviders.stream().anyMatch(AccessRuleProvider::usesMetadataFromThisKafkaCluster))
       usesMetadataFromThisKafkaCluster = true;
+    else if (auditLogProvider.usesMetadataFromThisKafkaCluster())
+      usesMetadataFromThisKafkaCluster = true;
     else
       usesMetadataFromThisKafkaCluster = metadataProvider != null && metadataProvider.usesMetadataFromThisKafkaCluster();
 

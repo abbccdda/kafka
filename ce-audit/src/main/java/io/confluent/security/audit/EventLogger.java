@@ -22,13 +22,15 @@ public class EventLogger implements Reconfigurable, AutoCloseable {
   }
 
   public static EventLogger logger(String name, Map<String, ?> configs) {
-    return namedLoggers.computeIfAbsent(name, k -> {
-      EventLogConfig config = new EventLogConfig(configs);
-      EventLogger logger = new EventLogger();
-      logger.eventAppender = config
+    return namedLoggers.computeIfAbsent(name, k -> createLogger(configs));
+  }
+
+  public static EventLogger createLogger(Map<String, ?> configs) {
+    EventLogConfig config = new EventLogConfig(configs);
+    EventLogger logger = new EventLogger();
+    logger.eventAppender = config
           .getConfiguredInstance(EventLogConfig.EVENT_LOGGER_CLASS_CONFIG, EventAppender.class);
-      return logger;
-    });
+    return logger;
   }
 
   public void log(CloudEvent event) {

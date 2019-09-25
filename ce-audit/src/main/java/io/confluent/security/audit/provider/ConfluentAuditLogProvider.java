@@ -12,37 +12,43 @@ import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.RequestContext;
 import io.confluent.security.authorizer.provider.AuditLogProvider;
-import java.io.IOException;
+import io.confluent.security.authorizer.utils.ThreadUtils;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.errors.InterruptException;
+import org.apache.kafka.common.utils.Utils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ConfluentAuditLogProvider implements AuditLogProvider {
 
-  private static final String DEFAULT_LOGGER = "default.logger";
-  private static final String KAFKA_LOGGER = "kafka.logger";
+  private static final Logger log = LoggerFactory.getLogger(ConfluentAuditLogProvider.class);
+
+  private static final Duration CLOSE_TIMEOUT = Duration.ofSeconds(30);
 
   // Default appender that is used if audit logging to Kafka topic fails or if events are not generated
   private EventLogger localFileLogger;
   private EventLogger kafkaLogger;
+  private ExecutorService initExecutor;
 
   private volatile boolean ready;
 
+  /**
+   * The provider is configured and started during {@link #start(Map)} to avoid blocking
+   * configure().
+   */
   @Override
   public void configure(Map<String, ?> configs) {
-    Map<String, Object> fileConfigs = new HashMap<>(configs);
-    fileConfigs.put(EventLogConfig.EVENT_LOGGER_CLASS_CONFIG, LogEventAppender.class.getName());
-    localFileLogger = EventLogger.logger(DEFAULT_LOGGER, fileConfigs);
-
-    Map<String, Object> kafkaConfigs = new HashMap<>(configs);
-    kafkaConfigs.put(EventLogConfig.EVENT_LOGGER_CLASS_CONFIG, KafkaEventAppender.class.getName());
-    kafkaLogger = EventLogger.logger(KAFKA_LOGGER, kafkaConfigs);
-    this.ready = true;
   }
 
   @Override
@@ -66,8 +72,28 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   }
 
   @Override
-  public CompletionStage<Void> start(Map<String, ?> interBrokerListenerConfigs) {
-    return CompletableFuture.completedFuture(null);
+  public CompletionStage<Void> start(Map<String, ?> configs) {
+    initExecutor = Executors
+        .newSingleThreadScheduledExecutor(ThreadUtils.createThreadFactory("audit-init-%d", true));
+    CompletableFuture<Void> future = new CompletableFuture<>();
+    initExecutor.submit(() -> {
+      try {
+        Map<String, Object> fileConfigs = new HashMap<>(configs);
+        fileConfigs.put(EventLogConfig.EVENT_LOGGER_CLASS_CONFIG, LogEventAppender.class.getName());
+        localFileLogger = eventLogger(fileConfigs);
+
+        Map<String, Object> kafkaConfigs = new HashMap<>(configs);
+        kafkaConfigs.put(EventLogConfig.EVENT_LOGGER_CLASS_CONFIG, KafkaEventAppender.class.getName());
+        kafkaLogger = eventLogger(kafkaConfigs);
+
+        this.ready = true;
+        future.complete(null);
+      } catch (Throwable e) {
+        log.error("Audit log provider could not be started", e);
+        future.completeExceptionally(e);
+      }
+    });
+    return future.whenComplete((unused, e) -> initExecutor.shutdownNow());
   }
 
   @Override
@@ -77,10 +103,9 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
 
   @Override
   public boolean usesMetadataFromThisKafkaCluster() {
-    // Even if audit logger publishes audit events to this Kafka cluster, return false.
-    // In all cases, we fallback to backup provider and log locally to file if the destination
-    // cluster is not ready.
-    return false;
+    // If we can determine that none of the log destinations are in this cluster, we can return
+    // false. Returning true for now as the safe option.
+    return true;
   }
 
   @Override
@@ -116,7 +141,18 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   }
 
   @Override
-  public void close() throws IOException {
+  public void close() {
+    if (initExecutor != null) {
+      initExecutor.shutdownNow();
+      try {
+        initExecutor.awaitTermination(CLOSE_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+      } catch (InterruptedException e) {
+        log.debug("ConfluentAuditLogProvider was interrupted while waiting to close");
+        throw new InterruptException(e);
+      }
+    }
+    Utils.closeQuietly(kafkaLogger, "kafkaLogger");
+    Utils.closeQuietly(localFileLogger, "localFileLogger");
   }
 
   protected EventLogger localFileLogger() {
@@ -125,6 +161,16 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
 
   protected EventLogger kafkaLogger() {
     return kafkaLogger;
+  }
+
+  // Visibility for testing
+  public ExecutorService initExecutor() {
+    return initExecutor;
+  }
+
+  // Visibility for testing
+  EventLogger eventLogger(Map<String, Object> configs) {
+    return EventLogger.createLogger(configs);
   }
 
   private CloudEvent newCloudEvent(RequestContext requestContext,
