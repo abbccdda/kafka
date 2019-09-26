@@ -30,11 +30,11 @@ public class CachedCrnStringPatternMatcher<T> {
     this.capacity = capacity;
     this.cache = Collections.synchronizedMap(
         new LinkedHashMap<String, Entry<ConfluentResourceName, T>>(
-        this.capacity, 0.75f, true) {
-      protected boolean removeEldestEntry(Map.Entry eldest) {
-        return size() > capacity;
-      }
-    });
+            this.capacity, 0.75f, true) {
+          protected boolean removeEldestEntry(Map.Entry eldest) {
+            return size() > capacity;
+          }
+        });
   }
 
   public void setPattern(String crnString, T value) throws CrnSyntaxException {

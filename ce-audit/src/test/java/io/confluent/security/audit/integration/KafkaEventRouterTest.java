@@ -17,6 +17,7 @@ import io.confluent.security.audit.CloudEventUtils;
 import io.confluent.security.audit.EventLogConfig;
 import io.confluent.security.audit.EventLogger;
 import io.confluent.security.audit.appender.KafkaEventAppender;
+import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
@@ -51,7 +52,7 @@ public class KafkaEventRouterTest {
 
   private KafkaConsumer<byte[], CloudEvent> consumer;
   private EventLogger logger;
-  private String json = "{\"default_topics\":{\"allowed\":\"_confluent-audit-log_success\",\"denied\":\"_confluent-audit-log_failure\"},\"excluded_principals\":[\"User:Alice\",\"User:service_account_id\"],\"routes\":{\"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1\":{\"authorize\":{\"allowed\":\"\",\"denied\":\"_confluent-audit-log_ksql\"}},\"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/connect=*\":{\"authorize\":{\"allowed\":\"_confluent-audit-log_connect_success\",\"denied\":\"_confluent-audit-log_connect_failure\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks\":{\"produce\":{\"allowed\":\"_confluent-audit-log_produce_clicks_allowed\",\"denied\":\"_confluent-audit-log_produce_clicks_denied\"},\"consume\":{\"allowed\":\"_confluent-audit-log_consume_clicks_allowed\",\"denied\":\"_confluent-audit-log_consume_clicks_denied\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-*\":{\"produce\":{\"allowed\":null,\"denied\":\"_confluent-audit-log_accounting\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=*\":{\"produce\":{\"allowed\":\"\",\"denied\":\"_confluent-audit-log_cluster\"},\"consume\":{\"denied\":\"_confluent-audit-log_cluster\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA\":{\"interbroker\":{\"allowed\":\"\",\"denied\":\"_confluent-audit-log_cluster\"},\"other\":{\"denied\":\"_confluent-audit-log_cluster\"}},\"crn://mds1.example.com/kafka=*\":{\"interbroker\":{\"allowed\":\"\",\"denied\":\"_confluent-audit-log_cluster\"},\"other\":{\"denied\":\"_confluent-audit-log_cluster\"}}},\"metadata\":{\"configVersion\":123,\"lastUpdated\":\"2019-08-21T18:31:47+00:00\"}}";
+  private String json = "{\"destinations\":{\"bootstrap_servers\":[\"localhost:9092\"],\"topics\":{\"_confluent-audit-log_success\":{\"retention_ms\":2592000000},\"_confluent-audit-log_failure\":{\"retention_ms\":2592000000},\"_confluent-audit-log_ksql\":{\"retention_ms\":2592000000},\"_confluent-audit-log_connect_success\":{\"retention_ms\":2592000000},\"_confluent-audit-log_connect_failure\":{\"retention_ms\":15552000000},\"_confluent-audit-log_clicks_produce_allowed\":{\"retention_ms\":15552000000},\"_confluent-audit-log_clicks_produce_denied\":{\"retention_ms\":15552000000},\"_confluent-audit-log_clicks_consume_allowed\":{\"retention_ms\":15552000000},\"_confluent-audit-log_clicks_consume_denied\":{\"retention_ms\":15552000000},\"_confluent-audit-log_accounting\":{\"retention_ms\":15552000000},\"_confluent-audit-log_cluster\":{\"retention_ms\":15552000000}}},\"default_topics\":{\"allowed\":\"_confluent-audit-log_success\",\"denied\":\"_confluent-audit-log_failure\"},\"excluded_principals\":[\"User:Alice\",\"User:service_account_id\"],\"routes\":{\"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1\":{\"authorize\":{\"allowed\":\"\",\"denied\":\"_confluent-audit-log_ksql\"}},\"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/connect=*\":{\"authorize\":{\"allowed\":\"_confluent-audit-log_connect_success\",\"denied\":\"_confluent-audit-log_connect_failure\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks\":{\"produce\":{\"allowed\":\"_confluent-audit-log_clicks_produce_allowed\",\"denied\":\"_confluent-audit-log_clicks_produce_denied\"},\"consume\":{\"allowed\":\"_confluent-audit-log_clicks_consume_allowed\",\"denied\":\"_confluent-audit-log_clicks_consume_denied\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-*\":{\"produce\":{\"allowed\":null,\"denied\":\"_confluent-audit-log_accounting\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=*\":{\"produce\":{\"allowed\":\"\",\"denied\":\"_confluent-audit-log_cluster\"},\"consume\":{\"denied\":\"_confluent-audit-log_cluster\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA\":{\"interbroker\":{\"allowed\":\"\",\"denied\":\"_confluent-audit-log_cluster\"},\"other\":{\"denied\":\"_confluent-audit-log_cluster\"}},\"crn://mds1.example.com/kafka=*\":{\"interbroker\":{\"allowed\":\"\",\"denied\":\"_confluent-audit-log_cluster\"},\"other\":{\"denied\":\"_confluent-audit-log_cluster\"}}},\"metadata\":{\"config_version\":\"f109371d0a856a40a2a96cca98f90ec2\",\"last_updated\":\"2019-08-21T18:31:47+00:00\"}}";
 
   @Before
   public void setUp() throws Throwable {
@@ -111,11 +112,8 @@ public class KafkaEventRouterTest {
     for (String key : producerProperties.stringPropertyNames()) {
       config.put(EVENT_LOGGER_PREFIX + key, producerProperties.getProperty(key));
     }
-    config.put(EventLogConfig.EVENT_LOGGER_CLASS_CONFIG,
+    config.put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG,
         KafkaEventAppender.class.getCanonicalName());
-    config
-        .put(EventLogConfig.BOOTSTRAP_SERVERS_CONFIG,
-            eventLogClusters.kafkaCluster.bootstrapServers());
     config.put(EventLogConfig.TOPIC_REPLICAS_CONFIG, "1");
     config.put(EventLogConfig.ROUTER_CONFIG, json);
     config.putAll(configOverrides);
@@ -147,7 +145,7 @@ public class KafkaEventRouterTest {
     eventLogClusters = new EventLogClusters(eventLogConfig);
 
     // This is the default topic configured in the config, not EventLogConfig.DEFAULT_TOPIC_CONFIG
-    String expectedTopic = EventLogConfig.EVENT_TOPIC_PREFIX + "_success";
+    String expectedTopic = AuditLogRouterJsonConfig.TOPIC_PREFIX + "_success";
     eventLogClusters.kafkaCluster.createTopic(expectedTopic, 2, 1);
 
     consumer = consumer("event-log", expectedTopic);
@@ -166,7 +164,7 @@ public class KafkaEventRouterTest {
   public void testEventLoggedOnRoutedTopic() throws Throwable {
     eventLogClusters = new EventLogClusters(eventLogConfig);
 
-    String expectedTopic = EventLogConfig.EVENT_TOPIC_PREFIX + "_cluster";
+    String expectedTopic = AuditLogRouterJsonConfig.TOPIC_PREFIX + "_cluster";
     eventLogClusters.kafkaCluster.createTopic(expectedTopic, 2, 1);
 
     consumer = consumer("event-log", expectedTopic);
@@ -185,7 +183,7 @@ public class KafkaEventRouterTest {
   public void testEventSuppressedTopic() throws Throwable {
     eventLogClusters = new EventLogClusters(eventLogConfig);
 
-    String expectedTopic = EventLogConfig.EVENT_TOPIC_PREFIX + "_success";
+    String expectedTopic = AuditLogRouterJsonConfig.TOPIC_PREFIX + "_success";
     eventLogClusters.kafkaCluster.createTopic(expectedTopic, 2, 1);
 
     consumer = consumer("event-log", expectedTopic);
@@ -204,7 +202,7 @@ public class KafkaEventRouterTest {
   public void testEventExcludedUser() throws Throwable {
     eventLogClusters = new EventLogClusters(eventLogConfig);
 
-    String expectedTopic = EventLogConfig.EVENT_TOPIC_PREFIX + "_success";
+    String expectedTopic = AuditLogRouterJsonConfig.TOPIC_PREFIX + "_success";
     eventLogClusters.kafkaCluster.createTopic(expectedTopic, 2, 1);
 
     consumer = consumer("event-log", expectedTopic);

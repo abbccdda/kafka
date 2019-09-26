@@ -10,6 +10,7 @@ import io.confluent.security.audit.EventLogConfig;
 import io.confluent.security.audit.EventLogger;
 import io.confluent.security.audit.appender.KafkaEventAppender;
 import io.confluent.security.audit.appender.LogEventAppender;
+import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import io.confluent.security.authorizer.provider.AuditLogProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders;
 import io.confluent.security.authorizer.provider.DefaultAuditLogProvider;
@@ -20,15 +21,21 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.test.TestUtils;
 import org.junit.Before;
 import org.junit.Test;
 
 public class ConfluentAuditLogProviderTest {
 
-  private Map<String, Object> configs = Collections.singletonMap(
-      EventLogConfig.EVENT_LOGGER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG,
-      "localhost:9092");
+  private Map<String, Object> configs = Utils.mkMap(
+      Utils.mkEntry(
+          EventLogConfig.EVENT_LOGGER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG,
+          "localhost:9092"),
+      Utils.mkEntry(EventLogConfig.TOPIC_CREATE_CONFIG, "false"),
+      Utils.mkEntry(
+          EventLogConfig.ROUTER_CONFIG,
+          AuditLogRouterJsonConfig.defaultConfig("localhost:9092", "", "")));
 
   @Before
   public void setUp() {
@@ -47,12 +54,15 @@ public class ConfluentAuditLogProviderTest {
 
     EventLogger fileLogger = confluentProvider.localFileLogger();
     assertNotNull(fileLogger);
-    assertEquals(LogEventAppender.class, TestUtils.fieldValue(fileLogger, EventLogger.class, "eventAppender").getClass());
+    assertEquals(LogEventAppender.class,
+        TestUtils.fieldValue(fileLogger, EventLogger.class, "eventAppender").getClass());
     EventLogger kafkaLogger = confluentProvider.kafkaLogger();
     assertNotNull(kafkaLogger);
-    assertEquals(KafkaEventAppender.class, TestUtils.fieldValue(kafkaLogger, EventLogger.class, "eventAppender").getClass());
+    assertEquals(KafkaEventAppender.class,
+        TestUtils.fieldValue(kafkaLogger, EventLogger.class, "eventAppender").getClass());
 
-    AuditLogProvider defaultProvider = ConfluentBuiltInProviders.loadAuditLogProvider(Collections.emptyMap());
+    AuditLogProvider defaultProvider = ConfluentBuiltInProviders
+        .loadAuditLogProvider(Collections.emptyMap());
     assertEquals(DefaultAuditLogProvider.class, defaultProvider.getClass());
   }
 
@@ -104,8 +114,10 @@ public class ConfluentAuditLogProviderTest {
     ConfluentAuditLogProvider provider = new ConfluentAuditLogProvider() {
       protected EventLogger eventLogger(Map<String, Object> configs) {
         if (KafkaEventAppender.class.getName()
-            .equals(configs.get(EventLogConfig.EVENT_LOGGER_CLASS_CONFIG)))
-          configs.put(EventLogConfig.EVENT_LOGGER_CLASS_CONFIG, TestEventAppender.class.getName());
+            .equals(configs.get(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG))) {
+          configs
+              .put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG, TestEventAppender.class.getName());
+        }
         return EventLogger.createLogger(configs);
       }
     };
@@ -115,14 +127,17 @@ public class ConfluentAuditLogProviderTest {
     return provider;
   }
 
-  private CompletableFuture<Void> startProvider(ConfluentAuditLogProvider provider) throws Exception {
+  private CompletableFuture<Void> startProvider(ConfluentAuditLogProvider provider)
+      throws Exception {
     CompletableFuture<Void> startFuture = provider.start(configs).toCompletableFuture();
-    TestUtils.waitForCondition(() -> TestEventAppender.instance != null, "Event appender not created");
+    TestUtils
+        .waitForCondition(() -> TestEventAppender.instance != null, "Event appender not created");
     return startFuture;
   }
 
   private void verifyExecutorTerminated(ConfluentAuditLogProvider provider) throws Exception {
-    TestUtils.waitForCondition(() -> provider.initExecutor().isTerminated(), "Executor not terminated");
+    TestUtils
+        .waitForCondition(() -> provider.initExecutor().isTerminated(), "Executor not terminated");
   }
 
   public static class TestEventAppender extends LogEventAppender {
@@ -152,11 +167,12 @@ public class ConfluentAuditLogProviderTest {
     @Override
     public void configure(Map<String, ?> configs) {
       state = State.STARTING;
-      if (configureException != null)
+      if (configureException != null) {
         throw configureException;
+      }
       try {
         semaphore.acquire();
-      } catch (InterruptedException  e) {
+      } catch (InterruptedException e) {
         throw new RuntimeException(e);
       }
       super.configure(configs);

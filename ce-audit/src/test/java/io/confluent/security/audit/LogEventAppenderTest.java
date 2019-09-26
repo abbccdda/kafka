@@ -28,10 +28,9 @@ public class LogEventAppenderTest {
   public void testNamedLoggers() {
     HashMap<String, String> config1 = new HashMap<>();
     config1.put(EventLogConfig.EVENT_LOG_NAME_CONFIG, "test1");
-    config1.put(EventLogConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+    config1.put(EventLogConfig.ROUTER_CONFIG, "{}");
     HashMap<String, String> config2 = new HashMap<>();
     config2.put(EventLogConfig.EVENT_LOG_NAME_CONFIG, "test2");
-    config2.put(EventLogConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
 
     EventLogger logger1 = EventLogger.logger("config1", config1);
     EventLogger logger2 = EventLogger.logger("config2", config2);
@@ -49,9 +48,8 @@ public class LogEventAppenderTest {
     testLogger.addAppender(new WriterAppender(new PatternLayout("%m"), writer));
 
     HashMap<String, String> config = new HashMap<>();
-    config.put(EventLogConfig.EVENT_LOGGER_CLASS_CONFIG, LogEventAppender.class.getCanonicalName());
+    config.put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG, LogEventAppender.class.getCanonicalName());
     config.put(EventLogConfig.EVENT_LOG_NAME_CONFIG, "test");
-    config.put(EventLogConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
 
     EventLogger logger = EventLogger.logger("testLogToLog4J", config);
 
@@ -77,9 +75,8 @@ public class LogEventAppenderTest {
     testLogger2.addAppender(new WriterAppender(new PatternLayout("%m"), writer2));
 
     HashMap<String, String> config = new HashMap<>();
-    config.put(EventLogConfig.EVENT_LOGGER_CLASS_CONFIG, LogEventAppender.class.getCanonicalName());
+    config.put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG, LogEventAppender.class.getCanonicalName());
     config.put(EventLogConfig.EVENT_LOG_NAME_CONFIG, "test");
-    config.put(EventLogConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
 
     EventLogger logger = EventLogger.logger("testReconfigure", config);
 

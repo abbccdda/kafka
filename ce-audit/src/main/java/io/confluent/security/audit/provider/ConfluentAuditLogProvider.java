@@ -32,6 +32,9 @@ import org.slf4j.LoggerFactory;
 
 public class ConfluentAuditLogProvider implements AuditLogProvider {
 
+  private static final String DEFAULT_LOGGER = "default.logger";
+  private static final String KAFKA_LOGGER = "kafka.logger";
+
   private static final Logger log = LoggerFactory.getLogger(ConfluentAuditLogProvider.class);
 
   private static final Duration CLOSE_TIMEOUT = Duration.ofSeconds(30);
@@ -49,6 +52,15 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
    */
   @Override
   public void configure(Map<String, ?> configs) {
+    Map<String, Object> fileConfigs = new HashMap<>(configs);
+    fileConfigs.put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG, LogEventAppender.class.getName());
+    localFileLogger = EventLogger.logger(DEFAULT_LOGGER, fileConfigs);
+
+    Map<String, Object> kafkaConfigs = new HashMap<>(configs);
+    kafkaConfigs
+        .put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG, KafkaEventAppender.class.getName());
+    kafkaLogger = EventLogger.logger(KAFKA_LOGGER, kafkaConfigs);
+    this.ready = true;
   }
 
   @Override
@@ -79,11 +91,13 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
     initExecutor.submit(() -> {
       try {
         Map<String, Object> fileConfigs = new HashMap<>(configs);
-        fileConfigs.put(EventLogConfig.EVENT_LOGGER_CLASS_CONFIG, LogEventAppender.class.getName());
+        fileConfigs
+            .put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG, LogEventAppender.class.getName());
         localFileLogger = eventLogger(fileConfigs);
 
         Map<String, Object> kafkaConfigs = new HashMap<>(configs);
-        kafkaConfigs.put(EventLogConfig.EVENT_LOGGER_CLASS_CONFIG, KafkaEventAppender.class.getName());
+        kafkaConfigs
+            .put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG, KafkaEventAppender.class.getName());
         kafkaLogger = eventLogger(kafkaConfigs);
 
         this.ready = true;
@@ -115,14 +129,15 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
 
   @Override
   public boolean providerConfigured(Map<String, ?> configs) {
-    return configs.containsKey(EventLogConfig.EVENT_LOGGER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG);
+    return configs.containsKey(
+        EventLogConfig.EVENT_LOGGER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG);
   }
 
   @Override
   public void log(RequestContext requestContext,
-                  Action action,
-                  AuthorizeResult authorizeResult,
-                  AuthorizePolicy authorizePolicy) {
+      Action action,
+      AuthorizeResult authorizeResult,
+      AuthorizePolicy authorizePolicy) {
 
     boolean generateEvent;
     switch (authorizeResult) {
@@ -174,9 +189,9 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   }
 
   private CloudEvent newCloudEvent(RequestContext requestContext,
-                                   Action action,
-                                   AuthorizeResult authorizeResult,
-                                   AuthorizePolicy authorizePolicy) {
+      Action action,
+      AuthorizeResult authorizeResult,
+      AuthorizePolicy authorizePolicy) {
 
     // TODO: Create audit log event
     return CloudEvent.newBuilder()

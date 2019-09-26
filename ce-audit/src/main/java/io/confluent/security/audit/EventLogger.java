@@ -29,7 +29,7 @@ public class EventLogger implements Reconfigurable, AutoCloseable {
     EventLogConfig config = new EventLogConfig(configs);
     EventLogger logger = new EventLogger();
     logger.eventAppender = config
-          .getConfiguredInstance(EventLogConfig.EVENT_LOGGER_CLASS_CONFIG, EventAppender.class);
+        .getConfiguredInstance(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG, EventAppender.class);
     return logger;
   }
 

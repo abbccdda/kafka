@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigException;
@@ -21,10 +22,10 @@ public class EventLogConfig extends AbstractConfig {
 
   public static final String EVENT_LOGGER_PREFIX = "confluent.security.event.logger.";
 
-  public static final String EVENT_LOGGER_CLASS_CONFIG = EVENT_LOGGER_PREFIX + "class";
-  public static final String DEFAULT_EVENT_LOGGER_CLASS_CONFIG =
+  public static final String EVENT_APPENDER_CLASS_CONFIG = EVENT_LOGGER_PREFIX + "class";
+  public static final String DEFAULT_EVENT_APPENDER_CLASS_CONFIG =
       LogEventAppender.class.getCanonicalName();
-  public static final String EVENT_LOGGER_CLASS_DOC = "Class to use for delivering event logs.";
+  public static final String EVENT_APPENDER_CLASS_DOC = "Class to use for delivering event logs.";
 
   // Logger name
   public static final String EVENT_LOG_NAME_CONFIG = EVENT_LOGGER_PREFIX + "name";
@@ -32,13 +33,6 @@ public class EventLogConfig extends AbstractConfig {
   public static final String EVENT_LOG_NAME_DOC = "Name for the logger, used in getLogger()";
 
   // Kafka configuration for Kafka logger
-  public static final String BOOTSTRAP_SERVERS_CONFIG =
-      EVENT_LOGGER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
-  public static final String BOOTSTRAP_SERVERS_DOC = "Bootstrap servers for the KafkaEventLogger "
-      + "event logs will be published to. The event logs cluster may be different from the cluster(s) "
-      + "whose event logs are being collected. Several production KafkaEventLogger clusters can publish to a "
-      + "single event logs cluster, for example.";
-
   public static final String EVENT_LOG_PRINCIPAL_CONFIG = EVENT_LOGGER_PREFIX + "principal";
   public static final String DEFAULT_EVENT_LOG_PRINCIPAL_CONFIG = "User:_confluent-security-event-logger";
   public static final String EVENT_LOG_PRINCIPAL_DOC = "The principal that is used to produce log events";
@@ -66,14 +60,9 @@ public class EventLogConfig extends AbstractConfig {
   public static final long DEFAULT_TOPIC_ROLL_MS_CONFIG = TimeUnit.HOURS.toMillis(4);
   public static final String TOPIC_ROLL_MS_DOC = "Log rolling time for the event log topic.";
 
-  // If the router is not configured, it will default to sending both allowed and denied messages
-  // to this topic
-  public static final String DEFAULT_TOPIC = "_confluent-audit-log";
-  // All event topics must begin with this prefix
-  public static final String EVENT_TOPIC_PREFIX = EventLogConfig.DEFAULT_TOPIC;
+  // Configuration for the EventTopicRouter
   public static final String ROUTER_CONFIG = EVENT_LOGGER_PREFIX + "router.config";
-  public static final String DEFAULT_ROUTER = "{\"default_topics\":{\"allowed\":\"" +
-      DEFAULT_TOPIC + "\",\"denied\":\"" + DEFAULT_TOPIC + "\"}}";
+  public static final String DEFAULT_ROUTER = "{}";
   public static final String ROUTER_DOC = "JSON configuration for routing events to topics";
 
   public static final String ROUTER_CACHE_ENTRIES_CONFIG =
@@ -86,22 +75,17 @@ public class EventLogConfig extends AbstractConfig {
   static {
     CONFIG = new ConfigDef()
         .define(
-            EVENT_LOGGER_CLASS_CONFIG,
+            EVENT_APPENDER_CLASS_CONFIG,
             ConfigDef.Type.CLASS,
-            DEFAULT_EVENT_LOGGER_CLASS_CONFIG,
+            DEFAULT_EVENT_APPENDER_CLASS_CONFIG,
             ConfigDef.Importance.HIGH,
-            EVENT_LOGGER_CLASS_DOC
+            EVENT_APPENDER_CLASS_DOC
         ).define(
             EVENT_LOG_NAME_CONFIG,
             ConfigDef.Type.STRING,
             DEFAULT_EVENT_LOG_NAME_CONFIG,
             ConfigDef.Importance.LOW,
             EVENT_LOG_NAME_DOC
-        ).define(
-            BOOTSTRAP_SERVERS_CONFIG,
-            ConfigDef.Type.STRING,
-            ConfigDef.Importance.HIGH,
-            BOOTSTRAP_SERVERS_DOC
         ).define(
             EVENT_LOG_PRINCIPAL_CONFIG,
             ConfigDef.Type.STRING,
@@ -179,6 +163,20 @@ public class EventLogConfig extends AbstractConfig {
     Properties props = new Properties();
     props.putAll(producerConfigDefaults());
     props.putAll(clientProperties());
+    // This must not block
+    props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "0");
+    return props;
+  }
+
+  /*
+   * Clients expect this in properties form
+   */
+  public Properties propertiesFromRouterJsonConfig(AuditLogRouterJsonConfig jsonConfig) {
+    Properties props = new Properties();
+    String bootstrap = jsonConfig.bootstrapServers();
+    if (bootstrap != null && !bootstrap.isEmpty()) {
+      props.put(EVENT_LOGGER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
+    }
     return props;
   }
 
@@ -189,13 +187,13 @@ public class EventLogConfig extends AbstractConfig {
         props.put(entry.getKey().substring(EVENT_LOGGER_PREFIX.length()), entry.getValue());
       }
     }
-
-    // we require bootstrap servers
-    Object bootstrap = props.get(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG);
-    if (bootstrap == null) {
+    props.putAll(propertiesFromRouterJsonConfig(routerJsonConfig()));
+    String bootstrapServers = props
+        .getProperty(EVENT_LOGGER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG);
+    if (bootstrapServers == null || bootstrapServers.isEmpty()) {
       throw new ConfigException(
           "Missing required property "
-              + BOOTSTRAP_SERVERS_CONFIG
+              + EVENT_LOGGER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG
       );
     }
     return props;

@@ -6,22 +6,35 @@ import io.confluent.security.audit.CloudEvent;
 import io.confluent.security.audit.CloudEventUtils;
 import io.confluent.security.audit.EventLogConfig;
 import io.confluent.security.audit.router.AuditLogRouter;
+import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
+import io.confluent.security.audit.router.AuditLogRouterJsonConfig.Destinations;
 import io.confluent.security.audit.router.EventTopicRouter;
+import io.confluent.security.auth.utils.RetryBackoff;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.DescribeTopicsResult;
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.clients.producer.Callback;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.InterruptException;
+import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.SecurityUtils;
@@ -33,9 +46,9 @@ import org.slf4j.LoggerFactory;
  */
 public class KafkaEventAppender implements EventAppender {
 
+  public static final int MAX_ATTEMPTS_PER_TOPIC = 10;
   private static final Logger log = LoggerFactory.getLogger(KafkaEventAppender.class);
 
-  private ConcurrentHashMap<String, Boolean> isTopicCreated = new ConcurrentHashMap<>();
   private boolean createTopic;
   private int topicReplicas;
   private int topicPartitions;
@@ -58,39 +71,85 @@ public class KafkaEventAppender implements EventAppender {
     this.topicReplicas = eventLogConfig.getInt(EventLogConfig.TOPIC_REPLICAS_CONFIG);
     this.topicPartitions = eventLogConfig.getInt(EventLogConfig.TOPIC_PARTITIONS_CONFIG);
     this.topicConfig = eventLogConfig.topicConfig();
-    this.producerProperties = eventLogConfig.producerProperties();
-    this.adminClientProperties = eventLogConfig.clientProperties();
-    this.eventLogPrincipal = eventLogConfig.eventLogPrincipal();
-    this.topicRouter = new AuditLogRouter(eventLogConfig.routerJsonConfig(),
-        eventLogConfig.getInt(EventLogConfig.ROUTER_CACHE_ENTRIES_CONFIG));
-    this.producer = new KafkaProducer<>(this.producerProperties);
+    configureReconfigurable(eventLogConfig);
   }
 
-  public boolean ensureTopic(String topicName) {
+  public void configureReconfigurable(EventLogConfig eventLogConfig) {
+    // this may change because the bootstrap servers may change
+    this.adminClientProperties = eventLogConfig.clientProperties();
+    this.producerProperties = eventLogConfig.producerProperties();
+    AuditLogRouterJsonConfig jsonConfig = eventLogConfig.routerJsonConfig();
+    this.eventLogPrincipal = eventLogConfig.eventLogPrincipal();
+    this.topicRouter = new AuditLogRouter(jsonConfig,
+        eventLogConfig.getInt(EventLogConfig.ROUTER_CACHE_ENTRIES_CONFIG));
+    this.producer = new KafkaProducer<>(this.producerProperties);
 
-    try (final AdminClient adminClient = AdminClient.create(this.adminClientProperties)) {
-      try {
-        adminClient.describeTopics(Collections.singleton(topicName)).all().get();
-        log.debug("Event log topic {} already exists", topicName);
-      } catch (ExecutionException e) {
-        if (!(e.getCause() instanceof UnknownTopicOrPartitionException)) {
-          // something bad happened
-          throw e;
+    Destinations destinations = jsonConfig.destinations;
+    // make sure that all of the topics that we might route to exist
+    if (!ensureTopics(destinations)) {
+      throw new ConfigException("Could not create event log destination topics.");
+    }
+
+    RetryBackoff retryBackoff = new RetryBackoff(10, 100);
+    // make sure the producer has metadata for all of the topics
+    Set<String> topics = new HashSet<>(destinations.topics.keySet());
+    try {
+      int attempts = 0;
+      int maxAttempts = topics.size() * MAX_ATTEMPTS_PER_TOPIC;
+      while (!topics.isEmpty() && attempts < maxAttempts) {
+        try {
+          log.debug("Getting partitions for {} event log topics: {}", topics.size(), topics);
+          topics.removeIf(t -> !this.producer.partitionsFor(t).isEmpty());
+        } catch (TimeoutException e) {
+          // retry until success
         }
-
-        adminClient
-            .createTopics(
-                Collections.singleton(new NewTopic(
-                    topicName,
-                    this.topicPartitions,
-                    (short) this.topicReplicas
-                ).configs(this.topicConfig))
-            )
-            .all()
-            .get();
-        log.info("Created event log topic {}", topicName);
+        Thread.sleep(retryBackoff.backoffMs(attempts++));
       }
-      return true;
+    } catch (InterruptedException e) {
+      throw new ConfigException("Interrupted during event log configuration");
+    }
+    if (!topics.isEmpty()) {
+      throw new ConfigException("Timed out waiting for event log topic metadata: " + topics);
+    }
+  }
+
+  private boolean ensureTopics(Destinations destinations) {
+    try (final AdminClient adminClient = AdminClient.create(this.adminClientProperties)) {
+      // figure out which destination topics do not exist
+      log.debug("ensuring that event log topics exist: {}", destinations.topics.keySet());
+      Set<String> missing = new HashSet<>();
+      for (Entry<String, KafkaFuture<TopicDescription>> topicFuture :
+          adminClient.describeTopics(destinations.topics.keySet()).values().entrySet()) {
+        try {
+          topicFuture.getValue().get();
+        } catch (ExecutionException e) {
+          if (!(e.getCause() instanceof UnknownTopicOrPartitionException)) {
+            // something bad happened
+            throw e;
+          }
+          missing.add(topicFuture.getKey());
+        }
+      }
+      log.debug("{} event log topics need to be created: {}", missing.size(), missing);
+      if (!createTopic) {
+        return missing.isEmpty();
+      }
+      // create them
+      List<NewTopic> newTopics = missing.stream().map(topicName -> {
+        Map<String, String> config = new HashMap<>(this.topicConfig);
+        config.put(TopicConfig.RETENTION_MS_CONFIG,
+            String.valueOf(destinations.topics.get(topicName).retentionMs));
+        return new NewTopic(topicName, this.topicPartitions, (short) this.topicReplicas)
+            .configs(config);
+      }).collect(Collectors.toList());
+      adminClient.createTopics(newTopics).all().get();
+      // make sure they actually got created
+      DescribeTopicsResult describeResult = adminClient.describeTopics(missing);
+      for (Entry<String, KafkaFuture<TopicDescription>> entry : describeResult.values().entrySet()) {
+        TopicDescription description = entry.getValue().get();
+        log.info("Event log topic {} created with {} partitions", entry.getKey(),
+            description.partitions().size());
+      }
     } catch (ExecutionException e) {
       log.error("Error checking or creating event log topic", e.getCause());
       return false;
@@ -98,6 +157,7 @@ public class KafkaEventAppender implements EventAppender {
       log.warn("Confluent event log topic initialization interrupted");
       return false;
     }
+    return true;
   }
 
   @Override
@@ -117,16 +177,6 @@ public class KafkaEventAppender implements EventAppender {
       String topicName = this.topicRouter.topic(event).orElseThrow(
           () -> new ConfigException("No route configured"));
 
-      if (this.createTopic) {
-        if (!this.isTopicCreated.getOrDefault(topicName, false)) {
-          this.isTopicCreated.put(topicName, ensureTopic(topicName));
-        }
-        // if topic can't be created, skip the rest
-        if (!this.isTopicCreated.getOrDefault(topicName, false)) {
-          log.warn("Failed to create Event Log topic: " + topicName);
-          return;
-        }
-      }
       // producer may already be closed if we are shutting down
       if (!Thread.currentThread().isInterrupted()) {
         log.trace("Generated event log message : {}", event);
@@ -189,17 +239,24 @@ public class KafkaEventAppender implements EventAppender {
 
   @Override
   public Set<String> reconfigurableConfigs() {
-    // When we route messages based on the content, this will be reconfigurable
-    return null;
+    return Collections.singleton(EventLogConfig.ROUTER_CONFIG);
   }
 
   @Override
   public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
-
+    EventLogConfig config = new EventLogConfig(configs);
+    try {
+      AuditLogRouterJsonConfig
+          .load(config.getString(EventLogConfig.ROUTER_CONFIG));
+    } catch (IllegalArgumentException | IOException e) {
+      throw new ConfigException(e.getMessage());
+    }
   }
 
   @Override
   public void reconfigure(Map<String, ?> configs) {
+    EventLogConfig eventLogConfig = new EventLogConfig(configs);
 
+    configureReconfigurable(eventLogConfig);
   }
 }
