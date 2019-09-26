@@ -143,12 +143,12 @@ public class AuditLogRouterTest {
     },
     "metadata": {
         // Server Generated
-        "config_version": "f109371d0a856a40a2a96cca98f90ec2",
-        "last_updated": "2019-08-21T18:31:47+00:00"
+        "resource_version": "f109371d0a856a40a2a96cca98f90ec2",
+        "updated_at": "2019-08-21T18:31:47+00:00"
     }
 }
  */
-  private String json = "{\"destinations\":{\"bootstrap_servers\":[\"host1:port\",\"host2:port\"],\"topics\":{\"_confluent-audit-log_success\":{\"retention_ms\":2592000000},\"_confluent-audit-log_failure\":{\"retention_ms\":2592000000},\"_confluent-audit-log_ksql\":{\"retention_ms\":2592000000},\"_confluent-audit-log_connect_success\":{\"retention_ms\":2592000000},\"_confluent-audit-log_connect_failure\":{\"retention_ms\":15552000000},\"_confluent-audit-log_clicks_produce_allowed\":{\"retention_ms\":15552000000},\"_confluent-audit-log_clicks_produce_denied\":{\"retention_ms\":15552000000},\"_confluent-audit-log_clicks_consume_allowed\":{\"retention_ms\":15552000000},\"_confluent-audit-log_clicks_consume_denied\":{\"retention_ms\":15552000000},\"_confluent-audit-log_accounting\":{\"retention_ms\":15552000000},\"_confluent-audit-log_cluster\":{\"retention_ms\":15552000000}}},\"default_topics\":{\"allowed\":\"_confluent-audit-log_success\",\"denied\":\"_confluent-audit-log_failure\"},\"excluded_principals\":[\"User:Alice\",\"User:service_account_id\"],\"routes\":{\"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1\":{\"authorize\":{\"allowed\":\"\",\"denied\":\"_confluent-audit-log_ksql\"}},\"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/connect=*\":{\"authorize\":{\"allowed\":\"_confluent-audit-log_connect_success\",\"denied\":\"_confluent-audit-log_connect_failure\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks\":{\"produce\":{\"allowed\":\"_confluent-audit-log_clicks_produce_allowed\",\"denied\":\"_confluent-audit-log_clicks_produce_denied\"},\"consume\":{\"allowed\":\"_confluent-audit-log_clicks_consume_allowed\",\"denied\":\"_confluent-audit-log_clicks_consume_denied\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-*\":{\"produce\":{\"allowed\":null,\"denied\":\"_confluent-audit-log_accounting\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=*\":{\"produce\":{\"allowed\":\"\",\"denied\":\"_confluent-audit-log_cluster\"},\"consume\":{\"denied\":\"_confluent-audit-log_cluster\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA\":{\"interbroker\":{\"allowed\":\"\",\"denied\":\"_confluent-audit-log_cluster\"},\"other\":{\"denied\":\"_confluent-audit-log_cluster\"}},\"crn://mds1.example.com/kafka=*\":{\"interbroker\":{\"allowed\":\"\",\"denied\":\"_confluent-audit-log_cluster\"},\"other\":{\"denied\":\"_confluent-audit-log_cluster\"}}},\"metadata\":{\"config_version\":\"f109371d0a856a40a2a96cca98f90ec2\",\"last_updated\":\"2019-08-21T18:31:47+00:00\"}}";
+  private String json = "{\"destinations\":{\"bootstrap_servers\":[\"host1:port\",\"host2:port\"],\"topics\":{\"_confluent-audit-log_success\":{\"retention_ms\":2592000000},\"_confluent-audit-log_failure\":{\"retention_ms\":2592000000},\"_confluent-audit-log_ksql\":{\"retention_ms\":2592000000},\"_confluent-audit-log_connect_success\":{\"retention_ms\":2592000000},\"_confluent-audit-log_connect_failure\":{\"retention_ms\":15552000000},\"_confluent-audit-log_clicks_produce_allowed\":{\"retention_ms\":15552000000},\"_confluent-audit-log_clicks_produce_denied\":{\"retention_ms\":15552000000},\"_confluent-audit-log_clicks_consume_allowed\":{\"retention_ms\":15552000000},\"_confluent-audit-log_clicks_consume_denied\":{\"retention_ms\":15552000000},\"_confluent-audit-log_accounting\":{\"retention_ms\":15552000000},\"_confluent-audit-log_cluster\":{\"retention_ms\":15552000000}}},\"default_topics\":{\"allowed\":\"_confluent-audit-log_success\",\"denied\":\"_confluent-audit-log_failure\"},\"excluded_principals\":[\"User:Alice\",\"User:service_account_id\"],\"routes\":{\"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1\":{\"authorize\":{\"allowed\":\"\",\"denied\":\"_confluent-audit-log_ksql\"}},\"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/connect=*\":{\"authorize\":{\"allowed\":\"_confluent-audit-log_connect_success\",\"denied\":\"_confluent-audit-log_connect_failure\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks\":{\"produce\":{\"allowed\":\"_confluent-audit-log_clicks_produce_allowed\",\"denied\":\"_confluent-audit-log_clicks_produce_denied\"},\"consume\":{\"allowed\":\"_confluent-audit-log_clicks_consume_allowed\",\"denied\":\"_confluent-audit-log_clicks_consume_denied\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-*\":{\"produce\":{\"allowed\":null,\"denied\":\"_confluent-audit-log_accounting\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=*\":{\"produce\":{\"allowed\":\"\",\"denied\":\"_confluent-audit-log_cluster\"},\"consume\":{\"denied\":\"_confluent-audit-log_cluster\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA\":{\"interbroker\":{\"allowed\":\"\",\"denied\":\"_confluent-audit-log_cluster\"},\"other\":{\"denied\":\"_confluent-audit-log_cluster\"}},\"crn://mds1.example.com/kafka=*\":{\"interbroker\":{\"allowed\":\"\",\"denied\":\"_confluent-audit-log_cluster\"},\"other\":{\"denied\":\"_confluent-audit-log_cluster\"}}},\"metadata\":{\"resource_version\":\"f109371d0a856a40a2a96cca98f90ec2\",\"updated_at\":\"2019-08-21T18:31:47+00:00\"}}";
   private AuditLogRouter router;
 
   @Before
@@ -222,7 +222,6 @@ public class AuditLogRouterTest {
                 "Mds.Authorize", "User:Bob", false)));
   }
 
-
   @Test
   public void testCategories() {
     // Produce goes to produce_
@@ -254,9 +253,9 @@ public class AuditLogRouterTest {
   }
 
   @Test
-  public void testDefault() {
-    // Produce Allowed goes to default
-    Assert.assertEquals(Optional.of("_confluent-audit-log_success"),
+  public void testDefaultFallback() {
+    // Produce Allowed goes to default (which is to suppress Produce/Consume messages)
+    Assert.assertEquals(Optional.of(""),
         router.topic(
             sampleEvent(
                 "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-payroll",
@@ -269,15 +268,15 @@ public class AuditLogRouterTest {
                 "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-payroll",
                 "Kafka.Produce", "User:Bob", false)));
 
-    // Consume Allowed goes to default
-    Assert.assertEquals(Optional.of("_confluent-audit-log_success"),
+    // Consume Allowed goes to default (which is to suppress Produce/Consume messages)
+    Assert.assertEquals(Optional.of(""),
         router.topic(
             sampleEvent(
                 "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-payroll",
                 "Kafka.FetchConsumer", "User:Bob", true)));
 
-    // Consume Denied goes to defined topic
-    Assert.assertEquals(Optional.of("_confluent-audit-log_failure"),
+    // Consume Denied goes to defined topic (which is to suppress Produce/Consume messages)
+    Assert.assertEquals(Optional.of(""),
         router.topic(
             sampleEvent(
                 "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-payroll",
@@ -302,15 +301,14 @@ public class AuditLogRouterTest {
     Assert.assertEquals(Optional.of("_confluent-audit-log_success"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA",
-                "CreateTopics", "User:Bob", true)));
+                "Kafka.CreateTopics", "User:Bob", true)));
 
     // Consume Denied goes to defined topic
     Assert.assertEquals(Optional.of("_confluent-audit-log_cluster"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA",
-                "CreateTopics", "User:Bob", false)));
+                "Kafka.CreateTopics", "User:Bob", false)));
   }
-
 
   @Test
   public void testAllClusterEvents() {
@@ -326,17 +324,17 @@ public class AuditLogRouterTest {
             sampleEvent("crn://mds1.example.com/kafka=RGiGzT0RRyKWEoGJrk-rkQ",
                 "Kafka.FetchFollower", "User:Bob", false)));
 
-    // Consume Allowed goes to default
+    // Other Allowed goes to default
     Assert.assertEquals(Optional.of("_confluent-audit-log_success"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=3qW6InmVT0CVkN2NrBFOPQ",
-                "CreateTopics", "User:Bob", true)));
+                "Kafka.CreateTopics", "User:Bob", true)));
 
-    // Consume Denied goes to defined topic
+    // Other Denied goes to defined topic
     Assert.assertEquals(Optional.of("_confluent-audit-log_cluster"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=xqeA2ZZzT4moO0vq9q1rkw",
-                "CreateTopics", "User:Bob", false)));
+                "Kafka.CreateTopics", "User:Bob", false)));
   }
 
   @Test
@@ -347,214 +345,71 @@ public class AuditLogRouterTest {
   }
 
   @Test
-  public void testValidateHappyPath() throws IOException {
-    // make sure happy path works
-    AuditLogRouterJsonConfig.load(
-        "{\n"
-            + "    \"routes\": {\n"
-            + "        \"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1\": {\n"
-            + "            \"authorize\": {\n"
-            + "                \"allowed\": \"\",\n"
-            + "                \"denied\": \"_confluent-audit-log_ksql\"\n"
-            + "            }\n"
-            + "        }\n"
-            + "    },\n"
-            + "    \"metadata\": null,\n"
-            + "    \"destinations\": {\n"
-            + "        \"bootstrapServers\": [\n"
-            + "            \"localhost:9092\"\n"
-            + "        ],\n"
-            + "        \"topics\": {\n"
-            + "            \"_confluent-audit-log\": {\n"
-            + "                \"retention_ms\": 7776000000\n"
-            + "            },\n"
-            + "            \"_confluent-audit-log_ksql\": {\n"
-            + "                \"retention_ms\": 7776000000\n"
-            + "            }\n"
-            + "        }\n"
-            + "    },\n"
-            + "    \"default_topics\": {\n"
-            + "        \"allowed\": \"_confluent-audit-log\",\n"
-            + "        \"denied\": \"_confluent-audit-log\"\n"
-            + "    },\n"
-            + "    \"excluded_principals\": []\n"
-            + "}"
-    );
-  }
-
-  @Test
-  public void testValidateEmptyConfig() {
-    Assert.assertThrows(IllegalArgumentException.class, () ->
-        AuditLogRouterJsonConfig.load("{}"));
-  }
-
-  @Test
-  public void testValidateNoDefaults() {
-    // no defaults
-    Assert.assertThrows(IllegalArgumentException.class, () ->
+  public void testDefault() throws IOException {
+    AuditLogRouter router = new AuditLogRouter(
         AuditLogRouterJsonConfig.load(
-            "{\n"
-                + "    \"routes\": {\n"
-                + "        \"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1\": {\n"
-                + "            \"authorize\": {\n"
-                + "                \"allowed\": \"\",\n"
-                + "                \"denied\": \"_confluent-audit-log_ksql\"\n"
-                + "            }\n"
-                + "        }\n"
-                + "    },\n"
-                + "    \"metadata\": null,\n"
-                + "    \"destinations\": {\n"
-                + "        \"bootstrapServers\": [\n"
-                + "            \"localhost:9092\"\n"
-                + "        ],\n"
-                + "        \"topics\": {\n"
-                + "            \"_confluent-audit-log\": {\n"
-                + "                \"retention_ms\": 7776000000\n"
-                + "            },\n"
-                + "            \"_confluent-audit-log_ksql\": {\n"
-                + "                \"retention_ms\": 7776000000\n"
-                + "            }\n"
-                + "        }\n"
-                + "    },\n"
-                + "    \"excluded_principals\": []\n"
-                + "}"
-        ));
-  }
+            AuditLogRouterJsonConfig.defaultConfig("localhost:9092",
+                "_confluent-audit-log_allowed", "_confluent-audit-log_denied")),
+        100);
 
-  @Test
-  public void testValidateWrongResults() {
-    Assert.assertThrows(IllegalArgumentException.class, () ->
-        AuditLogRouterJsonConfig.load(
-            "{\n"
-                + "    \"routes\": {\n"
-                + "        \"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1\": {\n"
-                + "            \"authorize\": {\n"
-                + "                \"success\": \"\",\n" // should be allowed, denied
-                + "                \"failure\": \"_confluent-audit-log_ksql\"\n"
-                + "            }\n"
-                + "        }\n"
-                + "    },\n"
-                + "    \"metadata\": null,\n"
-                + "    \"destinations\": {\n"
-                + "        \"bootstrapServers\": [\n"
-                + "            \"localhost:9092\"\n"
-                + "        ],\n"
-                + "        \"topics\": {\n"
-                + "            \"_confluent-audit-log\": {\n"
-                + "                \"retention_ms\": 7776000000\n"
-                + "            },\n"
-                + "            \"_confluent-audit-log_ksql\": {\n"
-                + "                \"retention_ms\": 7776000000\n"
-                + "            }\n"
-                + "        }\n"
-                + "    },\n"
-                + "    \"default_topics\": {\n"
-                + "        \"allowed\": \"_confluent-audit-log\",\n"
-                + "        \"denied\": \"_confluent-audit-log\"\n"
-                + "    },\n"
-                + "    \"excluded_principals\": []\n"
-                + "}"
-        ));
-  }
+    // Authorize goes to default
+    Assert.assertEquals(Optional.of("_confluent-audit-log_allowed"),
+        router.topic(
+            sampleEvent("crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1",
+                "Mds.Authorize", "User:Bob", true)));
 
-  @Test
-  public void testValidateWrongCategory() {
-    Assert.assertThrows(IllegalArgumentException.class, () ->
-        AuditLogRouterJsonConfig.load(
-            "{\n"
-                + "    \"routes\": {\n"
-                + "        \"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1\": {\n"
-                + "            \"random\": {\n" // unknown category
-                + "                \"allowed\": \"\",\n"
-                + "                \"denied\": \"_confluent-audit-log_ksql\"\n"
-                + "            }\n"
-                + "        }\n"
-                + "    },\n"
-                + "    \"metadata\": null,\n"
-                + "    \"destinations\": {\n"
-                + "        \"bootstrapServers\": [\n"
-                + "            \"localhost:9092\"\n"
-                + "        ],\n"
-                + "        \"topics\": {\n"
-                + "            \"_confluent-audit-log\": {\n"
-                + "                \"retention_ms\": 7776000000\n"
-                + "            },\n"
-                + "            \"_confluent-audit-log_ksql\": {\n"
-                + "                \"retention_ms\": 7776000000\n"
-                + "            }\n"
-                + "        }\n"
-                + "    },\n"
-                + "    \"default_topics\": {\n"
-                + "        \"allowed\": \"_confluent-audit-log\",\n"
-                + "        \"denied\": \"_confluent-audit-log\"\n"
-                + "    },\n"
-                + "    \"excluded_principals\": []\n"
-                + "}"
-        ));
-  }
+    Assert.assertEquals(Optional.of("_confluent-audit-log_denied"),
+        router.topic(
+            sampleEvent("crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1",
+                "Mds.Authorize", "User:Bob", false)));
 
-  @Test
-  public void testValidateWrongPrefix() {
-    Assert.assertThrows(IllegalArgumentException.class, () ->
-        AuditLogRouterJsonConfig.load(
-            "{\n"
-                + "    \"routes\": {\n"
-                + "        \"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1\": {\n"
-                + "            \"authorize\": {\n"
-                + "                \"allowed\": \"\",\n"
-                + "                \"denied\": \"ksql_audit\"\n" // topic doesn't start with prefix
-                + "            }\n"
-                + "        }\n"
-                + "    },\n"
-                + "    \"metadata\": null,\n"
-                + "    \"destinations\": {\n"
-                + "        \"bootstrapServers\": [\n"
-                + "            \"localhost:9092\"\n"
-                + "        ],\n"
-                + "        \"topics\": {\n"
-                + "            \"_confluent-audit-log\": {\n"
-                + "                \"retention_ms\": 7776000000\n"
-                + "            },\n"
-                + "            \"ksql_audit\": {\n"
-                + "                \"retention_ms\": 7776000000\n"
-                + "            }\n"
-                + "        }\n"
-                + "    },\n"
-                + "    \"default_topics\": {\n"
-                + "        \"allowed\": \"_confluent-audit-log\",\n"
-                + "        \"denied\": \"_confluent-audit-log\"\n"
-                + "    },\n"
-                + "    \"excluded_principals\": []\n"
-                + "}"));
+    // Other goes to default
+    Assert.assertEquals(Optional.of("_confluent-audit-log_allowed"),
+        router.topic(
+            sampleEvent("crn://mds1.example.com/kafka=3qW6InmVT0CVkN2NrBFOPQ",
+                "Kafka.CreateTopics", "User:Bob", true)));
+
+    Assert.assertEquals(Optional.of("_confluent-audit-log_denied"),
+        router.topic(
+            sampleEvent("crn://mds1.example.com/kafka=xqeA2ZZzT4moO0vq9q1rkw",
+                "Kafka.CreateTopics", "User:Bob", false)));
+
+    // Produce is suppressed
+    Assert.assertEquals(Optional.of(""),
+        router.topic(
+            sampleEvent(
+                "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-payroll",
+                "Kafka.Produce", "User:Bob", true)));
+
+    Assert.assertEquals(Optional.of(""),
+        router.topic(
+            sampleEvent(
+                "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-payroll",
+                "Kafka.Produce", "User:Bob", false)));
+
+    // Consume is suppressed
+    Assert.assertEquals(Optional.of(""),
+        router.topic(
+            sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks",
+                "Kafka.FetchConsumer", "User:Bob", true)));
+
+    Assert.assertEquals(Optional.of(""),
+        router.topic(
+            sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks",
+                "Kafka.FetchConsumer", "User:Bob", false)));
+
+    // Interbroker is suppressed
+    Assert.assertEquals(Optional.of(""),
+        router.topic(
+            sampleEvent("crn://mds1.example.com/kafka=f5B4bB7_RZi4-muWq2pLlg",
+                "Kafka.FetchFollower", "User:Bob", true)));
+
+    Assert.assertEquals(Optional.of(""),
+        router.topic(
+            sampleEvent("crn://mds1.example.com/kafka=f5B4bB7_RZi4-muWq2pLlg",
+                "Kafka.FetchFollower", "User:Bob", false)));
+
 
   }
 
-  @Test
-  public void testValidateEmptyTopic() throws IOException {
-    // the empty topic should be allowed
-    AuditLogRouterJsonConfig.load(
-        "{\n"
-            + "    \"routes\": {\n"
-            + "    },\n"
-            + "    \"metadata\": null,\n"
-            + "    \"destinations\": {\n"
-            + "        \"bootstrapServers\": [\n"
-            + "            \"localhost:9092\"\n"
-            + "        ],\n"
-            + "        \"topics\": {\n"
-            + "            \"_confluent-audit-log\": {\n"
-            + "                \"retention_ms\": 7776000000\n"
-            + "            },\n"
-            + "            \"_confluent-audit-log_ksql\": {\n"
-            + "                \"retention_ms\": 7776000000\n"
-            + "            }\n"
-            + "        }\n"
-            + "    },\n"
-            + "    \"default_topics\": {\n"
-            + "        \"allowed\": \"\",\n"
-            + "        \"denied\": \"\"\n"
-            + "    },\n"
-            + "    \"excluded_principals\": []\n"
-            + "}");
-  }
 }

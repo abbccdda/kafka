@@ -1,7 +1,6 @@
 package io.confluent.security.audit.router;
 
 import com.google.protobuf.InvalidProtocolBufferException;
-import io.confluent.crn.ConfluentResourceName;
 import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.CloudEvent;
 import io.confluent.security.authorizer.AuthorizeResult;
@@ -19,20 +18,24 @@ public class AuditLogCategoryResultRouter implements EventTopicRouter {
   private static final Logger log = LoggerFactory.getLogger(AuditLogCategoryResultRouter.class);
 
   public static final String OTHER_CATEGORY = "other";
+  public static final String PRODUCE_CATEGORY = "produce";
+  public static final String CONSUME_CATEGORY = "consume";
+  public static final String INTERBROKER_CATEGORY = "interbroker";
+  public static final String AUTHORIZE_CATEGORY = "authorize";
   public static final Map<String, String> METHOD_CATEGORIES = Utils.mkMap(
-      Utils.mkEntry("Kafka.Produce", "produce"),
-      Utils.mkEntry("Kafka.AddPartitionToTxn", "produce"),
-      Utils.mkEntry("Kafka.FetchConsumer", "consume"),
-      Utils.mkEntry("Kafka.OffsetCommit", "consume"),
-      Utils.mkEntry("Kafka.AddOffsetsToTxn", "consume"),
-      Utils.mkEntry("Kafka.TxnOffsetCommit", "consume"),
-      Utils.mkEntry("Kafka.FetchFollower", "interbroker"),
-      Utils.mkEntry("Kafka.LeaderAndIsr", "interbroker"),
-      Utils.mkEntry("Kafka.StopReplica", "interbroker"),
-      Utils.mkEntry("Kafka.UpdateMetadata", "interbroker"),
-      Utils.mkEntry("Kafka.ControlledShutdown", "interbroker"),
-      Utils.mkEntry("Kafka.WriteTxnMarkers", "interbroker"),
-      Utils.mkEntry("Mds.Authorize", "authorize")
+      Utils.mkEntry("Kafka.Produce", PRODUCE_CATEGORY),
+      Utils.mkEntry("Kafka.AddPartitionToTxn", PRODUCE_CATEGORY),
+      Utils.mkEntry("Kafka.FetchConsumer", CONSUME_CATEGORY),
+      Utils.mkEntry("Kafka.OffsetCommit", CONSUME_CATEGORY),
+      Utils.mkEntry("Kafka.AddOffsetsToTxn", CONSUME_CATEGORY),
+      Utils.mkEntry("Kafka.TxnOffsetCommit", CONSUME_CATEGORY),
+      Utils.mkEntry("Kafka.FetchFollower", INTERBROKER_CATEGORY),
+      Utils.mkEntry("Kafka.LeaderAndIsr", INTERBROKER_CATEGORY),
+      Utils.mkEntry("Kafka.StopReplica", INTERBROKER_CATEGORY),
+      Utils.mkEntry("Kafka.UpdateMetadata", INTERBROKER_CATEGORY),
+      Utils.mkEntry("Kafka.ControlledShutdown", INTERBROKER_CATEGORY),
+      Utils.mkEntry("Kafka.WriteTxnMarkers", INTERBROKER_CATEGORY),
+      Utils.mkEntry("Mds.Authorize", AUTHORIZE_CATEGORY)
   );
   public static final Set<String> CATEGORIES;
 
@@ -41,16 +44,13 @@ public class AuditLogCategoryResultRouter implements EventTopicRouter {
     CATEGORIES.add(OTHER_CATEGORY);
   }
 
-  private final ConfluentResourceName pattern;
   private final HashMap<String, HashMap<AuthorizeResult, String>> routes = new HashMap<>();
 
-  public AuditLogCategoryResultRouter(ConfluentResourceName pattern) {
-    this.pattern = pattern;
-  }
-
-  public void setRoute(String category, AuthorizeResult result, String topic) {
-    routes.computeIfAbsent(category, k -> new HashMap<AuthorizeResult, String>())
+  public AuditLogCategoryResultRouter setRoute(String category, AuthorizeResult result,
+      String topic) {
+    routes.computeIfAbsent(category, k -> new HashMap<>())
         .put(result, topic);
+    return this;
   }
 
   @Override
@@ -72,5 +72,4 @@ public class AuditLogCategoryResultRouter implements EventTopicRouter {
       return Optional.empty();
     }
   }
-
 }

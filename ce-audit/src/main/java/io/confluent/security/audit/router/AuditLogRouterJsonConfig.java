@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -41,6 +42,7 @@ public class AuditLogRouterJsonConfig {
 
   public static class Destinations {
 
+    @JsonProperty("bootstrap_servers")
     public List<String> bootstrapServers;
     public Map<String, DestinationTopic> topics = new HashMap<>();
 
@@ -56,20 +58,34 @@ public class AuditLogRouterJsonConfig {
     }
   }
 
+  public static class DefaultTopics {
+
+    public String allowed;
+    public String denied;
+
+    public DefaultTopics(@JsonProperty("allowed") String allowed,
+        @JsonProperty("denied") String denied) {
+      this.allowed = allowed;
+      this.denied = denied;
+    }
+  }
+
   public static class Metadata {
 
-    public String configVersion;
-    public String lastUpdated;
+    @JsonProperty("resource_version")
+    public String resourceVersion;
+    @JsonProperty("updated_at")
+    public String updatedAt;
 
-    public Metadata(@JsonProperty("config_version") String configVersion,
-        @JsonProperty("last_updated") String lastUpdated) {
-      this.configVersion = configVersion;
-      this.lastUpdated = lastUpdated;
+    public Metadata(@JsonProperty("resource_version") String resourceVersion,
+        @JsonProperty("updated_at") String updatedAt) {
+      this.resourceVersion = resourceVersion;
+      this.updatedAt = updatedAt;
     }
   }
 
   @JsonProperty("default_topics")
-  public DefaultTopicRouter defaultTopics;
+  public DefaultTopics defaultTopics;
   @JsonProperty("excluded_principals")
   public List<String> excludedPrincipals = new ArrayList<>();
   // CRN -> category -> result -> topic
@@ -77,25 +93,23 @@ public class AuditLogRouterJsonConfig {
   public Metadata metadata;
   public Destinations destinations;
 
-  public static void validate(AuditLogRouterJsonConfig config) {
-    if (config.destinations == null) {
-      throw new IllegalArgumentException("Destinations must be provided");
-    }
-    Set<String> destinationTopicNames = config.destinations.topics.keySet();
-    String misnamedDestinationTopicNames = destinationTopicNames.stream()
-        .filter(topicName -> !topicName.startsWith(TOPIC_PREFIX))
-        .sorted()
-        .collect(joining(", "));
-    if (!misnamedDestinationTopicNames.isEmpty()) {
-      throw new IllegalArgumentException(String.format("Topics must start with %s: %s",
-          TOPIC_PREFIX, misnamedDestinationTopicNames));
-    }
 
+  public static void validateDefaultTopics(AuditLogRouterJsonConfig config,
+      Set<String> allowedTopics) {
     if (config.defaultTopics == null) {
       throw new IllegalArgumentException("Default topics must be provided");
     }
-    config.defaultTopics.validate(destinationTopicNames);
 
+    if (!allowedTopics.contains(config.defaultTopics.allowed) ||
+        !allowedTopics.contains(config.defaultTopics.denied)) {
+      throw new IllegalArgumentException(String.format(
+          "Default topics %s and %s must appear in destinations",
+          config.defaultTopics.allowed, config.defaultTopics.denied));
+    }
+  }
+
+  public static void validateRoutes(AuditLogRouterJsonConfig config,
+      Set<String> allowedTopics) {
     try {
       for (Entry<String, Map<String, Map<String, String>>> routeEntry : config.routes.entrySet()) {
         ConfluentResourceName.fromString(routeEntry.getKey()); // throws if this is invalid
@@ -116,7 +130,7 @@ public class AuditLogRouterJsonConfig {
             if (topic == null || topic.isEmpty()) {
               continue;
             }
-            if (!destinationTopicNames.contains(topic)) {
+            if (!allowedTopics.contains(topic)) {
               throw new IllegalArgumentException(
                   String.format("Topic name \"%s\" must be in destinations.topics", topic));
             }
@@ -126,6 +140,28 @@ public class AuditLogRouterJsonConfig {
     } catch (CrnSyntaxException e) {
       throw new IllegalArgumentException(e);
     }
+  }
+
+  public static void validate(AuditLogRouterJsonConfig config) {
+    if (config.destinations == null) {
+      throw new IllegalArgumentException("Destinations must be provided");
+    }
+    Set<String> destinationTopicNames = config.destinations.topics.keySet();
+    String misnamedDestinationTopicNames = destinationTopicNames.stream()
+        .filter(topicName -> !topicName.startsWith(TOPIC_PREFIX))
+        .sorted()
+        .collect(joining(", "));
+    if (!misnamedDestinationTopicNames.isEmpty()) {
+      throw new IllegalArgumentException(String.format("Topics must start with %s: %s",
+          TOPIC_PREFIX, misnamedDestinationTopicNames));
+    }
+
+    Set<String> allowedTopics = new HashSet<>(destinationTopicNames);
+    // "" means suppress the message, which doesn't need to be in the destinations
+    allowedTopics.add("");
+
+    validateDefaultTopics(config, allowedTopics);
+    validateRoutes(config, allowedTopics);
   }
 
   public static AuthorizeResult result(String resultName) {
@@ -154,7 +190,8 @@ public class AuditLogRouterJsonConfig {
         Arrays.asList(bootstrapServers.split(",")));
     config.destinations.putTopic(defaultTopicAllowed, new DestinationTopic(DEFAULT_RETENTION_MS));
     config.destinations.putTopic(defaultTopicDenied, new DestinationTopic(DEFAULT_RETENTION_MS));
-    config.defaultTopics = new DefaultTopicRouter(defaultTopicAllowed, defaultTopicDenied);
+
+    config.defaultTopics = new DefaultTopics(defaultTopicAllowed, defaultTopicDenied);
 
     ObjectMapper mapper = new ObjectMapper();
     try {
