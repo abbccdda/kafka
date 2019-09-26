@@ -141,10 +141,6 @@
             "operations" : ["Create", "IdempotentWrite", "Describe", "DescribeConfigs", "Alter", "AlterConfigs", "DescribeAccess", "AlterAccess"]
           },
           {
-            "resourceType" : "DelegationToken",
-            "operations" : ["Describe", "DescribeAccess", "AlterAccess"]
-          },
-          {
             "resourceType" : "Subject",
             "operations" : ["Read", "Write", "Delete", "ReadCompatibility", "WriteCompatibility", "DescribeAccess", "AlterAccess"]
           },
