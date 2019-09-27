@@ -18,6 +18,8 @@ import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.ResourceType;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+
+import io.confluent.security.authorizer.jackson.KafkaModule;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.SecurityUtils;
 
@@ -45,6 +47,7 @@ public class JsonMapper {
     simpleModule.addDeserializer(Operation.class, new OperationDeserializer(Operation.class));
 
     OBJECT_MAPPER.registerModule(simpleModule);
+    OBJECT_MAPPER.registerModule(new KafkaModule());
   }
 
   public static ObjectMapper objectMapper() {

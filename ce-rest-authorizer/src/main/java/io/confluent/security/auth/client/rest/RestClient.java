@@ -13,6 +13,7 @@ import io.confluent.security.auth.client.rest.entities.AuthenticationResponse;
 import io.confluent.security.auth.client.rest.entities.ErrorMessage;
 import io.confluent.security.auth.client.rest.exceptions.RestClientException;
 import io.confluent.security.auth.common.JwtBearerToken;
+import io.confluent.security.authorizer.utils.JsonMapper;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.errors.AuthenticationException;
@@ -71,7 +72,7 @@ public class RestClient implements Closeable {
           AUTHENTICATION_RESPONSE_TYPE = new TypeReference<AuthenticationResponse>() { };
 
   private static final Map<String, String> DEFAULT_REQUEST_PROPERTIES;
-  private static ObjectMapper jsonDeserializer = new ObjectMapper();
+  private static ObjectMapper objectMapper = JsonMapper.objectMapper();
   private final Time time;
 
   static {
@@ -341,7 +342,7 @@ public class RestClient implements Closeable {
             InputStream es = connection.getErrorStream();
             ErrorMessage errorMessage;
             try {
-              errorMessage = jsonDeserializer.readValue(es, ErrorMessage.class);
+              errorMessage = objectMapper.readValue(es, ErrorMessage.class);
             } catch (JsonProcessingException e) {
               errorMessage = new ErrorMessage(responseCode,
                       connection.getResponseMessage());

@@ -2,6 +2,12 @@
 
 package io.confluent.security.auth.provider.rbac;
 
+import io.confluent.security.auth.client.RestClientConfig;
+import io.confluent.security.auth.client.acl.MdsAclClient;
+import io.confluent.security.auth.client.rest.entities.CreateAclsRequest;
+import io.confluent.security.auth.client.rest.entities.CreateAclsResult;
+import io.confluent.security.auth.client.rest.entities.DeleteAclsRequest;
+import io.confluent.security.auth.client.rest.entities.DeleteAclsResult;
 import io.confluent.security.auth.metadata.AuthCache;
 import io.confluent.security.auth.metadata.AuthStore;
 import io.confluent.security.auth.metadata.MetadataServer;
@@ -27,15 +33,25 @@ import io.confluent.security.authorizer.provider.MetadataProvider;
 import io.confluent.security.store.kafka.KafkaStoreConfig;
 import java.io.IOException;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.ServiceLoader;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
+
+import org.apache.kafka.common.Endpoint;
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclBindingFilter;
+import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.ClusterResourceListener;
@@ -43,10 +59,16 @@ import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.security.auth.AuthenticateCallbackHandler;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.server.authorizer.AclCreateResult;
+import org.apache.kafka.server.authorizer.AclDeleteResult;
+import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
+import org.apache.kafka.server.authorizer.AuthorizationResult;
+import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class RbacProvider implements AccessRuleProvider, GroupProvider, MetadataProvider, ClusterResourceListener {
+public class RbacProvider implements AccessRuleProvider, GroupProvider, MetadataProvider,
+    org.apache.kafka.server.authorizer.Authorizer, ClusterResourceListener {
   private static final Logger log = LoggerFactory.getLogger(RbacProvider.class);
 
   static final ResourceType SECURITY_METADATA = new ResourceType("SecurityMetadata");
@@ -62,6 +84,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   private Scope authStoreScope;
   private AuthStore authStore;
   private AuthCache authCache;
+  private Optional<MdsAclClient> aclClient = Optional.empty();
 
   private String clusterId;
   private MetadataServer metadataServer;
@@ -163,6 +186,11 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
         .thenApply(unused -> {
           if (metadataServer != null)
             metadataServer.start(createRbacAuthorizer(), authStore, authenticateCallbackHandler);
+
+          if (configs.containsKey(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP)) {
+            aclClient = Optional.of(new MdsAclClient());
+            aclClient.get().configure(configs);
+          }
           return null;
         });
   }
@@ -215,6 +243,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
     Utils.closeQuietly(authStore, "authStore", firstException);
     if (authenticateCallbackHandler != null)
       Utils.closeQuietly(authenticateCallbackHandler, "authenticateCallbackHandler", firstException);
+    Utils.closeQuietly(aclClient.orElse(null), "aclClient", firstException);
     Throwable exception = firstException.getAndSet(null);
     if (exception != null)
       throw new KafkaException("RbacProvider could not be closed cleanly", exception);
@@ -264,6 +293,92 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
     }
     metadataServer.configure(metadataServiceConfig.metadataServerConfigs());
     return metadataServer;
+  }
+
+  @Override
+  public Map<Endpoint, ? extends CompletionStage<Void>> start(final AuthorizerServerInfo serverInfo) {
+    return Collections.emptyMap();
+  }
+
+  @Override
+  public List<AuthorizationResult> authorize(final AuthorizableRequestContext requestContext,
+                                             final List<org.apache.kafka.server.authorizer.Action> actions) {
+    throw new IllegalStateException("This provider should be used for authorization only using the AccessRuleProvider interface");
+  }
+
+  @Override
+  public List<? extends CompletionStage<AclCreateResult>> createAcls(final AuthorizableRequestContext requestContext,
+                                                                     final List<AclBinding> aclBindings) {
+    if (!aclClient.isPresent())
+      throw new IllegalStateException("Acl operations are not supported by this provider");
+
+    List<AclCreateResult> results = new ArrayList<>(aclBindings.size());
+    CreateAclsResult createAclsResult;
+
+    try {
+      createAclsResult = aclClient.get().createAcls(new CreateAclsRequest(authScope, aclBindings));
+    } catch (Exception e) {
+      return aclBindings.stream()
+          .map(a -> new AclCreateResult(new ApiException(e)))
+          .map(CompletableFuture::completedFuture)
+          .collect(Collectors.toList());
+    }
+
+    for (AclBinding aclBinding: aclBindings) {
+      CreateAclsResult.CreateResult createResult = createAclsResult.resultMap.get(aclBinding);
+      if (createResult.success) {
+        results.add(AclCreateResult.SUCCESS);
+      } else {
+        results.add(new AclCreateResult(new ApiException(createResult.errorMessage)));
+      }
+    }
+
+    return results.stream()
+        .map(CompletableFuture::completedFuture)
+        .collect(Collectors.toList());
+  }
+
+  @Override
+  public List<? extends CompletionStage<AclDeleteResult>> deleteAcls(final AuthorizableRequestContext requestContext,
+                                                                     final List<AclBindingFilter> aclBindingFilters) {
+    if (!aclClient.isPresent())
+      throw new IllegalStateException("Acl operations are not supported by this provider");
+
+    List<AclDeleteResult> results = new ArrayList<>(aclBindingFilters.size());
+    DeleteAclsResult deleteAclsResult;
+
+    try {
+      deleteAclsResult = aclClient.get().deleteAcls(new DeleteAclsRequest(authScope, aclBindingFilters));
+    } catch (Exception e) {
+      return aclBindingFilters.stream()
+          .map(a -> new AclDeleteResult(new ApiException(e)))
+          .map(CompletableFuture::completedFuture)
+          .collect(Collectors.toList());
+    }
+
+    for (AclBindingFilter aclBindingFilter: aclBindingFilters) {
+      DeleteAclsResult.DeleteResult deleteResult = deleteAclsResult.resultMap.get(aclBindingFilter);
+      if (deleteResult.success) {
+        results.add(new AclDeleteResult(deleteResult.aclBindings
+            .stream()
+            .map(AclDeleteResult.AclBindingDeleteResult::new)
+            .collect(Collectors.toList())));
+      } else {
+        results.add(new AclDeleteResult(new ApiException(deleteResult.errorMessage)));
+      }
+    }
+
+    return results.stream()
+        .map(CompletableFuture::completedFuture)
+        .collect(Collectors.toList());
+  }
+
+  @Override
+  public Iterable<AclBinding> acls(final AclBindingFilter filter) {
+    if (!aclClient.isPresent())
+      throw new IllegalStateException("Acl operations are not supported by this provider");
+
+    return authCache.aclBindings(authScope, filter, r -> true);
   }
 
   private class RbacAuthorizer extends EmbeddedAuthorizer {

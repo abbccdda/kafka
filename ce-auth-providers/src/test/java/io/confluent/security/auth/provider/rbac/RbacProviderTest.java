@@ -7,6 +7,12 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.fail;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
+import io.confluent.security.auth.client.acl.MdsAclClient;
+import io.confluent.security.auth.client.rest.entities.AclFilter;
+import io.confluent.security.auth.client.rest.entities.CreateAclsRequest;
+import io.confluent.security.auth.client.rest.entities.CreateAclsResult;
+import io.confluent.security.auth.client.rest.entities.DeleteAclsRequest;
+import io.confluent.security.auth.client.rest.entities.DeleteAclsResult;
 import io.confluent.security.auth.metadata.MetadataServiceConfig;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.auth.store.data.AclBindingKey;
@@ -26,14 +32,20 @@ import io.confluent.security.authorizer.acl.AclRule;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.rbac.RbacRoles;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+
 import org.apache.kafka.common.ClusterResource;
+import org.apache.kafka.common.acl.AccessControlEntryFilter;
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
@@ -48,6 +60,7 @@ public class RbacProviderTest {
   private final ResourcePattern clusterResource = new ResourcePattern(new ResourceType("Cluster"), "kafka-cluster", PatternType.LITERAL);
   private RbacProvider rbacProvider;
   private DefaultAuthCache authCache;
+  private Optional<MdsAclClient> aclClientOp;
   private ResourcePattern topic = new ResourcePattern("Topic", "topicA", PatternType.LITERAL);
 
   @Before
@@ -322,11 +335,13 @@ public class RbacProviderTest {
     RbacRoles rbacRoles = RbacRoles.load(this.getClass().getClassLoader(), "test_rbac_roles.json");
     MockRbacProvider.MockAuthStore authStore = new MockRbacProvider.MockAuthStore(rbacRoles, authStoreScope);
     authCache = authStore.authCache();
+    aclClientOp = Optional.of(new TestMdsClient());
     rbacProvider = new RbacProvider() {
       @Override
       public void configure(Map<String, ?> configs) {
         super.configure(configs);
         KafkaTestUtils.setFinalField(rbacProvider, RbacProvider.class, "authCache", authCache);
+        KafkaTestUtils.setFinalField(rbacProvider, RbacProvider.class, "aclClient", aclClientOp);
       }
     };
     rbacProvider.onUpdate(new ClusterResource(clusterId));
@@ -422,6 +437,100 @@ public class RbacProviderTest {
   private void deleteAclBinding(Scope scope, ResourcePattern resourcePattern) {
     AclBindingKey key = new AclBindingKey(resourcePattern, scope);
     authCache.remove(key);
+  }
+
+  @Test
+  public void testLiteralResourceWithAclClient() {
+    verifyWithAclClient(new ResourcePattern("Topic", topic.name(), PatternType.LITERAL));
+  }
+
+  @Test
+  public void testWildcardResourceWithAclClient() {
+    verifyWithAclClient(new ResourcePattern("Topic", "*", PatternType.LITERAL));
+  }
+
+  @Test
+  public void testPrefixedResourceWithAclClient() {
+    verifyWithAclClient(new ResourcePattern("Topic", "top", PatternType.PREFIXED));
+  }
+
+  @Test
+  public void testSingleCharPrefixedResourceWithAclClient() {
+    verifyWithAclClient(new ResourcePattern("Topic", "t", PatternType.PREFIXED));
+  }
+
+  @Test
+  public void testFullNamePrefixedResourceWithAclClient() {
+    verifyWithAclClient(new ResourcePattern("Topic", "topic", PatternType.PREFIXED));
+  }
+
+  private void verifyWithAclClient(ResourcePattern resourcePattern) {
+    KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
+    KafkaPrincipal admin = new KafkaPrincipal(AccessRule.GROUP_PRINCIPAL_TYPE, "admin");
+    Set<KafkaPrincipal> groups = Collections.singleton(admin);
+    Set<KafkaPrincipal> emptyGroups = Collections.emptySet();
+
+    MdsAclClient aclClient = aclClientOp.get();
+
+    AclRule aliceReadRule = new AclRule(alice, PermissionType.ALLOW, "", new Operation("Read"));
+    AclBinding aclBinding = new AclBinding(ResourcePattern.to(resourcePattern), aliceReadRule.toAccessControlEntry());
+    aclClient.createAcls(new CreateAclsRequest(clusterA, Collections.singletonList(aclBinding)));
+    verifyRules(accessRules(alice, emptyGroups, clusterResource));
+    verifyRules(accessRules(alice, emptyGroups, topic), "Read");
+
+    AclRule adminWriteReadRule = new AclRule(admin, PermissionType.ALLOW, "", new Operation("Write"));
+    aclBinding = new AclBinding(ResourcePattern.to(resourcePattern), adminWriteReadRule.toAccessControlEntry());
+    aclClient.createAcls(new CreateAclsRequest(clusterA, Collections.singletonList(aclBinding)));
+    verifyRules(accessRules(alice, groups, topic),  "Write");
+
+    AclRule aliceWriteRule = new AclRule(alice, PermissionType.ALLOW, "", new Operation("Write"));
+    aclBinding = new AclBinding(ResourcePattern.to(resourcePattern), aliceWriteRule.toAccessControlEntry());
+
+    aclClient.createAcls(new CreateAclsRequest(clusterA, Collections.singletonList(aclBinding)));
+    verifyRules(accessRules(alice, emptyGroups, topic), "Write");
+
+    AclBindingFilter deleteFilter = new AclBindingFilter(ResourcePattern.to(resourcePattern).toFilter(),
+        AccessControlEntryFilter.ANY);
+    DeleteAclsRequest deleteAclRequest = new DeleteAclsRequest(clusterA, Collections.singleton(deleteFilter));
+    aclClient.deleteAcls(deleteAclRequest);
+    verifyRules(accessRules(alice, groups, topic));
+  }
+
+  private class TestMdsClient extends MdsAclClient {
+
+    @Override
+    public CreateAclsResult createAcls(final CreateAclsRequest createAclRequest) {
+      for (AclBinding aclBinding: createAclRequest.aclBindings) {
+        updateAclBinding(createAclRequest.scope, ResourcePattern.from(aclBinding.pattern()),
+            Collections.singletonList(AclRule.from(aclBinding)));
+      }
+
+      Map<AclBinding, CreateAclsResult.CreateResult> resultMap = createAclRequest.aclBindings
+          .stream()
+          .collect(Collectors.toMap(a -> a, x -> CreateAclsResult.SUCCESS));
+
+      return new CreateAclsResult(resultMap);
+    }
+
+    @Override
+    public DeleteAclsResult deleteAcls(final DeleteAclsRequest deleteAclRequest) {
+      Map<AclBindingFilter, Collection<AclBinding>> toBeDeleted = new HashMap<>();
+      for (AclBindingFilter aclBindingFilter: deleteAclRequest.aclBindingFilters) {
+        toBeDeleted.put(aclBindingFilter, describeAcls(new AclFilter(deleteAclRequest.scope, aclBindingFilter)));
+        ResourcePattern resourcePattern = ResourcePattern.from(aclBindingFilter.patternFilter());
+        deleteAclBinding(deleteAclRequest.scope, resourcePattern);
+      }
+
+      Map<AclBindingFilter, DeleteAclsResult.DeleteResult> resultMap = deleteAclRequest.aclBindingFilters
+          .stream()
+          .collect(Collectors.toMap(a -> a, a -> DeleteAclsResult.success(toBeDeleted.get(a))));
+
+      return new DeleteAclsResult(resultMap);
+    }
+
+    public Collection<AclBinding> describeAcls(final AclFilter describeAclRequest) {
+      return authCache.aclBindings(describeAclRequest.scope, describeAclRequest.aclBindingFilter, r -> true);
+    }
   }
 }
 

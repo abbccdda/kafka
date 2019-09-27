@@ -114,6 +114,13 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
         .filter(a -> a instanceof AclProvider)
         .findFirst()
         .map(a -> (Authorizer) a);
+
+    if (!aclProvider.isPresent()) {
+      aclProvider = accessRuleProviders().stream()
+          .filter(a -> a instanceof Authorizer)
+          .findFirst()
+          .map(a -> (Authorizer) a);
+    }
     aclAuthorizer = aclProvider.orElse(new AclErrorProvider());
 
     // Embedded authorizer used in metadata server can use an empty scope since scopes used
@@ -344,7 +351,7 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
     @Override
     public List<AuthorizationResult> authorize(AuthorizableRequestContext requestContext,
         List<org.apache.kafka.server.authorizer.Action> actions) {
-      throw new IllegalStateException("Authprization not supported by this provider");
+      throw new IllegalStateException("Authorization not supported by this provider");
     }
 
     @Override

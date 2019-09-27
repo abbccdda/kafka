@@ -2665,6 +2665,7 @@ project(':ce-auth-providers') {
     compile libs.metrics
     compile project(':clients')
     compile project(':ce-authorizer')
+    compile project(':ce-rest-authorizer')
     compile project(':ce-rbac')
 
     testCompile project(':core')

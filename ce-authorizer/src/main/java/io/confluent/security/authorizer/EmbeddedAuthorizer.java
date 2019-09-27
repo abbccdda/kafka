@@ -155,16 +155,6 @@ public class EmbeddedAuthorizer implements Authorizer {
   }
 
   public CompletableFuture<Void> start(Map<String, ?> interBrokerListenerConfigs) {
-    ConfluentAuthorizerConfig.Providers providers = authorizerConfig.createProviders(clusterId);
-    providersCreated.addAll(providers.accessRuleProviders);
-    if (providers.groupProvider != null)
-      providersCreated.add(providers.groupProvider);
-    if (providers.metadataProvider != null)
-      providersCreated.add(providers.metadataProvider);
-
-    configureProviders(providers.accessRuleProviders, providers.groupProvider,
-        providers.metadataProvider, providers.auditLogProvider);
-
     initTimeout = authorizerConfig.initTimeout;
     if (groupProvider != null && groupProvider.usesMetadataFromThisKafkaCluster())
       usesMetadataFromThisKafkaCluster = true;
