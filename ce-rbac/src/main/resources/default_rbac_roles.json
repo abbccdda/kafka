@@ -126,11 +126,11 @@
         "allowedOperations" : [
           {
             "resourceType" : "Topic",
-            "operations" : ["Create", "Delete", "Read", "Write", "Describe", "DescribeConfigs", "Alter", "AlterConfigs", "DescribeAccess", "AlterAccess"]
+            "operations" : ["Create", "Delete", "Read", "Write", "Describe", "DescribeConfigs", "Alter", "AlterConfigs", "DescribeAccess", "AlterAccess", "ControlCenterTriggerWrite"]
           },
           {
             "resourceType" : "Group",
-            "operations" : ["Read", "Describe", "Delete", "DescribeAccess", "AlterAccess"]
+            "operations" : ["Read", "Describe", "Delete", "DescribeAccess", "AlterAccess", "ControlCenterTriggerWrite"]
           },
           {
             "resourceType" : "TransactionalId",
