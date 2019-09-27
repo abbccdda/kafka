@@ -6,10 +6,10 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 
 import com.google.protobuf.InvalidProtocolBufferException;
+import io.confluent.observability.telemetry.MetricBuilderFacade;
+import io.confluent.observability.telemetry.ResourceBuilderFacade;
+import io.confluent.observability.telemetry.TelemetryResourceType;
 import io.confluent.telemetry.MetricsUtils;
-import io.confluent.telemetry.MetricBuilderFacade;
-import io.confluent.telemetry.ResourceBuilderFacade;
-import io.confluent.telemetry.TelemetryResourceType;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
 import io.opencensus.proto.metrics.v1.Point;

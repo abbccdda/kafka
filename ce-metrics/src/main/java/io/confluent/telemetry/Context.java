@@ -2,6 +2,7 @@ package io.confluent.telemetry;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.protobuf.Timestamp;
+import io.confluent.observability.telemetry.MetricBuilderFacade;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor;
 import io.opencensus.proto.metrics.v1.Point;

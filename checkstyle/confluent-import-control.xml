@@ -107,6 +107,7 @@
 
   <subpackage name="telemetry">
     <allow pkg="io.confluent.telemetry" />
+    <allow pkg="io.confluent.observability" />
     <allow pkg="io.confluent.metrics" />
     <allow pkg="io.opencensus" />
     <allow pkg="io.confluent.monitoring" />

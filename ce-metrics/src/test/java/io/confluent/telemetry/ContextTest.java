@@ -2,6 +2,8 @@ package io.confluent.telemetry;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.confluent.observability.telemetry.ResourceBuilderFacade;
+import io.confluent.observability.telemetry.TelemetryResourceType;
 import io.opencensus.proto.resource.v1.Resource;
 import org.junit.Test;
 

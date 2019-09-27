@@ -3,9 +3,9 @@ package io.confluent.telemetry.collector;
 import static org.junit.Assert.assertEquals;
 
 import com.google.common.collect.Iterables;
+import io.confluent.observability.telemetry.ResourceBuilderFacade;
+import io.confluent.observability.telemetry.TelemetryResourceType;
 import io.confluent.telemetry.Context;
-import io.confluent.telemetry.ResourceBuilderFacade;
-import io.confluent.telemetry.TelemetryResourceType;
 import io.opencensus.proto.metrics.v1.Metric;
 import java.util.Collections;
 import org.junit.Test;

@@ -1,6 +1,7 @@
 package io.confluent.telemetry;
 
 import io.confluent.metrics.reporter.integration.MetricReporterClusterTestHarness;
+import io.confluent.observability.telemetry.TelemetryResourceType;
 import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 import io.confluent.telemetry.reporter.KafkaServerMetricsReporter;
 import io.confluent.telemetry.serde.OpencensusMetricsProto;
@@ -98,12 +99,18 @@ public class KafkaServerMetricsReporterTest extends MetricReporterClusterTestHar
                 resourceLabels = resource.getLabelsMap();
                 assertEquals(
                     servers.get(0).clusterId(),
-                    resourceLabels.get(KafkaServerMetricsReporter.LABEL_CLUSTER_ID)
+                    resourceLabels.get(TelemetryResourceType.KAFKA.prefixLabel(KafkaServerMetricsReporter.LABEL_CLUSTER_ID))
+                );
+
+                // Legacy label alias - remove after https://confluentinc.atlassian.net/browse/METRICS-516
+                assertEquals(
+                    servers.get(0).clusterId(),
+                    resourceLabels.get("cluster_id")
                 );
 
                 assertTrue(
                     brokerIds.contains(
-                        resourceLabels.get(KafkaServerMetricsReporter.LABEL_BROKER_ID)
+                        resourceLabels.get(TelemetryResourceType.KAFKA.prefixLabel(KafkaServerMetricsReporter.LABEL_BROKER_ID))
                     )
                 );
 

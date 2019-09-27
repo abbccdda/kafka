@@ -6,9 +6,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.google.common.collect.Iterables;
+import io.confluent.observability.telemetry.ResourceBuilderFacade;
+import io.confluent.observability.telemetry.TelemetryResourceType;
 import io.confluent.telemetry.Context;
-import io.confluent.telemetry.ResourceBuilderFacade;
-import io.confluent.telemetry.TelemetryResourceType;
 import io.opencensus.proto.metrics.v1.Metric;
 import org.junit.Test;
 

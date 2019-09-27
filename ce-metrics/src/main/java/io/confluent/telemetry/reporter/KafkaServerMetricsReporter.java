@@ -1,14 +1,16 @@
 package io.confluent.telemetry.reporter;
 
+import static io.confluent.observability.telemetry.TelemetryResourceType.KAFKA;
+
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
 import com.yammer.metrics.Metrics;
+import io.confluent.observability.telemetry.ResourceBuilderFacade;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricsCollectorTask;
-import io.confluent.telemetry.ResourceBuilderFacade;
-import io.confluent.telemetry.TelemetryResourceType;
 import io.confluent.telemetry.collector.CPUMetricsCollector;
 import io.confluent.telemetry.collector.KafkaMetricsCollector;
 import io.confluent.telemetry.collector.VolumeMetricsCollector;
@@ -35,16 +37,11 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
 
     private static final String DOMAIN = "io.confluent.kafka.server";
 
-    /**
-     * Included for compatibility with existing tags.
-     * <code>kafka_id</code> is the canonical resource identifier
-     * (following the <code>${resource-type}_id</code> format)
-     */
     @VisibleForTesting
-    public static final String LABEL_CLUSTER_ID = "cluster_id";
+    public static final String LABEL_CLUSTER_ID = "cluster.id";
 
     @VisibleForTesting
-    public static final String LABEL_BROKER_ID = "broker_id";
+    public static final String LABEL_BROKER_ID = "broker.id";
 
     private ConfluentTelemetryConfig config;
     private MetricsCollectorTask collectorTask;
@@ -59,12 +56,19 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
             return;
         }
 
-        Resource resource = new ResourceBuilderFacade(TelemetryResourceType.KAFKA)
+        Resource resource = new ResourceBuilderFacade(KAFKA)
             .withVersion(AppInfoParser.getVersion())
             .withId(clusterResource.clusterId())
-            .withLabel(LABEL_CLUSTER_ID, clusterResource.clusterId())
-            .withLabel(LABEL_BROKER_ID, config.getBrokerId())
+            .withNamespacedLabel(LABEL_CLUSTER_ID, clusterResource.clusterId())
+            .withNamespacedLabel(LABEL_BROKER_ID, config.getBrokerId())
             .withLabels(config.getLabels())
+
+            // Included for backwards compatibility with existing tags.
+            // Can be removed once https://confluentinc.atlassian.net/browse/METRICS-516 is completed
+            .withLabelAliases(ImmutableMap.of(
+                KAFKA.prefixLabel(LABEL_CLUSTER_ID), "cluster_id",
+                KAFKA.prefixLabel(LABEL_BROKER_ID), "broker_id"
+            ))
             .build();
 
         Context ctx = new Context(resource, config.getBoolean(ConfluentTelemetryConfig.DEBUG_ENABLED), true);
