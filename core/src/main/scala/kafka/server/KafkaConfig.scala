@@ -1294,7 +1294,8 @@ object KafkaConfig {
         ConfluentConfigs.MULTITENANT_TENANT_DELETE_BATCH_SIZE_DEFAULT, LOW, ConfluentConfigs.MULTITENANT_TENANT_DELETE_BATCH_SIZE_DOC)
       .defineInternal(ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG, STRING,
                       ConfluentConfigs.BACKPRESSURE_TYPES_DEFAULT, LOW, ConfluentConfigs.BACKPRESSURE_TYPES_DOC)
-
+      .defineInternal(ConfluentConfigs.MULTITENANT_LISTENER_NAMES_CONFIG, STRING,
+                      ConfluentConfigs.MULTITENANT_LISTENER_NAMES_DEFAULT, LOW, ConfluentConfigs.MULTITENANT_LISTENER_NAMES_DOC)
       .defineInternal(ConfluentConfigs.REQUEST_LOG_FILTER_CLASS_CONFIG, CLASS,
         ConfluentConfigs.REQUEST_LOG_FILTER_DEFAULT, LOW, ConfluentConfigs.REQUEST_LOG_FILTER_CLASS_DOC)
   }

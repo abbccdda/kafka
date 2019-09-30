@@ -118,6 +118,12 @@ public class ConfluentConfigs {
         + "not set, or set to class other than TenantQuotaCallback. In other words, broker"
         + " back-pressure can be enabled for multi-tenant clusters only.";
 
+    public static final String MULTITENANT_LISTENER_NAMES_CONFIG = CONFLUENT_PREFIX + "multitenant.listener.names";
+    public static final String MULTITENANT_LISTENER_NAMES_DEFAULT = null;
+    public static final String MULTITENANT_LISTENER_NAMES_DOC =
+        "Comma separated list of listener names used for communications with tenants. If this is "
+        + "unset, broker request (time on network and IO threads) backpressure will not be applied.";
+
     public static final String REQUEST_LOG_FILTER_CLASS_CONFIG = CONFLUENT_PREFIX + "request.log.filter.class";
     public static final String REQUEST_LOG_FILTER_DEFAULT = SamplingRequestLogFilter.class.getName();
     public static final String REQUEST_LOG_FILTER_CLASS_DOC = "Class of request log filter which can be " +

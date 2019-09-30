@@ -28,7 +28,7 @@ import kafka.utils.{Logging, ShutdownableThread}
 import org.apache.kafka.common.{Cluster, MetricName}
 import org.apache.kafka.common.metrics._
 import org.apache.kafka.common.metrics.Metrics
-import org.apache.kafka.common.metrics.stats.{Avg, CumulativeSum, Rate}
+import org.apache.kafka.common.metrics.stats.{Avg, CumulativeSum, Rate, Value}
 import org.apache.kafka.common.security.auth.KafkaPrincipal
 import org.apache.kafka.common.utils.{Sanitizer, Time}
 import org.apache.kafka.server.quota.{ClientQuotaCallback, ClientQuotaEntity, ClientQuotaType}
@@ -58,9 +58,7 @@ case class ClientQuotaManagerConfig(quotaBytesPerSecondDefault: Long =
                                         ClientQuotaManagerConfig.DefaultNumQuotaSamples,
                                     quotaWindowSizeSeconds: Int =
                                         ClientQuotaManagerConfig.DefaultQuotaWindowSizeSeconds,
-                                    backpressureEnabled: Boolean = false,
-                                    backpressureCheckFrequencyMs: Long =
-                                        ClientQuotaManagerConfig.DefaultBackpressureCheckFrequencyMs)
+                                    backpressureConfig: BrokerBackpressureConfig = BrokerBackpressureConfig())
 
 object ClientQuotaManagerConfig {
   val QuotaBytesPerSecondDefault = Long.MaxValue
@@ -73,11 +71,6 @@ object ClientQuotaManagerConfig {
   val NanosToPercentagePerSecond = 100.0 / TimeUnit.SECONDS.toNanos(1)
 
   val UnlimitedQuota = Quota.upperBound(Long.MaxValue)
-
-  // Time window in which a tenant is considered active
-  val DefaultActiveWindowMs = 1 * TimeUnit.MINUTES.toMillis(1)
-  // How often to auto-tune tenants' quotas when broker back-pressure is enabled
-  val DefaultBackpressureCheckFrequencyMs = 5 * TimeUnit.MINUTES.toMillis(1)
 }
 
 object QuotaTypes {
@@ -227,7 +220,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
    */
   def quotasEnabled: Boolean = quotaTypesEnabled != QuotaTypes.NoQuotas
 
-  def backpressureEnabled: Boolean = config.backpressureEnabled
+  def backpressureEnabled: Boolean = config.backpressureConfig.backpressureEnabledInConfig
 
   def tenantLevelQuotasEnabled: Boolean = activeTenantsManager.isDefined
 
@@ -443,6 +436,10 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
 
   def getBrokerQuotaLimit: Double = brokerQuotaLimit
 
+  protected[server] def updateBrokerQuotaLimit(): Unit = {
+    // broker quota limit is dynamically estimated for total request quotas only
+  }
+
   def maybeTrackTenantsAndAutoTuneQuota(clientSensors: ClientSensors, timeMs: Long): Unit = {
     if (tenantLevelQuotasEnabled) {
       val tenantsManager = activeTenantsManager.getOrElse(throw new IllegalStateException("ActiveTenantsManager not available"))
@@ -450,9 +447,14 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
 
       val activeTenants = tenantsManager.getActiveTenants(resetQuotaCallback)
       val lastCheck = lastBackpressureCheckTimeMs.get()
-      if (backpressureEnabled && lastCheck + config.backpressureCheckFrequencyMs < timeMs) {
+      // we update broker quota limit even if backpressure is disabled, because we emit broker
+      // quota limit as a metric
+      if (lastCheck + config.backpressureConfig.backpressureCheckFrequencyMs < timeMs) {
         if (lastBackpressureCheckTimeMs.compareAndSet(lastCheck, timeMs)) {
-          maybeAutoTuneQuota(activeTenants, timeMs)
+          updateBrokerQuotaLimit()
+          if (backpressureEnabled) {
+            maybeAutoTuneQuota(activeTenants, timeMs)
+          }
         }
       }
     }
@@ -527,10 +529,22 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
       val originalLimit = quotaLimit(metricTags.asJava)
 
       if (dynamicLimit != originalLimit) {
-        info(s"Quota-id $metricTags is inactive after ${activeTenantsManager.get.activeTimeWindowMs} of inactivity. Setting quota to $originalLimit in MetricConfig")
+        info(s"Quota-id $metricTags is inactive after ${
+          activeTenantsManager.get.activeTimeWindowMs
+        } of inactivity. Setting quota to $originalLimit in MetricConfig")
         clientMetric.config(getQuotaMetricConfig(originalLimit))
       }
     }
+  }
+
+  protected def getOrCreateValueSensor(sensorName: String, metricName: MetricName): Sensor = {
+    sensorAccessor.getOrCreate(
+      sensorName,
+      ClientQuotaManagerConfig.InactiveSensorExpirationTimeSeconds,
+      metricName,
+      None,
+      new Value()
+    )
   }
 
   /**

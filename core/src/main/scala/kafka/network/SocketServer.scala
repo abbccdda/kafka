@@ -33,13 +33,13 @@ import kafka.network.RequestChannel.{CloseConnectionResponse, EndThrottlingRespo
 import kafka.network.Processor._
 import kafka.network.SocketServer._
 import kafka.security.CredentialProvider
-import kafka.server.{BrokerReconfigurable, KafkaConfig}
+import kafka.server.{BrokerReconfigurable, KafkaConfig, ThreadUsageMetrics}
 import kafka.utils._
 import org.apache.kafka.common.config.ConfigException
 import org.apache.kafka.common.{Endpoint, KafkaException, Reconfigurable}
 import org.apache.kafka.common.memory.{MemoryPool, SimpleMemoryPool}
 import org.apache.kafka.common.metrics._
-import org.apache.kafka.common.metrics.stats.{CumulativeSum, Meter}
+import org.apache.kafka.common.metrics.stats.{CumulativeSum, Meter, Value}
 import org.apache.kafka.common.network.KafkaChannel.ChannelMuteEvent
 import org.apache.kafka.common.network.{ChannelBuilder, ChannelBuilders, KafkaChannel, ListenerName, ListenerReconfigurable, Selectable, Send, Selector => KSelector}
 import org.apache.kafka.common.protocol.ApiKeys
@@ -91,6 +91,16 @@ class SocketServer(val config: KafkaConfig,
   private val dataPlaneProcessors = new ConcurrentHashMap[Int, Processor]()
   private[network] val dataPlaneAcceptors = new ConcurrentHashMap[EndPoint, Acceptor]()
   val dataPlaneRequestChannel = new RequestChannel(maxQueuedRequests, DataPlaneMetricPrefix)
+
+  // listener name -> Sensor
+  private val networkThreadsCapacitySensors =
+    config.advertisedListeners.view
+      .map(endpoint => {
+        val networkThreadsCapacitySensor = metrics.sensor(s"TotalNetworkThreadsPercentage-${endpoint.listenerName.value()}")
+        networkThreadsCapacitySensor.add(ThreadUsageMetrics.networkThreadPoolCapacityMetricName(metrics, endpoint.listenerName.value()), new Value())
+        endpoint.listenerName.value() -> networkThreadsCapacitySensor})
+      .toMap
+
   // control-plane
   private var controlPlaneProcessorOpt : Option[Processor] = None
   private[network] var controlPlaneAcceptorOpt : Option[Acceptor] = None
@@ -244,6 +254,9 @@ class SocketServer(val config: KafkaConfig,
       dataPlaneAcceptor.awaitStartup()
       dataPlaneAcceptors.put(endpoint, dataPlaneAcceptor)
       info(s"Created data-plane acceptor and processors for endpoint : $endpoint")
+
+      networkThreadsCapacitySensors.get(endpoint.listenerName.value())
+        .foreach(sensor => sensor.record(100.0 * dataProcessorsPerListener))
     }
   }
 
@@ -311,6 +324,11 @@ class SocketServer(val config: KafkaConfig,
       }
     } else if (newNumNetworkThreads < oldNumNetworkThreads)
       dataPlaneAcceptors.asScala.values.foreach(_.removeProcessors(oldNumNetworkThreads - newNumNetworkThreads, dataPlaneRequestChannel))
+
+    dataPlaneAcceptors.asScala.foreach { case (endpoint, acceptor) =>
+        networkThreadsCapacitySensors.get(endpoint.listenerName.value())
+          .foreach(sensor => sensor.record(100.0 * newNumNetworkThreads))
+    }
   }
 
   /**

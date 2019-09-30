@@ -460,12 +460,16 @@ class ClientQuotaManagerTest {
   @Test
   def testFrequencyOfAutoTuneQuota(): Unit = {
     val metrics = newMetrics
-    val config = ClientQuotaManagerConfig(quotaBytesPerSecondDefault = 500,
-      backpressureEnabled = true,
-      backpressureCheckFrequencyMs = 1000)
-
+    val configWithBackpressure = ClientQuotaManagerConfig(
+      quotaBytesPerSecondDefault = 500,
+      backpressureConfig = BrokerBackpressureConfig(
+        backpressureEnabledInConfig = true,
+        backpressureCheckFrequencyMs = 1000,
+        tenantEndpointListenerNames = Seq()  // irrelevant for this test
+      )
+    )
     val activeTenantsManager = new ActiveTenantsManager(metrics, time, 10000)
-    val quotaManager = new ClientQuotaManager(config, metrics, Produce, time, "", None, Option(activeTenantsManager))
+    val quotaManager = new ClientQuotaManager(configWithBackpressure, metrics, Produce, time, "", None, Option(activeTenantsManager))
 
     quotaManager.setBrokerQuotaLimit(250)
 
@@ -495,12 +499,16 @@ class ClientQuotaManagerTest {
   @Test
   def testInactiveTenantsResetQuota(): Unit = {
     val metrics = newMetrics
-    val config = ClientQuotaManagerConfig(quotaBytesPerSecondDefault = 500,
-      backpressureEnabled = true,
-      backpressureCheckFrequencyMs = 1000)
-
+    val configWithBackpressure = ClientQuotaManagerConfig(
+      quotaBytesPerSecondDefault = 500,
+      backpressureConfig = BrokerBackpressureConfig(
+        backpressureEnabledInConfig = true,
+        backpressureCheckFrequencyMs = 1000,
+        tenantEndpointListenerNames = Seq()  // irrelevant for this test
+      )
+    )
     val activeTenantsManager = new ActiveTenantsManager(metrics, time, 10000)
-    val quotaManager = new ClientQuotaManager(config, metrics, Produce, time, "", None, Option(activeTenantsManager))
+    val quotaManager = new ClientQuotaManager(configWithBackpressure, metrics, Produce, time, "", None, Option(activeTenantsManager))
 
     quotaManager.setBrokerQuotaLimit(250)
 
@@ -587,84 +595,6 @@ class ClientQuotaManagerTest {
       quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
       assertEquals(quotaManager.quota("", "Client2").bound(), quotaManager.dynamicQuota("", "Client1").bound(), 0)
       assertEquals(quotaManager.quota("", "Client2").bound(), quotaManager.dynamicQuota("", "Client2").bound(), 0)
-    } finally {
-      quotaManager.shutdown()
-      metrics.close()
-    }
-  }
-
-  @Test
-  def testAutoTuneRequestQuotaAllAboveFairLimit(): Unit = {
-    val metrics = newMetrics
-    val activeTenantsManager = new ActiveTenantsManager(metrics, time, 10000)
-    val quotaManager = new ClientRequestQuotaManager(config, metrics, time,  "", None, Option(activeTenantsManager))
-    quotaManager.setBrokerQuotaLimit(1200)
-
-    quotaManager.updateQuota(Some("UserA"), Some("Client1"), Some("Client1"), Some(Quota.upperBound(800)))
-    quotaManager.updateQuota(Some("UserB"), Some("Client2"), Some("Client2"), Some(Quota.upperBound(800)))
-
-    try {
-      // A usage (0.6) & B usage (0.6) are above the individual fair limit
-      for (_ <- 0 until 10) {
-        val throttleTime1 = maybeRecord(quotaManager, "UserA", "Client1", millisToPercent(7000))
-        val throttleTime2 = maybeRecord(quotaManager, "UserB", "Client2", millisToPercent(7000))
-        time.sleep(Math.max(1000, Math.max(throttleTime1, throttleTime2)))
-      }
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
-      assertEquals(600, quotaManager.dynamicQuota("UserA", "Client1").bound(), 0)
-      assertEquals(600, quotaManager.dynamicQuota("UserB", "Client2").bound(), 0)
-    } finally {
-      quotaManager.shutdown()
-      metrics.close()
-    }
-  }
-
-  @Test
-  def testAutoTuneRequestQuotaAboveAndBelowFairLimit(): Unit = {
-    val metrics = newMetrics
-    val activeTenantsManager = new ActiveTenantsManager(metrics, time, 10000)
-    val quotaManager = new ClientRequestQuotaManager(config, metrics, time,  "", None, Option(activeTenantsManager))
-    quotaManager.setBrokerQuotaLimit(1200)
-
-    quotaManager.updateQuota(Some("UserA"), Some("Client1"), Some("Client1"), Some(Quota.upperBound(800)))
-    quotaManager.updateQuota(Some("UserB"), Some("Client2"), Some("Client2"), Some(Quota.upperBound(800)))
-
-    try {
-      // A usage (0.4) is above & B usage (0.6) is below the individual fair limit
-      for (_ <- 0 until 10) {
-        val throttleTime1 = maybeRecord(quotaManager, "UserA", "Client1", millisToPercent(7500))
-        val throttleTime2 = maybeRecord(quotaManager, "UserB", "Client2", millisToPercent(5000))
-        time.sleep(Math.max(1000, Math.max(throttleTime1, throttleTime2)))
-      }
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants, time.milliseconds())
-      assertEquals(700, quotaManager.dynamicQuota("UserA", "Client1").bound(), 1e-8)
-      assertEquals(600, quotaManager.dynamicQuota("UserB", "Client2").bound(), 1e-8)
-    } finally {
-      quotaManager.shutdown()
-      metrics.close()
-    }
-  }
-
-  @Test
-  def testAutoTuneRequestQuotaAllBelowFairLimit(): Unit = {
-    val metrics = newMetrics
-    val activeTenantsManager = new ActiveTenantsManager(metrics, time, 10000)
-    val quotaManager = new ClientRequestQuotaManager(config, metrics, time,  "", None, Option(activeTenantsManager))
-    quotaManager.setBrokerQuotaLimit(1200)
-
-    quotaManager.updateQuota(Some("UserA"), Some("Client1"), Some("Client1"), Some(Quota.upperBound(800)))
-    quotaManager.updateQuota(Some("UserB"), Some("Client2"), Some("Client2"), Some(Quota.upperBound(800)))
-
-    try {
-      // A usage (0.4) & B usage (0.4) total usage is below the broker limit
-      for (_ <- 0 until 10) {
-        val throttleTime1 = maybeRecord(quotaManager, "UserA", "Client1", millisToPercent(1000))
-        val throttleTime2 = maybeRecord(quotaManager, "UserB", "Client2", millisToPercent(1000))
-        time.sleep(Math.max(1000, Math.max(throttleTime1, throttleTime2)))
-      }
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
-      assertEquals(quotaManager.quota("UserA", "Client1").bound(), quotaManager.dynamicQuota("UserA", "Client1").bound(), 1e-8)
-      assertEquals(quotaManager.quota("UserA", "Client1").bound(), quotaManager.dynamicQuota("UserB", "Client2").bound(), 1e-8)
     } finally {
       quotaManager.shutdown()
       metrics.close()

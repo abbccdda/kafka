@@ -397,7 +397,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
 
         dataPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config, config.brokerId, socketServer.dataPlaneRequestChannel, dataPlaneRequestProcessor, time,
-          config.numIoThreads, s"${SocketServer.DataPlaneMetricPrefix}RequestHandlerAvgIdlePercent", SocketServer.DataPlaneThreadPrefix)
+          config.numIoThreads, s"${SocketServer.DataPlaneMetricPrefix}RequestHandlerAvgIdlePercent", SocketServer.DataPlaneThreadPrefix, metrics)
 
         socketServer.controlPlaneRequestChannelOpt.foreach { controlPlaneRequestChannel =>
           controlPlaneRequestProcessor = new KafkaApis(controlPlaneRequestChannel, replicaManager, adminManager, groupCoordinator, transactionCoordinator,
@@ -411,7 +411,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
             time,
             1,
             s"${SocketServer.ControlPlaneMetricPrefix}RequestHandlerAvgIdlePercent",
-            SocketServer.ControlPlaneThreadPrefix)
+            SocketServer.ControlPlaneThreadPrefix,
+            metrics)
         }
 
         Mx4jLoader.maybeLoad()

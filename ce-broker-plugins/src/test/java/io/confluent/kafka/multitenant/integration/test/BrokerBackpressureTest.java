@@ -4,6 +4,7 @@ package io.confluent.kafka.multitenant.integration.test;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.test.IntegrationTest;
 
+import java.util.Collections;
 import java.util.Properties;
 
 import io.confluent.kafka.multitenant.integration.cluster.PhysicalCluster;
@@ -12,6 +13,9 @@ import io.confluent.kafka.server.plugins.policy.AlterConfigPolicy;
 import io.confluent.kafka.server.plugins.policy.TopicPolicyConfig;
 import kafka.server.KafkaConfig$;
 import kafka.server.KafkaServer;
+import kafka.server.ThreadUsageMetrics;
+
+import scala.collection.JavaConversions;
 
 import org.junit.After;
 import org.junit.Before;
@@ -19,6 +23,7 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertEquals;
 
 
 /**
@@ -31,6 +36,9 @@ import static org.junit.Assert.assertFalse;
 public class BrokerBackpressureTest {
 
   private static final int BROKER_COUNT = 1;
+
+  private final Integer numIoThreads = 8;
+  private final Integer numNetworkThreads = 4;
 
   private IntegrationTestHarness testHarness;
 
@@ -47,6 +55,8 @@ public class BrokerBackpressureTest {
   private Properties brokerProps() {
     Properties props = new Properties();
     props.put(KafkaConfig$.MODULE$.AlterConfigPolicyClassNameProp(), AlterConfigPolicy.class.getName());
+    props.put(KafkaConfig$.MODULE$.NumNetworkThreadsProp(), numNetworkThreads.toString());
+    props.put(KafkaConfig$.MODULE$.NumIoThreadsProp(), numIoThreads.toString());
     props.put(TopicPolicyConfig.REPLICATION_FACTOR_CONFIG, "1");
     props.put(TopicPolicyConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "1");
     return props;
@@ -55,6 +65,15 @@ public class BrokerBackpressureTest {
   private Properties brokerPropsWithTenantQuotas() {
     Properties props = brokerProps();
     props.put(KafkaConfig$.MODULE$.ClientQuotaCallbackClassProp(), TenantQuotaCallback.class.getName());
+    // EXTERNAL is what is set by IntegrationTestHarness
+    props.put(ConfluentConfigs.MULTITENANT_LISTENER_NAMES_CONFIG, "EXTERNAL");
+    return props;
+  }
+
+  private Properties brokerPropsWithInvalidMultitenantListenerName() {
+    Properties props = brokerProps();
+    props.put(KafkaConfig$.MODULE$.ClientQuotaCallbackClassProp(), TenantQuotaCallback.class.getName());
+    props.put(ConfluentConfigs.MULTITENANT_LISTENER_NAMES_CONFIG, "INVALID");
     return props;
   }
 
@@ -73,6 +92,10 @@ public class BrokerBackpressureTest {
     assertFalse(broker.quotaManagers().fetch().tenantLevelQuotasEnabled());
     assertFalse(broker.quotaManagers().produce().tenantLevelQuotasEnabled());
     assertFalse(broker.quotaManagers().request().tenantLevelQuotasEnabled());
+
+    assertEquals(numIoThreads * 100.0, ThreadUsageMetrics.ioThreadsCapacity(broker.metrics()), 1.0);
+    assertEquals(numNetworkThreads * 100.0,
+                 ThreadUsageMetrics.networkThreadsCapacity(broker.metrics(), JavaConversions.asScalaBuffer(Collections.singletonList("EXTERNAL"))), 1.0);
   }
 
   @Test
@@ -105,6 +128,12 @@ public class BrokerBackpressureTest {
                 broker.quotaManagers().produce().backpressureEnabled());
     assertFalse("Expected request backpressure to be disabled",
                 broker.quotaManagers().request().backpressureEnabled());
+
+    assertEquals(numIoThreads * 100.0, ThreadUsageMetrics.ioThreadsCapacity(broker.metrics()), 1.0);
+    assertEquals(numNetworkThreads * 100.0,
+                 ThreadUsageMetrics.networkThreadsCapacity(broker.metrics(),
+                                                           JavaConversions.asScalaBuffer(Collections.singletonList("EXTERNAL"))),
+                 1.0);
   }
 
   @Test
@@ -150,6 +179,27 @@ public class BrokerBackpressureTest {
                 broker.quotaManagers().produce().backpressureEnabled());
     assertTrue("Expected request backpressure to be enabled",
                broker.quotaManagers().request().backpressureEnabled());
+
+    assertEquals(numIoThreads * 100.0, ThreadUsageMetrics.ioThreadsCapacity(broker.metrics()), 1.0);
+    assertEquals(numNetworkThreads * 100.0,
+                 ThreadUsageMetrics.networkThreadsCapacity(broker.metrics(), JavaConversions.asScalaBuffer(Collections.singletonList("EXTERNAL"))), 1.0);
+  }
+
+  @Test
+  public void testRequestBackpressureConfigWithInvalidTenantListener() throws Exception {
+    Properties props = brokerPropsWithInvalidMultitenantListenerName();
+    props.put(ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG, "fetch,produce,request");
+    final PhysicalCluster physicalCluster = testHarness.start(props);
+
+    KafkaServer broker = physicalCluster.kafkaCluster().brokers().get(0);
+    assertFalse("Expected request backpressure to be disabled",
+                broker.quotaManagers().request().backpressureEnabled());
+
+    // listener is not required for bandwidth backpressure
+    assertTrue("Expected produce backpressure to be enabled",
+                broker.quotaManagers().produce().backpressureEnabled());
+    assertTrue("Expected consume backpressure to be enabled",
+               broker.quotaManagers().fetch().backpressureEnabled());
   }
 
   @Test

@@ -52,6 +52,8 @@ class RequestQuotaTest extends BaseRequestTest {
 
   override def brokerCount: Int = 1
 
+  private val numIoThreads: Int = 8
+  private val numNetworkThreads: Int = 4
   private val topic = "topic-1"
   private val numPartitions = 1
   private val tp = new TopicPartition(topic, 0)
@@ -75,6 +77,8 @@ class RequestQuotaTest extends BaseRequestTest {
     properties.put(KafkaConfig.GroupInitialRebalanceDelayMsProp, "0")
     properties.put(KafkaConfig.AuthorizerClassNameProp, classOf[RequestQuotaTest.TestAuthorizer].getName)
     properties.put(KafkaConfig.PrincipalBuilderClassProp, classOf[RequestQuotaTest.TestPrincipalBuilder].getName)
+    properties.put(KafkaConfig.NumIoThreadsProp, numIoThreads.toString)
+    properties.put(KafkaConfig.NumNetworkThreadsProp, numNetworkThreads.toString)
   }
 
   @Before
@@ -630,6 +634,8 @@ class RequestQuotaTest extends BaseRequestTest {
       throttleTimeMetricValueForQuotaType(smallQuotaProducerClientId, QuotaType.Produce) > 0)
     assertTrue(s"Throttle time metrics for request quota updated: $smallQuotaProducerClient",
       throttleTimeMetricValueForQuotaType(smallQuotaProducerClientId, QuotaType.Request).isNaN)
+
+    checkThreadUsageMetrics(true)
   }
 
   private def checkSmallQuotaConsumerRequestThrottleTime(apiKey: ApiKeys): Unit = {
@@ -643,6 +649,8 @@ class RequestQuotaTest extends BaseRequestTest {
       throttleTimeMetricValueForQuotaType(smallQuotaConsumerClientId, QuotaType.Fetch) > 0)
     assertTrue(s"Throttle time metrics for request quota updated: $smallQuotaConsumerClient",
       throttleTimeMetricValueForQuotaType(smallQuotaConsumerClientId, QuotaType.Request).isNaN)
+
+    checkThreadUsageMetrics(true)
   }
 
   private def checkUnthrottledClient(apiKey: ApiKeys): Unit = {
@@ -662,6 +670,8 @@ class RequestQuotaTest extends BaseRequestTest {
 
     assertTrue(s"Exempt-request-time metric not updated: $client", updated)
     assertTrue(s"Client should not have been throttled: $client", throttleTimeMetricValue(clientId).isNaN)
+
+    checkThreadUsageMetrics(false)
   }
 
   private def checkUnauthorizedRequestThrottle(apiKey: ApiKeys): Unit = {
@@ -670,6 +680,24 @@ class RequestQuotaTest extends BaseRequestTest {
     val throttled = client.runUntil(response => throttleTimeMetricValue(clientId) > 0.0)
     assertTrue(s"Unauthorized client should have been throttled: $client", throttled)
   }
+
+  private def checkThreadUsageMetrics(expectNonExemptUsage: Boolean): Unit = {
+    assertEquals(numIoThreads * 100.0, ThreadUsageMetrics.ioThreadsCapacity(leaderNode.metrics), 0.001)
+    leaderNode.config.listeners.foreach(endpoint => {
+      assertEquals(numNetworkThreads * 100,
+                   ThreadUsageMetrics.networkThreadsCapacity(leaderNode.metrics, Seq(endpoint.listenerName.value)),
+                   0.001)
+      assertTrue(ThreadUsageMetrics.networkThreadsUsage(leaderNode.metrics, Seq(endpoint.listenerName.value))  > 0.0)
+      if (expectNonExemptUsage) {
+        assertTrue(ThreadUsageMetrics.networkThreadsUsage(leaderNode.metrics, Seq(endpoint.listenerName.value), Option(NonExemptRequest)) > 0.0)
+      }
+    })
+    assertTrue(ThreadUsageMetrics.ioThreadsUsage(leaderNode.metrics) > 0.0)
+    if (expectNonExemptUsage) {
+      assertTrue(ThreadUsageMetrics.ioThreadsUsage(leaderNode.metrics, Option(NonExemptRequest)) > 0.0)
+    }
+  }
+
 }
 
 object RequestQuotaTest {

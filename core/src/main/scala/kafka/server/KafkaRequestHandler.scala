@@ -26,6 +26,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import com.yammer.metrics.core.Meter
 import org.apache.kafka.common.internals.FatalExitError
 import org.apache.kafka.common.requests.RequestLogFilter
+import org.apache.kafka.common.metrics.Metrics
+import org.apache.kafka.common.metrics.stats.Value
 import org.apache.kafka.common.utils.{KafkaThread, Time}
 
 import scala.collection.mutable
@@ -106,11 +108,20 @@ class KafkaRequestHandlerPool(config: KafkaConfig,
                               time: Time,
                               numThreads: Int,
                               requestHandlerAvgIdleMetricName: String,
-                              logAndThreadNamePrefix : String) extends Logging with KafkaMetricsGroup {
+                              logAndThreadNamePrefix : String,
+                              private val metrics: Metrics) extends Logging with KafkaMetricsGroup {
 
   private val threadPoolSize: AtomicInteger = new AtomicInteger(numThreads)
   /* a meter to track the average free capacity of the request handlers */
   private val aggregateIdleMeter = newMeter(requestHandlerAvgIdleMetricName, "percent", TimeUnit.NANOSECONDS)
+
+  // record threadpool capacity for data plane request threadpool only (consistent with network threadpool)
+  private val threadpoolCapacitySensorOpt = if (requestHandlerAvgIdleMetricName == "RequestHandlerAvgIdlePercent") {
+    val sensor = metrics.sensor("TotalIoThreadsPercentage")
+    sensor.add(ThreadUsageMetrics.ioThreadPoolCapacityMetricName(metrics), new Value())
+    sensor.record(100.0 * numThreads)
+    Some(sensor)
+  } else None
 
   this.logIdent = "[" + logAndThreadNamePrefix + " Kafka Request Handler on Broker " + brokerId + "], "
   val runnables = new mutable.ArrayBuffer[KafkaRequestHandler](numThreads)
@@ -138,6 +149,7 @@ class KafkaRequestHandlerPool(config: KafkaConfig,
       }
     }
     threadPoolSize.set(newSize)
+    threadpoolCapacitySensorOpt.foreach(sensor => sensor.record(100.0 * newSize))
   }
 
   def shutdown(): Unit = synchronized {
