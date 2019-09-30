@@ -2170,15 +2170,21 @@ project(':ce-metrics') {
       force = true
     }
 
-    compile(libs.opencensusProto) {
-      exclude group: "com.google.code.findbugs", module: "jsr305"
-    }
+    compile libs.opencensusProto
     compile libs.telemetryApi
-    compile libs.bcpkix
+    compile libs.telemetryClient
     compile libs.guava
-    compile libs.jose4j
-    compile libs.metrics
-    compile project(':ce-serializers')
+    compile(project(':ce-serializers')) {
+      // don't include clients as a compile-time dependency—we want it to be provided at runtime
+      // (see below compileOnly dependency).
+      exclude(group:'org.apache.kafka')
+
+      // only used by OrderedKeyProtoSerde, which we don't need.
+      exclude(group:'javax.xml.bind')
+    }
+    // we assume that all of these are provided at runtime, and we don't want to relocate them
+    // or any of their transitive deps in a shadow jar.
+    compileOnly libs.metrics
     compileOnly project(':clients')
     compileOnly project(':core')
 
@@ -2205,19 +2211,38 @@ project(':ce-metrics') {
 
   shadowJar {
     classifier = null
-    relocate('com.google.protobuf', 'io.confluent.shaded.com.google.protobuf')
-    relocate('com.google.common', 'io.confluent.shaded.com.google.common')
-    relocate('com.google.gson', 'io.confluent.shaded.com.google.gson')
-    relocate('io.opencensus.proto', 'io.confluent.shaded.io.opencensus.proto')
+
+    // Guava, protobuf, and transitive dependencies
+    relocate('com.google', 'io.confluent.shaded.com.google')
+    relocate('org.checkerframework', 'io.confluent.shaded.org.checkerframework') // via guava
+    relocate('org.codehaus.mojo', 'io.confluent.shaded.org.codehaus.mojo') // via guava
+    relocate('javax.annotation', 'io.confluent.shaded.javax.annotation') // via guava (findbugs -> jsr305)
+
+    // opencensus-proto + grpc (transitively from opencensus)
+    relocate('io.opencensus', 'io.confluent.shaded.io.opencensus')
+    relocate('io.grpc', 'io.confluent.shaded.io.grpc')
+
+    // Transitive deps of the telemetry-client: asynchttpclient, netty, reactive-streams,
+    // com.typesafe-netty, io.reactivex.rxjava2
+    // note that we exclude slf4j-api, lz4, and zstd-jni from the build. These
+    // are provided at runtime by kafka-clients transitive dependencies.
+    relocate('org.asynchttpclient', 'io.confluent.shaded.org.asynchttpclient')
+    relocate('com.typesafe.netty', 'io.confluent.shaded.com.typesafe.netty')
+    relocate('io.netty', 'io.confluent.shaded.io.netty')
+    relocate('io.reactivex', 'io.confluent.shaded.io.reactivex')
+    relocate('org.reactivestreams', 'io.confluent.shaded.org.reactivestreams')
+    // For Java 9+, {javax,com.sun}.activation are needed by asynchttpclient. See:
+    // https://github.com/AsyncHttpClient/async-http-client/issues/1541
+    relocate('javax.activation', 'io.confluent.shaded.javax.activation')
+    relocate('com.sun.activation', 'io.confluent.shaded.com.sun.activation')
+
     dependencies {
-      include(dependency(':ce-serializers'))
-      include(dependency(libs.gson))
-      include(dependency(libs.guava))
-      include(dependency(libs.protobuf))
-      include(dependency(libs.protobufUtil))
-      include(dependency(libs.opencensusProto))
-      include(dependency(libs.telemetryApi))
+      // don't pull in several items that will be included at runtime by kafka-clients.
+      exclude(dependency(libs.zstd))
+      exclude(dependency(libs.lz4))
+      exclude(dependency('org.slf4j:slf4j-api'))
     }
+
     dependsOn 'copyDependantLibs'
   }
 

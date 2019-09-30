@@ -112,6 +112,8 @@
     <allow pkg="io.opencensus" />
     <allow pkg="io.confluent.monitoring" />
     <allow pkg="io.confluent.serializers" />
+    <allow pkg="io.confluent.observability.telemetry" />
+    <allow pkg="io.reactivex" />
     <allow pkg="kafka" />
     <allow pkg="scala" />
     <allow pkg="org.apache.kafka.clients" />

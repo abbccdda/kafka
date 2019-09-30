@@ -17,6 +17,7 @@ import io.confluent.telemetry.collector.VolumeMetricsCollector;
 import io.confluent.telemetry.collector.YammerMetricsCollector;
 import io.confluent.telemetry.exporter.Exporter;
 import io.confluent.telemetry.exporter.file.FileExporter;
+import io.confluent.telemetry.exporter.http.HttpExporter;
 import io.confluent.telemetry.exporter.kafka.KafkaExporter;
 import io.opencensus.proto.resource.v1.Resource;
 import java.util.Arrays;
@@ -123,6 +124,9 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
         });
         config.createFileExporterConfig().ifPresent(cfg -> {
             builder.add(FileExporter.newBuilder(cfg).build());
+        });
+        config.createHttpExporterConfig().ifPresent(cfg -> {
+            builder.add(new HttpExporter(cfg));
         });
         return builder.build();
     }

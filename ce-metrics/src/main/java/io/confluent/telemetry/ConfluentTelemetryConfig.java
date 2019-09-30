@@ -6,6 +6,7 @@ import com.google.common.base.Joiner;
 import io.confluent.monitoring.common.TimeBucket;
 import io.confluent.telemetry.collector.VolumeMetricsCollector.VolumeMetricsCollectorConfig;
 import io.confluent.telemetry.exporter.file.FileExporterConfig;
+import io.confluent.telemetry.exporter.http.HttpExporterConfig;
 import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 import java.util.Optional;
 import java.util.function.Predicate;
@@ -104,6 +105,11 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     static final String EXPORTER_FILE_ENABLED_DOC = "True if the FileExporter is enabled.";
     static final boolean EXPORTER_FILE_ENABLED_DEFAULT = false;
 
+
+    static final String EXPORTER_HTTP_ENABLED_CONFIG = HttpExporterConfig.PREFIX + "enabled";
+    static final String EXPORTER_HTTP_ENABLED_DOC = "True if the HttpExporter is enabled.";
+    static final boolean EXPORTER_HTTP_ENABLED_DEFAULT = false;
+
     private static final ConfigDef CONFIG = new ConfigDef()
         .define(
                 COLLECT_INTERVAL_CONFIG,
@@ -135,6 +141,12 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
                 EXPORTER_FILE_ENABLED_DEFAULT,
                 ConfigDef.Importance.LOW,
                 EXPORTER_FILE_ENABLED_DOC
+        ).define(
+                EXPORTER_HTTP_ENABLED_CONFIG,
+                ConfigDef.Type.BOOLEAN,
+                EXPORTER_HTTP_ENABLED_DEFAULT,
+                ConfigDef.Importance.LOW,
+                EXPORTER_HTTP_ENABLED_DOC
         );
 
     public static final Predicate<MetricKey> ALWAYS_TRUE = metricKey -> true;
@@ -207,6 +219,15 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     public Optional<FileExporterConfig> createFileExporterConfig() {
         return getBoolean(EXPORTER_FILE_ENABLED_CONFIG)
             ? Optional.of(new FileExporterConfig(this.originals()))
+            : Optional.empty();
+    }
+
+    /**
+     * Create a {@link HttpExporterConfig} from these properties if enabled
+     */
+    public Optional<HttpExporterConfig> createHttpExporterConfig() {
+        return getBoolean(EXPORTER_HTTP_ENABLED_CONFIG)
+            ? Optional.of(new HttpExporterConfig(this.originals()))
             : Optional.empty();
     }
 
