@@ -36,7 +36,7 @@ import static junit.framework.TestCase.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-public class KafkaServerMetricsReporterTest extends MetricReporterClusterTestHarness {
+public class KafkaServerMetricsReporterIntegrationTest extends MetricReporterClusterTestHarness {
 
     private KafkaConsumer<byte[], byte[]> consumer;
     private Serde<Metric> serde = new OpencensusMetricsProto();

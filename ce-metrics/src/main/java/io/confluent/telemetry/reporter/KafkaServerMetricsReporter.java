@@ -3,6 +3,7 @@ package io.confluent.telemetry.reporter;
 import static io.confluent.observability.telemetry.TelemetryResourceType.KAFKA;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
@@ -13,6 +14,8 @@ import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricsCollectorTask;
 import io.confluent.telemetry.collector.CPUMetricsCollector;
 import io.confluent.telemetry.collector.KafkaMetricsCollector;
+import io.confluent.telemetry.collector.MetricsCollector;
+import io.confluent.telemetry.collector.MetricsCollectorProvider;
 import io.confluent.telemetry.collector.VolumeMetricsCollector;
 import io.confluent.telemetry.collector.YammerMetricsCollector;
 import io.confluent.telemetry.exporter.Exporter;
@@ -20,7 +23,6 @@ import io.confluent.telemetry.exporter.file.FileExporter;
 import io.confluent.telemetry.exporter.http.HttpExporter;
 import io.confluent.telemetry.exporter.kafka.KafkaExporter;
 import io.opencensus.proto.resource.v1.Resource;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -49,6 +51,8 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
     private KafkaMetricsCollector.StateLedger kafkaMetricsStateLedger = new KafkaMetricsCollector.StateLedger();
     private Set<Exporter> exporters;
 
+    private List<MetricsCollector> collectors;
+
     @Override
     public void onUpdate(ClusterResource clusterResource) {
         if (this.collectorTask != null) {
@@ -74,33 +78,13 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
 
         Context ctx = new Context(resource, config.getBoolean(ConfluentTelemetryConfig.DEBUG_ENABLED), true);
 
-        KafkaMetricsCollector kafkaMetricsCollector =
-            KafkaMetricsCollector.newBuilder(config)
-                .setContext(ctx)
-                .setDomain(DOMAIN)
-                .setLedger(kafkaMetricsStateLedger)
-                .build();
 
-        CPUMetricsCollector cpuMetrics = CPUMetricsCollector.newBuilder(config)
-                .setDomain(DOMAIN)
-                .setContext(ctx)
-                .build();
-
-        VolumeMetricsCollector volumeMetrics = VolumeMetricsCollector.newBuilder(config)
-                .setContext(ctx)
-                .setDomain(DOMAIN)
-                .build();
-
-        YammerMetricsCollector yammerMetrics = YammerMetricsCollector.newBuilder(config)
-                .setContext(ctx)
-                .setDomain(DOMAIN)
-                .setMetricsRegistry(Metrics.defaultRegistry())
-                .build();
+        this.collectors = this.initCollectors(ctx);
 
         this.collectorTask = new MetricsCollectorTask(
             ctx,
             exporters,
-            Arrays.asList(kafkaMetricsCollector, cpuMetrics, volumeMetrics, yammerMetrics),
+            collectors,
             config.getLong(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG));
 
         this.collectorTask.start();
@@ -117,6 +101,47 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
         this.exporters = initExporters();
     }
 
+    private List<MetricsCollector> initCollectors(Context ctx) {
+        ImmutableList.Builder<MetricsCollector> collectors = ImmutableList.builder();
+        collectors.add(
+            KafkaMetricsCollector.newBuilder(config)
+                .setContext(ctx)
+                .setDomain(DOMAIN)
+                .setLedger(kafkaMetricsStateLedger)
+                .build()
+        );
+
+        collectors.add(
+            CPUMetricsCollector.newBuilder(config)
+                .setDomain(DOMAIN)
+                .setContext(ctx)
+                .build()
+        );
+
+        collectors.add(
+            VolumeMetricsCollector.newBuilder(config)
+                .setContext(ctx)
+                .setDomain(DOMAIN)
+                .build()
+        );
+
+        collectors.add(
+            YammerMetricsCollector.newBuilder(config)
+                .setContext(ctx)
+                .setDomain(DOMAIN)
+                .setMetricsRegistry(Metrics.defaultRegistry())
+                .build()
+        );
+
+        for (Exporter exporter : this.exporters) {
+            if (exporter instanceof MetricsCollectorProvider) {
+                collectors.add(((MetricsCollectorProvider) exporter).collector(config, ctx, DOMAIN));
+            }
+        }
+
+        return collectors.build();
+    }
+
     private Set<Exporter> initExporters() {
         Builder<Exporter> builder = ImmutableSet.builder();
         config.createKafkaExporterConfig().ifPresent(cfg -> {
@@ -131,6 +156,16 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
         return builder.build();
     }
 
+    @VisibleForTesting
+    Set<Exporter> getExporters() {
+        return this.exporters;
+    }
+
+    @VisibleForTesting
+    public List<MetricsCollector> getCollectors() {
+        return collectors;
+    }
+
     /**
      * Called when the metrics repository is closed.
      */
@@ -138,12 +173,16 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
     public void close() {
         log.info("Stopping KafkaServerMetricsReporter collectorTask");
         this.kafkaMetricsStateLedger.close();
-        collectorTask.close();
-        for (Exporter exporter : exporters) {
-            try {
-                exporter.close();
-            } catch (Exception e) {
-                log.error("Error while closing {}", exporter, e);
+        if (collectorTask != null) {
+            collectorTask.close();
+        }
+        if (exporters != null) {
+            for (Exporter exporter : exporters) {
+                try {
+                    exporter.close();
+                } catch (Exception e) {
+                    log.error("Error while closing {}", exporter, e);
+                }
             }
         }
     }

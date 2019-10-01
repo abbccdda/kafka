@@ -97,18 +97,18 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     public static final String DEBUG_ENABLED_DOC = "Enable debug metadata for metrics collection";
     public static final boolean DEFAULT_DEBUG_ENABLED = false;
 
-    static final String EXPORTER_KAFKA_ENABLED_CONFIG = KafkaExporterConfig.PREFIX + "enabled";
-    static final String EXPORTER_KAFKA_ENABLED_DOC = "True if the KafkaExporter is enabled.";
-    static final boolean EXPORTER_KAFKA_ENABLED_DEFAULT = true;
+    public static final String EXPORTER_KAFKA_ENABLED_CONFIG = KafkaExporterConfig.PREFIX + "enabled";
+    public static final String EXPORTER_KAFKA_ENABLED_DOC = "True if the KafkaExporter is enabled.";
+    public static final boolean EXPORTER_KAFKA_ENABLED_DEFAULT = true;
 
-    static final String EXPORTER_FILE_ENABLED_CONFIG = FileExporterConfig.PREFIX + "enabled";
-    static final String EXPORTER_FILE_ENABLED_DOC = "True if the FileExporter is enabled.";
-    static final boolean EXPORTER_FILE_ENABLED_DEFAULT = false;
+    public static final String EXPORTER_FILE_ENABLED_CONFIG = FileExporterConfig.PREFIX + "enabled";
+    public static final String EXPORTER_FILE_ENABLED_DOC = "True if the FileExporter is enabled.";
+    public static final boolean EXPORTER_FILE_ENABLED_DEFAULT = false;
 
 
-    static final String EXPORTER_HTTP_ENABLED_CONFIG = HttpExporterConfig.PREFIX + "enabled";
-    static final String EXPORTER_HTTP_ENABLED_DOC = "True if the HttpExporter is enabled.";
-    static final boolean EXPORTER_HTTP_ENABLED_DEFAULT = false;
+    public static final String EXPORTER_HTTP_ENABLED_CONFIG = HttpExporterConfig.PREFIX + "enabled";
+    public static final String EXPORTER_HTTP_ENABLED_DOC = "True if the HttpExporter is enabled.";
+    public static final boolean EXPORTER_HTTP_ENABLED_DEFAULT = false;
 
     private static final ConfigDef CONFIG = new ConfigDef()
         .define(

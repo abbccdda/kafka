@@ -10,12 +10,12 @@ public class FileExporterConfig extends AbstractConfig {
 
   public static final String PREFIX = ConfluentTelemetryConfig.PREFIX_EXPORTER + "file.";
 
-  static final String DIR_CONFIG = PREFIX + "dir";
-  static final String DIR_DOC = "Directory to which telemetry records will be written.";
+  public static final String DIR_CONFIG = PREFIX + "dir";
+  public static final String DIR_DOC = "Directory to which telemetry records will be written.";
 
-  static final String DESERIALIZER_CONFIG = PREFIX + "deserializer";
-  static final String DESERIALIZER_DOC = "Deserializer that converts OpenCensus protobuf binary format to String.";
-  static final Class<?> DESERIALIZER_DEFAULT = ProtoToFlatJson.class;
+  public static final String DESERIALIZER_CONFIG = PREFIX + "deserializer";
+  public static final String DESERIALIZER_DOC = "Deserializer that converts OpenCensus protobuf binary format to String.";
+  public static final Class<?> DESERIALIZER_DEFAULT = ProtoToFlatJson.class;
 
   private static final ConfigDef CONFIG = new ConfigDef()
       .define(
