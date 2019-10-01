@@ -35,7 +35,10 @@ import kafka.tier.TierMetadataManager;
 import kafka.tier.state.FileTierPartitionStateFactory;
 import kafka.utils.KafkaScheduler;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.config.ConfluentTopicConfig;
+import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.requests.LeaderAndIsrRequest;
+import org.apache.kafka.common.requests.UpdateMetadataRequest;
 import org.apache.kafka.common.utils.Time;
 import org.mockito.Mockito;
 import org.openjdk.jmh.annotations.Benchmark;
@@ -45,6 +48,7 @@ import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Measurement;
 import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.OutputTimeUnit;
+import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
@@ -56,7 +60,7 @@ import scala.collection.JavaConverters;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
@@ -69,22 +73,26 @@ import java.util.concurrent.TimeUnit;
 @Measurement(iterations = 15)
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
-public class UpdateFollowerFetchStateBenchmark {
+public class PartitionBenchmark {
+    @Param({"false", "true"})
+    private static String observerFeatureStr;
     private TopicPartition topicPartition = new TopicPartition(UUID.randomUUID().toString(), 0);
     private File logDir = new File(System.getProperty("java.io.tmpdir"), topicPartition.toString());
     private KafkaScheduler scheduler = new KafkaScheduler(1, "scheduler", true);
     private BrokerTopicStats brokerTopicStats = new BrokerTopicStats();
     private LogDirFailureChannel logDirFailureChannel = Mockito.mock(LogDirFailureChannel.class);
     private FileTierPartitionStateFactory factory = new FileTierPartitionStateFactory();
-    TierMetadataManager tierMetadataManager = new TierMetadataManager(factory, Optional.empty(), null, false);
+    private TierMetadataManager tierMetadataManager = new TierMetadataManager(factory,
+            Optional.empty(), null, false);
     private long nextOffset = 0;
     private LogManager logManager;
     private Partition partition;
 
     @Setup(Level.Trial)
     public void setUp() {
+        boolean observerFeature = Boolean.parseBoolean(observerFeatureStr);
         scheduler.startup();
-        LogConfig logConfig = createLogConfig();
+        LogConfig logConfig = createLogConfig(observerFeature);
         List<File> logDirs = Collections.singletonList(logDir);
         logManager = new LogManager(JavaConverters.asScalaIteratorConverter(logDirs.iterator()).asScala().toSeq(),
                 JavaConverters.asScalaIteratorConverter(new ArrayList<File>().iterator()).asScala().toSeq(),
@@ -114,12 +122,25 @@ public class UpdateFollowerFetchStateBenchmark {
         replicas.add(2);
         LeaderAndIsrRequest.PartitionState partitionState = new LeaderAndIsrRequest.PartitionState(
                 0, 0, 0, replicas, 1, replicas, true);
+
+        HashSet<UpdateMetadataRequest.Broker> brokers = new HashSet<>();
+        brokers.add(new UpdateMetadataRequest.Broker(0, Collections.emptyList(), "rack-a"));
+        brokers.add(new UpdateMetadataRequest.Broker(1, Collections.emptyList(), "rack-a"));
+        brokers.add(new UpdateMetadataRequest.Broker(2, Collections.emptyList(), "rack-b"));
+
+        MetadataCache metadataCache = new MetadataCache(0);
+        UpdateMetadataRequest request =
+                new UpdateMetadataRequest.Builder(ApiKeys.UPDATE_METADATA.latestVersion(), 0, 0, 0,
+                        Collections.singletonMap(topicPartition,
+                                new UpdateMetadataRequest.PartitionState(0, 0, 0, replicas, 1,
+                                        replicas, new ArrayList<>())), brokers).build();
+        metadataCache.updateMetadata(0, request);
         PartitionStateStore partitionStateStore = Mockito.mock(PartitionStateStore.class);
         Mockito.when(partitionStateStore.fetchTopicConfig()).thenReturn(new Properties());
         partition = new Partition(topicPartition, 100,
-                ApiVersion$.MODULE$.latestVersion(), 0, false, Time.SYSTEM,
-                partitionStateStore, delayedOperations,
-                Mockito.mock(MetadataCache.class), logManager);
+                ApiVersion$.MODULE$.latestVersion(), 0, observerFeature,
+                Time.SYSTEM, partitionStateStore, delayedOperations,
+                metadataCache, logManager);
         partition.makeLeader(0, partitionState, 0, offsetCheckpoints);
     }
 
@@ -141,7 +162,7 @@ public class UpdateFollowerFetchStateBenchmark {
         scheduler.shutdown();
     }
 
-    private LogConfig createLogConfig() {
+    private LogConfig createLogConfig(Boolean observerFeature) {
         Properties logProps = new Properties();
         logProps.put(LogConfig.SegmentMsProp(), Defaults.SegmentMs());
         logProps.put(LogConfig.SegmentBytesProp(), Defaults.SegmentSize());
@@ -154,6 +175,9 @@ public class UpdateFollowerFetchStateBenchmark {
         logProps.put(LogConfig.SegmentIndexBytesProp(), Defaults.MaxIndexSize());
         logProps.put(LogConfig.MessageFormatVersionProp(), Defaults.MessageFormatVersion());
         logProps.put(LogConfig.FileDeleteDelayMsProp(), Defaults.FileDeleteDelayMs());
+        if (observerFeature)
+            logProps.put(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, "{\"version\":1,"
+                + "\"replicas\":[{\"count\":2,\"constraints\":{\"rack\":\"rack-a\"}}],\"observers\":[{\"count\":1,\"constraints\":{\"rack\":\"rack-b\"}}]}");
         return LogConfig.apply(logProps, new scala.collection.immutable.HashSet<>());
     }
 

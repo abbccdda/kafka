@@ -752,8 +752,8 @@ class Partition(val topicPartition: TopicPartition,
 
   // public for jmh benchmarking
   def caughtUpReplicaCount: Int = {
-    // caughtUpReplicaCount will be called twice for each partition that the broker
-    // is a leader for. Care should be taken to keep it fast.
+    // caughtUpReplicaCount will be called for two metrics: CaughtUpReplicas and IsNotCaughtUp metric,
+    // for every leader partition and for each metric scrape. Care should be taken to keep this call fast.
     leaderLogIfLocal.map { leaderLog =>
       val hwm = leaderLog.highWatermark
       // remote replicas in sync + leader
