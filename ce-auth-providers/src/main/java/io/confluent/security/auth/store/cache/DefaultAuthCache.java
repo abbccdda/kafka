@@ -47,8 +47,8 @@ import java.util.stream.Collectors;
 
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
+import org.apache.kafka.common.errors.CorruptRecordException;
 import org.apache.kafka.common.errors.InvalidRequestException;
-import org.apache.kafka.common.record.InvalidRecordException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.slf4j.Logger;
@@ -277,7 +277,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     if (value == null)
       throw new IllegalArgumentException("Value must not be null");
     if (key.entryType() != value.entryType())
-      throw new InvalidRecordException("Invalid record with key=" + key + ", value=" + value);
+      throw new CorruptRecordException("Invalid record with key=" + key + ", value=" + value);
     switch (key.entryType()) {
       case ROLE_BINDING:
         return updateRoleBinding((RoleBindingKey) key, (RoleBindingValue) value);
