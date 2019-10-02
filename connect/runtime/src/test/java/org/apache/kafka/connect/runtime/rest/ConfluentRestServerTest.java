@@ -29,6 +29,7 @@ import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.powermock.api.easymock.PowerMock;
+import org.powermock.api.easymock.annotation.Mock;
 import org.powermock.api.easymock.annotation.MockStrict;
 import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.modules.junit4.PowerMockRunner;
@@ -44,7 +45,7 @@ import static org.junit.Assert.assertNotNull;
 @PowerMockIgnore({"javax.net.ssl.*", "javax.security.*"})
 public class ConfluentRestServerTest {
 
-  @MockStrict
+  @Mock
   private Herder herder;
   @MockStrict
   private Plugins plugins;
@@ -85,15 +86,12 @@ public class ConfluentRestServerTest {
     DistributedConfig config = new DistributedConfig(configMap);
 
     EasyMock.expect(herder.plugins()).andReturn(plugins);
-    EasyMock.expect(herder.kafkaClusterId()).andReturn(KAFKA_CLUSTER_ID);
+    EasyMock.expect(herder.kafkaClusterId()).andReturn(KAFKA_CLUSTER_ID).anyTimes();
     EasyMock.expect(plugins.newPlugins(
         EasyMock.eq(Collections.emptyList()),
         EasyMock.eq(config),
         EasyMock.eq(ConnectRestExtension.class)
     )).andReturn(Collections.emptyList());
-
-    EasyMock.expect(herder.plugins())
-            .andReturn(plugins);
 
     PowerMock.replayAll();
 
@@ -114,15 +112,12 @@ public class ConfluentRestServerTest {
     DistributedConfig config = new DistributedConfig(configMap);
 
     EasyMock.expect(herder.plugins()).andReturn(plugins);
-    EasyMock.expect(herder.kafkaClusterId()).andReturn(KAFKA_CLUSTER_ID);
+    EasyMock.expect(herder.kafkaClusterId()).andReturn(KAFKA_CLUSTER_ID).anyTimes();
     EasyMock.expect(plugins.newPlugins(
         EasyMock.eq(Collections.emptyList()),
         EasyMock.eq(config),
         EasyMock.eq(ConnectRestExtension.class)
     )).andReturn(Collections.emptyList());
-
-    EasyMock.expect(herder.plugins())
-            .andReturn(plugins);
 
     PowerMock.replayAll();
 

@@ -361,6 +361,7 @@
         <allow pkg="org.glassfish.jersey" />
         <allow pkg="com.fasterxml.jackson" />
         <allow pkg="org.apache.http"/>
+        <allow pkg="io.confluent.security.authorizer" />
       </subpackage>
 
       <subpackage name="isolation">
@@ -402,6 +403,7 @@
       <allow pkg="org.apache.kafka.connect" />
       <allow pkg="org.apache.kafka.tools" />
       <allow pkg="javax.ws.rs" />
+      <allow pkg="com.fasterxml.jackson.databind" />
     </subpackage>
 
     <subpackage name="json">
