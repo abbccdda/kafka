@@ -399,9 +399,10 @@ public class KafkaEventAppenderTest {
   public void testDontCreateTopicsFailure() throws Throwable {
     eventLogClusters = new EventLogClusters(eventLogClustersConfig);
 
-    assertThrows(ConfigException.class, () ->
-        logger("testDontCreateTopicsFailure",
-            Utils.mkMap(Utils.mkEntry(EventLogConfig.TOPIC_CREATE_CONFIG, "false"))));
+    // This is no longer a failure. We now retry later
+    //assertThrows(ConfigException.class, () ->
+    logger("testDontCreateTopicsFailure",
+        Utils.mkMap(Utils.mkEntry(EventLogConfig.TOPIC_CREATE_CONFIG, "false")));
   }
 
   @Test

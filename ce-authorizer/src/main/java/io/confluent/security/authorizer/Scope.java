@@ -136,7 +136,7 @@ public class Scope {
     }
 
     public Builder(List<String> path) {
-      this.path = path;
+      this.path = new ArrayList<>(path);
       this.clusters = new HashMap<>();
     }
 
@@ -153,6 +153,10 @@ public class Scope {
 
     public Scope build() {
       return new Scope(path, clusters);
+    }
+
+    public void addPath(String name) {
+      path.add(name);
     }
   }
 }

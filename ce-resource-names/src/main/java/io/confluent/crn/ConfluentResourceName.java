@@ -40,6 +40,8 @@ public class ConfluentResourceName implements Comparable {
   private String authority;
   private List<Element> nameElements;
 
+  private String stringForm;
+
   public static class Element implements Comparable {
 
     private String resourceType;
@@ -137,6 +139,8 @@ public class ConfluentResourceName implements Comparable {
   private ConfluentResourceName(String authority, List<Element> elements) {
     this.authority = authority;
     this.nameElements = Collections.unmodifiableList(elements);
+    this.stringForm = String.format("%s://%s/%s", SCHEME, authority,
+        nameElements.stream().map(Element::toString).collect(Collectors.joining(PATH_DELIMITER)));
   }
 
   /**
@@ -197,9 +201,7 @@ public class ConfluentResourceName implements Comparable {
 
   @Override
   public String toString() {
-    String path = nameElements.stream().map(Element::toString)
-        .collect(Collectors.joining(PATH_DELIMITER));
-    return String.format("%s://%s/%s", SCHEME, authority, path);
+    return stringForm;
   }
 
   @Override

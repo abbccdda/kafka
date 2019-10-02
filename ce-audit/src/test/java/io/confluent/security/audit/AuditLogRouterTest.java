@@ -177,19 +177,19 @@ public class AuditLogRouterTest {
     Assert.assertEquals(Optional.of(""),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks",
-                "Kafka.Produce", "User:Alice", true)));
+                "kafka.Produce", "User:Alice", true)));
 
     // Don't suppress same message from Bob
     Assert.assertEquals(Optional.of("_confluent-audit-log_clicks_produce_allowed"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks",
-                "Kafka.Produce", "User:Bob", true)));
+                "kafka.Produce", "User:Bob", true)));
 
     // Suppress message from User:service_account_id
     Assert.assertEquals(Optional.of(""),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks",
-                "Kafka.Produce", "User:service_account_id", true)));
+                "kafka.Produce", "User:service_account_id", true)));
   }
 
   @Test
@@ -198,13 +198,13 @@ public class AuditLogRouterTest {
     Assert.assertEquals(Optional.of(""),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1",
-                "Mds.Authorize", "User:Bob", true)));
+                "mds.Authorize", "User:Bob", true)));
 
     // Denied goes to defined topic
     Assert.assertEquals(Optional.of("_confluent-audit-log_ksql"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1",
-                "Mds.Authorize", "User:Bob", false)));
+                "mds.Authorize", "User:Bob", false)));
   }
 
   @Test
@@ -213,13 +213,13 @@ public class AuditLogRouterTest {
     Assert.assertEquals(Optional.of("_confluent-audit-log_connect_success"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/connect=connect1",
-                "Mds.Authorize", "User:Bob", true)));
+                "mds.Authorize", "User:Bob", true)));
 
     // Matches connect=*
     Assert.assertEquals(Optional.of("_confluent-audit-log_connect_failure"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/connect=connect2",
-                "Mds.Authorize", "User:Bob", false)));
+                "mds.Authorize", "User:Bob", false)));
   }
 
   @Test
@@ -228,13 +228,13 @@ public class AuditLogRouterTest {
     Assert.assertEquals(Optional.of("_confluent-audit-log_clicks_produce_allowed"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks",
-                "Kafka.Produce", "User:Bob", true)));
+                "kafka.Produce", "User:Bob", true)));
 
     // Consume goes to consume_
     Assert.assertEquals(Optional.of("_confluent-audit-log_clicks_consume_allowed"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks",
-                "Kafka.FetchConsumer", "User:Bob", true)));
+                "kafka.FetchConsumer", "User:Bob", true)));
   }
 
   @Test
@@ -243,13 +243,13 @@ public class AuditLogRouterTest {
     Assert.assertEquals(Optional.of("_confluent-audit-log_clicks_produce_allowed"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks",
-                "Kafka.Produce", "User:Bob", true)));
+                "kafka.Produce", "User:Bob", true)));
 
     // Denied goes to _denied
     Assert.assertEquals(Optional.of("_confluent-audit-log_clicks_produce_denied"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks",
-                "Kafka.Produce", "User:Bob", false)));
+                "kafka.Produce", "User:Bob", false)));
   }
 
   @Test
@@ -259,28 +259,28 @@ public class AuditLogRouterTest {
         router.topic(
             sampleEvent(
                 "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-payroll",
-                "Kafka.Produce", "User:Bob", true)));
+                "kafka.Produce", "User:Bob", true)));
 
     // Produce Denied goes to defined topic
     Assert.assertEquals(Optional.of("_confluent-audit-log_accounting"),
         router.topic(
             sampleEvent(
                 "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-payroll",
-                "Kafka.Produce", "User:Bob", false)));
+                "kafka.Produce", "User:Bob", false)));
 
     // Consume Allowed goes to default (which is to suppress Produce/Consume messages)
     Assert.assertEquals(Optional.of(""),
         router.topic(
             sampleEvent(
                 "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-payroll",
-                "Kafka.FetchConsumer", "User:Bob", true)));
+                "kafka.FetchConsumer", "User:Bob", true)));
 
     // Consume Denied goes to defined topic (which is to suppress Produce/Consume messages)
     Assert.assertEquals(Optional.of(""),
         router.topic(
             sampleEvent(
                 "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-payroll",
-                "Kafka.FetchConsumer", "User:Bob", false)));
+                "kafka.FetchConsumer", "User:Bob", false)));
   }
 
   @Test
@@ -289,25 +289,25 @@ public class AuditLogRouterTest {
     Assert.assertEquals(Optional.of(""),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA",
-                "Kafka.FetchFollower", "User:Bob", true)));
+                "kafka.FetchFollower", "User:Bob", true)));
 
     // Interbroker Denied goes to defined topic
     Assert.assertEquals(Optional.of("_confluent-audit-log_cluster"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA",
-                "Kafka.FetchFollower", "User:Bob", false)));
+                "kafka.FetchFollower", "User:Bob", false)));
 
     // Consume Allowed goes to default
     Assert.assertEquals(Optional.of("_confluent-audit-log_success"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA",
-                "Kafka.CreateTopics", "User:Bob", true)));
+                "kafka.CreateTopics", "User:Bob", true)));
 
     // Consume Denied goes to defined topic
     Assert.assertEquals(Optional.of("_confluent-audit-log_cluster"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA",
-                "Kafka.CreateTopics", "User:Bob", false)));
+                "kafka.CreateTopics", "User:Bob", false)));
   }
 
   @Test
@@ -316,25 +316,25 @@ public class AuditLogRouterTest {
     Assert.assertEquals(Optional.of(""),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=f5B4bB7_RZi4-muWq2pLlg",
-                "Kafka.FetchFollower", "User:Bob", true)));
+                "kafka.FetchFollower", "User:Bob", true)));
 
     // Interbroker Denied goes to defined topic
     Assert.assertEquals(Optional.of("_confluent-audit-log_cluster"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=RGiGzT0RRyKWEoGJrk-rkQ",
-                "Kafka.FetchFollower", "User:Bob", false)));
+                "kafka.FetchFollower", "User:Bob", false)));
 
     // Other Allowed goes to default
     Assert.assertEquals(Optional.of("_confluent-audit-log_success"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=3qW6InmVT0CVkN2NrBFOPQ",
-                "Kafka.CreateTopics", "User:Bob", true)));
+                "kafka.CreateTopics", "User:Bob", true)));
 
     // Other Denied goes to defined topic
     Assert.assertEquals(Optional.of("_confluent-audit-log_cluster"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=xqeA2ZZzT4moO0vq9q1rkw",
-                "Kafka.CreateTopics", "User:Bob", false)));
+                "kafka.CreateTopics", "User:Bob", false)));
   }
 
   @Test
@@ -356,58 +356,58 @@ public class AuditLogRouterTest {
     Assert.assertEquals(Optional.of("_confluent-audit-log_allowed"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1",
-                "Mds.Authorize", "User:Bob", true)));
+                "mds.Authorize", "User:Bob", true)));
 
     Assert.assertEquals(Optional.of("_confluent-audit-log_denied"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1",
-                "Mds.Authorize", "User:Bob", false)));
+                "mds.Authorize", "User:Bob", false)));
 
     // Other goes to default
     Assert.assertEquals(Optional.of("_confluent-audit-log_allowed"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=3qW6InmVT0CVkN2NrBFOPQ",
-                "Kafka.CreateTopics", "User:Bob", true)));
+                "kafka.CreateTopics", "User:Bob", true)));
 
     Assert.assertEquals(Optional.of("_confluent-audit-log_denied"),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=xqeA2ZZzT4moO0vq9q1rkw",
-                "Kafka.CreateTopics", "User:Bob", false)));
+                "kafka.CreateTopics", "User:Bob", false)));
 
     // Produce is suppressed
     Assert.assertEquals(Optional.of(""),
         router.topic(
             sampleEvent(
                 "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-payroll",
-                "Kafka.Produce", "User:Bob", true)));
+                "kafka.Produce", "User:Bob", true)));
 
     Assert.assertEquals(Optional.of(""),
         router.topic(
             sampleEvent(
                 "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-payroll",
-                "Kafka.Produce", "User:Bob", false)));
+                "kafka.Produce", "User:Bob", false)));
 
     // Consume is suppressed
     Assert.assertEquals(Optional.of(""),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks",
-                "Kafka.FetchConsumer", "User:Bob", true)));
+                "kafka.FetchConsumer", "User:Bob", true)));
 
     Assert.assertEquals(Optional.of(""),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks",
-                "Kafka.FetchConsumer", "User:Bob", false)));
+                "kafka.FetchConsumer", "User:Bob", false)));
 
     // Interbroker is suppressed
     Assert.assertEquals(Optional.of(""),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=f5B4bB7_RZi4-muWq2pLlg",
-                "Kafka.FetchFollower", "User:Bob", true)));
+                "kafka.FetchFollower", "User:Bob", true)));
 
     Assert.assertEquals(Optional.of(""),
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=f5B4bB7_RZi4-muWq2pLlg",
-                "Kafka.FetchFollower", "User:Bob", false)));
+                "kafka.FetchFollower", "User:Bob", false)));
 
 
   }

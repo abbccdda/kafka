@@ -24,7 +24,7 @@ public interface AuditLogProvider extends Provider, Reconfigurable {
    * @param authorizePolicy Details of the authorization policy that granted or denied access.
    *                        This includes any ACL/Role binding that produced the result.
    */
-  void log(RequestContext requestContext,
+  void logAuthorization(RequestContext requestContext,
            Action action,
            AuthorizeResult authorizeResult,
            AuthorizePolicy authorizePolicy);

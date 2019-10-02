@@ -23,19 +23,19 @@ public class AuditLogCategoryResultRouter implements EventTopicRouter {
   public static final String INTERBROKER_CATEGORY = "interbroker";
   public static final String AUTHORIZE_CATEGORY = "authorize";
   public static final Map<String, String> METHOD_CATEGORIES = Utils.mkMap(
-      Utils.mkEntry("Kafka.Produce", PRODUCE_CATEGORY),
-      Utils.mkEntry("Kafka.AddPartitionToTxn", PRODUCE_CATEGORY),
-      Utils.mkEntry("Kafka.FetchConsumer", CONSUME_CATEGORY),
-      Utils.mkEntry("Kafka.OffsetCommit", CONSUME_CATEGORY),
-      Utils.mkEntry("Kafka.AddOffsetsToTxn", CONSUME_CATEGORY),
-      Utils.mkEntry("Kafka.TxnOffsetCommit", CONSUME_CATEGORY),
-      Utils.mkEntry("Kafka.FetchFollower", INTERBROKER_CATEGORY),
-      Utils.mkEntry("Kafka.LeaderAndIsr", INTERBROKER_CATEGORY),
-      Utils.mkEntry("Kafka.StopReplica", INTERBROKER_CATEGORY),
-      Utils.mkEntry("Kafka.UpdateMetadata", INTERBROKER_CATEGORY),
-      Utils.mkEntry("Kafka.ControlledShutdown", INTERBROKER_CATEGORY),
-      Utils.mkEntry("Kafka.WriteTxnMarkers", INTERBROKER_CATEGORY),
-      Utils.mkEntry("Mds.Authorize", AUTHORIZE_CATEGORY)
+      Utils.mkEntry("kafka.Produce", PRODUCE_CATEGORY),
+      Utils.mkEntry("kafka.AddPartitionToTxn", PRODUCE_CATEGORY),
+      Utils.mkEntry("kafka.FetchConsumer", CONSUME_CATEGORY),
+      Utils.mkEntry("kafka.OffsetCommit", CONSUME_CATEGORY),
+      Utils.mkEntry("kafka.AddOffsetsToTxn", CONSUME_CATEGORY),
+      Utils.mkEntry("kafka.TxnOffsetCommit", CONSUME_CATEGORY),
+      Utils.mkEntry("kafka.FetchFollower", INTERBROKER_CATEGORY),
+      Utils.mkEntry("kafka.LeaderAndIsr", INTERBROKER_CATEGORY),
+      Utils.mkEntry("kafka.StopReplica", INTERBROKER_CATEGORY),
+      Utils.mkEntry("kafka.UpdateMetadata", INTERBROKER_CATEGORY),
+      Utils.mkEntry("kafka.ControlledShutdown", INTERBROKER_CATEGORY),
+      Utils.mkEntry("kafka.WriteTxnMarkers", INTERBROKER_CATEGORY),
+      Utils.mkEntry("mds.Authorize", AUTHORIZE_CATEGORY)
   );
   public static final Set<String> CATEGORIES;
 

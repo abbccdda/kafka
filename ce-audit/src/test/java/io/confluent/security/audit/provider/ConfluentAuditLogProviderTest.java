@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 
+import io.confluent.crn.CrnAuthorityConfig;
 import io.confluent.security.audit.EventLogConfig;
 import io.confluent.security.audit.EventLogger;
 import io.confluent.security.audit.appender.KafkaEventAppender;
@@ -33,6 +34,7 @@ public class ConfluentAuditLogProviderTest {
           EventLogConfig.EVENT_LOGGER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG,
           "localhost:9092"),
       Utils.mkEntry(EventLogConfig.TOPIC_CREATE_CONFIG, "false"),
+      Utils.mkEntry(CrnAuthorityConfig.AUTHORITY_NAME_PROP, "mds.example.com"),
       Utils.mkEntry(
           EventLogConfig.ROUTER_CONFIG,
           AuditLogRouterJsonConfig.defaultConfig("localhost:9092", "", "")));

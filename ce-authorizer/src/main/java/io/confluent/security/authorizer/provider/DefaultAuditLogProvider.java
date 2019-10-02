@@ -76,7 +76,7 @@ public class DefaultAuditLogProvider implements AuditLogProvider {
    * </pre>
    */
   @Override
-  public void log(RequestContext requestContext,
+  public void logAuthorization(RequestContext requestContext,
                   Action action,
                   AuthorizeResult authorizeResult,
                   AuthorizePolicy authorizePolicy) {

@@ -341,7 +341,7 @@ public class EmbeddedAuthorizer implements Authorizer {
                                Action action,
                                AuthorizeResult authorizeResult,
                                AuthorizePolicy authorizePolicy) {
-    auditLogProvider.log(requestContext, action, authorizeResult, authorizePolicy);
+    auditLogProvider.logAuthorization(requestContext, action, authorizeResult, authorizePolicy);
   }
 
   // Allowing read, write, delete, or alter implies allowing describe.

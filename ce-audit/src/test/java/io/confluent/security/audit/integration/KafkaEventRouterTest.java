@@ -191,7 +191,7 @@ public class KafkaEventRouterTest {
 
     CloudEvent sentEvent = sampleEvent(
         "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=payroll",
-        "Kafka.Produce", "User:Bob", true);
+        "kafka.Produce", "User:Bob", true);
     logger.log(sentEvent);
 
     CloudEvent receivedEvent = firstReceivedEvent(consumer, 10000);

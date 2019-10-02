@@ -2,7 +2,13 @@
 
 package io.confluent.security.audit.provider;
 
+import io.confluent.crn.ConfluentServerCrnAuthority;
+import io.confluent.crn.CrnAuthorityConfig;
+import io.confluent.crn.CrnSyntaxException;
+import io.confluent.security.audit.AuditLogEntry;
+import io.confluent.security.audit.AuditLogUtils;
 import io.confluent.security.audit.CloudEvent;
+import io.confluent.security.audit.CloudEventUtils;
 import io.confluent.security.audit.EventLogConfig;
 import io.confluent.security.audit.EventLogger;
 import io.confluent.security.audit.appender.KafkaEventAppender;
@@ -11,6 +17,7 @@ import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.RequestContext;
+import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.AuditLogProvider;
 import io.confluent.security.authorizer.utils.ThreadUtils;
 import java.time.Duration;
@@ -24,27 +31,42 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.common.ClusterResource;
+import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class ConfluentAuditLogProvider implements AuditLogProvider {
+public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResourceListener {
 
   private static final String DEFAULT_LOGGER = "default.logger";
   private static final String KAFKA_LOGGER = "kafka.logger";
 
-  private static final Logger log = LoggerFactory.getLogger(ConfluentAuditLogProvider.class);
+  public static final String AUTHORIZATION_MESSAGE_TYPE = "io.confluent.kafka.server/authorization";
 
   private static final Duration CLOSE_TIMEOUT = Duration.ofSeconds(30);
+
+  protected static final Logger log = LoggerFactory.getLogger(ConfluentAuditLogProvider.class);
 
   // Default appender that is used if audit logging to Kafka topic fails or if events are not generated
   private EventLogger localFileLogger;
   private EventLogger kafkaLogger;
   private ExecutorService initExecutor;
 
+  private ConfluentServerCrnAuthority crnAuthority;
+
   private volatile boolean ready;
+  private String clusterId;
+  private Scope scope;
+
+  @Override
+  public void onUpdate(ClusterResource clusterResource) {
+    this.clusterId = clusterResource.clusterId();
+    this.scope = Scope.kafkaClusterScope(clusterId);
+    this.scope.validate(false);
+  }
 
   /**
    * The provider is configured and started during {@link #start(Map)} to avoid blocking
@@ -60,6 +82,11 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
     kafkaConfigs
         .put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG, KafkaEventAppender.class.getName());
     kafkaLogger = EventLogger.logger(KAFKA_LOGGER, kafkaConfigs);
+
+    CrnAuthorityConfig crnAuthorityConfig = new CrnAuthorityConfig(configs);
+    this.crnAuthority = new ConfluentServerCrnAuthority();
+    this.crnAuthority.configure(crnAuthorityConfig.values());
+
     this.ready = true;
   }
 
@@ -134,7 +161,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   }
 
   @Override
-  public void log(RequestContext requestContext,
+  public void logAuthorization(RequestContext requestContext,
       Action action,
       AuthorizeResult authorizeResult,
       AuthorizePolicy authorizePolicy) {
@@ -188,13 +215,21 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
     return EventLogger.createLogger(configs);
   }
 
-  private CloudEvent newCloudEvent(RequestContext requestContext,
-      Action action,
-      AuthorizeResult authorizeResult,
-      AuthorizePolicy authorizePolicy) {
+  private CloudEvent newCloudEvent(RequestContext requestContext, Action action,
+      AuthorizeResult authorizeResult, AuthorizePolicy authorizePolicy) {
 
-    // TODO: Create audit log event
-    return CloudEvent.newBuilder()
-        .build();
+    try {
+      String source = crnAuthority.canonicalCrn(scope).toString();
+      String subject =
+          crnAuthority.canonicalCrn(action.scope(), action.resourcePattern()).toString();
+
+      AuditLogEntry entry = AuditLogUtils
+          .authorizationEvent(source, subject, requestContext, action, authorizeResult, authorizePolicy);
+      return CloudEventUtils.wrap(AUTHORIZATION_MESSAGE_TYPE, source, subject, entry);
+    } catch (CrnSyntaxException e) {
+      log.warn(
+          "Couldn't create cloud event due to internally generated CRN syntax problem", e);
+    }
+    return null;
   }
 }

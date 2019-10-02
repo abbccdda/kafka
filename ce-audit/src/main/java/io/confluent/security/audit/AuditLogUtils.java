@@ -4,52 +4,88 @@
 
 package io.confluent.security.audit;
 
+import com.google.protobuf.Struct;
+import com.google.protobuf.Value;
 import io.confluent.security.authorizer.Action;
-import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.AuthorizePolicy;
+import io.confluent.security.authorizer.AuthorizePolicy.AccessRulePolicy;
+import io.confluent.security.authorizer.AuthorizeResult;
+import io.confluent.security.authorizer.RequestContext;
+import io.confluent.security.rbac.RoleBinding;
+import org.apache.kafka.common.acl.AccessControlEntry;
+import org.apache.kafka.common.acl.AclBinding;
 
 public class AuditLogUtils {
 
-  private static AuthorizationInfo.Builder authorizationInfo(Action action, boolean granted) {
-    return AuthorizationInfo.newBuilder()
-        .setResourceType(action.resourceType().name())
-        .setResourceName(action.resourceName())
+  public static AuditLogEntry authorizationEvent(String source, String subject,
+      RequestContext requestContext, Action action, AuthorizeResult authorizeResult,
+      AuthorizePolicy authorizePolicy) {
+
+    AuditLogEntry.Builder builder = AuditLogEntry.newBuilder()
+        .setServiceName(source)
+        .setMethodName(requestContext.requestSource() + "." + action.operation().name())
+        .setResourceName(subject);
+
+    AuthenticationInfo.Builder authenticationBuilder = AuthenticationInfo.newBuilder()
+        .setPrincipal(requestContext.principal().toString());
+    builder.setAuthenticationInfo(authenticationBuilder);
+
+    AuthorizationInfo.Builder authorizationBuilder = AuthorizationInfo.newBuilder()
+        .setGranted(authorizeResult == AuthorizeResult.ALLOWED)
         .setOperation(action.operation().name())
-        .setPatternType(action.resourcePattern().patternType().toString())
-        .setGranted(granted);
+        .setResourceType(action.resourcePattern().resourceType().toString())
+        .setResourceName(action.resourcePattern().name())
+        .setPatternType(action.resourcePattern().patternType().toString());
+    builder.setAuthorizationInfo(authorizationBuilder);
 
-  }
+    switch (authorizePolicy.policyType()) {
+      case SUPER_USER:
+      case SUPER_GROUP:
+        authorizationBuilder
+            .setSuperUserAuthorization(true);
+        break;
+      case ALLOW_ACL:
+      case DENY_ACL:
+        AccessControlEntry entry =
+            ((AclBinding) ((AccessRulePolicy) authorizePolicy).sourceMetadata()).entry();
+        authorizationBuilder
+            .setAclAuthorization(AclAuthorizationInfo.newBuilder()
+                .setHost(entry.host())
+                .setPermissionType(entry.permissionType().toString()));
+        break;
+      case ALLOW_ROLE:
+        RoleBinding roleBinding =
+            (RoleBinding) ((AccessRulePolicy) authorizePolicy).sourceMetadata();
+        authorizationBuilder
+            .setRbacAuthorization(RbacAuthorizationInfo.newBuilder()
+                .setRole(roleBinding.role())
+                .setScope(AuthorizationScope.newBuilder()
+                    .addAllOuterScope(roleBinding.scope().path())
+                    .putAllClusters(roleBinding.scope().clusters())));
+        break;
+      case NO_MATCHING_RULE:
+      case DENY_ON_NO_RULE:
+      case ALLOW_ON_NO_RULE:
+        break;
+    }
 
-  /**
-   * Return an AuthorizationInfo that captures this ACL authorization
-   */
-  public static AuthorizationInfo aclAuthorizationInfo(String host, String permissionType,
-      Action action, boolean granted) {
-    return authorizationInfo(action, granted)
-        .setAclAuthorization(AclAuthorizationInfo.newBuilder()
-            .setHost(host)
-            .setPermissionType(permissionType)
-            .build())
-        .build();
-  }
+    Struct.Builder requestBuilder = Struct.newBuilder()
+        .putFields("correlation_id", Value.newBuilder()
+            .setStringValue(String.valueOf(requestContext.correlationId())).build());
+    if (requestContext.clientId() != null) {
+      requestBuilder.putFields("client_id",
+          Value.newBuilder().setStringValue(requestContext.clientId()).build());
+    }
+    builder.setRequest(requestBuilder.build());
 
-  private static AuthorizationScope authorizationScope(Scope scope) {
-    return AuthorizationScope.newBuilder()
-        .addAllOuterScope(scope.path())
-        .putAllClusters(scope.clusters())
-        .build();
-  }
+    Struct.Builder requestMetadataBuilder = Struct.newBuilder();
+    if (requestContext.clientAddress() != null) {
+      requestMetadataBuilder.putFields("client_address", Value.newBuilder()
+          .setStringValue(requestContext.clientAddress().toString()).build());
+    }
+    builder.setRequestMetadata(requestMetadataBuilder.build());
 
-  /**
-   * Return an AuthorizationInfo that captures this RBAC authorization
-   */
-  public static AuthorizationInfo rbacAuthorizationInfo(String role, Scope scope, Action action,
-      boolean granted) {
-    return authorizationInfo(action, granted)
-        .setRbacAuthorization(RbacAuthorizationInfo.newBuilder()
-            .setRole(role)
-            .setScope(authorizationScope(scope))
-            .build())
-        .build();
+    return builder.build();
   }
 
 }

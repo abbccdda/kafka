@@ -61,7 +61,7 @@ public class MockAuditLogProvider extends DefaultAuditLogProvider {
   }
 
   @Override
-  public void log(RequestContext requestContext,
+  public void logAuthorization(RequestContext requestContext,
                   Action action,
                   AuthorizeResult authorizeResult,
                   AuthorizePolicy authorizePolicy) {

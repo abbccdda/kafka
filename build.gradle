@@ -2805,8 +2805,29 @@ project(':ce-audit') {
     testCompile project(':ce-broker-plugins')
     testCompile project(':ce-broker-plugins').sourceSets.test.output
     testCompile project(':ce-auth-providers').sourceSets.test.output
+    testCompile project(':ce-licensing')
+    testCompile project(':ce-licensing').sourceSets.test.output
     testCompile libs.slf4jlog4j
     testRuntime libs.slf4jlog4j
+
+    testCompile libs.apachedaLdapCodec
+    testCompile libs.apachedsCoreApi
+    testCompile libs.apachedsInterceptorKerberos
+    testCompile libs.apachedsJdbmPartition
+    testCompile libs.apachedsLdifPartition
+    testCompile libs.apachedsMavibotPartition
+    testCompile libs.apachedsProtocolKerberos
+    testCompile libs.apachedsProtocolLdap
+    testCompile libs.apachedsProtocolShared
+    testCompile libs.guavaTestLib
+    testCompile libs.junit
+    testCompile libs.log4j
+    testCompile libs.easymock
+    testCompile libs.mockitoCore
+    testCompile libs.powermockEasymock
+    testCompile libs.powermockJunit4
+    testCompile libs.scalatest
+
   }
 
   tasks.create(name: "copyDependantLibs", type: Copy) {
