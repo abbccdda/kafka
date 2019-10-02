@@ -204,6 +204,7 @@ public class MultiTenantApis {
 
         case OFFSET_COMMIT:
         case OFFSET_FETCH:
+        case TXN_OFFSET_COMMIT:
           if (field != null) {
             if (field.name.equals("group_id")) {
               return Optional.some(new StringTenantTransformer(type,
@@ -350,6 +351,7 @@ public class MultiTenantApis {
 
         case OFFSET_COMMIT:
         case OFFSET_FETCH:
+        case TXN_OFFSET_COMMIT:
           if (field != null && field.name.equals("name")) {
               return Optional.some(new StringTenantTransformer(type,
                       TenantTransform.REMOVE_PREFIX));
