@@ -15,6 +15,7 @@ type AdminConf struct {
 	CompressionType                    string `json:"compression.type,omitempty"`
 	Acks                               string `json:"acks,omitempty"`
 	AutoOffsetReset                    string `json:"auto.offset.reset,omitempty"`
+	BatchSize                          int64  `json:"batch.size,omitempty"`
 	EnableIdempotence                  string `json:"enable.idempotence,omitempty"`
 	LingerMs                           int64  `json:"linger.ms,omitempty"`
 	RetentionMs                        int64  `json:"retention.ms,omitempty"`
