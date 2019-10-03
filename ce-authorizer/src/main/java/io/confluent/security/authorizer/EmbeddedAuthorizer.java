@@ -93,7 +93,7 @@ public class EmbeddedAuthorizer implements Authorizer {
     this.clusterId = serverInfo.clusterResource().clusterId();
     log.debug("Configuring scope for Kafka cluster with cluster id {}", clusterId);
     this.scope = Scope.kafkaClusterScope(clusterId);
-    this.interBrokerListener = serverInfo.interBrokerEndpoint().listener();
+    this.interBrokerListener = serverInfo.interBrokerEndpoint().listenerName().get();
 
     ConfluentAuthorizerConfig.Providers providers = authorizerConfig.createProviders(clusterId);
     providersCreated.addAll(providers.accessRuleProviders);

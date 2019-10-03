@@ -6,6 +6,7 @@ import io.confluent.kafka.multitenant.metrics.PartitionSensors;
 import io.confluent.kafka.multitenant.metrics.TenantMetrics;
 import io.confluent.kafka.multitenant.quota.TenantPartitionAssignor;
 import io.confluent.kafka.multitenant.quota.TestCluster;
+import java.util.stream.StreamSupport;
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
@@ -27,6 +28,7 @@ import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopicCol
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfig;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfigCollection;
 import org.apache.kafka.common.message.CreateTopicsResponseData;
+import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicConfigs;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResult;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResultCollection;
 import org.apache.kafka.common.message.DeleteGroupsRequestData;
@@ -43,12 +45,17 @@ import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsResponseData;
 import org.apache.kafka.common.message.InitProducerIdRequestData;
 import org.apache.kafka.common.message.JoinGroupRequestData;
+import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState;
 import org.apache.kafka.common.message.LeaveGroupRequestData;
 import org.apache.kafka.common.message.ListGroupsResponseData;
 import org.apache.kafka.common.message.MetadataRequestData;
 import org.apache.kafka.common.message.MetadataRequestData.MetadataRequestTopic;
 import org.apache.kafka.common.message.OffsetCommitRequestData;
 import org.apache.kafka.common.message.SyncGroupRequestData;
+import org.apache.kafka.common.message.TxnOffsetCommitRequestData;
+import org.apache.kafka.common.message.TxnOffsetCommitRequestData.TxnOffsetCommitRequestPartition;
+import org.apache.kafka.common.message.TxnOffsetCommitRequestData.TxnOffsetCommitRequestTopic;
+import org.apache.kafka.common.message.UpdateMetadataRequestData.UpdateMetadataPartitionState;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
@@ -930,11 +937,16 @@ public class MultiTenantRequestContextTest {
   public void testCreateTopicsResponse() throws IOException {
     for (short ver = ApiKeys.CREATE_TOPICS.oldestVersion(); ver <= ApiKeys.CREATE_TOPICS.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_TOPICS, ver);
+      List<CreatableTopicConfigs> configs = Arrays.asList(
+          new CreatableTopicConfigs().setConfigName("confluent.tier.enable").setValue("true"),
+              new CreatableTopicConfigs().setConfigName("max.messsage.bytes").setValue("100000")
+      );
       Collection<CreatableTopicResult> results = asList(
               new CreatableTopicResult()
                       .setErrorCode(Errors.NONE.code())
                       .setErrorMessage("")
-                      .setName("tenant_foo"),
+                      .setName("tenant_foo")
+                      .setConfigs(configs),
               new CreatableTopicResult()
                       .setErrorCode(Errors.NONE.code())
                       .setErrorMessage("")
@@ -945,6 +957,12 @@ public class MultiTenantRequestContextTest {
       CreateTopicsResponse intercepted = new CreateTopicsResponse(struct, ver);
       assertEquals(new HashSet<>(asList("foo", "bar")), intercepted.data().topics()
               .stream().map(CreatableTopicResult::name).collect(Collectors.toSet()));
+      if (ver >= 5) {
+        assertEquals(Collections.singleton("max.messsage.bytes"),
+            intercepted.data().topics().find("foo").configs().stream().map(CreatableTopicConfigs::configName).collect(Collectors.toSet()));
+      } else {
+        assertTrue(intercepted.data().topics().find("foo").configs().isEmpty());
+      }
       verifyResponseMetrics(ApiKeys.CREATE_TOPICS, Errors.NONE);
     }
   }
@@ -1060,12 +1078,18 @@ public class MultiTenantRequestContextTest {
       StopReplicaRequest inbound = new StopReplicaRequest.Builder((short) 1, 0, 0, 0, false,
           Collections.singleton(partition)).build(ver);
       StopReplicaRequest request = (StopReplicaRequest) parseRequest(context, inbound);
-      assertEquals(Collections.singleton(new TopicPartition("tenant_foo", 0)), request.partitions());
+      assertEquals(singletonList(partition),
+          StreamSupport.stream(request.partitions().spliterator(), false).map(p ->
+              new TopicPartition(p.topic(), p.partition())).collect(toList()));
       assertTrue(context.shouldIntercept());
       StopReplicaResponse response = (StopReplicaResponse) context.intercept(request, 0);
       Struct struct = parseResponse(ApiKeys.STOP_REPLICA, ver, context.buildResponse(response));
-      StopReplicaResponse outbound = new StopReplicaResponse(struct);
-      assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, outbound.responses().get(partition));
+      StopReplicaResponse outbound = new StopReplicaResponse(struct, ver);
+      assertEquals(Optional.of(Errors.CLUSTER_AUTHORIZATION_FAILED.code()), outbound.partitionErrors()
+          .stream()
+          .filter(pe -> pe.topicName().equals(partition.topic()) && pe.partitionIndex() == partition.partition())
+          .findFirst()
+          .map(pe -> pe.errorCode()));
       verifyRequestAndResponseMetrics(ApiKeys.STOP_REPLICA, Errors.CLUSTER_AUTHORIZATION_FAILED);
     }
   }
@@ -1074,17 +1098,30 @@ public class MultiTenantRequestContextTest {
   public void testLeaderAndIsrNotAllowed() throws Exception {
     for (short ver = ApiKeys.LEADER_AND_ISR.oldestVersion(); ver <= ApiKeys.LEADER_AND_ISR.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.LEADER_AND_ISR, ver);
-      TopicPartition partition = new TopicPartition("foo", 0);
+      String topic = "foo";
+      int partition = 0;
       LeaderAndIsrRequest inbound = new LeaderAndIsrRequest.Builder(ver, 1, 1, 0,
-          Collections.singletonMap(partition, new LeaderAndIsrRequest.PartitionState(15, 1, 20,
-              Collections.<Integer>emptyList(), 15, Collections.<Integer>emptyList(), false)),
-          Collections.<Node>emptySet()).build(ver);
+          Collections.singletonList(new LeaderAndIsrPartitionState()
+              .setTopicName(topic)
+              .setPartitionIndex(partition)
+              .setControllerEpoch(15)
+              .setLeader(1)
+              .setLeaderEpoch(20)
+              .setIsr(Collections.emptyList())
+              .setZkVersion(15)
+              .setReplicas(Collections.emptyList())
+              .setIsNew(false)),
+          Collections.emptySet()).build(ver);
       LeaderAndIsrRequest request = (LeaderAndIsrRequest) parseRequest(context, inbound);
       assertTrue(context.shouldIntercept());
       LeaderAndIsrResponse response = (LeaderAndIsrResponse) context.intercept(request, 0);
       Struct struct = parseResponse(ApiKeys.LEADER_AND_ISR, ver, context.buildResponse(response));
-      LeaderAndIsrResponse outbound = new LeaderAndIsrResponse(struct);
-      assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, outbound.responses().get(partition));
+      LeaderAndIsrResponse outbound = new LeaderAndIsrResponse(struct, ver, false);
+      assertEquals(Optional.of(Errors.CLUSTER_AUTHORIZATION_FAILED.code()),
+          outbound.partitions().stream()
+              .filter(ps -> ps.topicName().equals(topic) && ps.partitionIndex() == partition)
+              .findFirst()
+              .map(pe -> pe.errorCode()));
       verifyRequestAndResponseMetrics(ApiKeys.LEADER_AND_ISR, Errors.CLUSTER_AUTHORIZATION_FAILED);
     }
   }
@@ -1093,17 +1130,24 @@ public class MultiTenantRequestContextTest {
   public void testUpdateMetadataNotAllowed() throws Exception {
     for (short ver = ApiKeys.UPDATE_METADATA.oldestVersion(); ver <= ApiKeys.UPDATE_METADATA.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.UPDATE_METADATA, ver);
-      TopicPartition partition = new TopicPartition("foo", 0);
+      String topic = "foo";
+      int partition = 0;
       UpdateMetadataRequest inbound = new UpdateMetadataRequest.Builder(ver, 1, 1, 0,
-          Collections.singletonMap(partition, new UpdateMetadataRequest.PartitionState(15, 1, 20,
-              Collections.<Integer>emptyList(), 15, Collections.<Integer>emptyList(),
-              Collections.<Integer>emptyList())),
-          Collections.<UpdateMetadataRequest.Broker>emptySet()).build(ver);
+          Collections.singletonList(new UpdateMetadataPartitionState()
+              .setTopicName(topic)
+              .setPartitionIndex(partition)
+              .setControllerEpoch(15)
+              .setLeader(1)
+              .setLeaderEpoch(20)
+              .setIsr(Collections.emptyList())
+              .setZkVersion(15)
+              .setReplicas(Collections.emptyList())),
+          Collections.emptyList()).build(ver);
       UpdateMetadataRequest request = (UpdateMetadataRequest) parseRequest(context, inbound);
       assertTrue(context.shouldIntercept());
       UpdateMetadataResponse response = (UpdateMetadataResponse) context.intercept(request, 0);
       Struct struct = parseResponse(ApiKeys.UPDATE_METADATA, ver, context.buildResponse(response));
-      UpdateMetadataResponse outbound = new UpdateMetadataResponse(struct);
+      UpdateMetadataResponse outbound = new UpdateMetadataResponse(struct, ver);
       assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, outbound.error());
       verifyRequestAndResponseMetrics(ApiKeys.UPDATE_METADATA, Errors.CLUSTER_AUTHORIZATION_FAILED);
     }
@@ -1574,14 +1618,30 @@ public class MultiTenantRequestContextTest {
   public void testTxnOffsetCommitRequest() {
     for (short ver = ApiKeys.TXN_OFFSET_COMMIT.oldestVersion(); ver <= ApiKeys.TXN_OFFSET_COMMIT.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.TXN_OFFSET_COMMIT, ver);
-      Map<TopicPartition, TxnOffsetCommitRequest.CommittedOffset> requestPartitions = new HashMap<>();
-      requestPartitions.put(new TopicPartition("foo", 0), new TxnOffsetCommitRequest.CommittedOffset(0L, "", Optional.empty()));
-      requestPartitions.put(new TopicPartition("bar", 0), new TxnOffsetCommitRequest.CommittedOffset(0L, "", Optional.empty()));
-      TxnOffsetCommitRequest inbound = new TxnOffsetCommitRequest.Builder("tr", "group", 23L, (short) 15,
-          requestPartitions).build(ver);
+      List<TxnOffsetCommitRequestTopic> topics = new ArrayList<>();
+      topics.add(new TxnOffsetCommitRequestTopic()
+          .setName("foo")
+          .setPartitions(singletonList(new TxnOffsetCommitRequestPartition()
+              .setPartitionIndex(0)
+              .setCommittedOffset(0)
+              .setCommittedMetadata("")
+              .setCommittedLeaderEpoch(-1))));
+      topics.add(new TxnOffsetCommitRequestTopic()
+          .setName("bar")
+          .setPartitions(singletonList(new TxnOffsetCommitRequestPartition()
+              .setPartitionIndex(0)
+              .setCommittedOffset(0)
+              .setCommittedMetadata("")
+              .setCommittedLeaderEpoch(-1))));
+      TxnOffsetCommitRequest inbound = new TxnOffsetCommitRequest.Builder(new TxnOffsetCommitRequestData()
+          .setTransactionalId("tr")
+          .setGroupId("group")
+          .setProducerId(23L)
+          .setProducerEpoch((short) 15)
+          .setTopics(topics)).build(ver);
       TxnOffsetCommitRequest intercepted = (TxnOffsetCommitRequest) parseRequest(context, inbound);
-      assertEquals("tenant_tr", intercepted.transactionalId());
-      assertEquals("tenant_group", intercepted.consumerGroupId());
+      assertEquals("tenant_tr", intercepted.data.transactionalId());
+      assertEquals("tenant_group", intercepted.data.groupId());
       assertEquals(mkSet(new TopicPartition("tenant_foo", 0), new TopicPartition("tenant_bar", 0)),
           intercepted.offsets().keySet());
       verifyRequestMetrics(ApiKeys.TXN_OFFSET_COMMIT);
@@ -1597,7 +1657,7 @@ public class MultiTenantRequestContextTest {
       partitionErrors.put(new TopicPartition("tenant_bar", 0), Errors.NONE);
       TxnOffsetCommitResponse outbound = new TxnOffsetCommitResponse(0, partitionErrors);
       Struct struct = parseResponse(ApiKeys.TXN_OFFSET_COMMIT, ver, context.buildResponse(outbound));
-      TxnOffsetCommitResponse intercepted = new TxnOffsetCommitResponse(struct);
+      TxnOffsetCommitResponse intercepted = new TxnOffsetCommitResponse(struct, ver);
       assertEquals(mkSet(new TopicPartition("foo", 0), new TopicPartition("bar", 0)),
           intercepted.errors().keySet());
       verifyResponseMetrics(ApiKeys.TXN_OFFSET_COMMIT, Errors.NONE);
@@ -2026,7 +2086,7 @@ public class MultiTenantRequestContextTest {
     channel.close();
     ByteBuffer buffer = channel.buffer();
     buffer.getInt();
-    ResponseHeader.parse(buffer);
+    ResponseHeader.parse(buffer, version);
     Struct struct = api.parseResponse(version, buffer.slice());
     assertEquals(buffer.remaining(), struct.sizeOf());
     return struct;

@@ -99,7 +99,7 @@ public class RequestContext implements AuthorizableRequestContext {
     }
 
     @Override
-    public String listener() {
+    public String listenerName() {
         return listenerName.value();
     }
 

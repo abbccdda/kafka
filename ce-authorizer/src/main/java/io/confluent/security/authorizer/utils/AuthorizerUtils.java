@@ -35,7 +35,7 @@ public class AuthorizerUtils {
             }
 
             @Override
-            public String listener() {
+            public String listenerName() {
                 return null;
             }
 
@@ -88,8 +88,8 @@ public class AuthorizerUtils {
             }
 
             @Override
-            public String listener() {
-                return kafkaContext.listener();
+            public String listenerName() {
+                return kafkaContext.listenerName();
             }
 
             @Override

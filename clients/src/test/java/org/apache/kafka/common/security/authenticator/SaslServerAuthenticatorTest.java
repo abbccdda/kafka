@@ -111,7 +111,7 @@ public class SaslServerAuthenticatorTest {
         int size = responseBuffer.getInt();
         assertTrue(size < responseBuffer.capacity());
 
-        ResponseHeader responseHeader = ResponseHeader.parse(responseBuffer);
+        ResponseHeader responseHeader = ResponseHeader.parse(responseBuffer, header.headerVersion());
         assertEquals(13243, responseHeader.correlationId());
 
         Struct struct = ApiKeys.API_VERSIONS.parseResponse((short) 0, responseBuffer);

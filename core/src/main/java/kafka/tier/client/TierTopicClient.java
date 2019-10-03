@@ -22,6 +22,7 @@ public class TierTopicClient {
      * @return true if the client id is one used by tier topic clients; false otherwise
      */
     public static boolean isTierTopicClient(String clientId) {
-        return clientId.startsWith(CLIENT_ID_PREFIX);
+        // Remove clientId != null check after https://github.com/apache/kafka/pull/7479#issuecomment-540553730 is addressed
+        return clientId != null && clientId.startsWith(CLIENT_ID_PREFIX);
     }
 }

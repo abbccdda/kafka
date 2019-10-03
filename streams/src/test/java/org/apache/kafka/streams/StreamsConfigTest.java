@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.streams;
 
+import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -50,10 +51,13 @@ import static org.apache.kafka.streams.StreamsConfig.adminClientPrefix;
 import static org.apache.kafka.streams.StreamsConfig.consumerPrefix;
 import static org.apache.kafka.streams.StreamsConfig.producerPrefix;
 import static org.apache.kafka.test.StreamsTestUtils.getStreamsConfig;
+import static org.hamcrest.CoreMatchers.containsString;
+import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.core.IsEqual.equalTo;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -75,6 +79,31 @@ public class StreamsConfigTest {
         props.put("key.deserializer.encoding", "UTF8");
         props.put("value.deserializer.encoding", "UTF-16");
         streamsConfig = new StreamsConfig(props);
+    }
+
+    @Test(expected = ConfigException.class)
+    public void testIllegalMetricsRecordingLevel() {
+        props.put(StreamsConfig.METRICS_RECORDING_LEVEL_CONFIG, "illegalConfig");
+        new StreamsConfig(props);
+    }
+
+    @Test
+    public void testOsDefaultSocketBufferSizes() {
+        props.put(StreamsConfig.SEND_BUFFER_CONFIG, CommonClientConfigs.RECEIVE_BUFFER_LOWER_BOUND);
+        props.put(StreamsConfig.RECEIVE_BUFFER_CONFIG, CommonClientConfigs.RECEIVE_BUFFER_LOWER_BOUND);
+        new StreamsConfig(props);
+    }
+
+    @Test(expected = ConfigException.class)
+    public void testInvalidSocketSendBufferSize() {
+        props.put(StreamsConfig.SEND_BUFFER_CONFIG, -2);
+        new StreamsConfig(props);
+    }
+
+    @Test(expected = ConfigException.class)
+    public void testInvalidSocketReceiveBufferSize() {
+        props.put(StreamsConfig.RECEIVE_BUFFER_CONFIG, -2);
+        new StreamsConfig(props);
     }
 
     @Test(expected = ConfigException.class)
@@ -450,9 +479,40 @@ public class StreamsConfigTest {
     }
 
     @Test(expected = ConfigException.class)
-    public void shouldThrowExceptionIfNotAtLestOnceOrExactlyOnce() {
+    public void shouldThrowExceptionIfNotAtLeastOnceOrExactlyOnce() {
         props.put(StreamsConfig.PROCESSING_GUARANTEE_CONFIG, "bad_value");
         new StreamsConfig(props);
+    }
+
+    @Test
+    public void shouldAcceptBuiltInMetricsVersion0100To23() {
+        // don't use `StreamsConfig.METRICS_0100_TO_23` to actually do a useful test
+        props.put(StreamsConfig.BUILT_IN_METRICS_VERSION_CONFIG, "0.10.0-2.3");
+        new StreamsConfig(props);
+    }
+
+    @Test
+    public void shouldAcceptBuiltInMetricsLatestVersion() {
+        // don't use `StreamsConfig.METRICS_LATEST` to actually do a useful test
+        props.put(StreamsConfig.BUILT_IN_METRICS_VERSION_CONFIG, "latest");
+        new StreamsConfig(props);
+    }
+
+    @Test
+    public void shouldSetDefaultBuiltInMetricsVersionIfNoneIsSpecified() {
+        final StreamsConfig config = new StreamsConfig(props);
+        assertThat(config.getString(StreamsConfig.BUILT_IN_METRICS_VERSION_CONFIG), is(StreamsConfig.METRICS_LATEST));
+    }
+
+    @Test
+    public void shouldThrowIfBuiltInMetricsVersionInvalid() {
+        final String invalidVersion = "0.0.1";
+        props.put(StreamsConfig.BUILT_IN_METRICS_VERSION_CONFIG, invalidVersion);
+        final Exception exception = assertThrows(ConfigException.class, () -> new StreamsConfig(props));
+        assertThat(
+            exception.getMessage(),
+            containsString("Invalid value " + invalidVersion + " for configuration built.in.metrics.version")
+        );
     }
 
     @Test

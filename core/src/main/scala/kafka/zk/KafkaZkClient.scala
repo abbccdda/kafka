@@ -1,3 +1,4 @@
+
 /**
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -1730,7 +1731,7 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
   private def getTopicConfigs(topics: Set[String]): Seq[GetDataResponse] = {
     val getDataRequests: Seq[GetDataRequest] = topics.iterator.map { topic =>
       GetDataRequest(ConfigEntityZNode.path(ConfigType.Topic, topic), ctx = Some(topic))
-    }.toIndexedSeq
+    }.toBuffer
 
     retryRequestsUntilConnected(getDataRequests)
   }

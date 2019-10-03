@@ -281,7 +281,6 @@ class ConfigCommandTest extends ZooKeeperTestHarness with Logging {
 
   @Test(expected = classOf[IllegalArgumentException])
   def testEntityDefaultOptionWithDescribeBrokerLoggerIsNotAllowed(): Unit = {
-    val node = new Node(1, "localhost", 9092)
     val optsList = List("--bootstrap-server", "localhost:9092",
       "--entity-type", ConfigCommand.BrokerLoggerConfigType,
       "--entity-default",
@@ -293,7 +292,6 @@ class ConfigCommandTest extends ZooKeeperTestHarness with Logging {
 
   @Test(expected = classOf[IllegalArgumentException])
   def testEntityDefaultOptionWithAlterBrokerLoggerIsNotAllowed(): Unit = {
-    val node = new Node(1, "localhost", 9092)
     val optsList = List("--bootstrap-server", "localhost:9092",
       "--entity-type", ConfigCommand.BrokerLoggerConfigType,
       "--entity-default",

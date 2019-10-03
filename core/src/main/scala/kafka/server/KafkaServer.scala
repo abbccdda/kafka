@@ -44,8 +44,7 @@ import kafka.tier.tasks.{TierTasks, TierTasksConfig}
 import kafka.tier.topic.{TierTopicManager, TierTopicManagerConfig}
 import kafka.utils._
 import kafka.zk.{AdminZkClient, BrokerInfo, KafkaZkClient}
-import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, CommonClientConfigs, ManualMetadataUpdater, NetworkClient, NetworkClientUtils}
-import org.apache.kafka.common.config.SaslConfigs
+import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, ManualMetadataUpdater, NetworkClient, NetworkClientUtils}
 import org.apache.kafka.common.internals.ClusterResourceListeners
 import org.apache.kafka.common.message.ControlledShutdownRequestData
 import org.apache.kafka.common.metrics.{JmxReporter, Metrics, _}
@@ -58,7 +57,6 @@ import org.apache.kafka.common.security.{JaasContext, JaasUtils}
 import org.apache.kafka.common.utils.{AppInfoParser, LogContext, Time}
 import org.apache.kafka.common.{ClusterResource, Endpoint, Node}
 import org.apache.kafka.common.config.internals.ConfluentConfigs
-import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.server.authorizer.Authorizer
 import org.apache.kafka.server.multitenant.MultiTenantMetadata
 import org.apache.kafka.server.rest.{BrokerProxy, RestServer}
@@ -383,7 +381,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           case Some(authZ) =>
             authZ.start(brokerInfo.broker.toServerInfo(clusterId, config)).asScala.mapValues(_.toCompletableFuture).toMap
           case None =>
-            brokerInfo.broker.endPoints.map{ ep => (ep.asInstanceOf[Endpoint], CompletableFuture.completedFuture[Void](null)) }.toMap
+            brokerInfo.broker.endPoints.map { ep => ep.toJava -> CompletableFuture.completedFuture[Void](null) }.toMap
         }
 
         val fetchManager = new FetchManager(Time.SYSTEM,

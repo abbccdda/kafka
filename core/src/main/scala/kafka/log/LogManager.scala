@@ -1039,7 +1039,7 @@ object LogManager {
       flushRecoveryOffsetCheckpointMs = config.logFlushOffsetCheckpointIntervalMs,
       flushStartOffsetCheckpointMs = config.logFlushStartOffsetCheckpointIntervalMs,
       retentionCheckMs = config.logCleanupIntervalMs,
-      maxPidExpirationMs = config.transactionIdExpirationMs,
+      maxPidExpirationMs = config.transactionalIdExpirationMs,
       scheduler = kafkaScheduler,
       brokerState = brokerState,
       brokerTopicStats = brokerTopicStats,

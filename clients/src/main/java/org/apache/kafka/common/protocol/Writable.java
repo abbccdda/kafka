@@ -71,9 +71,9 @@ public interface Writable {
     }
 
     /**
-     * Write a 128 bit UUID, with most significant bits followed by least significant bits
+     * Write a UUID with the most significant digits first.
      */
-    default void writeUuid(UUID uuid) {
+    default void writeUUID(UUID uuid) {
         writeLong(uuid.getMostSignificantBits());
         writeLong(uuid.getLeastSignificantBits());
     }

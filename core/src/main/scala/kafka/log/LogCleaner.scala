@@ -471,7 +471,7 @@ private[log] class Cleaner(val id: Int,
                            dupBufferLoadFactor: Double,
                            throttler: Throttler,
                            time: Time,
-                           checkDone: (TopicPartition) => Unit) extends Logging {
+                           checkDone: TopicPartition => Unit) extends Logging {
 
   protected override def loggerName = classOf[LogCleaner].getName
 
@@ -576,12 +576,13 @@ private[log] class Cleaner(val id: Int,
         val abortedTransactions = log.collectAbortedTransactions(startOffset, upperBoundOffset)
         transactionMetadata.addAbortedTransactions(abortedTransactions)
 
-        val retainDeletes = currentSegment.lastModified > deleteHorizonMs
-        info(s"Cleaning segment $startOffset in log ${log.name} (largest timestamp ${new Date(currentSegment.largestTimestamp)}) " +
-          s"into ${cleaned.baseOffset}, ${if(retainDeletes) "retaining" else "discarding"} deletes.")
+        val retainDeletesAndTxnMarkers = currentSegment.lastModified > deleteHorizonMs
+        info(s"Cleaning $currentSegment in log ${log.name} into ${cleaned.baseOffset} " +
+          s"with deletion horizon $deleteHorizonMs, " +
+          s"${if(retainDeletesAndTxnMarkers) "retaining" else "discarding"} deletes.")
 
         try {
-          cleanInto(log.topicPartition, currentSegment.log, cleaned, map, retainDeletes, log.config.maxMessageSize,
+          cleanInto(log.topicPartition, currentSegment.log, cleaned, map, retainDeletesAndTxnMarkers, log.config.maxMessageSize,
             transactionMetadata, lastOffsetOfActiveProducers, stats)
         } catch {
           case e: LogSegmentOffsetOverflowException =>
@@ -623,7 +624,7 @@ private[log] class Cleaner(val id: Int,
    * @param sourceRecords The dirty log segment
    * @param dest The cleaned log segment
    * @param map The key=>offset mapping
-   * @param retainDeletes Should delete tombstones be retained while cleaning this segment
+   * @param retainDeletesAndTxnMarkers Should tombstones and markers be retained while cleaning this segment
    * @param maxLogMessageSize The maximum message size of the corresponding topic
    * @param stats Collector for cleaning statistics
    */
@@ -631,7 +632,7 @@ private[log] class Cleaner(val id: Int,
                              sourceRecords: FileRecords,
                              dest: LogSegment,
                              map: OffsetMap,
-                             retainDeletes: Boolean,
+                             retainDeletesAndTxnMarkers: Boolean,
                              maxLogMessageSize: Int,
                              transactionMetadata: CleanedTransactionMetadata,
                              lastRecordsOfActiveProducers: Map[Long, LastRecord],
@@ -642,7 +643,7 @@ private[log] class Cleaner(val id: Int,
       override def checkBatchRetention(batch: RecordBatch): BatchRetention = {
         // we piggy-back on the tombstone retention logic to delay deletion of transaction markers.
         // note that we will never delete a marker until all the records from that transaction are removed.
-        discardBatchRecords = shouldDiscardBatch(batch, transactionMetadata, retainTxnMarkers = retainDeletes)
+        discardBatchRecords = shouldDiscardBatch(batch, transactionMetadata, retainTxnMarkers = retainDeletesAndTxnMarkers)
 
         def isBatchLastRecordOfProducer: Boolean = {
           // We retain the batch in order to preserve the state of active producers. There are three cases:
@@ -672,7 +673,7 @@ private[log] class Cleaner(val id: Int,
           // The batch is only retained to preserve producer sequence information; the records can be removed
           false
         else
-          Cleaner.this.shouldRetainRecord(map, retainDeletes, batch, record, stats)
+          Cleaner.this.shouldRetainRecord(map, retainDeletesAndTxnMarkers, batch, record, stats)
       }
     }
 
@@ -1047,8 +1048,11 @@ private class CleanerStats(time: Time = Time.SYSTEM) {
   * Helper class for a log, its topic/partition, the first cleanable position, the first uncleanable dirty position,
   * and whether it needs compaction immediately.
   */
-private case class LogToClean(topicPartition: TopicPartition, log: AbstractLog, firstDirtyOffset: Long,
-                              uncleanableOffset: Long, needCompactionNow: Boolean = false) extends Ordered[LogToClean] {
+private case class LogToClean(topicPartition: TopicPartition,
+                              log: AbstractLog,
+                              firstDirtyOffset: Long,
+                              uncleanableOffset: Long,
+                              needCompactionNow: Boolean = false) extends Ordered[LogToClean] {
   val cleanBytes = log.localLogSegments(-1, firstDirtyOffset).map(_.size.toLong).sum
   val (firstUncleanableOffset, cleanableBytes) = LogCleaner.calculateCleanableBytes(log, firstDirtyOffset, uncleanableOffset)
   val totalBytes = cleanBytes + cleanableBytes

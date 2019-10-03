@@ -30,11 +30,9 @@ import kafka.utils._
 
 import scala.collection._
 import scala.collection.JavaConverters._
-import scala.util.matching.Regex
 import kafka.log.LogConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
-import org.scalatest.Assertions
 
 class MetricsTest extends KafkaServerTestHarness with Logging {
   val numNodes = 2
@@ -157,7 +155,7 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
     createTopic(topic, 1, numNodes, topicConfig)
     try {
       TestUtils.produceMessages(servers, List(new ProducerRecord[Array[Byte], Array[Byte]](topic, "test".getBytes)))
-      Assertions.fail("Exception should have been thrown since a compacted topic cannot accept a message without keys")
+      fail("Exception should have been thrown since a compacted topic cannot accept a message without keys")
     } catch {
       case _: Exception => // GOOD
     }

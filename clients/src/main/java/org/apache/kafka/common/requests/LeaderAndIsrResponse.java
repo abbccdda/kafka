@@ -16,122 +16,87 @@
  */
 package org.apache.kafka.common.requests;
 
-import org.apache.kafka.common.TopicPartition;
+import static java.util.stream.Collectors.toList;
+
+import org.apache.kafka.common.message.ConfluentLeaderAndIsrResponseData;
+import org.apache.kafka.common.message.LeaderAndIsrResponseData;
+import org.apache.kafka.common.message.LeaderAndIsrResponseData.LeaderAndIsrPartitionError;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
-import org.apache.kafka.common.protocol.types.Field;
-import org.apache.kafka.common.protocol.types.Schema;
+import org.apache.kafka.common.protocol.Message;
 import org.apache.kafka.common.protocol.types.Struct;
 
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.kafka.common.protocol.CommonFields.ERROR_CODE;
-import static org.apache.kafka.common.protocol.CommonFields.PARTITION_ID;
-import static org.apache.kafka.common.protocol.CommonFields.TOPIC_NAME;
+public class LeaderAndIsrResponse extends AbstractResponse {
 
-public class LeaderAndIsrResponse extends AbstractResponse implements LeaderAndIsrResponseBase {
-    private static final Field.ComplexArray PARTITIONS = new Field.ComplexArray("partitions", "Response for the requests partitions");
+    private final Message data;
 
-    private static final Field PARTITIONS_V0 = PARTITIONS.withFields(
-            TOPIC_NAME,
-            PARTITION_ID,
-            ERROR_CODE);
-    private static final Schema LEADER_AND_ISR_RESPONSE_V0 = new Schema(
-            ERROR_CODE,
-            PARTITIONS_V0);
-
-    // LeaderAndIsrResponse V1 may receive KAFKA_STORAGE_ERROR in the response
-    private static final Schema LEADER_AND_ISR_RESPONSE_V1 = LEADER_AND_ISR_RESPONSE_V0;
-
-    private static final Schema LEADER_AND_ISR_RESPONSE_V2 = LEADER_AND_ISR_RESPONSE_V1;
-
-    private static final Schema LEADER_AND_ISR_RESPONSE_V3 = LEADER_AND_ISR_RESPONSE_V2;
-
-    public static Schema[] schemaVersions() {
-        return new Schema[]{LEADER_AND_ISR_RESPONSE_V0, LEADER_AND_ISR_RESPONSE_V1, LEADER_AND_ISR_RESPONSE_V2, LEADER_AND_ISR_RESPONSE_V3};
-    }
-
-    /**
-     * Possible error code:
-     *
-     * STALE_CONTROLLER_EPOCH (11)
-     * STALE_BROKER_EPOCH (77)
-     */
-    private final Errors error;
-
-    private final Map<TopicPartition, Errors> responses;
-
-    public LeaderAndIsrResponse(Errors error, Map<TopicPartition, Errors> responses) {
-        this.responses = responses;
-        this.error = error;
-    }
-
-    public LeaderAndIsrResponse(Struct struct) {
-        responses = new HashMap<>();
-        for (Object responseDataObj : struct.get(PARTITIONS)) {
-            Struct responseData = (Struct) responseDataObj;
-            String topic = responseData.get(TOPIC_NAME);
-            int partition = responseData.get(PARTITION_ID);
-            Errors error = Errors.forCode(responseData.get(ERROR_CODE));
-            responses.put(new TopicPartition(topic, partition), error);
+    public LeaderAndIsrResponse(LeaderAndIsrResponseData data, boolean useConfluentResponse) {
+        if (useConfluentResponse) {
+            this.data = new ConfluentLeaderAndIsrResponseData()
+                .setErrorCode(data.errorCode())
+                .setPartitionErrors(data.partitionErrors().stream().map(pe ->
+                    new ConfluentLeaderAndIsrResponseData.LeaderAndIsrPartitionError()
+                        .setTopicName(pe.topicName())
+                        .setPartitionIndex(pe.partitionIndex())
+                        .setErrorCode(pe.errorCode())).collect(toList()));
+        } else {
+            this.data = data;
         }
-
-        error = Errors.forCode(struct.get(ERROR_CODE));
     }
 
-    @Override
-    public Map<TopicPartition, Errors> responses() {
-        return responses;
+    public LeaderAndIsrResponse(Struct struct, short version, boolean useConfluentResponse) {
+        if (useConfluentResponse)
+            this.data = new ConfluentLeaderAndIsrResponseData(struct, version);
+        else
+            this.data = new LeaderAndIsrResponseData(struct, version);
     }
 
-    @Override
+    public List<LeaderAndIsrPartitionError> partitions() {
+        if (data instanceof ConfluentLeaderAndIsrResponseData) {
+            return ((ConfluentLeaderAndIsrResponseData) data).partitionErrors().stream()
+                .map(pe -> new LeaderAndIsrPartitionError()
+                    .setErrorCode(pe.errorCode())
+                    .setTopicName(pe.topicName())
+                    .setPartitionIndex(pe.partitionIndex()))
+                .collect(toList());
+        }
+        return ((LeaderAndIsrResponseData) data).partitionErrors();
+    }
+
     public Errors error() {
-        return error;
+        if (data instanceof ConfluentLeaderAndIsrResponseData)
+            return Errors.forCode(((ConfluentLeaderAndIsrResponseData) data).errorCode());
+        return Errors.forCode(((LeaderAndIsrResponseData) data).errorCode());
     }
 
     @Override
     public Map<Errors, Integer> errorCounts() {
+        Errors error = error();
         if (error != Errors.NONE)
             // Minor optimization since the top-level error applies to all partitions
-            return Collections.singletonMap(error, responses.size());
-        return errorCounts(responses);
+            return Collections.singletonMap(error, partitions().size());
+        return errorCounts(partitions().stream().map(l -> Errors.forCode(l.errorCode())).collect(
+            toList()));
     }
 
     public static LeaderAndIsrResponse parse(ByteBuffer buffer, short version) {
-        return new LeaderAndIsrResponse(ApiKeys.LEADER_AND_ISR.parseResponse(version, buffer));
+        return new LeaderAndIsrResponse(ApiKeys.LEADER_AND_ISR.parseResponse(version, buffer),
+            version, false);
     }
 
     @Override
     protected Struct toStruct(short version) {
-        Struct struct = new Struct(ApiKeys.LEADER_AND_ISR.responseSchema(version));
-
-        List<Struct> responseDatas = new ArrayList<>(responses.size());
-        for (Map.Entry<TopicPartition, Errors> response : responses.entrySet()) {
-            Struct partitionData = struct.instance(PARTITIONS);
-            TopicPartition partition = response.getKey();
-            partitionData.set(TOPIC_NAME, partition.topic());
-            partitionData.set(PARTITION_ID, partition.partition());
-            partitionData.set(ERROR_CODE, response.getValue().code());
-            responseDatas.add(partitionData);
-        }
-
-        struct.set(PARTITIONS, responseDatas.toArray());
-        struct.set(ERROR_CODE, error.code());
-
-        return struct;
+        return data.toStruct(version);
     }
 
     @Override
     public String toString() {
-        return "LeaderAndIsrResponse(" +
-                "responses=" + responses +
-                ", error=" + error +
-                ")";
+        return data.toString();
     }
 
 }

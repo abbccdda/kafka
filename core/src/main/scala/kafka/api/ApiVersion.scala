@@ -90,7 +90,9 @@ object ApiVersion {
     // Introduced static membership.
     KAFKA_2_3_IV0,
     // Add rack_id to FetchRequest, preferred_read_replica to FetchResponse, and replica_id to OffsetsForLeaderRequest
-    KAFKA_2_3_IV1
+    KAFKA_2_3_IV1,
+    // Add adding_replicas and removing_replicas fields to LeaderAndIsrRequest
+    KAFKA_2_4_IV0
   )
 
   // Map keys are the union of the short and full versions

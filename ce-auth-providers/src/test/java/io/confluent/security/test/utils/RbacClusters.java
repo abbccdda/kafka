@@ -46,7 +46,7 @@ import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.config.internals.BrokerSecurityConfigs;
 import org.apache.kafka.common.errors.InterruptException;
-import org.apache.kafka.common.requests.UpdateMetadataRequest;
+import org.apache.kafka.common.message.UpdateMetadataRequestData.UpdateMetadataPartitionState;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Utils;
@@ -233,12 +233,12 @@ public class RbacClusters {
   }
 
   private boolean hasMinIsrs(KafkaServer broker, String topic, int partition) {
-    Option<UpdateMetadataRequest.PartitionState> partitionInfo = broker.metadataCache()
+    Option<UpdateMetadataPartitionState> partitionInfo = broker.metadataCache()
         .getPartitionInfo(topic, partition);
     if (partitionInfo.isEmpty())
       return false;
-    UpdateMetadataRequest.PartitionState partitionState = partitionInfo.get();
-    return partitionState.basePartitionState.isr.size() >= Math.min(3, kafkaCluster.brokers().size());
+    UpdateMetadataPartitionState partitionState = partitionInfo.get();
+    return partitionState.isr().size() >= Math.min(3, kafkaCluster.brokers().size());
   }
 
   private void waitUntilAccessUpdated(String user, String topic, boolean allowed) throws Exception {

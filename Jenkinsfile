@@ -57,6 +57,7 @@ def job = {
                             echo "PR fork branch : ${forkBranch}"
                             buildResult = build job: 'test-cp-downstream-builds', parameters: [
                                     [$class: 'StringParameterValue', name: 'BRANCH', value: muckrakeBranch],
+                                    [$class: 'StringParameterValue', name: 'TEST_PATH', value: "muckrake/tests/dummy_test.py"],
                                     [$class: 'StringParameterValue', name: 'KAFKA_REPO', value: forkRepo],
                                     [$class: 'StringParameterValue', name: 'KAFKA_BRANCH', value: forkBranch]],
                                     propagate: true, wait: true

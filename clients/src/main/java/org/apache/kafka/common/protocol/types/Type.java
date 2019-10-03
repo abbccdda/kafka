@@ -23,6 +23,7 @@ import org.apache.kafka.common.utils.ByteUtils;
 import org.apache.kafka.common.utils.Utils;
 
 import java.nio.ByteBuffer;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -62,6 +63,20 @@ public abstract class Type {
      */
     public boolean isNullable() {
         return false;
+    }
+
+    /**
+     * If the type is an array, return the type of the array elements.  Otherwise, return empty.
+     */
+    public Optional<Type> arrayElementType() {
+        return Optional.empty();
+    }
+
+    /**
+     * Returns true if the type is an array.
+     */
+    public final boolean isArray() {
+        return arrayElementType().isPresent();
     }
 
     /**
@@ -314,17 +329,17 @@ public abstract class Type {
         }
     };
 
-     public static final DocumentedType UUID = new DocumentedType() {
+    public static final DocumentedType UUID = new DocumentedType() {
         @Override
         public void write(ByteBuffer buffer, Object o) {
-            UUID id = (UUID) o;
-            buffer.putLong(id.getMostSignificantBits());
-            buffer.putLong(id.getLeastSignificantBits());
+            final java.util.UUID uuid = (java.util.UUID) o;
+            buffer.putLong(uuid.getMostSignificantBits());
+            buffer.putLong(uuid.getLeastSignificantBits());
         }
 
         @Override
         public Object read(ByteBuffer buffer) {
-            return new UUID(buffer.getLong(), buffer.getLong());
+            return new java.util.UUID(buffer.getLong(), buffer.getLong());
         }
 
         @Override
@@ -347,9 +362,8 @@ public abstract class Type {
 
         @Override
         public String documentation() {
-            return "Represents a 128 bit universally unique identifier (UUID)." +
-                    "The values are encoded using the most significant bits (long), followed by "
-                    + "least significant bits (long)";
+            return "Represents a java.util.UUID. " +
+                    "The values are encoded using sixteen bytes in network byte order (big-endian).";
         }
     };
 
@@ -705,10 +719,9 @@ public abstract class Type {
     };
 
     private static String toHtml() {
-
         DocumentedType[] types = {
             BOOLEAN, INT8, INT16, INT32, INT64,
-            UNSIGNED_INT32, VARINT, VARLONG,
+            UNSIGNED_INT32, VARINT, VARLONG, UUID,
             STRING, NULLABLE_STRING, BYTES, NULLABLE_BYTES,
             RECORDS, new ArrayOf(STRING)};
         final StringBuilder b = new StringBuilder();

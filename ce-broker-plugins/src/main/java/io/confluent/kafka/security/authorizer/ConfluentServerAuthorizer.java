@@ -219,7 +219,7 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
   }
 
   private boolean allowBrokerUsersOnInterBrokerListener(AuthorizableRequestContext requestContext, KafkaPrincipal principal) {
-    if (interBrokerListener.equals(requestContext.listener()) && brokerUsers.contains(principal)) {
+    if (interBrokerListener.equals(requestContext.listenerName()) && brokerUsers.contains(principal)) {
       log.debug("principal = {} is a broker user, allowing operation without checking any providers.", principal);
       return true;
     }
@@ -229,7 +229,7 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
   private Map<String, Object> interBrokerClientConfigs(AuthorizerServerInfo serverInfo) {
     Map<String, Object>  clientConfigs = new HashMap<>();
     Endpoint endpoint = serverInfo.interBrokerEndpoint();
-    ListenerName listenerName = new ListenerName(endpoint.listener());
+    ListenerName listenerName = new ListenerName(endpoint.listenerName().get());
     String listenerPrefix = listenerName.configPrefix();
     clientConfigs.putAll(configs);
     updatePrefixedConfigs(configs, clientConfigs, listenerPrefix);

@@ -38,13 +38,13 @@ import org.apache.kafka.common.errors.{BrokerNotAvailableException, ControllerMo
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{AbstractControlRequest, AbstractResponse, ApiError, LeaderAndIsrResponse}
-import org.apache.kafka.common.requests.LeaderAndIsrResponseBase
 import org.apache.kafka.common.utils.Time
 import org.apache.zookeeper.KeeperException
 import org.apache.zookeeper.KeeperException.Code
 
 import scala.collection.JavaConverters._
 import scala.collection.{Map, Seq, Set, immutable, mutable}
+import scala.collection.mutable.ArrayBuffer
 import scala.util.{Failure, Try}
 
 sealed trait ElectionTrigger
@@ -841,17 +841,15 @@ class KafkaController(val config: KafkaConfig,
     val replicaAssignmentsAndTopicIds = zkClient.getReplicaAssignmentAndTopicIdForTopics(controllerContext.allTopics.toSet)
     processTopicIds(replicaAssignmentsAndTopicIds)
 
-    replicaAssignmentsAndTopicIds.foreach {
-      case TopicIdReplicaAssignment(topic, _, assignments) =>
-        assignments.map {
-          case (topicPartition, replicaAssignment) =>
-            controllerContext.updatePartitionFullReplicaAssignment(topicPartition, replicaAssignment)
-            if (replicaAssignment.isBeingReassigned) {
-              val reassignIsrChangeHandler = new PartitionReassignmentIsrChangeHandler(eventManager, topicPartition)
-              controllerContext.partitionsBeingReassigned.put(topicPartition, ReassignedPartitionsContext(replicaAssignment.targetReplicas,
-                reassignIsrChangeHandler, persistedInZk = false, ongoingReassignmentOpt = None))
-            }
+    replicaAssignmentsAndTopicIds.foreach { case TopicIdReplicaAssignment(_, _, assignments) =>
+      assignments.foreach { case (topicPartition, replicaAssignment) =>
+        controllerContext.updatePartitionFullReplicaAssignment(topicPartition, replicaAssignment)
+        if (replicaAssignment.isBeingReassigned) {
+          val reassignIsrChangeHandler = new PartitionReassignmentIsrChangeHandler(eventManager, topicPartition)
+          controllerContext.partitionsBeingReassigned.put(topicPartition, ReassignedPartitionsContext(replicaAssignment.targetReplicas,
+            reassignIsrChangeHandler, persistedInZk = false, ongoingReassignmentOpt = None))
         }
+      }
     }
 
     controllerContext.partitionLeadershipInfo.clear()
@@ -1318,19 +1316,24 @@ class KafkaController(val config: KafkaConfig,
 
   private def processLeaderAndIsrResponseReceived(leaderAndIsrResponseObj: AbstractResponse, brokerId: Int): Unit = {
     if (!isActive) return
-    val leaderAndIsrResponse = leaderAndIsrResponseObj.asInstanceOf[LeaderAndIsrResponseBase]
+    val leaderAndIsrResponse = leaderAndIsrResponseObj.asInstanceOf[LeaderAndIsrResponse]
 
     if (leaderAndIsrResponse.error != Errors.NONE) {
       stateChangeLogger.error(s"Received error in LeaderAndIsr response $leaderAndIsrResponse from broker $brokerId")
       return
     }
 
-    val offlineReplicas = leaderAndIsrResponse.responses.asScala.collect {
-      case (tp, error) if error == Errors.KAFKA_STORAGE_ERROR => tp
+    val offlineReplicas = new ArrayBuffer[TopicPartition]()
+    val onlineReplicas = new ArrayBuffer[TopicPartition]()
+
+    leaderAndIsrResponse.partitions.asScala.foreach { partition =>
+      val tp = new TopicPartition(partition.topicName, partition.partitionIndex)
+      if (partition.errorCode == Errors.KAFKA_STORAGE_ERROR.code)
+        offlineReplicas += tp
+      else if (partition.errorCode == Errors.NONE.code)
+        onlineReplicas += tp
     }
-    val onlineReplicas = leaderAndIsrResponse.responses.asScala.collect {
-      case (tp, error) if error == Errors.NONE => tp
-    }
+
     val previousOfflineReplicas = controllerContext.replicasOnOfflineDirs.getOrElse(brokerId, Set.empty[TopicPartition])
     val currentOfflineReplicas = previousOfflineReplicas -- onlineReplicas ++ offlineReplicas
     controllerContext.replicasOnOfflineDirs.put(brokerId, currentOfflineReplicas)
@@ -1571,12 +1574,10 @@ class KafkaController(val config: KafkaConfig,
     deletedTopics.foreach(controllerContext.removeTopic)
     processTopicIds(addedPartitionReplicaAssignment)
 
-    addedPartitionReplicaAssignment.foreach {
-      case TopicIdReplicaAssignment(topic, _, newAssignments) =>
-        newAssignments.foreach {
-          case (topicPartition, newReplicaAssignment) =>
-            controllerContext.updatePartitionFullReplicaAssignment(topicPartition, newReplicaAssignment)
-        }
+    addedPartitionReplicaAssignment.foreach { case TopicIdReplicaAssignment(_, _, newAssignments) =>
+      newAssignments.foreach { case (topicPartition, newReplicaAssignment) =>
+        controllerContext.updatePartitionFullReplicaAssignment(topicPartition, newReplicaAssignment)
+      }
     }
     info(s"New topics: [$newTopics], deleted topics: [$deletedTopics], new partition replica assignment " +
       s"[$addedPartitionReplicaAssignment]")

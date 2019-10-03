@@ -24,9 +24,6 @@ public class CommonFields {
             "Duration in milliseconds for which the request was throttled due to quota violation (Zero if the " +
                     "request did not violate any quota)", 0);
     public static final Field.Str TOPIC_NAME = new Field.Str("topic", "Name of topic");
-    public static final Field.Uuid TOPIC_ID = new Field.Uuid(
-            "topic_id",
-            "Unique topic identifier");
     public static final Field.Int32 PARTITION_ID = new Field.Int32("partition", "Topic partition id");
     public static final Field.Int16 ERROR_CODE = new Field.Int16("error_code", "Response error code");
     public static final Field.NullableStr ERROR_MESSAGE = new Field.NullableStr("error_message", "Response error message");

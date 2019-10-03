@@ -99,7 +99,7 @@ public interface FieldType {
 
     final class UUIDFieldType implements FieldType {
         static final UUIDFieldType INSTANCE = new UUIDFieldType();
-        private static final String NAME = "UUID";
+        private static final String NAME = "uuid";
 
         @Override
         public Optional<Integer> fixedLength() {
@@ -115,6 +115,11 @@ public interface FieldType {
     final class StringFieldType implements FieldType {
         static final StringFieldType INSTANCE = new StringFieldType();
         private static final String NAME = "string";
+
+        @Override
+        public boolean serializationIsDifferentInFlexibleVersions() {
+            return true;
+        }
 
         @Override
         public boolean isString() {
@@ -135,6 +140,11 @@ public interface FieldType {
     final class BytesFieldType implements FieldType {
         static final BytesFieldType INSTANCE = new BytesFieldType();
         private static final String NAME = "bytes";
+
+        @Override
+        public boolean serializationIsDifferentInFlexibleVersions() {
+            return true;
+        }
 
         @Override
         public boolean isBytes() {
@@ -160,6 +170,11 @@ public interface FieldType {
         }
 
         @Override
+        public boolean serializationIsDifferentInFlexibleVersions() {
+            return true;
+        }
+
+        @Override
         public boolean isStruct() {
             return true;
         }
@@ -175,6 +190,11 @@ public interface FieldType {
 
         ArrayType(FieldType elementType) {
             this.elementType = elementType;
+        }
+
+        @Override
+        public boolean serializationIsDifferentInFlexibleVersions() {
+            return true;
         }
 
         @Override
@@ -261,6 +281,13 @@ public interface FieldType {
     }
 
     /**
+     * Returns true if the serialization of this type is different in flexible versions.
+     */
+    default boolean serializationIsDifferentInFlexibleVersions() {
+        return false;
+    }
+
+    /**
      * Returns true if this is a string type.
      */
     default boolean isString() {
@@ -293,6 +320,10 @@ public interface FieldType {
      */
     default Optional<Integer> fixedLength() {
         return Optional.empty();
+    }
+
+    default boolean isVariableLength() {
+        return !fixedLength().isPresent();
     }
 
     /**

@@ -115,6 +115,8 @@ public class MultiTenantApis {
       case TIER_LIST_OFFSET:
       case LIST_PARTITION_REASSIGNMENTS:
       case ALTER_PARTITION_REASSIGNMENTS:
+      // Temporarily disabled until we verify that it's OK to enable
+      case OFFSET_DELETE:
         return false;
 
       default:
@@ -489,7 +491,7 @@ public class MultiTenantApis {
     private ArrayTenantTransformer(Type type, TenantTransform transform) {
       super(type, transform);
       ensureArrayType(type);
-      ensureStringType(((ArrayOf) type).type());
+      ensureStringType(type.arrayElementType().get());
     }
 
     @Override

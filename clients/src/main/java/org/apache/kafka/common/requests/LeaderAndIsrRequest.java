@@ -16,162 +16,162 @@
  */
 package org.apache.kafka.common.requests;
 
+import static java.util.Collections.emptyMap;
+import static java.util.stream.Collectors.toMap;
+
+import java.util.UUID;
 import org.apache.kafka.common.Node;
-import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.message.ConfluentLeaderAndIsrRequestData;
+import org.apache.kafka.common.message.LeaderAndIsrRequestData;
+import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrLiveLeader;
+import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrTopicState;
+import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState;
+import org.apache.kafka.common.message.LeaderAndIsrResponseData;
+import org.apache.kafka.common.message.LeaderAndIsrResponseData.LeaderAndIsrPartitionError;
 import org.apache.kafka.common.protocol.ApiKeys;
+import org.apache.kafka.common.protocol.ByteBufferAccessor;
 import org.apache.kafka.common.protocol.Errors;
-import org.apache.kafka.common.protocol.types.Field;
-import org.apache.kafka.common.protocol.types.Schema;
+import org.apache.kafka.common.protocol.Message;
 import org.apache.kafka.common.protocol.types.Struct;
-import org.apache.kafka.common.utils.CollectionUtils;
+import org.apache.kafka.common.utils.FlattenedIterator;
+import org.apache.kafka.common.utils.MappedIterator;
 import org.apache.kafka.common.utils.Utils;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
-import java.util.Collections;
+import java.util.stream.Collectors;
 
-import static org.apache.kafka.common.protocol.CommonFields.PARTITION_ID;
-import static org.apache.kafka.common.protocol.CommonFields.TOPIC_NAME;
-import static org.apache.kafka.common.protocol.types.Type.INT32;
-
-public class LeaderAndIsrRequest extends AbstractControlRequest implements LeaderAndIsrRequestBase {
-    private static final Field.ComplexArray TOPIC_STATES = new Field.ComplexArray("topic_states", "Topic states");
-    private static final Field.ComplexArray PARTITION_STATES = new Field.ComplexArray("partition_states", "Partition states");
-    private static final Field.ComplexArray LIVE_LEADERS = new Field.ComplexArray("live_leaders", "Live leaders");
-
-    // PartitionState fields
-    private static final Field.Int32 LEADER = new Field.Int32("leader", "The broker id for the leader.");
-    private static final Field.Int32 LEADER_EPOCH = new Field.Int32("leader_epoch", "The leader epoch.");
-    private static final Field.Array ISR = new Field.Array("isr", INT32, "The in sync replica ids.");
-    private static final Field.Int32 ZK_VERSION = new Field.Int32("zk_version", "The ZK version.");
-    private static final Field.Array REPLICAS = new Field.Array("replicas", INT32, "The replica ids.");
-    private static final Field.Array ADDING_REPLICAS = new Field.Array("adding_replicas", INT32,
-            "The replica ids we are in the process of adding to the replica set during a reassignment.");
-    private static final Field.Array REMOVING_REPLICAS = new Field.Array("removing_replicas", INT32,
-            "The replica ids we are in the process of removing from the replica set during a reassignment.");
-    private static final Field.Bool IS_NEW = new Field.Bool("is_new", "Whether the replica should have existed on the broker or not");
-
-    // live_leaders fields
-    private static final Field.Int32 END_POINT_ID = new Field.Int32("id", "The broker id");
-    private static final Field.Str HOST = new Field.Str("host", "The hostname of the broker.");
-    private static final Field.Int32  PORT = new Field.Int32("port", "The port on which the broker accepts requests.");
-
-    private static final Field PARTITION_STATES_V0  = PARTITION_STATES.withFields(
-            TOPIC_NAME,
-            PARTITION_ID,
-            CONTROLLER_EPOCH,
-            LEADER,
-            LEADER_EPOCH,
-            ISR,
-            ZK_VERSION,
-            REPLICAS);
-
-    // PARTITION_STATES_V1 added a per-partition is_new Field.
-    // This field specifies whether the replica should have existed on the broker or not.
-    private static final Field PARTITION_STATES_V1  = PARTITION_STATES.withFields(
-            TOPIC_NAME,
-            PARTITION_ID,
-            CONTROLLER_EPOCH,
-            LEADER,
-            LEADER_EPOCH,
-            ISR,
-            ZK_VERSION,
-            REPLICAS,
-            IS_NEW);
-
-    private static final Field PARTITION_STATES_V2  = PARTITION_STATES.withFields(
-            PARTITION_ID,
-            CONTROLLER_EPOCH,
-            LEADER,
-            LEADER_EPOCH,
-            ISR,
-            ZK_VERSION,
-            REPLICAS,
-            IS_NEW);
-
-    private static final Field PARTITION_STATES_V3 = PARTITION_STATES.withFields(
-            PARTITION_ID,
-            CONTROLLER_EPOCH,
-            LEADER,
-            LEADER_EPOCH,
-            ISR,
-            ZK_VERSION,
-            REPLICAS,
-            ADDING_REPLICAS,
-            REMOVING_REPLICAS,
-            IS_NEW);
-
-    // TOPIC_STATES_V2 normalizes TOPIC_STATES_V1 to make it more memory efficient
-    private static final Field TOPIC_STATES_V2 = TOPIC_STATES.withFields(
-            TOPIC_NAME,
-            PARTITION_STATES_V2);
-
-    // TOPIC_STATES_V3 adds two new fields - adding_replicas and removing_replicas
-    private static final Field TOPIC_STATES_V3 = TOPIC_STATES.withFields(
-            TOPIC_NAME,
-            PARTITION_STATES_V3);
-
-    private static final Field LIVE_LEADERS_V0 = LIVE_LEADERS.withFields(
-            END_POINT_ID,
-            HOST,
-            PORT);
-
-    private static final Schema LEADER_AND_ISR_REQUEST_V0 = new Schema(
-            CONTROLLER_ID,
-            CONTROLLER_EPOCH,
-            PARTITION_STATES_V0,
-            LIVE_LEADERS_V0);
-
-    // LEADER_AND_ISR_REQUEST_V1 added a per-partition is_new Field. This field specifies whether the replica should
-    // have existed on the broker or not.
-    private static final Schema LEADER_AND_ISR_REQUEST_V1 = new Schema(
-            CONTROLLER_ID,
-            CONTROLLER_EPOCH,
-            PARTITION_STATES_V1,
-            LIVE_LEADERS_V0);
-
-    // LEADER_AND_ISR_REQUEST_V2 added a broker_epoch Field. This field specifies the generation of the broker across
-    // bounces. It also normalizes partitions under each topic.
-    private static final Schema LEADER_AND_ISR_REQUEST_V2 = new Schema(
-            CONTROLLER_ID,
-            CONTROLLER_EPOCH,
-            BROKER_EPOCH,
-            TOPIC_STATES_V2,
-            LIVE_LEADERS_V0);
-
-    // LEADER_AND_ISR_REQUEST_V3 added two new fields - adding_replicas and removing_replicas.
-    // These fields respectively specify the replica IDs we want to add or remove as part of a reassignment
-    private static final Schema LEADER_AND_ISR_REQUEST_V3 = new Schema(
-            CONTROLLER_ID,
-            CONTROLLER_EPOCH,
-            BROKER_EPOCH,
-            TOPIC_STATES_V3,
-            LIVE_LEADERS_V0);
-
-    public static Schema[] schemaVersions() {
-        return new Schema[]{LEADER_AND_ISR_REQUEST_V0, LEADER_AND_ISR_REQUEST_V1, LEADER_AND_ISR_REQUEST_V2, LEADER_AND_ISR_REQUEST_V3};
-    }
+public class LeaderAndIsrRequest extends AbstractControlRequest {
 
     public static class Builder extends AbstractControlRequest.Builder<LeaderAndIsrRequest> {
-        private final Map<TopicPartition, PartitionState> partitionStates;
-        private final Set<Node> liveLeaders;
+
+        private final List<LeaderAndIsrPartitionState> partitionStates;
+        private final Collection<Node> liveLeaders;
+        private final Map<String, UUID> topicIds;
 
         public Builder(short version, int controllerId, int controllerEpoch, long brokerEpoch,
-                       Map<TopicPartition, PartitionState> partitionStates, Set<Node> liveLeaders) {
-            super(ApiKeys.LEADER_AND_ISR, version, controllerId, controllerEpoch, brokerEpoch);
+            List<LeaderAndIsrPartitionState> partitionStates, Collection<Node> liveLeaders) {
+            this(ApiKeys.LEADER_AND_ISR, version, controllerId, controllerEpoch, brokerEpoch,
+                partitionStates, liveLeaders, emptyMap());
+        }
+
+        private Builder(ApiKeys apiKey, short version, int controllerId, int controllerEpoch,
+                        long brokerEpoch, List<LeaderAndIsrPartitionState> partitionStates,
+                        Collection<Node> liveLeaders, Map<String, UUID> topicIds) {
+            super(apiKey, version, controllerId, controllerEpoch, brokerEpoch);
             this.partitionStates = partitionStates;
             this.liveLeaders = liveLeaders;
+            this.topicIds = topicIds;
+        }
+
+        public static Builder create(short version, int controllerId, int controllerEpoch,
+                                     long brokerEpoch,
+                                     List<LeaderAndIsrPartitionState> partitionStates,
+                                     Collection<Node> liveLeaders,
+                                     Map<String, UUID> topicIds,
+                                     boolean useConfluentRequest) {
+            ApiKeys apiKey = ApiKeys.LEADER_AND_ISR;
+            if (useConfluentRequest) {
+                apiKey = ApiKeys.CONFLUENT_LEADER_AND_ISR;
+                if (version >= 3)
+                    version = 1;
+                else
+                    version = 0;
+            }
+            return new Builder(apiKey, version, controllerId, controllerEpoch, brokerEpoch, partitionStates,
+                liveLeaders, topicIds);
         }
 
         @Override
         public LeaderAndIsrRequest build(short version) {
-            return new LeaderAndIsrRequest(controllerId, controllerEpoch, brokerEpoch, partitionStates, liveLeaders, version);
+            Message data;
+            if (apiKey() == ApiKeys.CONFLUENT_LEADER_AND_ISR) {
+                data = buildConfluentLeaderAndIsrData();
+            } else {
+                data = buildLeaderAndIsrData(version);
+            }
+            return new LeaderAndIsrRequest(data, version);
+        }
+
+        private ConfluentLeaderAndIsrRequestData buildConfluentLeaderAndIsrData() {
+            List<ConfluentLeaderAndIsrRequestData.LeaderAndIsrLiveLeader> leaders = liveLeaders.stream().map(n ->
+                new ConfluentLeaderAndIsrRequestData.LeaderAndIsrLiveLeader()
+                    .setBrokerId(n.id())
+                    .setHostName(n.host())
+                    .setPort(n.port())
+            ).collect(Collectors.toList());
+
+            Map<String, ConfluentLeaderAndIsrRequestData.LeaderAndIsrTopicState> topicStatesMap =
+                groupByConfluentTopic(partitionStates, topicIds);
+
+            return new ConfluentLeaderAndIsrRequestData()
+                .setControllerId(controllerId)
+                .setControllerEpoch(controllerEpoch)
+                .setBrokerEpoch(brokerEpoch)
+                .setLiveLeaders(leaders)
+                .setTopicStates(new ArrayList<>(topicStatesMap.values()));
+        }
+
+        private LeaderAndIsrRequestData buildLeaderAndIsrData(short version) {
+            List<LeaderAndIsrLiveLeader> leaders = liveLeaders.stream().map(n -> new LeaderAndIsrLiveLeader()
+                .setBrokerId(n.id())
+                .setHostName(n.host())
+                .setPort(n.port())
+            ).collect(Collectors.toList());
+
+            LeaderAndIsrRequestData data = new LeaderAndIsrRequestData()
+                .setControllerId(controllerId)
+                .setControllerEpoch(controllerEpoch)
+                .setBrokerEpoch(brokerEpoch)
+                .setLiveLeaders(leaders);
+
+            if (version >= 2) {
+                Map<String, LeaderAndIsrTopicState> topicStatesMap = groupByTopic(partitionStates);
+                data.setTopicStates(new ArrayList<>(topicStatesMap.values()));
+            } else {
+                data.setUngroupedPartitionStates(partitionStates);
+            }
+            return data;
+        }
+
+        private static Map<String, ConfluentLeaderAndIsrRequestData.LeaderAndIsrTopicState> groupByConfluentTopic(
+                List<LeaderAndIsrPartitionState> partitionStates, Map<String, UUID> topicIds) {
+            Map<String, ConfluentLeaderAndIsrRequestData.LeaderAndIsrTopicState> topicStates = new HashMap<>();
+            for (LeaderAndIsrPartitionState partition : partitionStates) {
+                ConfluentLeaderAndIsrRequestData.LeaderAndIsrTopicState topicState =
+                    topicStates.computeIfAbsent(partition.topicName(), t ->
+                        new ConfluentLeaderAndIsrRequestData.LeaderAndIsrTopicState()
+                            .setTopicName(partition.topicName())
+                            .setTopicId(topicIds.get(t)));
+                topicState.partitionStates().add(new ConfluentLeaderAndIsrRequestData.LeaderAndIsrPartitionState()
+                    .setPartitionIndex(partition.partitionIndex())
+                    .setControllerEpoch(partition.controllerEpoch())
+                    .setLeader(partition.leader())
+                    .setLeaderEpoch(partition.leaderEpoch())
+                    .setIsr(partition.isr())
+                    .setZkVersion(partition.zkVersion())
+                    .setReplicas(partition.replicas())
+                    .setIsNew(partition.isNew())
+                    .setAddingReplicas(partition.addingReplicas())
+                    .setRemovingReplicas(partition.removingReplicas()));
+            }
+            return topicStates;
+        }
+
+        private static Map<String, LeaderAndIsrTopicState> groupByTopic(List<LeaderAndIsrPartitionState> partitionStates) {
+            Map<String, LeaderAndIsrTopicState> topicStates = new HashMap<>();
+            // We don't null out the topic name in LeaderAndIsrRequestPartition since it's ignored by
+            // the generated code if version >= 2
+            for (LeaderAndIsrPartitionState partition : partitionStates) {
+                LeaderAndIsrTopicState topicState = topicStates.computeIfAbsent(partition.topicName(),
+                    t -> new LeaderAndIsrTopicState().setTopicName(partition.topicName()));
+                topicState.partitionStates().add(partition);
+            }
+            return topicStates;
         }
 
         @Override
@@ -185,116 +185,74 @@ public class LeaderAndIsrRequest extends AbstractControlRequest implements Leade
                 .append(", liveLeaders=(").append(Utils.join(liveLeaders, ", ")).append(")")
                 .append(")");
             return bld.toString();
+
         }
     }
 
-    private final Map<TopicPartition, PartitionState> partitionStates;
-    private final Set<Node> liveLeaders;
+    private final Message data;
 
-    private LeaderAndIsrRequest(int controllerId, int controllerEpoch, long brokerEpoch, Map<TopicPartition, PartitionState> partitionStates,
-                                Set<Node> liveLeaders, short version) {
-        super(ApiKeys.LEADER_AND_ISR, version, controllerId, controllerEpoch, brokerEpoch);
-        this.partitionStates = partitionStates;
-        this.liveLeaders = liveLeaders;
+    // Visible for testing
+    LeaderAndIsrRequest(LeaderAndIsrRequestData data, short version) {
+        this((Message) data, version);
     }
 
-    public LeaderAndIsrRequest(Struct struct, short version) {
-        super(ApiKeys.LEADER_AND_ISR, struct, version);
+    private LeaderAndIsrRequest(Message data, short version) {
+        super(data instanceof ConfluentLeaderAndIsrRequestData ? ApiKeys.CONFLUENT_LEADER_AND_ISR :
+            ApiKeys.LEADER_AND_ISR, version);
+        this.data = data;
+        // Do this from the constructor to make it thread-safe (even though it's only needed when some methods are called)
+        normalize();
+    }
 
-        Map<TopicPartition, PartitionState> partitionStates = new HashMap<>();
-        if (struct.hasField(TOPIC_STATES)) {
-            for (Object topicStatesDataObj : struct.get(TOPIC_STATES)) {
-                Struct topicStatesData = (Struct) topicStatesDataObj;
-                String topic = topicStatesData.get(TOPIC_NAME);
-                for (Object partitionStateDataObj : topicStatesData.get(PARTITION_STATES)) {
-                    Struct partitionStateData = (Struct) partitionStateDataObj;
-                    int partition = partitionStateData.get(PARTITION_ID);
-                    PartitionState partitionState = new PartitionState(partitionStateData);
-                    partitionStates.put(new TopicPartition(topic, partition), partitionState);
+    private void normalize() {
+        // We normalize the standard `LeaderAndIsrRequestData` and fallback to on the fly conversions
+        // for ConfluentLeaderAndIsrRequestData. The goal is to remove the need for the custom
+        // ConfluentLeaderAndIsrRequestData soon so we pay the efficiency overhead instead of
+        // trying to optimize it.
+        if (!(data instanceof ConfluentLeaderAndIsrRequestData)) {
+            LeaderAndIsrRequestData requestData = (LeaderAndIsrRequestData) data;
+            if (version() >= 2) {
+                for (LeaderAndIsrTopicState topicState : requestData.topicStates()) {
+                    for (LeaderAndIsrPartitionState partitionState : topicState.partitionStates()) {
+                        // Set the topic name so that we can always present the ungrouped view to callers
+                        partitionState.setTopicName(topicState.topicName());
+                    }
                 }
             }
-        } else {
-            for (Object partitionStateDataObj : struct.get(PARTITION_STATES)) {
-                Struct partitionStateData = (Struct) partitionStateDataObj;
-                String topic = partitionStateData.get(TOPIC_NAME);
-                int partition = partitionStateData.get(PARTITION_ID);
-                PartitionState partitionState = new PartitionState(partitionStateData);
-                partitionStates.put(new TopicPartition(topic, partition), partitionState);
-            }
         }
+    }
 
-        Set<Node> leaders = new HashSet<>();
-        for (Object leadersDataObj : struct.get(LIVE_LEADERS)) {
-            Struct leadersData = (Struct) leadersDataObj;
-            int id = leadersData.get(END_POINT_ID);
-            String host = leadersData.get(HOST);
-            int port = leadersData.get(PORT);
-            leaders.add(new Node(id, host, port));
-        }
-
-        this.partitionStates = partitionStates;
-        this.liveLeaders = leaders;
+    public LeaderAndIsrRequest(Struct struct, short version, boolean useConfluentRequest) {
+        this(useConfluentRequest ? new ConfluentLeaderAndIsrRequestData(struct, version) :
+            new LeaderAndIsrRequestData(struct, version), version);
     }
 
     @Override
     protected Struct toStruct() {
-        short version = version();
-        Struct struct = new Struct(ApiKeys.LEADER_AND_ISR.requestSchema(version));
-        struct.set(CONTROLLER_ID, controllerId);
-        struct.set(CONTROLLER_EPOCH, controllerEpoch);
-        struct.setIfExists(BROKER_EPOCH, brokerEpoch);
+        return data.toStruct(version());
+    }
 
-        if (struct.hasField(TOPIC_STATES)) {
-            Map<String, Map<Integer, PartitionState>> topicStates = CollectionUtils.groupPartitionDataByTopic(partitionStates);
-            List<Struct> topicStatesData = new ArrayList<>(topicStates.size());
-            for (Map.Entry<String, Map<Integer, PartitionState>> entry : topicStates.entrySet()) {
-                Struct topicStateData = struct.instance(TOPIC_STATES);
-                topicStateData.set(TOPIC_NAME, entry.getKey());
-                Map<Integer, PartitionState> partitionMap = entry.getValue();
-                List<Struct> partitionStatesData = new ArrayList<>(partitionMap.size());
-                for (Map.Entry<Integer, PartitionState> partitionEntry : partitionMap.entrySet()) {
-                    Struct partitionStateData = topicStateData.instance(PARTITION_STATES);
-                    partitionStateData.set(PARTITION_ID, partitionEntry.getKey());
-                    partitionEntry.getValue().setStruct(partitionStateData, version);
-                    partitionStatesData.add(partitionStateData);
-                }
-                topicStateData.set(PARTITION_STATES, partitionStatesData.toArray());
-                topicStatesData.add(topicStateData);
-            }
-            struct.set(TOPIC_STATES, topicStatesData.toArray());
-        } else {
-            List<Struct> partitionStatesData = new ArrayList<>(partitionStates.size());
-            for (Map.Entry<TopicPartition, PartitionState> entry : partitionStates.entrySet()) {
-                Struct partitionStateData = struct.instance(PARTITION_STATES);
-                TopicPartition topicPartition = entry.getKey();
-                partitionStateData.set(TOPIC_NAME, topicPartition.topic());
-                partitionStateData.set(PARTITION_ID, topicPartition.partition());
-                entry.getValue().setStruct(partitionStateData, version);
-                partitionStatesData.add(partitionStateData);
-            }
-            struct.set(PARTITION_STATES, partitionStatesData.toArray());
-        }
-
-        List<Struct> leadersData = new ArrayList<>(liveLeaders.size());
-        for (Node leader : liveLeaders) {
-            Struct leaderData = struct.instance(LIVE_LEADERS);
-            leaderData.set(END_POINT_ID, leader.id());
-            leaderData.set(HOST, leader.host());
-            leaderData.set(PORT, leader.port());
-            leadersData.add(leaderData);
-        }
-        struct.set(LIVE_LEADERS, leadersData.toArray());
-        return struct;
+    protected ByteBuffer toBytes() {
+        ByteBuffer bytes = ByteBuffer.allocate(size());
+        data().write(new ByteBufferAccessor(bytes), version());
+        bytes.flip();
+        return bytes;
     }
 
     @Override
     public LeaderAndIsrResponse getErrorResponse(int throttleTimeMs, Throwable e) {
+        LeaderAndIsrResponseData responseData = new LeaderAndIsrResponseData();
         Errors error = Errors.forException(e);
+        responseData.setErrorCode(error.code());
 
-        Map<TopicPartition, Errors> responses = new HashMap<>(partitionStates.size());
-        for (TopicPartition partition : partitionStates.keySet()) {
-            responses.put(partition, error);
+        List<LeaderAndIsrPartitionError> partitions = new ArrayList<>();
+        for (LeaderAndIsrPartitionState partition : partitionStates()) {
+            partitions.add(new LeaderAndIsrPartitionError()
+                .setTopicName(partition.topicName())
+                .setPartitionIndex(partition.partitionIndex())
+                .setErrorCode(error.code()));
         }
+        responseData.setPartitionErrors(partitions);
 
         short versionId = version();
         switch (versionId) {
@@ -302,138 +260,94 @@ public class LeaderAndIsrRequest extends AbstractControlRequest implements Leade
             case 1:
             case 2:
             case 3:
-                return new LeaderAndIsrResponse(error, responses);
+                return new LeaderAndIsrResponse(responseData, isConfluentRequest());
             default:
                 throw new IllegalArgumentException(String.format("Version %d is not valid. Valid versions for %s are 0 to %d",
                         versionId, this.getClass().getSimpleName(), ApiKeys.LEADER_AND_ISR.latestVersion()));
         }
     }
 
+    @Override
     public int controllerId() {
-        return controllerId;
-    }
-
-    public int controllerEpoch() {
-        return controllerEpoch;
-    }
-
-    public Map<TopicPartition, PartitionState> partitionStates() {
-        return partitionStates;
-    }
-
-    public Set<Node> liveLeaders() {
-        return liveLeaders;
+        if (data instanceof ConfluentLeaderAndIsrRequestData)
+            return ((ConfluentLeaderAndIsrRequestData) data).controllerId();
+        return ((LeaderAndIsrRequestData) data).controllerId();
     }
 
     @Override
+    public int controllerEpoch() {
+        if (data instanceof ConfluentLeaderAndIsrRequestData)
+            return ((ConfluentLeaderAndIsrRequestData) data).controllerEpoch();
+        return ((LeaderAndIsrRequestData) data).controllerEpoch();
+    }
+
+    @Override
+    public long brokerEpoch() {
+        if (data instanceof ConfluentLeaderAndIsrRequestData)
+            return ((ConfluentLeaderAndIsrRequestData) data).brokerEpoch();
+        return ((LeaderAndIsrRequestData) data).brokerEpoch();
+    }
+
+    public Iterable<LeaderAndIsrPartitionState> partitionStates() {
+        if (data instanceof ConfluentLeaderAndIsrRequestData) {
+            ConfluentLeaderAndIsrRequestData requestData = (ConfluentLeaderAndIsrRequestData) data;
+            return () -> new FlattenedIterator<>(requestData.topicStates().iterator(), topic ->
+                new MappedIterator<>(topic.partitionStates().iterator(), partition ->
+                    new LeaderAndIsrPartitionState()
+                        .setTopicName(topic.topicName())
+                        .setPartitionIndex(partition.partitionIndex())
+                        .setControllerEpoch(partition.controllerEpoch())
+                        .setLeader(partition.leader())
+                        .setLeaderEpoch(partition.leaderEpoch())
+                        .setIsr(partition.isr())
+                        .setZkVersion(partition.zkVersion())
+                        .setReplicas(partition.replicas())
+                        .setIsNew(partition.isNew())
+                        .setAddingReplicas(partition.addingReplicas())
+                        .setRemovingReplicas(partition.removingReplicas())));
+        }
+        LeaderAndIsrRequestData requestData = (LeaderAndIsrRequestData) data;
+        if (version() >= 2)
+            return () -> new FlattenedIterator<>(requestData.topicStates().iterator(),
+                topicState -> topicState.partitionStates().iterator());
+        return requestData.ungroupedPartitionStates();
+    }
+
+    public List<LeaderAndIsrLiveLeader> liveLeaders() {
+        if (data instanceof ConfluentLeaderAndIsrRequestData) {
+            return ((ConfluentLeaderAndIsrRequestData) data).liveLeaders().stream().map(leader ->
+                new LeaderAndIsrLiveLeader()
+                    .setBrokerId(leader.brokerId())
+                    .setHostName(leader.hostName())
+                    .setPort(leader.port())
+            ).collect(Collectors.toList());
+        }
+
+        return ((LeaderAndIsrRequestData) data).liveLeaders();
+    }
+
     public Map<String, UUID> topicIds() {
-        return new HashMap<>();
+        if (data instanceof ConfluentLeaderAndIsrRequestData) {
+            ConfluentLeaderAndIsrRequestData requestData = (ConfluentLeaderAndIsrRequestData) data;
+            return requestData.topicStates().stream().collect(toMap(ts -> ts.topicName(), ts -> ts.topicId()));
+        }
+        return emptyMap();
+    }
+
+    protected int size() {
+        return data.size(version());
+    }
+
+    public boolean isConfluentRequest() {
+        return data instanceof ConfluentLeaderAndIsrRequestData;
+    }
+
+    protected Message data() {
+        return data;
     }
 
     public static LeaderAndIsrRequest parse(ByteBuffer buffer, short version) {
-        return new LeaderAndIsrRequest(ApiKeys.LEADER_AND_ISR.parseRequest(version, buffer), version);
+        return new LeaderAndIsrRequest(ApiKeys.LEADER_AND_ISR.parseRequest(version, buffer), version, false);
     }
 
-    public static final class PartitionState {
-        public final BasePartitionState basePartitionState;
-        public final List<Integer> addingReplicas;
-        public final List<Integer> removingReplicas;
-        public final boolean isNew;
-
-        public PartitionState(int controllerEpoch,
-                              int leader,
-                              int leaderEpoch,
-                              List<Integer> isr,
-                              int zkVersion,
-                              List<Integer> replicas,
-                              boolean isNew) {
-            this(controllerEpoch,
-                 leader,
-                 leaderEpoch,
-                 isr,
-                 zkVersion,
-                 replicas,
-                 Collections.emptyList(),
-                 Collections.emptyList(),
-                 isNew);
-        }
-
-        public PartitionState(int controllerEpoch,
-                              int leader,
-                              int leaderEpoch,
-                              List<Integer> isr,
-                              int zkVersion,
-                              List<Integer> replicas,
-                              List<Integer> addingReplicas,
-                              List<Integer> removingReplicas,
-                              boolean isNew) {
-            this.basePartitionState = new BasePartitionState(controllerEpoch, leader, leaderEpoch, isr, zkVersion, replicas);
-            this.addingReplicas = addingReplicas;
-            this.removingReplicas = removingReplicas;
-            this.isNew = isNew;
-        }
-
-        PartitionState(Struct struct) {
-            int controllerEpoch = struct.get(CONTROLLER_EPOCH);
-            int leader = struct.get(LEADER);
-            int leaderEpoch = struct.get(LEADER_EPOCH);
-
-            Object[] isrArray = struct.get(ISR);
-            List<Integer> isr = new ArrayList<>(isrArray.length);
-            for (Object r : isrArray)
-                isr.add((Integer) r);
-
-            int zkVersion = struct.get(ZK_VERSION);
-
-            Object[] replicasArray = struct.get(REPLICAS);
-            List<Integer> replicas = new ArrayList<>(replicasArray.length);
-            for (Object r : replicasArray)
-                replicas.add((Integer) r);
-
-            this.basePartitionState = new BasePartitionState(controllerEpoch, leader, leaderEpoch, isr, zkVersion, replicas);
-
-            List<Integer> addingReplicas = new ArrayList<>();
-            if (struct.hasField(ADDING_REPLICAS)) {
-                for (Object r : struct.get(ADDING_REPLICAS))
-                    addingReplicas.add((Integer) r);
-            }
-            this.addingReplicas = addingReplicas;
-
-            List<Integer> removingReplicas = new ArrayList<>();
-            if (struct.hasField(REMOVING_REPLICAS)) {
-                for (Object r : struct.get(REMOVING_REPLICAS))
-                    removingReplicas.add((Integer) r);
-            }
-            this.removingReplicas = removingReplicas;
-
-            this.isNew = struct.getOrElse(IS_NEW, false);
-        }
-
-        @Override
-        public String toString() {
-            return "PartitionState(controllerEpoch=" + basePartitionState.controllerEpoch +
-                ", leader=" + basePartitionState.leader +
-                ", leaderEpoch=" + basePartitionState.leaderEpoch +
-                ", isr=" + Utils.join(basePartitionState.isr, ",") +
-                ", zkVersion=" + basePartitionState.zkVersion +
-                ", replicas=" + Utils.join(basePartitionState.replicas, ",") +
-                ", addingReplicas=" + Utils.join(addingReplicas, ",") +
-                ", removingReplicas=" + Utils.join(removingReplicas, ",") +
-                ", isNew=" + isNew + ")";
-        }
-
-        protected void setStruct(Struct struct, short version) {
-            struct.set(CONTROLLER_EPOCH, basePartitionState.controllerEpoch);
-            struct.set(LEADER, basePartitionState.leader);
-            struct.set(LEADER_EPOCH, basePartitionState.leaderEpoch);
-            struct.set(ISR, basePartitionState.isr.toArray());
-            struct.set(ZK_VERSION, basePartitionState.zkVersion);
-            struct.set(REPLICAS, basePartitionState.replicas.toArray());
-            if (version >= 3) {
-                struct.set(ADDING_REPLICAS, addingReplicas.toArray());
-                struct.set(REMOVING_REPLICAS, removingReplicas.toArray());
-            }
-            struct.setIfExists(IS_NEW, isNew);
-        }
-    }
 }

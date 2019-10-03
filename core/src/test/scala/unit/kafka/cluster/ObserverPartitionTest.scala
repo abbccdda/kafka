@@ -5,6 +5,7 @@ package kafka.cluster
 
 import java.io.File
 import java.util.Properties
+
 import kafka.api.ApiVersion
 import kafka.log.AbstractLog
 import kafka.log.CleanerConfig
@@ -18,10 +19,10 @@ import kafka.server.checkpoints.OffsetCheckpoints
 import kafka.utils.MockTime
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.record.CompressionType
 import org.apache.kafka.common.record.MemoryRecords
 import org.apache.kafka.common.record.SimpleRecord
-import org.apache.kafka.common.requests.LeaderAndIsrRequest
 import org.apache.kafka.common.utils.Utils
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -31,6 +32,7 @@ import org.junit.Test
 import org.mockito.ArgumentMatchers
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.when
+
 import scala.collection.JavaConverters._
 
 
@@ -119,7 +121,16 @@ final class ObserverPartitionTest {
       "Expected become leader transition to succeed",
       partition.makeLeader(
         controllerId,
-        new LeaderAndIsrRequest.PartitionState(controllerEpoch, brokerId, leaderEpoch, isr, 1, replicas, true),
+        new LeaderAndIsrPartitionState()
+          .setTopicName(topicPartition.topic)
+          .setPartitionIndex(topicPartition.partition)
+          .setControllerEpoch(controllerEpoch)
+          .setLeader(brokerId)
+          .setLeaderEpoch(leaderEpoch)
+          .setIsr(isr)
+          .setZkVersion(1)
+          .setReplicas(replicas)
+          .setIsNew(true),
         0,
         offsetCheckpoints
       )

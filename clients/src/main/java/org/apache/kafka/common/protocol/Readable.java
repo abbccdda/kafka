@@ -57,10 +57,9 @@ public interface Readable {
     }
 
     /**
-     * Read a 128 bit UUID, with most significant bits followed by least significant bits
+     * Read a UUID with the most significant digits first.
      */
-    default UUID readUuid() {
+    default UUID readUUID() {
         return new UUID(readLong(), readLong());
     }
-
 }

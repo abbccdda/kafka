@@ -32,7 +32,7 @@ import kafka.server.KafkaServer;
 import kafka.utils.MockTime;
 import kafka.zk.EmbeddedZookeeper;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.requests.UpdateMetadataRequest.PartitionState;
+import org.apache.kafka.common.message.UpdateMetadataRequestData.UpdateMetadataPartitionState;
 import org.apache.kafka.test.TestUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -216,15 +216,15 @@ public class EmbeddedKafkaCluster {
       String topic = tp.topic();
       int partition = tp.partition();
       TestUtils.waitForCondition(() ->
-          servers.stream().map(server -> server.dataPlaneRequestHandlerPool().apis().metadataCache())
-              .allMatch(metadataCache -> {
-                Option<PartitionState> partInfo = metadataCache.getPartitionInfo(topic, partition);
-                if (partInfo.isEmpty()) {
+          servers.stream().map(server ->
+              server.dataPlaneRequestHandlerPool().apis().metadataCache()
+          ).allMatch(metadataCache -> {
+              // Use Option.exists once we drop support for Scala 2.11
+              Option<UpdateMetadataPartitionState> partState = metadataCache.getPartitionInfo(topic, partition);
+              if (partState.isEmpty())
                   return false;
-                }
-                PartitionState metadataPartitionState = partInfo.get();
-                return Request.isValidBrokerId(metadataPartitionState.basePartitionState.leader);
-              }), "Metadata for topic=" + topic + " partition=" + partition + " not propagated");
+              return Request.isValidBrokerId(partState.get().leader());
+          }), "Metadata for topic=" + topic + " partition=" + partition + " not propagated");
     } catch (InterruptedException e) {
       throw new RuntimeException("Interrupted", e);
     }

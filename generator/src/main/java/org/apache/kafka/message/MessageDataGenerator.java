@@ -22,6 +22,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -33,9 +34,9 @@ public final class MessageDataGenerator {
     private final SchemaGenerator schemaGenerator;
     private final CodeBuffer buffer;
 
-    MessageDataGenerator() {
+    MessageDataGenerator(String packageName) {
         this.structRegistry = new StructRegistry();
-        this.headerGenerator = new HeaderGenerator();
+        this.headerGenerator = new HeaderGenerator(packageName);
         this.schemaGenerator = new SchemaGenerator(headerGenerator, structRegistry);
         this.buffer = new CodeBuffer();
     }
@@ -479,7 +480,7 @@ public final class MessageDataGenerator {
         } else if (type instanceof FieldType.Int64FieldType) {
             return "readable.readLong()";
         } else if (type instanceof FieldType.UUIDFieldType) {
-            return "readable.readUuid()";
+            return "readable.readUUID()";
         } else if (type.isString()) {
             return "readable.readNullableString()";
         } else if (type.isBytes()) {
@@ -586,6 +587,8 @@ public final class MessageDataGenerator {
             return "Integer";
         } else if (type instanceof FieldType.Int64FieldType) {
             return "Long";
+        } else if (type instanceof FieldType.UUIDFieldType) {
+            return "UUID";
         } else if (type.isString()) {
             return "String";
         } else if (type.isStruct()) {
@@ -657,7 +660,7 @@ public final class MessageDataGenerator {
         } else if (type instanceof FieldType.Int64FieldType) {
             return String.format("writable.writeLong(%s)", name);
         } else if (type instanceof FieldType.UUIDFieldType) {
-            return String.format("writable.writeUuid(%s)", name);
+            return String.format("writable.writeUUID(%s)", name);
         } else if (type instanceof FieldType.StringFieldType) {
             if (nullable) {
                 return String.format("writable.writeNullableString(%s)", name);
@@ -1049,19 +1052,17 @@ public final class MessageDataGenerator {
         } else if (field.type() instanceof FieldType.Int64FieldType) {
             buffer.printf("hashCode = 31 * hashCode + ((int) (%s >> 32) ^ (int) %s);%n",
                 field.camelCaseName(), field.camelCaseName());
-        } else if (field.type() instanceof FieldType.UUIDFieldType) {
-            buffer.printf("hashCode = 31 * hashCode + (%s == null ? 0 : %s.hashCode());%n",
-                field.camelCaseName(), field.camelCaseName());
-        } else if (field.type().isString()) {
-            buffer.printf("hashCode = 31 * hashCode + (%s == null ? 0 : %s.hashCode());%n",
-                field.camelCaseName(), field.camelCaseName());
         } else if (field.type().isBytes()) {
             headerGenerator.addImport(MessageGenerator.ARRAYS_CLASS);
             buffer.printf("hashCode = 31 * hashCode + Arrays.hashCode(%s);%n",
                 field.camelCaseName());
-        } else if (field.type().isStruct() || field.type().isArray()) {
+        } else if (field.type().isStruct()
+                   || field.type().isArray()
+                   || field.type().isString()
+                   || field.type() instanceof  FieldType.UUIDFieldType
+        ) {
             buffer.printf("hashCode = 31 * hashCode + (%s == null ? 0 : %s.hashCode());%n",
-                field.camelCaseName(), field.camelCaseName());
+                          field.camelCaseName(), field.camelCaseName());
         } else {
             throw new RuntimeException("Unsupported field type " + field.type());
         }
@@ -1241,8 +1242,19 @@ public final class MessageDataGenerator {
                 }
                 return field.defaultString() + "L";
             }
-        } else if (field.type() instanceof  FieldType.UUIDFieldType) {
-            return "null";
+        } else if (field.type() instanceof FieldType.UUIDFieldType) {
+            headerGenerator.addImport(MessageGenerator.UUID_CLASS);
+            if (field.defaultString().isEmpty()) {
+                return "org.apache.kafka.common.protocol.MessageUtil.ZERO_UUID";
+            } else {
+                try {
+                    UUID.fromString(field.defaultString());
+                } catch (IllegalArgumentException e) {
+                    throw new RuntimeException("Invalid default for uuid field " +
+                        field.name() + ": " + field.defaultString(), e);
+                }
+                return "UUID.fromString(\"" + field.defaultString() + "\")";
+            }
         } else if (field.type() instanceof FieldType.StringFieldType) {
             if (field.defaultString().equals("null")) {
                 validateNullDefault(field);

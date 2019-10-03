@@ -172,7 +172,7 @@ public abstract class AbstractRequest extends AbstractRequestResponse {
             case UPDATE_METADATA:
                 return new UpdateMetadataRequest(struct, apiVersion);
             case LEADER_AND_ISR:
-                return new LeaderAndIsrRequest(struct, apiVersion);
+                return new LeaderAndIsrRequest(struct, apiVersion, false);
             case DESCRIBE_GROUPS:
                 return new DescribeGroupsRequest(struct, apiVersion);
             case LIST_GROUPS:
@@ -237,6 +237,8 @@ public abstract class AbstractRequest extends AbstractRequestResponse {
                 return new AlterPartitionReassignmentsRequest(struct, apiVersion);
             case LIST_PARTITION_REASSIGNMENTS:
                 return new ListPartitionReassignmentsRequest(struct, apiVersion);
+            case OFFSET_DELETE:
+                return new OffsetDeleteRequest(struct, apiVersion);
             default:
                 return maybeParseInternalRequest(apiKey, apiVersion, struct);
         }
@@ -247,7 +249,7 @@ public abstract class AbstractRequest extends AbstractRequestResponse {
             case TIER_LIST_OFFSET:
                 return new TierListOffsetRequest(struct, apiVersion);
             case CONFLUENT_LEADER_AND_ISR:
-                return new ConfluentLeaderAndIsrRequest(struct, apiVersion);
+                return new LeaderAndIsrRequest(struct, apiVersion, true);
             default:
                 throw new AssertionError(String.format("ApiKey %s is not currently handled in `parseRequest`, the " +
                         "code should be updated to do so.", apiKey));

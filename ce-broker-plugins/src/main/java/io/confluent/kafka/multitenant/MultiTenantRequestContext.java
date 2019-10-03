@@ -23,6 +23,10 @@ import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopicCollection;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfig;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfigCollection;
+import org.apache.kafka.common.message.CreateTopicsResponseData;
+import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicConfigs;
+import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResult;
+import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResultCollection;
 import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
 import org.apache.kafka.common.message.ListGroupsResponseData;
 import org.apache.kafka.common.metrics.Metrics;
@@ -43,6 +47,7 @@ import org.apache.kafka.common.requests.CreateAclsRequest;
 import org.apache.kafka.common.requests.CreatePartitionsRequest;
 import org.apache.kafka.common.requests.CreatePartitionsRequest.PartitionDetails;
 import org.apache.kafka.common.requests.CreateTopicsRequest;
+import org.apache.kafka.common.requests.CreateTopicsResponse;
 import org.apache.kafka.common.requests.DeleteAclsRequest;
 import org.apache.kafka.common.requests.DeleteAclsResponse;
 import org.apache.kafka.common.requests.DescribeAclsRequest;
@@ -244,6 +249,8 @@ public class MultiTenantRequestContext extends RequestContext {
         filteredResponse = filteredDescribeAclsResponse((DescribeAclsResponse) body);
       } else if (body instanceof DeleteAclsResponse) {
         filteredResponse = transformDeleteAclsResponse((DeleteAclsResponse) body);
+      } else if (body instanceof CreateTopicsResponse) {
+        filteredResponse = filteredCreateTopicsResponse((CreateTopicsResponse) body);
       }
 
 
@@ -591,6 +598,29 @@ public class MultiTenantRequestContext extends RequestContext {
       return new DeleteAclsResponse.AclFilterResponse(r.error(), deletions);
     }).collect(Collectors.toList());
     return new DeleteAclsResponse(response.throttleTimeMs(), responses);
+  }
+
+  private CreateTopicsResponse filteredCreateTopicsResponse(CreateTopicsResponse response) {
+    CreateTopicsResponseData responseData = response.data();
+    CreatableTopicResultCollection topics = new CreatableTopicResultCollection(responseData.topics().size());
+    for (CreatableTopicResult result : responseData.topics()) {
+      List<CreatableTopicConfigs> filteredConfigs = result.configs().stream()
+          .filter(c -> MultiTenantConfigRestrictions.visibleTopicConfig(c.configName()))
+          .collect(Collectors.toList());
+      CreatableTopicResult topic = new CreatableTopicResult()
+          .setName(result.name())
+          .setErrorCode(result.errorCode())
+          .setErrorMessage(result.errorMessage())
+          .setTopicConfigErrorCode(result.topicConfigErrorCode())
+          .setNumPartitions(result.numPartitions())
+          .setReplicationFactor(result.replicationFactor())
+          .setConfigs(filteredConfigs);
+      topics.add(topic);
+    }
+    CreateTopicsResponseData data = new CreateTopicsResponseData()
+        .setThrottleTimeMs(responseData.throttleTimeMs())
+        .setTopics(topics);
+    return new CreateTopicsResponse(data);
   }
 
   private boolean isUnsupportedApiVersionsRequest() {

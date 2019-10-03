@@ -162,9 +162,8 @@ public class TransformableSchema<T extends TransformContext> implements Transfor
     } else if (type instanceof Schema) {
       return buildSchema((Schema) type, selector);
     } else if (type instanceof ArrayOf) {
-      ArrayOf arrayType = (ArrayOf) type;
-      return new TransformableArrayOf<>(buildTransformableType(field, arrayType.type(), selector),
-          arrayType.isNullable());
+      return new TransformableArrayOf<>(buildTransformableType(field, type.arrayElementType().get(),
+          selector), type.isNullable());
     } else {
       return new TypeForwarder<>(type);
     }

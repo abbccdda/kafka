@@ -543,6 +543,9 @@ class MergedLog(private[log] val localLog: Log,
 
   override def localLogSegments(from: Long, to: Long): Iterable[LogSegment] = localLog.logSegments(from, to)
 
+  override def localNonActiveLogSegmentsFrom(from: Long): Iterable[LogSegment] =
+    localLog.nonActiveLogSegmentsFrom(from)
+
   override def activeSegment: LogSegment = localLog.activeSegment
 
   override def appendAsLeader(records: MemoryRecords, leaderEpoch: Int, isFromClient: Boolean,
@@ -653,6 +656,7 @@ object MergedLog {
 }
 
 sealed trait AbstractLog {
+
   /**
     * @return The current active directory where log segments are created
     */
@@ -743,6 +747,13 @@ sealed trait AbstractLog {
     *         if "to" is past the end of the log.
     */
   def localLogSegments(from: Long, to: Long): Iterable[LogSegment]
+
+  /**
+   * @param from The start offset (inclusive)
+   * @return A view of local segments beginning with the one containing "from" and up to the end,
+   *         excluding the active segment.
+   */
+  def localNonActiveLogSegmentsFrom(from: Long): Iterable[LogSegment]
 
   def tieredLogSegments: Iterable[TierLogSegment]
 
