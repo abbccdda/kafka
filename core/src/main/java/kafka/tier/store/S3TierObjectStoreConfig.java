@@ -21,8 +21,8 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
         validateConfig(config);
         this.s3bucket = config.tierS3Bucket();
         this.s3Region = config.tierS3Region();
-        this.s3AwsSecretAccessKey = config.tierS3AwsSecretAccessKey();
-        this.s3AwsAccessKeyId = config.tierS3AwsAccessKeyId();
+        this.s3AwsSecretAccessKey = config.tierS3AwsSecretAccessKey().value();
+        this.s3AwsAccessKeyId = config.tierS3AwsAccessKeyId().value();
         this.s3EndpointOverride = config.tierS3EndpointOverride();
         this.s3SignerOverride = config.tierS3SignerOverride();
         this.s3MultipartUploadSize = config.tierS3MultipartUploadSize();
