@@ -204,7 +204,7 @@ import static org.apache.kafka.common.utils.Utils.closeQuietly;
  * The API of this class is evolving, see {@link Admin} for details.
  */
 @InterfaceStability.Evolving
-public class KafkaAdminClient extends AdminClient {
+public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
 
     /**
      * The next integer to use to name a KafkaAdminClient which the user hasn't specified an explicit name for.
