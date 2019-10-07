@@ -24,4 +24,8 @@ public class TierFetchResult {
     public static TierFetchResult emptyFetchResult() {
         return new TierFetchResult(MemoryRecords.EMPTY, Collections.emptyList(), null);
     }
+
+    public boolean isEmpty() {
+        return this.records == MemoryRecords.EMPTY;
+    }
 }

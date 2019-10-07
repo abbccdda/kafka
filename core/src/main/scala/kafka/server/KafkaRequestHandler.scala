@@ -250,6 +250,8 @@ class BrokerTopicMetrics(name: Option[String]) extends KafkaMetricsGroup {
 
   def fetchMessageConversionsRate = metricTypeMap.get(BrokerTopicStats.FetchMessageConversionsPerSec).meter()
 
+  def consumerFetchLagTimeMs = newHistogram(BrokerTopicStats.ConsumerFetchLagTimeMs, biased = true, tags)
+
   def produceMessageConversionsRate = metricTypeMap.get(BrokerTopicStats.ProduceMessageConversionsPerSec).meter()
 
   def noKeyCompactedTopicRecordsPerSec = metricTypeMap.get(BrokerTopicStats.NoKeyCompactedTopicRecordsPerSec).meter()
@@ -268,7 +270,10 @@ class BrokerTopicMetrics(name: Option[String]) extends KafkaMetricsGroup {
       meter.close()
   }
 
-  def close(): Unit = metricTypeMap.values.foreach(_.close())
+  def close(): Unit = {
+    metricTypeMap.values.foreach(_.close())
+    removeMetric(BrokerTopicStats.ConsumerFetchLagTimeMs, tags)
+  }
 }
 
 object BrokerTopicStats {
@@ -284,6 +289,7 @@ object BrokerTopicStats {
   val TotalFetchRequestsPerSec = "TotalFetchRequestsPerSec"
   val FetchMessageConversionsPerSec = "FetchMessageConversionsPerSec"
   val ProduceMessageConversionsPerSec = "ProduceMessageConversionsPerSec"
+  val ConsumerFetchLagTimeMs = "ConsumerFetchLagTimeMs"
 
   // These following topics are for LogValidator for better debugging on failed records
   val NoKeyCompactedTopicRecordsPerSec = "NoKeyCompactedTopicRecordsPerSec"

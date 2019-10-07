@@ -65,6 +65,7 @@ class DelayedFetch(delayMs: Long,
                    quota: ReplicaQuota,
                    tierFetchOpt: Option[PendingFetch],
                    clientMetadata: Option[ClientMetadata],
+                   brokerTopicStats: BrokerTopicStats,
                    responseCallback: Seq[(TopicPartition, FetchPartitionData)] => Unit)
   extends DelayedOperation(delayMs) {
 
@@ -208,7 +209,7 @@ class DelayedFetch(delayMs: Long,
         // We may have not gotten any results back for our tier fetch if we canceled early,
         // return empty batches in that case.
         val tierFetchResult = tierFetcherReadResults.map(_.get(tp)).getOrElse(TierFetchResult.emptyFetchResult())
-        tp -> tierLogReadResult.intoLogReadResult(tierFetchResult)
+        tp -> tierLogReadResult.intoLogReadResult(tierFetchResult, isReadAllowed = !tierFetchResult.isEmpty)
       }
       // Data returned from local storage does not need to be changed
       case (tp, localLogReadResult: LogReadResult) => tp -> localLogReadResult
@@ -216,6 +217,8 @@ class DelayedFetch(delayMs: Long,
 
     val fetchPartitionData = unifiedReadResults.map {
       case (tp, result) =>
+        FetchLag.maybeRecordConsumerFetchTimeLag(result, brokerTopicStats)
+
         tp -> FetchPartitionData(result.error, result.highWatermark, result.leaderLogStartOffset, result.info.records,
           result.lastStableOffset, result.info.abortedTransactions, result.preferredReadReplica)
     }

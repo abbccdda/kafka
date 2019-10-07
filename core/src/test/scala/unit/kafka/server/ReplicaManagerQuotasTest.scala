@@ -158,6 +158,7 @@ class ReplicaManagerQuotasTest {
     def setupDelayedFetch(isReplicaInSync: Boolean): DelayedFetch = {
       val endOffsetMetadata = LogOffsetMetadata(messageOffset = 100L, segmentBaseOffset = 0L, relativePositionInSegment = 500)
       val partition: Partition = EasyMock.createMock(classOf[Partition])
+      val brokerTopicStats = new BrokerTopicStats
 
       val offsetSnapshot = LogOffsetSnapshot(
         logStartOffset = 0L,
@@ -189,8 +190,15 @@ class ReplicaManagerQuotasTest {
         replicaId = 1,
         fetchPartitionStatus = List((tp, fetchPartitionStatus))
       )
-      new DelayedFetch(delayMs = 600, fetchMetadata = fetchMetadata, replicaManager = replicaManager,
-        quota = null, clientMetadata = None, responseCallback = null, tierFetchOpt = None) {
+      new DelayedFetch(
+        delayMs = 600,
+        fetchMetadata = fetchMetadata,
+        replicaManager = replicaManager,
+        quota = null,
+        clientMetadata = None,
+        responseCallback = null,
+        brokerTopicStats = brokerTopicStats,
+        tierFetchOpt = None) {
         override def forceComplete(): Boolean = true
       }
     }

@@ -113,6 +113,7 @@ case class LogReadResult(info: FetchDataInfo,
                          fetchTimeMs: Long,
                          readSize: Int,
                          lastStableOffset: Option[Long],
+                         isReadAllowed: Boolean,
                          preferredReadReplica: Option[Int] = None,
                          followerNeedsHwUpdate: Boolean = false,
                          exception: Option[Throwable] = None) extends AbstractLogReadResult {
@@ -122,7 +123,7 @@ case class LogReadResult(info: FetchDataInfo,
 
   override def toString =
     s"Fetch Data: [$info], HW: [$highWatermark], leaderLogStartOffset: [$leaderLogStartOffset], leaderLogEndOffset: [$leaderLogEndOffset], " +
-    s"followerLogStartOffset: [$followerLogStartOffset], fetchTimeMs: [$fetchTimeMs], readSize: [$readSize], lastStableOffset: [$lastStableOffset], error: [$error]"
+    s"followerLogStartOffset: [$followerLogStartOffset], fetchTimeMs: [$fetchTimeMs], readSize: [$readSize], lastStableOffset: [$lastStableOffset], isReadAllowed: [$isReadAllowed] error: [$error]"
 }
 
 case class TierLogReadResult(info: TierFetchDataInfo,
@@ -148,7 +149,7 @@ case class TierLogReadResult(info: TierFetchDataInfo,
     * Convert this TierLogReadResult into a LogReadResult to be returned to the client.
     * This requires TierFetchResult's from a completed tier fetch.
     */
-  def intoLogReadResult(tierFetchResult: TierFetchResult): LogReadResult = {
+  def intoLogReadResult(tierFetchResult: TierFetchResult, isReadAllowed: Boolean): LogReadResult = {
     var newInfo: FetchDataInfo = FetchDataInfo(
       LogOffsetMetadata.UnknownOffsetMetadata,
       tierFetchResult.records,
@@ -169,6 +170,7 @@ case class TierLogReadResult(info: TierFetchDataInfo,
       followerLogStartOffset = this.followerLogStartOffset,
       fetchTimeMs = this.fetchTimeMs,
       readSize = this.readSize,
+      isReadAllowed = isReadAllowed,
       lastStableOffset = this.lastStableOffset,
       preferredReadReplica = this.preferredReadReplica,
       followerNeedsHwUpdate = this.followerNeedsHwUpdate,
@@ -1054,6 +1056,9 @@ class ReplicaManager(val config: KafkaConfig,
     if (timeout <= 0 || fetchInfos.isEmpty || (tierLogReadResultMap.isEmpty && localReadableBytes >= fetchMinBytes) || errorReadingData || anyPartitionsNeedHwUpdate) {
       val fetchPartitionData = logReadResults.flatMap {
         case (tp, result: LogReadResult) =>
+          if (!isFromFollower)
+              FetchLag.maybeRecordConsumerFetchTimeLag(result, brokerTopicStats)
+
           Some(tp -> FetchPartitionData(result.error, result.highWatermark, result.leaderLogStartOffset, result.info.records,
             result.lastStableOffset, result.info.abortedTransactions, result.preferredReadReplica))
         case _ => None
@@ -1071,7 +1076,7 @@ class ReplicaManager(val config: KafkaConfig,
           fetchIsolation, isFromFollower, replicaId, localFetchPartitionStatusList)
 
         val delayedFetch = new DelayedFetch(timeout, localFetchMetadata, this, quota, None,
-          clientMetadata, maybeUpdateHwAndSendResponse)
+          clientMetadata, brokerTopicStats, maybeUpdateHwAndSendResponse)
 
         // try to complete the request immediately, otherwise put it into the purgatory;
         // this is because while the delayed fetch operation is being created, new requests
@@ -1097,7 +1102,7 @@ class ReplicaManager(val config: KafkaConfig,
         val tierAndLocalFetchMetadata = FetchMetadata(fetchMinBytes, fetchMaxBytes, hardMaxBytesLimit, isFromFollower,
           fetchIsolation, isFromFollower, replicaId, localFetchPartitionStatusList ++ tierFetchPartitionStatusList)
         val delayedFetch = new DelayedFetch(boundedTimeout, tierAndLocalFetchMetadata, this, quota, Some(pendingFetch),
-          clientMetadata, maybeUpdateHwAndSendResponse)
+          clientMetadata, brokerTopicStats, maybeUpdateHwAndSendResponse)
         // Gather up all of the fetchInfos
         delayedFetchPurgatory.tryCompleteElseWatch(delayedFetch, delayedFetchKeys)
       }
@@ -1130,6 +1135,7 @@ class ReplicaManager(val config: KafkaConfig,
           s"remaining response limit $limitBytes" +
           (if (minOneMessage) s", ignoring response/partition size limits" else ""))
 
+        // expect leader if the fetch is from follower
         val partition = getPartitionOrException(tp, expectLeader = fetchOnlyFromLeader)
         val fetchTimeMs = time.milliseconds
 
@@ -1151,6 +1157,7 @@ class ReplicaManager(val config: KafkaConfig,
             followerLogStartOffset = followerLogStartOffset,
             fetchTimeMs = -1L,
             readSize = 0,
+            isReadAllowed = false,
             lastStableOffset = Some(offsetSnapshot.lastStableOffset.messageOffset),
             preferredReadReplica = preferredReadReplica,
             exception = None)
@@ -1193,6 +1200,7 @@ class ReplicaManager(val config: KafkaConfig,
                 followerLogStartOffset = followerLogStartOffset,
                 fetchTimeMs = fetchTimeMs,
                 readSize = adjustedMaxBytes,
+                isReadAllowed = adjustedMaxBytes > 0 || minOneMessage,
                 lastStableOffset = Some(readInfo.lastStableOffset),
                 preferredReadReplica = preferredReadReplica,
                 followerNeedsHwUpdate = followerNeedsHwUpdate,
@@ -1228,6 +1236,7 @@ class ReplicaManager(val config: KafkaConfig,
             followerLogStartOffset = Log.UnknownOffset,
             fetchTimeMs = -1L,
             readSize = 0,
+            isReadAllowed = false,
             lastStableOffset = None,
             exception = Some(e))
         case e: Throwable =>
@@ -1245,6 +1254,7 @@ class ReplicaManager(val config: KafkaConfig,
             followerLogStartOffset = Log.UnknownOffset,
             fetchTimeMs = -1L,
             readSize = 0,
+            isReadAllowed = false,
             lastStableOffset = None,
             exception = Some(e))
       }
@@ -1776,6 +1786,7 @@ class ReplicaManager(val config: KafkaConfig,
               followerLogStartOffset = -1L,
               fetchTimeMs = -1L,
               readSize = 0,
+              isReadAllowed = false,
               lastStableOffset = None,
               exception = Some(new OffsetTieredException(reason)))
         }
@@ -1968,5 +1979,39 @@ class ReplicaManager(val config: KafkaConfig,
     }
 
     controller.electLeaders(partitions, electionType, electionCallback)
+  }
+}
+
+object FetchLag {
+  val UnknownFetchLagMs: Long = -1L
+
+  /**
+   * Calculate the lag as the difference to the fetch timestamp (ms) which is based on current time  as retention is
+   * computed based on current timestamp too.
+   * 1. result.isReadAllowed is FALSE then read did not happen; fetch time lag cannot be computed
+   * 2. Empty batch indicated zero lag, as the consumer is caught up
+   * 3. Non empty record batch with NO_TIMESTAMP indicates messages with older format.
+   * 4. lag = result.fetchTimeMs - firstBatchTimestamp
+   */
+  private def lagInMs(result: LogReadResult): Long = {
+    if (!result.isReadAllowed)
+      return FetchLag.UnknownFetchLagMs
+
+    val iterator = result.info.records.batches.iterator
+    if (!iterator.hasNext())
+      return 0L
+
+    val firstBatchTimestamp = iterator.next().maxTimestamp()
+    if (firstBatchTimestamp == RecordBatch.NO_TIMESTAMP || result.fetchTimeMs < firstBatchTimestamp)
+      return UnknownFetchLagMs
+
+    result.fetchTimeMs - firstBatchTimestamp
+  }
+
+  def maybeRecordConsumerFetchTimeLag(result: LogReadResult,
+                                      brokerTopicStats: BrokerTopicStats): Unit = {
+    val fetchLagMs = FetchLag.lagInMs(result)
+    if (fetchLagMs != FetchLag.UnknownFetchLagMs)
+      brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.update(fetchLagMs)
   }
 }
