@@ -98,8 +98,9 @@ public class ConfluentAuditLogProviderRbacTest {
     }
     rbacConfig.overrideBrokerConfig(
         EventLogConfig.ROUTER_CONFIG,
-        AuditLogRouterJsonConfig.defaultConfig(
+        AuditLogRouterJsonConfig.defaultConfigProduceConsumeInterbroker(
             props.getProperty(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG),
+            AUTHORITY_NAME,
             AuditLogRouterJsonConfig.DEFAULT_TOPIC,
             AuditLogRouterJsonConfig.DEFAULT_TOPIC));
     rbacConfig.overrideBrokerConfig(EventLogConfig.TOPIC_REPLICAS_CONFIG, "1");
@@ -249,7 +250,7 @@ public class ConfluentAuditLogProviderRbacTest {
 
     // Verify inter-broker logs
     assertNotNull(firstMatchingEvent(consumer, 10000,
-        "User:" + BROKER_USER, clusterCrn, "kafka.ClusterAction",
+        "User:" + BROKER_USER, clusterCrn, "kafka.LeaderAndIsr",
         AuthorizeResult.ALLOWED, PolicyType.SUPER_USER));
 
     String app1TopicCrn = ConfluentResourceName.newBuilder()
@@ -262,13 +263,17 @@ public class ConfluentAuditLogProviderRbacTest {
     // Verify RBAC authorization logs
     rbacClusters.produceConsume(RESOURCE_OWNER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
     assertNotNull(firstMatchingEvent(consumer, 10000,
-        "User:" + RESOURCE_OWNER1, app1TopicCrn, "kafka.Write",
+        "User:" + RESOURCE_OWNER1, app1TopicCrn, "kafka.OffsetFetch",
+        AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE));
+    rbacClusters.produceConsume(RESOURCE_OWNER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
+    assertNotNull(firstMatchingEvent(consumer, 10000,
+        "User:" + RESOURCE_OWNER1, app1TopicCrn, "kafka.Produce",
         AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE));
 
     // Verify deny logs
     rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, false);
     assertNotNull(firstMatchingEvent(consumer, 10000,
-        "User:" + DEVELOPER1, app1TopicCrn, "kafka.Describe",
+        "User:" + DEVELOPER1, app1TopicCrn, "kafka.Metadata",
         AuthorizeResult.DENIED, PolicyType.DENY_ON_NO_RULE));
 
     // Verify ZK-based ACL logs
@@ -276,7 +281,7 @@ public class ConfluentAuditLogProviderRbacTest {
         PatternType.LITERAL);
     rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
     assertNotNull(firstMatchingEvent(consumer, 10000,
-        "User:" + DEVELOPER1, app1TopicCrn, "kafka.Write",
+        "User:" + DEVELOPER1, app1TopicCrn, "kafka.Produce",
         AuthorizeResult.ALLOWED, PolicyType.ALLOW_ACL));
 
     // Verify centralized ACL logs
@@ -301,7 +306,7 @@ public class ConfluentAuditLogProviderRbacTest {
             PatternType.LITERAL), PermissionType.ALLOW);
     rbacClusters.produceConsume(DEVELOPER1, APP2_TOPIC, app3Group, true);
     assertNotNull(firstMatchingEvent(consumer, 10000,
-        "User:" + DEVELOPER1, app3GroupCrn, "kafka.Read",
+        "User:" + DEVELOPER1, app3GroupCrn, "kafka.OffsetFetch",
         AuthorizeResult.ALLOWED, PolicyType.ALLOW_ACL));
 
   }

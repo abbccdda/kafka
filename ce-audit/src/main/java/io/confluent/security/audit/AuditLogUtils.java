@@ -14,6 +14,8 @@ import io.confluent.security.authorizer.RequestContext;
 import io.confluent.security.rbac.RoleBinding;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclOperation;
+import org.apache.kafka.common.protocol.ApiKeys;
 
 public class AuditLogUtils {
 
@@ -21,9 +23,31 @@ public class AuditLogUtils {
       RequestContext requestContext, Action action, AuthorizeResult authorizeResult,
       AuthorizePolicy authorizePolicy) {
 
+    String requestName;
+    int requestType = requestContext.requestType();
+    if (requestType < 0) {
+      if (requestContext.MDS.equals(requestContext.requestSource())) {
+        requestName = "Authorize";
+      } else {
+        throw new RuntimeException("Got unexpected requestType not from MDS: " + requestType);
+      }
+    } else {
+      ApiKeys requestKey = ApiKeys.forId(requestType);
+      if (requestKey == ApiKeys.FETCH) {
+        if (AclOperation.CLUSTER_ACTION.equals(action.operation())) {
+          requestName = "FetchFollower";
+        } else {
+          requestName = "FetchConsumer";
+        }
+      } else {
+        requestName = requestKey.name;
+      }
+    }
+
+
     AuditLogEntry.Builder builder = AuditLogEntry.newBuilder()
         .setServiceName(source)
-        .setMethodName(requestContext.requestSource() + "." + action.operation().name())
+        .setMethodName(requestContext.requestSource() + "." + requestName)
         .setResourceName(subject);
 
     AuthenticationInfo.Builder authenticationBuilder = AuthenticationInfo.newBuilder()

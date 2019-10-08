@@ -12,6 +12,7 @@ public class CloudEventUtils {
 
   public static final String CLOUDEVENTS_SPEC_VERSION = "0.3";
   private static TypeRegistry dataTypeRegistry;
+  public static final String TYPE_URL = "type.confluent.io";
 
   static {
     // Do we need to allow runtime registration?
@@ -32,7 +33,7 @@ public class CloudEventUtils {
         .setId(id)
         .setTime(time.toString())
         .setSubject(subject)
-        .setData(Any.pack(data))
+        .setData(Any.pack(data, TYPE_URL))
         .build();
   }
 

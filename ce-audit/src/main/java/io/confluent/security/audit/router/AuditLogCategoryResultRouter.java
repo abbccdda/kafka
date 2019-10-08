@@ -72,4 +72,9 @@ public class AuditLogCategoryResultRouter implements EventTopicRouter {
       return Optional.empty();
     }
   }
+
+  @Override
+  public String toString() {
+    return "AuditLogCategoryResultRouter(" + routes + ")";
+  }
 }

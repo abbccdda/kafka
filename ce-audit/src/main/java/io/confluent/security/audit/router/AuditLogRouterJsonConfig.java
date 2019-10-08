@@ -202,6 +202,38 @@ public class AuditLogRouterJsonConfig {
     }
   }
 
+  public static String defaultConfigProduceConsumeInterbroker(String bootstrapServers,
+      String crnAuthority,
+      String defaultTopicAllowed, String defaultTopicDenied) {
+    AuditLogRouterJsonConfig config = new AuditLogRouterJsonConfig();
+    config.destinations = new Destinations(
+        Arrays.asList(bootstrapServers.split(",")));
+    config.destinations.putTopic(defaultTopicAllowed, new DestinationTopic(DEFAULT_RETENTION_MS));
+    config.destinations.putTopic(defaultTopicDenied, new DestinationTopic(DEFAULT_RETENTION_MS));
+
+    config.defaultTopics = new DefaultTopics(defaultTopicAllowed, defaultTopicDenied);
+
+    config.routes.put("crn://" + crnAuthority + "/kafka=*",
+        Utils.mkMap(Utils.mkEntry(AuditLogCategoryResultRouter.INTERBROKER_CATEGORY,
+            Utils.mkMap(Utils.mkEntry("allowed", defaultTopicAllowed),
+                Utils.mkEntry("denied", defaultTopicDenied)))));
+    config.routes.put("crn://" + crnAuthority + "/kafka=*/topic=*",
+        Utils.mkMap(Utils.mkEntry(AuditLogCategoryResultRouter.PRODUCE_CATEGORY,
+            Utils.mkMap(Utils.mkEntry("allowed", defaultTopicAllowed),
+                Utils.mkEntry("denied", defaultTopicDenied)))));
+    config.routes.put("crn://" + crnAuthority + "/kafka=*/group=*",
+        Utils.mkMap(Utils.mkEntry(AuditLogCategoryResultRouter.CONSUME_CATEGORY,
+                Utils.mkMap(Utils.mkEntry("allowed", defaultTopicAllowed),
+                    Utils.mkEntry("denied", defaultTopicDenied)))));
+    ObjectMapper mapper = new ObjectMapper();
+    try {
+      return mapper.writeValueAsString(config);
+    } catch (JsonProcessingException e) {
+      // Shouldn't happen because this is always the same
+      throw new RuntimeException(e);
+    }
+  }
+
   public static String defaultConfig(String bootstrapServers) {
     return defaultConfig(bootstrapServers, DEFAULT_TOPIC, DEFAULT_TOPIC);
   }

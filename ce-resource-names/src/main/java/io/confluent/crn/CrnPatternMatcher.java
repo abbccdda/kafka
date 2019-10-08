@@ -45,4 +45,8 @@ public class CrnPatternMatcher<T> {
     return null;
   }
 
+  @Override
+  public String toString() {
+    return "CrnPatternMatcher(" + patternsByResourceType + ")";
+  }
 }

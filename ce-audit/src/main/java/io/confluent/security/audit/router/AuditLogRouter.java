@@ -95,4 +95,9 @@ public class AuditLogRouter implements EventTopicRouter {
       return Optional.empty();
     }
   }
+
+  @Override
+  public String toString() {
+    return "AuditLogRouter(default=" + defaultTopicRouter + ",routes=" + crnRouters + ")";
+  }
 }

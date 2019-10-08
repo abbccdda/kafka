@@ -70,4 +70,8 @@ public class CachedCrnStringPatternMatcher<T> {
     return cache.size();
   }
 
+  @Override
+  public String toString() {
+    return "CachedCrnStringPatternMatcher(matcher=" + matcher + ")";
+  }
 }
