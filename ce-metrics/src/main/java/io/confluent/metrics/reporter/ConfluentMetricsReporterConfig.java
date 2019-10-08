@@ -53,6 +53,9 @@ public class ConfluentMetricsReporterConfig extends AbstractConfig {
   public static final String TOPIC_REPLICAS_DOC =
       "Number of replicas in the metric topic. It must not be higher than the number "
       + "of brokers in the Kafka cluster.";
+  // set minIsr to be consistent with
+  // control center {@link io.confluent.controlcenter.ControlCenterConfig.CONTROL_CENTER_INTERNAL_TOPIC_DEFAULT_MIN_ISR}
+  public static final int DEFAULT_MIN_ISR = 1;
 
   public static final String TOPIC_RETENTION_MS_CONFIG =
       METRICS_REPORTER_PREFIX + "topic.retention.ms";

@@ -16,6 +16,7 @@ import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
+import static io.confluent.metrics.reporter.ConfluentMetricsReporterConfig.DEFAULT_MIN_ISR;
 
 public class KafkaExporterConfig extends AbstractConfig {
 
@@ -172,13 +173,9 @@ public class KafkaExporterConfig extends AbstractConfig {
     }
 
     Map<String, String> getTopicConfig() {
-        int topicReplicas = getInt(TOPIC_REPLICAS_CONFIG);
-        // set minIsr to be consistent with
-        // control center {@link io.confluent.controlcenter.util.TopicInfo.Builder.setReplication}
-        int minIsr = Math.min(3, topicReplicas < 3 ? 1 : topicReplicas - 1);
 
         final Map<String, String> topicConfig = new HashMap<>();
-        topicConfig.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Integer.toString(minIsr));
+        topicConfig.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Integer.toString(DEFAULT_MIN_ISR));
         topicConfig.put(TopicConfig.RETENTION_MS_CONFIG,
             getLong(TOPIC_RETENTION_MS_CONFIG).toString());
         topicConfig.put(TopicConfig.RETENTION_BYTES_CONFIG,
