@@ -485,6 +485,9 @@ class RequestQuotaTest extends BaseRequestTest {
 
   private def maybeBuildInternalRequest(apiKey: ApiKeys): AbstractRequest.Builder[_ <: AbstractRequest] = {
     apiKey match {
+      case ApiKeys.REPLICA_STATUS =>
+        new ReplicaStatusRequest.Builder(Collections.singleton(new TopicPartition("test", 0)))
+
       case ApiKeys.TIER_LIST_OFFSET =>
         val partition = new TierListOffsetRequestData.TierListOffsetPartition()
           .setPartitionIndex(0)
@@ -604,6 +607,7 @@ class RequestQuotaTest extends BaseRequestTest {
         new IncrementalAlterConfigsResponse(response, ApiKeys.INCREMENTAL_ALTER_CONFIGS.latestVersion()).throttleTimeMs
       case ApiKeys.ALTER_PARTITION_REASSIGNMENTS => new AlterPartitionReassignmentsResponse(response).throttleTimeMs
       case ApiKeys.LIST_PARTITION_REASSIGNMENTS => new ListPartitionReassignmentsResponse(response).throttleTimeMs
+      case ApiKeys.REPLICA_STATUS => new ReplicaStatusResponse(response, ApiKeys.REPLICA_STATUS.latestVersion).throttleTimeMs
       case requestId => throw new IllegalArgumentException(s"No throttle time for $requestId")
     }
   }

@@ -1,0 +1,17 @@
+// Copyright 2019 Confluent Inc.
+
+{
+  "apiKey": 32765,
+  "type": "request",
+  "name": "ReplicaStatusRequest",
+  "validVersions": "0",
+  "fields": [
+    { "name": "Topics", "type": "[]ReplicaStatusTopic", "versions": "0+",
+      "about": "The topics to request replica status for.", "fields": [
+      { "name": "Name", "type": "string", "versions": "0+", "entityType": "topicName",
+        "about": "The topic name." },
+      { "name": "Partitions", "type": "[]int32", "versions": "0+",
+        "about": "The partitions to request replica status for. Note this field is required." }
+    ]}
+  ]
+}

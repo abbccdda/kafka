@@ -36,7 +36,7 @@ class Replica(val brokerId: Int, val topicPartition: TopicPartition) extends Log
 
   // The time when the leader received the last FetchRequest from this follower
   // This is used to determine the lastCaughtUpTimeMs of the follower
-  @volatile private[this] var lastFetchTimeMs = 0L
+  @volatile private[this] var _lastFetchTimeMs = 0L
 
   // lastCaughtUpTimeMs is the largest time t such that the offset of most recent FetchRequest from this follower >=
   // the LEO of leader at time t. This is used to determine the lag of this follower and ISR of this partition.
@@ -51,6 +51,8 @@ class Replica(val brokerId: Int, val topicPartition: TopicPartition) extends Log
   def logEndOffsetMetadata: LogOffsetMetadata = _logEndOffsetMetadata
 
   def logEndOffset: Long = logEndOffsetMetadata.messageOffset
+
+  def lastFetchTimeMs: Long = _lastFetchTimeMs
 
   def lastCaughtUpTimeMs: Long = _lastCaughtUpTimeMs
 
@@ -75,12 +77,12 @@ class Replica(val brokerId: Int, val topicPartition: TopicPartition) extends Log
     if (followerFetchOffsetMetadata.messageOffset >= leaderEndOffset)
       _lastCaughtUpTimeMs = math.max(_lastCaughtUpTimeMs, followerFetchTimeMs)
     else if (followerFetchOffsetMetadata.messageOffset >= lastFetchLeaderLogEndOffset)
-      _lastCaughtUpTimeMs = math.max(_lastCaughtUpTimeMs, lastFetchTimeMs)
+      _lastCaughtUpTimeMs = math.max(_lastCaughtUpTimeMs, _lastFetchTimeMs)
 
     _logStartOffset = followerStartOffset
     _logEndOffsetMetadata = followerFetchOffsetMetadata
     lastFetchLeaderLogEndOffset = leaderEndOffset
-    lastFetchTimeMs = followerFetchTimeMs
+    _lastFetchTimeMs = followerFetchTimeMs
     trace(s"Updated state of replica to $this")
   }
 
@@ -99,7 +101,7 @@ class Replica(val brokerId: Int, val topicPartition: TopicPartition) extends Log
 
   def resetLastCaughtUpTime(curLeaderLogEndOffset: Long, curTimeMs: Long, lastCaughtUpTimeMs: Long): Unit = {
     lastFetchLeaderLogEndOffset = curLeaderLogEndOffset
-    lastFetchTimeMs = curTimeMs
+    _lastFetchTimeMs = curTimeMs
     _lastCaughtUpTimeMs = lastCaughtUpTimeMs
     trace(s"Reset state of replica to $this")
   }

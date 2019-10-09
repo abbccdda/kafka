@@ -103,7 +103,7 @@ public class AdminClientUnitTestEnv implements AutoCloseable {
         return cluster;
     }
 
-    public Admin adminClient() {
+    public ConfluentAdmin adminClient() {
         return adminClient;
     }
 

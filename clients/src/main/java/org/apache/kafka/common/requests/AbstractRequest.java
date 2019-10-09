@@ -244,6 +244,8 @@ public abstract class AbstractRequest extends AbstractRequestResponse {
 
     private static AbstractRequest maybeParseInternalRequest(ApiKeys apiKey, short apiVersion, Struct struct) {
         switch (apiKey) {
+            case REPLICA_STATUS:
+                return new ReplicaStatusRequest(struct, apiVersion);
             case TIER_LIST_OFFSET:
                 return new TierListOffsetRequest(struct, apiVersion);
             case CONFLUENT_LEADER_AND_ISR:

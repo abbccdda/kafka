@@ -160,6 +160,8 @@ public abstract class AbstractResponse extends AbstractRequestResponse {
                 return new ElectLeadersResponse(struct, version);
             case INCREMENTAL_ALTER_CONFIGS:
                 return new IncrementalAlterConfigsResponse(struct, version);
+            case REPLICA_STATUS:
+                return new ReplicaStatusResponse(struct, version);
             case TIER_LIST_OFFSET:
                 return new TierListOffsetResponse(struct, version);
             case CONFLUENT_LEADER_AND_ISR:

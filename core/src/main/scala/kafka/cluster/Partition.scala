@@ -37,6 +37,7 @@ import org.apache.kafka.common.protocol.Errors._
 import org.apache.kafka.common.record.{MemoryRecords, RecordBatch}
 import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
 import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
+import org.apache.kafka.common.replica.ReplicaStatus
 import org.apache.kafka.common.requests.EpochEndOffset._
 import org.apache.kafka.common.requests.TierListOffsetRequest.OffsetType
 import org.apache.kafka.common.requests._
@@ -1263,6 +1264,25 @@ class Partition(val topicPartition: TopicPartition,
 
       case None =>
         info(s"Cached zkVersion $zkVersion not equal to that in zookeeper, skip updating ISR")
+    }
+  }
+
+  def replicaStatus(): Seq[ReplicaStatus] = {
+    leaderLogIfLocal match {
+      case Some(leaderLog) =>
+        val curTimeMs = time.milliseconds
+        new ReplicaStatus(localBrokerId, ReplicaStatus.Mode.LEADER, true, true,
+          leaderLog.logStartOffset, leaderLog.logEndOffset, curTimeMs, curTimeMs) ::
+        remoteReplicasMap.values.map { replica =>
+          new ReplicaStatus(replica.brokerId, ReplicaStatus.Mode.FOLLOWER,
+            isFollowerInSync(replica, leaderLog.highWatermark),
+            inSyncReplicaIds.contains(replica.brokerId),
+            replica.logStartOffset, replica.logEndOffsetMetadata.messageOffset,
+            replica.lastCaughtUpTimeMs, replica.lastFetchTimeMs)
+        }.toList
+
+      case None =>
+        throw new NotLeaderForPartitionException(s"Broker ${localBrokerId} is not the leader for partition ${topicPartition}")
     }
   }
 

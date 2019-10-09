@@ -1,0 +1,45 @@
+// Copyright 2019 Confluent Inc.
+
+{
+  "apiKey": 32765,
+  "type": "response",
+  "name": "ReplicaStatusResponse",
+  "validVersions": "0",
+  "fields": [
+    { "name": "ThrottleTimeMs", "type": "int32", "versions": "0+",
+      "about": "The duration in milliseconds for which the request was throttled due to a quota violation, or zero if the request did not violate any quota." },
+    { "name": "ErrorCode", "type": "int16", "versions": "0+",
+      "about": "The top-level error code, or 0 if there was no error." },
+    { "name": "Topics", "type": "[]ReplicaStatusTopicResponse", "versions": "0+",
+      "about": "Each topic in the response.", "fields": [
+      { "name": "Name", "type": "string", "versions": "0+", "entityType": "topicName",
+        "about": "The topic name." },
+      { "name": "Partitions", "type": "[]ReplicaStatusPartitionResponse", "versions": "0+",
+        "about": "Each partition in the response.", "fields": [
+        { "name": "PartitionIndex", "type": "int32", "versions": "0+",
+          "about": "The partition index." },
+        { "name": "ErrorCode", "type": "int16", "versions": "0+",
+          "about": "The partition error code, or 0 if there was no error. On error, the replica data will be null." },
+        { "name": "Replicas", "type": "[]ReplicaStatusReplicaResponse", "versions": "0+", "nullableVersions": "0+",
+          "about": "The replica for the partition.", "fields": [
+          { "name": "Id", "type": "int32", "versions": "0+", "entityType": "brokerId",
+            "about": "The broker ID for the replica." },
+          { "name": "Mode", "type": "int8", "versions": "0+",
+            "about": "The mode of the replica: 0 = leader, 1 = follower, 2 = observer." },
+          { "name": "IsCaughtUp", "type": "bool", "versions": "0+",
+            "about": "Whether the replica's log is considered to be caught up." },
+          { "name": "IsInSync", "type": "bool", "versions": "0+",
+            "about": "Whether the replica is in the ISR set." },
+          { "name": "LogStartOffset", "type": "int64", "versions": "0+",
+            "about": "The replica's starting log offset, or -1 if unknown." },
+          { "name": "LogEndOffset", "type": "int64", "versions": "0+",
+            "about": "The replica's ending log offset, or -1 if unknown." },
+          { "name": "LastCaughtUpTimeMs", "type": "int64", "versions": "0+",
+            "about": "The time when the replica was caught up to the leader." },
+          { "name": "LastFetchTimeMs", "type": "int64", "versions": "0+",
+            "about": "The time when the leader processed the last fetch request from the replica." }
+        ]}
+      ]}
+    ]}
+  ]
+}

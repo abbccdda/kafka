@@ -176,7 +176,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
       ApiKeys.ELECT_LEADERS -> classOf[ElectLeadersResponse],
       ApiKeys.INCREMENTAL_ALTER_CONFIGS -> classOf[IncrementalAlterConfigsResponse],
       ApiKeys.ALTER_PARTITION_REASSIGNMENTS -> classOf[AlterPartitionReassignmentsResponse],
-      ApiKeys.LIST_PARTITION_REASSIGNMENTS -> classOf[ListPartitionReassignmentsResponse]
+      ApiKeys.LIST_PARTITION_REASSIGNMENTS -> classOf[ListPartitionReassignmentsResponse],
+      ApiKeys.REPLICA_STATUS -> classOf[ReplicaStatusResponse]
     )
 
   val requestKeyToError = Map[ApiKeys, Nothing => Errors](
@@ -231,7 +232,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
         topicResourceError.error()
     }),
     ApiKeys.ALTER_PARTITION_REASSIGNMENTS -> ((resp: AlterPartitionReassignmentsResponse) => Errors.forCode(resp.data().errorCode())),
-    ApiKeys.LIST_PARTITION_REASSIGNMENTS -> ((resp: ListPartitionReassignmentsResponse) => Errors.forCode(resp.data().errorCode()))
+    ApiKeys.LIST_PARTITION_REASSIGNMENTS -> ((resp: ListPartitionReassignmentsResponse) => Errors.forCode(resp.data().errorCode())),
+    ApiKeys.REPLICA_STATUS -> ((resp: ReplicaStatusResponse) => Errors.forCode(resp.data().errorCode()))
   )
 
   val requestKeysToAcls = Map[ApiKeys, Map[ResourcePattern, Set[AccessControlEntry]]](
@@ -273,7 +275,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     ApiKeys.ELECT_LEADERS -> clusterAlterAcl,
     ApiKeys.INCREMENTAL_ALTER_CONFIGS -> topicAlterConfigsAcl,
     ApiKeys.ALTER_PARTITION_REASSIGNMENTS -> clusterAlterAcl,
-    ApiKeys.LIST_PARTITION_REASSIGNMENTS -> clusterDescribeAcl
+    ApiKeys.LIST_PARTITION_REASSIGNMENTS -> clusterDescribeAcl,
+    ApiKeys.REPLICA_STATUS -> topicDescribeAcl
   )
 
   @Before
@@ -526,6 +529,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     )
   ).build()
 
+  private def replicaStatusRequest = new ReplicaStatusRequest.Builder(Collections.singleton(tp)).build()
+
   @Test
   def testAuthorizationWithTopicExisting(): Unit = {
     val requestKeyToRequest = mutable.LinkedHashMap[ApiKeys, AbstractRequest](
@@ -563,7 +568,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
       ApiKeys.ELECT_LEADERS -> electLeadersRequest,
       ApiKeys.INCREMENTAL_ALTER_CONFIGS -> incrementalAlterConfigsRequest,
       ApiKeys.ALTER_PARTITION_REASSIGNMENTS -> alterPartitionReassignmentsRequest,
-      ApiKeys.LIST_PARTITION_REASSIGNMENTS -> listPartitionReassignmentsRequest
+      ApiKeys.LIST_PARTITION_REASSIGNMENTS -> listPartitionReassignmentsRequest,
     )
 
     for ((key, request) <- requestKeyToRequest) {
@@ -610,7 +615,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
       ApiKeys.CREATE_PARTITIONS -> createPartitionsRequest,
       ApiKeys.DELETE_GROUPS -> deleteGroupsRequest,
       ApiKeys.OFFSET_FOR_LEADER_EPOCH -> offsetsForLeaderEpochRequest,
-      ApiKeys.ELECT_LEADERS -> electLeadersRequest
+      ApiKeys.ELECT_LEADERS -> electLeadersRequest,
     )
 
     for ((key, request) <- requestKeyToRequest) {
@@ -1392,6 +1397,32 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     val version = ApiKeys.CREATE_PARTITIONS.latestVersion
     val createPartitionsResponse = CreatePartitionsResponse.parse(response, version)
     assertEquals(Errors.NONE, createPartitionsResponse.errors.asScala.head._2.error)
+  }
+
+  @Test
+  def testUnauthorizedReplicaStatusWithoutDescribe(): Unit = {
+    val response = connectAndSend(replicaStatusRequest, ApiKeys.REPLICA_STATUS)
+    val version = ApiKeys.REPLICA_STATUS.latestVersion
+    val replicaStatusResponse = ReplicaStatusResponse.parse(response, version)
+    assertEquals(Errors.TOPIC_AUTHORIZATION_FAILED.code, replicaStatusResponse.data.topics.get(0).partitions.get(0).errorCode)
+  }
+
+  @Test
+  def testUnauthorizedReplicaStatusWithDescribe(): Unit = {
+    addAndVerifyAcls(Set(new AccessControlEntry(userPrincipalStr, WildcardHost, DESCRIBE, ALLOW)), deleteTopicResource)
+    val response = connectAndSend(replicaStatusRequest, ApiKeys.REPLICA_STATUS)
+    val version = ApiKeys.REPLICA_STATUS.latestVersion
+    val replicaStatusResponse = ReplicaStatusResponse.parse(response, version)
+    assertEquals(Errors.TOPIC_AUTHORIZATION_FAILED.code, replicaStatusResponse.data.topics.get(0).partitions.get(0).errorCode)
+  }
+
+  @Test
+  def testReplicaStatusWithWildCardAuth(): Unit = {
+    addAndVerifyAcls(Set(new AccessControlEntry(userPrincipalStr, WildcardHost, DESCRIBE, ALLOW)), new ResourcePattern(TOPIC, "*", LITERAL))
+    val response = connectAndSend(replicaStatusRequest, ApiKeys.REPLICA_STATUS)
+    val version = ApiKeys.REPLICA_STATUS.latestVersion
+    val replicaStatusResponse = ReplicaStatusResponse.parse(response, version)
+    assertEquals(Errors.NONE.code, replicaStatusResponse.data.topics.get(0).partitions.get(0).errorCode)
   }
 
   @Test(expected = classOf[TransactionalIdAuthorizationException])

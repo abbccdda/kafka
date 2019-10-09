@@ -55,6 +55,7 @@ import org.apache.kafka.common.errors.DisconnectException;
 import org.apache.kafka.common.errors.InvalidGroupIdException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.InvalidTopicException;
+import org.apache.kafka.common.errors.LeaderNotAvailableException;
 import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.UnknownServerException;
@@ -86,6 +87,9 @@ import org.apache.kafka.common.message.ListGroupsResponseData;
 import org.apache.kafka.common.message.ListPartitionReassignmentsRequestData;
 import org.apache.kafka.common.message.MetadataRequestData;
 import org.apache.kafka.common.message.RenewDelegationTokenRequestData;
+import org.apache.kafka.common.message.ReplicaStatusResponseData.ReplicaStatusPartitionResponse;
+import org.apache.kafka.common.message.ReplicaStatusResponseData.ReplicaStatusReplicaResponse;
+import org.apache.kafka.common.message.ReplicaStatusResponseData.ReplicaStatusTopicResponse;
 import org.apache.kafka.common.metrics.JmxReporter;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
@@ -94,6 +98,7 @@ import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.network.ChannelBuilder;
 import org.apache.kafka.common.network.Selector;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.replica.ReplicaStatus;
 import org.apache.kafka.common.requests.AbstractRequest;
 import org.apache.kafka.common.requests.AbstractResponse;
 import org.apache.kafka.common.requests.AlterConfigsRequest;
@@ -153,6 +158,8 @@ import org.apache.kafka.common.requests.OffsetFetchRequest;
 import org.apache.kafka.common.requests.OffsetFetchResponse;
 import org.apache.kafka.common.requests.RenewDelegationTokenRequest;
 import org.apache.kafka.common.requests.RenewDelegationTokenResponse;
+import org.apache.kafka.common.requests.ReplicaStatusRequest;
+import org.apache.kafka.common.requests.ReplicaStatusResponse;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.token.delegation.DelegationToken;
 import org.apache.kafka.common.security.token.delegation.TokenInformation;
@@ -3324,6 +3331,122 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
         }, now);
 
         return new ListPartitionReassignmentsResult(partitionReassignmentsFuture);
+    }
+
+    @Override
+    public ReplicaStatusResult replicaStatus(Set<TopicPartition> partitions, ReplicaStatusOptions options) {
+        final Map<TopicPartition, KafkaFutureImpl<List<ReplicaStatus>>> result = new HashMap<>();
+        if (partitions.isEmpty()) {
+          return new ReplicaStatusResult(Collections.unmodifiableMap(result));
+        }
+
+        final Set<String> topics = new HashSet<>();
+        for (TopicPartition partition : partitions) {
+          topics.add(partition.topic());
+          result.put(partition, new KafkaFutureImpl<>());
+        }
+
+        // Retrieve the topic metadata for partition leader information.
+        final long nowMetadata = time.milliseconds();
+        final long deadline = calcDeadlineMs(nowMetadata, options.timeoutMs());
+        runnable.call(new Call("topicsMetadata", deadline, new LeastLoadedNodeProvider()) {
+            @Override
+            AbstractRequest.Builder createRequest(int timeoutMs) {
+                return new MetadataRequest.Builder(new MetadataRequestData()
+                    .setTopics(convertToMetadataRequestTopic(topics))
+                    .setAllowAutoTopicCreation(false));
+            }
+
+            @Override
+            void handleResponse(AbstractResponse abstractResponse) {
+                MetadataResponse response = (MetadataResponse) abstractResponse;
+
+                Map<String, Errors> errors = response.errors();
+                Cluster cluster = response.cluster();
+
+                final Map<Node, Set<TopicPartition>> leaderPartitions = new HashMap<>();
+                for (Map.Entry<TopicPartition, KafkaFutureImpl<List<ReplicaStatus>>> entry : result.entrySet()) {
+                    // Ignore requests for topics that failed with an error.
+                    Errors error = errors.get(entry.getKey().topic());
+                    if (error != null) {
+                        entry.getValue().completeExceptionally(error.exception());
+                        continue;
+                    }
+
+                    PartitionInfo partitionInfo = cluster.partition(entry.getKey());
+                    if (partitionInfo == null) {
+                        entry.getValue().completeExceptionally(
+                            new UnknownTopicOrPartitionException("Partition " + entry.getKey() + " not found."));
+                        continue;
+                    }
+
+                    if (partitionInfo.leader() == null) {
+                        entry.getValue().completeExceptionally(
+                            new LeaderNotAvailableException("Leader for partition " + entry.getKey() + " not found."));
+                        continue;
+                    }
+
+                    leaderPartitions.computeIfAbsent(partitionInfo.leader(), k -> new HashSet<>()).add(entry.getKey());
+                }
+
+                for (final Map.Entry<Node, Set<TopicPartition>> entry : leaderPartitions.entrySet()) {
+                    final long nowStatus = time.milliseconds();
+                    runnable.call(new Call("replicaStatus", deadline, new ConstantNodeIdProvider(entry.getKey().id())) {
+                        @Override
+                        AbstractRequest.Builder createRequest(int timeoutMs) {
+                            return new ReplicaStatusRequest.Builder(entry.getValue());
+                        }
+
+                        @Override
+                        void handleResponse(AbstractResponse abstractResponse) {
+                            ReplicaStatusResponse response = (ReplicaStatusResponse) abstractResponse;
+
+                            for (ReplicaStatusTopicResponse topicResponse : response.data().topics()) {
+                                for (ReplicaStatusPartitionResponse partitionResponse : topicResponse.partitions()) {
+                                    TopicPartition topicPartition =
+                                            new TopicPartition(topicResponse.name(), partitionResponse.partitionIndex());
+                                    KafkaFutureImpl<List<ReplicaStatus>> future = result.get(topicPartition);
+                                    Objects.requireNonNull(future, "Replica status future must not be null for " + topicPartition);
+
+                                    Errors error = Errors.forCode(partitionResponse.errorCode());
+                                    if (error != Errors.NONE) {
+                                        future.completeExceptionally(error.exception());
+                                        continue;
+                                    }
+                                    List<ReplicaStatus> replicas = new ArrayList<ReplicaStatus>();
+                                    for (ReplicaStatusReplicaResponse replicaResponse : partitionResponse.replicas()) {
+                                      replicas.add(new ReplicaStatus(
+                                          replicaResponse.id(),
+                                          ReplicaStatus.Mode.fromValue(replicaResponse.mode()),
+                                          replicaResponse.isCaughtUp(),
+                                          replicaResponse.isInSync(),
+                                          replicaResponse.logStartOffset(),
+                                          replicaResponse.logEndOffset(),
+                                          replicaResponse.lastCaughtUpTimeMs(),
+                                          replicaResponse.lastFetchTimeMs()));
+                                    }
+                                    future.complete(replicas);
+                                }
+                            }
+                        }
+
+                        @Override
+                        void handleFailure(Throwable throwable) {
+                            for (TopicPartition partition : entry.getValue()) {
+                                result.get(partition).completeExceptionally(throwable);
+                            }
+                        }
+                    }, nowStatus);
+                }
+            }
+
+            @Override
+            void handleFailure(Throwable throwable) {
+                completeAllExceptionally(result.values(), throwable);
+            }
+        }, nowMetadata);
+
+        return new ReplicaStatusResult(Collections.unmodifiableMap(result));
     }
 
     private void handleNotControllerError(Errors error) throws ApiException {
