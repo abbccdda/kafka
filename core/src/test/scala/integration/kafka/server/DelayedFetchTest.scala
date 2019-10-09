@@ -299,7 +299,7 @@ class DelayedFetchTest extends EasyMockSupport {
     val fetchMetadata = buildMultiPartitionFetchMetadata(
       replicaId,
       Seq(
-        (topicPartition0, buildFetchPartitionStatus(fetchOffset, LogOffsetMetadata(0, 0))),
+        (topicPartition0, buildFetchPartitionStatus(fetchOffset, LogOffsetMetadata(0, 0)))
       ), isFromFollower)
 
     val callbackPromise: Promise[Seq[(TopicPartition, FetchPartitionData)]] = Promise[Seq[(TopicPartition, FetchPartitionData)]]()
@@ -310,7 +310,7 @@ class DelayedFetchTest extends EasyMockSupport {
     val records = TestUtils.singletonRecords(s"message".getBytes, timestamp = mockTime.milliseconds())
 
     expectReadFromLocalLog(replicaManager, Seq(
-      (topicPartition0, FetchDataInfo(LogOffsetMetadata(0,0), records), None),
+      (topicPartition0, FetchDataInfo(LogOffsetMetadata(0,0), records), None)
     ), highWatermark = highWatermark)
 
     // complete delayed fetch
