@@ -23,12 +23,9 @@ class TierLogSegment private[log] (private val segment: TierObjectMetadata,
   def read(startOffset: Long,
            maxSize: Int,
            maxPosition: Long,
-           minOneMessage: Boolean): Option[TierFetchDataInfo] = {
-    if (startOffset < baseOffset || startOffset > segment.endOffset) {
-      None
-    } else {
-      val maximumReadableBytes = math.min(maxSize, segment.size)
-      val fetchMetadata = TierFetchMetadata(topicPartition = segment.topicIdPartition.topicPartition,
+           minOneMessage: Boolean): TierFetchDataInfo = {
+    val maximumReadableBytes = math.min(maxSize, segment.size)
+    val fetchMetadata = TierFetchMetadata(topicPartition = segment.topicIdPartition.topicPartition,
         fetchStartOffset = startOffset,
         maxBytes = maximumReadableBytes,
         maxPosition = maxPosition,
@@ -37,8 +34,7 @@ class TierLogSegment private[log] (private val segment: TierObjectMetadata,
         transactionMetadata = None,
         segmentBaseOffset = baseOffset,
         segmentSize = segment.size)
-      Some(TierFetchDataInfo(fetchMetadata, None))
-    }
+    TierFetchDataInfo(fetchMetadata, None)
   }
 
   def nextOffset: Long = segment.endOffset + 1

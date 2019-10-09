@@ -115,6 +115,29 @@ class TierPartitionStateTest {
     checkInvalidFileReset(dir, tp, path)
   }
 
+
+  @Test
+  def segmentGapTest(): Unit = {
+    val epoch = 0
+
+    val path = state.flushedPath
+    state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0))
+    val objectId1 = UUID.randomUUID
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId1, 0, 50, 100, 0, false, false, false)))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId1)))
+
+    val objectId2 = UUID.randomUUID
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId2, 75, 150, 100, 0, false, false, false)))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId2)))
+    state.flush()
+
+    assertEquals(objectId1, state.metadata(50).get().objectId())
+    assertEquals(objectId2, state.metadata(51).get().objectId())
+    assertFalse(state.metadata(151).isPresent)
+
+    state.close()
+  }
+
   @Test
   def updateEpochTest(): Unit = {
     val n = 200
@@ -411,7 +434,7 @@ class TierPartitionStateTest {
     }
 
     val validObjectIds = objectIds.takeRight(numSegments - numSegmentsToDelete)
-    val foundObjectIds = TierUtils.tieredSegments(state.segmentOffsets, state, Optional.of(tierObjectStore)).iterator.asScala.map(_.metadata.objectId).toList
+    val foundObjectIds = TierUtils.tieredSegments(state.segmentOffsets, state, Optional.of(tierObjectStore)).asScala.map(_.metadata.objectId).toList
 
     assertEquals(validObjectIds.size, state.numSegments)
     assertEquals(validObjectIds, foundObjectIds)
@@ -447,12 +470,12 @@ class TierPartitionStateTest {
     }
 
     val validObjectIds = objectIds.takeRight(numSegments - numSegmentsToDelete)
-    val foundObjectIds = TierUtils.tieredSegments(state.segmentOffsets, state, Optional.of(tierObjectStore)).iterator.asScala.map(_.metadata.objectId).toList
+    val foundObjectIds = TierUtils.tieredSegments(state.segmentOffsets, state, Optional.of(tierObjectStore)).asScala.map(_.metadata.objectId).toList
     assertEquals(validObjectIds.size, state.numSegments)
     assertEquals(validObjectIds, foundObjectIds)
 
     val validEndOffsets = endOffsets.takeRight(numSegments - numSegmentsToDelete)
-    val foundEndOffsets = TierUtils.tieredSegments(state.segmentOffsets, state, Optional.of(tierObjectStore)).iterator.asScala.map(_.endOffset).toList
+    val foundEndOffsets = TierUtils.tieredSegments(state.segmentOffsets, state, Optional.of(tierObjectStore)).asScala.map(_.endOffset).toList
     assertEquals(validEndOffsets, foundEndOffsets)
     assertEquals(size, state.totalSize)
 

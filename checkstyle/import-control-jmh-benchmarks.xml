@@ -52,5 +52,4 @@
         <allow pkg="kafka.tier.topic"/>
 	<allow class="kafka.tier.TopicIdPartition" />
     </subpackage>
-
 </import-control>

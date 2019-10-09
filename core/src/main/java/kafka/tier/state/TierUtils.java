@@ -6,11 +6,9 @@ import kafka.tier.store.TierObjectStore;
 import org.apache.kafka.common.errors.KafkaStorageException;
 
 import java.io.IOException;
-import java.util.Comparator;
+import java.util.Iterator;
 import java.util.NavigableSet;
 import java.util.Optional;
-import java.util.TreeSet;
-import java.util.stream.Collectors;
 
 public class TierUtils {
     private static Optional<MetadataWithOffset> metadataForOffset(TierPartitionState partitionState,
@@ -22,15 +20,23 @@ public class TierUtils {
         }
     }
 
-    public static NavigableSet<TierLogSegment> tieredSegments(NavigableSet<Long> tieredOffsets,
-                                                              TierPartitionState partitionState,
-                                                              Optional<TierObjectStore> objectStore) {
+    public static Optional<TierLogSegment> tierLogSegmentForOffset(TierPartitionState partitionState,
+                                                                   long offset,
+                                                                   Optional<TierObjectStore> objectStore) {
+        return metadataForOffset(partitionState, offset)
+                .map(metadataOpt -> new TierLogSegment(metadataOpt.metadata, metadataOpt.startOffset, objectStore.get()));
+    }
+
+    public static Iterator<TierLogSegment> tieredSegments(NavigableSet<Long> tieredOffsets,
+                                                          TierPartitionState partitionState,
+                                                          Optional<TierObjectStore> objectStore) {
         return tieredOffsets
                 .stream()
                 .map(offset -> metadataForOffset(partitionState, offset))
-                .filter(metadataOpt -> metadataOpt.isPresent())
-                .map(metadataOpt -> new TierLogSegment(metadataOpt.get().metadata, metadataOpt.get().startOffset, objectStore.get()))
-                .collect(Collectors.toCollection(() -> new TreeSet<>(Comparator.comparingLong(segment -> segment.startOffset()))));
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .map(metadata -> new TierLogSegment(metadata.metadata, metadata.startOffset, objectStore.get()))
+                .iterator();
     }
 
     private static class MetadataWithOffset {
