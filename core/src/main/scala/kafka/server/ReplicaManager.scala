@@ -105,6 +105,12 @@ sealed trait AbstractLogReadResult {
   }
 }
 
+/*
+ * Result metadata of a local log read operation
+ * @param isReadAllowed read operation is not allowed for this partition as fetch request
+ *                      maxBytes was already satisfied by previous partitions when
+ *                      hardMaxBytesLimitNote in TRUE
+ */
 case class LogReadResult(info: FetchDataInfo,
                          highWatermark: Long,
                          leaderLogStartOffset: Long,
@@ -1056,8 +1062,7 @@ class ReplicaManager(val config: KafkaConfig,
     if (timeout <= 0 || fetchInfos.isEmpty || (tierLogReadResultMap.isEmpty && localReadableBytes >= fetchMinBytes) || errorReadingData || anyPartitionsNeedHwUpdate) {
       val fetchPartitionData = logReadResults.flatMap {
         case (tp, result: LogReadResult) =>
-          if (!isFromFollower)
-              FetchLag.maybeRecordConsumerFetchTimeLag(result, brokerTopicStats)
+          FetchLag.maybeRecordConsumerFetchTimeLag(!isFromFollower, result, brokerTopicStats)
 
           Some(tp -> FetchPartitionData(result.error, result.highWatermark, result.leaderLogStartOffset, result.info.records,
             result.lastStableOffset, result.info.abortedTransactions, result.preferredReadReplica))
@@ -2008,10 +2013,13 @@ object FetchLag {
     result.fetchTimeMs - firstBatchTimestamp
   }
 
-  def maybeRecordConsumerFetchTimeLag(result: LogReadResult,
+  def maybeRecordConsumerFetchTimeLag(isFromConsumer: Boolean,
+                                      result: LogReadResult,
                                       brokerTopicStats: BrokerTopicStats): Unit = {
-    val fetchLagMs = FetchLag.lagInMs(result)
-    if (fetchLagMs != FetchLag.UnknownFetchLagMs)
-      brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.update(fetchLagMs)
+    if (isFromConsumer) {
+      val fetchLagMs = FetchLag.lagInMs(result)
+      if (fetchLagMs != FetchLag.UnknownFetchLagMs)
+        brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.update(fetchLagMs)
+    }
   }
 }

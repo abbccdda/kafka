@@ -217,7 +217,7 @@ class DelayedFetch(delayMs: Long,
 
     val fetchPartitionData = unifiedReadResults.map {
       case (tp, result) =>
-        FetchLag.maybeRecordConsumerFetchTimeLag(result, brokerTopicStats)
+        FetchLag.maybeRecordConsumerFetchTimeLag(!fetchMetadata.isFromFollower, result, brokerTopicStats)
 
         tp -> FetchPartitionData(result.error, result.highWatermark, result.leaderLogStartOffset, result.info.records,
           result.lastStableOffset, result.info.abortedTransactions, result.preferredReadReplica)
