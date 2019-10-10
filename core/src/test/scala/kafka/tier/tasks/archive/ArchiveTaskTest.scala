@@ -142,7 +142,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
 
     doNothing().when(tierObjectStore).putSegment(any(), any(), any(), any(), any(), any(), any())
 
-    val uploadableSegment = UploadableSegment(log, logSegment, producerStateOpt, epochStateOpt, abortedTxnsOpt)
+    val uploadableSegment = UploadableSegment(log, logSegment, logSegment.readNextOffset, producerStateOpt, epochStateOpt, abortedTxnsOpt)
     val upload = Upload(leaderEpoch, uploadInitiate, uploadableSegment)
 
     val uploadResult = ArchiveTask.upload(upload, topicIdPartition, time, tierObjectStore)
@@ -427,7 +427,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
       false,
       false)
 
-    val uploadableSegment = UploadableSegment(log, logSegment, None, None, None)
+    val uploadableSegment = UploadableSegment(log, logSegment, logSegment.readNextOffset, None, None, None)
     val upload = Upload(leaderEpoch, uploadInitiate, uploadableSegment)
 
     when(tierObjectStore.putSegment(any(), any(), any(), any(), any(), any(), any())).thenThrow(e)

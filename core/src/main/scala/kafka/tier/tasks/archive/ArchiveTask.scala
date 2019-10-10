@@ -106,6 +106,7 @@ case class AfterUpload(leaderEpoch: Int, uploadInitiate: TierSegmentUploadInitia
 
 case class UploadableSegment(log: AbstractLog,
                              logSegment: LogSegment,
+                             nextOffset: Long,
                              producerStateOpt: Option[File],
                              leaderEpochStateOpt: Option[File],
                              abortedTxnIndexOpt: Option[ByteBuffer]) {
@@ -275,13 +276,12 @@ object ArchiveTask extends Logging {
             Future(state)
 
           case Some((log: AbstractLog, logSegment: LogSegment)) =>
-            val nextOffset: Long = logSegment.readNextOffset
-            val segment = uploadableSegment(log, logSegment, nextOffset)
+            val segment = uploadableSegment(log, logSegment)
             val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition,
               state.leaderEpoch,
               UUID.randomUUID,
               logSegment.baseOffset,
-              nextOffset - 1,
+              segment.nextOffset - 1,
               logSegment.largestTimestamp,
               logSegment.size,
               segment.leaderEpochStateOpt.isDefined,
@@ -307,10 +307,10 @@ object ArchiveTask extends Logging {
   }
 
   private[archive] def upload(state: Upload,
-                               topicIdPartition: TopicIdPartition,
-                               time: Time,
-                               tierObjectStore: TierObjectStore)
-                              (implicit ec: ExecutionContext): Future[AfterUpload] = {
+                              topicIdPartition: TopicIdPartition,
+                              time: Time,
+                              tierObjectStore: TierObjectStore)
+                             (implicit ec: ExecutionContext): Future[AfterUpload] = {
     Future {
       val logSegment = state.uploadableSegment.logSegment
       val producerStateOpt = state.uploadableSegment.producerStateOpt
@@ -337,7 +337,7 @@ object ArchiveTask extends Logging {
             abortedTransactions.asJava,
             leaderEpochStateOpt.asJava)
         } catch {
-          case e: Exception if !segmentExists(state.uploadableSegment.log, logSegment) =>
+          case e: Exception if !segmentExists(state.uploadableSegment.log, logSegment, Some(state.uploadableSegment.nextOffset)) =>
             throw SegmentDeletedException(s"Segment $logSegment of $topicIdPartition deleted when tiering", e)
         }
 
@@ -371,24 +371,32 @@ object ArchiveTask extends Logging {
       }
   }
 
-  private[archive] def uploadableSegment(log: AbstractLog, logSegment: LogSegment, nextOffset: Long): UploadableSegment = {
+  private[archive] def uploadableSegment(log: AbstractLog, logSegment: LogSegment): UploadableSegment = {
     try {
+      val nextOffset = logSegment.readNextOffset
       val leaderEpochStateOpt = ArchiveTask.uploadableLeaderEpochState(log, nextOffset)
       // The producer state snapshot for `logSegment` should be named with the next logSegment's base offset
       // Because we never upload the active segment, and a snapshot is created on roll, we expect that either
       // this snapshot file is present, or the snapshot file was deleted.
-      val producerStateOpt: Option[File] = log.producerStateManager.snapshotFileForOffset(nextOffset)
+      val producerStateOpt = log.producerStateManager.snapshotFileForOffset(nextOffset)
       val abortedTransactions = ArchiveTask.uploadableAbortedTransactionList(log, logSegment.baseOffset, nextOffset)
-      UploadableSegment(log, logSegment, producerStateOpt, leaderEpochStateOpt, abortedTransactions)
+      UploadableSegment(log, logSegment, nextOffset, producerStateOpt, leaderEpochStateOpt, abortedTransactions)
     } catch {
-      case e: Exception if !segmentExists(log, logSegment) =>
+      case e: Exception if !segmentExists(log, logSegment, nextOffsetOpt = None) =>
         throw SegmentDeletedException(s"Segment $logSegment of ${log.topicPartition} deleted when tiering", e)
     }
   }
 
-  private def segmentExists(log: AbstractLog, segment: LogSegment): Boolean = {
+  private def segmentExists(log: AbstractLog, segment: LogSegment, nextOffsetOpt: Option[Long]): Boolean = {
+    val nextOffset =
+      try {
+        nextOffsetOpt.getOrElse(segment.readNextOffset)
+      } catch {
+        case _: Exception => return false
+      }
+
     val baseOffset = segment.baseOffset
-    log.localLogSegments(baseOffset, baseOffset + 1).nonEmpty
+    log.localLogSegments(baseOffset, baseOffset + 1).nonEmpty && log.localLogStartOffset < nextOffset
   }
 
   case class SegmentDeletedException(msg: String, cause: Throwable) extends RetriableException(msg, cause)
