@@ -1,9 +1,9 @@
 package io.confluent.security.audit.appender;
 
-import com.google.protobuf.InvalidProtocolBufferException;
 import io.confluent.security.audit.CloudEvent;
 import io.confluent.security.audit.CloudEventUtils;
 import io.confluent.security.audit.EventLogConfig;
+import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
 import org.apache.kafka.common.config.ConfigException;
@@ -28,7 +28,7 @@ public class LogEventAppender implements EventAppender {
   public void append(CloudEvent event) throws RuntimeException {
     try {
       log.info(CloudEventUtils.toJsonString(event));
-    } catch (InvalidProtocolBufferException e) {
+    } catch (IOException e) {
       log.warn("Failed to log Audit Log Message", e);
     }
   }

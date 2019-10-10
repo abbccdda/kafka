@@ -2,7 +2,6 @@ package io.confluent.security.audit.provider;
 
 import static org.junit.Assert.assertNotNull;
 
-import com.google.protobuf.InvalidProtocolBufferException;
 import io.confluent.crn.ConfluentResourceName;
 import io.confluent.crn.CrnAuthorityConfig;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
@@ -19,6 +18,7 @@ import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.test.utils.RbacClusters;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Arrays;
@@ -203,7 +203,7 @@ public class ConfluentAuditLogProviderRbacTest {
           } else {
             log.debug("CloudEvent didn't match: " + CloudEventUtils.toJsonString(record.value()));
           }
-        } catch (InvalidProtocolBufferException e) {
+        } catch (IOException e) {
           log.error("Invalid CloudEvent", e);
         }
       }
