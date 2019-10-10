@@ -293,7 +293,8 @@ object ArchiveTask extends Logging {
               .flatMap(identity)
               .map {
                 case AppendResult.ACCEPTED =>
-                  info(s"Completed initiateUpload for $topicIdPartition in ${time.milliseconds - startTime}ms")
+                  info(s"Completed UploadInitiate(objectId: ${uploadInitiate.messageId()}, baseOffset: ${uploadInitiate.baseOffset()}," +
+                    s" endOffset: ${uploadInitiate.endOffset()}]) for $topicIdPartition in ${time.milliseconds - startTime}ms")
                   Upload(state.leaderEpoch, uploadInitiate, segment)
                 case AppendResult.ILLEGAL =>
                   throw new TierArchiverFatalException(s"Tier archiver found tier partition $topicIdPartition in illegal status")
@@ -359,7 +360,8 @@ object ArchiveTask extends Logging {
       .flatMap(identity)
       .map {
         case AppendResult.ACCEPTED =>
-          info(s"Finalized upload segment for $topicIdPartition in ${time.milliseconds - startTime} ms")
+          info(s"Finalized UploadComplete(${uploadComplete.messageId()}) " +
+            s"for $topicIdPartition in ${time.milliseconds - startTime} ms")
           byteRateMetric.foreach(_.mark(state.uploadedSize))
           BeforeUpload(state.leaderEpoch)
         case AppendResult.ILLEGAL =>

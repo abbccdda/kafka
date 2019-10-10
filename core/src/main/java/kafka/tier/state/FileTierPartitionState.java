@@ -546,6 +546,12 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 // 1. We are reprocessing messages after an unclean shutdown.
                 // 2. We are reprocessing messages after catchup -> online transition, as the primary consumer could be
                 //    lagging the catchup consumer before the switch happened.
+                // 3. The producer retried a message that was successfully written but was not
+                //    acked. Retries will be fenced knowing that:
+                //       a) any future completed by the TierTopicManager will have been completed correctly by the
+                //          previous copy of this message.
+                //       b) This fencing will not be problematic to the archiver due to 3(a)
+                //          completing the materialization correctly.
                 // We deal with this here for now but in future, we should be able to make this better and assert stronger
                 // guarantees by storing the last materialized offset in the tier partition state file and checking if we
                 // are reprocessing materialized offsets.
