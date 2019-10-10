@@ -5,8 +5,6 @@ package org.apache.kafka.clients.admin;
 
 import org.apache.kafka.common.TopicPartition;
 
-import java.util.Map;
-import java.util.Properties;
 import java.util.Set;
 
 /**
@@ -19,26 +17,6 @@ import java.util.Set;
  * Any new or update to admin client api that need these features should be done here.
  */
 public interface ConfluentAdmin extends Admin {
-
-    /**
-     * Create a new ConfluentAdmin with the given configuration.
-     *
-     * @param props The configuration.
-     * @return A concrete class implementing ConfluentAdmin interface, normally KafkaAdminClient.
-     */
-    static ConfluentAdmin create(Properties props) {
-        return KafkaAdminClient.createInternal(new AdminClientConfig(props, true), null);
-    }
-
-    /**
-     * Create a new ConfluentAdmin with the given configuration.
-     *
-     * @param conf The configuration.
-     * @return A concrete class implementing ConfluentAdmin interface, normally KafkaAdminClient.
-     */
-    static ConfluentAdmin create(Map<String, Object> conf) {
-        return KafkaAdminClient.createInternal(new AdminClientConfig(conf, true), null);
-    }
 
     /**
      * Retrieves the status of the replicas for a set of partitions, including observers.

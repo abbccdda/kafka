@@ -5,17 +5,19 @@ package kafka.admin
 
 import java.util.Properties
 import java.util.concurrent.ExecutionException
+
 import kafka.common.AdminCommandFailedException
 import kafka.utils.CommandDefaultOptions
 import kafka.utils.CommandLineUtils
 import kafka.utils.Logging
-import org.apache.kafka.clients.admin.{AdminClientConfig, ConfluentAdmin, ListTopicsOptions, ReplicaStatusOptions}
+import org.apache.kafka.clients.admin.{AdminClient, AdminClientConfig, ConfluentAdmin, KafkaAdminClient, ListTopicsOptions, ReplicaStatusOptions}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.ClusterAuthorizationException
 import org.apache.kafka.common.errors.TimeoutException
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.replica.ReplicaStatus
 import org.apache.kafka.common.utils.Utils
+
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.concurrent.duration._
@@ -53,7 +55,7 @@ object ReplicaStatusCommand extends Logging {
 
     props.setProperty(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, commandOptions.options.valueOf(commandOptions.bootstrapServer))
     props.setProperty(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, timeout.toMillis.toString)
-    ConfluentAdmin.create(props)
+    AdminClient.create(props).asInstanceOf[KafkaAdminClient]
   }
 
   private def replicaStatus(args: Args, client: ConfluentAdmin): Unit = {

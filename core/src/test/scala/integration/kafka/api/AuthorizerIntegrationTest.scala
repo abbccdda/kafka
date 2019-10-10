@@ -568,7 +568,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
       ApiKeys.ELECT_LEADERS -> electLeadersRequest,
       ApiKeys.INCREMENTAL_ALTER_CONFIGS -> incrementalAlterConfigsRequest,
       ApiKeys.ALTER_PARTITION_REASSIGNMENTS -> alterPartitionReassignmentsRequest,
-      ApiKeys.LIST_PARTITION_REASSIGNMENTS -> listPartitionReassignmentsRequest,
+      ApiKeys.LIST_PARTITION_REASSIGNMENTS -> listPartitionReassignmentsRequest
     )
 
     for ((key, request) <- requestKeyToRequest) {
@@ -615,7 +615,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
       ApiKeys.CREATE_PARTITIONS -> createPartitionsRequest,
       ApiKeys.DELETE_GROUPS -> deleteGroupsRequest,
       ApiKeys.OFFSET_FOR_LEADER_EPOCH -> offsetsForLeaderEpochRequest,
-      ApiKeys.ELECT_LEADERS -> electLeadersRequest,
+      ApiKeys.ELECT_LEADERS -> electLeadersRequest
     )
 
     for ((key, request) <- requestKeyToRequest) {
