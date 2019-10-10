@@ -103,6 +103,14 @@ public class ConfluentConfigs {
     public static final String RETRIES_WAIT_MS_DOC = "Time in milliseconds to wait before each retry.";
     public static final int RETRIES_WAIT_MS_DEFAULT = 0;
 
+    public static final String MISSING_ID_QUERY_RANGE_CONFIG = CONFLUENT_PREFIX + "missing.id.query.range";
+    public static final String MISSING_ID_QUERY_RANGE_DOC = "The range above max schema ID to make calls to Schema Registry";
+    public static final int MISSING_ID_QUERY_RANGE_DEFAULT = 200;
+
+    public static final String MISSING_ID_CACHE_TTL_CONFIG = CONFLUENT_PREFIX + "missing.id.cache.ttl.sec";
+    public static final String MISSING_ID_CACHE_TTL_DOC = "The TTL in seconds for caching missing schema IDs";
+    public static final long MISSING_ID_CACHE_TTL_DEFAULT  = 60;
+
     // for configs defined for both per-broker and per-topic, it should be defined in ConfluentTopicConfig instead.
 
     // used to check if the broker is configured for tenant-level quotas (by verifying that

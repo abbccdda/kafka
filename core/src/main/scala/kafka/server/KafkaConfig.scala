@@ -1278,6 +1278,8 @@ object KafkaConfig {
       .defineInternal(ConfluentConfigs.MAX_CACHE_SIZE_CONFIG, INT, ConfluentConfigs.MAX_CACHE_SIZE_DEFAULT, LOW)
       .defineInternal(ConfluentConfigs.MAX_RETRIES_CONFIG, INT, ConfluentConfigs.MAX_RETRIES_DEFAULT, LOW)
       .defineInternal(ConfluentConfigs.RETRIES_WAIT_MS_CONFIG, INT, ConfluentConfigs.RETRIES_WAIT_MS_DEFAULT, LOW)
+      .defineInternal(ConfluentConfigs.MISSING_ID_QUERY_RANGE_CONFIG, INT, ConfluentConfigs.MISSING_ID_QUERY_RANGE_DEFAULT, LOW)
+      .defineInternal(ConfluentConfigs.MISSING_ID_CACHE_TTL_CONFIG, LONG, ConfluentConfigs.MISSING_ID_CACHE_TTL_DEFAULT, LOW)
 
       .defineInternal(BrokerSessionUuidProp, STRING, null, LOW)
       .defineInternal(ConfluentConfigs.MULTITENANT_METADATA_CLASS_CONFIG, CLASS,
