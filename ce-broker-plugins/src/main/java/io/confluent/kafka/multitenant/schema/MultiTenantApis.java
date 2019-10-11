@@ -8,7 +8,6 @@ import kafka.security.auth.Acl$;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.CommonFields;
-import org.apache.kafka.common.protocol.types.ArrayOf;
 import org.apache.kafka.common.protocol.types.Field;
 import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
@@ -147,13 +146,14 @@ public class MultiTenantApis {
   }
 
   private static void ensureStringType(Type type) {
-    if (type != Type.STRING && type != Type.NULLABLE_STRING) {
+    if (type != Type.STRING && type != Type.NULLABLE_STRING &&
+        type != Type.COMPACT_STRING && type != Type.COMPACT_NULLABLE_STRING) {
       throw new IllegalArgumentException("Unexpected transform type " + type);
     }
   }
 
   private static void ensureArrayType(Type type) {
-    if (!(type instanceof ArrayOf)) {
+    if (!type.isArray()) {
       throw new IllegalArgumentException("Unexpected transform type " + type);
     }
   }

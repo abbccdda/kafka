@@ -20,8 +20,10 @@ import org.apache.kafka.common.MetricNameTemplate;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class ConnectMetricsRegistry {
@@ -93,6 +95,7 @@ public class ConnectMetricsRegistry {
     public final MetricNameTemplate taskStartupSuccessPercentage;
     public final MetricNameTemplate taskStartupFailureTotal;
     public final MetricNameTemplate taskStartupFailurePercentage;
+    public final MetricNameTemplate connectProtocol;
     public final MetricNameTemplate leaderName;
     public final MetricNameTemplate epoch;
     public final MetricNameTemplate rebalanceCompletedTotal;
@@ -108,6 +111,8 @@ public class ConnectMetricsRegistry {
     public final MetricNameTemplate dlqProduceRequests;
     public final MetricNameTemplate dlqProduceFailures;
     public final MetricNameTemplate lastErrorTimestamp;
+
+    public Map<MetricNameTemplate, TaskStatus.State> connectorStatusMetrics;
 
     public ConnectMetricsRegistry() {
         this(new LinkedHashSet<String>());
@@ -318,9 +323,18 @@ public class ConnectMetricsRegistry {
         taskStartupFailurePercentage = createTemplate("task-startup-failure-percentage", WORKER_GROUP_NAME,
                                                       "The average percentage of this worker's tasks starts that failed.", workerTags);
 
+        connectorStatusMetrics = new HashMap<>();
+        connectorStatusMetrics.put(connectorRunningTaskCount, TaskStatus.State.RUNNING);
+        connectorStatusMetrics.put(connectorPausedTaskCount, TaskStatus.State.PAUSED);
+        connectorStatusMetrics.put(connectorFailedTaskCount, TaskStatus.State.FAILED);
+        connectorStatusMetrics.put(connectorUnassignedTaskCount, TaskStatus.State.UNASSIGNED);
+        connectorStatusMetrics.put(connectorDestroyedTaskCount, TaskStatus.State.DESTROYED);
+        connectorStatusMetrics = Collections.unmodifiableMap(connectorStatusMetrics);
+
         /***** Worker rebalance level *****/
         Set<String> rebalanceTags = new LinkedHashSet<>(tags);
 
+        connectProtocol = createTemplate("connect-protocol", WORKER_REBALANCE_GROUP_NAME, "The Connect protocol used by this cluster", rebalanceTags);
         leaderName = createTemplate("leader-name", WORKER_REBALANCE_GROUP_NAME, "The name of the group leader.", rebalanceTags);
         epoch = createTemplate("epoch", WORKER_REBALANCE_GROUP_NAME, "The epoch or generation number of this worker.", rebalanceTags);
         rebalanceCompletedTotal = createTemplate("completed-rebalances-total", WORKER_REBALANCE_GROUP_NAME,

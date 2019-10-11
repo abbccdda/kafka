@@ -33,7 +33,6 @@ import kafka.utils.TestUtils._
 import kafka.utils.{Log4jController, Logging, TestUtils}
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.clients.admin._
-import org.apache.kafka.clients.consumer.ConsumerRecords
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
@@ -1093,14 +1092,6 @@ class AdminClientIntegrationTest extends IntegrationTestHarness with Logging {
     TestUtils.pollUntilTrue(consumer, () => !consumer.assignment.isEmpty, "Expected non-empty assignment")
   }
 
-  private def subscribeAndWaitForRecords(topic: String, consumer: KafkaConsumer[Array[Byte], Array[Byte]]): Unit = {
-    consumer.subscribe(Collections.singletonList(topic))
-    TestUtils.pollRecordsUntilTrue(
-      consumer,
-      (records: ConsumerRecords[Array[Byte], Array[Byte]]) => !records.isEmpty,
-      "Expected records" )
-  }
-
   private def sendRecords(producer: KafkaProducer[Array[Byte], Array[Byte]],
                           numRecords: Int,
                           topicPartition: TopicPartition): Unit = {
@@ -1429,7 +1420,7 @@ class AdminClientIntegrationTest extends IntegrationTestHarness with Logging {
       val consumer = createConsumer(configOverrides = newConsumerConfig)
 
       try {
-        subscribeAndWaitForRecords(testTopicName, consumer)
+        TestUtils.subscribeAndWaitForRecords(testTopicName, consumer)
         consumer.commitSync()
 
         // Test offset deletion while consuming
@@ -1839,6 +1830,20 @@ class AdminClientIntegrationTest extends IntegrationTestHarness with Logging {
     // Create topics
     val topic = "list-reassignments-no-reassignments"
     createTopic(topic, numPartitions = 1, replicationFactor = 3)
+    val tp = new TopicPartition(topic, 0)
+
+    val reassignmentsMap = client.listPartitionReassignments(Set(tp).asJava).reassignments().get()
+    assertEquals(0, reassignmentsMap.size())
+
+    val allReassignmentsMap = client.listPartitionReassignments().reassignments().get()
+    assertEquals(0, allReassignmentsMap.size())
+  }
+
+  @Test
+  def testListReassignmentsDoesNotShowDeletedPartitions(): Unit = {
+    client = AdminClient.create(createConfig())
+    
+    val topic = "list-reassignments-no-reassignments"
     val tp = new TopicPartition(topic, 0)
 
     val reassignmentsMap = client.listPartitionReassignments(Set(tp).asJava).reassignments().get()

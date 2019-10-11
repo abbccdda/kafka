@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.utils;
 
+import io.netty.buffer.ByteBuf;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -155,6 +156,29 @@ public final class ByteUtils {
      * Read an integer stored in variable-length format using unsigned decoding from
      * <a href="http://code.google.com/apis/protocolbuffers/docs/encoding.html"> Google Protocol Buffers</a>.
      *
+     * @param buf The buffer to read from
+     * @return The integer read
+     *
+     * @throws IllegalArgumentException if variable-length value does not terminate after 5 bytes have been read
+     */
+    public static int readUnsignedVarint(ByteBuf buf) {
+        int value = 0;
+        int i = 0;
+        int b;
+        while (((b = buf.readByte()) & 0x80) != 0) {
+            value |= (b & 0x7f) << i;
+            i += 7;
+            if (i > 28)
+                throw illegalVarintException(value);
+        }
+        value |= b << i;
+        return value;
+    }
+
+    /**
+     * Read an integer stored in variable-length format using unsigned decoding from
+     * <a href="http://code.google.com/apis/protocolbuffers/docs/encoding.html"> Google Protocol Buffers</a>.
+     *
      * @param in The input to read from
      * @return The integer read
      *
@@ -266,6 +290,23 @@ public final class ByteUtils {
             value >>>= 7;
         }
         buffer.put((byte) value);
+    }
+
+    /**
+     * Write the given integer following the variable-length unsigned encoding from
+     * <a href="http://code.google.com/apis/protocolbuffers/docs/encoding.html"> Google Protocol Buffers</a>
+     * into the buffer.
+     *
+     * @param value The value to write
+     * @param buf The output to write to
+     */
+    public static void writeUnsignedVarint(int value, ByteBuf buf) {
+        while ((value & 0xffffff80) != 0L) {
+            byte b = (byte) ((value & 0x7f) | 0x80);
+            buf.writeByte(b);
+            value >>>= 7;
+        }
+        buf.writeByte((byte) value);
     }
 
     /**

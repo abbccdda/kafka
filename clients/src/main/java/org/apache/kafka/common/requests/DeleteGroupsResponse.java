@@ -45,11 +45,6 @@ public class DeleteGroupsResponse extends AbstractResponse {
         this.data = data;
     }
 
-    public DeleteGroupsResponse(Struct struct) {
-        short latestVersion = (short) (DeleteGroupsResponseData.SCHEMAS.length - 1);
-        this.data = new DeleteGroupsResponseData(struct, latestVersion);
-    }
-
     public DeleteGroupsResponse(Struct struct, short version) {
         this.data = new DeleteGroupsResponseData(struct, version);
     }

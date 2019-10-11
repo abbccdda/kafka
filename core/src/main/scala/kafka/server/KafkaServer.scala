@@ -26,7 +26,7 @@ import java.util.function
 import java.util.function.Supplier
 
 import com.yammer.metrics.core.Gauge
-import kafka.api.{KAFKA_0_9_0, KAFKA_2_2_IV0}
+import kafka.api.{KAFKA_0_9_0, KAFKA_2_2_IV0, KAFKA_2_4_IV1}
 import kafka.cluster.Broker
 import kafka.common.{GenerateBrokerIdException, InconsistentBrokerIdException, InconsistentBrokerMetadataException, InconsistentClusterIdException}
 import kafka.controller.KafkaController
@@ -654,7 +654,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
               val controlledShutdownApiVersion: Short =
                 if (config.interBrokerProtocolVersion < KAFKA_0_9_0) 0
                 else if (config.interBrokerProtocolVersion < KAFKA_2_2_IV0) 1
-                else 2
+                else if (config.interBrokerProtocolVersion < KAFKA_2_4_IV1) 2
+                else 3
 
               val controlledShutdownRequest = new ControlledShutdownRequest.Builder(
                   new ControlledShutdownRequestData()

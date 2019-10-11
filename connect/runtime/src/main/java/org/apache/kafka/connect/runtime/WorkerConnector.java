@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.connect.runtime;
 
+import java.util.Locale;
 import org.apache.kafka.connect.connector.Connector;
 import org.apache.kafka.connect.connector.ConnectorContext;
 import org.apache.kafka.connect.runtime.ConnectMetrics.MetricGroup;
@@ -286,6 +287,7 @@ public class WorkerConnector {
             metricGroup.addImmutableValueMetric(registry.connectorType, connectorType());
             metricGroup.addImmutableValueMetric(registry.connectorClass, connector.getClass().getName());
             metricGroup.addImmutableValueMetric(registry.connectorVersion, connector.version());
+            metricGroup.addValueMetric(registry.connectorStatus, now -> state.toString().toLowerCase(Locale.getDefault()));
         }
 
         public void close() {

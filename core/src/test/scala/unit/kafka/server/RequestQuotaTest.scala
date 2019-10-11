@@ -379,7 +379,7 @@ class RequestQuotaTest extends BaseRequestTest {
           new SaslAuthenticateRequest.Builder(new SaslAuthenticateRequestData().setAuthBytes(new Array[Byte](0)))
 
         case ApiKeys.API_VERSIONS =>
-          new ApiVersionsRequest.Builder
+          new ApiVersionsRequest.Builder()
 
         case ApiKeys.CREATE_TOPICS => {
           new CreateTopicsRequest.Builder(
@@ -648,7 +648,7 @@ class RequestQuotaTest extends BaseRequestTest {
       case ApiKeys.DESCRIBE_DELEGATION_TOKEN=> new DescribeDelegationTokenResponse(response, ApiKeys.DESCRIBE_DELEGATION_TOKEN.latestVersion).throttleTimeMs
       case ApiKeys.RENEW_DELEGATION_TOKEN => new RenewDelegationTokenResponse(response, ApiKeys.RENEW_DELEGATION_TOKEN.latestVersion).throttleTimeMs
       case ApiKeys.EXPIRE_DELEGATION_TOKEN => new ExpireDelegationTokenResponse(response, ApiKeys.EXPIRE_DELEGATION_TOKEN.latestVersion).throttleTimeMs
-      case ApiKeys.DELETE_GROUPS => new DeleteGroupsResponse(response).throttleTimeMs
+      case ApiKeys.DELETE_GROUPS => new DeleteGroupsResponse(response, ApiKeys.DELETE_GROUPS.latestVersion).throttleTimeMs
       case ApiKeys.OFFSET_FOR_LEADER_EPOCH => new OffsetsForLeaderEpochResponse(response).throttleTimeMs
       case ApiKeys.ELECT_LEADERS => new ElectLeadersResponse(response).throttleTimeMs
       case ApiKeys.INCREMENTAL_ALTER_CONFIGS =>

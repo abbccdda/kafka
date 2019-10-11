@@ -261,16 +261,16 @@ object TopicZNode {
       Map(
         "version" -> 2,
         "partitions" -> replicaAssignmentJson.asJava,
-        "addingReplicas" -> addingReplicasAssignmentJson.asJava,
-        "removingReplicas" -> removingReplicasAssignmentJson.asJava,
-        "confluent_topic_id" -> topicId.get.toString
+        "confluent_topic_id" -> topicId.get.toString,
+        "adding_replicas" -> addingReplicasAssignmentJson.asJava,
+        "removing_replicas" -> removingReplicasAssignmentJson.asJava
       ).asJava
     else
       Map(
         "version" -> 2,
         "partitions" -> replicaAssignmentJson.asJava,
-        "addingReplicas" -> addingReplicasAssignmentJson.asJava,
-        "removingReplicas" -> removingReplicasAssignmentJson.asJava
+        "adding_replicas" -> addingReplicasAssignmentJson.asJava,
+        "removing_replicas" -> removingReplicasAssignmentJson.asJava
       ).asJava
 
     Json.encodeAsBytes(topicAssignment)
@@ -290,8 +290,8 @@ object TopicZNode {
     Json.parseBytes(bytes).flatMap { js =>
       val assignmentJson = js.asJsonObject
       val topicId = assignmentJson.get("confluent_topic_id").map(_.to[String]).map(UUID.fromString)
-      val addingReplicasJsonOpt = assignmentJson.get("addingReplicas").map(_.asJsonObject)
-      val removingReplicasJsonOpt = assignmentJson.get("removingReplicas").map(_.asJsonObject)
+      val addingReplicasJsonOpt = assignmentJson.get("adding_replicas").map(_.asJsonObject)
+      val removingReplicasJsonOpt = assignmentJson.get("removing_replicas").map(_.asJsonObject)
       val partitionsJsonOpt = assignmentJson.get("partitions").map(_.asJsonObject)
       val partitions = partitionsJsonOpt.map { partitionsJson =>
         partitionsJson.iterator.map { case (partition, replicas) =>

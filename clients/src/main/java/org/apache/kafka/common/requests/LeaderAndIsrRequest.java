@@ -29,7 +29,6 @@ import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrParti
 import org.apache.kafka.common.message.LeaderAndIsrResponseData;
 import org.apache.kafka.common.message.LeaderAndIsrResponseData.LeaderAndIsrPartitionError;
 import org.apache.kafka.common.protocol.ApiKeys;
-import org.apache.kafka.common.protocol.ByteBufferAccessor;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.Message;
 import org.apache.kafka.common.protocol.types.Struct;
@@ -232,13 +231,6 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
         return data.toStruct(version());
     }
 
-    protected ByteBuffer toBytes() {
-        ByteBuffer bytes = ByteBuffer.allocate(size());
-        data().write(new ByteBufferAccessor(bytes), version());
-        bytes.flip();
-        return bytes;
-    }
-
     @Override
     public LeaderAndIsrResponse getErrorResponse(int throttleTimeMs, Throwable e) {
         LeaderAndIsrResponseData responseData = new LeaderAndIsrResponseData();
@@ -253,18 +245,7 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
                 .setErrorCode(error.code()));
         }
         responseData.setPartitionErrors(partitions);
-
-        short versionId = version();
-        switch (versionId) {
-            case 0:
-            case 1:
-            case 2:
-            case 3:
-                return new LeaderAndIsrResponse(responseData, isConfluentRequest());
-            default:
-                throw new IllegalArgumentException(String.format("Version %d is not valid. Valid versions for %s are 0 to %d",
-                        versionId, this.getClass().getSimpleName(), ApiKeys.LEADER_AND_ISR.latestVersion()));
-        }
+        return new LeaderAndIsrResponse(responseData, isConfluentRequest());
     }
 
     @Override
@@ -334,20 +315,16 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
         return emptyMap();
     }
 
-    protected int size() {
-        return data.size(version());
+    // Visible for testing
+    protected Message data() {
+        return data;
     }
 
     public boolean isConfluentRequest() {
         return data instanceof ConfluentLeaderAndIsrRequestData;
     }
 
-    protected Message data() {
-        return data;
-    }
-
     public static LeaderAndIsrRequest parse(ByteBuffer buffer, short version) {
         return new LeaderAndIsrRequest(ApiKeys.LEADER_AND_ISR.parseRequest(version, buffer), version, false);
     }
-
 }

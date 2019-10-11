@@ -111,7 +111,8 @@ public class SaslServerAuthenticatorTest {
         int size = responseBuffer.getInt();
         assertTrue(size < responseBuffer.capacity());
 
-        ResponseHeader responseHeader = ResponseHeader.parse(responseBuffer, header.headerVersion());
+        ResponseHeader responseHeader = ResponseHeader.parse(responseBuffer,
+            ApiKeys.API_VERSIONS.responseHeaderVersion(header.apiVersion()));
         assertEquals(13243, responseHeader.correlationId());
 
         Struct struct = ApiKeys.API_VERSIONS.parseResponse((short) 0, responseBuffer);
@@ -127,7 +128,7 @@ public class SaslServerAuthenticatorTest {
 
         ApiVersionsResponse response = sendApiVersionsRequestAndReceiveResponse(transportLayer, authenticator);
         return response.apiVersions().stream()
-                .map(version -> ApiKeys.forId(version.apiKey))
+                .map(version -> ApiKeys.forId(version.apiKey()))
                 .collect(Collectors.toSet());
     }
 

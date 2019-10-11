@@ -20,6 +20,7 @@ package io.confluent.aegis.common;
 import io.netty.buffer.ByteBuf;
 import org.apache.kafka.common.protocol.Readable;
 import org.apache.kafka.common.protocol.Writable;
+import org.apache.kafka.common.utils.ByteUtils;
 
 public class ByteBufAccessor implements Readable, Writable {
     private final ByteBuf buf;
@@ -54,6 +55,11 @@ public class ByteBufAccessor implements Readable, Writable {
     }
 
     @Override
+    public int readUnsignedVarint() {
+        return ByteUtils.readUnsignedVarint(buf);
+    }
+
+    @Override
     public void writeByte(byte val) {
         buf.writeByte(val);
     }
@@ -74,7 +80,12 @@ public class ByteBufAccessor implements Readable, Writable {
     }
 
     @Override
-    public void writeArray(byte[] arr) {
+    public void writeByteArray(byte[] arr) {
         buf.writeBytes(arr);
+    }
+
+    @Override
+    public void writeUnsignedVarint(int i) {
+        ByteUtils.writeUnsignedVarint(i, buf);
     }
 }

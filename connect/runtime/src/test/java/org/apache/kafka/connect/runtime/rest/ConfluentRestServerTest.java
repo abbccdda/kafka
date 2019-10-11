@@ -42,7 +42,7 @@ import java.util.function.Consumer;
 import static org.junit.Assert.assertNotNull;
 
 @RunWith(PowerMockRunner.class)
-@PowerMockIgnore({"javax.net.ssl.*", "javax.security.*"})
+@PowerMockIgnore({"javax.net.ssl.*", "javax.security.*", "javax.crypto.*"})
 public class ConfluentRestServerTest {
 
   @Mock

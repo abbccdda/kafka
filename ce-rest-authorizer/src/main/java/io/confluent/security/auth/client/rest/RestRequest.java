@@ -28,7 +28,7 @@ public class RestRequest {
 
   private UriBuilder builder;
   private HttpCredentialProvider credentialProvider;
-  private TypeReference responseReference;
+  private TypeReference<?> responseReference;
 
   private String method = "GET";
   private Object request;
@@ -82,9 +82,10 @@ public class RestRequest {
     }
   }
 
+  @SuppressWarnings("unchecked")
   <T> T readResponse(InputStream in) throws IOException {
     if (this.responseReference != null) {
-      return objectMapper.readValue(in, this.responseReference);
+      return (T) objectMapper.readValue(in, this.responseReference);
     }
     return null;
   }

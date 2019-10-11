@@ -6,6 +6,7 @@ import io.confluent.kafka.multitenant.utils.Optional;
 import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.protocol.types.ArrayOf;
 import org.apache.kafka.common.protocol.types.BoundField;
+import org.apache.kafka.common.protocol.types.CompactArrayOf;
 import org.apache.kafka.common.protocol.types.Field;
 import org.apache.kafka.common.protocol.types.ProtocolInternals;
 import org.apache.kafka.common.protocol.types.Schema;
@@ -14,6 +15,7 @@ import org.apache.kafka.common.protocol.types.Struct;
 import org.apache.kafka.common.protocol.types.Type;
 
 import java.nio.ByteBuffer;
+import org.apache.kafka.common.utils.ByteUtils;
 
 /**
  * {@link TransformableSchema} provides a way to embed field transformations into an existing
@@ -164,6 +166,9 @@ public class TransformableSchema<T extends TransformContext> implements Transfor
     } else if (type instanceof ArrayOf) {
       return new TransformableArrayOf<>(buildTransformableType(field, type.arrayElementType().get(),
           selector), type.isNullable());
+    } else if (type instanceof CompactArrayOf) {
+      return new TransformableCompactArrayOf<>(buildTransformableType(field, type.arrayElementType().get(),
+          selector), type.isNullable());
     } else {
       return new TypeForwarder<>(type);
     }
@@ -228,6 +233,64 @@ public class TransformableSchema<T extends TransformContext> implements Transfor
       }
       return size;
     }
+  }
+
+  private static class TransformableCompactArrayOf<T extends TransformContext>
+      implements TransformableType<T> {
+    private final TransformableType<T> type;
+    private final boolean nullable;
+
+    public TransformableCompactArrayOf(TransformableType<T> type, boolean nullable) {
+      this.type = type;
+      this.nullable = nullable;
+    }
+
+    @Override
+    public void write(ByteBuffer buffer, Object o, T ctx) {
+      if (o == null) {
+        ByteUtils.writeUnsignedVarint(0, buffer);
+        return;
+      }
+      Object[] objs = (Object[]) o;
+      int size = objs.length;
+      ByteUtils.writeUnsignedVarint(size + 1, buffer);
+
+      for (Object obj : objs)
+        type.write(buffer, obj, ctx);
+    }
+
+    @Override
+    public Object read(ByteBuffer buffer, T ctx) {
+      int n = ByteUtils.readUnsignedVarint(buffer);
+      if (n == 0) {
+        if (nullable) {
+          return null;
+        } else {
+          throw new SchemaException("This array is not nullable.");
+        }
+      }
+      int size = n - 1;
+      if (size > buffer.remaining())
+        throw new SchemaException("Error reading array of size " + size + ", only " + buffer.remaining() + " bytes available");
+      Object[] objs = new Object[size];
+      for (int i = 0; i < size; i++)
+        objs[i] = type.read(buffer, ctx);
+      return objs;
+    }
+
+    @Override
+    public int sizeOf(Object o, T ctx) {
+      if (o == null) {
+        return 1;
+      }
+      Object[] objs = (Object[]) o;
+      int size = ByteUtils.sizeOfUnsignedVarint(objs.length + 1);
+      for (Object obj : objs) {
+        size += type.sizeOf(obj, ctx);
+      }
+      return size;
+    }
+
   }
 
 }

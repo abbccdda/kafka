@@ -165,7 +165,7 @@ CLASSPATH="${CLASSPATH}:${base_dir}/ce-rest-server/build/dependant-libs/*"
 CLASSPATH="${CLASSPATH}:${base_dir}/ce-audit/build/libs/*"
 CLASSPATH="${CLASSPATH}:${base_dir}/ce-audit/build/dependant-libs/*"
 
-for cc_pkg in "api" "transforms" "runtime" "file" "json" "tools" "basic-auth-extension"
+for cc_pkg in "api" "transforms" "runtime" "file" "mirror" "mirror-client" "json" "tools" "basic-auth-extension"
 do
   for file in "$base_dir"/connect/${cc_pkg}/build/libs/connect-${cc_pkg}*.jar;
   do

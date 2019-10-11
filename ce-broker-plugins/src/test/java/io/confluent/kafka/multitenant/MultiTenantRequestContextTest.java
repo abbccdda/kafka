@@ -766,7 +766,7 @@ public class MultiTenantRequestContextTest {
     for (short ver = ApiKeys.DELETE_GROUPS.oldestVersion(); ver <= ApiKeys.DELETE_GROUPS.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_GROUPS, ver);
       DeleteGroupsRequestData requestData = new DeleteGroupsRequestData().setGroupsNames(asList("foo", "bar"));
-      DeleteGroupsRequest inbound = new DeleteGroupsRequest.Builder(requestData).build();
+      DeleteGroupsRequest inbound = new DeleteGroupsRequest.Builder(requestData).build(ver);
       DeleteGroupsRequest intercepted = (DeleteGroupsRequest) parseRequest(context, inbound);
       assertEquals(asList("tenant_foo", "tenant_bar"), intercepted.data.groupsNames());
       verifyRequestMetrics(ApiKeys.DELETE_GROUPS);
@@ -788,7 +788,7 @@ public class MultiTenantRequestContextTest {
               ).iterator()));
       DeleteGroupsResponse outbound = new DeleteGroupsResponse(responseData);
       Struct struct = parseResponse(ApiKeys.DELETE_GROUPS, ver, context.buildResponse(outbound));
-      DeleteGroupsResponse intercepted = new DeleteGroupsResponse(struct);
+      DeleteGroupsResponse intercepted = new DeleteGroupsResponse(struct, ver);
       assertEquals(mkSet("foo", "bar"), intercepted.errors().keySet());
       verifyResponseMetrics(ApiKeys.DELETE_GROUPS, Errors.NONE);
     }
@@ -2086,7 +2086,7 @@ public class MultiTenantRequestContextTest {
     channel.close();
     ByteBuffer buffer = channel.buffer();
     buffer.getInt();
-    ResponseHeader.parse(buffer, version);
+    ResponseHeader.parse(buffer, api.responseHeaderVersion(version));
     Struct struct = api.parseResponse(version, buffer.slice());
     assertEquals(buffer.remaining(), struct.sizeOf());
     return struct;

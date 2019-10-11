@@ -43,7 +43,7 @@ import kafka.server.epoch.EpochEntry
 import kafka.tier.TierMetadataManager
 import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.fetcher.TierStateFetcher
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.{InvalidRecordException, TopicPartition}
 import org.apache.kafka.common.internals.PartitionStates
 import org.apache.kafka.common.record.{FileRecords, MemoryRecords, Records}
 import org.apache.kafka.common.requests._
@@ -485,7 +485,7 @@ abstract class AbstractFetcherThread(name: String,
                       }
                     }
                   } catch {
-                    case ime: CorruptRecordException =>
+                    case ime@( _: CorruptRecordException | _: InvalidRecordException) =>
                       // we log the error and continue. This ensures two things
                       // 1. If there is a corrupt message in a topic partition, it does not bring the fetcher thread
                       //    down and cause other topic partition to also lag
