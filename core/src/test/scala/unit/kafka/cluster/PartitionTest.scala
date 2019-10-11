@@ -360,13 +360,13 @@ class PartitionTest {
     val partition = setupPartitionWithMocks(leaderEpoch, isLeader = false)
 
     def assertReadRecordsError(error: Errors,
-                                       currentLeaderEpochOpt: Optional[Integer],
-                                       fetchOnlyLeader: Boolean): Unit = {
+                               currentLeaderEpochOpt: Optional[Integer],
+                               fetchOnlyFromLeader: Boolean): Unit = {
       try {
         partition.readRecords(0L, currentLeaderEpochOpt,
           maxBytes = 1024,
           fetchIsolation = FetchLogEnd,
-          fetchOnlyFromLeader = fetchOnlyLeader,
+          fetchOnlyFromLeader = fetchOnlyFromLeader,
           minOneMessage = false)
         if (error != Errors.NONE)
           fail(s"Expected readRecords to fail with error $error")
@@ -376,15 +376,15 @@ class PartitionTest {
       }
     }
 
-    assertReadRecordsError(Errors.NONE, Optional.empty(), fetchOnlyLeader = false)
-    assertReadRecordsError(Errors.NONE, Optional.of(leaderEpoch), fetchOnlyLeader = false)
-    assertReadRecordsError(Errors.FENCED_LEADER_EPOCH, Optional.of(leaderEpoch - 1), fetchOnlyLeader = false)
-    assertReadRecordsError(Errors.UNKNOWN_LEADER_EPOCH, Optional.of(leaderEpoch + 1), fetchOnlyLeader = false)
+    assertReadRecordsError(Errors.NONE, Optional.empty(), fetchOnlyFromLeader = false)
+    assertReadRecordsError(Errors.NONE, Optional.of(leaderEpoch), fetchOnlyFromLeader = false)
+    assertReadRecordsError(Errors.FENCED_LEADER_EPOCH, Optional.of(leaderEpoch - 1), fetchOnlyFromLeader = false)
+    assertReadRecordsError(Errors.UNKNOWN_LEADER_EPOCH, Optional.of(leaderEpoch + 1), fetchOnlyFromLeader = false)
 
-    assertReadRecordsError(Errors.NOT_LEADER_FOR_PARTITION, Optional.empty(), fetchOnlyLeader = true)
-    assertReadRecordsError(Errors.NOT_LEADER_FOR_PARTITION, Optional.of(leaderEpoch), fetchOnlyLeader = true)
-    assertReadRecordsError(Errors.FENCED_LEADER_EPOCH, Optional.of(leaderEpoch - 1), fetchOnlyLeader = true)
-    assertReadRecordsError(Errors.UNKNOWN_LEADER_EPOCH, Optional.of(leaderEpoch + 1), fetchOnlyLeader = true)
+    assertReadRecordsError(Errors.NOT_LEADER_FOR_PARTITION, Optional.empty(), fetchOnlyFromLeader = true)
+    assertReadRecordsError(Errors.NOT_LEADER_FOR_PARTITION, Optional.of(leaderEpoch), fetchOnlyFromLeader = true)
+    assertReadRecordsError(Errors.FENCED_LEADER_EPOCH, Optional.of(leaderEpoch - 1), fetchOnlyFromLeader = true)
+    assertReadRecordsError(Errors.UNKNOWN_LEADER_EPOCH, Optional.of(leaderEpoch + 1), fetchOnlyFromLeader = true)
   }
 
   @Test

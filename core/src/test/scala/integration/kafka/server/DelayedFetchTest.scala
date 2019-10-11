@@ -22,6 +22,7 @@ import java.util.{Collections, Optional}
 import kafka.cluster.{Partition, Replica}
 import kafka.log.LogOffsetSnapshot
 import kafka.tier.fetcher.{PendingFetch, TierFetchResult}
+import kafka.utils.{MockTime, TestUtils}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{FencedLeaderEpochException, UnknownServerException}
 import org.apache.kafka.common.protocol.Errors
@@ -29,7 +30,7 @@ import org.apache.kafka.common.record.MemoryRecords
 import org.apache.kafka.common.requests.FetchRequest
 import org.easymock.{EasyMock, EasyMockSupport}
 import org.junit.Assert._
-import org.junit.Test
+import org.junit.{After, Test}
 
 import scala.collection.JavaConverters._
 import scala.collection.Seq
@@ -38,8 +39,15 @@ import scala.concurrent.{Await, Promise}
 
 class DelayedFetchTest extends EasyMockSupport {
   private val maxBytes = 1024
+  private val mockTime = new MockTime()
   private val replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
   private val replicaQuota: ReplicaQuota = mock(classOf[ReplicaQuota])
+  private val brokerTopicStats = new BrokerTopicStats
+
+  @After
+  def tearDown(): Unit = {
+    brokerTopicStats.close()
+  }
 
   /**
     * Test that DelayedFetch.onComplete() merges TierFetcher results with
@@ -66,11 +74,11 @@ class DelayedFetchTest extends EasyMockSupport {
     val callbackPromise: Promise[Seq[(TopicPartition, FetchPartitionData)]] = Promise[Seq[(TopicPartition, FetchPartitionData)]]()
     val delayedFetch = new DelayedFetch(
       delayMs = 500, fetchMetadata = fetchMetadata, replicaManager = replicaManager, replicaQuota, Some(pendingFetch),
-      clientMetadata = None, callbackPromise.success
+      clientMetadata = None, brokerTopicStats, callbackPromise.success
     )
     expectGetTierFetchResults(pendingFetch, Seq((topicPartition1, None)))
     expectReadFromLocalLog(replicaManager, Seq(
-      (topicPartition0, FetchDataInfo(LogOffsetMetadata(0,0), MemoryRecords.EMPTY, firstEntryIncomplete = false, None), None),
+      (topicPartition0, FetchDataInfo(LogOffsetMetadata(0, 0), MemoryRecords.EMPTY), None),
       (topicPartition1, TierFetchDataInfo(null, None), None)
     ), highWatermark = highWatermark)
 
@@ -110,7 +118,7 @@ class DelayedFetchTest extends EasyMockSupport {
     val callbackPromise: Promise[Seq[(TopicPartition, FetchPartitionData)]] = Promise[Seq[(TopicPartition, FetchPartitionData)]]()
     val delayedFetch = new DelayedFetch(
       delayMs = 500, fetchMetadata = fetchMetadata, replicaManager = replicaManager, replicaQuota, Some(pendingFetch),
-      clientMetadata = None, callbackPromise.success
+      clientMetadata = None, brokerTopicStats, callbackPromise.success
     )
 
     expectGetTierFetchResults(
@@ -167,6 +175,7 @@ class DelayedFetchTest extends EasyMockSupport {
       quota = replicaQuota,
       None,
       clientMetadata = None,
+      brokerTopicStats = brokerTopicStats,
       responseCallback = callback)
 
     val partition: Partition = mock(classOf[Partition])
@@ -212,6 +221,7 @@ class DelayedFetchTest extends EasyMockSupport {
       quota = replicaQuota,
       tierFetchOpt = None,
       clientMetadata = None,
+      brokerTopicStats = brokerTopicStats,
       responseCallback = callback
     )
 
@@ -272,14 +282,119 @@ class DelayedFetchTest extends EasyMockSupport {
     })
   }
 
+  /**
+   * Test that DelayedFetch.onComplete() follower fetch request does NOT record fetch time lag as consumer
+   * fetch time lag
+   */
+  @Test
+  def testFollowerFetchTimeLagNotRecordedAsConsumerFetch(): Unit = {
+    // Follower fetch
+    val isFromFollower = true
+
+    val topicPartition0 = new TopicPartition("topic", 0) // local
+    val replicaId = 1
+    val fetchOffset = 500L
+    val highWatermark = 50
+
+    val fetchMetadata = buildMultiPartitionFetchMetadata(
+      replicaId,
+      Seq(
+        (topicPartition0, buildFetchPartitionStatus(fetchOffset, LogOffsetMetadata(0, 0)))
+      ), isFromFollower)
+
+    val callbackPromise: Promise[Seq[(TopicPartition, FetchPartitionData)]] = Promise[Seq[(TopicPartition, FetchPartitionData)]]()
+    val delayedFetch = new DelayedFetch(
+      delayMs = 500, fetchMetadata = fetchMetadata, replicaManager = replicaManager, replicaQuota, None,
+      clientMetadata = None, brokerTopicStats, callbackPromise.success
+    )
+    val records = TestUtils.singletonRecords(s"message".getBytes, timestamp = mockTime.milliseconds())
+
+    expectReadFromLocalLog(replicaManager, Seq(
+      (topicPartition0, FetchDataInfo(LogOffsetMetadata(0,0), records), None)
+    ), highWatermark = highWatermark)
+
+    // complete delayed fetch
+    replayAll()
+    delayedFetch.forceComplete()
+
+    // Follower fetch is not recorded as consumer fetch
+    assertTrue("Expected forceComplete to complete the request", callbackPromise.isCompleted)
+    val results = Await.result(callbackPromise.future, Duration(1, TimeUnit.SECONDS))
+    assertEquals("Expected tiered fetch result", 1, results.size)
+    assertEquals("Follower fetch is not recorded, snapshot size is 0",
+      0, brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.getSnapshot.size())
+  }
+
+  /**
+   * Test that DelayedFetch.onComplete() consumer fetch, records consumer fetch time lag
+   */
+  @Test
+  def testConsumerTierFetchTimeLag(): Unit = {
+    // Consumer fetch
+    val isFromFollower = false
+    val fetchDelta = 3
+
+    val topicPartition0 = new TopicPartition("topic", 0) // tier
+    val topicPartition1 = new TopicPartition("topic", 1) // tier
+    val replicaId = 1
+    val fetchOffset = 500L
+    val highWatermark = 50
+    val fetchMetadata = buildMultiPartitionFetchMetadata(
+      replicaId,
+      Seq(
+        (topicPartition0, buildFetchPartitionStatus(fetchOffset, LogOffsetMetadata(0, 0))),
+        (topicPartition1, buildFetchPartitionStatus(fetchOffset, LogOffsetMetadata.UnknownOffsetMetadata))
+      ), isFromFollower)
+
+    val pendingFetch: PendingFetch = mock(classOf[PendingFetch])
+    EasyMock.expect(pendingFetch.isComplete).andReturn(true)
+
+    val callbackPromise: Promise[Seq[(TopicPartition, FetchPartitionData)]] = Promise[Seq[(TopicPartition, FetchPartitionData)]]()
+    val delayedFetch = new DelayedFetch(
+      delayMs = 500, fetchMetadata = fetchMetadata, replicaManager = replicaManager, replicaQuota, Some(pendingFetch),
+      clientMetadata = None, brokerTopicStats, callbackPromise.success
+    )
+    val records = TestUtils.singletonRecords(s"message".getBytes, timestamp = mockTime.milliseconds())
+
+    // mock consumer fetch delay
+    mockTime.sleep(fetchDelta)
+
+    expectGetTierFetchResults(pendingFetch, Seq((topicPartition1, None)), records)
+    expectReadFromLocalLog(replicaManager, Seq(
+      (topicPartition0, FetchDataInfo(LogOffsetMetadata(0, 0), records), None),
+      (topicPartition1, TierFetchDataInfo(null, None), None)
+    ), highWatermark = highWatermark)
+
+    // complete delayed fetch
+    replayAll()
+    delayedFetch.forceComplete()
+
+    assertTrue("Expected forceComplete to complete the request", callbackPromise.isCompleted)
+    val results = Await.result(callbackPromise.future, Duration(1, TimeUnit.SECONDS))
+    assertEquals("Expected tiered and local fetch result", 2, results.size)
+
+    // validate consumer fetch lag recorded for delayed fetch
+    assertEquals("Expected size of recorded consumer fetch lag snapshot",
+      2, brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.getSnapshot.size())
+    val expectedTimeLagMs = fetchDelta
+    val firstLagTimeMs: Double = brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.getSnapshot().getValues()
+      .headOption.getOrElse(-1: Double)
+    assertEquals("Fetch Time lag last histogram value", expectedTimeLagMs, firstLagTimeMs, 0)
+    val lastLagTimeMs: Double = brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.getSnapshot().getValues()
+      .lastOption.getOrElse(-1: Double)
+    assertEquals("Fetch Time lag last histogram value", expectedTimeLagMs, lastLagTimeMs, 0)
+  }
+
+
   private def buildMultiPartitionFetchMetadata(replicaId: Int,
-                                               fetchPartitionStatus: Seq[(TopicPartition, FetchPartitionStatus)]): FetchMetadata = {
+                                               fetchPartitionStatus: Seq[(TopicPartition, FetchPartitionStatus)],
+                                               isFromFollower: Boolean = true): FetchMetadata = {
     FetchMetadata(fetchMinBytes = 1,
       fetchMaxBytes = maxBytes,
       hardMaxBytesLimit = false,
       fetchOnlyLeader = true,
       fetchIsolation = FetchLogEnd,
-      isFromFollower = true,
+      isFromFollower = isFromFollower,
       replicaId = replicaId,
       fetchPartitionStatus = fetchPartitionStatus)
   }
@@ -317,6 +432,7 @@ class DelayedFetchTest extends EasyMockSupport {
       leaderLogEndOffset = -1L,
       followerLogStartOffset = -1L,
       fetchTimeMs = -1L,
+      isReadAllowed = false,
       readSize = -1,
       lastStableOffset = None)
 
@@ -342,15 +458,17 @@ class DelayedFetchTest extends EasyMockSupport {
       leaderLogEndOffset = -1L,
       followerLogStartOffset = -1L,
       fetchTimeMs = -1L,
+      isReadAllowed = false,
       readSize = -1,
       lastStableOffset = None)
   }
 
   private def expectGetTierFetchResults(pendingFetch: PendingFetch,
-                                        topicPartitionException: Seq[(TopicPartition, Option[Throwable])]): Unit = {
+                                        topicPartitionException: Seq[(TopicPartition, Option[Throwable])],
+                                        records: MemoryRecords = MemoryRecords.EMPTY): Unit = {
     val results = topicPartitionException
       .map { case (topicPartition: TopicPartition, exceptionOpt: Option[Throwable]) =>
-        (topicPartition, new TierFetchResult(MemoryRecords.EMPTY, Collections.emptyList(), exceptionOpt.orNull))
+        (topicPartition, new TierFetchResult(records, Collections.emptyList(), exceptionOpt.orNull))
       }.toMap.asJava
     EasyMock
       .expect(pendingFetch.finish())
@@ -362,9 +480,9 @@ class DelayedFetchTest extends EasyMockSupport {
                                      highWatermark: Long = 0): Unit = {
     val readResults = fetchDataInfos.map {
       case (tp, tierFetchDataInfo: TierFetchDataInfo, exceptionOpt: Option[Throwable]) =>
-        (tp, TierLogReadResult(info = tierFetchDataInfo, highWatermark, 0, 0, 0, 0, 0, None, None, exceptionOpt))
+        (tp, TierLogReadResult(info = tierFetchDataInfo, highWatermark, 0, 0, 0, mockTime.milliseconds(), 0, None, None, exceptionOpt))
       case (tp, fetchDataInfo: FetchDataInfo, exceptionOpt: Option[Throwable]) =>
-        (tp, LogReadResult(info = fetchDataInfo, highWatermark, 0, 0, 0, 0, 0, None, None, false, exceptionOpt))
+        (tp, LogReadResult(info = fetchDataInfo, highWatermark, 0, 0, 0, mockTime.milliseconds(), 0, None, true, None, false, exceptionOpt))
     }
     EasyMock.expect(replicaManager.readFromLocalLog(EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject(),
       EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject()))

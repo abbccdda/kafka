@@ -210,23 +210,23 @@ public class S3TierObjectStore implements TierObjectStore {
         final AmazonS3ClientBuilder builder = AmazonS3ClientBuilder.standard();
         builder.setClientConfiguration(clientConfiguration);
 
-        if (config.s3SignerOverride != null && !config.s3SignerOverride.isEmpty())
-            clientConfiguration.setSignerOverride(config.s3SignerOverride);
+        if (config.s3SignerOverride.isPresent() && !config.s3SignerOverride.get().isEmpty())
+            clientConfiguration.setSignerOverride(config.s3SignerOverride.get());
 
-        if (config.s3EndpointOverride != null && !config.s3EndpointOverride.isEmpty()) {
+        if (config.s3EndpointOverride.isPresent() && !config.s3EndpointOverride.get().isEmpty()) {
             // If the endpoint is specified, we can set an endpoint and use path style access.
             builder.setEndpointConfiguration(
                     new AwsClientBuilder.EndpointConfiguration(
-                            config.s3EndpointOverride,
+                            config.s3EndpointOverride.get(),
                             Regions.fromName(config.s3Region).getName()));
             builder.setPathStyleAccessEnabled(true);
         } else if (config.s3Region != null && !config.s3Region.isEmpty()) {
             builder.setRegion(config.s3Region);
         }
 
-        if (config.s3AwsAccessKeyId != null && config.s3AwsSecretAccessKey != null) {
-            final BasicAWSCredentials credentials = new BasicAWSCredentials(config.s3AwsAccessKeyId,
-                    config.s3AwsSecretAccessKey);
+        if (config.s3AwsAccessKeyId.isPresent() && config.s3AwsSecretAccessKey.isPresent()) {
+            final BasicAWSCredentials credentials = new BasicAWSCredentials(config.s3AwsAccessKeyId.get(),
+                    config.s3AwsSecretAccessKey.get());
             builder.setCredentials(new AWSStaticCredentialsProvider(credentials));
         } else {
             builder.setCredentials(new DefaultAWSCredentialsProviderChain());

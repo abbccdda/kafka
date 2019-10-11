@@ -1,6 +1,5 @@
 package io.confluent.security.audit.appender;
 
-import com.google.protobuf.InvalidProtocolBufferException;
 import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.CloudEvent;
 import io.confluent.security.audit.CloudEventUtils;
@@ -287,7 +286,7 @@ public class KafkaEventAppender implements EventAppender {
                     log.info(
                         "Failed to produce event log message: " + CloudEventUtils
                             .toJsonString(event));
-                  } catch (InvalidProtocolBufferException e) {
+                  } catch (IOException e) {
                     log.warn("...and failed to log event that we couldn't produce", e);
                   }
                 } else {
@@ -312,7 +311,7 @@ public class KafkaEventAppender implements EventAppender {
       log.warn("Failed to produce event log message", t);
       try {
         log.info("Failed to produce event log message: " + CloudEventUtils.toJsonString(event));
-      } catch (InvalidProtocolBufferException e) {
+      } catch (IOException e) {
         log.warn("...and failed to log event that we couldn't produce", e);
       }
     }

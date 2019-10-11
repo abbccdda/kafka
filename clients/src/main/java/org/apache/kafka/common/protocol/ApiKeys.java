@@ -66,6 +66,8 @@ import org.apache.kafka.common.message.OffsetFetchRequestData;
 import org.apache.kafka.common.message.OffsetFetchResponseData;
 import org.apache.kafka.common.message.RenewDelegationTokenRequestData;
 import org.apache.kafka.common.message.RenewDelegationTokenResponseData;
+import org.apache.kafka.common.message.ReplicaStatusRequestData;
+import org.apache.kafka.common.message.ReplicaStatusResponseData;
 import org.apache.kafka.common.message.SaslAuthenticateRequestData;
 import org.apache.kafka.common.message.SaslAuthenticateResponseData;
 import org.apache.kafka.common.message.SaslHandshakeRequestData;
@@ -216,8 +218,9 @@ public enum ApiKeys {
 
     /* ----- Begin internal APIs: API ids decrement sequentially starting from Short.MAX_VALUE with `isInternal` set to true ----- */
 
+    REPLICA_STATUS(32765, "ReplicaStatus", false, ReplicaStatusRequestData.SCHEMAS, ReplicaStatusResponseData.SCHEMAS, true),
     CONFLUENT_LEADER_AND_ISR(32766, "ConfluentLeaderAndIsr", true, ConfluentLeaderAndIsrRequestData.SCHEMAS,
-            ConfluentLeaderAndIsrResponseData.SCHEMAS, true),
+                             ConfluentLeaderAndIsrResponseData.SCHEMAS, true),
     TIER_LIST_OFFSET(32767, "TierListOffsets", true, TierListOffsetRequestData.SCHEMAS,
                      TierListOffsetResponseData.SCHEMAS, true);
 

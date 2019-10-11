@@ -64,6 +64,7 @@ import static io.confluent.metrics.record.ConfluentMetric.MetricType.BROKER;
 import static io.confluent.metrics.record.ConfluentMetric.MetricType.CONSUMER;
 import static io.confluent.metrics.record.ConfluentMetric.MetricType.PRODUCER;
 import static io.confluent.metrics.record.ConfluentMetric.MetricType.UNKNOWN;
+import static io.confluent.metrics.reporter.ConfluentMetricsReporterConfig.DEFAULT_MIN_ISR;
 import static io.confluent.metrics.reporter.ConfluentMetricsReporterConfig.VOLUME_METRICS_REFRESH_PERIOD_MS;
 
 public class ConfluentMetricsReporter
@@ -201,12 +202,9 @@ public class ConfluentMetricsReporter
           // something bad happened
           throw e;
         }
-        // set minIsr to be consistent with
-        // control center {@link io.confluent.controlcenter.util.TopicInfo.Builder.setReplication}
-        int minIsr = Math.min(3, publishTopicReplicas < 3 ? 1 : publishTopicReplicas - 1);
 
         final Map<String, String> topicConfig = new HashMap<>();
-        topicConfig.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "" + minIsr);
+        topicConfig.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "" + DEFAULT_MIN_ISR);
         topicConfig.put(TopicConfig.RETENTION_MS_CONFIG, "" + retentionMs);
         topicConfig.put(TopicConfig.RETENTION_BYTES_CONFIG, "" + retentionBytes);
         topicConfig.put(TopicConfig.SEGMENT_MS_CONFIG, "" + rollMs);

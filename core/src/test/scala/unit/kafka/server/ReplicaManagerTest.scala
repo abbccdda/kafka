@@ -23,9 +23,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 import java.util.{Optional, Properties}
 
-import kafka.log.MergedLog
+import kafka.log.{CleanerConfig, Log, LogConfig, LogManager, MergedLog, ProducerStateManager}
 import kafka.api.Request
-import kafka.log.{Log, LogConfig, LogManager, ProducerStateManager}
 import kafka.cluster.BrokerEndPoint
 import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.server.epoch.LeaderEpochFileCache
@@ -61,6 +60,7 @@ class ReplicaManagerTest {
 
   val topic = "test-topic"
   val time = new MockTime
+  val brokerTopicStats = new BrokerTopicStats
   val metrics = new Metrics
   var kafkaZkClient: KafkaZkClient = _
 
@@ -80,6 +80,7 @@ class ReplicaManagerTest {
   @After
   def tearDown(): Unit = {
     metrics.close()
+    brokerTopicStats.close()
   }
 
   @Test
@@ -455,6 +456,153 @@ class ReplicaManagerTest {
       assertEquals(producerId, abortedTransaction.producerId)
     } finally {
       replicaManager.shutdown(checkpointHW = false)
+    }
+  }
+
+  /**
+   * The test validates the fetch time lag metric. The log is created and the expected lag is validated.
+   *
+   * Test scenarios
+   * 1. Metric is NOT recorded for follower fetch
+   * 2. Metric is not recorded for partitions not being included in the response because maxBytes has been satisfied
+   * 3. Metric is recorded for partition included in the response because hardMaxByteLimit=FALSE even when maxBytes=0
+   * 4. Metric is updated with 0 lag when consumer is caught up to the end of the log.
+   * 5. Metric is updated correctly for all other fetches at valid offsets.
+   *
+   * Time Lag: The test messages are created with messageEventTimestampDelta (1 ms) different in event time which is then used
+   * to validate the time lag by adding the additional timeElapsedSinceAppend
+   */
+  @Test
+  def testConsumerFetchLagMetrics(): Unit = {
+    val timer = new MockTimer
+    val rm = setupReplicaManagerWithMockedPurgatories(timer, aliveBrokerIds = Seq(0, 1, 2))
+    try {
+      val brokerList = Seq[Integer](0, 1).asJava
+
+      val partition = rm.createPartition(new TopicPartition(topic, 0))
+      partition.createLogIfNotExists(0, isNew = false, isFutureReplica = false,
+        new LazyOffsetCheckpoints(rm.highWatermarkCheckpoints))
+
+      // Make this replica the leader.
+      val leaderAndIsrRequest1 = new LeaderAndIsrRequest.Builder(ApiKeys.LEADER_AND_ISR.latestVersion, 0, 0, brokerEpoch,
+        Seq(new LeaderAndIsrPartitionState()
+          .setTopicName(topic)
+          .setPartitionIndex(0)
+          .setControllerEpoch(0)
+          .setLeader(0)
+          .setLeaderEpoch(0)
+          .setIsr(brokerList)
+          .setZkVersion(0)
+          .setReplicas(brokerList)
+          .setIsNew(false)).asJava,
+        Set(new Node(0, "host1", 0), new Node(1, "host2", 1)).asJava).build()
+      rm.becomeLeaderOrFollower(0, leaderAndIsrRequest1, (_, _) => ())
+      rm.getPartitionOrException(new TopicPartition(topic, 0), expectLeader = true)
+        .localLogOrException
+
+      val lastOffset = 3
+      val messageEventTimestampDelta = 1
+      // Append messages
+      for(i <- 0 to lastOffset) {
+        timer.time.sleep(messageEventTimestampDelta)
+        val records = TestUtils.singletonRecords(s"message $i".getBytes, timestamp = timer.time.milliseconds())
+        appendRecords(rm, new TopicPartition(topic, 0), records).onFire { response =>
+          assertEquals(Errors.NONE, response.error)
+        }
+      }
+
+      // Metric is NOT recorded when hardMaxBytesLimit=true and maxBytes=0
+      def assertDoNotRecordWhenHardMaxByteLimitAndZeroMaxBytes(): Unit = {
+        brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.clear()
+
+        val consumerFetchResult = fetchAsConsumer(rm, new TopicPartition(topic, 0),
+          new PartitionData(0, 0, 100000, Optional.empty()), maxBytes = 0,
+          hardMaxBytesLimit = true, isolationLevel = IsolationLevel.READ_COMMITTED)
+        val consumerFetchData = consumerFetchResult.assertFired
+        assertFalse("DoNotRecordWhenHardMaxByteLimitAndZeroMaxBytes: Should not return any data", consumerFetchData.records.batches.iterator.hasNext)
+
+        val count = brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.getSnapshot().getValues().size
+        assertEquals("Fetch lag should not recorded when maxBytes is satisfied", 0, count)
+      }
+
+      // Metric is recorded when hardMaxBytesLimit=false and maxBytes=0
+      def assertRecordWhenNoHardMaxByteLimitAndZeroMaxBytes(): Unit = {
+        brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.clear()
+
+        val consumerFetchResult = fetchAsConsumer(rm, new TopicPartition(topic, 0),
+          new PartitionData(0, 0, 100000, Optional.empty()), maxBytes = 0,
+          hardMaxBytesLimit = false, isolationLevel = IsolationLevel.READ_COMMITTED)
+        val consumerFetchData = consumerFetchResult.assertFired
+        assertTrue("RecordWhenNoHardMaxByteLimitAndZeroMaxBytes: Should return data", consumerFetchData.records.batches.iterator.hasNext)
+
+        val count = brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.getSnapshot().getValues().size
+        assertEquals("RecordWhenNoHardMaxByteLimitAndZeroMaxBytes", 1, count)
+      }
+
+      def assertRecordZeroLagAfterHWFetches(): Unit = {
+        brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.clear()
+
+        // Fetch a message at offset as a consumer
+        val consumerFetchResult = fetchAsConsumer(rm, new TopicPartition(topic, 0),
+          new PartitionData(lastOffset + 1, 0, 100000, Optional.empty()),
+          isolationLevel = IsolationLevel.READ_COMMITTED)
+        val consumerFetchData = consumerFetchResult.assertFired
+        assertEquals("RecordZeroLagAfterHWFetches: Should not give an exception", Errors.NONE, consumerFetchData.error)
+        assertFalse("RecordZeroLagAfterHWFetches: Should return some data", consumerFetchData.records.batches.iterator.hasNext)
+
+        val lagTimeMs: Double = brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.getSnapshot().getValues().lastOption.getOrElse(-1: Double)
+        assertEquals("RecordZeroLagAfterHWFetches: Fetch time lag last histogram value", 0.0, lagTimeMs, 0)
+      }
+
+      def assertRecordForExistingOffsetFetchesMetrics(): Unit = {
+        brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.clear()
+
+        var timeElapsedSinceAppend = 0
+        val fetchDelta = 3
+
+        for (offset <- 0 to lastOffset) {
+          timer.time.sleep(fetchDelta)
+
+          // Fetch a message at offset as a consumer
+          val consumerFetchResult = fetchAsConsumer(rm, new TopicPartition(topic, 0),
+            new PartitionData(offset, 0, 100000, Optional.empty()),
+            isolationLevel = IsolationLevel.READ_COMMITTED)
+          val consumerFetchData = consumerFetchResult.assertFired
+          assertEquals("RecordForExistingOffsetFetchesMetrics: Should not give an exception", Errors.NONE, consumerFetchData.error)
+          assertTrue("RecordForExistingOffsetFetchesMetrics: Should return some data", consumerFetchData.records.batches.iterator.hasNext)
+
+          timeElapsedSinceAppend += fetchDelta
+          val expectedTimeLagMs = messageEventTimestampDelta * (lastOffset - offset) + timeElapsedSinceAppend
+          val lagTimeMs: Double = brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.getSnapshot().getValues().lastOption.getOrElse(-1: Double)
+
+          assertEquals("RecordForExistingOffsetFetchesMetrics: Fetch time lag last histogram value offset=" + offset, expectedTimeLagMs, lagTimeMs, 0)
+        }
+      }
+
+      brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.clear()
+      // fetch as follower to advance the high watermark
+      val followerFetchResult = fetchAsFollower(rm, new TopicPartition(topic, 0),
+        new PartitionData(lastOffset + 1, 0, 100000, Optional.empty()),
+        isolationLevel = IsolationLevel.READ_UNCOMMITTED)
+      val followerFetchData = followerFetchResult.assertFired
+      assertEquals("Should not give an exception", Errors.NONE, followerFetchData.error)
+      // Metric is NOT recorded for follower fetch
+      val count = brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.getSnapshot().getValues().size
+      assertEquals("Follower fetch lag is not recorded",0, count)
+
+      // Metric is not recorded for partitions not being included in the response because maxBytes has been satisfied.
+      assertDoNotRecordWhenHardMaxByteLimitAndZeroMaxBytes
+
+      // Metric is recorded for partition included in the response because hardMaxByteLimit=FALSE even when maxBytes=0
+      assertRecordWhenNoHardMaxByteLimitAndZeroMaxBytes
+
+      // Metric is updated with 0 lag when consumer is caught up to the end of the log
+      assertRecordZeroLagAfterHWFetches
+
+      // Metric is recorded for all existing offset
+      assertRecordForExistingOffsetFetchesMetrics
+    } finally {
+      rm.shutdown(checkpointHW = false)
     }
   }
 
@@ -1142,18 +1290,22 @@ class ReplicaManagerTest {
                               partition: TopicPartition,
                               partitionData: PartitionData,
                               minBytes: Int = 0,
+                              maxBytes: Int = Int.MaxValue,
+                              hardMaxBytesLimit: Boolean = false,
                               isolationLevel: IsolationLevel = IsolationLevel.READ_UNCOMMITTED,
                               clientMetadata: Option[ClientMetadata] = None): CallbackResult[FetchPartitionData] = {
-    fetchMessages(replicaManager, replicaId = -1, partition, partitionData, minBytes, isolationLevel, clientMetadata)
+    fetchMessages(replicaManager, replicaId = -1, partition, partitionData, minBytes, maxBytes, hardMaxBytesLimit, isolationLevel, clientMetadata)
   }
 
   private def fetchAsFollower(replicaManager: ReplicaManager,
                               partition: TopicPartition,
                               partitionData: PartitionData,
                               minBytes: Int = 0,
+                              maxBytes: Int = Int.MaxValue,
+                              hardMaxBytesLimit: Boolean = false,
                               isolationLevel: IsolationLevel = IsolationLevel.READ_UNCOMMITTED,
                               clientMetadata: Option[ClientMetadata] = None): CallbackResult[FetchPartitionData] = {
-    fetchMessages(replicaManager, replicaId = 1, partition, partitionData, minBytes, isolationLevel, clientMetadata)
+    fetchMessages(replicaManager, replicaId = 1, partition, partitionData, minBytes, maxBytes, hardMaxBytesLimit, isolationLevel, clientMetadata)
   }
 
   private def fetchMessages(replicaManager: ReplicaManager,
@@ -1161,6 +1313,8 @@ class ReplicaManagerTest {
                             partition: TopicPartition,
                             partitionData: PartitionData,
                             minBytes: Int,
+                            maxBytes: Int,
+                            hardMaxBytesLimit: Boolean,
                             isolationLevel: IsolationLevel,
                             clientMetadata: Option[ClientMetadata]): CallbackResult[FetchPartitionData] = {
     val result = new CallbackResult[FetchPartitionData]()
@@ -1175,8 +1329,8 @@ class ReplicaManagerTest {
       timeout = 1000,
       replicaId = replicaId,
       fetchMinBytes = minBytes,
-      fetchMaxBytes = Int.MaxValue,
-      hardMaxBytesLimit = false,
+      fetchMaxBytes = maxBytes,
+      hardMaxBytesLimit = hardMaxBytesLimit,
       fetchInfos = Seq(partition -> partitionData),
       quota = UnboundedQuota,
       responseCallback = fetchCallback,
@@ -1192,7 +1346,7 @@ class ReplicaManagerTest {
     props.put("log.dir", TestUtils.tempRelativeDir("data").getAbsolutePath)
     val config = KafkaConfig.fromProps(props)
     val logProps = new Properties()
-    val mockLogMgr = TestUtils.createLogManager(config.logDirs.map(new File(_)), LogConfig(logProps))
+    val mockLogMgr = TestUtils.createLogManager(config.logDirs.map(new File(_)), LogConfig(logProps),  CleanerConfig(enableCleaner = false), timer.time)
     val aliveBrokers = aliveBrokerIds.map(brokerId => createBroker(brokerId, s"host$brokerId", brokerId))
     val metadataCache: MetadataCache = EasyMock.createMock(classOf[MetadataCache])
     EasyMock.expect(metadataCache.getAliveBrokers).andReturn(aliveBrokers).anyTimes()
@@ -1215,8 +1369,8 @@ class ReplicaManagerTest {
       purgatoryName = "DelayedElectPreferredLeader", timer, reaperEnabled = false)
     val tierMetadataManager: TierMetadataManager = EasyMock.createMock(classOf[TierMetadataManager])
 
-    new ReplicaManager(config, metrics, time, kafkaZkClient, new MockScheduler(time), mockLogMgr,
-      new AtomicBoolean(false), QuotaFactory.instantiate(config, metrics, time, ""), new BrokerTopicStats,
+    new ReplicaManager(config, metrics, timer.time, kafkaZkClient, new MockScheduler(time), mockLogMgr,
+      new AtomicBoolean(false), QuotaFactory.instantiate(config, metrics, timer.time, ""), brokerTopicStats,
       metadataCache, new LogDirFailureChannel(config.logDirs.size), mockProducePurgatory, mockFetchPurgatory,
       mockDeleteRecordsPurgatory, mockDelayedElectLeaderPurgatory, mockDelayedListOffsetsPurgatory, tierMetadataManager, None, None, Option(this.getClass.getName))
   }

@@ -124,6 +124,8 @@ object KafkaServer {
       logProps.put(ConfluentConfigs.MAX_CACHE_SIZE_CONFIG, kafkaConfig.getInt(ConfluentConfigs.MAX_CACHE_SIZE_CONFIG))
       logProps.put(ConfluentConfigs.MAX_RETRIES_CONFIG, kafkaConfig.getInt(ConfluentConfigs.MAX_RETRIES_CONFIG))
       logProps.put(ConfluentConfigs.RETRIES_WAIT_MS_CONFIG, kafkaConfig.getInt(ConfluentConfigs.RETRIES_WAIT_MS_CONFIG))
+      logProps.put(ConfluentConfigs.MISSING_ID_QUERY_RANGE_CONFIG, kafkaConfig.getInt(ConfluentConfigs.MISSING_ID_QUERY_RANGE_CONFIG))
+      logProps.put(ConfluentConfigs.MISSING_ID_CACHE_TTL_CONFIG, kafkaConfig.getLong(ConfluentConfigs.MISSING_ID_CACHE_TTL_CONFIG))
     }
   }
 

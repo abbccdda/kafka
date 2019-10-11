@@ -2028,6 +2028,7 @@ project(':connect:runtime') {
     compile project(':tools')
     compile project(':connect:json')
     compile project(':connect:transforms')
+    compile project(':ce-authorizer')
 
     compile libs.slf4jApi
     compile libs.jacksonJaxrsJsonProvider

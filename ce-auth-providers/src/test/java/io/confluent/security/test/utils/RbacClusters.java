@@ -93,6 +93,10 @@ public class RbacClusters {
     return kafkaCluster.kafkas().get(0).kafkaServer().clusterId();
   }
 
+  public String metadataClusterId() {
+    return metadataCluster.kafkas().get(0).kafkaServer().clusterId();
+  }
+
   public void produceConsume(String user,
       String topic,
       String consumerGroup,

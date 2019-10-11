@@ -185,6 +185,41 @@ class TierTopicManagerTest {
   }
 
   @Test
+  def testRetriedMessages(): Unit = {
+    val tierTopicManager = createTierTopicManager(tierMetadataManager)
+
+    val archivedPartition1 = new TopicIdPartition("archivedTopic", UUID.randomUUID(), 0)
+    addReplica(tierMetadataManager, archivedPartition1)
+    becomeLeader(tierTopicManager,
+      archivedPartition1,
+      0,
+      AppendResult.ACCEPTED)
+
+    val objectId = UUID.randomUUID
+    val uploadInitiate = new TierSegmentUploadInitiate(archivedPartition1, 0, objectId, 0, 100, 100, 100, true, false, false)
+    val initiateResult = tierTopicManager.addMetadata(uploadInitiate)
+    moveRecordsToAllConsumers()
+    tierTopicManager.doWork()
+    assertEquals(AppendResult.ACCEPTED, initiateResult.get)
+
+    // simulate duplicated/retried UploadInitiate message, which will not be consumed until
+    // after an UploadComplete message is sent. This message should not complete the later uploadComplete
+    // send when consumed
+    resendPreviousProduceRequest()
+
+    val uploadComplete = new TierSegmentUploadComplete(uploadInitiate)
+    val completeResult = tierTopicManager.addMetadata(uploadComplete)
+
+    // don't move UploadComplete record over from mocked producer to mock consumer yet.
+    // we want to test if upload UploadInitiate completes UploadComplete result
+    tierTopicManager.doWork()
+
+    assertFalse("Upload complete result should not have been completed by materialization of UploadInitiate",
+      completeResult.isDone)
+    assertEquals(1, tierTopicManager.numResultListeners())
+  }
+
+  @Test
   def testTierTopicManagerThreadDies(): Unit = {
     val didWork = new AtomicBoolean(false)
     val tierTopicManager = new TierTopicManager(
@@ -538,6 +573,13 @@ class TierTopicManagerTest {
     dir.mkdir()
     tierMetadataManager.initState(topicIdPartition.topicPartition(), dir, new LogConfig(properties))
     files :+= dir
+  }
+
+  private def resendPreviousProduceRequest(): Unit = {
+    val mockProducer = producerSupplier.producer()
+    val lastSentRecord = mockProducer.history().get(mockProducer.history().size() - 1)
+    producerSupplier.producer().send(lastSentRecord)
+    moveRecordsToAllConsumers()
   }
 
   private def becomeLeader(tierTopicManager: TierTopicManager,

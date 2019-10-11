@@ -97,6 +97,7 @@ public class MultiTenantApis {
       case DELETE_ACLS:
       case CREATE_PARTITIONS:
       case OFFSET_FOR_LEADER_EPOCH:
+      case REPLICA_STATUS:
         return true;
 
       case CONTROLLED_SHUTDOWN:

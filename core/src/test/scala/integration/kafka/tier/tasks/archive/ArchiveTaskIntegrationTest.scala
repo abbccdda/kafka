@@ -60,7 +60,7 @@ class ArchiveTaskIntegrationTest {
   }
 
   private def logProvidingReplicaManager(topicPartition: TopicPartition,
-                                 abstractLog: AbstractLog): ReplicaManager = {
+                                         abstractLog: AbstractLog): ReplicaManager = {
     when(mock(classOf[ReplicaManager]).getLog(topicPartition)).thenReturn(Some(abstractLog))
       .getMock[ReplicaManager]()
   }
@@ -115,26 +115,26 @@ class ArchiveTaskIntegrationTest {
 
   @Test
   def testArchiveTaskUploadsProducerState(): Unit = {
-    val tierObjectStore: MockInMemoryTierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))
+    val tierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))
     val ctx = CancellationContext.newContext()
     val task = new ArchiveTask(ctx, topicIdPartition, BeforeUpload(0), ArchiverMetrics(None, None))
     val leaderEpoch = 0
 
-    val tierTopicManger: MockTierTopicManager = new MockTierTopicManager()
+    val tierTopicManger = new MockTierTopicManager()
     tierTopicManger.becomeArchiver(topicIdPartition, leaderEpoch)
 
     val logConfig = LogTest.createLogConfig(segmentBytes = 1024)
     val log = LogTest.createLog(logDir, logConfig, brokerTopicStats, mockTime.scheduler, mockTime)
     val mockReplicaManager = logProvidingReplicaManager(topicIdPartition.topicPartition(), log)
-
     val pid1 = 1L
 
     var lastOffset = 0L
     for (i <- 0 to 20) {
-      val appendInfo = log.appendAsLeader(TestUtils.records(Seq(new SimpleRecord(mockTime
-        .milliseconds(), new
-          Array[Byte](128))),
-        producerId = pid1, producerEpoch = 0, sequence = i),
+      val appendInfo = log.appendAsLeader(
+        TestUtils.records(Seq(new SimpleRecord(mockTime.milliseconds, new Array[Byte](128))),
+          producerId = pid1,
+          producerEpoch = 0,
+          sequence = i),
         leaderEpoch = 0)
       lastOffset = appendInfo.lastOffset
     }
@@ -164,5 +164,57 @@ class ArchiveTaskIntegrationTest {
     assertEquals("expected 1 segment to be materialized", tierPartitionState.numSegments(), 1)
     val metadata = tierPartitionState.metadata(0L).get()
     assertTrue("expected hasProducerState metadata flag to be set", metadata.hasProducerState)
+  }
+
+  @Test
+  def testArchiverRetriesOnConcurrentDeleteRecords(): Unit = {
+    val tierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))
+    val ctx = CancellationContext.newContext()
+    val task = new ArchiveTask(ctx, topicIdPartition, BeforeUpload(0), ArchiverMetrics(None, None))
+    val leaderEpoch = 0
+
+    val tierTopicManger = new MockTierTopicManager()
+    tierTopicManger.becomeArchiver(topicIdPartition, leaderEpoch)
+
+    val logConfig = LogTest.createLogConfig(segmentBytes = 1024)
+    val log = LogTest.createLog(logDir, logConfig, brokerTopicStats, mockTime.scheduler, mockTime)
+    val mockReplicaManager = logProvidingReplicaManager(topicIdPartition.topicPartition(), log)
+    val pid1 = 1L
+
+    var lastOffset = 0L
+    for (i <- 0 to 20) {
+      val appendInfo = log.appendAsLeader(
+        TestUtils.records(Seq(new SimpleRecord(mockTime.milliseconds, new Array[Byte](128))),
+          producerId = pid1,
+          producerEpoch = 0,
+          sequence = i),
+        leaderEpoch = 0)
+      lastOffset = appendInfo.lastOffset
+    }
+    log.updateHighWatermark(lastOffset)
+    assertEquals(5, log.localLogSegments.size)
+    assertEquals(4, log.tierableLogSegments.size)
+
+    // transition segment to Upload state
+    val maybeUpload_1 = Await.result(
+      task.transition(mockTime, tierTopicManger, tierObjectStore, mockReplicaManager), transitionWaitTime)
+    val segmentBeingUploaded = maybeUpload_1.state.asInstanceOf[Upload].uploadableSegment.logSegment
+    assertEquals(classOf[Upload], maybeUpload_1.state.getClass)
+    assertEquals(segmentBeingUploaded, log.localLogSegments.head)
+
+    // simulate DeleteRecords by incrementing the log start offset; delete the segment that is being uploaded
+    val newFirstSegment = log.localLogSegments.toList(3)
+    log.maybeIncrementLogStartOffset(newFirstSegment.baseOffset + 3)
+
+    // Transitioning the task will raise an exception and lead us back to the BeforeUpload state
+    val maybeBeforeUpload = Await.result(
+      task.transition(mockTime, tierTopicManger, tierObjectStore, mockReplicaManager), transitionWaitTime)
+    assertEquals(classOf[BeforeUpload], maybeBeforeUpload.state.getClass)
+
+    // Transition BeforeUpload and assert the next segment being uploaded
+    val maybeUpload_2 = Await.result(
+      task.transition(mockTime, tierTopicManger, tierObjectStore, mockReplicaManager), transitionWaitTime)
+    assertEquals(classOf[Upload], maybeUpload_2.state.getClass)
+    assertEquals(newFirstSegment, maybeUpload_2.state.asInstanceOf[Upload].uploadableSegment.logSegment)
   }
 }

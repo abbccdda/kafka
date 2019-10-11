@@ -27,6 +27,7 @@ import org.apache.kafka.connect.runtime.WorkerConfig;
 import org.apache.kafka.connect.runtime.health.ConnectClusterDetailsImpl;
 import org.apache.kafka.connect.runtime.health.ConnectClusterStateImpl;
 import org.apache.kafka.connect.runtime.rest.errors.ConnectExceptionMapper;
+import org.apache.kafka.connect.runtime.rest.resources.ConfluentV1MetadataResource;
 import org.apache.kafka.connect.runtime.rest.resources.ConnectorPluginsResource;
 import org.apache.kafka.connect.runtime.rest.resources.ConnectorsResource;
 import org.apache.kafka.connect.runtime.rest.resources.RootResource;
@@ -193,6 +194,7 @@ public class RestServer {
         resourceConfig.register(new RootResource(herder));
         resourceConfig.register(new ConnectorsResource(herder, config));
         resourceConfig.register(new ConnectorPluginsResource(herder));
+        resourceConfig.register(new ConfluentV1MetadataResource(herder, config));
 
         resourceConfig.register(ConnectExceptionMapper.class);
         resourceConfig.property(ServerProperties.WADL_FEATURE_DISABLE, true);

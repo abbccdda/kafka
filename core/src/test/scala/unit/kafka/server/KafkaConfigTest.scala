@@ -808,6 +808,8 @@ class KafkaConfigTest {
         case ConfluentConfigs.MAX_CACHE_SIZE_CONFIG =>
         case ConfluentConfigs.MAX_RETRIES_CONFIG =>
         case ConfluentConfigs.RETRIES_WAIT_MS_CONFIG =>
+        case ConfluentConfigs.MISSING_ID_QUERY_RANGE_CONFIG =>
+        case ConfluentConfigs.MISSING_ID_CACHE_TTL_CONFIG =>
 
         case _ => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1")
       }

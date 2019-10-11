@@ -52,12 +52,6 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
-import static kafka.tier.domain.TierRecordType.InitLeader;
-import static kafka.tier.domain.TierRecordType.SegmentDeleteComplete;
-import static kafka.tier.domain.TierRecordType.SegmentDeleteInitiate;
-import static kafka.tier.domain.TierRecordType.SegmentUploadComplete;
-import static kafka.tier.domain.TierRecordType.SegmentUploadInitiate;
-
 public class FileTierPartitionState implements TierPartitionState, AutoCloseable {
     private enum StateFileType {
         /**
@@ -368,7 +362,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         State currentState = state;
         Map.Entry<Long, UUID> entry = currentState.validSegments.floorEntry(targetOffset);
         if (entry != null)
-            return read(topicIdPartition, currentState, currentState.position(entry.getValue()));
+            return read(topicIdPartition, currentState, currentState.position(entry.getValue()), targetOffset);
         else
             return Optional.empty();
     }
@@ -455,16 +449,36 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         }
     }
 
+    /**
+     * Reads the first segment object metadata with offset >= targetOffset. This is intended to
+     * be used when a consumer / reader wishes to read records with offset >= targetOffset as
+     * it will skip over any segments with endOffset < targetOffset.
+     * @param topicIdPartition TopicIdPartition for tier partition state being read
+     * @param state write state
+     * @param initialBytePosition the initial byte position for the FileTierPartitionIterator
+     * @param targetOffset the target offset to be read
+     * @return optional TierObjectMetadata for a containing data with offsets >= targetOffset
+     * @throws IOException
+     */
     private static Optional<TierObjectMetadata> read(TopicIdPartition topicIdPartition,
                                                      State state,
-                                                     long position) throws IOException {
+                                                     long initialBytePosition,
+                                                     long targetOffset) throws IOException {
         if (!state.validSegments.isEmpty()) {
-            FileTierPartitionIterator iterator = iterator(topicIdPartition, state.channel, position);
+            FileTierPartitionIterator iterator = iterator(topicIdPartition, state.channel, initialBytePosition);
             // The entry at `position` must be known to be fully written to the underlying file
             if (!iterator.hasNext())
-                throw new IllegalStateException("Could not read entry at " + position + " for " + "partition " + topicIdPartition);
+                throw new IllegalStateException("Could not read entry at " + initialBytePosition + " for " + "partition " + topicIdPartition);
 
-            return Optional.of(iterator.next());
+            // The first segment at floorOffset may have an endOffset < targetOffset,
+            // so we will need to iterate until we find a segment that contains data at an equal or
+            // higher offset than the target offset
+            while (iterator.hasNext()) {
+                TierObjectMetadata metadata = iterator.next();
+                if (metadata.endOffset() >= targetOffset)
+                    return Optional.of(metadata);
+            }
+            return Optional.empty();
         }
         return Optional.empty();
     }
@@ -532,6 +546,12 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 // 1. We are reprocessing messages after an unclean shutdown.
                 // 2. We are reprocessing messages after catchup -> online transition, as the primary consumer could be
                 //    lagging the catchup consumer before the switch happened.
+                // 3. The producer retried a message that was successfully written but was not
+                //    acked. Retries will be fenced knowing that:
+                //       a) any future completed by the TierTopicManager will have been completed correctly by the
+                //          previous copy of this message.
+                //       b) This fencing will not be problematic to the archiver due to 3(a)
+                //          completing the materialization correctly.
                 // We deal with this here for now but in future, we should be able to make this better and assert stronger
                 // guarantees by storing the last materialized offset in the tier partition state file and checking if we
                 // are reprocessing materialized offsets.

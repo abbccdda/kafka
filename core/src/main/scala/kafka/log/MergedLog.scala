@@ -343,19 +343,21 @@ class MergedLog(private[log] val localLog: Log,
   def localLogEndOffset: Long = localLog.logEndOffset
 
   def tierableLogSegments: Iterable[LogSegment] = {
-    // We can tier all segments starting at first untiered offset until we reach a segment that:
+    // We can tier all segments starting at first untiered offset (or the log start offset if it is greater) until we
+    // reach a segment that:
     // 1. contains the first unstable offset: we expect the first unstable offset to always be available locally
     // 2. contains the highwatermark: we only tier messages that have been ack'd by all replicas
     // 3. is the current active segment: we only tier immutable segments (that have been rolled already)
     // 4. the segment end offset is less than the recovery point. This ensures we only upload segments that have been fsync'd.
     val upperBoundOffset = Utils.min(firstUnstableOffset.getOrElse(logEndOffset), highWatermark, recoveryPoint)
+    val lowerBoundOffset = Math.max(firstUntieredOffset, logStartOffset)
 
     // After a leader failover, it is possible that the upperBoundOffset has not moved to the point where the previous
     // leader tiered segments. No segments are tierable until the upperBoundOffset catches up with the tiered segments.
-    if (firstUntieredOffset > upperBoundOffset)
+    if (lowerBoundOffset > upperBoundOffset)
       return Iterable.empty
 
-    val candidateSegments = localLogSegments(firstUntieredOffset, upperBoundOffset).toArray
+    val candidateSegments = localLogSegments(lowerBoundOffset, upperBoundOffset).toArray
     candidateSegments.lastOption match {
       case Some(lastSegment) =>
         nextLocalLogSegment(lastSegment) match {
@@ -378,38 +380,27 @@ class MergedLog(private[log] val localLog: Log,
                        maxLength: Int,
                        minOneMessage: Boolean,
                        logEndOffset: Long): TierFetchDataInfo = {
-    val tieredSegments = TierUtils.tieredSegments(tieredOffsets(startOffset, Long.MaxValue), tierPartitionState, tierMetadataManager.tierObjectStore)
+    val tieredSegment = TierUtils.tierLogSegmentForOffset(tierPartitionState, startOffset, tierMetadataManager.tierObjectStore).asScala
     val tierEndOffset = tierPartitionState.endOffset
 
-    if (tieredSegments.isEmpty || startOffset > tierEndOffset.get || startOffset < logStartOffset)
+    if (tieredSegment.isEmpty || startOffset > tierEndOffset.get || startOffset < logStartOffset)
       throw new OffsetOutOfRangeException(s"Received request for offset $startOffset for partition $topicPartition, " +
         s"but we only have log segments in the range $logStartOffset to $logEndOffset with tierLogEndOffset: " +
         s"$tierEndOffset and localLogStartOffset: ${localLog.localLogStartOffset}")
 
-    for (segment <- tieredSegments.iterator().asScala) {
-      val fetchInfoOpt = segment.read(startOffset, maxLength, segment.size, minOneMessage)
-      fetchInfoOpt match {
-        case Some(fetchInfo) =>
-          return fetchInfo
-        case None =>
-      }
-    }
-    // We are past the end of tiered segments. We know that this offset is higher than the logStartOffset but lower than
-    // localLogStartOffset. This likely signifies holes in tiered segments and should never happen.
-    throw new IllegalStateException(s"Received request for offset $startOffset for partition $topicPartition, but" +
-      s"could not find corresponding segment in the log with range $logStartOffset to $logEndOffset.")
+    tieredSegment.get.read(startOffset, maxLength, tieredSegment.get.size, minOneMessage)
   }
 
   // Unique segments of the log. Note that this does not method does not return a point-in-time snapshot. Segments seen
   // by the iterable could change as segments are added or deleted.
   // Visible for testing
-  private[log] def uniqueLogSegments: (Iterable[TierLogSegment], Iterable[LogSegment]) = uniqueLogSegments(0, Long.MaxValue)
+  private[log] def uniqueLogSegments: (util.NavigableSet[java.lang.Long], Iterable[LogSegment]) = uniqueLogSegments(0, Long.MaxValue)
 
   // Unique segments of the log beginning with the segment that includes "from" and ending with the segment that
   // includes up to "to-1" or the end of the log (if to > logEndOffset). Note that this does not method does not return
   // a point-in-time snapshot. Segments seen by the iterable could change as segments are added or deleted.
   // Visible for testing
-  private[log] def uniqueLogSegments(from: Long, to: Long): (Iterable[TierLogSegment], Iterable[LogSegment]) = {
+  private[log] def uniqueLogSegments(from: Long, to: Long): (util.NavigableSet[java.lang.Long], Iterable[LogSegment]) = {
     val localSegments = localLogSegments(from, to)
 
     // Get tiered segments in range [from, localStartOffset). If localStartOffset does not exist, get tiered segments
@@ -418,18 +409,20 @@ class MergedLog(private[log] val localLog: Log,
     val tierLastOffsetToInclude = firstLocalSegmentOpt.map(_.baseOffset).getOrElse(to)
     val tieredSegments =
       if (from < tierLastOffsetToInclude)
-        tieredLogSegments(from, tierLastOffsetToInclude)
+        tieredOffsets(from, tierLastOffsetToInclude)
       else
-        Iterable.empty
+        new util.TreeSet[java.lang.Long]
 
     (tieredSegments, localSegments)
   }
 
+  // tieredLogSegments can be expensive if completely consumed.
+  // It will lookup the tier metadata from the TierPartitionState for each TierLogSegment
   def tieredLogSegments: Iterable[TierLogSegment] = tieredLogSegments(0, Long.MaxValue)
 
   private[log] def tieredLogSegments(from: Long, to: Long): Iterable[TierLogSegment] = {
     TierUtils.tieredSegments(tieredOffsets(from, to), tierPartitionState, tierMetadataManager.tierObjectStore)
-      .iterator.asScala.toIterable
+      .asScala.toIterable
   }
 
   // Base offset of all tiered segments in the log
@@ -498,8 +491,11 @@ class MergedLog(private[log] val localLog: Log,
 
     // if the targetTimestamp is within tiered unique log segments,
     // return a TierTimestampAndOffset to indicate a tier fetch request is required
-    val (tieredSegments, _) = uniqueLogSegments(logStartOffset, Long.MaxValue)
-    tieredSegments.find(_.maxTimestamp >= targetTimestamp) match {
+    val (tieredBaseOffsets, _) = uniqueLogSegments(logStartOffset, Long.MaxValue)
+
+    TierUtils.tieredSegments(tieredBaseOffsets, tierPartitionState, tierMetadataManager.tierObjectStore())
+      .asScala
+      .find(_.maxTimestamp >= targetTimestamp) match {
       case Some(logSegment) =>
         Some(new TierTimestampAndOffset(targetTimestamp, logSegment.metadata))
 
@@ -509,7 +505,8 @@ class MergedLog(private[log] val localLog: Log,
   }
 
   override def legacyFetchOffsetsBefore(timestamp: Long, maxNumOffsets: Int): Seq[Long] = {
-    val (tieredSegments, localSegments) = uniqueLogSegments(logStartOffset, Long.MaxValue)
+    val (tieredOffsets, localSegments) = uniqueLogSegments(logStartOffset, Long.MaxValue)
+    val tieredSegments = TierUtils.tieredSegments(tieredOffsets, tierPartitionState, tierMetadataManager.tierObjectStore()).asScala
     // Cache to avoid race conditions. `toBuffer` is faster than most alternatives and provides
     // constant time access while being safe to use with concurrent collections unlike `toArray`.
     val segments = (tieredSegments.map(seg => (seg.baseOffset, seg.maxTimestamp, seg.size))

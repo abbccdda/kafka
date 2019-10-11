@@ -65,10 +65,19 @@ import org.apache.kafka.common.message.FindCoordinatorResponseData
 import org.apache.kafka.common.message.HeartbeatResponseData
 import org.apache.kafka.common.message.InitProducerIdResponseData
 import org.apache.kafka.common.message.JoinGroupResponseData
-import org.apache.kafka.common.message.TierListOffsetResponseData
-import org.apache.kafka.common.message.TierListOffsetResponseData.{TierListOffsetPartitionResponse, TierListOffsetTopicResponse}
 import org.apache.kafka.common.message.LeaveGroupResponseData
 import org.apache.kafka.common.message.LeaveGroupResponseData.MemberResponse
+import org.apache.kafka.common.message.ListGroupsResponseData
+import org.apache.kafka.common.message.OffsetCommitRequestData
+import org.apache.kafka.common.message.OffsetCommitResponseData
+import org.apache.kafka.common.message.RenewDelegationTokenResponseData
+import org.apache.kafka.common.message.ReplicaStatusResponseData
+import org.apache.kafka.common.message.ReplicaStatusResponseData.{ReplicaStatusPartitionResponse, ReplicaStatusTopicResponse, ReplicaStatusReplicaResponse}
+import org.apache.kafka.common.message.SaslAuthenticateResponseData
+import org.apache.kafka.common.message.SaslHandshakeResponseData
+import org.apache.kafka.common.message.SyncGroupResponseData
+import org.apache.kafka.common.message.TierListOffsetResponseData
+import org.apache.kafka.common.message.TierListOffsetResponseData.{TierListOffsetPartitionResponse, TierListOffsetTopicResponse}
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.{ListenerName, Send}
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
@@ -204,10 +213,56 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   private def handleInternalRequest(request: RequestChannel.Request) {
     request.header.apiKey match {
+      case ApiKeys.REPLICA_STATUS => handleReplicaStatusRequest(request)
       case ApiKeys.TIER_LIST_OFFSET => handleTierListOffsetRequest(request)
       case ApiKeys.CONFLUENT_LEADER_AND_ISR => handleLeaderAndIsrRequest(request)
       case _ => throw new IllegalArgumentException(s"Unsupported API key ${request.header.apiKey.id}")
     }
+  }
+
+  def handleReplicaStatusRequest(request: RequestChannel.Request) {
+    def toPartitionResponse(partition: TopicPartition, authorized: Boolean): ReplicaStatusPartitionResponse = {
+      val response = new ReplicaStatusPartitionResponse()
+        .setPartitionIndex(partition.partition())
+      if (!authorized) {
+        response
+          .setErrorCode(Errors.TOPIC_AUTHORIZATION_FAILED.code)
+          .setReplicas(null)
+      } else try {
+        val replicas = replicaManager.getPartitionOrException(partition, expectLeader = true).replicaStatus()
+        response
+          .setErrorCode(Errors.NONE.code)
+          .setReplicas(replicas.map { status =>
+            new ReplicaStatusReplicaResponse()
+              .setId(status.brokerId)
+              .setMode(status.mode().value())
+              .setIsCaughtUp(status.isCaughtUp())
+              .setLogStartOffset(status.logStartOffset())
+              .setLogEndOffset(status.logEndOffset())
+              .setLastCaughtUpTimeMs(status.lastCaughtUpTimeMs())
+              .setLastFetchTimeMs(status.lastFetchTimeMs())
+          }.asJava)
+      } catch {
+        case e: Throwable =>
+          response
+            .setErrorCode(Errors.forException(e).code)
+            .setReplicas(null)
+      }
+    }
+
+    val requestData = request.body[ReplicaStatusRequest].data
+    val responseData = new ReplicaStatusResponseData()
+      .setErrorCode(0)
+      .setTopics(requestData.topics.asScala.map { topicRequest =>
+        val authorized = authorize(request, DESCRIBE, TOPIC, topicRequest.name)
+        new ReplicaStatusTopicResponse()
+          .setName(topicRequest.name)
+          .setPartitions(topicRequest.partitions.asScala.map { partition =>
+            toPartitionResponse(new TopicPartition(topicRequest.name, partition), authorized)
+          }.asJava)
+      }.asJava)
+
+    sendResponseMaybeThrottle(request, throttleTimeMs => new ReplicaStatusResponse(responseData.setThrottleTimeMs(throttleTimeMs)))
   }
 
   // Handle TierListOffsetRequest which is a tiering aware offset lookup request. See TierListOffsetRequest for more details.

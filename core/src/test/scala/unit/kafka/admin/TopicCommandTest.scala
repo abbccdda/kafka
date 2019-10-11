@@ -143,7 +143,9 @@ class TopicCommandTest extends ZooKeeperTestHarness with Logging with RackAwareT
       "confluent.max.schemas.per.subject=3",
       "confluent.schema.registry.max.cache.size=10000",
       "confluent.schema.registry.max.retries=3",
-      "confluent.schema.registry.retries.wait.ms=0"
+      "confluent.schema.registry.retries.wait.ms=0",
+      "confluent.missing.id.query.range=5",
+      "confluent.missing.id.cache.ttl.sec=30"
     )
 
     for (cfg <- invalidSchemaValidatorConfigs) {

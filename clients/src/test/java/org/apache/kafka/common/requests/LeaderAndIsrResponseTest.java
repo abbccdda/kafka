@@ -17,7 +17,6 @@
 package org.apache.kafka.common.requests;
 
 import java.util.HashMap;
-import java.util.Optional;
 import java.util.UUID;
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState;
 import org.apache.kafka.common.message.LeaderAndIsrResponseData;
