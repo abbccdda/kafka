@@ -75,6 +75,19 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
   private static final String BROKER_USERS_DOC = "Semicolon-separated list of principals of"
       + " users who are allowed access to all resources on inter broker listener.";
 
+  public static final String MIGRATE_ACLS_FROM_ZK_PROP = "confluent.authorizer.migrate.acls.from.zk";
+  private static final boolean MIGRATE_ACLS_FROM_ZK_DEFAULT = false;
+  private static final String MIGRATE_ACLS_FROM_ZK_DOC = "This boolean flag is used when we want to migrate ZK ACLs" +
+      " to metadata service. For migration, configure both ACL and RBAC providers and do a rolling restart of the cluster." +
+      " Also enable this flag on last broker of rolling restart. Based on this flag, last broker will copy the ACLs to" +
+      " metadata service. After migration, remove ACL provider and remove this flag from broker and do a rolling restart." +
+      " Please check migration docs for more details.";
+
+  public static final String ACL_MIGRATION_BATCH_SIZE_PROP = "confluent.authorizer.acl.migration.batch.size";
+  private static final int ACL_MIGRATION_BATCH_SIZE_DEFAULT = 1000;
+  private static final String ACL_MIGRATION_BATCH_SIZE_DOC =
+      "Batch size used while migrating ACLs from zk to metadata service.";
+
   static {
     CONFIG = new ConfigDef()
         .define(ALLOW_IF_NO_ACLS_PROP, Type.BOOLEAN, ALLOW_IF_NO_ACLS_DEFAULT,
@@ -88,9 +101,14 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
         .define(LICENSE_PROP, Type.STRING, LICENSE_DEFAULT,
             Importance.HIGH, LICENSE_DOC)
         .define(INIT_TIMEOUT_PROP, Type.INT, INIT_TIMEOUT_DEFAULT,
-            atLeast(0), Importance.LOW, INIT_TIMEOUT_DOC);
+            atLeast(0), Importance.LOW, INIT_TIMEOUT_DOC)
+        .define(MIGRATE_ACLS_FROM_ZK_PROP, Type.BOOLEAN, MIGRATE_ACLS_FROM_ZK_DEFAULT,
+            Importance.MEDIUM, MIGRATE_ACLS_FROM_ZK_DOC)
+        .define(ACL_MIGRATION_BATCH_SIZE_PROP, Type.INT, ACL_MIGRATION_BATCH_SIZE_DEFAULT,
+            Importance.MEDIUM, ACL_MIGRATION_BATCH_SIZE_DOC);
   }
   public final boolean allowEveryoneIfNoAcl;
+  public final boolean migrateAclsFromZK;
   public Set<KafkaPrincipal> superUsers;
   public Set<KafkaPrincipal> brokerUsers;
   public final Duration initTimeout;
@@ -106,6 +124,7 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
     this.superUsers = parseUsers(getString(ConfluentAuthorizerConfig.SUPER_USERS_PROP));
     this.brokerUsers = parseUsers(getString(ConfluentAuthorizerConfig.BROKER_USERS_PROP));
     initTimeout = Duration.ofMillis(getInt(INIT_TIMEOUT_PROP));
+    migrateAclsFromZK = getBoolean(MIGRATE_ACLS_FROM_ZK_PROP);
   }
 
   public static Set<KafkaPrincipal> parseUsers(String su) {

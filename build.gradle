@@ -2597,6 +2597,7 @@ project(':ce-rest-authorizer') {
   dependencies {
     compile project(':clients')
     compile project(':ce-authorizer')
+    compileOnly project(':core')
     compile libs.bcpkix
     compile libs.jacksonDatabind
     compile libs.jacksonJDK8Datatypes

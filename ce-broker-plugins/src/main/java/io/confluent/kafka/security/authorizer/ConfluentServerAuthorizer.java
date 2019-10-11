@@ -10,6 +10,8 @@ import io.confluent.license.InvalidLicenseException;
 import io.confluent.license.validator.LegacyLicenseValidator;
 import io.confluent.license.validator.LicenseConfig;
 import io.confluent.license.validator.LicenseValidator;
+import io.confluent.security.auth.client.RestClientConfig;
+import io.confluent.security.authorizer.AclMigrationAware;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
@@ -110,18 +112,7 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
   public void configureServerInfo(AuthorizerServerInfo serverInfo) {
     super.configureServerInfo(serverInfo);
 
-    Optional<Authorizer> aclProvider = accessRuleProviders().stream()
-        .filter(a -> a instanceof AclProvider)
-        .findFirst()
-        .map(a -> (Authorizer) a);
-
-    if (!aclProvider.isPresent()) {
-      aclProvider = accessRuleProviders().stream()
-          .filter(a -> a instanceof Authorizer)
-          .findFirst()
-          .map(a -> (Authorizer) a);
-    }
-    aclAuthorizer = aclProvider.orElse(new AclErrorProvider());
+    initializeAclAuthorizer();
 
     // Embedded authorizer used in metadata server can use an empty scope since scopes used
     // in authorization are provided by the remote client. For broker authorizer, the scope
@@ -138,10 +129,62 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
     createLicenseValidator();
   }
 
+  private void initializeAclAuthorizer() {
+    Optional<Authorizer> zkAclProvider = zkAclProvider();
+    Optional<Authorizer> centralizedAclProvider = centralizedAclProvider();
+
+    if (authorizerConfig.migrateAclsFromZK) {
+      if (!zkAclProvider.isPresent()) {
+        throw new IllegalArgumentException("Acl migration from ZK to metadata service is enabled," +
+            " but AclProvider is not enabled.");
+      }
+
+      if (!centralizedAclProvider.isPresent()) {
+        throw new IllegalArgumentException("Acl migration from ZK to metadata service is enabled," +
+            " but second authorizer/RbacProvider is not enabled.");
+      }
+
+      if (!(centralizedAclProvider.get() instanceof AclMigrationAware)) {
+        throw new IllegalArgumentException("Acl migration from ZK to metadata service is enabled," +
+            " but second authorizer is not Acl migration aware");
+      }
+
+      if (!configs.containsKey(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP)) {
+        throw new IllegalArgumentException("Acl migration from ZK to metadata service is enabled," +
+            " but metadata service rest client configs are not available");
+      }
+
+      aclAuthorizer = new AclUpdater(zkAclProvider.get(), centralizedAclProvider.get());
+    } else {
+      if (!zkAclProvider.isPresent()) {
+        zkAclProvider = centralizedAclProvider();
+      }
+      aclAuthorizer = zkAclProvider.orElse(new AclErrorProvider());
+    }
+  }
+
+  // Allow override for testing
+  protected Optional<Authorizer> zkAclProvider() {
+    return accessRuleProviders().stream()
+        .filter(a -> a instanceof AclProvider)
+        .findFirst()
+        .map(a -> (Authorizer) a);
+  }
+
+  // Allow override for testing
+  protected Optional<Authorizer> centralizedAclProvider() {
+    return accessRuleProviders().stream()
+        .filter(a -> !(a instanceof AclProvider))
+        .filter(a -> a instanceof Authorizer)
+        .findFirst()
+        .map(a -> (Authorizer) a);
+  }
+
   @Override
   public Map<Endpoint, ? extends CompletionStage<Void>> start(AuthorizerServerInfo serverInfo) {
     configureServerInfo(serverInfo);
-    CompletableFuture<Void> startFuture = super.start(interBrokerClientConfigs(serverInfo));
+    Runnable migrationTask = createMigrationTask();
+    CompletableFuture<Void> startFuture = super.start(interBrokerClientConfigs(serverInfo), migrationTask);
 
     Map<Endpoint, CompletableFuture<Void>> futures = new HashMap<>(serverInfo.endpoints().size());
     serverInfo.endpoints().forEach(endpoint -> {
@@ -152,6 +195,15 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
       }
     });
     return futures;
+  }
+
+  private Runnable createMigrationTask() {
+    if (authorizerConfig.migrateAclsFromZK) {
+      AclUpdater combinedAuthorizer = (AclUpdater) aclAuthorizer;
+      return ((AclMigrationAware) combinedAuthorizer.secondAuthorizer)
+          .migrationTask(combinedAuthorizer.aclAuthorizer);
+    }
+    return () -> { };
   }
 
   @Override
@@ -332,6 +384,77 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
   // Allow authorizer implementation to override so that LdapAuthorizer can provide its custom metric
   protected String licenseStatusMetricGroup() {
     return METRIC_GROUP;
+  }
+
+  private static class AclUpdater implements Authorizer {
+
+    private final Authorizer aclAuthorizer;
+    private final Authorizer secondAuthorizer;
+
+    AclUpdater(Authorizer aclAuthorizer, Authorizer secondAuthorizer) {
+      this.aclAuthorizer = aclAuthorizer;
+      this.secondAuthorizer = secondAuthorizer;
+    }
+
+    @Override
+    public void configure(Map<String, ?> configs) {
+    }
+
+    @Override
+    public Map<Endpoint, CompletableFuture<Void>> start(AuthorizerServerInfo serverInfo) {
+      return Collections.emptyMap();
+    }
+
+    @Override
+    public List<AuthorizationResult> authorize(AuthorizableRequestContext requestContext,
+                                               List<org.apache.kafka.server.authorizer.Action> actions) {
+      throw new IllegalStateException("Authorization not supported by this provider");
+    }
+
+    @Override
+    public List<? extends CompletionStage<AclCreateResult>> createAcls(
+        AuthorizableRequestContext requestContext, List<AclBinding> aclBindings) {
+      List<? extends CompletionStage<AclCreateResult>> createResults = aclAuthorizer.createAcls(requestContext, aclBindings);
+      try {
+        for (CompletionStage<AclCreateResult> c : createResults) {
+          AclCreateResult createResult = (AclCreateResult) ((CompletionStage) c).toCompletableFuture().get();
+          if (createResult.exception().isPresent()) {
+            return createResults;
+          }
+        }
+      } catch (Exception e) {
+        return createResults;
+      }
+      return secondAuthorizer.createAcls(requestContext, aclBindings);
+    }
+
+    @Override
+    public List<? extends CompletionStage<AclDeleteResult>> deleteAcls(
+        AuthorizableRequestContext requestContext, List<AclBindingFilter> aclBindingFilters) {
+      List<? extends CompletionStage<AclDeleteResult>> deleteResults = aclAuthorizer.deleteAcls(requestContext, aclBindingFilters);
+      try {
+        for (CompletionStage<AclDeleteResult> c : deleteResults) {
+          AclDeleteResult deleteResult = (AclDeleteResult) ((CompletionStage) c).toCompletableFuture().get();
+          if (deleteResult.exception().isPresent()) {
+            return deleteResults;
+          }
+        }
+      } catch (Exception e) {
+        return deleteResults;
+      }
+      return secondAuthorizer.deleteAcls(requestContext, aclBindingFilters);
+    }
+
+    @Override
+    public Iterable<AclBinding> acls(AclBindingFilter filter) {
+      return aclAuthorizer.acls(filter);
+    }
+
+    @Override
+    public void close() {
+      Utils.closeQuietly(aclAuthorizer, "aclAuthorizer");
+      Utils.closeQuietly(secondAuthorizer, "secondAuthorizer");
+    }
   }
 
   private static class AclErrorProvider implements Authorizer {

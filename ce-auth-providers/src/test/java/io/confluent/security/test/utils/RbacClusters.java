@@ -29,14 +29,18 @@ import io.confluent.security.store.kafka.KafkaStoreConfig;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+
+import kafka.security.authorizer.AclAuthorizer;
 import kafka.server.KafkaConfig$;
 import kafka.server.KafkaServer;
 import org.apache.kafka.clients.CommonClientConfigs;
@@ -50,6 +54,7 @@ import org.apache.kafka.common.message.UpdateMetadataRequestData.UpdateMetadataP
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.authorizer.AclCreateResult;
 import org.apache.kafka.test.TestUtils;
 import scala.Option;
 
@@ -69,6 +74,7 @@ public class RbacClusters {
     metadataCluster = new EmbeddedKafkaCluster();
     metadataCluster.startZooKeeper();
     users = createUsers(metadataCluster, config.brokerUser, config.userNames);
+    createAclBindings(metadataCluster, config.metadataServerAclBindings);
 
     if (config.enableLdap)
       miniKdcWithLdapService = LdapTestUtils.createMiniKdcWithLdapService(null, null);
@@ -86,6 +92,7 @@ public class RbacClusters {
     kafkaCluster = new EmbeddedKafkaCluster();
     kafkaCluster.startZooKeeper();
     createUsers(kafkaCluster, config.brokerUser, config.userNames);
+    createAclBindings(kafkaCluster, config.serverAclBindings);
     kafkaCluster.startBrokers(1, serverConfig());
   }
 
@@ -107,6 +114,13 @@ public class RbacClusters {
 
   public ClientBuilder clientBuilder(String user) {
     return new ClientBuilder(kafkaCluster.bootstrapServers(),
+        kafkaSecurityProtocol,
+        kafkaSaslMechanism,
+        users.get(user).jaasConfig);
+  }
+
+  public ClientBuilder mdsClientBuilder(String user) {
+    return new ClientBuilder(metadataCluster.bootstrapServers(),
         kafkaSecurityProtocol,
         kafkaSaslMechanism,
         users.get(user).jaasConfig);
@@ -376,6 +390,22 @@ public class RbacClusters {
     return users;
   }
 
+  private void createAclBindings(final EmbeddedKafkaCluster kafkaCluster, final List<AclBinding> serverAclBindings)
+      throws Exception {
+    try (AclAuthorizer aclAuthorizer = new AclAuthorizer()) {
+      Map<String, Object> authorizerConfigs = new HashMap<>();
+      authorizerConfigs.put(KafkaConfig$.MODULE$.ZkConnectProp(), kafkaCluster.zkConnect());
+      aclAuthorizer.configure(authorizerConfigs);
+
+      for (CompletionStage<AclCreateResult> c : aclAuthorizer.createAcls(null, serverAclBindings)) {
+        AclCreateResult createResult = (AclCreateResult) ((CompletionStage) c).toCompletableFuture().get();
+        if (createResult.exception().isPresent()) {
+          throw createResult.exception().get();
+        }
+      }
+    }
+  }
+
   private RbacProvider rbacProvider(KafkaServer kafkaServer) {
     ConfluentServerAuthorizer authorizer = (ConfluentServerAuthorizer) kafkaServer.authorizer().get();
     return (RbacProvider) authorizer.metadataProvider();
@@ -405,6 +435,8 @@ public class RbacClusters {
     private boolean enableLdapGroups;
     private boolean enableTokenLogin;
     private String publicKey;
+    private List<AclBinding> metadataServerAclBindings = new LinkedList<>();
+    private List<AclBinding> serverAclBindings = new LinkedList<>();
 
     public Config users(String brokerUser, List<String> userNames) {
       this.brokerUser = brokerUser;
@@ -447,6 +479,16 @@ public class RbacClusters {
 
     public Config overrideBrokerConfig(String name, String value) {
       serverConfigOverrides.setProperty(name, value);
+      return this;
+    }
+
+    public Config withMetadataBrokerAcls(List<AclBinding> aclBindings) {
+      metadataServerAclBindings.addAll(aclBindings);
+      return this;
+    }
+
+    public Config withBrokerAcls(List<AclBinding> aclBindings) {
+      serverAclBindings.addAll(aclBindings);
       return this;
     }
   }

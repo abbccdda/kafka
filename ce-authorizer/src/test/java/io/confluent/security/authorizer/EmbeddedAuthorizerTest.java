@@ -279,6 +279,34 @@ public class EmbeddedAuthorizerTest {
     assertFalse(authorizer.ready());
   }
 
+  @Test
+  public void testInitTaskTimeout() throws Exception {
+    TestAccessRuleProvider.usesMetadataFromThisKafkaCluster = true;
+    Map<String, Object> props = new HashMap<>();
+    props.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "TEST");
+    props.put(ConfluentAuthorizerConfig.INIT_TIMEOUT_PROP, "10");
+    authorizer.configure(props);
+    authorizer.configureServerInfo(serverInfo);
+    CompletableFuture<Void> future = authorizer.start(Collections.emptyMap(), () -> Utils.sleep(10000));
+    Throwable t = assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
+    assertEquals(org.apache.kafka.common.errors.TimeoutException.class, t.getCause().getClass());
+  }
+
+  @Test
+  public void testInitTaskException() throws Exception {
+    TestAccessRuleProvider.usesMetadataFromThisKafkaCluster = true;
+    Map<String, Object> props = new HashMap<>();
+    props.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "TEST");
+    props.put(ConfluentAuthorizerConfig.INIT_TIMEOUT_PROP, "10");
+    authorizer.configure(props);
+    authorizer.configureServerInfo(serverInfo);
+    CompletableFuture<Void> future = authorizer.start(Collections.emptyMap(), () -> {
+      throw new RuntimeException("Initialize Exception");
+    });
+    Throwable t = assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
+    assertEquals(RuntimeException.class, t.getCause().getClass());
+  }
+
   private long threadCount(String prefix) {
     return Thread.getAllStackTraces().keySet().stream()
         .filter(t -> t.getName().startsWith(prefix))

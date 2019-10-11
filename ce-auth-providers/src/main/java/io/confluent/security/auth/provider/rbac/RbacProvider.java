@@ -2,6 +2,7 @@
 
 package io.confluent.security.auth.provider.rbac;
 
+import io.confluent.security.auth.client.acl.MdsAclMigration;
 import io.confluent.security.auth.client.RestClientConfig;
 import io.confluent.security.auth.client.acl.MdsAclClient;
 import io.confluent.security.auth.client.rest.entities.CreateAclsRequest;
@@ -16,6 +17,7 @@ import io.confluent.security.auth.provider.ldap.LdapAuthenticateCallbackHandler;
 import io.confluent.security.auth.provider.ldap.LdapConfig;
 import io.confluent.security.auth.store.kafka.KafkaAuthStore;
 import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.AclMigrationAware;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.Authorizer;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
@@ -68,7 +70,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class RbacProvider implements AccessRuleProvider, GroupProvider, MetadataProvider,
-    org.apache.kafka.server.authorizer.Authorizer, ClusterResourceListener {
+    org.apache.kafka.server.authorizer.Authorizer, ClusterResourceListener, AclMigrationAware {
   private static final Logger log = LoggerFactory.getLogger(RbacProvider.class);
 
   static final ResourceType SECURITY_METADATA = new ResourceType("SecurityMetadata");
@@ -379,6 +381,18 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
       throw new IllegalStateException("Acl operations are not supported by this provider");
 
     return authCache.aclBindings(authScope, filter, r -> true);
+  }
+
+  @Override
+  public Runnable migrationTask(final org.apache.kafka.server.authorizer.Authorizer sourceAuthorizer) {
+    return () -> {
+      MdsAclMigration aclMigration = new MdsAclMigration(authScope);
+      try {
+        aclMigration.migrate(configs, sourceAuthorizer);
+      } catch (Exception e) {
+        throw new RuntimeException(e);
+      }
+    };
   }
 
   private class RbacAuthorizer extends EmbeddedAuthorizer {

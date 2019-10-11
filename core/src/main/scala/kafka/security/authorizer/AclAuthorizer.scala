@@ -33,7 +33,7 @@ import org.apache.kafka.common.Endpoint
 import org.apache.kafka.common.acl._
 import org.apache.kafka.common.errors.{ApiException, InvalidRequestException, UnsupportedVersionException}
 import org.apache.kafka.common.protocol.ApiKeys
-import org.apache.kafka.common.resource.PatternType
+import org.apache.kafka.common.resource.{PatternType, ResourcePattern}
 import org.apache.kafka.common.security.auth.KafkaPrincipal
 import org.apache.kafka.common.utils.{Time, SecurityUtils => JSecurityUtils}
 import org.apache.kafka.server.authorizer.AclDeleteResult.AclBindingDeleteResult
@@ -80,8 +80,14 @@ object AclAuthorizer {
   }
 }
 
+trait AclUpdateListener {
+  def handleUpdate(resourcePattern: ResourcePattern, aclBindings: util.Set[AccessControlEntry]): Unit = {}
+}
+
 class AclAuthorizer extends Authorizer with Logging {
   private[security] val authorizerLogger = Logger("kafka.authorizer.logger")
+  private var aclUpdateListeners = mutable.Set.empty[AclUpdateListener]
+
   private var superUsers = Set.empty[KafkaPrincipal]
   private var shouldAllowEveryoneIfNoAclIsFound = false
   private var zkClient: KafkaZkClient = _
@@ -98,6 +104,10 @@ class AclAuthorizer extends Authorizer with Logging {
 
   private val retryBackoffMs = 100
   private val retryBackoffJitterMs = 50
+
+  def registerAclUpdateListener(aclUpdateListener: AclUpdateListener): Unit = {
+    aclUpdateListeners += aclUpdateListener
+  }
 
   /**
    * Guaranteed to be called before any authorize call is made.
@@ -237,6 +247,7 @@ class AclAuthorizer extends Authorizer with Logging {
   }
 
   override def close(): Unit = {
+    aclUpdateListeners.clear()
     aclChangeListeners.foreach(listener => listener.close())
     if (zkClient != null) zkClient.close()
   }
@@ -494,6 +505,8 @@ class AclAuthorizer extends Authorizer with Logging {
       inWriteLock(lock) {
         val versionedAcls = getAclsFromZk(resource)
         updateCache(resource, versionedAcls)
+        aclUpdateListeners.foreach(_.handleUpdate(resource.toPattern,
+          versionedAcls.acls.map(a => AuthorizerUtils.convertToAccessControlEntry(a)).asJava))
       }
     }
   }

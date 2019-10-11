@@ -52,7 +52,7 @@ public class EmbeddedAuthorizer implements Authorizer {
   private GroupProvider groupProvider;
   private List<AccessRuleProvider> accessRuleProviders;
   private AuditLogProvider auditLogProvider;
-  private ConfluentAuthorizerConfig authorizerConfig;
+  protected ConfluentAuthorizerConfig authorizerConfig;
   private MetadataProvider metadataProvider;
   private boolean allowEveryoneIfNoAcl;
   private Set<KafkaPrincipal> superUsers;
@@ -155,6 +155,10 @@ public class EmbeddedAuthorizer implements Authorizer {
   }
 
   public CompletableFuture<Void> start(Map<String, ?> interBrokerListenerConfigs) {
+    return start(interBrokerListenerConfigs, () -> { });
+  }
+
+  public CompletableFuture<Void> start(Map<String, ?> interBrokerListenerConfigs, Runnable initTask) {
     initTimeout = authorizerConfig.initTimeout;
     if (groupProvider != null && groupProvider.usesMetadataFromThisKafkaCluster())
       usesMetadataFromThisKafkaCluster = true;
@@ -179,7 +183,9 @@ public class EmbeddedAuthorizer implements Authorizer {
     futures.toArray(futureArray);
     futureArray[futures.size()] = initializeLicenseAsync(interBrokerListenerConfigs);
     CompletableFuture<Void> readyFuture = CompletableFuture.allOf(futureArray)
-        .thenAccept(unused -> this.ready = true);
+        .thenAccept(unused -> this.ready = true)
+        //server startup will fail if any error/invalid mds configs during migration/init task
+        .thenRunAsync(initTask);
     CompletableFuture<Void> future = futureOrTimeout(readyFuture, initTimeout);
 
     // For clusters that are not hosting the metadata topic, we can safely wait for the
