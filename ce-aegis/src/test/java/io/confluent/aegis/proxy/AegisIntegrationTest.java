@@ -67,6 +67,7 @@ public class AegisIntegrationTest {
             build();
     }
 
+    // Temporarily disabled, failing since flexible versions introduction
     @Test
     public void testAdminRpcs() throws Exception {
         kafkaCluster = new EmbeddedKafkaCluster();
@@ -92,8 +93,6 @@ public class AegisIntegrationTest {
         }
     }
 
-    // Temporarily disabled, failing since flexible versions introduction
-    @Ignore
     @Test
     public void testAegisWithoutBrokers() throws Exception {
         aegisCluster = new MiniAegisClusterBuilder().
