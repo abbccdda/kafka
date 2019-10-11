@@ -27,7 +27,6 @@ public class TierSegmentUploadComplete extends AbstractTierSegmentMetadata {
         FlatBufferBuilder builder = new FlatBufferBuilder(INITIAL_BUFFER_SIZE).forceDefaults(true);
 
         SegmentUploadComplete.startSegmentUploadComplete(builder);
-
         SegmentUploadComplete.addVersion(builder, CURRENT_VERSION);
         SegmentUploadComplete.addTierEpoch(builder, tierEpoch);
         int objectIdOffset = createUUID(builder, objectId.getMostSignificantBits(), objectId.getLeastSignificantBits());

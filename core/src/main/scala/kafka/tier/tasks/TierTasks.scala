@@ -7,6 +7,7 @@ package kafka.tier.tasks
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{Executors, ThreadFactory, TimeUnit}
 
+import com.yammer.metrics.core.Gauge
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.{KafkaConfig, ReplicaManager}
 import kafka.tier.fetcher.CancellationContext
@@ -72,7 +73,16 @@ class TierTasks(config: TierTasksConfig,
     time)
 
   removeMetric("CyclesPerSec")
+  removeMetric("PartitionsInError")
   private val cycleTimeMetric = newMeter("CyclesPerSec", "tier tasks cycles per second", TimeUnit.SECONDS)
+  private val partitionInError = newGauge("NumPartitionsInError",
+    new Gauge[Int] {
+      def value: Int = {
+        tierArchiver.taskQueue.errorPartitionCount()
+      }
+    },
+    Map[String, String]())
+
 
   locally {
     tierMetadataManager.addListener(this.getClass, leaderChangeManager)

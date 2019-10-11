@@ -5,6 +5,7 @@
 package kafka.tier.tasks
 
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 
 import com.yammer.metrics.core.Meter
 import kafka.server.ReplicaManager
@@ -26,6 +27,7 @@ import scala.util.Random
 abstract class TierTask[T <: TierTask[T]](retryRateOpt: Option[Meter]) extends Logging {
   @volatile private var retryCount: Int = 0
   @volatile private var _pausedUntil: Option[Instant] = None
+  @volatile private var _error: Option[Throwable] = None
 
   def topicIdPartition: TopicIdPartition
   def ctx: CancellationContext
@@ -41,6 +43,7 @@ abstract class TierTask[T <: TierTask[T]](retryRateOpt: Option[Meter]) extends L
                  maxRetryBackoffMs: Option[Int] = None)(implicit ec: ExecutionContext): Future[T]
 
   def pausedUntil: Option[Instant] = _pausedUntil
+  def isErrorState: Boolean = _error.isDefined
   def topicPartition: TopicPartition = topicIdPartition.topicPartition
 
   /**
@@ -56,6 +59,16 @@ abstract class TierTask[T <: TierTask[T]](retryRateOpt: Option[Meter]) extends L
     val pauseMs = Math.min(maxRetryBackoffMs, (Random.nextInt(retryCount) + 1) * 1000)
     warn(s"retrying $this after ${pauseMs}ms", t)
     _pausedUntil = Some(now.plusMillis(pauseMs))
+  }
+
+  /**
+   * Places task into error state. This should only be used for non retriable exceptions
+   * @param t Exception to set task to error state for
+   */
+  protected[tasks] def cancelAndSetErrorState(t: Throwable): Unit = {
+    error(s"Partition ${topicIdPartition} placed in error state due to unhandled exception", t)
+    _error = Some(t)
+    ctx.cancel()
   }
 
   /**
@@ -91,7 +104,15 @@ abstract class TierTaskQueue[T <: TierTask[T]](ctx: CancellationContext, maxTask
   override def loggerName: String = this.getClass.getName
 
   @volatile private var tasks = ListSet[T]()
+  // Track partitions in error so that re-immigrated partitions are remain paused.
+  // We will take the conservative approach and assume that these TopicPartitions cannot be safely
+  // resumed until manual intervention is made. This can be re-evaluated in the future
+  private val partitionsInError = new ConcurrentHashMap[TopicIdPartition, Long]()
   private var processing = ListSet[T]()
+
+  protected[tasks] def errorPartitionCount(): Int = {
+    partitionsInError.size()
+  }
 
   /**
     * Sort the tasks in the order they should be processed.
@@ -138,7 +159,11 @@ abstract class TierTaskQueue[T <: TierTask[T]](ctx: CancellationContext, maxTask
     val processingSpace = maxTasks - processing.size
 
     if (processingSpace > 0) {
-      val eligibleTasks = tasks.diff(processing).filter(_.pausedUntil.forall(now.isAfter))
+      val eligibleTasks = tasks
+        .diff(processing)
+        .filterNot(t => partitionsInError.containsKey(t.topicIdPartition))
+        .filter(_.pausedUntil.forall(now.isAfter))
+
       if (eligibleTasks.nonEmpty) {
         val sorted = sortTasks(eligibleTasks)
         if (sorted.nonEmpty) {
@@ -157,6 +182,9 @@ abstract class TierTaskQueue[T <: TierTask[T]](ctx: CancellationContext, maxTask
     * and effectively drop it. `done` will also cleanup a task which has been canceled.
     */
   def done(task: T): Unit = synchronized {
+    if (task.isErrorState)
+      partitionsInError.put(task.topicIdPartition, time.milliseconds())
+
     if (!processing.contains(task))
       warn(s"done task $task not found in processing set")
     processing -= task

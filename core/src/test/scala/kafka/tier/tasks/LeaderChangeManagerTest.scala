@@ -188,6 +188,37 @@ class LeaderChangeManagerTest {
   }
 
   @Test
+  def testErrorState(): Unit = {
+    val tp0 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
+    leaderChangeManager.onBecomeLeader(tp0, 0)
+    leaderChangeManager.process()
+    val tp0Task = queue.poll().get.head
+    assertEquals(tp0Task.topicIdPartition, tp0)
+
+    tp0Task.cancelAndSetErrorState(new Throwable("failed"))
+    queue.done(tp0Task)
+    assertEquals(1, queue.errorPartitionCount())
+
+    // Polling from the queue returns no elements, as the only TopicIdPartition in the queue is in error state
+    assertTrue(queue.poll().isEmpty)
+    time.sleep(200)
+    assertTrue(queue.poll().isEmpty)
+
+    // Polling from the queue returns no elements after reimmigration as the only TopicIdPartition in the queue is still in error state
+    leaderChangeManager.onBecomeLeader(tp0, 1)
+    leaderChangeManager.process()
+    assertTrue(queue.poll().isEmpty)
+
+    // add a new partition, check that it does get read correctly even though tp0 is filtered out
+    val tp1 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 1)
+    leaderChangeManager.onBecomeLeader(tp1, 0)
+    leaderChangeManager.process()
+    val tp1Task = queue.poll().get.head
+    assertEquals(tp1Task.topicIdPartition, tp1)
+    assertEquals(1, queue.errorPartitionCount())
+  }
+
+  @Test
   def testDelayWithMultipleTasks(): Unit = {
     val tp0 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 0)
     val tp1 = new TopicIdPartition("foo", UUID.fromString("3036601f-dfb2-46e0-a809-69b710e0944a"), 1)

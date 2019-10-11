@@ -201,6 +201,14 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
 
     assertTrue("tier archiver mean rate shows no data uploaded to tiered storage",
       meanArchiveRate > 100)
+
+    val partitionsInErrorCount = mBeanServer
+      .getAttributes(new ObjectName("kafka.tier.tasks:type=TierTasks,name=NumPartitionsInError"), Array("Value"))
+      .asList.asScala
+      .map { attr => attr.getValue.asInstanceOf[Int] }
+      .head
+
+    assertEquals("tier archiver shows no partitions in error state", 0, partitionsInErrorCount)
   }
 
   private def assertTimestampForOffsetLookupCorrect(topicPartition: TopicPartition, consumer: KafkaConsumer[String, String], timestamp: Long, expectedOffset: Long) = {

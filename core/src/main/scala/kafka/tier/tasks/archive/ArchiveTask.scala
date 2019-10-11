@@ -156,9 +156,9 @@ final class ArchiveTask(override val ctx: CancellationContext,
         state = state.handleSegmentDeletedException(e)
         retryTaskLater(maxRetryBackoffMs.getOrElse(5000), time.hiResClockMs(), e)
         this
-      case e: Throwable =>
-        ctx.cancel()
-        throw new TierArchiverFatalException(s"$topicIdPartition encountered a fatal exception", e)
+      case t: Throwable =>
+        cancelAndSetErrorState(t)
+        this
     }
   }
 
@@ -254,11 +254,11 @@ object ArchiveTask extends Logging {
   }
 
   private[archive] def maybeInitiateUpload(state: BeforeUpload,
-                                            topicIdPartition: TopicIdPartition,
-                                            time: Time,
-                                            tierTopicAppender: TierTopicAppender,
-                                            tierObjectStore: TierObjectStore,
-                                            replicaManager: ReplicaManager)
+                                           topicIdPartition: TopicIdPartition,
+                                           time: Time,
+                                           tierTopicAppender: TierTopicAppender,
+                                           tierObjectStore: TierObjectStore,
+                                           replicaManager: ReplicaManager)
                                            (implicit ec: ExecutionContext): Future[ArchiveTaskState] = {
     Future {
       if (tierTopicAppender.partitionState(topicIdPartition).tierEpoch != state.leaderEpoch) {
