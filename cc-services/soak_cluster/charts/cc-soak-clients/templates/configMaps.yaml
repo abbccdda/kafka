@@ -56,6 +56,7 @@ data:
       "short_lived_producer_count": 2,
       "long_lived_consumer_count": 2,
       "short_lived_consumer_count": 2,
+      "short_lived_random_consumer_group": true,
       "idempotence_enabled": true,
       "short_lived_consumer_record_batch_verifier": {
         "type": "sequentialOffsets"
