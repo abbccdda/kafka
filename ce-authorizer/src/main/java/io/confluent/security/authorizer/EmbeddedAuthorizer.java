@@ -185,7 +185,8 @@ public class EmbeddedAuthorizer implements Authorizer {
     CompletableFuture<Void> readyFuture = CompletableFuture.allOf(futureArray)
         .thenAccept(unused -> this.ready = true)
         //server startup will fail if any error/invalid mds configs during migration/init task
-        .thenRunAsync(initTask);
+        .thenRunAsync(initTask)
+        .thenAccept(unused -> auditLogProvider.start(interBrokerListenerConfigs));
     CompletableFuture<Void> future = futureOrTimeout(readyFuture, initTimeout);
 
     // For clusters that are not hosting the metadata topic, we can safely wait for the

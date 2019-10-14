@@ -16,6 +16,7 @@ import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.EmbeddedAuthorizer;
+import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import io.confluent.security.authorizer.provider.Provider;
 import io.confluent.license.validator.ConfluentLicenseValidator;
@@ -187,8 +188,13 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
     CompletableFuture<Void> startFuture = super.start(interBrokerClientConfigs(serverInfo), migrationTask);
 
     Map<Endpoint, CompletableFuture<Void>> futures = new HashMap<>(serverInfo.endpoints().size());
+    Optional<String> controlPlaneListener = Optional.ofNullable((String) configs.get(KafkaConfig$.MODULE$.ControlPlaneListenerNameProp()));
+
+    // On brokers that are not running MDS, super.start() returns only after metadata is available
+    // and startFuture is complete. On brokers running MDS, startFuture may not be complete, but we
+    // should allow control plane and inter-broker listeners to start up in order to process metadata.
     serverInfo.endpoints().forEach(endpoint -> {
-      if (endpoint.equals(serverInfo.interBrokerEndpoint())) {
+      if (endpoint.equals(serverInfo.interBrokerEndpoint()) || endpoint.listenerName().equals(controlPlaneListener)) {
         futures.put(endpoint, CompletableFuture.completedFuture(null));
       } else {
         futures.put(endpoint, startFuture);
@@ -210,9 +216,7 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
   public List<AuthorizationResult> authorize(AuthorizableRequestContext requestContext,
       List<org.apache.kafka.server.authorizer.Action> actions) {
     return actions.stream().map(action -> {
-      boolean allowed = authorize(requestContext,
-          Operation$.MODULE$.fromJava(action.operation()),
-          AuthorizerUtils.convertToResource(action.resourcePattern()));
+      boolean allowed = authorize(requestContext, action);
       return allowed ? AuthorizationResult.ALLOWED : AuthorizationResult.DENIED;
     }).collect(Collectors.toList());
   }
@@ -234,10 +238,12 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
     return aclAuthorizer.acls(filter);
   }
 
-  public boolean authorize(AuthorizableRequestContext requestContext, Operation operation, Resource resource) {
+  private boolean authorize(AuthorizableRequestContext requestContext, org.apache.kafka.server.authorizer.Action kafkaAction) {
     if (ready())
       licenseValidator.verifyLicense();
 
+    Operation operation = Operation$.MODULE$.fromJava(kafkaAction.operation());
+    Resource resource = AuthorizerUtils.convertToResource(kafkaAction.resourcePattern());
     if (resource.patternType() != PatternType.LITERAL) {
       throw new IllegalArgumentException("Only literal resources are supported, got: "
           + resource.patternType());
@@ -247,10 +253,14 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
       return true;
     }
 
+    ResourcePattern resourcePattern = new ResourcePattern(AclMapper.resourceType(resource.resourceType()),
+        resource.name(), PatternType.LITERAL);
     Action action = new Action(scope(),
-                               AclMapper.resourceType(resource.resourceType()),
-                               resource.name(),
-                               AclMapper.operation(operation));
+                               resourcePattern,
+                               AclMapper.operation(operation),
+                               kafkaAction.resourceReferenceCount(),
+                               kafkaAction.logIfAllowed(),
+                               kafkaAction.logIfDenied());
 
     List<AuthorizeResult> result = super.authorize(
         io.confluent.security.authorizer.utils.AuthorizerUtils.kafkaRequestContext(requestContext),
@@ -295,7 +305,8 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
     }
     clientConfigs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, endpoint.host() + ":" + endpoint.port());
     clientConfigs.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol.name);
-    clientConfigs.put(KafkaConfig$.MODULE$.BrokerIdProp(), serverInfo.brokerId());
+    // Broker id in client configs causes issues in metrics reporter, so don't include.
+    clientConfigs.remove(KafkaConfig$.MODULE$.BrokerIdProp());
     return clientConfigs;
   }
 
