@@ -979,8 +979,11 @@ project(':core') {
     // install the metrics reporter jar to ccs kafka and ce kafka in the same way.
     // We allow the behavior to be overridden for the CCloud build
     if (userPackageMetricsReporter) {
+      // copies in the shaded jar
       from(project(':ce-metrics').jar) { into("libs/") }
-      from(project(':ce-metrics').configurations.runtime) { into("libs/") }
+      // Don't copy any additional jars because ce-metrics is a fat/uber jar with shadowed classes
+      // In theory, we could copy in configurations.shadow, which has some things like kafka-clients,
+      // and yammer metrics. But gradle doesn't recognize that the shadow configuration exists.
     }
     from(project(':ce-kafka-client-plugins').jar) { into("libs/") }
     from(project(':ce-kafka-client-plugins').configurations.runtime) { into("libs/") }
@@ -2229,6 +2232,8 @@ project(':ce-metrics') {
     compile libs.telemetryApi
     compile libs.telemetryClient
     compile libs.guava
+    compile libs.jacksonDatabind
+
     compile(project(':ce-serializers')) {
       // don't include clients as a compile-time dependency—we want it to be provided at runtime
       // (see below compileOnly dependency).
@@ -2237,11 +2242,13 @@ project(':ce-metrics') {
       // only used by OrderedKeyProtoSerde, which we don't need.
       exclude(group:'javax.xml.bind')
     }
-    // we assume that all of these are provided at runtime, and we don't want to relocate them
-    // or any of their transitive deps in a shadow jar.
-    compileOnly libs.metrics
-    compileOnly project(':clients')
-    compileOnly project(':core')
+    // Mark runtime dependencies that aren't part of the uber/shadowed jar as 'shadow'—doing so
+    // adds them to the confluent-metrics pom as `runtime` dependencies. Note that these are also on
+    // the compile/test classpaths.
+    shadow libs.metrics
+    shadow project(':clients')
+    shadow project(':core')
+    shadow libs.slf4jApi
 
     testCompile libs.junit
     testCompile libs.mockitoCore
@@ -2291,6 +2298,9 @@ project(':ce-metrics') {
     relocate('javax.activation', 'io.confluent.shaded.javax.activation')
     relocate('com.sun.activation', 'io.confluent.shaded.com.sun.activation')
 
+    // used by io.confluent.telemetry.serde.ProtoToFlatJson
+    relocate('com.fasterxml.jackson', 'io.confluent.shaded.com.fasterxml.jackson')
+
     dependencies {
       // don't pull in several items that will be included at runtime by kafka-clients.
       exclude(dependency(libs.zstd))
@@ -2299,6 +2309,22 @@ project(':ce-metrics') {
     }
 
     dependsOn 'copyDependantLibs'
+  }
+
+  uploadArchives {
+    repositories {
+      mavenDeployer {
+        // Configure the maven pom for ce-metrics to strip all compile and runtime dependencies (same as the
+        // uploadShadow task). These are included in the shaded/uber jar instead. We update this task
+        // because uploadShadow can't enable signing.
+        // see https://github.com/johnrengelman/shadow/blob/d5c662a69cfb48144a4027c344ff254f12e1e78a/src/main/groovy/com/github/jengelman/gradle/plugins/shadow/ShadowJavaPlugin.groovy#L80-L83
+        pom.scopeMappings.mappings.remove(project.configurations.compile)
+        pom.scopeMappings.mappings.remove(project.configurations.runtime)
+        // Any deps that are listed as "shadow" will be included as runtime deps in the pom.
+        pom.scopeMappings.addMapping(org.gradle.api.plugins.MavenPlugin.RUNTIME_PRIORITY,
+          project.configurations.shadow, 'runtime')
+      }
+    }
   }
 
   checkstyle {
