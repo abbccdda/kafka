@@ -801,7 +801,8 @@ class MergedLogTest {
     val mergedLog = Try(createMergedLog(logConfig))
     assertTrue("expected log recovery to succeed", mergedLog.isSuccess)
     mergedLog.foreach(mergedLog => {
-      assertEquals("expected the producer state to be fully truncated", 0, mergedLog.producerStateManager.activeProducers.size)
+      assertEquals("expected non-expired producers to be retained", 2,
+        mergedLog.producerStateManager.activeProducers.size)
     })
   }
 
@@ -837,7 +838,8 @@ class MergedLogTest {
     val mergedLog = Try(createMergedLog(logConfig))
     assertTrue("expected log recovery to succeed", mergedLog.isSuccess)
     mergedLog.foreach(mergedLog => {
-      assertEquals("expected one active producer to be restored", 1, mergedLog.producerStateManager.activeProducers.size)
+      assertEquals("expected non-expired producers to be retained", 2,
+        mergedLog.producerStateManager.activeProducers.size)
       assertEquals("expected the first unstable offset to be correctly" +
         " set to the base offset of the batch remaining after truncation",
         mergedLog.localLog.logSegments.head.baseOffset,
