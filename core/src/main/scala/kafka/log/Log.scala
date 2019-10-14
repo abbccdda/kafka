@@ -1279,6 +1279,7 @@ class Log(@volatile var dir: File,
         if (newLogStartOffset > mergedLogStartOffset) {
           info(s"Incrementing log start offset to $newLogStartOffset")
           leaderEpochCache.foreach(_.truncateFromStart(newLogStartOffset))
+          producerStateManager.truncateHead(newLogStartOffset)
           maybeIncrementFirstUnstableOffset(newLogStartOffset)
         }
       }

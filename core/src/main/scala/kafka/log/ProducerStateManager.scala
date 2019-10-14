@@ -725,6 +725,20 @@ class ProducerStateManager(val topicPartition: TopicPartition,
    */
   def oldestSnapshotOffset: Option[Long] = oldestSnapshotFile.map(file => offsetFromFile(file))
 
+  /**
+   * When we remove the head of the log due to retention, we need to remove snapshots older than
+   * the new log start offset.
+   */
+  def truncateHead(logStartOffset: Long): Unit = {
+    removeUnreplicatedTransactions(logStartOffset)
+
+    if (lastMapOffset < logStartOffset)
+      lastMapOffset = logStartOffset
+
+    deleteSnapshotsBefore(logStartOffset)
+    lastSnapOffset = latestSnapshotOffset.getOrElse(logStartOffset)
+  }
+
   private def removeUnreplicatedTransactions(offset: Long): Unit = {
     val iterator = unreplicatedTxns.entrySet.iterator
     while (iterator.hasNext) {
