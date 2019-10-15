@@ -25,6 +25,8 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public final class StructSpec {
     private final String name;
@@ -48,7 +50,7 @@ public final class StructSpec {
         ArrayList<FieldSpec> newFields = new ArrayList<>();
         if (fields != null) {
             // Each field should have a unique tag ID (if the field has a tag ID).
-            HashSet<Integer> tags = new HashSet<>();
+            Set<Integer> tags = new HashSet<>();
             for (FieldSpec field : fields) {
                 if (field.tag().isPresent()) {
                     if (tags.contains(field.tag().get())) {
@@ -60,18 +62,39 @@ public final class StructSpec {
                 }
                 newFields.add(field);
             }
-            // Tag IDs should be contiguous and start at 0.  This optimizes space on the wire,
-            // since larger numbers take more space.
-            for (int i = 0; i < tags.size(); i++) {
-                if (!tags.contains(i)) {
-                    throw new RuntimeException("In " + name + ", the tag IDs are not " +
-                        "contiguous.  Make use of tag " + i + " before using any " +
-                        "higher tag IDs.");
-                }
-            }
+
+            validateTags(name, tags);
         }
         this.fields = Collections.unmodifiableList(newFields);
-        this.hasKeys = this.fields.stream().anyMatch(f -> f.mapKey());
+        this.hasKeys = this.fields.stream().anyMatch(FieldSpec::mapKey);
+    }
+
+    /**
+     * Tag IDs should be contiguous and start at 0 and/or 10000. This optimizes space on the wire,
+     * since larger numbers take more space.
+     */
+    // Visible for testing
+    static void validateTags(@JsonProperty("name") String name, Set<Integer> tags) {
+        final int upperTagId = 10000;
+        Set<Integer> smallerTags = tags.stream()
+                .filter(tag -> tag < upperTagId)
+                .collect(Collectors.toSet());
+        validateTags(name, smallerTags, 0);
+
+        Set<Integer> largerTags = tags.stream()
+                .filter(tag -> tag >= upperTagId)
+                .collect(Collectors.toSet());
+        validateTags(name, largerTags, upperTagId);
+    }
+
+    private static void validateTags(@JsonProperty("name") String name, Set<Integer> tags, int startingTag) {
+        for (int i = startingTag; i < startingTag + tags.size(); i++) {
+            if (!tags.contains(i)) {
+                throw new RuntimeException("In " + name + ", the tag IDs are not " +
+                    "contiguous. Make use of tag " + i + " before using any " +
+                    "higher tag IDs.");
+            }
+        }
     }
 
     @JsonProperty
