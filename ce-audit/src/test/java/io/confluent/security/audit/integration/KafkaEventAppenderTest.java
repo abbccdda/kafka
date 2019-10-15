@@ -13,6 +13,7 @@ import static org.junit.Assert.assertThrows;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
 import io.confluent.security.audit.AuditLogEntry;
+import io.confluent.security.audit.AuditLogRouterJsonConfigUtils;
 import io.confluent.security.audit.AuthenticationInfo;
 import io.confluent.security.audit.CloudEvent;
 import io.confluent.security.audit.CloudEventUtils;
@@ -115,7 +116,7 @@ public class KafkaEventAppenderTest {
     config.put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG,
         KafkaEventAppender.class.getCanonicalName());
     config.put(EventLogConfig.TOPIC_REPLICAS_CONFIG, "1");
-    config.put(EventLogConfig.ROUTER_CONFIG, AuditLogRouterJsonConfig.defaultConfig(
+    config.put(EventLogConfig.ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig(
         eventLogClusters.kafkaCluster.bootstrapServers(),
         AuditLogRouterJsonConfig.DEFAULT_TOPIC,
         AuditLogRouterJsonConfig.DEFAULT_TOPIC));
@@ -289,7 +290,7 @@ public class KafkaEventAppenderTest {
 
     Map<String, String> config = Utils.mkMap(
         Utils.mkEntry(ROUTER_CONFIG,
-            AuditLogRouterJsonConfig.defaultConfig(
+            AuditLogRouterJsonConfigUtils.defaultConfig(
                 eventLogClusters.kafkaCluster.bootstrapServers(),
                 newAllowedTopic,
                 newDeniedTopic))
@@ -354,7 +355,7 @@ public class KafkaEventAppenderTest {
 
     Map<String, String> config = Utils.mkMap(
         Utils.mkEntry(ROUTER_CONFIG,
-            AuditLogRouterJsonConfig.defaultConfig(
+            AuditLogRouterJsonConfigUtils.defaultConfig(
                 eventLogClusters.kafkaCluster.bootstrapServers(),
                 "",
                 ""))
@@ -379,7 +380,7 @@ public class KafkaEventAppenderTest {
     logger = logger("testMultiBroker");
 
     AuditLogRouterJsonConfig jsonConfig = AuditLogRouterJsonConfig.load(
-        AuditLogRouterJsonConfig.defaultConfig(
+        AuditLogRouterJsonConfigUtils.defaultConfig(
             eventLogClusters.kafkaCluster.bootstrapServers(),
             AuditLogRouterJsonConfig.DEFAULT_TOPIC,
             AuditLogRouterJsonConfig.DEFAULT_TOPIC));
@@ -422,7 +423,7 @@ public class KafkaEventAppenderTest {
     Map<String, String> config = Utils.mkMap(
         Utils.mkEntry(EventLogConfig.TOPIC_CREATE_CONFIG, "false"),
         Utils.mkEntry(ROUTER_CONFIG,
-            AuditLogRouterJsonConfig.defaultConfig(
+            AuditLogRouterJsonConfigUtils.defaultConfig(
                 eventLogClusters.kafkaCluster.bootstrapServers(),
                 "",
                 ""))

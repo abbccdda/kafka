@@ -3,7 +3,6 @@ package io.confluent.security.audit.router;
 import static java.util.stream.Collectors.joining;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.crn.ConfluentResourceName;
@@ -11,7 +10,6 @@ import io.confluent.crn.CrnSyntaxException;
 import io.confluent.security.authorizer.AuthorizeResult;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -42,7 +40,7 @@ public class AuditLogRouterJsonConfig {
 
   public static class Destinations {
 
-    @JsonProperty("bootstrap_servers")
+    @JsonProperty(value = "bootstrap_servers", required = false)
     public List<String> bootstrapServers;
     public Map<String, DestinationTopic> topics = new HashMap<>();
 
@@ -180,65 +178,23 @@ public class AuditLogRouterJsonConfig {
     return config;
   }
 
-  /*
-   * For testing
-   */
-  public static String defaultConfig(String bootstrapServers,
-      String defaultTopicAllowed, String defaultTopicDenied) {
-    AuditLogRouterJsonConfig config = new AuditLogRouterJsonConfig();
-    config.destinations = new Destinations(
-        Arrays.asList(bootstrapServers.split(",")));
-    config.destinations.putTopic(defaultTopicAllowed, new DestinationTopic(DEFAULT_RETENTION_MS));
-    config.destinations.putTopic(defaultTopicDenied, new DestinationTopic(DEFAULT_RETENTION_MS));
-
-    config.defaultTopics = new DefaultTopics(defaultTopicAllowed, defaultTopicDenied);
-
-    ObjectMapper mapper = new ObjectMapper();
-    try {
-      return mapper.writeValueAsString(config);
-    } catch (JsonProcessingException e) {
-      // Shouldn't happen because this is always the same
-      throw new RuntimeException(e);
-    }
-  }
-
-  public static String defaultConfigProduceConsumeInterbroker(String bootstrapServers,
-      String crnAuthority,
-      String defaultTopicAllowed, String defaultTopicDenied) {
-    AuditLogRouterJsonConfig config = new AuditLogRouterJsonConfig();
-    config.destinations = new Destinations(
-        Arrays.asList(bootstrapServers.split(",")));
-    config.destinations.putTopic(defaultTopicAllowed, new DestinationTopic(DEFAULT_RETENTION_MS));
-    config.destinations.putTopic(defaultTopicDenied, new DestinationTopic(DEFAULT_RETENTION_MS));
-
-    config.defaultTopics = new DefaultTopics(defaultTopicAllowed, defaultTopicDenied);
-
-    config.routes.put("crn://" + crnAuthority + "/kafka=*",
-        Utils.mkMap(Utils.mkEntry(AuditLogCategoryResultRouter.INTERBROKER_CATEGORY,
-            Utils.mkMap(Utils.mkEntry("allowed", defaultTopicAllowed),
-                Utils.mkEntry("denied", defaultTopicDenied)))));
-    config.routes.put("crn://" + crnAuthority + "/kafka=*/topic=*",
-        Utils.mkMap(Utils.mkEntry(AuditLogCategoryResultRouter.PRODUCE_CATEGORY,
-            Utils.mkMap(Utils.mkEntry("allowed", defaultTopicAllowed),
-                Utils.mkEntry("denied", defaultTopicDenied)))));
-    config.routes.put("crn://" + crnAuthority + "/kafka=*/group=*",
-        Utils.mkMap(Utils.mkEntry(AuditLogCategoryResultRouter.CONSUME_CATEGORY,
-                Utils.mkMap(Utils.mkEntry("allowed", defaultTopicAllowed),
-                    Utils.mkEntry("denied", defaultTopicDenied)))));
-    ObjectMapper mapper = new ObjectMapper();
-    try {
-      return mapper.writeValueAsString(config);
-    } catch (JsonProcessingException e) {
-      // Shouldn't happen because this is always the same
-      throw new RuntimeException(e);
-    }
-  }
-
-  public static String defaultConfig(String bootstrapServers) {
-    return defaultConfig(bootstrapServers, DEFAULT_TOPIC, DEFAULT_TOPIC);
-  }
-
   public String bootstrapServers() {
+    if (destinations.bootstrapServers == null) {
+      return null;
+    }
     return String.join(",", destinations.bootstrapServers);
+  }
+
+  /**
+   * This config is used if the AuditLogging feature is not configured. It sends audit logging
+   * messages to the local cluster via the interbroker listener.
+   */
+  public static AuditLogRouterJsonConfig defaultConfig() {
+    AuditLogRouterJsonConfig config = new AuditLogRouterJsonConfig();
+    config.destinations = new Destinations(null);
+    config.destinations.putTopic(DEFAULT_TOPIC, new DestinationTopic(
+        AuditLogRouterJsonConfig.DEFAULT_RETENTION_MS));
+    config.defaultTopics = new DefaultTopics(DEFAULT_TOPIC, DEFAULT_TOPIC);
+    return config;
   }
 }

@@ -37,6 +37,8 @@ public class ConfluentResourceName implements Comparable {
   private static final String ELEMENT_JOINER = "=";
   private static final String WILDCARD_CHARACTER = "*";
 
+  public static final String DEFAULT_AUTHORITY = "";
+
   private String authority;
   private List<Element> nameElements;
 
@@ -137,9 +139,9 @@ public class ConfluentResourceName implements Comparable {
    * Produce a CRN from the given authority with the given elements
    */
   private ConfluentResourceName(String authority, List<Element> elements) {
-    this.authority = authority;
+    this.authority = authority == null || authority.isEmpty() ? DEFAULT_AUTHORITY : authority;
     this.nameElements = Collections.unmodifiableList(elements);
-    this.stringForm = String.format("%s://%s/%s", SCHEME, authority,
+    this.stringForm = String.format("%s://%s/%s", SCHEME, this.authority,
         nameElements.stream().map(Element::toString).collect(Collectors.joining(PATH_DELIMITER)));
   }
 
@@ -360,9 +362,6 @@ public class ConfluentResourceName implements Comparable {
     }
 
     public ConfluentResourceName build() throws CrnSyntaxException {
-      if (authority == null || authority.isEmpty()) {
-        throw new CrnSyntaxException("", "Authority must be specified");
-      }
       if (elements.isEmpty()) {
         throw new CrnSyntaxException("", "Need at least one Element");
       }

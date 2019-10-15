@@ -1,9 +1,11 @@
 package io.confluent.security.audit.integration;
 
+import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
 import io.confluent.security.audit.EventLogConfig;
+import io.confluent.security.audit.provider.ConfluentAuditLogProvider;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import io.confluent.security.audit.serde.CloudEventProtoSerde;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
@@ -16,6 +18,7 @@ import kafka.security.auth.Alter$;
 import kafka.security.auth.ClusterAction$;
 import kafka.security.authorizer.AclAuthorizer;
 import kafka.server.KafkaConfig$;
+import kafka.server.KafkaServer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.resource.PatternType;
@@ -106,12 +109,11 @@ public class EventLogClusters {
         AclAuthorizer.class.getName());
     serverConfig.setProperty("super.users", "User:" + config.brokerUser);
     serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL");
-    serverConfig.put(EventLogConfig.ROUTER_CONFIG,
-        AuditLogRouterJsonConfig.defaultConfig(config.bootstrapServers,
-            config.defaultTopicAllowed, config.defaultTopicDenied));
+    if (config.routerConfig != null) {
+      serverConfig.put(EventLogConfig.ROUTER_CONFIG, config.routerConfig);
+    }
     serverConfig.put(EventLogConfig.EVENT_LOG_PRINCIPAL_CONFIG,
         config.auditLogPrincipal);
-    serverConfig.putAll(config.clusterPropOverrides);
     return serverConfig;
   }
 
@@ -150,17 +152,34 @@ public class EventLogClusters {
     return logWriterUser;
   }
 
+  public boolean auditLoggerReady() {
+    try {
+      if (kafkaCluster.brokers().isEmpty()) {
+        return false;
+      }
+      for (KafkaServer broker : kafkaCluster.brokers()) {
+        ConfluentServerAuthorizer authorizer =
+            (ConfluentServerAuthorizer) broker.authorizer().get();
+        ConfluentAuditLogProvider provider =
+            (ConfluentAuditLogProvider) authorizer.auditLogProvider();
+        if (!provider.localFileLoggerReady() || !provider.kafkaLoggerReady()) {
+          return false;
+        }
+      }
+      return true;
+    } catch (ClassCastException e) {
+      return false;
+    }
+  }
+
   public static class Config {
 
     private String brokerUser;
     private String logWriterUser;
     private String logReaderUser;
-    private String bootstrapServers = "localhost:9092";
     private String auditLogPrincipal = EventLogConfig.DEFAULT_EVENT_LOG_PRINCIPAL_CONFIG;
-    private String defaultTopicAllowed = AuditLogRouterJsonConfig.DEFAULT_TOPIC;
-    private String defaultTopicDenied = AuditLogRouterJsonConfig.DEFAULT_TOPIC;
-    private final Properties clusterPropOverrides = new Properties();
     private int numBrokers = 1;
+    private String routerConfig = null;
 
     public Config users(String brokerUser, String eventLoggerUser,
         String logReaderUser) {
@@ -170,33 +189,17 @@ public class EventLogClusters {
       return this;
     }
 
-    public Config setBootstrapServers(String bootstrapServers) {
-      this.bootstrapServers = bootstrapServers;
-      return this;
-    }
-
-    public Config overrideClusterConfig(String name, String value) {
-      clusterPropOverrides.setProperty(name, value);
-      return this;
-    }
-
     public Config setAuditLogPrincipal(String auditLogPrincipal) {
       this.auditLogPrincipal = auditLogPrincipal;
       return this;
     }
 
-    public Config setDefaultTopicAllowed(String defaultTopicAllowed) {
-      this.defaultTopicAllowed = defaultTopicAllowed;
-      return this;
-    }
-
-    public Config setDefaultTopicDenied(String defaultTopicDenied) {
-      this.defaultTopicDenied = defaultTopicDenied;
-      return this;
-    }
-
     public void setNumBrokers(int numBrokers) {
       this.numBrokers = numBrokers;
+    }
+
+    public void setRouterConfig(String routerConfig) {
+      this.routerConfig = routerConfig;
     }
   }
 }

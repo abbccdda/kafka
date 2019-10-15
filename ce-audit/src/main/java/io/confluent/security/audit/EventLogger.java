@@ -63,4 +63,8 @@ public class EventLogger implements Reconfigurable, AutoCloseable {
       eventAppender.close();
     }
   }
+
+  public boolean ready() {
+    return eventAppender.ready();
+  }
 }

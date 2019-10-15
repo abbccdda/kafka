@@ -68,7 +68,7 @@ public class AuditLogCategoryResultRouter implements EventTopicRouter {
               : AuthorizeResult.DENIED;
       return Optional.ofNullable(routes.get(category).get(result));
     } catch (InvalidProtocolBufferException e) {
-      log.debug("Attempted to route a invalid AuditLogEntry", e);
+      log.debug("Attempted to route an invalid AuditLogEntry", e);
       return Optional.empty();
     }
   }

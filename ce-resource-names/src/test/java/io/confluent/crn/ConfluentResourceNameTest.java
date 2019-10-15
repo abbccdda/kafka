@@ -3,6 +3,8 @@
  */
 package io.confluent.crn;
 
+import static io.confluent.crn.ConfluentResourceName.DEFAULT_AUTHORITY;
+
 import io.confluent.crn.ConfluentResourceName.Element;
 import java.util.Arrays;
 import java.util.List;
@@ -127,11 +129,37 @@ public class ConfluentResourceNameTest {
 
   @Test
   public void testBuildCrnNoAuthority() throws CrnSyntaxException {
-    ConfluentResourceName.Builder builder = ConfluentResourceName.newBuilder()
+    ConfluentResourceName crn = ConfluentResourceName.newBuilder()
         .addElement("kafka", "lkc-a1b2c3")
-        .addElement("topic", "clicks");
+        .addElement("topic", "clicks")
+        .build();
 
-    Assert.assertThrows(CrnSyntaxException.class, builder::build);
+    Assert.assertNotNull(crn);
+    Assert.assertEquals(DEFAULT_AUTHORITY, crn.authority());
+  }
+
+  @Test
+  public void testBuildCrnNullAuthority() throws CrnSyntaxException {
+    ConfluentResourceName crn = ConfluentResourceName.newBuilder()
+        .setAuthority(null)
+        .addElement("kafka", "lkc-a1b2c3")
+        .addElement("topic", "clicks")
+        .build();
+
+    Assert.assertNotNull(crn);
+    Assert.assertEquals(DEFAULT_AUTHORITY, crn.authority());
+  }
+
+  @Test
+  public void testBuildCrnEmptyAuthority() throws CrnSyntaxException {
+    ConfluentResourceName crn = ConfluentResourceName.newBuilder()
+        .setAuthority("")
+        .addElement("kafka", "lkc-a1b2c3")
+        .addElement("topic", "clicks")
+        .build();
+
+    Assert.assertNotNull(crn);
+    Assert.assertEquals(DEFAULT_AUTHORITY, crn.authority());
   }
 
   @Test
@@ -172,11 +200,26 @@ public class ConfluentResourceNameTest {
   }
 
   @Test
-  public void testFromStringNoAuthority() {
+  public void testFromStringNoAuthoritySection() {
     Assert.assertThrows(CrnSyntaxException.class, () -> {
       ConfluentResourceName.fromString(
           "crn:/kafka=lkc-a1b2c3/topic=clicks");
     });
+  }
+
+  @Test
+  public void testFromStringNoAuthority() throws CrnSyntaxException {
+    ConfluentResourceName crn = ConfluentResourceName.fromString(
+        "crn:///kafka=lkc-a1b2c3/topic=clicks");
+    Assert.assertNotNull(crn);
+    Assert.assertEquals(DEFAULT_AUTHORITY, crn.authority());
+    Assert.assertEquals(2, crn.elements().size());
+    Element cluster = crn.elements().get(0);
+    Assert.assertEquals("kafka", cluster.resourceType());
+    Assert.assertEquals("lkc-a1b2c3", cluster.encodedResourceName());
+    Element topic = crn.elements().get(1);
+    Assert.assertEquals("topic", topic.resourceType());
+    Assert.assertEquals("clicks", topic.encodedResourceName());
   }
 
   @Test

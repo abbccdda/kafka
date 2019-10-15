@@ -17,11 +17,13 @@ import org.slf4j.LoggerFactory;
 public class LogEventAppender implements EventAppender {
 
   private Logger log = LoggerFactory.getLogger(LogEventAppender.class);
+  private boolean ready = false;
 
   @Override
   public void configure(Map<String, ?> configs) {
     EventLogConfig config = new EventLogConfig(configs);
     log = LoggerFactory.getLogger(config.getString(EventLogConfig.EVENT_LOG_NAME_CONFIG));
+    ready = true;
   }
 
   @Override
@@ -50,5 +52,10 @@ public class LogEventAppender implements EventAppender {
   @Override
   public void reconfigure(Map<String, ?> configs) {
     configure(configs);
+  }
+
+  @Override
+  public boolean ready() {
+    return ready;
   }
 }

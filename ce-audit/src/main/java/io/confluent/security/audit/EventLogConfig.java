@@ -22,6 +22,10 @@ public class EventLogConfig extends AbstractConfig {
 
   public static final String EVENT_LOGGER_PREFIX = "confluent.security.event.logger.";
 
+  public static final String EVENT_LOGGER_ENABLED_CONFIG = EVENT_LOGGER_PREFIX + "enabled";
+  public static final String DEFAULT_EVENT_LOGGER_ENABLED_CONFIG = "true";
+  public static final String EVENT_LOGGER_ENABLED_DOC = "Should the event logger be enabled.";
+
   public static final String EVENT_APPENDER_CLASS_CONFIG = EVENT_LOGGER_PREFIX + "class";
   public static final String DEFAULT_EVENT_APPENDER_CLASS_CONFIG =
       LogEventAppender.class.getCanonicalName();
@@ -44,10 +48,10 @@ public class EventLogConfig extends AbstractConfig {
   public static final int DEFAULT_TOPIC_PARTITIONS_CONFIG = 12;
   public static final String TOPIC_PARTITIONS_DOC = "Number of partitions in the event log topic.";
   public static final String TOPIC_REPLICAS_CONFIG = EVENT_LOGGER_PREFIX + "topic.replicas";
-  public static final int DEFAULT_TOPIC_REPLICAS_CONFIG = 3;
+  public static final int DEFAULT_TOPIC_REPLICAS_CONFIG = 1;
   public static final String TOPIC_REPLICAS_DOC =
       "Number of replicas in the event log topic. It must not be higher than the number "
-          + "of brokers in the KafkaExporter cluster.";
+          + "of brokers in the Audit Log cluster.";
   public static final String TOPIC_RETENTION_MS_CONFIG =
       EVENT_LOGGER_PREFIX + "topic.retention.ms";
   public static final long DEFAULT_TOPIC_RETENTION_MS_CONFIG = TimeUnit.DAYS.toMillis(30);
@@ -62,7 +66,7 @@ public class EventLogConfig extends AbstractConfig {
 
   // Configuration for the EventTopicRouter
   public static final String ROUTER_CONFIG = EVENT_LOGGER_PREFIX + "router.config";
-  public static final String DEFAULT_ROUTER = "{}";
+  public static final String DEFAULT_ROUTER = "";
   public static final String ROUTER_DOC = "JSON configuration for routing events to topics";
 
   public static final String ROUTER_CACHE_ENTRIES_CONFIG =
@@ -74,6 +78,13 @@ public class EventLogConfig extends AbstractConfig {
 
   static {
     CONFIG = new ConfigDef()
+        .define(
+            EVENT_LOGGER_ENABLED_CONFIG,
+            ConfigDef.Type.BOOLEAN,
+            DEFAULT_EVENT_LOGGER_ENABLED_CONFIG,
+            ConfigDef.Importance.HIGH,
+            EVENT_LOGGER_ENABLED_DOC
+        )
         .define(
             EVENT_APPENDER_CLASS_CONFIG,
             ConfigDef.Type.CLASS,
@@ -175,25 +186,27 @@ public class EventLogConfig extends AbstractConfig {
     Properties props = new Properties();
     String bootstrap = jsonConfig.bootstrapServers();
     if (bootstrap != null && !bootstrap.isEmpty()) {
-      props.put(EVENT_LOGGER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
+      props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
     }
     return props;
   }
 
   public Properties clientProperties() {
     Properties props = new Properties();
-    for (Map.Entry<String, ?> entry : super.originals().entrySet()) {
-      if (entry.getKey().startsWith(EVENT_LOGGER_PREFIX)) {
-        props.put(entry.getKey().substring(EVENT_LOGGER_PREFIX.length()), entry.getValue());
-      }
-    }
+    // inherit the inter-broker client properties from the base level
+    super.originals()
+        .forEach((k, v) -> props.setProperty(k, (String) v));
+    // override with the properties that have been specifically configured for event logs
+    super.originalsWithPrefix(EVENT_LOGGER_PREFIX)
+        .forEach((k, v) -> props.setProperty(k, (String) v));
+    // override with the properties from the JSON config (bootstrap servers)
     props.putAll(propertiesFromRouterJsonConfig(routerJsonConfig()));
+    // we must have bootstrap servers from one of these sources
     String bootstrapServers = props
-        .getProperty(EVENT_LOGGER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG);
+        .getProperty(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG);
     if (bootstrapServers == null || bootstrapServers.isEmpty()) {
       throw new ConfigException(
-          "Missing required property "
-              + EVENT_LOGGER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG
+          "Missing required property " + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG
       );
     }
     return props;
@@ -220,8 +233,11 @@ public class EventLogConfig extends AbstractConfig {
 
   public AuditLogRouterJsonConfig routerJsonConfig() throws ConfigException {
     try {
-      return AuditLogRouterJsonConfig.load(
-          getString(ROUTER_CONFIG));
+      String routerConfig = getString(ROUTER_CONFIG);
+      if (routerConfig.isEmpty()) {
+        return AuditLogRouterJsonConfig.defaultConfig();
+      }
+      return AuditLogRouterJsonConfig.load(getString(ROUTER_CONFIG));
     } catch (IllegalArgumentException | IOException e) {
       throw new ConfigException("Invalid router config", e);
     }

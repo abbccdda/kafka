@@ -348,7 +348,7 @@ public class AuditLogRouterTest {
   public void testDefault() throws IOException {
     AuditLogRouter router = new AuditLogRouter(
         AuditLogRouterJsonConfig.load(
-            AuditLogRouterJsonConfig.defaultConfig("localhost:9092",
+            AuditLogRouterJsonConfigUtils.defaultConfig("localhost:9092",
                 "_confluent-audit-log_allowed", "_confluent-audit-log_denied")),
         100);
 

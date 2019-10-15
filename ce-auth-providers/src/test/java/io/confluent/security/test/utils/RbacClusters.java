@@ -61,11 +61,11 @@ import scala.Option;
 public class RbacClusters {
 
   private final Config config;
-  private final SecurityProtocol kafkaSecurityProtocol = SecurityProtocol.SASL_PLAINTEXT;
-  private final String kafkaSaslMechanism = "SCRAM-SHA-256";
+  public final SecurityProtocol kafkaSecurityProtocol = SecurityProtocol.SASL_PLAINTEXT;
+  public final String kafkaSaslMechanism = "SCRAM-SHA-256";
   private final EmbeddedKafkaCluster metadataCluster;
   public final EmbeddedKafkaCluster kafkaCluster;
-  private final Map<String, User> users;
+  public final Map<String, User> users;
   public final MiniKdcWithLdapService miniKdcWithLdapService;
   private List<KafkaAuthWriter> authWriters;
 

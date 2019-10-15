@@ -12,4 +12,9 @@ public interface EventAppender extends Reconfigurable, AutoCloseable {
    * Filter and transform the events as appropriate and send to the specified destination
    */
   void append(CloudEvent event) throws RuntimeException;
+
+  /**
+   * Return true iff the appender is ready to process all log messages
+   */
+  boolean ready();
 }

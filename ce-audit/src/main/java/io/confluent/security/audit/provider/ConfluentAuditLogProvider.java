@@ -30,7 +30,6 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.config.ConfigException;
@@ -57,7 +56,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
 
   private ConfluentServerCrnAuthority crnAuthority;
 
-  private volatile boolean ready;
+  private volatile boolean kafkaLoggerStarted;
   private String clusterId;
   private Scope scope;
 
@@ -78,56 +77,50 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
     fileConfigs.put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG, LogEventAppender.class.getName());
     localFileLogger = EventLogger.logger(DEFAULT_LOGGER, fileConfigs);
 
-    Map<String, Object> kafkaConfigs = new HashMap<>(configs);
-    kafkaConfigs
-        .put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG, KafkaEventAppender.class.getName());
-    kafkaLogger = EventLogger.logger(KAFKA_LOGGER, kafkaConfigs);
-
     CrnAuthorityConfig crnAuthorityConfig = new CrnAuthorityConfig(configs);
     this.crnAuthority = new ConfluentServerCrnAuthority();
     this.crnAuthority.configure(crnAuthorityConfig.values());
-
-    this.ready = true;
   }
 
   @Override
   public Set<String> reconfigurableConfigs() {
     Set<String> configs = new HashSet<>();
     configs.addAll(localFileLogger.reconfigurableConfigs());
-    configs.addAll(kafkaLogger.reconfigurableConfigs());
+    if (kafkaLogger != null) {
+      configs.addAll(kafkaLogger.reconfigurableConfigs());
+    }
     return configs;
   }
 
   @Override
   public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
     localFileLogger.validateReconfiguration(configs);
-    kafkaLogger.validateReconfiguration(configs);
+    if (kafkaLogger != null) {
+      kafkaLogger.validateReconfiguration(configs);
+    }
   }
 
   @Override
   public void reconfigure(Map<String, ?> configs) {
     localFileLogger.reconfigure(configs);
-    kafkaLogger.reconfigure(configs);
+    if (kafkaLogger != null) {
+      kafkaLogger.reconfigure(configs);
+    }
   }
 
   @Override
-  public CompletionStage<Void> start(Map<String, ?> configs) {
+  public CompletionStage<Void> start(Map<String, ?> interBrokerListenerConfigs) {
     initExecutor = Executors
         .newSingleThreadScheduledExecutor(ThreadUtils.createThreadFactory("audit-init-%d", true));
     CompletableFuture<Void> future = new CompletableFuture<>();
     initExecutor.submit(() -> {
       try {
-        Map<String, Object> fileConfigs = new HashMap<>(configs);
-        fileConfigs
-            .put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG, LogEventAppender.class.getName());
-        localFileLogger = eventLogger(fileConfigs);
-
-        Map<String, Object> kafkaConfigs = new HashMap<>(configs);
+        Map<String, Object> kafkaConfigs = new HashMap<>(interBrokerListenerConfigs);
         kafkaConfigs
             .put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG, KafkaEventAppender.class.getName());
         kafkaLogger = eventLogger(kafkaConfigs);
 
-        this.ready = true;
+        this.kafkaLoggerStarted = true;
         future.complete(null);
       } catch (Throwable e) {
         log.error("Audit log provider could not be started", e);
@@ -156,8 +149,8 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
 
   @Override
   public boolean providerConfigured(Map<String, ?> configs) {
-    return configs.containsKey(
-        EventLogConfig.EVENT_LOGGER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG);
+    EventLogConfig eventLogConfig = new EventLogConfig(configs);
+    return eventLogConfig.getBoolean(EventLogConfig.EVENT_LOGGER_ENABLED_CONFIG);
   }
 
   @Override
@@ -178,7 +171,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
         generateEvent = true;
         break;
     }
-    EventLogger logger = ready && generateEvent ? kafkaLogger : localFileLogger;
+    EventLogger logger = kafkaLoggerStarted && generateEvent ? kafkaLogger : localFileLogger;
     logger.log(newCloudEvent(requestContext, action, authorizeResult, authorizePolicy));
   }
 
@@ -224,12 +217,26 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
           crnAuthority.canonicalCrn(action.scope(), action.resourcePattern()).toString();
 
       AuditLogEntry entry = AuditLogUtils
-          .authorizationEvent(source, subject, requestContext, action, authorizeResult, authorizePolicy);
+          .authorizationEvent(source, subject, requestContext, action, authorizeResult,
+              authorizePolicy);
       return CloudEventUtils.wrap(AUTHORIZATION_MESSAGE_TYPE, source, subject, entry);
     } catch (CrnSyntaxException e) {
       log.warn(
           "Couldn't create cloud event due to internally generated CRN syntax problem", e);
     }
     return null;
+  }
+
+  // Visibility for testing
+  public boolean localFileLoggerReady() {
+    return localFileLogger.ready();
+  }
+
+  // Visibility for testing
+  public boolean kafkaLoggerReady() {
+    if (kafkaLogger == null) {
+      return false;
+    }
+    return kafkaLogger.ready();
   }
 }

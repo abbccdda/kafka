@@ -173,6 +173,11 @@ public class KafkaEventAppender implements EventAppender {
         .collect(Collectors.toSet());
   }
 
+  @Override
+  public boolean ready() {
+    return destinations != null && unreadyTopics().isEmpty();
+  }
+
   /*
    * Attempt to create the topics if they don't already exist. Returns true if no errors were encountered.
    * The topics might still not be ready after this runs, because the producer might still not
@@ -182,6 +187,7 @@ public class KafkaEventAppender implements EventAppender {
     log.debug("Ensuring that event log topics exist");
     Set<String> unready = unreadyTopics();
     if (unready.isEmpty()) {
+      log.debug("All event log topics already exist");
       return true;
     }
     try (final AdminClient adminClient = AdminClient.create(this.adminClientProperties)) {
@@ -248,12 +254,17 @@ public class KafkaEventAppender implements EventAppender {
       if (eventLogPrincipal.equals(eventPrincipal)) {
         // suppress all events concerning the principal that is doing this logging
         // to make sure we don't loop infinitely
+        log.debug("Suppressed event log message from the event log principal: " + eventPrincipal);
         return;
       }
 
       // A default route should have matched, even if no explicit routing is configured
       String topicName = this.topicRouter.topic(event).orElseThrow(
           () -> new ConfigException("No route configured"));
+
+      if (topicName.isEmpty()) {
+        return;
+      }
 
       // If we can't write to this topic yet, log to file
       if (!topicReady.getOrDefault(topicName, false)) {
@@ -266,7 +277,9 @@ public class KafkaEventAppender implements EventAppender {
 
       // producer may already be closed if we are shutting down
       if (!Thread.currentThread().isInterrupted()) {
-        log.trace("Generated event log message : {}", event);
+        if (log.isTraceEnabled()) {
+          log.trace("Generated event log message : {}", CloudEventUtils.toPrettyJsonString(event));
+        }
         this.producer.send(
             new ProducerRecord<byte[], CloudEvent>(
                 topicName,
@@ -290,14 +303,16 @@ public class KafkaEventAppender implements EventAppender {
                     log.warn("...and failed to log event that we couldn't produce", e);
                   }
                 } else {
-                  log.trace(
-                      "Produced event log message of size {} with "
-                          + "offset {} to topic partition {}-{}",
-                      metadata.serializedValueSize(),
-                      metadata.offset(),
-                      metadata.topic(),
-                      metadata.partition()
-                  );
+                  if (log.isTraceEnabled()) {
+                    log.trace(
+                        "Produced event log message of size {} with "
+                            + "offset {} to topic partition {}-{}",
+                        metadata.serializedValueSize(),
+                        metadata.offset(),
+                        metadata.topic(),
+                        metadata.partition()
+                    );
+                  }
                 }
               }
             }

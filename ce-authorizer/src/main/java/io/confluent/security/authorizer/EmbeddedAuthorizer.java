@@ -150,7 +150,8 @@ public class EmbeddedAuthorizer implements Authorizer {
     return accessRuleProviders;
   }
 
-  protected AuditLogProvider auditLogProvider() {
+  // Visibility for testing
+  public AuditLogProvider auditLogProvider() {
     return auditLogProvider;
   }
 

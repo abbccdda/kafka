@@ -15,6 +15,7 @@ public class CrnAuthorityConfig extends AbstractConfig {
   public static final String AUTHORITY_NAME_PROP = CRN_AUTHORITY_PREFIX + "name";
   private static final String AUTHORITY_NAME_DOC = "The DNS name of the authority that this cluster"
       + "uses to authorize. This should be a name for the cluster hosting metadata topics.";
+  private static final String AUTHORITY_NAME_DEFAULT = "";
 
   public static final String CACHE_ENTRIES_PROP = CRN_AUTHORITY_PREFIX + "cache.entries";
   public static final int CACHE_ENTRIES_DEFAULT = 10000;
@@ -23,7 +24,7 @@ public class CrnAuthorityConfig extends AbstractConfig {
 
   static {
     CONFIG = new ConfigDef()
-        .define(AUTHORITY_NAME_PROP, Type.STRING,
+        .define(AUTHORITY_NAME_PROP, Type.STRING, AUTHORITY_NAME_DEFAULT,
             Importance.HIGH, AUTHORITY_NAME_DOC)
         .define(CACHE_ENTRIES_PROP, Type.INT, CACHE_ENTRIES_DEFAULT,
             Importance.LOW, CACHE_ENTRIES_DOC);

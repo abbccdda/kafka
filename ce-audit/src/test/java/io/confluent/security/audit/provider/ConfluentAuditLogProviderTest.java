@@ -7,11 +7,11 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 
 import io.confluent.crn.CrnAuthorityConfig;
+import io.confluent.security.audit.AuditLogRouterJsonConfigUtils;
 import io.confluent.security.audit.EventLogConfig;
 import io.confluent.security.audit.EventLogger;
 import io.confluent.security.audit.appender.KafkaEventAppender;
 import io.confluent.security.audit.appender.LogEventAppender;
-import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import io.confluent.security.authorizer.provider.AuditLogProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders;
 import io.confluent.security.authorizer.provider.DefaultAuditLogProvider;
@@ -37,7 +37,7 @@ public class ConfluentAuditLogProviderTest {
       Utils.mkEntry(CrnAuthorityConfig.AUTHORITY_NAME_PROP, "mds.example.com"),
       Utils.mkEntry(
           EventLogConfig.ROUTER_CONFIG,
-          AuditLogRouterJsonConfig.defaultConfig("localhost:9092", "", "")));
+          AuditLogRouterJsonConfigUtils.defaultConfig("localhost:9092", "", "")));
 
   @Before
   public void setUp() {
@@ -64,7 +64,7 @@ public class ConfluentAuditLogProviderTest {
         TestUtils.fieldValue(kafkaLogger, EventLogger.class, "eventAppender").getClass());
 
     AuditLogProvider defaultProvider = ConfluentBuiltInProviders
-        .loadAuditLogProvider(Collections.emptyMap());
+        .loadAuditLogProvider(Collections.singletonMap(EventLogConfig.EVENT_LOGGER_ENABLED_CONFIG, "false"));
     assertEquals(DefaultAuditLogProvider.class, defaultProvider.getClass());
   }
 
