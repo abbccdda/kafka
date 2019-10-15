@@ -195,7 +195,7 @@ class LeaderChangeManagerTest {
     val tp0Task = queue.poll().get.head
     assertEquals(tp0Task.topicIdPartition, tp0)
 
-    tp0Task.cancelAndSetErrorState(new Throwable("failed"))
+    tp0Task.cancelAndSetErrorState(tp0Task, new Throwable("failed"))
     queue.done(tp0Task)
     assertEquals(1, queue.errorPartitionCount())
 

@@ -157,7 +157,7 @@ final class ArchiveTask(override val ctx: CancellationContext,
         retryTaskLater(maxRetryBackoffMs.getOrElse(5000), time.hiResClockMs(), e)
         this
       case t: Throwable =>
-        cancelAndSetErrorState(t)
+        cancelAndSetErrorState(this, t)
         this
     }
   }

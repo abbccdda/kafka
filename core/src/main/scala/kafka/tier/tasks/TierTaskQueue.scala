@@ -65,8 +65,8 @@ abstract class TierTask[T <: TierTask[T]](retryRateOpt: Option[Meter]) extends L
    * Places task into error state. This should only be used for non retriable exceptions
    * @param t Exception to set task to error state for
    */
-  protected[tasks] def cancelAndSetErrorState(t: Throwable): Unit = {
-    error(s"Partition ${topicIdPartition} placed in error state due to unhandled exception", t)
+  protected[tasks] def cancelAndSetErrorState(tierTask: TierTask[T], t: Throwable): Unit = {
+    error(s"Partition ${topicIdPartition}, task $tierTask moved to error state due to unhandled exception", t)
     _error = Some(t)
     ctx.cancel()
   }
