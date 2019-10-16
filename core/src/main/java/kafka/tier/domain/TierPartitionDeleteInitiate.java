@@ -68,7 +68,7 @@ public class TierPartitionDeleteInitiate extends AbstractTierMetadata {
     public String toString() {
         return "TierSegmentDeleteInitiate(" +
                 "version=" + metadata.version() + ", " +
-                "topic=" + topicIdPartition() + ", " +
+                "topicIdPartition=" + topicIdPartition() + ", " +
                 "controllerEpoch=" + metadata.controllerEpoch() + ", " +
                 "messageId=" + messageId() + ")";
     }

@@ -78,7 +78,7 @@ public class TierSegmentDeleteComplete extends AbstractTierSegmentMetadata {
     public String toString() {
         return "TierSegmentDeleteComplete(" +
                 "version=" + metadata.version() + ", " +
-                "topic=" + topicIdPartition() + ", " +
+                "topicIdPartition=" + topicIdPartition() + ", " +
                 "tierEpoch=" + tierEpoch() + ", " +
                 "objectId=" + objectId() + ")";
     }

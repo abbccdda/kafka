@@ -80,7 +80,7 @@ public class TierTopicInitLeader extends AbstractTierMetadata {
     public String toString() {
         return "TierInitLeader(" +
                 "version=" + version() + ", " +
-                "topic=" + topicIdPartition() + ", " +
+                "topicIdPartition=" + topicIdPartition() + ", " +
                 "tierEpoch=" + tierEpoch() + ", " +
                 "messageId=" + messageId() + ", " +
                 "brokerId=" + brokerId() +

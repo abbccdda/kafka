@@ -82,7 +82,7 @@ public class TierSegmentUploadComplete extends AbstractTierSegmentMetadata {
     public String toString() {
         return "TierSegmentUploadComplete(" +
                 "version=" + metadata.version() + ", " +
-                "topic=" + topicIdPartition() + ", " +
+                "topicIdPartition=" + topicIdPartition() + ", " +
                 "tierEpoch=" + tierEpoch() + ", " +
                 "objectId=" + objectId() + ")";
     }
