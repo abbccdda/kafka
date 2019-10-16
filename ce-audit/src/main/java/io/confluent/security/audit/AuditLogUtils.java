@@ -6,6 +6,9 @@ package io.confluent.security.audit;
 
 import com.google.protobuf.Struct;
 import com.google.protobuf.Value;
+import io.confluent.crn.ConfluentResourceName;
+import io.confluent.crn.ConfluentResourceName.Element;
+import io.confluent.crn.CrnSyntaxException;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizePolicy.AccessRulePolicy;
@@ -43,7 +46,6 @@ public class AuditLogUtils {
         requestName = requestKey.name;
       }
     }
-
 
     AuditLogEntry.Builder builder = AuditLogEntry.newBuilder()
         .setServiceName(source)
@@ -110,6 +112,13 @@ public class AuditLogUtils {
     builder.setRequestMetadata(requestMetadataBuilder.build());
 
     return builder.build();
+  }
+
+  /**
+   * This returns the last element of the resource in the "resourceName" field.
+   */
+  public static Element resourceNameElement(AuditLogEntry entry) throws CrnSyntaxException {
+    return ConfluentResourceName.fromString(entry.getResourceName()).lastResourceElement();
   }
 
 }

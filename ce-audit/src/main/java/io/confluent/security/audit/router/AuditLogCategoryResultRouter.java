@@ -1,9 +1,14 @@
 package io.confluent.security.audit.router;
 
-import com.google.protobuf.InvalidProtocolBufferException;
+import io.confluent.crn.ConfluentResourceName.Element;
+import io.confluent.crn.CrnSyntaxException;
 import io.confluent.security.audit.AuditLogEntry;
+import io.confluent.security.audit.AuditLogUtils;
+import io.confluent.security.audit.AuthenticationInfo;
 import io.confluent.security.audit.CloudEvent;
+import io.confluent.security.audit.CloudEventUtils;
 import io.confluent.security.authorizer.AuthorizeResult;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -53,22 +58,56 @@ public class AuditLogCategoryResultRouter implements EventTopicRouter {
     return this;
   }
 
+  private String category(AuditLogEntry entry) {
+    return METHOD_CATEGORIES
+        .getOrDefault(entry.getMethodName(), OTHER_CATEGORY);
+  }
+
+  private AuthorizeResult authorizeResult(AuditLogEntry entry) {
+    return entry.getAuthorizationInfo().getGranted()
+        ? AuthorizeResult.ALLOWED
+        : AuthorizeResult.DENIED;
+  }
+
   @Override
   public Optional<String> topic(CloudEvent event) {
     try {
       AuditLogEntry auditLogEntry = event.getData().unpack(AuditLogEntry.class);
-      String category = METHOD_CATEGORIES
-          .getOrDefault(auditLogEntry.getMethodName(), OTHER_CATEGORY);
+      String category = category(auditLogEntry);
       if (!routes.containsKey(category)) {
         return Optional.empty();
       }
-      AuthorizeResult result =
-          auditLogEntry.getAuthorizationInfo().getGranted()
-              ? AuthorizeResult.ALLOWED
-              : AuthorizeResult.DENIED;
-      return Optional.ofNullable(routes.get(category).get(result));
-    } catch (InvalidProtocolBufferException e) {
-      log.debug("Attempted to route an invalid AuditLogEntry", e);
+      AuthorizeResult result = authorizeResult(auditLogEntry);
+      Optional<String> topic = Optional.ofNullable(routes.get(category).get(result));
+      if (topic.isPresent() && !topic.get().isEmpty()
+          && CONSUME_CATEGORY.equals(category)) {
+        /*
+        Check for consume logging on the same topic. We're able to avoid this for
+        produce because the producer is specifically excluded.
+
+        Note that there is still a class of loops that this check will not detect:
+        Loops where consumption on audit log topic A results in a message on audit
+        log topic B, which results in a message on audit log topic A, etc.
+        Hopefully, if someone is going to the trouble of setting up such a cycle
+        they've thought through the consequences. The documentation will contain a
+        note about avoiding these cases.
+         */
+        Element resource = AuditLogUtils.resourceNameElement(auditLogEntry);
+        if (resource.resourceType().equals("topic") &&
+            resource.encodedResourceName().equals(topic.get())) {
+          AuthenticationInfo info = auditLogEntry.getAuthenticationInfo();
+          String principal = info == null ? "Unknown" : info.getPrincipal();
+          log.error(
+              "Audit log event for consume event on audit log topic {} was routed to same topic. "
+                  + "This indicates that there may be a feedback loop. "
+                  + "Principal {} should be excluded from audit logging or this event should be"
+                  + "routed to a different topic. Event: {}",
+              topic.get(), principal, CloudEventUtils.toJsonString(event));
+        }
+      }
+      return topic;
+    } catch (CrnSyntaxException | IOException e) {
+      log.debug("Attempted to route a invalid AuditLogEntry", e);
       return Optional.empty();
     }
   }

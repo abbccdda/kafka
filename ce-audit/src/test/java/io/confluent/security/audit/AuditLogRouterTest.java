@@ -1,9 +1,16 @@
 package io.confluent.security.audit;
 
+import static org.junit.Assert.assertTrue;
+
+import io.confluent.security.audit.router.AuditLogCategoryResultRouter;
 import io.confluent.security.audit.router.AuditLogRouter;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import java.io.IOException;
+import java.io.StringWriter;
 import java.util.Optional;
+import org.apache.log4j.Logger;
+import org.apache.log4j.PatternLayout;
+import org.apache.log4j.WriterAppender;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -162,6 +169,7 @@ public class AuditLogRouterTest {
             "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA",
             subject,
             AuditLogEntry.newBuilder()
+                .setResourceName(subject)
                 .setMethodName(method)
                 .setAuthenticationInfo(AuthenticationInfo.newBuilder()
                     .setPrincipal(principal)
@@ -410,6 +418,50 @@ public class AuditLogRouterTest {
                 "kafka.FetchFollower", "User:Bob", false)));
 
 
+  }
+
+  @Test
+  public void testConsumeAuditLogTopic() throws Exception {
+
+    String config =
+        "{\n"
+            + "    \"destinations\": {\n"
+            + "        \"topics\": {\n"
+            + "            \"_confluent-audit-log\": {\n"
+            + "                \"retention_ms\": 2592000000\n"
+            + "            }\n"
+            + "        }\n"
+            + "    },\n"
+            + "    \"default_topics\": {\n"
+            + "        \"allowed\": \"_confluent-audit-log\",\n"
+            + "        \"denied\": \"_confluent-audit-log\"\n"
+            + "    },\n"
+            + "    \"routes\": {\n"
+            + "        \"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/topic=*\": {\n"
+            + "            \"consume\": {\n"
+            + "                \"allowed\": \"_confluent-audit-log\",\n"
+            + "                \"denied\": \"_confluent-audit-log\"\n"
+            + "            }\n"
+            + "        }\n"
+            + "    }\n"
+            + "}";
+
+    router = new AuditLogRouter(AuditLogRouterJsonConfig.load(config), 10000);
+
+    Logger testLogger = Logger.getLogger(AuditLogCategoryResultRouter.class);
+    StringWriter writer = new StringWriter();
+    testLogger.removeAllAppenders();
+    testLogger.addAppender(new WriterAppender(new PatternLayout("%m"), writer));
+
+    // Consume goes to consume_
+    Assert.assertEquals(Optional.of("_confluent-audit-log"),
+        router.topic(
+            sampleEvent(
+                "crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/topic=_confluent-audit-log",
+                "kafka.FetchConsumer", "User:Bob", true)));
+
+    String logText = writer.toString();
+    assertTrue(logText.contains("Principal User:Bob should be excluded from audit logging"));
   }
 
 }
