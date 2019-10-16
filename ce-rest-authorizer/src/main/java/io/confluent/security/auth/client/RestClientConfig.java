@@ -89,13 +89,30 @@ public class RestClientConfig extends AbstractConfig {
             .define(TOKEN_AUTH_CREDENTIAL_PROP, Type.PASSWORD,
                     TOKEN_AUTH_CREDENTIAL_DEFAULT,
                     Importance.LOW,
-                    TOKEN_AUTH_CREDENTIAL_DOC)
-            .withClientSslSupport();
+                    TOKEN_AUTH_CREDENTIAL_DOC);
   }
 
   public RestClientConfig(Map<?, ?> props) {
     super(CONFIG, props);
     validate();
+  }
+
+  // Allow inheritance of security configs
+  public Map<String, ?> sslClientConfigs() {
+    Map<String, Object> configs = originals();
+    configs.putAll(originalsWithPrefix(CONFIG_PREFIX));
+    configs.keySet().removeAll(originalsWithPrefix(CONFIG_PREFIX, false).keySet());
+
+    ConfigDef sslConfigDef = new ConfigDef();
+    sslConfigDef.withClientSslSupport();
+    SslClientConfig sslClientConfig = new SslClientConfig(sslConfigDef, configs);
+    return sslClientConfig.values();
+  }
+
+  private static class SslClientConfig extends AbstractConfig {
+    SslClientConfig(ConfigDef configDef, Map<String, Object> props) {
+      super(configDef, props);
+    }
   }
 
   private void validate() {

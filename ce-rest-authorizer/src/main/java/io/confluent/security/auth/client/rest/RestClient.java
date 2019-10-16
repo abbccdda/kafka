@@ -120,8 +120,9 @@ public class RestClient implements Closeable {
     }
 
     //set ssl socket factory
-    if (rbacClientConfig.getString(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG) != null)
-      sslSocketFactory = createSslSocketFactory(rbacClientConfig);
+    Map<String, ?> sslClientConfigs = rbacClientConfig.sslClientConfigs();
+    if (sslClientConfigs.get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG) != null)
+      sslSocketFactory = createSslSocketFactory(sslClientConfigs);
 
     activeMetadataServerURLs = bootstrapMetadataServerURLs;
     if (rbacClientConfig.getBoolean(RestClientConfig.ENABLE_METADATA_SERVER_URL_REFRESH))
@@ -176,9 +177,9 @@ public class RestClient implements Closeable {
             metadataServerUrlsMaxAgeMS, TimeUnit.MILLISECONDS);
   }
 
-  private SSLSocketFactory createSslSocketFactory(final RestClientConfig rbacClientConfig) {
+  private SSLSocketFactory createSslSocketFactory(final Map<String, ?> sslConfigs) {
     SslFactory sslFactory = new SslFactory(Mode.CLIENT);
-    sslFactory.configure(rbacClientConfig.values());
+    sslFactory.configure(sslConfigs);
     return sslFactory.sslEngineBuilder().sslContext().getSocketFactory();
   }
 

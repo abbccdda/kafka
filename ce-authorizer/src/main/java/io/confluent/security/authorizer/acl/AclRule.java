@@ -89,7 +89,7 @@ public class AclRule {
 
   @Override
   public String toString() {
-    return String.format("%s has %s permission for operation %s from host %s (source: %s)",
+    return String.format("%s has %s permission for operation %s from host %s",
         principal, permissionType, operation, host);
   }
 

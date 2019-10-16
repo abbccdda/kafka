@@ -8,6 +8,7 @@ import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
+import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
@@ -21,6 +22,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
@@ -164,6 +166,25 @@ public class RestClientTest {
         } catch (RuntimeException e) {
 
         }
+    }
+
+    @Test
+    public void testRestClientConfigs() {
+        Properties props = new Properties();
+        String sslTruststore = "test.truststore.jks";
+        String sslKeystore = "test.truststore.jks";
+
+        props.put(SslConfigs.SSL_PROTOCOL_CONFIG, "TLSv1.2");
+        props.put(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, sslTruststore);
+        props.put(SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG, sslKeystore);
+        props.put("confluent.metadata.ssl.keystore.location", "rest.keystore.jks");
+
+        RestClientConfig config = new RestClientConfig(props);
+
+        Map<String, ?> sslClientConfigs = config.sslClientConfigs();
+        assertEquals(sslTruststore, sslClientConfigs.get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG));
+        assertEquals("rest.keystore.jks", sslClientConfigs.get(SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG));
+        assertEquals("TLSv1.2", sslClientConfigs.get(SslConfigs.SSL_PROTOCOL_CONFIG));
     }
 
     private static class TimeoutTestRequestSender implements RequestSender {
