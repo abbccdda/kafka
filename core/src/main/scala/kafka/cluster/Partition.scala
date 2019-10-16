@@ -155,7 +155,7 @@ object Partition extends KafkaMetricsGroup {
     removeMetric("UnderReplicated", tags)
     removeMetric("UnderMinIsr", tags)
     removeMetric("InSyncReplicasCount", tags)
-    removeMetric("CaughtUpReplicas", tags)
+    removeMetric("CaughtUpReplicasCount", tags)
     removeMetric("ReplicasCount", tags)
     removeMetric("LastStableOffsetLag", tags)
     removeMetric("AtMinIsr", tags)
@@ -229,7 +229,7 @@ class Partition(val topicPartition: TopicPartition,
     tags
   )
 
-  newGauge("CaughtUpReplicas",
+  newGauge("CaughtUpReplicasCount",
     new Gauge[Int] {
       def value: Int = {
         caughtUpReplicaCount
@@ -756,7 +756,7 @@ class Partition(val topicPartition: TopicPartition,
 
   // public for jmh benchmarking
   def caughtUpReplicaCount: Int = {
-    // caughtUpReplicaCount will be called for two metrics: CaughtUpReplicas and IsNotCaughtUp metric,
+    // caughtUpReplicaCount will be called for two metrics: CaughtUpReplicasCount and IsNotCaughtUp metric,
     // for every leader partition and for each metric scrape. Care should be taken to keep this call fast.
     leaderLogIfLocal.map { leaderLog =>
       val hwm = leaderLog.highWatermark
