@@ -93,6 +93,7 @@ public class ConfluentMetricsReporterConfig extends AbstractConfig {
           "ActiveControllerCount",
           "BytesInPerSec",
           "BytesOutPerSec",
+          "CaughtUpReplicasCount",
           "FailedFetchRequestsPerSec",
           "FailedProduceRequestsPerSec",
           "InSyncReplicasCount",
