@@ -76,6 +76,8 @@
           "about": "The leader epoch of this partition." },
         { "name": "ReplicaNodes", "type": "[]int32", "versions": "0+", "entityType": "brokerId",
           "about": "The set of all nodes that host this partition." },
+        { "name": "Observers", "type": "[]int32", "versions": "9+", "tag": 10000, "taggedVersions": "9+",
+          "about": "The brokers in ReplicaNodes that are observers in a partition." },
         { "name": "IsrNodes", "type": "[]int32", "versions": "0+",
           "about": "The set of nodes that are in sync with the leader for this partition." },
         { "name": "OfflineReplicas", "type": "[]int32", "versions": "5+", "ignorable": true,

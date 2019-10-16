@@ -31,7 +31,9 @@
         { "name": "PartitionIndex", "type": "int32", "versions": "0+",
           "about": "The partition index." },
         { "name": "Replicas", "type": "[]int32", "versions": "0+", "nullableVersions": "0+", "default": "null",
-          "about": "The replicas to place the partitions on, or null to cancel a pending reassignment for this partition." }
+          "about": "The replicas to place the partitions on, or null to cancel a pending reassignment for this partition." },
+        { "name": "Observers", "type": "[]int32", "versions": "0+", "tag": 10000, "taggedVersions": "0+",
+          "about": "The brokers in Replicas that are observers in a partition." }
       ]}
     ]}
   ]

@@ -71,6 +71,8 @@
         "about": "The ZooKeeper version." },
       { "name": "Replicas", "type": "[]int32", "versions": "0+",
         "about": "The replica IDs." },
+      { "name": "Observers", "type": "[]int32", "versions": "4+", "tag": 10000, "taggedVersions": "4+",
+        "about": "The brokers in Replicas that are observers in a partition." },
       { "name": "AddingReplicas", "type": "[]int32", "versions": "3+", "ignorable": true,
         "about": "The replica IDs that we are adding this partition to, or null if no replicas are being added." },
       { "name": "RemovingReplicas", "type": "[]int32", "versions": "3+", "ignorable": true,
