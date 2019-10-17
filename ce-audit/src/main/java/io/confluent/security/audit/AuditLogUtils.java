@@ -52,8 +52,10 @@ public class AuditLogUtils {
         .setMethodName(requestContext.requestSource() + "." + requestName)
         .setResourceName(subject);
 
+    String principal = requestContext.principal().getPrincipalType() + ":" +
+        requestContext.principal().getName();
     AuthenticationInfo.Builder authenticationBuilder = AuthenticationInfo.newBuilder()
-        .setPrincipal(requestContext.principal().toString());
+        .setPrincipal(principal);
     builder.setAuthenticationInfo(authenticationBuilder);
 
     AuthorizationInfo.Builder authorizationBuilder = AuthorizationInfo.newBuilder()
