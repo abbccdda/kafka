@@ -28,6 +28,7 @@ public class TenantWriter extends Writer {
         this.frameStart = null;
     }
 
+    @SuppressWarnings("deprecation")
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
         log().info("Error writing response to the tenant.", cause);

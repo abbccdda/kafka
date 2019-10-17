@@ -51,6 +51,7 @@ public class BrokerWriter extends Writer {
         }
     }
 
+    @SuppressWarnings("deprecation")
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
         log().info("Error writing response to the broker.", cause);
