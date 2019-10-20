@@ -5,7 +5,11 @@ package io.confluent.kafka.multitenant.authorizer;
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
+import io.confluent.security.authorizer.provider.AccessRuleProvider;
+import io.confluent.security.authorizer.provider.AuditLogProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
+import io.confluent.security.authorizer.provider.GroupProvider;
+import io.confluent.security.authorizer.provider.MetadataProvider;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -92,6 +96,14 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
   public Iterable<AclBinding> acls(AclBindingFilter filter) {
     checkAclsEnabled();
     return super.acls(filter);
+  }
+
+  @Override
+  protected void configureProviders(List<AccessRuleProvider> accessRuleProviders,
+      GroupProvider groupProvider, MetadataProvider metadataProvider,
+      AuditLogProvider auditLogProvider) {
+    // Disable enable audit logger until multi-tenant audit logger for Cloud has been tested
+    super.configureProviders(accessRuleProviders, groupProvider, metadataProvider, null);
   }
 
   private String tenantPrefix(String name) {
