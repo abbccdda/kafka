@@ -28,7 +28,7 @@ import org.apache.kafka.common.errors.{ClusterAuthorizationException, InvalidReq
 import org.apache.kafka.common.resource.{PatternType, ResourcePattern, ResourcePatternFilter, ResourceType}
 import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
 import org.junit.Assert.{assertEquals, assertTrue}
-import org.junit.{After, Assert, Before, Ignore, Test}
+import org.junit.{After, Assert, Before, Test}
 
 import scala.collection.JavaConverters._
 import scala.collection.Seq
@@ -405,9 +405,6 @@ class SaslSslAdminClientIntegrationTest extends AdminClientIntegrationTest with 
     testAclCreateGetDelete(expectAuth = false)
   }
 
-  // Remove ignore annotation after fixing the issue where the create topics response doesn't include
-  // proprietary configs included in describe configs
-  @Ignore
   @Test
   def testCreateTopicsResponseMetadataAndConfig(): Unit = {
     val topic1 = "mytopic1"

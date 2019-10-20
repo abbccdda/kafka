@@ -151,6 +151,7 @@ import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.common.utils.Utils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -939,14 +940,18 @@ public class MultiTenantRequestContextTest {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_TOPICS, ver);
       List<CreatableTopicConfigs> configs = Arrays.asList(
           new CreatableTopicConfigs().setConfigName("confluent.tier.enable").setValue("true"),
-              new CreatableTopicConfigs().setConfigName("max.messsage.bytes").setValue("100000")
+          new CreatableTopicConfigs().setConfigName("max.messsage.bytes").setValue("100000"),
+          new CreatableTopicConfigs().setConfigName("tenant_config").setValue("somevalue")
       );
       Collection<CreatableTopicResult> results = asList(
               new CreatableTopicResult()
                       .setErrorCode(Errors.NONE.code())
                       .setErrorMessage("")
                       .setName("tenant_foo")
-                      .setConfigs(configs),
+                      .setConfigs(configs)
+                      .setTopicConfigErrorCode(Errors.NONE.code())
+                      .setNumPartitions(2)
+                      .setReplicationFactor((short) 3),
               new CreatableTopicResult()
                       .setErrorCode(Errors.NONE.code())
                       .setErrorMessage("")
@@ -958,7 +963,7 @@ public class MultiTenantRequestContextTest {
       assertEquals(new HashSet<>(asList("foo", "bar")), intercepted.data().topics()
               .stream().map(CreatableTopicResult::name).collect(Collectors.toSet()));
       if (ver >= 5) {
-        assertEquals(Collections.singleton("max.messsage.bytes"),
+        assertEquals(Utils.mkSet("max.messsage.bytes", "tenant_config"),
             intercepted.data().topics().find("foo").configs().stream().map(CreatableTopicConfigs::configName).collect(Collectors.toSet()));
       } else {
         assertTrue(intercepted.data().topics().find("foo").configs().isEmpty());

@@ -180,7 +180,7 @@ class AdminManager(val config: KafkaConfig,
         includeConfigsAndMetatadata.get(topic.name).foreach { result =>
           val logConfig = LogConfig.fromProps(KafkaServer.copyKafkaConfigToLog(config), configs)
           val createEntry = createTopicConfigEntry(logConfig, configs, includeSynonyms = false)(_, _)
-          val topicConfigs = logConfig.values.asScala.map { case (k, v) =>
+          val topicConfigs = filterTopicConfigs(logConfig.values.asScala, None).map { case (k, v) =>
             val entry = createEntry(k, v)
             val source = ConfigSource.values.indices.map(_.toByte)
               .find(i => ConfigSource.forId(i.toByte) == entry.source)
@@ -373,18 +373,7 @@ class AdminManager(val config: KafkaConfig,
       }
       def createResponseConfig(configs: Map[String, Any],
                                createConfigEntry: (String, Any) => DescribeConfigsResponse.ConfigEntry): DescribeConfigsResponse.Config = {
-        val filteredConfigPairs = configs.filter { case (configName, _) =>
-          /* Only allow tier configs when confluent.tier.feature is enabled */
-          val tierFeatureCheck = config.tierFeature || !configName.startsWith(KafkaConfig.ConfluentTierPrefix)
-          // Only allow placement constraint if the observer feature is enabled
-          val observerCheck = config.observerFeature || !configName.equals(LogConfig.TopicPlacementConstraintsProp)
-          // Do not allow record interceptor classes since for now as we would only have built-in implementations
-          val recordInterceptorCheck = !configName.equals(LogConfig.AppendRecordInterceptorClassesProp)
-          /* Always returns true if configNames is None */
-          tierFeatureCheck && observerCheck && recordInterceptorCheck && configNames.forall(_.contains(configName))
-        }.toBuffer
-
-        val configEntries = filteredConfigPairs.map { case (name, value) => createConfigEntry(name, value) }
+        val configEntries = filterTopicConfigs(configs, configNames).map { case (name, value) => createConfigEntry(name, value) }
         new DescribeConfigsResponse.Config(ApiError.NONE, configEntries.asJava)
       }
 
@@ -749,5 +738,18 @@ class AdminManager(val config: KafkaConfig,
     val source = if (allSynonyms.isEmpty) ConfigSource.DEFAULT_CONFIG else allSynonyms.head.source
     val readOnly = !DynamicBrokerConfig.AllDynamicConfigs.contains(name)
     new DescribeConfigsResponse.ConfigEntry(name, valueAsString, source, isSensitive, readOnly, synonyms.asJava)
+  }
+
+  private def filterTopicConfigs(configs: Map[String, Any], configNames: Option[Set[String]]): mutable.Buffer[(String, Any)] = {
+    configs.filter { case (configName, _) =>
+      /* Only allow tier configs when confluent.tier.feature is enabled */
+      val tierFeatureCheck = config.tierFeature || !configName.startsWith(KafkaConfig.ConfluentTierPrefix)
+      // Only allow placement constraint if the observer feature is enabled
+      val observerCheck = config.observerFeature || !configName.equals(LogConfig.TopicPlacementConstraintsProp)
+      // Do not allow record interceptor classes since for now as we would only have built-in implementations
+      val recordInterceptorCheck = !configName.equals(LogConfig.AppendRecordInterceptorClassesProp)
+      /* Always returns true if configNames is None */
+      tierFeatureCheck && observerCheck && recordInterceptorCheck && configNames.forall(_.contains(configName))
+    }.toBuffer
   }
 }
