@@ -1783,27 +1783,25 @@ class ReplicaManager(val config: KafkaConfig,
       } else {
         readResult match {
           case readResult: LogReadResult =>
-            var updatedReadResult = readResult
             nonOfflinePartition(topicPartition) match {
               case Some(partition) =>
-                partition.getReplica(followerId) match {
-                  case Some(replica) =>
-                    partition.updateFollowerFetchState(followerId,
-                      readResult.info.fetchOffsetMetadata,
-                      readResult.followerLogStartOffset,
-                      readResult.fetchTimeMs,
-                      readResult.leaderLogEndOffset)
-                  case None =>
-                    warn(s"Leader $localBrokerId failed to record follower $followerId's position " +
-                      s"${readResult.info.fetchOffsetMetadata.messageOffset} since the replica is not recognized to be " +
-                      s"one of the assigned replicas ${partition.allReplicaIds.mkString(",")} " +
-                      s"for partition $topicPartition. Empty records will be returned for this partition.")
-                    updatedReadResult = readResult.withEmptyFetchInfo
+                if (partition.updateFollowerFetchState(followerId,
+                  followerFetchOffsetMetadata = readResult.info.fetchOffsetMetadata,
+                  followerStartOffset = readResult.followerLogStartOffset,
+                  followerFetchTimeMs = readResult.fetchTimeMs,
+                  leaderEndOffset = readResult.leaderLogEndOffset)) {
+                  readResult
+                } else {
+                  warn(s"Leader $localBrokerId failed to record follower $followerId's position " +
+                    s"${readResult.info.fetchOffsetMetadata.messageOffset} since the replica is not recognized to be " +
+                    s"one of the assigned replicas ${partition.allReplicaIds.mkString(",")} " +
+                    s"for partition $topicPartition. Empty records will be returned for this partition.")
+                  readResult.withEmptyFetchInfo
                 }
               case None =>
                 warn(s"While recording the replica LEO, the partition $topicPartition hasn't been created.")
+                readResult
             }
-            updatedReadResult
           case readResult: TierLogReadResult =>
             val reason = s"Attempt to fetch tiered data by follower $followerId from $localBrokerId at offset " +
               s"${readResult.info.fetchMetadata.fetchStartOffset}}"
