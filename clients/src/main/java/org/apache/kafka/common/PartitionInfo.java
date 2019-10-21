@@ -24,6 +24,7 @@ public class PartitionInfo {
     private final int partition;
     private final Node leader;
     private final Node[] replicas;
+    private final Node[] observers;
     private final Node[] inSyncReplicas;
     private final Node[] offlineReplicas;
 
@@ -38,10 +39,21 @@ public class PartitionInfo {
                          Node[] replicas,
                          Node[] inSyncReplicas,
                          Node[] offlineReplicas) {
+        this(topic, partition, leader, replicas, new Node[0], inSyncReplicas, new Node[0]);
+    }
+
+    public PartitionInfo(String topic,
+                         int partition,
+                         Node leader,
+                         Node[] replicas,
+                         Node[] observers,
+                         Node[] inSyncReplicas,
+                         Node[] offlineReplicas) {
         this.topic = topic;
         this.partition = partition;
         this.leader = leader;
         this.replicas = replicas;
+        this.observers = observers;
         this.inSyncReplicas = inSyncReplicas;
         this.offlineReplicas = offlineReplicas;
     }
@@ -75,6 +87,13 @@ public class PartitionInfo {
     }
 
     /**
+     * The complete set of observers for this partition regardless of whether they are alive or up-to-date
+     */
+    public Node[] observers() {
+        return observers;
+    }
+
+    /**
      * The subset of the replicas that are in sync, that is caught-up to the leader and ready to take over as leader if
      * the leader should fail
      */
@@ -91,11 +110,13 @@ public class PartitionInfo {
 
     @Override
     public String toString() {
-        return String.format("Partition(topic = %s, partition = %d, leader = %s, replicas = %s, isr = %s, offlineReplicas = %s)",
+        return String.format("Partition(topic = %s, partition = %d, leader = %s, replicas = %s, " +
+                        "observers = %s, isr = %s, offlineReplicas = %s)",
                              topic,
                              partition,
                              leader == null ? "none" : leader.idString(),
                              formatNodeIds(replicas),
+                             formatNodeIds(observers),
                              formatNodeIds(inSyncReplicas),
                              formatNodeIds(offlineReplicas));
     }

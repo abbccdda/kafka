@@ -157,8 +157,8 @@ public class TestUtils {
                 TopicPartition tp = new TopicPartition(topic, i);
                 Node leader = nodes.get(i % nodes.size());
                 List<Node> replicas = Collections.singletonList(leader);
-                partitionMetadata.add(partitionSupplier.supply(
-                        Errors.NONE, i, leader, Optional.ofNullable(epochSupplier.apply(tp)), replicas, replicas, replicas));
+                partitionMetadata.add(partitionSupplier.supply(Errors.NONE, i, leader,
+                    Optional.ofNullable(epochSupplier.apply(tp)), replicas, Collections.emptyList(), replicas, replicas));
             }
 
             topicMetadata.add(new MetadataResponse.TopicMetadata(Errors.NONE, topic,
@@ -181,6 +181,7 @@ public class TestUtils {
                               Node leader,
                               Optional<Integer> leaderEpoch,
                               List<Node> replicas,
+                              List<Node> observers,
                               List<Node> isr,
                               List<Node> offlineReplicas);
     }

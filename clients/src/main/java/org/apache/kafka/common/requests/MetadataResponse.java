@@ -159,6 +159,7 @@ public class MetadataResponse extends AbstractResponse {
                 partitionMetadata.partition(),
                 partitionMetadata.leader(),
                 partitionMetadata.replicas().toArray(new Node[0]),
+                partitionMetadata.observers().toArray(new Node[0]),
                 partitionMetadata.isr().toArray(new Node[0]),
                 partitionMetadata.offlineReplicas().toArray(new Node[0]));
     }
@@ -295,6 +296,7 @@ public class MetadataResponse extends AbstractResponse {
         private final Node leader;
         private final Optional<Integer> leaderEpoch;
         private final List<Node> replicas;
+        private final List<Node> observers;
         private final List<Node> isr;
         private final List<Node> offlineReplicas;
 
@@ -305,11 +307,23 @@ public class MetadataResponse extends AbstractResponse {
                                  List<Node> replicas,
                                  List<Node> isr,
                                  List<Node> offlineReplicas) {
+            this(error, partition, leader, leaderEpoch, replicas, Collections.emptyList(), isr, offlineReplicas);
+        }
+
+        public PartitionMetadata(Errors error,
+                                 int partition,
+                                 Node leader,
+                                 Optional<Integer> leaderEpoch,
+                                 List<Node> replicas,
+                                 List<Node> observers,
+                                 List<Node> isr,
+                                 List<Node> offlineReplicas) {
             this.error = error;
             this.partition = partition;
             this.leader = leader;
             this.leaderEpoch = leaderEpoch;
             this.replicas = replicas;
+            this.observers = observers;
             this.isr = isr;
             this.offlineReplicas = offlineReplicas;
         }
@@ -338,6 +352,10 @@ public class MetadataResponse extends AbstractResponse {
             return replicas;
         }
 
+        public List<Node> observers() {
+            return observers;
+        }
+
         public List<Node> isr() {
             return isr;
         }
@@ -354,6 +372,7 @@ public class MetadataResponse extends AbstractResponse {
                     ", leader=" + leader +
                     ", leaderEpoch=" + leaderEpoch +
                     ", replicas=" + Utils.join(replicas, ",") +
+                    ", observers=" + Utils.join(observers, ",") +
                     ", isr=" + Utils.join(isr, ",") +
                     ", offlineReplicas=" + Utils.join(offlineReplicas, ",") + ')';
         }
@@ -391,10 +410,11 @@ public class MetadataResponse extends AbstractResponse {
                     Optional<Integer> leaderEpoch = RequestUtils.getLeaderEpoch(partitionMetadata.leaderEpoch());
                     Node leaderNode = leader == -1 ? null : brokerMap.get(leader);
                     List<Node> replicaNodes = convertToNodes(brokerMap, partitionMetadata.replicaNodes());
+                    List<Node> observerNodes = convertToNodes(brokerMap, partitionMetadata.observers());
                     List<Node> isrNodes = convertToNodes(brokerMap, partitionMetadata.isrNodes());
                     List<Node> offlineNodes = convertToNodes(brokerMap, partitionMetadata.offlineReplicas());
                     partitionMetadataList.add(new PartitionMetadata(partitionError, partitionIndex, leaderNode, leaderEpoch,
-                            replicaNodes, isrNodes, offlineNodes));
+                            replicaNodes, observerNodes, isrNodes, offlineNodes));
                 }
 
                 topicMetadataList.add(new TopicMetadata(topicError, topic, isInternal, partitionMetadataList,
@@ -449,6 +469,7 @@ public class MetadataResponse extends AbstractResponse {
                     .setLeaderId(partitionMetadata.leader == null ? -1 : partitionMetadata.leader.id())
                     .setLeaderEpoch(partitionMetadata.leaderEpoch().orElse(RecordBatch.NO_PARTITION_LEADER_EPOCH))
                     .setReplicaNodes(partitionMetadata.replicas.stream().map(Node::id).collect(Collectors.toList()))
+                    .setObservers(partitionMetadata.observers.stream().map(Node::id).collect(Collectors.toList()))
                     .setIsrNodes(partitionMetadata.isr.stream().map(Node::id).collect(Collectors.toList()))
                     .setOfflineReplicas(partitionMetadata.offlineReplicas.stream().map(Node::id).collect(Collectors.toList())));
             }

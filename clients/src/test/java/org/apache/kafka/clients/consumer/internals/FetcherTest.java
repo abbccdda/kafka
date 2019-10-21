@@ -1950,6 +1950,7 @@ public class FetcherTest {
                     null, //no leader
                     Optional.empty(),
                     p.replicas(),
+                    p.observers(),
                     p.isr(),
                     p.offlineReplicas())
                 );

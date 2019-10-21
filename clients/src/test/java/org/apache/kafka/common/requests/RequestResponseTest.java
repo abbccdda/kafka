@@ -17,6 +17,7 @@
 package org.apache.kafka.common.requests;
 
 import org.apache.kafka.common.Node;
+import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.ElectionType;
 import org.apache.kafka.common.acl.AccessControlEntry;
@@ -874,6 +875,36 @@ public class RequestResponseTest {
         assertEquals(Errors.NONE.code(), response.data.errorCode());
     }
 
+    @Test
+    public void testMetadataResponse() {
+        MetadataResponse response = createMetadataResponse();
+
+        Collection<MetadataResponse.TopicMetadata> topicMetadatas = response.topicMetadata();
+        assertEquals(3, topicMetadatas.size());
+        MetadataResponse.TopicMetadata topicWithObservers =  topicMetadatas.stream()
+                .filter(topicMetadata -> topicMetadata.topic().equals("__consumer_offsets"))
+                .findFirst()
+                .get();
+        for (MetadataResponse.PartitionMetadata partition : topicWithObservers.partitionMetadata()) {
+            assertEquals(2, partition.replicas().size());
+            assertEquals(1, partition.observers().size());
+            assertTrue(partition.replicas().containsAll(partition.observers()));
+            PartitionInfo partitionInfo = MetadataResponse.partitionMetaToInfo(topicWithObservers.topic(), partition);
+            assertEquals(partition.observers(), Arrays.asList(partitionInfo.observers()));
+        }
+
+        MetadataResponse.TopicMetadata topicWithoutObservers =  topicMetadatas.stream()
+                .filter(topicMetadata -> topicMetadata.topic().equals("topic3"))
+                .findFirst()
+                .get();
+        for (MetadataResponse.PartitionMetadata partition : topicWithoutObservers.partitionMetadata()) {
+            assertEquals(1, partition.replicas().size());
+            assertTrue(partition.observers().isEmpty());
+            PartitionInfo partitionInfo = MetadataResponse.partitionMetaToInfo(topicWithoutObservers.topic(), partition);
+            assertEquals(0, partitionInfo.observers().length);
+        }
+    }
+
     private ResponseHeader createResponseHeader(short headerVersion) {
         return new ResponseHeader(10, headerVersion);
     }
@@ -1135,6 +1166,7 @@ public class RequestResponseTest {
 
     private MetadataResponse createMetadataResponse() {
         Node node = new Node(1, "host1", 1001);
+        Node observer = new Node(2, "host2", 1001);
         List<Node> replicas = asList(node);
         List<Node> isr = asList(node);
         List<Node> offlineReplicas = asList();
@@ -1142,14 +1174,14 @@ public class RequestResponseTest {
         List<MetadataResponse.TopicMetadata> allTopicMetadata = new ArrayList<>();
         allTopicMetadata.add(new MetadataResponse.TopicMetadata(Errors.NONE, "__consumer_offsets", true,
                 asList(new MetadataResponse.PartitionMetadata(Errors.NONE, 1, node,
-                        Optional.of(5), replicas, isr, offlineReplicas))));
+                        Optional.of(5), asList(node, observer), asList(observer), isr, offlineReplicas))));
         allTopicMetadata.add(new MetadataResponse.TopicMetadata(Errors.LEADER_NOT_AVAILABLE, "topic2", false,
                 Collections.emptyList()));
         allTopicMetadata.add(new MetadataResponse.TopicMetadata(Errors.NONE, "topic3", false,
             asList(new MetadataResponse.PartitionMetadata(Errors.LEADER_NOT_AVAILABLE, 0, null,
                 Optional.empty(), replicas, isr, offlineReplicas))));
 
-        return MetadataResponse.prepareResponse(asList(node), null, MetadataResponse.NO_CONTROLLER_ID, allTopicMetadata);
+        return MetadataResponse.prepareResponse(asList(node, observer), null, MetadataResponse.NO_CONTROLLER_ID, allTopicMetadata);
     }
 
     private OffsetCommitRequest createOffsetCommitRequest(int version) {

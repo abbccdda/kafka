@@ -81,7 +81,9 @@ class MetadataCache(brokerId: Int) extends Logging {
         val leaderEpoch = partitionState.leaderEpoch
         val maybeLeader = getAliveEndpoint(snapshot, leaderBrokerId, listenerName)
         val replicas = partitionState.replicas.asScala
+        val observers = partitionState.observers.asScala
         val replicaInfo = getEndpoints(snapshot, replicas, listenerName, errorUnavailableEndpoints)
+        val observerInfo = getEndpoints(snapshot, observers, listenerName, errorUnavailableEndpoints)
         val offlineReplicaInfo = getEndpoints(snapshot, partitionState.offlineReplicas.asScala, listenerName, errorUnavailableEndpoints)
 
         val isr = partitionState.isr.asScala
@@ -96,7 +98,7 @@ class MetadataCache(brokerId: Int) extends Logging {
               if (errorUnavailableListeners) Errors.LISTENER_NOT_FOUND else Errors.LEADER_NOT_AVAILABLE
             }
             new MetadataResponse.PartitionMetadata(error, partitionId.toInt, Node.noNode(),
-              Optional.empty(), replicaInfo.asJava, isrInfo.asJava,
+              Optional.empty(), replicaInfo.asJava, observerInfo.asJava, isrInfo.asJava,
               offlineReplicaInfo.asJava)
 
           case Some(leader) =>
@@ -105,15 +107,15 @@ class MetadataCache(brokerId: Int) extends Logging {
                 s"following brokers ${replicas.filterNot(replicaInfo.map(_.id).contains).mkString(",")}")
 
               new MetadataResponse.PartitionMetadata(Errors.REPLICA_NOT_AVAILABLE, partitionId.toInt, leader,
-                Optional.empty(), replicaInfo.asJava, isrInfo.asJava, offlineReplicaInfo.asJava)
+                Optional.empty(), replicaInfo.asJava, observerInfo.asJava, isrInfo.asJava, offlineReplicaInfo.asJava)
             } else if (isrInfo.size < isr.size) {
               debug(s"Error while fetching metadata for $topicPartition: in sync replica information not available for " +
                 s"following brokers ${isr.filterNot(isrInfo.map(_.id).contains).mkString(",")}")
               new MetadataResponse.PartitionMetadata(Errors.REPLICA_NOT_AVAILABLE, partitionId.toInt, leader,
-                Optional.empty(), replicaInfo.asJava, isrInfo.asJava, offlineReplicaInfo.asJava)
+                Optional.empty(), replicaInfo.asJava, observerInfo.asJava, isrInfo.asJava, offlineReplicaInfo.asJava)
             } else {
               new MetadataResponse.PartitionMetadata(Errors.NONE, partitionId.toInt, leader, Optional.of(leaderEpoch),
-                replicaInfo.asJava, isrInfo.asJava, offlineReplicaInfo.asJava)
+                replicaInfo.asJava, observerInfo.asJava, isrInfo.asJava, offlineReplicaInfo.asJava)
             }
         }
       }
@@ -226,6 +228,7 @@ class MetadataCache(brokerId: Int) extends Logging {
       .map { case (tp, state) =>
         new PartitionInfo(tp.topic, tp.partition, node(state.leader),
           state.replicas.asScala.map(node).toArray,
+          state.observers.asScala.map(node).toArray,
           state.isr.asScala.map(node).toArray,
           state.offlineReplicas.asScala.map(node).toArray)
       }
