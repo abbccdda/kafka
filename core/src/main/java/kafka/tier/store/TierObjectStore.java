@@ -147,7 +147,7 @@ public interface TierObjectStore {
         public String toString() {
             return "ObjectMetadata(" +
                     "topic=" + topicIdPartition +
-                    ", objectId=" + objectId +
+                    ", objectIdAsBase64=" + objectIdAsBase64() +
                     ", tierEpoch=" + tierEpoch +
                     ", startOffset=" + baseOffset +
                     ", hasAbortedTxns=" + hasAbortedTxns +

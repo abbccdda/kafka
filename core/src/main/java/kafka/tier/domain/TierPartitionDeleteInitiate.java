@@ -70,6 +70,6 @@ public class TierPartitionDeleteInitiate extends AbstractTierMetadata {
                 "version=" + metadata.version() + ", " +
                 "topicIdPartition=" + topicIdPartition() + ", " +
                 "controllerEpoch=" + metadata.controllerEpoch() + ", " +
-                "messageId=" + messageId() + ")";
+                "messageIdAsBase64=" + messageIdAsBase64() + ")";
     }
 }

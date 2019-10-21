@@ -4,6 +4,8 @@
 
 package kafka.tier.domain;
 
+import kafka.utils.CoreUtils;
+
 import java.util.UUID;
 
 /**
@@ -20,5 +22,13 @@ public abstract class AbstractTierSegmentMetadata extends AbstractTierMetadata {
      */
     public final UUID objectId() {
         return messageId();
+    }
+
+    /**
+     * Encode objectId with Base64
+     * @return string representing objectId encoded in Base64
+     */
+    public final String objectIdAsBase64() {
+        return CoreUtils.uuidToBase64(objectId());
     }
 }

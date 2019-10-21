@@ -14,6 +14,7 @@ import kafka.tier.serdes.SegmentDeleteComplete;
 import kafka.tier.serdes.SegmentDeleteInitiate;
 import kafka.tier.serdes.SegmentUploadComplete;
 import kafka.tier.serdes.SegmentUploadInitiate;
+import kafka.utils.CoreUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -138,6 +139,14 @@ public abstract class AbstractTierMetadata {
      * @return the message id
      */
     public abstract UUID messageId();
+
+    /**
+     * Encode messageId with Base64
+     * @return string representing messageId encoded in Base64
+     */
+    public String messageIdAsBase64() {
+        return CoreUtils.uuidToBase64(messageId());
+    }
 
     @Override
     public boolean equals(Object o) {

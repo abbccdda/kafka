@@ -123,7 +123,7 @@ public class TierSegmentUploadInitiate extends AbstractTierSegmentMetadata {
                 "version=" + metadata.version() + ", " +
                 "topicIdPartition=" + topicIdPartition() + ", " +
                 "tierEpoch=" + tierEpoch() + ", " +
-                "objectId=" + objectId() + ", " +
+                "objectIdAsBase64=" + objectIdAsBase64() + ", " +
                 "baseOffset=" + baseOffset() + ", " +
                 "endOffset=" + endOffset() + ", " +
                 "maxTimestamp=" + maxTimestamp() + ", " +
