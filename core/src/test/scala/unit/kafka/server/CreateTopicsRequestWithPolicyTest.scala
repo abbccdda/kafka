@@ -21,6 +21,7 @@ import java.util
 import java.util.Properties
 
 import kafka.log.LogConfig
+import org.apache.kafka.clients.admin.{AdminClient, NewPartitions}
 import org.apache.kafka.common.errors.PolicyViolationException
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.server.policy.CreateTopicPolicy
@@ -109,6 +110,20 @@ class CreateTopicsRequestWithPolicyTest extends AbstractCreateTopicsRequestTest 
         Some("Number of partitions must be larger than 0."))))
   }
 
+  @Test
+  def testCreatePartitions(): Unit = {
+    // Test that we do NOT apply CreateTopicsPolicy to CreatePartitions
+    // See ApplyCreateTopicsPolicyToCreatePartitionsTest for a test that we DO apply it when
+    // confluent.apply.create.topic.policy.to.create.partitions is set to true.
+    val testTopic = "bad"
+    createTopic(testTopic, 1, 1)
+    val admin = AdminClient.create(adminClientConfig)
+    try {
+      admin.createPartitions(Map(testTopic -> NewPartitions.increaseTo(2)).asJava).all().get()
+    } finally {
+      admin.close()
+    }
+  }
 }
 
 object CreateTopicsRequestWithPolicyTest {
@@ -123,6 +138,7 @@ object CreateTopicsRequestWithPolicyTest {
     }
 
     def validate(requestMetadata: RequestMetadata): Unit = {
+      require(!requestMetadata.topic.equals("bad"))
       require(!closed, "Policy should not be closed")
       require(!configs.isEmpty, "configure should have been called with non empty configs")
 

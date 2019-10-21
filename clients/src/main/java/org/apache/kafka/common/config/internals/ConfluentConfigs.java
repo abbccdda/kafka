@@ -138,6 +138,12 @@ public class ConfluentConfigs {
             "used to select a subset of requests for logging. Every request handler thread will get a separate " +
             "instance of this class and is only consulted if the request log level is set to INFO or higher.";
 
+    public static final String APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS =
+        CONFLUENT_PREFIX + "apply.create.topic.policy.to.create.partitions";
+    public static final boolean APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS_DEFAULT = false;
+    public static final String APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS_DOC = "If this is set, " +
+        "CreateTopicsPolicy will also apply to CreatePartitions.";
+
     public static final String REST_SERVER_CLASS_CONFIG = CONFLUENT_PREFIX + "rest.server.class";
     public static final String REST_SERVER_CLASS_DOC = "The fully qualified name of a class that implements " + RestServer.class.getName()
         + " interface, which is used by the broker to start the Rest Server.";

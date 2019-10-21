@@ -323,15 +323,22 @@ class AdminManager(val config: KafkaConfig,
           }.toMap
         }
 
-        // Temporary work-around for validating CREATE_PARTITIONS requests until KIP-201 is merged
-        createTopicPolicy match {
-          case Some(policy) =>
-            policy.validate(
-              new RequestMetadata(topic, numPartitionsIncrement,
-                null,
-                null, // assignments are overwritten on request transformation
-                new java.util.HashMap[String, String]()))
-          case None =>
+        if (config.applyCreateTopicsPolicyToCreatePartitions) {
+          // A special Confluent-specific configuration causes CreateTopicsPolicy to also apply to
+          // CreatePartitions.  We use this in the cloud.  It's unlikely that on-premise users
+          // will enable this.
+          //
+          // At some point, we'd like to have a way of doing this that is supported by upstream.
+          // There are a few proposals in this area, such as KIP-201.
+          createTopicPolicy match {
+            case Some(policy) =>
+              policy.validate(
+                new RequestMetadata(topic, numPartitionsIncrement,
+                  null,
+                  null, // assignments are overwritten on request transformation
+                  new java.util.HashMap[String, String]()))
+            case None =>
+          }
         }
 
         val updatedReplicaAssignment = adminZkClient.addPartitions(topic, existingAssignment, allBrokers,

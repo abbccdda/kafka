@@ -1296,6 +1296,10 @@ object KafkaConfig {
                       ConfluentConfigs.MULTITENANT_LISTENER_NAMES_DEFAULT, LOW, ConfluentConfigs.MULTITENANT_LISTENER_NAMES_DOC)
       .defineInternal(ConfluentConfigs.REQUEST_LOG_FILTER_CLASS_CONFIG, CLASS,
         ConfluentConfigs.REQUEST_LOG_FILTER_DEFAULT, LOW, ConfluentConfigs.REQUEST_LOG_FILTER_CLASS_DOC)
+
+      .defineInternal(ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS, BOOLEAN,
+                      ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS_DEFAULT, HIGH,
+                      ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS_DOC)
   }
 
   def configNames() = configDef.names().asScala.toList.sorted
@@ -1620,6 +1624,10 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
 
   /** ********* Transaction Configuration **************/
   val transactionIdExpirationMs = getInt(KafkaConfig.TransactionalIdExpirationMsProp)
+
+  /** ********* Confluent **************/
+  val applyCreateTopicsPolicyToCreatePartitions =
+    getBoolean(ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS)
 
   /** ********* Fetch Session Configuration **************/
   val maxIncrementalFetchSessionCacheSlots = getInt(KafkaConfig.MaxIncrementalFetchSessionCacheSlots)
