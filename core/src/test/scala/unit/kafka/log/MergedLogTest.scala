@@ -347,6 +347,86 @@ class MergedLogTest {
   }
 
   @Test
+  def testRecoverLogAfterLocalSegmentsLostAndLogStartOffsetLesserThanFirstUntieredOffset(): Unit = {
+    val numTieredSegments = 10
+    val numLocalSegments = 5
+    val numOverlap = 0
+    val numSegmentsToRetain = 15
+
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes,
+      tierEnable = true,
+      tierLocalHotsetBytes = Long.MaxValue,
+      retentionMs = Long.MaxValue,
+      retentionBytes = segmentBytes * numSegmentsToRetain)
+    val log = createLogWithOverlap(numTieredSegments, numLocalSegments, numOverlap, logConfig)
+
+    // Delete local log files when mergedLogStartOffset < firstUntieredOffset (= (1 + last tiered offset))
+    assertEquals(numLocalSegments, log.localLogSegments.size)
+    val files = log.localLogSegments.map(_.log.file)
+    log.close()
+    files.foreach(_.delete())
+
+    var logRecovery = Try(createMergedLog(logConfig))
+    assertTrue("expected log recovery to succeed", logRecovery.isSuccess)
+    val recoveredLog = logRecovery.get
+
+    assertEquals("Only 1 local segment expected after recovery", 1, recoveredLog.localLogSegments.size)
+    assertTrue("First untiered offset is expected to be greater than merged log start offset ",
+      recoveredLog.tieredLogSegments.last.endOffset + 1 > recoveredLog.logStartOffset)
+    assertEquals("baseOffset for first local segment after recovery must be max(firstUntieredOffset, mergedLogStartOffset)",
+      recoveredLog.tieredLogSegments.last.endOffset + 1, recoveredLog.localLogSegments.head.baseOffset)
+    assertEquals("endOffset for the mergedLog after deletion and recovery must be equal to the baseOffset of first local segment ",
+      recoveredLog.localLogSegments.head.baseOffset, recoveredLog.logEndOffset)
+
+    recoveredLog.close()
+  }
+
+  @Test
+  def testRecoverLogAfterLocalSegmentsLostAndLogStartOffsetHigherThanFirstUntieredOffset(): Unit = {
+    val numTieredSegments = 4
+    val numLocalSegments = 1
+    val numOverlap = 0
+    val numSegmentsToRetain = 5
+
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes,
+      tierEnable = true,
+      tierLocalHotsetBytes = Long.MaxValue,
+      retentionMs = Long.MaxValue,
+      retentionBytes = segmentBytes * numSegmentsToRetain)
+    val log = createLogWithOverlap(numTieredSegments, numLocalSegments, numOverlap, logConfig)
+    assertEquals(numLocalSegments, log.localLogSegments.size)
+
+    // Delete local log files when mergedLogStartOffset > firstUntieredOffset (= (1 + last tiered offset))
+    log.appendAsLeader(MemoryRecords.withRecords(CompressionType.NONE,
+      new SimpleRecord("a".getBytes),
+      new SimpleRecord("b".getBytes),
+      new SimpleRecord("c".getBytes),
+      new SimpleRecord("d".getBytes)), leaderEpoch = 0)
+    log.roll()
+
+    val updatedLogStartOffset = log.localLogSegments.head.baseOffset + 2
+    log.updateHighWatermark(updatedLogStartOffset)
+    log.maybeIncrementLogStartOffset(updatedLogStartOffset)
+    val files = log.localLogSegments.map(_.log.file)
+    log.close()
+    files.foreach(_.delete())
+
+    val logRecovery = Try(createMergedLog(logConfig, mockTime.scheduler, updatedLogStartOffset))
+    assertTrue("Expected log recovery to succeed", logRecovery.isSuccess)
+    val recoveredLog = logRecovery.get
+
+    assertEquals("Only 1 local segment expected", 1, recoveredLog.localLogSegments.size)
+    assertTrue("First untiered offset is expected to be less than merged log start offset ",
+      recoveredLog.tieredLogSegments.last.endOffset + 1 < recoveredLog.logStartOffset)
+    assertEquals("localLogSegment.head.baseOffset after recovery must be max(firstUntieredOffset, mergedLogStartOffset)",
+      recoveredLog.logStartOffset, recoveredLog.localLogSegments.head.baseOffset)
+    assertEquals("endOffset for the mergedLog after deletion and recovery must be equal to the baseOffset of first local segment ",
+      recoveredLog.localLogSegments.head.baseOffset, recoveredLog.logEndOffset)
+
+    recoveredLog.close()
+  }
+
+  @Test
   def testSizeRetentionOnSegmentsWithProducerSnapshots(): Unit = {
     val segmentBytes = 1024
     // Setup retention to only keep 2 segments total
@@ -912,8 +992,8 @@ class MergedLogTest {
       LogRanges(firstTieredOffset, lastTieredOffset, firstLocalOffset, lastLocalOffset, None, None)
   }
 
-  private def createMergedLog(config: LogConfig, scheduler: Scheduler = mockTime.scheduler): MergedLog = {
-    MergedLogTest.createMergedLog(tierMetadataManager, logDir, config, brokerTopicStats, scheduler, mockTime)
+  private def createMergedLog(config: LogConfig, scheduler: Scheduler = mockTime.scheduler, logStartOffset: Long = 0L): MergedLog = {
+    MergedLogTest.createMergedLog(tierMetadataManager, logDir, config, brokerTopicStats, scheduler, mockTime, logStartOffset)
   }
 
   private def createLogWithOverlap(numTieredSegments: Int,
