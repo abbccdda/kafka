@@ -4,6 +4,7 @@ package io.confluent.security.authorizer;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -58,6 +59,7 @@ public class EmbeddedAuthorizerTest {
   public void testAccessRuleProvider() {
     configureAuthorizer("TEST", "NONE");
     verifyAccessRules(principal, principal);
+    assertNotNull(TestAccessRuleProvider.auditLogProvider);
   }
 
   @Test

@@ -3,6 +3,8 @@
 package io.confluent.security.authorizer;
 
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
+import io.confluent.security.authorizer.provider.AuditLogProvider;
+import io.confluent.security.authorizer.provider.Auditable;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
 import java.util.Collections;
 import java.util.HashMap;
@@ -14,7 +16,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 
-public class TestAccessRuleProvider implements AccessRuleProvider {
+public class TestAccessRuleProvider implements AccessRuleProvider, Auditable {
 
   private static final String SCOPE = "test";
 
@@ -23,6 +25,7 @@ public class TestAccessRuleProvider implements AccessRuleProvider {
   static boolean usesMetadataFromThisKafkaCluster = false;
   static Set<KafkaPrincipal> superUsers = new HashSet<>();
   static Map<ResourcePattern, Set<AccessRule>> accessRules = new HashMap<>();
+  static AuditLogProvider auditLogProvider;
 
   @Override
   public void configure(Map<String, ?> configs) {
@@ -75,6 +78,11 @@ public class TestAccessRuleProvider implements AccessRuleProvider {
   public void close() {
   }
 
+  @Override
+  public void auditLogProvider(AuditLogProvider auditLogProvider) {
+    TestAccessRuleProvider.auditLogProvider = auditLogProvider;
+  }
+
   private void validate(Scope scope) {
     if (exception != null)
       throw exception;
@@ -88,5 +96,6 @@ public class TestAccessRuleProvider implements AccessRuleProvider {
     usesMetadataFromThisKafkaCluster = false;
     accessRules.clear();
     superUsers.clear();
+    auditLogProvider = null;
   }
 }

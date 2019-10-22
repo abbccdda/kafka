@@ -6,6 +6,7 @@ import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
 
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import io.confluent.security.authorizer.provider.AuditLogProvider;
+import io.confluent.security.authorizer.provider.Auditable;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders;
 import io.confluent.security.authorizer.provider.GroupProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
@@ -177,6 +178,8 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
       });
     }
     providers.forEach(provider -> provider.configure(originals()));
+    providers.stream().filter(provider -> provider instanceof Auditable)
+        .forEach(provider -> ((Auditable) provider).auditLogProvider(auditLogProvider));
 
     return new Providers(accessRuleProviders, groupProvider, metadataProvider, auditLogProvider);
   }

@@ -28,7 +28,7 @@ import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import io.confluent.security.authorizer.provider.AuditLogProvider;
-import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders;
+import io.confluent.security.authorizer.provider.Auditable;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import io.confluent.security.authorizer.provider.GroupProvider;
 import io.confluent.security.authorizer.provider.MetadataProvider;
@@ -70,7 +70,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class RbacProvider implements AccessRuleProvider, GroupProvider, MetadataProvider,
-    org.apache.kafka.server.authorizer.Authorizer, ClusterResourceListener, AclMigrationAware {
+    org.apache.kafka.server.authorizer.Authorizer, ClusterResourceListener,
+    Auditable, AclMigrationAware {
   private static final Logger log = LoggerFactory.getLogger(RbacProvider.class);
 
   static final ResourceType SECURITY_METADATA = new ResourceType("SecurityMetadata");
@@ -82,6 +83,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
 
   private Map<String, ?> configs;
   private LdapAuthenticateCallbackHandler authenticateCallbackHandler;
+  private AuditLogProvider auditLogProvider;
   private Scope authScope;
   private Scope authStoreScope;
   private AuthStore authStore;
@@ -251,6 +253,11 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
       throw new KafkaException("RbacProvider could not be closed cleanly", exception);
   }
 
+  @Override
+  public void auditLogProvider(AuditLogProvider auditLogProvider) {
+    this.auditLogProvider = auditLogProvider;
+  }
+
   private KafkaPrincipal userPrincipal(KafkaPrincipal sessionPrincipal) {
     return sessionPrincipal.getClass() != KafkaPrincipal.class
         ? new KafkaPrincipal(sessionPrincipal.getPrincipalType(), sessionPrincipal.getName())
@@ -397,8 +404,6 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
 
   private class RbacAuthorizer extends EmbeddedAuthorizer {
     RbacAuthorizer() {
-      AuditLogProvider auditLogProvider =
-          ConfluentBuiltInProviders.loadAuditLogProvider(RbacProvider.this.configs);
       configureProviders(Collections.singletonList(RbacProvider.this), RbacProvider.this, null, auditLogProvider);
     }
 
