@@ -5,6 +5,7 @@
 package io.confluent.security.authorizer.jackson;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import org.apache.kafka.common.acl.AccessControlEntry;
@@ -53,6 +54,7 @@ public class KafkaModule extends SimpleModule {
     @JsonCreator
     public ResourcePatternMixin(
         @JsonProperty("resourceType") ResourceType resourceType,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
         @JsonProperty("name") String name,
         @JsonProperty("patternType") PatternType patternType
     ) {}
@@ -73,6 +75,7 @@ public class KafkaModule extends SimpleModule {
     @JsonCreator
     AccessControlEntryMixin(
         @JsonProperty("principal") String principal,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
         @JsonProperty("host") String host,
         @JsonProperty("operation") AclOperation operation,
         @JsonProperty("permissionType") AclPermissionType permissionType

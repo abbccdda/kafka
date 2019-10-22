@@ -2,6 +2,7 @@
 
 package io.confluent.security.authorizer;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Objects;
 import org.apache.kafka.common.resource.PatternType;
@@ -26,6 +27,7 @@ public class ResourcePattern implements Comparable<ResourcePattern> {
   }
 
   public ResourcePattern(@JsonProperty("resourceType") ResourceType resourceType,
+                         @JsonInclude(JsonInclude.Include.NON_NULL)
                          @JsonProperty("name") String name,
                          @JsonProperty("patternType") PatternType patternType) {
     this.name = Objects.requireNonNull(name, "name");

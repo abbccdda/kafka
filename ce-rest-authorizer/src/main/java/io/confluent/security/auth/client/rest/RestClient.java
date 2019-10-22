@@ -121,7 +121,7 @@ public class RestClient implements Closeable {
 
     //set ssl socket factory
     Map<String, ?> sslClientConfigs = rbacClientConfig.sslClientConfigs();
-    if (sslClientConfigs.get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG) != null)
+    if ("https".equals(protocol) && sslClientConfigs.get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG) != null)
       sslSocketFactory = createSslSocketFactory(sslClientConfigs);
 
     activeMetadataServerURLs = bootstrapMetadataServerURLs;
