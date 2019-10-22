@@ -152,8 +152,8 @@ class MergedLog(private[log] val localLog: Log,
     explicitMetricName(pkg, simpleName, name, tags)
   }
 
-  override def updateConfig(updatedKeys: collection.Set[String], newConfig: LogConfig): Unit = {
-    localLog.updateConfig(updatedKeys, newConfig)
+  override def updateConfig(newConfig: LogConfig): Unit = {
+    localLog.updateConfig(newConfig)
     tierMetadataManager.onConfigChange(topicPartition, newConfig)
   }
 
@@ -467,8 +467,6 @@ class MergedLog(private[log] val localLog: Log,
   override def dir: File = localLog.dir
 
   override def config: LogConfig = localLog.config
-
-  override def updateConfig(config: LogConfig): Unit = localLog.updateConfig(config)
 
   override def recoveryPoint: Long = localLog.recoveryPoint
 
@@ -976,7 +974,7 @@ sealed trait AbstractLog {
   /**
     * Update log configurations
     */
-  def updateConfig(updatedKeys: scala.collection.Set[String], newConfig: LogConfig): Unit
+  def updateConfig(newConfig: LogConfig): Unit
 
   /**
     * Get the base offset of first segment in log.
@@ -1016,9 +1014,6 @@ sealed trait AbstractLog {
 
   // visible for testing
   private[log] def addSegment(segment: LogSegment): LogSegment
-
-  // visible for testing
-  private[log] def updateConfig(config: LogConfig): Unit
 
   // visible for testing
   def roll(expectedNextOffset: Option[Long] = None): LogSegment

@@ -18,9 +18,12 @@
 package kafka.log
 
 import java.io.File
-import java.util.Properties
+import java.util.{Optional, Properties}
 
 import kafka.server.{BrokerTopicStats, LogDirFailureChannel}
+import kafka.tier.TierMetadataManager
+import kafka.tier.state.FileTierPartitionStateFactory
+import kafka.tier.store.TierObjectStore
 import kafka.utils._
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record._
@@ -75,6 +78,42 @@ class LogCleanerManagerTest extends Logging {
       numBatches += batchIncrement
     }
     logs
+  }
+
+  @Test
+  def testGrabFilthiestCompactedLogThrowsException(): Unit = {
+    val tp = new TopicPartition("A", 1)
+    val logSegmentSize = TestUtils.singletonRecords("test".getBytes).sizeInBytes * 10
+    val logSegmentsCount = 2
+    val tpDir = new File(logDir, "A-1")
+
+    // the exception should be caught and the partition that caused it marked as uncleanable
+    val localLog = new Log(tpDir, createLowRetentionLogConfig(logSegmentSize, LogConfig.Compact), 0L,
+      time.scheduler, new BrokerTopicStats, time, 60 * 60 * 1000, LogManager.ProducerIdExpirationCheckIntervalMs,
+      topicPartition, new ProducerStateManager(tp, tpDir, 60 * 60 * 1000), new LogDirFailureChannel(10))
+    val tierMetadataManager = new TierMetadataManager(new FileTierPartitionStateFactory(), Optional.empty[TierObjectStore], localLog.logDirFailureChannel, false)
+    val tierPartitionState = tierMetadataManager.initState(topicPartition, localLog.dir, localLog.config)
+    val log = new MergedLog(localLog, 0L, tierPartitionState, tierMetadataManager) {
+      // Throw an error in getFirstBatchTimestampForSegments since it is called in grabFilthiestLog()
+      override def getFirstBatchTimestampForSegments(segments: Iterable[LogSegment]): Iterable[Long] =
+        throw new IllegalStateException("Error!")
+    }
+    writeRecords(log = log,
+      numBatches = logSegmentsCount * 2,
+      recordsPerBatch = 10,
+      batchesPerSegment = 2
+    )
+
+    val logsPool = new Pool[TopicPartition, AbstractLog]()
+    logsPool.put(tp, log)
+    val cleanerManager = createCleanerManagerMock(logsPool)
+    cleanerCheckpoints.put(tp, 1)
+
+    val thrownException = intercept[LogCleaningException] {
+      cleanerManager.grabFilthiestCompactedLog(time).get
+    }
+    assertEquals(log, thrownException.log)
+    assertTrue(thrownException.getCause.isInstanceOf[IllegalStateException])
   }
 
   @Test
@@ -511,7 +550,7 @@ class LogCleanerManagerTest extends Logging {
     logProps.put(LogConfig.CleanupPolicyProp, cleanupPolicy)
     logProps.put(LogConfig.MinCleanableDirtyRatioProp, 0.05: java.lang.Double) // small for easier and clearer tests
 
-    val config = LogConfig(logProps)
+    val config = createLowRetentionLogConfig(segmentSize, cleanupPolicy)
     val partitionDir = new File(logDir, Log.logDirName(topicPartition))
 
     Log(partitionDir,
@@ -524,6 +563,16 @@ class LogCleanerManagerTest extends Logging {
       maxProducerIdExpirationMs = 60 * 60 * 1000,
       producerIdExpirationCheckIntervalMs = LogManager.ProducerIdExpirationCheckIntervalMs,
       logDirFailureChannel = new LogDirFailureChannel(10))
+  }
+
+  private def createLowRetentionLogConfig(segmentSize: Int, cleanupPolicy: String): LogConfig = {
+    val logProps = new Properties()
+    logProps.put(LogConfig.SegmentBytesProp, segmentSize: Integer)
+    logProps.put(LogConfig.RetentionMsProp, 1: Integer)
+    logProps.put(LogConfig.CleanupPolicyProp, cleanupPolicy)
+    logProps.put(LogConfig.MinCleanableDirtyRatioProp, 0.05: java.lang.Double) // small for easier and clearer tests
+
+    LogConfig(logProps)
   }
 
   private def writeRecords(log: AbstractLog,

@@ -30,6 +30,7 @@ import kafka.common.RecordValidationException
 import kafka.controller.{KafkaController, StateChangeLogger}
 import kafka.log._
 import kafka.metrics.KafkaMetricsGroup
+import kafka.server.{FetchMetadata => SFetchMetadata}
 import kafka.server.QuotaFactory.QuotaManagers
 import kafka.server.checkpoints.{LazyOffsetCheckpoints, OffsetCheckpointFile, OffsetCheckpoints}
 import kafka.tier.{TierMetadataManager, TierTimestampAndOffset}
@@ -1012,18 +1013,20 @@ class ReplicaManager(val config: KafkaConfig,
                     isolationLevel: IsolationLevel,
                     clientMetadata: Option[ClientMetadata]): Unit = {
     val isFromFollower = Request.isValidBrokerId(replicaId)
-
-    val fetchIsolation = if (isFromFollower || replicaId == Request.FutureLocalReplicaId)
+    val isFromConsumer = !(isFromFollower || replicaId == Request.FutureLocalReplicaId)
+    val fetchIsolation = if (!isFromConsumer)
       FetchLogEnd
     else if (isolationLevel == IsolationLevel.READ_COMMITTED)
       FetchTxnCommitted
     else
       FetchHighWatermark
 
+    // Restrict fetching to leader if request is from follower or from a client with older version (no ClientMetadata)
+    val fetchOnlyFromLeader = isFromFollower || (isFromConsumer && clientMetadata.isEmpty)
     def readFromLog(): Seq[(TopicPartition, AbstractLogReadResult)] = {
       val result = readFromLocalLog(
         replicaId = replicaId,
-        fetchOnlyFromLeader = isFromFollower,
+        fetchOnlyFromLeader = fetchOnlyFromLeader,
         fetchIsolation = fetchIsolation,
         fetchMaxBytes = fetchMaxBytes,
         hardMaxBytesLimit = hardMaxBytesLimit,
@@ -1093,7 +1096,7 @@ class ReplicaManager(val config: KafkaConfig,
       val localDelayedFetchKeys = localFetchPartitionStatusList.map { case (tp, _) => TopicPartitionOperationKey(tp) }
 
       if (tierLogReadResultMap.isEmpty) {
-        val localFetchMetadata = FetchMetadata(fetchMinBytes, fetchMaxBytes, hardMaxBytesLimit, isFromFollower,
+        val localFetchMetadata = SFetchMetadata(fetchMinBytes, fetchMaxBytes, hardMaxBytesLimit, isFromFollower,
           fetchIsolation, isFromFollower, replicaId, localFetchPartitionStatusList)
 
         val delayedFetch = new DelayedFetch(timeout, localFetchMetadata, this, quota, None,
@@ -1120,7 +1123,7 @@ class ReplicaManager(val config: KafkaConfig,
         // timeout. This forces all requests with max.wait < 15000 to wait for the tier fetch to complete, or the 15000
         // to elapse. This is only temporary until a solution is found for caching segment data between requests.
         val boundedTimeout = Math.max(timeout, 15000)
-        val tierAndLocalFetchMetadata = FetchMetadata(fetchMinBytes, fetchMaxBytes, hardMaxBytesLimit, isFromFollower,
+        val tierAndLocalFetchMetadata = SFetchMetadata(fetchMinBytes, fetchMaxBytes, hardMaxBytesLimit, isFromFollower,
           fetchIsolation, isFromFollower, replicaId, localFetchPartitionStatusList ++ tierFetchPartitionStatusList)
         val delayedFetch = new DelayedFetch(boundedTimeout, tierAndLocalFetchMetadata, this, quota, Some(pendingFetch),
           clientMetadata, brokerTopicStats, maybeUpdateHwAndSendResponse)
@@ -1170,7 +1173,7 @@ class ReplicaManager(val config: KafkaConfig,
               s"${preferredReadReplica.get} for $clientMetadata")
           }
           // If a preferred read-replica is set, skip the read
-          val offsetSnapshot = partition.fetchOffsetSnapshot(fetchInfo.currentLeaderEpoch, false)
+          val offsetSnapshot = partition.fetchOffsetSnapshot(fetchInfo.currentLeaderEpoch, fetchOnlyFromLeader = false)
           LogReadResult(info = FetchDataInfo(LogOffsetMetadata.UnknownOffsetMetadata, MemoryRecords.EMPTY),
             highWatermark = offsetSnapshot.highWatermark.messageOffset,
             leaderLogStartOffset = offsetSnapshot.logStartOffset,

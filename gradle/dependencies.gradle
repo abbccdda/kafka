@@ -139,7 +139,7 @@ versions += [
   spotlessPlugin: "3.23.1",
   telemetry: "0.65.0",
   zkclient: "0.11",
-  zookeeper: "3.5.5",
+  zookeeper: "3.5.6",
   zstd: "1.4.3-1"
 ]
 

@@ -39,7 +39,7 @@ You can verify that all classes have
 been relocated with:
 
 ```shell
-$ jar tf ce-metrics/build/libs/confluent-metrics-5.4.0-ce-SNAPSHOT.jar | grep -E -v "^io/confluent" | grep class
+$ jar tf ce-metrics/build/libs/confluent-metrics-5.5.0-ce-SNAPSHOT.jar | grep -E -v "^io/confluent" | grep class
 # should return no matches
 ```
 
@@ -48,7 +48,7 @@ $ jar tf ce-metrics/build/libs/confluent-metrics-5.4.0-ce-SNAPSHOT.jar | grep -E
 
 1. Build the jar using `./gradlew ce-metrics:build`
 1. Get Apache Kafka distro, e.g. from <https://www.apache.org/dyn/closer.cgi?path=/kafka/2.3.0/kafka_2.12-2.3.0.tgz>
-1. Copy `ce-metrics/build/libs/confluent-metrics-5.4.0-ce-SNAPSHOT.jar`
+1. Copy `ce-metrics/build/libs/confluent-metrics-5.5.0-ce-SNAPSHOT.jar`
    into (e.g.) `kafka_2.12-2.3.0/libs/`
 1. Add the following to config/server.properties in Kafka:
    ```

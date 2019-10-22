@@ -25,6 +25,7 @@ import java.util.{Collections, Optional, function}
 import kafka.api._
 import kafka.cluster.BrokerEndPoint
 import kafka.log.LogAppendInfo
+import kafka.server.AbstractFetcherThread.ReplicaFetch
 import kafka.server.AbstractFetcherThread.ResultWithPartitions
 import kafka.server.epoch.EpochEntry
 import kafka.tier.TierMetadataManager
@@ -46,7 +47,7 @@ import org.apache.kafka.common.requests._
 import org.apache.kafka.common.utils.{LogContext, Time}
 
 import scala.collection.JavaConverters._
-import scala.collection.{Map, mutable}
+import scala.collection.{mutable, Map}
 
 class ReplicaFetcherThread(name: String,
                            fetcherId: Int,
@@ -112,7 +113,7 @@ class ReplicaFetcherThread(name: String,
   private val maxBytes = brokerConfig.replicaFetchResponseMaxBytes
   private val fetchSize = brokerConfig.replicaFetchMaxBytes
   private val brokerSupportsLeaderEpochRequest = brokerConfig.interBrokerProtocolVersion >= KAFKA_0_11_0_IV2
-  private val fetchSessionHandler = new FetchSessionHandler(logContext, sourceBroker.id)
+  val fetchSessionHandler = new FetchSessionHandler(logContext, sourceBroker.id)
 
   override protected def latestEpoch(topicPartition: TopicPartition): Option[Int] = {
     replicaMgr.localLogOrException(topicPartition).latestEpoch
@@ -235,14 +236,14 @@ class ReplicaFetcherThread(name: String,
   }
 
 
-  override protected def fetchFromLeader(fetchRequest: FetchRequest.Builder): Seq[(TopicPartition, FetchData)] = {
+  override protected def fetchFromLeader(fetchRequest: FetchRequest.Builder): Map[TopicPartition, FetchData] = {
     try {
       val clientResponse = leaderEndpoint.sendRequest(fetchRequest)
       val fetchResponse = clientResponse.responseBody.asInstanceOf[FetchResponse[Records]]
       if (!fetchSessionHandler.handleResponse(fetchResponse)) {
-        Nil
+        Map.empty
       } else {
-        fetchResponse.responseData.asScala.toSeq
+        fetchResponse.responseData.asScala
       }
     } catch {
       case t: Throwable =>
@@ -313,13 +314,13 @@ class ReplicaFetcherThread(name: String,
     }
   }
 
-  override def buildFetch(partitionMap: Map[TopicPartition, PartitionFetchState]): ResultWithPartitions[Option[FetchRequest.Builder]] = {
+  override def buildFetch(partitionMap: Map[TopicPartition, PartitionFetchState]): ResultWithPartitions[Option[ReplicaFetch]] = {
     val partitionsWithError = mutable.Set[TopicPartition]()
 
-    val builder = fetchSessionHandler.newBuilder()
+    val builder = fetchSessionHandler.newBuilder(partitionMap.size, false)
     partitionMap.foreach { case (topicPartition, fetchState) =>
       // We will not include a replica in the fetch request if it should be throttled.
-      if (fetchState.isReadyForFetch && !shouldFollowerThrottle(quota, topicPartition)) {
+      if (fetchState.isReadyForFetch && !shouldFollowerThrottle(quota, fetchState, topicPartition)) {
         try {
           val logStartOffset = this.logStartOffset(topicPartition)
           builder.add(topicPartition, new FetchRequest.PartitionData(
@@ -342,7 +343,7 @@ class ReplicaFetcherThread(name: String,
         .setMaxBytes(maxBytes)
         .toForget(fetchData.toForget)
         .metadata(fetchData.metadata)
-      Some(requestBuilder)
+      Some(ReplicaFetch(fetchData.sessionPartitions(), requestBuilder))
     }
 
     ResultWithPartitions(fetchRequestOpt, partitionsWithError)
@@ -407,9 +408,8 @@ class ReplicaFetcherThread(name: String,
    *  To avoid ISR thrashing, we only throttle a replica on the follower if it's in the throttled replica list,
    *  the quota is exceeded and the replica is not in sync.
    */
-  private def shouldFollowerThrottle(quota: ReplicaQuota, topicPartition: TopicPartition): Boolean = {
-    val isReplicaInSync = fetcherLagStats.isReplicaInSync(topicPartition)
-    !isReplicaInSync && quota.isThrottled(topicPartition) && quota.isQuotaExceeded
+  private def shouldFollowerThrottle(quota: ReplicaQuota, fetchState: PartitionFetchState, topicPartition: TopicPartition): Boolean = {
+    !fetchState.isReplicaInSync && quota.isThrottled(topicPartition) && quota.isQuotaExceeded
   }
 
 }
