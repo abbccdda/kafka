@@ -82,7 +82,7 @@ public class TierTopicInitLeader extends AbstractTierMetadata {
                 "version=" + version() + ", " +
                 "topicIdPartition=" + topicIdPartition() + ", " +
                 "tierEpoch=" + tierEpoch() + ", " +
-                "messageIdAsBase64=" + messageIdAsBase64() +
+                "messageIdAsBase64=" + messageIdAsBase64() + ", " +
                 "brokerId=" + brokerId() +
                 ")";
     }
