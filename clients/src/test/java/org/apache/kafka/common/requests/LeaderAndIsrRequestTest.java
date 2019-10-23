@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.requests;
 
+import java.util.UUID;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.ClusterAuthorizationException;
@@ -26,6 +27,7 @@ import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrParti
 import org.apache.kafka.common.protocol.ByteBufferAccessor;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.MessageTestUtil;
+import org.apache.kafka.common.protocol.MessageUtil;
 import org.apache.kafka.test.TestUtils;
 import org.junit.Test;
 
@@ -76,9 +78,11 @@ public class LeaderAndIsrRequestTest {
     @Test
     public void testVersionLogic() {
         for (short version = LEADER_AND_ISR.oldestVersion(); version <= LEADER_AND_ISR.latestVersion(); version++) {
+            UUID topic0 = UUID.randomUUID();
             List<LeaderAndIsrPartitionState> partitionStates = asList(
                 new LeaderAndIsrPartitionState()
                     .setTopicName("topic0")
+                    .setTopicId(topic0)
                     .setPartitionIndex(0)
                     .setControllerEpoch(2)
                     .setLeader(0)
@@ -90,6 +94,7 @@ public class LeaderAndIsrRequestTest {
                     .setRemovingReplicas(asList(2)),
                 new LeaderAndIsrPartitionState()
                     .setTopicName("topic0")
+                    .setTopicId(topic0)
                     .setPartitionIndex(1)
                     .setControllerEpoch(2)
                     .setLeader(1)
@@ -101,6 +106,7 @@ public class LeaderAndIsrRequestTest {
                     .setRemovingReplicas(emptyList()),
                 new LeaderAndIsrPartitionState()
                     .setTopicName("topic1")
+                    .setTopicId(UUID.randomUUID())
                     .setPartitionIndex(0)
                     .setControllerEpoch(2)
                     .setLeader(2)
@@ -140,6 +146,11 @@ public class LeaderAndIsrRequestTest {
                     .setAddingReplicas(emptyList())
                     .setRemovingReplicas(emptyList());
             }
+
+            // Topic id is only supported from version 4, so the deserialized request won't have
+            // it for earlier versions.
+            if (version < 4)
+                partitionStates.forEach(ps -> ps.setTopicId(MessageUtil.ZERO_UUID));
 
             assertEquals(new HashSet<>(partitionStates), iterableToSet(deserializedRequest.partitionStates()));
             assertEquals(liveLeaders, deserializedRequest.liveLeaders());

@@ -150,7 +150,6 @@ public class TierMetadataManager {
     public synchronized void ensureTopicIdPartition(TopicIdPartition topicIdPartition) {
         PartitionMetadata partitionMetadata = tierMetadata.get(topicIdPartition.topicPartition());
         try {
-
             if (partitionMetadata.setTopicIdPartition(topicIdPartition)) {
                 // a TopicIdPartition was not previously set, so we need to setup our
                 // tierMetadataById map and fire any listeners that would have been skipped in prior

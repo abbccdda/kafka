@@ -16,7 +16,6 @@
  */
 package org.apache.kafka.common.requests;
 
-import java.util.HashMap;
 import java.util.UUID;
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState;
 import org.apache.kafka.common.message.LeaderAndIsrResponseData;
@@ -123,6 +122,7 @@ public class LeaderAndIsrResponseTest {
         List<LeaderAndIsrPartitionState> partitionStates = new ArrayList<>();
         partitionStates.add(new LeaderAndIsrPartitionState()
             .setTopicName("foo")
+            .setTopicId(UUID.fromString("58464c3a-6542-4af5-80f7-30ec69525132"))
             .setPartitionIndex(0)
             .setControllerEpoch(15)
             .setLeader(1)
@@ -133,6 +133,7 @@ public class LeaderAndIsrResponseTest {
             .setIsNew(false));
         partitionStates.add(new LeaderAndIsrPartitionState()
             .setTopicName("foo")
+            .setTopicId(UUID.fromString("58464c3a-6542-4af5-80f7-30ec69525132"))
             .setPartitionIndex(1)
             .setControllerEpoch(15)
             .setLeader(1)
@@ -141,11 +142,9 @@ public class LeaderAndIsrResponseTest {
             .setZkVersion(20)
             .setReplicas(Collections.singletonList(10))
             .setIsNew(false));
-        Map<String, UUID> topicIds = new HashMap<>();
-        topicIds.put("foo", UUID.fromString("58464c3a-6542-4af5-80f7-30ec69525132"));
         LeaderAndIsrRequest request = LeaderAndIsrRequest.Builder.create(
             ApiKeys.LEADER_AND_ISR.latestVersion(), 15, 20, 0,
-            partitionStates, Collections.emptySet(), topicIds, true).build();
+            partitionStates, Collections.emptySet(), true).build();
         LeaderAndIsrResponse response = request.getErrorResponse(0,
             Errors.CLUSTER_AUTHORIZATION_FAILED.exception());
         assertEquals(Collections.singletonMap(Errors.CLUSTER_AUTHORIZATION_FAILED, 2), response.errorCounts());

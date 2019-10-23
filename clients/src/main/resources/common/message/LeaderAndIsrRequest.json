@@ -40,6 +40,8 @@
       "about": "Each topic.", "fields": [
       { "name": "TopicName", "type": "string", "versions": "2+", "entityType": "topicName",
         "about": "The topic name." },
+      { "name": "TopicId", "type": "uuid", "versions": "4+", "entityType": "topicId", "tag": 10000,
+        "taggedVersions": "4+", "ignorable": true, "about": "The topic ID" },
       { "name": "PartitionStates", "type": "[]LeaderAndIsrPartitionState", "versions": "2+",
         "about": "The state of each partition" }
     ]},
@@ -57,6 +59,9 @@
     { "name": "LeaderAndIsrPartitionState", "versions": "0+", "fields": [
       { "name": "TopicName", "type": "string", "versions": "0-1", "entityType": "topicName", "ignorable": true,
         "about": "The topic name.  This is only present in v0 or v1." },
+      // This should be a transient field, but the generator doesn't support that yet
+      { "name": "TopicId", "type": "uuid", "versions": "4+", "entityType": "topicId", "tag": 10001,
+        "taggedVersions": "4+", "ignorable": true, "about": "The topic ID" },
       { "name": "PartitionIndex", "type": "int32", "versions": "0+",
         "about": "The partition index." },
       { "name": "ControllerEpoch", "type": "int32", "versions": "0+",

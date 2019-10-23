@@ -250,6 +250,7 @@ class RequestQuotaTest extends BaseRequestTest {
         case ApiKeys.CONFLUENT_LEADER_AND_ISR =>
           val partitionStates = Seq(new LeaderAndIsrPartitionState()
             .setTopicName(tp.topic)
+            .setTopicId(UUID.fromString("e125dac2-033f-4ba3-9617-b95f973c3c9d"))
             .setPartitionIndex(tp.partition)
             .setControllerEpoch(Int.MaxValue)
             .setLeader(brokerId)
@@ -260,7 +261,7 @@ class RequestQuotaTest extends BaseRequestTest {
             .setIsNew(true)).asJava
           LeaderAndIsrRequest.Builder.create(ApiKeys.LEADER_AND_ISR.latestVersion, brokerId, Int.MaxValue, Long.MaxValue,
             partitionStates, Set(new Node(brokerId, "localhost", 0)).asJava,
-            Map(tp.topic -> UUID.fromString("e125dac2-033f-4ba3-9617-b95f973c3c9d")).asJava, true)
+            true)
 
         case ApiKeys.STOP_REPLICA =>
           new StopReplicaRequest.Builder(ApiKeys.STOP_REPLICA.latestVersion, brokerId, Int.MaxValue, Long.MaxValue, true, Set(tp).asJava)

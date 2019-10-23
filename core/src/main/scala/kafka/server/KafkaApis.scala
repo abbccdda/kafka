@@ -22,7 +22,7 @@ import java.lang.{Long => JLong}
 import java.nio.ByteBuffer
 import java.util
 import java.util.{Collections, Optional}
-import java.util.concurrent.{CompletableFuture, ConcurrentHashMap}
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
 import kafka.admin.{AdminUtils, RackAwareMode}
@@ -72,7 +72,7 @@ import org.apache.kafka.common.message.OffsetCommitRequestData
 import org.apache.kafka.common.message.OffsetCommitResponseData
 import org.apache.kafka.common.message.RenewDelegationTokenResponseData
 import org.apache.kafka.common.message.ReplicaStatusResponseData
-import org.apache.kafka.common.message.ReplicaStatusResponseData.{ReplicaStatusPartitionResponse, ReplicaStatusTopicResponse, ReplicaStatusReplicaResponse}
+import org.apache.kafka.common.message.ReplicaStatusResponseData.{ReplicaStatusPartitionResponse, ReplicaStatusReplicaResponse, ReplicaStatusTopicResponse}
 import org.apache.kafka.common.message.SaslAuthenticateResponseData
 import org.apache.kafka.common.message.SaslHandshakeResponseData
 import org.apache.kafka.common.message.SyncGroupResponseData
@@ -80,7 +80,7 @@ import org.apache.kafka.common.message.TierListOffsetResponseData
 import org.apache.kafka.common.message.TierListOffsetResponseData.{TierListOffsetPartitionResponse, TierListOffsetTopicResponse}
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.{ListenerName, Send}
-import org.apache.kafka.common.protocol.{ApiKeys, Errors}
+import org.apache.kafka.common.protocol.{ApiKeys, Errors, MessageUtil}
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.replica.ClientMetadata
 import org.apache.kafka.common.replica.ClientMetadata.DefaultClientMetadata
@@ -342,12 +342,10 @@ class KafkaApis(val requestChannel: RequestChannel,
 
       // Ensure topic IDs are set in TierMetadataManager
       // This will only have an effect if they were not previously set
-      val topicIds = leaderAndIsrRequest.topicIds.asScala
       leaderAndIsrRequest.partitionStates.asScala.foreach { ps =>
-        topicIds.get(ps.topicName).foreach { topicId =>
-          tierMetadataManager.ensureTopicIdPartition(new TopicIdPartition(ps.topicName, topicId,
+        if (ps.topicId != MessageUtil.ZERO_UUID)
+          tierMetadataManager.ensureTopicIdPartition(new TopicIdPartition(ps.topicName, ps.topicId,
             ps.partitionIndex))
-        }
       }
     }
 

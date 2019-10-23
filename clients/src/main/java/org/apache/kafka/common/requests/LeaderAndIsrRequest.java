@@ -16,10 +16,6 @@
  */
 package org.apache.kafka.common.requests;
 
-import static java.util.Collections.emptyMap;
-import static java.util.stream.Collectors.toMap;
-
-import java.util.UUID;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.message.ConfluentLeaderAndIsrRequestData;
 import org.apache.kafka.common.message.LeaderAndIsrRequestData;
@@ -50,28 +46,25 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
 
         private final List<LeaderAndIsrPartitionState> partitionStates;
         private final Collection<Node> liveLeaders;
-        private final Map<String, UUID> topicIds;
 
         public Builder(short version, int controllerId, int controllerEpoch, long brokerEpoch,
             List<LeaderAndIsrPartitionState> partitionStates, Collection<Node> liveLeaders) {
             this(ApiKeys.LEADER_AND_ISR, version, controllerId, controllerEpoch, brokerEpoch,
-                partitionStates, liveLeaders, emptyMap());
+                partitionStates, liveLeaders);
         }
 
         private Builder(ApiKeys apiKey, short version, int controllerId, int controllerEpoch,
                         long brokerEpoch, List<LeaderAndIsrPartitionState> partitionStates,
-                        Collection<Node> liveLeaders, Map<String, UUID> topicIds) {
+                        Collection<Node> liveLeaders) {
             super(apiKey, version, controllerId, controllerEpoch, brokerEpoch);
             this.partitionStates = partitionStates;
             this.liveLeaders = liveLeaders;
-            this.topicIds = topicIds;
         }
 
         public static Builder create(short version, int controllerId, int controllerEpoch,
                                      long brokerEpoch,
                                      List<LeaderAndIsrPartitionState> partitionStates,
                                      Collection<Node> liveLeaders,
-                                     Map<String, UUID> topicIds,
                                      boolean useConfluentRequest) {
             ApiKeys apiKey = ApiKeys.LEADER_AND_ISR;
             if (useConfluentRequest) {
@@ -82,7 +75,7 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
                     version = 0;
             }
             return new Builder(apiKey, version, controllerId, controllerEpoch, brokerEpoch, partitionStates,
-                liveLeaders, topicIds);
+                liveLeaders);
         }
 
         @Override
@@ -105,7 +98,7 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
             ).collect(Collectors.toList());
 
             Map<String, ConfluentLeaderAndIsrRequestData.LeaderAndIsrTopicState> topicStatesMap =
-                groupByConfluentTopic(partitionStates, topicIds);
+                groupByConfluentTopic(partitionStates);
 
             return new ConfluentLeaderAndIsrRequestData()
                 .setControllerId(controllerId)
@@ -138,14 +131,14 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
         }
 
         private static Map<String, ConfluentLeaderAndIsrRequestData.LeaderAndIsrTopicState> groupByConfluentTopic(
-                List<LeaderAndIsrPartitionState> partitionStates, Map<String, UUID> topicIds) {
+                List<LeaderAndIsrPartitionState> partitionStates) {
             Map<String, ConfluentLeaderAndIsrRequestData.LeaderAndIsrTopicState> topicStates = new HashMap<>();
             for (LeaderAndIsrPartitionState partition : partitionStates) {
                 ConfluentLeaderAndIsrRequestData.LeaderAndIsrTopicState topicState =
                     topicStates.computeIfAbsent(partition.topicName(), t ->
                         new ConfluentLeaderAndIsrRequestData.LeaderAndIsrTopicState()
                             .setTopicName(partition.topicName())
-                            .setTopicId(topicIds.get(t)));
+                            .setTopicId(partition.topicId()));
                 topicState.partitionStates().add(new ConfluentLeaderAndIsrRequestData.LeaderAndIsrPartitionState()
                     .setPartitionIndex(partition.partitionIndex())
                     .setControllerEpoch(partition.controllerEpoch())
@@ -161,13 +154,16 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
             return topicStates;
         }
 
-        private static Map<String, LeaderAndIsrTopicState> groupByTopic(List<LeaderAndIsrPartitionState> partitionStates) {
+        private static Map<String, LeaderAndIsrTopicState> groupByTopic(
+                List<LeaderAndIsrPartitionState> partitionStates) {
             Map<String, LeaderAndIsrTopicState> topicStates = new HashMap<>();
             // We don't null out the topic name in LeaderAndIsrRequestPartition since it's ignored by
             // the generated code if version >= 2
             for (LeaderAndIsrPartitionState partition : partitionStates) {
                 LeaderAndIsrTopicState topicState = topicStates.computeIfAbsent(partition.topicName(),
-                    t -> new LeaderAndIsrTopicState().setTopicName(partition.topicName()));
+                    t -> new LeaderAndIsrTopicState()
+                        .setTopicName(partition.topicName())
+                        .setTopicId(partition.topicId()));
                 topicState.partitionStates().add(partition);
             }
             return topicStates;
@@ -205,9 +201,9 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
 
     private void normalize() {
         // We normalize the standard `LeaderAndIsrRequestData` and fallback to on the fly conversions
-        // for ConfluentLeaderAndIsrRequestData. The goal is to remove the need for the custom
-        // ConfluentLeaderAndIsrRequestData soon so we pay the efficiency overhead instead of
-        // trying to optimize it.
+        // for ConfluentLeaderAndIsrRequestData. Custom ConfluentLeaderAndIsrRequestData is legacy
+        // and will be removed soon so we pay the efficiency overhead instead of trying to optimize
+        // it.
         if (!(data instanceof ConfluentLeaderAndIsrRequestData)) {
             LeaderAndIsrRequestData requestData = (LeaderAndIsrRequestData) data;
             if (version() >= 2) {
@@ -276,6 +272,7 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
                 new MappedIterator<>(topic.partitionStates().iterator(), partition ->
                     new LeaderAndIsrPartitionState()
                         .setTopicName(topic.topicName())
+                        .setTopicId(topic.topicId())
                         .setPartitionIndex(partition.partitionIndex())
                         .setControllerEpoch(partition.controllerEpoch())
                         .setLeader(partition.leader())
@@ -305,14 +302,6 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
         }
 
         return ((LeaderAndIsrRequestData) data).liveLeaders();
-    }
-
-    public Map<String, UUID> topicIds() {
-        if (data instanceof ConfluentLeaderAndIsrRequestData) {
-            ConfluentLeaderAndIsrRequestData requestData = (ConfluentLeaderAndIsrRequestData) data;
-            return requestData.topicStates().stream().collect(toMap(ts -> ts.topicName(), ts -> ts.topicId()));
-        }
-        return emptyMap();
     }
 
     // Visible for testing

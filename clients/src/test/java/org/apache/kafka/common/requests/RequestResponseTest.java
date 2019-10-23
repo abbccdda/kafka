@@ -1319,6 +1319,7 @@ public class RequestResponseTest {
         List<Integer> replicas = asList(1, 2, 3, 4);
         partitionStates.add(new LeaderAndIsrPartitionState()
             .setTopicName("topic5")
+            .setTopicId(UUID.fromString("67e78a6b-8fe5-400e-aeaa-fa30dbff94b5"))
             .setPartitionIndex(105)
             .setControllerEpoch(0)
             .setLeader(2)
@@ -1329,6 +1330,7 @@ public class RequestResponseTest {
             .setIsNew(false));
         partitionStates.add(new LeaderAndIsrPartitionState()
             .setTopicName("topic5")
+            .setTopicId(UUID.fromString("67e78a6b-8fe5-400e-aeaa-fa30dbff94b5"))
             .setPartitionIndex(1)
             .setControllerEpoch(1)
             .setLeader(1)
@@ -1339,6 +1341,7 @@ public class RequestResponseTest {
             .setIsNew(false));
         partitionStates.add(new LeaderAndIsrPartitionState()
             .setTopicName("topic20")
+            .setTopicId(UUID.fromString("639436c0-ce48-4138-9420-aca1b323f2e3"))
             .setPartitionIndex(1)
             .setControllerEpoch(1)
             .setLeader(0)
@@ -1395,12 +1398,8 @@ public class RequestResponseTest {
             new Node(1, "test1", 1223)
         );
 
-        Map<String, UUID> topicIds = new HashMap<>();
-        topicIds.put("topic5", UUID.fromString("67e78a6b-8fe5-400e-aeaa-fa30dbff94b5"));
-        topicIds.put("topic20", UUID.fromString("639436c0-ce48-4138-9420-aca1b323f2e3"));
-
         return LeaderAndIsrRequest.Builder.create((short) version, 1, 10, 0, partitionStates,
-            leaders, topicIds, true).build();
+            leaders, true).build();
     }
 
     private LeaderAndIsrResponse createLeaderAndIsrResponse() {

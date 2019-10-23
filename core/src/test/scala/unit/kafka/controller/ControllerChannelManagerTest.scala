@@ -131,8 +131,8 @@ class ControllerChannelManagerTest {
       new TopicPartition(ps.topicName, ps.partitionIndex) -> ps).toMap
     assertEquals(partitions.mapValues(_.leader), partitionStatesMap.mapValues(_.leader))
     assertEquals(partitions.mapValues(_.isr), partitionStatesMap.mapValues(_.isr.asScala))
-    assertEquals(UUID.fromString("7957e4fe-3ceb-4c29-bd74-62bdb4e08cb4"),
-      leaderAndIsrRequest.topicIds.get("foo"))
+    assertEquals(Some(UUID.fromString("7957e4fe-3ceb-4c29-bd74-62bdb4e08cb4")),
+      partitionStatesMap.get(new TopicPartition("foo", 0)).map(_.topicId))
 
     applyLeaderAndIsrResponseCallbacks(Errors.NONE, batch.sentRequests(2).toList)
     assertEquals(1, batch.sentEvents.size)
