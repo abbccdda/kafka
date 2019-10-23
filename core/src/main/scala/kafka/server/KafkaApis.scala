@@ -239,6 +239,7 @@ class KafkaApis(val requestChannel: RequestChannel,
               .setId(status.brokerId)
               .setMode(status.mode().value())
               .setIsCaughtUp(status.isCaughtUp())
+              .setIsInSync(status.isInSync())
               .setLogStartOffset(status.logStartOffset())
               .setLogEndOffset(status.logEndOffset())
               .setLastCaughtUpTimeMs(status.lastCaughtUpTimeMs())

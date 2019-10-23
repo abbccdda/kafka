@@ -16,56 +16,85 @@
  */
 package kafka.admin
 
+import java.util.Scanner
+import kafka.integration.KafkaServerTestHarness
 import kafka.server.KafkaConfig
 import kafka.server.KafkaServer
 import kafka.utils.TestUtils
-import kafka.zk.ZooKeeperTestHarness
-import org.apache.kafka.clients.admin.{AdminClient, AdminClientConfig}
+import org.apache.kafka.clients.admin.{AdminClient, AdminClientConfig, CreateTopicsOptions, DescribeTopicsOptions, NewTopic}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.network.ListenerName
-import org.junit.After
 import org.junit.Assert._
-import org.junit.Before
 import org.junit.Test
 
 import scala.collection.JavaConverters._
 import scala.collection.immutable
+import scala.collection.mutable
 
-final class ReplicaStatusCommandTest extends ZooKeeperTestHarness {
+final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
   import ReplicaStatusCommandTest._
 
-  var servers = Seq.empty[KafkaServer]
+  override def generateConfigs: Seq[KafkaConfig] =
+    TestUtils.createBrokerConfigs(3, zkConnect, false).map(KafkaConfig.fromProps)
 
-  @Before
-  override def setUp(): Unit = {
-    super.setUp()
+  private def createTopicAndWait(client: AdminClient, topic: String, numPartitions: Int, numReplicas: Int): Unit = {
+    client.createTopics(List(new NewTopic(topic, numPartitions, numReplicas.toShort)).asJava,
+      new CreateTopicsOptions().timeoutMs(1000)).all.get()
 
-    val brokerConfigs = TestUtils.createBrokerConfigs(3, zkConnect, false)
-    servers = brokerConfigs.map { config =>
-      config.setProperty("auto.leader.rebalance.enable", "false")
-      config.setProperty("controlled.shutdown.enable", "true")
-      config.setProperty("controlled.shutdown.max.retries", "1")
-      config.setProperty("controlled.shutdown.retry.backoff.ms", "1000")
-      TestUtils.createServer(KafkaConfig.fromProps(config))
-    }
-  }
-
-  @After
-  override def tearDown(): Unit = {
-    TestUtils.shutdownServers(servers)
-
-    super.tearDown()
+    TestUtils.waitUntilTrue(() => {
+      client.describeTopics(List(topic).asJava, new DescribeTopicsOptions()).all().get().get(topic) match {
+        case null => false
+        case td => td.partitions.asScala.forall(_.leader != null)
+      }
+    }, "Failed to create topic")
   }
 
   private def runCommand(topics: Array[String], numPartitions: Int, numReplicas: Int, args: Array[String]): String = {
     TestUtils.resource(AdminClient.create(createConfig(servers).asJava)) { client =>
-      topics.foreach { topic =>
-        TestUtils.createTopic(zkClient, topic, numPartitions, numReplicas, servers)
-        for (i <- 0 until numPartitions)
-          TestUtils.waitUntilLeaderIsKnown(servers, new TopicPartition(topic, i))
-      }
+      topics.foreach(createTopicAndWait(client, _, numPartitions, numReplicas))
       TestUtils.grabConsoleOutput(ReplicaStatusCommand.main(Array("--bootstrap-server", bootstrapServers(servers)) ++ args))
     }
+  }
+
+  case class ReplicaStatusEntry(topic: String, partition: Int, replica: Int, mode: String, isCaughtUp: Boolean, isInSync: Boolean,
+    lastCaughtUpLagMs: Option[Long], lastFetchLagMs: Option[Long], logStartOffset: Option[Long], logEndOffset: Option[Long]) {
+  }
+
+  private def runCommandParseCompactOutput(topics: Array[String], numPartitions: Int, numReplicas: Int, args: Array[String]): List[ReplicaStatusEntry] = {
+    val output = runCommand(topics, numPartitions, numReplicas, args :+ "--compact")
+    val scanner = new Scanner(output)
+    assertTrue(scanner.hasNextLine)
+    scanner.findInLine("(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)")
+    val topMatch = scanner.`match`
+
+    val expectedHeader =
+      Array("Topic", "Partition", "Replica", "Mode", "IsCaughtUp", "IsInSync", "LastCaughtUpLagMs", "LastFetchLagMs", "LogStartOffset", "LogEndOffset")
+    assertTrue(topMatch.groupCount == expectedHeader.size)
+    for (idx <- 0 until topMatch.groupCount) {
+      assertTrue(topMatch.group(idx + 1) == expectedHeader(idx))
+    }
+    scanner.nextLine
+
+    def toBoolean(value: String): Boolean = value match {
+      case "yes" => true
+      case "no" => false
+    }
+    def toLongOption(value: String): Option[Long] = value match {
+      case "unknown" => None
+      case _ => Some(value.toLong)
+    }
+
+    val result = mutable.Buffer[ReplicaStatusEntry]()
+    while (scanner.hasNextLine) {
+      scanner.findInLine("(\\S+)\t(\\d+)\t(\\d+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)")
+      val subMatch = scanner.`match`
+      assertTrue(subMatch.groupCount == expectedHeader.size)
+      result += new ReplicaStatusEntry(subMatch.group(1), subMatch.group(2).toInt, subMatch.group(3).toInt, subMatch.group(4),
+        toBoolean(subMatch.group(5)), toBoolean(subMatch.group(6)), toLongOption(subMatch.group(7)), toLongOption(subMatch.group(8)),
+        toLongOption(subMatch.group(9)), toLongOption(subMatch.group(10)))
+      scanner.nextLine
+    }
+    result.toList
   }
 
   @Test
@@ -132,8 +161,48 @@ final class ReplicaStatusCommandTest extends ZooKeeperTestHarness {
       val output = TestUtils.grabConsoleOutput(ReplicaStatusCommand.main(Array("--bootstrap-server", bootstrapServers(servers), "--only-not-caught-up")))
       assertFalse(output.contains(s"${topic}-0-0"))
       assertFalse(output.contains("IsCaughtUp: yes"))
+      assertFalse(output.contains("IsInSync: yes"))
       assertTrue(output.contains(s"${topic}-0-1"))
       assertTrue(output.contains("IsCaughtUp: no"))
+      assertTrue(output.contains("IsInSync: no"))
+    }
+  }
+
+  @Test
+  def testCompact(): Unit = {
+    val entries = runCommandParseCompactOutput(Array("test-topic-1", "test-topic-2"), 2, 2, Array())
+    assertTrue(entries.size == 8)
+    val tpr = mutable.Set[String]()
+    val leaders = mutable.Set[String]()
+    entries.foreach { entry =>
+      assertTrue(entry.topic == "test-topic-1" || entry.topic == "test-topic-2")
+      assertTrue(entry.partition == 0 || entry.partition == 1)
+      assertTrue(entry.replica >= 0 && entry.replica < servers.size)
+      assertTrue(tpr.add(entry.topic + "-" + entry.partition + "-" + entry.replica))
+      assertTrue(entry.mode match {
+        case "LEADER" =>
+          assertTrue(leaders.add(entry.topic + "-" + entry.partition))
+          assertTrue(entry.isCaughtUp)
+          assertTrue(entry.isInSync)
+          true
+        case "FOLLOWER" | "OBSERVER" => true
+        case _ => false
+      })
+      entry.lastCaughtUpLagMs.foreach(value => assertTrue(value >= 0))
+      entry.lastFetchLagMs.foreach { value =>
+        assertTrue(value >= 0)
+
+        // Only assert that the replica is in sync and caught up if it reports a last fetch
+        // time, otherwise the leader may not see it as such despite the test producing no data.
+        assertTrue(entry.isCaughtUp)
+        assertTrue(entry.isInSync)
+      }
+      entry.logStartOffset.foreach(value => assertTrue(value >= 0))
+      entry.logEndOffset.foreach(value => assertTrue(value >= 0))
+      for {
+        logStartOffset <- entry.logStartOffset
+        logEndOffset <- entry.logEndOffset
+      } yield assertTrue(logStartOffset <= logEndOffset)
     }
   }
 
