@@ -72,12 +72,48 @@ task installGitHooks(type: Exec) {
     }
 }
 
-allprojects {
+ext {
+  gradleVersion = "$versions.gradle"
+  minJavaVersion = "8"
+  buildVersionFileName = "kafka-version.properties"
 
+  userMaxForks = project.hasProperty('maxParallelForks') ? maxParallelForks.toInteger() : null
+  userIgnoreFailures = project.hasProperty('ignoreFailures') ? ignoreFailures : false
+
+  skipSigning = project.hasProperty('skipSigning') && skipSigning.toBoolean()
+  shouldSign = !skipSigning && !version.endsWith("SNAPSHOT") && project.gradle.startParameter.taskNames.any { it.contains("upload") }
+
+  mavenUrl = project.hasProperty('mavenUrl') ? project.mavenUrl : ''
+  mavenUsername = project.hasProperty('mavenUsername') ? project.mavenUsername : ''
+  mavenPassword = project.hasProperty('mavenPassword') ? project.mavenPassword : ''
+
+  userShowStandardStreams = project.hasProperty("showStandardStreams") ? showStandardStreams : null
+
+  userTestLoggingEvents = project.hasProperty("testLoggingEvents") ? Arrays.asList(testLoggingEvents.split(",")) : null
+
+  userPackageMetricsReporter = project.hasProperty("packageMetricsReporter") ? packageMetricsReporter : null
+
+  generatedDocsDir = new File("${project.rootDir}/docs/generated")
+
+  commitId = project.hasProperty('commitId') ? commitId : null
+}
+
+allprojects {
   repositories {
     mavenCentral()
+    mavenLocal()
+    maven {
+      name 'confluent-nexus'
+      // We do not use mavenUrl property here since that is required to be a writeable repo (i.e. maven-releases)
+      // whereas we want to use a virtual repo for fetching dependencies
+      url 'https://nexus.confluent.io/repository/maven-public'
+      credentials {
+        username = mavenUsername
+        password = mavenPassword
+      }
+    }
   }
-  
+
   apply plugin: 'idea'
   apply plugin: 'org.owasp.dependencycheck'
   apply plugin: 'com.github.ben-manes.versions'
@@ -111,32 +147,6 @@ allprojects {
     options.addStringOption('Xdoclint:none', '-quiet')
   }
 
-}
-
-ext {
-  gradleVersion = "$versions.gradle"
-  minJavaVersion = "8"
-  buildVersionFileName = "kafka-version.properties"
-
-  userMaxForks = project.hasProperty('maxParallelForks') ? maxParallelForks.toInteger() : null
-  userIgnoreFailures = project.hasProperty('ignoreFailures') ? ignoreFailures : false
-
-  skipSigning = project.hasProperty('skipSigning') && skipSigning.toBoolean()
-  shouldSign = !skipSigning && !version.endsWith("SNAPSHOT") && project.gradle.startParameter.taskNames.any { it.contains("upload") }
-
-  mavenUrl = project.hasProperty('mavenUrl') ? project.mavenUrl : ''
-  mavenUsername = project.hasProperty('mavenUsername') ? project.mavenUsername : ''
-  mavenPassword = project.hasProperty('mavenPassword') ? project.mavenPassword : ''
-
-  userShowStandardStreams = project.hasProperty("showStandardStreams") ? showStandardStreams : null
-
-  userTestLoggingEvents = project.hasProperty("testLoggingEvents") ? Arrays.asList(testLoggingEvents.split(",")) : null
-
-  userPackageMetricsReporter = project.hasProperty("packageMetricsReporter") ? packageMetricsReporter : null
-
-  generatedDocsDir = new File("${project.rootDir}/docs/generated")
-
-  commitId = project.hasProperty('commitId') ? commitId : null
 }
 
 apply from: file('wrapper.gradle')
@@ -1947,6 +1957,8 @@ project(':jmh-benchmarks') {
     compile project(':core')
     compile project(':clients')
     compile project(':streams')
+    compile project(':ce-metrics')
+    compile libs.metrics
     compile libs.jmhCore
     compile libs.mockitoCore
     annotationProcessor libs.jmhGeneratorAnnProcess
@@ -2293,22 +2305,6 @@ project(':connect:basic-auth-extension') {
 }
 
 project(':ce-metrics') {
-
-  // Note, this repositories{} block should be promoted to the allprojects{} block if the pattern
-  // of using CP libraries outside this monorepo grows beyond the ce-metrics project.
-  repositories {
-    mavenLocal()
-    maven {
-      name 'confluent-nexus'
-      // We do not use mavenUrl property here since that is required to be a writeable repo (i.e. maven-releases)
-      // whereas we want to use a virtual repo for fetching dependencies
-      url 'https://nexus.confluent.io/repository/maven-public'
-      credentials {
-        username = mavenUsername
-        password = mavenPassword
-      }
-    }
-  }
 
   apply plugin: 'com.github.johnrengelman.shadow'
   group = "io.confluent"

@@ -4,16 +4,16 @@ import static com.google.common.base.CaseFormat.LOWER_HYPHEN;
 import static com.google.common.base.CaseFormat.LOWER_UNDERSCORE;
 import static com.google.common.base.CaseFormat.UPPER_CAMEL;
 
-import com.google.common.base.Joiner;
 import com.google.protobuf.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class MetricsUtils {
 
-    private static final Joiner NAME_JOINER = Joiner.on("/");
+    private static final String NAME_JOINER = "/";
 
     public static Timestamp now(Clock clock) {
         return toTimestamp(Instant.now(clock));
@@ -47,7 +47,11 @@ public class MetricsUtils {
      * </ul>
      */
     public static String fullMetricName(String domain, String group, String name) {
-        return NAME_JOINER.join(domain, clean(group), clean(name));
+        return domain
+                + NAME_JOINER
+                + clean(group)
+                + NAME_JOINER
+                + clean(name);
     }
 
     /**
@@ -62,16 +66,29 @@ public class MetricsUtils {
         return LOWER_HYPHEN.to(LOWER_UNDERSCORE, lowerHypenCase);
     }
 
+    // remove kafka, metric or stats as these are redundant for KafkaExporter metrics
+    private final static Pattern KAFKA_METRIC_STATS1_PATTERN
+            = Pattern.compile("_(kafka|metrics|stats)");
+    private final static Pattern KAFKA_METRIC_STATS2_PATTERN
+            = Pattern.compile("(kafka|metrics|stats)_");
+    // Remove per sec from Meter as we only capture the counts and ignore the moving average rates
+    private final static Pattern PER_SEC_PATTERN
+            = Pattern.compile("_per_sec");
+    // Special case for zookeeper
+    private final static Pattern ZOOKEEPER_PATTERN
+            = Pattern.compile("zoo_keeper");
+
     private static String clean(String raw) {
-        return
-                // Convert from upper camel case to lower hypen case
-                convertCase(raw)
-                        //2. remove kafka, metric or stats as these are redundant for KafkaExporter metrics
-                        .replaceAll("_(kafka|metrics|stats)|(kafka|metrics|stats)_", "")
-                        // Remove per sec from Meter as we only capture the counts and ignore the moving average rates
-                        .replaceAll("_per_sec", "")
-                        // Special case for zookeeper
-                        .replaceAll("zoo_keeper", "zookeeper");
+        // Convert from upper camel case to lower hypen case
+        String lowerHyphenCase = convertCase(raw);
+        return ZOOKEEPER_PATTERN.matcher(
+                PER_SEC_PATTERN.matcher(
+                        KAFKA_METRIC_STATS2_PATTERN.matcher(
+                                KAFKA_METRIC_STATS1_PATTERN.matcher(lowerHyphenCase)
+                                        .replaceAll(""))
+                                .replaceAll(""))
+                        .replaceAll(""))
+                .replaceAll("zookeeper");
     }
 
     /**

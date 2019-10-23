@@ -37,6 +37,7 @@
     <allow pkg="kafka.server"/>
     <allow pkg="kafka.tier"/>
     <allow pkg="kafka.api"/>
+    <allow pkg="io.confluent.telemetry"/>
     <allow class="kafka.utils.Pool"/>
     <allow class="kafka.utils.KafkaScheduler"/>
     <allow class="org.apache.kafka.clients.FetchSessionHandler"/>
