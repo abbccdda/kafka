@@ -130,9 +130,7 @@ object TopicCommand extends Logging {
     private val offlineReplicaIds = allReplicaIds.toSet -- liveBrokerIds
     private val isrEligibleBrokerIds = placement.map(computeIsrEligibleBrokerIds).getOrElse(allReplicaIds.toSet)
 
-    val liveObserverIds: Option[Set[Int]] = placement.map { _ =>
-      (allReplicaIds.toSet & liveBrokerIds) -- isrEligibleBrokerIds -- currentIsr
-    }
+    val observerIds = info.observers.asScala.map(_.id)
 
     private def computeIsrEligibleBrokerIds(placement: TopicPlacement): Set[Int] = {
       def brokerIfLive(id: Int): Option[Broker] = {
@@ -184,7 +182,7 @@ object TopicCommand extends Logging {
       print("\tReplicas: " + info.replicas.asScala.map(_.id).mkString(","))
       print("\tIsr: " + info.isr.asScala.map(_.id).mkString(","))
       print("\tOffline: " + offlineReplicaIds.mkString(","))
-      print(if (liveObserverIds.isEmpty) "" else s"\tLiveObservers: ${liveObserverIds.get.mkString(",")}")
+      print(if (observerIds.isEmpty) "" else s"\tObservers: ${observerIds.mkString(",")}")
       print(if (markedForDeletion) "\tMarkedForDeletion: true" else "")
       println()
     }
@@ -466,7 +464,7 @@ object TopicCommand extends Logging {
                 }
 
                 val info = new TopicPartitionInfo(partitionId, leaderOpt.map(asNode).orNull,
-                  assignedReplicas.map(asNode).toList.asJava,
+                  assignedReplicas.map(asNode).toList.asJava, List().asJava,
                   isr.map(asNode).toList.asJava)
 
                 val partitionDesc = PartitionDescription(topic, info, config = None, markedForDeletion, liveBrokerIds)

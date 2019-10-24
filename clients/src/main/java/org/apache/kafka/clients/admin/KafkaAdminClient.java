@@ -1583,6 +1583,7 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
                     for (PartitionInfo partitionInfo : partitionInfos) {
                         TopicPartitionInfo topicPartitionInfo = new TopicPartitionInfo(
                             partitionInfo.partition(), leader(partitionInfo), Arrays.asList(partitionInfo.replicas()),
+                            Arrays.asList(partitionInfo.observers()),
                             Arrays.asList(partitionInfo.inSyncReplicas()));
                         partitions.add(topicPartitionInfo);
                     }

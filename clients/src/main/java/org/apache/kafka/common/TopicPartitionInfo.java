@@ -30,6 +30,7 @@ public class TopicPartitionInfo {
     private final int partition;
     private final Node leader;
     private final List<Node> replicas;
+    private final List<Node> observers;
     private final List<Node> isr;
 
     /**
@@ -42,9 +43,14 @@ public class TopicPartitionInfo {
      * @param isr the in-sync replicas
      */
     public TopicPartitionInfo(int partition, Node leader, List<Node> replicas, List<Node> isr) {
+        this(partition, leader, replicas, Collections.emptyList(), isr);
+    }
+
+    public TopicPartitionInfo(int partition, Node leader, List<Node> replicas, List<Node> observers, List<Node> isr) {
         this.partition = partition;
         this.leader = leader;
         this.replicas = Collections.unmodifiableList(replicas);
+        this.observers = Collections.unmodifiableList(observers);
         this.isr = Collections.unmodifiableList(isr);
     }
 
@@ -73,6 +79,14 @@ public class TopicPartitionInfo {
     }
 
     /**
+     * Return the observer replicas of the partition. Observers are not part of ISR and cannot be
+     * elected as leader.
+     */
+    public List<Node> observers() {
+        return this.observers;
+    }
+
+    /**
      * Return the in-sync replicas of the partition. Note that the ordering of the result is unspecified.
      */
     public List<Node> isr() {
@@ -80,8 +94,10 @@ public class TopicPartitionInfo {
     }
 
     public String toString() {
+        String observersStr = observers.isEmpty() ? "" : ", observers=" + Utils.join(observers, ", ");
         return "(partition=" + partition + ", leader=" + leader + ", replicas=" +
-            Utils.join(replicas, ", ") + ", isr=" + Utils.join(isr, ", ") + ")";
+            Utils.join(replicas, ", ") + observersStr +
+                ", isr=" + Utils.join(isr, ", ") + ")";
     }
 
     @Override
@@ -94,6 +110,7 @@ public class TopicPartitionInfo {
         return partition == that.partition &&
             Objects.equals(leader, that.leader) &&
             Objects.equals(replicas, that.replicas) &&
+            Objects.equals(observers, that.observers) &&
             Objects.equals(isr, that.isr);
     }
 
@@ -102,6 +119,7 @@ public class TopicPartitionInfo {
         int result = partition;
         result = 31 * result + (leader != null ? leader.hashCode() : 0);
         result = 31 * result + (replicas != null ? replicas.hashCode() : 0);
+        result = 31 * result + (observers != null ? observers.hashCode() : 0);
         result = 31 * result + (isr != null ? isr.hashCode() : 0);
         return result;
     }

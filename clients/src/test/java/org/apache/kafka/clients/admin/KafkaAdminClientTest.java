@@ -31,6 +31,7 @@ import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.TopicPartitionInfo;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.acl.AccessControlEntryFilter;
 import org.apache.kafka.common.acl.AclBinding;
@@ -74,6 +75,7 @@ import org.apache.kafka.common.message.LeaveGroupResponseData;
 import org.apache.kafka.common.message.LeaveGroupResponseData.MemberResponse;
 import org.apache.kafka.common.message.ListGroupsResponseData;
 import org.apache.kafka.common.message.ListPartitionReassignmentsResponseData;
+import org.apache.kafka.common.message.MetadataResponseData;
 import org.apache.kafka.common.message.OffsetDeleteResponseData;
 import org.apache.kafka.common.message.OffsetDeleteResponseData.OffsetDeleteResponsePartition;
 import org.apache.kafka.common.message.OffsetDeleteResponseData.OffsetDeleteResponsePartitionCollection;
@@ -464,6 +466,47 @@ public class KafkaAdminClientTest {
                     Collections.singleton(new NewTopic("myTopic", Collections.singletonMap(0, asList(0, 1, 2)))),
                     new CreateTopicsOptions().timeoutMs(10000)).all();
             future.get();
+        }
+    }
+
+    @Test
+    public void testDescribeTopicWithObserver() throws Exception {
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+
+            List<Integer> observers = asList(4, 5, 6);
+            MetadataResponseData.MetadataResponsePartition responsePartitionWithObserver =
+                    new MetadataResponseData.MetadataResponsePartition()
+                            .setPartitionIndex(0)
+                            .setReplicaNodes(Arrays.asList(1, 2, 3, 4, 5, 6))
+                            .setIsrNodes(Arrays.asList(1, 2, 3))
+                            .setLeaderEpoch(2)
+                            .setLeaderId(1)
+                            .setObservers(observers);
+
+            String topicName = "topic-0";
+            MetadataResponseData.MetadataResponseTopic responseTopicWithObserver =
+                    new MetadataResponseData.MetadataResponseTopic()
+                            .setErrorCode(Errors.NONE.code())
+                            .setName(topicName)
+                            .setIsInternal(false)
+                            .setPartitions(Collections.singletonList(responsePartitionWithObserver));
+
+            MetadataResponseData.MetadataResponseTopicCollection responseTopicCollectionWithObserver =
+                    new MetadataResponseData.MetadataResponseTopicCollection(
+                            Collections.singletonList(responseTopicWithObserver).iterator());
+
+            MetadataResponseData metadataResponseDataWithObservers = new MetadataResponseData()
+                    .setTopics(responseTopicCollectionWithObserver);
+
+
+            env.kafkaClient().prepareResponse(new MetadataResponse(metadataResponseDataWithObservers));
+            DescribeTopicsResult responseResult = env.adminClient().describeTopics(Collections.singletonList(topicName));
+
+            TopicDescription topicDescription = responseResult.all().get().get(topicName);
+            TopicPartitionInfo partitionInfo = topicDescription.partitions().get(0);
+            List<Integer> actualObservers = partitionInfo.observers().stream().map(Node::id).collect(Collectors.toList());
+            assertEquals(observers, actualObservers);
         }
     }
 
