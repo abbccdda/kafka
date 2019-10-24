@@ -14,7 +14,7 @@ import kafka.tier.fetcher.CancellationContext
 import kafka.tier.store.TierObjectStore
 import kafka.tier.tasks.archive.{ArchiverTaskQueue, TierArchiver}
 import kafka.tier.tasks.delete.TierDeletionManager
-import kafka.tier.TierMetadataManager
+import kafka.tier.{TierDeletedPartitionsCoordinator, TierReplicaManager}
 import kafka.tier.topic.TierTopicAppender
 import kafka.utils.{Logging, ShutdownableThread}
 import org.apache.kafka.common.utils.{KafkaThread, Time}
@@ -40,7 +40,8 @@ object TierTasksConfig {
   */
 class TierTasks(config: TierTasksConfig,
                 replicaManager: ReplicaManager,
-                tierMetadataManager: TierMetadataManager,
+                tierReplicaManager: TierReplicaManager,
+                tierDeletedPartitionsCoordinator: TierDeletedPartitionsCoordinator,
                 tierTopicAppender: TierTopicAppender,
                 tierObjectStore: TierObjectStore,
                 time: Time = Time.SYSTEM) extends ShutdownableThread(name = "tier-tasks") with KafkaMetricsGroup with Logging {
@@ -62,13 +63,13 @@ class TierTasks(config: TierTasksConfig,
     */
   private implicit val pool: ExecutionContextExecutor = ExecutionContext.fromExecutor(executor)
 
-  private val tierArchiver = new TierArchiver(config, replicaManager, tierMetadataManager,
-    tierTopicAppender, tierObjectStore, ctx.subContext(), maxTasks = config.numThreads, time)
-  private val tierDeletionManager = new TierDeletionManager(replicaManager, tierMetadataManager, tierTopicAppender,
-    tierObjectStore, ctx.subContext(), maxTasks = config.numThreads, logCleanupIntervalMs = config.logCleanupIntervalMs,
+  private val tierArchiver = new TierArchiver(config, replicaManager, tierTopicAppender, tierObjectStore,
+    ctx.subContext(), maxTasks = config.numThreads, time)
+  private val tierDeletionManager = new TierDeletionManager(replicaManager, tierTopicAppender, tierObjectStore,
+    ctx.subContext(), maxTasks = config.numThreads, logCleanupIntervalMs = config.logCleanupIntervalMs,
     maxRetryBackoffMs = config.maxRetryBackoffMs, time)
 
-  private val leaderChangeManager = new LeaderChangeManager(ctx.subContext(),
+  private val changeManager = new ChangeManager(ctx.subContext(),
     Seq(tierArchiver.taskQueue, tierDeletionManager.taskQueue),
     time)
 
@@ -85,7 +86,8 @@ class TierTasks(config: TierTasksConfig,
 
 
   locally {
-    tierMetadataManager.addListener(this.getClass, leaderChangeManager)
+    tierReplicaManager.addListener(changeManager)
+    tierDeletedPartitionsCoordinator.registerListener(changeManager)
   }
 
   override def doWork(): Unit = {
@@ -100,14 +102,14 @@ class TierTasks(config: TierTasksConfig,
 
     cycleTimeMetric.mark()
 
-    leaderChangeManager.process()
+    changeManager.process()
     val archiverFutures = tierArchiver.doWork()
     val deletionFutures = tierDeletionManager.doWork()
     val futures = archiverFutures ++ deletionFutures
 
     if (tierArchiver.taskQueue.taskCount == 0 && tierDeletionManager.taskQueue.taskCount == 0) {
       // Both task queues are empty; block until we have at least one task available
-      leaderChangeManager.processAtLeastOne()
+      changeManager.processAtLeastOne()
     } else if (futures.isEmpty) {
       // Task queues are not empty but we aren't processing any futures yet; backoff and retry
       Thread.sleep(config.mainLoopBackoffMs)
@@ -134,7 +136,7 @@ class TierTasks(config: TierTasksConfig,
     info("shutting down")
     initiateShutdown()
     ctx.cancel()
-    leaderChangeManager.close()
+    changeManager.close()
     tierArchiver.shutdown()
     tierDeletionManager.shutdown()
     executor.shutdownNow()

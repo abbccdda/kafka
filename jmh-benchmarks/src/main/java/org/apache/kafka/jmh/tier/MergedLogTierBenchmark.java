@@ -12,14 +12,13 @@ import kafka.log.LogManager;
 import kafka.log.LogSegment;
 import kafka.log.MergedLog;
 import kafka.log.ProducerStateManager;
+import kafka.log.TierLogComponents;
 import kafka.log.TierLogSegment;
 import kafka.server.BrokerTopicStats;
-import kafka.server.LogDirFailureChannel;
-import kafka.tier.TierMetadataManager;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierTopicInitLeader;
-import kafka.tier.state.FileTierPartitionStateFactory;
 import kafka.tier.state.TierPartitionState;
+import kafka.tier.state.TierPartitionStateFactory;
 import kafka.tier.store.MockInMemoryTierObjectStore;
 import kafka.tier.store.TierObjectStoreConfig;
 import kafka.utils.KafkaScheduler;
@@ -50,7 +49,6 @@ import scala.runtime.AbstractFunction0;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Optional;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -78,16 +76,16 @@ public class MergedLogTierBenchmark {
         LogConfig logConfig = createLogConfig(1000);
         Log log = createLog(logDir, logConfig);
         // setup merged log and tier partition states
-        FileTierPartitionStateFactory factory = new FileTierPartitionStateFactory();
-        TierMetadataManager tierMetadataManager = new TierMetadataManager(factory,
-                Optional.of(new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))),
-                new LogDirFailureChannel(1),
-                true);
-        state = tierMetadataManager.initState(topicPartition, logDir, logConfig);
-        mergedLog = new MergedLog(log, 0, state, tierMetadataManager);
+        TierPartitionStateFactory partitionStateFactory = new TierPartitionStateFactory(true);
+        TierLogComponents tierLogComponents = TierLogComponents.apply(Option.empty(),
+                Option.apply(new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))),
+                new TierPartitionStateFactory(true));
+        state = partitionStateFactory.initState(logDir, topicPartition, logConfig);
+
+        mergedLog = new MergedLog(log, 0, state, tierLogComponents);
         TopicIdPartition topicIdPartition = new TopicIdPartition(topicPartition.topic(),
                 UUID.randomUUID(), topicPartition.partition());
-        state.setTopicIdPartition(topicIdPartition);
+        state.setTopicId(topicIdPartition.topicId());
 
         while (log.logSegments().size() < NUM_TOTAL_SEGMENTS) {
             final MemoryRecords createRecords = buildRecords(0, timestamp,  1, 0);

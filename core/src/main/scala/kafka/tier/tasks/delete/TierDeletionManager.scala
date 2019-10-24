@@ -8,7 +8,6 @@ import java.util.concurrent.TimeUnit
 
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.ReplicaManager
-import kafka.tier.TierMetadataManager
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.store.TierObjectStore
 import kafka.tier.tasks.TierTaskWorkingSet
@@ -28,7 +27,6 @@ import scala.concurrent.{ExecutionContext, Future}
   * etc. do not block the main thread.
   */
 final class TierDeletionManager(replicaManager: ReplicaManager,
-                                tierMetadataManager: TierMetadataManager,
                                 tierTopicAppender: TierTopicAppender,
                                 tierObjectStore: TierObjectStore,
                                 ctx: CancellationContext,
@@ -41,9 +39,9 @@ final class TierDeletionManager(replicaManager: ReplicaManager,
   removeMetric("RetriesPerSec")
   private val retryRate = newMeter("RetriesPerSec", "number of retries per second", TimeUnit.SECONDS)
 
-  private[tasks] val taskQueue = new DeletionTaskQueue(ctx.subContext(), maxTasks, logCleanupIntervalMs, time, Some(retryRate))
-  private val workingSet = new TierTaskWorkingSet[DeletionTask](taskQueue, replicaManager, tierMetadataManager,
-    tierTopicAppender, tierObjectStore, maxRetryBackoffMs, time)
+  private[tasks] val taskQueue = new DeletionTaskQueue(ctx.subContext(), maxTasks, logCleanupIntervalMs, time, replicaManager, Some(retryRate))
+  private val workingSet = new TierTaskWorkingSet[DeletionTask](taskQueue, replicaManager, tierTopicAppender,
+    tierObjectStore, maxRetryBackoffMs, time)
 
   /**
     * Initiate transitions for tasks and complete transitions if outstanding futures have completed. This method is

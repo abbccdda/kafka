@@ -7,6 +7,7 @@ import java.util.concurrent.ExecutionException
 import kafka.integration.KafkaServerTestHarness
 import kafka.tier.TierTestUtils
 import kafka.tier.state.TierPartitionState.AppendResult
+import kafka.tier.state.TierPartitionStatus
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.admin.AdminClient
 import org.apache.kafka.clients.admin.AdminClientConfig
@@ -46,8 +47,8 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
 
   @Test
   def testTierTopicManager(): Unit = {
-    val tierTopicManager = servers.last.tierTopicManager
-    val tierMetadataManager = servers.last.tierMetadataManager
+    val tierTopicManager = servers.last.tierTopicManagerOpt.get
+    val logManager = servers.last.logManager
 
     val properties = new Properties()
     properties.put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true")
@@ -64,12 +65,12 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
     val topicPartition = new TopicPartition(topic1, 0)
 
     TestUtils.waitUntilTrue(() => {
-      val partitionState = tierMetadataManager.tierPartitionState(topicPartition)
-      partitionState.isPresent && partitionState.get.topicIdPartition.isPresent && partitionState.get.tierEpoch == 0
+      val partitionState = logManager.getLog(topicPartition).map(_.tierPartitionState)
+      partitionState.isDefined && partitionState.get.topicIdPartition.isPresent && partitionState.get.tierEpoch == 0
     }, "Did not become leader for TierPartitionState.")
 
-    val tierPartitionState = tierMetadataManager.tierPartitionState(topicPartition).get
-    val topicIdPartition1 = tierPartitionState.topicIdPartition.get
+    val tierPartitionState1 = logManager.getLog(topicPartition).get.tierPartitionState
+    val topicIdPartition1 = tierPartitionState1.topicIdPartition.get
     val result1 = TierTestUtils.uploadWithMetadata(tierTopicManager,
       topicIdPartition1,
       tierEpoch = 0,
@@ -84,8 +85,8 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
       hasProducerState = false)
     assertEquals(AppendResult.ACCEPTED, result1.get)
 
-    tierPartitionState.flush()
-    assertEquals(1000L, tierPartitionState.committedEndOffset.get())
+    tierPartitionState1.flush()
+    assertEquals(1000L, tierPartitionState1.committedEndOffset.get())
     val result2 = TierTestUtils.uploadWithMetadata(tierTopicManager,
       topicIdPartition1,
       tierEpoch = 0,
@@ -100,9 +101,9 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
       hasProducerState = false)
     assertEquals(AppendResult.FENCED, result2.get())
 
-    tierPartitionState.flush()
-    assertEquals(1000L, tierPartitionState.committedEndOffset.get())
-    assertEquals(1, tierPartitionState.numSegments())
+    tierPartitionState1.flush()
+    assertEquals(1000L, tierPartitionState1.committedEndOffset.get())
+    assertEquals(1, tierPartitionState1.numSegments())
 
     val topic2 = "topic2"
     val topicPartition2 = new TopicPartition(topic2,0)
@@ -110,17 +111,18 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
       servers, properties)
 
     TestUtils.waitUntilTrue(() => {
-      val partitionState = tierMetadataManager.tierPartitionState(topicPartition2)
-      partitionState.isPresent && partitionState.get().topicIdPartition().isPresent && partitionState.get().tierEpoch() == 0
+      val partitionState = logManager.getLog(topicPartition2).map(_.tierPartitionState)
+      partitionState.isDefined && partitionState.get.topicIdPartition.isPresent && partitionState.get.tierEpoch == 0
     }, "Did not become leader for TierPartitionState topic2.")
 
-    assertTrue(tierMetadataManager.tierPartitionState(topicPartition2).get().topicIdPartition().isPresent)
+    val tierPartitionState2 = logManager.getLog(topicPartition2).get.tierPartitionState
+    assertTrue(tierPartitionState2.topicIdPartition.isPresent)
 
     TestUtils.waitUntilTrue(() => {
-      !tierTopicManager.catchingUp()
+      tierPartitionState1.status == TierPartitionStatus.ONLINE && tierPartitionState2.status == TierPartitionStatus.ONLINE
     }, "tierTopicManager consumers catchingUp timed out", 500L)
 
-    val originalState = tierTopicManager.partitionState(topicIdPartition1)
+    val originalState = logManager.getLog(topicPartition).get.tierPartitionState
     // original topic1 tier partition state should only have one entry, even after catch up
     // consumer has been seeked backwards.
     assertEquals(1, originalState.numSegments())

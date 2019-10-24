@@ -7,6 +7,7 @@ package kafka.tier.domain;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.serdes.InitLeader;
 import kafka.tier.exceptions.TierMetadataDeserializationException;
+import kafka.tier.serdes.PartitionDeleteComplete;
 import kafka.tier.serdes.PartitionDeleteInitiate;
 import kafka.tier.serdes.TierKafkaKey;
 import com.google.flatbuffers.FlatBufferBuilder;
@@ -66,8 +67,12 @@ public abstract class AbstractTierMetadata {
     }
 
     public static TopicIdPartition deserializeKey(byte[] key) {
-        final ByteBuffer keyBuf = ByteBuffer.wrap(key);
-        final TierKafkaKey tierKey = TierKafkaKey.getRootAsTierKafkaKey(keyBuf);
+        return deserializeKey(ByteBuffer.wrap(key));
+    }
+
+    public static TopicIdPartition deserializeKey(ByteBuffer key) {
+        TierKafkaKey tierKey = TierKafkaKey.getRootAsTierKafkaKey(key);
+
         return new TopicIdPartition(tierKey.topicName(),
                 new UUID(tierKey.topicId().mostSignificantBits(),
                         tierKey.topicId().leastSignificantBits()),
@@ -82,30 +87,36 @@ public abstract class AbstractTierMetadata {
      * @throws TierMetadataDeserializationException
      */
     public static Optional<AbstractTierMetadata> deserialize(byte[] key, byte[] value) throws TierMetadataDeserializationException {
-        final ByteBuffer valueBuf = ByteBuffer.wrap(value);
+        return deserialize(ByteBuffer.wrap(key), ByteBuffer.wrap(value));
+    }
+
+    public static Optional<AbstractTierMetadata> deserialize(ByteBuffer key, ByteBuffer value) throws TierMetadataDeserializationException {
         final TopicIdPartition topicIdPartition = deserializeKey(key);
 
         // deserialize value header with record type and tierEpoch
-        final TierRecordType type = TierRecordType.toType(valueBuf.get());
+        final TierRecordType type = TierRecordType.toType(value.get());
         switch (type) {
             case InitLeader:
-                final InitLeader initLeader = InitLeader.getRootAsInitLeader(valueBuf);
+                final InitLeader initLeader = InitLeader.getRootAsInitLeader(value);
                 return Optional.of(new TierTopicInitLeader(topicIdPartition, initLeader));
             case SegmentUploadInitiate:
-                final SegmentUploadInitiate uploadInitiate = SegmentUploadInitiate.getRootAsSegmentUploadInitiate(valueBuf);
+                final SegmentUploadInitiate uploadInitiate = SegmentUploadInitiate.getRootAsSegmentUploadInitiate(value);
                 return Optional.of(new TierSegmentUploadInitiate(topicIdPartition, uploadInitiate));
             case SegmentUploadComplete:
-                final SegmentUploadComplete uploadComplete = SegmentUploadComplete.getRootAsSegmentUploadComplete(valueBuf);
+                final SegmentUploadComplete uploadComplete = SegmentUploadComplete.getRootAsSegmentUploadComplete(value);
                 return Optional.of(new TierSegmentUploadComplete(topicIdPartition, uploadComplete));
             case SegmentDeleteInitiate:
-                final SegmentDeleteInitiate deleteInitiate = SegmentDeleteInitiate.getRootAsSegmentDeleteInitiate(valueBuf);
+                final SegmentDeleteInitiate deleteInitiate = SegmentDeleteInitiate.getRootAsSegmentDeleteInitiate(value);
                 return Optional.of(new TierSegmentDeleteInitiate(topicIdPartition, deleteInitiate));
             case SegmentDeleteComplete:
-                final SegmentDeleteComplete deleteComplete = SegmentDeleteComplete.getRootAsSegmentDeleteComplete(valueBuf);
+                final SegmentDeleteComplete deleteComplete = SegmentDeleteComplete.getRootAsSegmentDeleteComplete(value);
                 return Optional.of(new TierSegmentDeleteComplete(topicIdPartition, deleteComplete));
             case PartitionDeleteInitiate:
-                final PartitionDeleteInitiate partitionDeleteInitiate = PartitionDeleteInitiate.getRootAsPartitionDeleteInitiate(valueBuf);
+                final PartitionDeleteInitiate partitionDeleteInitiate = PartitionDeleteInitiate.getRootAsPartitionDeleteInitiate(value);
                 return Optional.of(new TierPartitionDeleteInitiate(topicIdPartition, partitionDeleteInitiate));
+            case PartitionDeleteComplete:
+                final PartitionDeleteComplete partitionDeleteComplete = PartitionDeleteComplete.getRootAsPartitionDeleteComplete(value);
+                return Optional.of(new TierPartitionDeleteComplete(topicIdPartition, partitionDeleteComplete));
             default:
                 log.debug("Unknown tier metadata type with ID {}. Ignoring record.", type);
                 return Optional.empty();

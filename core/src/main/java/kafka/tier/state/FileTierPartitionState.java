@@ -117,6 +117,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         this(dir, topicPartition, tieringEnabled, CURRENT_VERSION);
     }
 
+    // package-private for testing
     FileTierPartitionState(File dir, TopicPartition topicPartition, boolean tieringEnabled, byte version) throws IOException {
         this.topicPartition = topicPartition;
         this.dir = dir;
@@ -136,34 +137,30 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return Optional.ofNullable(topicIdPartition);
     }
 
-    public boolean setTopicIdPartition(TopicIdPartition topicIdPartition) throws IOException {
-        if (this.topicIdPartition != null) {
-           if (!this.topicIdPartition.equals(topicIdPartition)) {
-               throw new IllegalStateException("TierPartitionState assigned a different "
-                       + "topicIdPartition than already assigned (" + topicIdPartition
-                       + " " + this.topicIdPartition + ")");
-           } else {
+    public boolean setTopicId(UUID topicId) throws IOException {
+        if (topicIdPartition != null) {
+           if (!topicIdPartition.topicId().equals(topicId))
+               throw new IllegalStateException("Illegal reassignment of topic id. Current: " + topicIdPartition + " Assigned: " + topicId);
+           else
                return false;
-           }
         }
 
-        this.topicIdPartition = topicIdPartition;
+        topicIdPartition = new TopicIdPartition(topicPartition.topic(), topicId, topicPartition.partition());
         log.info("Setting topicIdPartition {}", topicIdPartition);
 
         synchronized (lock) {
             maybeOpenChannel();
         }
-
         return true;
     }
 
     @Override
-    public boolean tieringEnabled() {
-        return tieringEnabled;
+    public boolean isTieringEnabled() {
+        return tieringEnabled && topicIdPartition != null;
     }
 
     @Override
-    public void onTieringEnable() throws IOException {
+    public void enableTierConfig() throws IOException {
         synchronized (lock) {
             this.tieringEnabled = true;
             maybeOpenChannel();
@@ -335,7 +332,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 flush();
             } finally {
                 closeHandlers();
-                log.info("Tier partition state for {} closed.", topicIdPartition());
+                log.info("Tier partition state for {} closed.",
+                        topicIdPartition().map(TopicIdPartition::toString).orElse(topicPartition.toString()));
             }
         }
     }
@@ -498,6 +496,10 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 case SegmentDeleteComplete:
                     return maybeTransitionSegment((AbstractTierSegmentMetadata) entry);
 
+                case PartitionDeleteInitiate:
+                case PartitionDeleteComplete:
+                    return AppendResult.ACCEPTED;
+
                 default:
                     throw new IllegalStateException("Attempt to append unknown type " + entry.type() + " to " + topicIdPartition);
             }
@@ -530,7 +532,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     private AppendResult maybeTransitionSegment(AbstractTierSegmentMetadata metadata) throws IOException {
         SegmentState currentState = state.allSegments.get(metadata.objectId());
 
-        // Fence transition that do not belong to the current epoch
+        // Fence transitions that do not belong to the current epoch
         if (metadata.tierEpoch() != state.currentEpoch) {
             log.info("Fenced {} as currentEpoch={} ({})", metadata, state.currentEpoch, topicIdPartition);
             return AppendResult.FENCED;

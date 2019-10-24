@@ -18,7 +18,6 @@
 package kafka.server
 
 import kafka.cluster.BrokerEndPoint
-import kafka.tier.TierMetadataManager
 import kafka.tier.fetcher.TierStateFetcher
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.utils.Time
@@ -29,7 +28,6 @@ class ReplicaFetcherManager(brokerConfig: KafkaConfig,
                             time: Time,
                             threadNamePrefix: Option[String] = None,
                             quotaManager: ReplicationQuotaManager,
-                            tierMetadataManager: TierMetadataManager,
                             tierStateFetcher: Option[TierStateFetcher] = None)
       extends AbstractFetcherManager[ReplicaFetcherThread](
         name = "ReplicaFetcherManager on broker " + brokerConfig.brokerId,
@@ -40,7 +38,7 @@ class ReplicaFetcherManager(brokerConfig: KafkaConfig,
     val prefix = threadNamePrefix.map(tp => s"$tp:").getOrElse("")
     val threadName = s"${prefix}ReplicaFetcherThread-$fetcherId-${sourceBroker.id}"
     new ReplicaFetcherThread(threadName, fetcherId, sourceBroker, brokerConfig, failedPartitions, replicaManager,
-      metrics, time, quotaManager, tierMetadataManager, tierStateFetcher)
+      metrics, time, quotaManager, tierStateFetcher)
   }
 
   def shutdown(): Unit = {

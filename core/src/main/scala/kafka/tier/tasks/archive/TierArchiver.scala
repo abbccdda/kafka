@@ -10,7 +10,6 @@ import com.yammer.metrics.core.{Gauge, Meter}
 import kafka.log.AbstractLog
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.ReplicaManager
-import kafka.tier.TierMetadataManager
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.store.TierObjectStore
 import kafka.tier.tasks.{TierTaskWorkingSet, TierTasksConfig}
@@ -18,7 +17,6 @@ import kafka.tier.topic.TierTopicAppender
 import kafka.utils.Logging
 import org.apache.kafka.common.utils.Time
 
-import scala.collection.JavaConverters._
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -35,7 +33,6 @@ import scala.concurrent.{ExecutionContext, Future}
   */
 final class TierArchiver(config: TierTasksConfig,
                          replicaManager: ReplicaManager,
-                         tierMetadataManager: TierMetadataManager,
                          tierTopicAppender: TierTopicAppender,
                          tierObjectStore: TierObjectStore,
                          ctx: CancellationContext,
@@ -52,13 +49,13 @@ final class TierArchiver(config: TierTasksConfig,
 
   removeMetric("TotalLag")
   newGauge("TotalLag", new Gauge[Long] {
-    def value(): Long = TierArchiver.totalLag(replicaManager, tierMetadataManager)
+    def value(): Long = TierArchiver.totalLag(replicaManager)
   })
 
   private[tasks] val taskQueue = new ArchiverTaskQueue(ctx.subContext(), maxTasks, time, schedulingLag,
     ArchiverMetrics(Some(byteRate), Some(retryRate)))
-  private val workingSet = new TierTaskWorkingSet[ArchiveTask](taskQueue, replicaManager, tierMetadataManager,
-    tierTopicAppender, tierObjectStore, config.maxRetryBackoffMs, time)
+  private val workingSet = new TierTaskWorkingSet[ArchiveTask](taskQueue, replicaManager, tierTopicAppender,
+    tierObjectStore, config.maxRetryBackoffMs, time)
 
   /**
     * Initiate transitions for tasks and complete transitions if outstanding futures have completed. This method is
@@ -106,17 +103,17 @@ object TierArchiver {
     log.tierableLogSegments.map(_.size.toLong).sum
   }
 
-  private[archive] def totalLag(replicaManager: ReplicaManager, tierMetadataManager: TierMetadataManager): Long = {
+  private[archive] def totalLag(replicaManager: ReplicaManager): Long = {
     var totalSize = 0L
 
-    tierMetadataManager.tierEnabledLeaderPartitionStateIterator.asScala.foreach { partitionState =>
-      if (partitionState.tieringEnabled) {
-        replicaManager.getLog(partitionState.topicPartition) match {
-          case Some(log) => totalSize += sizeOfTierableSegments(log)
-          case None =>
-        }
+    replicaManager.leaderPartitionsIterator.foreach { leaderPartition =>
+      leaderPartition.log.foreach { log =>
+        val tierPartitionState = log.tierPartitionState
+        if (tierPartitionState.isTieringEnabled)
+          totalSize += sizeOfTierableSegments(log)
       }
     }
+
     totalSize
   }
 }

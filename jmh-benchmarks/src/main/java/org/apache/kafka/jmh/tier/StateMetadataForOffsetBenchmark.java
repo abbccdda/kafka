@@ -17,10 +17,11 @@
 
 package org.apache.kafka.jmh.tier;
 
+import kafka.log.LogConfig;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.domain.TierTopicInitLeader;
-import kafka.tier.state.FileTierPartitionStateFactory;
+import kafka.tier.state.TierPartitionStateFactory;
 import kafka.tier.state.TierPartitionState;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -35,10 +36,12 @@ import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.annotations.Warmup;
+import scala.collection.immutable.HashSet;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -61,16 +64,19 @@ public class StateMetadataForOffsetBenchmark {
         private static final TopicIdPartition TOPIC_PARTITION = new TopicIdPartition("mytopic", UUID.randomUUID(), 0);
         private static final int EPOCH = 0;
         private static final int COUNT = 10000;
-        private FileTierPartitionStateFactory factory;
+        private TierPartitionStateFactory factory;
         private TierPartitionState state;
 
         @Setup(Level.Trial)
         public void writeState() throws Exception {
-            if (!new File(BASE_DIR).mkdir()) {
+            Properties properties = new Properties();
+            properties.put(LogConfig.TierEnableProp(), "true");
+            LogConfig config = LogConfig.apply(properties, new HashSet<>());
+
+            if (!new File(BASE_DIR).mkdir())
                 throw new Exception("could not create status directory.");
-            }
-            factory = new FileTierPartitionStateFactory();
-            state = factory.initState(new File(BASE_DIR), TOPIC_PARTITION.topicPartition(), true);
+            factory = new TierPartitionStateFactory(true);
+            state = factory.initState(new File(BASE_DIR), TOPIC_PARTITION.topicPartition(), config);
             state.append(new TierTopicInitLeader(TOPIC_PARTITION, EPOCH,
                     java.util.UUID.randomUUID(), 0));
             for (int i = 0; i < COUNT; i++) {

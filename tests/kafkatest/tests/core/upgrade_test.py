@@ -19,7 +19,6 @@ from ducktape.utils.util import wait_until
 
 from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.services.kafka import KafkaService
-from kafkatest.services.kafka import config_property
 from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
@@ -170,9 +169,10 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
         assert len(cluster_id) == 22
 
         if tiered_storage:
-            self.kafka.leader(self.topic)
-            self.add_log_metrics(self.topic)
+            self.add_log_metrics(self.topic, partitions=range(0, self.PARTITIONS))
             self.kafka.jmx_object_names += [TieredStorageMetricsRegistry.ARCHIVER_LAG.mbean]
             self.restart_jmx_tool()
-            wait_until(lambda: self.tiering_started(self.topic),
-                       timeout_sec=120, backoff_sec=2, err_msg="no evidence of archival within timeout")
+            for i in range(0, self.PARTITIONS):
+                self.logger.debug("Checking archiving for partition {}..".format(i))
+                wait_until(lambda: self.tiering_started(self.topic, partition=i),
+                           timeout_sec=120, backoff_sec=2, err_msg="no evidence of archival within timeout")

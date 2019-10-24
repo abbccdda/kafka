@@ -1,8 +1,12 @@
+/*
+ Copyright 2019 Confluent Inc.
+ */
+
 package kafka.tier.tasks.delete
 
 import java.io.File
 import java.util.concurrent.CompletableFuture
-import java.util.{Optional, Properties, UUID}
+import java.util.{Properties, UUID}
 
 import kafka.log._
 import kafka.server.ReplicaManager
@@ -11,9 +15,9 @@ import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
-import kafka.tier.tasks.delete.DeletionTask.{CollectDeletableSegments, CompleteDelete, Delete, InitiateDelete}
+import kafka.tier.tasks.delete.DeletionTask._
 import kafka.tier.topic.TierTopicManager
-import kafka.tier.{TierMetadataManager, TopicIdPartition}
+import kafka.tier.TopicIdPartition
 import kafka.utils.TestUtils
 import org.apache.kafka.common.record.FileRecords
 import org.apache.kafka.common.utils.MockTime
@@ -40,7 +44,6 @@ class DeletionTaskTest {
   val tierTopicManager = mock(classOf[TierTopicManager])
   val tierObjectStore = mock(classOf[TierObjectStore])
   val replicaManager = mock(classOf[ReplicaManager])
-  val tierMetadataManager = mock(classOf[TierMetadataManager])
   val time = new MockTime()
   val tmpFile = TestUtils.tempFile()
   var logWithTieredSegments: AbstractLog = _
@@ -85,10 +88,9 @@ class DeletionTaskTest {
 
     when(replicaManager.getLog(topicIdPartition_1.topicPartition)).thenReturn(Some(logWithTieredSegments))
     when(replicaManager.getLog(topicIdPartition_2.topicPartition)).thenReturn(Some(emptyLog))
-    when(replicaManager.tierMetadataManager).thenReturn(tierMetadataManager)
 
-    when(tierMetadataManager.tierPartitionState(topicIdPartition_1)).thenReturn(Optional.of(tierPartitionState_1))
-    when(tierMetadataManager.tierPartitionState(topicIdPartition_2)).thenReturn(Optional.of(tierPartitionState_2))
+    when(logWithTieredSegments.tierPartitionState).thenReturn(tierPartitionState_1)
+    when(emptyLog.tierPartitionState).thenReturn(tierPartitionState_2)
 
     when(tierTopicManager.addMetadata(any())).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
   }
@@ -100,7 +102,7 @@ class DeletionTaskTest {
 
   @Test
   def testCollectDeletableSegments(): Unit = {
-    val state = CollectDeletableSegments(leaderEpoch = 0)
+    val state = CollectDeletableSegments(RetentionMetadata(replicaManager, leaderEpoch = 0))
     val future = state.transition(topicIdPartition_1, replicaManager, tierTopicManager, tierObjectStore, time)
     val result = Await.ready(future, 1 second)
     val nextState = result.value.get.get
@@ -113,7 +115,7 @@ class DeletionTaskTest {
 
   @Test
   def testCollectDeletableSegmentsEmptyLog(): Unit = {
-    val state = CollectDeletableSegments(leaderEpoch = 0)
+    val state = CollectDeletableSegments(RetentionMetadata(replicaManager, leaderEpoch = 0))
     val future = state.transition(topicIdPartition_2, replicaManager, tierTopicManager, tierObjectStore, time)
     val result = Await.ready(future, 1 second)
     val nextState = result.value.get.get
@@ -124,7 +126,7 @@ class DeletionTaskTest {
   @Test
   def testInitiateDelete(): Unit = {
     val toDelete = logWithTieredSegments.tieredLogSegments.take(3).map(_.metadata)
-    val initiateDelete = InitiateDelete(leaderEpoch = 0, toDelete.to[mutable.Queue])
+    val initiateDelete = InitiateDelete(RetentionMetadata(replicaManager, leaderEpoch = 0), toDelete.to[mutable.Queue])
     val future = initiateDelete.transition(topicIdPartition_1, replicaManager, tierTopicManager, tierObjectStore, time)
     val result = Await.ready(future, 1 second)
     val nextState = result.value.get.get
@@ -142,7 +144,7 @@ class DeletionTaskTest {
   @Test
   def testDelete(): Unit = {
     val toDelete = logWithTieredSegments.tieredLogSegments.take(3).map(_.metadata)
-    val delete = Delete(leaderEpoch = 0, toDelete.to[mutable.Queue])
+    val delete = Delete(RetentionMetadata(replicaManager, leaderEpoch = 0), toDelete.to[mutable.Queue])
     val future = delete.transition(topicIdPartition_1, replicaManager, tierTopicManager, tierObjectStore, time)
     val result = Await.ready(future, 1 second)
     val nextState = result.value.get.get
@@ -158,7 +160,7 @@ class DeletionTaskTest {
   @Test
   def testCompleteDelete(): Unit = {
     val toDelete = logWithTieredSegments.tieredLogSegments.take(3).map(_.metadata)
-    val completeDelete = CompleteDelete(leaderEpoch = 0, toDelete.to[mutable.Queue])
+    val completeDelete = CompleteDelete(RetentionMetadata(replicaManager, leaderEpoch = 0), toDelete.to[mutable.Queue])
     val future = completeDelete.transition(topicIdPartition_1, replicaManager, tierTopicManager, tierObjectStore, time)
     val result = Await.ready(future, 1 second)
     val nextState = result.value.get.get
@@ -176,12 +178,22 @@ class DeletionTaskTest {
   @Test
   def testCompleteAllDeletes(): Unit = {
     val toDelete = logWithTieredSegments.tieredLogSegments.take(1).map(_.metadata)
-    val completeDelete = CompleteDelete(leaderEpoch = 0, toDelete.to[mutable.Queue])
+    val completeDelete = CompleteDelete(RetentionMetadata(replicaManager, leaderEpoch = 0), toDelete.to[mutable.Queue])
     val future = completeDelete.transition(topicIdPartition_1, replicaManager, tierTopicManager, tierObjectStore, time)
     val result = Await.ready(future, 1 second)
     val nextState = result.value.get.get
 
     assertEquals(classOf[CollectDeletableSegments], nextState.getClass)
+  }
+
+  @Test
+  def testDeletePartitionWithNoTieredSegments(): Unit = {
+    val collectDeletableSegments = CollectDeletableSegments(DeletedPartitionMetadata(List.empty))
+    val future = collectDeletableSegments.transition(topicIdPartition_1, replicaManager, tierTopicManager, tierObjectStore, time)
+    val result = Await.ready(future, 1 second)
+    val nextState = result.value.get.get
+
+    assertEquals(classOf[PartitionDeleteComplete], nextState.getClass)
   }
 
   private def tieredLogSegment(topicIdPartition: TopicIdPartition, baseOffset: Long, endOffset: Long): TierLogSegment = {

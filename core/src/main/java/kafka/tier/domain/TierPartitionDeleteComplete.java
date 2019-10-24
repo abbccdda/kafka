@@ -6,46 +6,43 @@ package kafka.tier.domain;
 
 import com.google.flatbuffers.FlatBufferBuilder;
 import kafka.tier.TopicIdPartition;
-import kafka.tier.serdes.PartitionDeleteInitiate;
+import kafka.tier.serdes.PartitionDeleteComplete;
 
 import java.nio.ByteBuffer;
 import java.util.UUID;
 
-public class TierPartitionDeleteInitiate extends AbstractTierMetadata {
+public class TierPartitionDeleteComplete extends AbstractTierMetadata {
     private final static byte VERSION_V0 = 0;
     private final static byte CURRENT_VERSION = VERSION_V0;
     private final static int INITIAL_BUFFER_SIZE = 60;
 
     private final TopicIdPartition topicIdPartition;
-    private final PartitionDeleteInitiate metadata;
+    private final PartitionDeleteComplete metadata;
 
-    public TierPartitionDeleteInitiate(TopicIdPartition topicIdPartition,
-                                       int controllerEpoch,
-                                       UUID messageId) {
+    public TierPartitionDeleteComplete(TopicIdPartition topicIdPartition, UUID messageId) {
         FlatBufferBuilder builder = new FlatBufferBuilder(INITIAL_BUFFER_SIZE).forceDefaults(true);
 
-        PartitionDeleteInitiate.startPartitionDeleteInitiate(builder);
+        PartitionDeleteComplete.startPartitionDeleteComplete(builder);
 
-        PartitionDeleteInitiate.addVersion(builder, CURRENT_VERSION);
-        PartitionDeleteInitiate.addControllerEpoch(builder, controllerEpoch);
+        PartitionDeleteComplete.addVersion(builder, CURRENT_VERSION);
         int messageIdOffset = kafka.tier.serdes.UUID.createUUID(builder, messageId.getMostSignificantBits(), messageId.getLeastSignificantBits());
-        PartitionDeleteInitiate.addMessageId(builder, messageIdOffset);
+        PartitionDeleteComplete.addMessageId(builder, messageIdOffset);
 
-        int entryId = PartitionDeleteInitiate.endPartitionDeleteInitiate(builder);
+        int entryId = PartitionDeleteComplete.endPartitionDeleteComplete(builder);
         builder.finish(entryId);
 
         this.topicIdPartition = topicIdPartition;
-        this.metadata = PartitionDeleteInitiate.getRootAsPartitionDeleteInitiate(builder.dataBuffer());
+        this.metadata = PartitionDeleteComplete.getRootAsPartitionDeleteComplete(builder.dataBuffer());
     }
 
-    public TierPartitionDeleteInitiate(TopicIdPartition topicIdPartition, PartitionDeleteInitiate metadata) {
+    public TierPartitionDeleteComplete(TopicIdPartition topicIdPartition, PartitionDeleteComplete metadata) {
         this.topicIdPartition = topicIdPartition;
         this.metadata = metadata;
     }
 
     @Override
     public TierRecordType type() {
-        return TierRecordType.PartitionDeleteInitiate;
+        return TierRecordType.PartitionDeleteComplete;
     }
 
     @Override
@@ -60,7 +57,7 @@ public class TierPartitionDeleteInitiate extends AbstractTierMetadata {
 
     @Override
     public int tierEpoch() {
-        return metadata.controllerEpoch();
+        return -1;
     }
 
     @Override
@@ -70,10 +67,9 @@ public class TierPartitionDeleteInitiate extends AbstractTierMetadata {
 
     @Override
     public String toString() {
-        return "TierPartitionDeleteInitiate(" +
+        return "TierPartitionDeleteComplete(" +
                 "version=" + metadata.version() + ", " +
-                "topicIdPartition=" + topicIdPartition() + ", " +
-                "controllerEpoch=" + metadata.controllerEpoch() + ", " +
-                "messageIdAsBase64=" + messageIdAsBase64() + ")";
+                "topic=" + topicIdPartition() + ", " +
+                "messageId=" + messageId() + ")";
     }
 }

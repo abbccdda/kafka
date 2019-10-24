@@ -17,7 +17,6 @@
 package kafka.controller
 
 import java.net.SocketTimeoutException
-import java.util.UUID
 import java.util.concurrent.{BlockingQueue, LinkedBlockingQueue, TimeUnit}
 
 import com.yammer.metrics.core.{Gauge, Timer}

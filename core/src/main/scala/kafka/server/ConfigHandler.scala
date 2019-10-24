@@ -22,7 +22,7 @@ import java.util.Properties
 import DynamicConfig.Broker._
 import kafka.api.ApiVersion
 import kafka.controller.KafkaController
-import kafka.log.{LogConfig, LogManager}
+import kafka.log.LogConfig
 import kafka.security.CredentialProvider
 import kafka.server.Constants._
 import kafka.server.QuotaFactory.QuotaManagers
@@ -48,7 +48,8 @@ trait ConfigHandler {
   * The TopicConfigHandler will process topic config changes in ZK.
   * The callback provides the topic name and the full properties set read from ZK
   */
-class TopicConfigHandler(private val logManager: LogManager, kafkaConfig: KafkaConfig, val quotas: QuotaManagers, kafkaController: KafkaController) extends ConfigHandler with Logging  {
+class TopicConfigHandler(private val replicaManager: ReplicaManager, kafkaConfig: KafkaConfig, val quotas: QuotaManagers, kafkaController: KafkaController) extends ConfigHandler with Logging  {
+  private val logManager = replicaManager.logManager
 
   private def updateLogConfig(topic: String,
                               topicConfig: Properties,
@@ -62,7 +63,10 @@ class TopicConfigHandler(private val logManager: LogManager, kafkaConfig: KafkaC
         if (!configNamesToExclude.contains(key)) props.put(key, value)
       }
       val logConfig = LogConfig.fromProps(logManager.currentDefaultConfig.originals, props)
-      logs.foreach(_.updateConfig(logConfig))
+
+      logs.map(_.topicPartition).foreach { topicPartition =>
+        replicaManager.updateLogConfig(topicPartition, logConfig)
+      }
     }
   }
 

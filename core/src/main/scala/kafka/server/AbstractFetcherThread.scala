@@ -41,7 +41,6 @@ import java.util.function.Consumer
 import com.yammer.metrics.core.Gauge
 import kafka.log.LogAppendInfo
 import kafka.server.epoch.EpochEntry
-import kafka.tier.TierMetadataManager
 import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.server.AbstractFetcherThread.ReplicaFetch
@@ -113,7 +112,6 @@ abstract class AbstractFetcherThread(name: String,
                                      val sourceBroker: BrokerEndPoint,
                                      failedPartitions: FailedPartitions,
                                      fetchBackOffMs: Int = 0,
-                                     tierMetadataManager: TierMetadataManager,
                                      tierStateFetcher: Option[TierStateFetcher],
                                      isInterruptible: Boolean = true)
   extends ShutdownableThread(name, isInterruptible) {
@@ -173,6 +171,11 @@ abstract class AbstractFetcherThread(name: String,
    * and producer state, and truncates the local log aligned to the end of the restored state.
    */
   protected def onRestoreTierState(topicPartition: TopicPartition, proposedLocalLogStart: Long, tierState: TierState): Unit
+
+  /**
+    * Materialize tier partition state at least until the provided target log offset.
+    */
+  protected def materializeTierStateUntilOffset(topicPartition: TopicPartition, targetOffset: Long): Future[TierObjectMetadata]
 
   override def shutdown(): Unit = {
     initiateShutdown()
@@ -409,7 +412,7 @@ abstract class AbstractFetcherThread(name: String,
     try {
       Option(partitionStates.stateValue(topicPartition)).foreach { currentFetchState =>
         val leaderStartOffset = fetchEarliestLocalOffsetFromLeader(topicPartition, currentFetchState.currentLeaderEpoch)
-        val completionStatus = tierMetadataManager.materializeUntilOffset(topicPartition, leaderStartOffset - 1)
+        val completionStatus = materializeTierStateUntilOffset(topicPartition, leaderStartOffset - 1)
         partitionStates.updateAndMoveToEnd(topicPartition, currentFetchState.copy(state = MaterializingTierMetadata(completionStatus, currentFetchState.state)))
       }
       true

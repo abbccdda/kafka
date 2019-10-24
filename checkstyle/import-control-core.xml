@@ -108,7 +108,7 @@
     </subpackage>
     <subpackage name="topic">
       <allow class="kafka.zk.AdminZkClient" />
-      <allow class="kafka.tier.TierMetadataManager" />
+      <allow class="kafka.tier.TierReplicaManager" />
       <allow class="kafka.tier.TierTopicManagerCommitter" />
     </subpackage>
   </subpackage>

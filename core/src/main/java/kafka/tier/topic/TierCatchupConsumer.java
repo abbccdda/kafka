@@ -4,9 +4,6 @@
 
 package kafka.tier.topic;
 
-import kafka.tier.TierMetadataManager;
-import kafka.tier.TopicIdPartition;
-import kafka.tier.state.TierPartitionState;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.common.TopicPartition;
@@ -15,11 +12,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.Collection;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 
 /**
@@ -29,15 +23,11 @@ import java.util.stream.Collectors;
 class TierCatchupConsumer {
     private static final Logger log = LoggerFactory.getLogger(TierCatchupConsumer.class);
 
-    private final TierMetadataManager tierMetadataManager;
     private final Supplier<Consumer<byte[], byte[]>> consumerSupplier;
 
     private volatile Consumer<byte[], byte[]> consumer;
 
-    private Set<TopicIdPartition> partitionsCatchingUp;
-
-    TierCatchupConsumer(TierMetadataManager tierMetadataManager, Supplier<Consumer<byte[], byte[]>> consumerSupplier) {
-        this.tierMetadataManager = tierMetadataManager;
+    TierCatchupConsumer(Supplier<Consumer<byte[], byte[]>> consumerSupplier) {
         this.consumerSupplier = consumerSupplier;
     }
 
@@ -62,37 +52,11 @@ class TierCatchupConsumer {
 
     /**
      * Startup the consumer, throwing an exception if unable to do so.
-     * @param tierTopic tier topic instance
-     * @param partitionStates tier partition state for partitions to catchup on
+     * @param tierTopicPartitions Tier topic partitions to start consuming
      */
-    void doStart(TierTopic tierTopic, Set<TierPartitionState> partitionStates) {
-        if (!maybeStartConsumer(tierTopic, partitionStates))
+    void doStart(Set<TopicPartition> tierTopicPartitions) {
+        if (!maybeStartConsumer(tierTopicPartitions))
             throw new IllegalStateException("Unable to startup catchup consumer");
-    }
-
-    /**
-     * Startup the consumer, if it is not already active.
-     * @param tierTopic tier topic instance
-     * @param partitionStates tier partition state for partitions to catchup on
-     * @return true if consumer was started; false otherwise
-     */
-    boolean maybeStartConsumer(TierTopic tierTopic, Set<TierPartitionState> partitionStates) {
-        if (active() || partitionStates.isEmpty())
-            return false;
-
-        partitionStates.forEach(TierPartitionState::beginCatchup);
-
-        Set<TopicIdPartition> partitions = toTopicIdPartitions(partitionStates);
-        consumer = consumerSupplier.get();
-
-        Collection<TopicPartition> tierTopicPartitions = tierTopic.toTierTopicPartitions(partitions);
-        log.info("Seeking catchup consumer to beginning for {}", tierTopicPartitions);
-
-        consumer.assign(tierTopicPartitions);
-        consumer.seekToBeginning(consumer.assignment());
-
-        partitionsCatchingUp = partitions;
-        return true;
     }
 
     /**
@@ -118,28 +82,6 @@ class TierCatchupConsumer {
         }
 
         if (hasCaughtUp) {
-            // complete catchup for partitions
-            for (TopicIdPartition topicIdPartition : partitionsCatchingUp) {
-                Optional<TierPartitionState> partitionStateOpt = tierMetadataManager.tierPartitionState(topicIdPartition);
-                partitionStateOpt.ifPresent(partitionState -> {
-                    switch (partitionState.status()) {
-                        case CATCHUP:
-                            partitionState.onCatchUpComplete();
-                            break;
-
-                        case INIT:
-                        case ONLINE:
-                            log.warn("Expected " + topicIdPartition + " to be in catchup state but is in " + partitionState.status());
-                            break;
-
-                        default:
-                            log.debug("Ignoring catchup completion for " + topicIdPartition + " as current state is " + partitionState.status());
-                    }
-                });
-            }
-            partitionsCatchingUp = null;
-
-            // close consumer
             close();
             return true;
         }
@@ -176,12 +118,19 @@ class TierCatchupConsumer {
         return consumer;
     }
 
-    private static Set<TopicIdPartition> toTopicIdPartitions(Set<TierPartitionState> states) {
-        return states
-                .stream()
-                .map(TierPartitionState::topicIdPartition)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .collect(Collectors.toSet());
+    /**
+     * Startup the consumer, if it is not already active.
+     * @param tierTopicPartitions Tier topic partitions to start consuming
+     * @return true if consumer was started; false otherwise
+     */
+    private boolean maybeStartConsumer(Set<TopicPartition> tierTopicPartitions) {
+        if (active() || tierTopicPartitions.isEmpty())
+            return false;
+
+        consumer = consumerSupplier.get();
+        log.info("Seeking catchup consumer to beginning for {}", tierTopicPartitions);
+        consumer.assign(tierTopicPartitions);
+        consumer.seekToBeginning(consumer.assignment());
+        return true;
     }
 }

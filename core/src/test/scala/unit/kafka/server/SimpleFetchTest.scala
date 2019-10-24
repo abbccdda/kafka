@@ -30,7 +30,6 @@ import org.junit.{After, Before, Test}
 import java.util.{Optional, Properties}
 import java.util.concurrent.atomic.AtomicBoolean
 
-import kafka.tier.TierMetadataManager
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, SimpleRecord}
 import org.easymock.EasyMock
@@ -115,12 +114,10 @@ class SimpleFetchTest {
     EasyMock.expect(logManager.liveLogDirs).andReturn(Array.empty[File]).anyTimes()
     EasyMock.replay(logManager)
 
-    val tierMetadataManager: TierMetadataManager = EasyMock.createMock(classOf[TierMetadataManager])
-
     // create the replica manager
     replicaManager = new ReplicaManager(configs.head, metrics, time, kafkaZkClient, scheduler, logManager,
       new AtomicBoolean(false), QuotaFactory.instantiate(configs.head, metrics, time, ""), new BrokerTopicStats,
-      new MetadataCache(configs.head.brokerId), new LogDirFailureChannel(configs.head.logDirs.size), tierMetadataManager)
+      new MetadataCache(configs.head.brokerId), new LogDirFailureChannel(configs.head.logDirs.size), TierReplicaComponents.EMPTY)
 
     // add the partition with two replicas, both in ISR
     val partition = replicaManager.createPartition(new TopicPartition(topic, partitionId))

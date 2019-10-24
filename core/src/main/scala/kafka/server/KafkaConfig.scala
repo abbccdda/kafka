@@ -212,6 +212,7 @@ object Defaults {
   val TierGcsRegion = null
   val TierGcsWriteChunkSize = 0
   val TierGcsReadChunkSize = 0
+  val TierTopicDeleteCheckIntervalMs = 3L * 60 * 60 * 1000
 
   /** Tiered storage retention configs **/
   val TierLocalHotsetBytes = -1L
@@ -493,6 +494,9 @@ object KafkaConfig {
 
   /** Tiered storage archiver configs **/
   val TierArchiverNumThreadsProp = ConfluentPrefix + "tier.archiver.num.threads"
+
+  /** Tiered storage topic deletion configs **/
+  val TierTopicDeleteCheckIntervalMsProp = ConfluentPrefix + "tier.topic.delete.check.interval.ms"
 
   /** Observer configs **/
   val ObserverFeatureProp = ConfluentPrefix + "observer.feature"
@@ -872,6 +876,7 @@ object KafkaConfig {
   val TierGcsRegionDoc = "The GCS region to use for tiered storage."
   val TierGcsWriteChunkSizeDoc = "The GCS chunk size for write requests between the broker and storage. If null, then the default value from the GCS implementation is used."
   val TierGcsReadChunkSizeDoc = "The GCS chunk size for read requests between the broker and storage. If null, then the default value from the GCS implementation is used."
+  val TierTopicDeleteCheckIntervalMsDoc = "Frequency at which tiered objects cleanup is run for deleted topics."
 
   /** Tiered storage retention configs **/
   val TierLocalHotsetBytesDoc = ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_DOC
@@ -1177,6 +1182,7 @@ object KafkaConfig {
       .defineInternal(TierGcsRegionProp, STRING, Defaults.TierGcsRegion, HIGH, TierGcsRegionDoc)
       .defineInternal(TierGcsWriteChunkSizeProp, INT, Defaults.TierGcsWriteChunkSize, atLeast(0), LOW, TierGcsWriteChunkSizeDoc)
       .defineInternal(TierGcsReadChunkSizeProp, INT, Defaults.TierGcsReadChunkSize, atLeast(0), LOW, TierGcsReadChunkSizeDoc)
+      .defineInternal(TierTopicDeleteCheckIntervalMsProp, LONG, Defaults.TierTopicDeleteCheckIntervalMs, atLeast(1), LOW, TierTopicDeleteCheckIntervalMsDoc)
 
       /** ********* Observer Configuration **************/
       .defineInternal(ObserverFeatureProp, BOOLEAN, Defaults.ObserverFeature, MEDIUM, ObserverFeatureDoc)
@@ -1559,6 +1565,7 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierGcsRegion = getString(KafkaConfig.TierGcsRegionProp)
   val tierGcsWriteChunkSize = getInt(KafkaConfig.TierGcsWriteChunkSizeProp)
   val tierGcsReadChunkSize = getInt(KafkaConfig.TierGcsReadChunkSizeProp)
+  val tierTopicDeleteCheckIntervalMs = getLong(KafkaConfig.TierTopicDeleteCheckIntervalMsProp)
 
   /** ********* Interceptor Configuration ***********/
   val observerFeature = getBoolean(KafkaConfig.ObserverFeatureProp)

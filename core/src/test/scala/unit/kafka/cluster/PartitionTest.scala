@@ -18,7 +18,7 @@ package kafka.cluster
 
 import java.io.File
 import java.nio.ByteBuffer
-import java.util.{Optional, Properties}
+import java.util.{Optional, Properties, UUID}
 import java.util.concurrent.{CountDownLatch, Executors, TimeUnit, TimeoutException}
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -29,6 +29,7 @@ import kafka.common.UnexpectedAppendOffsetException
 import kafka.log.{Defaults => _, _}
 import kafka.server._
 import kafka.server.checkpoints.OffsetCheckpoints
+import kafka.tier.TierReplicaManager
 import kafka.utils._
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{ApiException, OffsetNotAvailableException, ReplicaNotAvailableException}
@@ -64,6 +65,7 @@ class PartitionTest {
   val delayedOperations: DelayedOperations = mock(classOf[DelayedOperations])
   val metadataCache: MetadataCache = mock(classOf[MetadataCache])
   val offsetCheckpoints: OffsetCheckpoints = mock(classOf[OffsetCheckpoints])
+  val tierReplicaManager = mock(classOf[TierReplicaManager])
   var partition: Partition = _
 
   @Before
@@ -77,7 +79,8 @@ class PartitionTest {
     logDir1 = TestUtils.randomPartitionLogDir(tmpDir)
     logDir2 = TestUtils.randomPartitionLogDir(tmpDir)
     logManager = TestUtils.createLogManager(
-      logDirs = Seq(logDir1, logDir2), defaultConfig = logConfig, CleanerConfig(enableCleaner = false), time)
+      logDirs = Seq(logDir1, logDir2), defaultConfig = logConfig, CleanerConfig(enableCleaner = false), time,
+      tierLogComponents = TierLogComponents.EMPTY)
     logManager.startup()
 
     partition = new Partition(topicPartition,
@@ -89,7 +92,8 @@ class PartitionTest {
       stateStore,
       delayedOperations,
       metadataCache,
-      logManager)
+      logManager,
+      Some(tierReplicaManager))
 
     when(stateStore.fetchTopicConfig()).thenReturn(createLogProperties(Map.empty))
     when(offsetCheckpoints.fetch(ArgumentMatchers.anyString, ArgumentMatchers.eq(topicPartition)))
@@ -645,7 +649,8 @@ class PartitionTest {
 
   private def setupPartitionWithMocks(leaderEpoch: Int,
                                       isLeader: Boolean,
-                                      log: AbstractLog = logManager.getOrCreateLog(topicPartition, logConfig)): Partition = {
+                                      log: AbstractLog = logManager.getOrCreateLog(topicPartition, logConfig),
+                                      topicIdOpt: Option[UUID] = None): Partition = {
     partition.createLogIfNotExists(brokerId, isNew = false, isFutureReplica = false, offsetCheckpoints)
 
     val controllerId = 0
@@ -654,26 +659,32 @@ class PartitionTest {
     val isr = replicas
 
     if (isLeader) {
-      assertTrue("Expected become leader transition to succeed",
-        partition.makeLeader(controllerId, new LeaderAndIsrPartitionState()
+      val partitionState = new LeaderAndIsrPartitionState()
           .setControllerEpoch(controllerEpoch)
           .setLeader(brokerId)
           .setLeaderEpoch(leaderEpoch)
           .setIsr(isr)
           .setZkVersion(1)
           .setReplicas(replicas)
-          .setIsNew(true), 0, offsetCheckpoints))
+          .setIsNew(true)
+      topicIdOpt.foreach { topicId => partitionState.setTopicId(topicId) }
+
+      assertTrue("Expected become leader transition to succeed",
+        partition.makeLeader(controllerId, partitionState, 0, offsetCheckpoints))
       assertEquals(leaderEpoch, partition.getLeaderEpoch)
     } else {
+      val partitionState = new LeaderAndIsrPartitionState()
+        .setControllerEpoch(controllerEpoch)
+        .setLeader(brokerId + 1)
+        .setLeaderEpoch(leaderEpoch)
+        .setIsr(isr)
+        .setZkVersion(1)
+        .setReplicas(replicas)
+        .setIsNew(true)
+      topicIdOpt.foreach { topicId => partitionState.setTopicId(topicId) }
+
       assertTrue("Expected become follower transition to succeed",
-        partition.makeFollower(controllerId, new LeaderAndIsrPartitionState()
-          .setControllerEpoch(controllerEpoch)
-          .setLeader(brokerId + 1)
-          .setLeaderEpoch(leaderEpoch)
-          .setIsr(isr)
-          .setZkVersion(1)
-          .setReplicas(replicas)
-          .setIsNew(true), 0, offsetCheckpoints))
+        partition.makeFollower(controllerId, partitionState, 0, offsetCheckpoints))
       assertEquals(leaderEpoch, partition.getLeaderEpoch)
       assertEquals(None, partition.leaderLogIfLocal)
     }
@@ -968,7 +979,8 @@ class PartitionTest {
         stateStore,
         delayedOperations,
         metadataCache,
-        logManager)
+        logManager,
+        Some(mock(classOf[TierReplicaManager])))
 
       when(delayedOperations.checkAndCompleteFetch())
         .thenAnswer(new Answer[Unit] {
@@ -1578,7 +1590,8 @@ class PartitionTest {
       stateStore,
       delayedOperations,
       metadataCache,
-      spyLogManager)
+      spyLogManager,
+      tierReplicaManagerOpt = None)
 
     partition.createLog(brokerId, isNew = true, isFutureReplica = false, offsetCheckpoints)
 
@@ -1615,7 +1628,8 @@ class PartitionTest {
       stateStore,
       delayedOperations,
       metadataCache,
-      spyLogManager)
+      spyLogManager,
+      tierReplicaManagerOpt = None)
 
     partition.createLog(brokerId, isNew = true, isFutureReplica = false, offsetCheckpoints)
 
@@ -1653,7 +1667,8 @@ class PartitionTest {
       stateStore,
       delayedOperations,
       metadataCache,
-      spyLogManager)
+      spyLogManager,
+      tierReplicaManagerOpt = None)
 
     partition.createLog(brokerId, isNew = true, isFutureReplica = false, offsetCheckpoints)
 
@@ -1666,6 +1681,51 @@ class PartitionTest {
     // We should get config from ZK twice, once before log is created, and second time once
     // we find log config is dirty and refresh it.
     verify(stateStore, times(2)).fetchTopicConfig()
+  }
+
+  @Test
+  def testMakeLeaderWithTopicId(): Unit = {
+    var leaderEpoch = 7
+    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val tierPartitionState = log.tierPartitionState
+    val topicId = UUID.randomUUID
+
+    val partition = setupPartitionWithMocks(leaderEpoch = leaderEpoch, isLeader = true, log = log, topicIdOpt = Some(topicId))
+    val replicas = partition.allReplicaIds.map(Int.box).asJava
+
+    // assert topic id was propagated
+    assertTrue(tierPartitionState.topicIdPartition.isPresent)
+    verify(tierReplicaManager, times(1)).becomeLeader(tierPartitionState, leaderEpoch)
+
+    // make leader with a new epoch
+    leaderEpoch = 8
+    partition.makeLeader(0,
+      new LeaderAndIsrPartitionState()
+        .setControllerEpoch(0)
+        .setLeader(1)
+        .setLeaderEpoch(leaderEpoch)
+        .setIsr(replicas)
+        .setReplicas(replicas)
+        .setZkVersion(1)
+        .setIsNew(true),
+      0,
+      offsetCheckpoints)
+    assertTrue(tierPartitionState.topicIdPartition.isPresent)
+    verify(tierReplicaManager, times(1)).becomeLeader(tierPartitionState, leaderEpoch)
+  }
+
+  @Test
+  def testMakeFollowerWithTopicId(): Unit = {
+    val leaderEpoch = 7
+    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val tierPartitionState = log.tierPartitionState
+    val topicId = UUID.randomUUID
+
+    setupPartitionWithMocks(leaderEpoch = leaderEpoch, isLeader = false, log = log, topicIdOpt = Some(topicId))
+
+    // assert topic id was propagated
+    assertTrue(tierPartitionState.topicIdPartition.isPresent)
+    verify(tierReplicaManager, times(1)).becomeFollower(tierPartitionState)
   }
 
   private def seedLogData(log: AbstractLog, numRecords: Int, leaderEpoch: Int): Unit = {

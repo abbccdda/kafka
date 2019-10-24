@@ -6,7 +6,7 @@ package kafka.tier.tasks.archive
 
 import kafka.tier.TopicIdPartition
 import kafka.tier.fetcher.CancellationContext
-import kafka.tier.tasks.TierTaskQueue
+import kafka.tier.tasks._
 import org.apache.kafka.common.utils.Time
 
 import scala.collection.immutable.ListSet
@@ -25,7 +25,17 @@ private[tasks] class ArchiverTaskQueue(ctx: CancellationContext,
       .to[ListSet]
   }
 
-  override protected[tasks] def newTask(topicIdPartition: TopicIdPartition, epoch: Int): ArchiveTask = {
-    ArchiveTask(ctx.subContext(), topicIdPartition, epoch, archiverMetrics)
+  override protected[tasks] def newTask(topicIdPartition: TopicIdPartition, metadata: StartChangeMetadata): ArchiveTask = {
+    metadata match {
+      case startLeadership: StartLeadership => ArchiveTask(ctx.subContext(), topicIdPartition, startLeadership.leaderEpoch, archiverMetrics)
+      case unknown => throw new IllegalStateException(s"Unexpected change $unknown")
+    }
+  }
+
+  override protected[tasks] def mayProcess(metadata: ChangeMetadata): Boolean = {
+    metadata match {
+      case _: LeadershipChange => true
+      case _ => false
+    }
   }
 }

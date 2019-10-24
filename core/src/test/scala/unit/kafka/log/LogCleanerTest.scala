@@ -114,9 +114,10 @@ class LogCleanerTest {
       logDirFailureChannel = new LogDirFailureChannel(10),
       initialUntieredOffset = 0L,
       mergedLogStartOffsetCbk = () => 0L)
-    val tierMetadataManager = TestUtils.createTierMetadataManager(Seq(dir))
-    val tierPartitionState = tierMetadataManager.initState(topicPartition, dir, localLog.config)
-    val log = new MergedLog(localLog, logStartOffset = 0L, tierPartitionState, tierMetadataManager) {
+
+    val tierLogComponents = TierLogComponents.EMPTY
+    val tierPartitionState = tierLogComponents.partitionStateFactory.initState(dir, topicPartition, localLog.config)
+    val log = new MergedLog(localLog, logStartOffset = 0L, tierPartitionState, TierLogComponents.EMPTY) {
       override def replaceSegments(newSegments: Seq[LogSegment], oldSegments: Seq[LogSegment], isRecoveredSwapFile: Boolean = false): Unit = {
         deleteStartLatch.countDown()
         if (!deleteCompleteLatch.await(5000, TimeUnit.MILLISECONDS)) {

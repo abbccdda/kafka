@@ -6,7 +6,6 @@ package kafka.tier;
 
 import kafka.server.LogDirFailureChannel;
 import kafka.tier.state.TierPartitionState;
-import kafka.tier.topic.TierTopicManager;
 import kafka.tier.topic.TierTopicManagerConfig;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
@@ -25,56 +24,37 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static scala.compat.java8.JFunction.func;
 
-public class TierTopicManagerCommitter implements Runnable {
+public class TierTopicManagerCommitter {
     // when bumping the format, writes in the new format should be gated behind an
     // inter broker protocol version number to allow a rollback to a previous version
     // until the version number is bumped
     static final Integer CURRENT_VERSION = 0;
+
     private static final String SEPARATOR = " ";
-    private static final Logger log = LoggerFactory.getLogger(TierTopicManager.class);
-    private final long commitIntervalMs;
-    private final CountDownLatch shutdownInitiated = new CountDownLatch(1);
-    private final CountDownLatch managerShutdownLatch;
+    private static final Logger log = LoggerFactory.getLogger(TierTopicManagerCommitter.class);
+
     private final TierTopicManagerConfig config;
     private final LogDirFailureChannel logDirFailureChannel;
     private final ConcurrentHashMap<Integer, Long> positions = new ConcurrentHashMap<>();
-    private final TierMetadataManager tierMetadataManager;
 
     /**
      * Instantiate a TierTopicManagerCommitter
      *
      * @param config               TierTopicManagerConfig containing tiering configuration
-     * @param tierMetadataManager  Tier metadata manager instance
      * @param logDirFailureChannel Log dir failure channel
-     * @param managerShutdownLatch Shutdown latch to signal to the TierTopicManager that it's safe to shutdown
      */
-    public TierTopicManagerCommitter(TierTopicManagerConfig config,
-                                     TierMetadataManager tierMetadataManager,
-                                     LogDirFailureChannel logDirFailureChannel,
-                                     CountDownLatch managerShutdownLatch) {
+    public TierTopicManagerCommitter(TierTopicManagerConfig config, LogDirFailureChannel logDirFailureChannel) {
+        if (config.logDirs.size() != 1)
+            throw new UnsupportedOperationException("TierTopicManager does not currently support multiple logdirs.");
+
         this.config = config;
-        this.tierMetadataManager = tierMetadataManager;
         this.logDirFailureChannel = logDirFailureChannel;
-        this.managerShutdownLatch = managerShutdownLatch;
-        this.commitIntervalMs = config.commitIntervalMs;
-        if (config.logDirs.size() != 1) {
-            throw new RuntimeException("TierTopicManager does not currently support multiple logdirs.");
-        }
         clearTempFiles();
         loadOffsets();
-    }
-
-    /**
-     * Initiate shutdown.
-     */
-    public void shutdown() {
-        shutdownInitiated.countDown();
     }
 
     /**
@@ -89,21 +69,22 @@ public class TierTopicManagerCommitter implements Runnable {
     }
 
     /**
-     * @return the current consumer position
+     * Return the current position for the given tier topic partition.
+     * @param partitionId tier topic partition id
+     * @return Position for the given partition; null if no position exists
      */
-    public ConcurrentHashMap<Integer, Long> positions() {
-        return positions;
+    public Long positionFor(int partitionId) {
+        return positions.get(partitionId);
     }
 
     /**
      * Flush TierPartition files to disk and then write consumer offsets to disk.
      */
-    public void flush() {
+    public synchronized void flush(Iterator<TierPartitionState> tierPartitionStateIterator) {
         // take a copy of the positions so that we don't commit positions later than what we will flush.
         HashMap<Integer, Long> flushPositions = new HashMap<>(positions);
-        Iterator<TierPartitionState> metadataIterator = tierMetadataManager.tierEnabledPartitionStateIterator();
-        while (metadataIterator.hasNext()) {
-            TierPartitionState state = metadataIterator.next();
+        while (tierPartitionStateIterator.hasNext()) {
+            TierPartitionState state = tierPartitionStateIterator.next();
             try {
                 state.flush();
             } catch (IOException ioe) {
@@ -115,42 +96,6 @@ public class TierTopicManagerCommitter implements Runnable {
         }
 
         writeOffsets(flushPositions);
-    }
-
-    /**
-     * Close TierTopicManagerResources such as TierPartitions.
-     * Finally write offsets to disk.
-     */
-    private void closeResources() {
-        log.info("Closing tier committer resources.");
-        try {
-            // take a copy of the positions so that we don't commit positions
-            // later than what we will flush.
-            HashMap<Integer, Long> flushPositions = new HashMap<>(positions);
-            Iterator<TierPartitionState> metadataIterator = tierMetadataManager.tierEnabledPartitionStateIterator();
-            while (metadataIterator.hasNext())
-                metadataIterator.next().close();
-            writeOffsets(flushPositions);
-        } catch (IOException ioe) {
-            log.error("Error committing progress.", ioe);
-        }
-    }
-
-    /**
-     * Main work loop.
-     */
-    public void run() {
-        try {
-            while (!shutdownInitiated.await(commitIntervalMs, TimeUnit.MILLISECONDS))
-                flush();
-            // ensure we flush on shutdown
-            flush();
-        } catch (InterruptedException ie) {
-            log.debug("Committer thread interrupted. Shutting down.");
-        } finally {
-            closeResources();
-            managerShutdownLatch.countDown();
-        }
     }
 
     /**

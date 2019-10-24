@@ -7,16 +7,19 @@ package kafka.log
 import java.io.{File, IOException}
 import java.nio.ByteBuffer
 import java.util
+import java.util.UUID
+import java.util.concurrent.Future
 
 import com.yammer.metrics.core.{Gauge, MetricName}
 import kafka.api.ApiVersion
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server._
 import kafka.server.epoch.LeaderEpochFileCache
-import kafka.tier.TierMetadataManager
-import kafka.tier.state.{FileTierPartitionStateFactory, TierPartitionState, TierUtils}
+import kafka.tier.state.{TierPartitionState, TierPartitionStateFactory, TierPartitionStatus, TierUtils}
 import kafka.tier.TierTimestampAndOffset
 import kafka.tier.TopicIdPartition
+import kafka.tier.domain.{AbstractTierMetadata, TierObjectMetadata}
+import kafka.tier.topic.TierTopicConsumer.ClientCtx
 import kafka.utils.{Logging, Scheduler}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{KafkaStorageException, OffsetOutOfRangeException}
@@ -70,12 +73,12 @@ import scala.compat.java8.OptionConverters._
   *                         we make sure that logStartOffset <= log's highWatermark.
   *                         Other activities such as log cleaning are not affected by logStartOffset.
   * @param tierPartitionState The tier partition instance for this log
-  * @param tierMetadataManager Handle to tier metadata manager
+  * @param tierLogComponents Log-layer components for tiered storage
   */
 class MergedLog(private[log] val localLog: Log,
                 @volatile var logStartOffset: Long,
-                private val tierPartitionState: TierPartitionState,
-                private val tierMetadataManager: TierMetadataManager) extends Logging with KafkaMetricsGroup with AbstractLog {
+                val tierPartitionState: TierPartitionState,
+                private val tierLogComponents: TierLogComponents) extends Logging with KafkaMetricsGroup with AbstractLog {
   /* Protects modification to log start offset */
   private val lock = new Object
 
@@ -88,6 +91,9 @@ class MergedLog(private[log] val localLog: Log,
     // up until the true log start offset.
     localLog.loadProducerState(logEndOffset, reloadFromCleanShutdown = localLog.hasCleanShutdownFile)
     leaderEpochCache.foreach(_.truncateFromStart(logStartOffset))
+
+    // check if we should initiate tier partition state materialization
+    maybeBeginTierMaterialization()
 
     info(s"Completed load of log with $numberOfSegments segments containing ${localLogSegments.size} local segments and " +
       s"${tieredOffsets.size} tiered segments, tier start offset $logStartOffset, first untiered offset $firstUntieredOffset, " +
@@ -153,8 +159,17 @@ class MergedLog(private[log] val localLog: Log,
   }
 
   override def updateConfig(newConfig: LogConfig): Unit = {
+    val oldTierEnable = tierPartitionState.isTieringEnabled
+    val newTierEnable = tierLogComponents.partitionStateFactory.mayEnableTiering(topicPartition, newConfig)
+
+    if (oldTierEnable && !newTierEnable) {
+      throw new IllegalStateException("Tiering cannot be disabled for a topic that has already been tiered")
+    } else if (!oldTierEnable && newTierEnable && tierPartitionState.topicIdPartition.isPresent) {
+      tierPartitionState.enableTierConfig()
+      maybeBeginTierMaterialization()
+    }
+
     localLog.updateConfig(newConfig)
-    tierMetadataManager.onConfigChange(topicPartition, newConfig)
   }
 
   override private[log] def removeLogMetrics(): Unit = {
@@ -304,9 +319,9 @@ class MergedLog(private[log] val localLog: Log,
       logStartOffset = newOffset
   }
 
-  def topicIdPartition: Option[TopicIdPartition] = tierPartitionState.topicIdPartition.asScala
+  override def topicIdPartition: Option[TopicIdPartition] = tierPartitionState.topicIdPartition.asScala
 
-  def onRestoreTierState(proposeLocalLogStart: Long, tierState: TierState): Unit = lock synchronized {
+  override def onRestoreTierState(proposeLocalLogStart: Long, tierState: TierState): Unit = lock synchronized {
     info(s"restoring tier state for $topicPartition at proposed offset $proposeLocalLogStart")
     if (localLog.leaderEpochCache.isEmpty)
       throw new IllegalStateException("Message format must be upgraded before restoring tier state can be allowed.")
@@ -333,16 +348,28 @@ class MergedLog(private[log] val localLog: Log,
       localLog.leaderEpochCache.get.assign(entry.epoch, entry.startOffset)
   }
 
+  override def materializeTierStateUntilOffset(targetOffset: Long): Future[TierObjectMetadata] = {
+    tierPartitionState.materializationListener(targetOffset)
+  }
+
+  override def assignTopicId(topicId: UUID): Unit = {
+    if (!tierPartitionState.topicIdPartition.isPresent) {
+      tierPartitionState.setTopicId(topicId)
+      // topic id assignment could be a trigger for us to begin tier partition state materialization
+      maybeBeginTierMaterialization()
+    }
+  }
+
   /**
     * Get the base offset of first segment in log.
     */
-  def baseOffsetOfFirstSegment: Long = firstTieredOffset.getOrElse(localLogSegments.head.baseOffset)
+  override def baseOffsetOfFirstSegment: Long = firstTieredOffset.getOrElse(localLogSegments.head.baseOffset)
 
-  def localLogStartOffset: Long = localLog.localLogStartOffset
+  override def localLogStartOffset: Long = localLog.localLogStartOffset
 
-  def localLogEndOffset: Long = localLog.logEndOffset
+  override def localLogEndOffset: Long = localLog.logEndOffset
 
-  def tierableLogSegments: Iterable[LogSegment] = {
+  override def tierableLogSegments: Iterable[LogSegment] = {
     // We can tier all segments starting at first untiered offset (or the log start offset if it is greater) until we
     // reach a segment that:
     // 1. contains the first unstable offset: we expect the first unstable offset to always be available locally
@@ -370,7 +397,7 @@ class MergedLog(private[log] val localLog: Log,
     }
   }
 
-  def baseOffsetFirstUntierableSegment: Option[Long] = {
+  override def baseOffsetFirstUntierableSegment: Option[Long] = {
     tierableLogSegments.lastOption.flatMap(seg => nextLocalLogSegment(seg).map(_.baseOffset))
   }
 
@@ -380,7 +407,7 @@ class MergedLog(private[log] val localLog: Log,
                        maxLength: Int,
                        minOneMessage: Boolean,
                        logEndOffset: Long): TierFetchDataInfo = {
-    val tieredSegment = TierUtils.tierLogSegmentForOffset(tierPartitionState, startOffset, tierMetadataManager.tierObjectStore).asScala
+    val tieredSegment = TierUtils.tierLogSegmentForOffset(tierPartitionState, startOffset, tierLogComponents.objectStoreOpt.asJava).asScala
     val tierEndOffset = tierPartitionState.endOffset
 
     if (tieredSegment.isEmpty || startOffset > tierEndOffset.get || startOffset < logStartOffset)
@@ -418,10 +445,10 @@ class MergedLog(private[log] val localLog: Log,
 
   // tieredLogSegments can be expensive if completely consumed.
   // It will lookup the tier metadata from the TierPartitionState for each TierLogSegment
-  def tieredLogSegments: Iterable[TierLogSegment] = tieredLogSegments(0, Long.MaxValue)
+  override def tieredLogSegments: Iterable[TierLogSegment] = tieredLogSegments(0, Long.MaxValue)
 
   private[log] def tieredLogSegments(from: Long, to: Long): Iterable[TierLogSegment] = {
-    TierUtils.tieredSegments(tieredOffsets(from, to), tierPartitionState, tierMetadataManager.tierObjectStore)
+    TierUtils.tieredSegments(tieredOffsets(from, to), tierPartitionState, tierLogComponents.objectStoreOpt.asJava)
       .asScala.toIterable
   }
 
@@ -462,6 +489,25 @@ class MergedLog(private[log] val localLog: Log,
     }
   }
 
+  private def maybeBeginTierMaterialization(): Unit = {
+    // We can begin tier partition state materialization if tiering is enabled for the topic and if we have a topic id assigned
+    if (tierPartitionState.isTieringEnabled) {
+      val clientCtx = new ClientCtx {
+        override def process(metadata: AbstractTierMetadata): TierPartitionState.AppendResult = tierPartitionState.append(metadata)
+        override def status: TierPartitionStatus = tierPartitionState.status
+        override def beginCatchup(): Unit = tierPartitionState.beginCatchup()
+        override def completeCatchup(): Unit = tierPartitionState.onCatchUpComplete()
+      }
+
+      tierLogComponents.topicConsumerOpt.foreach(_.register(tierPartitionState.topicIdPartition.get, clientCtx))
+    }
+  }
+
+  override def close(): Unit = {
+    tierPartitionState.close()
+    localLog.close()
+  }
+
   /* --------- Pass-through methods --------- */
 
   override def dir: File = localLog.dir
@@ -471,8 +517,6 @@ class MergedLog(private[log] val localLog: Log,
   override def recoveryPoint: Long = localLog.recoveryPoint
 
   override def topicPartition: TopicPartition = localLog.topicPartition
-
-  override def close(): Unit = localLog.close()
 
   override def readLocal(startOffset: Long,
                          maxLength: Int,
@@ -491,7 +535,7 @@ class MergedLog(private[log] val localLog: Log,
     // return a TierTimestampAndOffset to indicate a tier fetch request is required
     val (tieredBaseOffsets, _) = uniqueLogSegments(logStartOffset, Long.MaxValue)
 
-    TierUtils.tieredSegments(tieredBaseOffsets, tierPartitionState, tierMetadataManager.tierObjectStore())
+    TierUtils.tieredSegments(tieredBaseOffsets, tierPartitionState, tierLogComponents.objectStoreOpt.asJava)
       .asScala
       .find(_.maxTimestamp >= targetTimestamp) match {
       case Some(logSegment) =>
@@ -504,7 +548,7 @@ class MergedLog(private[log] val localLog: Log,
 
   override def legacyFetchOffsetsBefore(timestamp: Long, maxNumOffsets: Int): Seq[Long] = {
     val (tieredOffsets, localSegments) = uniqueLogSegments(logStartOffset, Long.MaxValue)
-    val tieredSegments = TierUtils.tieredSegments(tieredOffsets, tierPartitionState, tierMetadataManager.tierObjectStore()).asScala
+    val tieredSegments = TierUtils.tieredSegments(tieredOffsets, tierPartitionState, tierLogComponents.objectStoreOpt.asJava).asScala
     // Cache to avoid race conditions. `toBuffer` is faster than most alternatives and provides
     // constant time access while being safe to use with concurrent collections unlike `toArray`.
     val segments = (tieredSegments.map(seg => (seg.baseOffset, seg.maxTimestamp, seg.size))
@@ -551,11 +595,11 @@ class MergedLog(private[log] val localLog: Log,
   // Get the segment following the given local segment
   private def nextLocalLogSegment(segment: LogSegment): Option[LogSegment] = localLog.nextLogSegment(segment)
 
-  def latestEpoch: Option[Int] = localLog.latestEpoch
+  override def latestEpoch: Option[Int] = localLog.latestEpoch
 
-  def endOffsetForEpoch(leaderEpoch: Int): Option[OffsetAndEpoch] = localLog.endOffsetForEpoch(leaderEpoch)
+  override def endOffsetForEpoch(leaderEpoch: Int): Option[OffsetAndEpoch] = localLog.endOffsetForEpoch(leaderEpoch)
 
-  def maybeAssignEpochStartOffset(leaderEpoch: Int, startOffset: Long): Unit = {
+  override def maybeAssignEpochStartOffset(leaderEpoch: Int, startOffset: Long): Unit = {
     localLog.maybeAssignEpochStartOffset(leaderEpoch, startOffset)
   }
 
@@ -627,12 +671,9 @@ object MergedLog {
             maxProducerIdExpirationMs: Int,
             producerIdExpirationCheckIntervalMs: Int,
             logDirFailureChannel: LogDirFailureChannel,
-            tierMetadataManagerOpt: Option[TierMetadataManager] = None): MergedLog = {
-    val tierMetadataManager = tierMetadataManagerOpt.getOrElse {
-      new TierMetadataManager(new FileTierPartitionStateFactory(), None.asJava, logDirFailureChannel, false)
-    }
+            tierLogComponents: TierLogComponents): MergedLog = {
     val topicPartition = Log.parseTopicPartitionName(dir)
-    val tierPartitionState = tierMetadataManager.initState(topicPartition, dir, config)
+    val tierPartitionState = initTierPartitionState(dir, topicPartition, tierLogComponents.partitionStateFactory, config)
     val producerStateManager = new ProducerStateManager(topicPartition, dir, maxProducerIdExpirationMs)
 
     // On log startup, all truncation must happen above the last tiered offset, if there is one. The lowest truncation
@@ -642,7 +683,14 @@ object MergedLog {
       initialUntieredOffset = firstUntieredOffset(tierPartitionState),
       mergedLogStartOffsetCbk = () => logStartOffset)
 
-    new MergedLog(localLog, logStartOffset, tierPartitionState, tierMetadataManager)
+    new MergedLog(localLog, logStartOffset, tierPartitionState, tierLogComponents)
+  }
+
+  private def initTierPartitionState(dir: File,
+                                     topicPartition: TopicPartition,
+                                     tierPartitionStateFactory: TierPartitionStateFactory,
+                                     config: LogConfig): TierPartitionState = {
+    tierPartitionStateFactory.initState(dir, topicPartition, config)
   }
 
   private def firstUntieredOffset(tierPartitionState: TierPartitionState): Long = {
@@ -981,11 +1029,34 @@ sealed trait AbstractLog {
     */
   def baseOffsetOfFirstSegment: Long
 
-  /*
-   * Restores tier state for this partition fetched from the tier object store.
-   * Initializes the local log to proposedLogStart.
-   */
+  /**
+    * Restores tier state for this partition fetched from the tier object store.
+    * Initializes the local log to proposedLogStart.
+    */
   def onRestoreTierState(proposedLocalLogStart: Long, leaderEpochEntries: TierState): Unit
+
+  /**
+    * Materialize tier partition state till the provided offset.
+    * @param targetOffset Log offset to materialize tier partition state upto
+    * @return future containing metadata of the last materialized object, guaranteed to be >= targetOffset
+    */
+  def materializeTierStateUntilOffset(targetOffset: Long): Future[TierObjectMetadata]
+
+  /**
+    * Get the topic id partition for this log, if one has been assigned
+    */
+  def topicIdPartition: Option[TopicIdPartition]
+
+  /**
+    * Assign topic id to this topic partition
+    */
+  def assignTopicId(topicId: UUID): Unit
+
+  /**
+    * Get the tier partition state for this log
+    * @return tier partition state instance
+    */
+  def tierPartitionState: TierPartitionState
 
   /**
     * Remove all log metrics

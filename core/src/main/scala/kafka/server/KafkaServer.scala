@@ -32,16 +32,17 @@ import kafka.common.{GenerateBrokerIdException, InconsistentBrokerIdException, I
 import kafka.controller.KafkaController
 import kafka.coordinator.group.GroupCoordinator
 import kafka.coordinator.transaction.TransactionCoordinator
-import kafka.log.{LogConfig, LogManager}
+import kafka.log.{LogConfig, LogManager, TierLogComponents}
 import kafka.metrics.{KafkaMetricsGroup, KafkaMetricsReporter}
 import kafka.network.SocketServer
 import kafka.security.CredentialProvider
-import kafka.tier.fetcher.{TierFetcher, TierFetcherConfig, TierStateFetcher}
-import kafka.tier.state.FileTierPartitionStateFactory
-import kafka.tier.store.{MockInMemoryTierObjectStore, S3TierObjectStore, S3TierObjectStoreConfig, GcsTierObjectStore, GcsTierObjectStoreConfig, TierObjectStore, TierObjectStoreConfig}
-import kafka.tier.TierMetadataManager
+import kafka.tier.fetcher.{TierFetcher, TierFetcherConfig}
+import kafka.tier.state.TierPartitionStateFactory
+import kafka.tier.store.{GcsTierObjectStore, GcsTierObjectStoreConfig, MockInMemoryTierObjectStore, S3TierObjectStore, S3TierObjectStoreConfig, TierObjectStore, TierObjectStoreConfig}
+import kafka.tier.{TierDeletedPartitionsCoordinator, TierReplicaManager}
+import kafka.tier.fetcher.TierStateFetcher
 import kafka.tier.tasks.{TierTasks, TierTasksConfig}
-import kafka.tier.topic.{TierTopicManager, TierTopicManagerConfig}
+import kafka.tier.topic.{TierTopicConsumer, TierTopicManager, TierTopicManagerConfig}
 import kafka.utils._
 import kafka.zk.{AdminZkClient, BrokerInfo, KafkaZkClient}
 import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, ManualMetadataUpdater, NetworkClient, NetworkClientUtils}
@@ -63,7 +64,6 @@ import org.apache.kafka.server.rest.{BrokerProxy, RestServer}
 
 import scala.collection.JavaConverters._
 import scala.collection.{Map, Seq, mutable}
-import scala.compat.java8.OptionConverters._
 
 object KafkaServer {
   // Copy the subset of properties that are relevant to Logs
@@ -183,12 +183,14 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
   var transactionCoordinator: TransactionCoordinator = null
 
-  var tierMetadataManager: TierMetadataManager = null
-  var tierTopicManager: TierTopicManager = null
-  var tierFetcher: Option[TierFetcher] = None
-  var tierStateFetcher: Option[TierStateFetcher] = None
-  var tierObjectStore: Option[TierObjectStore] = None
-  var tierTasks: TierTasks = null
+  var tierReplicaManagerOpt: Option[TierReplicaManager] = None
+  var tierTopicConsumerOpt: Option[TierTopicConsumer] = None
+  var tierTopicManagerOpt: Option[TierTopicManager] = None
+  var tierFetcherOpt: Option[TierFetcher] = None
+  var tierStateFetcherOpt: Option[TierStateFetcher] = None
+  var tierObjectStoreOpt: Option[TierObjectStore] = None
+  var tierDeletedPartitionsCoordinatorOpt: Option[TierDeletedPartitionsCoordinator] = None
+  var tierTasksOpt: Option[TierTasks] = None
 
   var kafkaController: KafkaController = null
 
@@ -300,22 +302,25 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size)
 
+        val tierTopicManagerConfig = new TierTopicManagerConfig(config, tieredBootstrapServersSupplier, _clusterId)
         if (config.tierFeature) {
-          tierObjectStore = config.tierBackend match {
+          tierObjectStoreOpt = config.tierBackend match {
             case "S3" => Some(new S3TierObjectStore(new S3TierObjectStoreConfig(clusterId, config)))
             case "GCS" => Some(new GcsTierObjectStore(new GcsTierObjectStoreConfig(clusterId, config)))
             case "mock" => Some(new MockInMemoryTierObjectStore(new TierObjectStoreConfig(clusterId, config)))
             case v => throw new IllegalStateException(s"Unknown TierObjectStore type: %s".format(v))
           }
 
-          tierFetcher = Some(new TierFetcher(new TierFetcherConfig(config), tierObjectStore.get, metrics, logContext))
-          tierStateFetcher = Some(new TierStateFetcher(config.tierObjectFetcherThreads, tierObjectStore.get))
+          tierFetcherOpt = Some(new TierFetcher(new TierFetcherConfig(config), tierObjectStoreOpt.get, metrics, logContext))
+          tierStateFetcherOpt = Some(new TierStateFetcher(config.tierObjectFetcherThreads, tierObjectStoreOpt.get))
+          tierTopicConsumerOpt = Some(new TierTopicConsumer(tierTopicManagerConfig, logDirFailureChannel))
         }
 
-        tierMetadataManager = new TierMetadataManager(new FileTierPartitionStateFactory(), tierObjectStore.asJava, logDirFailureChannel, config.tierFeature)
+        tierReplicaManagerOpt = Some(new TierReplicaManager())
 
         /* start log manager */
-        logManager = LogManager(config, initialOfflineDirs, zkClient, brokerState, kafkaScheduler, time, brokerTopicStats, logDirFailureChannel, tierMetadataManager)
+        val tierLogComponents = TierLogComponents(tierTopicConsumerOpt, tierObjectStoreOpt, new TierPartitionStateFactory(config.tierFeature))
+        logManager = LogManager(config, initialOfflineDirs, zkClient, brokerState, kafkaScheduler, time, brokerTopicStats, logDirFailureChannel, tierLogComponents)
         logManager.startup()
 
         metadataCache = new MetadataCache(config.brokerId)
@@ -337,7 +342,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         socketServer.startup(startupProcessors = false)
 
         /* start replica manager */
-        replicaManager = createReplicaManager(isShuttingDown)
+        replicaManager = createReplicaManager(isShuttingDown, tierLogComponents)
         replicaManager.startup()
 
         val brokerInfo = createBrokerInfo
@@ -352,16 +357,19 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         /* tiered storage components */
         if (config.tierFeature) {
-          val tierTopicManagerConfig = new TierTopicManagerConfig(config, tieredBootstrapServersSupplier, _clusterId)
-          tierTopicManager = new TierTopicManager(tierMetadataManager, tierTopicManagerConfig, adminZkClientSupplier, tieredBootstrapServersSupplier, logDirFailureChannel, metrics)
-          tierTopicManager.startup()
+          tierTopicManagerOpt = Some(new TierTopicManager(tierTopicManagerConfig, tierTopicConsumerOpt.get, adminZkClientSupplier, tieredBootstrapServersSupplier, metrics))
+          tierTopicManagerOpt.get.startup()
 
-          tierTasks = new TierTasks(TierTasksConfig(config), replicaManager, tierMetadataManager, tierTopicManager, tierObjectStore.get, time)
-          tierTasks.start()
+          tierDeletedPartitionsCoordinatorOpt = Some(new TierDeletedPartitionsCoordinator(kafkaScheduler, replicaManager,
+            tierTopicConsumerOpt.get, config.tierTopicDeleteCheckIntervalMs, config.tierMetadataNamespace, time))
+          tierDeletedPartitionsCoordinatorOpt.get.startup()
+
+          tierTasksOpt = Some(new TierTasks(TierTasksConfig(config), replicaManager, tierReplicaManagerOpt.get, tierDeletedPartitionsCoordinatorOpt.get, tierTopicManagerOpt.get, tierObjectStoreOpt.get, time))
+          tierTasksOpt.get.start()
         }
 
         /* start kafka controller */
-        kafkaController = new KafkaController(config, zkClient, time, metrics, brokerInfo, brokerEpoch, tokenManager, Option(tierTopicManager), threadNamePrefix)
+        kafkaController = new KafkaController(config, zkClient, time, metrics, brokerInfo, brokerEpoch, tokenManager, tierTopicManagerOpt, threadNamePrefix)
         kafkaController.startup()
 
         adminManager = new AdminManager(config, metrics, metadataCache, zkClient)
@@ -393,7 +401,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         /* start processing requests */
         dataPlaneRequestProcessor = new KafkaApis(socketServer.dataPlaneRequestChannel, replicaManager, adminManager, groupCoordinator, transactionCoordinator,
           kafkaController, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
-          fetchManager, brokerTopicStats, clusterId, time, tokenManager, tierMetadataManager)
+          fetchManager, brokerTopicStats, clusterId, time, tokenManager, tierDeletedPartitionsCoordinatorOpt)
 
 
         dataPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config, config.brokerId, socketServer.dataPlaneRequestChannel, dataPlaneRequestProcessor, time,
@@ -402,7 +410,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         socketServer.controlPlaneRequestChannelOpt.foreach { controlPlaneRequestChannel =>
           controlPlaneRequestProcessor = new KafkaApis(controlPlaneRequestChannel, replicaManager, adminManager, groupCoordinator, transactionCoordinator,
             kafkaController, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
-            fetchManager, brokerTopicStats, clusterId, time, tokenManager, tierMetadataManager)
+            fetchManager, brokerTopicStats, clusterId, time, tokenManager, tierDeletedPartitionsCoordinatorOpt)
 
           controlPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config,
             config.brokerId,
@@ -421,7 +429,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         config.dynamicConfig.addReconfigurables(this)
 
         /* start dynamic config manager */
-        dynamicConfigHandlers = Map[String, ConfigHandler](ConfigType.Topic -> new TopicConfigHandler(logManager, config, quotaManagers, kafkaController),
+        dynamicConfigHandlers = Map[String, ConfigHandler](ConfigType.Topic -> new TopicConfigHandler(replicaManager, config, quotaManagers, kafkaController),
                                                            ConfigType.Client -> new ClientIdConfigHandler(quotaManagers),
                                                            ConfigType.User -> new UserConfigHandler(quotaManagers, credentialProvider),
                                                            ConfigType.Broker -> new BrokerConfigHandler(config, quotaManagers))
@@ -488,9 +496,10 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
     clusterResourceListeners.onUpdate(new ClusterResource(clusterId))
   }
 
-  protected def createReplicaManager(isShuttingDown: AtomicBoolean): ReplicaManager = {
+  protected def createReplicaManager(isShuttingDown: AtomicBoolean, tierLogComponents: TierLogComponents): ReplicaManager = {
+    val tierReplicaComponents = TierReplicaComponents(tierReplicaManagerOpt, tierFetcherOpt, tierStateFetcherOpt, tierLogComponents)
     new ReplicaManager(config, metrics, time, zkClient, kafkaScheduler, logManager, isShuttingDown, quotaManagers,
-      brokerTopicStats, metadataCache, logDirFailureChannel, tierMetadataManager, tierFetcher, tierStateFetcher)
+      brokerTopicStats, metadataCache, logDirFailureChannel, tierReplicaComponents)
   }
 
   private def initZkClient(time: Time): Unit = {
@@ -762,11 +771,11 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         if (kafkaController != null)
           CoreUtils.swallow(kafkaController.shutdown(), this)
 
-        if (tierTasks != null)
-          CoreUtils.swallow(tierTasks.shutdown(), this)
+        CoreUtils.swallow(tierDeletedPartitionsCoordinatorOpt.foreach(_.shutdown()), this)
 
-        if (tierTopicManager != null)
-          CoreUtils.swallow(tierTopicManager.shutdown(), this)
+        CoreUtils.swallow(tierTasksOpt.foreach(_.shutdown()), this)
+
+        CoreUtils.swallow(tierTopicManagerOpt.foreach(_.shutdown()), this)
 
         if (tokenManager != null)
           CoreUtils.swallow(tokenManager.shutdown(), this)
@@ -777,17 +786,14 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         if (logManager != null)
           CoreUtils.swallow(logManager.shutdown(), this)
 
-        if (tierMetadataManager != null)
-          CoreUtils.swallow(tierMetadataManager.close(), this)
+        if (tierStateFetcherOpt.isDefined)
+          CoreUtils.swallow(tierStateFetcherOpt.get.close(), this)
 
-        if (tierStateFetcher.isDefined)
-          CoreUtils.swallow(tierStateFetcher.get.close(), this)
+        if (tierFetcherOpt.isDefined)
+          CoreUtils.swallow(tierFetcherOpt.get.close(), this)
 
-        if (tierFetcher.isDefined)
-          CoreUtils.swallow(tierFetcher.get.close(), this)
-
-        if (tierObjectStore.isDefined)
-          CoreUtils.swallow(tierObjectStore.get.close(), this)
+        if (tierObjectStoreOpt.isDefined)
+          CoreUtils.swallow(tierObjectStoreOpt.get.close(), this)
 
         if (zkClient != null)
           CoreUtils.swallow(zkClient.close(), this)

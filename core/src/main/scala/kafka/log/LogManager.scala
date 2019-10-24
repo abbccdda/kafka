@@ -25,7 +25,9 @@ import com.yammer.metrics.core.Gauge
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.checkpoints.OffsetCheckpointFile
 import kafka.server.{BrokerState, RecoveringFromUncleanShutdown, _}
-import kafka.tier.TierMetadataManager
+import kafka.tier.state.TierPartitionStateFactory
+import kafka.tier.store.TierObjectStore
+import kafka.tier.topic.TierTopicConsumer
 import kafka.utils._
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.{KafkaException, TopicPartition}
@@ -57,13 +59,14 @@ class LogManager(logDirs: Seq[File],
                  val flushCheckMs: Long,
                  val flushRecoveryOffsetCheckpointMs: Long,
                  val flushStartOffsetCheckpointMs: Long,
+                 val tierStateCheckpointMs: Int,
                  val retentionCheckMs: Long,
                  val maxPidExpirationMs: Int,
                  scheduler: Scheduler,
                  val brokerState: BrokerState,
                  brokerTopicStats: BrokerTopicStats,
                  logDirFailureChannel: LogDirFailureChannel,
-                 tierMetadataManager: TierMetadataManager,
+                 tierLogComponents: TierLogComponents,
                  time: Time) extends Logging with KafkaMetricsGroup {
 
   import LogManager._
@@ -283,7 +286,7 @@ class LogManager(logDirs: Seq[File],
       maxPidExpirationMs,
       LogManager.ProducerIdExpirationCheckIntervalMs,
       logDirFailureChannel,
-      Some(tierMetadataManager))
+      tierLogComponents)
 
     if (logDir.getName.endsWith(Log.DeleteDirSuffix)) {
       addLogToBeDeleted(log)
@@ -427,6 +430,11 @@ class LogManager(logDirs: Seq[File],
                          deleteLogs _,
                          delay = InitialTaskDelayMs,
                          unit = TimeUnit.MILLISECONDS)
+      scheduler.schedule("tier-flush-state",
+                         checkpointTierState _,
+                         delay = 0,
+                         period = tierStateCheckpointMs,
+                         TimeUnit.MILLISECONDS)
     }
     if (cleanerConfig.enableCleaner)
       cleaner.startup()
@@ -450,6 +458,10 @@ class LogManager(logDirs: Seq[File],
     if (cleaner != null) {
       CoreUtils.swallow(cleaner.shutdown(), this)
     }
+
+    // checkpoint tier partition states
+    debug(s"Checkpointing tier partition states")
+    checkpointTierState()
 
     val localLogsByDir = logsByDir
 
@@ -768,7 +780,7 @@ class LogManager(logDirs: Seq[File],
           brokerTopicStats = brokerTopicStats,
           time = time,
           logDirFailureChannel = logDirFailureChannel,
-          tierMetadataManagerOpt = Some(tierMetadataManager))
+          tierLogComponents = tierLogComponents)
 
         if (isFuture)
           futureLogs.put(topicPartition, log)
@@ -1047,6 +1059,11 @@ class LogManager(logDirs: Seq[File],
       }
     }
   }
+
+  private def checkpointTierState(): Unit = {
+    if (allLogs.nonEmpty)
+      tierLogComponents.topicConsumerOpt.foreach(_.commitPositions(allLogs.map(_.tierPartitionState).toIterator.asJava))
+  }
 }
 
 object LogManager {
@@ -1063,7 +1080,7 @@ object LogManager {
             time: Time,
             brokerTopicStats: BrokerTopicStats,
             logDirFailureChannel: LogDirFailureChannel,
-            tierMetadataManager: TierMetadataManager): LogManager = {
+            tierLogComponents: TierLogComponents): LogManager = {
     val defaultProps = KafkaServer.copyKafkaConfigToLog(config)
     KafkaServer.augmentWithKafkaConfig(defaultProps, config)
     LogConfig.validateValues(defaultProps)
@@ -1087,13 +1104,28 @@ object LogManager {
       flushCheckMs = config.logFlushSchedulerIntervalMs,
       flushRecoveryOffsetCheckpointMs = config.logFlushOffsetCheckpointIntervalMs,
       flushStartOffsetCheckpointMs = config.logFlushStartOffsetCheckpointIntervalMs,
+      tierStateCheckpointMs = config.tierPartitionStateCommitIntervalMs,
       retentionCheckMs = config.logCleanupIntervalMs,
       maxPidExpirationMs = config.transactionalIdExpirationMs,
       scheduler = kafkaScheduler,
       brokerState = brokerState,
       brokerTopicStats = brokerTopicStats,
       logDirFailureChannel = logDirFailureChannel,
-      tierMetadataManager = tierMetadataManager,
+      tierLogComponents = tierLogComponents,
       time = time)
   }
+}
+
+/**
+  * Log-layer components for tiered storage.
+  * @param topicConsumerOpt Tier topic consumer instance. This is used to register and deregister partition materialization.
+  * @param objectStoreOpt Tier object store instance.
+  * @param partitionStateFactory Tier partition state factory, used to create FileTierPartitionState instances.
+  */
+case class TierLogComponents(topicConsumerOpt: Option[TierTopicConsumer],
+                             objectStoreOpt: Option[TierObjectStore],
+                             partitionStateFactory: TierPartitionStateFactory)
+
+object TierLogComponents {
+  val EMPTY = TierLogComponents(None, None, new TierPartitionStateFactory(false))
 }

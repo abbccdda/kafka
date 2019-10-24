@@ -37,8 +37,7 @@ import kafka.message.ZStdCompressionCodec
 import kafka.network.RequestChannel
 import kafka.security.authorizer.AuthorizerUtils
 import kafka.server.QuotaFactory.{QuotaManagers, UnboundedQuota}
-import kafka.tier.TierMetadataManager
-import kafka.tier.TopicIdPartition
+import kafka.tier.TierDeletedPartitionsCoordinator
 import kafka.tier.client.TierTopicClient
 import kafka.utils.{CoreUtils, Logging}
 import kafka.zk.{AdminZkClient, KafkaZkClient}
@@ -80,7 +79,7 @@ import org.apache.kafka.common.message.TierListOffsetResponseData
 import org.apache.kafka.common.message.TierListOffsetResponseData.{TierListOffsetPartitionResponse, TierListOffsetTopicResponse}
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.{ListenerName, Send}
-import org.apache.kafka.common.protocol.{ApiKeys, Errors, MessageUtil}
+import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.replica.ClientMetadata
 import org.apache.kafka.common.replica.ClientMetadata.DefaultClientMetadata
@@ -128,7 +127,7 @@ class KafkaApis(val requestChannel: RequestChannel,
                 val clusterId: String,
                 time: Time,
                 val tokenManager: DelegationTokenManager,
-                val tierMetadataManager: TierMetadataManager) extends Logging {
+                val tierDeletedPartitionsCoordinatorOpt: Option[TierDeletedPartitionsCoordinator]) extends Logging {
 
   type FetchResponseStats = Map[TopicPartition, RecordConversionStats]
   this.logIdent = "[KafkaApi-%d] ".format(brokerId)
@@ -328,8 +327,8 @@ class KafkaApis(val requestChannel: RequestChannel,
           groupCoordinator.handleGroupImmigration(partition.partitionId)
         else if (partition.topic == TRANSACTION_STATE_TOPIC_NAME)
           txnCoordinator.handleTxnImmigration(partition.partitionId, partition.getLeaderEpoch)
-
-        tierMetadataManager.becomeLeader(partition.topicPartition, partition.getLeaderEpoch)
+        else if (partition.topic.startsWith(TIER_TOPIC_NAME))
+          tierDeletedPartitionsCoordinatorOpt.foreach(_.handleImmigration(partition.partitionId))
       }
 
       updatedFollowers.foreach { partition =>
@@ -337,16 +336,8 @@ class KafkaApis(val requestChannel: RequestChannel,
           groupCoordinator.handleGroupEmigration(partition.partitionId)
         else if (partition.topic == TRANSACTION_STATE_TOPIC_NAME)
           txnCoordinator.handleTxnEmigration(partition.partitionId, partition.getLeaderEpoch)
-
-        tierMetadataManager.becomeFollower(partition.topicPartition)
-      }
-
-      // Ensure topic IDs are set in TierMetadataManager
-      // This will only have an effect if they were not previously set
-      leaderAndIsrRequest.partitionStates.asScala.foreach { ps =>
-        if (ps.topicId != MessageUtil.ZERO_UUID)
-          tierMetadataManager.ensureTopicIdPartition(new TopicIdPartition(ps.topicName, ps.topicId,
-            ps.partitionIndex))
+        else if (partition.topic.startsWith(TIER_TOPIC_NAME))
+          tierDeletedPartitionsCoordinatorOpt.foreach(_.handleEmigration(partition.partitionId))
       }
     }
 
@@ -388,7 +379,6 @@ class KafkaApis(val requestChannel: RequestChannel,
         if (error == Errors.NONE && stopReplicaRequest.deletePartitions) {
           if (topicPartition.topic == GROUP_METADATA_TOPIC_NAME)
             groupCoordinator.handleGroupEmigration(topicPartition.partition)
-          tierMetadataManager.delete(topicPartition)
         }
       }
 

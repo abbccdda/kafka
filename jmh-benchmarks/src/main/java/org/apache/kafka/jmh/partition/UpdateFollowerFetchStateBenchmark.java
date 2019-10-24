@@ -17,7 +17,6 @@
 
 package org.apache.kafka.jmh.partition;
 
-import java.util.Optional;
 import kafka.api.ApiVersion$;
 import kafka.cluster.DelayedOperations;
 import kafka.cluster.Partition;
@@ -26,14 +25,13 @@ import kafka.log.CleanerConfig;
 import kafka.log.Defaults;
 import kafka.log.LogConfig;
 import kafka.log.LogManager;
+import kafka.log.TierLogComponents;
 import kafka.server.BrokerState;
 import kafka.server.BrokerTopicStats;
 import kafka.server.LogDirFailureChannel;
 import kafka.server.LogOffsetMetadata;
 import kafka.server.MetadataCache;
 import kafka.server.checkpoints.OffsetCheckpoints;
-import kafka.tier.TierMetadataManager;
-import kafka.tier.state.FileTierPartitionStateFactory;
 import kafka.utils.KafkaScheduler;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState;
@@ -74,8 +72,6 @@ public class UpdateFollowerFetchStateBenchmark {
     private KafkaScheduler scheduler = new KafkaScheduler(1, "scheduler", true);
     private BrokerTopicStats brokerTopicStats = new BrokerTopicStats();
     private LogDirFailureChannel logDirFailureChannel = Mockito.mock(LogDirFailureChannel.class);
-    private TierMetadataManager tierMetadataManager = new TierMetadataManager(
-        new FileTierPartitionStateFactory(), Optional.empty(), logDirFailureChannel, false);
     private long nextOffset = 0;
     private LogManager logManager;
     private Partition partition;
@@ -94,13 +90,14 @@ public class UpdateFollowerFetchStateBenchmark {
                 1000L,
                 10000L,
                 10000L,
+                10000,
                 1000L,
                 60000,
                 scheduler,
                 new BrokerState(),
                 brokerTopicStats,
                 logDirFailureChannel,
-                tierMetadataManager,
+                TierLogComponents.EMPTY(),
                 Time.SYSTEM);
         OffsetCheckpoints offsetCheckpoints = Mockito.mock(OffsetCheckpoints.class);
         Mockito.when(offsetCheckpoints.fetch(logDir.getAbsolutePath(), topicPartition)).thenReturn(Option.apply(0L));
@@ -124,7 +121,7 @@ public class UpdateFollowerFetchStateBenchmark {
         partition = new Partition(topicPartition, 100,
                 ApiVersion$.MODULE$.latestVersion(), 0, false, Time.SYSTEM,
                 partitionStateStore, delayedOperations,
-                Mockito.mock(MetadataCache.class), logManager);
+                Mockito.mock(MetadataCache.class), logManager, Option.empty());
         partition.makeLeader(0, partitionState, 0, offsetCheckpoints);
     }
 

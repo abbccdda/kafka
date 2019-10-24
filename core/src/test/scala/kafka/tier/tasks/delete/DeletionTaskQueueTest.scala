@@ -14,9 +14,10 @@ import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
-import kafka.tier.tasks.delete.DeletionTask.{CollectDeletableSegments, CompleteDelete, Delete, InitiateDelete}
+import kafka.tier.tasks.StartLeadership
+import kafka.tier.tasks.delete.DeletionTask._
 import kafka.tier.topic.TierTopicAppender
-import kafka.tier.{TierMetadataManager, TopicIdPartition}
+import kafka.tier.TopicIdPartition
 import kafka.utils.MockTime
 import org.apache.kafka.common.utils.Time
 import org.junit.Assert._
@@ -26,7 +27,6 @@ import org.mockito.Mockito.{mock, when}
 
 import scala.collection.immutable.ListSet
 import scala.collection.mutable
-import scala.compat.java8.OptionConverters._
 import scala.concurrent.Await
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
@@ -35,7 +35,8 @@ class DeletionTaskQueueTest {
   private val ctx = CancellationContext.newContext()
   private val time: Time = new MockTime()
   private val maxTasks = 3
-  private val deletionTaskQueue = new DeletionTaskQueue(ctx, maxTasks, logCleanupIntervalMs = 5, time)
+  val replicaManager = mock(classOf[ReplicaManager])
+  private val deletionTaskQueue = new DeletionTaskQueue(ctx, maxTasks, logCleanupIntervalMs = 5, time, replicaManager)
 
   @Test
   def testPollTaskOrdering(): Unit = {
@@ -44,10 +45,10 @@ class DeletionTaskQueueTest {
     val partition_3 = new TopicIdPartition("foo-3", UUID.randomUUID, 0)
     val partition_4 = new TopicIdPartition("foo-4", UUID.randomUUID, 0)
 
-    deletionTaskQueue.addTask(partition_1, 0)
-    deletionTaskQueue.addTask(partition_2, 0)
-    deletionTaskQueue.addTask(partition_3, 0)
-    deletionTaskQueue.addTask(partition_4, 0)
+    deletionTaskQueue.maybeAddTask(StartLeadership(partition_1, 0))
+    deletionTaskQueue.maybeAddTask(StartLeadership(partition_2, 0))
+    deletionTaskQueue.maybeAddTask(StartLeadership(partition_3, 0))
+    deletionTaskQueue.maybeAddTask(StartLeadership(partition_4, 0))
 
     updateLastProcessedMs(partition_1, 5)
     updateLastProcessedMs(partition_2, 10)
@@ -66,11 +67,11 @@ class DeletionTaskQueueTest {
     val partition_4 = new TopicIdPartition("foo-4", UUID.randomUUID, 0)
     val partition_5 = new TopicIdPartition("foo-5", UUID.randomUUID, 0)
 
-    val task_1 = new DeletionTask(ctx.subContext(), partition_1, logCleanupIntervalMs = 5, CollectDeletableSegments(leaderEpoch = 0))
-    val task_2 = new DeletionTask(ctx.subContext(), partition_2, logCleanupIntervalMs = 5, CollectDeletableSegments(leaderEpoch = 1))
-    val task_3 = new DeletionTask(ctx.subContext(), partition_3, logCleanupIntervalMs = 5, Delete(leaderEpoch = 0, mock(classOf[mutable.Queue[TierObjectStore.ObjectMetadata]])))
-    val task_4 = new DeletionTask(ctx.subContext(), partition_4, logCleanupIntervalMs = 5, CompleteDelete(leaderEpoch = 0, mock(classOf[mutable.Queue[TierObjectStore.ObjectMetadata]])))
-    val task_5 = new DeletionTask(ctx.subContext(), partition_5, logCleanupIntervalMs = 5, InitiateDelete(leaderEpoch = 0, mock(classOf[mutable.Queue[TierObjectStore.ObjectMetadata]])))
+    val task_1 = new DeletionTask(ctx.subContext(), partition_1, logCleanupIntervalMs = 5, CollectDeletableSegments(retentionMetadata(leaderEpoch = 0)))
+    val task_2 = new DeletionTask(ctx.subContext(), partition_2, logCleanupIntervalMs = 5, CollectDeletableSegments(retentionMetadata(leaderEpoch = 1)))
+    val task_3 = new DeletionTask(ctx.subContext(), partition_3, logCleanupIntervalMs = 5, Delete(retentionMetadata(leaderEpoch = 0), mock(classOf[mutable.Queue[TierObjectStore.ObjectMetadata]])))
+    val task_4 = new DeletionTask(ctx.subContext(), partition_4, logCleanupIntervalMs = 5, CompleteDelete(retentionMetadata(leaderEpoch = 0), mock(classOf[mutable.Queue[TierObjectStore.ObjectMetadata]])))
+    val task_5 = new DeletionTask(ctx.subContext(), partition_5, logCleanupIntervalMs = 5, InitiateDelete(retentionMetadata(leaderEpoch = 0), mock(classOf[mutable.Queue[TierObjectStore.ObjectMetadata]])))
 
     task_1.lastProcessedMs = Some(time.hiResClockMs() - 100)
     task_2.lastProcessedMs = Some(time.hiResClockMs() - 300)
@@ -96,8 +97,6 @@ class DeletionTaskQueueTest {
     // return tasks until `fileDeleteDelayMs` time is elapsed before deleting the object from tiered storage.
     val tierTopicAppender = mock(classOf[TierTopicAppender])
     val tierObjectStore = mock(classOf[TierObjectStore])
-    val replicaManager = mock(classOf[ReplicaManager])
-    val tierMetadataManager = mock(classOf[TierMetadataManager])
     val tierObjectMetadata = mock(classOf[TierObjectStore.ObjectMetadata])
 
     val partition = new TopicIdPartition("foo-1", UUID.randomUUID, 0)
@@ -115,16 +114,13 @@ class DeletionTaskQueueTest {
     when(tierTopicAppender.addMetadata(any())).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
 
     // mock replica manager
-    when(replicaManager.tierMetadataManager).thenReturn(tierMetadataManager)
     when(replicaManager.getLog(partition.topicPartition)).thenReturn(Some(log))
-
-    // mock tier metadata manager
-    when(tierMetadataManager.tierPartitionState(partition)).thenReturn(Some(tierPartitionState).asJava)
 
     // mock Log
     when(log.tieredLogSegments).thenReturn(Seq(tieredLogSegment))
     when(log.config).thenReturn(logConfig)
     when(log.logStartOffset).thenReturn(100)
+    when(log.tierPartitionState).thenReturn(tierPartitionState)
 
     // mock segment
     when(tieredLogSegment.maxTimestamp).thenReturn(time.hiResClockMs())
@@ -139,7 +135,7 @@ class DeletionTaskQueueTest {
     when(tierObjectMetadata.topicIdPartition).thenReturn(partition)
     when(tierObjectMetadata.objectId).thenReturn(UUID.randomUUID)
 
-    deletionTaskQueue.addTask(partition, 0)
+    deletionTaskQueue.maybeAddTask(StartLeadership(partition, 0))
 
     // 1. `CollectDeletableSegments`
     var task = deletionTaskQueue.poll().get.head
@@ -187,5 +183,9 @@ class DeletionTaskQueueTest {
     deletionTaskQueue.withAllTasks { tasks =>
       tasks.find(_.topicIdPartition == topicIdPartition).get.lastProcessedMs = Some(lastProcessedMs)
     }
+  }
+
+  private def retentionMetadata(leaderEpoch: Int): RetentionMetadata = {
+    RetentionMetadata(replicaManager, leaderEpoch)
   }
 }

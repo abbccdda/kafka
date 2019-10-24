@@ -56,8 +56,7 @@ class DumpLogSegmentsTest {
     log = MergedLog(logDir, LogConfig(props), logStartOffset = 0L, recoveryPoint = 0L, scheduler = time.scheduler,
       brokerTopicStats = new BrokerTopicStats, time = time, maxProducerIdExpirationMs = 60 * 60 * 1000,
       producerIdExpirationCheckIntervalMs = LogManager.ProducerIdExpirationCheckIntervalMs,
-      logDirFailureChannel = new LogDirFailureChannel(10),
-      tierMetadataManagerOpt = Some(TestUtils.createTierMetadataManager(Seq(logDir))))
+      logDirFailureChannel = new LogDirFailureChannel(10), TierLogComponents.EMPTY)
 
     val now = System.currentTimeMillis()
     val firstBatchRecords = (0 until 10).map { i => new SimpleRecord(now + i * 2, s"message key $i".getBytes, s"message value $i".getBytes)}

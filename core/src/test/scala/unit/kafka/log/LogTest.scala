@@ -30,7 +30,6 @@ import kafka.log.Log.DeleteDirSuffix
 import kafka.server.checkpoints.LeaderEpochCheckpointFile
 import kafka.server.epoch.{EpochEntry, LeaderEpochFileCache}
 import kafka.server.{BrokerTopicStats, FetchDataInfo, FetchHighWatermark, FetchIsolation, FetchLogEnd, FetchTxnCommitted, KafkaConfig, LogDirFailureChannel, LogOffsetMetadata}
-import kafka.tier.TierMetadataManager
 import kafka.utils._
 import org.apache.kafka.common.{KafkaException, TopicPartition}
 import org.apache.kafka.common.errors._
@@ -674,9 +673,9 @@ class LogTest {
           super.addSegment(wrapper)
         }
       }
-      val tierMetadataManager = TestUtils.createTierMetadataManager(Seq(logDir))
-      val tierPartitionState = tierMetadataManager.initState(topicPartition, logDir, localLog.config)
-      new MergedLog(localLog, logStartOffset = 0, tierPartitionState, tierMetadataManager)
+      val tierLogComponents = TierLogComponents.EMPTY
+      val tierPartitionState = tierLogComponents.partitionStateFactory.initState(logDir, topicPartition, localLog.config)
+      new MergedLog(localLog, logStartOffset = 0, tierPartitionState, tierLogComponents)
     }
 
     // Retain snapshots for the last 2 segments
@@ -4283,7 +4282,7 @@ object LogTest {
                 recoveryPoint: Long = 0L,
                 maxProducerIdExpirationMs: Int = 60 * 60 * 1000,
                 producerIdExpirationCheckIntervalMs: Int = LogManager.ProducerIdExpirationCheckIntervalMs,
-                tierMetadataManagerOpt: Option[TierMetadataManager] = None): AbstractLog = {
+                tierLogComponentsOpt: Option[TierLogComponents] = None): AbstractLog = {
     Log(dir = dir,
       config = config,
       logStartOffset = logStartOffset,
@@ -4294,7 +4293,7 @@ object LogTest {
       maxProducerIdExpirationMs = maxProducerIdExpirationMs,
       producerIdExpirationCheckIntervalMs = producerIdExpirationCheckIntervalMs,
       logDirFailureChannel = new LogDirFailureChannel(10),
-      tierMetadataManagerOpt = tierMetadataManagerOpt)
+      tierLogComponentsOpt = tierLogComponentsOpt)
   }
 
   /**

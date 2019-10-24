@@ -37,14 +37,6 @@ public interface TierTopicAppender {
     CompletableFuture<TierPartitionState.AppendResult> addMetadata(AbstractTierMetadata entry) throws IllegalAccessException;
 
     /**
-     * Return the TierPartitionState for a given topic partition.
-     *
-     * @param topicIdPartition tiered topic partition
-     * @return TierPartitionState for this partition.
-     */
-    TierPartitionState partitionState(TopicIdPartition topicIdPartition);
-
-    /**
      * Return whether TierTopicManager is ready to accept writes.
      *
      * @return boolean

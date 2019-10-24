@@ -19,7 +19,7 @@ package kafka.server
 
 import java.util
 import java.util.Optional
-import java.util.concurrent.CompletableFuture
+import java.util.concurrent.{CompletableFuture, Future}
 
 import kafka.api.Request
 import kafka.cluster.BrokerEndPoint
@@ -27,9 +27,7 @@ import kafka.log.LogAppendInfo
 import kafka.server.AbstractFetcherThread.ReplicaFetch
 import kafka.server.AbstractFetcherThread.ResultWithPartitions
 import kafka.server.QuotaFactory.UnboundedQuota
-import kafka.tier.TierMetadataManager
 import kafka.tier.domain.TierObjectMetadata
-import kafka.tier.fetcher.TierStateFetcher
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.KafkaStorageException
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
@@ -47,16 +45,13 @@ class ReplicaAlterLogDirsThread(name: String,
                                 failedPartitions: FailedPartitions,
                                 replicaMgr: ReplicaManager,
                                 quota: ReplicationQuotaManager,
-                                tierMetadataManager: TierMetadataManager,
-                                tierStateFetcher: Option[TierStateFetcher],
                                 brokerTopicStats: BrokerTopicStats)
   extends AbstractFetcherThread(name = name,
                                 clientId = name,
                                 sourceBroker = sourceBroker,
                                 failedPartitions,
                                 fetchBackOffMs = brokerConfig.replicaFetchBackoffMs,
-                                tierMetadataManager = tierMetadataManager,
-                                tierStateFetcher = tierStateFetcher,
+                                tierStateFetcher = None,
                                 isInterruptible = false) {
 
   private val replicaId = brokerConfig.brokerId
@@ -280,6 +275,10 @@ class ReplicaAlterLogDirsThread(name: String,
   }
 
   override protected def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
-    throw new UnsupportedOperationException("Restoring tier state during an alter log dirs operation is not currently supported.")
+    throw new UnsupportedOperationException("Fetching tier state during an alter log dirs operation is not currently supported.")
+  }
+
+  override protected def materializeTierStateUntilOffset(topicPartition: TopicPartition, targetOffset: Long): Future[TierObjectMetadata] = {
+    throw new UnsupportedOperationException("Materializing tier state is not supported with alter log dirs.")
   }
 }

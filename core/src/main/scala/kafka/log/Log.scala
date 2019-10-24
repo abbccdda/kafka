@@ -33,7 +33,6 @@ import kafka.message.{BrokerCompressionCodec, CompressionCodec, NoCompressionCod
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.checkpoints.LeaderEpochCheckpointFile
 import kafka.server.epoch.LeaderEpochFileCache
-import kafka.tier.TierMetadataManager
 import kafka.server.{AbstractFetchDataInfo, BrokerTopicStats, FetchDataInfo, FetchHighWatermark, FetchIsolation, FetchLogEnd, FetchTxnCommitted, LogDirFailureChannel, LogOffsetMetadata, OffsetAndEpoch}
 import kafka.utils._
 import org.apache.kafka.common.errors._
@@ -2530,10 +2529,11 @@ object Log {
             maxProducerIdExpirationMs: Int,
             producerIdExpirationCheckIntervalMs: Int,
             logDirFailureChannel: LogDirFailureChannel,
-            tierMetadataManagerOpt: Option[TierMetadataManager] = None): MergedLog = {
+            tierLogComponentsOpt: Option[TierLogComponents] = None): MergedLog = {
+    val tierLogComponents = tierLogComponentsOpt.getOrElse(TierLogComponents.EMPTY)
     MergedLog(dir, config, logStartOffset, recoveryPoint, scheduler, brokerTopicStats, time,
       maxProducerIdExpirationMs, producerIdExpirationCheckIntervalMs, logDirFailureChannel,
-      tierMetadataManagerOpt)
+      tierLogComponents)
   }
 
   /**

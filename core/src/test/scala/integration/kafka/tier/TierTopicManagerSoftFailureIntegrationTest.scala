@@ -12,7 +12,6 @@ import kafka.api.IntegrationTestHarness
 import kafka.server.KafkaConfig
 import kafka.tier.client.TierTopicProducerSupplier
 import kafka.utils.TestUtils
-import org.apache.kafka.clients.admin.ListTopicsOptions
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.internals.Topic
@@ -38,7 +37,7 @@ class TierTopicManagerSoftFailureIntegrationTest extends IntegrationTestHarness 
   @Test
   def testSoftFailure(): Unit = {
     servers.foreach { server =>
-      TestUtils.waitUntilTrue(server.tierTopicManager.isReady, "timed out waiting for TierTopicManager to be ready")
+      TestUtils.waitUntilTrue(server.tierTopicManagerOpt.get.isReady, "timed out waiting for TierTopicManager to be ready")
     }
     TestUtils.waitUntilTrue(() => tierTasksCyclesCount > 0, "Timed out waiting for cycle count to be non-zero")
 
@@ -54,7 +53,7 @@ class TierTopicManagerSoftFailureIntegrationTest extends IntegrationTestHarness 
       producer.close()
     }
 
-    TestUtils.waitUntilTrue(() => !servers.head.tierTopicManager.isReady, s"timeout waiting for TierTopicManager to no longer be ready to uncaught exception")
+    TestUtils.waitUntilTrue(() => !servers.head.tierTopicManagerOpt.get.isReady, s"timeout waiting for TierTopicManager to no longer be ready to uncaught exception")
     val countAfterNotReady = tierTasksCyclesCount
 
     // sleep for a while to test that TierTasks thread no longer cycles

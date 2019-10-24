@@ -67,8 +67,8 @@ class TierRetentionIntegrationTest extends IntegrationTestHarness {
       bytesSent += recordSize
     }
 
-    val tierPartitionState = leader.tierMetadataManager.tierPartitionState(topicPartition).get
     val log = leader.logManager.getLog(topicPartition).get
+    val tierPartitionState = log.tierPartitionState
 
     // Wait for at least one segment to be tiered
     TestUtils.waitUntilTrue(() => tierPartitionState.totalSize > 0, "Timed out waiting for segments to be tiered")
@@ -91,8 +91,8 @@ class TierRetentionIntegrationTest extends IntegrationTestHarness {
     servers.foreach { server =>
       val isAlive = alive(servers.indexOf(server))
       if (isAlive) {
-        val tierPartitionState = server.tierMetadataManager.tierPartitionState(topicPartition).get
         val log = server.logManager.getLog(topicPartition).get
+        val tierPartitionState = log.tierPartitionState
         TestUtils.waitUntilTrue(() => log.logStartOffset > 0, "Timed out waiting for retention to kick in")
         TestUtils.waitUntilTrue(() => tierPartitionState.segmentOffsets.size > 0, "Timed out waiting for more segments to be tiered")
         assertTrue(tierPartitionState.segmentOffsets.first > 0)
@@ -116,7 +116,7 @@ class TierRetentionIntegrationTest extends IntegrationTestHarness {
     waitUntilEqualOnAllBrokers(server => server.logManager.getLog(topicPartition).get.logStartOffset.toString, "Timed out waiting for logStartOffset sync")
     waitUntilEqualOnAllBrokers(server => server.logManager.getLog(topicPartition).get.logEndOffset.toString, "Timed out waiting for logEndOffset sync")
     waitUntilEqualOnAllBrokers(server => {
-      val tierPartitionState = server.tierMetadataManager.tierPartitionState(topicPartition).get
+      val tierPartitionState = server.logManager.getLog(topicPartition).get.tierPartitionState
       tierPartitionState.segmentOffsets
     }, "Timed out waiting for tier partition state sync")
   }

@@ -18,12 +18,9 @@
 package kafka.log
 
 import java.io.File
-import java.util.{Optional, Properties}
+import java.util.Properties
 
 import kafka.server.{BrokerTopicStats, LogDirFailureChannel}
-import kafka.tier.TierMetadataManager
-import kafka.tier.state.FileTierPartitionStateFactory
-import kafka.tier.store.TierObjectStore
 import kafka.utils._
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record._
@@ -91,9 +88,9 @@ class LogCleanerManagerTest extends Logging {
     val localLog = new Log(tpDir, createLowRetentionLogConfig(logSegmentSize, LogConfig.Compact), 0L,
       time.scheduler, new BrokerTopicStats, time, 60 * 60 * 1000, LogManager.ProducerIdExpirationCheckIntervalMs,
       topicPartition, new ProducerStateManager(tp, tpDir, 60 * 60 * 1000), new LogDirFailureChannel(10))
-    val tierMetadataManager = new TierMetadataManager(new FileTierPartitionStateFactory(), Optional.empty[TierObjectStore], localLog.logDirFailureChannel, false)
-    val tierPartitionState = tierMetadataManager.initState(topicPartition, localLog.dir, localLog.config)
-    val log = new MergedLog(localLog, 0L, tierPartitionState, tierMetadataManager) {
+    val tierLogComponents = TierLogComponents.EMPTY
+    val tierPartitionState = tierLogComponents.partitionStateFactory.initState(logDir, topicPartition, localLog.config)
+    val log = new MergedLog(localLog, 0L, tierPartitionState, tierLogComponents) {
       // Throw an error in getFirstBatchTimestampForSegments since it is called in grabFilthiestLog()
       override def getFirstBatchTimestampForSegments(segments: Iterable[LogSegment]): Iterable[Long] =
         throw new IllegalStateException("Error!")

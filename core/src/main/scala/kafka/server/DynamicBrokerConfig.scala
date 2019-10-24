@@ -621,7 +621,7 @@ class DynamicLogConfig(logManager: LogManager, server: KafkaServer) extends Brok
       props ++= log.config.originals.asScala.filterKeys(log.config.overriddenConfigs.contains)
 
       val logConfig = LogConfig(props.asJava)
-      log.updateConfig(logConfig)
+      server.replicaManager.updateLogConfig(log.topicPartition, logConfig)
     }
   }
 

@@ -8,6 +8,7 @@ import java.util.UUID
 
 import kafka.tier.TopicIdPartition
 import kafka.tier.fetcher.CancellationContext
+import kafka.tier.tasks.{StartLeadership, StopLeadership}
 import kafka.utils.MockTime
 import org.junit.Assert._
 import org.junit.Test
@@ -28,17 +29,17 @@ class ArchiverTaskQueueTest {
     val partition_3 = new TopicIdPartition("foo-3", UUID.randomUUID, 0)
     val partition_4 = new TopicIdPartition("foo-4", UUID.randomUUID, 0)
 
-    archiverTaskQueue.addTask(partition_1, 0)
-    archiverTaskQueue.addTask(partition_2, 0)
-    archiverTaskQueue.addTask(partition_3, 0)
-    archiverTaskQueue.addTask(partition_4, 0)
+    addTask(partition_1, 0)
+    addTask(partition_2, 0)
+    addTask(partition_3, 0)
+    addTask(partition_4, 0)
 
-    archiverTaskQueue.removeTask(partition_1)
+    removeTask(partition_1)
     archiverTaskQueue.withAllTasks { tasks =>
       assertEquals(Set(partition_2, partition_3, partition_4), tasks.map(_.topicIdPartition))
     }
 
-    archiverTaskQueue.removeTask(partition_3)
+    removeTask(partition_3)
     archiverTaskQueue.withAllTasks { tasks =>
       assertEquals(Set(partition_2, partition_4), tasks.map(_.topicIdPartition))
     }
@@ -56,10 +57,10 @@ class ArchiverTaskQueueTest {
     updateLag(partition_3, 1)
     updateLag(partition_4, 15)
 
-    archiverTaskQueue.addTask(partition_1, 0)
-    archiverTaskQueue.addTask(partition_2, 0)
-    archiverTaskQueue.addTask(partition_3, 0)
-    archiverTaskQueue.addTask(partition_4, 0)
+    addTask(partition_1, 0)
+    addTask(partition_2, 0)
+    addTask(partition_3, 0)
+    addTask(partition_4, 0)
 
     val tasks = archiverTaskQueue.poll().get
     assertEquals(lagSortedEligibleTasks.take(maxTasks), tasks.map(_.topicIdPartition).toList)
@@ -73,8 +74,8 @@ class ArchiverTaskQueueTest {
     updateLag(partition_1, 5)
     updateLag(partition_2, 0)
 
-    archiverTaskQueue.addTask(partition_1, 0)
-    archiverTaskQueue.addTask(partition_2, 0)
+    addTask(partition_1, 0)
+    addTask(partition_2, 0)
 
     assertEquals(Set(partition_1), archiverTaskQueue.poll().get.map(_.topicIdPartition))
   }
@@ -91,10 +92,10 @@ class ArchiverTaskQueueTest {
     updateLag(partition_3, 0)
     updateLag(partition_4, 0)
 
-    archiverTaskQueue.addTask(partition_1, 0)
-    archiverTaskQueue.addTask(partition_2, 0)
-    archiverTaskQueue.addTask(partition_3, 0)
-    archiverTaskQueue.addTask(partition_4, 0)
+    addTask(partition_1, 0)
+    addTask(partition_2, 0)
+    addTask(partition_3, 0)
+    addTask(partition_4, 0)
 
     assertEquals(None, archiverTaskQueue.poll())
   }
@@ -106,14 +107,14 @@ class ArchiverTaskQueueTest {
     val partition_3 = new TopicIdPartition("foo-3", UUID.randomUUID, 0)
     val partition_4 = new TopicIdPartition("foo-4", UUID.randomUUID, 0)
 
-    archiverTaskQueue.addTask(partition_1, 0)
-    archiverTaskQueue.addTask(partition_2, 0)
-    archiverTaskQueue.addTask(partition_3, 0)
-    archiverTaskQueue.addTask(partition_4, 0)
+    addTask(partition_1, 0)
+    addTask(partition_2, 0)
+    addTask(partition_3, 0)
+    addTask(partition_4, 0)
 
     // add partition_1 with epoch=1 and partition_3 with epoch=2
-    archiverTaskQueue.addTask(partition_1, 1)
-    archiverTaskQueue.addTask(partition_3, 2)
+    addTask(partition_1, 1)
+    addTask(partition_3, 2)
 
     archiverTaskQueue.withAllTasks { tasks =>
       assertEquals(1, tasks.find(_.topicIdPartition == partition_1).get.state.leaderEpoch)
@@ -143,5 +144,13 @@ class ArchiverTaskQueueTest {
       }.map { case (topicIdPartition, _) =>
         topicIdPartition
       }
+  }
+
+  private def addTask(topicIdPartition: TopicIdPartition, leaderEpoch: Int): Unit = {
+    archiverTaskQueue.maybeAddTask(StartLeadership(topicIdPartition, leaderEpoch))
+  }
+
+  private def removeTask(topicIdPartition: TopicIdPartition): Unit = {
+    archiverTaskQueue.maybeRemoveTask(StopLeadership(topicIdPartition))
   }
 }

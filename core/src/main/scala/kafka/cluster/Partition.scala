@@ -26,7 +26,7 @@ import kafka.controller.KafkaController
 import kafka.log._
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server._
-import kafka.tier.TierTimestampAndOffset
+import kafka.tier.{TierReplicaManager, TierTimestampAndOffset}
 import kafka.server.checkpoints.OffsetCheckpoints
 import kafka.utils.CoreUtils.{inReadLock, inWriteLock}
 import kafka.utils._
@@ -34,7 +34,7 @@ import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
-import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.protocol.{Errors, MessageUtil}
 import org.apache.kafka.common.protocol.Errors._
 import org.apache.kafka.common.record.{MemoryRecords, RecordBatch}
 import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
@@ -147,7 +147,8 @@ object Partition extends KafkaMetricsGroup {
       stateStore = zkIsrBackingStore,
       delayedOperations = delayedOperations,
       metadataCache = replicaManager.metadataCache,
-      logManager = replicaManager.logManager)
+      logManager = replicaManager.logManager,
+      tierReplicaManagerOpt = replicaManager.tierReplicaComponents.replicaManagerOpt)
   }
 
   def removeMetrics(topicPartition: TopicPartition): Unit = {
@@ -175,7 +176,8 @@ class Partition(val topicPartition: TopicPartition,
                 stateStore: PartitionStateStore,
                 delayedOperations: DelayedOperations,
                 metadataCache: MetadataCache,
-                logManager: LogManager) extends Logging with KafkaMetricsGroup {
+                logManager: LogManager,
+                tierReplicaManagerOpt: Option[TierReplicaManager]) extends Logging with KafkaMetricsGroup {
 
   def topic: String = topicPartition.topic
   def partitionId: Int = topicPartition.partition
@@ -550,6 +552,9 @@ class Partition(val topicPartition: TopicPartition,
       // leader epoch and the start offset since it should be larger than any epoch that a follower
       // would try to query.
       leaderLog.maybeAssignEpochStartOffset(leaderEpoch, leaderEpochStartOffset)
+      if (partitionState.topicId != MessageUtil.ZERO_UUID)
+        leaderLog.assignTopicId(partitionState.topicId)
+      tierReplicaManagerOpt.foreach(_.becomeLeader(leaderLog.tierPartitionState, leaderEpoch))
 
       val isNewLeader = !isLeader
       val curLeaderLogEndOffset = leaderLog.logEndOffset
@@ -605,6 +610,10 @@ class Partition(val topicPartition: TopicPartition,
         isr = Set.empty[Int]
       )
       createLogIfNotExists(localBrokerId, partitionState.isNew, isFutureReplica = false, highWatermarkCheckpoints)
+      val followerLog = localLogOrException
+      if (partitionState.topicId != MessageUtil.ZERO_UUID)
+        followerLog.assignTopicId(partitionState.topicId)
+      tierReplicaManagerOpt.foreach(_.becomeFollower(followerLog.tierPartitionState))
 
       leaderEpoch = partitionState.leaderEpoch
       leaderEpochStartOffsetOpt = None

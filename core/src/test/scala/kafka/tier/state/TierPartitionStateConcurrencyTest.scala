@@ -80,7 +80,7 @@ class TierPartitionStateConcurrencyTest {
     val epoch = 0
 
     val state = new FileTierPartitionState(baseDir, tp, true)
-    state.setTopicIdPartition(tpid)
+    state.setTopicId(tpid.topicId)
     state.beginCatchup()
     state.onCatchUpComplete()
     val startTime = System.currentTimeMillis()

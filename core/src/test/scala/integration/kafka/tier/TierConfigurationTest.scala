@@ -10,7 +10,7 @@ import org.apache.kafka.clients.admin.{AlterConfigOp, AlterConfigsResult, Config
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.errors.InvalidConfigurationException
-import org.junit.Assert.{assertEquals, assertThrows, assertTrue}
+import org.junit.Assert.{assertFalse, assertThrows, assertTrue}
 import org.junit.function.ThrowingRunnable
 import org.junit.{Before, Test}
 
@@ -37,7 +37,7 @@ class TierConfigurationTest extends IntegrationTestHarness {
     assertInvalid(enableCompaction())
 
     servers.foreach { server =>
-      assertEquals(topicPartition, server.tierMetadataManager.tierEnabledPartitionStateIterator.next().topicPartition)
+      assertTrue(server.logManager.getLog(topicPartition).get.tierPartitionState.isTieringEnabled)
     }
   }
 
@@ -50,7 +50,7 @@ class TierConfigurationTest extends IntegrationTestHarness {
     assertInvalid(enableCompaction())
 
     servers.foreach { server =>
-      assertEquals(topicPartition, server.tierMetadataManager.tierEnabledPartitionStateIterator.next().topicPartition)
+      assertTrue(server.logManager.getLog(topicPartition).get.tierPartitionState.isTieringEnabled)
     }
   }
 
@@ -67,7 +67,7 @@ class TierConfigurationTest extends IntegrationTestHarness {
     enableCompaction().all().get
 
     servers.foreach { server =>
-      assertTrue(!server.tierMetadataManager.tierEnabledPartitionStateIterator.hasNext)
+      assertFalse(server.logManager.getLog(topicPartition).get.tierPartitionState.isTieringEnabled)
     }
   }
 

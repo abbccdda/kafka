@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.NavigableSet;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.Future;
 
 public interface TierPartitionState {
@@ -59,13 +60,12 @@ public interface TierPartitionState {
      * Sets the TopicIdPartition for this TierPartitionState.
      * Will open the TierPartitionState if tiering is enabled, and a TopicIdPartition was not
      * previously set or able to be read from the FileTierPartitionState header.
-     * @param topicIdPartition
+     * @param topicId The topic id to assign
      * @return true if a TopicIdPartition was not set and one has now been set, false otherwise
      * @throws IOException
-     * @throws IllegalStateException if a TopicIdPartition was supplied and it does not match the
-     * TopicIdPartition that was previously set
+     * @throws IllegalStateException on topic id mismatch, if it had already been set before
      */
-    boolean setTopicIdPartition(TopicIdPartition topicIdPartition) throws IOException;
+    boolean setTopicId(UUID topicId) throws IOException;
 
     /**
      * Return the end offset spanned by the TierPartitionState that has been committed to disk.
@@ -138,13 +138,13 @@ public interface TierPartitionState {
      */
     int tierEpoch() throws IOException;
 
-    boolean tieringEnabled();
+    boolean isTieringEnabled();
 
     /**
      * Called when tiering is enabled for this tier topic partition.
      * @throws IOException
      */
-    void onTieringEnable() throws IOException;
+    void enableTierConfig() throws IOException;
 
     /**
      * flush data contained in this TierPartitionState to disk.

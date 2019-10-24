@@ -33,7 +33,7 @@ import kafka.metrics.KafkaMetricsGroup
 import kafka.server.{FetchMetadata => SFetchMetadata}
 import kafka.server.QuotaFactory.QuotaManagers
 import kafka.server.checkpoints.{LazyOffsetCheckpoints, OffsetCheckpointFile, OffsetCheckpoints}
-import kafka.tier.{TierMetadataManager, TierTimestampAndOffset}
+import kafka.tier.{TierReplicaManager, TierTimestampAndOffset}
 import kafka.tier.fetcher.{TierFetchResult, TierFetcher, TierStateFetcher}
 import kafka.utils._
 import kafka.zk.KafkaZkClient
@@ -45,7 +45,7 @@ import org.apache.kafka.common.message.LeaderAndIsrResponseData
 import org.apache.kafka.common.message.LeaderAndIsrResponseData.LeaderAndIsrPartitionError
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.ListenerName
-import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.protocol.{Errors, MessageUtil}
 import org.apache.kafka.common.record.FileRecords.{FileTimestampAndOffset, TimestampAndOffset}
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.replica.PartitionView.DefaultPartitionView
@@ -244,9 +244,7 @@ class ReplicaManager(val config: KafkaConfig,
                      val delayedDeleteRecordsPurgatory: DelayedOperationPurgatory[DelayedDeleteRecords],
                      val delayedElectLeaderPurgatory: DelayedOperationPurgatory[DelayedElectLeader],
                      val delayedListOffsetsPurgatory: DelayedOperationPurgatory[DelayedListOffsets],
-                     val tierMetadataManager: TierMetadataManager,
-                     val tierFetcherOpt: Option[TierFetcher],
-                     val tierStateFetcher: Option[TierStateFetcher],
+                     val tierReplicaComponents: TierReplicaComponents,
                      threadNamePrefix: Option[String]) extends Logging with KafkaMetricsGroup {
 
   def this(config: KafkaConfig,
@@ -260,9 +258,7 @@ class ReplicaManager(val config: KafkaConfig,
            brokerTopicStats: BrokerTopicStats,
            metadataCache: MetadataCache,
            logDirFailureChannel: LogDirFailureChannel,
-           tierMetadataManager: TierMetadataManager,
-           tierFetcherOpt: Option[TierFetcher] = None,
-           tierStateFetcher: Option[TierStateFetcher] = None,
+           tierReplicaComponents: TierReplicaComponents,
            threadNamePrefix: Option[String] = None) {
     this(config, metrics, time, zkClient, scheduler, logManager, isShuttingDown,
       quotaManagers, brokerTopicStats, metadataCache, logDirFailureChannel,
@@ -279,9 +275,7 @@ class ReplicaManager(val config: KafkaConfig,
         purgatoryName = "ElectLeader", brokerId = config.brokerId),
       DelayedOperationPurgatory[DelayedListOffsets](
         purgatoryName = "ListOffsets", brokerId = config.brokerId),
-      tierMetadataManager,
-      tierFetcherOpt,
-      tierStateFetcher,
+      tierReplicaComponents,
       threadNamePrefix)
   }
 
@@ -446,6 +440,8 @@ class ReplicaManager(val config: KafkaConfig,
     stateChangeLogger.trace(s"Handling stop replica (delete=$deletePartition) for partition $topicPartition")
 
     if (deletePartition) {
+      val topicIdPartitionOpt = logManager.getLog(topicPartition).flatMap(_.topicIdPartition)
+
       getPartition(topicPartition) match {
         case HostedPartition.Offline =>
           throw new KafkaStorageException(s"Partition $topicPartition is on an offline disk")
@@ -468,6 +464,11 @@ class ReplicaManager(val config: KafkaConfig,
         logManager.asyncDelete(topicPartition)
       if (logManager.getLog(topicPartition, isFuture = true).isDefined)
         logManager.asyncDelete(topicPartition, isFuture = true)
+
+      topicIdPartitionOpt.foreach { topicIdPartition =>
+        tierReplicaComponents.logComponents.topicConsumerOpt.foreach(_.deregister(topicIdPartition))
+        tierReplicaComponents.replicaManagerOpt.foreach(_.delete(topicIdPartition))
+      }
     }
     stateChangeLogger.trace(s"Finished handling stop replica (delete=$deletePartition) for partition $topicPartition")
   }
@@ -962,7 +963,7 @@ class ReplicaManager(val config: KafkaConfig,
     } else {
       val completionCallback = (delayedOperationKey: DelayedOperationKey) =>
         delayedListOffsetsPurgatory.checkAndComplete(delayedOperationKey): Unit
-      val pending = tierFetcherOpt.get.fetchOffsetForTimestamp(tierLists, completionCallback.asJava)
+      val pending = tierReplicaComponents.fetcherOpt.get.fetchOffsetForTimestamp(tierLists, completionCallback.asJava)
       val delayedListOffsets = new DelayedListOffsets(delayMs, fetchOnlyFromLeader, localLists, pending, this, responseCallback)
       val delayedOperationKeys = pending.delayedOperationKeys.asScala ++ lookupMetadata.keys.map(tp => TopicPartitionOperationKey(tp.topic(), tp.partition()))
       delayedListOffsetsPurgatory.tryCompleteElseWatch(delayedListOffsets, delayedOperationKeys)
@@ -1112,7 +1113,7 @@ class ReplicaManager(val config: KafkaConfig,
 
         val completionCallback = (delayedOperationKey: DelayedOperationKey) =>
           delayedFetchPurgatory.checkAndComplete(delayedOperationKey): Unit
-        val tierFetcher = tierFetcherOpt.getOrElse(throw new IllegalStateException("Attempted to initiate fetch for tiered data but there is no TierFetcher present"))
+        val tierFetcher = tierReplicaComponents.fetcherOpt.getOrElse(throw new IllegalStateException("Attempted to initiate fetch for tiered data but there is no TierFetcher present"))
         val pendingFetch = tierFetcher.fetch(tierFetchMetadataList.asJava, isolationLevel, completionCallback.asJava)
 
         // Create TopicPartitionOperationKey's for all local partitions included in this fetch. Merge the resulting
@@ -1367,6 +1368,32 @@ class ReplicaManager(val config: KafkaConfig,
 
   def getLogConfig(topicPartition: TopicPartition): Option[LogConfig] = localLog(topicPartition).map(_.config)
 
+  def updateLogConfig(topicPartition: TopicPartition, newConfig: LogConfig): Unit = {
+    localLog(topicPartition).foreach { log =>
+      val tierPartitionState = log.tierPartitionState
+      val oldTieringEnabled = tierPartitionState.isTieringEnabled
+      log.updateConfig(newConfig)
+
+      // if tiering has now been enabled, propagate replica state to tierReplicaManager
+      tierReplicaComponents.replicaManagerOpt.foreach { tierReplicaManager =>
+        val newTieringEnabled = tierPartitionState.isTieringEnabled
+        if (!oldTieringEnabled && newTieringEnabled) {
+          replicaStateChangeLock synchronized {
+            getPartition(topicPartition) match {
+              case HostedPartition.Online(partition) =>
+                if (partition.isLeader)
+                  tierReplicaManager.becomeLeader(tierPartitionState, partition.getLeaderEpoch)
+                else
+                  tierReplicaManager.becomeFollower(tierPartitionState)
+
+              case _ =>
+            }
+          }
+        }
+      }
+    }
+  }
+
   def getMagic(topicPartition: TopicPartition): Option[Byte] = getLogConfig(topicPartition).map(_.messageFormatVersion.recordVersion.value)
 
   def maybeUpdateMetadataCache(correlationId: Int, updateMetadataRequest: UpdateMetadataRequest) : Seq[TopicPartition] =  {
@@ -1433,7 +1460,19 @@ class ReplicaManager(val config: KafkaConfig,
           partitionOpt.foreach { partition =>
             val currentLeaderEpoch = partition.getLeaderEpoch
             val requestLeaderEpoch = partitionState.leaderEpoch
-            if (requestLeaderEpoch > currentLeaderEpoch) {
+
+            // We propagate the partition state down if:
+            // 1. The leader epoch is higher than the current leader epoch of the partition
+            // 2. The leader epoch is same as the current leader epoch but a new topic id is being assigned. This is
+            //    needed to handle the case where a topic id is assigned for the first time after upgrade.
+            def propagatePartitionState(requestLeaderEpoch: Int, currentLeaderEpoch: Int, partition: Partition): Boolean = {
+              requestLeaderEpoch > currentLeaderEpoch ||
+                (requestLeaderEpoch == currentLeaderEpoch &&
+                  partition.log.flatMap(_.topicIdPartition).isEmpty &&
+                  partitionState.topicId != MessageUtil.ZERO_UUID)
+            }
+
+            if (propagatePartitionState(requestLeaderEpoch, currentLeaderEpoch, partition)) {
               // If the leader epoch is valid record the epoch of the controller that made the leadership decision.
               // This is useful while updating the isr to maintain the decision maker controller's epoch in the zookeeper path
               if (partitionState.replicas.contains(localBrokerId))
@@ -1934,11 +1973,11 @@ class ReplicaManager(val config: KafkaConfig,
   }
 
   protected def createReplicaFetcherManager(metrics: Metrics, time: Time, threadNamePrefix: Option[String], quotaManager: ReplicationQuotaManager) = {
-    new ReplicaFetcherManager(config, this, metrics, time, threadNamePrefix, quotaManager, tierMetadataManager, tierStateFetcher)
+    new ReplicaFetcherManager(config, this, metrics, time, threadNamePrefix, quotaManager, tierReplicaComponents.stateFetcherOpt)
   }
 
   protected def createReplicaAlterLogDirsManager(quotaManager: ReplicationQuotaManager, brokerTopicStats: BrokerTopicStats) = {
-    new ReplicaAlterLogDirsManager(config, this, quotaManager, tierMetadataManager, tierStateFetcher, brokerTopicStats)
+    new ReplicaAlterLogDirsManager(config, this, quotaManager, brokerTopicStats)
   }
 
   protected def createReplicaSelector(): Option[ReplicaSelector] = {
@@ -2047,4 +2086,20 @@ object FetchLag {
         brokerTopicStats.allTopicsStats.consumerFetchLagTimeMs.update(fetchLagMs)
     }
   }
+}
+
+/**
+  * Replica layer components for tiered storage.
+  * @param replicaManagerOpt Replica manager for tiered storage
+  * @param fetcherOpt Tier fetcher instance
+  * @param stateFetcherOpt Tier state fetcher instance
+  * @param logComponents Log components for tiered storage
+  */
+case class TierReplicaComponents(replicaManagerOpt: Option[TierReplicaManager],
+                                 fetcherOpt: Option[TierFetcher],
+                                 stateFetcherOpt: Option[TierStateFetcher],
+                                 logComponents: TierLogComponents)
+
+object TierReplicaComponents {
+  val EMPTY = TierReplicaComponents(None, None, None, TierLogComponents.EMPTY)
 }

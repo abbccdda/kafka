@@ -33,7 +33,7 @@ case class MockTask(ctx: CancellationContext,
   }
 }
 
-class LeaderChangeManagerTest {
+class ChangeManagerTest {
   private val ctx = CancellationContext.newContext()
   private val time: Time = new MockTime()
   private val maxTasks = 3
@@ -43,11 +43,21 @@ class LeaderChangeManagerTest {
       tasks
     }
 
-    override protected[tasks] def newTask(topicIdPartition: TopicIdPartition, epoch: Int): MockTask = {
-      MockTask(ctx.subContext(), topicIdPartition, epoch)
+    override protected[tasks] def newTask(topicIdPartition: TopicIdPartition, metadata: StartChangeMetadata): MockTask = {
+      metadata match {
+        case leadership: StartLeadership => MockTask(ctx.subContext (), topicIdPartition, leadership.leaderEpoch)
+        case unknown => throw new IllegalStateException(s"Unexpected $unknown")
+      }
+    }
+
+    override protected[tasks] def mayProcess(metadata: ChangeMetadata): Boolean = {
+      metadata match {
+        case _: LeadershipChange => true
+        case _ => false
+      }
     }
   }
-  private val leaderChangeManager = new LeaderChangeManager(ctx.subContext(), Seq(queue), time)
+  private val leaderChangeManager = new ChangeManager(ctx.subContext(), Seq(queue), time)
 
   @After
   def teardown(): Unit = {

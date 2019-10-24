@@ -28,7 +28,6 @@ import kafka.log.LogAppendInfo
 import kafka.server.AbstractFetcherThread.ReplicaFetch
 import kafka.server.AbstractFetcherThread.ResultWithPartitions
 import kafka.server.epoch.EpochEntry
-import kafka.tier.TierMetadataManager
 import kafka.tier.tasks.CompletableFutureUtil
 import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.fetcher.TierStateFetcher
@@ -58,7 +57,6 @@ class ReplicaFetcherThread(name: String,
                            metrics: Metrics,
                            time: Time,
                            quota: ReplicaQuota,
-                           tierMetadataManager: TierMetadataManager,
                            tierStateFetcher: Option[TierStateFetcher],
                            leaderEndpointBlockingSend: Option[BlockingSend] = None)
   extends AbstractFetcherThread(name = name,
@@ -66,7 +64,6 @@ class ReplicaFetcherThread(name: String,
                                 sourceBroker = sourceBroker,
                                 failedPartitions,
                                 fetchBackOffMs = brokerConfig.replicaFetchBackoffMs,
-                                tierMetadataManager = tierMetadataManager,
                                 tierStateFetcher = tierStateFetcher,
                                 isInterruptible = false) {
 
@@ -224,6 +221,11 @@ class ReplicaFetcherThread(name: String,
         TierState(epochEntries, producerState)
       }
     })
+  }
+
+  override def materializeTierStateUntilOffset(topicPartition: TopicPartition, targetOffset: Long): Future[TierObjectMetadata] = {
+    val log = replicaMgr.localLogOrException(topicPartition)
+    log.materializeTierStateUntilOffset(targetOffset)
   }
 
   def maybeWarnIfOversizedRecords(records: MemoryRecords, topicPartition: TopicPartition): Unit = {

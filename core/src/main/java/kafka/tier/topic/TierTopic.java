@@ -15,7 +15,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
-public class TierTopic {
+public class TierTopic implements InitializedTierTopic {
     private final String topicName;
     private final Supplier<AdminZkClient> adminZkClientSupplier;
 
@@ -76,18 +76,18 @@ public class TierTopic {
         this.partitioner = new TierTopicPartitioner(numPartitions);
     }
 
-    private static Set<TopicPartition> toTierTopicPartitions(Collection<TopicIdPartition> tieredPartitions,
-                                                             String topicName,
-                                                             TierTopicPartitioner partitioner) {
+    static Set<TopicPartition> toTierTopicPartitions(Collection<TopicIdPartition> tieredPartitions,
+                                                     String topicName,
+                                                     TierTopicPartitioner partitioner) {
         return tieredPartitions
                 .stream()
                 .map(tieredPartition -> toTierTopicPartition(tieredPartition, topicName, partitioner))
                 .collect(Collectors.toSet());
     }
 
-    private static TopicPartition toTierTopicPartition(TopicIdPartition tieredPartition,
-                                                       String topicName,
-                                                       TierTopicPartitioner partitioner) {
+    static TopicPartition toTierTopicPartition(TopicIdPartition tieredPartition,
+                                               String topicName,
+                                               TierTopicPartitioner partitioner) {
         return new TopicPartition(topicName, partitioner.partitionId(tieredPartition));
     }
 }

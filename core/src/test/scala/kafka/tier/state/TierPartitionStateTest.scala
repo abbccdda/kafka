@@ -10,7 +10,7 @@ import java.nio.file.{Paths, StandardOpenOption}
 import java.nio.{ByteBuffer, ByteOrder}
 import java.util.{Optional, UUID}
 
-import kafka.log.Log
+import kafka.log.{Log, LogConfig}
 import kafka.tier.TopicIdPartition
 import kafka.tier.domain.{AbstractTierMetadata, TierSegmentDeleteComplete, TierSegmentDeleteInitiate, TierSegmentUploadComplete, TierSegmentUploadInitiate, TierTopicInitLeader}
 import kafka.tier.state.TierPartitionState.AppendResult
@@ -21,24 +21,26 @@ import org.apache.kafka.common.TopicPartition
 import org.junit.Assert._
 import org.junit.function.ThrowingRunnable
 import org.junit.{After, Before, Test}
-import org.mockito.Mockito.mock
+import org.mockito.Mockito.{mock, when}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
 
 class TierPartitionStateTest {
-  val factory = new FileTierPartitionStateFactory()
+  val factory = new TierPartitionStateFactory(true)
   val parentDir = TestUtils.tempDir()
   val dir = TestUtils.randomPartitionLogDir(parentDir)
   val tp = Log.parseTopicPartitionName(dir)
   val tpid = new TopicIdPartition(tp.topic, UUID.randomUUID, tp.partition)
   val state = new FileTierPartitionState(dir, tp, true)
+  val logConfig = mock(classOf[LogConfig])
 
   @Before
   def setup(): Unit = {
-    state.setTopicIdPartition(tpid)
+    state.setTopicId(tpid.topicId)
     state.beginCatchup()
     state.onCatchUpComplete()
+    when(logConfig.tierEnable).thenReturn(true)
   }
 
   @After
@@ -54,7 +56,7 @@ class TierPartitionStateTest {
     assertEquals(9, state.tierEpoch())
     state.close()
 
-    val reopenedState = factory.initState(dir, tp, true)
+    val reopenedState = factory.initState(dir, tp, logConfig)
     assertEquals(9, reopenedState.tierEpoch())
     reopenedState.close()
   }
@@ -156,7 +158,7 @@ class TierPartitionStateTest {
     state.append(new TierTopicInitLeader(tpid, epoch + 1, java.util.UUID.randomUUID(), 0))
     state.close()
 
-    val reopenedState = factory.initState(dir, tp, true)
+    val reopenedState = factory.initState(dir, tp, logConfig)
     assertEquals(1, reopenedState.tierEpoch())
     assertEquals(size, reopenedState.totalSize())
     reopenedState.close()
@@ -276,7 +278,7 @@ class TierPartitionStateTest {
 
 
     val state2 = new FileTierPartitionState(dir, tp, true)
-    assertFalse(state2.setTopicIdPartition(tpid))
+    assertFalse(state2.setTopicId(tpid.topicId))
 
     val afterReloadFenced = state2.fencedSegments()
     assertEquals(initialFenced, afterReloadFenced)
@@ -531,7 +533,7 @@ class TierPartitionStateTest {
     testDuplicateAppend(initLeader, Seq.empty, AppendResult.ACCEPTED)
 
     // try delete immediately after upload order
-    var currentTransitions: ListBuffer[AbstractTierMetadata] = ListBuffer()
+    val currentTransitions: ListBuffer[AbstractTierMetadata] = ListBuffer()
     for (transition <- Seq(uploadInitiate1, uploadComplete1, deleteInitiate1, deleteComplete1, uploadInitiate2, uploadComplete2, deleteInitiate2, deleteComplete2)) {
       testDuplicateAppend(transition, currentTransitions, AppendResult.ACCEPTED)
       currentTransitions += transition
@@ -555,7 +557,7 @@ class TierPartitionStateTest {
     testDuplicateAppend(initLeader, Seq.empty, AppendResult.ACCEPTED)
 
     // try delayed delete order
-    var currentTransitions: ListBuffer[AbstractTierMetadata] = ListBuffer()
+    val currentTransitions: ListBuffer[AbstractTierMetadata] = ListBuffer()
     for (transition <- Seq(uploadInitiate1, uploadComplete1, uploadInitiate2, uploadComplete2, deleteInitiate1, deleteComplete1, deleteInitiate2, deleteComplete2)) {
       testDuplicateAppend(transition, currentTransitions, AppendResult.ACCEPTED)
       currentTransitions += transition
@@ -579,7 +581,7 @@ class TierPartitionStateTest {
     testDuplicateAppend(initLeader, Seq.empty, AppendResult.ACCEPTED)
 
     // try multiple simultaneous delete initiate orders, then stage the delete completes
-    var currentTransitions: ListBuffer[AbstractTierMetadata] = ListBuffer()
+    val currentTransitions: ListBuffer[AbstractTierMetadata] = ListBuffer()
     for (transition <- Seq(uploadInitiate1, uploadComplete1, uploadInitiate2, uploadComplete2, deleteInitiate1, deleteInitiate2, deleteComplete1, deleteComplete2)) {
       testDuplicateAppend(transition, currentTransitions, AppendResult.ACCEPTED)
       currentTransitions += transition
@@ -606,7 +608,7 @@ class TierPartitionStateTest {
     testDuplicateAppend(initLeader1, Seq.empty, AppendResult.ACCEPTED)
 
     // try delete immediately after upload order
-    var currentTransitions: ListBuffer[AbstractTierMetadata] = ListBuffer()
+    val currentTransitions: ListBuffer[AbstractTierMetadata] = ListBuffer()
     for (transition <- Seq(uploadInitiate1, uploadComplete1, deleteInitiate1, deleteComplete1, initLeader2)) {
       testDuplicateAppend(transition, currentTransitions, AppendResult.ACCEPTED)
       currentTransitions += transition

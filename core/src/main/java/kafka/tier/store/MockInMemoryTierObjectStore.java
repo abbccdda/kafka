@@ -34,6 +34,7 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
     public ConcurrentHashMap<String, byte[]> getStored() {
          return KEY_TO_BLOB;
     }
+
     public ConcurrentHashMap<TierObjectStore.FileType, Integer> getObjectCounts() {
         return objectCounts;
     }

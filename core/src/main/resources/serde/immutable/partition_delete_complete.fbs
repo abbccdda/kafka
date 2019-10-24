@@ -1,0 +1,17 @@
+/*
+ Copyright 2019 Confluent Inc.
+ */
+
+include "uuid.fbs";
+namespace kafka.tier.serdes;
+
+// DO NOT REUSE FIELD IDS AS THIS WILL BREAK FORWARD AND BACKWARD COMPAT
+// INSTEAD MARK THEM AS DEPRECATED
+// e.g. myfield:byte (id: 9, deprecated)
+
+table PartitionDeleteComplete {
+  version: byte (id: 0);
+  messageId: UUID (id: 1);
+}
+
+root_type PartitionDeleteComplete;

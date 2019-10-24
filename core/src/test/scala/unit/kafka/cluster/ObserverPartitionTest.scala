@@ -16,6 +16,7 @@ import kafka.server.Defaults
 import kafka.server.LogOffsetMetadata
 import kafka.server.MetadataCache
 import kafka.server.checkpoints.OffsetCheckpoints
+import kafka.tier.TierReplicaManager
 import kafka.utils.MockTime
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
@@ -82,7 +83,8 @@ final class ObserverPartitionTest {
       stateStore,
       delayOperations,
       metadataCache,
-      logManager
+      logManager,
+      Some(mock(classOf[TierReplicaManager]))
     )
 
     when(stateStore.fetchTopicConfig()).thenReturn(createLogProperties(Map.empty))

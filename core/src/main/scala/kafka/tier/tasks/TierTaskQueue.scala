@@ -94,7 +94,7 @@ abstract class TierTask[T <: TierTask[T]](retryRateOpt: Option[Meter]) extends L
 
 /**
   * Queue of tiering tasks. Provides abstractions to maintain a prioritized queue of tasks to be executed and retrieving
-  * them when needed.
+  * them when needed. This queue is _not_ thread safe.
   * @param ctx The cancellation context associated with this queue
   * @param maxTasks Maximum number of tasks to be processed at a given point in time. This limits the number of tasks
   *                 that can be polled from the queue.
@@ -122,31 +122,36 @@ abstract class TierTaskQueue[T <: TierTask[T]](ctx: CancellationContext, maxTask
   /**
     * Create a new task instance.
     * @param topicIdPartition topic partition
-    * @param epoch leader epoch
+    * @param metadata the StartChangeMetadata for which this new task is being initialized
     * @return New task instance
     */
-  protected[tasks] def newTask(topicIdPartition: TopicIdPartition, epoch: Int): T
+  protected[tasks] def newTask(topicIdPartition: TopicIdPartition, metadata: StartChangeMetadata): T
 
   /**
-    * Add a new task for the given topic partition, replacing any existing task for this partition.
-    * @param topicIdPartition topic partition to add a new task for
-    * @param epoch leader epoch
+    * Check if this change could be processed. Changes are propagated to the queue only if this method returns `true`.
+    * @param metadata Change metadata
+    * @return true if the change can be propagated; false otherwise
     */
-  def addTask(topicIdPartition: TopicIdPartition, epoch: Int): Unit = {
-    removeTask(topicIdPartition)
-    tasks += newTask(topicIdPartition, epoch)
+  protected[tasks] def mayProcess(metadata: ChangeMetadata): Boolean
+
+  /**
+    * Add a new task for the given topic partition, replacing any existing task for this partition. The task is added
+    * only if the underlying queue allows processing for this change using [[mayProcess()]].
+    */
+  def maybeAddTask(metadata: StartChangeMetadata): Unit = {
+    if (mayProcess(metadata)) {
+      remove(metadata.topicIdPartition)
+      tasks += newTask(metadata.topicIdPartition, metadata)
+    }
   }
 
   /**
     * Remove task for the given topic partition.
-    * @param topicIdPartition topic partition
+    * @param metadata StopChangeMetadata causing this task to be removed
     */
-  def removeTask(topicIdPartition: TopicIdPartition): Unit = {
-    findTask(topicIdPartition, tasks).foreach { task =>
-      task.ctx.cancel()
-      tasks -= task
-      processing -= task
-    }
+  def maybeRemoveTask(metadata: StopChangeMetadata): Unit = {
+    if (mayProcess(metadata))
+      remove(metadata.topicIdPartition)
   }
 
   /**
@@ -218,6 +223,14 @@ abstract class TierTaskQueue[T <: TierTask[T]](ctx: CancellationContext, maxTask
 
   override def toString: String = {
     s"tasks=$tasks processing=$processing"
+  }
+
+  private def remove(topicIdPartition: TopicIdPartition): Unit = {
+    findTask(topicIdPartition, tasks).foreach { task =>
+      task.ctx.cancel()
+      tasks -= task
+      processing -= task
+    }
   }
 
   private def findTask(topicIdPartition: TopicIdPartition, queue: ListSet[T]): Option[T] = {

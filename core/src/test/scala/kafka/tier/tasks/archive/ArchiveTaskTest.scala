@@ -89,7 +89,10 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     val tps = when(mock(classOf[TierPartitionState]).tierEpoch())
       .thenReturn(leaderEpoch + 1)
       .getMock[TierPartitionState]()
-    when(tierTopicManager.partitionState(topicIdPartition)).thenReturn(tps)
+    val logSegment = mockLogSegment(tmpFile)
+    val log = mockAbstractLog(logSegment)
+    when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
+    when(log.tierPartitionState).thenReturn(tps)
 
     val nextState = ArchiveTask.maybeInitiateUpload(
       BeforeUpload(leaderEpoch),
@@ -228,13 +231,12 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
       .thenReturn(leaderEpoch)
       .getMock[TierPartitionState]()
 
-    when(tierTopicManager.partitionState(topicIdPartition)).thenReturn(tierPartitionState)
-
     val emptyLog = mock(classOf[AbstractLog])
       when(emptyLog.tierableLogSegments)
         .thenReturn(Collections.emptyList().asScala)
         .getMock[AbstractLog]()
 
+    when(emptyLog.tierPartitionState).thenReturn(tierPartitionState)
     when(replicaManager.getLog(topicIdPartition.topicPartition))
       .thenReturn(Some(emptyLog))
 
@@ -255,7 +257,6 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
   def testTierSegmentWithoutLeaderEpochState(): Unit = {
     val leaderEpoch = 0
     val tierPartitionState = mockTierPartitionState(leaderEpoch)
-    when(tierTopicManager.partitionState(topicIdPartition)).thenReturn(tierPartitionState)
 
     val logSegment = mockLogSegment(tmpFile)
 
@@ -263,6 +264,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     when(mockProducerStateManager.snapshotFileForOffset(ArgumentMatchers.any(classOf[Long]))).thenReturn(None)
 
     val log = mockAbstractLog(logSegment)
+    when(log.tierPartitionState).thenReturn(tierPartitionState)
     when(log.leaderEpochCache).thenReturn(None)
     when(log.producerStateManager).thenReturn(mockProducerStateManager)
     when(log.collectAbortedTransactions(ArgumentMatchers.any(classOf[Long]), ArgumentMatchers.any(classOf[Long])))
@@ -281,7 +283,6 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
   def testTierSegmentWithLeaderEpochState(): Unit = {
     val leaderEpoch = 0
     val tierPartitionState = mockTierPartitionState(leaderEpoch)
-    when(tierTopicManager.partitionState(topicIdPartition)).thenReturn(tierPartitionState)
 
     val logSegment = mockLogSegment(tmpFile)
 
@@ -294,6 +295,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     doNothing().when(mockLeaderEpochCache).truncateFromEnd(nextOffset)
 
     val log = mockAbstractLog(logSegment)
+    when(log.tierPartitionState).thenReturn(tierPartitionState)
     when(log.leaderEpochCache).thenReturn(Some(mockLeaderEpochCache))
     when(log.collectAbortedTransactions(ArgumentMatchers.any(classOf[Long]), ArgumentMatchers.any(classOf[Long])))
       .thenReturn(List())
@@ -371,13 +373,16 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
 
   @Test
   def testHandlingForSegmentDeletedExceptionDuringTransition(): Unit = {
+    val logSegment = mockLogSegment(tmpFile)
+    val log = mockAbstractLog(logSegment)
+    val exception = new SegmentDeletedException("segment deleted", new Exception)
+    when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
+    when(log.tierPartitionState).thenThrow(exception)
+
     val beforeUpload = mock(classOf[BeforeUpload])
     val task = new ArchiveTask(ctx, topicIdPartition, beforeUpload, ArchiverMetrics(None, None))
-    val exception = new SegmentDeletedException("segment deleted", new Exception)
 
-    when(tierTopicManager.partitionState(topicIdPartition)).thenThrow(exception)
     Await.result(task.transition(time, tierTopicManager, tierObjectStore, replicaManager), 1 second)
-
     verify(beforeUpload, times(1)).handleSegmentDeletedException(exception)
   }
 
@@ -388,7 +393,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     val log = mockAbstractLog(logSegment)
     val mockProducerStateManager = mock(classOf[ProducerStateManager])
 
-    when(tierTopicManager.partitionState(topicIdPartition)).thenReturn(tierPartitionState)
+    when(log.tierPartitionState).thenReturn(tierPartitionState)
     when(tierPartitionState.tierEpoch).thenReturn(leaderEpoch)
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
     when(log.tierableLogSegments).thenReturn(Seq(logSegment))

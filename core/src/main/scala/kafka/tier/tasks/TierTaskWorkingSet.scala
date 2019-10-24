@@ -1,7 +1,6 @@
 package kafka.tier.tasks
 
 import kafka.server.ReplicaManager
-import kafka.tier.TierMetadataManager
 import kafka.tier.store.TierObjectStore
 import kafka.tier.topic.TierTopicAppender
 import kafka.utils.Logging
@@ -12,7 +11,6 @@ import scala.concurrent.duration._
 
 class TierTaskWorkingSet[T <: TierTask[T]](taskQueue: TierTaskQueue[T],
                                            replicaManager: ReplicaManager,
-                                           tierMetadataManager: TierMetadataManager,
                                            tierTopicAppender: TierTopicAppender,
                                            tierObjectStore: TierObjectStore,
                                            maxRetryBackoffMs: Int,

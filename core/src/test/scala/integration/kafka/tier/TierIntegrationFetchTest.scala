@@ -104,7 +104,7 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
     topicPartitions.foreach { tp =>
       val leaderId = getLeaderForTopicPartition(tp)
       val server = serverForId(leaderId)
-      val tierPartitionState = server.get.tierMetadataManager.tierPartitionState(tp).get
+      val tierPartitionState = server.get.logManager.getLog(tp).get.tierPartitionState
 
       TestUtils.waitUntilTrue(() =>
         tierPartitionState.numSegments > minNumSegments &&

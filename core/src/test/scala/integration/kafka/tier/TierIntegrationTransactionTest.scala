@@ -121,16 +121,17 @@ class TierIntegrationTransactionTest extends IntegrationTestHarness {
     */
   private def waitUntilSegmentsTiered(minNumSegments: Int): Unit = {
     TestUtils.waitUntilTrue(() => {
-      topicPartitions.forall(tp => {
+      topicPartitions.forall { tp =>
         val leaderId = getLeaderForTopicPartition(tp)
         val server = serverForId(leaderId)
-        val endOffset = server.get.tierMetadataManager.tierPartitionState(tp).get().endOffset().orElse(0L)
-        val committedEndOffset = server.get.tierMetadataManager.tierPartitionState(tp).get().committedEndOffset.orElse(0L)
+        val tierPartitionState = server.get.logManager.getLog(tp).get.tierPartitionState
+        val endOffset = tierPartitionState.endOffset.orElse(0L)
+        val committedEndOffset = tierPartitionState.committedEndOffset.orElse(0L)
         endOffset > 0 &&
           committedEndOffset > 0 &&
           endOffset == committedEndOffset &&
-          server.get.tierMetadataManager.tierPartitionState(tp).get().numSegments() > minNumSegments
-      })
+          tierPartitionState.numSegments > minNumSegments
+      }
     }, s"timeout waiting for at least $minNumSegments to be archived and materialized", 60000L)
   }
 

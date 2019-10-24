@@ -30,7 +30,6 @@ import org.apache.kafka.common.record.{CompressionType, MemoryRecords, SimpleRec
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
 import org.easymock.EasyMock
 import EasyMock._
-import kafka.tier.TierMetadataManager
 import org.apache.kafka.common.replica.ClientMetadata
 import org.junit.Assert._
 import org.junit.{After, Test}
@@ -249,11 +248,11 @@ class ReplicaManagerQuotasTest {
     expect(logManager.liveLogDirs).andReturn(Array.empty[File]).anyTimes()
     replay(logManager)
 
-    val tierMetadataManager: TierMetadataManager = EasyMock.createMock(classOf[TierMetadataManager])
     val leaderBrokerId = configs.head.brokerId
     replicaManager = new ReplicaManager(configs.head, metrics, time, zkClient, scheduler, logManager,
       new AtomicBoolean(false), QuotaFactory.instantiate(configs.head, metrics, time, ""),
-      new BrokerTopicStats, new MetadataCache(configs.head.brokerId), new LogDirFailureChannel(configs.head.logDirs.size), tierMetadataManager)
+      new BrokerTopicStats, new MetadataCache(configs.head.brokerId), new LogDirFailureChannel(configs.head.logDirs.size),
+      TierReplicaComponents.EMPTY)
 
     //create the two replicas
     for ((p, _) <- fetchInfo) {

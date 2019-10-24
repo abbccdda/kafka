@@ -8,23 +8,25 @@ import java.io.File
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, ScheduledFuture, TimeUnit}
-import java.util.{Optional, UUID}
+import java.util.UUID
 
 import com.yammer.metrics.Metrics
 import com.yammer.metrics.core.Gauge
 import kafka.log.MergedLogTest.LogRanges
 import kafka.server.{BrokerTopicStats, FetchDataInfo, FetchLogEnd, LogDirFailureChannel, TierFetchDataInfo, TierState}
 import kafka.server.epoch.EpochEntry
-import kafka.tier.{TierMetadataManager, TierTestUtils, TierTimestampAndOffset, TopicIdPartition}
+import kafka.tier.{TierTestUtils, TierTimestampAndOffset, TopicIdPartition}
 import kafka.tier.domain.TierTopicInitLeader
-import kafka.tier.state.{FileTierPartitionStateFactory, TierPartitionState}
+import kafka.tier.state.{TierPartitionState, TierPartitionStateFactory}
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStore, TierObjectStoreConfig}
+import kafka.tier.topic.TierTopicConsumer
 import kafka.utils.{MockTask, MockTime, Scheduler, TestUtils}
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, RecordBatch, SimpleRecord}
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.junit.Assert.{assertEquals, assertTrue, fail}
 import org.junit.{After, Test}
+import org.mockito.Mockito._
 
 import scala.collection.JavaConverters._
 import scala.util.Try
@@ -34,15 +36,14 @@ class MergedLogTest {
   val tmpDir = TestUtils.tempDir()
   val logDir = TestUtils.randomPartitionLogDir(tmpDir)
   val mockTime = new MockTime()
-  val tierMetadataManager = new TierMetadataManager(new FileTierPartitionStateFactory(),
-    Optional.of(new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))),
-    new LogDirFailureChannel(1),
-    true)
+  val tierTopicConsumer = mock(classOf[TierTopicConsumer])
   val props = TestUtils.createBrokerConfig(0, "127.0.0.1:1", port = -1)
   val messagesPerSegment = 20
   val segmentBytes = MergedLogTest.createRecords(0, 0).sizeInBytes * messagesPerSegment
   val topicPartition = Log.parseTopicPartitionName(logDir)
   val topicIdPartition = new TopicIdPartition(topicPartition.topic, UUID.randomUUID, topicPartition.partition)
+  val tierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))
+  val tierLogComponents = TierLogComponents(Some(tierTopicConsumer), Some(tierObjectStore), new TierPartitionStateFactory(true))
 
   @After
   def tearDown() {
@@ -54,7 +55,7 @@ class MergedLogTest {
   def testReadFromTieredRegion(): Unit = {
     val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = 1)
     val log = createLogWithOverlap(30, 50, 10, logConfig)
-    val tierPartitionState = tierMetadataManager.tierPartitionState(log.topicPartition).get
+    val tierPartitionState = log.tierPartitionState
     val ranges = logRanges(log)
 
     // reading from overlap should return local data
@@ -366,7 +367,7 @@ class MergedLogTest {
     log.close()
     files.foreach(_.delete())
 
-    var logRecovery = Try(createMergedLog(logConfig))
+    val logRecovery = Try(createMergedLog(logConfig))
     assertTrue("expected log recovery to succeed", logRecovery.isSuccess)
     val recoveredLog = logRecovery.get
 
@@ -432,10 +433,10 @@ class MergedLogTest {
     // Setup retention to only keep 2 segments total
     val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = 0)
     val mergedLog = createMergedLog(logConfig)
-    val tierPartitionState = tierMetadataManager.tierPartitionState(mergedLog.topicPartition).get
+    val tierPartitionState = mergedLog.tierPartitionState
     val leaderEpoch = 0
     // establish tier leadership for topicIdPartition
-    tierPartitionState.setTopicIdPartition(topicIdPartition)
+    tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
       leaderEpoch, java.util.UUID.randomUUID(), 0))
@@ -527,10 +528,10 @@ class MergedLogTest {
     // Setup infinite retention, but with a hotset of 2 segments (2 * segmentBytes).
     val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = segmentBytes * 2, retentionBytes = -1, retentionMs = 100)
     val mergedLog = createMergedLog(logConfig)
-    val tierPartitionState = tierMetadataManager.tierPartitionState(mergedLog.topicPartition).get
+    val tierPartitionState = mergedLog.tierPartitionState
     val leaderEpoch = 0
     // establish tier leadership for topicIdPartition
-    tierPartitionState.setTopicIdPartition(topicIdPartition)
+    tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
       leaderEpoch, java.util.UUID.randomUUID(), 0))
@@ -610,10 +611,10 @@ class MergedLogTest {
     // Setup retention to only keep 2 segments total
     val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = 0)
     val mergedLog = createMergedLog(logConfig)
-    val tierPartitionState = tierMetadataManager.tierPartitionState(mergedLog.topicPartition).get
+    val tierPartitionState = mergedLog.tierPartitionState
     val leaderEpoch = 0
     // establish tier leadership for topicIdPartition
-    tierPartitionState.setTopicIdPartition(topicIdPartition)
+    tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
       leaderEpoch, java.util.UUID.randomUUID(), 0))
@@ -684,7 +685,7 @@ class MergedLogTest {
     val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = segmentBytes * numHotsetSegmentsToRetain)
     val log = createLogWithOverlap(numTieredSegments, numUntieredSegments, numHotsetSegments, logConfig)
 
-    val tierPartitionState = tierMetadataManager.tierPartitionState(log.topicPartition).get
+    val tierPartitionState = log.tierPartitionState
 
     val entries = List(EpochEntry(0, 100))
 
@@ -739,12 +740,12 @@ class MergedLogTest {
       log.roll()
     }
 
-    val tierPartitionState = tierMetadataManager.tierPartitionState(log.topicPartition).get
+    val tierPartitionState = log.tierPartitionState
     val epoch = 0
     val tieredSegments = log.localLogSegments.take(2)
 
     // append an init message
-    tierPartitionState.setTopicIdPartition(topicIdPartition)
+    tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
       epoch, java.util.UUID.randomUUID(), 0))
@@ -802,12 +803,12 @@ class MergedLogTest {
       log.roll()
     }
 
-    val tierPartitionState = tierMetadataManager.tierPartitionState(log.topicPartition).get
+    val tierPartitionState = log.tierPartitionState
     val epoch = 0
     val tieredSegments = log.localLogSegments.take(2)
 
     // append an init message
-    tierPartitionState.setTopicIdPartition(topicIdPartition)
+    tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
       epoch, java.util.UUID.randomUUID(), 0))
@@ -933,7 +934,7 @@ class MergedLogTest {
     val log = createMergedLog(logConfig)
 
     val epoch = 0
-    val tierPartitionState = tierMetadataManager.tierPartitionState(log.topicPartition).get
+    val tierPartitionState = log.tierPartitionState
     initializeTierPartitionState(tierPartitionState, epoch)
 
     // Append a record at offset 110. This record will be appended to the segment with baseOffset = 0.
@@ -972,14 +973,14 @@ class MergedLogTest {
 
   private def initializeTierPartitionState(tierPartitionState: TierPartitionState, epoch: Int): Unit = {
     // append an init message
-    tierPartitionState.setTopicIdPartition(topicIdPartition)
+    tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
       epoch, java.util.UUID.randomUUID(), 0))
   }
 
   private def logRanges(log: MergedLog): LogRanges = {
-    val tierPartitionState = tierMetadataManager.tierPartitionState(log.topicPartition).get
+    val tierPartitionState = log.tierPartitionState
 
     val firstTieredOffset = log.logStartOffset
     val lastTieredOffset = tierPartitionState.metadata(tierPartitionState.segmentOffsets().last()).get.endOffset
@@ -993,7 +994,7 @@ class MergedLogTest {
   }
 
   private def createMergedLog(config: LogConfig, scheduler: Scheduler = mockTime.scheduler, logStartOffset: Long = 0L): MergedLog = {
-    MergedLogTest.createMergedLog(tierMetadataManager, logDir, config, brokerTopicStats, scheduler, mockTime, logStartOffset)
+    MergedLogTest.createMergedLog(tierLogComponents, logDir, config, brokerTopicStats, scheduler, mockTime, logStartOffset)
   }
 
   private def createLogWithOverlap(numTieredSegments: Int,
@@ -1001,7 +1002,7 @@ class MergedLogTest {
                                    numOverlap: Int,
                                    config: LogConfig,
                                    recordTimestamp: Long = RecordBatch.NO_TIMESTAMP): MergedLog = {
-    MergedLogTest.createLogWithOverlap(numTieredSegments, numLocalSegments, numOverlap, tierMetadataManager, logDir,
+    MergedLogTest.createLogWithOverlap(numTieredSegments, numLocalSegments, numOverlap, tierLogComponents, logDir,
       config, brokerTopicStats, mockTime.scheduler, mockTime, topicIdPartition, recordTimestamp = recordTimestamp)
   }
 
@@ -1025,7 +1026,7 @@ object MergedLogTest {
   def createLogWithOverlap(numTieredSegments: Int,
                            numLocalSegments: Int,
                            numOverlap: Int,
-                           tierMetadataManager: TierMetadataManager,
+                           tierLogComponents: TierLogComponents,
                            dir: File,
                            logConfig: LogConfig,
                            brokerTopicStats: BrokerTopicStats,
@@ -1042,10 +1043,10 @@ object MergedLogTest {
       segmentBytes = logConfig.segmentSize,
       segmentMs = logConfig.segmentMs,
       tierLocalHotsetBytes = 1)
-    var log = createMergedLog(tierMetadataManager, dir, tempConfig, brokerTopicStats, scheduler, time, logStartOffset,
+    var log = createMergedLog(tierLogComponents, dir, tempConfig, brokerTopicStats, scheduler, time, logStartOffset,
       recoveryPoint, maxProducerIdExpirationMs, producerIdExpirationCheckIntervalMs)
-    var tierPartitionState = tierMetadataManager.tierPartitionState(log.topicPartition).get
-    tierPartitionState.setTopicIdPartition(topicIdPartition)
+    var tierPartitionState = log.tierPartitionState
+    tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
 
     val epoch = 0
@@ -1091,13 +1092,12 @@ object MergedLogTest {
 
     // close the log
     log.close()
-    tierMetadataManager.close()
 
     // reopen
-    log = createMergedLog(tierMetadataManager, dir, logConfig, brokerTopicStats, scheduler, time, logStartOffset,
+    log = createMergedLog(tierLogComponents, dir, logConfig, brokerTopicStats, scheduler, time, logStartOffset,
       recoveryPoint, maxProducerIdExpirationMs, producerIdExpirationCheckIntervalMs)
     log.updateHighWatermark(log.logEndOffset)
-    tierPartitionState = tierMetadataManager.tierPartitionState(log.topicPartition).get
+    tierPartitionState = log.tierPartitionState
 
     // assert number of segments
     assertEquals(numLocalSegments + numOverlap, log.localLogSegments.size)
@@ -1111,7 +1111,7 @@ object MergedLogTest {
     log
   }
 
-  def createMergedLog(tierMetadataManager: TierMetadataManager,
+  def createMergedLog(tierLogComponents: TierLogComponents,
                       dir: File,
                       config: LogConfig,
                       brokerTopicStats: BrokerTopicStats,
@@ -1131,7 +1131,7 @@ object MergedLogTest {
       maxProducerIdExpirationMs = maxProducerIdExpirationMs,
       producerIdExpirationCheckIntervalMs = producerIdExpirationCheckIntervalMs,
       logDirFailureChannel = new LogDirFailureChannel(10),
-      tierMetadataManagerOpt = Some(tierMetadataManager))
+      tierLogComponents = tierLogComponents)
   }
 
   case class LogRanges(firstTieredOffset: Long,

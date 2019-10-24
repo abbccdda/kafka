@@ -98,11 +98,8 @@ class TierProducerStateReplicationTest extends IntegrationTestHarness with Loggi
 
     // Wait on the tier topic manager being ready for all brokers, this prevents the test from hanging due to issues
     // creating the tier topic after a broker has been killed
-    TestUtils.waitUntilTrue(() => {
-      servers.forall(broker => {
-        broker.tierTopicManager.isReady
-      })
-    }, "Wait until the tier topic manager is ready for all brokers", 30000, 1000)
+    TestUtils.waitUntilTrue(() => servers.forall(_.tierTopicManagerOpt.get.isReady),
+      "Wait until the tier topic manager is ready for all brokers", 30000, 1000)
 
     val killedBroker = killRandomBroker()
 
@@ -111,9 +108,8 @@ class TierProducerStateReplicationTest extends IntegrationTestHarness with Loggi
     // produce one batch with the oneshotProducer
     produceBytes(oneshotProducer, 512)
     // fill in enough segments to breach the hotset, causing tiering and local log retention.
-    for (_ <- 0 to 30) {
+    for (_ <- 0 to 30)
       produceBytes(producer, 512)
-    }
 
     val (deadServers, livingServers) = servers.partition(_.config.brokerId == killedBroker)
     val deadServer = deadServers.head

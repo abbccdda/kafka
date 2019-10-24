@@ -5,7 +5,6 @@ import java.io.File
 import java.io.FileWriter
 import java.util
 import java.util.{Collections, UUID}
-import java.util.concurrent.CountDownLatch
 import java.util.function.Supplier
 
 import kafka.server.LogDirFailureChannel
@@ -52,12 +51,13 @@ class TierTopicManagerCommitterTest {
     val logDir = System.getProperty("java.io.tmpdir")+"/"+UUID.randomUUID.toString
     val file = new File(logDir)
     file.mkdir()
+    val numPartitions = 6: Short
     val tierTopicManagerConfig = new TierTopicManagerConfig(
       new Supplier[String] {
         override def get(): String = "bootstrap"
       },
       null,
-      1,
+      numPartitions,
       1,
       33,
       "cluster99",
@@ -66,23 +66,17 @@ class TierTopicManagerCommitterTest {
       500,
       Collections.singletonList(logDir))
 
-
-    val metadataManager : TierMetadataManager = EasyMock.createMock(classOf[TierMetadataManager])
-    EasyMock.expect(metadataManager.tierEnabledPartitionStateIterator()).andReturn(new util.ArrayList[TierPartitionState]().iterator)
-    EasyMock.replay(metadataManager)
-
-    val committer = new TierTopicManagerCommitter(tierTopicManagerConfig, metadataManager, EasyMock.mock(classOf[LogDirFailureChannel]), new CountDownLatch(1))
+    val committer = new TierTopicManagerCommitter(tierTopicManagerConfig, EasyMock.mock(classOf[LogDirFailureChannel]))
     committer.updatePosition(3, 1L)
     committer.updatePosition(5, 4L)
     committer.updatePosition(5, 5L)
-    committer.flush()
+    committer.flush(new util.ArrayList[TierPartitionState]().iterator)
 
-    val committer2 = new TierTopicManagerCommitter(tierTopicManagerConfig, metadataManager, EasyMock.mock(classOf[LogDirFailureChannel]), new CountDownLatch(1))
-    val positions = committer2.positions
-    val expected = new util.HashMap[Integer, Long]()
-    expected.put(3,1L)
-    expected.put(5,5L)
-    assertEquals(expected, positions)
+    val committer2 = new TierTopicManagerCommitter(tierTopicManagerConfig, EasyMock.mock(classOf[LogDirFailureChannel]))
+    val expectedPositions: Array[Option[Long]] = Array.apply(None, None, None, Some(1L), None, Some(5L))
+
+    for (partitionId <- 0 until numPartitions)
+      assertEquals(expectedPositions(partitionId).getOrElse(null), committer2.positionFor(partitionId))
   }
 
   @Test

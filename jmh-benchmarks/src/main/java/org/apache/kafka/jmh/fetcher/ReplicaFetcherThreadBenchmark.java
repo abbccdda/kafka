@@ -27,6 +27,7 @@ import kafka.log.Defaults;
 import kafka.log.LogAppendInfo;
 import kafka.log.LogConfig;
 import kafka.log.LogManager;
+import kafka.log.TierLogComponents;
 import kafka.server.BrokerState;
 import kafka.server.BrokerTopicStats;
 import kafka.server.FailedPartitions;
@@ -38,8 +39,6 @@ import kafka.server.OffsetTruncationState;
 import kafka.server.ReplicaFetcherThread;
 import kafka.server.ReplicaQuota;
 import kafka.server.checkpoints.OffsetCheckpoints;
-import kafka.tier.TierMetadataManager;
-import kafka.tier.state.FileTierPartitionStateFactory;
 import kafka.utils.KafkaScheduler;
 import kafka.utils.Pool;
 import org.apache.kafka.common.TopicPartition;
@@ -111,9 +110,6 @@ public class ReplicaFetcherThreadBenchmark {
         if (!logDir.mkdir())
             throw new IOException("error creating test directory");
 
-        FileTierPartitionStateFactory factory = new FileTierPartitionStateFactory();
-        TierMetadataManager tierMetadataManager = new TierMetadataManager(factory, Optional.empty(), null, false);
-
         scheduler.startup();
         Properties props = new Properties();
         props.put("zookeeper.connect", "127.0.0.1:9999");
@@ -132,13 +128,14 @@ public class ReplicaFetcherThreadBenchmark {
                 1000L,
                 10000L,
                 10000L,
+                1000,
                 1000L,
                 60000,
                 scheduler,
                 new BrokerState(),
                 brokerTopicStats,
                 logDirFailureChannel,
-                tierMetadataManager,
+                TierLogComponents.EMPTY(),
                 Time.SYSTEM);
 
         LinkedHashMap<TopicPartition, FetchResponse.PartitionData<BaseRecords>> initialFetched = new LinkedHashMap<>();
@@ -162,7 +159,7 @@ public class ReplicaFetcherThreadBenchmark {
             Mockito.when(offsetCheckpoints.fetch(logDir.getAbsolutePath(), tp)).thenReturn(Option.apply(0L));
             Partition partition = new Partition(tp, 100, ApiVersion$.MODULE$.latestVersion(),
                     0, false, Time.SYSTEM, partitionStateStore, new DelayedOperationsMock(tp),
-                    Mockito.mock(MetadataCache.class), logManager);
+                    Mockito.mock(MetadataCache.class), logManager, Option.empty());
 
             partition.makeFollower(0, partitionState, 0, offsetCheckpoints);
             pool.put(tp, partition);
@@ -182,7 +179,7 @@ public class ReplicaFetcherThreadBenchmark {
                     new LinkedList<>(), fetched));
         }
 
-        fetcher = new ReplicaFetcherBenchThread(config, tierMetadataManager, pool);
+        fetcher = new ReplicaFetcherBenchThread(config, pool);
         fetcher.addPartitions(offsetAndEpochs);
         // force a pass to move partitions to fetching state. We do this in the setup phase
         // so that we do not measure this time as part of the steady state work
@@ -237,7 +234,6 @@ public class ReplicaFetcherThreadBenchmark {
         private final Pool<TopicPartition, Partition> pool;
 
         ReplicaFetcherBenchThread(KafkaConfig config,
-                                  TierMetadataManager tierMetadataManager,
                                   Pool<TopicPartition, Partition> partitions) {
             super("name",
                     3,
@@ -262,10 +258,9 @@ public class ReplicaFetcherThreadBenchmark {
                             return false;
                         }
                     },
-                    tierMetadataManager,
                     Option.empty(),
                     Option.empty());
-            
+
             pool = partitions;
         }
 

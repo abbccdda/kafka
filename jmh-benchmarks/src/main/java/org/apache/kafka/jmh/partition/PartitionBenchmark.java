@@ -25,14 +25,13 @@ import kafka.log.CleanerConfig;
 import kafka.log.Defaults;
 import kafka.log.LogConfig;
 import kafka.log.LogManager;
+import kafka.log.TierLogComponents$;
 import kafka.server.BrokerState;
 import kafka.server.BrokerTopicStats;
 import kafka.server.LogDirFailureChannel;
 import kafka.server.LogOffsetMetadata;
 import kafka.server.MetadataCache;
 import kafka.server.checkpoints.OffsetCheckpoints;
-import kafka.tier.TierMetadataManager;
-import kafka.tier.state.FileTierPartitionStateFactory;
 import kafka.utils.KafkaScheduler;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.ConfluentTopicConfig;
@@ -63,7 +62,6 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -82,9 +80,6 @@ public class PartitionBenchmark {
     private KafkaScheduler scheduler = new KafkaScheduler(1, "scheduler", true);
     private BrokerTopicStats brokerTopicStats = new BrokerTopicStats();
     private LogDirFailureChannel logDirFailureChannel = Mockito.mock(LogDirFailureChannel.class);
-    private FileTierPartitionStateFactory factory = new FileTierPartitionStateFactory();
-    private TierMetadataManager tierMetadataManager = new TierMetadataManager(factory,
-            Optional.empty(), null, false);
     private long nextOffset = 0;
     private LogManager logManager;
     private Partition partition;
@@ -104,13 +99,14 @@ public class PartitionBenchmark {
                 1000L,
                 10000L,
                 10000L,
+                10000,
                 1000L,
                 60000,
                 scheduler,
                 new BrokerState(),
                 brokerTopicStats,
                 logDirFailureChannel,
-                tierMetadataManager,
+                TierLogComponents$.MODULE$.EMPTY(),
                 Time.SYSTEM);
         OffsetCheckpoints offsetCheckpoints = Mockito.mock(OffsetCheckpoints.class);
         Mockito.when(offsetCheckpoints.fetch(logDir.getAbsolutePath(), topicPartition)).thenReturn(Option.apply(0L));
@@ -167,7 +163,7 @@ public class PartitionBenchmark {
         partition = new Partition(topicPartition, 100,
                 ApiVersion$.MODULE$.latestVersion(), 0, observerFeature,
                 Time.SYSTEM, partitionStateStore, delayedOperations,
-                metadataCache, logManager);
+                metadataCache, logManager, Option.empty());
         partition.makeLeader(0, partitionState, 0, offsetCheckpoints);
     }
 

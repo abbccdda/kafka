@@ -30,7 +30,7 @@ import kafka.message.NoCompressionCodec
 import kafka.server.AbstractFetcherThread.ReplicaFetch
 import kafka.server.AbstractFetcherThread.ResultWithPartitions
 import kafka.server.epoch.EpochEntry
-import kafka.tier.{TierMetadataManager, TopicIdPartition}
+import kafka.tier.TopicIdPartition
 import kafka.tier.domain.TierObjectMetadata
 import kafka.utils.TestUtils
 import org.apache.kafka.common.KafkaException
@@ -42,7 +42,6 @@ import org.apache.kafka.common.requests.{EpochEndOffset, FetchRequest}
 import org.apache.kafka.common.utils.Time
 import org.junit.Assert._
 import org.junit.{Before, Test}
-import org.mockito.Mockito.{mock, when}
 
 import scala.collection.JavaConverters._
 import scala.collection.{mutable, Map, Set}
@@ -775,9 +774,7 @@ class AbstractFetcherThreadTest {
   @Test
   def testTierInitializedLog(): Unit = {
     val partition = new TopicPartition("topic", 0)
-    val tierMetadataManager = mock(classOf[TierMetadataManager])
-
-    val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager)
+    val fetcher = new MockFetcherThread()
 
     fetcher.setReplicaState(partition, MockFetcherThread.PartitionState(leaderEpoch = 0))
     fetcher.addPartitions(Map(partition -> offsetAndEpoch(0L, leaderEpoch = 0)))
@@ -798,9 +795,7 @@ class AbstractFetcherThreadTest {
   @Test
   def testTierRetentionStartOfLogRemoved(): Unit = {
     val partition = new TopicPartition("topic", 0)
-    val tierMetadataManager = mock(classOf[TierMetadataManager])
-
-    val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
+    val fetcher = new MockFetcherThread() {
       override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
         throw new Exception("should not fetch state")
       }
@@ -835,9 +830,7 @@ class AbstractFetcherThreadTest {
   @Test
   def testTierFollowerOverlapLeaderAndTiered(): Unit = {
     val partition = new TopicPartition("topic", 0)
-    val tierMetadataManager = mock(classOf[TierMetadataManager])
-
-    val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager)
+    val fetcher = new MockFetcherThread()
 
     // follower fetches from offset 41, as it has 0-40
     fetcher.setReplicaState(partition, MockFetcherThread.PartitionState(leaderEpoch = 0))
@@ -880,9 +873,7 @@ class AbstractFetcherThreadTest {
   def testFetchDeletedDataWithTiering(): Unit = {
     val topicIdPartition = new TopicIdPartition("topic", UUID.randomUUID(), 0)
     val partition = topicIdPartition.topicPartition()
-    val tierMetadataManager = mock(classOf[TierMetadataManager])
-
-    val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
+    val fetcher = new MockFetcherThread() {
       override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
         throw new Exception("Must not fetch tier state")
       }
@@ -941,12 +932,10 @@ class AbstractFetcherThreadTest {
   def testTierTieredFollowerGapRestore(): Unit = {
     val topicIdPartition = new TopicIdPartition("topic", UUID.randomUUID(), 0)
     val partition = topicIdPartition.topicPartition()
-    val tierMetadataManager = mock(classOf[TierMetadataManager])
     val promise = new CompletableFuture[TierObjectMetadata]()
-    when(tierMetadataManager.materializeUntilOffset(partition, 39L)).thenReturn(promise)
     val stateFuture = new CompletableFuture[TierState]()
 
-    val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
+    val fetcher = new MockFetcherThread() {
       override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
         stateFuture
       }
@@ -961,6 +950,10 @@ class AbstractFetcherThreadTest {
             (partition, new FetchData(error, leaderState.highWatermark, leaderState.highWatermark, leaderState.logStartOffset,
               List.empty.asJava, records))
           }.toMap
+      }
+
+      override def materializeTierStateUntilOffset(topicPartition: TopicPartition, targetOffset: Long): Future[TierObjectMetadata] = {
+        promise
       }
     }
 
@@ -1014,15 +1007,11 @@ class AbstractFetcherThreadTest {
   def testOffsetTieredLeaderEpochExceptionRetried(): Unit = {
     val topicIdPartition = new TopicIdPartition("topic", UUID.randomUUID(), 0)
     val partition = topicIdPartition.topicPartition()
-    val tierMetadataManager = mock(classOf[TierMetadataManager])
-    when(tierMetadataManager.materializeUntilOffset(partition, 9L))
-      .thenReturn(new CompletableFuture[TierObjectMetadata]())
-
     val tries = new AtomicInteger(0)
 
     val stateFuture = new CompletableFuture[TierState]()
 
-    val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
+    val fetcher = new MockFetcherThread() {
       override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
         stateFuture
       }
@@ -1041,6 +1030,10 @@ class AbstractFetcherThreadTest {
           throw new UnknownLeaderEpochException("Unexpected leader epoch")
         else
           super.fetchEarliestOffsetFromLeader(topicPartition, leaderEpoch)
+      }
+
+      override def materializeTierStateUntilOffset(topicPartition: TopicPartition, targetOffset: Long): Future[TierObjectMetadata] = {
+        new CompletableFuture[TierObjectMetadata]()
       }
     }
 
@@ -1067,15 +1060,14 @@ class AbstractFetcherThreadTest {
   def testMaterializationExceptionRetry(): Unit = {
     val topicIdPartition = new TopicIdPartition("topic", UUID.randomUUID(), 0)
     val partition = topicIdPartition.topicPartition()
-    val tierMetadataManager = mock(classOf[TierMetadataManager])
     val promise = new CompletableFuture[TierObjectMetadata]()
     val promiseSuccessful = new CompletableFuture[TierObjectMetadata]()
 
-    when(tierMetadataManager.materializeUntilOffset(partition, 9L)).thenReturn(promise).thenReturn(promiseSuccessful)
-
     val stateFuture = new CompletableFuture[TierState]()
 
-    val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
+    val fetcher = new MockFetcherThread() {
+      var isFirstMaterializeCall = true
+
       override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
         stateFuture
       }
@@ -1090,6 +1082,15 @@ class AbstractFetcherThreadTest {
             (partition, new FetchData(error, leaderState.highWatermark, leaderState.highWatermark, leaderState.logStartOffset,
               List.empty.asJava, records))
           }.toMap
+      }
+
+      override def materializeTierStateUntilOffset(topicPartition: TopicPartition, targetOffset: Long): Future[TierObjectMetadata] = {
+        if (isFirstMaterializeCall) {
+          isFirstMaterializeCall = false
+          promise
+        } else {
+          promiseSuccessful
+        }
       }
     }
 
@@ -1142,16 +1143,12 @@ class AbstractFetcherThreadTest {
   def testTierFetcherExceptionRetry(): Unit = {
     val topicIdPartition = new TopicIdPartition("topic", UUID.randomUUID(), 0)
     val partition = topicIdPartition.topicPartition()
-    val tierMetadataManager = mock(classOf[TierMetadataManager])
     val materialization1 = new CompletableFuture[TierObjectMetadata]()
-
-    when(tierMetadataManager.materializeUntilOffset(partition, 9L))
-      .thenReturn(materialization1)
-      .thenReturn(new CompletableFuture[TierObjectMetadata]())
-
     val tierStateFut = new CompletableFuture[TierState]()
 
-    val fetcher = new MockFetcherThread(tierMetadataManager = tierMetadataManager) {
+    val fetcher = new MockFetcherThread() {
+      var isFirstMaterializeCall = true
+
       override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
         tierStateFut
       }
@@ -1163,6 +1160,15 @@ class AbstractFetcherThreadTest {
           (partition, new FetchData(error, leaderState.highWatermark, leaderState.highWatermark, leaderState.logStartOffset,
             List.empty.asJava, records))
         }.toMap
+      }
+
+      override def materializeTierStateUntilOffset(topicPartition: TopicPartition, targetOffset: Long): Future[TierObjectMetadata] = {
+        if (isFirstMaterializeCall) {
+          isFirstMaterializeCall = false
+          materialization1
+        } else {
+          new CompletableFuture[TierObjectMetadata]()
+        }
       }
     }
 
@@ -1248,12 +1254,11 @@ class AbstractFetcherThreadTest {
 
   }
 
-  class MockFetcherThread(val replicaId: Int = 0, val leaderId: Int = 1, tierMetadataManager: TierMetadataManager = null)
+  class MockFetcherThread(val replicaId: Int = 0, val leaderId: Int = 1)
     extends AbstractFetcherThread("mock-fetcher",
       clientId = "mock-fetcher",
       sourceBroker = new BrokerEndPoint(leaderId, host = "localhost", port = Random.nextInt()),
       failedPartitions,
-      tierMetadataManager = tierMetadataManager,
       tierStateFetcher = None) {
 
     import MockFetcherThread.PartitionState
@@ -1474,6 +1479,10 @@ class AbstractFetcherThreadTest {
     override protected def onRestoreTierState(topicPartition: TopicPartition, proposedLocalLogStart: Long, tierState: TierState): Unit = {
       replicaPartitionState(topicPartition).logEndOffset = proposedLocalLogStart
       replicaPartitionState(topicPartition).highWatermark = proposedLocalLogStart
+    }
+
+    override protected def materializeTierStateUntilOffset(topicPartition: TopicPartition, targetOffset: Long): Future[TierObjectMetadata] = {
+      throw new UnsupportedOperationException("materializeTierStateUntilOffset is not supported")
     }
   }
 }

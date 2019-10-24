@@ -20,7 +20,7 @@ package kafka.server
 import java.net.InetAddress
 import java.nio.charset.StandardCharsets
 import java.util
-import java.util.{Collections, Optional, UUID}
+import java.util.{Collections, Optional}
 import java.util.Arrays.asList
 
 import kafka.api.{ApiVersion, KAFKA_0_10_2_IV0, KAFKA_2_2_IV1}
@@ -30,7 +30,6 @@ import kafka.coordinator.transaction.TransactionCoordinator
 import kafka.network.RequestChannel
 import kafka.network.RequestChannel.SendResponse
 import kafka.server.QuotaFactory.QuotaManagers
-import kafka.tier.TierMetadataManager
 import kafka.utils.{MockTime, TestUtils}
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.TopicPartition
@@ -46,11 +45,8 @@ import org.apache.kafka.common.requests.{FetchMetadata => JFetchMetadata, _}
 import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
 import org.easymock.{Capture, EasyMock, IAnswer}
 import EasyMock._
-import kafka.cluster.Partition
-import kafka.tier.TopicIdPartition
 import org.apache.kafka.common.message.{HeartbeatRequestData, JoinGroupRequestData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteRequestData, SyncGroupRequestData, TxnOffsetCommitRequestData}
 import org.apache.kafka.common.message.JoinGroupRequestData.JoinGroupRequestProtocol
-import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
 import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.message.LeaveGroupRequestData.MemberIdentity
@@ -84,7 +80,6 @@ class KafkaApisTest {
   private val quotas = QuotaManagers(clientQuotaManager, clientQuotaManager, clientRequestQuotaManager,
     replicaQuotaManager, replicaQuotaManager, replicaQuotaManager, None)
   private val fetchManager: FetchManager = EasyMock.createNiceMock(classOf[FetchManager])
-  private val tierMetadataManager : TierMetadataManager = EasyMock.mock(classOf[TierMetadataManager])
   private val brokerTopicStats = new BrokerTopicStats
   private val clusterId = "clusterId"
   private val time = new MockTime
@@ -121,7 +116,7 @@ class KafkaApisTest {
       clusterId,
       time,
       null,
-      tierMetadataManager
+      None
     )
   }
 
@@ -777,173 +772,6 @@ class KafkaApisTest {
     createKafkaApis().handleFetchRequest(request)
 
     readResponse(ApiKeys.FETCH, fetchRequest, capturedResponse).asInstanceOf[FetchResponse[BaseRecords]]
-  }
-
-  @Test
-  def testConfluentLeaderAndIsrAddMissingTopicIds(): Unit = {
-    /**
-     * When tier.feature is enabled for the first time, a broker may already be a leader for some partitions.
-     * Upon receiving a ConfluentLeaderAndIsrRequest, the broker would normally not take any leadership actions for these partitions
-     * in KafkaApis.handleLeaderAndIsrRequest.onLeadershipChange. However we need to ensure that topic IDs are set
-     * and a tier immigration occurs if a topic ID was added to a partition the broker is already a leader for.
-     */
-    EasyMock.replay(clientRequestQuotaManager, requestChannel)
-    val controllerEpoch = 15
-    val leaderEpoch = 10
-    val brokerId = 11
-
-    val topicId = UUID.fromString("58464c3a-6542-4af5-80f7-30ec69525132")
-    val topicIdPartition0 = new TopicIdPartition("foo", topicId, 0)
-    val topicIdPartition1 = new TopicIdPartition("foo", topicId, 1)
-    val topicIdPartition2 = new TopicIdPartition("foo", topicId, 2)
-
-    val partitionStates = Seq(
-      new LeaderAndIsrPartitionState()
-        .setTopicName("foo")
-        .setTopicId(topicId)
-        .setPartitionIndex(0)
-        .setControllerEpoch(controllerEpoch)
-        .setLeader(1)
-        .setLeaderEpoch(leaderEpoch)
-        .setIsr(Collections.singletonList(brokerId))
-        .setZkVersion(20)
-        .setReplicas(Collections.singletonList(brokerId))
-        .setIsNew(false),
-      new LeaderAndIsrPartitionState()
-        .setTopicName("foo")
-        .setTopicId(topicId)
-        .setPartitionIndex(1)
-        .setControllerEpoch(controllerEpoch)
-        .setLeader(1)
-        .setLeaderEpoch(leaderEpoch)
-        .setIsr(Collections.singletonList(brokerId))
-        .setZkVersion(20)
-        .setReplicas(Collections.singletonList(brokerId))
-        .setIsNew(false),
-      new LeaderAndIsrPartitionState()
-        .setTopicName("foo")
-        .setTopicId(topicId)
-        .setPartitionIndex(2)
-        .setControllerEpoch(controllerEpoch)
-        .setLeader(1)
-        .setLeaderEpoch(leaderEpoch)
-        .setIsr(Collections.singletonList(brokerId))
-        .setZkVersion(20)
-        .setReplicas(Collections.singletonList(brokerId))
-        .setIsNew(false)
-    )
-
-    val (confluentLeaderAndIsrRequest, requestChannelRequest) = buildRequest(
-      LeaderAndIsrRequest.Builder.create(ApiKeys.LEADER_AND_ISR.latestVersion(),
-        15, controllerEpoch, 0, partitionStates.asJava, Collections.emptySet(), true))
-
-    val onLeadershipChange: Capture[(Iterable[Partition], Iterable[Partition]) => Unit] = Capture.newInstance()
-    val capturedLeaderAndIsr: Capture[LeaderAndIsrRequest] = Capture.newInstance()
-    val response = confluentLeaderAndIsrRequest.getErrorResponse(0, Errors.CLUSTER_AUTHORIZATION_FAILED.exception())
-
-    EasyMock.expect(replicaManager.becomeLeaderOrFollower(EasyMock.eq(0), capture(capturedLeaderAndIsr), capture(onLeadershipChange)))
-      .andAnswer(new IAnswer[LeaderAndIsrResponse] {
-        override def answer(): LeaderAndIsrResponse = {
-          val onChange = onLeadershipChange.getValue
-
-          // TopicPartition foo-0 should have becomeLeader called by virtue of being a newly assigned leader (passed via updatedLeaders)
-          val updatedLeaders = Seq(new Partition(topicIdPartition0.topicPartition(), 0, ApiVersion.latestVersion, brokerId, false, null, null, null, null, null))
-          // TopicPartition foo-1 should have becomeLeader as it was not previously assigned a topic ID
-          val updatedFollowers = Seq(new Partition(topicIdPartition1.topicPartition(), 0, ApiVersion.latestVersion, brokerId, false, null, null, null, null, null))
-          onChange(updatedLeaders, updatedFollowers)
-          response
-        }
-      })
-    EasyMock.replay(replicaManager)
-
-    // The ConfluentLeaderAndIsrRequest will establish leadership with tier metadata manager for both partitions
-    // For foo-0, becomeLeader will be called because the broker is a new leader
-    EasyMock.expect(tierMetadataManager.becomeLeader(EasyMock.eq(topicIdPartition0.topicPartition()), EasyMock.anyInt()))
-
-    // become follower should be called for existing follower without TopicIdPartition
-    EasyMock.expect(tierMetadataManager.becomeFollower(EasyMock.eq(topicIdPartition1.topicPartition())))
-
-    // TierMetadataManager should try to set the TopicIdPartition for all partitions, even those where the broker
-    // didn't become a new replica
-    EasyMock.expect(tierMetadataManager.ensureTopicIdPartition(EasyMock.eq(topicIdPartition0)))
-    EasyMock.expect(tierMetadataManager.ensureTopicIdPartition(EasyMock.eq(topicIdPartition1)))
-    EasyMock.expect(tierMetadataManager.ensureTopicIdPartition(EasyMock.eq(topicIdPartition2)))
-
-    EasyMock.replay(tierMetadataManager)
-    createKafkaApis(ApiVersion.latestVersion).handleLeaderAndIsrRequest(requestChannelRequest)
-    EasyMock.verify(tierMetadataManager)
-    EasyMock.verify(replicaManager)
-  }
-
-  @Test
-  def testLeaderAndIsrRequestOptionalTopicIds(): Unit = {
-    // test optional TopicId LeaderAndIsrRequest handling by sending a request
-    // for a partition with a topic ID and a partition without one, and ensure each take the correct path
-    EasyMock.replay(clientRequestQuotaManager, requestChannel)
-    val controllerEpoch = 15
-    val leaderEpoch = 10
-    val brokerId = 11
-
-    val topicPartition1 = new TopicPartition("foo", 0)
-    val topicPartition2 = new TopicPartition("bar", 1)
-    val barTopicId = UUID.randomUUID()
-
-    val partitionStates = Seq(
-      new LeaderAndIsrPartitionState()
-        .setTopicName(topicPartition1.topic)
-        .setPartitionIndex(topicPartition1.partition)
-        .setControllerEpoch(controllerEpoch)
-        .setLeader(1)
-        .setLeaderEpoch(leaderEpoch)
-        .setIsr(Collections.singletonList(brokerId))
-        .setZkVersion(20)
-        .setReplicas(Collections.singletonList(brokerId))
-        .setIsNew(false),
-      new LeaderAndIsrPartitionState()
-        .setTopicName(topicPartition2.topic)
-        .setTopicId(barTopicId)
-        .setPartitionIndex(topicPartition2.partition)
-        .setControllerEpoch(controllerEpoch)
-        .setLeader(1)
-        .setLeaderEpoch(leaderEpoch)
-        .setIsr(Collections.singletonList(brokerId))
-        .setZkVersion(20)
-        .setReplicas(Collections.singletonList(brokerId))
-        .setIsNew(false)
-    )
-
-    val (leaderAndIsrRequest, requestChannelRequest) = buildRequest(
-      LeaderAndIsrRequest.Builder.create(ApiKeys.LEADER_AND_ISR.latestVersion,
-        15, controllerEpoch, 0, partitionStates.asJava, Collections.emptySet(), false))
-
-    val onLeadershipChange: Capture[(Iterable[Partition], Iterable[Partition]) => Unit] = Capture.newInstance()
-    val capturedLeaderAndIsr: Capture[LeaderAndIsrRequest] = Capture.newInstance()
-    val response = leaderAndIsrRequest.getErrorResponse(0, Errors.CLUSTER_AUTHORIZATION_FAILED.exception)
-
-    EasyMock.expect(replicaManager.becomeLeaderOrFollower(EasyMock.eq(0), capture(capturedLeaderAndIsr), capture(onLeadershipChange)))
-      .andAnswer(new IAnswer[LeaderAndIsrResponse] {
-        override def answer: LeaderAndIsrResponse = {
-          val onChange = onLeadershipChange.getValue
-
-          // TopicPartition foo-0 should have becomeLeader called by virtue of being a newly assigned leader (passed via updatedLeaders)
-          val updatedLeaders = Seq(new Partition(topicPartition1, 0, ApiVersion.latestVersion, brokerId, false, null, null, null, null, null))
-          // TopicPartition foo-1 should have becomeLeader as it was not previously assigned a topic ID
-          val updatedFollowers = Seq(new Partition(topicPartition2, 0, ApiVersion.latestVersion, brokerId, false, null, null, null, null, null))
-          onChange(updatedLeaders, updatedFollowers)
-          response
-        }
-      })
-    EasyMock.replay(replicaManager)
-
-    EasyMock.expect(tierMetadataManager.becomeLeader(EasyMock.eq(topicPartition1), EasyMock.anyInt))
-    EasyMock.expect(tierMetadataManager.becomeFollower(EasyMock.eq(topicPartition2)))
-    // ensure topic ID partition should have been called for topicPartition2, as a topic ID was supplied with its partition state
-    EasyMock.expect(tierMetadataManager.ensureTopicIdPartition(EasyMock.eq(new TopicIdPartition(topicPartition2.topic, barTopicId, topicPartition2.partition))))
-
-    EasyMock.replay(tierMetadataManager)
-    createKafkaApis(ApiVersion.latestVersion).handleLeaderAndIsrRequest(requestChannelRequest)
-    EasyMock.verify(tierMetadataManager)
-    EasyMock.verify(replicaManager)
   }
 
   @Test

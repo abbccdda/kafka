@@ -17,9 +17,10 @@
 
 package org.apache.kafka.jmh.tier;
 
+import kafka.log.LogConfig;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierTopicInitLeader;
-import kafka.tier.state.FileTierPartitionStateFactory;
+import kafka.tier.state.TierPartitionStateFactory;
 import kafka.tier.state.TierPartitionState;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -35,6 +36,9 @@ import java.io.IOException;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
 @org.openjdk.jmh.annotations.State(Scope.Benchmark)
 @Fork(value = 1)
 @Warmup(iterations = 5)
@@ -49,7 +53,7 @@ public class StateWriteBenchmark {
 
     private void writeState(TierPartitionState state) throws IOException {
         state.beginCatchup();
-        state.setTopicIdPartition(TOPIC_PARTITION);
+        state.setTopicId(TOPIC_PARTITION.topicId());
         state.append(new TierTopicInitLeader(TOPIC_PARTITION, EPOCH,
                 UUID.randomUUID(), 0));
         for (int i = 0; i < COUNT; i++) {
@@ -71,9 +75,11 @@ public class StateWriteBenchmark {
     @Benchmark
     @OutputTimeUnit(TimeUnit.MILLISECONDS)
     public void appendReadByteBufferBench() throws Exception {
-        FileTierPartitionStateFactory factory = new FileTierPartitionStateFactory();
-        TierPartitionState state = factory.initState(new File(BASE_DIR), TOPIC_PARTITION.topicPartition(),
-                true);
+        LogConfig config = mock(LogConfig.class);
+        when(config.tierEnable()).thenReturn(true);
+
+        TierPartitionStateFactory factory = new TierPartitionStateFactory(true);
+        TierPartitionState state = factory.initState(new File(BASE_DIR), TOPIC_PARTITION.topicPartition(), config);
         try {
             writeState(state);
         } finally {

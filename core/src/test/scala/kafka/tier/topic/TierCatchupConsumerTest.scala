@@ -1,27 +1,27 @@
+/*
+ Copyright 2019 Confluent Inc.
+ */
+
 package kafka.tier.topic
 
 import java.time.Duration
 import java.util
-import java.util.Optional
 import java.util.function.Supplier
 
 import kafka.tier.client.{MockConsumerSupplier, MockProducerSupplier}
-import kafka.tier.state.{TierPartitionState, TierPartitionStatus}
-import kafka.tier.{TierMetadataManager, TierTestUtils, TopicIdPartition}
+import kafka.tier.{TierTestUtils, TopicIdPartition}
 import kafka.zk.AdminZkClient
 import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.common.TopicPartition
 import org.junit.Assert._
 import org.junit.{Before, Test}
-import org.mockito.Mockito.{mock, times, verify, when}
+import org.mockito.Mockito.{mock, when}
 import org.scalatest.Assertions.assertThrows
 
 import scala.collection.JavaConverters._
 
 class TierCatchupConsumerTest {
-  private val tierMetadataManager = mock(classOf[TierMetadataManager])
   private val topicIdPartitions = TierTestUtils.randomTopicIdPartitions(3, 5)
-  private val topicPartitionStates = setupTopicPartitionStates(topicIdPartitions, TierPartitionStatus.CATCHUP)
 
   private val numPartitions = 5.toShort
   private val adminZkClientSupplier = new Supplier[AdminZkClient] {
@@ -36,7 +36,7 @@ class TierCatchupConsumerTest {
     TierTopicManager.partitions(tierTopic.topicName, numPartitions),
     producerSupplier.producer)
 
-  private val catchupConsumer = new TierCatchupConsumer(tierMetadataManager, consumerSupplier)
+  private val catchupConsumer = new TierCatchupConsumer(consumerSupplier)
 
   @Before
   def setup(): Unit = {
@@ -45,31 +45,19 @@ class TierCatchupConsumerTest {
 
   @Test
   def testStartConsumer(): Unit = {
-    val expectedAssignment = assignment(topicIdPartitions)
-
-    val started_1 = catchupConsumer.maybeStartConsumer(tierTopic, topicPartitionStates.asJava)
-    assertTrue(started_1)
+    val tierTopicPartitions = assignment(topicIdPartitions)
+    catchupConsumer.doStart(tierTopicPartitions)
     assertTrue(catchupConsumer.active)
-    assertEquals(underlyingCatchupConsumer.assignment, expectedAssignment)
-    topicPartitionStates.foreach { state =>
-      verify(state, times(1)).beginCatchup()
-    }
+    assertEquals(underlyingCatchupConsumer.assignment, tierTopicPartitions)
 
-    // maybeStart should fail while there is an active consumer
+    // doStart should fail while there is an active consumer
     val newTopicPartitions = TierTestUtils.randomTopicIdPartitions(3, 2)
-    val newPartitionStates = setupTopicPartitionStates(newTopicPartitions, TierPartitionStatus.CATCHUP)
-    val started_2 = catchupConsumer.maybeStartConsumer(tierTopic, newPartitionStates.asJava)
-    assertFalse(started_2)
-    newPartitionStates.foreach { state =>
-      verify(state, times(0)).beginCatchup()
-    }
 
-    // doStart should raise an exception while the consumer is active
     assertThrows[IllegalStateException] {
-      catchupConsumer.doStart(tierTopic, newPartitionStates.asJava)
+      catchupConsumer.doStart(assignment(newTopicPartitions))
     }
 
-    assertEquals(underlyingCatchupConsumer.assignment, expectedAssignment)
+    assertEquals(underlyingCatchupConsumer.assignment, tierTopicPartitions)
     assertTrue(catchupConsumer.active)
   }
 
@@ -78,9 +66,7 @@ class TierCatchupConsumerTest {
     val currentAssignment = assignment(topicIdPartitions)
     val primaryConsumer = mock(classOf[Consumer[Array[Byte], Array[Byte]]])
 
-    val started = catchupConsumer.maybeStartConsumer(tierTopic, topicPartitionStates.asJava)
-    assertTrue(started)
-
+    catchupConsumer.doStart(currentAssignment)
     currentAssignment.asScala.foreach { topicPartition =>
       underlyingCatchupConsumer.seek(topicPartition, 10)
       when(primaryConsumer.position(topicPartition)).thenReturn(20)
@@ -89,9 +75,6 @@ class TierCatchupConsumerTest {
     val completed_1 = catchupConsumer.tryComplete(primaryConsumer)
     assertFalse(completed_1)
     assertTrue(catchupConsumer.active)
-    topicPartitionStates.foreach { state =>
-      verify(state, times(0)).onCatchUpComplete()
-    }
 
     currentAssignment.asScala.foreach { topicPartition =>
       underlyingCatchupConsumer.seek(topicPartition, 20)
@@ -101,9 +84,6 @@ class TierCatchupConsumerTest {
     val completed_2 = catchupConsumer.tryComplete(primaryConsumer)
     assertTrue(completed_2)
     assertFalse(catchupConsumer.active)
-    topicPartitionStates.foreach { state =>
-      verify(state, times(1)).onCatchUpComplete()
-    }
   }
 
   @Test
@@ -113,9 +93,7 @@ class TierCatchupConsumerTest {
 
     assertEquals(null, catchupConsumer.poll(Duration.ZERO))
 
-    val started = catchupConsumer.maybeStartConsumer(tierTopic, topicPartitionStates.asJava)
-    assertTrue(started)
-
+    catchupConsumer.doStart(currentAssignment)
     val records = catchupConsumer.poll(Duration.ZERO)
     assertEquals(0, records.count)
 
@@ -131,17 +109,6 @@ class TierCatchupConsumerTest {
 
   private def assignment(topicIdPartitions: Set[TopicIdPartition]): util.Set[TopicPartition] = {
     tierTopic.toTierTopicPartitions(topicIdPartitions.asJava)
-  }
-
-  private def setupTopicPartitionStates(topicIdPartitions: Set[TopicIdPartition], status: TierPartitionStatus): Set[TierPartitionState] = {
-    topicIdPartitions.map { topicIdPartition =>
-      val tierPartitionState = mock(classOf[TierPartitionState])
-      when(tierPartitionState.topicIdPartition).thenReturn(Optional.of(topicIdPartition))
-      when(tierPartitionState.topicPartition).thenReturn(topicIdPartition.topicPartition)
-      when(tierPartitionState.status).thenReturn(status)
-      when(tierMetadataManager.tierPartitionState(topicIdPartition)).thenReturn(Optional.of(tierPartitionState))
-      tierPartitionState
-    }
   }
 
   private def underlyingCatchupConsumer = catchupConsumer.consumer

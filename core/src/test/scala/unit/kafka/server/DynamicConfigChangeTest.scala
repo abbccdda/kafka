@@ -260,7 +260,7 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
 
   @Test
   def shouldParseReplicationQuotaProperties(): Unit = {
-    val configHandler: TopicConfigHandler = new TopicConfigHandler(null, null, null, null)
+    val configHandler: TopicConfigHandler = new TopicConfigHandler(EasyMock.createNiceMock(classOf[ReplicaManager]), null, null, null)
     val props: Properties = new Properties()
 
     //Given
@@ -273,7 +273,7 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
 
   @Test
   def shouldParseWildcardReplicationQuotaProperties(): Unit = {
-    val configHandler: TopicConfigHandler = new TopicConfigHandler(null, null, null, null)
+    val configHandler: TopicConfigHandler = new TopicConfigHandler(EasyMock.createNiceMock(classOf[ReplicaManager]), null, null, null)
     val props: Properties = new Properties()
 
     //Given
@@ -288,7 +288,7 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
 
   @Test
   def shouldParseReplicationQuotaReset(): Unit = {
-    val configHandler: TopicConfigHandler = new TopicConfigHandler(null, null, null, null)
+    val configHandler: TopicConfigHandler = new TopicConfigHandler(EasyMock.createNiceMock(classOf[ReplicaManager]), null, null, null)
     val props: Properties = new Properties()
 
     //Given
@@ -303,7 +303,7 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
 
   @Test
   def shouldParseRegardlessOfWhitespaceAroundValues(): Unit = {
-    val configHandler: TopicConfigHandler = new TopicConfigHandler(null, null, null, null)
+    val configHandler: TopicConfigHandler = new TopicConfigHandler(EasyMock.createNiceMock(classOf[ReplicaManager]), null, null, null)
     assertEquals(AllReplicas, parse(configHandler, "* "))
     assertEquals(Seq(), parse(configHandler, " "))
     assertEquals(Seq(6), parse(configHandler, "6:102"))
