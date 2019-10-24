@@ -477,7 +477,7 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
         // ConfluentLeaderAndIsr has been replaced by a tagged optional topicId in LeaderAndIsr
         // since 2.4-IV1. `useConfluentRequest` is kept to allow for rolling upgrades in CCloud
         // and will be removed once all of CCloud with tiered enabled is running with IBP >= 2.4-IV1
-        val useConfluentRequest = config.tierFeature && config.interBrokerProtocolVersion <= KAFKA_2_4_IV1
+        val useConfluentRequest = config.tierFeature && config.interBrokerProtocolVersion < KAFKA_2_4_IV1
 
         val leaderAndIsrRequestBuilder = LeaderAndIsrRequest.Builder.create(
           leaderAndIsrRequestVersion, controllerId, controllerEpoch, brokerEpoch,
