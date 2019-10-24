@@ -71,6 +71,9 @@ public class AuditLogRouterJsonConfigUtils {
                 Utils.mkEntry("denied", defaultTopicDenied))),
             Utils.mkEntry(AuditLogCategoryResultRouter.CONSUME_CATEGORY,
                 Utils.mkMap(Utils.mkEntry("allowed", defaultTopicAllowed),
+                    Utils.mkEntry("denied", defaultTopicDenied))),
+            Utils.mkEntry(AuditLogCategoryResultRouter.DESCRIBE_CATEGORY,
+                Utils.mkMap(Utils.mkEntry("allowed", ""),
                     Utils.mkEntry("denied", defaultTopicDenied)))));
     config.routes.put("crn://" + crnAuthority + "/kafka=*/group=*",
         Utils.mkMap(Utils.mkEntry(AuditLogCategoryResultRouter.CONSUME_CATEGORY,

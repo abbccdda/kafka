@@ -27,20 +27,47 @@ public class AuditLogCategoryResultRouter implements EventTopicRouter {
   public static final String CONSUME_CATEGORY = "consume";
   public static final String INTERBROKER_CATEGORY = "interbroker";
   public static final String AUTHORIZE_CATEGORY = "authorize";
+  public static final String DESCRIBE_CATEGORY = "describe";
+  public static final String HEARTBEAT_CATEGORY = "heartbeat";
+
   public static final Map<String, String> METHOD_CATEGORIES = Utils.mkMap(
-      Utils.mkEntry("kafka.Produce", PRODUCE_CATEGORY),
       Utils.mkEntry("kafka.AddPartitionToTxn", PRODUCE_CATEGORY),
-      Utils.mkEntry("kafka.FetchConsumer", CONSUME_CATEGORY),
-      Utils.mkEntry("kafka.OffsetCommit", CONSUME_CATEGORY),
+      Utils.mkEntry("kafka.EndTxn", PRODUCE_CATEGORY),
+      Utils.mkEntry("kafka.InitProducerId", PRODUCE_CATEGORY),
+      Utils.mkEntry("kafka.Produce", PRODUCE_CATEGORY),
+
       Utils.mkEntry("kafka.AddOffsetsToTxn", CONSUME_CATEGORY),
+      Utils.mkEntry("kafka.FetchConsumer", CONSUME_CATEGORY),
+      Utils.mkEntry("kafka.JoinGroup", CONSUME_CATEGORY),
+      Utils.mkEntry("kafka.LeaveGroup", CONSUME_CATEGORY),
+      Utils.mkEntry("kafka.ListOffsets", CONSUME_CATEGORY),
+      Utils.mkEntry("kafka.OffsetCommit", CONSUME_CATEGORY),
+      Utils.mkEntry("kafka.OffsetFetch", CONSUME_CATEGORY),
+      Utils.mkEntry("kafka.SyncGroup", CONSUME_CATEGORY),
       Utils.mkEntry("kafka.TxnOffsetCommit", CONSUME_CATEGORY),
+
+      Utils.mkEntry("kafka.ControlledShutdown", INTERBROKER_CATEGORY),
       Utils.mkEntry("kafka.FetchFollower", INTERBROKER_CATEGORY),
       Utils.mkEntry("kafka.LeaderAndIsr", INTERBROKER_CATEGORY),
       Utils.mkEntry("kafka.StopReplica", INTERBROKER_CATEGORY),
       Utils.mkEntry("kafka.UpdateMetadata", INTERBROKER_CATEGORY),
-      Utils.mkEntry("kafka.ControlledShutdown", INTERBROKER_CATEGORY),
       Utils.mkEntry("kafka.WriteTxnMarkers", INTERBROKER_CATEGORY),
-      Utils.mkEntry("mds.Authorize", AUTHORIZE_CATEGORY)
+
+      Utils.mkEntry("mds.Authorize", AUTHORIZE_CATEGORY),
+
+      Utils.mkEntry("kafka.DescribeAcls", DESCRIBE_CATEGORY),
+      Utils.mkEntry("kafka.DescribeConfigs", DESCRIBE_CATEGORY),
+      Utils.mkEntry("kafka.DescribeDelegationToken", DESCRIBE_CATEGORY),
+      Utils.mkEntry("kafka.DescribeGroups", DESCRIBE_CATEGORY),
+      Utils.mkEntry("kafka.DescribeLogDirs", DESCRIBE_CATEGORY),
+      Utils.mkEntry("kafka.DescribeToken", DESCRIBE_CATEGORY),
+      Utils.mkEntry("kafka.FindCoordinator", DESCRIBE_CATEGORY),
+      Utils.mkEntry("kafka.ListGroups", DESCRIBE_CATEGORY),
+      Utils.mkEntry("kafka.ListPartitionReassignments", DESCRIBE_CATEGORY),
+      Utils.mkEntry("kafka.Metadata", DESCRIBE_CATEGORY),
+      Utils.mkEntry("kafka.OffsetForLeaderEpoch", DESCRIBE_CATEGORY),
+
+      Utils.mkEntry("kafka.Heartbeat", HEARTBEAT_CATEGORY)
   );
   public static final Set<String> CATEGORIES;
 

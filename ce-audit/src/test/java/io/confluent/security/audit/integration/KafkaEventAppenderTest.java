@@ -281,7 +281,7 @@ public class KafkaEventAppenderTest {
     CloudEvent sentEvent1 = sampleEvent();
     logger.log(sentEvent1);
 
-    CloudEvent receivedEvent1 = firstReceivedEvent(consumer1, 10000);
+    CloudEvent receivedEvent1 = firstReceivedEvent(consumer1, 30000);
     assertNotNull(receivedEvent1);
     assertEquals(sentEvent1, receivedEvent1);
 

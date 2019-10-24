@@ -1,6 +1,6 @@
 package io.confluent.security.audit.provider;
 
-import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 import io.confluent.crn.ConfluentResourceName;
 import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
@@ -18,7 +18,9 @@ import io.confluent.security.test.utils.RbacClusters;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.function.Predicate;
 import kafka.server.KafkaServer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -84,23 +86,22 @@ abstract class ClusterTestCommon {
     return success;
   }
 
-  static CloudEvent firstMatchingEvent(KafkaConsumer<byte[], CloudEvent> consumer,
-      long timeoutMs,
-      String userName,
-      String resourceName,
-      String operation,
-      AuthorizeResult result,
-      PolicyType policyType) {
+  static boolean eventsMatched(KafkaConsumer<byte[], CloudEvent> consumer,
+      long timeoutMs, List<Predicate<AuditLogEntry>> predicates) {
     long startMs = System.currentTimeMillis();
 
-    while (System.currentTimeMillis() - startMs < timeoutMs) {
+    int i = 0;
+    while (System.currentTimeMillis() - startMs < timeoutMs && i < predicates.size()) {
       ConsumerRecords<byte[], CloudEvent> records = consumer.poll(Duration.ofMillis(200));
       for (ConsumerRecord<byte[], CloudEvent> record : records) {
         try {
           AuditLogEntry entry = record.value().getData().unpack(AuditLogEntry.class);
-          if (match(entry, userName, resourceName, operation, result, policyType)) {
+          if (predicates.get(i).test(entry)) {
             log.debug("CloudEvent matched: " + CloudEventUtils.toJsonString(record.value()));
-            return record.value();
+            i++;
+            if (i >= predicates.size()) {
+              return true;
+            }
           } else {
             log.debug("CloudEvent didn't match: " + CloudEventUtils.toJsonString(record.value()));
           }
@@ -109,7 +110,7 @@ abstract class ClusterTestCommon {
         }
       }
     }
-    return null;
+    return i >= predicates.size();
   }
 
   void addAcls(String principalType,
@@ -175,6 +176,12 @@ abstract class ClusterTestCommon {
 
   void produceConsume() throws Throwable {
 
+    String clusterCrn = ConfluentResourceName.newBuilder()
+        .setAuthority(AUTHORITY_NAME)
+        .addElement("kafka", rbacClusters.kafkaClusterId())
+        .build()
+        .toString();
+
     String app1TopicCrn = ConfluentResourceName.newBuilder()
         .setAuthority(AUTHORITY_NAME)
         .addElement("kafka", rbacClusters.kafkaClusterId())
@@ -182,29 +189,57 @@ abstract class ClusterTestCommon {
         .build()
         .toString();
 
+    String app1GroupCrn = ConfluentResourceName.newBuilder()
+        .setAuthority(AUTHORITY_NAME)
+        .addElement("kafka", rbacClusters.kafkaClusterId())
+        .addElement("group", APP1_CONSUMER_GROUP)
+        .build()
+        .toString();
+
     // Verify RBAC authorization logs
+    // consumer
     rbacClusters.produceConsume(RESOURCE_OWNER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
-    assertNotNull(firstMatchingEvent(consumer, 10000,
-        "User:" + RESOURCE_OWNER1, app1TopicCrn, "kafka.OffsetFetch",
-        AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE));
+    assertTrue(eventsMatched(consumer, 30000, Arrays.asList(
+        // group
+        e -> match(e, "User:" + RESOURCE_OWNER1, app1GroupCrn, "kafka.JoinGroup",
+            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE),
+        e -> match(e, "User:" + RESOURCE_OWNER1, app1GroupCrn, "kafka.SyncGroup",
+            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE),
+        // topic
+        e -> match(e, "User:" + RESOURCE_OWNER1, app1TopicCrn, "kafka.OffsetFetch",
+            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE),
+        e -> match(e, "User:" + RESOURCE_OWNER1, app1TopicCrn, "kafka.ListOffsets",
+            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE),
+        e -> match(e, "User:" + RESOURCE_OWNER1, app1TopicCrn, "kafka.FetchConsumer",
+            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE),
+        // group
+        e -> match(e, "User:" + RESOURCE_OWNER1, app1GroupCrn, "kafka.OffsetCommit",
+            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE),
+        e -> match(e, "User:" + RESOURCE_OWNER1, app1GroupCrn, "kafka.LeaveGroup",
+            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE)
+    )));
+    // producer
     rbacClusters.produceConsume(RESOURCE_OWNER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
-    assertNotNull(firstMatchingEvent(consumer, 10000,
-        "User:" + RESOURCE_OWNER1, app1TopicCrn, "kafka.Produce",
-        AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE));
+    assertTrue(eventsMatched(consumer, 10000, Collections.singletonList(
+        e -> match(e, "User:" + RESOURCE_OWNER1, app1TopicCrn, "kafka.Produce",
+            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE)
+    )));
 
     // Verify deny logs
     rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, false);
-    assertNotNull(firstMatchingEvent(consumer, 10000,
-        "User:" + DEVELOPER1, app1TopicCrn, "kafka.Metadata",
-        AuthorizeResult.DENIED, PolicyType.DENY_ON_NO_RULE));
+    assertTrue(eventsMatched(consumer, 10000, Collections.singletonList(
+        e -> match(e, "User:" + DEVELOPER1, app1TopicCrn, "kafka.Metadata",
+            AuthorizeResult.DENIED, PolicyType.DENY_ON_NO_RULE)
+    )));
 
     // Verify ZK-based ACL logs
     addAcls(KafkaPrincipal.USER_TYPE, DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP,
         PatternType.LITERAL);
     rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
-    assertNotNull(firstMatchingEvent(consumer, 10000,
-        "User:" + DEVELOPER1, app1TopicCrn, "kafka.Produce",
-        AuthorizeResult.ALLOWED, PolicyType.ALLOW_ACL));
+    assertTrue(eventsMatched(consumer, 10000, Collections.singletonList(
+        e -> match(e, "User:" + DEVELOPER1, app1TopicCrn, "kafka.Produce",
+            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ACL)
+    )));
 
     // Verify centralized ACL logs
     KafkaPrincipal dev1Principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, DEVELOPER1);
@@ -227,8 +262,9 @@ abstract class ClusterTestCommon {
         new io.confluent.security.authorizer.ResourcePattern("Topic", APP2_TOPIC,
             PatternType.LITERAL), PermissionType.ALLOW);
     rbacClusters.produceConsume(DEVELOPER1, APP2_TOPIC, app3Group, true);
-    assertNotNull(firstMatchingEvent(consumer, 10000,
-        "User:" + DEVELOPER1, app3GroupCrn, "kafka.OffsetFetch",
-        AuthorizeResult.ALLOWED, PolicyType.ALLOW_ACL));
+    assertTrue(eventsMatched(consumer, 10000, Collections.singletonList(
+        e -> match(e, "User:" + DEVELOPER1, app3GroupCrn, "kafka.OffsetFetch",
+            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ACL)
+    )));
   }
 }

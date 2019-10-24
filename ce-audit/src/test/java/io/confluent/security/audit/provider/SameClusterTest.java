@@ -1,7 +1,7 @@
 package io.confluent.security.audit.provider;
 
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import io.confluent.crn.ConfluentResourceName;
 import io.confluent.crn.CrnAuthorityConfig;
@@ -120,15 +120,16 @@ public class SameClusterTest extends ClusterTestCommon {
         .build()
         .toString();
 
-    assertNotNull(firstMatchingEvent(consumer, 10000,
-        "User:" + RESOURCE_OWNER1, app3TopicCrn, "kafka.CreateTopics",
-        AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE));
+    assertTrue(eventsMatched(consumer, 30000, Collections.singletonList(
+        e -> match(e, "User:" + RESOURCE_OWNER1, app3TopicCrn, "kafka.CreateTopics",
+            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE)
+    )));
 
     // Consume message should *not* be received
     rbacClusters.produceConsume(RESOURCE_OWNER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
-    assertNull(firstMatchingEvent(consumer, 10000,
-        "User:" + RESOURCE_OWNER1, app3TopicCrn, "kafka.OffsetFetch",
-        AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE));
+    assertFalse(eventsMatched(consumer, 10000, Collections.singletonList(
+        e -> "kafka.CreateTopics".equals(e.getMethodName())
+    )));
   }
 
   @Test

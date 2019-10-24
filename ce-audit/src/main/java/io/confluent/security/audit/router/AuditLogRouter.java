@@ -29,7 +29,9 @@ public class AuditLogRouter implements EventTopicRouter {
   private static final Set<String> DEFAULT_SUPPRESSED_CATEGORIES = Utils.mkSet(
       AuditLogCategoryResultRouter.PRODUCE_CATEGORY,
       AuditLogCategoryResultRouter.CONSUME_CATEGORY,
-      AuditLogCategoryResultRouter.INTERBROKER_CATEGORY);
+      AuditLogCategoryResultRouter.INTERBROKER_CATEGORY,
+      AuditLogCategoryResultRouter.DESCRIBE_CATEGORY,
+      AuditLogCategoryResultRouter.HEARTBEAT_CATEGORY);
 
   private void setDefaultTopicRouter(AuditLogRouterJsonConfig config) {
     defaultTopicRouter = new AuditLogCategoryResultRouter();
