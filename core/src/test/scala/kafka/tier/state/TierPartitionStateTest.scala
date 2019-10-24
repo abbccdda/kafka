@@ -122,7 +122,6 @@ class TierPartitionStateTest {
   def segmentGapTest(): Unit = {
     val epoch = 0
 
-    val path = state.flushedPath
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0))
     val objectId1 = UUID.randomUUID
     assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId1, 0, 50, 100, 0, false, false, false)))

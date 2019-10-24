@@ -76,14 +76,13 @@ class TierTasks(config: TierTasksConfig,
   removeMetric("CyclesPerSec")
   removeMetric("PartitionsInError")
   private val cycleTimeMetric = newMeter("CyclesPerSec", "tier tasks cycles per second", TimeUnit.SECONDS)
-  private val partitionInError = newGauge("NumPartitionsInError",
+  newGauge("NumPartitionsInError",
     new Gauge[Int] {
       def value: Int = {
         tierArchiver.taskQueue.errorPartitionCount()
       }
     },
     Map[String, String]())
-
 
   locally {
     tierReplicaManager.addListener(changeManager)

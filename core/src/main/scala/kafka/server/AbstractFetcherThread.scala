@@ -36,7 +36,6 @@ import scala.collection.JavaConverters._
 import java.util.concurrent.{ExecutionException, Future, TimeUnit}
 import java.util.concurrent.atomic.AtomicLong
 import java.util.function.BiConsumer
-import java.util.function.Consumer
 
 import com.yammer.metrics.core.Gauge
 import kafka.log.LogAppendInfo
