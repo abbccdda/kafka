@@ -170,6 +170,17 @@
     </subpackage>
   </subpackage>
 
+  <subpackage name="events">
+    <allow pkg="io.confluent.crn" />
+    <allow pkg="io.confluent.kafka" />
+    <allow pkg="io.confluent.events" />
+    <allow pkg="io.confluent.events.cloudevents" />
+    <allow pkg="io.cloudevents" />
+    <allow pkg="org.apache.kafka" />
+    <allow pkg="org.apache.log4j" />
+    <allow pkg="kafka" />
+  </subpackage>
+
   <subpackage name="security">
     <allow pkg="io.confluent.common" />
     <allow pkg="io.confluent.kafka.test" />
@@ -209,10 +220,12 @@
       <allow pkg="org.apache.directory" />
     </subpackage>
 
+
     <subpackage name="audit">
+      <allow pkg="io.confluent.events" />
+      <allow pkg="io.cloudevents" />
       <allow pkg="io.confluent.crn" />
       <allow pkg="io.confluent.security.audit" />
-      <allow pkg="io.confluent.security.audit.appender" />
     </subpackage>
   </subpackage>
 

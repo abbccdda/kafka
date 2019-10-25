@@ -1,3 +1,6 @@
+/*
+ * Copyright [2019 - 2019] Confluent Inc.
+ */
 syntax = "proto3";
 package audit;
 

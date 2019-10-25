@@ -60,6 +60,8 @@ if ( !versions.scala.contains('-') ) {
 
 versions += [
   opencensusProtoVersion: '0.2.0',
+  cloudEventsKafka: '0.3.1',
+  jacksonProtobufDatatype: '0.9.11-jackson2.9',
   activation: "1.1.1",
   amazons3client: "1.11.475",
   apacheda: "1.0.2",
@@ -145,6 +147,8 @@ versions += [
 
 libs += [
   opencensusProto: "io.opencensus:opencensus-proto:$versions.opencensusProtoVersion",
+  cloudEventsKafka: "io.cloudevents:cloudevents-kafka:$versions.cloudEventsKafka",
+  jacksonProtobufDatatype: "com.hubspot.jackson:jackson-datatype-protobuf:$versions.jacksonProtobufDatatype",
   amazons3client: "com.amazonaws:aws-java-sdk-s3:$versions.amazons3client",
   activation: "javax.activation:activation:$versions.activation",
   apacheda: "org.apache.directory.api:api-all:$versions.apacheda",

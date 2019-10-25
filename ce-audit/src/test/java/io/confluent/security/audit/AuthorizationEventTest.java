@@ -3,6 +3,10 @@ package io.confluent.security.audit;
 import static io.confluent.security.audit.provider.ConfluentAuditLogProvider.AUTHORIZATION_MESSAGE_TYPE;
 import static org.junit.Assert.assertTrue;
 
+import io.cloudevents.CloudEvent;
+import io.confluent.events.CloudEventUtils;
+import io.confluent.events.EventLoggerConfig;
+import io.confluent.events.ProtobufEvent;
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.TenantMetadata;
 import io.confluent.security.authorizer.Action;
@@ -32,19 +36,25 @@ public class AuthorizationEventTest {
     KafkaPrincipal principal = new MultiTenantPrincipal("0",
         new TenantMetadata("lkc-12345", "lkc-12345"));
 
-    CloudEvent event = CloudEventUtils.wrap(AUTHORIZATION_MESSAGE_TYPE, source, subject,
-        AuditLogUtils.authorizationEvent(
-            source,
-            subject,
-            AuthorizerUtils.kafkaRequestContext(
-                new RequestContext(new RequestHeader(ApiKeys.ALTER_CONFIGS, (short) 1, "123", 1234),
-                    "connectionId", InetAddress.getLocalHost(), principal,
-                    ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT),
-                    SecurityProtocol.PLAINTEXT)),
-            new Action(Scope.ROOT_SCOPE, ResourcePattern.ALL, Operation.ALL),
-            AuthorizeResult.ALLOWED,
-            AuthorizePolicy.ALLOW_ON_NO_RULE
-        ));
+    AuditLogEntry ale = AuditLogUtils.authorizationEvent(
+        source,
+        subject,
+        AuthorizerUtils.kafkaRequestContext(
+            new RequestContext(new RequestHeader(ApiKeys.ALTER_CONFIGS, (short) 1, "123", 1234),
+                "connectionId", InetAddress.getLocalHost(), principal,
+                ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT),
+                SecurityProtocol.PLAINTEXT)),
+        new Action(Scope.ROOT_SCOPE, ResourcePattern.ALL, Operation.ALL),
+        AuthorizeResult.ALLOWED,
+        AuthorizePolicy.ALLOW_ON_NO_RULE
+    );
+    CloudEvent event = ProtobufEvent.newBuilder()
+        .setType(AUTHORIZATION_MESSAGE_TYPE)
+        .setSource(source)
+        .setSubject(subject)
+        .setEncoding(EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG)
+        .setData(ale)
+        .build();
 
     assertTrue(CloudEventUtils.toJsonString(event)
         .contains("\"authenticationInfo\":{\"principal\":\"TenantUser:lkc-12345_0\"}"));

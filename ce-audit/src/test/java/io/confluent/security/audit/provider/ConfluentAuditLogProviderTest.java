@@ -1,3 +1,6 @@
+/*
+ * Copyright [2019 - 2019] Confluent Inc.
+ */
 package io.confluent.security.audit.provider;
 
 import static org.junit.Assert.assertEquals;
@@ -7,11 +10,11 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 
 import io.confluent.crn.CrnAuthorityConfig;
+import io.confluent.events.EventLogger;
+import io.confluent.events.exporter.LogExporter;
+import io.confluent.events.exporter.kafka.KafkaExporter;
+import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogRouterJsonConfigUtils;
-import io.confluent.security.audit.EventLogConfig;
-import io.confluent.security.audit.EventLogger;
-import io.confluent.security.audit.appender.KafkaEventAppender;
-import io.confluent.security.audit.appender.LogEventAppender;
 import io.confluent.security.authorizer.provider.AuditLogProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders;
 import io.confluent.security.authorizer.provider.DefaultAuditLogProvider;
@@ -21,7 +24,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
-import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.test.TestUtils;
 import org.junit.Before;
@@ -31,17 +33,17 @@ public class ConfluentAuditLogProviderTest {
 
   private Map<String, Object> configs = Utils.mkMap(
       Utils.mkEntry(
-          EventLogConfig.EVENT_LOGGER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG,
+          AuditLogConfig.BOOTSTRAP_SERVERS_CONFIG,
           "localhost:9092"),
-      Utils.mkEntry(EventLogConfig.TOPIC_CREATE_CONFIG, "false"),
+      Utils.mkEntry(AuditLogConfig.TOPIC_CREATE_CONFIG, "false"),
       Utils.mkEntry(CrnAuthorityConfig.AUTHORITY_NAME_PROP, "mds.example.com"),
       Utils.mkEntry(
-          EventLogConfig.ROUTER_CONFIG,
+          AuditLogConfig.ROUTER_CONFIG,
           AuditLogRouterJsonConfigUtils.defaultConfig("localhost:9092", "", "")));
 
   @Before
   public void setUp() {
-    TestEventAppender.clear();
+    TestExporter.clear();
   }
 
   @Test
@@ -54,48 +56,44 @@ public class ConfluentAuditLogProviderTest {
     provider.start(configs).toCompletableFuture().get();
     verifyExecutorTerminated(confluentProvider);
 
-    EventLogger fileLogger = confluentProvider.localFileLogger();
-    assertNotNull(fileLogger);
-    assertEquals(LogEventAppender.class,
-        TestUtils.fieldValue(fileLogger, EventLogger.class, "eventAppender").getClass());
-    EventLogger kafkaLogger = confluentProvider.kafkaLogger();
-    assertNotNull(kafkaLogger);
-    assertEquals(KafkaEventAppender.class,
-        TestUtils.fieldValue(kafkaLogger, EventLogger.class, "eventAppender").getClass());
+    EventLogger eventLogger = ((ConfluentAuditLogProvider) provider).getEventLogger();
+    assertNotNull(eventLogger);
+    assertEquals(KafkaExporter.class, eventLogger.eventExporter().getClass());
 
     AuditLogProvider defaultProvider = ConfluentBuiltInProviders
-        .loadAuditLogProvider(Collections.singletonMap(EventLogConfig.EVENT_LOGGER_ENABLED_CONFIG, "false"));
+        .loadAuditLogProvider(
+            Collections.singletonMap(AuditLogConfig.AUDIT_LOGGER_ENABLED_CONFIG, "false"));
     assertEquals(DefaultAuditLogProvider.class, defaultProvider.getClass());
   }
 
   @Test
-  public void testAppenderConfiguration() throws Exception {
+  public void testExporterConfiguration() throws Exception {
     ConfluentAuditLogProvider provider = createTestableProvider();
 
     CompletableFuture<Void> startFuture = startProvider(provider);
-    TestEventAppender appender = TestEventAppender.instance;
-    assertNotNull(TestEventAppender.instance);
-    assertEquals(TestEventAppender.State.STARTING, appender.state);
+    TestExporter exporter = TestExporter.instance;
+    assertNotNull(TestExporter.instance);
+    assertEquals(TestExporter.State.STARTING, exporter.state);
     assertFalse(startFuture.isDone());
     assertFalse(provider.initExecutor().isTerminated());
-    TestEventAppender.instance.semaphore.release();
+    TestExporter.instance.semaphore.release();
     startFuture.get(10, TimeUnit.SECONDS);
-    assertEquals(TestEventAppender.State.STARTED, appender.state);
+    assertEquals(TestExporter.State.STARTED, exporter.state);
     verifyExecutorTerminated(provider);
 
     provider.close();
-    assertEquals(TestEventAppender.State.CLOSED, appender.state);
+    assertEquals(TestExporter.State.CLOSED, exporter.state);
   }
 
   @Test
-  public void testAppenderConfigurationFailure() throws Exception {
-    TestEventAppender.configureException = new RuntimeException("Test exception");
+  public void testExporterConfigurationFailure() throws Exception {
+    TestExporter.configureException = new RuntimeException("Test exception");
     ConfluentAuditLogProvider provider = createTestableProvider();
 
     CompletableFuture<Void> startFuture = startProvider(provider);
     ExecutionException exception = assertThrows(ExecutionException.class,
         () -> startFuture.get(10, TimeUnit.SECONDS));
-    assertEquals(TestEventAppender.configureException, exception.getCause());
+    assertEquals(TestExporter.configureException, exception.getCause());
 
     verifyExecutorTerminated(provider);
   }
@@ -113,19 +111,11 @@ public class ConfluentAuditLogProviderTest {
   }
 
   private ConfluentAuditLogProvider createTestableProvider() {
-    ConfluentAuditLogProvider provider = new ConfluentAuditLogProvider() {
-      protected EventLogger eventLogger(Map<String, Object> configs) {
-        if (KafkaEventAppender.class.getName()
-            .equals(configs.get(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG))) {
-          configs
-              .put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG, TestEventAppender.class.getName());
-        }
-        return EventLogger.createLogger(configs);
-      }
-    };
+    ConfluentAuditLogProvider provider = new ConfluentAuditLogProvider();
+    configs.put(AuditLogConfig.EVENT_EXPORTER_CLASS_CONFIG, TestExporter.class.getName());
 
     provider.configure(configs);
-    assertNull(TestEventAppender.instance);
+    assertNull(TestExporter.instance);
     return provider;
   }
 
@@ -133,7 +123,7 @@ public class ConfluentAuditLogProviderTest {
       throws Exception {
     CompletableFuture<Void> startFuture = provider.start(configs).toCompletableFuture();
     TestUtils
-        .waitForCondition(() -> TestEventAppender.instance != null, "Event appender not created");
+        .waitForCondition(() -> TestExporter.instance != null, "Event exporter not created");
     return startFuture;
   }
 
@@ -142,7 +132,7 @@ public class ConfluentAuditLogProviderTest {
         .waitForCondition(() -> provider.initExecutor().isTerminated(), "Executor not terminated");
   }
 
-  public static class TestEventAppender extends LogEventAppender {
+  public static class TestExporter extends LogExporter {
 
     enum State {
       INITIALIZED,
@@ -151,7 +141,7 @@ public class ConfluentAuditLogProviderTest {
       CLOSED
     }
 
-    static TestEventAppender instance;
+    static TestExporter instance;
     static RuntimeException configureException;
 
     State state = State.INITIALIZED;
@@ -162,7 +152,7 @@ public class ConfluentAuditLogProviderTest {
       configureException = null;
     }
 
-    public TestEventAppender() {
+    public TestExporter() {
       instance = this;
     }
 
@@ -182,7 +172,7 @@ public class ConfluentAuditLogProviderTest {
     }
 
     @Override
-    public void close() {
+    public void close() throws Exception {
       state = State.CLOSED;
       super.close();
     }

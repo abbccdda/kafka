@@ -2972,6 +2972,8 @@ project(':ce-audit') {
     compile project(':ce-resource-names')
     compile project(':clients')
     compile project(':ce-auth-providers')
+    compile libs.cloudEventsKafka
+    compile libs.jacksonProtobufDatatype
     testCompile libs.junit
     testCompile project(':clients').sourceSets.test.output
     testCompile project(':core')

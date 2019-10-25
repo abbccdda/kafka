@@ -1,11 +1,17 @@
+/*
+ * Copyright [2019 - 2019] Confluent Inc.
+ */
 package io.confluent.security.audit.provider;
 
+import static io.confluent.security.audit.AuditLogConfig.AUDIT_PREFIX;
+
 import io.confluent.crn.CrnAuthorityConfig;
+import io.confluent.events.EventLoggerConfig;
+import io.confluent.events.exporter.kafka.KafkaExporter;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
+import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogRouterJsonConfigUtils;
-import io.confluent.security.audit.CloudEvent;
-import io.confluent.security.audit.EventLogConfig;
 import io.confluent.security.audit.integration.EventLogClusters;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import io.confluent.security.test.utils.RbacClusters;
@@ -44,18 +50,21 @@ public class OtherClusterTest extends ClusterTestCommon {
 
     Properties props = eventLogClusters.producerProps(LOG_WRITER_USER);
     for (String key : props.stringPropertyNames()) {
-      rbacConfig.overrideBrokerConfig(EventLogConfig.EVENT_LOGGER_PREFIX + key,
+      rbacConfig.overrideBrokerConfig(AUDIT_PREFIX + EventLoggerConfig.KAFKA_EXPORTER_PREFIX + key,
           props.getProperty(key));
     }
-    rbacConfig.overrideBrokerConfig(
-        EventLogConfig.ROUTER_CONFIG,
+    rbacConfig.overrideBrokerConfig(AUDIT_PREFIX + EventLoggerConfig.EVENT_EXPORTER_CLASS_CONFIG,
+        KafkaExporter.class.getName());
+
+    rbacConfig.overrideBrokerConfig(AuditLogConfig.ROUTER_CONFIG,
         AuditLogRouterJsonConfigUtils.defaultConfigProduceConsumeInterbroker(
             props.getProperty(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG),
             AUTHORITY_NAME,
             AuditLogRouterJsonConfig.DEFAULT_TOPIC,
             AuditLogRouterJsonConfig.DEFAULT_TOPIC,
             Collections.emptyList()));
-    rbacConfig.overrideBrokerConfig(EventLogConfig.TOPIC_REPLICAS_CONFIG, "1");
+    rbacConfig.overrideBrokerConfig(AUDIT_PREFIX + EventLoggerConfig.TOPIC_REPLICAS_CONFIG, "1");
+    rbacConfig.overrideBrokerConfig("auto.create.topics.enable", "false");
 
     rbacClusters = new RbacClusters(rbacConfig);
   }
@@ -78,7 +87,7 @@ public class OtherClusterTest extends ClusterTestCommon {
     }
   }
 
-  KafkaConsumer<byte[], CloudEvent> consumer(String consumerGroup, String topic) {
+  KafkaConsumer<byte[], byte[]> consumer(String consumerGroup, String topic) {
     Properties consumerProperties = eventLogClusters
         .consumerProps(LOG_READER_USER, consumerGroup);
 

@@ -1,12 +1,20 @@
+/*
+ * Copyright [2019 - 2019] Confluent Inc.
+ */
 package io.confluent.security.audit;
 
+import static io.confluent.events.EventLoggerConfig.CLOUD_EVENT_STRUCTURED_ENCODING;
 import static org.junit.Assert.assertTrue;
 
+import io.cloudevents.CloudEvent;
+import io.cloudevents.v03.CloudEventBuilder;
+import io.confluent.events.ProtobufEvent;
 import io.confluent.security.audit.router.AuditLogCategoryResultRouter;
 import io.confluent.security.audit.router.AuditLogRouter;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import java.io.IOException;
 import java.io.StringWriter;
+import java.net.URI;
 import java.util.Optional;
 import org.apache.log4j.Logger;
 import org.apache.log4j.PatternLayout;
@@ -164,19 +172,21 @@ public class AuditLogRouterTest {
   }
 
   private CloudEvent sampleEvent(String subject, String method, String principal, boolean granted) {
-    return CloudEventUtils
-        .wrap("io.confluent.security.authorization",
-            "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA",
-            subject,
-            AuditLogEntry.newBuilder()
-                .setResourceName(subject)
-                .setMethodName(method)
-                .setAuthenticationInfo(AuthenticationInfo.newBuilder()
-                    .setPrincipal(principal)
-                    .build())
-                .setAuthorizationInfo(AuthorizationInfo.newBuilder()
-                    .setGranted(granted))
-                .build());
+    return ProtobufEvent.newBuilder()
+        .setType("io.confluent.security.authorization")
+        .setSource("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA")
+        .setSubject(subject)
+        .setEncoding(CLOUD_EVENT_STRUCTURED_ENCODING)
+        .setData(AuditLogEntry.newBuilder()
+            .setResourceName(subject)
+            .setMethodName(method)
+            .setAuthenticationInfo(AuthenticationInfo.newBuilder()
+                .setPrincipal(principal)
+                .build())
+            .setAuthorizationInfo(AuthorizationInfo.newBuilder()
+                .setGranted(granted))
+            .build())
+        .build();
   }
 
   @Test
@@ -347,8 +357,11 @@ public class AuditLogRouterTest {
 
   @Test
   public void testNotAuditLogEvent() {
-    CloudEvent emptyEvent = CloudEvent.newBuilder().build();
-
+    CloudEvent emptyEvent = CloudEventBuilder.builder()
+        .withType("foo")
+        .withSource(URI.create("bar"))
+        .withId("42")
+        .build();
     Assert.assertEquals(Optional.empty(), router.topic(emptyEvent));
   }
 

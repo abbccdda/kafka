@@ -1,3 +1,6 @@
+/*
+ * Copyright [2019 - 2019] Confluent Inc.
+ */
 package io.confluent.security.audit.provider;
 
 import static org.junit.Assert.assertFalse;
@@ -7,12 +10,10 @@ import io.confluent.crn.ConfluentResourceName;
 import io.confluent.crn.CrnAuthorityConfig;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
+import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogRouterJsonConfigUtils;
-import io.confluent.security.audit.CloudEvent;
-import io.confluent.security.audit.EventLogConfig;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
-import io.confluent.security.audit.serde.CloudEventProtoSerde;
-import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
+import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.test.utils.RbacClusters;
 import java.util.Collections;
@@ -45,7 +46,7 @@ public class SameClusterTest extends ClusterTestCommon {
     rbacConfig = new RbacClusters.Config()
         .users(BROKER_USER, otherUsers)
         // simplify debugging to only have audit log topics on one of the clusters
-        .overrideMetadataBrokerConfig(EventLogConfig.EVENT_LOGGER_ENABLED_CONFIG, "false")
+        .overrideMetadataBrokerConfig(AuditLogConfig.AUDIT_LOGGER_ENABLED_CONFIG, "false")
         .withLdapGroups();
   }
 
@@ -81,7 +82,7 @@ public class SameClusterTest extends ClusterTestCommon {
         .waitUntilAccessAllowed(LOG_READER_USER, AuditLogRouterJsonConfig.TOPIC_PREFIX + "_dummy");
   }
 
-  KafkaConsumer<byte[], CloudEvent> consumer(String consumerGroup, String topic) {
+  KafkaConsumer<byte[], byte[]> consumer(String consumerGroup, String topic) {
     Properties consumerProperties = KafkaTestUtils
         .consumerProps(rbacClusters.kafkaCluster.bootstrapServers(),
             rbacClusters.kafkaSecurityProtocol,
@@ -91,7 +92,7 @@ public class SameClusterTest extends ClusterTestCommon {
     consumerProperties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
         ByteArrayDeserializer.class.getName());
     consumerProperties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
-        CloudEventProtoSerde.class.getName());
+        ByteArrayDeserializer.class.getName());
 
     consumer = new KafkaConsumer<>(consumerProperties);
 
@@ -122,7 +123,7 @@ public class SameClusterTest extends ClusterTestCommon {
 
     assertTrue(eventsMatched(consumer, 30000, Collections.singletonList(
         e -> match(e, "User:" + RESOURCE_OWNER1, app3TopicCrn, "kafka.CreateTopics",
-            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE)
+            AuthorizeResult.ALLOWED, AuthorizePolicy.PolicyType.ALLOW_ROLE)
     )));
 
     // Consume message should *not* be received
@@ -135,16 +136,15 @@ public class SameClusterTest extends ClusterTestCommon {
   @Test
   public void testProduceConsume() throws Throwable {
 
-    rbacConfig
-        .overrideBrokerConfig(
-            EventLogConfig.ROUTER_CONFIG,
-            AuditLogRouterJsonConfigUtils.defaultConfigProduceConsumeInterbroker(
-                null,
-                AUTHORITY_NAME,
-                AuditLogRouterJsonConfig.DEFAULT_TOPIC,
-                AuditLogRouterJsonConfig.DEFAULT_TOPIC,
-                Collections.singletonList(
-                    new KafkaPrincipal(KafkaPrincipal.USER_TYPE, LOG_READER_USER))))
+    rbacConfig.overrideBrokerConfig(
+        AuditLogConfig.ROUTER_CONFIG,
+        AuditLogRouterJsonConfigUtils.defaultConfigProduceConsumeInterbroker(
+            null,
+            AUTHORITY_NAME,
+            AuditLogRouterJsonConfig.DEFAULT_TOPIC,
+            AuditLogRouterJsonConfig.DEFAULT_TOPIC,
+            Collections.singletonList(
+                new KafkaPrincipal(KafkaPrincipal.USER_TYPE, LOG_READER_USER))))
         .overrideBrokerConfig(CrnAuthorityConfig.AUTHORITY_NAME_PROP, AUTHORITY_NAME);
 
     rbacClusters = new RbacClusters(rbacConfig);

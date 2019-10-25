@@ -1,30 +1,39 @@
 package io.confluent.security.audit.provider;
 
+import static io.confluent.events.EventLoggerConfig.CLOUD_EVENT_STRUCTURED_ENCODING;
+import static io.confluent.events.cloudevents.kafka.Unmarshallers.structuredProto;
 import static org.junit.Assert.assertTrue;
 
+import io.cloudevents.CloudEvent;
+import io.cloudevents.v03.AttributesImpl;
 import io.confluent.crn.ConfluentResourceName;
+import io.confluent.events.CloudEventUtils;
+import io.confluent.events.ProtobufEvent;
+import io.confluent.events.exporter.kafka.KafkaExporter;
 import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.KafkaTestUtils.ClientBuilder;
 import io.confluent.security.audit.AuditLogEntry;
-import io.confluent.security.audit.CloudEvent;
-import io.confluent.security.audit.CloudEventUtils;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.test.utils.RbacClusters;
-import java.io.IOException;
 import java.time.Duration;
+import java.util.AbstractMap;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 import kafka.server.KafkaServer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
@@ -57,7 +66,7 @@ abstract class ClusterTestCommon {
   RbacClusters.Config rbacConfig;
   RbacClusters rbacClusters;
   String clusterId;
-  KafkaConsumer<byte[], CloudEvent> consumer;
+  KafkaConsumer<byte[], byte[]> consumer;
 
 
   static boolean match(AuditLogEntry entry,
@@ -86,26 +95,37 @@ abstract class ClusterTestCommon {
     return success;
   }
 
-  static boolean eventsMatched(KafkaConsumer<byte[], CloudEvent> consumer,
+  private static Map<String, Object> asMap(Headers kafkaHeaders) {
+    return StreamSupport.stream(kafkaHeaders.spliterator(), Boolean.FALSE)
+        .map(header -> new AbstractMap.SimpleEntry<String, Object>(header.key(), header.value()))
+        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+  }
+
+  static boolean eventsMatched(KafkaConsumer<byte[], byte[]> consumer,
       long timeoutMs, List<Predicate<AuditLogEntry>> predicates) {
     long startMs = System.currentTimeMillis();
 
     int i = 0;
     while (System.currentTimeMillis() - startMs < timeoutMs && i < predicates.size()) {
-      ConsumerRecords<byte[], CloudEvent> records = consumer.poll(Duration.ofMillis(200));
-      for (ConsumerRecord<byte[], CloudEvent> record : records) {
+      ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofMillis(200));
+      for (ConsumerRecord<byte[], byte[]> record : records) {
         try {
-          AuditLogEntry entry = record.value().getData().unpack(AuditLogEntry.class);
+          CloudEvent<AttributesImpl, AuditLogEntry> value = structuredProto(AuditLogEntry.class)
+              .withHeaders(() -> asMap(record.headers()))
+              .withPayload(() -> record.value())
+              .unmarshal();
+
+          AuditLogEntry entry = value.getData().get();
           if (predicates.get(i).test(entry)) {
-            log.debug("CloudEvent matched: " + CloudEventUtils.toJsonString(record.value()));
+            log.debug("CloudEvent matched: " + CloudEventUtils.toJsonString(value));
             i++;
             if (i >= predicates.size()) {
               return true;
             }
           } else {
-            log.debug("CloudEvent didn't match: " + CloudEventUtils.toJsonString(record.value()));
+            log.debug("CloudEvent didn't match: " + CloudEventUtils.toJsonString(value));
           }
-        } catch (IOException e) {
+        } catch (Exception e) {
           log.error("Invalid CloudEvent", e);
         }
       }
@@ -134,14 +154,32 @@ abstract class ClusterTestCommon {
             (ConfluentServerAuthorizer) broker.authorizer().get();
         ConfluentAuditLogProvider provider =
             (ConfluentAuditLogProvider) authorizer.auditLogProvider();
-        if (!provider.localFileLoggerReady() || !provider.kafkaLoggerReady()) {
+        if (!provider.isEventLoggerReady()) {
           return false;
+        }
+
+        // The producer needs some time to make the routes ready. This makes the integration tests
+        // flaky as the logs are sent to the fallback logger if the routes are not ready.
+        KafkaExporter k = (KafkaExporter) provider.getEventLogger().eventExporter();
+        boolean routeReady = false;
+        while (!routeReady) {
+          routeReady = k.eventLogConfig().getTopicSpecs().keySet().stream()
+              .allMatch(t -> provider.getEventLogger().ready(ProtobufEvent.newBuilder()
+                  .setType("io.confluent.security.authorization")
+                  .setSource("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA")
+                  .setSubject("foo")
+                  .setEncoding(CLOUD_EVENT_STRUCTURED_ENCODING)
+                  .setData(AuditLogEntry.newBuilder().build())
+                  .setRoute(t)
+                  .build()));
         }
       }
       return true;
-    } catch (ClassCastException e) {
+    } catch (
+        ClassCastException e) {
       return false;
     }
+
   }
 
 
@@ -168,9 +206,9 @@ abstract class ClusterTestCommon {
     rbacClusters.waitUntilAccessAllowed(DEVELOPER1, APP2_TOPIC);
   }
 
-  abstract KafkaConsumer<byte[], CloudEvent> consumer(String consumerGroup, String topic);
+  abstract KafkaConsumer<byte[], byte[]> consumer(String consumerGroup, String topic);
 
-  KafkaConsumer<byte[], CloudEvent> consumer(String consumerGroup) {
+  KafkaConsumer<byte[], byte[]> consumer(String consumerGroup) {
     return consumer(consumerGroup, AuditLogRouterJsonConfig.DEFAULT_TOPIC);
   }
 

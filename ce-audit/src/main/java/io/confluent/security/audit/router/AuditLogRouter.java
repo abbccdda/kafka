@@ -1,10 +1,10 @@
 package io.confluent.security.audit.router;
 
-import com.google.protobuf.InvalidProtocolBufferException;
+import io.cloudevents.CloudEvent;
+import io.cloudevents.v03.AttributesImpl;
 import io.confluent.crn.CachedCrnStringPatternMatcher;
 import io.confluent.crn.CrnSyntaxException;
 import io.confluent.security.audit.AuditLogEntry;
-import io.confluent.security.audit.CloudEvent;
 import io.confluent.security.authorizer.AuthorizeResult;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -18,9 +18,10 @@ import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class AuditLogRouter implements EventTopicRouter {
+public class AuditLogRouter implements Router {
 
   private Logger log = LoggerFactory.getLogger(AuditLogRouter.class);
+  public static final String SUPPRESSED = "";
 
   private AuditLogCategoryResultRouter defaultTopicRouter;
   private Set<KafkaPrincipal> excludedPrincipals;
@@ -75,27 +76,34 @@ public class AuditLogRouter implements EventTopicRouter {
   }
 
   @Override
-  public Optional<String> topic(CloudEvent event) {
-    try {
-      AuditLogEntry auditLogEntry = event.getData().unpack(AuditLogEntry.class);
-      KafkaPrincipal eventPrincipal =
-          SecurityUtils.parseKafkaPrincipal(
-              auditLogEntry.getAuthenticationInfo().getPrincipal());
-      if (excludedPrincipals.contains(eventPrincipal)) {
-        return Optional.of("");  // suppress this message
-      }
-      AuditLogCategoryResultRouter router = crnRouters.match(event.getSubject());
-      if (router != null) {
-        Optional<String> routedTopic = router.topic(event);
-        if (routedTopic.isPresent()) {
-          return routedTopic;
-        }
-      }
-      return defaultTopicRouter.topic(event);
-    } catch (InvalidProtocolBufferException e) {
-      log.warn("Tried to route invalid event", e);
+  public Optional<String> topic(CloudEvent<AttributesImpl, AuditLogEntry> event) {
+    if (!event.getData().isPresent()) {
+      log.warn("Tried to route invalid event. Data is missing {}", event);
       return Optional.empty();
     }
+
+    AuditLogEntry auditLogEntry = event.getData().get();
+    KafkaPrincipal eventPrincipal = SecurityUtils.parseKafkaPrincipal(
+        auditLogEntry.getAuthenticationInfo().getPrincipal());
+
+    if (excludedPrincipals.contains(eventPrincipal)) {
+      return Optional.of(SUPPRESSED);  // suppress this message
+    }
+
+    if (!event.getAttributes().getSubject().isPresent()) {
+      log.warn("Tried to route invalid event. No subject found. {}", event);
+      return Optional.empty();
+    }
+    AuditLogCategoryResultRouter router = crnRouters
+        .match(event.getAttributes().getSubject().get());
+    if (router != null) {
+      Optional<String> routedTopic = router.topic(event);
+      if (routedTopic.isPresent()) {
+        return routedTopic;
+      }
+    }
+
+    return defaultTopicRouter.topic(event);
   }
 
   @Override

@@ -1,44 +1,37 @@
-package io.confluent.security.audit;
+/*
+ * Copyright [2019 - 2019] Confluent Inc.
+ */
+package io.confluent.events;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import io.confluent.security.audit.appender.LogEventAppender;
+import io.cloudevents.CloudEvent;
+import io.confluent.events.exporter.LogExporter;
+import io.confluent.events.test.SomeMessage;
 import java.io.StringWriter;
 import java.util.HashMap;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.log4j.Logger;
 import org.apache.log4j.PatternLayout;
 import org.apache.log4j.WriterAppender;
-import org.junit.Assert;
 import org.junit.Test;
 
-public class LogEventAppenderTest {
+public class LogExporterTest {
 
   private KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
-  private AuditLogEntry entry = AuditLogEntry.newBuilder()
-      .setAuthenticationInfo(AuthenticationInfo.newBuilder()
-          .setPrincipal(alice.toString())
-          .build())
+  private SomeMessage entry = SomeMessage.newBuilder()
+      .setPrincipal(alice.toString())
       .build();
-  private CloudEvent event = CloudEventUtils
-      .wrap("event_type", "crn://authority/kafka=source", "crn://authority/kafka=subject", entry);
 
-  @Test
-  public void testNamedLoggers() {
-    HashMap<String, String> config1 = new HashMap<>();
-    config1.put(EventLogConfig.EVENT_LOG_NAME_CONFIG, "test1");
-    config1.put(EventLogConfig.ROUTER_CONFIG, "{}");
-    HashMap<String, String> config2 = new HashMap<>();
-    config2.put(EventLogConfig.EVENT_LOG_NAME_CONFIG, "test2");
+  private CloudEvent event = ProtobufEvent.newBuilder()
+      .setType("event_type")
+      .setSource("crn://authority/kafka=source")
+      .setSubject("crn://authority/kafka=subject")
+      .setEncoding(EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG)
+      .setData(entry)
+      .build();
 
-    EventLogger logger1 = EventLogger.logger("config1", config1);
-    EventLogger logger2 = EventLogger.logger("config2", config2);
-    EventLogger logger1a = EventLogger.logger("config1", config1);
-
-    Assert.assertEquals(logger1, logger1a);
-    Assert.assertNotEquals(logger1, logger2);
-  }
 
   @Test
   public void testLogToLog4J() throws Exception {
@@ -47,12 +40,15 @@ public class LogEventAppenderTest {
     testLogger.removeAllAppenders();
     testLogger.addAppender(new WriterAppender(new PatternLayout("%m"), writer));
 
+    assertTrue(testLogger.isInfoEnabled());
     HashMap<String, String> config = new HashMap<>();
-    config.put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG, LogEventAppender.class.getCanonicalName());
-    config.put(EventLogConfig.EVENT_LOG_NAME_CONFIG, "test");
+    config.put(EventLoggerConfig.EVENT_EXPORTER_CLASS_CONFIG, LogExporter.class.getCanonicalName());
+    config.put(EventLoggerConfig.LOG_EVENT_EXPORTER_NAME_CONFIG, "test");
+    config.put(EventLoggerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
 
-    EventLogger logger = EventLogger.logger("testLogToLog4J", config);
+    EventLogger logger = new EventLogger();
 
+    logger.configure(config);
     logger.log(event);
 
     String logText = writer.toString();
@@ -75,11 +71,12 @@ public class LogEventAppenderTest {
     testLogger2.addAppender(new WriterAppender(new PatternLayout("%m"), writer2));
 
     HashMap<String, String> config = new HashMap<>();
-    config.put(EventLogConfig.EVENT_APPENDER_CLASS_CONFIG, LogEventAppender.class.getCanonicalName());
-    config.put(EventLogConfig.EVENT_LOG_NAME_CONFIG, "test");
+    config.put(EventLoggerConfig.EVENT_EXPORTER_CLASS_CONFIG, LogExporter.class.getCanonicalName());
+    config.put(EventLoggerConfig.LOG_EVENT_EXPORTER_NAME_CONFIG, "test");
+    config.put(EventLoggerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
 
-    EventLogger logger = EventLogger.logger("testReconfigure", config);
-
+    EventLogger logger = new EventLogger();
+    logger.configure(config);
     logger.log(event);
 
     String logText = writer.toString();
@@ -89,7 +86,7 @@ public class LogEventAppenderTest {
     assertTrue(logText.contains("User:Alice"));
     assertEquals("", writer2.toString());
 
-    config.put(EventLogConfig.EVENT_LOG_NAME_CONFIG, "test2");
+    config.put(EventLoggerConfig.LOG_EVENT_EXPORTER_NAME_CONFIG, "test2");
     logger.reconfigure(config);
 
     logger.log(event);

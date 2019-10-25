@@ -1,13 +1,15 @@
+/*
+ * Copyright [2019 - 2019] Confluent Inc.
+ */
 package io.confluent.security.audit.integration;
 
 import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
-import io.confluent.security.audit.EventLogConfig;
+import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.provider.ConfluentAuditLogProvider;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
-import io.confluent.security.audit.serde.CloudEventProtoSerde;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.test.utils.User;
 import java.util.HashMap;
@@ -56,10 +58,9 @@ public class EventLogClusters {
         kafkaSaslMechanism,
         users.get(user).jaasConfig,
         consumerGroup);
-    props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
-        ByteArrayDeserializer.class.getName());
-    props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
-        CloudEventProtoSerde.class.getName());
+    props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+    props
+        .put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
     return props;
   }
 
@@ -71,7 +72,7 @@ public class EventLogClusters {
     props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
         ByteArraySerializer.class.getName());
     props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
-        CloudEventProtoSerde.class.getName());
+        ByteArraySerializer.class.getName());
     return props;
   }
 
@@ -110,10 +111,11 @@ public class EventLogClusters {
     serverConfig.setProperty("super.users", "User:" + config.brokerUser);
     serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL");
     if (config.routerConfig != null) {
-      serverConfig.put(EventLogConfig.ROUTER_CONFIG, config.routerConfig);
+      serverConfig.put(AuditLogConfig.ROUTER_CONFIG, config.routerConfig);
     }
-    serverConfig.put(EventLogConfig.EVENT_LOG_PRINCIPAL_CONFIG,
+    serverConfig.put(AuditLogConfig.AUDIT_LOG_PRINCIPAL_CONFIG,
         config.auditLogPrincipal);
+    serverConfig.put("auto.create.topics.enable", false);
     return serverConfig;
   }
 
@@ -162,7 +164,7 @@ public class EventLogClusters {
             (ConfluentServerAuthorizer) broker.authorizer().get();
         ConfluentAuditLogProvider provider =
             (ConfluentAuditLogProvider) authorizer.auditLogProvider();
-        if (!provider.localFileLoggerReady() || !provider.kafkaLoggerReady()) {
+        if (!provider.isEventLoggerReady()) {
           return false;
         }
       }
@@ -177,7 +179,7 @@ public class EventLogClusters {
     private String brokerUser;
     private String logWriterUser;
     private String logReaderUser;
-    private String auditLogPrincipal = EventLogConfig.DEFAULT_EVENT_LOG_PRINCIPAL_CONFIG;
+    private String auditLogPrincipal = AuditLogConfig.DEFAULT_AUDIT_LOG_PRINCIPAL_CONFIG;
     private int numBrokers = 1;
     private String routerConfig = null;
 

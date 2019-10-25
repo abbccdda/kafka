@@ -1,24 +1,25 @@
 package io.confluent.security.audit.router;
 
+import io.cloudevents.CloudEvent;
+import io.cloudevents.v03.AttributesImpl;
 import io.confluent.crn.ConfluentResourceName.Element;
 import io.confluent.crn.CrnSyntaxException;
+import io.confluent.events.CloudEventUtils;
 import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.AuditLogUtils;
 import io.confluent.security.audit.AuthenticationInfo;
-import io.confluent.security.audit.CloudEvent;
-import io.confluent.security.audit.CloudEventUtils;
 import io.confluent.security.authorizer.AuthorizeResult;
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class AuditLogCategoryResultRouter implements EventTopicRouter {
+public class AuditLogCategoryResultRouter implements Router {
 
   private static final Logger log = LoggerFactory.getLogger(AuditLogCategoryResultRouter.class);
 
@@ -97,9 +98,9 @@ public class AuditLogCategoryResultRouter implements EventTopicRouter {
   }
 
   @Override
-  public Optional<String> topic(CloudEvent event) {
+  public Optional<String> topic(CloudEvent<AttributesImpl, AuditLogEntry> event) {
     try {
-      AuditLogEntry auditLogEntry = event.getData().unpack(AuditLogEntry.class);
+      AuditLogEntry auditLogEntry = event.getData().get();
       String category = category(auditLogEntry);
       if (!routes.containsKey(category)) {
         return Optional.empty();
@@ -133,7 +134,7 @@ public class AuditLogCategoryResultRouter implements EventTopicRouter {
         }
       }
       return topic;
-    } catch (CrnSyntaxException | IOException e) {
+    } catch (CrnSyntaxException | NoSuchElementException e) {
       log.debug("Attempted to route a invalid AuditLogEntry", e);
       return Optional.empty();
     }

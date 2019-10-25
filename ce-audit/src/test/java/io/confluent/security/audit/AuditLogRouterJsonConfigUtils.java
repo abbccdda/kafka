@@ -1,3 +1,6 @@
+/*
+ * Copyright [2019 - 2019] Confluent Inc.
+ */
 package io.confluent.security.audit;
 
 import com.fasterxml.jackson.core.JsonProcessingException;

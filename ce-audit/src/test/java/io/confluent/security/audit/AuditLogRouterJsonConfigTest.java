@@ -1,3 +1,6 @@
+/*
+ * Copyright [2019 - 2019] Confluent Inc.
+ */
 package io.confluent.security.audit;
 
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
