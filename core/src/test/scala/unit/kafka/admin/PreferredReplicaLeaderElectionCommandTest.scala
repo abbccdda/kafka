@@ -24,6 +24,7 @@ import java.util.Properties
 
 import scala.collection.Seq
 import kafka.common.AdminCommandFailedException
+import kafka.controller.PartitionReplicaAssignment
 import kafka.security.authorizer.AclAuthorizer
 import kafka.server.{KafkaConfig, KafkaServer}
 import kafka.utils.{Logging, TestUtils}
@@ -71,9 +72,11 @@ class PreferredReplicaLeaderElectionCommandTest extends ZooKeeperTestHarness wit
     servers = brokerConfigs.map(b => TestUtils.createServer(KafkaConfig.fromProps(b)))
     // create the topic
     partitionsAndAssignments.foreach { case (tp, assignment) =>
-      zkClient.createTopicAssignment(tp.topic,
-      None,
-      Map(tp -> assignment))
+      zkClient.createTopicAssignment(
+        tp.topic,
+        None,
+        Map(tp -> PartitionReplicaAssignment.fromCreate(assignment, Seq.empty))
+      )
     }
     // wait until replica log is created on every broker
     TestUtils.waitUntilTrue(
@@ -359,7 +362,7 @@ class PreferredReplicaLeaderElectionCommandTest extends ZooKeeperTestHarness wit
 
   @Test
   def testBasicPreferredReplicaElection(): Unit = {
-    val expectedReplicaAssignment = Map(0  -> List(0, 1, 2))
+    val expectedReplicaAssignment = Map(0  -> PartitionReplicaAssignment.fromCreate(List(0, 1, 2), Seq.empty))
     val topic = "test"
     val partition = 0
     val preferredReplica = 0

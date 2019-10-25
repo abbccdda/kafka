@@ -46,6 +46,7 @@ import org.apache.zookeeper.data.{ACL, Stat}
 import scala.beans.BeanProperty
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
+import scala.collection.immutable
 import scala.collection.{Map, Seq, mutable}
 import scala.util.{Failure, Success, Try}
 
@@ -248,6 +249,8 @@ object TopicZNode {
     val replicaAssignmentJson = mutable.Map[String, util.List[Int]]()
     val addingReplicasAssignmentJson = mutable.Map[String, util.List[Int]]()
     val removingReplicasAssignmentJson = mutable.Map[String, util.List[Int]]()
+    val observersAssignment = mutable.Map.empty[String, util.List[Int]]
+    val targetObserversAssignment = mutable.Map.empty[String, util.List[Int]]
 
     for ((partition, replicaAssignment) <- assignment) {
       replicaAssignmentJson += (partition.partition.toString -> replicaAssignment.replicas.asJava)
@@ -255,22 +258,33 @@ object TopicZNode {
         addingReplicasAssignmentJson += (partition.partition.toString -> replicaAssignment.addingReplicas.asJava)
       if (replicaAssignment.removingReplicas.nonEmpty)
         removingReplicasAssignmentJson += (partition.partition.toString -> replicaAssignment.removingReplicas.asJava)
+      if (replicaAssignment.observers.nonEmpty) {
+        observersAssignment += (partition.partition.toString -> replicaAssignment.observers.asJava)
+      }
+
+      replicaAssignment.targetObservers.foreach { targetObservers =>
+        targetObserversAssignment += (partition.partition.toString -> targetObservers.asJava)
+      }
     }
 
     val topicAssignment = if (topicId.isDefined)
       Map(
         "version" -> 2,
         "partitions" -> replicaAssignmentJson.asJava,
-        "confluent_topic_id" -> topicId.get.toString,
         "adding_replicas" -> addingReplicasAssignmentJson.asJava,
-        "removing_replicas" -> removingReplicasAssignmentJson.asJava
+        "removing_replicas" -> removingReplicasAssignmentJson.asJava,
+        "observers" -> observersAssignment.asJava,
+        "target_observers" -> targetObserversAssignment.asJava,
+        "confluent_topic_id" -> topicId.get.toString
       ).asJava
     else
       Map(
         "version" -> 2,
         "partitions" -> replicaAssignmentJson.asJava,
         "adding_replicas" -> addingReplicasAssignmentJson.asJava,
-        "removing_replicas" -> removingReplicasAssignmentJson.asJava
+        "removing_replicas" -> removingReplicasAssignmentJson.asJava,
+        "observers" -> observersAssignment.asJava,
+        "target_observers" -> targetObserversAssignment.asJava
       ).asJava
 
     Json.encodeAsBytes(topicAssignment)
@@ -287,22 +301,35 @@ object TopicZNode {
       }
     }
 
-    Json.parseBytes(bytes).flatMap { js =>
+    def getTargetObservers(replicasJsonOpt: Option[JsonObject], partition: Int): Option[Seq[Int]] = {
+      replicasJsonOpt.flatMap { replicaJson =>
+        replicaJson.get(partition.toString).map { replicas =>
+          replicas.to[Seq[Int]]
+        }
+      }
+    }
+
+    Json.parseBytes(bytes).map { js =>
       val assignmentJson = js.asJsonObject
       val topicId = assignmentJson.get("confluent_topic_id").map(_.to[String]).map(UUID.fromString)
       val addingReplicasJsonOpt = assignmentJson.get("adding_replicas").map(_.asJsonObject)
       val removingReplicasJsonOpt = assignmentJson.get("removing_replicas").map(_.asJsonObject)
+      val observersJson = assignmentJson.get("observers").map(_.asJsonObject)
+      val targetObserversJson = assignmentJson.get("target_observers").map(_.asJsonObject)
       val partitionsJsonOpt = assignmentJson.get("partitions").map(_.asJsonObject)
       val partitions = partitionsJsonOpt.map { partitionsJson =>
         partitionsJson.iterator.map { case (partition, replicas) =>
           new TopicPartition(topic, partition.toInt) -> PartitionReplicaAssignment(
             replicas.to[Seq[Int]],
             getReplicas(addingReplicasJsonOpt, partition),
-            getReplicas(removingReplicasJsonOpt, partition)
+            getReplicas(removingReplicasJsonOpt, partition),
+            getReplicas(observersJson, partition),
+            getTargetObservers(targetObserversJson, partition.toInt)
           )
-        }
-      }.getOrElse(Map.empty[TopicPartition, PartitionReplicaAssignment]).toMap
-      Some(TopicIdReplicaAssignment(topic, topicId, partitions))
+        }.toMap
+      }.getOrElse(immutable.Map.empty[TopicPartition, PartitionReplicaAssignment])
+
+      TopicIdReplicaAssignment(topic, topicId, partitions)
     }.getOrElse(TopicIdReplicaAssignment(topic, None, Map.empty[TopicPartition, PartitionReplicaAssignment]))
   }
 }

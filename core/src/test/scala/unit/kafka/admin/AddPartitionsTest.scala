@@ -39,15 +39,15 @@ class AddPartitionsTest extends BaseRequestTest {
   val partitionId = 0
 
   val topic1 = "new-topic1"
-  val topic1Assignment = Map(0 -> PartitionReplicaAssignment(Seq(0,1), List(), List()))
+  val topic1Assignment = Map(0 -> PartitionReplicaAssignment.fromCreate(Seq(0,1), Seq.empty))
   val topic2 = "new-topic2"
-  val topic2Assignment = Map(0 -> PartitionReplicaAssignment(Seq(1,2), List(), List()))
+  val topic2Assignment = Map(0 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty))
   val topic3 = "new-topic3"
-  val topic3Assignment = Map(0 -> PartitionReplicaAssignment(Seq(2,3,0,1), List(), List()))
+  val topic3Assignment = Map(0 -> PartitionReplicaAssignment.fromCreate(Seq(2,3,0,1), Seq.empty))
   val topic4 = "new-topic4"
-  val topic4Assignment = Map(0 -> PartitionReplicaAssignment(Seq(0,3), List(), List()))
+  val topic4Assignment = Map(0 -> PartitionReplicaAssignment.fromCreate(Seq(0,3), Seq.empty))
   val topic5 = "new-topic5"
-  val topic5Assignment = Map(1 -> PartitionReplicaAssignment(Seq(0,1), List(), List()))
+  val topic5Assignment = Map(1 -> PartitionReplicaAssignment.fromCreate(Seq(0,1), Seq.empty))
 
   @Before
   override def setUp(): Unit = {
@@ -62,8 +62,15 @@ class AddPartitionsTest extends BaseRequestTest {
   @Test
   def testWrongReplicaCount(): Unit = {
     try {
-      adminZkClient.addPartitions(topic1, topic1Assignment, adminZkClient.getBrokerMetadatas(), 2,
-        Some(Map(0 -> Seq(0, 1), 1 -> Seq(0, 1, 2))))
+      adminZkClient.addPartitions(
+        topic1, topic1Assignment, adminZkClient.getBrokerMetadatas(), 2,
+        Some(
+          Map(
+            0 -> PartitionReplicaAssignment.fromCreate(Seq(0, 1), Seq.empty),
+            1 -> PartitionReplicaAssignment.fromCreate(Seq(0, 1, 2), Seq.empty)
+          )
+        )
+      )
       fail("Add partitions should fail")
     } catch {
       case _: InvalidReplicaAssignmentException => //this is good
@@ -73,8 +80,15 @@ class AddPartitionsTest extends BaseRequestTest {
   @Test
   def testMissingPartition0(): Unit = {
     try {
-      adminZkClient.addPartitions(topic5, topic5Assignment, adminZkClient.getBrokerMetadatas(), 2,
-        Some(Map(1 -> Seq(0, 1), 2 -> Seq(0, 1, 2))))
+      adminZkClient.addPartitions(
+        topic5, topic5Assignment, adminZkClient.getBrokerMetadatas(), 2,
+        Some(
+          Map(
+            1 -> PartitionReplicaAssignment.fromCreate(Seq(0, 1), Seq.empty),
+            2 -> PartitionReplicaAssignment.fromCreate(Seq(0, 1, 2), Seq.empty)
+          )
+        )
+      )
       fail("Add partitions should fail")
     } catch {
       case e: AdminOperationException => //this is good
@@ -110,8 +124,16 @@ class AddPartitionsTest extends BaseRequestTest {
   @Test
   def testManualAssignmentOfReplicas(): Unit = {
     // Add 2 partitions
-    adminZkClient.addPartitions(topic2, topic2Assignment, adminZkClient.getBrokerMetadatas(), 3,
-      Some(Map(0 -> Seq(1, 2), 1 -> Seq(0, 1), 2 -> Seq(2, 3))))
+    adminZkClient.addPartitions(
+      topic2, topic2Assignment, adminZkClient.getBrokerMetadatas(), 3,
+      Some(
+        Map(
+          0 -> PartitionReplicaAssignment.fromCreate(Seq(1, 2), Seq.empty),
+          1 -> PartitionReplicaAssignment.fromCreate(Seq(0, 1), Seq.empty),
+          2 -> PartitionReplicaAssignment.fromCreate(Seq(2, 3), Seq.empty)
+        )
+      )
+    )
     // wait until leader is elected
     val leader1 = waitUntilLeaderIsElectedOrChanged(zkClient, topic2, 1)
     val leader2 = waitUntilLeaderIsElectedOrChanged(zkClient, topic2, 2)

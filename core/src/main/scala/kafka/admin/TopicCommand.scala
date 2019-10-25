@@ -23,6 +23,7 @@ import java.util.{Collections, Properties}
 import joptsimple._
 import kafka.cluster.{Broker, Observer}
 import kafka.common.{AdminCommandFailedException, TopicPlacement}
+import kafka.controller.PartitionReplicaAssignment
 import kafka.log.LogConfig
 import kafka.server.ConfigType
 import kafka.utils.Implicits._
@@ -367,10 +368,14 @@ object TopicCommand extends Logging {
     override def createTopic(topic: CommandTopicPartition): Unit = {
       val adminZkClient = new AdminZkClient(zkClient)
       try {
-        if (topic.hasReplicaAssignment)
-          adminZkClient.createTopicWithAssignment(topic.name, topic.configsToAdd, topic.replicaAssignment.get)
-        else
+        if (topic.hasReplicaAssignment) {
+          val replicaAssignment = topic.replicaAssignment.get.map { case (key, replicas) =>
+            key -> PartitionReplicaAssignment.fromCreate(replicas, Seq.empty)
+          }
+          adminZkClient.createTopicWithAssignment(topic.name, topic.configsToAdd, replicaAssignment)
+        } else {
           adminZkClient.createTopic(topic.name, topic.partitions.get, topic.replicationFactor.get, topic.configsToAdd, topic.rackAwareMode)
+        }
         println(s"Created topic ${topic.name}.")
       } catch  {
         case e: TopicExistsException => if (!topic.ifTopicDoesntExist()) throw e
@@ -416,10 +421,21 @@ object TopicCommand extends Logging {
           }
           if (existingAssignment.isEmpty)
             throw new InvalidTopicException(s"The topic $topic does not exist")
-          val newAssignment = tp.replicaAssignment.getOrElse(Map()).drop(existingAssignment.size)
+
+          val newAssignment = tp
+            .replicaAssignment
+            .map { assignments =>
+              assignments
+                .filterKeys(partition => partition >= existingAssignment.size)
+                .map { case (key, replicas) =>
+                  key -> PartitionReplicaAssignment.fromCreate(replicas, Seq.empty)
+                }
+            }
+            .filter(_.nonEmpty)
+
           val allBrokers = adminZkClient.getBrokerMetadatas()
           val partitions: Integer = tp.partitions.getOrElse(1)
-          adminZkClient.addPartitions(topic, existingAssignment, allBrokers, partitions, Option(newAssignment).filter(_.nonEmpty))
+          adminZkClient.addPartitions(topic, existingAssignment, allBrokers, partitions, newAssignment)
           println("Adding partitions succeeded!")
         }
       }

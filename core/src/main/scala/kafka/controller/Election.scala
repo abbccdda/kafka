@@ -72,7 +72,7 @@ object Election {
   private def leaderForReassign(partition: TopicPartition,
                                 leaderAndIsr: LeaderAndIsr,
                                 controllerContext: ControllerContext): ElectionResult = {
-    val reassignment = controllerContext.partitionsBeingReassigned(partition).newReplicas
+    val reassignment = controllerContext.partitionsBeingReassigned(partition).targetAssignment.replicas
     val liveReplicas = reassignment.filter(replica => controllerContext.isReplicaOnline(replica, partition))
     val isr = leaderAndIsr.isr
     val leaderOpt = PartitionLeaderElectionAlgorithms.reassignPartitionLeaderElection(reassignment, isr, liveReplicas.toSet)

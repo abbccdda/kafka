@@ -111,9 +111,9 @@ class ZkAuthorizationTest extends ZooKeeperTestHarness with Logging {
     // Test that creates persistent nodes
     val topic1 = "topic1"
     val assignment = Map(
-      new TopicPartition(topic1, 0) -> Seq(0, 1),
-      new TopicPartition(topic1, 1) -> Seq(0, 1),
-      new TopicPartition(topic1, 2) -> Seq(1, 2, 3)
+      new TopicPartition(topic1, 0) -> PartitionReplicaAssignment.fromCreate(Seq(0, 1), Seq.empty),
+      new TopicPartition(topic1, 1) -> PartitionReplicaAssignment.fromCreate(Seq(0, 1), Seq.empty),
+      new TopicPartition(topic1, 2) -> PartitionReplicaAssignment.fromCreate(Seq(1, 2, 3), Seq.empty)
     )
 
     // create a topic assignment
@@ -131,7 +131,11 @@ class ZkAuthorizationTest extends ZooKeeperTestHarness with Logging {
 
     // Test that can update persistent nodes
     val updatedAssignment = assignment - new TopicPartition(topic1, 2)
-    zkClient.setTopicAssignment(topic1, None, updatedAssignment.mapValues { case (v) => PartitionReplicaAssignment(v, List(), List()) })
+    zkClient.setTopicAssignment(
+      topic1,
+      None,
+      updatedAssignment
+    )
     assertEquals(updatedAssignment.size, zkClient.getTopicPartitionCount(topic1).get)
   }
 

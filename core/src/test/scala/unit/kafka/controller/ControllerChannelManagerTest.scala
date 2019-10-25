@@ -115,7 +115,13 @@ class ControllerChannelManagerTest {
     partitions.foreach { case (partition, leaderAndIsr) =>
       val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)
       context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
-      batch.addLeaderAndIsrRequestForBrokers(Seq(2), partition, leaderIsrAndControllerEpoch, PartitionReplicaAssignment(Seq(1, 2, 3), Seq(), Seq()), isNew = false)
+      batch.addLeaderAndIsrRequestForBrokers(
+        Seq(2),
+        partition,
+        leaderIsrAndControllerEpoch,
+        PartitionReplicaAssignment.fromCreate(Seq(1, 2, 3), Seq.empty),
+        isNew = false
+      )
     }
     batch.sendRequestsToBrokers(controllerEpoch)
 
@@ -743,7 +749,9 @@ class ControllerChannelManagerTest {
     KafkaConfig.fromProps(props)
   }
 
-  private def replicaAssignment(replicas: Seq[Int]): PartitionReplicaAssignment = PartitionReplicaAssignment(replicas, Seq(), Seq())
+  private def replicaAssignment(replicas: Seq[Int]): PartitionReplicaAssignment = {
+    PartitionReplicaAssignment.fromCreate(replicas, Seq.empty)
+  }
 
   private def initContext(brokers: Seq[Int],
                           topicIds: mutable.Map[String, UUID],
@@ -767,7 +775,10 @@ class ControllerChannelManagerTest {
         val replica = brokers((i + leaderIndex) % brokers.size)
         replica
       }
-      context.updatePartitionReplicaAssignment(partition, replicas)
+      context.updatePartitionFullReplicaAssignment(
+        partition,
+        PartitionReplicaAssignment.fromCreate(replicas, Seq.empty)
+      )
       leaderIndex += 1
     }
     context

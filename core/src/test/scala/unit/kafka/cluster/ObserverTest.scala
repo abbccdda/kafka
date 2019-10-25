@@ -5,12 +5,14 @@ package kafka.cluster
 
 import kafka.admin.BrokerMetadata
 import kafka.common.TopicPlacement
+import kafka.controller.PartitionReplicaAssignment
 import org.apache.kafka.common.errors.InvalidConfigurationException
 import org.junit.Assert._
 import org.junit.Test
 
 import scala.collection.JavaConverters._
 import scala.collection.immutable
+import scala.collection.mutable
 
 class ObserverTest {
 
@@ -147,8 +149,8 @@ class ObserverTest {
    */
   @Test
   def testMergeDisjointMaps(): Unit = {
-    val firstMap: Map[Int, Seq[Int]] = Map(1 -> (1 to 5) , 2 -> (2 to 6))
-    val secondMap: Map[Int, Seq[Int]] = Map(10 -> (10 to 15), 11 -> (11 to 16))
+    val firstMap: mutable.Map[Int, Seq[Int]] = mutable.Map(1 -> (1 to 5) , 2 -> (2 to 6))
+    val secondMap: mutable.Map[Int, Seq[Int]] = mutable.Map(10 -> (10 to 15), 11 -> (11 to 16))
 
     val mergedMap = Observer.mergeAssignmentMap(firstMap, secondMap)
     assertEquals(firstMap ++ secondMap, mergedMap)
@@ -159,12 +161,11 @@ class ObserverTest {
    */
   @Test
   def testMergeEmptyMap(): Unit = {
-    val assignmentMap: Map[Int, Seq[Int]] = Map(1 -> (1 to 5) , 2 -> (2 to 6))
-    val emptyMap: Map[Int, Seq[Int]] = Map()
+    val assignmentMap: mutable.Map[Int, Seq[Int]] = mutable.Map(1 -> (1 to 5) , 2 -> (2 to 6))
 
-    assertEquals(assignmentMap, Observer.mergeAssignmentMap(assignmentMap, emptyMap))
-    assertEquals(assignmentMap, Observer.mergeAssignmentMap(emptyMap, assignmentMap))
-    assertEquals(emptyMap, Observer.mergeAssignmentMap(emptyMap, emptyMap))
+    assertEquals(assignmentMap, Observer.mergeAssignmentMap(assignmentMap, mutable.Map.empty))
+    assertEquals(assignmentMap, Observer.mergeAssignmentMap(mutable.Map.empty, assignmentMap))
+    assertEquals(mutable.Map.empty, Observer.mergeAssignmentMap(mutable.Map.empty, mutable.Map.empty))
   }
 
   /**
@@ -172,8 +173,8 @@ class ObserverTest {
    */
   @Test(expected = classOf[InvalidConfigurationException])
   def testMergeMapValueSame(): Unit = {
-    val firstMap: Map[Int, Seq[Int]] = Map(1 -> (1 to 5) , 2 -> (2 to 6))
-    val secondMap: Map[Int, Seq[Int]] = Map(1 -> (1 to 5), 10 -> (10 to 15), 11 -> (11 to 16))
+    val firstMap: mutable.Map[Int, Seq[Int]] = mutable.Map(1 -> (1 to 5) , 2 -> (2 to 6))
+    val secondMap: mutable.Map[Int, Seq[Int]] = mutable.Map(1 -> (1 to 5), 10 -> (10 to 15), 11 -> (11 to 16))
 
     Observer.mergeAssignmentMap(firstMap, secondMap)
   }
@@ -183,9 +184,9 @@ class ObserverTest {
    */
   @Test
   def testMergeMapKeySame(): Unit = {
-    val firstMap: Map[Int, Seq[Int]] = Map(1 -> (1 to 5) , 2 -> (2 to 6))
-    val secondMap: Map[Int, Seq[Int]] = Map(1 -> (6 to 10), 10 -> (10 to 15))
-    val expectedMergedMap = Map(1 -> (1 to 10) , 2 -> (2 to 6), 10 -> (10 to 15))
+    val firstMap: mutable.Map[Int, Seq[Int]] = mutable.Map(1 -> (1 to 5), 2 -> (2 to 6))
+    val secondMap: mutable.Map[Int, Seq[Int]] = mutable.Map(1 -> (6 to 10), 10 -> (10 to 15))
+    val expectedMergedMap = mutable.Map(1 -> (1 to 10), 2 -> (2 to 6), 10 -> (10 to 15))
 
     assertEquals(expectedMergedMap, Observer.mergeAssignmentMap(firstMap, secondMap))
   }
@@ -341,17 +342,21 @@ class ObserverTest {
     val replicationFactor: Short = 3
 
     // We have 10 partitions, replication factor as 3. So we will have 30 assignments
-    val assignments = Observer.getReplicaAssignment(brokers, Some("""{"version":1}"""), numPartitions, replicationFactor)
+    val assignments = Observer.getReplicaAssignment(
+      brokers, Some(TopicPlacement.parse("""{"version":1}""")), numPartitions, replicationFactor
+    )
     validateRackUnawareReplicaAssignment(brokers, assignments)
   }
 
-  private[this] def validateRackUnawareReplicaAssignment(brokers: immutable.IndexedSeq[BrokerMetadata],
-                                                         assignments: collection.Map[Int, Seq[Int]]): Unit = {
+  private[this] def validateRackUnawareReplicaAssignment(
+    brokers: immutable.IndexedSeq[BrokerMetadata],
+    assignments: collection.Map[Int, PartitionReplicaAssignment]
+  ): Unit = {
     // Validate that assignments are spread evenly. To check that look at each partition assignment.
     // Each broker should be leader for 2 partitions, in second position for two other partitions
     // and in third position for another set of two partitions. To check this we need to flip the
     // assignment table from "partition -> replica" to "replica -> partition"
-    val brokerAssignment = assignments.values.transpose
+    val brokerAssignment = assignments.values.map(_.replicas).transpose
     brokerAssignment.foreach { assignedPartitions =>
       assignedPartitions.groupBy(brokerId => brokerId).values.foreach { brokerIds =>
         assertEquals(2, brokerIds.size)
@@ -363,7 +368,7 @@ class ObserverTest {
     }
 
     // Also check that each partition has different set of brokers assigned.
-    assignments.values.foreach { brokers =>
+    assignments.values.map(_.replicas).foreach { brokers =>
       assertEquals(3, brokers.size)
     }
   }
@@ -390,11 +395,11 @@ class ObserverTest {
      * 1. spread out replicas among brokers, so each broker should be leader, second position and third position once
      * 2. Each rack should hold 3 leaders, 3 second position and 3 third position
      */
-    assignments.values.foreach {
+    assignments.values.map(_.replicas).foreach {
       // This checks if each partition is assigned to 3 different brokers
       assignedBrokers => assertEquals(3, assignedBrokers.toSet.size)
     }
-    assignments.values.transpose.foreach {
+    assignments.values.map(_.replicas).transpose.foreach {
       // This tests if each position (leader, second, third) in assignment is spread to brokers/racks evenly
       assignedBrokers => assertEquals(9, assignedBrokers.toSet.size)
     }
@@ -436,11 +441,12 @@ class ObserverTest {
                            |    }
                            |  }]
                            |}""".stripMargin
-    val partitionAssignment = Observer.getReplicaAssignment(brokers, Some(placementJson), resolvedNumPartitions = 10,
-      resolvedReplicationFactor = 3)
+    val partitionAssignment = Observer.getReplicaAssignment(
+      brokers, Some(TopicPlacement.parse(placementJson)), numPartitions = 10,
+      replicationFactor = 3)
 
     // Test if replica and observer assignment was done as per placement constraint
-    partitionAssignment.values.foreach { assignedBrokers => {
+    partitionAssignment.values.map(_.replicas).foreach { assignedBrokers => {
         // This checks that each partition gets assigned to racks in placement constraint
         assertEquals(7, assignedBrokers.toSet.size)
         // First 3 should be on rack 1 (broker id from 0 to 4)
@@ -454,7 +460,7 @@ class ObserverTest {
 
     // Now test that each broker got its fair share of partitions at
     // each position (i.e. leader, first, second etc)
-    val brokerAssignment = partitionAssignment.values.transpose
+    val brokerAssignment = partitionAssignment.values.map(_.replicas).transpose
     brokerAssignment.foreach { assignedPartitions =>
       // Each broker should be present twice at each position make it fair distribution:
       // 10 partitions, each broker twice at each position.
@@ -488,6 +494,21 @@ class ObserverTest {
     val partitionedBrokers = Seq(
       (1, (List(BrokerMetadata(3, Some("rack-1"))) ++ commonBrokers)),
       (2, (List(BrokerMetadata(4, Some("rack-1"))) ++ commonBrokers))
+    )
+
+    Observer.validatePartitioning(partitionedBrokers)
+  }
+
+  /**
+   * Test if the [[Observer.validatePartitioning()]] method fails when same broker appears in multiple partitions.
+   */
+  @Test(expected = classOf[InvalidConfigurationException])
+  def validatePartitioningFailureMultiplePartitions(): Unit = {
+    val commonBrokers = List[BrokerMetadata](BrokerMetadata(1, Some("rack-1")), BrokerMetadata(2, Some("rack-1")))
+    val partitionedBrokers = Seq(
+      (1, List(BrokerMetadata(3, Some("rack-1"))) ++ commonBrokers),
+      (2, List(BrokerMetadata(4, Some("rack-1")))),
+      (2, List(BrokerMetadata(5, Some("rack-1"))) ++ commonBrokers)
     )
 
     Observer.validatePartitioning(partitionedBrokers)

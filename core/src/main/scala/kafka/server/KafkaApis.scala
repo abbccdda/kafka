@@ -2516,7 +2516,12 @@ class KafkaApis(val requestChannel: RequestChannel,
           if (reassignablePartition.replicas() == null)
             tp -> None // revert call
           else
-            tp -> Some(reassignablePartition.replicas().asScala.map(_.toInt))
+            tp -> Some(
+              PartitionReplicaAssignment.Assignment(
+                reassignablePartition.replicas().asScala.map(_.toInt),
+                reassignablePartition.observers().asScala.map(_.toInt)
+              )
+            )
       }
     }.toMap
 

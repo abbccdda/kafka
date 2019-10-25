@@ -3278,7 +3278,8 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
 
                         ReassignablePartition reassignablePartition = new ReassignablePartition()
                                 .setPartitionIndex(partitionIndex)
-                                .setReplicas(reassignment.map(NewPartitionReassignment::targetBrokers).orElse(null));
+                                .setReplicas(reassignment.map(NewPartitionReassignment::targetBrokers).orElse(null))
+                                .setObservers(reassignment.map(NewPartitionReassignment::targetObservers).orElse(Collections.emptyList()));
                         reassignablePartitions.add(reassignablePartition);
                     }
 

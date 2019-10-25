@@ -679,11 +679,11 @@ class ReassignPartitionsClusterTest extends ZooKeeperTestHarness with Logging {
     adminClient.close()
 
     zkClient.setTopicAssignment("orders", None, Map(
-      new TopicPartition("orders", 0) -> PartitionReplicaAssignment(List(0, 1), List(2), List(0)), // should be overwritten
-      new TopicPartition("orders", 1) -> PartitionReplicaAssignment(List(1, 2), List(3), List(1)), // should be overwritten
+      new TopicPartition("orders", 0) -> PartitionReplicaAssignment(List(0, 1), List(2), List(0), Seq.empty, Some(Seq.empty)), // should be overwritten
+      new TopicPartition("orders", 1) -> PartitionReplicaAssignment(List(1, 2), List(3), List(1), Seq.empty, Some(Seq.empty)), // should be overwritten
       // should be overwritten (so we know to remove it from ZK) even though we do the exact same move
-      sameMoveTp -> PartitionReplicaAssignment(List(0, 1, 2), List(2), List(0)),
-      new TopicPartition("orders", 3) -> PartitionReplicaAssignment(List(0, 1, 2), List(2), List(0)) // moves
+      sameMoveTp -> PartitionReplicaAssignment(List(0, 1, 2), List(2), List(0), Seq.empty, Some(Seq.empty)),
+      new TopicPartition("orders", 3) -> PartitionReplicaAssignment(List(0, 1, 2), List(2), List(0), Seq.empty, Some(Seq.empty)) // moves
     ))
     val move = Map(
       new TopicPartition("orders", 0) -> Seq(2, 1), // moves

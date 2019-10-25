@@ -21,6 +21,8 @@ import java.util.{Collections, Properties}
 import kafka.admin.AdminOperationException
 import kafka.cluster.Observer
 import kafka.common.TopicAlreadyMarkedForDeletionException
+import kafka.common.TopicPlacement
+import kafka.controller.PartitionReplicaAssignment
 import kafka.log.LogConfig
 import kafka.utils.Log4jController
 import kafka.metrics.KafkaMetricsGroup
@@ -115,8 +117,9 @@ class AdminManager(val config: KafkaConfig,
         val resolvedReplicationFactor = if (topic.replicationFactor == NO_REPLICATION_FACTOR)
           defaultReplicationFactor else topic.replicationFactor
 
-        val replicaPlacementJson = Option(configs.get(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG)).map(_.toString)
-        if (replicaPlacementJson.nonEmpty) {
+        val replicaPlacement = Option(configs.get(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG))
+          .map(value => TopicPlacement.parse(value.toString))
+        if (replicaPlacement.nonEmpty) {
           if (!config.observerFeature) {
             throw new InvalidRequestException(s"Configuration ${ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG}" +
               s" can only be specified if ${KafkaConfig.ObserverFeatureProp} is enabled.")
@@ -132,14 +135,17 @@ class AdminManager(val config: KafkaConfig,
         }
 
         val assignments = if (topic.assignments().isEmpty) {
-          Observer.getReplicaAssignment(brokers, replicaPlacementJson, resolvedNumPartitions, resolvedReplicationFactor)
+          Observer.getReplicaAssignment(brokers, replicaPlacement, resolvedNumPartitions, resolvedReplicationFactor)
         } else {
-          val assignments = new mutable.HashMap[Int, Seq[Int]]
+          val assignments = mutable.Map.empty[Int, PartitionReplicaAssignment]
           // Note: we don't check that replicaAssignment contains unknown brokers - unlike in add-partitions case,
           // this follows the existing logic in TopicCommand
-          topic.assignments.asScala.foreach {
-            case assignment => assignments(assignment.partitionIndex()) =
-              assignment.brokerIds().asScala.map(a => a: Int)
+
+          topic.assignments.asScala.foreach { assignment =>
+            assignments(assignment.partitionIndex()) = PartitionReplicaAssignment.fromCreate(
+              assignment.brokerIds().asScala.map(a => a: Int),
+              Seq.empty
+            )
           }
           assignments
         }
@@ -158,7 +164,7 @@ class AdminManager(val config: KafkaConfig,
               null
             } else {
               assignments.map { case (k, v) =>
-                (k: java.lang.Integer) -> v.map(i => i: java.lang.Integer).asJava
+                (k: java.lang.Integer) -> v.replicas.map(i => i: java.lang.Integer).asJava
               }.asJava
             }
             val javaConfigs = new java.util.HashMap[String, String]
@@ -194,20 +200,20 @@ class AdminManager(val config: KafkaConfig,
           }.toList.asJava
           result.setConfigs(topicConfigs)
           result.setNumPartitions(assignments.size)
-          result.setReplicationFactor(assignments(0).size.toShort)
+          result.setReplicationFactor(assignments(0).replicas.size.toShort)
         }
-        CreatePartitionsMetadata(topic.name, assignments, ApiError.NONE)
+        CreatePartitionsMetadata(topic.name, assignments.keySet, ApiError.NONE)
       } catch {
         // Log client errors at a lower level than unexpected exceptions
         case e: ApiException =>
           info(s"Error processing create topic request $topic", e)
-          CreatePartitionsMetadata(topic.name, Map(), ApiError.fromThrowable(e))
+          CreatePartitionsMetadata(topic.name, Set.empty, ApiError.fromThrowable(e))
         case e: ConfigException =>
           info(s"Error processing create topic request $topic", e)
-          CreatePartitionsMetadata(topic.name, Map(), ApiError.fromThrowable(new InvalidConfigurationException(e.getMessage, e.getCause)))
+          CreatePartitionsMetadata(topic.name, Set.empty, ApiError.fromThrowable(new InvalidConfigurationException(e.getMessage, e.getCause)))
         case e: Throwable =>
           error(s"Error processing create topic request $topic", e)
-          CreatePartitionsMetadata(topic.name, Map(), ApiError.fromThrowable(e))
+          CreatePartitionsMetadata(topic.name, Set.empty, ApiError.fromThrowable(e))
       }).toBuffer
 
     // 2. if timeout <= 0, validateOnly or no topics can proceed return immediately
@@ -307,21 +313,26 @@ class AdminManager(val config: KafkaConfig,
           throw new InvalidPartitionsException(s"Topic already has $oldNumPartitions partitions.")
         }
 
-        val newPartitionsAssignment = Option(newPartition.newAssignments).map(_.asScala.map(_.asScala.map(_.toInt))).map { assignments =>
-          val unknownBrokers = assignments.flatten.toSet -- allBrokerIds
-          if (unknownBrokers.nonEmpty)
-            throw new InvalidReplicaAssignmentException(
-              s"Unknown broker(s) in replica assignment: ${unknownBrokers.mkString(", ")}.")
+        val newPartitionsAssignment = Option(newPartition.newAssignments)
+          .map { value =>
+            val assignments = value.asScala.map(_.asScala)
 
-          if (assignments.size != numPartitionsIncrement)
-            throw new InvalidReplicaAssignmentException(
-              s"Increasing the number of partitions by $numPartitionsIncrement " +
+            val unknownBrokers = assignments.flatten.toSet -- allBrokerIds
+            if (unknownBrokers.nonEmpty) {
+              throw new InvalidReplicaAssignmentException(
+                s"Unknown broker(s) in replica assignment: ${unknownBrokers.mkString(", ")}.")
+            }
+
+            if (assignments.size != numPartitionsIncrement) {
+              throw new InvalidReplicaAssignmentException(
+                s"Increasing the number of partitions by $numPartitionsIncrement " +
                 s"but ${assignments.size} assignments provided.")
+            }
 
-          assignments.zipWithIndex.map { case (replicas, index) =>
-            existingAssignment.size + index -> replicas
-          }.toMap
-        }
+            assignments.zipWithIndex.map { case (replicas, index) =>
+              existingAssignment.size + index -> PartitionReplicaAssignment.fromCreate(replicas.map(_.toInt), Seq.empty)
+            }.toMap
+          }
 
         if (config.applyCreateTopicsPolicyToCreatePartitions) {
           // A special Confluent-specific configuration causes CreateTopicsPolicy to also apply to
@@ -341,14 +352,15 @@ class AdminManager(val config: KafkaConfig,
           }
         }
 
-        val updatedReplicaAssignment = adminZkClient.addPartitions(topic, existingAssignment, allBrokers,
+        val updatedReplicaAssignment = adminZkClient.addPartitions(
+          topic, existingAssignment, allBrokers,
           newPartition.totalCount, newPartitionsAssignment, validateOnly = validateOnly)
-        CreatePartitionsMetadata(topic, updatedReplicaAssignment, ApiError.NONE)
+        CreatePartitionsMetadata(topic, updatedReplicaAssignment.keySet, ApiError.NONE)
       } catch {
         case e: AdminOperationException =>
-          CreatePartitionsMetadata(topic, Map.empty, ApiError.fromThrowable(e))
+          CreatePartitionsMetadata(topic, Set.empty, ApiError.fromThrowable(e))
         case e: ApiException =>
-          CreatePartitionsMetadata(topic, Map.empty, ApiError.fromThrowable(e))
+          CreatePartitionsMetadata(topic, Set.empty, ApiError.fromThrowable(e))
       }
     }
 

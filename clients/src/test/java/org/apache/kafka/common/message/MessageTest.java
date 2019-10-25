@@ -850,6 +850,43 @@ public final class MessageTest {
         verifyWriteSucceeds((short) 6, createTopics);
     }
 
+    @Test
+    public void testAlterPartitionReassignmentWithObservers() throws Exception {
+        AlterPartitionReassignmentsRequestData.ReassignablePartition partition =
+            new AlterPartitionReassignmentsRequestData.ReassignablePartition()
+            .setPartitionIndex(0)
+            .setReplicas(Arrays.asList(1, 2, 3))
+            .setObservers(Arrays.asList(3));
+        AlterPartitionReassignmentsRequestData.ReassignableTopic topic =
+            new AlterPartitionReassignmentsRequestData.ReassignableTopic()
+            .setName("topic")
+            .setPartitions(Arrays.asList(partition));
+
+        AlterPartitionReassignmentsRequestData data =
+            new AlterPartitionReassignmentsRequestData()
+            .setTopics(Arrays.asList(topic));
+
+        testAllMessageRoundTrips(data);
+    }
+
+    @Test
+    public void testAlterPartitionReassignmentWithoutObservers() throws Exception {
+        AlterPartitionReassignmentsRequestData.ReassignablePartition partition =
+            new AlterPartitionReassignmentsRequestData.ReassignablePartition()
+            .setPartitionIndex(0)
+            .setReplicas(Arrays.asList(1, 2, 3));
+        AlterPartitionReassignmentsRequestData.ReassignableTopic topic =
+            new AlterPartitionReassignmentsRequestData.ReassignableTopic()
+            .setName("topic")
+            .setPartitions(Arrays.asList(partition));
+
+        AlterPartitionReassignmentsRequestData data =
+            new AlterPartitionReassignmentsRequestData()
+            .setTopics(Arrays.asList(topic));
+
+        testAllMessageRoundTrips(data);
+    }
+
     private void verifyWriteRaisesNpe(short version, Message message) throws Exception {
         ObjectSerializationCache cache = new ObjectSerializationCache();
         assertThrows(NullPointerException.class, () -> {

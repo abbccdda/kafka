@@ -27,6 +27,7 @@ import org.apache.log4j.{Level, Logger}
 import java.util.Properties
 import java.util.concurrent.ExecutionException
 
+import kafka.controller.PartitionReplicaAssignment
 import kafka.server.{KafkaConfig, KafkaServer}
 import kafka.utils.{CoreUtils, TestUtils}
 import kafka.utils.TestUtils._
@@ -292,7 +293,11 @@ class UncleanLeaderElectionTest extends ZooKeeperTestHarness {
     startBrokers(Seq(configProps1, configProps2))
 
     // create topic with 1 partition, 2 replicas, one on each broker
-    adminZkClient.createTopicWithAssignment(topic, config = new Properties(), Map(partitionId -> Seq(brokerId1, brokerId2)))
+    adminZkClient.createTopicWithAssignment(
+      topic,
+      config = new Properties(),
+      Map(partitionId -> PartitionReplicaAssignment.fromCreate(Seq(brokerId1, brokerId2), Seq.empty))
+    )
 
     // wait until leader is elected
     val leaderId = waitUntilLeaderIsElectedOrChanged(zkClient, topic, partitionId)

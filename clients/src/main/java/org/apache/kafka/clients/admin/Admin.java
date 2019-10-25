@@ -987,7 +987,7 @@ public interface Admin extends AutoCloseable {
      *   If there was an attempt to cancel a reassignment for a partition which was not being reassigned.</li>
      * </ul>
      *
-     * @param reassignments   The reassignments to add, modify, or remove.
+     * @param reassignments   The reassignments to add, modify, or remove. See {@code NewPartitionReassignment}.
      * @param options         The options to use.
      * @return                The result.
      */

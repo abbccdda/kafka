@@ -156,9 +156,9 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
     assertTrue(zkClient.getReplicasForPartition(new TopicPartition(topic1, 2)).isEmpty)
 
     val assignment = Map(
-      new TopicPartition(topic1, 0) -> Seq(0, 1),
-      new TopicPartition(topic1, 1) -> Seq(0, 1),
-      new TopicPartition(topic1, 2) -> Seq(1, 2, 3)
+      new TopicPartition(topic1, 0) -> PartitionReplicaAssignment.fromCreate(Seq(0, 1), Seq.empty),
+      new TopicPartition(topic1, 1) -> PartitionReplicaAssignment.fromCreate(Seq(0, 1), Seq.empty),
+      new TopicPartition(topic1, 2) -> PartitionReplicaAssignment.fromCreate(Seq(1, 2, 3), Seq.empty)
     )
 
     // create a topic assignment
@@ -166,26 +166,28 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
 
     assertTrue(zkClient.topicExists(topic1))
 
-    val expectedAssignment = assignment map { topicAssignment =>
-      val partition = topicAssignment._1.partition
-      val assignment = topicAssignment._2
-      partition -> PartitionReplicaAssignment(assignment, List(), List())
+    val expectedAssignment = assignment.map { case (key, value) =>
+      (key.partition, value)
     }
 
-    assertEquals(assignment.size, zkClient.getTopicPartitionCount(topic1).get)
+    assertEquals(expectedAssignment.size, zkClient.getTopicPartitionCount(topic1).get)
     assertEquals(expectedAssignment, zkClient.getPartitionAssignmentForTopics(Set(topic1)).get(topic1).get)
     assertEquals(Set(0, 1, 2), zkClient.getPartitionsForTopics(Set(topic1)).get(topic1).get.toSet)
     assertEquals(Set(1, 2, 3), zkClient.getReplicasForPartition(new TopicPartition(topic1, 2)).toSet)
 
     val updatedAssignment = assignment - new TopicPartition(topic1, 2)
 
-    zkClient.setTopicAssignment(topic1, None, updatedAssignment.mapValues { case v => PartitionReplicaAssignment(v, List(), List()) }.toMap)
+    zkClient.setTopicAssignment(
+      topic1,
+      None,
+      updatedAssignment
+    )
     assertEquals(updatedAssignment.size, zkClient.getTopicPartitionCount(topic1).get)
 
     // add second topic
     val secondAssignment = Map(
-      new TopicPartition(topic2, 0) -> Seq(0, 1),
-      new TopicPartition(topic2, 1) -> Seq(0, 1)
+      new TopicPartition(topic2, 0) -> PartitionReplicaAssignment.fromCreate(Seq(0, 1), Seq.empty),
+      new TopicPartition(topic2, 1) -> PartitionReplicaAssignment.fromCreate(Seq(0, 1), Seq.empty)
     )
 
     zkClient.createTopicAssignment(topic2, None, secondAssignment)
@@ -814,9 +816,13 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
   @Test
   def testTopicAssignments(): Unit = {
     assertEquals(0, zkClient.getPartitionAssignmentForTopics(Set(topicPartition.topic())).size)
-    zkClient.createTopicAssignment(topicPartition.topic, None, Map(topicPartition -> Seq()))
+    zkClient.createTopicAssignment(
+      topicPartition.topic,
+      None,
+      Map(topicPartition -> PartitionReplicaAssignment.fromCreate(Seq.empty, Seq.empty))
+    )
 
-    val expectedAssignment = PartitionReplicaAssignment(Seq(1,2,3), Seq(1), Seq(3))
+    val expectedAssignment = PartitionReplicaAssignment(Seq(1,2,3), Seq(1), Seq(3), Seq.empty, Some(Seq.empty))
     val response = zkClient.setTopicAssignmentRaw(topicPartition.topic, None,
       Map(topicPartition -> expectedAssignment), controllerEpochZkVersion)
     assertEquals(Code.OK, response.resultCode)

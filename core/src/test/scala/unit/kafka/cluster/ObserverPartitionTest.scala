@@ -58,7 +58,11 @@ final class ObserverPartitionTest {
     logConfig = LogConfig(
       createLogProperties(
         Map(
-          LogConfig.TopicPlacementConstraintsProp -> ConfluentObserverTest.basicTopicPlacement("replica", Some("observer"))
+          LogConfig.TopicPlacementConstraintsProp ->
+          ConfluentObserverTest.basicTopicPlacement(
+            ConfluentObserverTest.BasicConstraint(3, "replica"),
+            Some(ConfluentObserverTest.BasicConstraint(1, "observer"))
+          )
         )
       )
     )

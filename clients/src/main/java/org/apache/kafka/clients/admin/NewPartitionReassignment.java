@@ -26,9 +26,12 @@ import java.util.Optional;
 
 /**
  * A new partition reassignment, which can be applied via {@link AdminClient#alterPartitionReassignments(Map, AlterPartitionReassignmentsOptions)}.
+ *
+ * {@code targetReplicas} is the total set of brokers assigned while {@code targetObservers} is the set brokers that will act as observers. The size of {@code targetReplicas} must be greater than the size of {@code targetObservers} and every {@code targetObservers} must be included in {@code targetReplicas}.
  */
 public class NewPartitionReassignment {
     private final List<Integer> targetBrokers;
+    private final List<Integer> targetObservers;
 
     public static Optional<NewPartitionReassignment> of(Integer... brokers) {
         return Optional.of(new NewPartitionReassignment(Arrays.asList(brokers)));
@@ -36,9 +39,19 @@ public class NewPartitionReassignment {
 
     public NewPartitionReassignment(List<Integer> targetBrokers) {
         this.targetBrokers = Collections.unmodifiableList(new ArrayList<>(targetBrokers));
+        this.targetObservers = Collections.emptyList();
+    }
+
+    public NewPartitionReassignment(List<Integer> targetBrokers, List<Integer> targetObservers) {
+        this.targetBrokers = Collections.unmodifiableList(new ArrayList<>(targetBrokers));
+        this.targetObservers = Collections.unmodifiableList(new ArrayList<>(targetObservers));
     }
 
     public List<Integer> targetBrokers() {
         return targetBrokers;
+    }
+
+    public List<Integer> targetObservers() {
+        return targetObservers;
     }
 }

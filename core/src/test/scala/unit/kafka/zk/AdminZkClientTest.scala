@@ -60,52 +60,89 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
 
     // duplicate brokers
     intercept[InvalidReplicaAssignmentException] {
-      adminZkClient.createTopicWithAssignment("test", topicConfig, Map(0->Seq(0,0)))
+      adminZkClient.createTopicWithAssignment(
+        "test",
+        topicConfig,
+        Map(0 -> PartitionReplicaAssignment.fromCreate(Seq(0,0), Seq.empty))
+      )
     }
 
     // inconsistent replication factor
     intercept[InvalidReplicaAssignmentException] {
-      adminZkClient.createTopicWithAssignment("test", topicConfig, Map(0->Seq(0,1), 1->Seq(0)))
+      adminZkClient.createTopicWithAssignment(
+        "test",
+        topicConfig,
+        Map(
+          0 -> PartitionReplicaAssignment.fromCreate(Seq(0,1), Seq.empty),
+          1 -> PartitionReplicaAssignment.fromCreate(Seq(0), Seq.empty)
+        )
+      )
     }
 
     // partitions should be 0-based
     intercept[InvalidReplicaAssignmentException] {
-      adminZkClient.createTopicWithAssignment("test", topicConfig, Map(1->Seq(1,2), 2->Seq(1,2)))
+      adminZkClient.createTopicWithAssignment(
+        "test",
+        topicConfig,
+        Map(
+          1 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty),
+          2 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty)
+        )
+      )
     }
 
     // partitions should be 0-based and consecutive
     intercept[InvalidReplicaAssignmentException] {
-      adminZkClient.createTopicWithAssignment("test", topicConfig, Map(0->Seq(1,2), 0->Seq(1,2), 3->Seq(1,2)))
+      adminZkClient.createTopicWithAssignment(
+        "test",
+        topicConfig,
+        Map(
+          0 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty),
+          0 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty),
+          3 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty)
+        )
+      )
     }
 
     // partitions should be 0-based and consecutive
     intercept[InvalidReplicaAssignmentException] {
-      adminZkClient.createTopicWithAssignment("test", topicConfig, Map(-1->Seq(1,2), 1->Seq(1,2), 2->Seq(1,2), 4->Seq(1,2)))
+      adminZkClient.createTopicWithAssignment(
+        "test",
+        topicConfig,
+        Map(
+          -1 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty),
+          1 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty),
+          2 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty),
+          4 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty)
+        )
+      )
     }
 
     // good assignment
-    val assignment = Map(0 -> List(0, 1, 2),
-                         1 -> List(1, 2, 3))
+    val assignment = Map(
+      0 -> PartitionReplicaAssignment.fromCreate(Seq(0, 1, 2), Seq.empty),
+      1 -> PartitionReplicaAssignment.fromCreate(Seq(1, 2, 3), Seq.empty)
+    )
     adminZkClient.createTopicWithAssignment("test", topicConfig, assignment)
     val found = zkClient.getPartitionAssignmentForTopics(Set("test"))
-    assertEquals(assignment.mapValues(PartitionReplicaAssignment(_, List(), List())).toMap, found("test"))
+    assertEquals(assignment, found("test"))
   }
 
   @Test
   def testTopicCreationInZK(): Unit = {
     val expectedReplicaAssignment = Map(
-      0  -> List(0, 1, 2),
-      1  -> List(1, 2, 3),
-      2  -> List(2, 3, 4),
-      3  -> List(3, 4, 0),
-      4  -> List(4, 0, 1),
-      5  -> List(0, 2, 3),
-      6  -> List(1, 3, 4),
-      7  -> List(2, 4, 0),
-      8  -> List(3, 0, 1),
-      9  -> List(4, 1, 2),
-      10 -> List(1, 2, 3),
-      11 -> List(1, 3, 4)
+      0  -> PartitionReplicaAssignment.fromCreate(List(0, 1, 2), Seq.empty),
+      1  -> PartitionReplicaAssignment.fromCreate(List(1, 2, 3), Seq.empty),
+      2  -> PartitionReplicaAssignment.fromCreate(List(2, 3, 4), Seq.empty),
+      3  -> PartitionReplicaAssignment.fromCreate(List(3, 4, 0), Seq.empty),
+      4  -> PartitionReplicaAssignment.fromCreate(List(4, 0, 1), Seq.empty),
+      5  -> PartitionReplicaAssignment.fromCreate(List(0, 2, 3), Seq.empty),
+      6  -> PartitionReplicaAssignment.fromCreate(List(1, 3, 4), Seq.empty),
+      7  -> PartitionReplicaAssignment.fromCreate(List(2, 4, 0), Seq.empty),
+      8  -> PartitionReplicaAssignment.fromCreate(List(3, 0, 1), Seq.empty),
+      9  -> PartitionReplicaAssignment.fromCreate(List(4, 1, 2), Seq.empty),
+      10 -> PartitionReplicaAssignment.fromCreate(List(1, 2, 3), Seq.empty),
+      11 -> PartitionReplicaAssignment.fromCreate(List(1, 3, 4), Seq.empty)
     )
     val leaderForPartitionMap = immutable.Map(
       0 -> 0,
@@ -128,10 +165,11 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
     adminZkClient.createTopicWithAssignment(topic, topicConfig, expectedReplicaAssignment)
     // create leaders for all partitions
     TestUtils.makeLeaderForPartition(zkClient, topic, leaderForPartitionMap, 1)
-    val actualReplicaMap = leaderForPartitionMap.keys.map(p => p -> zkClient.getReplicasForPartition(new TopicPartition(topic, p))).toMap
+    val actualReplicaMap = zkClient.getPartitionAssignmentForTopics(Set(topic))(topic)
     assertEquals(expectedReplicaAssignment.size, actualReplicaMap.size)
-    for(i <- 0 until actualReplicaMap.size)
-      assertEquals(expectedReplicaAssignment.get(i).get, actualReplicaMap(i))
+    for((key, value) <- actualReplicaMap) {
+      assertEquals(expectedReplicaAssignment(key), value)
+    }
 
     intercept[TopicExistsException] {
       // shouldn't be able to create a topic that already exists

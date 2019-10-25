@@ -55,7 +55,11 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
                   rackAwareMode: RackAwareMode = RackAwareMode.Enforced,
                   createTopicId: Boolean = false): Unit = {
     val brokerMetadatas = getBrokerMetadatas(rackAwareMode)
-    val replicaAssignment = AdminUtils.assignReplicasToBrokers(brokerMetadatas, partitions, replicationFactor)
+    val replicaAssignment = AdminUtils
+      .assignReplicasToBrokers(brokerMetadatas, partitions, replicationFactor)
+      .map { case (partition, replicas) =>
+        (partition, PartitionReplicaAssignment.fromCreate(replicas, Seq.empty))
+      }
     createTopicWithAssignment(topic, topicConfig, replicaAssignment, createTopicId)
   }
 
@@ -85,7 +89,7 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
 
   def createTopicWithAssignment(topic: String,
                                 config: Properties,
-                                partitionReplicaAssignment: Map[Int, Seq[Int]],
+                                partitionReplicaAssignment: Map[Int, PartitionReplicaAssignment],
                                 createTopicId: Boolean = false): Unit = {
     validateTopicCreate(topic, partitionReplicaAssignment, config)
 
@@ -96,15 +100,19 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     zkClient.setOrCreateEntityConfigs(ConfigType.Topic, topic, config)
 
     // create the partition assignment
-    writeTopicPartitionAssignment(topic, partitionReplicaAssignment.mapValues(PartitionReplicaAssignment(_, List(), List())).toMap,
-      isUpdate = false, createTopicId = createTopicId)
+    writeTopicPartitionAssignment(
+      topic, partitionReplicaAssignment, isUpdate = false, createTopicId = createTopicId
+    )
   }
 
   /**
    * Validate topic creation parameters
+   *
+   * For observers, the observer assignment needs to be a subset of the
+   * replica assignment.
    */
   def validateTopicCreate(topic: String,
-                          partitionReplicaAssignment: Map[Int, Seq[Int]],
+                          partitionReplicaAssignment: Map[Int, PartitionReplicaAssignment],
                           config: Properties): Unit = {
     Topic.validate(topic)
 
@@ -122,13 +130,26 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
       }
     }
 
-    if (partitionReplicaAssignment.values.map(_.size).toSet.size != 1)
+    if (partitionReplicaAssignment.values.map(_.replicas.size).toSet.size != 1)
       throw new InvalidReplicaAssignmentException("All partitions should have the same number of replicas")
 
-    partitionReplicaAssignment.values.foreach(reps =>
-      if (reps.size != reps.toSet.size)
-        throw new InvalidReplicaAssignmentException("Duplicate replica assignment found: " + partitionReplicaAssignment)
-    )
+    if (partitionReplicaAssignment.values.map(_.observers.size).toSet.size != 1)
+      throw new InvalidReplicaAssignmentException("All partitions should have the same number of observers")
+
+    partitionReplicaAssignment.values.foreach { assignment =>
+      if (assignment.replicas.size != assignment.replicas.toSet.size) {
+        throw new InvalidReplicaAssignmentException(
+          s"Duplicate replica assignment found: $partitionReplicaAssignment"
+        )
+      }
+
+      if (assignment.observers.size != assignment.observers.toSet.size) {
+        throw new InvalidReplicaAssignmentException(
+          s"Duplicate observers assignment found: $partitionReplicaAssignment"
+        )
+      }
+    }
+
 
     val partitionSize = partitionReplicaAssignment.size
     val sequenceSum = partitionSize * (partitionSize - 1) / 2
@@ -150,7 +171,7 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
         else
           None
 
-        zkClient.createTopicAssignment(topic, topicIdOpt, assignment.mapValues(_.replicas).toMap)
+        zkClient.createTopicAssignment(topic, topicIdOpt, assignment)
       } else {
         val topicIds = zkClient.getTopicIdsForTopics(Set(topic))
         zkClient.setTopicAssignment(topic, topicIds.get(topic), assignment)
@@ -195,8 +216,8 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
                     existingAssignment: Map[Int, PartitionReplicaAssignment],
                     allBrokers: Seq[BrokerMetadata],
                     numPartitions: Int = 1,
-                    replicaAssignment: Option[Map[Int, Seq[Int]]] = None,
-                    validateOnly: Boolean = false): Map[Int, Seq[Int]] = {
+                    replicaAssignment: Option[Map[Int, PartitionReplicaAssignment]] = None,
+                    validateOnly: Boolean = false): Map[Int, PartitionReplicaAssignment] = {
     val existingAssignmentPartition0 = existingAssignment.getOrElse(0,
       throw new AdminOperationException(
         s"Unexpected existing replica assignment for topic '$topic', partition id 0 is missing. " +
@@ -216,43 +237,47 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
 
     val proposedAssignmentForNewPartitions = replicaAssignment.getOrElse {
       val startIndex = math.max(0, allBrokers.indexWhere(_.id >= existingAssignmentPartition0.head))
-      AdminUtils.assignReplicasToBrokers(allBrokers, partitionsToAdd, existingAssignmentPartition0.size,
+      val partitionAssignments = AdminUtils.assignReplicasToBrokers(
+        allBrokers, partitionsToAdd, existingAssignmentPartition0.size,
         startIndex, existingAssignment.size)
+
+      partitionAssignments.map { case (key, replicas) =>
+        key -> PartitionReplicaAssignment.fromCreate(replicas, Seq.empty)
+      }
     }
 
-    val proposedAssignment = existingAssignment ++ proposedAssignmentForNewPartitions.map { case (tp, replicas) =>
-      tp -> PartitionReplicaAssignment(replicas, List(), List())
-    }
+    val proposedAssignment = existingAssignment ++ proposedAssignmentForNewPartitions
     if (!validateOnly) {
       info(s"Creating $partitionsToAdd partitions for '$topic' with the following replica assignment: " +
         s"$proposedAssignmentForNewPartitions.")
 
       writeTopicPartitionAssignment(topic, proposedAssignment, isUpdate = true)
     }
-    proposedAssignment.mapValues(_.replicas).toMap
+
+    proposedAssignment
   }
 
-  private def validateReplicaAssignment(replicaAssignment: Map[Int, Seq[Int]],
+  private def validateReplicaAssignment(replicaAssignment: Map[Int, PartitionReplicaAssignment],
                                         expectedReplicationFactor: Int,
                                         availableBrokerIds: Set[Int]): Unit = {
-
-    replicaAssignment.foreach { case (partitionId, replicas) =>
-      if (replicas.isEmpty)
+    replicaAssignment.foreach { case (partitionId, assignment) =>
+      if (assignment.replicas.isEmpty)
         throw new InvalidReplicaAssignmentException(
           s"Cannot have replication factor of 0 for partition id $partitionId.")
-      if (replicas.size != replicas.toSet.size)
+      if (assignment.replicas.size != assignment.replicas.toSet.size)
         throw new InvalidReplicaAssignmentException(
           s"Duplicate brokers not allowed in replica assignment: " +
-            s"${replicas.mkString(", ")} for partition id $partitionId.")
-      if (!replicas.toSet.subsetOf(availableBrokerIds))
+            s"${assignment.replicas.mkString(", ")} for partition id $partitionId.")
+      if (!assignment.replicas.toSet.subsetOf(availableBrokerIds))
         throw new BrokerNotAvailableException(
           s"Some brokers specified for partition id $partitionId are not available. " +
-            s"Specified brokers: ${replicas.mkString(", ")}, " +
+            s"Specified brokers: ${assignment.replicas.mkString(", ")}, " +
             s"available brokers: ${availableBrokerIds.mkString(", ")}.")
-      partitionId -> replicas.size
     }
+
     val badRepFactors = replicaAssignment.collect {
-      case (partition, replicas) if replicas.size != expectedReplicationFactor => partition -> replicas.size
+      case (partition, assignment) if assignment.replicas.size != expectedReplicationFactor =>
+        partition -> assignment.replicas.size
     }
     if (badRepFactors.nonEmpty) {
       val sortedBadRepFactors = badRepFactors.toSeq.sortBy { case (partitionId, _) => partitionId }

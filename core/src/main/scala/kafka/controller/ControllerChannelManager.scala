@@ -394,6 +394,7 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
         .setReplicas(replicaAssignment.replicas.map(Integer.valueOf).asJava)
         .setAddingReplicas(replicaAssignment.addingReplicas.map(Integer.valueOf).asJava)
         .setRemovingReplicas(replicaAssignment.removingReplicas.map(Integer.valueOf).asJava)
+        .setObservers(replicaAssignment.effectiveObservers.map(Integer.valueOf).asJava)
         .setIsNew(isNew || alreadyNew))
     }
 
@@ -416,7 +417,8 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
     def updateMetadataRequestPartitionInfo(partition: TopicPartition, beingDeleted: Boolean): Unit = {
       controllerContext.partitionLeadershipInfo.get(partition) match {
         case Some(LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)) =>
-          val replicas = controllerContext.partitionReplicaAssignment(partition)
+          val replicaAssignment = controllerContext.partitionFullReplicaAssignment(partition)
+          val replicas = replicaAssignment.replicas
           val offlineReplicas = replicas.filter(!controllerContext.isReplicaOnline(_, partition))
           val updatedLeaderAndIsr =
             if (beingDeleted) LeaderAndIsr.duringDelete(leaderAndIsr.isr)
@@ -432,6 +434,7 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
             .setZkVersion(updatedLeaderAndIsr.zkVersion)
             .setReplicas(replicas.map(Integer.valueOf).asJava)
             .setOfflineReplicas(offlineReplicas.map(Integer.valueOf).asJava)
+            .setObservers(replicaAssignment.effectiveObservers.map(Integer.valueOf).asJava)
           updateMetadataRequestPartitionInfoMap.put(partition, partitionStateInfo)
 
         case None =>

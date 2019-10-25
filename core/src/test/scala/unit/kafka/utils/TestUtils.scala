@@ -33,6 +33,7 @@ import javax.net.ssl.X509TrustManager
 
 import kafka.api._
 import kafka.cluster.{Broker, EndPoint}
+import kafka.controller.PartitionReplicaAssignment
 import kafka.log._
 import kafka.security.auth.{Acl, Authorizer, Resource}
 import kafka.server._
@@ -379,7 +380,10 @@ object TestUtils extends Logging {
     waitUntilTrue( () => {
       var hasSessionExpirationException = false
       try {
-        adminZkClient.createTopicWithAssignment(topic, topicConfig, partitionReplicaAssignment)
+        val assignments = partitionReplicaAssignment.map { case (key, value) =>
+          key -> PartitionReplicaAssignment.fromCreate(value, Seq.empty)
+        }
+        adminZkClient.createTopicWithAssignment(topic, topicConfig, assignments)
       } catch {
         case _: SessionExpiredException => hasSessionExpirationException = true
         case e: Throwable => throw e // let other exceptions propagate
@@ -1540,6 +1544,22 @@ object TestUtils extends Logging {
           .toSet
 
         brokerIds.subsetOf(isr)
+      },
+      s"Expected brokers $brokerIds to be in the replicas for $partition"
+    )
+  }
+
+  def waitForReplicasAssigned(client: Admin, partition: TopicPartition, brokerIds: Seq[Int]): Unit = {
+    TestUtils.waitUntilTrue(
+      () => {
+        val description = client.describeTopics(Set(partition.topic).asJava).all.get.asScala
+        val replicas = description
+          .values
+          .flatMap(_.partitions.asScala.flatMap(_.replicas.asScala))
+          .map(_.id)
+          .toSeq
+
+        brokerIds == replicas
       },
       s"Expected brokers $brokerIds to be in the ISR for $partition"
     )

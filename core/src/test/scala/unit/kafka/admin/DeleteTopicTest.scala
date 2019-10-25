@@ -39,7 +39,9 @@ class DeleteTopicTest extends ZooKeeperTestHarness {
   var servers: Seq[KafkaServer] = Seq()
 
   val expectedReplicaAssignment = Map(0 -> List(0, 1, 2))
-  val expectedReplicaFullAssignment = expectedReplicaAssignment.mapValues(PartitionReplicaAssignment(_, List(), List())).toMap
+  val expectedReplicaFullAssignment = expectedReplicaAssignment.mapValues(
+    PartitionReplicaAssignment.fromCreate(_, Seq.empty)
+  ).toMap
 
   @After
   override def tearDown(): Unit = {
@@ -247,8 +249,15 @@ class DeleteTopicTest extends ZooKeeperTestHarness {
     TestUtils.waitUntilTrue(() => zkClient.getBroker(follower.config.brokerId).isEmpty,
       s"Follower ${follower.config.brokerId} was not removed from ZK")
     // add partitions to topic
-    adminZkClient.addPartitions(topic, expectedReplicaFullAssignment, brokers, 2,
-      Some(Map(1 -> Seq(0, 1, 2), 2 -> Seq(0, 1, 2))))
+    adminZkClient.addPartitions(
+      topic, expectedReplicaFullAssignment, brokers, 2,
+      Some(
+        Map(
+          1 -> PartitionReplicaAssignment.fromCreate(Seq(0, 1, 2), Seq.empty),
+          2 -> PartitionReplicaAssignment.fromCreate(Seq(0, 1, 2), Seq.empty)
+        )
+      )
+    )
     // start topic deletion
     adminZkClient.deleteTopic(topic)
     follower.startup()
@@ -270,8 +279,15 @@ class DeleteTopicTest extends ZooKeeperTestHarness {
     adminZkClient.deleteTopic(topic)
     // add partitions to topic
     val newPartition = new TopicPartition(topic, 1)
-    adminZkClient.addPartitions(topic, expectedReplicaFullAssignment, brokers, 2,
-      Some(Map(1 -> Seq(0, 1, 2), 2 -> Seq(0, 1, 2))))
+    adminZkClient.addPartitions(
+      topic, expectedReplicaFullAssignment, brokers, 2,
+      Some(
+        Map(
+          1 -> PartitionReplicaAssignment.fromCreate(Seq(0, 1, 2), Seq.empty),
+          2 -> PartitionReplicaAssignment.fromCreate(Seq(0, 1, 2), Seq.empty)
+        )
+      )
+    )
     TestUtils.verifyTopicDeletion(zkClient, topic, 1, servers)
     // verify that new partition doesn't exist on any broker either
     assertTrue("Replica logs not deleted after delete topic is complete",

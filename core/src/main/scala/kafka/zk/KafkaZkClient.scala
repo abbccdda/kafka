@@ -542,9 +542,8 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
    */
   def createTopicAssignment(topic: String,
                             topicId: Option[UUID],
-                            assignment: Map[TopicPartition, Seq[Int]]) = {
-    val persistedAssignments = assignment.mapValues(PartitionReplicaAssignment(_, List(), List())).toMap
-    createRecursive(TopicZNode.path(topic), TopicZNode.encode(topicId, persistedAssignments))
+                            assignment: Map[TopicPartition, PartitionReplicaAssignment]) = {
+    createRecursive(TopicZNode.path(topic), TopicZNode.encode(topicId, assignment))
   }
 
   /**
