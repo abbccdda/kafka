@@ -155,7 +155,7 @@ class ObserversTest(ProduceConsumeValidateTest):
         Test if brokers on rack-c are observers and observers are not part of isr
         """
         observers = self.get_node_indexes(self.rack_c_nodes)
-        wait_until(lambda: self.get_field_from_describe_topic("live_observers") == observers, 30, 1)
+        wait_until(lambda: self.get_field_from_describe_topic("observers") == observers, 30, 1)
 
         self.check_observers_not_in_isr(isr_set)
 

@@ -563,13 +563,13 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
     def parse_describe_topic(self, topic_description):
         """Parse output of kafka-topics.sh --describe (or describe_topic() method above), which is a string of form
         PartitionCount:2\tReplicationFactor:2\tConfigs:
-        \tTopic: test_topic\tPartition: 0\tLeader: 3\tReplicas: 3,1\tIsr: 3,1\tOffline: 4,5\tLiveObservers: 5,6
-        \tTopic: test_topic\tPartition: 1\tLeader: 1\tReplicas: 1,2\tIsr: 1,2\tOffline: 4,5\tLiveObservers: 7,6
+        \tTopic: test_topic\tPartition: 0\tLeader: 3\tReplicas: 3,1\tIsr: 3,1\tOffline: 4,5\tObservers: 5,6
+        \tTopic: test_topic\tPartition: 1\tLeader: 1\tReplicas: 1,2\tIsr: 1,2\tOffline: 4,5\tObservers: 7,6
         into a dictionary structure appropriate for use with reassign-partitions tool:
         {
             "partitions": [
-                {"topic": "test_topic", "partition": 0, "replicas": [3, 1], "isr": [3, 1], "offline": [4, 5], "live_observers": [5, 6]},
-                {"topic": "test_topic", "partition": 1, "replicas": [1, 2], "isr": [1, 2], "offline": [4, 5], "live_observers": [7, 6]}
+                {"topic": "test_topic", "partition": 0, "replicas": [3, 1], "isr": [3, 1], "offline": [4, 5], "observers": [5, 6]},
+                {"topic": "test_topic", "partition": 1, "replicas": [1, 2], "isr": [1, 2], "offline": [4, 5], "observers": [7, 6]}
             ]
         }
         """
@@ -589,7 +589,7 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
                  "replicas": map(int, fields[3].split(',')),
                  "isr": map(int, fields[4].split(',')),
                  "offline": map(int, fields[5].split(',')) if len(fields) > 5 and len(fields[5].strip()) > 0 else "",
-                 "live_observers": map(int, fields[6].split(',')) if len(fields) > 6 and len(fields[6].strip()) > 0 else ""
+                 "observers": map(int, fields[6].split(',')) if len(fields) > 6 and len(fields[6].strip()) > 0 else ""
                  })
         return {"partitions": partitions}
 
