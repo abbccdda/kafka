@@ -2546,6 +2546,7 @@ class KafkaApis(val requestChannel: RequestChannel,
                     .setAddingReplicas(assignment.addingReplicas.toList.asJava.asInstanceOf[java.util.List[java.lang.Integer]])
                     .setRemovingReplicas(assignment.removingReplicas.toList.asJava.asInstanceOf[java.util.List[java.lang.Integer]])
                     .setReplicas(assignment.replicas.toList.asJava.asInstanceOf[java.util.List[java.lang.Integer]])
+                    .setObservers(assignment.observers.toList.asJava.asInstanceOf[java.util.List[java.lang.Integer]])
               }.toList
 
               new ListPartitionReassignmentsResponseData.OngoingTopicReassignment().setName(topic)

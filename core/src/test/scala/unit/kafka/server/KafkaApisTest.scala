@@ -24,7 +24,7 @@ import java.util.{Collections, Optional}
 import java.util.Arrays.asList
 
 import kafka.api.{ApiVersion, KAFKA_0_10_2_IV0, KAFKA_2_2_IV1}
-import kafka.controller.KafkaController
+import kafka.controller.{KafkaController, PartitionReplicaAssignment}
 import kafka.coordinator.group.GroupCoordinator
 import kafka.coordinator.transaction.TransactionCoordinator
 import kafka.network.RequestChannel
@@ -45,11 +45,13 @@ import org.apache.kafka.common.requests.{FetchMetadata => JFetchMetadata, _}
 import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
 import org.easymock.{Capture, EasyMock, IAnswer}
 import EasyMock._
-import org.apache.kafka.common.message.{HeartbeatRequestData, JoinGroupRequestData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteRequestData, SyncGroupRequestData, TxnOffsetCommitRequestData}
+import org.apache.kafka.common.message.{HeartbeatRequestData, JoinGroupRequestData, ListPartitionReassignmentsRequestData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteRequestData, SyncGroupRequestData, TxnOffsetCommitRequestData}
 import org.apache.kafka.common.message.JoinGroupRequestData.JoinGroupRequestProtocol
 import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
 import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.message.LeaveGroupRequestData.MemberIdentity
+import org.apache.kafka.common.message.ListPartitionReassignmentsRequestData.ListPartitionReassignmentsTopics
+import org.apache.kafka.common.message.ListPartitionReassignmentsResponseData.OngoingPartitionReassignment
 import org.apache.kafka.common.message.OffsetDeleteRequestData.{OffsetDeleteRequestPartition, OffsetDeleteRequestTopic, OffsetDeleteRequestTopicCollection}
 import org.apache.kafka.common.message.UpdateMetadataRequestData.{UpdateMetadataBroker, UpdateMetadataEndpoint, UpdateMetadataPartitionState}
 import org.apache.kafka.common.replica.ClientMetadata
@@ -866,6 +868,69 @@ class KafkaApisTest {
       enableSaslPlaintext = true,
       interBrokerSecurityProtocol = Some(SecurityProtocol.SASL_PLAINTEXT))
     testApiVersionsRequest(kafkaApis, isInterBrokerListener = false)
+  }
+
+  @Test
+  def testListReassignmentShouldIncludeObservers(): Unit = {
+    def sendRequestAndReceiveResponse(requestBuilder: ListPartitionReassignmentsRequest.Builder,
+                                      expectedReassignments: Map[TopicPartition, PartitionReplicaAssignment]): ListPartitionReassignmentsResponse = {
+      val kafkaApis = createKafkaApis()
+      val (listReassignmentRequest, request) = buildRequest(requestBuilder)
+
+      val capturedResponse = expectNoThrottling()
+      EasyMock.expect(clientQuotaManager.maybeRecordAndGetThrottleTimeMs(
+        anyObject[RequestChannel.Request](), anyDouble, anyLong)).andReturn(0)
+
+      val callbackCapture = EasyMock.newCapture[KafkaController.ListReassignmentsCallback]
+      EasyMock.expect(controller.listPartitionReassignments(EasyMock.eq(Some(expectedReassignments.keySet)), EasyMock.capture(callbackCapture)))
+        .andAnswer(new IAnswer[Unit] {
+          override def answer(): Unit = {
+            callbackCapture.getValue.apply(Left(expectedReassignments))
+          }
+        })
+
+      EasyMock.replay(controller, replicaManager, clientQuotaManager, clientRequestQuotaManager, requestChannel, fetchManager)
+      kafkaApis.handle(request)
+
+      readResponse(ApiKeys.LIST_PARTITION_REASSIGNMENTS, listReassignmentRequest, capturedResponse)
+        .asInstanceOf[ListPartitionReassignmentsResponse]
+    }
+
+    val fooPartition = new TopicPartition("foo", 0)
+    val barPartition = new TopicPartition("bar", 1)
+    val expectedReassignments = Map(
+      fooPartition -> new PartitionReplicaAssignment(Seq(1, 2, 3, 4), Seq(3, 4), Seq(), Seq(3, 4), None),
+      barPartition -> new PartitionReplicaAssignment(Seq(1, 2, 3, 4), Seq(), Seq(), Seq(4), None)
+    )
+
+    val data = new ListPartitionReassignmentsRequestData().setTopics(List(
+        new ListPartitionReassignmentsTopics().setName("foo").setPartitionIndexes(List(Int.box(0)).asJava),
+        new ListPartitionReassignmentsTopics().setName("bar").setPartitionIndexes(List(Int.box(1)).asJava)
+    ).asJava)
+    val listReassignmentResponse = sendRequestAndReceiveResponse(
+      new ListPartitionReassignmentsRequest.Builder(data),
+      expectedReassignments
+    )
+
+    assertEquals(2, listReassignmentResponse.data.topics.size)
+    val topicReassignments = listReassignmentResponse.data.topics.asScala
+
+    def assertReassignment(expected: PartitionReplicaAssignment, value: OngoingPartitionReassignment): Unit = {
+      assertEquals(expected.replicas, value.replicas.asScala)
+      assertEquals(expected.addingReplicas, value.addingReplicas.asScala)
+      assertEquals(expected.removingReplicas, value.removingReplicas.asScala)
+      assertEquals(expected.observers, value.observers.asScala)
+    }
+
+    val fooReassignment = topicReassignments.head
+    assertEquals("foo", fooReassignment.name)
+    assertEquals(1, fooReassignment.partitions.size)
+    assertReassignment(expectedReassignments(fooPartition), fooReassignment.partitions.asScala.head)
+
+    val barReassignment = topicReassignments(1)
+    assertEquals("bar", barReassignment.name)
+    assertEquals(1, barReassignment.partitions.size)
+    assertReassignment(expectedReassignments(barPartition), barReassignment.partitions.asScala.head)
   }
 
   /**

@@ -579,6 +579,42 @@ public final class MessageTest {
         }
     }
 
+    @Test
+    public void testListReassignmentResultWithObservers() throws Exception {
+        ListPartitionReassignmentsResponseData.OngoingPartitionReassignment reassignmentWithObservers =
+                new ListPartitionReassignmentsResponseData.OngoingPartitionReassignment()
+                .setPartitionIndex(0)
+                .setReplicas(Arrays.asList(1, 2, 3, 4, 5, 6))
+                .setObservers(Arrays.asList(4, 5, 6));
+
+        ListPartitionReassignmentsResponseData responseWithObservers = new ListPartitionReassignmentsResponseData()
+                .setErrorCode(Errors.NONE.code())
+                .setTopics(Collections.singletonList(
+                        new ListPartitionReassignmentsResponseData.OngoingTopicReassignment()
+                                .setName("topic")
+                                .setPartitions(Collections.singletonList(reassignmentWithObservers))));
+
+        testAllMessageRoundTrips(responseWithObservers);
+    }
+
+    @Test
+    public void testListReassignmentResultWithoutObservers() throws Exception {
+        ListPartitionReassignmentsResponseData.OngoingPartitionReassignment reassignmentWithoutObservers =
+                new ListPartitionReassignmentsResponseData.OngoingPartitionReassignment()
+                        .setPartitionIndex(0)
+                        .setReplicas(Arrays.asList(1, 2, 3, 4, 5, 6));
+        assertEquals(Collections.emptyList(), reassignmentWithoutObservers.observers());
+
+        ListPartitionReassignmentsResponseData responseWithoutObservers = new ListPartitionReassignmentsResponseData()
+                .setErrorCode(Errors.NONE.code())
+                .setTopics(Collections.singletonList(
+                        new ListPartitionReassignmentsResponseData.OngoingTopicReassignment()
+                                .setName("topic")
+                                .setPartitions(Collections.singletonList(reassignmentWithoutObservers))));
+
+        testAllMessageRoundTrips(responseWithoutObservers);
+    }
+
     private void testAllMessageRoundTrips(Message message) throws Exception {
         testAllMessageRoundTripsFromVersion(message.lowestSupportedVersion(), message);
     }

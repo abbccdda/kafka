@@ -5,7 +5,6 @@ package kafka.cluster
 
 import java.util.{Map => JMap}
 
-import kafka.admin
 import kafka.admin.{AdminUtils, BrokerMetadata}
 import kafka.common.TopicPlacement
 import kafka.common.TopicPlacement.ConstraintCount

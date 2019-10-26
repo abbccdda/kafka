@@ -2190,6 +2190,39 @@ public class KafkaAdminClientTest {
     }
 
     @Test
+    public void testListPartitionReassignmentsWithObservers() throws Exception {
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+
+            TopicPartition tp0 = new TopicPartition("A", 0);
+            OngoingPartitionReassignment tp1PartitionReassignment = new OngoingPartitionReassignment()
+                    .setPartitionIndex(0)
+                    .setReplicas(Arrays.asList(1, 2, 3, 4, 5, 6))
+                    .setAddingReplicas(Arrays.asList(4, 5, 6))
+                    .setObservers(Arrays.asList(2, 4));
+            OngoingTopicReassignment tp1Reassignment = new OngoingTopicReassignment().setName("A")
+                    .setPartitions(Collections.singletonList(tp1PartitionReassignment));
+
+            TopicPartition tp1 = new TopicPartition("B", 0);
+            OngoingPartitionReassignment tp2PartitionReassignment = new OngoingPartitionReassignment()
+                    .setPartitionIndex(0)
+                    .setReplicas(Arrays.asList(1, 2, 3, 4, 5, 6))
+                    .setAddingReplicas(Arrays.asList(4, 5, 6));
+            OngoingTopicReassignment tp2Reassignment = new OngoingTopicReassignment().setName("B")
+                    .setPartitions(Collections.singletonList(tp2PartitionReassignment));
+
+            ListPartitionReassignmentsResponseData responseData = new ListPartitionReassignmentsResponseData()
+                    .setTopics(Arrays.asList(tp1Reassignment, tp2Reassignment));
+            env.kafkaClient().prepareResponse(new ListPartitionReassignmentsResponse(responseData));
+            ListPartitionReassignmentsResult responseResult = env.adminClient().listPartitionReassignments();
+
+            Map<TopicPartition, PartitionReassignment> result = responseResult.reassignments().get();
+            assertEquals(Arrays.asList(2, 4), result.get(tp0).observers());
+            assertEquals(Collections.emptyList(), result.get(tp1).observers());
+        }
+    }
+
+    @Test
     public void testListPartitionReassignments() throws Exception {
         try (AdminClientUnitTestEnv env = mockClientEnv()) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());

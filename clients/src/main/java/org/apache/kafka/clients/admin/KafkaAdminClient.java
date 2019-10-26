@@ -3438,7 +3438,11 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
                     for (OngoingPartitionReassignment partitionReassignment : topicReassignment.partitions()) {
                         reassignmentMap.put(
                             new TopicPartition(topicName, partitionReassignment.partitionIndex()),
-                            new PartitionReassignment(partitionReassignment.replicas(), partitionReassignment.addingReplicas(), partitionReassignment.removingReplicas())
+                            new PartitionReassignment(
+                                    partitionReassignment.replicas(),
+                                    partitionReassignment.observers(),
+                                    partitionReassignment.addingReplicas(),
+                                    partitionReassignment.removingReplicas())
                         );
                     }
                 }

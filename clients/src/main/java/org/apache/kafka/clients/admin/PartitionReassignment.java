@@ -26,11 +26,23 @@ import java.util.List;
 public class PartitionReassignment {
 
     private final List<Integer> replicas;
+    private final List<Integer> observers;
     private final List<Integer> addingReplicas;
     private final List<Integer> removingReplicas;
 
+    public PartitionReassignment(List<Integer> replicas,
+                                 List<Integer> observers,
+                                 List<Integer> addingReplicas,
+                                 List<Integer> removingReplicas) {
+        this.replicas = Collections.unmodifiableList(replicas);
+        this.observers = Collections.unmodifiableList(observers);
+        this.addingReplicas = Collections.unmodifiableList(addingReplicas);
+        this.removingReplicas = Collections.unmodifiableList(removingReplicas);
+    }
+
     public PartitionReassignment(List<Integer> replicas, List<Integer> addingReplicas, List<Integer> removingReplicas) {
         this.replicas = Collections.unmodifiableList(replicas);
+        this.observers = Collections.emptyList();
         this.addingReplicas = Collections.unmodifiableList(addingReplicas);
         this.removingReplicas = Collections.unmodifiableList(removingReplicas);
     }
@@ -40,6 +52,13 @@ public class PartitionReassignment {
      */
     public List<Integer> replicas() {
         return replicas;
+    }
+
+    /**
+     * Get the replica observers which are asynchronously replicated. These are a subset of {@link #replicas()}.
+     */
+    public List<Integer> observers() {
+        return observers;
     }
 
     /**
@@ -62,6 +81,7 @@ public class PartitionReassignment {
     public String toString() {
         return "PartitionReassignment(" +
                 "replicas=" + replicas +
+                ", observers=" + observers +
                 ", addingReplicas=" + addingReplicas +
                 ", removingReplicas=" + removingReplicas +
                 ')';
