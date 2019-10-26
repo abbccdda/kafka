@@ -28,7 +28,7 @@ Once again, this is identical to *Experiments 1-2*, but we're running with a dif
     * The consumer eventually catches up and becomes a live consumer.
   * Throttled Lag Consumer
     * One consumer with `auto.offset.reset` set to `earliest` is started 1 hour after the produce workload starts.
-    * This consumer also has `task_messages_per_second` set so it does not catch up to the live consumers.
+    * This consumer also has `step_messages_per_second` set so it does not catch up to the live consumers.
     * This consumer remains lagged behind for the remainder of the test.
 
 ### Experiment 4
@@ -39,7 +39,7 @@ This is identical to *Experiment 3*, but we're running with a different ratio an
     * All consumers are reading messages as fast as the producer can send them.
   * Throttled Lag Consumer
     * One consumer with `auto.offset.reset` set to `earliest` is started 1 hour after the produce workload starts.
-    * This consumer also has `task_messages_per_second` set so it does not catch up to the live consumers.
+    * This consumer also has `step_messages_per_second` set so it does not catch up to the live consumers.
     * This consumer remains lagged behind for the remainder of the test.
 
 ---

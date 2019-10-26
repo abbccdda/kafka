@@ -90,7 +90,7 @@
                 "slow_start_per_step_ms": 5000,
                 "tasks_per_step": 9,
                 "consumer_group": "test4",
-                "task_messages_per_second": 54700
+                "step_messages_per_second": 54700
             }
         }
     ]
