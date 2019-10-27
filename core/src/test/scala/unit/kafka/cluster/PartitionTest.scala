@@ -1728,6 +1728,259 @@ class PartitionTest {
     verify(tierReplicaManager, times(1)).becomeFollower(tierPartitionState)
   }
 
+  @Test
+  def testShouldRemoveObserversFromIsr(): Unit = {
+    val partition = createPartitionWithObserverFeature()
+    val zkVersion = 23934
+    val controllerEpoch = 137
+    val leaderEpoch = 245
+    val syncReplicaId1 = brokerId
+    val syncReplicaId2 = brokerId + 1
+    val observerId1 = brokerId + 2
+    val observerId2 = brokerId + 3
+
+    val leaderAndIsrUpdate = new LeaderAndIsrPartitionState()
+      .setLeader(syncReplicaId1)
+      .setLeaderEpoch(leaderEpoch)
+      .setReplicas(List[Integer](syncReplicaId1, syncReplicaId2, observerId1, observerId2).asJava)
+      .setControllerEpoch(controllerEpoch)
+      .setObservers(List[Integer](observerId1, observerId2).asJava)
+      .setTopicName(topicPartition.topic)
+      .setIsr(List[Integer](syncReplicaId1, syncReplicaId2, observerId1).asJava)
+      .setZkVersion(zkVersion)
+      .setPartitionIndex(0)
+
+    assertTrue(partition.makeLeader(controllerId = 1,
+      partitionState = leaderAndIsrUpdate,
+      correlationId = 2334,
+      highWatermarkCheckpoints = offsetCheckpoints))
+
+    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(syncReplicaId1, syncReplicaId2, observerId1), partition.inSyncReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertFalse(partition.isUnderReplicated)
+
+    when(stateStore.shrinkIsr(controllerEpoch, LeaderAndIsr(brokerId, leaderEpoch,
+      List(syncReplicaId1, syncReplicaId2), zkVersion)))
+      .thenReturn(Some(zkVersion + 1))
+
+    partition.maybeShrinkIsr(Long.MaxValue)
+
+    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(syncReplicaId1, syncReplicaId2), partition.inSyncReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertFalse(partition.isUnderReplicated)
+  }
+
+  @Test
+  def testShouldNotRemoveObserverFromIsrIfThatCausesUnderMinIsr(): Unit = {
+    val logConfig = LogConfig(createLogProperties(Map(LogConfig.MinInSyncReplicasProp -> "2")))
+    logManager.getOrCreateLog(topicPartition, logConfig)
+
+    val partition = createPartitionWithObserverFeature()
+    val zkVersion = 23934
+    val controllerEpoch = 137
+    val leaderEpoch = 245
+    val syncReplicaId1 = brokerId
+    val syncReplicaId2 = brokerId + 1
+    val observerId1 = brokerId + 2
+    val observerId2 = brokerId + 3
+
+    val leaderAndIsrUpdate = new LeaderAndIsrPartitionState()
+      .setLeader(syncReplicaId1)
+      .setLeaderEpoch(leaderEpoch)
+      .setReplicas(List[Integer](syncReplicaId1, syncReplicaId2, observerId1, observerId2).asJava)
+      .setControllerEpoch(controllerEpoch)
+      .setObservers(List[Integer](observerId1, observerId2).asJava)
+      .setTopicName(topicPartition.topic)
+      .setIsr(List[Integer](syncReplicaId1, observerId1).asJava)
+      .setZkVersion(zkVersion)
+      .setPartitionIndex(0)
+
+    assertTrue(partition.makeLeader(controllerId = 1,
+      partitionState = leaderAndIsrUpdate,
+      correlationId = 2334,
+      highWatermarkCheckpoints = offsetCheckpoints))
+
+    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(syncReplicaId1, observerId1), partition.inSyncReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertFalse(partition.isUnderReplicated)
+
+    partition.maybeShrinkIsr(Long.MaxValue)
+
+    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(syncReplicaId1, observerId1), partition.inSyncReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertFalse(partition.isUnderReplicated)
+  }
+
+  @Test
+  def testShouldAddAllReplicasToIsrWhenLeaderIsAnObserver(): Unit = {
+    val partition = createPartitionWithObserverFeature()
+    val zkVersion = 23934
+    val controllerEpoch = 137
+    val leaderEpoch = 245
+    val observerId1 = brokerId
+    val observerId2 = brokerId + 1
+    val syncReplicaId1 = brokerId + 2
+    val syncReplicaId2 = brokerId + 3
+
+    val leaderAndIsrUpdate = new LeaderAndIsrPartitionState()
+      .setLeader(observerId1)
+      .setLeaderEpoch(leaderEpoch)
+      .setReplicas(List[Integer](syncReplicaId1, syncReplicaId2, observerId1, observerId2).asJava)
+      .setControllerEpoch(controllerEpoch)
+      .setObservers(List[Integer](observerId1, observerId2).asJava)
+      .setTopicName(topicPartition.topic)
+      .setIsr(List[Integer](observerId1).asJava)
+      .setZkVersion(zkVersion)
+      .setPartitionIndex(0)
+
+    assertTrue(partition.makeLeader(controllerId = 1,
+      partitionState = leaderAndIsrUpdate,
+      correlationId = 2334,
+      highWatermarkCheckpoints = offsetCheckpoints))
+
+    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(observerId1), partition.inSyncReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertTrue(partition.isUnderReplicated)
+
+    var expectedIsr = Seq(observerId1)
+    var expectedZkVersion = zkVersion
+
+    for (replicaId <- Seq(observerId2, syncReplicaId1, syncReplicaId2)) {
+      expectedIsr ++= Seq(replicaId)
+      expectedZkVersion += 1
+
+      when(stateStore.expandIsr(controllerEpoch,
+        LeaderAndIsr(brokerId, leaderEpoch, expectedIsr.toList, expectedZkVersion - 1)))
+        .thenReturn(Some(expectedZkVersion))
+
+      partition.updateFollowerFetchState(replicaId,
+        LogOffsetMetadata(0L),
+        followerStartOffset = 0L,
+        followerFetchTimeMs = time.milliseconds(),
+        leaderEndOffset = 0L)
+
+      assertEquals(Set(observerId1, observerId2), partition.observerIds)
+      assertEquals(expectedIsr.toSet, partition.inSyncReplicaIds)
+      assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+      assertEquals(partition.inSyncReplicaIds.size < 2, partition.isUnderReplicated)
+      assertEquals(partition.inSyncReplicaIds.size < 4, partition.isNotCaughtUp)
+    }
+
+    assertEquals(false, partition.isUnderReplicated)
+    assertEquals(false, partition.isNotCaughtUp)
+  }
+
+  @Test
+  def testShouldNotAddObserversToIsrWhenLeaderIsNotAnObserver(): Unit = {
+    val partition = createPartitionWithObserverFeature()
+    val zkVersion = 23934
+    val controllerEpoch = 137
+    val leaderEpoch = 245
+    val syncReplicaId1 = brokerId
+    val syncReplicaId2 = brokerId + 1
+    val observerId1 = brokerId + 2
+    val observerId2 = brokerId + 3
+
+    val leaderAndIsrUpdate = new LeaderAndIsrPartitionState()
+      .setLeader(syncReplicaId1)
+      .setLeaderEpoch(leaderEpoch)
+      .setReplicas(List[Integer](syncReplicaId1, syncReplicaId2, observerId1, observerId2).asJava)
+      .setControllerEpoch(controllerEpoch)
+      .setObservers(List[Integer](observerId1, observerId2).asJava)
+      .setTopicName(topicPartition.topic)
+      .setIsr(List[Integer](syncReplicaId1, syncReplicaId2).asJava)
+      .setZkVersion(zkVersion)
+      .setPartitionIndex(0)
+
+    assertTrue(partition.makeLeader(controllerId = 1,
+      partitionState = leaderAndIsrUpdate,
+      correlationId = 2334,
+      highWatermarkCheckpoints = offsetCheckpoints))
+
+    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(syncReplicaId1, syncReplicaId2), partition.inSyncReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertFalse(partition.isUnderReplicated)
+
+    partition.updateFollowerFetchState(observerId2,
+      LogOffsetMetadata(0L),
+      followerStartOffset = 0L,
+      followerFetchTimeMs = time.milliseconds(),
+      leaderEndOffset = 0L)
+
+    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(syncReplicaId1, syncReplicaId2), partition.inSyncReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertFalse(partition.isUnderReplicated)
+  }
+
+  @Test
+  def testShouldAddSyncReplicaToIsrWhenLeaderIsNotAnObserver(): Unit = {
+    val partition = createPartitionWithObserverFeature()
+    val zkVersion = 23934
+    val controllerEpoch = 137
+    val leaderEpoch = 245
+    val syncReplicaId1 = brokerId
+    val syncReplicaId2 = brokerId + 1
+    val observerId1 = brokerId + 2
+    val observerId2 = brokerId + 3
+
+    val leaderAndIsrUpdate = new LeaderAndIsrPartitionState()
+      .setLeader(syncReplicaId1)
+      .setLeaderEpoch(leaderEpoch)
+      .setReplicas(List[Integer](syncReplicaId1, syncReplicaId2, observerId1, observerId2).asJava)
+      .setControllerEpoch(controllerEpoch)
+      .setObservers(List[Integer](observerId1, observerId2).asJava)
+      .setTopicName(topicPartition.topic)
+      .setIsr(List[Integer](syncReplicaId1).asJava)
+      .setZkVersion(zkVersion)
+      .setPartitionIndex(0)
+
+    assertTrue(partition.makeLeader(controllerId = 1,
+      partitionState = leaderAndIsrUpdate,
+      correlationId = 2334,
+      highWatermarkCheckpoints = offsetCheckpoints))
+
+    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(syncReplicaId1), partition.inSyncReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertTrue(partition.isUnderReplicated)
+
+    when(stateStore.expandIsr(controllerEpoch,
+      LeaderAndIsr(brokerId, leaderEpoch, List(syncReplicaId1, syncReplicaId2), zkVersion)))
+      .thenReturn(Some(zkVersion + 1))
+
+    partition.updateFollowerFetchState(syncReplicaId2,
+      LogOffsetMetadata(0L),
+      followerStartOffset = 0L,
+      followerFetchTimeMs = time.milliseconds(),
+      leaderEndOffset = 0L)
+
+    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(syncReplicaId1, syncReplicaId2), partition.inSyncReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertFalse(partition.isUnderReplicated)
+  }
+
+  private def createPartitionWithObserverFeature(): Partition = {
+    new Partition(topicPartition,
+      replicaLagTimeMaxMs = Defaults.ReplicaLagTimeMaxMs,
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      localBrokerId = brokerId,
+      observerFeature = true,
+      time,
+      stateStore,
+      delayedOperations,
+      metadataCache,
+      logManager,
+      None)
+  }
+
   private def seedLogData(log: AbstractLog, numRecords: Int, leaderEpoch: Int): Unit = {
     for (i <- 0 until numRecords) {
       val records = MemoryRecords.withRecords(0L, CompressionType.NONE, leaderEpoch,

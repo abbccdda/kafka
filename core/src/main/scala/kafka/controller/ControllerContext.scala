@@ -79,6 +79,8 @@ object PartitionReplicaAssignment {
 
   case class Assignment(replicas: Seq[Int], observers: Seq[Int]) {
     def syncReplicas: Seq[Int] = replicas.diff(observers)
+
+    override def toString: String = s"Assignment(replicas=$replicas, observers=$observers)"
   }
 
   object Assignment {
@@ -143,12 +145,13 @@ case class PartitionReplicaAssignment(
   }
 
   /**
-   * Given that the replicas are order first by sync replicas then by observers replicas this returns all of the
-   * replicas after the first observer. See `fromOriginalAndTarget` for a detail description as to how replicas get
-   * generated.
+   * The effective observers is what the controller passes through LeaderAndIsr and UpdateMetadata.
+   * While a reassignment is in progress, only target observers count because that implies the previous
+   * observers are either being turned into sync replicas or are being removed.
    */
   def effectiveObservers: Seq[Int] = {
-    replicas.dropWhile(id => !observers.contains(id))
+    val activeObservers = targetObservers.getOrElse(observers)
+    replicas.dropWhile(id => !activeObservers.contains(id))
   }
 
   def removeReplica(replica: Int): PartitionReplicaAssignment = {

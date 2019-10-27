@@ -631,8 +631,8 @@ class KafkaController(val config: KafkaConfig,
     val expectedInSyncReplicas = partitionAssignment.expectedInSyncReplicas
 
     if (!areReplicasInIsr(topicPartition, expectedInSyncReplicas)) {
-      info(s"Target replicas ${expectedInSyncReplicas.mkString(",")} for partition $topicPartition being reassigned not yet " +
-        "caught up with the leader")
+      info(s"Target replicas ${expectedInSyncReplicas.mkString(",")} for partition $topicPartition " +
+        s"being reassigned are not all caught up with the leader")
 
       // A1. Update ZK with RS = ORS + TRS, AR = TRS - ORS and RR = ORS - TRS.
       updateReplicaAssignmentForPartition(topicPartition, partitionAssignment)
@@ -767,7 +767,7 @@ class KafkaController(val config: KafkaConfig,
 
         if (assignedReplicas != PartitionReplicaAssignment.Assignment.empty) {
           try {
-            info(s"Handling reassignment of partition $tp from current replicas $assignedReplicas" +
+            info(s"Handling reassignment of partition $tp from current replicas $assignedReplicas " +
               s"to new replicas ${reassignedPartitionContext.targetAssignment}")
             // first register ISR change listener
             reassignedPartitionContext.registerReassignIsrChangeHandler(zkClient)
@@ -1694,8 +1694,7 @@ class KafkaController(val config: KafkaConfig,
           } else {
             assignedReplicas
           }
-
-          controllerContext.updatePartitionFullReplicaAssignment(topicPartition, assignedReplicas)
+          controllerContext.updatePartitionFullReplicaAssignment(topicPartition, assignment)
         }
         onNewPartitionCreation(partitionsToBeAdded.keySet)
       }

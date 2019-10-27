@@ -229,7 +229,8 @@ class IsrExpirationTest {
     partition.setLog(localLog, isFutureLog = false)
 
     partition.updateAssignmentAndIsr(
-      assignment = configs.map(_.brokerId),
+      replicas = configs.map(_.brokerId),
+      observers = Set.empty,
       isr = configs.map(_.brokerId).toSet
     )
 

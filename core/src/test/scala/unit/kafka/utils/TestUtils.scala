@@ -1510,6 +1510,16 @@ object TestUtils extends Logging {
     ).map(_.id)
   }
 
+  def waitForLeaderToBecomeOneOf(client: Admin, topicPartition: TopicPartition, candidates: Set[Int]): Int = {
+    assertTrue("Non-empty set of candidate leaders must be provided", candidates.nonEmpty)
+    var leader: Option[Int] = None
+    TestUtils.waitUntilTrue(() => {
+      leader = currentLeader(client, topicPartition)
+      leader.exists(candidates.contains)
+    }, s"Expected leader to become $leader", 10000)
+    leader.get
+  }
+
   def waitForLeaderToBecome(client: Admin, topicPartition: TopicPartition, leader: Option[Int]): Unit = {
     TestUtils.waitUntilTrue(
       () => currentLeader(client, topicPartition) == leader,

@@ -21,7 +21,6 @@ import java.util
 import java.util.{Collections, Properties}
 
 import joptsimple._
-import kafka.cluster.{Broker, Observer}
 import kafka.common.{AdminCommandFailedException, TopicPlacement}
 import kafka.controller.PartitionReplicaAssignment
 import kafka.log.LogConfig
@@ -121,43 +120,17 @@ object TopicCommand extends Logging {
                                   config: Option[JConfig],
                                   markedForDeletion: Boolean,
                                   liveBrokerIds: Set[Int]) {
-    private val placement = config.flatMap { cfg =>
-      Option(cfg.get(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG))
-        .flatMap(entry => Option(entry.value))
-        .map(TopicPlacement.parse)
-    }
-
     private val allReplicaIds = info.replicas.asScala.map(_.id)
     private val offlineReplicaIds = allReplicaIds.toSet -- liveBrokerIds
-    private val isrEligibleBrokerIds = placement.map(computeIsrEligibleBrokerIds).getOrElse(allReplicaIds.toSet)
 
-    val observerIds = info.observers.asScala.map(_.id)
-
-    private def computeIsrEligibleBrokerIds(placement: TopicPlacement): Set[Int] = {
-      def brokerIfLive(id: Int): Option[Broker] = {
-        if (liveBrokerIds.contains(id)) {
-          info.replicas.asScala.find(_.id == id).map { node =>
-            Broker(id, Seq(), Option(node.rack))
-          }
-        } else {
-          None
-        }
-      }
-
-      val leaderId = Option(info.leader).map(_.id).getOrElse(-1)
-      Observer.brokerIdsIsrEligible(placement, allReplicaIds, brokerIfLive, leaderId)
-    }
-
-    private def currentIsr: Set[Int] = {
-      info.isr.asScala.map(_.id).toSet
-    }
+    val observerIds: Seq[Int] = info.observers.asScala.map(_.id)
 
     private def minIsrCount: Option[Int] = {
       config.map(_.get(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG).value.toInt)
     }
 
     def hasUnderReplicatedPartitions: Boolean = {
-      info.isr.size < isrEligibleBrokerIds.size + offlineReplicaIds.size
+      !hasLeader || info.isr.size < allReplicaIds.size - observerIds.size
     }
 
     private def hasLeader: Boolean = {

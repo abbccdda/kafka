@@ -194,6 +194,7 @@ class Partition(val topicPartition: TopicPartition,
   @volatile var inSyncReplicaIds = Set.empty[Int]
   // An ordered sequence of all the valid broker ids that were assigned to this topic partition
   @volatile var allReplicaIds = Seq.empty[Int]
+  @volatile var observerIds = Set.empty[Int]
 
   // Logs belonging to this partition. Majority of time it will be only one log, but if log directory
   // is getting changed (as a result of ReplicaAlterLogDirs command), we may have two logs until copy
@@ -286,7 +287,7 @@ class Partition(val topicPartition: TopicPartition,
   )
 
   def isUnderReplicated: Boolean =
-    isLeader && inSyncReplicaIds.size < sizeOfOfflineOrIsrEligibleReplicas
+    isLeader && inSyncReplicaIds.size < (allReplicaIds.size - observerIds.size)
 
   def isNotCaughtUp: Boolean =
     isLeader && caughtUpReplicaCount < allReplicaIds.size
@@ -502,6 +503,7 @@ class Partition(val topicPartition: TopicPartition,
     inWriteLock(leaderIsrUpdateLock) {
       remoteReplicasMap.clear()
       allReplicaIds = Seq.empty
+      observerIds = Set.empty
       log = None
       futureLog = None
       inSyncReplicaIds = Set.empty
@@ -531,7 +533,8 @@ class Partition(val topicPartition: TopicPartition,
       controllerEpoch = partitionState.controllerEpoch
 
       updateAssignmentAndIsr(
-        assignment = partitionState.replicas.asScala.iterator.map(_.toInt).toSeq,
+        replicas = partitionState.replicas.asScala.iterator.map(_.toInt).toSeq,
+        observers = partitionState.observers.asScala.iterator.map(_.toInt).toSet,
         isr = partitionState.isr.asScala.iterator.map(_.toInt).toSet
       )
       createLogIfNotExists(localBrokerId, partitionState.isNew, isFutureReplica = false, highWatermarkCheckpoints)
@@ -606,7 +609,8 @@ class Partition(val topicPartition: TopicPartition,
       controllerEpoch = partitionState.controllerEpoch
 
       updateAssignmentAndIsr(
-        assignment = partitionState.replicas.asScala.iterator.map(_.toInt).toSeq,
+        replicas = partitionState.replicas.asScala.iterator.map(_.toInt).toSeq,
+        observers = partitionState.observers.asScala.iterator.map(_.toInt).toSet,
         isr = Set.empty[Int]
       )
       createLogIfNotExists(localBrokerId, partitionState.isNew, isFutureReplica = false, highWatermarkCheckpoints)
@@ -688,20 +692,23 @@ class Partition(val topicPartition: TopicPartition,
    *
    * Note: public visibility for tests.
    *
-   * @param assignment An ordered sequence of all the broker ids that were assigned to this
+   * @param replicas An ordered sequence of all the broker ids that were assigned to this
    *                   topic partition
+   * @param observers A sequence of broker ids that have been designated as observers.
+   *                  Note that in a degraded state, the leader may be one of the observers.
    * @param isr The set of broker ids that are known to be insync with the leader
    */
-  def updateAssignmentAndIsr(assignment: Seq[Int], isr: Set[Int]): Unit = {
-    val replicaSet = assignment.toSet
+  def updateAssignmentAndIsr(replicas: Seq[Int], observers: Set[Int], isr: Set[Int]): Unit = {
+    val replicaSet = replicas.toSet
     val removedReplicas = remoteReplicasMap.keys -- replicaSet
 
-    assignment
+    replicas
       .filter(_ != localBrokerId)
       .foreach(id => remoteReplicasMap.getAndMaybePut(id, new Replica(id, topicPartition)))
     removedReplicas.foreach(remoteReplicasMap.remove)
-    allReplicaIds = assignment
 
+    allReplicaIds = replicas
+    observerIds = observers
     inSyncReplicaIds = isr
   }
 
@@ -744,33 +751,11 @@ class Partition(val topicPartition: TopicPartition,
   }
 
   private[this] def isBrokerIsrEligible(brokerId: Int): Boolean = {
+    // A broker should join the ISR if it is not an observer or if we are operating
+    // in a degraded state and the leader is an observer
     !observerFeature ||
-    leaderLogIfLocal.map { leaderLog =>
-      Observer.isBrokerIsrEligible(
-        leaderLog.config.topicPlacementConstraints,
-        allReplicaIds,
-        metadataCache.getAliveBroker,
-        localBrokerId,  // This should be the leader since leaderLogIfLocal is Some.
-        brokerId
-      )
-    }.getOrElse(false)
-  }
-
-  private[this] def sizeOfOfflineOrIsrEligibleReplicas: Int = {
-    if (observerFeature) {
-      leaderLogIfLocal.iterator.flatMap { leaderLog =>
-        metadataCache.getAliveBroker(localBrokerId).iterator.flatMap { leader =>
-          Observer.brokerIdsOfflineOrIsrEligible(
-            leaderLog.config.topicPlacementConstraints,
-            allReplicaIds,
-            metadataCache.getAliveBroker(_),
-            leader.id
-          )
-        }
-      }.size
-    } else {
-      allReplicaIds.size
-    }
+      observerIds.contains(localBrokerId) ||
+      !observerIds.contains(brokerId)
   }
 
   // public for jmh benchmarking
@@ -958,10 +943,17 @@ class Partition(val topicPartition: TopicPartition,
                                   currentTimeMs: Long,
                                   maxLagMs: Long): Boolean = {
     val followerReplica = getReplicaOrException(replicaId)
-    val outOfSync = followerReplica.logEndOffset != leaderEndOffset &&
+    val followerNotCaughtUp = followerReplica.logEndOffset != leaderEndOffset &&
       (currentTimeMs - followerReplica.lastCaughtUpTimeMs) > maxLagMs
 
-    !isBrokerIsrEligible(replicaId) || outOfSync
+    if (isBrokerIsrEligible(replicaId)) {
+      followerNotCaughtUp
+    } else {
+      // Do not kick observers from the ISR if doing so would cause us to go under min ISR
+      leaderLogIfLocal.exists { log =>
+        followerNotCaughtUp || inSyncReplicaIds.size > log.config.minInSyncReplicas
+      }
+    }
   }
 
   def getOutOfSyncReplicas(maxLagMs: Long): Set[Int] = {

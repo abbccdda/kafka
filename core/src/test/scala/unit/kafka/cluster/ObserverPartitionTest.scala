@@ -36,7 +36,6 @@ import org.mockito.Mockito.when
 
 import scala.collection.JavaConverters._
 
-
 final class ObserverPartitionTest {
   import ObserverPartitionTest._
 
@@ -60,7 +59,7 @@ final class ObserverPartitionTest {
         Map(
           LogConfig.TopicPlacementConstraintsProp ->
           ConfluentObserverTest.basicTopicPlacement(
-            ConfluentObserverTest.BasicConstraint(3, "replica"),
+            ConfluentObserverTest.BasicConstraint(2, "replica"),
             Some(ConfluentObserverTest.BasicConstraint(1, "observer"))
           )
         )
@@ -136,6 +135,7 @@ final class ObserverPartitionTest {
           .setIsr(isr)
           .setZkVersion(1)
           .setReplicas(replicas)
+          .setObservers(List(observerId: Integer).asJava)
           .setIsNew(true),
         0,
         offsetCheckpoints
@@ -155,7 +155,7 @@ final class ObserverPartitionTest {
     )
 
     // We are using a leaderEndOffset of 5 to trick the leader that the follower is caught up to the leader.
-    // This is techinically not needed because the leader assumes the follower is caugh up if it is included in
+    // This is technically not needed because the leader assumes the follower is caught up if it is included in
     // the ISR which this the case for the follower.
     assertTrue(
       "Leader didn't recognize replica",

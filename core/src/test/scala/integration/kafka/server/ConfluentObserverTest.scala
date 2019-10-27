@@ -6,21 +6,20 @@ package kafka.server
 import java.util.Optional
 import java.util.Properties
 import java.util.Arrays
+
 import kafka.log.LogConfig
 import kafka.utils.TestUtils
 import kafka.zk.ZooKeeperTestHarness
-import org.apache.kafka.clients.admin.AdminClientConfig
-import org.apache.kafka.clients.admin.NewPartitionReassignment
-import org.apache.kafka.clients.admin.NewTopic
-import org.apache.kafka.clients.admin.{AdminClient => JAdminClient}
+import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, NewPartitionReassignment, NewTopic, AdminClient => JAdminClient}
 import org.apache.kafka.common.ElectionType
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.TopicPartitionInfo;
+import org.apache.kafka.common.TopicPartitionInfo
 import org.apache.kafka.common.network.ListenerName
 import org.junit.After
-import org.junit.Assert._
 import org.junit.Before
 import org.junit.Test
+
+import scala.compat.java8.OptionConverters._
 import scala.collection.JavaConverters._
 
 final class ConfluentObserverTest extends ZooKeeperTestHarness {
@@ -31,6 +30,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
   val broker2 = 1
   val broker3 = 2
   val broker4 = 3
+  val broker5 = 4
 
   @Before
   override def setUp(): Unit = {
@@ -40,9 +40,10 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       broker1 -> "a",
       broker2 -> "a",
       broker3 -> "b",
-      broker4 -> "c"
+      broker4 -> "b",
+      broker5 -> "c"
     )
-    val brokerConfigs = TestUtils.createBrokerConfigs(4, zkConnect, false)
+    val brokerConfigs = TestUtils.createBrokerConfigs(5, zkConnect, false)
     servers = brokerConfigs.map { config =>
       config.setProperty(KafkaConfig.RackProp, rack(config.getProperty(KafkaConfig.BrokerIdProp).toInt))
       config.setProperty(KafkaConfig.AutoLeaderRebalanceEnableProp, "false")
@@ -61,7 +62,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
   }
 
   @Test
-  def testLeaderInReplicaConstraints(): Unit = {
+  def testObserversShouldNotJoinIsr(): Unit = {
     // When leader is in the "replicas" constraints...
     // 1. test that brokers in the "observers" constraints shouldn't be in the ISR.
     // 2. test that brokers in the "replicas" constraints should be in the ISR.
@@ -69,138 +70,101 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
     TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
       val topic = "observer-topic"
       val partition = 0
-      val assignment = Seq(broker1, broker2, broker3, broker4)
 
-      val topicConfig = new Properties()
-      topicConfig.setProperty(
-        LogConfig.TopicPlacementConstraintsProp,
-        basicTopicPlacement(BasicConstraint(3, "a"), Some(BasicConstraint(1, "b")))
-      )
-
-      TestUtils.createTopic(zkClient, topic, Map(partition -> assignment), servers, topicConfig)
+      val newTopic = new NewTopic(topic, Optional.of(1: Integer), Optional.empty[java.lang.Short])
+      newTopic.configs(Map(LogConfig.TopicPlacementConstraintsProp -> basicTopicPlacement(
+        replicaConstraint = BasicConstraint(2, "a"),
+        observerConstraint = Some(BasicConstraint(2, "b"))
+      )).asJava)
+      client.createTopics(Seq(newTopic).asJava).all().get()
 
       val topicPartition = new TopicPartition(topic, partition)
-
-      TestUtils.waitForLeaderToBecome(client, topicPartition, Option(broker1))
-      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2, broker4))
-      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3))
+      TestUtils.waitForLeaderToBecomeOneOf(client, topicPartition, Set(broker1, broker2))
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3, broker4))
     }
   }
 
   @Test
-  def testLeaderNotInReplicaConstraints(): Unit = {
-    // When leader is in the "replicas" constraints...
-    // 1. test that brokers in the "observers" constraints shouldn't be in the ISR.
-    // 2. test that brokers in the "replicas" constraints should be in the ISR.
-    // 3. test that brokers not in the "observers" constraints should be in the ISR.
-    TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
-      val topic = "observer-topic"
-      val partition = 0
-      val assignment = Seq(broker1, broker2, broker3, broker4)
-
-      val topicConfig = new Properties()
-      topicConfig.setProperty(
-        LogConfig.TopicPlacementConstraintsProp,
-        basicTopicPlacement(BasicConstraint(3, "b"), Some(BasicConstraint(1, "c")))
-      )
-
-      TestUtils.createTopic(zkClient, topic, Map(partition -> assignment), servers, topicConfig)
-
-      val topicPartition = new TopicPartition(topic, partition)
-
-      TestUtils.waitForLeaderToBecome(client, topicPartition, Option(broker1))
-      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2, broker3))
-      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker4))
-    }
-  }
-
-  @Test
-  def testLeaderInObserversConstraints(): Unit = {
+  def testObserverElection(): Unit = {
     // Case: All of the replicas are in the ISR when the leader matches "observer" constraints
     TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
       val topic = "observer-topic"
       val partition = 0
-      val assignment = Seq(broker1, broker2, broker3, broker4)
 
-      val topicConfig = new Properties()
-      topicConfig.setProperty(
-        LogConfig.TopicPlacementConstraintsProp,
-        basicTopicPlacement(BasicConstraint(3, "b"), Some(BasicConstraint(1, "c")))
-      )
-
-      TestUtils.createTopic(zkClient, topic, Map(partition -> assignment), servers, topicConfig)
+      val newTopic = new NewTopic(topic, Optional.of(1: Integer), Optional.empty[java.lang.Short])
+      newTopic.configs(Map(LogConfig.TopicPlacementConstraintsProp -> basicTopicPlacement(
+        replicaConstraint = BasicConstraint(2, "a"),
+        observerConstraint = Some(BasicConstraint(2, "b"))
+      )).asJava)
+      client.createTopics(Seq(newTopic).asJava).all().get()
 
       val topicPartition = new TopicPartition(topic, partition)
 
-      TestUtils.waitForLeaderToBecome(client, topicPartition, Option(broker1))
-      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2, broker3))
-      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker4))
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3, broker4))
 
-      val rollingServers = Seq(broker1, broker2, broker3)
+      // Shutdown all of the sync replicas and force one of the observers to be elected
+      val rollingServers = Seq(broker1, broker2)
       rollingServers.foreach { broker =>
         servers(broker).shutdown()
       }
 
-      val electResult = client.electLeaders(ElectionType.UNCLEAN, Set(topicPartition).asJava)
-      assertFalse(electResult.partitions.get.get(topicPartition).isPresent)
-      TestUtils.waitForLeaderToBecome(client, topicPartition, Option(broker4))
+      electLeader(client, topicPartition, ElectionType.UNCLEAN)
+      TestUtils.waitForLeaderToBecomeOneOf(client, topicPartition, Set(broker3, broker4))
 
       rollingServers.foreach { broker =>
         servers(broker).startup()
       }
 
-      TestUtils.waitForLeaderToBecome(client, topicPartition, Option(broker4))
       TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2, broker3, broker4))
+
+      // Preferred leader election should move leadership back to the sync replicas and
+      // the observers should be removed from the ISR
+      electLeader(client, topicPartition, ElectionType.PREFERRED)
+
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3, broker4))
     }
   }
 
   @Test
-  def testPreferredBrokerInIsr(): Unit = {
-    // Case: preferred replica/broker should always be in the ISR.
+  def testReassignObserverMatchingConstraint(): Unit = {
     TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
       val topic = "observer-topic"
       val partition = 0
-      val assignment = Seq(broker1, broker2, broker3, broker4)
 
-      val topicConfig = new Properties()
-      topicConfig.setProperty(
-        LogConfig.TopicPlacementConstraintsProp,
-        basicTopicPlacement(BasicConstraint(3, "b"), Some(BasicConstraint(1, "a")))
+      val newTopic = new NewTopic(topic, Optional.of(1: Integer), Optional.empty[java.lang.Short])
+      newTopic.configs(
+        Map(LogConfig.TopicPlacementConstraintsProp -> basicTopicPlacement(BasicConstraint(2, "a"), Some(BasicConstraint(1, "b")))).asJava
       )
+      client.createTopics(Seq(newTopic).asJava).all().get()
 
-      TestUtils.createTopic(zkClient, topic, Map(partition -> assignment), servers, topicConfig)
       val topicPartition = new TopicPartition(topic, partition)
 
-      TestUtils.waitForLeaderToBecome(client, topicPartition, Option(broker1))
-      // All replicas part in the ISR because leader is an Observer
-      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2, broker3, broker4))
+      // All sync replicas are in the ISR
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
+      // All observer replicas are not in the ISR
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3))
 
-      val rollingServers = Seq(broker1, broker2, broker3)
-      rollingServers.foreach { broker =>
-        servers(broker).shutdown()
-      }
+      // Reassign the observer to a different broker matching the existing observer constraint
+      client.alterPartitionReassignments(
+        Map(topicPartition -> Optional.of(reassignmentEntry(Seq(broker1, broker2, broker4), Seq(broker4)))).asJava
+      ).all().get()
 
-      TestUtils.waitForLeaderToBecome(client, topicPartition, Option(broker4))
+      waitForAllReassignmentsToComplete(client)
 
-      rollingServers.foreach { broker =>
-        servers(broker).startup()
-      }
-
-      TestUtils.waitForBrokersInIsr(
-        client,
-        topicPartition,
-        Set(
-          broker1, // Preferred replica
-          broker3, // Replica constraint
-          broker4  // Partition leader
-        )
-      )
-      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker2)) // Observer
+      // Metadata info is eventually consistent wait for update
+      TestUtils.waitForReplicasAssigned(client, topicPartition, Seq(broker1, broker2, broker4))
+      // All sync replicas are in the ISR
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
+      // All observer replicas are not in the ISR
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker4))
     }
   }
 
   @Test
-  def testChangeObserverAssigned(): Unit = {
+  def testReassignWithChangedObserverConstraint(): Unit = {
     TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
       val topic = "observer-topic"
       val partition = 0
@@ -219,6 +183,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3))
 
       {
+        // Change the observer constraint from rack "b" to rack "c"
         val observerCConfig = new Properties()
         observerCConfig.setProperty(
           LogConfig.TopicPlacementConstraintsProp,
@@ -228,27 +193,28 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       }
 
       client.alterPartitionReassignments(
-        Map(topicPartition -> Optional.of(reassignmentEntry(Seq(broker1, broker2, broker4), Seq(broker4)))).asJava
+        Map(topicPartition -> Optional.of(reassignmentEntry(Seq(broker1, broker2, broker5), Seq(broker5)))).asJava
       ).all().get()
 
       waitForAllReassignmentsToComplete(client)
 
       // Metadata info is eventually consistent wait for update
-      TestUtils.waitForReplicasAssigned(client, topicPartition, Seq(broker1, broker2, broker4))
+      TestUtils.waitForReplicasAssigned(client, topicPartition, Seq(broker1, broker2, broker5))
       // All sync replicas are in the ISR
       TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
       // All observer replicas are not in the ISR
-      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker4))
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker5))
     }
   }
 
   @Test
-  def testChangeSyncToObserver(): Unit = {
+  def testReassignSyncReplicaToObserver(): Unit = {
     TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
       val topic = "observer-topic"
       val partition = 0
       val assignment = Seq(broker1, broker2, broker3)
 
+      // Create the topic with no initial constraint specified
       TestUtils.createTopic(zkClient, topic, Map(partition -> assignment), servers, new Properties())
       val topicPartition = new TopicPartition(topic, partition)
 
@@ -257,6 +223,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2, broker3))
 
       {
+        // Add an observer constraint
         val observerBConfig = new Properties()
         observerBConfig.setProperty(
           LogConfig.TopicPlacementConstraintsProp, basicTopicPlacement(BasicConstraint(2, "a"), Some(BasicConstraint(1, "b")))
@@ -280,7 +247,50 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
   }
 
   @Test
-  def testChangeObserverToSync(): Unit = {
+  def testReassignWithSwappedSyncAndObserverConstraints(): Unit = {
+    TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
+      val topic = "observer-topic"
+      val partition = 0
+
+      val newTopic = new NewTopic(topic, Optional.of(1: Integer), Optional.empty[java.lang.Short])
+      newTopic.configs(
+        Map(LogConfig.TopicPlacementConstraintsProp -> basicTopicPlacement(BasicConstraint(2, "a"), Some(BasicConstraint(2, "b")))).asJava
+      )
+      client.createTopics(Seq(newTopic).asJava).all().get()
+
+      val topicPartition = new TopicPartition(topic, partition)
+
+      // All sync replicas are in the ISR
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
+      // All observer replicas are not in the ISR
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3, broker4))
+
+      {
+        // Add a constraint which swaps the sync replicas and observers
+        val observerBConfig = new Properties()
+        observerBConfig.setProperty(
+          LogConfig.TopicPlacementConstraintsProp, basicTopicPlacement(BasicConstraint(2, "b"), Some(BasicConstraint(2, "a")))
+        )
+        TestUtils.alterTopicConfigs(client, topic, observerBConfig)
+      }
+
+      client.alterPartitionReassignments(
+        Map(topicPartition -> Optional.of(reassignmentEntry(Seq(broker3, broker4, broker1, broker2), Seq(broker1, broker2)))).asJava
+      ).all().get()
+
+      waitForAllReassignmentsToComplete(client)
+
+      // Metadata info is eventually consistent wait for update
+      TestUtils.waitForReplicasAssigned(client, topicPartition, Seq(broker3, broker4, broker1, broker2))
+      // All sync replicas are in the ISR
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker3, broker4))
+      // All observer replicas are not in the ISR
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker1, broker2))
+    }
+  }
+
+  @Test
+  def testReassignObserverToSyncReplica(): Unit = {
     TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
       val topic = "observer-topic"
       val partition = 0
@@ -314,7 +324,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
   }
 
   @Test
-  def testRemoveObserver(): Unit = {
+  def testReassignWithRemovedObserver(): Unit = {
     TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
       val topic = "observer-topic"
       val partition = 0
@@ -348,7 +358,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
   }
 
   @Test
-  def testAddObserver(): Unit = {
+  def testReassignWithAddedObserver(): Unit = {
     TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
       val topic = "observer-topic"
       val partition = 0
@@ -384,6 +394,14 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3))
     }
   }
+
+  private def electLeader(client: Admin, tp: TopicPartition, electionType: ElectionType): Unit = {
+    val electionResult = client.electLeaders(electionType, Set(tp).asJava)
+    electionResult.partitions.get.get(tp).asScala.foreach { exception =>
+      throw exception
+    }
+  }
+
 }
 
 object ConfluentObserverTest {
@@ -428,13 +446,14 @@ object ConfluentObserverTest {
   }
 
   def basicTopicPlacement(
-    replicaRack: BasicConstraint,
-    observerRack: Option[BasicConstraint]
+    replicaConstraint: BasicConstraint,
+    observerConstraint: Option[BasicConstraint]
   ): String = {
-    val observers = observerRack.fold("") { constraint =>
+    val observers = observerConstraint.fold("") { constraint =>
       s""","observers":[{"count": ${constraint.count}, "constraints":{"rack":"${constraint.rack}"}}]"""
     }
 
-    s"""{"version":1,"replicas":[{"count": ${replicaRack.count}, "constraints":{"rack":"${replicaRack.rack}"}}]$observers}"""
+    s"""{"version":1,"replicas":[{"count": ${replicaConstraint.count}, "constraints":{"rack":"${replicaConstraint.rack}"}}]$observers}"""
   }
+
 }
