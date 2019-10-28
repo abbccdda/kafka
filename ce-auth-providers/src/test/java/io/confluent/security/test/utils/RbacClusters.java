@@ -10,6 +10,7 @@ import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.KafkaTestUtils.ClientBuilder;
 import io.confluent.license.test.utils.LicenseTestUtils;
+import io.confluent.license.validator.LicenseConfig;
 import io.confluent.security.auth.metadata.AuthStore;
 import io.confluent.security.auth.metadata.MetadataServiceConfig;
 import io.confluent.security.auth.provider.rbac.RbacProvider;
@@ -43,6 +44,7 @@ import java.util.stream.IntStream;
 import kafka.security.authorizer.AclAuthorizer;
 import kafka.server.KafkaConfig$;
 import kafka.server.KafkaServer;
+import kafka.utils.DummyLicenseValidator;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.common.acl.AclBinding;
@@ -70,6 +72,8 @@ public class RbacClusters {
   private List<KafkaAuthWriter> authWriters;
 
   public RbacClusters(Config config) throws Exception {
+    DummyLicenseValidator.disable();
+
     this.config = config;
     metadataCluster = new EmbeddedKafkaCluster();
     metadataCluster.startZooKeeper();
@@ -176,6 +180,7 @@ public class RbacClusters {
 
   public void shutdown() {
     try {
+      DummyLicenseValidator.enable();
       kafkaCluster.shutdown();
       if (miniKdcWithLdapService != null)
         miniKdcWithLdapService.shutdown();
@@ -462,7 +467,7 @@ public class RbacClusters {
     }
 
     public Config withLicense() {
-      overrideMetadataBrokerConfig(ConfluentAuthorizerConfig.LICENSE_PROP, LicenseTestUtils.generateLicense());
+      overrideMetadataBrokerConfig(LicenseConfig.LICENSE_PROP, LicenseTestUtils.generateLicense());
       return this;
     }
 

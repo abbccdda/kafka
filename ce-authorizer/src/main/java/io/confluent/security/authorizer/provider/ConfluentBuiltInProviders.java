@@ -134,11 +134,6 @@ public class ConfluentBuiltInProviders {
     }
 
     @Override
-    public boolean needsLicense() {
-      return false;
-    }
-
-    @Override
     public boolean providerConfigured(Map<String, ?> configs) {
       return true;
     }
@@ -161,11 +156,6 @@ public class ConfluentBuiltInProviders {
 
     @Override
     public boolean usesMetadataFromThisKafkaCluster() {
-      return false;
-    }
-
-    @Override
-    public boolean needsLicense() {
       return false;
     }
 

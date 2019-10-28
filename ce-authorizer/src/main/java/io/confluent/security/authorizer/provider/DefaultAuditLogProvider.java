@@ -55,11 +55,6 @@ public class DefaultAuditLogProvider implements AuditLogProvider {
   }
 
   @Override
-  public boolean needsLicense() {
-    return false;
-  }
-
-  @Override
   public boolean providerConfigured(Map<String, ?> configs) {
     return true;
   }

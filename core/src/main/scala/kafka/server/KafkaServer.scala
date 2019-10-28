@@ -59,6 +59,7 @@ import org.apache.kafka.common.utils.{AppInfoParser, LogContext, Time}
 import org.apache.kafka.common.{ClusterResource, Endpoint, Node}
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.server.authorizer.Authorizer
+import org.apache.kafka.server.license.LicenseValidator
 import org.apache.kafka.server.multitenant.MultiTenantMetadata
 import org.apache.kafka.server.rest.{BrokerProxy, RestServer}
 
@@ -137,6 +138,7 @@ object KafkaServer {
   }
 
   val MIN_INCREMENTAL_FETCH_SESSION_EVICTION_MS: Long = 120000
+  val MULTI_TENANT_AUTHORIZER_CLASS_NAME = "io.confluent.kafka.multitenant.authorizer.MultiTenantAuthorizer"
 }
 
 /**
@@ -208,6 +210,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   private var _brokerTopicStats: BrokerTopicStats = null
 
   var multitenantMetadata: MultiTenantMetadata = null
+
+  private var licenseValidator: LicenseValidator = null
 
   var restServer: RestServer = null
 
@@ -440,6 +444,15 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         socketServer.startControlPlaneProcessor(authorizerFutures)
         socketServer.startDataPlaneProcessors(authorizerFutures)
+
+        // confluent-server` disables license only for Cloud. Start license manager if
+        // not using the multi-tenant authorizer.
+        if (!authorizer.map(_.getClass.getName).contains(KafkaServer.MULTI_TENANT_AUTHORIZER_CLASS_NAME)) {
+          val interBrokerEndpoint = brokerInfo.broker.endPoint(config.interBrokerListenerName).toJava
+          licenseValidator = ConfluentConfigs.buildLicenseValidator(config, interBrokerEndpoint)
+          licenseValidator.start(config.brokerId.toString)
+        }
+
         brokerState.newState(RunningAsBroker)
         shutdownLatch = new CountDownLatch(1)
 
@@ -737,6 +750,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
       if (shutdownLatch.getCount > 0 && isShuttingDown.compareAndSet(false, true)) {
         CoreUtils.swallow(controlledShutdown(), this)
         brokerState.newState(BrokerShuttingDown)
+
+        if (licenseValidator != null)
+          CoreUtils.swallow(licenseValidator.close(), this)
 
         if (dynamicConfigManager != null)
           CoreUtils.swallow(dynamicConfigManager.shutdown(), this)

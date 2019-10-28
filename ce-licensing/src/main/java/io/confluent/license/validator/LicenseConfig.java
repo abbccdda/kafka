@@ -22,6 +22,10 @@ public class LicenseConfig extends AbstractConfig {
   public static final String PRODUCER_PREFIX = PREFIX + "producer.";
   public static final String CONSUMER_PREFIX = PREFIX + "consumer.";
 
+  public static final String LICENSE_PROP = "confluent.license";
+  private static final String LICENSE_DEFAULT = "";
+  private static final String LICENSE_DOC = "License for Confluent plugins.";
+
   public static final String TOPIC_PROP = "confluent.license.topic";
   private static final String TOPIC_DEFAULT = "_confluent-license";
   private static final String TOPIC_DOC = "Topic used for storing Confluent license";
@@ -36,11 +40,13 @@ public class LicenseConfig extends AbstractConfig {
 
   static {
     CONFIG = new ConfigDef()
+        .define(LICENSE_PROP, Type.STRING, LICENSE_DEFAULT, Importance.HIGH, LICENSE_DOC)
         .define(TOPIC_PROP, Type.STRING, TOPIC_DEFAULT, Importance.LOW, TOPIC_DOC)
         .define(REPLICATION_FACTOR_PROP, Type.SHORT, REPLICATION_FACTOR_DEFAULT,
             atLeast(1), Importance.LOW, REPLICATION_FACTOR_DOC);
   }
 
+  public final String license;
   public final String topic;
   private final int replicationFactor;
   private final String componentId;
@@ -48,6 +54,7 @@ public class LicenseConfig extends AbstractConfig {
   public LicenseConfig(String componentId, Map<?, ?> props) {
     super(CONFIG, props);
     this.componentId = componentId;
+    license = getString(LICENSE_PROP);
     topic = getString(TOPIC_PROP);
     replicationFactor = getShort(REPLICATION_FACTOR_PROP);
   }

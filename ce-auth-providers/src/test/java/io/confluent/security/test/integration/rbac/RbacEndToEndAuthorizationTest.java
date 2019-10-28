@@ -111,7 +111,7 @@ public class RbacEndToEndAuthorizationTest {
     rbacClusters.produceConsume(SYSTEM_ADMIN, APP2_TOPIC, APP1_CONSUMER_GROUP, true);
     rbacClusters.produceConsume(RESOURCE_OWNER, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
     rbacClusters.produceConsume(RESOURCE_OWNER, APP2_TOPIC, APP1_CONSUMER_GROUP, true);
-    SecurityTestUtils.verifyAuthorizerLicense(rbacClusters.kafkaCluster, LicenseStatus.LICENSE_ACTIVE);
+    SecurityTestUtils.verifyConfluentLicense(rbacClusters.kafkaCluster, LicenseStatus.LICENSE_ACTIVE);
   }
 
   @Test

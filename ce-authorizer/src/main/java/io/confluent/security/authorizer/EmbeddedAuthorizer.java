@@ -24,7 +24,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -180,9 +179,7 @@ public class EmbeddedAuthorizer implements Authorizer {
         .map(provider -> provider.start(interBrokerListenerConfigs))
         .map(CompletionStage::toCompletableFuture)
         .collect(Collectors.toList());
-    CompletableFuture[] futureArray = new CompletableFuture[futures.size() + 1];
-    futures.toArray(futureArray);
-    futureArray[futures.size()] = initializeLicenseAsync(interBrokerListenerConfigs);
+    CompletableFuture[] futureArray = futures.toArray(new CompletableFuture[futures.size()]);
     CompletableFuture<Void> readyFuture = CompletableFuture.allOf(futureArray)
         .thenAccept(unused -> this.ready = true)
         //server startup will fail if any error/invalid mds configs during migration/init task
@@ -300,6 +297,7 @@ public class EmbeddedAuthorizer implements Authorizer {
 
   @Override
   public void close() {
+    log.debug("Closing embedded authorizer");
     AtomicReference<Throwable> firstException = new AtomicReference<>();
     providersCreated.forEach(provider ->
         Utils.closeQuietly(provider, provider.providerName(), firstException));
@@ -360,26 +358,6 @@ public class EmbeddedAuthorizer implements Authorizer {
       return allowOps;
     else
       return Collections.singleton(operation);
-  }
-
-  private CompletableFuture<Void> initializeLicenseAsync(Map<String, ?> configs) {
-    ExecutorService executor = Executors
-        .newSingleThreadScheduledExecutor(ThreadUtils.createThreadFactory("license-%d", true));
-    CompletableFuture<Void> licenseFuture = new CompletableFuture<>();
-    executor.submit(() -> {
-      try {
-        initializeAndValidateLicense(configs);
-        licenseFuture.complete(null);
-      } catch (Throwable e) {
-        log.error("License verification failed", e);
-        licenseFuture.completeExceptionally(e);
-      }
-    });
-    return licenseFuture.whenComplete((unused, e) -> executor.shutdownNow());
-  }
-
-  // Sub-classes may override to enforce license validation
-  protected void initializeAndValidateLicense(Map<String, ?> configs) {
   }
 
   // Visibility for testing

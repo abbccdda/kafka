@@ -13,9 +13,6 @@ import com.yammer.metrics.core.MetricName;
 import io.confluent.license.License;
 import io.confluent.license.LicenseManagerTest;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
-import io.confluent.license.validator.LegacyLicenseValidator;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -23,24 +20,6 @@ import org.easymock.EasyMock;
 import org.powermock.api.easymock.PowerMock;
 
 public class LicenseTestUtils {
-
-  static {
-    // Inject the test key-pair for License service for testing using reflection.
-    try {
-      Field publicKeyField = LegacyLicenseValidator.class.getDeclaredField("PUBLIC_KEY");
-      publicKeyField.setAccessible(true);
-      Field modifiersField = Field.class.getDeclaredField("modifiers");
-      modifiersField.setAccessible(true);
-      int modifiers = publicKeyField.getModifiers();
-      modifiersField.setInt(publicKeyField, modifiers & ~Modifier.FINAL);
-      publicKeyField.set(null, LicenseManagerTest.KEY_PAIR.getPublic());
-      publicKeyField.setAccessible(false);
-      modifiersField.setInt(publicKeyField, modifiers);
-      modifiersField.setAccessible(false);
-    } catch (Exception e) {
-      throw new RuntimeException(e);
-    }
-  }
 
   public static String generateLicense() {
     return generateLicense(System.currentTimeMillis() + TimeUnit.DAYS.toMillis(1));

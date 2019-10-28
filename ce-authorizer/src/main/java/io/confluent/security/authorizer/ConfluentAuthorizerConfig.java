@@ -54,10 +54,6 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
       + " the cluster hosting metadata topics, inter-broker listeners will be started prior"
       + " to initialization of authorizer metadata from Kafka topics.";
 
-  public static final String LICENSE_PROP = "confluent.license";
-  private static final String LICENSE_DEFAULT = "";
-  private static final String LICENSE_DOC = "License for Confluent plugins.";
-
 
   // SimpleAclAuthorizer configs
 
@@ -99,8 +95,6 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
             Importance.MEDIUM, BROKER_USERS_DOC)
         .define(ACCESS_RULE_PROVIDERS_PROP, Type.LIST, ACCESS_RULE_PROVIDERS_DEFAULT,
             Importance.MEDIUM, ACCESS_RULE_PROVIDERS_DOC)
-        .define(LICENSE_PROP, Type.STRING, LICENSE_DEFAULT,
-            Importance.HIGH, LICENSE_DOC)
         .define(INIT_TIMEOUT_PROP, Type.INT, INIT_TIMEOUT_DEFAULT,
             atLeast(0), Importance.LOW, INIT_TIMEOUT_DOC)
         .define(MIGRATE_ACLS_FROM_ZK_PROP, Type.BOOLEAN, MIGRATE_ACLS_FROM_ZK_DEFAULT,

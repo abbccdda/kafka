@@ -8,20 +8,8 @@ import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import java.util.HashMap;
 import java.util.Map;
-import org.apache.kafka.common.utils.Time;
-
 
 public class LdapAuthorizer extends ConfluentServerAuthorizer {
-  public static final String LICENSE_PROP = "ldap.authorizer.license";
-  private static final String METRIC_GROUP = "kafka.ldap.plugins";
-
-  public LdapAuthorizer() {
-    this(Time.SYSTEM);
-  }
-
-  public LdapAuthorizer(Time time) {
-    super(time);
-  }
 
   @Override
   public void configure(Map<String, ?> configs) {
@@ -29,15 +17,5 @@ public class LdapAuthorizer extends ConfluentServerAuthorizer {
     authorizerConfigs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP,
         AccessRuleProviders.ACL.name());
     super.configure(authorizerConfigs);
-  }
-
-  @Override
-  public String licensePropName() {
-    return LICENSE_PROP;
-  }
-
-  @Override
-  public String licenseStatusMetricGroup() {
-    return METRIC_GROUP;
   }
 }

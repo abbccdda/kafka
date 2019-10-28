@@ -16,12 +16,20 @@
  */
 package org.apache.kafka.common.config.internals;
 
+import java.util.HashMap;
+import java.util.ServiceLoader;
+import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.AbstractConfig;
+import org.apache.kafka.common.config.SaslConfigs;
+import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.network.Mode;
 import org.apache.kafka.common.requests.SamplingRequestLogFilter;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.interceptor.BrokerInterceptor;
 import org.apache.kafka.server.interceptor.DefaultBrokerInterceptor;
+import org.apache.kafka.server.license.LicenseValidator;
 import org.apache.kafka.server.multitenant.MultiTenantMetadata;
 import org.apache.kafka.server.rest.RestServer;
 
@@ -185,5 +193,54 @@ public class ConfluentConfigs {
             server.configure(configs.originals());
         }
         return server;
+    }
+
+    public static LicenseValidator buildLicenseValidator(AbstractConfig config,
+                                                         Endpoint interBrokerEndpoint) {
+        LicenseValidator licenseValidator = null;
+        ServiceLoader<LicenseValidator> validators = ServiceLoader.load(LicenseValidator.class);
+        for (LicenseValidator validator : validators) {
+            if (validator.enabled()) {
+                licenseValidator = validator;
+                break;
+            }
+        }
+        if (licenseValidator == null) {
+            throw new IllegalStateException("License validator not found");
+        }
+        licenseValidator.configure(interBrokerClientConfigs(config, interBrokerEndpoint));
+        return licenseValidator;
+    }
+
+    public static Map<String, Object> interBrokerClientConfigs(AbstractConfig brokerConfig, Endpoint interBrokerEndpoint) {
+        Map<String, Object>  clientConfigs = new HashMap<>();
+        ListenerName listenerName = new ListenerName(interBrokerEndpoint.listenerName().get());
+        String listenerPrefix = listenerName.configPrefix();
+        Map<String, Object> configs = brokerConfig.originals();
+        clientConfigs.putAll(configs);
+        updatePrefixedConfigs(configs, clientConfigs, listenerPrefix);
+
+        SecurityProtocol securityProtocol = interBrokerEndpoint.securityProtocol();
+        if (securityProtocol == SecurityProtocol.SASL_PLAINTEXT || securityProtocol == SecurityProtocol.SASL_SSL) {
+            String saslMechanism = (String) brokerConfig.originals().get("sasl.mechanism.inter.broker.protocol");
+            saslMechanism = saslMechanism != null ? saslMechanism : SaslConfigs.DEFAULT_SASL_MECHANISM;
+            clientConfigs.put(SaslConfigs.SASL_MECHANISM, saslMechanism);
+            String mechanismPrefix = listenerName.saslMechanismConfigPrefix(saslMechanism);
+            updatePrefixedConfigs(configs, clientConfigs, mechanismPrefix);
+        }
+        clientConfigs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, interBrokerEndpoint.host() + ":" + interBrokerEndpoint.port());
+        clientConfigs.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol.name);
+        // Broker id in client configs causes issues in metrics reporter, so don't include.
+        clientConfigs.remove("broker.id");
+        return clientConfigs;
+    }
+
+    private static void updatePrefixedConfigs(Map<String, Object> srcConfigs, Map<String, Object> dstConfigs, String prefix) {
+        srcConfigs.entrySet().stream()
+            .filter(e -> e.getKey().startsWith(prefix))
+            .forEach(e -> {
+                dstConfigs.remove(e.getKey());
+                dstConfigs.put(e.getKey().substring(prefix.length()), e.getValue());
+            });
     }
 }

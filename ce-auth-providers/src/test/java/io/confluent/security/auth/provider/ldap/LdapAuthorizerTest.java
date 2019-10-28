@@ -5,8 +5,6 @@ package io.confluent.security.auth.provider.ldap;
 import io.confluent.kafka.security.ldap.authorizer.LdapAuthorizer;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.license.InvalidLicenseException;
-import io.confluent.license.test.utils.LicenseTestUtils;
-import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
 import io.confluent.security.minikdc.MiniKdcWithLdapService;
 import io.confluent.security.test.utils.LdapTestUtils;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
@@ -20,7 +18,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
 import kafka.admin.AclCommand;
 import kafka.network.RequestChannel.Session;
@@ -49,7 +46,6 @@ import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
-import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.server.authorizer.Action;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
@@ -124,7 +120,6 @@ public class LdapAuthorizerTest {
         (principal, resource) -> addTopicAcl(principal, resource, All$.MODULE$));
     verifyAllOperationsAcl(Group$.MODULE$, CONSUMER_GROUP_OPS,
         (principal, resource) -> addConsumerGroupAcl(principal, resource, All$.MODULE$));
-    verifyLicenseMetric(LicenseStatus.LICENSE_ACTIVE);
   }
 
   @Test
@@ -229,66 +224,6 @@ public class LdapAuthorizerTest {
     verifyAuthorization("someUser", topicResource, allowIfNoAcl);
   }
 
-  @Test
-  public void testLicenseExpiryBeforeStart() throws Exception {
-    miniKdcWithLdapService.createGroup("adminGroup", "adminUser", "kafkaUser");
-    miniKdcWithLdapService.createGroup("guestGroup", "guest");
-    authorizerConfig.put(LdapAuthorizer.LICENSE_PROP,
-        LicenseTestUtils.generateLicense(System.currentTimeMillis() - 1));
-    verifyAuthorizerLicenseFailure();
-  }
-
-  @Test
-  public void testLicenseExpiryAfterStart() throws Exception {
-    MockTime time = new MockTime(0L, System.currentTimeMillis(), 0L);
-    long expiryMs = time.milliseconds() + 10000;
-    String license = LicenseTestUtils.generateLicense(expiryMs);
-    authorizerConfig.put(LdapAuthorizer.LICENSE_PROP, license);
-    ldapAuthorizer = new LdapAuthorizer(time);
-    configureLdapAuthorizer();
-
-    time.sleep(60000);
-    verifyAuthorizer();
-    verifyLicenseMetric(LicenseStatus.LICENSE_EXPIRED);
-  }
-
-  @Test
-  public void testTrialPeriod() throws Exception {
-    MockTime time = new MockTime(0L, System.currentTimeMillis(), 0L);
-    authorizerConfig.put(LdapAuthorizer.LICENSE_PROP, "");
-    ldapAuthorizer = new LdapAuthorizer(time);
-    configureLdapAuthorizer();
-
-    time.sleep(60000);
-    verifyAuthorizer();
-    verifyLicenseMetric(LicenseStatus.TRIAL);
-  }
-
-  @Test
-  public void testTrialPeriodExpiryBeforeStart() throws Exception {
-    MockTime time = new MockTime(0L, System.currentTimeMillis(), 0L);
-    authorizerConfig.put(LdapAuthorizer.LICENSE_PROP, "");
-    // Start one authorizer to start the trial period
-    ldapAuthorizer = new LdapAuthorizer(time);
-    configureLdapAuthorizer();
-    ldapAuthorizer.close();
-    time.sleep(TimeUnit.DAYS.toMillis(31));
-    // Start another authorizer after trial period completes, this should fail
-    ldapAuthorizer = new LdapAuthorizer(time);
-    verifyAuthorizerLicenseFailure();
-  }
-
-  @Test
-  public void testTrialPeriodExpiryAfterStart() throws Exception {
-    MockTime time = new MockTime(0L, System.currentTimeMillis(), 0L);
-    authorizerConfig.put(LdapAuthorizer.LICENSE_PROP, "");
-    ldapAuthorizer = new LdapAuthorizer(time);
-    configureLdapAuthorizer();
-
-    time.sleep(TimeUnit.DAYS.toMillis(31));
-    verifyAuthorizer();
-    verifyLicenseMetric(LicenseStatus.TRIAL_EXPIRED);
-  }
 
   private void configureLdapAuthorizer() throws Exception {
     ldapAuthorizer.configure(authorizerConfig);
@@ -372,10 +307,6 @@ public class LdapAuthorizerTest {
     AclCommand.main(SecurityTestUtils.deleteTopicAclArgs(kafkaCluster.zkConnect(),
         principal, topic.name(), op.name()));
     SecurityTestUtils.waitForAclUpdate(ldapAuthorizer, principal, topic, op, true);
-  }
-
-  private void verifyLicenseMetric(LicenseStatus status) {
-    LicenseTestUtils.verifyLicenseMetric("kafka.ldap.plugins", status);
   }
 }
 

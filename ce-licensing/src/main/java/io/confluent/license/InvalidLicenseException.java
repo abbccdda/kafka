@@ -4,7 +4,9 @@
 
 package io.confluent.license;
 
-public class InvalidLicenseException extends Exception {
+import org.apache.kafka.common.KafkaException;
+
+public class InvalidLicenseException extends KafkaException {
   public InvalidLicenseException(String message) {
     super(message);
   }

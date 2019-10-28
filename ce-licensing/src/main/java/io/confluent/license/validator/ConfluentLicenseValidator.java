@@ -5,6 +5,11 @@ package io.confluent.license.validator;
 import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.MetricName;
+import java.util.HashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import org.apache.kafka.common.config.AbstractConfig;
 import io.confluent.license.InvalidLicenseException;
 import io.confluent.license.License;
 import io.confluent.license.LicenseChanged;
@@ -16,7 +21,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 import org.apache.kafka.common.errors.InvalidReplicationFactorException;
 import org.apache.kafka.common.errors.RetriableException;
-import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.server.license.LicenseValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,12 +34,16 @@ import org.slf4j.LoggerFactory;
  * a result without a valid or free license. Thereafter, the component may continue to function
  * with proprietary features enabled even if license expires. In this case, an error is logged
  * periodically.
+ *
+ * License is stored in a Kafka topic in the MDS cluster if MDS is enabled. Otherwise it is stored
+ * in the Kafka cluster associated with the component.
  */
 public class ConfluentLicenseValidator implements LicenseValidator, Consumer<LicenseChanged> {
   private static final Logger log = LoggerFactory.getLogger(
       ConfluentLicenseValidator.class);
 
   private static final long EXPIRY_LOG_INTERVAL_MS = 10000;
+  public static final String METRIC_GROUP = "confluent.license";
   public static final String METRIC_NAME = "licenseStatus";
 
   public enum LicenseStatus {
@@ -52,17 +61,12 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
     }
   }
 
-  private final Time time;
   private Map<String, ?> configs;
   private MetricName licenseStatusMetricName;
+  private ScheduledExecutorService executorService;
   private LicenseManager licenseManager;
   private volatile LicenseStatus licenseStatus;
   private volatile String errorMessage;
-  private volatile long lastExpiryErrorLogMs;
-
-  public ConfluentLicenseValidator(Time time) {
-    this.time = time;
-  }
 
   @Override
   public void configure(Map<String, ?> configs) {
@@ -70,29 +74,30 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
   }
 
   @Override
-  public void initializeAndVerify(String license, String metricGroup, String componentId) throws InvalidLicenseException {
+  public void start(String componentId) {
+    // Use MDS to store license if metadata server is configured.
+    Map<String, Object> licenseConfigs = new HashMap<>(configs);
+    LicenseConfig tmpConfig = new LicenseConfig(componentId, configs);
+    replacePrefix(tmpConfig, licenseConfigs, "confluent.metadata.", LicenseConfig.PREFIX);
+    replacePrefix(tmpConfig, licenseConfigs, "confluent.metadata.consumer.", LicenseConfig.CONSUMER_PREFIX);
+    replacePrefix(tmpConfig, licenseConfigs, "confluent.metadata.producer.", LicenseConfig.PRODUCER_PREFIX);
     LicenseConfig licenseConfig = new LicenseConfig(componentId, configs);
+
     licenseManager = createLicenseManager(licenseConfig);
     licenseManager.addListener(this);
-    License registeredLicense = licenseManager.registerOrValidateLicense(license);
+    License registeredLicense = licenseManager.registerOrValidateLicense(licenseConfig.license);
     updateLicenseStatus(registeredLicense);
     licenseManager.start();
 
-    if (!verifyLicense())
+    if (!isLicenseValid())
       throw new InvalidLicenseException("License validation failed: " + errorMessage);
-    registerMetric(metricGroup);
+    registerMetric(METRIC_GROUP);
+    schedulePeriodicValidation();
   }
 
   @Override
-  public boolean verifyLicense() {
-    long now = time.milliseconds();
-    boolean valid = licenseStatus != null && licenseStatus.active;
-    String errorMessage = valid ? null : this.errorMessage;
-    if (errorMessage != null  && now - lastExpiryErrorLogMs > EXPIRY_LOG_INTERVAL_MS) {
-      log.error(errorMessage);
-      lastExpiryErrorLogMs = now;
-    }
-    return valid;
+  public boolean isLicenseValid() {
+    return licenseStatus != null && licenseStatus.active;
   }
 
   @Override
@@ -113,6 +118,14 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
   }
 
   public void close() {
+    if (executorService != null) {
+      executorService.shutdownNow();
+      try {
+        executorService.awaitTermination(60, TimeUnit.SECONDS);
+      } catch (Exception e) {
+        log.error("License executor did not terminate");
+      }
+    }
     if (licenseManager != null) {
       licenseManager.removeListener(this);
       licenseManager.stop();
@@ -195,5 +208,30 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
       }
     });
     this.licenseStatusMetricName = metricName;
+  }
+
+  protected void schedulePeriodicValidation() {
+    if (executorService != null)
+      throw new IllegalStateException("License validation has already been started");
+
+    executorService = Executors.newSingleThreadScheduledExecutor(runnable -> {
+      Thread thread = new Thread(runnable, "confluent-license-manager");
+      thread.setDaemon(true);
+      return thread;
+    });
+    executorService.schedule(() -> {
+      String error = this.errorMessage;
+      if (!isLicenseValid() && error != null) {
+        log.error(errorMessage);
+      }
+    }, EXPIRY_LOG_INTERVAL_MS, TimeUnit.MILLISECONDS);
+  }
+
+  private void replacePrefix(AbstractConfig srcConfig, Map<String, Object> dstConfigs, String srcPrefix, String dstPrefix) {
+    Map<String, Object> prefixedConfigs = srcConfig.originalsWithPrefix(srcPrefix);
+    prefixedConfigs.forEach((k, v) -> {
+      dstConfigs.remove(srcPrefix + k);
+      dstConfigs.putIfAbsent(dstPrefix + k, v);
+    });
   }
 }

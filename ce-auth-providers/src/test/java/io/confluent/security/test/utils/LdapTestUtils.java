@@ -3,7 +3,6 @@
 package io.confluent.security.test.utils;
 
 import io.confluent.kafka.security.ldap.authorizer.LdapAuthorizer;
-import io.confluent.license.test.utils.LicenseTestUtils;
 import io.confluent.security.auth.provider.ldap.LdapConfig;
 import io.confluent.security.auth.provider.ldap.LdapGroupManager;
 import io.confluent.security.auth.provider.ldap.LdapGroupProvider;
@@ -86,7 +85,6 @@ public class LdapTestUtils {
     for (Map.Entry<String, String> entry : ldapServer.ldapClientConfigs().entrySet()) {
       props.put(LdapConfig.CONFIG_PREFIX + entry.getKey(), entry.getValue());
     }
-    props.put(LdapAuthorizer.LICENSE_PROP, LicenseTestUtils.generateLicense());
 
     // Due a to timing issue in Apache DS persistent search (https://issues.apache.org/jira/browse/DIRSERVER-2257),
     // some updates made while the persistent search is initialized may not be returned by the search. Use a read

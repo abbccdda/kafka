@@ -215,11 +215,6 @@ public class MockConfluentServerAuthorizerTest {
     }
 
     @Override
-    public boolean needsLicense() {
-      return false;
-    }
-
-    @Override
     public boolean isSuperUser(KafkaPrincipal principal, Scope scope) {
       return false;
     }
@@ -314,11 +309,6 @@ public class MockConfluentServerAuthorizerTest {
 
     @Override
     public boolean usesMetadataFromThisKafkaCluster() {
-      return false;
-    }
-
-    @Override
-    public boolean needsLicense() {
       return false;
     }
 

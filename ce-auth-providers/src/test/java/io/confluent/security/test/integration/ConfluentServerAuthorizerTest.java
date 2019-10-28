@@ -138,7 +138,7 @@ public class ConfluentServerAuthorizerTest {
       waitForAccess(adminClient, APP2_TOPIC, false);
     }
 
-    SecurityTestUtils.verifyAuthorizerLicense(rbacClusters.kafkaCluster, LicenseStatus.FREE_TIER);
+    SecurityTestUtils.verifyConfluentLicense(rbacClusters.kafkaCluster, LicenseStatus.FREE_TIER);
     RbacTestUtils.verifyMetadataStoreMetrics();
     RbacTestUtils.verifyMetric("failure-start-seconds-ago", "LdapGroupManager", 0, 0);
     RbacTestUtils.verifyMetric("record-send-rate", "KafkaAuthStore", 10, 100000);

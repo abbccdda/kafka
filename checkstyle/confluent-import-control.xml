@@ -90,6 +90,7 @@
     <allow pkg="org.apache.kafka.clients" />
     <allow pkg="org.apache.kafka.common" />
     <allow pkg="org.apache.kafka.connect" />
+    <allow pkg="org.apache.kafka.server.license" />
     <allow pkg="org.apache.zookeeper" />
   </subpackage>
 

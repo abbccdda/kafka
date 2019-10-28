@@ -9,14 +9,12 @@ import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Metric;
 
 import io.confluent.kafka.clients.plugins.auth.oauth.OAuthBearerLoginCallbackHandler;
-import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.kafka.server.plugins.auth.oauth.OAuthBearerServerLoginCallbackHandler;
 import io.confluent.kafka.server.plugins.auth.oauth.OAuthBearerValidatorCallbackHandler;
 import io.confluent.kafka.server.plugins.auth.oauth.OAuthUtils;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.license.validator.ConfluentLicenseValidator;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
-import io.confluent.license.validator.LicenseValidator;
 import java.io.File;
 import java.util.List;
 import java.util.Locale;
@@ -200,12 +198,7 @@ public class SecurityTestUtils {
     }
   }
 
-  public static void verifyAuthorizerLicense(EmbeddedKafkaCluster kafkaCluster, LicenseStatus expectedStatus) {
-    boolean needsLicense = expectedStatus != null;
-    ConfluentServerAuthorizer authorizer = (ConfluentServerAuthorizer) kafkaCluster.brokers().get(0).authorizer().get();
-    LicenseValidator licenseValidator = KafkaTestUtils.fieldValue(authorizer, ConfluentServerAuthorizer.class, "licenseValidator");
-    assertEquals(needsLicense, licenseValidator instanceof ConfluentLicenseValidator);
-
+  public static void verifyConfluentLicense(EmbeddedKafkaCluster kafkaCluster, LicenseStatus expectedStatus) {
     Map<String, Metric> metrics = Metrics.defaultRegistry().allMetrics().entrySet().stream()
         .filter(e -> e.getKey().getName().equals(ConfluentLicenseValidator.METRIC_NAME))
         .collect(Collectors.toMap(e -> e.getKey().getGroup(), Map.Entry::getValue));

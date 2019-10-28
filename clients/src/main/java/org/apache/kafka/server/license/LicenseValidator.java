@@ -1,8 +1,7 @@
 // (Copyright) [2018 - 2019] Confluent, Inc.
 
-package io.confluent.license.validator;
+package org.apache.kafka.server.license;
 
-import io.confluent.license.InvalidLicenseException;
 import java.io.Closeable;
 import org.apache.kafka.common.Configurable;
 
@@ -13,18 +12,21 @@ import org.apache.kafka.common.Configurable;
  */
 public interface LicenseValidator extends Configurable, Closeable {
 
-  /**
-   * Initialize license using the provided license or free-tier/trial license.
-   * @param license License string which may be empty
-   * @param metricGroup Metrics group for license status
-   * @param componentId Component id included in client-ids of Kafka clients used by license manager
-   * @throws InvalidLicenseException if license is invalid or has expired
-   */
-  void initializeAndVerify(String license, String metricGroup, String componentId) throws InvalidLicenseException;
+  default boolean enabled() {
+    return true;
+  }
 
   /**
-   * Verifies the registered license
+   * Initialize license using the provided license or free-tier/trial license and start
+   * license validator. If license expires, a message is logged periodically.
+   *
+   * @param componentId Component id included in client-ids of Kafka clients used by license manager
+   */
+  void start(String componentId);
+
+  /**
+   * Verifies if the registered license is still valid.
    * @return true if license is still valid
    */
-  boolean verifyLicense();
+  boolean isLicenseValid();
 }

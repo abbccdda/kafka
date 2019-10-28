@@ -197,11 +197,6 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
   }
 
   @Override
-  public boolean needsLicense() {
-    return true;
-  }
-
-  @Override
   public boolean providerConfigured(Map<String, ?> configs) {
     AuditLogConfig cfg = new AuditLogConfig(configs);
     return cfg.getBoolean(AuditLogConfig.AUDIT_LOGGER_ENABLED_CONFIG);

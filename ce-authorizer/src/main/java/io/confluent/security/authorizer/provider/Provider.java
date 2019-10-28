@@ -40,11 +40,4 @@ public interface Provider extends Configurable, Closeable {
    * Returns true if this provider uses metadata from a Kafka topic on this cluster.
    */
   boolean usesMetadataFromThisKafkaCluster();
-
-  /**
-   * Returns true if this is a proprietary provider that requires a license
-   */
-  default boolean needsLicense() {
-    return true;
-  }
 }

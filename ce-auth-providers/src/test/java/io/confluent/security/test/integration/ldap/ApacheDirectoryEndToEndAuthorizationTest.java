@@ -116,7 +116,7 @@ public class ApacheDirectoryEndToEndAuthorizationTest extends AbstractEndToEndAu
     }, "Groups not refreshed");
     produceConsume(users.get(TESTER), DEV_TOPIC, DEV_CONSUMER_GROUP, true);
 
-    SecurityTestUtils.verifyAuthorizerLicense(kafkaCluster, LicenseStatus.LICENSE_ACTIVE);
+    SecurityTestUtils.verifyConfluentLicense(kafkaCluster, LicenseStatus.LICENSE_ACTIVE);
   }
 
   private void createLdapServer() throws Exception {

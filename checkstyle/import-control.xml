@@ -65,7 +65,9 @@
     <subpackage name="config">
       <allow pkg="org.apache.kafka.common.config" />
       <allow pkg="org.apache.kafka.common.network" />
+      <allow pkg="org.apache.kafka.clients" />
       <allow pkg="org.apache.kafka.server.interceptor" />
+      <allow pkg="org.apache.kafka.server.license" />
       <allow pkg="org.apache.kafka.server.multitenant" />
       <allow pkg="org.apache.kafka.server.rest" />
       <allow pkg="org.apache.kafka.common.requests" />

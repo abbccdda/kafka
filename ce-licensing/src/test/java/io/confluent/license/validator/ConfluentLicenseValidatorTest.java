@@ -50,15 +50,15 @@ public class ConfluentLicenseValidatorTest {
   @Test
   public void testLicense() throws Exception {
     String license = LicenseTestUtils.generateLicense();
-    licenseValidator = newConfluentLicenseValidator();
-    licenseValidator.initializeAndVerify(license, "test", "broker1");
-    licenseValidator.verifyLicense();
-    LicenseTestUtils.verifyLicenseMetric("test", LicenseStatus.LICENSE_ACTIVE);
+    licenseValidator = newConfluentLicenseValidator(license);
+    licenseValidator.start("broker1");
+    assertTrue("Invalid license", licenseValidator.isLicenseValid());
+    LicenseTestUtils.verifyLicenseMetric(ConfluentLicenseValidator.METRIC_GROUP, LicenseStatus.LICENSE_ACTIVE);
   }
 
   @Test(expected = InvalidLicenseException.class)
   public void testInvalidLicense() throws Exception {
-    newConfluentLicenseValidator().initializeAndVerify("invalid", "test", "broker1");
+    newConfluentLicenseValidator("invalid").start("broker1");
   }
 
   @Test(expected = InvalidLicenseException.class)
@@ -66,25 +66,25 @@ public class ConfluentLicenseValidatorTest {
     long licensePeriodMs =  60 * 60 * 1000;
     String license = LicenseTestUtils.generateLicense(time.milliseconds() + licensePeriodMs);
     time.sleep(licensePeriodMs + 1000);
-    licenseValidator = newConfluentLicenseValidator();
-    licenseValidator.initializeAndVerify(license, "test", "broker1");
+    licenseValidator = newConfluentLicenseValidator(license);
+    licenseValidator.start("broker1");
   }
 
   @Test
   public void testVerifyLicense() throws Exception {
     long licensePeriodMs =  60 * 60 * 1000;
     String license = LicenseTestUtils.generateLicense(time.milliseconds() + licensePeriodMs);
-    licenseValidator = newConfluentLicenseValidator();
-    licenseValidator.initializeAndVerify(license, "test", "broker1");
-    assertTrue(licenseValidator.verifyLicense());
+    licenseValidator = newConfluentLicenseValidator(license);
+    licenseValidator.start("broker1");
+    assertTrue(licenseValidator.isLicenseValid());
     time.sleep(licensePeriodMs + 1000);
     licenseValidator.accept(new LicenseEvent(Type.EXPIRED));
-    assertFalse(licenseValidator.verifyLicense());
-    LicenseTestUtils.verifyLicenseMetric("test", LicenseStatus.LICENSE_EXPIRED);
+    assertFalse(licenseValidator.isLicenseValid());
+    LicenseTestUtils.verifyLicenseMetric(ConfluentLicenseValidator.METRIC_GROUP, LicenseStatus.LICENSE_EXPIRED);
   }
 
-  private ConfluentLicenseValidator newConfluentLicenseValidator() {
-    ConfluentLicenseValidator licenseValidator = new ConfluentLicenseValidator(time) {
+  private ConfluentLicenseValidator newConfluentLicenseValidator(String license) {
+    ConfluentLicenseValidator licenseValidator = new ConfluentLicenseValidator() {
       @Override
       protected LicenseManager createLicenseManager(LicenseConfig licenseConfig) {
         try {
@@ -97,7 +97,7 @@ public class ConfluentLicenseValidatorTest {
         }
       }
     };
-    licenseValidator.configure(Collections.emptyMap());
+    licenseValidator.configure(Collections.singletonMap(LicenseConfig.LICENSE_PROP, license));
     return licenseValidator;
   }
 
