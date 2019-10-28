@@ -241,34 +241,12 @@ public class WorkerConnector {
         private final MetricGroup metricGroup;
         private final ConnectorStatus.Listener delegate;
         private final ConnectMetricsRegistry registry;
-        private Herder herder;
-
-        private ConnectMetrics.LiteralSupplier<Long> taskStateCounter(TaskStatus.State status) {
-            return now -> {
-                ConnectorStateInfo info = herder.connectorStatus(connName);
-                return info == null ? null : info.tasks()
-                    .stream()
-                    .filter(taskState -> status.toString().equalsIgnoreCase(taskState.state()))
-                    .count();
-            };
-        }
 
         protected void addHerderMetrics(Herder herder) {
-            this.herder = herder;
-            metricGroup.addValueMetric(registry.connectorTotalTaskCount, now -> {
+            metricGroup.addValueMetric(registry.legacyConnectorTotalTaskCount, now -> {
                 ConnectorStateInfo info = herder.connectorStatus(connName);
                 return info == null ? null : (long) info.tasks().size();
             });
-            metricGroup.addValueMetric(registry.connectorRunningTaskCount,
-                taskStateCounter(TaskStatus.State.RUNNING));
-            metricGroup.addValueMetric(registry.connectorPausedTaskCount,
-                taskStateCounter(TaskStatus.State.PAUSED));
-            metricGroup.addValueMetric(registry.connectorFailedTaskCount,
-                taskStateCounter(TaskStatus.State.FAILED));
-            metricGroup.addValueMetric(registry.connectorUnassignedTaskCount,
-                taskStateCounter(TaskStatus.State.UNASSIGNED));
-            metricGroup.addValueMetric(registry.connectorDestroyedTaskCount,
-                taskStateCounter(TaskStatus.State.DESTROYED));
         }
 
         public ConnectorMetricsGroup(ConnectMetrics connectMetrics, AbstractStatus.State initialState, ConnectorStatus.Listener delegate) {

@@ -250,9 +250,13 @@ public class Worker {
                 log.info("Creating connector {} of type {}", connName, connClass);
                 final Connector connector = plugins.newConnector(connClass);
                 workerConnector = new WorkerConnector(connName, connector, ctx, metrics, statusListener);
+
+                // Legacy metric for Backwards compatibility. Remove when all downstream clients
+                // (e.g. billing worker) use new worker-grouped metrics
                 if (config.taskStatusMetricsEnabled()) {
                     workerConnector.metrics().addHerderMetrics(herder);
                 }
+
                 log.info("Instantiated connector {} with version {} of type {}", connName, connector.version(), connector.getClass());
                 savedLoader = plugins.compareAndSwapLoaders(connector);
                 workerConnector.initialize(connConfig);

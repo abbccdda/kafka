@@ -380,7 +380,7 @@ public class WorkerConnectorTest extends EasyMockSupport {
             new ConnectorStateInfo.ConnectorState("RUNNING", "worker", "msg"),
             tasks,
             ConnectorType.SINK
-        )).times(6);
+        )).times(1);
 
         replayAll();
 
@@ -392,26 +392,6 @@ public class WorkerConnectorTest extends EasyMockSupport {
         Long taskCount = (Long) metrics.currentMetricValue(workerConnector.metrics().metricGroup(),
             "connector-total-task-count");
         assertEquals(expectedTotal, taskCount);
-
-        Long runningTaskCount = (Long) metrics.currentMetricValue(workerConnector.metrics().metricGroup(),
-            "connector-running-task-count");
-        assertEquals(expectedRunning, runningTaskCount);
-
-        Long pausedTaskCount = (Long) metrics.currentMetricValue(workerConnector.metrics().metricGroup(),
-            "connector-paused-task-count");
-        assertEquals(expectedPaused, pausedTaskCount);
-
-        Long failedTaskCount = (Long) metrics.currentMetricValue(workerConnector.metrics().metricGroup(),
-            "connector-failed-task-count");
-        assertEquals(expectedFailed, failedTaskCount);
-
-        Long unassignedTaskCount = (Long) metrics.currentMetricValue(workerConnector.metrics().metricGroup(),
-            "connector-unassigned-task-count");
-        assertEquals(expectedUnassigned, unassignedTaskCount);
-
-        Long destroyedTaskCount = (Long) metrics.currentMetricValue(workerConnector.metrics().metricGroup(),
-            "connector-destroyed-task-count");
-        assertEquals(expectedDestroyed, destroyedTaskCount);
 
         verifyAll();
     }

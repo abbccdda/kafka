@@ -44,6 +44,7 @@ public class ConnectMetricsRegistry {
     public final MetricNameTemplate connectorClass;
     public final MetricNameTemplate connectorVersion;
     public final MetricNameTemplate connectorTotalTaskCount;
+    public final MetricNameTemplate legacyConnectorTotalTaskCount;
     public final MetricNameTemplate connectorRunningTaskCount;
     public final MetricNameTemplate connectorPausedTaskCount;
     public final MetricNameTemplate connectorFailedTaskCount;
@@ -132,29 +133,13 @@ public class ConnectMetricsRegistry {
         connectorClass = createTemplate("connector-class", CONNECTOR_GROUP_NAME, "The name of the connector class.", connectorTags);
         connectorVersion = createTemplate("connector-version", CONNECTOR_GROUP_NAME,
                                           "The version of the connector class, as reported by the connector.", connectorTags);
-        connectorTotalTaskCount = createTemplate("connector-total-task-count",
+
+        // This internal metric (gated by config option CONNECTOR_TASK_STATUS_METRICS_CONFIG),
+        // is used by CCloud Billing Worker to get number of tasks per connector. It can be
+        // Removed when billing worker is moved to KIP-475 based metrics.
+        legacyConnectorTotalTaskCount = createTemplate("connector-total-task-count",
             CONNECTOR_GROUP_NAME,
             "The number of tasks of the connector.",
-            connectorTags);
-        connectorRunningTaskCount = createTemplate("connector-running-task-count",
-            CONNECTOR_GROUP_NAME,
-            "The number of running tasks of the connector.",
-            connectorTags);
-        connectorPausedTaskCount = createTemplate("connector-paused-task-count",
-            CONNECTOR_GROUP_NAME,
-            "The number of paused tasks of the connector.",
-            connectorTags);
-        connectorFailedTaskCount = createTemplate("connector-failed-task-count",
-            CONNECTOR_GROUP_NAME,
-            "The number of failed tasks of the connector.",
-            connectorTags);
-        connectorUnassignedTaskCount = createTemplate("connector-unassigned-task-count",
-            CONNECTOR_GROUP_NAME,
-            "The number of unassigned tasks of the connector.",
-            connectorTags);
-        connectorDestroyedTaskCount = createTemplate("connector-destroyed-task-count",
-            CONNECTOR_GROUP_NAME,
-            "The number of destroyed tasks of the connector.",
             connectorTags);
 
         /***** Worker task level *****/
@@ -322,6 +307,23 @@ public class ConnectMetricsRegistry {
                                                  "The total number of task starts that failed.", workerTags);
         taskStartupFailurePercentage = createTemplate("task-startup-failure-percentage", WORKER_GROUP_NAME,
                                                       "The average percentage of this worker's tasks starts that failed.", workerTags);
+
+        Set<String> workerConnectorTags = new LinkedHashSet<>(tags);
+        workerConnectorTags.add(CONNECTOR_TAG_NAME);
+        connectorTotalTaskCount = createTemplate("connector-total-task-count", WORKER_GROUP_NAME,
+            "The number of tasks of the connector on the worker.", workerConnectorTags);
+        connectorRunningTaskCount = createTemplate("connector-running-task-count", WORKER_GROUP_NAME,
+            "The number of running tasks of the connector on the worker.", workerConnectorTags);
+        connectorPausedTaskCount = createTemplate("connector-paused-task-count", WORKER_GROUP_NAME,
+            "The number of paused tasks of the connector on the worker.", workerConnectorTags);
+        connectorFailedTaskCount = createTemplate("connector-failed-task-count", WORKER_GROUP_NAME,
+            "The number of failed tasks of the connector on the worker.", workerConnectorTags);
+        connectorUnassignedTaskCount = createTemplate("connector-unassigned-task-count",
+            WORKER_GROUP_NAME,
+            "The number of unassigned tasks of the connector on the worker.", workerConnectorTags);
+        connectorDestroyedTaskCount = createTemplate("connector-destroyed-task-count",
+            WORKER_GROUP_NAME,
+            "The number of destroyed tasks of the connector on the worker.", workerConnectorTags);
 
         connectorStatusMetrics = new HashMap<>();
         connectorStatusMetrics.put(connectorRunningTaskCount, TaskStatus.State.RUNNING);
