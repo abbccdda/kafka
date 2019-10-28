@@ -28,6 +28,7 @@ import com.yammer.metrics.core.{Gauge, Meter}
 import com.yammer.metrics.{Metrics => YammerMetrics}
 import javax.net.ssl._
 
+import kafka.cluster.EndPoint
 import kafka.security.CredentialProvider
 import kafka.server.{KafkaConfig, ThrottledChannel}
 import kafka.utils.Implicits._
@@ -904,6 +905,71 @@ class SocketServerTest {
     }
   }
 
+  @Test
+  def testAddRemoveListener(): Unit = {
+    shutdownServerAndMetrics(this.server)
+
+    var dynamicListeners = Seq.empty[EndPoint]
+    props.put(KafkaConfig.ListenersProp, "TESTLISTENER1://localhost:0")
+    props.put(KafkaConfig.ListenerSecurityProtocolMapProp, "TESTLISTENER1:PLAINTEXT,TESTLISTENER2:PLAINTEXT")
+    props.put(KafkaConfig.InterBrokerListenerNameProp, "TESTLISTENER1")
+    val newConfig = new KafkaConfig(props) {
+      override def listeners: Seq[EndPoint] = {
+        super.listeners ++ dynamicListeners
+      }
+    }
+    val metrics = new Metrics()
+    val server = new SocketServer(newConfig, metrics, Time.SYSTEM, credentialProvider)
+
+    try {
+      server.startup()
+      val serializedBytes = producerRequestBytes()
+
+      val testListener = new ListenerName("TESTLISTENER2")
+      val testEndpoint = new EndPoint("localhost", 0, testListener, SecurityProtocol.PLAINTEXT)
+      dynamicListeners = Seq(testEndpoint)
+      server.addListeners(Seq(testEndpoint))
+      val testPort = server.boundPort(testListener)
+      assertNotEquals(0, testPort)
+      val listeners = Set("TESTLISTENER1", "TESTLISTENER2")
+      listeners.foreach { listener =>
+        val socket = connect(server, new ListenerName(listener))
+        sendRequest(socket, serializedBytes)
+        processRequest(server.dataPlaneRequestChannel)
+        assertEquals(serializedBytes.toSeq, receiveResponse(socket).toSeq)
+        verifyAcceptorBlockedPercent(listener, expectBlocked = false)
+        socket.close()
+
+        val totalTimeMetric = metrics.metrics.asScala
+          .find { case (m, _) => m.tags.get("listener") == listener && m.name == "total-network-time" }
+          .map(_._2)
+        assertTrue("Listener metric not found", totalTimeMetric.nonEmpty)
+        assertEquals(100, totalTimeMetric.get.metricValue.asInstanceOf[Double].toInt)
+      }
+
+      def kafkaMetrics(tag: String, tagValue: String): Set[_] =
+        metrics.metrics.keySet.asScala.filter(_.tags.get(tag) == tagValue).toSet
+      def yammerMetrics(tag: String, tagValue: String): Set[_] =
+        YammerMetrics.defaultRegistry.allMetrics.asScala.keySet.filter(_.getMBeanName.contains(s"$tag=$tagValue")).toSet
+
+      dynamicListeners = Seq.empty[EndPoint]
+      server.removeListeners(Seq(testEndpoint))
+      assertEquals(1, server.dataPlaneAcceptors.size)
+      assertEquals(Set.empty, TestUtils.computeUntilTrue(kafkaMetrics("listener", "TESTLISTENER2"))(_.isEmpty)._1)
+      assertEquals(Set.empty, TestUtils.computeUntilTrue(yammerMetrics("listener", "TESTLISTENER2"))(_.isEmpty)._1)
+
+      server.resizeThreadPool(1, 2)
+      assertTrue("New processor kafka metrics not found", kafkaMetrics("networkProcessor", "2").nonEmpty)
+      assertTrue("New processor yammer metrics not found", yammerMetrics("networkProcessor", "2").nonEmpty)
+
+      server.resizeThreadPool(2, 1)
+      assertEquals(Set.empty, TestUtils.computeUntilTrue(kafkaMetrics("networkProcessor", "2"))(_.isEmpty)._1)
+      assertEquals(Set.empty, TestUtils.computeUntilTrue(yammerMetrics("networkProcessor", "2"))(_.isEmpty)._1)
+    } finally {
+      shutdownServerAndMetrics(server)
+    }
+  }
+
   /**
    * Tests exception handling in [[Processor.configureNewConnections]]. Exception is
    * injected into [[Selector.register]] which is used to register each new connection.
@@ -1231,7 +1297,7 @@ class SocketServerTest {
     connectionId.contains(s":${socket.getLocalPort}-")
 
   private def verifyAcceptorBlockedPercent(listenerName: String, expectBlocked: Boolean): Unit = {
-    val blockedPercentMetricMBeanName = "kafka.network:type=Acceptor,name=AcceptorBlockedPercent,listener=PLAINTEXT"
+    val blockedPercentMetricMBeanName = s"kafka.network:type=Acceptor,name=AcceptorBlockedPercent,listener=$listenerName"
     val blockedPercentMetrics = YammerMetrics.defaultRegistry.allMetrics.asScala
       .filterKeys(_.getMBeanName == blockedPercentMetricMBeanName).values
     assertEquals(1, blockedPercentMetrics.size)

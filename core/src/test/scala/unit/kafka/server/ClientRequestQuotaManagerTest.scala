@@ -500,6 +500,28 @@ class ClientRequestQuotaManagerTest {
     assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedBrokerQuotaLimit), 0.01)
   }
 
+  @Test
+  def testRemoveListenerMetrics(): Unit = {
+    val request = buildRequest()
+
+    // Generate and verify listener metrics
+    simulateTimeOnRequestHandlerThread(request, 10)
+    requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request)
+    time.sleep(1000)
+    for (_ <- 0 until networkThreadpoolSize) {
+      request.recordNetworkThreadTimeCallback.foreach(record => record(1000000000))
+    }
+    val expectedNetworkThreadpoolUsage = networkThreadpoolSize * 100.0
+    assertNetworkThreadUsageMetricValue(s"request-network-time", Some(expectedNetworkThreadpoolUsage), 1)
+    assertNetworkThreadUsageMetricValue(s"request-non-exempt-network-time", Some(expectedNetworkThreadpoolUsage), 1)
+
+    // Remove listener metrics and verify
+    requestQuotaManager.removeListenerMetrics(testListener.value)
+    assertNetworkThreadUsageMetricValue(s"request-network-time", None, 1)
+    assertNetworkThreadUsageMetricValue(s"request-non-exempt-network-time", None, 1)
+
+  }
+
   private def simulateTimeOnRequestHandlerThread(request: RequestChannel.Request, ms: Long): Unit = {
     request.requestDequeueTimeNanos = time.nanoseconds()
     time.sleep(ms) // this is time on request handler thread

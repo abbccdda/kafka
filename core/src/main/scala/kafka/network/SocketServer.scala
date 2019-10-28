@@ -93,15 +93,6 @@ class SocketServer(val config: KafkaConfig,
   private[network] val dataPlaneAcceptors = new ConcurrentHashMap[EndPoint, Acceptor]()
   val dataPlaneRequestChannel = new RequestChannel(maxQueuedRequests, DataPlaneMetricPrefix)
 
-  // listener name -> Sensor
-  private val networkThreadsCapacitySensors =
-    config.advertisedListeners.view
-      .map(endpoint => {
-        val networkThreadsCapacitySensor = metrics.sensor(s"TotalNetworkThreadsPercentage-${endpoint.listenerName.value()}")
-        networkThreadsCapacitySensor.add(ThreadUsageMetrics.networkThreadPoolCapacityMetricName(metrics, endpoint.listenerName.value()), new Value())
-        endpoint.listenerName.value() -> networkThreadsCapacitySensor})
-      .toMap
-
   // control-plane
   private var controlPlaneProcessorOpt : Option[Processor] = None
   private[network] var controlPlaneAcceptorOpt : Option[Acceptor] = None
@@ -253,9 +244,6 @@ class SocketServer(val config: KafkaConfig,
       dataPlaneAcceptor.awaitStartup()
       dataPlaneAcceptors.put(endpoint, dataPlaneAcceptor)
       info(s"Created data-plane acceptor and processors for endpoint : $endpoint")
-
-      networkThreadsCapacitySensors.get(endpoint.listenerName.value())
-        .foreach(sensor => sensor.record(100.0 * dataProcessorsPerListener))
     }
   }
 
@@ -281,7 +269,7 @@ class SocketServer(val config: KafkaConfig,
     val sendBufferSize = config.socketSendBufferBytes
     val recvBufferSize = config.socketReceiveBufferBytes
     val brokerId = config.brokerId
-    new Acceptor(endPoint, sendBufferSize, recvBufferSize, brokerId, connectionQuotas, metricPrefix)
+    new Acceptor(endPoint, sendBufferSize, recvBufferSize, brokerId, connectionQuotas, metrics, metricPrefix)
   }
 
   private def addDataPlaneProcessors(acceptor: Acceptor, endpoint: EndPoint, newProcessorsPerListener: Int): Unit = synchronized {
@@ -323,11 +311,6 @@ class SocketServer(val config: KafkaConfig,
       }
     } else if (newNumNetworkThreads < oldNumNetworkThreads)
       dataPlaneAcceptors.asScala.values.foreach(_.removeProcessors(oldNumNetworkThreads - newNumNetworkThreads, dataPlaneRequestChannel))
-
-    dataPlaneAcceptors.asScala.foreach { case (endpoint, acceptor) =>
-        networkThreadsCapacitySensors.get(endpoint.listenerName.value())
-          .foreach(sensor => sensor.record(100.0 * newNumNetworkThreads))
-    }
   }
 
   /**
@@ -520,6 +503,7 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
                               val recvBufferSize: Int,
                               brokerId: Int,
                               connectionQuotas: ConnectionQuotas,
+                              metrics: Metrics,
                               metricPrefix: String) extends AbstractServerThread(connectionQuotas) with KafkaMetricsGroup {
 
   private val nioSelector = NSelector.open()
@@ -528,11 +512,13 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
   private val processorsStarted = new AtomicBoolean
   private val blockedPercentMeter = newMeter(s"${metricPrefix}AcceptorBlockedPercent",
     "blocked time", TimeUnit.NANOSECONDS, Map(ListenerMetricTag -> endPoint.listenerName.value))
+  private val networkThreadsCapacitySensor = createNetworkThreadsCapacitySensor()
 
   private[network] def addProcessors(newProcessors: Buffer[Processor], processorThreadPrefix: String): Unit = synchronized {
     processors ++= newProcessors
     if (processorsStarted.get)
       startProcessors(newProcessors, processorThreadPrefix)
+    networkThreadsCapacitySensor.record(100.0 * processors.size)
   }
 
   private[network] def startProcessors(processorThreadPrefix: String): Unit = synchronized {
@@ -556,6 +542,7 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
     processors.remove(processors.size - removeCount, removeCount)
     toRemove.foreach(_.shutdown())
     toRemove.foreach(processor => requestChannel.removeProcessor(processor.id))
+    networkThreadsCapacitySensor.record(100.0 * processors.size)
   }
 
   override def shutdown(): Unit = {
@@ -563,6 +550,8 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
     synchronized {
       processors.foreach(_.shutdown())
     }
+    removeMetric(s"${metricPrefix}AcceptorBlockedPercent", Map(ListenerMetricTag -> endPoint.listenerName.value))
+    metrics.removeSensor(networkThreadsCapacitySensor.name)
   }
 
   /**
@@ -683,6 +672,13 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
       true
     } else
       false
+  }
+
+  private def createNetworkThreadsCapacitySensor(): Sensor = {
+    val listenerName = endPoint.listenerName.value
+    val networkThreadsCapacitySensor = metrics.sensor(s"TotalNetworkThreadsPercentage-$listenerName")
+    networkThreadsCapacitySensor.add(ThreadUsageMetrics.networkThreadPoolCapacityMetricName(metrics, listenerName), new Value())
+    networkThreadsCapacitySensor
   }
 
   /**

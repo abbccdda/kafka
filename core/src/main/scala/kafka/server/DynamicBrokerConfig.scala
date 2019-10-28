@@ -905,6 +905,9 @@ class DynamicListenerConfig(server: KafkaServer) extends BrokerReconfigurable wi
       LoginManager.closeAll()
 
     server.socketServer.removeListeners(listenersRemoved)
+    listenersRemoved.foreach { listener =>
+      server.quotaManagers.request.removeListenerMetrics(listener.listenerName.value)
+    }
     if (listenersAdded.nonEmpty)
       server.socketServer.addListeners(listenersAdded)
 

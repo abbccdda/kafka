@@ -45,13 +45,17 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
   def nonExemptCapacitySensor = getOrCreateValueSensor(
     "non-exempt-capacity", BrokerBackpressureMetrics.nonExemptRequestCapacityMetricName(metrics))
 
-  def recordExemptNetworkThread(value: Double, listenerName: String, timeMs: Long) {
+  def recordExemptNetworkThread(value: Double, listenerName: String, timeMs: Long): Unit = {
     exemptSensor.record(value, timeMs)
     recordNetworkUsage(value, listenerName, ExemptRequest, timeMs)
   }
 
-  def recordExemptIoThread(value: Double, timeMs: Long) {
+  def recordExemptIoThread(value: Double, timeMs: Long): Unit = {
     exemptSensor.record(value, timeMs)
+  }
+
+  def removeListenerMetrics(listenerName: String): Unit = {
+    threadUsageSensors.removeListenerMetrics(listenerName)
   }
 
   /**

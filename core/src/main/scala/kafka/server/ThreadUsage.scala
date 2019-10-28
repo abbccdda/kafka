@@ -170,6 +170,13 @@ class ThreadUsageSensors(private val metrics: Metrics,
                       ThreadUsageMetrics.listenerNetworkThreadUsageMetricTags(listenerName), throttleTypeOpt)
   }
 
+  def removeListenerMetrics(listenerName: String): Unit = {
+    metrics.removeSensor(threadUsageSensorName(NetworkThread,
+      ThreadUsageMetrics.listenerNetworkThreadUsageMetricTags(listenerName), Some(NonExemptRequest)))
+    metrics.removeSensor(threadUsageSensorName(NetworkThread,
+      ThreadUsageMetrics.listenerNetworkThreadUsageMetricTags(listenerName), None))
+  }
+
   private def threadUsageSensorName(threadType: ThreadType,
                                     metricTags: Map[String, String],
                                     throttleTypeOpt: Option[RequestThrottleType]): String = {
