@@ -161,6 +161,7 @@ object Partition extends KafkaMetricsGroup {
     removeMetric("LastStableOffsetLag", tags)
     removeMetric("AtMinIsr", tags)
     removeMetric("IsNotCaughtUp", tags)
+    removeMetric("ObserverReplicasCount", tags)
   }
 }
 
@@ -281,6 +282,15 @@ class Partition(val topicPartition: TopicPartition,
     new Gauge[Int] {
       def value: Int = {
         if (isNotCaughtUp) 1 else 0
+      }
+    },
+    tags
+  )
+
+  newGauge("ObserverReplicasCount",
+    new Gauge[Int] {
+      def value: Int = {
+        if (isLeader) observerIds.size else 0
       }
     },
     tags

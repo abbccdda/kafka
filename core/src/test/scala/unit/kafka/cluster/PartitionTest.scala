@@ -1556,10 +1556,12 @@ class PartitionTest {
       "UnderReplicated",
       "UnderMinIsr",
       "InSyncReplicasCount",
+      "CaughtUpReplicasCount",
       "ReplicasCount",
       "LastStableOffsetLag",
       "AtMinIsr",
-      "IsNotCaughtUp"
+      "IsNotCaughtUp",
+      "ObserverReplicasCount"
     )
 
     def getMetric(metric: String): Option[Metric] = {
