@@ -1299,7 +1299,11 @@ class Partition(val topicPartition: TopicPartition,
         new ReplicaStatus(localBrokerId, ReplicaStatus.Mode.LEADER, true, true,
           leaderLog.logStartOffset, leaderLog.logEndOffset, curTimeMs, curTimeMs) ::
         remoteReplicasMap.values.map { replica =>
-          new ReplicaStatus(replica.brokerId, ReplicaStatus.Mode.FOLLOWER,
+          val mode = if (observerIds.contains(replica.brokerId))
+            ReplicaStatus.Mode.OBSERVER
+          else
+            ReplicaStatus.Mode.FOLLOWER
+          new ReplicaStatus(replica.brokerId, mode,
             isFollowerInSync(replica, leaderLog.highWatermark),
             inSyncReplicaIds.contains(replica.brokerId),
             replica.logStartOffset, replica.logEndOffsetMetadata.messageOffset,
