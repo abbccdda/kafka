@@ -9,9 +9,7 @@ GO_TEST_ARGS = -race -v -cover -p=1
 GO_CODECOV_TEST_ARGS = -race -v -cover -p=1
 
 include ../mk-include/cc-begin.mk
-ifeq ($(VERSION),)
 include ../mk-include/cc-semver.mk
-endif
 include ../mk-include/cc-go.mk
 include ../mk-include/cc-docker.mk
 include ../mk-include/cc-end.mk
