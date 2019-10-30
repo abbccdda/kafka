@@ -205,7 +205,12 @@ object Defaults {
   val TierS3AwsSecretAccessKey = null
   val TierS3EndpointOverride = null
   val TierS3SignerOverride = null
+  val TierS3AutoAbortThresholdBytes = 500000: Integer
   val TierFetcherNumThreads = 2: Integer
+  val TierFetcherOffsetCacheSize = 200000: Integer
+  val TierFetcherOffsetCacheExpirationMs = 30 * 60 * 1000
+  val TierFetcherOffsetCacheExpiryPeriodMs = 60000
+
   val TierObjectFetcherThreads = 1: Integer
   val TierPartitionStateCommitInterval = 15000: Integer
   val TierGcsBucket = null
@@ -478,6 +483,7 @@ object KafkaConfig {
   val TierS3AwsSecretAccessKeyProp = ConfluentPrefix + "tier.s3.aws.secret.access.key"
   val TierS3EndpointOverrideProp = ConfluentPrefix + "tier.s3.aws.endpoint.override"
   val TierS3SignerOverrideProp = ConfluentPrefix + "tier.s3.aws.signer.override"
+  val TierS3AutoAbortThresholdBytesProp = ConfluentPrefix + "tier.s3.auto.abort.threshold.bytes"
 
   /** Tiered storage GCS configs **/
   val TierGcsBucketProp = ConfluentPrefix + "tier.gcs.bucket"
@@ -487,6 +493,9 @@ object KafkaConfig {
 
   /** Tiered storage fetcher configs */
   val TierFetcherNumThreadsProp = ConfluentPrefix + "tier.fetcher.num.threads"
+  val TierFetcherOffsetCacheSizeProp = ConfluentPrefix + "tier.fetcher.offset.cache.size"
+  val TierFetcherOffsetCacheExpirationMsProp = ConfluentPrefix + "tier.fetcher.offset.cache.expiration.ms"
+  val TierFetcherOffsetCacheExpiryPeriodMsProp = ConfluentPrefix + "tier.fetcher.offset.cache.period.ms"
 
   /** Tiered storage retention configs **/
   val TierLocalHotsetBytesProp = ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_CONFIG
@@ -869,7 +878,12 @@ object KafkaConfig {
   val TierS3AwsSecretAccessKeyDoc = "The S3 AWS secret access key directly via the Kafka configuration. If not set, the secret access key will be supplied via the AWS default provider chain e.g. AWS_SECRET_ACCESS_KEY environment variable, ~/.aws/config, etc"
   val TierS3EndpointOverrideDoc = "Override picking an S3 endpoint. Normally this is performed automatically by the client."
   val TierS3SignerOverrideDoc = "Set the name of the signature algorithm used for signing S3 requests."
+  val TierS3AutoAbortThresholdBytesDoc = "The S3 client closes any connection that performs GetRequests that are not fully read. To promote connection reuse, the broker will read the remainder of a request if there are fewer bytes remaining than <code>confluent.tier.s3.auto.abort.threshold.bytes</code>."
   val TierFetcherNumThreadsDoc = "The size of the threadpool used by the TierFetcher. Roughly corresponds to # of concurrent fetch requests."
+  val TierFetcherOffsetCacheSizeDoc = "The maximum size of the TierFetcher LRU offset cache. This cache avoids use of the offset index by predicting the next fetch offset and the corresponding byte offset in tiered log segments"
+  val TierFetcherOffsetCacheExpirationMsDoc = "Expiration time (ms) for entries in the TierFetcher offset cache. Entries that have not been used for longer than the expiration time will be expired."
+  val TierFetcherOffsetCacheExpiryPeriodMsDoc = "Expiration period (ms) for the TierFetcher offset cache. Entries in the offset cache will be checked for expiration every period."
+
   val TierObjectFetcherThreadsDoc  = "The size of the threadpool use by the tier object fetcher. Currently this option is the concurrency factor for tier state fetches made by the replica fetcher threads."
   val TierPartitionStateCommitIntervalDoc = "The frequency in milliseconds that the TierTopicManager commits updates to TierPartitionState files. Decreasing this interval will reduce batching of updates. Increasing this interval will increase the time taken for tiered log segments from being deleted from local disk. "
   val TierGcsBucketDoc = "The GCS bucket to use for tiered storage."
@@ -1172,7 +1186,11 @@ object KafkaConfig {
       .defineInternal(TierS3AwsSecretAccessKeyProp, PASSWORD, Defaults.TierS3AwsSecretAccessKey, MEDIUM, TierS3AwsSecretAccessKeyDoc)
       .defineInternal(TierS3EndpointOverrideProp, STRING, Defaults.TierS3EndpointOverride, LOW, TierS3EndpointOverrideDoc)
       .defineInternal(TierS3SignerOverrideProp, STRING, Defaults.TierS3SignerOverride, LOW, TierS3SignerOverrideDoc)
+      .defineInternal(TierS3AutoAbortThresholdBytesProp, INT, Defaults.TierS3AutoAbortThresholdBytes, atLeast(0), LOW, TierS3AutoAbortThresholdBytesDoc)
       .defineInternal(TierFetcherNumThreadsProp, INT, Defaults.TierFetcherNumThreads, atLeast(1), MEDIUM, TierFetcherNumThreadsDoc)
+      .defineInternal(TierFetcherOffsetCacheSizeProp, INT, Defaults.TierFetcherOffsetCacheSize, atLeast(1), MEDIUM, TierFetcherOffsetCacheSizeDoc)
+      .defineInternal(TierFetcherOffsetCacheExpirationMsProp, INT, Defaults.TierFetcherOffsetCacheExpirationMs, atLeast(1), LOW, TierFetcherOffsetCacheExpirationMsDoc)
+      .defineInternal(TierFetcherOffsetCacheExpiryPeriodMsProp, INT, Defaults.TierFetcherOffsetCacheExpiryPeriodMs , atLeast(1), LOW, TierFetcherOffsetCacheExpiryPeriodMsDoc)
       .defineInternal(TierObjectFetcherThreadsProp, INT, Defaults.TierObjectFetcherThreads, atLeast(1), MEDIUM, TierObjectFetcherThreadsDoc)
       .defineInternal(TierPartitionStateCommitIntervalProp, INT, Defaults.TierPartitionStateCommitInterval, atLeast(0), MEDIUM, TierPartitionStateCommitIntervalDoc)
       .defineInternal(TierLocalHotsetBytesProp, LONG, Defaults.TierLocalHotsetBytes, HIGH, TierLocalHotsetBytesDoc)
@@ -1555,7 +1573,12 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierS3AwsSecretAccessKey = Option(getPassword(KafkaConfig.TierS3AwsSecretAccessKeyProp))
   val tierS3EndpointOverride = Option(getString(KafkaConfig.TierS3EndpointOverrideProp))
   val tierS3SignerOverride = Option(getString(KafkaConfig.TierS3SignerOverrideProp))
+  val tierS3AutoAbortThresholdBytes = getInt(KafkaConfig.TierS3AutoAbortThresholdBytesProp)
   val tierFetcherNumThreads = getInt(KafkaConfig.TierFetcherNumThreadsProp)
+  val tierFetcherOffsetCacheSize = getInt(KafkaConfig.TierFetcherOffsetCacheSizeProp)
+  val tierFetcherOffsetCacheExpirationMs = getInt(KafkaConfig.TierFetcherOffsetCacheExpirationMsProp)
+  val tierFetcherOffsetCacheExpiryPeriodMs = getInt(KafkaConfig.TierFetcherOffsetCacheExpiryPeriodMsProp)
+
   val tierObjectFetcherThreads = getInt(KafkaConfig.TierObjectFetcherThreadsProp)
   val tierPartitionStateCommitIntervalMs = getInt(KafkaConfig.TierPartitionStateCommitIntervalProp)
   val tierLocalHotsetBytes = getLong(KafkaConfig.TierLocalHotsetBytesProp)

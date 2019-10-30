@@ -8,12 +8,15 @@ import kafka.log.AbortedTxn;
 import kafka.log.OffsetPosition;
 import kafka.server.DelayedOperationKey;
 import kafka.server.TierFetchOperationKey;
+import kafka.tier.fetcher.offsetcache.CachedMetadata;
+import kafka.tier.fetcher.offsetcache.FetchOffsetCache;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.RecordBatch;
+import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.requests.IsolationLevel;
 
 import java.io.IOException;
@@ -39,9 +42,12 @@ public class PendingFetch implements Runnable {
     private final UUID requestId = UUID.randomUUID();
     private final CompletableFuture<TierFetchResult> transferPromise;
     private final IsolationLevel isolationLevel;
+    private final FetchOffsetCache cache;
+    private final CachedMetadata cachedMetadata;
 
     PendingFetch(CancellationContext cancellationContext,
                  TierObjectStore tierObjectStore,
+                 FetchOffsetCache cache,
                  Optional<Sensor> recordBytesFetched,
                  TierObjectStore.ObjectMetadata objectMetadata,
                  Consumer<DelayedOperationKey> fetchCompletionCallback,
@@ -56,9 +62,13 @@ public class PendingFetch implements Runnable {
         this.fetchCompletionCallback = fetchCompletionCallback;
         this.targetOffset = targetOffset;
         this.maxBytes = maxBytes;
+        this.cache = cache;
         this.ignoredTopicPartitions = ignoredTopicPartitions;
         this.transferPromise = new CompletableFuture<>();
         this.isolationLevel = isolationLevel;
+        // avoid unnecessary cache lookup for reads at the start of a segment.
+        this.cachedMetadata = targetOffset != objectMetadata.baseOffset() ?
+                cache.get(objectMetadata.objectId(), targetOffset) : null;
     }
 
     /**
@@ -74,10 +84,20 @@ public class PendingFetch implements Runnable {
      * @return boolean for whether the fetch is complete
      */
     public boolean isComplete() {
-        return this.transferPromise.isDone();
+        return transferPromise.isDone();
     }
 
     private OffsetPosition fetchOffsetPosition() throws Exception {
+        // base offset matches start of segment, the first byte of the object
+        // will correspond to the target offset
+        if (targetOffset == objectMetadata.baseOffset())
+            return new OffsetPosition(targetOffset, 0);
+
+        // used cached position stored via a previous fetch
+        if (cachedMetadata != null)
+            return new OffsetPosition(targetOffset, cachedMetadata.byteOffset);
+
+        // lookup closest offset via offset index
         return OffsetIndexFetchRequest.fetchOffsetPositionForStartingOffset(
                         cancellationContext,
                         tierObjectStore,
@@ -85,9 +105,27 @@ public class PendingFetch implements Runnable {
                         targetOffset);
     }
 
+    private Integer getEndRange(OffsetPosition offsetPosition) {
+        if (cachedMetadata != null && cachedMetadata.recordBatchSize != null) {
+            // We know the first batch size, so we can perform an object store range request as
+            // we can guarantee that we will be able to read at least one batch with the request.
+            // We will attempt to read the next batch header in excess of what we return so we know
+            // the next batch size (and thus the range) for the next follow up request.
+            int length = Math.max(cachedMetadata.recordBatchSize + Records.HEADER_SIZE_UP_TO_MAGIC, maxBytes);
+            return offsetPosition.position() + length;
+        }
+
+        return null;
+    }
+
     private TierObjectStoreResponse fetchSegment(OffsetPosition offsetPosition) throws IOException {
-        return tierObjectStore.getObject(objectMetadata,
-                TierObjectStore.FileType.SEGMENT, offsetPosition.position());
+        Integer endRange = getEndRange(offsetPosition);
+        if (endRange != null) {
+            return tierObjectStore.getObject(objectMetadata, TierObjectStore.FileType.SEGMENT,
+                    offsetPosition.position(), endRange);
+        }
+        return tierObjectStore.getObject(objectMetadata, TierObjectStore.FileType.SEGMENT,
+                offsetPosition.position());
     }
 
     private List<AbortedTxn> fetchAbortedTxns(MemoryRecords records) throws Exception {
@@ -119,20 +157,34 @@ public class PendingFetch implements Runnable {
             if (!cancellationContext.isCancelled()) {
                 final OffsetPosition offsetPosition = fetchOffsetPosition();
                 try (final TierObjectStoreResponse response = fetchSegment(offsetPosition)) {
-                    final MemoryRecords records = TierSegmentReader.loadRecords(cancellationContext,
-                            response.getInputStream(), maxBytes, targetOffset);
+                    final TierSegmentReader reader = new TierSegmentReader(cancellationContext,
+                            response.getInputStream());
+                    final MemoryRecords records = reader.readRecords(maxBytes, targetOffset);
+
                     if (objectMetadata.hasAbortedTxns() && isolationLevel == IsolationLevel.READ_COMMITTED) {
-                        List<AbortedTxn> abortedTxns = fetchAbortedTxns(records);
+                        final List<AbortedTxn> abortedTxns = fetchAbortedTxns(records);
                         completeFetch(records, abortedTxns, null);
                     } else {
                         completeFetch(records, Collections.emptyList(), null);
                     }
+                    updateCache(reader, records, offsetPosition.position());
                 }
             } else {
                 completeFetch(MemoryRecords.EMPTY, Collections.emptyList(), null);
             }
         } catch (Exception e) {
             completeFetch(MemoryRecords.EMPTY, Collections.emptyList(), e);
+        }
+    }
+
+    private void updateCache(TierSegmentReader reader,
+                             MemoryRecords records,
+                             int prevByteStart) {
+        if (reader.nextOffset() != null) {
+            // buffers returned by tier fetcher are exactly aligned to the end of batches,
+            // so we know the next expected fetch offset and its corresponding byte offset
+            final int nextByteOffset = prevByteStart + records.buffer().limit();
+            cache.put(objectMetadata.objectId(), reader.nextOffset(), nextByteOffset, reader.nextBatchSize());
         }
     }
 
@@ -163,7 +215,7 @@ public class PendingFetch implements Runnable {
      * Cancel the pending fetch.
      */
     public void cancel() {
-        this.cancellationContext.cancel();
+        cancellationContext.cancel();
     }
 
     /**
@@ -173,13 +225,11 @@ public class PendingFetch implements Runnable {
     private void completeFetch(MemoryRecords records,
                                List<AbortedTxn> abortedTxns,
                                Throwable throwable) {
-        final TierFetchResult tierFetchResult = new TierFetchResult(records, abortedTxns,
-                throwable);
-        this.transferPromise.complete(tierFetchResult);
+        final TierFetchResult tierFetchResult = new TierFetchResult(records, abortedTxns, throwable);
+        transferPromise.complete(tierFetchResult);
         if (fetchCompletionCallback != null) {
             for (DelayedOperationKey key : delayedOperationKeys())
                 fetchCompletionCallback.accept(key);
         }
     }
-
 }

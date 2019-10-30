@@ -17,12 +17,13 @@ public class AutoAbortingS3InputStream extends InputStream {
     private final S3ObjectInputStream innerInputStream;
     private long bytesRead = 0;
     private long totalBytes;
-    // Taken from Hadoop S3a logic where if the remaining bytes in the stream is greater than
-    // DEFAULT_READAHEAD_RANGE, then the connection is aborted.
-    private static final long CLOSE_THRESHOLD = 6 * 1024;
+    private final long autoAbortSize;
 
-    AutoAbortingS3InputStream(S3ObjectInputStream innerInputStream, long totalBytes) {
+    AutoAbortingS3InputStream(S3ObjectInputStream innerInputStream,
+                              long autoAbortSize,
+                              long totalBytes) {
         this.innerInputStream = innerInputStream;
+        this.autoAbortSize = autoAbortSize;
         this.totalBytes = totalBytes;
     }
 
@@ -53,12 +54,13 @@ public class AutoAbortingS3InputStream extends InputStream {
 
     @Override
     public void close() {
-        // This use a strategy taken from Hadoop's S3a. If there are over CLOSE_THRESHOLD bytes, we
-        // choose to abort the connection. If we are under CLOSE_THRESHOLD, we read the remaining
+        // This use a strategy taken from Hadoop's S3a. If there are over autoAbortSize bytes, we
+        // choose to abort the connection. If we are under autoAbortSize, we read the remaining
         // bytes. This is to be sympathetic to the backing connection pool used by the AmazonS3
-        // client.
+        // client. InputStreams which are not aborted allow for connection reuse which helps latency
+        // and avoids authorization costs from connection setup.
         // https://github.com/apache/hadoop/blob/trunk/hadoop-tools/hadoop-aws/src/main/java/org/apache/hadoop/fs/s3a/S3AInputStream.java#L521
-        boolean shouldAbort = remainingBytes() > CLOSE_THRESHOLD;
+        boolean shouldAbort = remainingBytes() > autoAbortSize;
         if (shouldAbort) {
             innerInputStream.abort();
         } else {

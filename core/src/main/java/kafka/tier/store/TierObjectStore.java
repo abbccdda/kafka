@@ -115,7 +115,7 @@ public interface TierObjectStore {
             return tierEpoch;
         }
 
-        public long baseOffet() {
+        public long baseOffset() {
             return baseOffset;
         }
 

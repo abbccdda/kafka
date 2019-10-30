@@ -24,6 +24,24 @@ import static org.apache.kafka.common.record.Records.MAGIC_OFFSET;
 import static org.apache.kafka.common.record.Records.SIZE_OFFSET;
 
 public class TierSegmentReader {
+    private final CancellationContext cancellationContext;
+    private final InputStream inputStream;
+    private int finalBatchStartPosition = 0;
+    private Long nextOffset = null;
+    private Integer nextBatchSize = null;
+
+    TierSegmentReader(CancellationContext cancellationContext, InputStream inputStream) {
+        this.cancellationContext = cancellationContext;
+        this.inputStream = inputStream;
+    }
+
+    public Long nextOffset() {
+        return nextOffset;
+    }
+
+    public Integer nextBatchSize() {
+        return nextBatchSize;
+    }
 
     /**
      * Loads records from a given InputStream up to maxBytes. This method will return at least one
@@ -37,11 +55,7 @@ public class TierSegmentReader {
      * individual record batch level. That's to say, cancellation must wait for the current record
      * batch to be parsed and loaded (or ignored) before taking effect.
      */
-    public static MemoryRecords loadRecords(CancellationContext cancellationContext,
-                                            InputStream inputStream,
-                                            int maxBytes,
-                                            long targetOffset) throws IOException {
-
+    public MemoryRecords readRecords(int maxBytes, long targetOffset) throws IOException {
         RecordBatch firstBatch = null;
         // skip over batches < targetOffset
         while (!cancellationContext.isCancelled()) {
@@ -56,27 +70,79 @@ public class TierSegmentReader {
             }
         }
 
-        if (firstBatch == null) {
+        if (firstBatch == null)
             return MemoryRecords.EMPTY;
-        }
 
+        // insert the first batch, ensuring the buffer size to at least as big as the first
+        // batch, even if this exceeds maxBytes
         final int firstBatchSize = firstBatch.sizeInBytes();
         final int totalRequestBytes = Math.max(firstBatchSize, maxBytes);
         final ByteBuffer buffer = ByteBuffer.allocate(totalRequestBytes);
         firstBatch.writeTo(buffer);
 
+        // We have already read more than maxBytes in the first record batch.
+        // Read the following record batch header to allow the next batch size to be cached
+        if (firstBatchSize >= maxBytes) {
+            // Read the next header to optimize the next range fetch
+            final ByteBuffer logHeaderBuffer = ByteBuffer.allocate(HEADER_SIZE_UP_TO_MAGIC);
+            final int bytesRead = Utils.readBytes(inputStream, logHeaderBuffer, HEADER_SIZE_UP_TO_MAGIC);
+            if (bytesRead == HEADER_SIZE_UP_TO_MAGIC)
+                nextBatchSize = readMagicAndBatchSize(logHeaderBuffer, 0).batchSize;
+        } else {
+            readBatchesUpToMaxBytes(cancellationContext, inputStream, buffer);
+        }
+
+        buffer.flip();
+        nextOffset = nextOffset(finalBatchStartPosition, buffer);
+        return new MemoryRecords(buffer);
+    }
+
+    // Read additional batches from input stream up to maxBytes
+    private void readBatchesUpToMaxBytes(CancellationContext cancellationContext, InputStream inputStream, ByteBuffer buffer) {
         while (!cancellationContext.isCancelled() && buffer.position() < buffer.limit()) {
             final int positionCheckpoint = buffer.position();
             try {
-                readBatchInto(inputStream, buffer);
+                final int bytesRead = Utils.readBytes(inputStream, buffer, HEADER_SIZE_UP_TO_MAGIC);
+                if (bytesRead < HEADER_SIZE_UP_TO_MAGIC) {
+                    buffer.position(positionCheckpoint);
+                    throw new EOFException("Could not read HEADER_SIZE_UP_TO_MAGIC from InputStream");
+                }
+
+                final int batchSize = readMagicAndBatchSize(buffer, positionCheckpoint).batchSize;
+                // store the current batch size in case we can't read the full batch. If we can't
+                // fit a full batch into max bytes, then, then we will be able to cache the size of
+                // the batch that will be read in the follow on fetch request.
+                nextBatchSize = batchSize;
+
+                final int remaining = batchSize - HEADER_SIZE_UP_TO_MAGIC;
+                if (remaining <= buffer.remaining() && Utils.readBytes(inputStream, buffer, remaining) >= remaining) {
+                    finalBatchStartPosition = positionCheckpoint;
+                    // we fully read the batch, so we do not need to know this batch size for the next fetch
+                    nextBatchSize = null;
+                } else {
+                    buffer.position(positionCheckpoint);
+                    break;
+                }
             } catch (IOException | IndexOutOfBoundsException ignored) {
                 buffer.position(positionCheckpoint);
                 break;
             }
         }
+    }
 
-        buffer.flip();
-        return new MemoryRecords(buffer);
+    private static long nextOffset(int finalBatchStartPosition, ByteBuffer buffer) {
+        final ByteBuffer duplicate = buffer.duplicate();
+        duplicate.position(finalBatchStartPosition);
+        final ByteBuffer batchBuffer = duplicate.slice();
+
+        final byte magic = batchBuffer.get(MAGIC_OFFSET);
+        final RecordBatch batch;
+        if (magic < RecordBatch.MAGIC_VALUE_V2)
+            batch = new AbstractLegacyRecordBatch.ByteBufferLegacyRecordBatch(batchBuffer);
+        else
+            batch = new DefaultRecordBatch(batchBuffer);
+
+        return batch.nextOffset();
     }
 
     /**
@@ -119,7 +185,7 @@ public class TierSegmentReader {
      * <p>
      * Throws EOFException if either the header or full record batch cannot be read.
      */
-    public static RecordBatch readBatch(InputStream inputStream) throws IOException {
+    static RecordBatch readBatch(InputStream inputStream) throws IOException {
         final ByteBuffer logHeaderBuffer = ByteBuffer.allocate(HEADER_SIZE_UP_TO_MAGIC);
         final int bytesRead = Utils.readBytes(inputStream, logHeaderBuffer, HEADER_SIZE_UP_TO_MAGIC);
         if (bytesRead < HEADER_SIZE_UP_TO_MAGIC)
@@ -158,43 +224,5 @@ public class TierSegmentReader {
             this.magic = magic;
             this.batchSize = batchSize;
         }
-    }
-
-    /**
-     * Similar to readBatch(), this method reads a full RecordBatch. The difference being, this
-     * method reads into ByteBuffer, avoiding extra allocations. This method only advances the
-     * position of the ByteBuffer if a full record batch is read.
-     * <p>
-     * Throws EOFException if either the header or full record batch cannot be read.
-     */
-    public static RecordBatch readBatchInto(InputStream inputStream, ByteBuffer buffer) throws IOException {
-        final int startingPosition = buffer.position();
-        final int bytesRead = Utils.readBytes(inputStream, buffer, HEADER_SIZE_UP_TO_MAGIC);
-        if (bytesRead < HEADER_SIZE_UP_TO_MAGIC) {
-            buffer.position(startingPosition);
-            throw new EOFException("Could not read HEADER_SIZE_UP_TO_MAGIC from InputStream");
-        }
-
-        final MagicAndBatchSizePair magicAndBatchSizePair = readMagicAndBatchSize(buffer, startingPosition);
-        final byte magic = magicAndBatchSizePair.magic;
-        final int batchSize = magicAndBatchSizePair.batchSize;
-        final int recordBatchBytesRead = Utils.readBytes(inputStream, buffer, batchSize - HEADER_SIZE_UP_TO_MAGIC);
-
-        if (recordBatchBytesRead < batchSize - HEADER_SIZE_UP_TO_MAGIC) {
-            buffer.position(startingPosition);
-            throw new EOFException("Attempted to read a record batch of size " + batchSize +
-                    " but was only able to read " + recordBatchBytesRead + " bytes");
-        }
-
-        final int currentPosition = buffer.position();
-        buffer.position(startingPosition);
-        ByteBuffer duplicate = buffer.slice();
-        buffer.position(currentPosition);
-        duplicate.limit(currentPosition - startingPosition);
-
-        if (magic < RecordBatch.MAGIC_VALUE_V2)
-            return new AbstractLegacyRecordBatch.ByteBufferLegacyRecordBatch(duplicate);
-        else
-            return new DefaultRecordBatch(duplicate);
     }
 }

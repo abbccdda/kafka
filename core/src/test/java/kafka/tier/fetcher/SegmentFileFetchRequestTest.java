@@ -9,6 +9,7 @@ import kafka.log.LogConfig;
 import kafka.log.LogSegment;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierObjectMetadata;
+import kafka.tier.fetcher.offsetcache.FetchOffsetCache;
 import kafka.tier.store.MockInMemoryTierObjectStore;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreConfig;
@@ -23,6 +24,7 @@ import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.requests.IsolationLevel;
 import org.apache.kafka.common.utils.ByteBufferInputStream;
 import org.apache.kafka.common.utils.MockTime;
+import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.test.TestUtils;
 import org.junit.Assert;
 import org.junit.Test;
@@ -64,9 +66,10 @@ public class SegmentFileFetchRequestTest {
             putSegment(tierObjectStore, segment, metadata, Optional.empty());
 
             long targetOffset = 149L;
-            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
-                    Optional.empty(),
-                    metadata, key -> { }, targetOffset, 1024, IsolationLevel.READ_UNCOMMITTED, Collections.emptyList());
+            PendingFetch pendingFetch =
+                    new PendingFetch(ctx, tierObjectStore, new FetchOffsetCache(Time.SYSTEM, 10, 1000),
+                    Optional.empty(), metadata, key -> { }, targetOffset, 1024,
+                            IsolationLevel.READ_UNCOMMITTED, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
 
@@ -107,8 +110,10 @@ public class SegmentFileFetchRequestTest {
             putSegment(tierObjectStore, segment, metadata, Optional.empty());
 
             Long targetOffset = 150L;
-            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore, Optional.empty(),
-                    metadata, key -> { }, targetOffset, 1024, IsolationLevel.READ_UNCOMMITTED, Collections.emptyList());
+            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
+                    new FetchOffsetCache(Time.SYSTEM, 10, 1000), Optional.empty(), metadata,
+                    key -> { },
+                    targetOffset, 1024, IsolationLevel.READ_UNCOMMITTED, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
 
@@ -188,8 +193,9 @@ public class SegmentFileFetchRequestTest {
                             serializedAbortedTxns.isPresent()));
             putSegment(tierObjectStore, segment, metadata, serializedAbortedTxns);
             long targetOffset = 0L;
-            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore, Optional.empty(),
-                    metadata, key -> { }, targetOffset, 1024,
+            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
+                    new FetchOffsetCache(Time.SYSTEM, 10, 1000), Optional.empty(), metadata,
+                    key -> { }, targetOffset, 1024,
                     IsolationLevel.READ_COMMITTED, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
@@ -234,8 +240,9 @@ public class SegmentFileFetchRequestTest {
                             serializedAbortedTxns.isPresent()));
             putSegment(tierObjectStore, segment, metadata, serializedAbortedTxns);
             long targetOffset = 0L;
-            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore, Optional.empty(),
-                    metadata, key -> { }, targetOffset, 1024,
+            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
+                    new FetchOffsetCache(Time.SYSTEM, 10, 1000), Optional.empty(), metadata,
+                    key -> { }, targetOffset, 1024,
                     IsolationLevel.READ_COMMITTED, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
@@ -288,8 +295,9 @@ public class SegmentFileFetchRequestTest {
             // set the tier object store to throw when fetching the transaction index
             tierObjectStore.throwExceptionOnTransactionFetch = true;
 
-            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore, Optional.empty(),
-                    metadata, key -> { }, 0L, 1024,
+            PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
+                    new FetchOffsetCache(Time.SYSTEM, 10, 1000), Optional.empty(), metadata,
+                    key -> { }, 0L, 1024,
                     IsolationLevel.READ_COMMITTED, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
@@ -305,8 +313,9 @@ public class SegmentFileFetchRequestTest {
             tierObjectStore.throwExceptionOnTransactionFetch = false;
             tierObjectStore.throwExceptionOnSegmentFetch = true;
 
-            pendingFetch = new PendingFetch(ctx, tierObjectStore, Optional.empty(),
-                    metadata, key -> { }, 0L, 1024,
+            pendingFetch = new PendingFetch(ctx, tierObjectStore,
+                    new FetchOffsetCache(Time.SYSTEM, 10, 1000), Optional.empty(), metadata,
+                    key -> { }, 0L, 1024,
                     IsolationLevel.READ_COMMITTED, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             result = pendingFetch.finish().get(topicPartition);

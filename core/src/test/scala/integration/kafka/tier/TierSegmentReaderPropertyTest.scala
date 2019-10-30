@@ -2,14 +2,13 @@
 Copyright 2018 Confluent Inc.
 */
 
-package kafka.tier
+package kafka.tier.fetcher
 
 import java.io.EOFException
 import java.nio.ByteBuffer
 import java.util.Optional
 import java.util.function.Consumer
 
-import kafka.tier.fetcher.{CancellationContext, TierSegmentReader}
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.utils.ByteBufferInputStream
 import org.apache.kafka.test.IntegrationTest
@@ -24,8 +23,8 @@ import org.scalatestplus.scalacheck.Checkers
 import scala.collection.JavaConverters._
 
 /**
-  * Defines the parameters needed to construct a record batch
-  */
+ * Defines the parameters needed to construct a record batch
+ */
 case class RecordBatchDefiniton(numRecords: Int, magic: Byte, compressionType: CompressionType, timestamps: List[Long], key: String, value: String) {
   def generateBatch(baseOffset: Long): MemoryRecords = {
     val records: Array[SimpleRecord] = new Array[SimpleRecord](numRecords)
@@ -218,19 +217,6 @@ class TierSegmentReaderPropertyTest extends FunSuite with Checkers {
     batches
   }
 
-  private def readRecordBatchesInto(inputStream: ByteBufferInputStream, byteBuffer: ByteBuffer): List[RecordBatch] = {
-    var continue = true
-    var batches: List[RecordBatch] = List()
-    while (continue) {
-      try {
-        batches :+= TierSegmentReader.readBatchInto(inputStream, byteBuffer)
-      } catch {
-        case _: EOFException => continue = false
-      }
-    }
-    batches
-  }
-
   test("readBatchPropertyTest") {
     check {
       forAll(SegmentViewDefinition.gen) { segmentViewDefinition: SegmentViewDefinition => {
@@ -238,23 +224,6 @@ class TierSegmentReaderPropertyTest extends FunSuite with Checkers {
         segmentViewDefinition.checkRecordBatchCountAndSize(resultRecords) &&
           resultRecords.forall(r => r.isValid) &&
           segmentViewDefinition.checkRecordBatchesMatch(resultRecords)
-      }
-      }
-    }
-  }
-
-  test("readBatchIntoPropertyTest") {
-    check {
-      forAll(SegmentViewDefinition.gen) { segmentViewDefinition => {
-        val inputStream = segmentViewDefinition.bytesAsInputStream()
-        val bytesAvailable = segmentViewDefinition.bytesAvailable()
-        val buffer = ByteBuffer.allocate(bytesAvailable)
-        val resultRecords = readRecordBatchesInto(inputStream, buffer)
-
-        segmentViewDefinition.checkRecordBatchCountAndSize(resultRecords) &&
-          resultRecords.forall(r => r.isValid) &&
-          segmentViewDefinition.checkRecordBatchesMatch(resultRecords) &&
-          buffer.limit() == buffer.capacity()
       }
       }
     }
@@ -307,7 +276,8 @@ class TierSegmentReaderPropertyTest extends FunSuite with Checkers {
         val inputStream = segmentViewDefinition.bytesAsInputStream()
         val bytesAvailable = segmentViewDefinition.bytesAvailable()
         val cancellationContext = CancellationContext.newContext()
-        val resultMemoryRecords = TierSegmentReader.loadRecords(cancellationContext, inputStream, bytesAvailable, 0)
+        val reader = new TierSegmentReader(cancellationContext, inputStream)
+        val resultMemoryRecords = reader.readRecords(bytesAvailable, 0)
         val resultRecords = SegmentViewDefinition.flattenMemoryRecords(List(resultMemoryRecords))
 
         segmentViewDefinition.checkRecordBatchCountAndSize(resultRecords) &&
@@ -325,7 +295,8 @@ class TierSegmentReaderPropertyTest extends FunSuite with Checkers {
         val cancellationContext = CancellationContext.newContext()
         val targetOffset = loadRecordsRequestDef.targetOffset
         val maxBytes = loadRecordsRequestDef.maxBytes
-        val resultMemoryRecords = TierSegmentReader.loadRecords(cancellationContext, inputStream, maxBytes, targetOffset)
+        val reader = new TierSegmentReader(cancellationContext, inputStream)
+        val resultMemoryRecords = reader.readRecords(maxBytes, targetOffset)
         val resultRecordBatches = SegmentViewDefinition.flattenMemoryRecords(List(resultMemoryRecords))
         loadRecordsRequestDef.checkRecordBatches(resultRecordBatches)
       }}

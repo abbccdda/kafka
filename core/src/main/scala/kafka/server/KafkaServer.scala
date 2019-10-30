@@ -314,8 +314,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
             case "mock" => Some(new MockInMemoryTierObjectStore(new TierObjectStoreConfig(clusterId, config)))
             case v => throw new IllegalStateException(s"Unknown TierObjectStore type: %s".format(v))
           }
-
-          tierFetcherOpt = Some(new TierFetcher(new TierFetcherConfig(config), tierObjectStoreOpt.get, metrics, logContext))
+          tierFetcherOpt = Some(new TierFetcher(new TierFetcherConfig(config), tierObjectStoreOpt.get, kafkaScheduler, metrics, logContext))
           tierStateFetcherOpt = Some(new TierStateFetcher(config.tierObjectFetcherThreads, tierObjectStoreOpt.get))
           tierTopicConsumerOpt = Some(new TierTopicConsumer(tierTopicManagerConfig, logDirFailureChannel))
         }

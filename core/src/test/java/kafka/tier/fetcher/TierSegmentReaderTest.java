@@ -60,8 +60,8 @@ public class TierSegmentReaderTest {
         try {
             ByteBufferInputStream is = new ByteBufferInputStream(combinedBuffer);
             CancellationContext cancellationContext = CancellationContext.newContext();
-            MemoryRecords records =
-                    TierSegmentReader.loadRecords(cancellationContext.subContext(), is, 1000, target);
+            TierSegmentReader reader = new TierSegmentReader(cancellationContext.subContext(), is);
+            MemoryRecords records = reader.readRecords(1000, target);
 
             Long firstOffset = null;
             Long lastOffset = null;

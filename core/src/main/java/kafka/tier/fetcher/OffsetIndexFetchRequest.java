@@ -24,7 +24,7 @@ final class OffsetIndexFetchRequest {
                                                                TierObjectStore tierObjectStore,
                                                                TierObjectStore.ObjectMetadata tierObjectMetadata,
                                                                long targetOffset) throws Exception {
-        final long startOffset = tierObjectMetadata.baseOffet();
+        final long startOffset = tierObjectMetadata.baseOffset();
         final OffsetPosition defaultOffsetPosition = new OffsetPosition(startOffset, 0);
 
         try (TierObjectStoreResponse response = tierObjectStore.getObject(

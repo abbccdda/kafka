@@ -28,8 +28,8 @@ final class TimestampIndexFetchRequest {
                                                    TierObjectStore tierObjectStore,
                                                    TierObjectStore.ObjectMetadata tierObjectMetadata,
                                                    long targetTimestamp) throws Exception {
-        final long startOffset = tierObjectMetadata.baseOffet();
-        TimestampOffset found = new TimestampOffset(targetTimestamp, tierObjectMetadata.baseOffet());
+        final long startOffset = tierObjectMetadata.baseOffset();
+        TimestampOffset found = new TimestampOffset(targetTimestamp, tierObjectMetadata.baseOffset());
         try (TierObjectStoreResponse timestampResponse = tierObjectStore.getObject(
                 tierObjectMetadata,
                 TierObjectStore.FileType.TIMESTAMP_INDEX)) {

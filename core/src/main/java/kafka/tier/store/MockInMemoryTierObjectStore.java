@@ -120,7 +120,7 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
                 + objectMetadata.objectIdAsBase64()
                 + "/" + objectMetadata.topicIdPartition().topicIdAsBase64()
                 + "/" + objectMetadata.topicIdPartition().partition()
-                + "/" + Log.filenamePrefixFromOffset(objectMetadata.baseOffet())
+                + "/" + Log.filenamePrefixFromOffset(objectMetadata.baseOffset())
                 + "_" + objectMetadata.tierEpoch()
                 + "_v" + objectMetadata.version()
                 + "." + fileType.suffix();
@@ -157,7 +157,7 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
         }
 
         @Override
-        public Long getObjectSize() {
+        public Long getStreamSize() {
             return this.objectSize;
         }
 

@@ -26,7 +26,7 @@ public class TierObjectStoreUtils {
                 + "/" + objectMetadata.objectIdAsBase64()
                 + "/" + objectMetadata.topicIdPartition().topicIdAsBase64()
                 + "/" + objectMetadata.topicIdPartition().partition()
-                + "/" + Log.filenamePrefixFromOffset(objectMetadata.baseOffet())
+                + "/" + Log.filenamePrefixFromOffset(objectMetadata.baseOffset())
                 + "_" + objectMetadata.tierEpoch()
                 + "_v" + objectMetadata.version()
                 + "." + fileType.suffix();

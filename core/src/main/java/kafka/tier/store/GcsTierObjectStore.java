@@ -200,7 +200,7 @@ public class GcsTierObjectStore implements TierObjectStore {
         }
 
         @Override
-        public Long getObjectSize() {
+        public Long getStreamSize() {
             return objectSize;
         }
     }

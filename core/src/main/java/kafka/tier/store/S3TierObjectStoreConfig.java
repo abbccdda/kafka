@@ -19,6 +19,7 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
     public Optional<String> s3SignerOverride;
     public String s3SseAlgorithm;
     public Integer s3MultipartUploadSize;
+    public Integer s3AutoAbortThresholdBytes;
 
     public S3TierObjectStoreConfig(String clusterId, KafkaConfig config) {
         super(clusterId, config);
@@ -32,6 +33,7 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
         this.s3MultipartUploadSize = config.tierS3MultipartUploadSize();
         if (!config.tierS3SseAlgorithm().equals(KafkaConfig.TIER_S3_SSE_ALGORITHM_NONE()))
             this.s3SseAlgorithm = config.tierS3SseAlgorithm();
+        this.s3AutoAbortThresholdBytes = config.tierS3AutoAbortThresholdBytes();
     }
 
     // used for testing
@@ -44,7 +46,8 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
                             String endpointOverride,
                             String signerOverride,
                             String sseAlgorithm,
-                            Integer multipartUploadSize) {
+                            Integer multipartUploadSize,
+                            Integer s3AutoAbortThresholdBytes) {
         super(clusterId, brokerId);
         this.s3bucket = bucket;
         this.s3Region = region;
@@ -54,6 +57,7 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
         this.s3SignerOverride = Optional.ofNullable(signerOverride);
         this.s3SseAlgorithm = sseAlgorithm;
         this.s3MultipartUploadSize = multipartUploadSize;
+        this.s3AutoAbortThresholdBytes = s3AutoAbortThresholdBytes;
     }
 
     private void validateConfig(KafkaConfig config) {

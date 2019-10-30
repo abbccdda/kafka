@@ -47,6 +47,7 @@ public class S3TierObjectStore implements TierObjectStore {
     private final String bucket;
     private final String sseAlgorithm;
     private final int partUploadSize;
+    private final int autoAbortThresholdBytes;
     private AmazonS3 client;
 
     public S3TierObjectStore(S3TierObjectStoreConfig config) {
@@ -61,6 +62,7 @@ public class S3TierObjectStore implements TierObjectStore {
         this.bucket = config.s3bucket;
         this.sseAlgorithm = config.s3SseAlgorithm;
         this.partUploadSize = config.s3MultipartUploadSize;
+        this.autoAbortThresholdBytes = config.s3AutoAbortThresholdBytes;
         expectBucket(bucket, config.s3Region);
     }
 
@@ -92,7 +94,7 @@ public class S3TierObjectStore implements TierObjectStore {
         }
 
         final S3ObjectInputStream inputStream = object.getObjectContent();
-        return new S3TierObjectStoreResponse(inputStream, object.getObjectMetadata().getContentLength());
+        return new S3TierObjectStoreResponse(inputStream, autoAbortThresholdBytes, object.getObjectMetadata().getContentLength());
     }
 
     @Override
@@ -250,11 +252,13 @@ public class S3TierObjectStore implements TierObjectStore {
 
     private static class S3TierObjectStoreResponse implements TierObjectStoreResponse {
         private final AutoAbortingS3InputStream inputStream;
-        private final long objectSize;
+        private final long streamSize;
 
-        S3TierObjectStoreResponse(S3ObjectInputStream inputStream, long objectSize) {
-            this.inputStream = new AutoAbortingS3InputStream(inputStream, objectSize);
-            this.objectSize = objectSize;
+        S3TierObjectStoreResponse(S3ObjectInputStream inputStream,
+                                  long autoAbortSize,
+                                  long streamSize) {
+            this.inputStream = new AutoAbortingS3InputStream(inputStream, autoAbortSize, streamSize);
+            this.streamSize = streamSize;
         }
 
         @Override
@@ -268,8 +272,8 @@ public class S3TierObjectStore implements TierObjectStore {
         }
 
         @Override
-        public Long getObjectSize() {
-            return objectSize;
+        public Long getStreamSize() {
+            return streamSize;
         }
     }
 }

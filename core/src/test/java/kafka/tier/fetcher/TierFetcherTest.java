@@ -11,6 +11,7 @@ import kafka.tier.TierTimestampAndOffset;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
+import kafka.utils.KafkaScheduler;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.record.CompressionType;
@@ -34,7 +35,6 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -48,6 +48,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.IntStream;
 
 import static junit.framework.TestCase.assertTrue;
+import static org.easymock.EasyMock.createNiceMock;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
@@ -63,7 +64,8 @@ public class TierFetcherTest {
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
         TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
         Metrics metrics = new Metrics();
-        TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
+        KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
+        TierFetcher tierFetcher = new TierFetcher(tierObjectStore, kafkaScheduler, metrics);
         try {
             int maxBytes = 600;
             TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicIdPartition.topicPartition(), 0,
@@ -73,10 +75,9 @@ public class TierFetcherTest {
             CompletableFuture<Boolean> f = new CompletableFuture<>();
             tierObjectStore.failNextRequest();
             assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
-            PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Arrays.asList(fetchMetadata)),
+            PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
                     IsolationLevel.READ_UNCOMMITTED,
                     ignored -> f.complete(true));
-            DelayedOperation delayedFetch = new MockDelayedFetch(pending);
             assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
 
             // We fetched no bytes because there was an exception.
@@ -138,7 +139,8 @@ public class TierFetcherTest {
         TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
 
         Metrics metrics = new Metrics();
-        TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
+        KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
+        TierFetcher tierFetcher = new TierFetcher(tierObjectStore, kafkaScheduler, metrics);
         try {
             TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicIdPartition.topicPartition(), 0,
                     10000, 1000L, true, tierObjectMetadata,
@@ -146,7 +148,7 @@ public class TierFetcherTest {
 
             CompletableFuture<Boolean> f = new CompletableFuture<>();
             assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
-            PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Arrays.asList(fetchMetadata)),
+            PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
                     IsolationLevel.READ_UNCOMMITTED,
                     ignored -> f.complete(true));
             DelayedOperation delayedFetch = new MockDelayedFetch(pending);
@@ -168,6 +170,99 @@ public class TierFetcherTest {
             }
         } finally {
             tierFetcher.close();
+        }
+    }
+
+    @Test
+    public void tierFetcherRepeatedFetchesViaOffsetCacheTest() throws Exception {
+        // this test performs repeated tier fetches from a single segment
+        // to test the use of the offset cache. The first fetch will be from the start of the
+        // segment, and this will seed the offset cache such that none of the remaining fetches
+        // require offset index lookups to be completed.
+        File logSegmentDir = TestUtils.tempDirectory();
+        Properties logProps = new Properties();
+        logProps.put(LogConfig.IndexIntervalBytesProp(), 1);
+        Set<String> override = Collections.emptySet();
+        LogConfig logConfig = LogConfig.apply(logProps, scala.collection.JavaConverters.asScalaSetConverter(override).asScala().toSet());
+        LogSegment logSegment = LogSegment.open(logSegmentDir, 0, logConfig, mockTime, false, 4096, false, "");
+        try {
+            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset()));
+            logSegment.flush();
+            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset()));
+            logSegment.flush();
+            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset()));
+            logSegment.flush();
+            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset()));
+            logSegment.flush();
+            logSegment.offsetIndex().flush();
+            logSegment.offsetIndex().trimToValidSize();
+
+            long expectedEndOffset = logSegment.readNextOffset() - 1;
+
+            File offsetIndexFile = logSegment.offsetIndex().file();
+            ByteBuffer offsetIndexBuffer = ByteBuffer.wrap(Files.readAllBytes(offsetIndexFile.toPath()));
+            File timestampIndexFile = logSegment.offsetIndex().file();
+            ByteBuffer timestampIndexBuffer =
+                    ByteBuffer.wrap(Files.readAllBytes(timestampIndexFile.toPath()));
+            File segmentFile = logSegment.log().file();
+            ByteBuffer segmentFileBuffer = ByteBuffer.wrap(Files.readAllBytes(segmentFile.toPath()));
+
+            MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
+                    offsetIndexBuffer, timestampIndexBuffer);
+            TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
+            UUID objectId = UUID.randomUUID();
+            TierObjectStore.ObjectMetadata tierObjectMetadata =
+                    new TierObjectStore.ObjectMetadata(topicIdPartition, objectId, 0, 0, false);
+            Metrics metrics = new Metrics();
+
+            KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
+            TierFetcher tierFetcher = new TierFetcher(tierObjectStore, kafkaScheduler, metrics);
+            try {
+                int expectedCacheEntries = 0;
+                long fetchOffset = 0L;
+                while (fetchOffset < expectedEndOffset) {
+                    TierFetchMetadata fetchMetadata =
+                            new TierFetchMetadata(topicIdPartition.topicPartition(), fetchOffset,
+                                    1000, 1000L, true,
+                                    tierObjectMetadata, Option.empty(), 0, segmentFileBuffer.limit());
+                    CompletableFuture<Boolean> f = new CompletableFuture<>();
+
+                    PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
+                            IsolationLevel.READ_UNCOMMITTED,
+                            ignored -> f.complete(true));
+                    DelayedOperation delayedFetch = new MockDelayedFetch(pending);
+                    assertTrue(f.get(4000, TimeUnit.MILLISECONDS));
+
+                    Map<TopicPartition, TierFetchResult> fetchResults = pending.finish();
+                    assertNotNull("expected non-null fetch result", fetchResults);
+
+                    assertTrue((Double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue() > 0.0);
+                    assertTrue(delayedFetch.tryComplete());
+
+                    TierFetchResult fetchResult = fetchResults.get(topicIdPartition.topicPartition());
+                    Records records = fetchResult.records;
+                    for (Record record : records.records()) {
+                        assertEquals("Offset not expected", fetchOffset, record.offset());
+                        fetchOffset++;
+                    }
+
+                    // cache entry will not be inserted for final read, as there's nothing after
+                    // the final read for the segment
+                    if (fetchOffset != expectedEndOffset)
+                        expectedCacheEntries++;
+
+                    final long expected = expectedCacheEntries;
+                    TestUtils.waitForCondition(() -> expected == tierFetcher.cache.size(),
+                            "cache not updated by timeout");
+                }
+                assertEquals(fetchOffset - 1, expectedEndOffset);
+                assertEquals(1.0, tierFetcher.cache.hitRatio(), 0.0001);
+                assertEquals("offset index should not have been used", 0, tierObjectStore.offsetIndexReads);
+            } finally {
+                tierFetcher.close();
+            }
+        } finally {
+            logSegment.deleteIfExists();
         }
     }
 
@@ -211,7 +306,8 @@ public class TierFetcherTest {
             TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
             Metrics metrics = new Metrics();
 
-            TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
+            KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
+            TierFetcher tierFetcher = new TierFetcher(tierObjectStore, kafkaScheduler, metrics);
             try {
                 TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicIdPartition.topicPartition(), 100,
                         10000, 1000L, true,
@@ -219,7 +315,7 @@ public class TierFetcherTest {
                 CompletableFuture<Boolean> f = new CompletableFuture<>();
 
                 assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
-                PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Arrays.asList(fetchMetadata)),
+                PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
                         IsolationLevel.READ_UNCOMMITTED,
                         ignored -> f.complete(true));
                 DelayedOperation delayedFetch = new MockDelayedFetch(pending);
@@ -288,8 +384,8 @@ public class TierFetcherTest {
             TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
             TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
             Metrics metrics = new Metrics();
-
-            TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
+            KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
+            TierFetcher tierFetcher = new TierFetcher(tierObjectStore, kafkaScheduler, metrics);
             try {
                 // test success
                 {
@@ -360,7 +456,8 @@ public class TierFetcherTest {
             TopicPartition topicPartition = topicIdPartition.topicPartition();
             TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
             Metrics metrics = new Metrics();
-            TierFetcher tierFetcher = new TierFetcher(tierObjectStore, metrics);
+            KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
+            TierFetcher tierFetcher = new TierFetcher(tierObjectStore, kafkaScheduler, metrics);
             try {
                 int maxBytes = 600;
                 TierFetchMetadata fetchMetadata =
@@ -369,9 +466,8 @@ public class TierFetcherTest {
                         tierObjectMetadata, Option.empty(), 0, 1000);
 
                 CompletableFuture<Boolean> f = new CompletableFuture<>();
-
                 assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
-                PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Arrays.asList(fetchMetadata)), IsolationLevel.READ_UNCOMMITTED, ignored -> f.complete(true));
+                PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)), IsolationLevel.READ_UNCOMMITTED, ignored -> f.complete(true));
                 DelayedOperation delayedFetch = new MockDelayedFetch(pending);
                 assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
 
@@ -406,6 +502,9 @@ public class TierFetcherTest {
         private final ByteBuffer offsetByteBuffer;
         private final ByteBuffer timestampByteBuffer;
         private final AtomicBoolean failNextRequest = new AtomicBoolean(false);
+        int segmentReads = 0;
+        int offsetIndexReads = 0;
+        int timestampIndexReads = 0;
 
         MockedTierObjectStore(ByteBuffer segmentByteBuffer,
                               ByteBuffer indexByteBuffer,
@@ -430,7 +529,7 @@ public class TierFetcherTest {
             }
 
             @Override
-            public Long getObjectSize() {
+            public Long getStreamSize() {
                 return size;
             }
 
@@ -457,17 +556,20 @@ public class TierFetcherTest {
             }
             ByteBuffer buffer;
             if (fileType == FileType.OFFSET_INDEX) {
+                offsetIndexReads++;
                 buffer = offsetByteBuffer;
             } else if (fileType == FileType.SEGMENT) {
+                segmentReads++;
                 buffer = segmentByteBuffer;
             } else if (fileType == FileType.TIMESTAMP_INDEX) {
+                timestampIndexReads++;
                 buffer = timestampByteBuffer;
             } else {
                 throw new UnsupportedOperationException();
             }
 
             int start = byteOffset == null ? 0 : byteOffset;
-            int end = byteOffsetEnd == null ? buffer.array().length : byteOffsetEnd;
+            int end = byteOffsetEnd == null ? buffer.array().length : Math.min(byteOffsetEnd, buffer.array().length);
             int byteBufferSize = Math.min(end - start, buffer.array().length);
             ByteBuffer buf = ByteBuffer.allocate(byteBufferSize);
             buf.put(buffer.array(), start, end - start);

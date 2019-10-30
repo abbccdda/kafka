@@ -183,12 +183,14 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
     val mBeanServer = ManagementFactory.getPlatformMBeanServer
 
     val bean = "kafka.server:type=TierFetcher"
-    val attrs = Array("BytesFetchedTotal")
-    val List(bytesFetchedTotal) = mBeanServer
+    val attrs = Array("BytesFetchedTotal", "OffsetCacheHitRatio")
+    val List(bytesFetchedTotal, offsetCacheHitRatio) = mBeanServer
       .getAttributes(new ObjectName(bean), attrs)
       .asList.asScala
       .map { attr => attr.getValue.asInstanceOf[Double] }
       .toList
+
+    assertEquals("offset cache should not have shown misses",1.0, offsetCacheHitRatio, 0.000001)
 
     assertTrue("tier fetch metric shows no data fetched from tiered storage",
       bytesFetchedTotal > 100)

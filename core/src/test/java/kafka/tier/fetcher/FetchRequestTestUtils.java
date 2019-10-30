@@ -83,7 +83,7 @@ class FetchRequestTestUtils {
                     }
 
                     @Override
-                    public Long getObjectSize() {
+                    public Long getStreamSize() {
                         return finalObjectSize;
                     }
 

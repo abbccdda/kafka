@@ -1,5 +1,6 @@
 package kafka.tier.fetcher;
 
+import kafka.tier.fetcher.offsetcache.FetchOffsetCache;
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
@@ -19,17 +20,27 @@ class TierFetcherMetrics {
     private final Sensor bytesFetched;
 
     private final String queueSizeName = "QueueSize";
+    private final String offsetCacheHitName = "OffsetCacheHitRatio";
+    private final String offsetCacheSizeName = "OffsetCacheSize";
 
     private final List<Sensor> sensors = new ArrayList<>();
     final MetricName queueSizeMetricName;
     final MetricName bytesFetchedRateMetricName;
     final MetricName bytesFetchedTotalMetricName;
+    final MetricName offsetCacheHitMetricName;
+    final MetricName offsetCacheSizeMetricName;
 
-    TierFetcherMetrics(Metrics metrics, ThreadPoolExecutor executor) {
+    TierFetcherMetrics(Metrics metrics, ThreadPoolExecutor executor, FetchOffsetCache cache) {
         this.metrics = metrics;
         this.queueSizeMetricName = metrics.metricName(queueSizeName,
                 metricGroupName, "The number of elements in the TierFetcher executor "
                         + "queue.",
+                Collections.emptyMap());
+        this.offsetCacheHitMetricName = metrics.metricName(offsetCacheHitName,
+                metricGroupName, "TierFetcher offset cache hit ratio",
+                Collections.emptyMap());
+        this.offsetCacheSizeMetricName = metrics.metricName(offsetCacheSizeName,
+                metricGroupName, "Number of entries in the TierFetcher offset cache",
                 Collections.emptyMap());
 
         this.bytesFetched = sensor(bytesFetchedPrefix);
@@ -49,6 +60,23 @@ class TierFetcherMetrics {
             }
         };
         metrics.addMetric(queueSizeMetricName, queueSizeGauge);
+
+        final Gauge<Long> offsetCacheSize = new Gauge<Long>() {
+            @Override
+            public Long value(MetricConfig config, long now) {
+                return cache.size();
+            }
+        };
+        metrics.addMetric(offsetCacheSizeMetricName, offsetCacheSize);
+
+        final Gauge<Double> offsetCacheHitGauge = new Gauge<Double>() {
+            @Override
+            public Double value(MetricConfig config, long now) {
+                return cache.hitRatio();
+            }
+        };
+        metrics.addMetric(offsetCacheHitMetricName, offsetCacheHitGauge);
+
         this.bytesFetched.add(bytesFetchedMeter);
     }
 
