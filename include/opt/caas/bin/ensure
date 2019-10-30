@@ -13,7 +13,7 @@ echo "===> Check that log dirs are writable ..."
 # We create the data directory here if necessary to avoid the issue
 # where a mounted volume has a lost+found directory
 # which makes the broker choke thinking it's a Kafka topic
-export KAFKA_LOG_DIRS=$(grep "log.dirs" /opt/caas/config/"${COMPONENT}"/"${COMPONENT}".properties | cut -d '=' -f 2)
+export KAFKA_LOG_DIRS=$(grep "log.dirs" ${KAFKA_CONFIG_DIR}/kafka.properties | cut -d '=' -f 2)
 mkdir -p "$KAFKA_LOG_DIRS" && chmod -R ag+w "$KAFKA_LOG_DIRS"
 dub path "$KAFKA_LOG_DIRS" writable
 
@@ -22,5 +22,5 @@ mkdir -p "$KAFKA_LOG4J_DIR" && chmod -R ag+w "$KAFKA_LOG4J_DIR"
 dub path "$KAFKA_LOG4J_DIR" writable
 
 echo "===> Check if Zookeeper is healthy ..."
-export KAFKA_ZOOKEEPER_CONNECT=$(grep "zookeeper.connect" /opt/caas/config/"${COMPONENT}"/"${COMPONENT}".properties | cut -d '=' -f 2)
+export KAFKA_ZOOKEEPER_CONNECT=$(grep "zookeeper.connect" ${KAFKA_CONFIG_DIR}/kafka.properties | cut -d '=' -f 2)
 cub zk-ready "$KAFKA_ZOOKEEPER_CONNECT" "${KAFKA_CUB_ZK_TIMEOUT:-40}"

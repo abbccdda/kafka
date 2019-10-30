@@ -32,10 +32,17 @@ keytool -importkeystore \
 
 fi
 
+SERVER_PROPS_FILE="${KAFKA_CONFIG_DIR}/kafka.properties"
+if [ -f "${SERVER_PROPS_FILE}" ]; then
+	echo "Server properties file was already generated (by init container): ${SERVER_PROPS_FILE}"
+else
+	echo "Server properties file was not yet created...generating it: ${SERVER_PROPS_FILE}"
+	cat ${KAFKA_CONFIG_DIR}/shared/server-common.properties > "${SERVER_PROPS_FILE}"
+	cat ${KAFKA_CONFIG_DIR}/pod/${CAAS_POD_ID}/server-pod.properties >> "${SERVER_PROPS_FILE}"
+fi
+cat "${SERVER_PROPS_FILE}"
+
 # TODO - final configs need to go in a writable scratch directory
-cat ${KAFKA_CONFIG_DIR}/shared/server-common.properties > /opt/caas/config/kafka/"${COMPONENT}".properties
-cat ${KAFKA_CONFIG_DIR}/pod/${CAAS_POD_ID}/server-pod.properties >> /opt/caas/config/kafka/"${COMPONENT}".properties
-cat  /opt/caas/config/kafka/"${COMPONENT}".properties
 cat ${KAFKA_CONFIG_DIR}/shared/log4j.properties >  /opt/caas/config/kafka/log4j.properties
 cat ${KAFKA_CONFIG_DIR}/pod/${CAAS_POD_ID}/log4j.properties >> /opt/caas/config/kafka/log4j.properties
 cat ${KAFKA_CONFIG_DIR}/shared/disk-usage-agent.properties >  /opt/caas/config/kafka/disk-usage-agent.properties

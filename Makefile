@@ -7,6 +7,9 @@ VERSION_POST := -$(KAFKA_VERSION)
 DOCKER_BUILD_PRE  += copy-gradle-properties
 DOCKER_BUILD_POST += clean-gradle-properties
 
+BUILD_TARGETS += build-docker-cc-kafka-init
+RELEASE_POSTCOMMIT += push-docker-cc-kafka-init
+
 ifeq ($(CONFLUENT_PLATFORM_PACKAGING),)
 include ./mk-include/cc-begin.mk
 include ./mk-include/cc-semver.mk
@@ -32,12 +35,24 @@ show-docker-all:
 	@make VERSION=$(VERSION) show-docker
 	@echo
 	@echo ========================
+	@echo "Docker info for cc-kafka-init"
+	@make VERSION=$(VERSION) -C cc-kafka-init show-docker
+	@echo
+	@echo ========================
 	@echo "Docker info for soak_cluster"
 	@make VERSION=$(VERSION) -C cc-services/soak_cluster show-docker
 	@echo
 	@echo ========================
 	@echo "Docker info for trogdor"
 	@make VERSION=$(VERSION) -C cc-services/trogdor show-docker
+
+.PHONY: build-docker-cc-kafka-init
+build-docker-cc-kafka-init:
+	make VERSION=$(VERSION) -C cc-kafka-init build-docker
+
+.PHONY: push-docker-cc-kafka-init
+push-docker-cc-kafka-init:
+	make VERSION=$(VERSION) -C cc-kafka-init push-docker
 
 .PHONY: build-docker-cc-services
 build-docker-cc-services:

@@ -57,6 +57,6 @@ port will be used by a TCP client to validate external network availability.`,
 func init() {
 	rootCmd.AddCommand(listenerCmd)
 	listenerCmd.Flags().String("listener", "EXTERNAL", "specify a listener to search for and bind to in server.properties")
-	listenerCmd.Flags().String("server-properties", "/opt/confluent/config/server.properties", "path to kafka server.properties")
+	listenerCmd.Flags().String("server-properties", "/mnt/config/kafka.properties", "path to kafka server.properties")
 	listenerCmd.Flags().Int("internal-port", 9092, "internal port which Kafka binds to")
 }

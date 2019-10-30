@@ -48,6 +48,6 @@ export KAFKA_HEAP_OPTS=' '
 export KAFKA_JVM_PERFORMANCE_OPTS=' '
 export JMX_PORT=' '
 
-cat /opt/caas/config/kafka/kafka.properties
+cat ${KAFKA_CONFIG_DIR}/kafka.properties
 echo "===> Launching ${COMPONENT} ... "
-exec /opt/confluent/bin/kafka-run-class.sh $EXTRA_ARGS kafka.Kafka /opt/caas/config/kafka/kafka.properties
+exec /opt/confluent/bin/kafka-run-class.sh $EXTRA_ARGS kafka.Kafka ${KAFKA_CONFIG_DIR}/kafka.properties
