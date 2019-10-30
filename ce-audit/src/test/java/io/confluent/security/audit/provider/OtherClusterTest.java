@@ -62,9 +62,9 @@ public class OtherClusterTest extends ClusterTestCommon {
             AUTHORITY_NAME,
             AuditLogRouterJsonConfig.DEFAULT_TOPIC,
             AuditLogRouterJsonConfig.DEFAULT_TOPIC,
-            Collections.emptyList()));
-    rbacConfig.overrideBrokerConfig(AUDIT_PREFIX + EventLoggerConfig.TOPIC_REPLICAS_CONFIG, "1");
-    rbacConfig.overrideBrokerConfig("auto.create.topics.enable", "false");
+            Collections.emptyList()))
+        .overrideBrokerConfig(AUDIT_PREFIX + EventLoggerConfig.TOPIC_REPLICAS_CONFIG, "1")
+        .overrideBrokerConfig("auto.create.topics.enable", "false");
 
     rbacClusters = new RbacClusters(rbacConfig);
   }

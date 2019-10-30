@@ -29,9 +29,7 @@ import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.TopicConfig;
-import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
-import org.apache.kafka.common.utils.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -100,10 +98,6 @@ public class AuditLogConfig extends AbstractConfig {
       .getName();
   private static final int DEFAULT_PRODUCER_MAX_BLOCK_MS_CONFIG = 0;
 
-  public static final String AUDIT_LOG_PRINCIPAL_CONFIG = AUDIT_EVENT_ROUTER_PREFIX + "principal";
-  public static final String DEFAULT_AUDIT_LOG_PRINCIPAL_CONFIG = "User:_confluent-security-event-logger";
-  public static final String AUDIT_LOG_PRINCIPAL_DOC = "The principal that is used to produce log events";
-
   // Configuration for the EventTopicRouter
   public static final String ROUTER_CONFIG = AUDIT_EVENT_ROUTER_PREFIX + "config";
   public static final String DEFAULT_ROUTER = "";
@@ -130,12 +124,6 @@ public class AuditLogConfig extends AbstractConfig {
             DEFAULT_EVENT_EXPORTER_CLASS_CONFIG,
             ConfigDef.Importance.HIGH,
             EventLoggerConfig.EVENT_EXPORTER_CLASS_DOC
-        ).define(
-            AUDIT_LOG_PRINCIPAL_CONFIG,
-            ConfigDef.Type.STRING,
-            DEFAULT_AUDIT_LOG_PRINCIPAL_CONFIG,
-            ConfigDef.Importance.LOW,
-            AUDIT_LOG_PRINCIPAL_DOC
         ).define(
             TOPIC_CREATE_CONFIG,
             ConfigDef.Type.BOOLEAN,
@@ -195,10 +183,6 @@ public class AuditLogConfig extends AbstractConfig {
 
   public AuditLogConfig(Map<String, ?> configs) {
     super(CONFIG, configs);
-  }
-
-  public KafkaPrincipal eventLogPrincipal() {
-    return SecurityUtils.parseKafkaPrincipal(getString(AUDIT_LOG_PRINCIPAL_CONFIG));
   }
 
   public static Properties kafkaProducerOverrides() {

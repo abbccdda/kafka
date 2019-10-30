@@ -113,8 +113,6 @@ public class EventLogClusters {
     if (config.routerConfig != null) {
       serverConfig.put(AuditLogConfig.ROUTER_CONFIG, config.routerConfig);
     }
-    serverConfig.put(AuditLogConfig.AUDIT_LOG_PRINCIPAL_CONFIG,
-        config.auditLogPrincipal);
     serverConfig.put("auto.create.topics.enable", false);
     return serverConfig;
   }
@@ -179,7 +177,6 @@ public class EventLogClusters {
     private String brokerUser;
     private String logWriterUser;
     private String logReaderUser;
-    private String auditLogPrincipal = AuditLogConfig.DEFAULT_AUDIT_LOG_PRINCIPAL_CONFIG;
     private int numBrokers = 1;
     private String routerConfig = null;
 
@@ -188,11 +185,6 @@ public class EventLogClusters {
       this.brokerUser = brokerUser;
       this.logWriterUser = eventLoggerUser;
       this.logReaderUser = logReaderUser;
-      return this;
-    }
-
-    public Config setAuditLogPrincipal(String auditLogPrincipal) {
-      this.auditLogPrincipal = auditLogPrincipal;
       return this;
     }
 

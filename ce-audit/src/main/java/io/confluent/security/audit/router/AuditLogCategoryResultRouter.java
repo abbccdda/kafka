@@ -1,5 +1,7 @@
 package io.confluent.security.audit.router;
 
+import static io.confluent.security.audit.router.AuditLogRouter.SUPPRESSED;
+
 import io.cloudevents.CloudEvent;
 import io.cloudevents.v03.AttributesImpl;
 import io.confluent.crn.ConfluentResourceName.Element;
@@ -77,6 +79,9 @@ public class AuditLogCategoryResultRouter implements Router {
     CATEGORIES.add(OTHER_CATEGORY);
   }
 
+  public static final Set<String> DEFAULT_ENABLED_CATEGORIES =
+      Utils.mkSet(OTHER_CATEGORY, AUTHORIZE_CATEGORY);
+
   private final HashMap<String, HashMap<AuthorizeResult, String>> routes = new HashMap<>();
 
   public AuditLogCategoryResultRouter setRoute(String category, AuthorizeResult result,
@@ -108,10 +113,10 @@ public class AuditLogCategoryResultRouter implements Router {
       AuthorizeResult result = authorizeResult(auditLogEntry);
       Optional<String> topic = Optional.ofNullable(routes.get(category).get(result));
       if (topic.isPresent() && !topic.get().isEmpty()
-          && CONSUME_CATEGORY.equals(category)) {
+          && (CONSUME_CATEGORY.equals(category) || PRODUCE_CATEGORY.equals(category))) {
         /*
-        Check for consume logging on the same topic. We're able to avoid this for
-        produce because the producer is specifically excluded.
+        Check for produce or consume logging on the same topic. This would create
+        a loop.
 
         Note that there is still a class of loops that this check will not detect:
         Loops where consumption on audit log topic A results in a message on audit
@@ -126,11 +131,13 @@ public class AuditLogCategoryResultRouter implements Router {
           AuthenticationInfo info = auditLogEntry.getAuthenticationInfo();
           String principal = info == null ? "Unknown" : info.getPrincipal();
           log.error(
-              "Audit log event for consume event on audit log topic {} was routed to same topic. "
-                  + "This indicates that there may be a feedback loop. "
-                  + "Principal {} should be excluded from audit logging or this event should be"
+              "Audit log event for {} event on audit log topic {} was routed to "
+                  + "same topic. This indicates that there may be a feedback loop. "
+                  + "Principal {} should be excluded from audit logging or this event should be "
                   + "routed to a different topic. Event: {}",
+              auditLogEntry.getMethodName(),
               topic.get(), principal, CloudEventUtils.toJsonString(event));
+          return Optional.of(SUPPRESSED);
         }
       }
       return topic;

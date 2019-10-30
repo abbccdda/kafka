@@ -39,13 +39,10 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.InterruptException;
-import org.apache.kafka.common.security.auth.KafkaPrincipal;
-import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,7 +63,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
   // (multiple topics depending on complex routing logic type) which can be configured dynamically through the UI.
   // Most other event types might not have these complicated needs. So, it might be better to create a dedicated
   // event logger for the audit log provider.
-  private EventLogger eventLogger;
+  private ConfiguredState configuredState;
 
   private ExecutorService initExecutor;
 
@@ -77,8 +74,20 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
 
   private Scope scope;
   // The router is used in the logAuthorization() and can be reconfigured. It is best to update it atomically.
-  private AtomicReference<AuditLogRouter> router;
-  private AuditLogConfig auditLogConfig;
+
+  // These should always be updated together
+  private class ConfiguredState {
+
+    final EventLogger logger;
+    final AuditLogRouter router;
+    final AuditLogConfig config;
+
+    private ConfiguredState(EventLogger logger, AuditLogRouter router, AuditLogConfig config) {
+      this.logger = logger;
+      this.router = router;
+      this.config = config;
+    }
+  }
 
   @Override
   public void onUpdate(ClusterResource clusterResource) {
@@ -96,20 +105,19 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
   @Override
   public void configure(Map<String, ?> configs) {
     // Audit log config
-    auditLogConfig = new AuditLogConfig(configs);
+    AuditLogConfig auditLogConfig = new AuditLogConfig(configs);
 
     // Abort if not enabled.
     if (!auditLogConfig.getBoolean(AuditLogConfig.AUDIT_LOGGER_ENABLED_CONFIG)) {
       return;
     }
 
-    // Create event logger
-    eventLogger = new EventLogger();
-
-    router = new AtomicReference<>(
+    this.configuredState = new ConfiguredState(
+        new EventLogger(),
         new AuditLogRouter(
             auditLogConfig.routerJsonConfig(),
-            auditLogConfig.getInt(AuditLogConfig.ROUTER_CACHE_ENTRIES_CONFIG)));
+            auditLogConfig.getInt(AuditLogConfig.ROUTER_CACHE_ENTRIES_CONFIG)),
+        auditLogConfig);
 
     CrnAuthorityConfig crnAuthorityConfig = new CrnAuthorityConfig(configs);
     this.crnAuthority = new ConfluentServerCrnAuthority();
@@ -136,33 +144,32 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
     }
   }
 
+  private void updateConfiguredState(Map<String, Object> loggerConfig, AuditLogRouter router,
+      AuditLogConfig config) {
+    EventLogger oldLogger = configuredState != null ? configuredState.logger : null;
+    EventLogger newLogger = new EventLogger();
+    newLogger.configure(loggerConfig);
+    configuredState = new ConfiguredState(newLogger, router, config);
+    if (oldLogger != null) {
+      // it is possible that in-flight events may be lost when this closes
+      Utils.closeQuietly(oldLogger, "eventLogger");
+    }
+  }
+
   @Override
   public void reconfigure(Map<String, ?> configs) {
-    this.auditLogConfig = new AuditLogConfig(configs);
-    this.router = new AtomicReference<>(
+    AuditLogConfig config = new AuditLogConfig(configs);
+    AuditLogRouter router =
         new AuditLogRouter(
-            auditLogConfig.routerJsonConfig(),
-            auditLogConfig.getInt(AuditLogConfig.ROUTER_CACHE_ENTRIES_CONFIG)));
+            config.routerJsonConfig(),
+            config.getInt(AuditLogConfig.ROUTER_CACHE_ENTRIES_CONFIG));
 
     // Merge the topics from the router config to the Kafka exporter config
     Map<String, Object> elConfig = toEventLoggerConfig(configs);
 
-    // If bootstrap servers change, create a new event logger instance pointing to the new
-    // bootstrap URL otherwise, just call reconfigure which add the new topics to be managed.
-    // This will not alter the topics if retention_ms is updated.If this is desired, then the
-    // customer will need to update them using other topic management tools.
-    if (auditLogConfig.routerJsonConfig().destinations.bootstrapServers !=
-        auditLogConfig.routerJsonConfig().destinations.bootstrapServers) {
-      try {
-        eventLogger.close();
-      } catch (Exception e) {
-        log.error("error while closing the event exporter during reconfiguration", e);
-      }
-      eventLogger = new EventLogger();
-      eventLogger.configure(elConfig);
-    } else {
-      eventLogger.reconfigure(elConfig);
-    }
+    // Because the bootstrap servers may change, create a new event logger instance pointing
+    // to the new bootstrap URL
+    updateConfiguredState(elConfig, router, config);
   }
 
   @Override
@@ -173,7 +180,8 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
     CompletableFuture<Void> future = new CompletableFuture<>();
     initExecutor.submit(() -> {
       try {
-        eventLogger.configure(toEventLoggerConfig(interBrokerListenerConfigs));
+        updateConfiguredState(toEventLoggerConfig(interBrokerListenerConfigs),
+            configuredState.router, configuredState.config);
         this.eventLoggerReady = true;
         future.complete(null);
       } catch (Throwable e) {
@@ -227,6 +235,9 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
       String subject = crnAuthority.canonicalCrn(action.scope(), action.resourcePattern())
           .toString();
 
+      // use the config and event logger from a particular point in time
+      ConfiguredState state = this.configuredState;
+
       AuditLogEntry entry = AuditLogUtils
           .authorizationEvent(source, subject, requestContext, action, authorizeResult,
               authorizePolicy);
@@ -236,18 +247,15 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
           .setSource(source)
           .setSubject(subject)
           .setType(AUTHORIZATION_MESSAGE_TYPE)
-          .setEncoding(auditLogConfig.getString(AUDIT_CLOUD_EVENT_ENCODING_CONFIG));
+          .setEncoding(state.config.getString(AUDIT_CLOUD_EVENT_ENCODING_CONFIG));
 
-      // Filter out events with the logging principal to prevent infinite loops.
-      boolean dropEvent = hasEventLogPrincipal(entry, auditLogConfig);
-
-      if (!eventLoggerReady || !generateEvent || dropEvent) {
+      if (!eventLoggerReady || !generateEvent) {
         fallbackLog.info(CloudEventUtils.toJsonString(eventBuilder.build()));
         return;
       }
 
       // Figure out the topic.
-      Optional<String> route = router.get()
+      Optional<String> route = state.router
           .topic((CloudEvent<AttributesImpl, AuditLogEntry>) eventBuilder.build());
 
       if (route.isPresent()) {
@@ -262,9 +270,9 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
 
       // Make sure Kafka exporter is ready to receive events.
       CloudEvent event = eventBuilder.build();
-      boolean routeReady = eventLogger.ready(event);
+      boolean routeReady = state.logger.ready(event);
       if (routeReady) {
-        eventLogger.log(event);
+        state.logger.log(event);
       } else {
         fallbackLog.info(CloudEventUtils.toJsonString(event));
       }
@@ -272,14 +280,6 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
     } catch (CrnSyntaxException e) {
       log.error("Couldn't create cloud event due to internally generated CRN syntax problem", e);
     }
-  }
-
-  // suppress all events for the principal that is doing this logging to make sure we don't loop infinitely
-  private boolean hasEventLogPrincipal(AuditLogEntry auditLogEntry, AuditLogConfig eventLogConfig) {
-    KafkaPrincipal eventLogPrincipal = eventLogConfig.eventLogPrincipal();
-    KafkaPrincipal eventPrincipal = SecurityUtils
-        .parseKafkaPrincipal(auditLogEntry.getAuthenticationInfo().getPrincipal());
-    return eventLogPrincipal.equals(eventPrincipal);
   }
 
   @Override
@@ -293,7 +293,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
         throw new InterruptException(e);
       }
     }
-    Utils.closeQuietly(eventLogger, "eventLogger");
+    Utils.closeQuietly(configuredState.logger, "eventLogger");
   }
 
 
@@ -304,7 +304,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
 
   // Visibility for testing
   public EventLogger getEventLogger() {
-    return eventLogger;
+    return configuredState.logger;
   }
 
   // Visibility for testing

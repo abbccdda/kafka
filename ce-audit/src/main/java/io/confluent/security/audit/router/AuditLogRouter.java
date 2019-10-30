@@ -1,5 +1,7 @@
 package io.confluent.security.audit.router;
 
+import static io.confluent.security.audit.router.AuditLogCategoryResultRouter.DEFAULT_ENABLED_CATEGORIES;
+
 import io.cloudevents.CloudEvent;
 import io.cloudevents.v03.AttributesImpl;
 import io.confluent.crn.CachedCrnStringPatternMatcher;
@@ -14,7 +16,6 @@ import java.util.stream.Collectors;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.SecurityUtils;
-import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,24 +28,17 @@ public class AuditLogRouter implements Router {
   private Set<KafkaPrincipal> excludedPrincipals;
   private CachedCrnStringPatternMatcher<AuditLogCategoryResultRouter> crnRouters;
 
-  private static final Set<String> DEFAULT_SUPPRESSED_CATEGORIES = Utils.mkSet(
-      AuditLogCategoryResultRouter.PRODUCE_CATEGORY,
-      AuditLogCategoryResultRouter.CONSUME_CATEGORY,
-      AuditLogCategoryResultRouter.INTERBROKER_CATEGORY,
-      AuditLogCategoryResultRouter.DESCRIBE_CATEGORY,
-      AuditLogCategoryResultRouter.HEARTBEAT_CATEGORY);
-
   private void setDefaultTopicRouter(AuditLogRouterJsonConfig config) {
     defaultTopicRouter = new AuditLogCategoryResultRouter();
     for (String category : AuditLogCategoryResultRouter.CATEGORIES) {
-      if (DEFAULT_SUPPRESSED_CATEGORIES.contains(category)) {
-        defaultTopicRouter
-            .setRoute(category, AuthorizeResult.ALLOWED, "")
-            .setRoute(category, AuthorizeResult.DENIED, "");
-      } else {
+      if (DEFAULT_ENABLED_CATEGORIES.contains(category)) {
         defaultTopicRouter
             .setRoute(category, AuthorizeResult.ALLOWED, config.defaultTopics.allowed)
             .setRoute(category, AuthorizeResult.DENIED, config.defaultTopics.denied);
+      } else {
+        defaultTopicRouter
+            .setRoute(category, AuthorizeResult.ALLOWED, "")
+            .setRoute(category, AuthorizeResult.DENIED, "");
       }
     }
   }

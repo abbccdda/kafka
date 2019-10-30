@@ -55,6 +55,9 @@ public class KafkaExporterTest {
 
   private static final String BROKER_USER = "kafka";
 
+  private static final KafkaPrincipal EVENT_LOG_WRITER =
+      new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "eventLogWriter");
+
   private static final KafkaPrincipal EVENT_LOG_READER =
       new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "eventLogReader");
 
@@ -67,7 +70,7 @@ public class KafkaExporterTest {
   @Before
   public void setUp() {
     eventLogClustersConfig = new EventLogClusters.Config()
-        .users(BROKER_USER, AuditLogConfig.DEFAULT_AUDIT_LOG_PRINCIPAL_CONFIG, "eventLogReader");
+        .users(BROKER_USER, EVENT_LOG_WRITER.getName(), EVENT_LOG_READER.getName());
   }
 
   @After

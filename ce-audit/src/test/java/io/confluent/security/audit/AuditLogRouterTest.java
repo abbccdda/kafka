@@ -4,6 +4,7 @@
 package io.confluent.security.audit;
 
 import static io.confluent.events.EventLoggerConfig.CLOUD_EVENT_STRUCTURED_ENCODING;
+import static io.confluent.security.audit.router.AuditLogRouter.SUPPRESSED;
 import static org.junit.Assert.assertTrue;
 
 import io.cloudevents.CloudEvent;
@@ -466,8 +467,8 @@ public class AuditLogRouterTest {
     testLogger.removeAllAppenders();
     testLogger.addAppender(new WriterAppender(new PatternLayout("%m"), writer));
 
-    // Consume goes to consume_
-    Assert.assertEquals(Optional.of("_confluent-audit-log"),
+    // Consume events on the same topic are suppressed
+    Assert.assertEquals(Optional.of(SUPPRESSED),
         router.topic(
             sampleEvent(
                 "crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/topic=_confluent-audit-log",
