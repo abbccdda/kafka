@@ -330,6 +330,41 @@ public class ConfluentResourceNameTest {
   }
 
   @Test
+  public void testRoundtrip() throws CrnSyntaxException {
+    List<String> samples = Arrays.asList(
+        "crn://confluent.cloud/kafka=lkc-a1b2c3",
+        "crn://confluent.cloud/organization=123/kafka=lkc-a1b2c3/topic=clicks",
+        "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks/",
+        "crn://mds.example.com/kafka=l61GoHpGSkmlzhkjncYCsA/topic=clicks/",
+        "crn:///kafka=l61GoHpGSkmlzhkjncYCsA/topic=clicks/");
+
+    for (String sample : samples) {
+      Assert.assertEquals(sample, ConfluentResourceName.fromString(sample).toString());
+    }
+
+    for (String sample : samples) {
+      ConfluentResourceName stringCrn = ConfluentResourceName.fromString(sample);
+      ConfluentResourceName builtCrn = ConfluentResourceName.newBuilder()
+          .setAuthority(stringCrn.authority())
+          .addAllElements(stringCrn.elements())
+          .build();
+      Assert.assertEquals(stringCrn, builtCrn);
+    }
+  }
+
+  @Test
+  public void testTrailingSlash() throws CrnSyntaxException {
+    ConfluentResourceName trailing =
+        ConfluentResourceName.fromString("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks/");
+    ConfluentResourceName noTrailing =
+        ConfluentResourceName.fromString("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks");
+    // these are same semantically
+    Assert.assertEquals(trailing, noTrailing);
+    // original form is preserved
+    Assert.assertNotEquals(trailing.toString(), noTrailing.toString());
+  }
+
+  @Test
   public void testComparePrefixes() throws CrnSyntaxException {
     Assert.assertEquals(1,
         ConfluentResourceName.fromString(

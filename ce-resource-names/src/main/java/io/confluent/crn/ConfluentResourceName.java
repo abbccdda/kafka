@@ -90,7 +90,7 @@ public class ConfluentResourceName implements Comparable {
 
     @Override
     public String toString() {
-      return String.format("%s%s%s", resourceType, ELEMENT_JOINER, encodedResourceName);
+      return resourceType + ELEMENT_JOINER + encodedResourceName;
     }
 
     @Override
@@ -139,10 +139,16 @@ public class ConfluentResourceName implements Comparable {
    * Produce a CRN from the given authority with the given elements
    */
   private ConfluentResourceName(String authority, List<Element> elements) {
+    this(authority, elements, null);
+  }
+
+  /**
+   * Produce a CRN from the given authority with the given elements
+   */
+  private ConfluentResourceName(String authority, List<Element> elements, String stringForm) {
     this.authority = authority == null || authority.isEmpty() ? DEFAULT_AUTHORITY : authority;
     this.nameElements = Collections.unmodifiableList(elements);
-    this.stringForm = String.format("%s://%s/%s", SCHEME, this.authority,
-        nameElements.stream().map(Element::toString).collect(Collectors.joining(PATH_DELIMITER)));
+    this.stringForm = stringForm;
   }
 
   /**
@@ -203,6 +209,10 @@ public class ConfluentResourceName implements Comparable {
 
   @Override
   public String toString() {
+    if (stringForm == null) {
+      stringForm = SCHEME + "://" + authority + "/" +
+          nameElements.stream().map(Element::toString).collect(Collectors.joining(PATH_DELIMITER));
+    }
     return stringForm;
   }
 
@@ -267,6 +277,7 @@ public class ConfluentResourceName implements Comparable {
     String rest = crn.substring(SCHEME_PART.length());
     String[] parts = rest.split(PATH_DELIMITER);
     Builder builder = ConfluentResourceName.newBuilder();
+    builder.setStringForm(crn);
     builder.setAuthority(parts[0]);
 
     final List<CrnSyntaxException> exceptions = new ArrayList<>();
@@ -302,6 +313,7 @@ public class ConfluentResourceName implements Comparable {
 
     private String authority = null;
     private ArrayList<Element> elements = new ArrayList<>();
+    private String stringForm = null;
 
     private Builder() {
       // Call newBuilder instead
@@ -310,6 +322,10 @@ public class ConfluentResourceName implements Comparable {
     public Builder setAuthority(String authority) {
       this.authority = authority;
       return this;
+    }
+
+    private void setStringForm(String stringForm) {
+      this.stringForm = stringForm;
     }
 
     /**
@@ -365,7 +381,7 @@ public class ConfluentResourceName implements Comparable {
       if (elements.isEmpty()) {
         throw new CrnSyntaxException("", "Need at least one Element");
       }
-      return new ConfluentResourceName(this.authority, this.elements);
+      return new ConfluentResourceName(this.authority, this.elements, this.stringForm);
     }
   }
 }
