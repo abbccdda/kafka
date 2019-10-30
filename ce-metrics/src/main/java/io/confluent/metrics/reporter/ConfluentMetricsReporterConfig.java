@@ -105,6 +105,7 @@ public class ConfluentMetricsReporterConfig extends AbstractConfig {
           "NetworkProcessorAvgIdlePercent",
           "NumLogSegments",
           "OfflinePartitionsCount",
+          "ObserverReplicasCount",
           "PartitionCount",
           "RemoteTimeMs",
           "ReplicasCount",
