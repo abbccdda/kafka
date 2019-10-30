@@ -1020,6 +1020,7 @@ project(':core') {
     from(project(':ce-resource-names').jar) { into("libs/") }
     exclude('confluent-serializers*')
     exclude('confluent-licensing*')
+    exclude('bc*jdk15on*jar')
     duplicatesStrategy 'exclude'
   }
 
@@ -2635,6 +2636,7 @@ project(':ce-broker-plugins') {
     from (configurations.runtime) {
       exclude('confluent-licensing*')
       exclude('confluent-serializers*')
+      exclude('bc*jdk15on*jar')
     }
     into "$buildDir/dependant-libs"
     duplicatesStrategy 'exclude'
@@ -2734,6 +2736,7 @@ project(':ce-rest-authorizer') {
       include('log4j*jar')
     }
     from (configurations.runtime) {
+      exclude('bc*jdk15on*jar')
     }
     into "$buildDir/dependant-libs"
     duplicatesStrategy 'exclude'
@@ -2900,6 +2903,7 @@ project(':ce-auth-providers') {
       include('log4j*jar')
     }
     from (configurations.runtime) {
+      exclude('bc*jdk15on*jar')
     }
     into "$buildDir/dependant-libs"
     duplicatesStrategy 'exclude'
@@ -2946,6 +2950,7 @@ project(':ce-aegis') {
       include('log4j*jar')
     }
     from (configurations.runtime) {
+      exclude('bc*jdk15on*jar')
     }
     into "$buildDir/dependant-libs"
     duplicatesStrategy 'exclude'
@@ -3012,6 +3017,7 @@ project(':ce-audit') {
       include('log4j*jar')
     }
     from (configurations.runtime) {
+      exclude('bc*jdk15on*jar')
     }
     into "$buildDir/dependant-libs"
     duplicatesStrategy 'exclude'
