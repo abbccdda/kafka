@@ -168,6 +168,15 @@ public class CrnPatternMatcherTest {
     }
   }
 
+  @Test
+  public void testNullCached() {
+    CachedCrnStringPatternMatcher<String> matcher =
+        new CachedCrnStringPatternMatcher<>(3);
+    Assert.assertNull(matcher.match("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*"));
+    Assert.assertNotNull(matcher.matchEntry("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*"));
+    Assert.assertFalse(matcher.matchEntry("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*").isPresent());
+  }
+
   private String crnNumbered(int kafkas, int n, boolean pattern) {
     String k = pattern && (n % kafkas == 0) ? "*" : Integer.toString(n % kafkas);
     String t = pattern && (n / kafkas == 0) ? "*" : Integer.toString(n / kafkas);

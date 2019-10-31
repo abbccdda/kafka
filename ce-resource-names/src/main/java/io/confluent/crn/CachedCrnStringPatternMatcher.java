@@ -1,9 +1,11 @@
 package io.confluent.crn;
 
+import com.google.common.annotations.VisibleForTesting;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 
 /**
  * In practice, we will usually be routing messages based on the string CRN values in CloudEvent
@@ -19,7 +21,7 @@ public class CachedCrnStringPatternMatcher<T> {
 
   private final CrnPatternMatcher<T> matcher = new CrnPatternMatcher<>();
   private final int capacity;
-  private final Map<String, Entry<ConfluentResourceName, T>> cache;
+  private final Map<String, Optional<Entry<ConfluentResourceName, T>>> cache;
 
   /**
    * Create a cache with the desired capacity. The capacity should be tuned to the number of unique
@@ -29,7 +31,7 @@ public class CachedCrnStringPatternMatcher<T> {
   public CachedCrnStringPatternMatcher(int capacity) {
     this.capacity = capacity;
     this.cache = Collections.synchronizedMap(
-        new LinkedHashMap<String, Entry<ConfluentResourceName, T>>(
+        new LinkedHashMap<String, Optional<Entry<ConfluentResourceName, T>>>(
             this.capacity, 0.75f, true) {
           protected boolean removeEldestEntry(Map.Entry eldest) {
             return size() > capacity;
@@ -46,14 +48,16 @@ public class CachedCrnStringPatternMatcher<T> {
   /**
    * Return both the pattern in the cache that matched (as the key) and the value (as the value).
    *
-   * This returns null, rather than throwing an exeception if the crnString is not valid
+   * This returns an empty optional, rather than throwing an exeception if the crnString is not
+   * valid
    */
-  public Entry<ConfluentResourceName, T> matchEntry(String crnString) {
+   @VisibleForTesting
+   Optional<Entry<ConfluentResourceName, T>> matchEntry(String crnString) {
     return cache.computeIfAbsent(crnString, k -> {
       try {
-        return matcher.matchEntry(ConfluentResourceName.fromString(crnString));
+        return Optional.ofNullable(matcher.matchEntry(ConfluentResourceName.fromString(crnString)));
       } catch (CrnSyntaxException e) {
-        return null;
+        return Optional.empty();
       }
     });
   }
@@ -62,8 +66,8 @@ public class CachedCrnStringPatternMatcher<T> {
    * Return the stored value for this CRN, or null if there is no match
    */
   public T match(String crnString) {
-    Entry<ConfluentResourceName, T> entry = matchEntry(crnString);
-    return entry == null ? null : entry.getValue();
+    Optional<Entry<ConfluentResourceName, T>> entry = matchEntry(crnString);
+    return entry.map(Entry::getValue).orElse(null);
   }
 
   public int size() {
