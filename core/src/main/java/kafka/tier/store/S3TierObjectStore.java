@@ -5,13 +5,11 @@
 package kafka.tier.store;
 
 import com.amazonaws.AmazonClientException;
-import com.amazonaws.AmazonServiceException;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 import com.amazonaws.client.builder.AwsClientBuilder;
-import com.amazonaws.http.timers.client.ClientExecutionTimeoutException;
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
@@ -85,10 +83,8 @@ public class S3TierObjectStore implements TierObjectStore {
         S3Object object;
         try {
             object = client.getObject(request);
-        } catch (AmazonServiceException e) {
+        } catch (AmazonClientException e) {
             throw new TierObjectStoreRetriableException("Failed to fetch segment " + objectMetadata, e);
-        } catch (ClientExecutionTimeoutException e) {
-            throw new TierObjectStoreRetriableException("Timeout when fetching segment " + objectMetadata, e);
         } catch (Exception e) {
             throw new TierObjectStoreFatalException("Unknown exception when fetching segment " + objectMetadata, e);
         }
@@ -117,10 +113,8 @@ public class S3TierObjectStore implements TierObjectStore {
             transactionIndexData.ifPresent(abortedTxnsBuf -> putBuf(TierObjectStoreUtils.keyPath(objectMetadata,
                     FileType.TRANSACTION_INDEX), metadata, abortedTxnsBuf));
             epochState.ifPresent(file -> putFile(TierObjectStoreUtils.keyPath(objectMetadata, FileType.EPOCH_STATE), metadata, file));
-        } catch (AmazonServiceException e) {
+        } catch (AmazonClientException e) {
             throw new TierObjectStoreRetriableException("Failed to upload segment " + objectMetadata, e);
-        } catch (ClientExecutionTimeoutException e) {
-            throw new TierObjectStoreRetriableException("Timeout when uploading segment " + objectMetadata, e);
         } catch (Exception e) {
             throw new TierObjectStoreFatalException("Unknown exception when uploading segment " + objectMetadata, e);
         }
@@ -131,15 +125,13 @@ public class S3TierObjectStore implements TierObjectStore {
         List<DeleteObjectsRequest.KeyVersion> keys = new ArrayList<>();
         for (FileType type : FileType.values())
             keys.add(new DeleteObjectsRequest.KeyVersion(TierObjectStoreUtils.keyPath(objectMetadata, type)));
+
         DeleteObjectsRequest request = new DeleteObjectsRequest(bucket).withKeys(keys);
         log.debug("Deleting " + keys);
-
         try {
             client.deleteObjects(request);
-        } catch (AmazonServiceException e) {
+        } catch (AmazonClientException e) {
             throw new TierObjectStoreRetriableException("Failed to delete segment " + objectMetadata, e);
-        } catch (ClientExecutionTimeoutException e) {
-            throw new TierObjectStoreRetriableException("Timeout when deleting segment " + objectMetadata, e);
         } catch (Exception e) {
             throw new TierObjectStoreFatalException("Unknown exception when deleting segment " + objectMetadata, e);
         }

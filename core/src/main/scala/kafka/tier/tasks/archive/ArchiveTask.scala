@@ -64,6 +64,12 @@ which causes a retry of the BeforeUpload state if the segment we were trying to 
         +--------------+
  */
 
+object Defaults {
+  val OBJECT_STORE_EXCEPTION_RETRY_MS = 15000
+  val METADATA_EXCEPTION_RETRY_MS = 5000
+  val SEGMENT_DELETED_RETRY_MS = 5000
+}
+
 sealed trait ArchiveTaskState {
   def leaderEpoch: Int
   def handleSegmentDeletedException(e: SegmentDeletedException): ArchiveTaskState = throw e
@@ -145,8 +151,11 @@ final class ArchiveTask(override val ctx: CancellationContext,
       state = result
       this
     }.recover {
-      case e @ (_: TierMetadataRetriableException | _: TierObjectStoreRetriableException) =>
-        retryTaskLater(maxRetryBackoffMs.getOrElse(5000), time.hiResClockMs(), e)
+      case e: TierMetadataRetriableException =>
+        retryTaskLater(maxRetryBackoffMs.getOrElse(Defaults.METADATA_EXCEPTION_RETRY_MS), time.hiResClockMs(), e)
+        this
+      case e: TierObjectStoreRetriableException =>
+        retryTaskLater(maxRetryBackoffMs.getOrElse(Defaults.OBJECT_STORE_EXCEPTION_RETRY_MS), time.hiResClockMs(), e)
         this
       case e: TierArchiverFencedException =>
         info(s"$topicIdPartition was fenced, stopping archival process", e)
@@ -154,7 +163,7 @@ final class ArchiveTask(override val ctx: CancellationContext,
         this
       case e: SegmentDeletedException =>
         state = state.handleSegmentDeletedException(e)
-        retryTaskLater(maxRetryBackoffMs.getOrElse(5000), time.hiResClockMs(), e)
+        retryTaskLater(maxRetryBackoffMs.getOrElse(Defaults.SEGMENT_DELETED_RETRY_MS), time.hiResClockMs(), e)
         this
       case t: Throwable =>
         cancelAndSetErrorState(this, t)
