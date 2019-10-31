@@ -1557,7 +1557,7 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
 
   /** ********* Tier management configuration ***********/
   val tierFeature = getBoolean(KafkaConfig.TierFeatureProp)
-  val tierEnable = getBoolean(KafkaConfig.TierEnableProp)
+  def tierEnable = getBoolean(KafkaConfig.TierEnableProp)
   val tierBackend = getString(KafkaConfig.TierBackendProp)
   val tierMetadataBootstrapServers = getString(KafkaConfig.TierMetadataBootstrapServersProp)
   val tierMetadataMaxPollMs = getLong(KafkaConfig.TierMetadataMaxPollMsProp)
@@ -1581,8 +1581,8 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
 
   val tierObjectFetcherThreads = getInt(KafkaConfig.TierObjectFetcherThreadsProp)
   val tierPartitionStateCommitIntervalMs = getInt(KafkaConfig.TierPartitionStateCommitIntervalProp)
-  val tierLocalHotsetBytes = getLong(KafkaConfig.TierLocalHotsetBytesProp)
-  val tierLocalHotsetMs = getLong(KafkaConfig.TierLocalHotsetMsProp)
+  def tierLocalHotsetBytes = getLong(KafkaConfig.TierLocalHotsetBytesProp)
+  def tierLocalHotsetMs = getLong(KafkaConfig.TierLocalHotsetMsProp)
   val tierArchiverNumThreads = getInt(KafkaConfig.TierArchiverNumThreadsProp)
   val tierGcsBucket = getString(KafkaConfig.TierGcsBucketProp)
   val tierGcsRegion = getString(KafkaConfig.TierGcsRegionProp)
