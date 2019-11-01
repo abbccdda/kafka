@@ -2,11 +2,8 @@ package io.confluent.security.audit.router;
 
 import static io.confluent.security.audit.router.AuditLogRouter.SUPPRESSED;
 
-import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.AttributesImpl;
 import io.confluent.crn.ConfluentResourceName.Element;
 import io.confluent.crn.CrnSyntaxException;
-import io.confluent.events.CloudEventUtils;
 import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.AuditLogUtils;
 import io.confluent.security.audit.AuthenticationInfo;
@@ -103,9 +100,8 @@ public class AuditLogCategoryResultRouter implements Router {
   }
 
   @Override
-  public Optional<String> topic(CloudEvent<AttributesImpl, AuditLogEntry> event) {
+  public Optional<String> topic(AuditLogEntry auditLogEntry) {
     try {
-      AuditLogEntry auditLogEntry = event.getData().get();
       String category = category(auditLogEntry);
       if (!routes.containsKey(category)) {
         return Optional.empty();
@@ -134,9 +130,8 @@ public class AuditLogCategoryResultRouter implements Router {
               "Audit log event for {} event on audit log topic {} was routed to "
                   + "same topic. This indicates that there may be a feedback loop. "
                   + "Principal {} should be excluded from audit logging or this event should be "
-                  + "routed to a different topic. Event: {}",
-              auditLogEntry.getMethodName(),
-              topic.get(), principal, CloudEventUtils.toJsonString(event));
+                  + "routed to a different topic.",
+              auditLogEntry.getMethodName(), topic.get(), principal);
           return Optional.of(SUPPRESSED);
         }
       }

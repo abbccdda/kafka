@@ -9,7 +9,6 @@ import static io.confluent.security.audit.AuditLogConfig.ROUTER_CONFIG;
 import static io.confluent.security.audit.AuditLogConfig.toEventLoggerConfig;
 
 import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.AttributesImpl;
 import io.confluent.crn.ConfluentServerCrnAuthority;
 import io.confluent.crn.CrnAuthorityConfig;
 import io.confluent.crn.CrnSyntaxException;
@@ -242,6 +241,13 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
           .authorizationEvent(source, subject, requestContext, action, authorizeResult,
               authorizePolicy);
 
+      // Figure out the topic.
+      Optional<String> route = state.router.topic(entry);
+
+      if (route.isPresent() && route.get().equalsIgnoreCase(AuditLogRouter.SUPPRESSED)) {
+        return;
+      }
+
       ProtobufEvent.Builder eventBuilder = ProtobufEvent.newBuilder()
           .setData(entry)
           .setSource(source)
@@ -254,14 +260,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
         return;
       }
 
-      // Figure out the topic.
-      Optional<String> route = state.router
-          .topic((CloudEvent<AttributesImpl, AuditLogEntry>) eventBuilder.build());
-
       if (route.isPresent()) {
-        if (route.get().equalsIgnoreCase(AuditLogRouter.SUPPRESSED)) {
-          return;
-        }
         eventBuilder.setRoute(route.get());
       } else {
         fallbackLog.error("Empty topic for {}", CloudEventUtils.toJsonString(eventBuilder.build()));

@@ -3,19 +3,14 @@
  */
 package io.confluent.security.audit;
 
-import static io.confluent.events.EventLoggerConfig.CLOUD_EVENT_STRUCTURED_ENCODING;
 import static io.confluent.security.audit.router.AuditLogRouter.SUPPRESSED;
 import static org.junit.Assert.assertTrue;
 
-import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.CloudEventBuilder;
-import io.confluent.events.ProtobufEvent;
 import io.confluent.security.audit.router.AuditLogCategoryResultRouter;
 import io.confluent.security.audit.router.AuditLogRouter;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import java.io.IOException;
 import java.io.StringWriter;
-import java.net.URI;
 import java.util.Optional;
 import org.apache.log4j.Logger;
 import org.apache.log4j.PatternLayout;
@@ -172,13 +167,10 @@ public class AuditLogRouterTest {
     router = new AuditLogRouter(AuditLogRouterJsonConfig.load(json), 10000);
   }
 
-  private CloudEvent sampleEvent(String subject, String method, String principal, boolean granted) {
-    return ProtobufEvent.newBuilder()
-        .setType("io.confluent.security.authorization")
-        .setSource("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA")
-        .setSubject(subject)
-        .setEncoding(CLOUD_EVENT_STRUCTURED_ENCODING)
-        .setData(AuditLogEntry.newBuilder()
+  private AuditLogEntry sampleEvent(String subject, String method, String principal,
+      boolean granted) {
+    return
+        AuditLogEntry.newBuilder()
             .setResourceName(subject)
             .setMethodName(method)
             .setAuthenticationInfo(AuthenticationInfo.newBuilder()
@@ -186,8 +178,7 @@ public class AuditLogRouterTest {
                 .build())
             .setAuthorizationInfo(AuthorizationInfo.newBuilder()
                 .setGranted(granted))
-            .build())
-        .build();
+            .build();
   }
 
   @Test
@@ -358,12 +349,7 @@ public class AuditLogRouterTest {
 
   @Test
   public void testNotAuditLogEvent() {
-    CloudEvent emptyEvent = CloudEventBuilder.builder()
-        .withType("foo")
-        .withSource(URI.create("bar"))
-        .withId("42")
-        .build();
-    Assert.assertEquals(Optional.empty(), router.topic(emptyEvent));
+    Assert.assertEquals(Optional.empty(), router.topic(AuditLogEntry.newBuilder().build()));
   }
 
   @Test

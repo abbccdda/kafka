@@ -2,8 +2,6 @@ package io.confluent.security.audit.router;
 
 import static io.confluent.security.audit.router.AuditLogCategoryResultRouter.DEFAULT_ENABLED_CATEGORIES;
 
-import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.AttributesImpl;
 import io.confluent.crn.CachedCrnStringPatternMatcher;
 import io.confluent.crn.CrnSyntaxException;
 import io.confluent.security.audit.AuditLogEntry;
@@ -70,13 +68,12 @@ public class AuditLogRouter implements Router {
   }
 
   @Override
-  public Optional<String> topic(CloudEvent<AttributesImpl, AuditLogEntry> event) {
-    if (!event.getData().isPresent()) {
-      log.warn("Tried to route invalid event. Data is missing {}", event);
+  public Optional<String> topic(AuditLogEntry auditLogEntry) {
+    if (auditLogEntry.getAuthenticationInfo().getPrincipal().isEmpty()) {
+      log.warn("Tried to route invalid event. No principal found. {}", auditLogEntry);
       return Optional.empty();
     }
 
-    AuditLogEntry auditLogEntry = event.getData().get();
     KafkaPrincipal eventPrincipal = SecurityUtils.parseKafkaPrincipal(
         auditLogEntry.getAuthenticationInfo().getPrincipal());
 
@@ -84,20 +81,20 @@ public class AuditLogRouter implements Router {
       return Optional.of(SUPPRESSED);  // suppress this message
     }
 
-    if (!event.getAttributes().getSubject().isPresent()) {
-      log.warn("Tried to route invalid event. No subject found. {}", event);
+    if (auditLogEntry.getResourceName().isEmpty()) {
+      log.warn("Tried to route invalid event. No resource name found. {}", auditLogEntry);
       return Optional.empty();
     }
     AuditLogCategoryResultRouter router = crnRouters
-        .match(event.getAttributes().getSubject().get());
+        .match(auditLogEntry.getResourceName());
     if (router != null) {
-      Optional<String> routedTopic = router.topic(event);
+      Optional<String> routedTopic = router.topic(auditLogEntry);
       if (routedTopic.isPresent()) {
         return routedTopic;
       }
     }
 
-    return defaultTopicRouter.topic(event);
+    return defaultTopicRouter.topic(auditLogEntry);
   }
 
   @Override

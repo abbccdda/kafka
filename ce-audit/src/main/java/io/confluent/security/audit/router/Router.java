@@ -1,7 +1,5 @@
 package io.confluent.security.audit.router;
 
-import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.AttributesImpl;
 import io.confluent.security.audit.AuditLogEntry;
 import java.util.Optional;
 
@@ -17,5 +15,5 @@ public interface Router {
    * intended to allow a prioritized list of Routers to be tried, with the first one with a concrete
    * answer determining the routing.
    */
-  Optional<String> topic(CloudEvent<AttributesImpl, AuditLogEntry> entry);
+  Optional<String> topic(AuditLogEntry auditLogEntry);
 }
