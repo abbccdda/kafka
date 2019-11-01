@@ -204,9 +204,9 @@ final public class TopicPlacement {
         }
 
         public boolean matches(Map<String, String> attributes) {
-            return constraints.entrySet().stream().allMatch(entry -> {
-                return Objects.equals(entry.getValue(), attributes.get(entry.getKey()));
-            });
+            return constraints.entrySet().stream().allMatch(entry ->
+                Objects.equals(entry.getValue(), attributes.get(entry.getKey()))
+            );
         }
 
         public String toString() {

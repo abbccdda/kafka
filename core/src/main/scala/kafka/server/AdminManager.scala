@@ -288,6 +288,9 @@ class AdminManager(val config: KafkaConfig,
     val reassignPartitionsInProgress = zkClient.reassignPartitionsInProgress
     val allBrokers = adminZkClient.getBrokerMetadatas()
     val allBrokerIds = allBrokers.map(_.id)
+    val allBrokerProperties: Map[Int, Map[String, String]] = allBrokers.map { broker =>
+      broker.id -> broker.rack.map("rack"-> _).toMap
+    }.toMap
 
     // 1. map over topics creating assignment and calling AdminUtils
     val metadata = newPartitions.map { case (topic, newPartition) =>
@@ -313,6 +316,10 @@ class AdminManager(val config: KafkaConfig,
           throw new InvalidPartitionsException(s"Topic already has $oldNumPartitions partitions.")
         }
 
+        val topicProps = adminZkClient.fetchEntityConfig(ConfigType.Topic, topic)
+        val topicPlacement = Option(topicProps.get(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG))
+          .map(value => TopicPlacement.parse(value.toString))
+
         val newPartitionsAssignment = Option(newPartition.newAssignments)
           .map { value =>
             val assignments = value.asScala.map(_.asScala)
@@ -330,7 +337,9 @@ class AdminManager(val config: KafkaConfig,
             }
 
             assignments.zipWithIndex.map { case (replicas, index) =>
-              existingAssignment.size + index -> PartitionReplicaAssignment.fromCreate(replicas.map(_.toInt), Seq.empty)
+              val intReplicas = replicas.map(_.toInt)
+              Observer.validateReplicasHonorTopicPlacement(topic, topicPlacement, intReplicas, allBrokerProperties)
+              existingAssignment.size + index -> PartitionReplicaAssignment.fromCreate(intReplicas, Seq.empty)
             }.toMap
           }
 
@@ -354,7 +363,8 @@ class AdminManager(val config: KafkaConfig,
 
         val updatedReplicaAssignment = adminZkClient.addPartitions(
           topic, existingAssignment, allBrokers,
-          newPartition.totalCount, newPartitionsAssignment, validateOnly = validateOnly)
+          newPartition.totalCount, newPartitionsAssignment, validateOnly = validateOnly,
+          topicPlacement = topicPlacement)
         CreatePartitionsMetadata(topic, updatedReplicaAssignment.keySet, ApiError.NONE)
       } catch {
         case e: AdminOperationException =>

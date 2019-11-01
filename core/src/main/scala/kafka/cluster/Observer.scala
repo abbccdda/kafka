@@ -7,7 +7,7 @@ import kafka.admin.{AdminUtils, BrokerMetadata}
 import kafka.common.TopicPlacement
 import kafka.common.TopicPlacement.ConstraintCount
 import kafka.controller.PartitionReplicaAssignment
-import org.apache.kafka.common.errors.InvalidConfigurationException
+import org.apache.kafka.common.errors.{InvalidConfigurationException, InvalidReplicaAssignmentException}
 
 import scala.collection.JavaConverters._
 import scala.collection.{Map, Seq, mutable}
@@ -26,11 +26,22 @@ object Observer {
    * @param numPartitions the number of partitions to assigned. The size of the resulting map will be
    *                      equal to this value.
    * @param replicationFactor the number of replicas to assigned per partition if topicPlacement is None.
+   * @param fixedStartIndex   First index to use in the list of brokers to start assignment. So if broker list
+   *                          is (1, 2, 3, 4) and this param is 2, the first broker used for first replica assignment
+   *                          is 3.
+   * @param startPartitionId  The id/index of the next partition to add. This determines the second broker that
+   *                          gets picked in the replica assignment. So if broker list is (1, 2, 3, 4) and
+   *                          fixedStartIndex is 2 and startPartitonId is 1, then the first broker will be 3 and
+   *                          the second broker will be 1 (4 will be skipped). If however startPartitionId was
+   *                          2, the second broker would be 2, for startPartitionId as 3 the second broker id will
+   *                          be 4 and so on.
    */
   def getReplicaAssignment(brokers: Seq[BrokerMetadata],
                            topicPlacement: Option[TopicPlacement],
                            numPartitions: Int,
-                           replicationFactor: Int): Map[Int, PartitionReplicaAssignment] = {
+                           replicationFactor: Int,
+                           fixedStartIndex: Int = -1,
+                           startPartitionId: Int = -1): Map[Int, PartitionReplicaAssignment] = {
     /**
      * Partition the brokers into different sets along with number of brokers that need to be picked from the set.
      * As an example, for following broker configuration:
@@ -70,18 +81,19 @@ object Observer {
     validatePartitioning(replicationAndSyncEligible ++ replicationAndObserverEligible)
 
     partitionReplicaAssignment(
-      assignReplicasToPartitions(replicationAndSyncEligible, numPartitions),
-      assignReplicasToPartitions(replicationAndObserverEligible, numPartitions)
+      assignReplicasToPartitions(replicationAndSyncEligible, numPartitions, fixedStartIndex, startPartitionId),
+      assignReplicasToPartitions(replicationAndObserverEligible, numPartitions, fixedStartIndex, startPartitionId)
     )
   }
 
   private[this] def assignReplicasToPartitions(
     replicationAndBrokers: Seq[(Int, Seq[BrokerMetadata])],
-    partitions: Int
-  ): mutable.Map[Int, Seq[Int]] = {
+    partitions: Int,
+    fixedStartIndex: Int,
+    startPartitionId: Int): mutable.Map[Int, Seq[Int]] = {
     replicationAndBrokers
       .map { case (replication, brokerList) =>
-        AdminUtils.assignReplicasToBrokers(brokerList, partitions, replication)
+        AdminUtils.assignReplicasToBrokers(brokerList, partitions, replication, fixedStartIndex, startPartitionId)
       }
       .foldLeft(mutable.Map.empty[Int, Seq[Int]])(mergeAssignmentMap)
   }
@@ -177,6 +189,51 @@ object Observer {
   private[cluster] def brokerMatchesPlacementConstraint(broker: BrokerMetadata, constraint: ConstraintCount): Boolean = {
     broker.rack.exists { rack =>
       constraint.matches(Map("rack" -> rack).asJava)
+    }
+  }
+
+  /**
+   * We don't expose observers to users in most of the apis/commands, so any api that takes a replica
+   * assignment need to check if there is no observer passed. Clients are supposed to
+   * let Kafka server assign replica and observers based on topic placement constraint instead of
+   * providing the list themselves.
+   *
+   * This method is used to validate this use case. It makes following checks:
+   *
+   * 1. If topic placement constraint is None, return success.
+   * 2. There are no observers in topic placement constraint. If observers are present, then
+   *    a user can't specify replica assignment.
+   * 3. Confirm that the count of brokers in replica assignment matches to sum of counts for
+   *    all constraint in the topic placement constraint.
+   * 4. For each constraint in topic placement constraint, there is matching set of brokers in
+   *    the provided replica assignment list.
+   */
+  def validateReplicasHonorTopicPlacement(topic: String,
+                                          topicPlacement: Option[TopicPlacement],
+                                          replicas: Seq[Int],
+                                          allBrokerProperties: Map[Int, Map[String, String]]): Unit = {
+    topicPlacement.foreach { placementConstraint =>
+      if (!placementConstraint.observers().isEmpty) {
+        throw new InvalidReplicaAssignmentException(s"Replica assignment cannot be specified for topic $topic. " +
+          s"The topic placement constraint contains observers. Topic placement constraint: $topicPlacement")
+      }
+
+      val constraintReplicaCount = placementConstraint.replicas().asScala.map(_.count).sum
+      if (constraintReplicaCount != replicas.size) {
+        throw new InvalidReplicaAssignmentException(s"Replica assignment $replicas doesn't match the observer " +
+          s"constraints ${placementConstraint.observers()}")
+      }
+
+      placementConstraint.replicas().asScala.foreach { replicaConstraint =>
+        val replicasMatchingConstraint = replicas.count {
+          replica => replicaConstraint.matches(allBrokerProperties(replica).asJava)
+        }
+        if (replicasMatchingConstraint != replicaConstraint.count()) {
+          throw new InvalidReplicaAssignmentException(s"Replica constraint for topic $topic is not satisfied " +
+            s"for replica placement: $replicaConstraint. Only $replicasMatchingConstraint replicas found. " +
+            s"All replicas: ${replicas.mkString(",")}.")
+        }
+      }
     }
   }
 }

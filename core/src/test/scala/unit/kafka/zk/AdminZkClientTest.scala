@@ -19,6 +19,7 @@ package kafka.admin
 import java.util
 import java.util.Properties
 
+import kafka.common.TopicPlacement
 import kafka.controller.PartitionReplicaAssignment
 import kafka.log._
 import kafka.server.DynamicConfig.Broker._
@@ -29,8 +30,8 @@ import kafka.utils.TestUtils._
 import kafka.utils.{Logging, TestUtils}
 import kafka.zk.{AdminZkClient, KafkaZkClient, ZooKeeperTestHarness}
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.config.TopicConfig
-import org.apache.kafka.common.errors.{InvalidReplicaAssignmentException, InvalidTopicException, TopicExistsException}
+import org.apache.kafka.common.config.{ConfluentTopicConfig, TopicConfig}
+import org.apache.kafka.common.errors.{InvalidConfigurationException, InvalidReplicaAssignmentException, InvalidTopicException, TopicExistsException}
 import org.apache.kafka.common.metrics.Quota
 import org.apache.kafka.test.{TestUtils => JTestUtils}
 import org.easymock.EasyMock
@@ -305,6 +306,282 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
     //Now ensure updating to "" removes the throttled replica list also
     adminZkClient.changeTopicConfig(topic, propsWith((LogConfig.FollowerReplicationThrottledReplicasProp, ""), (LogConfig.LeaderReplicationThrottledReplicasProp, "")))
     checkConfig(Defaults.MaxMessageSize, Defaults.RetentionMs, "", "",  quotaManagerIsThrottled = false)
+  }
+
+  /**
+   * Test that addPartition method succeeds when
+   * 1. no topic placement constraint is specified, and
+   * 2. no replica assignment is provided
+   *
+   * In this case the code should do a normal replica assignment for new partition as done
+   * during topic creation time.
+   */
+  @Test
+  def testAddPartitionWithNoPlacementConstraintNoAssignment(): Unit = {
+    val existingAssignment = Map(0 -> PartitionReplicaAssignment.fromCreate(List(0, 1, 2), Seq.empty))
+
+    val brokers = (0 until 10).map { id =>
+      val rack = s"rack-${id / 5 + 1}"
+      BrokerMetadata(id, Some(rack))
+    }
+
+    val topicName = "test-topic"
+    TestUtils.createBrokersInZk(brokers, zkClient)
+    val props = new Properties
+    adminZkClient.createTopic(topicName, 1, 3, props)
+
+    val partitionAssignment = adminZkClient.addPartitions(
+      topicName, existingAssignment, brokers, numPartitions = 3, None)
+
+    assertEquals(3, partitionAssignment.size)
+
+    // Test if replica assignment was done as per placement constraint
+    partitionAssignment.values.map(_.replicas).foreach {
+      assignedBrokers => {
+        // Check that each partition gets 3 replicas
+        assertEquals(3, assignedBrokers.toSet.size)
+      }
+    }
+
+    partitionAssignment.values.map(_.observers).foreach { observers => {
+        assertTrue(observers.mkString(","), observers.isEmpty)
+      }
+    }
+  }
+
+  /**
+   * Test that addPartition method succeeds when
+   * 1. no topic placement constraint is specified, and
+   * 2. a replica assignment is provided
+   *
+   * In this case the provided assignment should be used as is.
+   */
+  @Test
+  def testAddPartitionWithNoPlacementConstraintWithAssignment(): Unit = {
+    val existingAssignment = Map(0 -> PartitionReplicaAssignment.fromCreate(List(0, 1, 2), Seq.empty))
+
+    val brokers = (0 until 10).map { id =>
+      val rack = s"rack-${id / 5 + 1}"
+      BrokerMetadata(id, Some(rack))
+    }
+
+    val topicName = "test-topic"
+    TestUtils.createBrokersInZk(brokers, zkClient)
+    val props = new Properties
+    adminZkClient.createTopic(topicName, 1, 3, props)
+
+    val newReplicaAssignment = Map(
+      1  -> PartitionReplicaAssignment.fromCreate(List(1, 2, 3), Seq.empty),
+      2  -> PartitionReplicaAssignment.fromCreate(List(2, 3, 4), Seq.empty),
+      3  -> PartitionReplicaAssignment.fromCreate(List(3, 4, 0), Seq.empty),
+      4  -> PartitionReplicaAssignment.fromCreate(List(4, 0, 1), Seq.empty),
+      5  -> PartitionReplicaAssignment.fromCreate(List(0, 2, 3), Seq.empty),
+      6  -> PartitionReplicaAssignment.fromCreate(List(1, 3, 4), Seq.empty),
+      7  -> PartitionReplicaAssignment.fromCreate(List(2, 4, 0), Seq.empty),
+      8  -> PartitionReplicaAssignment.fromCreate(List(3, 0, 1), Seq.empty),
+      9  -> PartitionReplicaAssignment.fromCreate(List(4, 1, 2), Seq.empty)
+    )
+
+    val partitionAssignment = adminZkClient.addPartitions(
+      topicName, existingAssignment, brokers, numPartitions = 10, Some(newReplicaAssignment))
+
+    assertEquals(existingAssignment ++ newReplicaAssignment, partitionAssignment)
+  }
+
+  /**
+   * Test that addPartition method succeeds when
+   * 1. a topic placement constraint is specified, and
+   * 2. no replica assignment is provided
+   *
+   * In this case the code should do a normal replica assignment for new partition taking
+   * topic placement constraint into account. This is same as what is done during topic
+   * creation when a "topic placement constraint" is present.
+   */
+  @Test
+  def testAddPartitionWithPlacementConstraintNoPartitionAssignment(): Unit = {
+    val placementJson = """{
+                          | "version": 1,
+                          |  "replicas": [{
+                          |      "count": 2,
+                          |      "constraints": {
+                          |        "rack": "rack-1"
+                          |      }
+                          |    }
+                          |  ],
+                          |  "observers": [{
+                          |    "count": 2,
+                          |    "constraints": {
+                          |      "rack": "rack-2"
+                          |    }
+                          |  }]
+                          |}""".stripMargin
+    val topicPlacement = TopicPlacement.parse(placementJson)
+    val existingAssignment = Map(0 -> PartitionReplicaAssignment.fromCreate(List(0, 1, 5, 6), List(5, 6)))
+
+    val brokers = (0 until 10).map { id =>
+      val rack = s"rack-${id / 5 + 1}"
+      BrokerMetadata(id, Some(rack))
+    }
+
+    val topicName = "test-topic"
+    TestUtils.createBrokersInZk(brokers, zkClient)
+    val props = new Properties
+    props.setProperty(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, placementJson)
+    adminZkClient.createTopic(topicName, 1, 4, props)
+
+    val partitionAssignment = adminZkClient.addPartitions(
+      topicName, existingAssignment, brokers, numPartitions = 3, None, false, Some(topicPlacement))
+
+    assertEquals(3, partitionAssignment.size)
+
+    // Test if replica and observer assignment was done as per placement constraint
+    partitionAssignment.values.map(_.replicas).foreach { assignedBrokers => {
+        // This checks that each partition gets assigned to racks in placement constraint
+        assertEquals(4, assignedBrokers.toSet.size)
+        // First 2 should be on rack 1 (broker id from 0 to 4)
+        assignedBrokers.take(2).foreach(brokerId => assertTrue(brokerId >= 0 && brokerId <= 4))
+        // Last 2 should be on rack 2 (broker id from 5 to 9)
+        assignedBrokers.slice(2, 4).foreach(brokerId => assertTrue(brokerId >= 5 && brokerId <= 9))
+      }
+    }
+
+    partitionAssignment.values.map(_.observers).foreach { observers => {
+        assertTrue(observers.mkString(","),
+          observers.forall(observerId => observerId >= 5 && observerId <= 9))
+      }
+    }
+  }
+
+  /**
+   * Test that addPartition method succeeds when
+   * 1. a topic placement constraint is specified, and
+   * 2. a replica assignment is provided
+   *
+   * In this case the code will ignore topic placement constraint and use the provided
+   * list as is. The validation against topic placement constraint is done by the
+   * caller of the "addPartition" method and an invalid configuration shouldn't
+   * reach this method. The "addPartition" method does perform other validation checks.
+   */
+  @Test
+  def testAddPartitionWithPlacementConstraintWithPartitionAssignment(): Unit = {
+    val placementJson = """{
+                          | "version": 1,
+                          |  "replicas": [{
+                          |      "count": 2,
+                          |      "constraints": {
+                          |        "rack": "rack-1"
+                          |      }
+                          |    }
+                          |  ],
+                          |  "observers": [{
+                          |    "count": 2,
+                          |    "constraints": {
+                          |      "rack": "rack-2"
+                          |    }
+                          |  }]
+                          |}""".stripMargin
+    val topicPlacement = TopicPlacement.parse(placementJson)
+    val existingAssignment = Map(0 -> PartitionReplicaAssignment.fromCreate(List(0, 1, 5, 6), List(5, 6)))
+    val newAssignment = Map(1 -> PartitionReplicaAssignment.fromCreate(List(2, 3, 7, 8), List(7, 8)))
+
+    val brokers = (0 until 10).map { id =>
+      val rack = s"rack-${id / 5 + 1}"
+      BrokerMetadata(id, Some(rack))
+    }
+
+    val topicName = "test-topic"
+    TestUtils.createBrokersInZk(brokers, zkClient)
+    val props = new Properties
+    props.setProperty(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, placementJson)
+    adminZkClient.createTopic(topicName, 1, 4, props)
+
+    val partitionAssignment = adminZkClient.addPartitions(
+      topicName, existingAssignment, brokers, numPartitions = 2, Some(newAssignment), false, Some(topicPlacement))
+
+    assertEquals(existingAssignment ++ newAssignment, partitionAssignment)
+  }
+
+  /**
+   * Test that addPartition method fails when the set of brokers don't match the topic placement
+   * constraint. In this test, topic placement needs 6 brokers in rack-1, but only 5 are available.
+   */
+  @Test(expected = classOf[InvalidConfigurationException])
+  def testAddPartitionWithReplicaPlacementConstraintNotSatisfied(): Unit = {
+    val placementJson = """{
+                          | "version": 1,
+                          |  "replicas": [{
+                          |      "count": 6,
+                          |      "constraints": {
+                          |        "rack": "rack-1"
+                          |      }
+                          |    }
+                          |  ],
+                          |  "observers": [{
+                          |    "count": 2,
+                          |    "constraints": {
+                          |      "rack": "rack-2"
+                          |    }
+                          |  }]
+                          |}""".stripMargin
+    val topicPlacement = TopicPlacement.parse(placementJson)
+    val existingAssignment = Map(0 -> PartitionReplicaAssignment.fromCreate(0 to 7, List(6, 7)))
+
+    val brokers = (0 until 10).map { id =>
+      val rack = s"rack-${id / 5 + 1}"
+      BrokerMetadata(id, Some(rack))
+    }
+
+    val topicName = "test-topic"
+    TestUtils.createBrokersInZk(brokers, zkClient)
+    val props = new Properties
+    props.setProperty(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, placementJson)
+    adminZkClient.createTopic(topicName, 1, 4, props)
+
+    // This should throw as we don't have enough brokers to satisfy replica constraint count
+    adminZkClient.addPartitions(
+      topicName, existingAssignment, brokers, numPartitions = 3, None, false, Some(topicPlacement))
+  }
+
+  /**
+   * Test that addPartition method fails when the set of brokers don't match the topic placement
+   * constraint. In this test, topic placement needs 6 brokers as observers in rack-2, but only
+   * 5 are available.
+   */
+  @Test(expected = classOf[InvalidConfigurationException])
+  def testAddPartitionWithObserverPlacementConstraintNotSatisfied(): Unit = {
+    val placementJson = """{
+                          | "version": 1,
+                          |  "replicas": [{
+                          |      "count": 3,
+                          |      "constraints": {
+                          |        "rack": "rack-1"
+                          |      }
+                          |    }
+                          |  ],
+                          |  "observers": [{
+                          |    "count": 6,
+                          |    "constraints": {
+                          |      "rack": "rack-2"
+                          |    }
+                          |  }]
+                          |}""".stripMargin
+    val topicPlacement = TopicPlacement.parse(placementJson)
+    val existingAssignment = Map(0 -> PartitionReplicaAssignment.fromCreate(2 until 10, 4 until 10))
+
+    val brokers = (0 until 10).map { id =>
+      val rack = s"rack-${id / 5 + 1}"
+      BrokerMetadata(id, Some(rack))
+    }
+
+    val topicName = "test-topic"
+    TestUtils.createBrokersInZk(brokers, zkClient)
+    val props = new Properties
+    props.setProperty(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, placementJson)
+    adminZkClient.createTopic(topicName, 1, 4, props)
+
+    // This should throw as we don't have enough brokers to satisfy replica constraint count
+    adminZkClient.addPartitions(
+      topicName, existingAssignment, brokers, numPartitions = 3, None, false, Some(topicPlacement))
   }
 
   @Test
