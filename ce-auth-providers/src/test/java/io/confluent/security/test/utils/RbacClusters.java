@@ -44,7 +44,6 @@ import java.util.stream.IntStream;
 import kafka.security.authorizer.AclAuthorizer;
 import kafka.server.KafkaConfig$;
 import kafka.server.KafkaServer;
-import kafka.utils.DummyLicenseValidator;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.common.acl.AclBinding;
@@ -72,8 +71,6 @@ public class RbacClusters {
   private List<KafkaAuthWriter> authWriters;
 
   public RbacClusters(Config config) throws Exception {
-    DummyLicenseValidator.disable();
-
     this.config = config;
     metadataCluster = new EmbeddedKafkaCluster();
     metadataCluster.startZooKeeper();
@@ -180,7 +177,6 @@ public class RbacClusters {
 
   public void shutdown() {
     try {
-      DummyLicenseValidator.enable();
       kafkaCluster.shutdown();
       if (miniKdcWithLdapService != null)
         miniKdcWithLdapService.shutdown();
@@ -378,6 +374,7 @@ public class RbacClusters {
     serverConfig.setProperty(MetadataServiceConfig.METADATA_SERVER_ADVERTISED_LISTENERS_PROP,
         "http://localhost:" + metadataPort);
     serverConfig.setProperty(KafkaStoreConfig.REPLICATION_FACTOR_PROP, "1");
+    serverConfig.setProperty(LicenseConfig.REPLICATION_FACTOR_PROP, "1");
     serverConfig.setProperty(KafkaConfig$.MODULE$.AutoCreateTopicsEnableProp(), "false");
     serverConfig.putAll(config.metadataClusterPropOverrides);
     return serverConfig;
@@ -474,7 +471,8 @@ public class RbacClusters {
     public Config addMetadataServer() {
       this.numMetadataServers++;
       return this.overrideMetadataBrokerConfig(KafkaConfig$.MODULE$.OffsetsTopicReplicationFactorProp(), "2")
-          .overrideMetadataBrokerConfig(KafkaStoreConfig.REPLICATION_FACTOR_PROP, "2");
+          .overrideMetadataBrokerConfig(KafkaStoreConfig.REPLICATION_FACTOR_PROP, "2")
+          .overrideMetadataBrokerConfig(LicenseConfig.REPLICATION_FACTOR_PROP, "2");
     }
 
     public Config overrideMetadataBrokerConfig(String name, String value) {

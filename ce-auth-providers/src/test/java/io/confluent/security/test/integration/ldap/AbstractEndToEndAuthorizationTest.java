@@ -298,6 +298,7 @@ public abstract class AbstractEndToEndAuthorizationTest {
         groupPrincipal(ADMIN_GROUP), ClusterAction$.MODULE$.name()));
     AclCommand.main(SecurityTestUtils.topicBrokerReadAclArgs(zkConnect,
         groupPrincipal(ADMIN_GROUP)));
+    SecurityTestUtils.addLicenseTopicAcl(zkConnect, groupPrincipal(ADMIN_GROUP));
     return users;
   }
 

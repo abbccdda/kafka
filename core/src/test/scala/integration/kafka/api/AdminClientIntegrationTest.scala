@@ -526,8 +526,14 @@ class AdminClientIntegrationTest extends IntegrationTestHarness with Logging {
         !tierFeature && config.startsWith(KafkaConfig.ConfluentTierPrefix) ||
         config.equals(LogConfig.AppendRecordInterceptorClassesProp)).size
     }
+    // Remove Confluent configs that are not defined in KafkaConfig from described configs
+    def customFilteredDescribedConfigCount(brokerResource: ConfigResource): Long = {
+      configs.get(brokerResource).entries.asScala
+        .filterNot(_.name.startsWith("confluent.license"))
+        .size
+    }
 
-    assertEquals(tierFeatureFilteredConfigCount(servers(1)), configs.get(brokerResource1).entries.size)
+    assertEquals(tierFeatureFilteredConfigCount(servers(1)), customFilteredDescribedConfigCount(brokerResource1))
     assertEquals(servers(1).config.brokerId.toString, configs.get(brokerResource1).get(KafkaConfig.BrokerIdProp).value)
     val listenerSecurityProtocolMap = configs.get(brokerResource1).get(KafkaConfig.ListenerSecurityProtocolMapProp)
     assertEquals(servers(1).config.getString(KafkaConfig.ListenerSecurityProtocolMapProp), listenerSecurityProtocolMap.value)
@@ -548,7 +554,7 @@ class AdminClientIntegrationTest extends IntegrationTestHarness with Logging {
     assertFalse(compressionType.isSensitive)
     assertFalse(compressionType.isReadOnly)
 
-    assertEquals(tierFeatureFilteredConfigCount(servers(2)), configs.get(brokerResource2).entries.size)
+    assertEquals(tierFeatureFilteredConfigCount(servers(2)), customFilteredDescribedConfigCount(brokerResource2))
     assertEquals(servers(2).config.brokerId.toString, configs.get(brokerResource2).get(KafkaConfig.BrokerIdProp).value)
     assertEquals(servers(2).config.logCleanerThreads.toString,
       configs.get(brokerResource2).get(KafkaConfig.LogCleanerThreadsProp).value)

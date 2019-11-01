@@ -18,16 +18,15 @@
 package kafka.utils
 
 import java.util
+import java.util.ServiceLoader
 
 import org.apache.kafka.server.license.LicenseValidator
+import scala.collection.JavaConverters._
 
+// This dummy validator is enabled only in tests which don't have a dependency on `ce-licensing`
 object DummyLicenseValidator {
-  var enabled = true
-  def enable(): Unit = {
-    enabled = true
-  }
-  def disable(): Unit = {
-    enabled = false
+  val enabled = !ServiceLoader.load(classOf[LicenseValidator]).asScala.toSet.exists { validator =>
+    validator.getClass != classOf[DummyLicenseValidator] && validator.enabled
   }
 }
 

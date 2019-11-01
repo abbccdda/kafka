@@ -12,9 +12,7 @@ import org.apache.kafka.common.Configurable;
  */
 public interface LicenseValidator extends Configurable, Closeable {
 
-  default boolean enabled() {
-    return true;
-  }
+  boolean enabled();
 
   /**
    * Initialize license using the provided license or free-tier/trial license and start

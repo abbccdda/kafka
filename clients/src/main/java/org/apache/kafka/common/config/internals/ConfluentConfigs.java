@@ -16,8 +16,10 @@
  */
 package org.apache.kafka.common.config.internals;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.ServiceLoader;
+import javax.security.auth.login.AppConfigurationEntry;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.AbstractConfig;
@@ -25,6 +27,7 @@ import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.network.Mode;
 import org.apache.kafka.common.requests.SamplingRequestLogFilter;
+import org.apache.kafka.common.security.JaasContext;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.interceptor.BrokerInterceptor;
@@ -227,6 +230,27 @@ public class ConfluentConfigs {
             clientConfigs.put(SaslConfigs.SASL_MECHANISM, saslMechanism);
             String mechanismPrefix = listenerName.saslMechanismConfigPrefix(saslMechanism);
             updatePrefixedConfigs(configs, clientConfigs, mechanismPrefix);
+
+            // If broker is configured with static JAAS config, set client sasl.jaas.config
+            if (!clientConfigs.containsKey(SaslConfigs.SASL_JAAS_CONFIG)) {
+                JaasContext context = JaasContext
+                    .loadServerContext(listenerName, saslMechanism, Collections.emptyMap());
+                if (context.dynamicJaasConfig() == null && !context.configurationEntries().isEmpty()) {
+                    StringBuffer jaasConfig = new StringBuffer();
+                    AppConfigurationEntry entry = context.configurationEntries().get(0);
+                    jaasConfig.append(entry.getLoginModuleName());
+                    jaasConfig.append(" required");
+                    entry.getOptions().forEach((k, v) -> {
+                        jaasConfig.append(' ');
+                        jaasConfig.append(k);
+                        jaasConfig.append("=\"");
+                        jaasConfig.append(v);
+                        jaasConfig.append('"');
+                    });
+                    jaasConfig.append(';');
+                    clientConfigs.put(SaslConfigs.SASL_JAAS_CONFIG, jaasConfig.toString());
+                }
+            }
         }
         clientConfigs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, interBrokerEndpoint.host() + ":" + interBrokerEndpoint.port());
         clientConfigs.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol.name);

@@ -8,6 +8,7 @@ import io.confluent.license.LicenseStore;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Map;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.config.AbstractConfig;
@@ -27,7 +28,7 @@ public class LicenseConfig extends AbstractConfig {
   private static final String LICENSE_DOC = "License for Confluent plugins.";
 
   public static final String TOPIC_PROP = "confluent.license.topic";
-  private static final String TOPIC_DEFAULT = "_confluent-license";
+  public static final String TOPIC_DEFAULT = "_confluent-license";
   private static final String TOPIC_DOC = "Topic used for storing Confluent license";
 
   public static final String REPLICATION_FACTOR_PROP = "confluent.license.topic.replication.factor";
@@ -36,6 +37,11 @@ public class LicenseConfig extends AbstractConfig {
       + " This is used for creation of the topic if it doesn't exist. Replication factor cannot be"
       + " altered after the topic is created.";
 
+  public static final String TOPIC_CREATE_TIMEOUT_PROP = "confluent.metadata.topic.create.timeout.ms";
+  private static final int TOPIC_CREATE_TIMEOUT_DEFAULT = 600000;
+  private static final String TOPIC_CREATE_TIMEOUT_DOC = "The number of milliseconds to wait for"
+      + " license topic to be created during start up.";
+
   private static final ConfigDef CONFIG;
 
   static {
@@ -43,12 +49,15 @@ public class LicenseConfig extends AbstractConfig {
         .define(LICENSE_PROP, Type.STRING, LICENSE_DEFAULT, Importance.HIGH, LICENSE_DOC)
         .define(TOPIC_PROP, Type.STRING, TOPIC_DEFAULT, Importance.LOW, TOPIC_DOC)
         .define(REPLICATION_FACTOR_PROP, Type.SHORT, REPLICATION_FACTOR_DEFAULT,
-            atLeast(1), Importance.LOW, REPLICATION_FACTOR_DOC);
+            atLeast(1), Importance.LOW, REPLICATION_FACTOR_DOC)
+        .define(TOPIC_CREATE_TIMEOUT_PROP, Type.INT, TOPIC_CREATE_TIMEOUT_DEFAULT,
+            atLeast(1), Importance.LOW, TOPIC_CREATE_TIMEOUT_DOC);
   }
 
   public final String license;
   public final String topic;
-  private final int replicationFactor;
+  final Duration topicCreateTimeout;
+  final int replicationFactor;
   private final String componentId;
 
   public LicenseConfig(String componentId, Map<?, ?> props) {
@@ -57,6 +66,7 @@ public class LicenseConfig extends AbstractConfig {
     license = getString(LICENSE_PROP);
     topic = getString(TOPIC_PROP);
     replicationFactor = getShort(REPLICATION_FACTOR_PROP);
+    topicCreateTimeout = Duration.ofMillis(getInt(TOPIC_CREATE_TIMEOUT_PROP));
   }
 
   public Map<String, Object> producerConfigs() {

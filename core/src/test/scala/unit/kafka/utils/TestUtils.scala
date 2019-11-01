@@ -157,7 +157,21 @@ object TestUtils extends Logging {
   }
 
   def createServer(config: KafkaConfig, time: Time, threadNamePrefix: Option[String]): KafkaServer = {
-    val server = new KafkaServer(config, time, threadNamePrefix = threadNamePrefix)
+    createServer(config, time, threadNamePrefix, licenseTopicReplicationFactor = 1)
+  }
+
+  def createServer(config: KafkaConfig, time: Time,
+                   threadNamePrefix: Option[String],
+                   licenseTopicReplicationFactor: Int): KafkaServer = {
+    // Set license topic replication factor as 1 by default in tests since higher
+    // replication factor may break existing tests with smaller number of brokers
+    val licenseReplicationProp = "confluent.license.topic.replication.factor"
+    val brokerConfig = if (!config.originals.containsKey(licenseReplicationProp)) {
+      new KafkaConfig((config.originals.asScala + (licenseReplicationProp -> "1")).asJava)
+    } else
+      config
+
+    val server = new KafkaServer(brokerConfig, time, threadNamePrefix = threadNamePrefix)
     server.startup()
     server
   }
@@ -297,6 +311,7 @@ object TestUtils extends Logging {
     props.put(KafkaConfig.LogCleanerDedupeBufferSizeProp, "2097152")
     props.put(KafkaConfig.LogMessageTimestampDifferenceMaxMsProp, Long.MaxValue.toString)
     props.put(KafkaConfig.OffsetsTopicReplicationFactorProp, "1")
+    props.put("confluent.license.topic.replication.factor", "1")
     if (!props.containsKey(KafkaConfig.OffsetsTopicPartitionsProp))
       props.put(KafkaConfig.OffsetsTopicPartitionsProp, "5")
     if (!props.containsKey(KafkaConfig.GroupInitialRebalanceDelayMsProp))

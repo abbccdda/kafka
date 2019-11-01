@@ -19,12 +19,14 @@
 package io.confluent.security.test.integration.ldap;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
+import io.confluent.kafka.test.utils.SecurityTestUtils;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.minikdc.MiniKdcWithLdapService;
 import io.confluent.security.test.utils.LdapTestUtils;
 import kafka.api.SaslEndToEndAuthorizationTest;
 import kafka.utils.JaasTestUtils;
 import kafka.zk.ConfigEntityChangeNotificationZNode$;
+import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.junit.After;
 import org.junit.Before;
 import scala.collection.JavaConversions;
@@ -116,6 +118,8 @@ public abstract class GroupEndToEndAuthorizationTest extends SaslEndToEndAuthori
         JaasTestUtils.KafkaScramPassword());
     createScramCredentials(zkConnect(), JaasTestUtils.KafkaScramUser2(),
         JaasTestUtils.KafkaScramPassword2());
+    SecurityTestUtils.addLicenseTopicAcl(zkConnect(),
+        new KafkaPrincipal(kafkaPrincipalType(), kafkaPrincipal()));
   }
 }
 

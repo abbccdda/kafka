@@ -126,7 +126,10 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                           interbroker_security_protocol="PLAINTEXT",
                           client_sasl_mechanism="SCRAM-SHA-256",
                           interbroker_sasl_mechanism="PLAINTEXT",
-                          authorizer_class_name=KafkaService.SIMPLE_AUTHORIZER)
+                          authorizer_class_name=KafkaService.SIMPLE_AUTHORIZER,
+                          server_prop_overides=[
+                              ["confluent.license.topic.replication.factor", "3"]
+                          ])
 
         self.set_acls("User:" + SecurityConfig.SCRAM_CLIENT_USER)
         self.kafka.start()
@@ -161,6 +164,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                           interbroker_sasl_mechanism="PLAINTEXT",
                           authorizer_class_name="io.confluent.kafka.security.ldap.authorizer.LdapAuthorizer",
                           server_prop_overides=[
+                              ["confluent.license.topic.replication.factor", "3"],
                               ["ldap.authorizer.java.naming.provider.url", self.minildap.ldap_url]
                           ])
 
@@ -199,6 +203,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                           server_prop_overides=[
                               ["super.users", "User:ANONYMOUS"],
                               ["confluent.authorizer.access.rule.providers", "ACL,FILE_RBAC"],
+                              ["confluent.license.topic.replication.factor", "3"],
                               ["ldap.java.naming.provider.url", self.minildap.ldap_url],
                               ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH]
                           ])

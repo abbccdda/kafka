@@ -4,6 +4,7 @@
 
 package io.confluent.license;
 
+import java.time.Duration;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.common.errors.ClusterAuthorizationException;
@@ -140,6 +141,20 @@ public class LicenseManager {
     this(
         new BasicClusterClient(topicConfig),
         new LicenseStore(topic, producerConfig, consumerConfig, topicConfig),
+        Time.SYSTEM
+    );
+  }
+
+  public LicenseManager(
+      String topic,
+      Map<String, Object> producerConfig,
+      Map<String, Object> consumerConfig,
+      Map<String, Object> topicConfig,
+      Duration topicCreateTimeout
+  ) {
+    this(
+        new BasicClusterClient(topicConfig),
+        new LicenseStore(topic, producerConfig, consumerConfig, topicConfig, topicCreateTimeout, Time.SYSTEM),
         Time.SYSTEM
     );
   }

@@ -18,6 +18,7 @@
 
 package io.confluent.kafka.security.authorizer;
 
+import io.confluent.kafka.test.utils.SecurityTestUtils;
 import java.util.Collections;
 import java.util.Properties;
 import kafka.api.SaslEndToEndAuthorizationTest;
@@ -74,6 +75,8 @@ public class AclEndToEndAuthorizationTest extends SaslEndToEndAuthorizationTest 
         JaasTestUtils.KafkaScramPassword());
     createScramCredentials(zkConnect(), JaasTestUtils.KafkaScramUser2(),
         JaasTestUtils.KafkaScramPassword2());
+    SecurityTestUtils.addLicenseTopicAcl(zkConnect(),
+        new KafkaPrincipal(kafkaPrincipalType(), kafkaPrincipal()));
   }
 }
 

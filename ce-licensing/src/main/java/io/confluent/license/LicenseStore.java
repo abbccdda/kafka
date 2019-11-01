@@ -4,10 +4,18 @@
 
 package io.confluent.license;
 
+import java.time.Duration;
+import java.util.Collections;
+import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.errors.InterruptException;
+import org.apache.kafka.common.errors.InvalidReplicationFactorException;
+import org.apache.kafka.common.errors.RetriableException;
+import org.apache.kafka.common.errors.TopicExistsException;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.connect.util.Callback;
 import org.apache.kafka.connect.util.KafkaBasedLog;
@@ -37,15 +45,19 @@ public class LicenseStore {
       .setConfigType(CommandConfigType.LICENSE_INFO)
       .setGuid(KEY_PREFIX)
       .build();
+  private static final Duration TOPIC_CREATE_RETRY_BACKOFF = Duration.ofMillis(10);
   private final String topic;
 
   public static final String REPLICATION_FACTOR_CONFIG =
       "replication.factor";
+  public static final String MIN_INSYNC_REPLICAS_CONFIG =
+      "min.insync.replicas";
   public static final long READ_TO_END_TIMEOUT_MS = 120_000;
 
   private final KafkaBasedLog<CommandKey, CommandMessage> licenseLog;
   private final AtomicBoolean running = new AtomicBoolean();
   private final AtomicReference<String> latestLicense;
+  private final Duration topicCreateTimeout;
   private final Time time;
 
   public LicenseStore(
@@ -65,9 +77,21 @@ public class LicenseStore {
       Map<String, Object> topicConfig,
       Time time
   ) {
+    this(topic, producerConfig, consumerConfig, topicConfig, Duration.ZERO, Time.SYSTEM);
+  }
+
+  public LicenseStore(
+      String topic,
+      Map<String, Object> producerConfig,
+      Map<String, Object> consumerConfig,
+      Map<String, Object> topicConfig,
+      Duration topicCreateTimeout,
+      Time time
+  ) {
     this.topic = topic;
     this.latestLicense = new AtomicReference<>();
     this.time = time;
+    this.topicCreateTimeout = topicCreateTimeout;
     this.licenseLog = setupAndCreateKafkaBasedLog(
         this.topic,
         producerConfig,
@@ -89,6 +113,7 @@ public class LicenseStore {
     this.latestLicense = latestLicense;
     this.licenseLog = licenseLog;
     this.time = time;
+    this.topicCreateTimeout = Duration.ZERO;
   }
 
   // package private for testing
@@ -127,11 +152,17 @@ public class LicenseStore {
     short replicationFactor = replicationFactorString == null
                               ? (short) 3
                               : Short.valueOf(replicationFactorString);
+    String minInSyncReplicasString = (String) topicConfig.get(MIN_INSYNC_REPLICAS_CONFIG);
+    short minInSyncReplicas = (short) Math.min(minInSyncReplicasString == null
+                              ? 2
+                              : Short.valueOf(minInSyncReplicasString), replicationFactor);
+
 
     NewTopic topicDescription = TopicAdmin.defineTopic(topic)
         .compacted()
         .partitions(1)
         .replicationFactor(replicationFactor)
+        .minInSyncReplicas(minInSyncReplicas)
         .build();
 
     return createKafkaBasedLog(
@@ -154,11 +185,45 @@ public class LicenseStore {
       final Map<String, Object> topicConfig,
       Time time
   ) {
+    long endTimeMs = time.milliseconds() + topicCreateTimeout.toMillis();
     Runnable createTopics = new Runnable() {
       @Override
       public void run() {
-        try (TopicAdmin admin = new TopicAdmin(topicConfig)) {
-          admin.createTopics(topicDescription);
+        try (Admin admin = Admin.create(topicConfig)) {
+          Throwable lastException = null;
+
+          while (true) {
+            try {
+              admin.createTopics(Collections.singleton(topicDescription)).all().get();
+              log.debug("License topic {} created", topic);
+              break;
+            } catch (ExecutionException e) {
+              Throwable cause = e.getCause();
+              if (lastException == null && cause instanceof InvalidReplicationFactorException) {
+                log.info("Creating {} with replication factor {}. " +
+                      "At least {} brokers must be started concurrently to complete license registration.",
+                    topic, topicDescription.replicationFactor(), topicDescription.replicationFactor());
+              }
+              lastException = cause;
+              if (cause instanceof TopicExistsException) {
+                log.debug("License topic {} was created by different node", topic);
+                break;
+              } else if (!(cause instanceof RetriableException ||
+                  cause instanceof InvalidReplicationFactorException)) {
+                throw cause instanceof KafkaException ? (KafkaException) cause : new KafkaException(cause);
+              }
+            } catch (InterruptedException e) {
+              throw new InterruptException(e);
+            }
+
+            long remainingMs = endTimeMs - time.milliseconds();
+            if (remainingMs <= 0) {
+              throw new org.apache.kafka.common.errors.TimeoutException("License topic could not be created", lastException);
+            } else {
+              log.debug("Topic could not be created, retrying: {}", lastException.getMessage());
+              time.sleep(Math.min(remainingMs, TOPIC_CREATE_RETRY_BACKOFF.toMillis()));
+            }
+          }
         }
       }
     };

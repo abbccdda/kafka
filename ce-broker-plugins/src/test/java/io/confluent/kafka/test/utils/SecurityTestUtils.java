@@ -15,12 +15,14 @@ import io.confluent.kafka.server.plugins.auth.oauth.OAuthUtils;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.license.validator.ConfluentLicenseValidator;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
+import io.confluent.license.validator.LicenseConfig;
 import java.io.File;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 import javax.security.auth.login.Configuration;
+import kafka.admin.AclCommand;
 import kafka.admin.ConfigCommand;
 import kafka.security.auth.Operation;
 import kafka.security.auth.Resource;
@@ -174,6 +176,17 @@ public class SecurityTestUtils {
         "--operation=" + op,
         "--allow-principal=" + principal
     };
+  }
+
+  public static void addLicenseTopicAcl(String zkConnect, KafkaPrincipal principal) {
+    String[] args  = new String[]{
+        "--authorizer-properties", "zookeeper.connect=" + zkConnect,
+        "--add",
+        "--topic=" + LicenseConfig.TOPIC_DEFAULT,
+        "--operation=All",
+        "--allow-principal=" + principal
+    };
+    AclCommand.main(args);
   }
 
   public static void waitForAclUpdate(org.apache.kafka.server.authorizer.Authorizer authorizer, KafkaPrincipal principal, Resource resource,
