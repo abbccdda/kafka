@@ -22,6 +22,27 @@ RUN tar -xzvf /home/gradle/core/build/distributions/kafka_*-SNAPSHOT.tgz --strip
 
 ##########
 
+# Build a Docker image for the K8s liveness storage probe.
+
+FROM confluent-docker.jfrog.io/confluentinc/cc-service-base:1.10 AS go-build
+
+ARG version
+
+WORKDIR /root
+COPY .ssh .ssh
+COPY .netrc ./
+RUN ssh-keyscan -t rsa github.com > /root/.ssh/known_hosts
+
+WORKDIR /go/src/github.com/confluentinc/ce-kafka/cc-services/storage_probe
+COPY cc-services/storage_probe .
+COPY ./mk-include ./mk-include
+
+RUN make deps DEP_ARGS=-vendor-only VERSION=${version}
+
+RUN make lint-go test-go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 make build-go GO_OUTDIR= VERSION=${version}
+
+
 ##########
 
 FROM confluent-docker.jfrog.io/confluentinc/cc-base:v3.3.0
@@ -49,6 +70,9 @@ CMD ["/opt/caas/bin/run"]
 COPY --from=kafka-builder /build /opt/confluent
 
 COPY include/opt/caas /opt/caas
+
+# Set up storage probe
+COPY --from=go-build /storage-probe /opt/caas/bin
 
 WORKDIR /
 RUN mkdir -p /opt/caas/lib \

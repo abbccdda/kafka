@@ -1,7 +1,9 @@
 # Cloud
 
 Here we store CCloud utilities (written in Go) that are closely tied to Kafka.
-Currently we have code orchestrating the Kafka Core Soak cluster's clients via Trogdor under the `soak_cluster `package. It is responsible for creating Trogdor tasks in accordance to a given configuration consisting of desired soak testing length, throughput and etc.
+There are two services here currently:
+  - code orchestrating the Kafka Core Soak cluster's clients via Trogdor under the `soak_cluster `package. It is responsible for creating Trogdor tasks in accordance to a given configuration consisting of desired soak testing length, throughput and etc.
+  - The storage liveness probe used for CCloud clusters. This is a small Go utility which writes and fsyncs data to some files; the speed and success of these writes is intended to reflect the underlying storage system health.
 
 # Soak Testing
 
@@ -77,3 +79,26 @@ If you need a custom kafka base image for trogdor from the local branch run from
 ```
 make build-docker build-docker-cc-services push-docker-cc-services
 ```
+
+# Storage Probe
+
+This is a small Go utility which attempts to write a small amount of data to all the files specified on its command line, fsyncing them as well to ensure that they actually go to disk. You can specify a maximum time that they are allowed to run before timing out, which defaults to 30 seconds.
+
+## Building the Storage Probe
+
+This is built and included in the standard ce-kafka build, but it's also got its own standard Confluent Makefile (with build-go and test-go targets). There are a series of unit tests.
+
+## Docker Images
+
+There are no standalone Docker images for the storage probe; it's
+built and placed in the standard ce-kafka Docker image.
+
+## Invoking the Storage Probe
+
+The storage probe takes 2 arguments,
+  - `-timeout <duration>` -- determines how long before the probe times out and returns.
+  - `-statsAddr <host:port>` -- address of the Datadog stats daemon to connect to. If not provided, no stats are exported.
+
+## Caveats of the Storage Probe
+
+While the probe has a `timeout` argument controlling how long before the writes are considered to have failed, we've observed that truly unavailable storage can result in the probe failing to exit (stuck in the fsync system call), so it's better to go belt-and-suspenders by using something like `timeout` to ensure that the program exits after some specified time.
