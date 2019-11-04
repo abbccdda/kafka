@@ -241,9 +241,9 @@ public class ConfluentConfigs {
                     jaasConfig.append(entry.getLoginModuleName());
                     jaasConfig.append(" required");
                     entry.getOptions().forEach((k, v) -> {
-                        jaasConfig.append(' ');
+                        jaasConfig.append(" \"");
                         jaasConfig.append(k);
-                        jaasConfig.append("=\"");
+                        jaasConfig.append("\"=\"");
                         jaasConfig.append(v);
                         jaasConfig.append('"');
                     });
