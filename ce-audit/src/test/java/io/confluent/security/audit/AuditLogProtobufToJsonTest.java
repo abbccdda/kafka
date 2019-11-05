@@ -7,9 +7,16 @@ package io.confluent.security.audit;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.InvalidDefinitionException;
+import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Value;
+import com.hubspot.jackson.datatype.protobuf.ProtobufModule;
 import io.cloudevents.CloudEvent;
+import io.cloudevents.json.ZonedDateTimeDeserializer;
+import io.cloudevents.json.ZonedDateTimeSerializer;
 import io.confluent.events.CloudEventUtils;
 import io.confluent.events.EventLoggerConfig;
 import io.confluent.events.ProtobufEvent;
@@ -303,4 +310,72 @@ public class AuditLogProtobufToJsonTest {
         assertTrue(jsonString.contains("\"granted\":false"));
     }
 
+  // Test to replicate https://confluentinc.atlassian.net/browse/CPKAFKA-3888
+  @Test(expected = InvalidDefinitionException.class)
+    public void testJsonErrorWhenProtobufModuleIsNotRegistered() throws Exception {
+      AuditLogEntry ale = AuditLogEntry.newBuilder()
+          .setServiceName("crn:///kafka=CdiHxnm2SwGtUg5nnB8rBQ")
+          .setMethodName("kafka.Metadata")
+          .setResourceName("crn:///kafka=CdiHxnm2SwGtUg5nnB8rBQ/topic=_confluent-metadata-auth")
+          .setAuthenticationInfo(
+              AuthenticationInfo.newBuilder()
+                  .setPrincipal("User:ANONYMOUS").build())
+          .setAuthorizationInfo(
+              AuthorizationInfo.newBuilder()
+                  .setResourceType("Topic")
+                  .setResourceName("_confluent-metadata-auth")
+                  .setOperation("Describe")
+                  .setPatternType("LITERAL")
+                  .setGranted(true)
+                  .build()
+          )
+          .setRequest(Struct.newBuilder()
+              .putFields("correlation_id",
+                  Value.newBuilder().setStringValue("13").build())
+              .putFields("client_id",
+                  Value.newBuilder().setStringValue("_confluent-metadata-auth-consumer-1").build())
+              .build())
+          .setRequestMetadata(Struct.newBuilder()
+              .putFields("client_address",
+                  Value.newBuilder().setStringValue("/172.31.11.172").build())
+              .build())
+          .build();
+
+      // The mapper in the Cloudevents SDK is declared in a static block. We initialize it the same
+      // to replicate the bug: https://confluentinc.atlassian.net/browse/CPKAFKA-3888.
+
+      ObjectMapper mapper = new ObjectMapper();
+      mapper.registerModule(new Jdk8Module());
+
+      SimpleModule module = new SimpleModule();
+      module.addSerializer(ZonedDateTime.class, new ZonedDateTimeSerializer());
+      module.addDeserializer(ZonedDateTime.class, new ZonedDateTimeDeserializer());
+      mapper.registerModule(module);
+
+      // Check that protobuf module is missing.
+      assertTrue(mapper.getRegisteredModuleIds().stream()
+          .noneMatch(m -> m.equals(ProtobufModule.class.getCanonicalName())));
+
+      CloudEvent message = ProtobufEvent.newBuilder()
+          .setType("io.confluent.kafka.server/authorization")
+          .setSource("crn:///kafka=CdiHxnm2SwGtUg5nnB8rBQ")
+          .setSubject("crn:///kafka=CdiHxnm2SwGtUg5nnB8rBQ/topic=_confluent-metadata-auth")
+          .setId("728497fe-2ab4-47ae-8984-40127c5a65cb")
+          .setTime(ZonedDateTime.parse("2019-11-04T21:49:27.552Z"))
+          .setEncoding(EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG)
+          .setData(ale)
+          .build();
+
+      // This should produce the exception
+      // com.fasterxml.jackson.databind.exc.InvalidDefinitionException: Direct self-reference
+      // leading to cycle (through reference chain: io.cloudevents.v03.CloudEventImpl["data"]->
+      // io.confluent.security.audit.AuditLogEntry["unknownFields"]
+      // ->com.google.protobuf.UnknownFieldSet["defaultInstanceForType"])
+      try {
+        mapper.writeValueAsBytes(message);
+      } catch (Exception e) {
+        e.printStackTrace();
+        throw e;
+      }
+    }
 }
