@@ -21,6 +21,7 @@ import org.apache.kafka.common.config.ConfigDef.Type;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 
 public class KafkaStoreConfig extends AbstractConfig {
 
@@ -75,16 +76,16 @@ public class KafkaStoreConfig extends AbstractConfig {
   public final Duration topicCreateTimeout;
   public final Duration refreshTimeout;
   public final Duration retryTimeout;
-  private final String brokerId;
+  public final int brokerId;
 
-  public KafkaStoreConfig(Map<?, ?> props) {
+  public KafkaStoreConfig(AuthorizerServerInfo serverInfo, Map<?, ?> props) {
     super(CONFIG, props);
 
     topicCreateTimeout = Duration.ofMillis(getInt(TOPIC_CREATE_TIMEOUT_PROP));
     refreshTimeout = Duration.ofMillis(getInt(REFRESH_TIMEOUT_PROP));
     retryTimeout = Duration.ofMillis(getInt(RETRY_TIMEOUT_PROP));
     Object brokerId = props.get("broker.id");
-    this.brokerId = brokerId == null ? "unknown" : String.valueOf(brokerId);
+    this.brokerId = serverInfo.brokerId();
   }
 
   public Map<String, Object> consumerConfigs(String topic) {

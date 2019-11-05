@@ -6,12 +6,16 @@ import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourcePatternFilter;
 import io.confluent.security.authorizer.Scope;
 import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Predicate;
 
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.server.authorizer.AclCreateResult;
+import org.apache.kafka.server.authorizer.AclDeleteResult;
 
 /**
  * Writer interface used by Metadata Server to update role bindings. All update methods are
@@ -109,6 +113,19 @@ public interface AuthWriter {
   CompletionStage<Void> createAcls(Scope scope, AclBinding aclBinding);
 
   /**
+   * Creates ACLs for the specified scope using the minimal number of batched updates.
+   * This method should not block since it is invoked on the broker's request thread while
+   * processing AdminClient requests to create ACLs.
+   * <p>
+   * Requestor should have AlterAccess permission for the specified resources to perform this operation.
+   *
+   * @param scope Scope at which ACL bindings are added
+   * @param aclBindings List of ACLs to create
+   * @return completion stages for each binding
+   */
+  Map<AclBinding, CompletionStage<AclCreateResult>> createAcls(Scope scope, List<AclBinding> aclBindings);
+
+  /**
    * Deletes all ACL rules that match the provided filters. This method will block until the local cache is
    * up-to-date and the new binding is queued for update with the updated rules.
    * <p>
@@ -122,4 +139,18 @@ public interface AuthWriter {
   CompletionStage<Collection<AclBinding>> deleteAcls(Scope scope,
                                                      AclBindingFilter aclBindingFilter,
                                                      Predicate<ResourcePattern> resourceAccess);
+
+  /**
+   * Deletes ACLs that match any of the provided filters using batched update.
+   * This method should not block since it is invoked on the broker's request thread while
+   * processing AdminClient requests to delete ACLs.
+   *
+   * @param scope Scope at which ACL bindings are added
+   * @param aclBindingFilters Filters whose matching ACLs are deleted
+   * @param resourceAccess predicate to check delete permission on resources
+   * @return completion stages for each matching binding
+   */
+  Map<AclBindingFilter, CompletionStage<AclDeleteResult>> deleteAcls(Scope scope,
+      List<AclBindingFilter> aclBindingFilters,
+      Predicate<ResourcePattern> resourceAccess);
 }

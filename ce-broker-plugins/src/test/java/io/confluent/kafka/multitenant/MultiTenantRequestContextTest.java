@@ -1398,7 +1398,7 @@ public class MultiTenantRequestContextTest {
           singletonList(new AclCreationResponse(ApiError.NONE));
       CreateAclsResponse outbound = new CreateAclsResponse(23, aclCreationResponses);
       Struct struct = parseResponse(ApiKeys.CREATE_ACLS, ver, context.buildResponse(outbound));
-      CreateAclsResponse intercepted = new CreateAclsResponse(struct);
+      CreateAclsResponse intercepted = new CreateAclsResponse(struct, ver);
       assertEquals(ApiError.NONE.error(),
           intercepted.aclCreationResponses().get(0).error().error());
       verifyResponseMetrics(ApiKeys.CREATE_ACLS, Errors.NONE);
@@ -1478,7 +1478,7 @@ public class MultiTenantRequestContextTest {
         new DeleteAclsResponse.AclFilterResponse(ApiError.NONE, deletionResults1));
     DeleteAclsResponse outbound = new DeleteAclsResponse(11, aclDeletionResponses);
     Struct struct = parseResponse(ApiKeys.DELETE_ACLS, version, context.buildResponse(outbound));
-    DeleteAclsResponse intercepted = new DeleteAclsResponse(struct);
+    DeleteAclsResponse intercepted = new DeleteAclsResponse(struct, version);
     List<DeleteAclsResponse.AclFilterResponse> interceptedResponses = intercepted.responses();
     assertEquals(aclDeletionResponses.size(), interceptedResponses.size());
 

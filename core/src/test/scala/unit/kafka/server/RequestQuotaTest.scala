@@ -638,8 +638,8 @@ class RequestQuotaTest extends BaseRequestTest {
       case ApiKeys.END_TXN => new EndTxnResponse(response).throttleTimeMs
       case ApiKeys.TXN_OFFSET_COMMIT => new TxnOffsetCommitResponse(response, ApiKeys.TXN_OFFSET_COMMIT.latestVersion).throttleTimeMs
       case ApiKeys.DESCRIBE_ACLS => new DescribeAclsResponse(response).throttleTimeMs
-      case ApiKeys.CREATE_ACLS => new CreateAclsResponse(response).throttleTimeMs
-      case ApiKeys.DELETE_ACLS => new DeleteAclsResponse(response).throttleTimeMs
+      case ApiKeys.CREATE_ACLS => new CreateAclsResponse(response, ApiKeys.CREATE_ACLS.latestVersion).throttleTimeMs
+      case ApiKeys.DELETE_ACLS => new DeleteAclsResponse(response, ApiKeys.DELETE_ACLS.latestVersion).throttleTimeMs
       case ApiKeys.DESCRIBE_CONFIGS => new DescribeConfigsResponse(response).throttleTimeMs
       case ApiKeys.ALTER_CONFIGS => new AlterConfigsResponse(response).throttleTimeMs
       case ApiKeys.ALTER_REPLICA_LOG_DIRS => new AlterReplicaLogDirsResponse(response).throttleTimeMs

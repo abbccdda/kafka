@@ -93,7 +93,9 @@ public class NodeMetadata implements Comparable<NodeMetadata> {
 
   @Override
   public String toString() {
-    return String.valueOf(urls);
+    return "NodeMetadata(" +
+        "urls=" + urls +
+        ')';
   }
 
   public ByteBuffer serialize() {

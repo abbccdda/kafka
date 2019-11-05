@@ -5,7 +5,6 @@ package io.confluent.kafka.security.authorizer;
 import io.confluent.kafka.security.authorizer.acl.AclMapper;
 import io.confluent.kafka.security.authorizer.acl.AclProvider;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
-import io.confluent.security.auth.client.RestClientConfig;
 import io.confluent.security.authorizer.AclMigrationAware;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
@@ -48,7 +47,7 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
   private static final Set<String> UNSCOPED_PROVIDERS =
       Utils.mkSet(AccessRuleProviders.ACL.name(), AccessRuleProviders.MULTI_TENANT.name());
 
-  private Authorizer aclAuthorizer;
+  private AclUpdater aclUpdater;
 
   @Override
   public Set<String> reconfigurableConfigs() {
@@ -74,7 +73,7 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
   public void configureServerInfo(AuthorizerServerInfo serverInfo) {
     super.configureServerInfo(serverInfo);
 
-    initializeAclAuthorizer();
+    initializeAclUpdater();
 
     // Embedded authorizer used in metadata server can use an empty scope since scopes used
     // in authorization are provided by the remote client. For broker authorizer, the scope
@@ -90,7 +89,7 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
     }
   }
 
-  private void initializeAclAuthorizer() {
+  private void initializeAclUpdater() {
     Optional<Authorizer> zkAclProvider = zkAclProvider();
     Optional<Authorizer> centralizedAclProvider = centralizedAclProvider();
 
@@ -102,25 +101,17 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
 
       if (!centralizedAclProvider.isPresent()) {
         throw new IllegalArgumentException("Acl migration from ZK to metadata service is enabled," +
-            " but second authorizer/RbacProvider is not enabled.");
+            " but centralized authorizer/RbacProvider is not enabled.");
       }
 
       if (!(centralizedAclProvider.get() instanceof AclMigrationAware)) {
         throw new IllegalArgumentException("Acl migration from ZK to metadata service is enabled," +
-            " but second authorizer is not Acl migration aware");
+            " but centralized authorizer is not Acl migration aware");
       }
 
-      if (!authorizerConfig.originals().containsKey(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP)) {
-        throw new IllegalArgumentException("Acl migration from ZK to metadata service is enabled," +
-            " but metadata service rest client configs are not available");
-      }
-
-      aclAuthorizer = new AclUpdater(zkAclProvider.get(), centralizedAclProvider.get());
+      aclUpdater = new AclUpdater(zkAclProvider, centralizedAclProvider, true);
     } else {
-      if (!zkAclProvider.isPresent()) {
-        zkAclProvider = centralizedAclProvider();
-      }
-      aclAuthorizer = zkAclProvider.orElse(new AclErrorProvider());
+      aclUpdater = new AclUpdater(zkAclProvider, centralizedAclProvider, false);
     }
   }
 
@@ -146,6 +137,7 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
     configureServerInfo(serverInfo);
     Runnable migrationTask = createMigrationTask();
     CompletableFuture<Void> startFuture = super.start(
+        serverInfo,
         ConfluentConfigs.interBrokerClientConfigs(authorizerConfig, serverInfo.interBrokerEndpoint()),
         migrationTask);
 
@@ -168,9 +160,8 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
 
   private Runnable createMigrationTask() {
     if (authorizerConfig.migrateAclsFromZK) {
-      AclUpdater combinedAuthorizer = (AclUpdater) aclAuthorizer;
-      return ((AclMigrationAware) combinedAuthorizer.secondAuthorizer)
-          .migrationTask(combinedAuthorizer.aclAuthorizer);
+      return ((AclMigrationAware) aclUpdater.centralizedAclAuthorizer.get())
+          .migrationTask(aclUpdater.zkAclAuthorizer.get());
     }
     return () -> { };
   }
@@ -187,18 +178,44 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
   @Override
   public List<? extends CompletionStage<AclCreateResult>> createAcls(
       AuthorizableRequestContext requestContext, List<AclBinding> aclBindings) {
-    return aclAuthorizer.createAcls(requestContext, aclBindings);
+    return createAcls(requestContext, aclBindings, Optional.empty());
+  }
+
+  @Override
+  public List<? extends CompletionStage<AclCreateResult>> createAcls(
+      AuthorizableRequestContext requestContext,
+      List<AclBinding> aclBindings,
+      Optional<String> clusterId) {
+    try {
+      return aclUpdater.createAcls(requestContext, aclBindings, clusterId);
+    } catch (Throwable t) {
+      log.error("createAcls failed", t);
+      throw t;
+    }
   }
 
   @Override
   public List<? extends CompletionStage<AclDeleteResult>> deleteAcls(
       AuthorizableRequestContext requestContext, List<AclBindingFilter> aclBindingFilters) {
-    return aclAuthorizer.deleteAcls(requestContext, aclBindingFilters);
+    return deleteAcls(requestContext, aclBindingFilters, Optional.empty());
+  }
+
+  @Override
+  public List<? extends CompletionStage<AclDeleteResult>> deleteAcls(
+      AuthorizableRequestContext requestContext,
+      List<AclBindingFilter> aclBindingFilters,
+      Optional<String> clusterId) {
+    try {
+      return aclUpdater.deleteAcls(requestContext, aclBindingFilters, clusterId);
+    } catch (Throwable t) {
+      log.error("deleteAcls failed", t);
+      throw t;
+    }
   }
 
   @Override
   public Iterable<AclBinding> acls(AclBindingFilter filter) {
-    return aclAuthorizer.acls(filter);
+    return aclUpdater.acls(filter);
   }
 
   private boolean authorize(AuthorizableRequestContext requestContext, org.apache.kafka.server.authorizer.Action kafkaAction) {
@@ -237,116 +254,124 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
     return false;
   }
 
-  private static class AclUpdater implements Authorizer {
-
-    private final Authorizer aclAuthorizer;
-    private final Authorizer secondAuthorizer;
-
-    AclUpdater(Authorizer aclAuthorizer, Authorizer secondAuthorizer) {
-      this.aclAuthorizer = aclAuthorizer;
-      this.secondAuthorizer = secondAuthorizer;
-    }
-
-    @Override
-    public void configure(Map<String, ?> configs) {
-    }
-
-    @Override
-    public Map<Endpoint, CompletableFuture<Void>> start(AuthorizerServerInfo serverInfo) {
-      return Collections.emptyMap();
-    }
-
-    @Override
-    public List<AuthorizationResult> authorize(AuthorizableRequestContext requestContext,
-                                               List<org.apache.kafka.server.authorizer.Action> actions) {
-      throw new IllegalStateException("Authorization not supported by this provider");
-    }
-
-    @Override
-    public List<? extends CompletionStage<AclCreateResult>> createAcls(
-        AuthorizableRequestContext requestContext, List<AclBinding> aclBindings) {
-      List<? extends CompletionStage<AclCreateResult>> createResults = aclAuthorizer.createAcls(requestContext, aclBindings);
-      try {
-        for (CompletionStage<AclCreateResult> c : createResults) {
-          AclCreateResult createResult = (AclCreateResult) ((CompletionStage) c).toCompletableFuture().get();
-          if (createResult.exception().isPresent()) {
-            return createResults;
-          }
-        }
-      } catch (Exception e) {
-        return createResults;
-      }
-      return secondAuthorizer.createAcls(requestContext, aclBindings);
-    }
-
-    @Override
-    public List<? extends CompletionStage<AclDeleteResult>> deleteAcls(
-        AuthorizableRequestContext requestContext, List<AclBindingFilter> aclBindingFilters) {
-      List<? extends CompletionStage<AclDeleteResult>> deleteResults = aclAuthorizer.deleteAcls(requestContext, aclBindingFilters);
-      try {
-        for (CompletionStage<AclDeleteResult> c : deleteResults) {
-          AclDeleteResult deleteResult = (AclDeleteResult) ((CompletionStage) c).toCompletableFuture().get();
-          if (deleteResult.exception().isPresent()) {
-            return deleteResults;
-          }
-        }
-      } catch (Exception e) {
-        return deleteResults;
-      }
-      return secondAuthorizer.deleteAcls(requestContext, aclBindingFilters);
-    }
-
-    @Override
-    public Iterable<AclBinding> acls(AclBindingFilter filter) {
-      return aclAuthorizer.acls(filter);
-    }
-
-    @Override
-    public void close() {
-      Utils.closeQuietly(aclAuthorizer, "aclAuthorizer");
-      Utils.closeQuietly(secondAuthorizer, "secondAuthorizer");
-    }
-  }
-
-  private static class AclErrorProvider implements Authorizer {
-
-    private static final InvalidRequestException EXCEPTION =
+  /**
+   * ACL updater for the authorizer works in different modes depending on the configured
+   * access rule providers and migration settings:
+   * <ul>
+   *   <li>providers=ACL : zkAclAuthorizer is present, centralizedAclAuthorizer not present.
+   *       Request without cluster-id: zkAclAuthorizer updates ZK
+   *       Request with cluster-id: Fail</li>
+   *  <li>providers=RBAC : zkAclAuthorizer not present, centralizedAclAuthorizer is present.
+   *      Request without cluster-id: centralizedAclAuthorizer sends request including this
+   *      authorizer's cluster-id to the master writer of the metadata cluster.
+   *      Request with cluster-id: If master writer, centralizedAclAuthorizer updates metadata
+   *      topic. If not, fails.
+   *  <li>providers=ACL,RBAC, migrateFromZk=false : zkAclAuthorizer and centralizedAclAuthorizer are present
+   *      Request without cluster-id: zkAclAuthorizer updates ZK
+   *      Request with cluster-id: If master writer, centralizedAclAuthorizer updates metadata
+   *      topic. If not, fails.
+   *  <li>providers=ACL,RBAC, migrateFromZk=true : zkAclAuthorizer and centralizedAclAuthorizer are present
+   *      Request without cluster-id: zkAclAuthorizer updates ZK. And centralizedAclAuthorizer sends
+   *      request including this authorizer's cluster-id to the master writer of the metadata cluster.
+   *      Request with cluster-id: If master writer, centralizedAclAuthorizer updates metadata
+   *      topic. If not, fails.
+   *  <li>providers don't contain ACL or RBAC: zkAclAuthorizer and centralizedAclAuthorizer are empty
+   *      ACL update requests are failed.
+   * </ul>
+   */
+  private static class AclUpdater {
+    private static final InvalidRequestException ACLS_DISABLED =
         new InvalidRequestException("ACL-based authorization is disabled");
+    private static final InvalidRequestException CENTRALIZED_ACLS_DISABED =
+        new InvalidRequestException("Centralized ACL-based authorization is disabled");
 
-    @Override
-    public void configure(Map<String, ?> configs) {
+
+    private final Optional<Authorizer> zkAclAuthorizer;
+    private final Optional<Authorizer> centralizedAclAuthorizer;
+    private final boolean migrateFromZk;
+
+    AclUpdater(Optional<Authorizer> zkAclAuthorizer,
+               Optional<Authorizer> centralizedAclAuthorizer,
+               boolean migrateFromZk) {
+      this.zkAclAuthorizer = zkAclAuthorizer;
+      this.centralizedAclAuthorizer = centralizedAclAuthorizer;
+      this.migrateFromZk = migrateFromZk;
     }
 
-    @Override
-    public Map<Endpoint, CompletableFuture<Void>> start(AuthorizerServerInfo serverInfo) {
-      return Collections.emptyMap();
-    }
-
-    @Override
-    public List<AuthorizationResult> authorize(AuthorizableRequestContext requestContext,
-        List<org.apache.kafka.server.authorizer.Action> actions) {
-      throw new IllegalStateException("Authorization not supported by this provider");
-    }
-
-    @Override
     public List<? extends CompletionStage<AclCreateResult>> createAcls(
-        AuthorizableRequestContext requestContext, List<AclBinding> aclBindings) {
-      throw EXCEPTION;
+        AuthorizableRequestContext requestContext,
+        List<AclBinding> aclBindings,
+        Optional<String> clusterId) {
+
+      List<? extends CompletionStage<AclCreateResult>> createResults = null;
+      ensureAclsEnabled(clusterId.isPresent());
+
+      if (zkAclAuthorizer.isPresent() && !clusterId.isPresent()) {
+        createResults = zkAclAuthorizer.get().createAcls(requestContext, aclBindings);
+        try {
+          for (CompletionStage<AclCreateResult> c : createResults) {
+            AclCreateResult createResult = (AclCreateResult) ((CompletionStage) c)
+                .toCompletableFuture().get();
+            if (createResult.exception().isPresent()) {
+              return createResults;
+            }
+          }
+        } catch (Exception e) {
+          return createResults;
+        }
+      }
+      if (migrateFromZk || !zkAclAuthorizer.isPresent() || clusterId.isPresent()) {
+        List<? extends CompletionStage<AclCreateResult>> centralizedResults =
+            centralizedAclAuthorizer.get().createAcls(requestContext, aclBindings, clusterId);
+        return createResults == null ? centralizedResults : createResults;
+      } else
+        return createResults;
     }
 
-    @Override
     public List<? extends CompletionStage<AclDeleteResult>> deleteAcls(
-        AuthorizableRequestContext requestContext, List<AclBindingFilter> aclBindingFilters) {
-      throw EXCEPTION;
+        AuthorizableRequestContext requestContext,
+        List<AclBindingFilter> aclBindingFilters,
+        Optional<String> clusterId) {
+
+      List<? extends CompletionStage<AclDeleteResult>> deleteResults = null;
+      ensureAclsEnabled(clusterId.isPresent());
+
+      if (zkAclAuthorizer.isPresent() && !clusterId.isPresent()) {
+        deleteResults = zkAclAuthorizer.get().deleteAcls(requestContext, aclBindingFilters);
+        try {
+          for (CompletionStage<AclDeleteResult> c : deleteResults) {
+            AclDeleteResult deleteResult = (AclDeleteResult) ((CompletionStage) c)
+                .toCompletableFuture().get();
+            if (deleteResult.exception().isPresent()) {
+              return deleteResults;
+            }
+          }
+        } catch (Exception e) {
+          return deleteResults;
+        }
+      }
+      if (migrateFromZk || !zkAclAuthorizer.isPresent() || clusterId.isPresent()) {
+        List<? extends CompletionStage<AclDeleteResult>> centralizedResults =
+            centralizedAclAuthorizer.get().deleteAcls(requestContext, aclBindingFilters, clusterId);
+        return deleteResults == null ? centralizedResults : deleteResults;
+      } else
+        return deleteResults;
     }
 
-    @Override
     public Iterable<AclBinding> acls(AclBindingFilter filter) {
-      throw EXCEPTION;
+      if (zkAclAuthorizer.isPresent())
+        return zkAclAuthorizer.get().acls(filter);
+      else if (centralizedAclAuthorizer.isPresent())
+        return centralizedAclAuthorizer.get().acls(filter);
+      else
+        throw ACLS_DISABLED;
     }
 
-    @Override
-    public void close() {
+    private void ensureAclsEnabled(boolean clusterIdProvided) {
+      if (!zkAclAuthorizer.isPresent() && !centralizedAclAuthorizer.isPresent())
+        throw ACLS_DISABLED;
+      if (clusterIdProvided && !centralizedAclAuthorizer.isPresent())
+        throw CENTRALIZED_ACLS_DISABED;
     }
   }
 }

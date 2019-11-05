@@ -7,12 +7,12 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import org.apache.kafka.common.Configurable;
+import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 
 /**
  * Interface used by providers used for authorization.
  */
 public interface Provider extends Configurable, Closeable {
-
   /**
    * Starts a provider and returns a future that is completed when the provider is ready.
    * By default, a provider is auto-started on configure and this method returns a completed future.
@@ -21,12 +21,13 @@ public interface Provider extends Configurable, Closeable {
    * use providers that load metadata from broker topics using the inter-broker listener. External
    * listeners that rely on this metadata will be started when the returned future completes.
    *
+   * @param serverInfo Runtime broker configuration metadata
    * @param interBrokerListenerConfigs Client configs for using inter-broker listener
    *    For brokers that host metadata service, these client configs may be used to access metadata
    *    topic if metadata client configs are not explicitly overridden. This avoids the need for
    *    redundant configs for brokers in the metadata cluster.
    */
-  default CompletionStage<Void> start(Map<String, ?> interBrokerListenerConfigs) {
+  default CompletionStage<Void> start(AuthorizerServerInfo serverInfo, Map<String, ?> interBrokerListenerConfigs) {
     return CompletableFuture.completedFuture(null);
   }
 

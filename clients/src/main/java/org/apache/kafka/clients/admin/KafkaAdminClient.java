@@ -1706,8 +1706,18 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
         return new DescribeAclsResult(future);
     }
 
+
     @Override
     public CreateAclsResult createAcls(Collection<AclBinding> acls, CreateAclsOptions options) {
+        return createAcls(acls, options, null, Node.noNode().id());
+    }
+
+
+    @Override
+    public CreateAclsResult createAcls(Collection<AclBinding> acls,
+                                       CreateAclsOptions options,
+                                       String clusterId,
+                                       int writerBrokerId) {
         final long now = time.milliseconds();
         final Map<AclBinding, KafkaFutureImpl<Void>> futures = new HashMap<>();
         final List<AclCreation> aclCreations = new ArrayList<>();
@@ -1724,12 +1734,18 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
                 }
             }
         }
+        NodeProvider nodeProvider = writerBrokerId == Node.noNode().id() ?
+            new LeastLoadedNodeProvider() : new ConstantNodeIdProvider(writerBrokerId);
         runnable.call(new Call("createAcls", calcDeadlineMs(now, options.timeoutMs()),
-            new LeastLoadedNodeProvider()) {
+            nodeProvider) {
 
             @Override
             AbstractRequest.Builder createRequest(int timeoutMs) {
-                return new CreateAclsRequest.Builder(aclCreations);
+                CreateAclsRequest.Builder builder = new CreateAclsRequest.Builder(aclCreations);
+                if (clusterId != null) {
+                    return builder.setClusterId(clusterId);
+                } else
+                    return builder;
             }
 
             @Override
@@ -1763,6 +1779,14 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
 
     @Override
     public DeleteAclsResult deleteAcls(Collection<AclBindingFilter> filters, DeleteAclsOptions options) {
+        return deleteAcls(filters, options, null, Node.noNode().id());
+    }
+
+    @Override
+    public DeleteAclsResult deleteAcls(Collection<AclBindingFilter> filters,
+                                       DeleteAclsOptions options,
+                                       String clusterId,
+                                       int writerBrokerId) {
         final long now = time.milliseconds();
         final Map<AclBindingFilter, KafkaFutureImpl<FilterResults>> futures = new HashMap<>();
         final List<AclBindingFilter> filterList = new ArrayList<>();
@@ -1772,12 +1796,18 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
                 futures.put(filter, new KafkaFutureImpl<>());
             }
         }
+        NodeProvider nodeProvider = writerBrokerId == Node.noNode().id() ?
+            new LeastLoadedNodeProvider() : new ConstantNodeIdProvider(writerBrokerId);
         runnable.call(new Call("deleteAcls", calcDeadlineMs(now, options.timeoutMs()),
-            new LeastLoadedNodeProvider()) {
+            nodeProvider) {
 
             @Override
             AbstractRequest.Builder createRequest(int timeoutMs) {
-                return new DeleteAclsRequest.Builder(filterList);
+                DeleteAclsRequest.Builder builder = new DeleteAclsRequest.Builder(filterList);
+                if (clusterId != null) {
+                    return builder.setClusterId(clusterId);
+                } else
+                    return builder;
             }
 
             @Override

@@ -6,13 +6,17 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 
+import io.confluent.kafka.test.utils.KafkaTestUtils;
 import java.util.Map;
 import java.util.Properties;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.config.SslConfigs;
+import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.junit.Test;
 
 public class KafkaStoreConfigTest {
+
+  private final AuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA");
 
   @Test
   public void testClientConfigs() {
@@ -27,7 +31,7 @@ public class KafkaStoreConfigTest {
     props.put("confluent.metadata.consumer.ssl.keystore.location", "reader.keystore.jks");
     props.put("confluent.metadata.producer.ssl.keystore.location", "writer.keystore.jks");
     props.put("confluent.metadata.coordinator.ssl.keystore.location", "coordinator.keystore.jks");
-    KafkaStoreConfig config = new KafkaStoreConfig(props);
+    KafkaStoreConfig config = new KafkaStoreConfig(serverInfo, props);
 
     Map<String, Object> readerConfigs = config.consumerConfigs("metadata-auth");
     assertEquals(bootstrap, readerConfigs.get(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG));

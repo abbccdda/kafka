@@ -15,6 +15,7 @@ import java.util.concurrent.CompletionStage;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.SecurityUtils;
+import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,7 +41,7 @@ public class DefaultAuditLogProvider implements AuditLogProvider {
   }
 
   @Override
-  public CompletionStage<Void> start(Map<String, ?> interBrokerListenerConfigs) {
+  public CompletionStage<Void> start(AuthorizerServerInfo serverInfo, Map<String, ?> interBrokerListenerConfigs) {
     return CompletableFuture.completedFuture(null);
   }
 

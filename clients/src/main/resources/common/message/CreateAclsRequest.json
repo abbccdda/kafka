@@ -18,8 +18,11 @@
   "type": "request",
   "name": "CreateAclsRequest",
   // Version 1 adds resource pattern type.
-  "validVersions": "0-1",
-  "flexibleVersions": "none",
+  //
+  // Version 2 is the first flexible version. Note that this version is not yet in Apache Kafka.
+  // Version 2 adds an optional cluster-id for creating centralized ACLs. (only in Confluent-Server)
+  "validVersions": "0-2",
+  "flexibleVersions": "2+",
   "fields": [
     { "name": "Creations", "type": "[]CreatableAcl", "versions": "0+", 
       "about": "The ACLs that we want to create.", "fields": [
@@ -37,6 +40,8 @@
         "about": "The operation type for the ACL (read, write, etc.)." },
       { "name": "PermissionType", "type": "int8", "versions": "0+",
         "about": "The permission type for the ACL (allow, deny, etc.)." }
-    ]}
+    ]},
+    { "name": "ClusterId", "type": "string", "versions": "2+", "tag": 10000, "taggedVersions": "2+",
+      "about": "Optional cluster-id for centralized ACLs." }
   ]
 }

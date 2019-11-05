@@ -22,6 +22,7 @@ import io.confluent.security.authorizer.AuthorizePolicy.NoMatchingRule;
 import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.AuthorizePolicy.SuperUser;
 import io.confluent.security.authorizer.AuthorizeResult;
+import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.rbac.RoleBinding;
 import io.confluent.security.test.utils.LdapTestUtils;
@@ -33,12 +34,15 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ExecutionException;
+import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AlterConfigOp;
 import org.apache.kafka.clients.admin.AlterConfigOp.OpType;
 import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.common.acl.AccessControlEntry;
+import org.apache.kafka.common.acl.AccessControlEntryFilter;
 import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.config.ConfigResource;
@@ -160,6 +164,72 @@ public class ConfluentServerAuthorizerTest {
     rbacClusters.waitUntilAccessAllowed(DEVELOPER1, APP2_TOPIC);
   }
 
+  @Test
+  public void testCentralizedAclsOnly() throws Throwable {
+    rbacConfig = rbacConfig
+        .overrideBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "RBAC")
+        .overrideMetadataBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "RBAC");
+    verifyAcls(false);
+  }
+
+  @Test
+  public void testCentralizedAclsMigrationDisabled() throws Throwable {
+    rbacConfig = rbacConfig
+        .overrideBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL,RBAC")
+        .overrideBrokerConfig(ConfluentAuthorizerConfig.MIGRATE_ACLS_FROM_ZK_PROP, "false")
+        .overrideMetadataBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL,RBAC");
+    verifyAcls(true);
+  }
+
+  @Test
+  public void testCentralizedAclsMigrationEnabled() throws Throwable {
+    rbacConfig = rbacConfig
+        .overrideBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL,RBAC")
+        .overrideBrokerConfig(ConfluentAuthorizerConfig.MIGRATE_ACLS_FROM_ZK_PROP, "true")
+        .overrideMetadataBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL,RBAC");
+    verifyAcls(true);
+  }
+
+  private void verifyAcls(boolean zkAclsEnabled) throws Throwable {
+
+    if (zkAclsEnabled) {
+      String brokerPrincipal = KafkaPrincipal.USER_TYPE + ':' + BROKER_USER;
+      AclBinding clusterAcl = new AclBinding(
+          new ResourcePattern(ResourceType.CLUSTER, "kafka-cluster", PatternType.LITERAL),
+          new AccessControlEntry(brokerPrincipal, "*", AclOperation.ALL, AclPermissionType.ALLOW));
+      AclBinding readAcl = new AclBinding(
+          new ResourcePattern(ResourceType.TOPIC, "*", PatternType.LITERAL),
+          new AccessControlEntry(brokerPrincipal, "*", AclOperation.READ, AclPermissionType.ALLOW));
+      AclBinding metadataTopicAcl = new AclBinding(
+          new ResourcePattern(ResourceType.TOPIC, "_confluent", PatternType.PREFIXED),
+          new AccessControlEntry(brokerPrincipal, "*", AclOperation.ALL, AclPermissionType.ALLOW));
+      AclBinding metadataGroupAcl = new AclBinding(
+          new ResourcePattern(ResourceType.GROUP, "_confluent", PatternType.PREFIXED),
+          new AccessControlEntry(brokerPrincipal, "*", AclOperation.ALL, AclPermissionType.ALLOW));
+
+      rbacConfig = rbacConfig
+          .overrideBrokerConfig(ConfluentAuthorizerConfig.BROKER_USERS_PROP, "")
+          .overrideMetadataBrokerConfig(ConfluentAuthorizerConfig.BROKER_USERS_PROP, "")
+          .withMetadataBrokerAcls(Arrays.asList(clusterAcl, readAcl, metadataTopicAcl, metadataGroupAcl))
+          .withBrokerAcls(Arrays.asList(clusterAcl, readAcl));
+    }
+    rbacClusters = new RbacClusters(rbacConfig);
+
+    this.clusterId = rbacClusters.kafkaClusterId();
+    rbacClusters.kafkaCluster.createTopic(APP1_TOPIC, 2, 1);
+
+    rbacClusters.waitUntilAccessDenied(DEVELOPER1, APP1_TOPIC);
+    rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, false);
+    addAcls(KafkaPrincipal.USER_TYPE, DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, PatternType.LITERAL);
+    rbacClusters.waitUntilAccessAllowed(DEVELOPER1, APP1_TOPIC);
+    rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
+
+    KafkaPrincipal developer1 = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, DEVELOPER1);
+    removeTopicAcls(developer1, APP1_TOPIC, PatternType.LITERAL, AclPermissionType.ALLOW);
+    rbacClusters.waitUntilAccessDenied(DEVELOPER1, APP1_TOPIC);
+    rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, false);
+  }
+
   private void initializeRbacClusters() throws Exception {
     this.clusterId = rbacClusters.kafkaClusterId();
     rbacClusters.kafkaCluster.createTopic(APP1_TOPIC, 2, 1);
@@ -216,7 +286,22 @@ public class ConfluentServerAuthorizerTest {
     }
   }
 
-  private boolean canAccess(AdminClient adminClient, String topic) {
+  private void removeTopicAcls(KafkaPrincipal principal,
+      String topic,
+      PatternType patternType,
+      AclPermissionType permissionType) throws Exception {
+    ClientBuilder clientBuilder = rbacClusters.clientBuilder(BROKER_USER);
+    try (AdminClient adminClient = clientBuilder.buildAdminClient()) {
+      AclBindingFilter filter =
+          new AclBindingFilter(
+              new ResourcePattern(ResourceType.TOPIC, topic, patternType).toFilter(),
+              new AccessControlEntryFilter(principal.toString(),
+                  "*", AclOperation.ANY, permissionType));
+      adminClient.deleteAcls(Collections.singleton(filter)).all().get();
+    }
+  }
+
+  private boolean canAccess(Admin adminClient, String topic) {
     try {
       adminClient.describeTopics(Collections.singleton(topic)).all().get();
       return true;
@@ -226,7 +311,7 @@ public class ConfluentServerAuthorizerTest {
     }
   }
 
-  private void waitForAccess(AdminClient adminClient, String topic, boolean authorized)
+  private void waitForAccess(Admin adminClient, String topic, boolean authorized)
       throws Exception {
     TestUtils.waitForCondition(() -> canAccess(adminClient, topic) == authorized,
         "Access control not applied");

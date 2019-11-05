@@ -80,17 +80,15 @@ public class AclMigrationTest {
 
     authorizer1.close();
 
-    //Test Initialization without Metadata Service Rest Client Configs
+    //Test with Metadata service client configs, RestClient bootstrap servers are ignored
     TestMigrationAuthorizer authorizer2 = new TestMigrationAuthorizer();
+    authorizerConfigs.put(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP, "http://locahost:8090");
     authorizer2.configure(authorizerConfigs);
-
-    assertThrows(IllegalArgumentException.class, () ->
-        authorizer2.configureServerInfo(serverInfo));
+    authorizer2.configureServerInfo(serverInfo);
     authorizer2.close();
 
-    //Test with Metadata service client configs
+    //Test Initialization without Metadata Service Rest Client Configs
     TestMigrationAuthorizer authorizer3 = new TestMigrationAuthorizer();
-    authorizerConfigs.put(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP, "http://locahost:8090");
     authorizer3.configure(authorizerConfigs);
     authorizer3.configureServerInfo(serverInfo);
 

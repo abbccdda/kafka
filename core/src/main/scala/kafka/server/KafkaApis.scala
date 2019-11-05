@@ -2390,7 +2390,7 @@ class KafkaApis(val requestChannel: RequestChannel,
               true
           }
 
-        val createResults = auth.createAcls(request.context, validBindings.asJava)
+        val createResults = auth.createAcls(request.context, validBindings.asJava, createAclsRequest.clusterId())
           .asScala.map(_.toCompletableFuture).toList
         def sendResponseCallback(): Unit = {
           val aclCreationResults = aclBindings.map { acl =>
@@ -2415,7 +2415,7 @@ class KafkaApis(val requestChannel: RequestChannel,
             new SecurityDisabledException("No Authorizer is configured on the broker.")))
       case Some(auth) =>
 
-        val deleteResults = auth.deleteAcls(request.context, deleteAclsRequest.filters)
+        val deleteResults = auth.deleteAcls(request.context, deleteAclsRequest.filters, deleteAclsRequest.clusterId())
           .asScala.map(_.toCompletableFuture).toList
 
         def toErrorCode(exception: Optional[ApiException]): ApiError = {

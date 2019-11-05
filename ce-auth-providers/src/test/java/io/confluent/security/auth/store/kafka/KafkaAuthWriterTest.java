@@ -40,6 +40,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -48,6 +50,7 @@ import java.util.stream.Collectors;
 import javax.naming.Context;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.acl.AccessControlEntryFilter;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.errors.AuthenticationException;
@@ -227,6 +230,51 @@ public class KafkaAuthWriterTest {
         rbacResources(alice, "Reader", clusterA));
   }
 
+  @Test
+  public void testConcurrentUpdates() throws Exception {
+    ExecutorService executorService = Executors.newFixedThreadPool(5);
+    int nThreads = 5;
+    int iterationsPerThread = 10;
+
+    try {
+      for (int i = 0; i < nThreads; i++) {
+        int id = i;
+        executorService.submit(() -> {
+          for (int j = 0; j < iterationsPerThread; j++) {
+            int k = id * iterationsPerThread + j;
+            authWriter.addResourceRoleBinding(alice, "Reader", clusterA,
+                resources("name" + k, "name" + k));
+            authWriter.createAcls(clusterA, Collections.singletonList(
+                topicBinding("Alice", "topic" + k, new Operation("Write"), PermissionType.ALLOW)));
+          }
+        });
+      }
+
+      waitForUpdate(() -> rbacResources(alice, "Reader", clusterA), nThreads * iterationsPerThread * 2);
+      waitForUpdate(() -> authCache.aclRules(clusterA).values(), nThreads * iterationsPerThread);
+
+      for (int i = 0; i < nThreads; i++) {
+        int id = i;
+        executorService.submit(() -> {
+          for (int j = 0; j < iterationsPerThread; j++) {
+            int k = id * iterationsPerThread + j;
+            authWriter.removeResourceRoleBinding(alice, "Reader", clusterA,
+                Collections.singletonList(new ResourcePatternFilter(ResourceType.ALL, "name" + k, PatternType.LITERAL)));
+            authWriter.deleteAcls(clusterA,
+                Collections.singletonList(new AclBindingFilter(
+                    new org.apache.kafka.common.resource.ResourcePatternFilter(org.apache.kafka.common.resource.ResourceType.ANY, "topic" + k, PatternType.ANY),
+                    AccessControlEntryFilter.ANY)), r -> true);
+          }
+        });
+      }
+
+      waitForUpdate(() -> rbacResources(alice, "Reader", clusterA), 0);
+      waitForUpdate(() -> authCache.aclRules(clusterA).values(), 0);
+    } finally {
+      executorService.shutdownNow();
+    }
+  }
+
   @Test(expected = InvalidRequestException.class)
   public void testClusterScopeAddResources() throws Exception {
     authWriter.addResourceRoleBinding(bob, "Operator", clusterA, resources("topicA", "groupB"));
@@ -330,12 +378,12 @@ public class KafkaAuthWriterTest {
 
   @Test(expected = InvalidScopeException.class)
   public void testInvalidScopeAddAclBinding() throws Exception {
-    authWriter.createAcls(invalidScope, null);
+    authWriter.createAcls(invalidScope, Collections.emptyList());
   }
 
   @Test(expected = InvalidScopeException.class)
   public void testInvalidScopeDeleteAclBinding() throws Exception {
-    authWriter.deleteAcls(invalidScope, null, null);
+    authWriter.deleteAcls(invalidScope, Collections.emptyList(), null);
   }
 
   @Test(expected = NotMasterWriterException.class)
@@ -622,5 +670,12 @@ public class KafkaAuthWriterTest {
 
   private Set<AclBinding> aclRules(Scope scope, AclBindingFilter filter) {
     return new HashSet<>(authCache.aclBindings(scope, filter, r -> true));
+  }
+
+  private void waitForUpdate(Supplier<Collection<?>> supplier, int expected) throws Exception {
+    TestUtils.retryOnExceptionWithTimeout(() -> {
+      Collection<?> list = supplier.get();
+      assertEquals(expected, list == null ? 0 : list.size());
+    });
   }
 }

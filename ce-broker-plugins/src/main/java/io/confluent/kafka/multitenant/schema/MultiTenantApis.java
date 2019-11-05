@@ -240,14 +240,14 @@ public class MultiTenantApis {
         case CREATE_ACLS:
           if (field != null && field.name.equals("creations") && type instanceof Schema) {
             return Optional.some(
-                new AclTenantTransformer(type, TenantTransform.ADD_PREFIX, false));
+                new AclTenantTransformer(type, TenantTransform.ADD_PREFIX, ApiKeys.CREATE_ACLS));
           }
           break;
 
         case DELETE_ACLS:
           if (field != null && field.name.equals("filters") && type instanceof Schema) {
             return Optional.some(
-                new AclTenantTransformer(type, TenantTransform.ADD_PREFIX, false));
+                new AclTenantTransformer(type, TenantTransform.ADD_PREFIX, ApiKeys.DELETE_ACLS));
           }
           break;
 
@@ -255,7 +255,7 @@ public class MultiTenantApis {
           // The resource type and name are located in the root schema, which has no field
           if (field == null) {
             return Optional.some(
-                new AclTenantTransformer(type, TenantTransform.ADD_PREFIX, false));
+                new AclTenantTransformer(type, TenantTransform.ADD_PREFIX, ApiKeys.DESCRIBE_ACLS));
           }
           break;
 
@@ -316,14 +316,14 @@ public class MultiTenantApis {
         case DELETE_ACLS:
           if (field != null && field.name.equals("matching_acls") && type instanceof Schema) {
             return Optional.some(
-                new AclTenantTransformer(type, TenantTransform.REMOVE_PREFIX, false));
+                new AclTenantTransformer(type, TenantTransform.REMOVE_PREFIX, ApiKeys.DELETE_ACLS));
           }
           break;
 
         case DESCRIBE_ACLS:
           if (field != null && field.name.equals("resources") && type instanceof Schema) {
             return Optional.some(
-                new AclTenantTransformer(type, TenantTransform.REMOVE_PREFIX, true));
+                new AclTenantTransformer(type, TenantTransform.REMOVE_PREFIX, ApiKeys.DESCRIBE_ACLS));
           }
           break;
 
@@ -519,10 +519,18 @@ public class MultiTenantApis {
   }
 
   private abstract static class ResourceTenantTransformer extends AbstractTenantTransformer {
-    static final String RESOURCE_TYPE = "resource_type";
-    static final String RESOURCE_NAME = "resource_name";
+    private static final String RESOURCE_TYPE = "resource_type";
+    private static final String RESOURCE_NAME = "resource_name";
+    static final String FILTER_SUFFIX = "_filter";
+
+    final String resourceTypeField;
+    final String resourceNameField;
 
     private ResourceTenantTransformer(Type type, TenantTransform transform) {
+      this(type, transform, false);
+    }
+
+    private ResourceTenantTransformer(Type type, TenantTransform transform, boolean isFilter) {
       super(type, transform);
 
       if (!(type instanceof Schema)) {
@@ -530,16 +538,18 @@ public class MultiTenantApis {
       }
 
       Schema schema = (Schema) type;
-      ensureStructField(schema, RESOURCE_NAME);
-      ensureStructField(schema, RESOURCE_TYPE);
+      this.resourceTypeField = isFilter ? RESOURCE_TYPE + FILTER_SUFFIX : RESOURCE_TYPE;
+      this.resourceNameField = isFilter ? RESOURCE_NAME + FILTER_SUFFIX : RESOURCE_NAME;
+      ensureStructField(schema, resourceTypeField);
+      ensureStructField(schema, resourceNameField);
     }
 
     @Override
     public Object transform(Object value, TenantContext ctx) {
       Struct struct = (Struct) value;
       if (prefixableResource(struct)) {
-        String name = struct.getString(RESOURCE_NAME);
-        struct.set(RESOURCE_NAME, name == null ? null : transformString(name, ctx));
+        String name = struct.getString(resourceNameField);
+        struct.set(resourceNameField, name == null ? null : transformString(name, ctx));
       }
       return struct;
     }
@@ -549,7 +559,7 @@ public class MultiTenantApis {
       int size = type.sizeOf(value);
       Struct struct = (Struct) value;
       if (prefixableResource(struct)) {
-        String name = struct.getString(RESOURCE_NAME);
+        String name = struct.getString(resourceNameField);
         if (name != null) {
           size += sizeDelta(ctx);
         }
@@ -567,11 +577,11 @@ public class MultiTenantApis {
 
     @Override
     boolean prefixableResource(Struct struct) {
-      if (!struct.hasField(RESOURCE_TYPE)) {
+      if (!struct.hasField(resourceTypeField)) {
         throw new IllegalArgumentException("Unexpected transform type " + struct);
       }
 
-      ConfigResource.Type resourceType = ConfigResource.Type.forId(struct.getByte(RESOURCE_TYPE));
+      ConfigResource.Type resourceType = ConfigResource.Type.forId(struct.getByte(resourceTypeField));
       switch (resourceType) {
         case TOPIC:
           return true;
@@ -593,27 +603,29 @@ public class MultiTenantApis {
     private static final String PRINCIPAL = "principal";
     private static final String ACLS = "acls";
     private final boolean isDescribeResponse;
+    private final String principalField;
 
-    public AclTenantTransformer(Type type, TenantTransform transform, boolean isDescribeResponse) {
-      super(type, transform);
-      this.isDescribeResponse = isDescribeResponse;
+    public AclTenantTransformer(Type type, TenantTransform transform, ApiKeys apiKey) {
+      super(type, transform, isFilter(transform, apiKey));
+      this.isDescribeResponse = transform == TenantTransform.REMOVE_PREFIX && apiKey == ApiKeys.DESCRIBE_ACLS;
       Schema schema = (Schema) type;
-      ensureStructField(schema, isDescribeResponse ? ACLS : PRINCIPAL);
+      principalField = isFilter(transform, apiKey) ? PRINCIPAL + FILTER_SUFFIX : PRINCIPAL;
+      ensureStructField(schema, isDescribeResponse ? ACLS : principalField);
     }
 
     @Override
     public Object transform(Object value, TenantContext ctx) {
       Struct struct = (Struct) super.transform(value, ctx);
       if (!isDescribeResponse) {
-        String principal = struct.getString(PRINCIPAL);
-        struct.set(PRINCIPAL, transformPrincipal(principal, ctx));
+        String principal = struct.getString(principalField);
+        struct.set(principalField, transformPrincipal(principal, ctx));
       } else {
         Object[] acls = struct.getArray(ACLS);
         if (acls != null) {
           for (Object acl : acls) {
             Struct aclStruct = (Struct) acl;
-            String principal = aclStruct.getString(PRINCIPAL);
-            aclStruct.set(PRINCIPAL, transformPrincipal(principal, ctx));
+            String principal = aclStruct.getString(principalField);
+            aclStruct.set(principalField, transformPrincipal(principal, ctx));
           }
         }
       }
@@ -626,7 +638,7 @@ public class MultiTenantApis {
       Struct struct = (Struct) value;
 
       if (!isDescribeResponse) {
-        String principal = struct.getString(PRINCIPAL);
+        String principal = struct.getString(principalField);
         if (principal != null) {
           size += transformPrincipal(principal, ctx).length() - principal.length();
         }
@@ -635,7 +647,7 @@ public class MultiTenantApis {
         if (acls != null) {
           for (Object acl : acls) {
             Struct aclStruct = (Struct) acl;
-            String principal = aclStruct.getString(PRINCIPAL);
+            String principal = aclStruct.getString(principalField);
             if (principal != null) {
               size += transformPrincipal(principal, ctx).length() - principal.length();
             }
@@ -646,12 +658,12 @@ public class MultiTenantApis {
     }
 
     protected boolean prefixableResource(Struct struct) {
-      if (!struct.hasField(RESOURCE_TYPE)) {
+      if (!struct.hasField(resourceTypeField)) {
         throw new IllegalArgumentException("Unexpected transform type " + struct);
       }
 
       org.apache.kafka.common.resource.ResourceType resourceType =
-          org.apache.kafka.common.resource.ResourceType.fromCode(struct.getByte(RESOURCE_TYPE));
+          org.apache.kafka.common.resource.ResourceType.fromCode(struct.getByte(resourceTypeField));
       switch (resourceType) {
         case TOPIC:
         case GROUP:
@@ -710,6 +722,10 @@ public class MultiTenantApis {
         default:
           throw new IllegalArgumentException("Unhandled transform type " + transform);
       }
+    }
+
+    private static boolean isFilter(TenantTransform transform, ApiKeys apiKey) {
+      return transform == TenantTransform.ADD_PREFIX && apiKey == ApiKeys.DELETE_ACLS;
     }
   }
 }

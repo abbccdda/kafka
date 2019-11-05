@@ -17,6 +17,7 @@ import io.confluent.crn.CrnAuthorityConfig;
 import io.confluent.events.ProtobufEvent;
 import io.confluent.events.cloudevents.extensions.RouteExtension;
 import io.confluent.events.exporter.Exporter;
+import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.AuditLogRouterJsonConfigUtils;
@@ -75,7 +76,7 @@ public class ProviderRoutingTest {
     configs.putAll(configOverrides);
     provider.configure(configs);
     provider.onUpdate(new ClusterResource(clusterId));
-    CompletableFuture<Void> startFuture = provider.start(configs).toCompletableFuture();
+    CompletableFuture<Void> startFuture = provider.start(KafkaTestUtils.serverInfo(clusterId), configs).toCompletableFuture();
     startFuture.get(10_000, TimeUnit.MILLISECONDS);
     return provider;
   }

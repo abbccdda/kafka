@@ -44,6 +44,7 @@ import org.apache.kafka.common.requests.SyncGroupResponse;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
@@ -53,6 +54,7 @@ public class MetadataServiceCoordinatorTest {
 
   private final Time time = new MockTime();
   private final Metrics metrics = new Metrics();
+  private final AuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA");
   private ExecutorService executor;
   private Cluster cluster;
   private String coordinatorId;
@@ -87,7 +89,7 @@ public class MetadataServiceCoordinatorTest {
     rebalanceListener = new RebalanceListener();
     Properties props = new Properties();
     props.put(KafkaStoreConfig.BOOTSTRAP_SERVERS_PROP, "localhost:9092");
-    KafkaStoreConfig config = new KafkaStoreConfig(props);
+    KafkaStoreConfig config = new KafkaStoreConfig(serverInfo, props);
     coordinator = new MetadataServiceCoordinator(logContext,
         coordinatorClient,
         activeNodes.get(coordinatorId),

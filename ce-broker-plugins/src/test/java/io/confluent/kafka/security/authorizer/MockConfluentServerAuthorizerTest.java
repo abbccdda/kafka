@@ -203,7 +203,7 @@ public class MockConfluentServerAuthorizerTest {
     }
 
     @Override
-    public CompletionStage<Void> start(Map<String, ?> clientConfigs) {
+    public CompletionStage<Void> start(AuthorizerServerInfo serverInfo, Map<String, ?> clientConfigs) {
       // Metrics reporter doesn't like broker.id in client configs
       assertTrue(!clientConfigs.containsKey(KafkaConfig$.MODULE$.BrokerIdProp()));
       return startFuture;
@@ -291,7 +291,7 @@ public class MockConfluentServerAuthorizerTest {
     }
 
     @Override
-    public CompletionStage<Void> start(Map<String, ?> interBrokerListenerConfigs) {
+    public CompletionStage<Void> start(AuthorizerServerInfo serverInfo, Map<String, ?> interBrokerListenerConfigs) {
       states.add("started");
       // Return incomplete future to ensure authorizer is not blocked by audit logger
       return new CompletableFuture<>();

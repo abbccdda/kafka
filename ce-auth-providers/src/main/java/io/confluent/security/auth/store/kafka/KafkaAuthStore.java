@@ -43,6 +43,7 @@ import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,6 +57,7 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
 
   private static final Duration CLOSE_TIMEOUT = Duration.ofSeconds(30);
 
+  private final AuthorizerServerInfo serverInfo;
   private final DefaultAuthCache authCache;
   private final Time time;
   private final int numAuthTopicPartitions;
@@ -70,12 +72,15 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
   private KafkaReader<AuthKey, AuthValue> reader;
   private volatile MetadataNodeManager nodeManager;
   private volatile KafkaAuthWriter writer;
+  private volatile Integer masterWriterId;
 
-  public KafkaAuthStore(Scope scope) {
-    this(RbacRoles.loadDefaultPolicy(), Time.SYSTEM, scope, KafkaStoreConfig.NUM_PARTITIONS);
+  public KafkaAuthStore(Scope scope, AuthorizerServerInfo serverInfo) {
+    this(RbacRoles.loadDefaultPolicy(), Time.SYSTEM, scope, serverInfo, KafkaStoreConfig.NUM_PARTITIONS);
   }
 
-  public KafkaAuthStore(RbacRoles rbacRoles, Time time, Scope scope, int numAuthTopicPartitions) {
+  public KafkaAuthStore(RbacRoles rbacRoles, Time time, Scope scope,
+      AuthorizerServerInfo serverInfo, int numAuthTopicPartitions) {
+    this.serverInfo = serverInfo;
     this.authCache = new DefaultAuthCache(rbacRoles, scope);
     this.time = time;
     this.numAuthTopicPartitions = numAuthTopicPartitions;
@@ -109,7 +114,7 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
 
   @Override
   public void configure(Map<String, ?> configs) {
-    this.clientConfig = new KafkaStoreConfig(configs);
+    this.clientConfig = new KafkaStoreConfig(serverInfo, configs);
 
     this.reader = new KafkaReader<>(AUTH_TOPIC,
         numAuthTopicPartitions,
@@ -188,6 +193,11 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
   }
 
   @Override
+  public Integer masterWriterId() {
+    return masterWriterId;
+  }
+
+  @Override
   public Collection<URL> activeNodeUrls(String protocol) {
     if (nodeManager == null)
       throw new IllegalStateException("Writer has not been started for this store");
@@ -214,9 +224,11 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
       writer.onConsumerRecord(record, oldValue);
     if (record.key() instanceof StatusKey) {
       int partition = record.partition();
-      MetadataStoreStatus status = ((StatusValue) record.value()).status();
+      StatusValue statusValue = (StatusValue) record.value();
+      MetadataStoreStatus status = statusValue.status();
       switch (status) {
         case INITIALIZED:
+          masterWriterId = statusValue.writerBrokerId();
           statusListener.onRemoteSuccess(partition);
           break;
         case FAILED:
@@ -277,6 +289,11 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
   // Visibility for unit test
   Long remoteFailuresStartMs() {
     return statusListener.firstFailureMs(statusListener.remoteFailuresStartMs);
+  }
+
+  // Visibility for unit test
+  KafkaStoreConfig clientConfig() {
+    return clientConfig;
   }
 
   private class StoreStatusListener implements StatusListener {

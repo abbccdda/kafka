@@ -229,11 +229,11 @@ public class KafkaAuthStoreTest {
     RbacTestUtils.verifyMetric("record-error-rate", "KafkaAuthStore", 2, 5);
 
     authStore.consumer.addRecord(new ConsumerRecord<>(
-        KafkaAuthStore.AUTH_TOPIC, 0, 10, new StatusKey(0), new StatusValue(MetadataStoreStatus.FAILED, 2, "Test failure")));
+        KafkaAuthStore.AUTH_TOPIC, 0, 10, new StatusKey(0), new StatusValue(MetadataStoreStatus.FAILED, 2, 0, "Test failure")));
     TestUtils.waitForCondition(() -> authStore.remoteFailuresStartMs() != null, "Status update failure not propagated");
 
     authStore.consumer.addRecord(new ConsumerRecord<>(
-        KafkaAuthStore.AUTH_TOPIC, 0, 11, new StatusKey(0), new StatusValue(MetadataStoreStatus.INITIALIZED, 3, "Test failure")));
+        KafkaAuthStore.AUTH_TOPIC, 0, 11, new StatusKey(0), new StatusValue(MetadataStoreStatus.INITIALIZED, 3, 0, "Test failure")));
     TestUtils.waitForCondition(() -> authStore.remoteFailuresStartMs() == null, "Status update failure not propagated");
 
   }

@@ -333,7 +333,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
 
   @Override
   public void fail(int partition, String errorMessage) {
-    partitionStatus.put(partition, new StatusValue(MetadataStoreStatus.FAILED, -1, errorMessage));
+    partitionStatus.put(partition, new StatusValue(MetadataStoreStatus.FAILED, -1, null, errorMessage));
   }
 
   @Override

@@ -12,14 +12,17 @@ public class StatusValue extends AuthValue {
 
   private final MetadataStoreStatus status;
   private final int generationId;
+  private final Integer writerBrokerId;
   private final String errorMessage;
 
   @JsonCreator
   public StatusValue(@JsonProperty("status") MetadataStoreStatus status,
                      @JsonProperty("generationId") int generationId,
+                     @JsonProperty("writerBrokerId") Integer writerBrokerId,
                      @JsonProperty("errorMessage") String errorMessage) {
     this.status = status;
     this.generationId = generationId;
+    this.writerBrokerId = writerBrokerId;
     this.errorMessage = status == MetadataStoreStatus.FAILED && errorMessage == null ?
         "Unknown error" : errorMessage;
   }
@@ -32,6 +35,11 @@ public class StatusValue extends AuthValue {
   @JsonProperty
   public int generationId() {
     return generationId;
+  }
+
+  @JsonProperty
+  public Integer writerBrokerId() {
+    return writerBrokerId;
   }
 
   @JsonProperty
@@ -61,12 +69,13 @@ public class StatusValue extends AuthValue {
 
     return Objects.equals(this.status, that.status) &&
         Objects.equals(this.generationId, that.generationId) &&
+        Objects.equals(this.writerBrokerId, that.writerBrokerId) &&
         Objects.equals(this.errorMessage, that.errorMessage);
   }
 
   @Override
   public int hashCode() {
-    return 31 * super.hashCode() + Objects.hash(status, generationId, errorMessage);
+    return 31 * super.hashCode() + Objects.hash(status, generationId, writerBrokerId, errorMessage);
   }
 
   @Override
@@ -74,6 +83,7 @@ public class StatusValue extends AuthValue {
     return "StatusValue(" +
         "status=" + status +
         ", generationId=" + generationId +
+        ", writerBrokerId=" + writerBrokerId +
         ", errorMessage=" + errorMessage +
         ')';
   }

@@ -2,9 +2,9 @@
 
 package io.confluent.security.store;
 
-import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.errors.NotCoordinatorException;
 
-public class NotMasterWriterException extends KafkaException {
+public class NotMasterWriterException extends NotCoordinatorException {
 
   private static final long serialVersionUID = 1L;
 

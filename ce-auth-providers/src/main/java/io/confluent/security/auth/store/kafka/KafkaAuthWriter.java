@@ -22,6 +22,7 @@ import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourcePatternFilter;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
+import io.confluent.security.authorizer.provider.ProviderFailedException;
 import io.confluent.security.authorizer.utils.ThreadUtils;
 import io.confluent.security.rbac.AccessPolicy;
 import io.confluent.security.rbac.InvalidRoleBindingException;
@@ -29,7 +30,6 @@ import io.confluent.security.rbac.Role;
 import io.confluent.security.store.MetadataStoreStatus;
 import io.confluent.security.store.NotMasterWriterException;
 import io.confluent.security.store.kafka.KafkaStoreConfig;
-import io.confluent.security.store.kafka.clients.CachedRecord;
 import io.confluent.security.store.kafka.clients.ConsumerListener;
 import io.confluent.security.store.kafka.clients.KafkaPartitionWriter;
 import io.confluent.security.store.kafka.clients.KafkaUtils;
@@ -37,6 +37,7 @@ import io.confluent.security.store.kafka.clients.StatusListener;
 import io.confluent.security.store.kafka.clients.Writer;
 import io.confluent.security.store.kafka.coordinator.MetadataServiceRebalanceListener;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -51,8 +52,10 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -65,6 +68,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.TopicPartitionInfo;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
+import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.TimeoutException;
@@ -74,10 +78,33 @@ import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.authorizer.AclCreateResult;
+import org.apache.kafka.server.authorizer.AclDeleteResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 
+/**
+ * Writer that initiates updates to metadata. Each metadata partition has its own partition writer
+ * that performs the actual update.
+ *
+ * Threading model:
+ * <ul>
+ *   <li>Writer rebalances are processed on a single thread, so startWriter() and stopWriter() are
+ *   invoked sequentially, except during shutdown when start() may be in progress</li>
+ *   <li>The single-threaded `mgmtExecutor` of this writer is used for asynchronous initialization
+ *   and status updates.</li>
+ *   <li>The single-threaded `writeExecutor` of this writer is used by this writer as well as
+ *   its partition writers to perform actual updates. It also manages request timeouts.</li>
+ *   <li>Multiple non-incremental updates may be performed concurrently. Pending writes
+ *   are tracked by each KafkaPartitionWriter.</li>
+ *   <li>Incremental update request is executed only after all pending writes have completed and
+ *   the local cache is up-to-date. Requests are queued in KafkaPartitionWriter until they are ready
+ *   to be processed.</li>
+ *   <li>ACL update requests are executed on `writeExecutor` to avoid any blocking on the
+ *   broker request threads while processing AdminClient requests to update centralized ACLs.</li>
+ * </ul>
+ */
 public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<AuthKey, AuthValue> {
 
   private static final Logger log = LoggerFactory.getLogger(KafkaAuthWriter.class);
@@ -95,7 +122,8 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   private final Map<Integer, KafkaPartitionWriter<AuthKey, AuthValue>> partitionWriters;
   private final AtomicBoolean alive;
   private MetadataServiceRebalanceListener rebalanceListener;
-  private ExecutorService executor;
+  private ExecutorService mgmtExecutor;
+  private ScheduledExecutorService writeExecutor;
   private volatile boolean ready;
 
   public KafkaAuthWriter(String topic,
@@ -127,19 +155,21 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     if (generationId < 0)
       throw new IllegalArgumentException("Invalid generation id for master writer " + generationId);
 
-    if (executor != null && !executor.isTerminated())
+    if (mgmtExecutor != null && !mgmtExecutor.isTerminated())
       throw new IllegalStateException("Starting writer without clearing startup executor of previous generation");
 
     isMasterWriter.set(true);
 
-    executor = Executors.newSingleThreadExecutor(ThreadUtils.createThreadFactory("auth-writer-%d", true));
-    executor.submit(() -> {
+    mgmtExecutor = Executors.newSingleThreadExecutor(ThreadUtils.createThreadFactory("auth-writer-mgmt-%d", true));
+    writeExecutor = Executors.newSingleThreadScheduledExecutor(ThreadUtils.createThreadFactory("auth-writer-%d", true));
+    mgmtExecutor.submit(() -> {
       try {
         if (partitionWriters.isEmpty()) {
           createPartitionWriters();
         }
 
-        StatusValue initializing = new StatusValue(MetadataStoreStatus.INITIALIZING, generationId, null);
+        StatusValue initializing = new StatusValue(MetadataStoreStatus.INITIALIZING, generationId,
+            config.brokerId, null);
         partitionWriters.forEach((partition, writer) ->
             writer.start(generationId, new StatusKey(partition), initializing));
         ready = true;
@@ -150,7 +180,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
       }
     });
 
-    executor.submit(() -> {
+    mgmtExecutor.submit(() -> {
       try {
         externalAuthStores.forEach((type, store) -> store.start(generationId));
         writeExternalStatus(MetadataStoreStatus.INITIALIZED, null, generationId);
@@ -165,19 +195,27 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     try {
       log.info("Stopping writer {}", generationId == null ? "" : "with generation " + generationId);
       ready = false;
-      if (executor != null) {
-        executor.shutdownNow();
-        if (!executor.awaitTermination(config.refreshTimeout.toMillis(), TimeUnit.MILLISECONDS))
+      externalAuthStores.values().forEach(store -> store.stop(generationId));
+      partitionWriters.values().forEach(p -> p.stop(generationId));
+
+      if (mgmtExecutor != null)
+        mgmtExecutor.shutdownNow();
+      if (writeExecutor != null)
+        writeExecutor.shutdownNow();
+      if (mgmtExecutor != null) {
+        if (!mgmtExecutor.awaitTermination(config.refreshTimeout.toMillis(), TimeUnit.MILLISECONDS))
           throw new TimeoutException("Timed out waiting for start up to be terminated");
-        executor = null;
+      }
+      if (writeExecutor != null) {
+        if (!writeExecutor.awaitTermination(config.refreshTimeout.toMillis(), TimeUnit.MILLISECONDS))
+          throw new TimeoutException("Timed out waiting for start up to be terminated");
       }
     } catch (InterruptedException e) {
       log.debug("Interrupted while shutting down writer executor");
       throw new InterruptException(e);
     } finally {
-      externalAuthStores.values().forEach(store -> store.stop(generationId));
-      partitionWriters.values().forEach(p -> p.stop(generationId));
-
+      mgmtExecutor = null;
+      writeExecutor = null;
       isMasterWriter.set(false);
 
       List<Integer> failedPartitions = partitionWriters.keySet().stream()
@@ -211,17 +249,18 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     validateRoleBindingUpdate(role, scope, newResources, true);
     validateRoleResources(newResources);
 
-    KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriter(principal, role, scope);
-    CachedRecord<AuthKey, AuthValue> existingRecord =
-        waitForExistingBinding(partitionWriter, principal, role, scope);
-    Set<ResourcePattern> updatedResources = resources(existingRecord);
-    updatedResources.addAll(newResources);
+    RoleBindingKey key = new RoleBindingKey(principal, role, scope);
+    KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriter(key);
 
-    log.debug("New binding {} {} {} {}", principal, role, scope, updatedResources);
-    return partitionWriter.write(existingRecord.key(),
-        new RoleBindingValue(updatedResources),
-        existingRecord.generationIdDuringRead(),
-        true, false);
+    return partitionWriter.update(key,
+        existingValue -> {
+          Set<ResourcePattern> updatedResources = new HashSet<>();
+          if (existingValue != null)
+            updatedResources.addAll(((RoleBindingValue) existingValue).resources());
+          updatedResources.addAll(newResources);
+          log.debug("New binding {} {} {} {}", principal, role, scope, updatedResources);
+          return new RoleBindingValue(updatedResources);
+        });
   }
 
   @Override
@@ -233,8 +272,8 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     validateRoleBindingUpdate(role, scope, resources, true);
     validateRoleResources(resources);
 
-    KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriter(principal, role, scope);
     RoleBindingKey key = new RoleBindingKey(principal, role, scope);
+    KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriter(key);
 
     return partitionWriter.write(key, new RoleBindingValue(resources), null, true, false);
   }
@@ -244,8 +283,8 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     log.debug("removeRoleBinding principal={} role={} scope={}", principal, role, scope);
     validateRoleBindingUpdate(role, scope, Collections.emptySet(), false);
 
-    KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriter(principal, role, scope);
     RoleBindingKey key = new RoleBindingKey(principal, role, scope);
+    KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriter(key);
 
     return partitionWriter.write(key, null, null, true, false);
   }
@@ -258,141 +297,239 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     log.debug("removeResourceRoleBinding principal={} role={} scope={} resources={}", principal, role, scope, deletedResources);
     validateRoleBindingUpdate(role, scope, deletedResources, true);
 
-    KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriter(principal, role, scope);
-    CachedRecord<AuthKey, AuthValue> existingRecord =
-        waitForExistingBinding(partitionWriter, principal, role, scope);
-    Set<ResourcePattern> updatedResources = resources(existingRecord);
-    deletedResources.forEach(pattern -> updatedResources.removeIf(pattern::matches));
-    if (!updatedResources.isEmpty()) {
-      RoleBindingValue value = new RoleBindingValue(updatedResources);
+    RoleBindingKey key = new RoleBindingKey(principal, role, scope);
+    KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriter(key);
 
-      log.debug("New binding {} {} {} {}", principal, role, scope, updatedResources);
-      return partitionWriter.write(
-          existingRecord.key(),
-          value,
-          existingRecord.generationIdDuringRead(),
-          true, false);
-    } else {
-      log.debug("Deleting binding with no remaining resources {} {} {}", principal, role, scope);
-      return partitionWriter.write(existingRecord.key(), null, null, true, false);
-    }
+    return partitionWriter.update(key,
+        existingValue -> {
+          Set<ResourcePattern> updatedResources = new HashSet<>();
+          if (existingValue != null)
+            updatedResources.addAll(((RoleBindingValue) existingValue).resources());
+          deletedResources.forEach(pattern -> updatedResources.removeIf(pattern::matches));
+          if (!updatedResources.isEmpty()) {
+            log.debug("New binding {} {} {} {}", principal, role, scope, updatedResources);
+            return new RoleBindingValue(updatedResources);
+          } else {
+            log.debug("Deleting binding with no remaining resources {} {} {}", principal, role, scope);
+            return null;
+          }
+        });
   }
 
   @Override
   public CompletionStage<Void> createAcls(final Scope scope, final AclBinding aclBinding) {
-    log.debug("createAcls scope={} aclBinding={}", scope, aclBinding);
-    validateScope(scope);
-    validateAclBinding(aclBinding);
+    return createAcls(scope, Collections.singletonList(aclBinding)).get(aclBinding)
+        .thenApply(result -> {
+          if (result.exception().isPresent())
+            throw result.exception().get();
+          else
+            return null;
+        });
+  }
 
-    ResourcePattern resourcePattern = ResourcePattern.from(aclBinding.pattern());
-    KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriterForAcl(scope, resourcePattern);
-    CachedRecord<AuthKey, AuthValue> existingRecord =
-        waitForExistingAclBinding(partitionWriter, scope, resourcePattern);
-    Set<AclRule> updatedRules = accessRules(existingRecord);
-    updatedRules.add(AclRule.from(aclBinding));
-    log.debug("New Acl binding scope={} resourcePattern={} accessRules={}", scope, resourcePattern, updatedRules);
-    return partitionWriter.write(existingRecord.key(),
-        new AclBindingValue(updatedRules),
-        existingRecord.generationIdDuringRead(),
-        true, false);
+  @Override
+  public Map<AclBinding, CompletionStage<AclCreateResult>> createAcls(Scope scope, List<AclBinding> aclBindings) {
+
+    log.debug("createAcls scope={} aclBindings={}", scope, aclBindings);
+    ensureMasterWriter();
+    validateScope(scope);
+    aclBindings.forEach(this::validateAclBinding);
+    Map<ResourcePattern, List<AclBinding>> bindingsByResource = new HashMap<>();
+    aclBindings.forEach(binding -> {
+      bindingsByResource.computeIfAbsent(ResourcePattern.from(binding.pattern()),
+          unused -> new ArrayList<>()).add(binding);
+    });
+
+    Map<AclBinding, CompletionStage<AclCreateResult>> futures = aclBindings.stream()
+        .collect(Collectors.toMap(Function.identity(), b -> new CompletableFuture<>()));
+    writeExecutor.submit(() -> {
+      try {
+        createAcls(scope, bindingsByResource, futures);
+      } catch (Throwable t) {
+        futures.values().stream()
+            .map(CompletionStage::toCompletableFuture)
+            .filter(future -> !future.isDone())
+            .forEach(future -> future.complete(new AclCreateResult(new ApiException(t))));
+      }
+    });
+    return futures;
+  }
+
+  private void createAcls(Scope scope,
+                          Map<ResourcePattern, List<AclBinding>> aclBindings,
+                           Map<AclBinding, CompletionStage<AclCreateResult>> futures) {
+    aclBindings.forEach((resourcePattern, bindings) -> {
+      AclBindingKey key = new AclBindingKey(resourcePattern, scope);
+      KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriter(key);
+
+      partitionWriter.update(key,
+          existingValue -> {
+            Set<AclRule> updatedRules = new HashSet<>();
+            if (existingValue != null)
+              updatedRules.addAll(((AclBindingValue) existingValue).aclRules());
+            bindings.forEach(binding -> updatedRules.add(AclRule.from(binding)));
+            log.debug("New Acl binding scope={} resourcePattern={} accessRules={}", scope,
+                resourcePattern, updatedRules);
+            return new AclBindingValue(updatedRules);
+          }).thenApply(unused -> new AclCreateResult(null))
+          .exceptionally(e -> new AclCreateResult(new ProviderFailedException(e)))
+          .thenAccept(result -> bindings.forEach(b -> futures.get(b).toCompletableFuture().complete(result)));
+    });
   }
 
   @Override
   public CompletionStage<Collection<AclBinding>> deleteAcls(final Scope scope,
-                                                            final AclBindingFilter filter,
-                                                            final Predicate<ResourcePattern> resourceAccess) {
-    log.debug("deleteAclRules scope={} aclBindingFilter={}", scope, filter);
+      final AclBindingFilter filter,
+      final Predicate<ResourcePattern> resourceAccess) {
+    return deleteAcls(scope, Collections.singletonList(filter), resourceAccess).get(filter)
+        .thenApply(result -> {
+          if (result.exception().isPresent()) {
+            throw result.exception().get();
+          } else {
+            return result.aclBindingDeleteResults().stream()
+                .map(AclDeleteResult.AclBindingDeleteResult::aclBinding)
+                .collect(Collectors.toList());
+          }
+        });
+  }
+
+  @Override
+  public Map<AclBindingFilter, CompletionStage<AclDeleteResult>> deleteAcls(Scope scope,
+        List<AclBindingFilter> filters,
+        Predicate<ResourcePattern> resourceAccess) {
+
+    log.debug("deleteAclRules scope={} aclBindingFilters={}", scope, filters);
+    ensureMasterWriter();
     validateScope(scope);
-    Collection<AclBinding> deletedBindings = new LinkedList<>();
 
-    //If filter matches with at-most one rule
-    if (filter.matchesAtMostOne()) {
-      ResourcePattern resourcePattern = ResourcePattern.from(filter.patternFilter());
-      AclRule accessRule = AclRule.from(filter.entryFilter());
+    Map<AclBindingFilter, CompletionStage<AclDeleteResult>> futures = filters.stream()
+        .collect(Collectors.toMap(Function.identity(), b -> new CompletableFuture<>()));
 
-      if (resourceAccess.test(resourcePattern)) {
-        CompletionStage<Void> completableFuture = deleteAclRules(scope, resourcePattern,
-            Collections.singletonList(accessRule));
-        deletedBindings.add(new AclBinding(ResourcePattern.to(resourcePattern), accessRule.toAccessControlEntry()));
-        return completableFuture.thenApply(s -> deletedBindings);
+    try {
+      // Schedule deletes after pending updates have completed
+      CompletableFuture[] readyFutures = new CompletableFuture[partitionWriters.size()];
+      for (int i = 0; i < partitionWriters.size(); i++) {
+        readyFutures[i] = partitionWriters.get(i).incrementalUpdateFuture();
       }
-
-      return CompletableFuture.completedFuture(deletedBindings);
-
-    } else { // If filter matches with more than one rule
-      Collection<AclBinding> matchedBindings = aclBindings(scope, filter, resourceAccess);
-      Map<ResourcePattern, List<AclRule>> toDeleteRules = new HashMap<>();
-
-      //Collect all to be deleted rules for each resource
-      for (AclBinding aclBinding : matchedBindings) {
-        ResourcePattern resourcePattern = ResourcePattern.from(aclBinding.pattern());
-        AclRule accessRule = AclRule.from(aclBinding);
-        toDeleteRules.computeIfAbsent(resourcePattern, v -> new LinkedList<>()).add(accessRule);
-        deletedBindings.add(aclBinding);
-      }
-
-      List<CompletableFuture<Void>> futuresList = new LinkedList<>();
-      //call delete for each resource.
-      for (Map.Entry<ResourcePattern, List<AclRule>> entry : toDeleteRules.entrySet()) {
-        CompletableFuture<Void> cs = (CompletableFuture<Void>) deleteAclRules(scope, entry.getKey(), entry.getValue());
-        futuresList.add(cs);
-      }
-
-      return CompletableFuture.allOf(futuresList.toArray(new CompletableFuture[0])).thenApply(s -> deletedBindings);
+      CompletableFuture.allOf(readyFutures)
+          .thenAcceptAsync(v -> deleteAcls(scope, filters, resourceAccess, futures), writeExecutor);
+    } catch (Throwable t) {
+      futures.values().stream()
+         .map(CompletionStage::toCompletableFuture)
+         .filter(future -> !future.isDone())
+         .forEach(future -> future.complete(new AclDeleteResult(new ApiException(t))));
     }
+    return futures;
+  }
+
+  private void deleteAcls(Scope scope,
+                          List<AclBindingFilter> filters,
+                          Predicate<ResourcePattern> resourceAccess,
+                          Map<AclBindingFilter, CompletionStage<AclDeleteResult>> futures) {
+
+    log.trace("Scheduling deleteAcls for filters {}", filters);
+
+    Map<AclBindingFilter, Collection<DeletableAclBinding>> toDeleteBindings = filters.stream()
+        .collect(Collectors.toMap(Function.identity(), unused -> new LinkedList<>()));
+    Map<ResourcePattern, Collection<DeletableAclBinding>> toDeleteRules = new HashMap<>();
+    Map<AclBinding, DeletableAclBinding> bindingRules = new HashMap<>();
+
+    ensureMasterWriter();
+
+    // Collect all the matching ACLs and delete using single update for each resource pattern
+    toDeleteBindings.forEach((filter, deleteList) -> {
+      validateAclFilter(filter);
+      //If filter matches with at-most one rule
+      if (filter.matchesAtMostOne()) {
+        ResourcePattern resourcePattern = ResourcePattern.from(filter.patternFilter());
+        AclRule accessRule = AclRule.from(filter.entryFilter());
+
+        if (resourceAccess.test(resourcePattern)) {
+          AclBinding aclBinding = new AclBinding(ResourcePattern.to(resourcePattern),
+                accessRule.toAccessControlEntry());
+          DeletableAclBinding deletableBinding = new DeletableAclBinding(aclBinding, resourcePattern, accessRule);
+          if (!bindingRules.containsKey(aclBinding)) {
+            toDeleteRules.computeIfAbsent(resourcePattern, unused -> new LinkedList<>())
+                .add(deletableBinding);
+            deleteList.add(deletableBinding);
+            bindingRules.put(aclBinding, deletableBinding);
+          }
+        }
+      } else { // If filter matches with more than one rule
+        Collection<AclBinding> matchedBindings = aclBindings(scope, filter, resourceAccess);
+        matchedBindings.removeAll(bindingRules.keySet());
+
+        for (AclBinding aclBinding : matchedBindings) {
+          ResourcePattern resourcePattern = ResourcePattern.from(aclBinding.pattern());
+          AclRule accessRule = AclRule.from(aclBinding);
+          DeletableAclBinding deletableBinding = new DeletableAclBinding(aclBinding, resourcePattern, accessRule);
+          toDeleteRules.computeIfAbsent(resourcePattern, v -> new LinkedList<>()).add(deletableBinding);
+          deleteList.add(deletableBinding);
+          bindingRules.put(aclBinding, deletableBinding);
+        }
+      }
+    });
+
+    toDeleteRules.forEach((resourcePattern, deletableBindings) -> {
+      CompletionStage<Void> future = deleteAclRules(scope, resourcePattern,
+          deletableBindings.stream().map(b -> b.aclRule).collect(Collectors.toList()));
+      deletableBindings.forEach(b -> b.future = future.toCompletableFuture());
+    });
+    toDeleteBindings.forEach((filter, deleteFutures) -> {
+          future(deleteFutures).thenAccept(result -> futures.get(filter).toCompletableFuture().complete(result));
+    });
+  }
+
+  private CompletionStage<AclDeleteResult> future(Collection<DeletableAclBinding> bindings) {
+    return CompletableFuture.allOf(bindings.stream().map(b -> b.future).collect(Collectors.toList())
+        .toArray(new CompletableFuture[bindings.size()]))
+        .thenApply(unused -> new AclDeleteResult(bindings.stream().map(DeletableAclBinding::deleteResult).collect(Collectors.toList())));
   }
 
   private CompletionStage<Void> deleteAclRules(final Scope scope,
                                                final ResourcePattern resourcePattern,
                                                final Collection<AclRule> deletedRules) {
-    KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriterForAcl(scope, resourcePattern);
-    CachedRecord<AuthKey, AuthValue> existingRecord =
-        waitForExistingAclBinding(partitionWriter, scope, resourcePattern);
-    Set<AclRule> updatedRules = accessRules(existingRecord);
-    updatedRules.removeAll(deletedRules);
-    if (!updatedRules.isEmpty()) {
-      AclBindingValue value = new AclBindingValue(updatedRules);
+    AclBindingKey key = new AclBindingKey(resourcePattern, scope);
+    KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriter(key);
 
-      log.debug("New Acl binding scope={} resourcePattern={} accessRules={}",  scope, resourcePattern, updatedRules);
-      return partitionWriter.write(
-          existingRecord.key(),
-          value,
-          existingRecord.generationIdDuringRead(),
-          true, false);
-    } else {
-      log.debug("Deleting Acl binding with scope={} resourcePattern={}",  scope, resourcePattern);
-      return partitionWriter.write(existingRecord.key(), null, null, true, false);
-    }
+    log.trace("deleteAclRules {} {}", resourcePattern, deletedRules);
+    return partitionWriter.update(key,
+        existingValue -> {
+          Set<AclRule> updatedRules = new HashSet<>();
+          if (existingValue != null)
+            updatedRules.addAll(((AclBindingValue) existingValue).aclRules());
+          updatedRules.removeAll(deletedRules);
+          if (!updatedRules.isEmpty()) {
+            log.debug("New Acl binding scope={} resourcePattern={} accessRules={}", scope, resourcePattern, updatedRules);
+            return new AclBindingValue(updatedRules);
+          } else {
+            log.debug("Deleting Acl binding with scope={} resourcePattern={}", scope, resourcePattern);
+            return null;
+          }
+        });
   }
 
+  // Returns the current ACL bindings from the cache. The caller should wait for cache
+  // to be up-to-date before invoking this method.
   private Collection<AclBinding> aclBindings(final Scope scope,
-                                            final AclBindingFilter aclBindingFilter,
-                                            final Predicate<ResourcePattern> resourceAccess) {
+                                             final AclBindingFilter aclBindingFilter,
+                                             final Predicate<ResourcePattern> resourceAccess) {
     log.debug("aclBindings scope={} aclBindingFilter={}", scope, aclBindingFilter);
-    validateScope(scope);
-
-    if (aclBindingFilter.isUnknown()) {
-      throw new InvalidRequestException("The AclBindingFilter "
-          + "must not contain UNKNOWN elements.");
-    }
-
     Set<AclBinding> aclBindings = new HashSet<>();
     Scope nextScope = scope;
 
     while (nextScope != null) {
       Map<ResourcePattern, Set<AccessRule>> rules = authCache.aclRules(nextScope);
       if (rules != null) {
-        rules.keySet().stream()
-            .filter(resourceAccess).
-            forEach(resourcePattern -> {
-              KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter = partitionWriterForAcl(scope, resourcePattern);
-              CachedRecord<AuthKey, AuthValue> existingRecord =
-                  waitForExistingAclBinding(partitionWriter, scope, resourcePattern);
-              for (AclRule accessRule : accessRules(existingRecord)) {
-                AclBinding fixture = new AclBinding(ResourcePattern.to(resourcePattern), accessRule.toAccessControlEntry());
+        rules.entrySet().stream()
+            .filter(e -> resourceAccess.test(e.getKey()))
+            .forEach(e -> {
+              org.apache.kafka.common.resource.ResourcePattern resourcePattern = ResourcePattern.to(e.getKey());
+              e.getValue().forEach(accessRule -> {
+                AclBinding fixture = new AclBinding(resourcePattern, AclRule.accessControlEntry(accessRule));
                 if (aclBindingFilter.matches(fixture))
                   aclBindings.add(fixture);
-              }
+              });
             });
       }
       nextScope = nextScope.parent();
@@ -400,11 +537,13 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     return aclBindings;
   }
 
-  private void validateScope(final Scope scope) {
+  private void ensureMasterWriter() {
     if (!isMasterWriter.get() || !ready)
       throw new NotMasterWriterException("This node is currently not the master writer for Metadata Service."
-          + " This could be a transient exception during writer election.");
+              + " This could be a transient exception during writer election.");
+  }
 
+  private void validateScope(final Scope scope) {
     scope.validate(true);
     if (!authCache.rootScope().containsScope(scope)) {
       throw new InvalidScopeException("This writer does not contain binding scope " + scope);
@@ -423,31 +562,15 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     }
   }
 
+  private void validateAclFilter(AclBindingFilter filter) {
+    if (filter.isUnknown()) {
+      throw new InvalidRequestException("The AclBindingFilter "
+          + "must not contain UNKNOWN elements.");
+    }
+  }
+
   private boolean isClusterResource(final String name) {
     return name.equals(Resource.CLUSTER_NAME);
-  }
-
-  private CachedRecord<AuthKey, AuthValue> waitForExistingAclBinding(final KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter,
-                                                                     final Scope scope, final ResourcePattern resourcePattern) {
-    AclBindingKey key = new AclBindingKey(resourcePattern, scope);
-    return partitionWriter.waitForRefresh(key);
-  }
-
-  private KafkaPartitionWriter<AuthKey, AuthValue> partitionWriterForAcl(final Scope scope,
-                                                                         final ResourcePattern resourcePattern) {
-    AclBindingKey key = new AclBindingKey(resourcePattern, scope);
-    return partitionWriter(partition(key));
-  }
-
-  private Set<AclRule> accessRules(CachedRecord<AuthKey, AuthValue> record) {
-    Set<AclRule> accessRules = new HashSet<>();
-    AuthValue value = record.value();
-    if (value != null) {
-      if (!(value instanceof AclBindingValue))
-        throw new IllegalArgumentException("Invalid record key=" + record.key() + ", value=" + value);
-      accessRules.addAll(((AclBindingValue) value).aclRules());
-    }
-    return accessRules;
   }
 
   public void close(Duration closeTimeout) {
@@ -498,7 +621,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   }
 
   public void writeExternalStatus(MetadataStoreStatus status, String errorMessage, int generationId) {
-    ExecutorService executor = this.executor;
+    ExecutorService executor = this.mgmtExecutor;
     if (executor != null && !executor.isShutdown()) {
       executor.submit(() -> {
         try {
@@ -517,14 +640,14 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
             default:
               throw new IllegalStateException("Unexpected status for external store " + status);
           }
-          StatusValue statusValue = new StatusValue(status, generationId, errorMessage);
+          StatusValue statusValue = new StatusValue(status, generationId, config.brokerId, errorMessage);
           partitionWriters.forEach((partition, writer) ->
               writer.writeStatus(generationId, new StatusKey(partition), statusValue, status));
         } catch (Throwable e) {
           log.error("Failed to write external status to auth topic, writer resigning", e);
           rebalanceListener.onWriterResigned(generationId);
         }
-        StatusValue statusValue = new StatusValue(status, generationId, errorMessage);
+        StatusValue statusValue = new StatusValue(status, generationId, config.brokerId, errorMessage);
         partitionWriters.forEach((partition, writer) ->
             writer.writeStatus(generationId, new StatusKey(partition), statusValue, status));
 
@@ -540,7 +663,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
       TopicPartition tp = new TopicPartition(topic, i);
       partitionWriters.put(i,
           new KafkaPartitionWriter<>(tp, producer, authCache, rebalanceListener, statusListener,
-              config.refreshTimeout, time));
+              writeExecutor, config.refreshTimeout, time));
     }
   }
 
@@ -596,15 +719,6 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     }
   }
 
-  private CachedRecord<AuthKey, AuthValue> waitForExistingBinding(
-      KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter,
-      KafkaPrincipal principal,
-      String role,
-      Scope scope) {
-    RoleBindingKey key = new RoleBindingKey(principal, role, scope);
-    return partitionWriter.waitForRefresh(key);
-  }
-
   private AccessPolicy accessPolicy(String role) {
     Role roleDefinition = authCache.rbacRoles().role(role);
     if (roleDefinition == null)
@@ -614,10 +728,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   }
 
   private void validateRoleBindingUpdate(String role, Scope scope, Collection<?> resources, boolean expectResourcesForResourceLevel) {
-    if (!isMasterWriter.get() || !ready)
-      throw new NotMasterWriterException("This node is currently not the master writer for Metadata Service."
-          + " This could be a transient exception during writer election.");
-
+    ensureMasterWriter();
     validateScope(scope);
     AccessPolicy accessPolicy = accessPolicy(role);
     if (!resources.isEmpty() && !accessPolicy.hasResourceScope())
@@ -638,17 +749,6 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     });
   }
 
-  private Set<ResourcePattern> resources(CachedRecord<AuthKey, AuthValue> record) {
-    Set<ResourcePattern> resources = new HashSet<>();
-    AuthValue value = record.value();
-    if (value != null) {
-      if (!(value instanceof RoleBindingValue))
-        throw new IllegalArgumentException("Invalid record key=" + record.key() + ", value=" + value);
-      resources.addAll(((RoleBindingValue) value).resources());
-    }
-    return resources;
-  }
-
   private int partition(AuthKey key) {
     return Utils.toPositive(key.hashCode()) % partitionWriters.size();
   }
@@ -660,10 +760,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     return partitionWriter;
   }
 
-  private KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter(KafkaPrincipal principal,
-      String role,
-      Scope scope) {
-    RoleBindingKey key = new RoleBindingKey(principal, role, scope);
+  private KafkaPartitionWriter<AuthKey, AuthValue> partitionWriter(AuthKey key) {
     return partitionWriter(partition(key));
   }
 
@@ -704,5 +801,26 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     public boolean failed() {
       return false;
     }
+  }
+
+  private static class DeletableAclBinding {
+    final AclBinding binding;
+    final ResourcePattern resourcePattern;
+    final AclRule aclRule;
+    CompletableFuture<Void> future;
+    DeletableAclBinding(AclBinding binding, ResourcePattern resourcePattern, AclRule aclRule) {
+      this.binding = binding;
+      this.resourcePattern = resourcePattern;
+      this.aclRule = aclRule;
+    }
+
+    AclDeleteResult.AclBindingDeleteResult deleteResult() {
+      try {
+        return future.thenApply(v -> new AclDeleteResult.AclBindingDeleteResult(binding)).get();
+      } catch (Throwable t) {
+        return new AclDeleteResult.AclBindingDeleteResult(binding, new ProviderFailedException(t));
+      }
+    }
+
   }
 }

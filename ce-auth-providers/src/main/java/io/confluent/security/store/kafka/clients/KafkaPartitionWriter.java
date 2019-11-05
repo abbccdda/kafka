@@ -12,9 +12,14 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.producer.BufferExhaustedException;
 import org.apache.kafka.clients.producer.Callback;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -45,7 +50,8 @@ import org.slf4j.Logger;
 public class KafkaPartitionWriter<K, V> {
 
   private static final int NOT_MASTER_WRITER = -1;
-  private static final int MAX_PENDING_WRITES = 100;
+  private static final int MAX_PENDING_WRITES = 10000;
+  private static final int MAX_QUEUED_WRITES = 1000 * 1000;
 
   private final Logger log;
   private final TopicPartition topicPartition;
@@ -56,17 +62,21 @@ public class KafkaPartitionWriter<K, V> {
   private final Duration refreshTimeout;
   private final Time time;
   private final BlockingQueue<PendingWrite> pendingWrites;
+  private final BlockingQueue<QueuedTask> queuedTasks;
+  private final ScheduledExecutorService executor;
 
   private MetadataStoreStatus status;
   private int generationId;
   private long lastProducedOffset;
   private long lastConsumedOffset;
 
+
   public KafkaPartitionWriter(TopicPartition topicPartition,
                               Producer<K, V> producer,
                               KeyValueStore<K, V> cache,
                               MetadataServiceRebalanceListener rebalanceListener,
                               StatusListener statusListener,
+                              ScheduledExecutorService executor,
                               Duration refreshTimeout,
                               Time time) {
     this.topicPartition = topicPartition;
@@ -74,11 +84,13 @@ public class KafkaPartitionWriter<K, V> {
     this.cache = cache;
     this.rebalanceListener = rebalanceListener;
     this.statusListener = statusListener;
+    this.executor = executor;
     this.refreshTimeout = refreshTimeout;
     this.time = time;
     this.generationId = NOT_MASTER_WRITER;
     this.status = MetadataStoreStatus.UNKNOWN;
     pendingWrites = new ArrayBlockingQueue<>(MAX_PENDING_WRITES);
+    queuedTasks = new ArrayBlockingQueue<>(MAX_QUEUED_WRITES);
     LogContext logContext = new LogContext("[PartitionWriter " + topicPartition + "]");
     log = logContext.logger(KafkaPartitionWriter.class);
   }
@@ -140,11 +152,16 @@ public class KafkaPartitionWriter<K, V> {
       this.generationId = NOT_MASTER_WRITER;
       this.status(MetadataStoreStatus.UNKNOWN);
     }
+    while (!queuedTasks.isEmpty()) {
+      QueuedTask write = queuedTasks.poll();
+      if (!write.future.isDone())
+        write.fail(notMasterWriterException());
+    }
   }
 
   /**
-   * Writes a record to the partition, blocking if necessary until this writer is ready and
-   * the number of pending writes is within the limit. Write is only attempted if the record
+   * Writes a record to the partition, queuing the request if necessary until this writer is ready
+   * and the number of pending writes is within the limit. Write is only attempted if the record
    * can be added within refresh timeout. If a rebalance occurs within this time, the write is
    * aborted and {@link NotMasterWriterException} is thrown.
    *
@@ -163,44 +180,129 @@ public class KafkaPartitionWriter<K, V> {
                                      Integer expectedGenerationId,
                                      boolean waitForInitialization,
                                      boolean resignOnFailure) {
+    CompletableFuture<Void> future = new CompletableFuture<>();
+    try {
+      maybeWrite(key, unused -> value, future, resignOnFailure, false, v -> {
+        if (expectedGenerationId != null && this.generationId != expectedGenerationId)
+          throw notMasterWriterException();
+        return (!waitForInitialization || status == MetadataStoreStatus.INITIALIZED) &&
+            pendingWrites.remainingCapacity() > 0;
+      });
+    } catch (Throwable t) {
+      log.trace("Write request failed", t);
+      if (!future.isDone())
+        future.completeExceptionally(t);
+    }
+    return future;
+  }
+
+  /**
+   * Reads the record for key, applies a transformation and stores it back
+   * on the topic. This method waits for cache to be up-to-date before reading
+   * the record.
+   *
+   * @param key Key of record to update
+   * @param transformer Transformation applied on existing value
+   * @return future that completes when the record is written to the partition and consumed
+   *         by the local reader
+   */
+  public CompletionStage<Void> update(K key, Function<V, V> transformer) {
+    CompletableFuture<Void> future = new CompletableFuture<>();
+    try {
+      maybeWrite(key, transformer, future, false, false,
+          v -> status == MetadataStoreStatus.INITIALIZED && pendingWrites.isEmpty());
+    } catch (Throwable t) {
+      log.trace("Write request failed", t);
+      if (!future.isDone())
+        future.completeExceptionally(t);
+    }
+    return future;
+  }
+
+  private boolean maybeWrite(K key,
+                             Function<V, V> transformer,
+                             CompletableFuture<Void> future,
+                             boolean resignOnFailure,
+                             boolean isQueuedRequest,
+                             Predicate<Void> writeCondition) {
     PendingWrite pendingWrite;
+    V newValue;
     synchronized (this) {
-      if (expectedGenerationId != null && this.generationId != expectedGenerationId) {
+      if (generationId == NOT_MASTER_WRITER)
         throw notMasterWriterException();
+      if (!writeCondition.test(null)) {
+        if (!isQueuedRequest) {
+          addToQueue(v -> maybeWrite(key, transformer, future, resignOnFailure, true, writeCondition), future);
+        }
+        return false;
       }
 
-      pendingWrite = new PendingWrite(generationId, key, resignOnFailure);
-      boolean canAdd = waitUntil(unused -> (!waitForInitialization || status == MetadataStoreStatus.INITIALIZED) &&
-          pendingWrites.offer(pendingWrite), true);
-      if (!canAdd)
-        throw new TimeoutException("Failed to write record within timeout");
+      newValue = transformer.apply(cache.get(key));
+      pendingWrite = new PendingWrite(generationId, key, future, resignOnFailure);
+      if (!pendingWrites.offer(pendingWrite))
+        throw new IllegalStateException("Failed to write record, capacity=" + pendingWrites.remainingCapacity());
     }
+    write(key, newValue, pendingWrite);
+    return true;
+  }
 
-    log.debug("Writing new record with key {} to partition {} generation id {}", key, topicPartition, expectedGenerationId);
+  private void write(K key, V value, PendingWrite pendingWrite) {
+    log.debug("Writing new record with key {} to partition {} generation id {}",
+        key, topicPartition, pendingWrite.generationId);
     ProducerRecord<K, V> record = new ProducerRecord<>(topicPartition.topic(), topicPartition.partition(),
-          key, value);
+        key, value);
     try {
       producer.send(record, pendingWrite);
     } catch (Exception e) {
       onRecordWriteFailure(pendingWrite, e);
     }
-    return pendingWrite.future;
   }
 
-  /**
-   * Waits for all pending writes to be flushed and available on the cache of the local reader.
-   * This is used to obtain the latest value corresponding to the provided key before an
-   * incremental update.
-   *
-   * @param key Key that is being updated
-   * @return The latest record corresponding to the key from the cache
-   * @throws TimeoutException if pending writes were not flushed and refreshed within timeout
-   */
-  public synchronized CachedRecord<K, V> waitForRefresh(K key) {
-    if (waitUntil(unused -> pendingWrites.isEmpty() && status == MetadataStoreStatus.INITIALIZED, true))
-      return new CachedRecord<>(key, cache.get(key), generationId);
-    else
-      throw new TimeoutException("Timed out waiting for pending writes to be completed and refreshed");
+  private void addToQueue(Predicate<Void> task, CompletableFuture<Void> future) {
+    QueuedTask queuedTask = new QueuedTask(task, future);
+    if (!queuedTasks.offer(queuedTask))
+      throw new BufferExhaustedException("Failed to queue update request");
+  }
+
+  private void scheduleQueuedTasks() {
+    notifyAll();
+    if (generationId != NOT_MASTER_WRITER && status == MetadataStoreStatus.INITIALIZED) {
+      executor.submit(() -> {
+        while (!queuedTasks.isEmpty()) {
+          QueuedTask queuedTask = queuedTasks.peek();
+          if (!queuedTask.future.isDone() && queuedTask.test(null)) {
+            queuedTasks.remove(queuedTask);
+          } else {
+            break;
+          }
+        }
+      });
+    }
+  }
+
+  public synchronized CompletableFuture<Void> incrementalUpdateFuture() {
+    CompletableFuture<Void> future = new CompletableFuture<>();
+    try {
+      synchronized (this) {
+        if (!maybeCompleteReadyFuture(future)) {
+          addToQueue(unused -> maybeCompleteReadyFuture(future), future);
+        }
+      }
+    } catch (Throwable t) {
+      log.trace("Update request failed", t);
+      future.completeExceptionally(t);
+    }
+    return future;
+  }
+
+  private synchronized boolean maybeCompleteReadyFuture(CompletableFuture<Void> future) {
+    if (generationId == NOT_MASTER_WRITER)
+      throw notMasterWriterException();
+    if (status == MetadataStoreStatus.INITIALIZED && pendingWrites.isEmpty()) {
+      future.complete(null);
+      return true;
+    } else
+      return false;
   }
 
   /**
@@ -306,7 +408,7 @@ public class KafkaPartitionWriter<K, V> {
       log.debug("Discarding status of generation {} for partition writer {} since generation has changed to {}",
           generationId, topicPartition, this.generationId);
     }
-    notifyAll();
+    scheduleQueuedTasks();
   }
 
   // Invoked on the producer network thread when send callback is processed
@@ -350,7 +452,7 @@ public class KafkaPartitionWriter<K, V> {
       log.debug("Changing status from {} to {}", this.status, newStatus);
       this.status = newStatus;
       if (status == MetadataStoreStatus.INITIALIZED) {
-        notifyAll();
+        scheduleQueuedTasks();
       }
     }
   }
@@ -385,7 +487,7 @@ public class KafkaPartitionWriter<K, V> {
         .filter(pendingWrite -> pendingWrite.maybeComplete(consumedOffset))
         .collect(Collectors.toList());
     pendingWrites.removeAll(completedWrites);
-    notifyAll();
+    scheduleQueuedTasks();
   }
 
   /**
@@ -396,7 +498,7 @@ public class KafkaPartitionWriter<K, V> {
         .filter(pendingWrite -> pendingWrite.maybeCancel(newGenerationId))
         .collect(Collectors.toList());
     pendingWrites.removeAll(cancelledWrites);
-    notifyAll();
+    scheduleQueuedTasks();
   }
 
   private boolean waitUntil(Predicate<Boolean> predicate,
@@ -442,11 +544,11 @@ public class KafkaPartitionWriter<K, V> {
     private final boolean resignOnFailure;
     private long offset;
 
-    PendingWrite(int generationId, K key, boolean resignOnFailure) {
+    PendingWrite(int generationId, K key, CompletableFuture<Void> future, boolean resignOnFailure) {
       this.generationId = generationId;
       this.key = key;
       this.resignOnFailure = resignOnFailure;
-      this.future = new CompletableFuture<>();
+      this.future = future;
       this.offset = -1;
     }
 
@@ -502,6 +604,51 @@ public class KafkaPartitionWriter<K, V> {
           ", key=" + key +
           ", offset=" + offset +
           ')';
+    }
+  }
+
+  private class QueuedTask implements Predicate<Void> {
+
+    private final Predicate<Void> retriableTask;
+    private final CompletableFuture<Void> future;
+    private final Future<?> timeoutFuture;
+
+    QueuedTask(Predicate<Void> retriableTask, CompletableFuture<Void> taskFuture) {
+      this.retriableTask = retriableTask;
+      this.future = taskFuture;
+      timeoutFuture = executor.schedule(this::failWithTimeout,
+          refreshTimeout.toMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    @Override
+    public boolean test(Void v) {
+      boolean done;
+      try {
+        done = retriableTask.test(v);
+        if (done)
+          cancelTimeout();
+      } catch (Throwable t) {
+        log.error("Failed to run update task", t);
+        fail(t);
+        done =  true;
+      }
+      return done;
+    }
+
+    void fail(Throwable t) {
+      cancelTimeout();
+      if (!future.isDone())
+        future.completeExceptionally(t);
+
+    }
+
+    void failWithTimeout() {
+      fail(new TimeoutException("Failed to write record within timeout"));
+    }
+
+    void cancelTimeout() {
+      if (!timeoutFuture.isDone())
+        timeoutFuture.cancel(true);
     }
   }
 }

@@ -25,6 +25,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
@@ -33,6 +34,7 @@ import org.junit.Test;
 public class MetadataNodeManagerTest {
 
   private final Time time = new MockTime();
+  private final AuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA");
   private Set<URL> activeUrls;
   private Map<String, NodeMetadata> activeNodes;
   private MockNodeManager nodeManager;
@@ -171,7 +173,7 @@ public class MetadataNodeManagerTest {
   private MockNodeManager createNodeManager(String url) throws Exception {
     Properties props = new Properties();
     props.put(KafkaStoreConfig.BOOTSTRAP_SERVERS_PROP, "localhost:9092");
-    KafkaStoreConfig config = new KafkaStoreConfig(props);
+    KafkaStoreConfig config = new KafkaStoreConfig(serverInfo, props);
     MockWriter writer = new MockWriter();
     MockNodeManager nodeManager = new MockNodeManager(new URL(url), config, writer, time);
     nodeManager.start();

@@ -75,6 +75,15 @@ public interface AuthStore extends Configurable, Closeable {
   URL masterWriterUrl(String protocol);
 
   /**
+   * Returns the broker id of the master writer. AdminClient requests to update centralized metadata
+   * is sent to this broker.
+   *
+   * @return Broker id of current master writer. May be null if writer election is in progress.
+   * @throws IllegalStateException if writing is not enabled on this store
+   */
+  Integer masterWriterId();
+
+  /**
    * Returns the collection of URLS of currently active nodes.
    *
    * @param protocol The protocol for which node urls are requested, e.g. https

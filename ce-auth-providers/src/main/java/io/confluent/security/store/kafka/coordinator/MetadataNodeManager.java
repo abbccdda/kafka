@@ -160,7 +160,7 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
     return this.nodeMetadata.equals(masterWriterNode);
   }
 
-  public synchronized  URL masterWriterUrl(String protocol) {
+  public synchronized URL masterWriterUrl(String protocol) {
     if (!isAlive.get())
       return null;
     return masterWriterNode == null ? null : masterWriterNode.url(protocol);

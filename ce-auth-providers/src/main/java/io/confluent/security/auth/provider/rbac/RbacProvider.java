@@ -3,14 +3,9 @@
 package io.confluent.security.auth.provider.rbac;
 
 import io.confluent.security.auth.client.acl.MdsAclMigration;
-import io.confluent.security.auth.client.RestClientConfig;
-import io.confluent.security.auth.client.acl.MdsAclClient;
-import io.confluent.security.auth.client.rest.entities.CreateAclsRequest;
-import io.confluent.security.auth.client.rest.entities.CreateAclsResult;
-import io.confluent.security.auth.client.rest.entities.DeleteAclsRequest;
-import io.confluent.security.auth.client.rest.entities.DeleteAclsResult;
 import io.confluent.security.auth.metadata.AuthCache;
 import io.confluent.security.auth.metadata.AuthStore;
+import io.confluent.security.auth.metadata.AuthWriter;
 import io.confluent.security.auth.metadata.MetadataServer;
 import io.confluent.security.auth.metadata.MetadataServiceConfig;
 import io.confluent.security.auth.provider.ldap.LdapAuthenticateCallbackHandler;
@@ -32,6 +27,7 @@ import io.confluent.security.authorizer.provider.Auditable;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import io.confluent.security.authorizer.provider.GroupProvider;
 import io.confluent.security.authorizer.provider.MetadataProvider;
+import io.confluent.security.store.NotMasterWriterException;
 import io.confluent.security.store.kafka.KafkaStoreConfig;
 import java.io.IOException;
 import java.net.URL;
@@ -50,10 +46,17 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
+import org.apache.kafka.clients.admin.CreateAclsOptions;
+import org.apache.kafka.clients.admin.DeleteAclsOptions;
+import org.apache.kafka.clients.admin.DeleteAclsResult.FilterResults;
 import org.apache.kafka.common.Endpoint;
+import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.errors.ApiException;
+import org.apache.kafka.common.errors.RebalanceInProgressException;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.ClusterResourceListener;
@@ -88,7 +91,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   private Scope authStoreScope;
   private AuthStore authStore;
   private AuthCache authCache;
-  private Optional<MdsAclClient> aclClient = Optional.empty();
+  private Optional<ConfluentAdmin> aclClient = Optional.empty();
 
   private String clusterId;
   private MetadataServer metadataServer;
@@ -170,14 +173,15 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
    * metadata cluster to create and initialize the topic.
    */
   @Override
-  public CompletionStage<Void> start(Map<String, ?> interBrokerListenerConfigs) {
+  public CompletionStage<Void> start(AuthorizerServerInfo serverInfo,
+                                     Map<String, ?> interBrokerListenerConfigs) {
     if (!providerConfigured(interBrokerListenerConfigs)) {
       throw new ConfigException("Metadata bootstrap servers not specified for broker which does not host metadata service");
     }
 
     Map<String, Object> clientConfigs = new HashMap<>(configs);
     clientConfigs.putAll(interBrokerListenerConfigs);
-    authStore = createAuthStore(authStoreScope, clientConfigs);
+    authStore = createAuthStore(authStoreScope, serverInfo, clientConfigs);
     this.authCache = authStore.authCache();
     if (LdapConfig.ldapEnabled(configs)) {
       authenticateCallbackHandler = new LdapAuthenticateCallbackHandler();
@@ -191,9 +195,10 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
           if (metadataServer != null)
             metadataServer.start(createRbacAuthorizer(), authStore, authenticateCallbackHandler);
 
-          if (configs.containsKey(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP)) {
-            aclClient = Optional.of(new MdsAclClient());
-            aclClient.get().configure(configs);
+          Set<String> accessProviders = Utils.mkSet(((String)
+              configs.get(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP)).split(","));
+          if (accessProviders.contains(AccessRuleProviders.ACL.name()) || accessProviders.contains(AccessRuleProviders.RBAC.name())) {
+            aclClient = Optional.of(createMdsAdminClient(serverInfo, clientConfigs));
           }
           return null;
         });
@@ -279,9 +284,14 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
     return new RbacAuthorizer();
   }
 
+  protected ConfluentAdmin createMdsAdminClient(AuthorizerServerInfo serverInfo, Map<String, ?> clientConfigs) {
+    Map<String, Object> adminClientConfigs = new KafkaStoreConfig(serverInfo, clientConfigs).adminClientConfigs();
+    return (ConfluentAdmin) Admin.create(adminClientConfigs);
+  }
+
   // Allow override for testing
-  protected AuthStore createAuthStore(Scope scope, Map<String, ?> configs) {
-    KafkaAuthStore authStore = new KafkaAuthStore(scope);
+  protected AuthStore createAuthStore(Scope scope, AuthorizerServerInfo serverInfo, Map<String, ?> configs) {
+    KafkaAuthStore authStore = new KafkaAuthStore(scope, serverInfo);
     authStore.configure(configs);
     return authStore;
   }
@@ -318,68 +328,131 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   @Override
   public List<? extends CompletionStage<AclCreateResult>> createAcls(final AuthorizableRequestContext requestContext,
                                                                      final List<AclBinding> aclBindings) {
+    return createAcls(requestContext, aclBindings, Optional.empty());
+  }
+
+  @Override
+  public List<? extends CompletionStage<AclCreateResult>> createAcls(final AuthorizableRequestContext requestContext,
+                                                                     final List<AclBinding> aclBindings,
+                                                                     final Optional<String> aclClusterId) {
     if (!aclClient.isPresent())
       throw new IllegalStateException("Acl operations are not supported by this provider");
+    ConfluentAdmin adminClient = aclClient.get();
 
-    List<AclCreateResult> results = new ArrayList<>(aclBindings.size());
-    CreateAclsResult createAclsResult;
-
-    try {
-      createAclsResult = aclClient.get().createAcls(new CreateAclsRequest(authScope, aclBindings));
-    } catch (Exception e) {
-      return aclBindings.stream()
-          .map(a -> new AclCreateResult(new ApiException(e)))
-          .map(CompletableFuture::completedFuture)
-          .collect(Collectors.toList());
-    }
-
-    for (AclBinding aclBinding: aclBindings) {
-      CreateAclsResult.CreateResult createResult = createAclsResult.resultMap.get(aclBinding);
-      if (createResult.success) {
-        results.add(AclCreateResult.SUCCESS);
+    AuthWriter writer = authStore.writer();
+    List<CompletableFuture<AclCreateResult>> results = new ArrayList<>(aclBindings.size());
+    if (aclClusterId.isPresent()) {
+      // This is an internal request from a broker to update centralized ACL for the specified cluster
+      // Perform the update if this broker is the master writer.
+      if (writer == null || !authStore.isMasterWriter()) {
+        CompletableFuture<AclCreateResult> result = CompletableFuture
+            .completedFuture(new AclCreateResult(new NotMasterWriterException("Current master writer is " + authStore.masterWriterId())));
+        for (int i = 0; i < aclBindings.size(); i++) {
+          results.add(result);
+        }
       } else {
-        results.add(new AclCreateResult(new ApiException(createResult.errorMessage)));
+        for (int i = 0; i < aclBindings.size(); i++) {
+          results.add(null);
+        }
+        writer.createAcls(Scope.kafkaClusterScope(aclClusterId.get()), aclBindings)
+            .forEach((binding, result) ->
+                results.set(aclBindings.indexOf(binding), result.toCompletableFuture()));
+      }
+    } else {
+      // This is an external AdminClient request to update ACLs for this broker. Send the request
+      // to the MDS master writer broker as a Kafka CreateAclsRequest that includes the cluster id
+      // of this broker.
+      Integer writerId = authStore.masterWriterId();
+      if (writerId == null) {
+        CompletableFuture<AclCreateResult> result = CompletableFuture
+            .completedFuture(new AclCreateResult(new RebalanceInProgressException("Writer election is in progress")));
+        for (int i = 0; i < aclBindings.size(); i++) {
+          results.add(result);
+        }
+      } else {
+        Map<AclBinding, KafkaFuture<Void>> futures = adminClient.createAcls(aclBindings,
+            new CreateAclsOptions(),
+            clusterId,
+            writerId).values();
+        for (AclBinding aclBinding : aclBindings) {
+          CompletableFuture<AclCreateResult> result = new CompletableFuture<>();
+          results.add(result);
+          futures.get(aclBinding).whenComplete((unused, throwable) -> {
+            if (throwable == null)
+              result.complete(new AclCreateResult(null));
+            else
+              result.complete(new AclCreateResult(toApiException(throwable)));
+          });
+        }
       }
     }
-
-    return results.stream()
-        .map(CompletableFuture::completedFuture)
-        .collect(Collectors.toList());
+    return results;
   }
 
   @Override
   public List<? extends CompletionStage<AclDeleteResult>> deleteAcls(final AuthorizableRequestContext requestContext,
                                                                      final List<AclBindingFilter> aclBindingFilters) {
+    return deleteAcls(requestContext, aclBindingFilters, Optional.empty());
+  }
+
+  @Override
+  public List<? extends CompletionStage<AclDeleteResult>> deleteAcls(final AuthorizableRequestContext requestContext,
+                                                                     final List<AclBindingFilter> aclBindingFilters,
+                                                                     final Optional<String> aclClusterId) {
     if (!aclClient.isPresent())
       throw new IllegalStateException("Acl operations are not supported by this provider");
+    ConfluentAdmin adminClient = aclClient.get();
 
-    List<AclDeleteResult> results = new ArrayList<>(aclBindingFilters.size());
-    DeleteAclsResult deleteAclsResult;
-
-    try {
-      deleteAclsResult = aclClient.get().deleteAcls(new DeleteAclsRequest(authScope, aclBindingFilters));
-    } catch (Exception e) {
-      return aclBindingFilters.stream()
-          .map(a -> new AclDeleteResult(new ApiException(e)))
-          .map(CompletableFuture::completedFuture)
-          .collect(Collectors.toList());
-    }
-
-    for (AclBindingFilter aclBindingFilter: aclBindingFilters) {
-      DeleteAclsResult.DeleteResult deleteResult = deleteAclsResult.resultMap.get(aclBindingFilter);
-      if (deleteResult.success) {
-        results.add(new AclDeleteResult(deleteResult.aclBindings
-            .stream()
-            .map(AclDeleteResult.AclBindingDeleteResult::new)
-            .collect(Collectors.toList())));
+    AuthWriter writer = authStore.writer();
+    List<CompletableFuture<AclDeleteResult>> results = new ArrayList<>(aclBindingFilters.size());
+    if (aclClusterId.isPresent()) {
+      // This is an internal request from a broker to update centralized ACL for the specified cluster
+      // Perform the update if this broker is the master writer. No further resource access is checked
+      // before delete since Cluster->Alter has already been authorized.
+      if (writer == null || !authStore.isMasterWriter()) {
+        CompletableFuture<AclDeleteResult> result = CompletableFuture
+            .completedFuture(new AclDeleteResult(new NotMasterWriterException("Current master writer is " + authStore.masterWriterId())));
+        for (int i = 0; i < aclBindingFilters.size(); i++) {
+          results.add(result);
+        }
       } else {
-        results.add(new AclDeleteResult(new ApiException(deleteResult.errorMessage)));
+        for (int i = 0; i < aclBindingFilters.size(); i++) {
+          results.add(null);
+        }
+        writer.deleteAcls(Scope.kafkaClusterScope(aclClusterId.get()), aclBindingFilters, r -> true)
+            .forEach((filter, result) ->
+                results.set(aclBindingFilters.indexOf(filter), result.toCompletableFuture()));
+      }
+    } else {
+      // This is an external AdminClient request to update ACLs for this broker. Send the request
+      // to the MDS master writer broker as a Kafka DeleteAclsRequest that includes the cluster id
+      // of this broker.
+      Integer writerId = authStore.masterWriterId();
+      if (writerId == null) {
+        CompletableFuture<AclDeleteResult> result = CompletableFuture
+            .completedFuture(new AclDeleteResult(new RebalanceInProgressException("Writer election is in progress")));
+        for (int i = 0; i < aclBindingFilters.size(); i++) {
+          results.add(result);
+        }
+      } else {
+        Map<AclBindingFilter, KafkaFuture<FilterResults>> futures = adminClient.deleteAcls(aclBindingFilters,
+            new DeleteAclsOptions(),
+            clusterId,
+            writerId).values();
+        for (AclBindingFilter aclBindingFilter : aclBindingFilters) {
+          CompletableFuture<AclDeleteResult> result = new CompletableFuture<>();
+          results.add(result);
+          futures.get(aclBindingFilter).whenComplete((deleteResult, throwable) -> {
+            if (throwable == null)
+              result.complete(new AclDeleteResult(deleteResult.values().stream().map(acl ->
+                  new AclDeleteResult.AclBindingDeleteResult(acl.binding())).collect(Collectors.toList())));
+            else
+              result.complete(new AclDeleteResult(toApiException(throwable)));
+          });
+        }
       }
     }
-
-    return results.stream()
-        .map(CompletableFuture::completedFuture)
-        .collect(Collectors.toList());
+    return results;
   }
 
   @Override
@@ -393,13 +466,19 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   @Override
   public Runnable migrationTask(final org.apache.kafka.server.authorizer.Authorizer sourceAuthorizer) {
     return () -> {
-      MdsAclMigration aclMigration = new MdsAclMigration(authScope);
+      MdsAclMigration aclMigration = new MdsAclMigration(clusterId, () -> authStore.masterWriterId());
+      if (!aclClient.isPresent())
+        throw new IllegalStateException("ACL provider is not enabled");
       try {
-        aclMigration.migrate(configs, sourceAuthorizer);
+        aclMigration.migrate(configs, sourceAuthorizer, aclClient.get());
       } catch (Exception e) {
         throw new RuntimeException(e);
       }
     };
+  }
+
+  private ApiException toApiException(Throwable throwable) {
+    return throwable instanceof ApiException ? (ApiException) throwable : new ApiException(throwable);
   }
 
   private class RbacAuthorizer extends EmbeddedAuthorizer {

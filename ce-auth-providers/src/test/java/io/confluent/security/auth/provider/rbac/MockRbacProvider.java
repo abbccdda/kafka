@@ -15,6 +15,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 
 public class MockRbacProvider extends RbacProvider implements MetadataProvider {
 
@@ -24,7 +25,7 @@ public class MockRbacProvider extends RbacProvider implements MetadataProvider {
   }
 
   @Override
-  protected AuthStore createAuthStore(Scope scope, Map<String, ?> configs) {
+  protected AuthStore createAuthStore(Scope scope, AuthorizerServerInfo serverInfo, Map<String, ?> configs) {
     return new MockAuthStore(RbacRoles.loadDefaultPolicy(), scope);
   }
 
@@ -70,6 +71,11 @@ public class MockRbacProvider extends RbacProvider implements MetadataProvider {
 
     @Override
     public URL masterWriterUrl(String protocol) {
+      return null;
+    }
+
+    @Override
+    public Integer masterWriterId() {
       return null;
     }
 

@@ -5,6 +5,7 @@ package io.confluent.security.auth.store.kafka;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.security.auth.provider.ldap.LdapConfig;
 import io.confluent.security.auth.provider.ldap.LdapGroupManager;
 import io.confluent.security.auth.provider.ldap.LdapStore;
@@ -107,7 +108,7 @@ public class MockAuthStore extends KafkaAuthStore {
                        Scope scope,
                        int numAuthTopicPartitions,
                        int nodeId) {
-    super(roles, time, scope, numAuthTopicPartitions);
+    super(roles, time, scope, KafkaTestUtils.serverInfo("clusterA"), numAuthTopicPartitions);
     this.nodeId = nodeId;
     this.numAuthTopicPartitions = numAuthTopicPartitions;
 
@@ -272,7 +273,8 @@ public class MockAuthStore extends KafkaAuthStore {
       ConsumerRecord<AuthKey, AuthValue> status = new ConsumerRecord<>(KafkaAuthStore.AUTH_TOPIC, i,
           producer.history().size(),
           new StatusKey(i),
-          new StatusValue(MetadataStoreStatus.INITIALIZING, generationId, null));
+          new StatusValue(MetadataStoreStatus.INITIALIZING, generationId,
+              clientConfig().brokerId, null));
       consumer.addRecord(status);
     }
   }

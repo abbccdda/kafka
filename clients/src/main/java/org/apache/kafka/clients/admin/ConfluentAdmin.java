@@ -3,9 +3,12 @@
  */
 package org.apache.kafka.clients.admin;
 
+import java.util.Collection;
 import org.apache.kafka.common.TopicPartition;
 
 import java.util.Set;
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclBindingFilter;
 
 /**
  * This interface contains admin client methods that:
@@ -43,4 +46,37 @@ public interface ConfluentAdmin extends Admin {
      * @return The resulting replica status of every requested partition.
      */
     ReplicaStatusResult replicaStatus(Set<TopicPartition> partitions, ReplicaStatusOptions options);
+
+    /**
+     * Creates access control lists (ACLs) which are bound to specific resources.
+     * <p>
+     * This operation is not transactional so it may succeed for some ACLs while fail for others.
+     * <p>
+     * If you attempt to add an ACL that duplicates an existing ACL, no error will be raised, but
+     * no changes will be made.
+     * <p>
+     * This operation is supported by brokers with version 0.11.0.0 or higher.
+     *
+     * @param acls    The ACLs to create
+     * @param options The options to use when creating the ACLs.
+     * @param clusterId Cluster id for which ACLs are being updated
+     * @param writerBrokerId Broker id of the current centralized metadata master writer
+     * @return The CreateAclsResult.
+     */
+    CreateAclsResult createAcls(Collection<AclBinding> acls, CreateAclsOptions options, String clusterId, int writerBrokerId);
+
+    /**
+     * Deletes access control lists (ACLs) according to the supplied filters.
+     * <p>
+     * This operation is not transactional so it may succeed for some ACLs while fail for others.
+     * <p>
+     * This operation is supported by brokers with version 0.11.0.0 or higher.
+     *
+     * @param filters The filters to use.
+     * @param options The options to use when deleting the ACLs.
+     * @param clusterId Cluster id for which ACLs are being updated
+     * @param writerBrokerId Broker id of the current centralized metadata master writer
+     * @return The DeleteAclsResult.
+     */
+    DeleteAclsResult deleteAcls(Collection<AclBindingFilter> filters, DeleteAclsOptions options, String clusterId, int writerBrokerId);
 }

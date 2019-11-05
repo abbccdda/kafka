@@ -333,33 +333,33 @@ public class DefaultAuthCacheTest {
     assertEquals(groups, authCache.groups(alice));
 
     assertEquals(MetadataStoreStatus.UNKNOWN, authCache.status(1));
-    authCache.put(new StatusKey(1), new StatusValue(MetadataStoreStatus.INITIALIZING, 1, null));
+    authCache.put(new StatusKey(1), new StatusValue(MetadataStoreStatus.INITIALIZING, 1, 0, null));
     assertEquals(MetadataStoreStatus.INITIALIZING, authCache.status(1));
     assertEquals(MetadataStoreStatus.UNKNOWN, authCache.status(2));
 
-    authCache.put(new StatusKey(2), new StatusValue(MetadataStoreStatus.INITIALIZED, 1, null));
+    authCache.put(new StatusKey(2), new StatusValue(MetadataStoreStatus.INITIALIZED, 1, 0, null));
     assertEquals(MetadataStoreStatus.INITIALIZED, authCache.status(2));
     assertEquals(groups, authCache.groups(alice));
 
-    authCache.put(new StatusKey(2), new StatusValue(MetadataStoreStatus.FAILED, 1, null));
+    authCache.put(new StatusKey(2), new StatusValue(MetadataStoreStatus.FAILED, 1, 0, null));
     verifyCacheFailed();
 
-    authCache.put(new StatusKey(2), new StatusValue(MetadataStoreStatus.INITIALIZED, 1, null));
+    authCache.put(new StatusKey(2), new StatusValue(MetadataStoreStatus.INITIALIZED, 1, 0, null));
     assertEquals(groups, authCache.groups(alice));
 
     String error = "Test exception";
-    authCache.put(new StatusKey(2), new StatusValue(MetadataStoreStatus.FAILED, 1, error));
+    authCache.put(new StatusKey(2), new StatusValue(MetadataStoreStatus.FAILED, 1, 0, error));
     try {
       authCache.groups(alice);
       fail("Exception not thrown after error");
     } catch (MetadataStoreException e) {
       assertTrue("Unexpected exception " + e, e.getMessage().contains(error));
     }
-    authCache.put(new StatusKey(1), new StatusValue(MetadataStoreStatus.FAILED, 1, error));
+    authCache.put(new StatusKey(1), new StatusValue(MetadataStoreStatus.FAILED, 1, 0, error));
     verifyCacheFailed();
-    authCache.put(new StatusKey(2), new StatusValue(MetadataStoreStatus.INITIALIZING, 1, null));
+    authCache.put(new StatusKey(2), new StatusValue(MetadataStoreStatus.INITIALIZING, 1, 0, null));
     verifyCacheFailed();
-    authCache.put(new StatusKey(1), new StatusValue(MetadataStoreStatus.INITIALIZING, 1, null));
+    authCache.put(new StatusKey(1), new StatusValue(MetadataStoreStatus.INITIALIZING, 1, 0, null));
     assertEquals(groups, authCache.groups(alice));
   }
 

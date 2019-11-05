@@ -220,7 +220,7 @@ public class EmbeddedAuthorizerTest {
     props.put(ConfluentAuthorizerConfig.INIT_TIMEOUT_PROP, "10");
     authorizer.configure(props);
     authorizer.configureServerInfo(serverInfo);
-    CompletableFuture<Void> future = authorizer.start(Collections.emptyMap(), () -> Utils.sleep(10000));
+    CompletableFuture<Void> future = authorizer.start(serverInfo, Collections.emptyMap(), () -> Utils.sleep(10000));
     Throwable t = assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
     assertEquals(org.apache.kafka.common.errors.TimeoutException.class, t.getCause().getClass());
   }
@@ -233,7 +233,7 @@ public class EmbeddedAuthorizerTest {
     props.put(ConfluentAuthorizerConfig.INIT_TIMEOUT_PROP, "10");
     authorizer.configure(props);
     authorizer.configureServerInfo(serverInfo);
-    CompletableFuture<Void> future = authorizer.start(Collections.emptyMap(), () -> {
+    CompletableFuture<Void> future = authorizer.start(serverInfo, Collections.emptyMap(), () -> {
       throw new RuntimeException("Initialize Exception");
     });
     Throwable t = assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));

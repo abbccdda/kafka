@@ -340,8 +340,14 @@ public class KafkaTestUtils {
   public static AuthorizerServerInfo serverInfo(String clusterId, SecurityProtocol... protocols) {
     List<Endpoint> endpoints = new ArrayList<>(protocols.length);
     int port = 9092;
-    for (SecurityProtocol protocol : protocols) {
-      endpoints.add(new Endpoint(protocol.name, protocol, "localhost", port++));
+    if (protocols.length != 0) {
+      for (SecurityProtocol protocol : protocols) {
+        endpoints.add(new Endpoint(protocol.name, protocol, "localhost", port++));
+      }
+    } else {
+      endpoints.add(
+          new Endpoint(SecurityProtocol.PLAINTEXT.name, SecurityProtocol.PLAINTEXT, "localhost",
+              port++));
     }
 
     return new AuthorizerServerInfo() {

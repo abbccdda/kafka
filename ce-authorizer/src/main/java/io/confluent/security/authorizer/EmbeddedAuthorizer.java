@@ -155,10 +155,10 @@ public class EmbeddedAuthorizer implements Authorizer {
   }
 
   public CompletableFuture<Void> start(Map<String, ?> interBrokerListenerConfigs) {
-    return start(interBrokerListenerConfigs, () -> { });
+    return start(null, interBrokerListenerConfigs, () -> { });
   }
 
-  public CompletableFuture<Void> start(Map<String, ?> interBrokerListenerConfigs, Runnable initTask) {
+  public CompletableFuture<Void> start(AuthorizerServerInfo serverInfo, Map<String, ?> interBrokerListenerConfigs, Runnable initTask) {
     initTimeout = authorizerConfig.initTimeout;
     if (groupProvider != null && groupProvider.usesMetadataFromThisKafkaCluster())
       usesMetadataFromThisKafkaCluster = true;
@@ -176,7 +176,7 @@ public class EmbeddedAuthorizer implements Authorizer {
     if (metadataProvider != null)
       allProviders.add(metadataProvider);
     List<CompletableFuture<Void>> futures = allProviders.stream()
-        .map(provider -> provider.start(interBrokerListenerConfigs))
+        .map(provider -> provider.start(serverInfo, interBrokerListenerConfigs))
         .map(CompletionStage::toCompletableFuture)
         .collect(Collectors.toList());
     CompletableFuture[] futureArray = futures.toArray(new CompletableFuture[futures.size()]);
@@ -184,7 +184,7 @@ public class EmbeddedAuthorizer implements Authorizer {
         .thenAccept(unused -> this.ready = true)
         //server startup will fail if any error/invalid mds configs during migration/init task
         .thenRunAsync(initTask)
-        .thenAccept(unused -> auditLogProvider.start(interBrokerListenerConfigs));
+        .thenAccept(unused -> auditLogProvider.start(serverInfo, interBrokerListenerConfigs));
     CompletableFuture<Void> future = futureOrTimeout(readyFuture, initTimeout);
 
     // For clusters that are not hosting the metadata topic, we can safely wait for the

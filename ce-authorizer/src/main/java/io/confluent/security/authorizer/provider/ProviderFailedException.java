@@ -9,4 +9,8 @@ public class ProviderFailedException extends ApiException {
   public ProviderFailedException(String message) {
     super(message);
   }
+
+  public ProviderFailedException(Throwable cause) {
+    super(cause);
+  }
 }

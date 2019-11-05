@@ -43,6 +43,7 @@ import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -172,7 +173,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
   }
 
   @Override
-  public CompletionStage<Void> start(Map<String, ?> interBrokerListenerConfigs) {
+  public CompletionStage<Void> start(AuthorizerServerInfo serverInfo, Map<String, ?> interBrokerListenerConfigs) {
     initExecutor = Executors.
         newSingleThreadScheduledExecutor(ThreadUtils.createThreadFactory("audit-init-%d", true));
 

@@ -20,6 +20,7 @@ package org.apache.kafka.server.authorizer;
 import java.io.Closeable;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 
 import org.apache.kafka.common.Configurable;
@@ -137,4 +138,21 @@ public interface Authorizer extends Configurable, Closeable {
      * @return Iterator for ACL bindings, which may be populated lazily.
      */
     Iterable<AclBinding> acls(AclBindingFilter filter);
+
+    /*** Confluent extensions to Authorizer API **/
+    default List<? extends CompletionStage<AclCreateResult>> createAcls(AuthorizableRequestContext requestContext,
+                                                                        List<AclBinding> aclBindings,
+                                                                        Optional<String> clusterId) {
+        if (clusterId.isPresent())
+            throw new IllegalArgumentException("Centralized ACLs not supported for cluster " + clusterId);
+        return createAcls(requestContext, aclBindings);
+    }
+
+    default List<? extends CompletionStage<AclDeleteResult>> deleteAcls(AuthorizableRequestContext requestContext,
+                                                                        List<AclBindingFilter> aclBindingFilters,
+                                                                        Optional<String> clusterId) {
+        if (clusterId.isPresent())
+            throw new IllegalArgumentException("Centralized ACLs not supported for cluster " + clusterId);
+        return deleteAcls(requestContext, aclBindingFilters);
+    }
 }
