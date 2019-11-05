@@ -81,4 +81,5 @@ RUN mkdir -p /opt/caas/lib \
   && apt install -y cc-rollingupgrade-ctl=0.5.0 vim-tiny \
   && apt-get autoremove -y \
   && mkdir -p  "${KAFKA_SECRETS_DIR}" "${KAFKA_LOG4J_DIR}" /opt/caas/config/kafka \
+  && ln -s "${KAFKA_CONFIG_DIR}/kafka.properties" /opt/caas/config/kafka/kafka.properties \
   && chmod -R ag+w "${KAFKA_SECRETS_DIR}" "${KAFKA_LOG4J_DIR}"
