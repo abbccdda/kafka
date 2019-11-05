@@ -64,6 +64,7 @@ public class MockConfluentServerAuthorizerTest {
   @Before
   public void setUp() throws Exception {
     MockAclProvider.reset();
+    MockAuditLogProvider.reset();
     authorizer = new ConfluentServerAuthorizer();
     executorService = Executors.newSingleThreadExecutor();
 
@@ -108,6 +109,7 @@ public class MockConfluentServerAuthorizerTest {
     executorService.shutdownNow();
     authorizer.close();
     MockAclProvider.reset();
+    MockAuditLogProvider.reset();
   }
 
   @Test
@@ -137,7 +139,9 @@ public class MockConfluentServerAuthorizerTest {
 
   @Test
   public void testAuditLogEntries() throws Exception {
-    startAuthorizer();
+    MockAclProvider.startFuture.complete(null);
+    authorizer.start(serverInfo).values().forEach(future -> future.toCompletableFuture().join());
+
     AuthorizableRequestContext requestContext = new org.apache.kafka.common.requests.RequestContext(
         null, "", InetAddress.getLocalHost(), KafkaPrincipal.ANONYMOUS,
         ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), SecurityProtocol.PLAINTEXT);
