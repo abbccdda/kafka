@@ -69,17 +69,17 @@ public interface TierPartitionState {
 
     /**
      * Return the end offset spanned by the TierPartitionState that has been committed to disk.
-     * @return end offset
+     * @return end offset or -1 if not set
      * @throws IOException
      */
-    Optional<Long> committedEndOffset() throws IOException;
+    long committedEndOffset() throws IOException;
 
     /**
      * Return the uncommitted end offset spanned by the TierPartitionState.
-     * @return end offset
+     * @return end offset or -1 if not set
      * @throws IOException
      */
-    Optional<Long> endOffset() throws IOException;
+    long endOffset() throws IOException;
 
     /**
      * Scan the ObjectMetadata (segment) entries in this tier partition, and return the count.

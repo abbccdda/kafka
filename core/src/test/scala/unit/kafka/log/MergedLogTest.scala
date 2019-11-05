@@ -663,7 +663,7 @@ class MergedLogTest {
     assertEquals(1, mergedLog.deleteOldSegments())
 
     // restore producer state to restore ongoing transactions
-    mergedLog.onRestoreTierState(tierPartitionState.endOffset().get(), new TierState(List(), Some(readProducerStateFile)))
+    mergedLog.onRestoreTierState(tierPartitionState.endOffset(), new TierState(List(), Some(readProducerStateFile)))
 
     assertEquals("expected an active producer after restore", 1, mergedLog.producerStateManager.activeProducers.size)
 

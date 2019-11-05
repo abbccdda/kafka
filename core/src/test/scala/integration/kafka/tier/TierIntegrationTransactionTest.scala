@@ -125,8 +125,8 @@ class TierIntegrationTransactionTest extends IntegrationTestHarness {
         val leaderId = getLeaderForTopicPartition(tp)
         val server = serverForId(leaderId)
         val tierPartitionState = server.get.logManager.getLog(tp).get.tierPartitionState
-        val endOffset = tierPartitionState.endOffset.orElse(0L)
-        val committedEndOffset = tierPartitionState.committedEndOffset.orElse(0L)
+        val endOffset = tierPartitionState.endOffset
+        val committedEndOffset = tierPartitionState.committedEndOffset
         endOffset > 0 &&
           committedEndOffset > 0 &&
           endOffset == committedEndOffset &&

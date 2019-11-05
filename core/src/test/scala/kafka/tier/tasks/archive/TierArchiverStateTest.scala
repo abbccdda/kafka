@@ -8,7 +8,7 @@ import java.io.File
 import java.nio.file.Paths
 import java.{lang, util}
 import java.util.concurrent.{CompletableFuture, ConcurrentSkipListSet, Executors, ScheduledExecutorService, TimeUnit}
-import java.util.{Collections, Optional, Properties, UUID}
+import java.util.{Collections, Properties, UUID}
 
 import com.yammer.metrics.core.Meter
 import kafka.log.{AbstractLog, LogManager, LogSegment, LogTest, _}
@@ -112,7 +112,7 @@ class TierArchiverStateTest {
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
 
     val tierPartitionState = mock(classOf[TierPartitionState])
-    when(tierPartitionState.committedEndOffset()).thenReturn(Optional.empty(): Optional[java.lang.Long])
+    when(tierPartitionState.committedEndOffset()).thenReturn(-1L: java.lang.Long)
     when(tierPartitionState.tierEpoch).thenReturn(1)
     when(log.tierPartitionState).thenReturn(tierPartitionState)
 
@@ -132,7 +132,7 @@ class TierArchiverStateTest {
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
 
     val tierPartitionState = mock(classOf[TierPartitionState])
-    when(tierPartitionState.committedEndOffset()).thenReturn(Optional.empty(): Optional[java.lang.Long])
+    when(tierPartitionState.committedEndOffset()).thenReturn(-1L: java.lang.Long)
     when(tierPartitionState.tierEpoch).thenReturn(0)
     when(log.tierPartitionState).thenReturn(tierPartitionState)
 
@@ -147,7 +147,7 @@ class TierArchiverStateTest {
     val tierTopicManager = mock(classOf[TierTopicManager])
 
     val tierPartitionState = mock(classOf[TierPartitionState])
-    when(tierPartitionState.committedEndOffset()).thenReturn(Optional.empty(): Optional[java.lang.Long])
+    when(tierPartitionState.committedEndOffset()).thenReturn(-1L: java.lang.Long)
     when(tierPartitionState.tierEpoch).thenReturn(0)
     when(tierPartitionState.segmentOffsets(any(), any())).thenReturn(new ConcurrentSkipListSet[lang.Long]())
     when(tierTopicManager.addMetadata(any())).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))

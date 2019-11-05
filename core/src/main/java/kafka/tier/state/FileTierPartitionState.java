@@ -84,10 +84,13 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         }
     }
 
-    private static final Logger log = LoggerFactory.getLogger(FileTierPartitionState.class);
+    // Version 0: Original version
+    // Version 1: `endOffset` added to tier partition state header to reduce complexity of determining the correct value when materialized
+    private static final byte CURRENT_VERSION = 1;
     private static final int ENTRY_LENGTH_SIZE = 2;
     private static final long FILE_OFFSET = 0;
-    private static final byte CURRENT_VERSION = 0;
+    private static final Logger log = LoggerFactory.getLogger(FileTierPartitionState.class);
+    private static final Set<TierObjectMetadata.State> FENCED_STATES = Collections.singleton(TierObjectMetadata.State.SEGMENT_FENCED);
 
     private final TopicPartition topicPartition;
     private final byte version;
@@ -176,13 +179,13 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     @Override
-    public Optional<Long> endOffset() {
-        return Optional.ofNullable(state.endOffset);
+    public long endOffset() {
+        return state.endOffset;
     }
 
     @Override
-    public Optional<Long> committedEndOffset() {
-        return Optional.ofNullable(state.committedEndOffset);
+    public long committedEndOffset() {
+        return state.committedEndOffset;
     }
 
     @Override
@@ -199,7 +202,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                         topicIdPartition.topicId(),
                         version,
                         state.currentEpoch,
-                        status));
+                        status,
+                        state.endOffset));
                 state.channel.force(true);
 
                 // move file contents to the flushed file
@@ -300,8 +304,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         }
 
         Optional<TierObjectMetadata> metadata = Optional.empty();
-        Optional<Long> uncommittedEndOffset = endOffset();
-        if (uncommittedEndOffset.isPresent() && targetOffset <= uncommittedEndOffset.get())
+        long uncommittedEndOffset = endOffset();
+        if (uncommittedEndOffset != -1L && targetOffset <= uncommittedEndOffset)
             metadata = metadata(targetOffset);
 
         if (metadata.isPresent()) {
@@ -372,7 +376,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
     public Collection<TierObjectMetadata> fencedSegments() {
         State currentState = state;
-        return metadataForStates(topicIdPartition, currentState, Collections.singleton(TierObjectMetadata.State.SEGMENT_FENCED));
+        return metadataForStates(topicIdPartition, currentState, FENCED_STATES);
     }
 
     public static Optional<FileTierPartitionIterator> iterator(TopicPartition topicPartition,
@@ -608,7 +612,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     private AppendResult handleUploadInitiate(TierSegmentUploadInitiate uploadInitiate) throws IOException {
         TierObjectMetadata metadata = new TierObjectMetadata(uploadInitiate);
 
-        if (state.endOffset == null || metadata.endOffset() > state.endOffset) {
+        if (metadata.endOffset() > state.endOffset) {
             // This is the next in line valid segment to upload belonging to this epoch. Fence any in-progress upload.
             if (uploadInProgress != null)
                 fenceSegment(uploadInProgress);
@@ -620,8 +624,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             return AppendResult.ACCEPTED;
         }
 
-        // This attempt to upload a segment must be fenced as it belongs to a previous epoch or covers an offset
-        // range that has already been uploaded successfully.
+        // This attempt to upload a segment must be fenced as it covers an offset range that has already been uploaded successfully.
         log.info("Fencing uploadInitiate for {}. currentEndOffset={} currentEpoch={}. ({})",
                 metadata, state.endOffset, state.currentEpoch, topicIdPartition);
         return AppendResult.FENCED;
@@ -705,7 +708,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                     channel.truncate(0);
                     writeHeader(channel, new Header(topicIdPartition.topicId(),
                             version, -1,
-                            TierPartitionStatus.INIT));
+                            TierPartitionStatus.INIT,
+                            -1L));
                 } else {
                     channel.close();
                     return null;
@@ -726,7 +730,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                     Header newHeader = new Header(topicIdPartition.topicId(),
                             version,
                             initialHeader.tierEpoch(),
-                            initialHeader.status());
+                            initialHeader.status(),
+                            initialHeader.endOffset());
                     writeHeader(tmpChannel, newHeader);
                     tmpChannel.position(newHeader.size());
                     channel.position(initialHeader.size());
@@ -788,13 +793,20 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             throw new StateCorruptedException("Could not read all bytes in file. position: " +
                     currentPosition + " size: " + channel.size() + " for partition " + topicIdPartition);
 
-        state.committedEndOffset = state.endOffset;
+        if (header.endOffset() != -1 && state.endOffset != header.endOffset()) {
+            log.debug("File header endOffset does not match the materialized endOffset. Setting state endOffset to be " +
+                    "equal to header endOffset. Header endOffset: " + header.endOffset() + " materialized state endOffset: " +
+                    state.endOffset + " for partition " + topicIdPartition);
+            state.endOffset = header.endOffset();
+        }
+
         channel.position(channel.size());
+        state.committedEndOffset = state.endOffset;
         state.currentEpoch = header.header.tierEpoch();
         status = header.status();
 
-        log.info("Opened tier partition state for {} in status {}. topicIdPartition: {} endOffset: {}",
-                topicPartition, status, topicIdPartition(), endOffset());
+        log.info("Opened tier partition state for {} in status {}. topicIdPartition: {} tierEpoch: {} endOffset: {}",
+                topicPartition, status, topicIdPartition(), tierEpoch(), endOffset());
     }
 
     // As there may be arbitrary overlap between flushedSegments, it is possible for a new
@@ -804,7 +816,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     // in the lookup map. e.g. if [100 - 200] is in the map at 100, and we insert [50 - 250]
     // at 50, the portion 201 - 250 will be inaccessible.
     private long startOffsetOfSegment(TierObjectMetadata metadata) {
-        return Math.max(metadata.baseOffset(), endOffset().orElse(-1L) + 1);
+        return Math.max(metadata.baseOffset(), endOffset() + 1);
     }
 
     private void addSegmentMetadata(TierObjectMetadata metadata, long byteOffset) {
@@ -824,13 +836,16 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             case SEGMENT_UPLOAD_COMPLETE:
                 state.validSegments.put(startOffset, metadata.objectId());
                 state.validSegmentsSize += metadata.size();
-                state.endOffset = metadata.endOffset();  // store end offset for immediate access
+                state.endOffset = Math.max(state.endOffset, metadata.endOffset());
                 uploadInProgress = null;
                 break;
 
             case SEGMENT_DELETE_INITIATE:
-                state.validSegments.remove(startOffset);
-                state.validSegmentsSize -= metadata.size();
+                // If the partition state is rematerialized follower restart the segment in deleteInitiate will not be
+                // included in validSegments, therefore only reduce the validSegmentSize if segment was actually present
+                // and removed, this will be the case during runtime.
+                if (state.validSegments.remove(startOffset) != null)
+                    state.validSegmentsSize -= metadata.size();
                 break;
 
             case SEGMENT_DELETE_COMPLETE:
@@ -873,7 +888,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         }
 
         Header(UUID topicId, byte version, int tierEpoch,
-               TierPartitionStatus status) {
+               TierPartitionStatus status, long endOffset) {
             if (tierEpoch < -1)
                 throw new IllegalArgumentException("Illegal tierEpoch " + tierEpoch);
 
@@ -886,6 +901,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             TierPartitionStateHeader.addTierEpoch(builder, tierEpoch);
             TierPartitionStateHeader.addVersion(builder, version);
             TierPartitionStateHeader.addStatus(builder, TierPartitionStatus.toByte(status));
+            TierPartitionStateHeader.addEndOffset(builder, endOffset);
             final int entryId = kafka.tier.serdes.TierPartitionStateHeader.endTierPartitionStateHeader(builder);
             builder.finish(entryId);
             this.header = TierPartitionStateHeader.getRootAsTierPartitionStateHeader(builder.dataBuffer());
@@ -916,18 +932,24 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             return header.version();
         }
 
+        long endOffset() {
+            return header.endOffset();
+        }
+
         @Override
         public String toString() {
             return "Header(" +
+                    "version=" + version() + ", " +
+                    "topicId=" + topicId() + ", " +
                     "tierEpoch=" + tierEpoch() + ", " +
                     "status=" + status() + ", " +
-                    "version=" + version() +
+                    "endOffset=" + endOffset() +
                     ")";
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(version(), tierEpoch(), status());
+            return Objects.hash(version(), topicId(), tierEpoch(), status(), endOffset());
         }
 
         @Override
@@ -940,8 +962,10 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
             Header that = (Header) o;
             return Objects.equals(version(), that.version()) &&
+                    Objects.equals(topicId(), that.topicId()) &&
                     Objects.equals(tierEpoch(), that.tierEpoch()) &&
-                    Objects.equals(status(), that.status());
+                    Objects.equals(status(), that.status()) &&
+                    Objects.equals(endOffset(), that.endOffset());
         }
     }
 
@@ -952,8 +976,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         private final ConcurrentNavigableMap<Long, UUID> validSegments = new ConcurrentSkipListMap<>();
         private final ConcurrentNavigableMap<UUID, SegmentState> allSegments = new ConcurrentSkipListMap<>();
 
-        private volatile Long endOffset = null;
-        private volatile Long committedEndOffset = null;
+        private volatile Long endOffset = -1L;
+        private volatile Long committedEndOffset = -1L;
         private volatile int currentEpoch = -1;
         private volatile long validSegmentsSize = 0;
 

@@ -72,7 +72,7 @@ class TierRetentionIntegrationTest extends IntegrationTestHarness {
 
     // Wait for at least one segment to be tiered
     TestUtils.waitUntilTrue(() => tierPartitionState.totalSize > 0, "Timed out waiting for segments to be tiered")
-    TestUtils.waitUntilTrue(() => tierPartitionState.committedEndOffset.orElse(0L) > 0, "Timed out waiting for tier partition state to be flushed")
+    TestUtils.waitUntilTrue(() => tierPartitionState.committedEndOffset > 0, "Timed out waiting for tier partition state to be flushed")
     assertTrue(tierPartitionState.segmentOffsets.size > 0)
     assertEquals(0, log.logStartOffset)
     assertEquals(0L, tierPartitionState.segmentOffsets.first)

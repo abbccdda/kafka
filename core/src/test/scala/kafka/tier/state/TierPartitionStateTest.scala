@@ -89,7 +89,7 @@ class TierPartitionStateTest {
     assertEquals(currentSegments, state.numSegments())
     assertEquals(size, state.totalSize)
     assertEquals(0L, state.startOffset().get())
-    assertEquals(currentSegments * 2 - 1 : Long, state.committedEndOffset().get())
+    assertEquals(currentSegments * 2 - 1 : Long, state.committedEndOffset())
 
     // append more segments after flush
     for (i <- numSegments until numSegments * 2) {
@@ -111,7 +111,7 @@ class TierPartitionStateTest {
     assertEquals(currentSegments, state.numSegments())
     assertEquals(size, state.totalSize)
     assertEquals(0L, state.startOffset().get())
-    assertEquals(currentSegments * 2 - 1, state.committedEndOffset().get())
+    assertEquals(currentSegments * 2 - 1, state.committedEndOffset())
 
     state.close()
     checkInvalidFileReset(dir, tp, path)
@@ -139,6 +139,75 @@ class TierPartitionStateTest {
     state.close()
   }
 
+  /**
+   * The offsets of uploaded segments can have an overlap as when leader changes each replica rolls segments independently
+   * so segment boundaries may not be aligned perfectly. This test verifies the state metadata targetOffset to objectId
+   * map. State metadata startOffsets can be different for runtime and rematerialized view, this can happen for case when
+   * segments are deleted and then state is re-materialized, the test verifies this behavior.
+   */
+  @Test
+  def segmentOverlapTest(): Unit = {
+    val epoch = 0
+
+    // add two segments
+    state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0))
+    val objectId1 = UUID.randomUUID
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId1, 0, 50, 100, 0, false, false, false)))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId1)))
+
+    val objectId2 = UUID.randomUUID
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId2, 25, 150, 100, 0, false, false, false)))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId2)))
+    state.flush()
+
+    // verify objectId target offsets
+    assertEquals(objectId1, state.metadata(24).get().objectId())
+    assertEquals(objectId1, state.metadata(25).get().objectId())
+    assertEquals(objectId1, state.metadata(50).get().objectId())
+    assertEquals(objectId2, state.metadata(51).get().objectId())
+    assertFalse(state.metadata(151).isPresent)
+
+    // delete all segments tiered
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectId1)))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteComplete(tpid, epoch, objectId1)))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectId2)))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteComplete(tpid, epoch, objectId2)))
+    state.flush()
+
+    // verify the endOffset is tracked as expected
+    assertEquals(150L, state.endOffset())
+    assertEquals(150L, state.committedEndOffset())
+
+    // upload another object with overlap with the current endOffset
+    val objectId3 = UUID.randomUUID
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId3, 75, 175, 100, 0, false, false, false)))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId3)))
+    state.flush()
+
+    // verify objectId target overlap offsets
+    // state metadata startOffsets are different for runtime and rematerialized view, this is expected
+    assertFalse(state.metadata(150).isPresent)
+    assertEquals(objectId3, state.metadata(151).get().objectId())
+    assertEquals(objectId3, state.metadata(175).get().objectId())
+    assertFalse(state.metadata(176).isPresent)
+
+    state.close()
+
+    // test state with overlap segment is materialized correctly
+    val reopenedState = factory.initState(dir, tp, logConfig)
+    assertEquals(175L, reopenedState.endOffset)
+    assertEquals(175L, reopenedState.committedEndOffset)
+
+    // verify objectId target overlap offsets
+    assertFalse(reopenedState.metadata(74).isPresent)
+    assertEquals(objectId3, reopenedState.metadata(75).get().objectId())
+    assertEquals(objectId3, reopenedState.metadata(175).get().objectId())
+    assertFalse(reopenedState.metadata(176).isPresent)
+
+    reopenedState.close()
+  }
+
+
   @Test
   def updateEpochTest(): Unit = {
     val n = 200
@@ -163,6 +232,34 @@ class TierPartitionStateTest {
     reopenedState.close()
   }
 
+  /**
+   * Verifies that state.endOffset and the state.committedEndOffset are correctly recorded at runtime and initialized during
+   * re-materialization of the state.
+   */
+  @Test
+  def updateEndOffsetTest(): Unit = {
+    assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID(), 0)))
+
+    val objectId = UUID.randomUUID
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 100, 100, 100, false, false, false)))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId)))
+
+    // committedEndOffset is unavailable before first flush
+    assertEquals(100L, state.endOffset)
+    assertEquals(-1L, state.committedEndOffset)
+    assertEquals(1, state.segmentOffsets.size)
+
+    // committedEndOffset equals endOffset after flush
+    state.flush()
+    assertEquals(100L, state.endOffset)
+    assertEquals(100L, state.committedEndOffset)
+
+    val reopenedState = factory.initState(dir, tp, logConfig)
+    assertEquals(100L, reopenedState.endOffset)
+    assertEquals(100L, reopenedState.committedEndOffset)
+    reopenedState.close()
+  }
+
   @Test
   def flushAvailabilityTest(): Unit = {
     assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID(), 0)))
@@ -172,25 +269,25 @@ class TierPartitionStateTest {
     assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId)))
 
     // committedEndOffset is unavailable before first flush
-    assertEquals(100L, state.endOffset.get)
-    assertFalse(state.committedEndOffset.isPresent)
+    assertEquals(100L, state.endOffset)
+    assertEquals(-1L, state.committedEndOffset)
     assertEquals(1, state.segmentOffsets.size)
 
     // committedEndOffset equals endOffset after flush
     state.flush()
-    assertEquals(100L, state.endOffset.get)
-    assertEquals(100L, state.committedEndOffset.get)
+    assertEquals(100L, state.endOffset)
+    assertEquals(100L, state.committedEndOffset)
 
     objectId = UUID.randomUUID
     assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 100, 200, 100, 100, false, false, false)))
     assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId)))
     assertEquals(0L, state.startOffset.get)
-    assertEquals(100L, state.committedEndOffset.get)
-    assertEquals(200L, state.endOffset.get)
+    assertEquals(100L, state.committedEndOffset)
+    assertEquals(200L, state.endOffset)
 
     state.flush()
     assertEquals(0L, state.startOffset.get)
-    assertEquals(200L, state.committedEndOffset().get())
+    assertEquals(200L, state.committedEndOffset())
     val numSegments = state.segmentOffsets.size
     state.close()
 
@@ -202,6 +299,7 @@ class TierPartitionStateTest {
     val numSegments = 200
     val epoch = 0
     val initialVersion = state.version
+    val expectedEndOffset = (2*numSegments - 1).toLong
 
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0))
     var size = 0
@@ -214,12 +312,16 @@ class TierPartitionStateTest {
     state.flush()
 
     assertEquals(numSegments, state.numSegments)
+    assertEquals(expectedEndOffset, state.endOffset())
+    assertEquals(expectedEndOffset, state.committedEndOffset())
     state.close()
 
     val upgradedVersion = (initialVersion + 1).toByte
     val upgradedState = new FileTierPartitionState(dir, tp, true, upgradedVersion)
     assertEquals(upgradedVersion, upgradedState.version)
     assertEquals(numSegments, upgradedState.numSegments)
+    assertEquals(expectedEndOffset, upgradedState.endOffset())
+    assertEquals(expectedEndOffset, upgradedState.committedEndOffset())
     upgradedState.close()
   }
 
@@ -238,7 +340,7 @@ class TierPartitionStateTest {
       offset += 1
     }
 
-    assertEquals(offset, state.endOffset.get)
+    assertEquals(offset, state.endOffset)
     assertEquals(numSegments, state.segmentOffsets.size)
 
     // initiate a new upload
@@ -246,12 +348,12 @@ class TierPartitionStateTest {
     assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, inProgressObjectId, offset, offset + 1, 100, 100, false, false, false)))
 
     // upload must not be visible to readers
-    assertEquals(offset, state.endOffset.get)
+    assertEquals(offset, state.endOffset)
     assertEquals(numSegments, state.segmentOffsets.size)
 
     // complete upload
     assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, inProgressObjectId)))
-    assertEquals(offset + 1, state.endOffset.get)
+    assertEquals(offset + 1, state.endOffset)
     assertEquals(numSegments + 1, state.segmentOffsets.size)
   }
 
@@ -484,6 +586,130 @@ class TierPartitionStateTest {
     val reopenedState = new FileTierPartitionState(dir, tp, true)
     try {
       assertEquals(size, reopenedState.totalSize)
+    } finally {
+      reopenedState.close()
+    }
+  }
+
+  /**
+   * Operations such as retention and deleteRecords() can result in segments to be deleted from tiered storage. The
+   * deletionTask determines the "segment" to be deleted and then updates the LogStartOffset to segment.endOffset + 1
+   * However for performance reasons the checkpoint LogStartOffset is executed via async job or on clean shutdown. On
+   * an unclean shutdown when the broker is re-elected as a leader it should not re-upload the previously tiered segment
+   * if deleteInitiate was registered for the segment previously. This is ensured by tracking the endOffset materialized
+   * on reload of file partition state file. This test validates that endOffset and totalSize are correctly materialized
+   * after state file is re-opened (mimics the broker unclean shutdown case) for transitions to deleteInitiate and
+   * deleteComplete state.
+   */
+  @Test
+  def testEndOffsetIsTrackedForDeleteSegments(): Unit = {
+    val numSegments = 20
+    var epoch = 0
+    var offset = 0
+    val objectIds = new ListBuffer[UUID]
+    var endOffset = 0L
+
+    // upload few segments at epoch=0
+    state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID, 0))
+    for (i <- 0 until numSegments) {
+      val objectId = UUID.randomUUID
+      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset,
+        offset + 10, 100, 1, false, false, false)))
+      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId)))
+      objectIds += objectId
+      endOffset = offset + 10
+      offset += 5
+    }
+
+    def validateBeforeAndAfterReOpenedState(state: FileTierPartitionState, isLeader: Boolean, expectedEndOffset: Long, expectedSize: Long): Unit = {
+      // Before
+      assertEquals("FileTierPartitionState endOffset at run time", expectedEndOffset, state.endOffset())
+      assertEquals("FileTierPartitionState totalSize at run time", expectedSize, state.totalSize())
+      if (isLeader) {
+        epoch = epoch + 1
+        state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID, 0))
+      }
+      // Mimic a broker restart verify partition state endOffset and totalSize is same as before restart.
+      state.close()
+      val reopenedState = new FileTierPartitionState(dir, tp, true)
+      try {
+        // After
+        assertEquals("FileTierPartitionState endOffset materialized value", expectedEndOffset, reopenedState.endOffset())
+        assertEquals("FileTierPartitionState totalSize materialized value", expectedSize, reopenedState.totalSize())
+      } finally {
+        reopenedState.close()
+      }
+    }
+
+    var currentState = state
+    try {
+      // Test Leader
+      // Transition each segment to DeleteInitiate and then since leader restarts the segment should be transitioned to
+      // fenced state
+      for (i <- 0 until numSegments/2) {
+        assertEquals(AppendResult.ACCEPTED, currentState.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(i))))
+        validateBeforeAndAfterReOpenedState(currentState, true, endOffset, numSegments - (i + 1))
+        currentState = new FileTierPartitionState(dir, tp, true)
+      }
+      // Test Follower
+      // Transition each segment to DeleteInitiate and then DeleteComplete and at each step verify state before and after
+      // reopening the FileTierPartitionState.
+      for (i <- numSegments/2 until numSegments) {
+        assertEquals(AppendResult.ACCEPTED, currentState.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(i))))
+        validateBeforeAndAfterReOpenedState(currentState, false, endOffset, numSegments - (i + 1))
+        currentState = new FileTierPartitionState(dir, tp, true)
+        assertEquals(AppendResult.ACCEPTED, currentState.append(new TierSegmentDeleteComplete(tpid, epoch, objectIds(i))))
+        validateBeforeAndAfterReOpenedState(currentState, false, endOffset, numSegments - (i + 1))
+        currentState = new FileTierPartitionState(dir, tp, true)
+      }
+    }finally {
+      currentState.close()
+    }
+  }
+
+  /**
+   * Verifies that endOffset and totalSize is updated for deleteIntiate fenced segment during both runtime and on reload
+   * (broker restart) of tier partition state. Additionally verifies for uploadInitiate fenced segment the endOffset and
+   * totalSize is NOT modified.
+   */
+  @Test
+  def testEndOffsetIsTrackedForSegmentsFencedOnDeleteInitiate(): Unit = {
+    var epoch = 0
+    var offset = 0L
+    var endOffset = 0L
+    var objectId = UUID.randomUUID
+
+    // upload few segments at epoch=0
+    state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID, 0))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset,
+      offset + 10, 100, 1, false, false, false)))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId)))
+    endOffset = offset + 10
+
+    // 1. deleteInitiate the one and only segment
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectId)))
+    // 2. uploadInitiate an new segment
+    objectId = UUID.randomUUID
+    offset += 5
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset,
+      offset + 10, 100, 1, false, false, false)))
+
+    // New leader
+    epoch = 1
+    state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 1))
+    // Verify that both deleteInitiate and uploadInitiate are fenced as they are from previous epoch and endOffset,
+    // totalSize is tracked correctly.
+    assertEquals(2, state.fencedSegments.size)
+    assertEquals("FileTierPartitionState endOffset runtime value", endOffset, state.endOffset())
+    assertEquals("FileTierPartitionState totalSize runtime value", 0, state.totalSize())
+
+    // Broker restarts: reopen state and validate again.
+    state.close()
+    val reopenedState = new FileTierPartitionState(dir, tp, true)
+    try {
+      assertEquals(reopenedState.toString(), 2, reopenedState.fencedSegments.size)
+      assertEquals("FileTierPartitionState endOffset materialized value", endOffset, reopenedState.endOffset())
+      assertEquals("FileTierPartitionState totalSize materialized value", 0, reopenedState.totalSize())
     } finally {
       reopenedState.close()
     }
