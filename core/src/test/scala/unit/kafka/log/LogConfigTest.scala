@@ -21,9 +21,12 @@ import java.util.Properties
 
 import kafka.server.{KafkaConfig, KafkaServer, ThrottledReplicaListValidator}
 import kafka.utils.TestUtils
+import org.apache.kafka.common.KafkaException
 import org.apache.kafka.common.config.ConfigDef.Importance.MEDIUM
 import org.apache.kafka.common.config.ConfigDef.Type.INT
+import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.config.{ConfigException, TopicConfig}
+import org.apache.kafka.common.errors.InvalidConfigurationException
 import org.junit.{Assert, Test}
 import org.junit.Assert._
 import org.scalatest.Assertions._
@@ -68,6 +71,40 @@ class LogConfigTest {
     assertEquals(2 * millisInHour, logProps.get(LogConfig.SegmentMsProp))
     assertEquals(2 * millisInHour, logProps.get(LogConfig.SegmentJitterMsProp))
     assertEquals(2 * millisInHour, logProps.get(LogConfig.RetentionMsProp))
+  }
+
+  @Test
+  def testEnableSchemaValidationWithoutSchemaRegistryUrl(): Unit = {
+    val kafkaProps = TestUtils.createBrokerConfig(nodeId = 0, zkConnect = "")
+
+    val kafkaConfig = KafkaConfig.fromProps(kafkaProps)
+    val logProps = KafkaServer.copyKafkaConfigToLog(kafkaConfig)
+
+    for (cfg <- List(LogConfig.ValueSchemaValidationEnableProp, LogConfig.KeySchemaValidationEnableProp)) {
+      logProps.put(cfg, "true")
+      intercept[InvalidConfigurationException] {
+        LogConfig(logProps)
+      }
+    }
+  }
+
+  @Test
+  def testEnableSchemaValidationWithSchemaRegistryUrl(): Unit = {
+    val kafkaProps = TestUtils.createBrokerConfig(nodeId = 0, zkConnect = "")
+    kafkaProps.put(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG, "bogus")
+
+    val kafkaConfig = KafkaConfig.fromProps(kafkaProps)
+    val logProps = KafkaServer.copyKafkaConfigToLog(kafkaConfig)
+    KafkaServer.augmentWithKafkaConfig(logProps, kafkaConfig)
+
+    for (cfg <- List(LogConfig.ValueSchemaValidationEnableProp, LogConfig.KeySchemaValidationEnableProp)) {
+      logProps.put(cfg, "true")
+      val e = intercept[KafkaException] {
+        LogConfig(logProps)
+      }
+      // this means that it is trying to look for RecordSchemaValidator, which is what we want
+      assertEquals("Class io.confluent.kafka.schemaregistry.validator.RecordSchemaValidator cannot be found", e.getMessage)
+    }
   }
 
   @Test

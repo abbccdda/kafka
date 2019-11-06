@@ -140,7 +140,7 @@ case class LogConfig(props: java.util.Map[_, _], overriddenConfigs: Set[String] 
     // the schema registry url could only be from the broker-level configs, hence no need to check overrides
     val schemaRegistryUrl = props.get(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG).asInstanceOf[String]
     if (schemaRegistryUrl == null) {
-      log.warn(LogConfig.KeySchemaValidationEnableProp + " and / or " + valueSchemaValidationEnable + " is enabled but there is no " +
+      throw new InvalidConfigurationException(LogConfig.KeySchemaValidationEnableProp + " and / or " + LogConfig.ValueSchemaValidationEnableProp + " is enabled but there is no " +
         ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG + " specified at the broker side, will not add the corresponding validator")
     } else {
       val recordSchemaValidatorClassName: String = "io.confluent.kafka.schemaregistry.validator.RecordSchemaValidator"
