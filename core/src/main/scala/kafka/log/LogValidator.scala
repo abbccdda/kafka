@@ -255,7 +255,6 @@ private[kafka] object LogValidator extends Logging {
                                          interceptorStats: InterceptorStats,
                                          brokerTopicStats: BrokerTopicStats): ValidationAndOffsetAssignResult = {
     var maxTimestamp = RecordBatch.NO_TIMESTAMP
-    val expectedInnerOffset = new LongRef(0)
     var offsetOfMaxTimestamp = -1L
     val initialOffset = offsetCounter.value
 
@@ -270,16 +269,6 @@ private[kafka] object LogValidator extends Logging {
       for ((record, batchIndex) <- batch.asScala.view.zipWithIndex) {
         validateRecord(batch, topicPartition, record, batchIndex, now, timestampType, timestampDiffMaxMs,
           compactedTopic, brokerTopicStats, interceptors, interceptorStats)
-
-        val expectedOffset = expectedInnerOffset.getAndIncrement()
-
-        // inner records offset should always be continuous
-        if (record.offset != expectedOffset) {
-          brokerTopicStats.allTopicsStats.invalidOffsetOrSequenceRecordsPerSec.mark()
-          throw new RecordValidationException(
-            new InvalidRecordException(s"Inner record $record inside the compressed record batch does not have incremental offsets, expected offset is $expectedOffset in topic partition $topicPartition."),
-            List(new RecordError(batchIndex)))
-        }
 
         val offset = offsetCounter.getAndIncrement()
         if (batch.magic > RecordBatch.MAGIC_VALUE_V0 && record.timestamp > maxBatchTimestamp) {

@@ -14,28 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.apache.kafka.common.serialization;
 
-package org.apache.kafka.common.utils;
+public class VoidDeserializer implements Deserializer<Void> {
+    @Override
+    public Void deserialize(String topic, byte[] data) {
+        if (data != null)
+            throw new IllegalArgumentException("Data should be null for a VoidDeserializer.");
 
-import org.apache.kafka.test.TestUtils;
-import org.junit.Test;
-
-import java.io.File;
-import java.nio.MappedByteBuffer;
-import java.nio.channels.FileChannel;
-
-public class MappedByteBuffersTest {
-
-    /**
-     * Checks that unmap doesn't throw exceptions.
-     */
-    @Test
-    public void testUnmap() throws Exception {
-        File file = TestUtils.tempFile();
-        try (FileChannel channel = FileChannel.open(file.toPath())) {
-            MappedByteBuffer map = channel.map(FileChannel.MapMode.READ_ONLY, 0, 0);
-            MappedByteBuffers.unmap(file.getAbsolutePath(), map);
-        }
+        return null;
     }
-
 }

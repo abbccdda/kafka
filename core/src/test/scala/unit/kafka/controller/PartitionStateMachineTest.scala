@@ -84,7 +84,7 @@ class PartitionStateMachineTest {
     controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(
       partition,
-      PartitionReplicaAssignment.fromCreate(Seq(brokerId), Seq.empty)
+      ReplicaAssignment(Seq(brokerId), Seq.empty)
     )
     controllerContext.putPartitionState(partition, NewPartition)
     val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(LeaderAndIsr(brokerId, List(brokerId)), controllerEpoch)
@@ -109,7 +109,7 @@ class PartitionStateMachineTest {
     controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(
       partition,
-      PartitionReplicaAssignment.fromCreate(Seq(brokerId), Seq.empty)
+      ReplicaAssignment(Seq(brokerId), Seq.empty)
     )
     controllerContext.putPartitionState(partition, NewPartition)
     val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(LeaderAndIsr(brokerId, List(brokerId)), controllerEpoch)
@@ -132,7 +132,7 @@ class PartitionStateMachineTest {
     controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(
       partition,
-      PartitionReplicaAssignment.fromCreate(Seq(brokerId), Seq.empty)
+      ReplicaAssignment(Seq(brokerId), Seq.empty)
     )
     controllerContext.putPartitionState(partition, NewPartition)
     val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(LeaderAndIsr(brokerId, List(brokerId)), controllerEpoch)
@@ -169,7 +169,7 @@ class PartitionStateMachineTest {
     controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(
       partition,
-      PartitionReplicaAssignment.fromCreate(Seq(brokerId), Seq.empty)
+      ReplicaAssignment(Seq(brokerId), Seq.empty)
     )
     controllerContext.putPartitionState(partition, OnlinePartition)
     val leaderAndIsr = LeaderAndIsr(brokerId, List(brokerId))
@@ -205,7 +205,7 @@ class PartitionStateMachineTest {
     controllerContext.shuttingDownBrokerIds.add(brokerId)
     controllerContext.updatePartitionFullReplicaAssignment(
       partition,
-      PartitionReplicaAssignment.fromCreate(Seq(brokerId, otherBrokerId), Seq.empty)
+      ReplicaAssignment(Seq(brokerId, otherBrokerId), Seq.empty)
     )
     controllerContext.putPartitionState(partition, OnlinePartition)
     val leaderAndIsr = LeaderAndIsr(brokerId, List(brokerId, otherBrokerId))
@@ -261,7 +261,7 @@ class PartitionStateMachineTest {
     controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(
       partition,
-      PartitionReplicaAssignment.fromCreate(Seq(brokerId), Seq.empty)
+      ReplicaAssignment(Seq(brokerId), Seq.empty)
     )
     controllerContext.putPartitionState(partition, OfflinePartition)
     val leaderAndIsr = LeaderAndIsr(LeaderAndIsr.NoLeader, List(brokerId))
@@ -307,7 +307,7 @@ class PartitionStateMachineTest {
     controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(
       partition,
-      PartitionReplicaAssignment.fromCreate(Seq(leaderBrokerId, brokerId), Seq.empty)
+      ReplicaAssignment(Seq(leaderBrokerId, brokerId), Seq.empty)
     )
     controllerContext.putPartitionState(partition, OfflinePartition)
 
@@ -369,7 +369,7 @@ class PartitionStateMachineTest {
     controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(
       partition,
-      PartitionReplicaAssignment.fromCreate(Seq(brokerId), Seq.empty)
+      ReplicaAssignment(Seq(brokerId), Seq.empty)
     )
     controllerContext.putPartitionState(partition, OfflinePartition)
     val leaderAndIsr = LeaderAndIsr(LeaderAndIsr.NoLeader, List(brokerId))
@@ -397,7 +397,7 @@ class PartitionStateMachineTest {
     controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(
       partition,
-      PartitionReplicaAssignment.fromCreate(Seq(brokerId), Seq.empty)
+      ReplicaAssignment(Seq(brokerId), Seq.empty)
     )
     controllerContext.putPartitionState(partition, OfflinePartition)
     val leaderAndIsr = LeaderAndIsr(LeaderAndIsr.NoLeader, List(brokerId))
@@ -479,7 +479,7 @@ class PartitionStateMachineTest {
     partitions.foreach { partition =>
       controllerContext.updatePartitionFullReplicaAssignment(
         partition,
-        PartitionReplicaAssignment.fromCreate(Seq(brokerId), Seq.empty)
+        ReplicaAssignment(Seq(brokerId), Seq.empty)
       )
     }
 
@@ -528,7 +528,7 @@ class PartitionStateMachineTest {
     partitions.foreach { partition =>
       controllerContext.updatePartitionFullReplicaAssignment(
         partition,
-        PartitionReplicaAssignment.fromCreate(Seq(brokerId), Seq.empty)
+        ReplicaAssignment(Seq(brokerId), Seq.empty)
       )
     }
 
@@ -550,8 +550,6 @@ class PartitionStateMachineTest {
     assertEquals(s"There should be no offline partition(s)", 0, controllerContext.offlinePartitionCount)
   }
 
-  private def replicaAssignment(replicas: Seq[Int]): PartitionReplicaAssignment = {
-    PartitionReplicaAssignment.fromCreate(replicas, Seq.empty)
-  }
+  private def replicaAssignment(replicas: Seq[Int]): ReplicaAssignment = ReplicaAssignment(replicas, Seq.empty)
 
 }

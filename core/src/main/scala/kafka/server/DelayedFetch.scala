@@ -220,7 +220,8 @@ class DelayedFetch(delayMs: Long,
         FetchLag.maybeRecordConsumerFetchTimeLag(!fetchMetadata.isFromFollower, result, brokerTopicStats)
 
         tp -> FetchPartitionData(result.error, result.highWatermark, result.leaderLogStartOffset, result.info.records,
-          result.lastStableOffset, result.info.abortedTransactions, result.preferredReadReplica)
+          result.lastStableOffset, result.info.abortedTransactions, result.preferredReadReplica,
+          fetchMetadata.isFromFollower && replicaManager.isAddingReplica(tp, fetchMetadata.replicaId))
     }
 
     responseCallback(fetchPartitionData)

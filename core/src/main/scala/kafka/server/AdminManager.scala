@@ -22,7 +22,7 @@ import kafka.admin.AdminOperationException
 import kafka.cluster.Observer
 import kafka.common.TopicAlreadyMarkedForDeletionException
 import kafka.common.TopicPlacement
-import kafka.controller.PartitionReplicaAssignment
+import kafka.controller.ReplicaAssignment
 import kafka.log.LogConfig
 import kafka.utils.Log4jController
 import kafka.metrics.KafkaMetricsGroup
@@ -137,12 +137,12 @@ class AdminManager(val config: KafkaConfig,
         val assignments = if (topic.assignments().isEmpty) {
           Observer.getReplicaAssignment(brokers, replicaPlacement, resolvedNumPartitions, resolvedReplicationFactor)
         } else {
-          val assignments = mutable.Map.empty[Int, PartitionReplicaAssignment]
+          val assignments = mutable.Map.empty[Int, ReplicaAssignment]
           // Note: we don't check that replicaAssignment contains unknown brokers - unlike in add-partitions case,
           // this follows the existing logic in TopicCommand
 
           topic.assignments.asScala.foreach { assignment =>
-            assignments(assignment.partitionIndex()) = PartitionReplicaAssignment.fromCreate(
+            assignments(assignment.partitionIndex()) = ReplicaAssignment(
               assignment.brokerIds().asScala.map(a => a: Int),
               Seq.empty
             )
@@ -285,7 +285,6 @@ class AdminManager(val config: KafkaConfig,
                        listenerName: ListenerName,
                        callback: Map[String, ApiError] => Unit): Unit = {
 
-    val reassignPartitionsInProgress = zkClient.reassignPartitionsInProgress
     val allBrokers = adminZkClient.getBrokerMetadatas()
     val allBrokerIds = allBrokers.map(_.id)
     val allBrokerProperties: Map[Int, Map[String, String]] = allBrokers.map { broker =>
@@ -295,13 +294,14 @@ class AdminManager(val config: KafkaConfig,
     // 1. map over topics creating assignment and calling AdminUtils
     val metadata = newPartitions.map { case (topic, newPartition) =>
       try {
-        // We prevent addition partitions while a reassignment is in progress, since
-        // during reassignment there is no meaningful notion of replication factor
-        if (reassignPartitionsInProgress)
-          throw new ReassignmentInProgressException("A partition reassignment is in progress.")
-
         val existingAssignment = zkClient.getFullReplicaAssignmentForTopics(immutable.Set(topic)).map {
-          case (topicPartition, assignment) => topicPartition.partition -> assignment
+          case (topicPartition, assignment) =>
+            if (assignment.isBeingReassigned) {
+              // We prevent adding partitions while topic reassignment is in progress, to protect from a race condition
+              // between the controller thread processing reassignment update and createPartitions(this) request.
+              throw new ReassignmentInProgressException(s"A partition reassignment is in progress for the topic '$topic'.")
+            }
+            topicPartition.partition -> assignment
         }
         if (existingAssignment.isEmpty)
           throw new UnknownTopicOrPartitionException(s"The topic '$topic' does not exist.")
@@ -339,7 +339,7 @@ class AdminManager(val config: KafkaConfig,
             assignments.zipWithIndex.map { case (replicas, index) =>
               val intReplicas = replicas.map(_.toInt)
               Observer.validateReplicasHonorTopicPlacement(topic, topicPlacement, intReplicas, allBrokerProperties)
-              existingAssignment.size + index -> PartitionReplicaAssignment.fromCreate(intReplicas, Seq.empty)
+              existingAssignment.size + index -> ReplicaAssignment(intReplicas, Seq.empty)
             }.toMap
           }
 

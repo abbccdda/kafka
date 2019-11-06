@@ -5,7 +5,7 @@ package kafka.cluster
 
 import kafka.admin.BrokerMetadata
 import kafka.common.TopicPlacement
-import kafka.controller.PartitionReplicaAssignment
+import kafka.controller.ReplicaAssignment
 import org.apache.kafka.common.errors.{InvalidConfigurationException, InvalidReplicaAssignmentException}
 import org.junit.Assert._
 import org.junit.Test
@@ -344,7 +344,7 @@ class ObserverTest {
 
   private[this] def validateRackUnawareReplicaAssignment(
     brokers: immutable.IndexedSeq[BrokerMetadata],
-    assignments: collection.Map[Int, PartitionReplicaAssignment]
+    assignments: collection.Map[Int, ReplicaAssignment]
   ): Unit = {
     // Validate that assignments are spread evenly. To check that look at each partition assignment.
     // Each broker should be leader for 2 partitions, in second position for two other partitions

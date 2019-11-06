@@ -31,13 +31,14 @@ import kafka.controller.{KafkaController, StateChangeLogger}
 import kafka.log._
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.{FetchMetadata => SFetchMetadata}
+import kafka.server.HostedPartition.Online
 import kafka.server.QuotaFactory.QuotaManagers
 import kafka.server.checkpoints.{LazyOffsetCheckpoints, OffsetCheckpointFile, OffsetCheckpoints}
 import kafka.tier.{TierReplicaManager, TierTimestampAndOffset}
 import kafka.tier.fetcher.{TierFetchResult, TierFetcher, TierStateFetcher}
 import kafka.utils._
 import kafka.zk.KafkaZkClient
-import org.apache.kafka.common.{ElectionType, Node, TopicPartition}
+import org.apache.kafka.common.{ElectionType, IsolationLevel, Node, TopicPartition}
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
@@ -196,7 +197,8 @@ case class FetchPartitionData(error: Errors = Errors.NONE,
                               records: Records,
                               lastStableOffset: Option[Long],
                               abortedTransactions: Option[List[AbortedTransaction]],
-                              preferredReadReplica: Option[Int])
+                              preferredReadReplica: Option[Int],
+                              isReassignmentFetch: Boolean)
 
 
 /**
@@ -350,6 +352,14 @@ class ReplicaManager(val config: KafkaConfig,
       def value = leaderPartitionsIterator.count(_.isAtMinIsr)
     }
   )
+  val reassigningPartitions = newGauge(
+    "ReassigningPartitions",
+    new Gauge[Int] {
+      def value = reassigningPartitionsCount
+    }
+  )
+
+  def reassigningPartitionsCount: Int = leaderPartitionsIterator.count(_.isReassigning)
 
   val notCaughtUpPartitionCount = newGauge(
     "NotCaughtUpPartitionCount",
@@ -504,6 +514,13 @@ class ReplicaManager(val config: KafkaConfig,
 
   def getPartition(topicPartition: TopicPartition): HostedPartition = {
     Option(allPartitions.get(topicPartition)).getOrElse(HostedPartition.None)
+  }
+
+  def isAddingReplica(topicPartition: TopicPartition, replicaId: Int): Boolean = {
+    getPartition(topicPartition) match {
+      case Online(partition) => partition.isAddingReplica(replicaId)
+      case _ => false
+    }
   }
 
   // Visible for testing
@@ -1085,7 +1102,7 @@ class ReplicaManager(val config: KafkaConfig,
           FetchLag.maybeRecordConsumerFetchTimeLag(!isFromFollower, result, brokerTopicStats)
 
           Some(tp -> FetchPartitionData(result.error, result.highWatermark, result.leaderLogStartOffset, result.info.records,
-            result.lastStableOffset, result.info.abortedTransactions, result.preferredReadReplica))
+            result.lastStableOffset, result.info.abortedTransactions, result.preferredReadReplica, isFromFollower && isAddingReplica(tp, replicaId)))
         case _ => None
       }
       maybeUpdateHwAndSendResponse(fetchPartitionData)
@@ -1097,7 +1114,7 @@ class ReplicaManager(val config: KafkaConfig,
       val localDelayedFetchKeys = localFetchPartitionStatusList.map { case (tp, _) => TopicPartitionOperationKey(tp) }
 
       if (tierLogReadResultMap.isEmpty) {
-        val localFetchMetadata = SFetchMetadata(fetchMinBytes, fetchMaxBytes, hardMaxBytesLimit, isFromFollower,
+        val localFetchMetadata = SFetchMetadata(fetchMinBytes, fetchMaxBytes, hardMaxBytesLimit, fetchOnlyFromLeader,
           fetchIsolation, isFromFollower, replicaId, localFetchPartitionStatusList)
 
         val delayedFetch = new DelayedFetch(timeout, localFetchMetadata, this, quota, None,
@@ -1124,7 +1141,7 @@ class ReplicaManager(val config: KafkaConfig,
         // timeout. This forces all requests with max.wait < 15000 to wait for the tier fetch to complete, or the 15000
         // to elapse. This is only temporary until a solution is found for caching segment data between requests.
         val boundedTimeout = Math.max(timeout, 15000)
-        val tierAndLocalFetchMetadata = SFetchMetadata(fetchMinBytes, fetchMaxBytes, hardMaxBytesLimit, isFromFollower,
+        val tierAndLocalFetchMetadata = SFetchMetadata(fetchMinBytes, fetchMaxBytes, hardMaxBytesLimit, fetchOnlyFromLeader,
           fetchIsolation, isFromFollower, replicaId, localFetchPartitionStatusList ++ tierFetchPartitionStatusList)
         val delayedFetch = new DelayedFetch(boundedTimeout, tierAndLocalFetchMetadata, this, quota, Some(pendingFetch),
           clientMetadata, brokerTopicStats, maybeUpdateHwAndSendResponse)
@@ -1802,7 +1819,7 @@ class ReplicaManager(val config: KafkaConfig,
 
     // Shrink ISRs for non offline partitions
     allPartitions.keys.foreach { topicPartition =>
-      nonOfflinePartition(topicPartition).foreach(_.maybeShrinkIsr(config.replicaLagTimeMaxMs))
+      nonOfflinePartition(topicPartition).foreach(_.maybeShrinkIsr())
     }
   }
 
@@ -1836,7 +1853,7 @@ class ReplicaManager(val config: KafkaConfig,
                 } else {
                   warn(s"Leader $localBrokerId failed to record follower $followerId's position " +
                     s"${readResult.info.fetchOffsetMetadata.messageOffset} since the replica is not recognized to be " +
-                    s"one of the assigned replicas ${partition.allReplicaIds.mkString(",")} " +
+                    s"one of the assigned replicas ${partition.assignmentState.replicas.mkString(",")} " +
                     s"for partition $topicPartition. Empty records will be returned for this partition.")
                   readResult.withEmptyFetchInfo
                 }

@@ -79,9 +79,11 @@ class HighwatermarkPersistenceTest {
       partition0.setLog(log0, isFutureLog = false)
 
       partition0.updateAssignmentAndIsr(
-        replicas = Seq(configs.head.brokerId, configs.last.brokerId),
-        observers = Set.empty,
-        isr = Set(configs.head.brokerId)
+        assignment = Seq(configs.head.brokerId, configs.last.brokerId),
+        isr = Set(configs.head.brokerId),
+        addingReplicas = Seq.empty,
+        removingReplicas = Seq.empty,
+        observers = Set.empty
       )
 
       replicaManager.checkpointHighWatermarks()

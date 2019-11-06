@@ -45,7 +45,7 @@ class ObserverAwarePartitionDescriptionTest {
     val info = partitionInfo(Some(0), isr, List.empty)
     val liveBrokerIds = Set(0, 1, 2, 3)
     val config = Some(new Config(List.empty.asJava))
-    val desc = TopicCommand.PartitionDescription(topic, info, config, markedForDeletion = false, liveBrokerIds)
+    val desc = TopicCommand.PartitionDescription(topic, info, config, markedForDeletion = false, None, liveBrokerIds)
     assertEquals(Seq.empty, desc.observerIds)
     assertTrue(desc.hasUnderReplicatedPartitions)
   }
@@ -57,7 +57,7 @@ class ObserverAwarePartitionDescriptionTest {
     val isr = Set(0, 1)
     val info = partitionInfo(Some(0), isr, List.empty)
     val liveBrokerIds = Set(0, 1, 2, 3)
-    val desc = TopicCommand.PartitionDescription(topic, info, Some(config), markedForDeletion = false, liveBrokerIds)
+    val desc = TopicCommand.PartitionDescription(topic, info, Some(config), markedForDeletion = false, None, liveBrokerIds)
     assertEquals(Seq.empty, desc.observerIds)
     assertTrue(desc.hasUnderReplicatedPartitions)
   }
@@ -69,7 +69,7 @@ class ObserverAwarePartitionDescriptionTest {
     val isr = Set(0, 1)
     val info = partitionInfo(Some(0), isr, List.empty)
     val liveBrokerIds = Set(0, 1, 2, 3)
-    val desc = TopicCommand.PartitionDescription(topic, info, Some(config), markedForDeletion = false, liveBrokerIds)
+    val desc = TopicCommand.PartitionDescription(topic, info, Some(config), markedForDeletion = false, None, liveBrokerIds)
     assertEquals(Seq.empty, desc.observerIds)
     assertTrue(desc.hasUnderReplicatedPartitions)
   }
@@ -82,7 +82,7 @@ class ObserverAwarePartitionDescriptionTest {
     val observers = List(2, 3)
     val info = partitionInfo(Some(0), isr, observers)
     val liveBrokerIds = Set(0, 1, 2, 3)
-    val desc = TopicCommand.PartitionDescription(topic, info, Some(config), markedForDeletion = false, liveBrokerIds)
+    val desc = TopicCommand.PartitionDescription(topic, info, Some(config), markedForDeletion = false, None, liveBrokerIds)
     assertEquals(observers, desc.observerIds)
     assertFalse(desc.hasUnderReplicatedPartitions)
   }
@@ -95,7 +95,7 @@ class ObserverAwarePartitionDescriptionTest {
     val isr = Set(0, 1)
     val info = partitionInfo(Some(0), isr, List.empty)
     val liveBrokerIds = Set(0, 1, 2, 3)
-    val desc = TopicCommand.PartitionDescription(topic, info, Some(config), markedForDeletion = false, liveBrokerIds)
+    val desc = TopicCommand.PartitionDescription(topic, info, Some(config), markedForDeletion = false, None, liveBrokerIds)
     assertTrue(desc.observerIds.isEmpty)
     assertTrue(desc.hasUnderReplicatedPartitions)
   }
@@ -110,7 +110,7 @@ class ObserverAwarePartitionDescriptionTest {
     val observers = List(3)
     val info = partitionInfo(Some(0), isr, observers)
     val liveBrokerIds = Set(0, 1, 2, 3)
-    val desc = TopicCommand.PartitionDescription(topic, info, Some(config), markedForDeletion = false, liveBrokerIds)
+    val desc = TopicCommand.PartitionDescription(topic, info, Some(config), markedForDeletion = false, None, liveBrokerIds)
     assertEquals(observers, desc.observerIds)
     assertFalse(desc.hasUnderReplicatedPartitions)
   }
@@ -124,7 +124,7 @@ class ObserverAwarePartitionDescriptionTest {
     val observers = List(2)
     val info = partitionInfo(Some(0), isr, observers)
     val liveBrokerIds = Set(0, 1, 2)
-    val desc = TopicCommand.PartitionDescription(topic, info, Some(config), markedForDeletion = false, liveBrokerIds)
+    val desc = TopicCommand.PartitionDescription(topic, info, Some(config), markedForDeletion = false, None, liveBrokerIds)
     assertEquals(observers, desc.observerIds)
 
     // Offline replicas always count toward URP determination
@@ -140,7 +140,7 @@ class ObserverAwarePartitionDescriptionTest {
     val observers = List(2, 3)
     val info = partitionInfo(Some(0), isr, observers)
     val liveBrokerIds = Set(0, 1, 2, 3)
-    val desc = TopicCommand.PartitionDescription(topic, info, Some(config), markedForDeletion = false, liveBrokerIds)
+    val desc = TopicCommand.PartitionDescription(topic, info, Some(config), markedForDeletion = false, None, liveBrokerIds)
     assertEquals(observers, desc.observerIds)
     assertTrue(desc.hasUnderReplicatedPartitions)
   }
@@ -152,7 +152,7 @@ class ObserverAwarePartitionDescriptionTest {
     val isr = Set(0)
     val info = partitionInfo(Some(3), isr, List.empty)
     val liveBrokerIds = Set(0, 1, 2, 3)
-    val desc = TopicCommand.PartitionDescription(topic, info, Some(config), markedForDeletion = false, liveBrokerIds)
+    val desc = TopicCommand.PartitionDescription(topic, info, Some(config), markedForDeletion = false, None, liveBrokerIds)
     assertTrue(desc.observerIds.isEmpty)
     assertTrue(desc.hasUnderReplicatedPartitions)
   }

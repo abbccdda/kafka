@@ -20,7 +20,7 @@ import java.io.File
 import java.util.Properties
 
 import kafka.admin.ReassignPartitionsCommand.Throttle
-import kafka.controller.PartitionReplicaAssignment
+import kafka.controller.ReplicaAssignment
 import kafka.log.LogConfig
 import kafka.log.LogConfig._
 import kafka.server.{ConfigType, DynamicConfig, KafkaConfig, KafkaServer}
@@ -528,10 +528,10 @@ class ReassignPartitionsCommandTest extends ZooKeeperTestHarness with Logging {
 
   @Test
   def testResumePartitionReassignmentThatWasCompleted(): Unit = {
-    val expectedReplicaAssignment = Map(0  -> PartitionReplicaAssignment.fromCreate(List(0, 1), Seq.empty))
+    val initialAssignment = Map(0  -> ReplicaAssignment(List(0, 2), Seq.empty))
     val topic = "test"
     // create the topic
-    adminZkClient.createTopicWithAssignment(topic, config = new Properties, expectedReplicaAssignment)
+    adminZkClient.createTopicWithAssignment(topic, config = new Properties, initialAssignment)
     // put the partition in the reassigned path as well
     // reassign partition 0
     val newReplicas = Seq(0, 1)

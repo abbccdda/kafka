@@ -84,15 +84,19 @@ class AbstractFetcherThreadTest {
 
     fetcher.start()
 
+    val brokerTopicStatsMetrics = fetcher.brokerTopicStats.allTopicsStats.metricMap.keySet
+    val fetcherMetrics = Set(FetcherMetrics.BytesPerSec, FetcherMetrics.RequestsPerSec, FetcherMetrics.ConsumerLag)
+
     // wait until all fetcher metrics are present
-    TestUtils.waitUntilTrue(() =>
-      allMetricsNames == Set(FetcherMetrics.BytesPerSec, FetcherMetrics.RequestsPerSec, FetcherMetrics.ConsumerLag),
+    TestUtils.waitUntilTrue(() => allMetricsNames == brokerTopicStatsMetrics ++ fetcherMetrics,
       "Failed waiting for all fetcher metrics to be registered")
 
     fetcher.shutdown()
 
-    // after shutdown, they should be gone
-    assertTrue(Metrics.defaultRegistry().allMetrics().isEmpty)
+    // verify that all the fetcher metrics are removed and only brokerTopicStats left
+    val metricNames = Metrics.defaultRegistry().allMetrics().asScala.keySet.map(_.getName).toSet
+    assertTrue(metricNames.intersect(fetcherMetrics).isEmpty)
+    assertEquals(brokerTopicStatsMetrics, metricNames.intersect(brokerTopicStatsMetrics))
   }
 
   @Test
@@ -1259,7 +1263,8 @@ class AbstractFetcherThreadTest {
       clientId = "mock-fetcher",
       sourceBroker = new BrokerEndPoint(leaderId, host = "localhost", port = Random.nextInt()),
       failedPartitions,
-      tierStateFetcher = None) {
+      tierStateFetcher = None,
+      brokerTopicStats = new BrokerTopicStats) {
 
     import MockFetcherThread.PartitionState
 

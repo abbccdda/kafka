@@ -22,7 +22,7 @@ import java.util.UUID
 import kafka.admin.{AdminOperationException, AdminUtils, BrokerMetadata, RackAwareMode}
 import kafka.cluster.Observer
 import kafka.common.{TopicAlreadyMarkedForDeletionException, TopicPlacement}
-import kafka.controller.PartitionReplicaAssignment
+import kafka.controller.ReplicaAssignment
 import kafka.log.LogConfig
 import kafka.server.{ConfigEntityName, ConfigType, DynamicConfig}
 import kafka.utils._
@@ -59,7 +59,7 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     val replicaAssignment = AdminUtils
       .assignReplicasToBrokers(brokerMetadatas, partitions, replicationFactor)
       .map { case (partition, replicas) =>
-        (partition, PartitionReplicaAssignment.fromCreate(replicas, Seq.empty))
+        (partition, ReplicaAssignment(replicas, Seq.empty))
       }
     createTopicWithAssignment(topic, topicConfig, replicaAssignment, createTopicId)
   }
@@ -90,7 +90,7 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
 
   def createTopicWithAssignment(topic: String,
                                 config: Properties,
-                                partitionReplicaAssignment: Map[Int, PartitionReplicaAssignment],
+                                partitionReplicaAssignment: Map[Int, ReplicaAssignment],
                                 createTopicId: Boolean = false): Unit = {
     validateTopicCreate(topic, partitionReplicaAssignment, config)
 
@@ -113,7 +113,7 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
    * replica assignment.
    */
   def validateTopicCreate(topic: String,
-                          partitionReplicaAssignment: Map[Int, PartitionReplicaAssignment],
+                          partitionReplicaAssignment: Map[Int, ReplicaAssignment],
                           config: Properties): Unit = {
     Topic.validate(topic)
 
@@ -161,7 +161,7 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     LogConfig.validate(config)
   }
 
-  private def writeTopicPartitionAssignment(topic: String, replicaAssignment: Map[Int, PartitionReplicaAssignment],
+  private def writeTopicPartitionAssignment(topic: String, replicaAssignment: Map[Int, ReplicaAssignment],
                                             isUpdate: Boolean, createTopicId: Boolean = false): Unit = {
     try {
       val assignment = replicaAssignment.map { case (partitionId, replicas) => (new TopicPartition(topic,partitionId), replicas) }.toMap
@@ -217,12 +217,12 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
   * @return the updated replica assignment
   */
   def addPartitions(topic: String,
-                    existingAssignment: Map[Int, PartitionReplicaAssignment],
+                    existingAssignment: Map[Int, ReplicaAssignment],
                     allBrokers: Seq[BrokerMetadata],
                     numPartitions: Int = 1,
-                    replicaAssignment: Option[Map[Int, PartitionReplicaAssignment]] = None,
+                    replicaAssignment: Option[Map[Int, ReplicaAssignment]] = None,
                     validateOnly: Boolean = false,
-                    topicPlacement: Option[TopicPlacement] = None): Map[Int, PartitionReplicaAssignment] = {
+                    topicPlacement: Option[TopicPlacement] = None): Map[Int, ReplicaAssignment] = {
     val existingAssignmentPartition0 = existingAssignment.getOrElse(0,
       throw new AdminOperationException(
         s"Unexpected existing replica assignment for topic '$topic', partition id 0 is missing. " +
@@ -258,7 +258,7 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     proposedAssignment
   }
 
-  private def validateReplicaAssignment(replicaAssignment: Map[Int, PartitionReplicaAssignment],
+  private def validateReplicaAssignment(replicaAssignment: Map[Int, ReplicaAssignment],
                                         expectedReplicationFactor: Int,
                                         availableBrokerIds: Set[Int]): Unit = {
     replicaAssignment.foreach { case (partitionId, assignment) =>

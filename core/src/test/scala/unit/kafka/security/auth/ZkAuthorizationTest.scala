@@ -32,7 +32,7 @@ import scala.util.{Failure, Success, Try}
 import javax.security.auth.login.Configuration
 import kafka.api.ApiVersion
 import kafka.cluster.{Broker, EndPoint}
-import kafka.controller.PartitionReplicaAssignment
+import kafka.controller.ReplicaAssignment
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.Time
@@ -111,9 +111,9 @@ class ZkAuthorizationTest extends ZooKeeperTestHarness with Logging {
     // Test that creates persistent nodes
     val topic1 = "topic1"
     val assignment = Map(
-      new TopicPartition(topic1, 0) -> PartitionReplicaAssignment.fromCreate(Seq(0, 1), Seq.empty),
-      new TopicPartition(topic1, 1) -> PartitionReplicaAssignment.fromCreate(Seq(0, 1), Seq.empty),
-      new TopicPartition(topic1, 2) -> PartitionReplicaAssignment.fromCreate(Seq(1, 2, 3), Seq.empty)
+      new TopicPartition(topic1, 0) -> ReplicaAssignment(Seq(0, 1), Seq.empty),
+      new TopicPartition(topic1, 1) -> ReplicaAssignment(Seq(0, 1), Seq.empty),
+      new TopicPartition(topic1, 2) -> ReplicaAssignment(Seq(1, 2, 3), Seq.empty)
     )
 
     // create a topic assignment

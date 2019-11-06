@@ -37,6 +37,7 @@ import kafka.server.MetadataCache;
 import kafka.server.OffsetAndEpoch;
 import kafka.server.OffsetTruncationState;
 import kafka.server.ReplicaFetcherThread;
+import kafka.server.ReplicaManager;
 import kafka.server.ReplicaQuota;
 import kafka.server.checkpoints.OffsetCheckpoints;
 import kafka.utils.KafkaScheduler;
@@ -179,7 +180,9 @@ public class ReplicaFetcherThreadBenchmark {
                     new LinkedList<>(), fetched));
         }
 
-        fetcher = new ReplicaFetcherBenchThread(config, pool);
+        ReplicaManager replicaManager = Mockito.mock(ReplicaManager.class);
+        Mockito.when(replicaManager.brokerTopicStats()).thenReturn(brokerTopicStats);
+        fetcher = new ReplicaFetcherBenchThread(config, replicaManager, pool);
         fetcher.addPartitions(offsetAndEpochs);
         // force a pass to move partitions to fetching state. We do this in the setup phase
         // so that we do not measure this time as part of the steady state work
@@ -234,13 +237,14 @@ public class ReplicaFetcherThreadBenchmark {
         private final Pool<TopicPartition, Partition> pool;
 
         ReplicaFetcherBenchThread(KafkaConfig config,
+                                  ReplicaManager replicaManager,
                                   Pool<TopicPartition, Partition> partitions) {
             super("name",
                     3,
                     new BrokerEndPoint(3, "host", 3000),
                     config,
                     new FailedPartitions(),
-                    null,
+                    replicaManager,
                     new Metrics(),
                     Time.SYSTEM,
                     new ReplicaQuota() {

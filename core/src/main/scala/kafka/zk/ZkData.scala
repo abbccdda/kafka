@@ -26,7 +26,7 @@ import com.fasterxml.jackson.core.JsonProcessingException
 import kafka.api.{ApiVersion, KAFKA_0_10_0_IV1, LeaderAndIsr}
 import kafka.cluster.{Broker, EndPoint}
 import kafka.common.{NotificationHandler, ZkNodeChangeNotificationListener}
-import kafka.controller.{IsrChangeNotificationHandler, LeaderIsrAndControllerEpoch, PartitionReplicaAssignment}
+import kafka.controller.{IsrChangeNotificationHandler, LeaderIsrAndControllerEpoch, ReplicaAssignment}
 import kafka.security.auth.Resource.Separator
 import kafka.security.authorizer.AclAuthorizer.VersionedAcls
 import kafka.security.auth.{Acl, Resource, ResourceType}
@@ -241,11 +241,11 @@ object TopicsZNode {
 }
 
 object TopicZNode {
-  case class TopicIdReplicaAssignment(topic: String, topicId: Option[UUID], assignment: Map[TopicPartition, PartitionReplicaAssignment])
+  case class TopicIdReplicaAssignment(topic: String, topicId: Option[UUID], assignment: Map[TopicPartition, ReplicaAssignment])
 
   def path(topic: String) = s"${TopicsZNode.path}/$topic"
 
-  def encode(topicId: Option[UUID], assignment: collection.Map[TopicPartition, PartitionReplicaAssignment]): Array[Byte] = {
+  def encode(topicId: Option[UUID], assignment: collection.Map[TopicPartition, ReplicaAssignment]): Array[Byte] = {
     val replicaAssignmentJson = mutable.Map[String, util.List[Int]]()
     val addingReplicasAssignmentJson = mutable.Map[String, util.List[Int]]()
     val removingReplicasAssignmentJson = mutable.Map[String, util.List[Int]]()
@@ -319,7 +319,7 @@ object TopicZNode {
       val partitionsJsonOpt = assignmentJson.get("partitions").map(_.asJsonObject)
       val partitions = partitionsJsonOpt.map { partitionsJson =>
         partitionsJson.iterator.map { case (partition, replicas) =>
-          new TopicPartition(topic, partition.toInt) -> PartitionReplicaAssignment(
+          new TopicPartition(topic, partition.toInt) -> ReplicaAssignment(
             replicas.to[Seq[Int]],
             getReplicas(addingReplicasJsonOpt, partition),
             getReplicas(removingReplicasJsonOpt, partition),
@@ -327,10 +327,10 @@ object TopicZNode {
             getTargetObservers(targetObserversJson, partition.toInt)
           )
         }.toMap
-      }.getOrElse(immutable.Map.empty[TopicPartition, PartitionReplicaAssignment])
+      }.getOrElse(immutable.Map.empty[TopicPartition, ReplicaAssignment])
 
       TopicIdReplicaAssignment(topic, topicId, partitions)
-    }.getOrElse(TopicIdReplicaAssignment(topic, None, Map.empty[TopicPartition, PartitionReplicaAssignment]))
+    }.getOrElse(TopicIdReplicaAssignment(topic, None, Map.empty[TopicPartition, ReplicaAssignment]))
   }
 }
 

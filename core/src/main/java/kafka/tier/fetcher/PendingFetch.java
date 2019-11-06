@@ -12,12 +12,12 @@ import kafka.tier.fetcher.offsetcache.CachedMetadata;
 import kafka.tier.fetcher.offsetcache.FetchOffsetCache;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
+import org.apache.kafka.common.IsolationLevel;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.Records;
-import org.apache.kafka.common.requests.IsolationLevel;
 
 import java.io.IOException;
 import java.util.Collections;

@@ -14,28 +14,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.common.security;
+package org.apache.kafka.common;
 
-import org.apache.kafka.common.Configurable;
+public enum IsolationLevel {
+    READ_UNCOMMITTED((byte) 0), READ_COMMITTED((byte) 1);
 
-import java.security.Provider;
-import java.util.Map;
+    private final byte id;
 
-/**
- * An interface for generating security providers.
- */
-public interface SecurityProviderCreator extends Configurable {
-
-    /**
-     * Configure method is used to configure the generator to create the Security Provider
-     * @param config configuration parameters for initialising security provider
-     */
-    default void configure(Map<String, ?> config) {
-
+    IsolationLevel(byte id) {
+        this.id = id;
     }
 
-    /**
-     * Generate the security provider configured
-     */
-    Provider getProvider();
+    public byte id() {
+        return id;
+    }
+
+    public static IsolationLevel forId(byte id) {
+        switch (id) {
+            case 0:
+                return READ_UNCOMMITTED;
+            case 1:
+                return READ_COMMITTED;
+            default:
+                throw new IllegalArgumentException("Unknown isolation level " + id);
+        }
+    }
 }

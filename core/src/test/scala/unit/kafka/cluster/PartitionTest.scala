@@ -31,6 +31,7 @@ import kafka.server._
 import kafka.server.checkpoints.OffsetCheckpoints
 import kafka.tier.TierReplicaManager
 import kafka.utils._
+import org.apache.kafka.common.IsolationLevel
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{ApiException, OffsetNotAvailableException, ReplicaNotAvailableException}
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
@@ -38,7 +39,7 @@ import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.record.FileRecords.{FileTimestampAndOffset, TimestampAndOffset}
 import org.apache.kafka.common.utils.Utils
 import org.apache.kafka.common.record._
-import org.apache.kafka.common.requests.{EpochEndOffset, IsolationLevel, ListOffsetRequest}
+import org.apache.kafka.common.requests.{EpochEndOffset, ListOffsetRequest}
 import org.junit.{After, Before, Test}
 import org.junit.Assert._
 import org.mockito.Mockito.{doAnswer, doNothing, mock, spy, times, verify, when}
@@ -1023,7 +1024,7 @@ class PartitionTest {
       // Invoke some operation that acquires leaderIsrUpdate write lock on one thread
       executor.submit(CoreUtils.runnable {
         while (!done.get) {
-          partitions.foreach(_.maybeShrinkIsr(10000))
+          partitions.foreach(_.maybeShrinkIsr())
         }
       })
       // Append records to partitions, one partition-per-thread
@@ -1137,7 +1138,7 @@ class PartitionTest {
     assertEquals(LogOffsetMetadata.UnknownOffsetMetadata.messageOffset, remoteReplica.logEndOffset)
     assertEquals(Log.UnknownOffset, remoteReplica.logStartOffset)
 
-    time.sleep(500)
+    time.sleep(partition.replicaLagTimeMaxMs / 2)
 
     partition.updateFollowerFetchState(remoteBrokerId,
       followerFetchOffsetMetadata = LogOffsetMetadata(3),
@@ -1149,7 +1150,7 @@ class PartitionTest {
     assertEquals(3L, remoteReplica.logEndOffset)
     assertEquals(0L, remoteReplica.logStartOffset)
 
-    time.sleep(500)
+    time.sleep(partition.replicaLagTimeMaxMs / 2)
 
     partition.updateFollowerFetchState(remoteBrokerId,
       followerFetchOffsetMetadata = LogOffsetMetadata(6L),
@@ -1325,11 +1326,11 @@ class PartitionTest {
     assertEquals(Log.UnknownOffset, remoteReplica.logStartOffset)
 
     // On initialization, the replica is considered caught up and should not be removed
-    partition.maybeShrinkIsr(10000)
+    partition.maybeShrinkIsr()
     assertEquals(Set(brokerId, remoteBrokerId), partition.inSyncReplicaIds)
 
     // If enough time passes without a fetch update, the ISR should shrink
-    time.sleep(10001)
+    time.sleep(partition.replicaLagTimeMaxMs + 1)
     val updatedLeaderAndIsr = LeaderAndIsr(
       leader = brokerId,
       leaderEpoch = leaderEpoch,
@@ -1337,7 +1338,7 @@ class PartitionTest {
       zkVersion = 1)
     when(stateStore.shrinkIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(Some(2))
 
-    partition.maybeShrinkIsr(10000)
+    partition.maybeShrinkIsr()
     assertEquals(Set(brokerId), partition.inSyncReplicaIds)
     assertEquals(10L, partition.localLogOrException.highWatermark)
   }
@@ -1411,7 +1412,7 @@ class PartitionTest {
 
     // The ISR should not be shrunk because the follower has caught up with the leader at the
     // time of the first fetch.
-    partition.maybeShrinkIsr(10000)
+    partition.maybeShrinkIsr()
     assertEquals(Set(brokerId, remoteBrokerId), partition.inSyncReplicaIds)
   }
 
@@ -1467,10 +1468,10 @@ class PartitionTest {
     assertEquals(0L, remoteReplica.logStartOffset)
 
     // Sleep longer than the max allowed follower lag
-    time.sleep(10001)
+    time.sleep(partition.replicaLagTimeMaxMs + 1)
 
     // The ISR should not be shrunk because the follower is caught up to the leader's log end
-    partition.maybeShrinkIsr(10000)
+    partition.maybeShrinkIsr()
     assertEquals(Set(brokerId, remoteBrokerId), partition.inSyncReplicaIds)
   }
 
@@ -1512,7 +1513,7 @@ class PartitionTest {
     assertEquals(LogOffsetMetadata.UnknownOffsetMetadata.messageOffset, remoteReplica.logEndOffset)
     assertEquals(Log.UnknownOffset, remoteReplica.logStartOffset)
 
-    time.sleep(10001)
+    time.sleep(partition.replicaLagTimeMaxMs + 1)
 
     // Mock the expected ISR update failure
     val updatedLeaderAndIsr = LeaderAndIsr(
@@ -1522,7 +1523,7 @@ class PartitionTest {
       zkVersion = 1)
     when(stateStore.shrinkIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(None)
 
-    partition.maybeShrinkIsr(10000)
+    partition.maybeShrinkIsr()
     assertEquals(Set(brokerId, remoteBrokerId), partition.inSyncReplicaIds)
     assertEquals(0L, partition.localLogOrException.highWatermark)
   }
@@ -1693,7 +1694,7 @@ class PartitionTest {
     val topicId = UUID.randomUUID
 
     val partition = setupPartitionWithMocks(leaderEpoch = leaderEpoch, isLeader = true, log = log, topicIdOpt = Some(topicId))
-    val replicas = partition.allReplicaIds.map(Int.box).asJava
+    val replicas = partition.assignmentState.replicas.map(Int.box).asJava
 
     // assert topic id was propagated
     assertTrue(tierPartitionState.topicIdPartition.isPresent)
@@ -1757,20 +1758,20 @@ class PartitionTest {
       correlationId = 2334,
       highWatermarkCheckpoints = offsetCheckpoints))
 
-    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(observerId1, observerId2), partition.assignmentState.observers)
     assertEquals(Set(syncReplicaId1, syncReplicaId2, observerId1), partition.inSyncReplicaIds)
-    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.assignmentState.replicas)
     assertFalse(partition.isUnderReplicated)
 
     when(stateStore.shrinkIsr(controllerEpoch, LeaderAndIsr(brokerId, leaderEpoch,
       List(syncReplicaId1, syncReplicaId2), zkVersion)))
       .thenReturn(Some(zkVersion + 1))
 
-    partition.maybeShrinkIsr(Long.MaxValue)
+    partition.maybeShrinkIsr()
 
-    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(observerId1, observerId2), partition.assignmentState.observers)
     assertEquals(Set(syncReplicaId1, syncReplicaId2), partition.inSyncReplicaIds)
-    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.assignmentState.replicas)
     assertFalse(partition.isUnderReplicated)
   }
 
@@ -1804,16 +1805,16 @@ class PartitionTest {
       correlationId = 2334,
       highWatermarkCheckpoints = offsetCheckpoints))
 
-    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(observerId1, observerId2), partition.assignmentState.observers)
     assertEquals(Set(syncReplicaId1, observerId1), partition.inSyncReplicaIds)
-    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.assignmentState.replicas)
     assertFalse(partition.isUnderReplicated)
 
-    partition.maybeShrinkIsr(Long.MaxValue)
+    partition.maybeShrinkIsr()
 
-    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(observerId1, observerId2), partition.assignmentState.observers)
     assertEquals(Set(syncReplicaId1, observerId1), partition.inSyncReplicaIds)
-    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.assignmentState.replicas)
     assertFalse(partition.isUnderReplicated)
   }
 
@@ -1844,9 +1845,9 @@ class PartitionTest {
       correlationId = 2334,
       highWatermarkCheckpoints = offsetCheckpoints))
 
-    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(observerId1, observerId2), partition.assignmentState.observers)
     assertEquals(Set(observerId1), partition.inSyncReplicaIds)
-    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.assignmentState.replicas)
     assertTrue(partition.isUnderReplicated)
 
     var expectedIsr = Seq(observerId1)
@@ -1866,9 +1867,9 @@ class PartitionTest {
         followerFetchTimeMs = time.milliseconds(),
         leaderEndOffset = 0L)
 
-      assertEquals(Set(observerId1, observerId2), partition.observerIds)
+      assertEquals(Set(observerId1, observerId2), partition.assignmentState.observers)
       assertEquals(expectedIsr.toSet, partition.inSyncReplicaIds)
-      assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+      assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.assignmentState.replicas)
       assertEquals(partition.inSyncReplicaIds.size < 2, partition.isUnderReplicated)
       assertEquals(partition.inSyncReplicaIds.size < 4, partition.isNotCaughtUp)
     }
@@ -1904,9 +1905,9 @@ class PartitionTest {
       correlationId = 2334,
       highWatermarkCheckpoints = offsetCheckpoints))
 
-    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(observerId1, observerId2), partition.assignmentState.observers)
     assertEquals(Set(syncReplicaId1, syncReplicaId2), partition.inSyncReplicaIds)
-    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.assignmentState.replicas)
     assertFalse(partition.isUnderReplicated)
 
     partition.updateFollowerFetchState(observerId2,
@@ -1915,9 +1916,9 @@ class PartitionTest {
       followerFetchTimeMs = time.milliseconds(),
       leaderEndOffset = 0L)
 
-    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(observerId1, observerId2), partition.assignmentState.observers)
     assertEquals(Set(syncReplicaId1, syncReplicaId2), partition.inSyncReplicaIds)
-    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.assignmentState.replicas)
     assertFalse(partition.isUnderReplicated)
   }
 
@@ -1948,9 +1949,9 @@ class PartitionTest {
       correlationId = 2334,
       highWatermarkCheckpoints = offsetCheckpoints))
 
-    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(observerId1, observerId2), partition.assignmentState.observers)
     assertEquals(Set(syncReplicaId1), partition.inSyncReplicaIds)
-    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.assignmentState.replicas)
     assertTrue(partition.isUnderReplicated)
 
     when(stateStore.expandIsr(controllerEpoch,
@@ -1963,9 +1964,9 @@ class PartitionTest {
       followerFetchTimeMs = time.milliseconds(),
       leaderEndOffset = 0L)
 
-    assertEquals(Set(observerId1, observerId2), partition.observerIds)
+    assertEquals(Set(observerId1, observerId2), partition.assignmentState.observers)
     assertEquals(Set(syncReplicaId1, syncReplicaId2), partition.inSyncReplicaIds)
-    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.allReplicaIds)
+    assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.assignmentState.replicas)
     assertFalse(partition.isUnderReplicated)
   }
 

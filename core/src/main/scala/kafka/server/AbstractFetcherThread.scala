@@ -112,7 +112,8 @@ abstract class AbstractFetcherThread(name: String,
                                      failedPartitions: FailedPartitions,
                                      fetchBackOffMs: Int = 0,
                                      tierStateFetcher: Option[TierStateFetcher],
-                                     isInterruptible: Boolean = true)
+                                     isInterruptible: Boolean = true,
+                                     val brokerTopicStats: BrokerTopicStats) //BrokerTopicStats's lifecycle managed by ReplicaManager
   extends ShutdownableThread(name, isInterruptible) {
 
   type FetchData = FetchResponse.PartitionData[Records]
@@ -289,10 +290,10 @@ abstract class AbstractFetcherThread(name: String,
       //Check no leadership and no leader epoch changes happened whilst we were unlocked, fetching epochs
       val epochEndOffsets = endOffsets.filter { case (tp, _) =>
         val curPartitionState = partitionStates.stateValue(tp)
-        val partitionEpochRequest = latestEpochsForPartitions.get(tp).getOrElse {
+        val partitionEpochRequest = latestEpochsForPartitions.getOrElse(tp, {
           throw new IllegalStateException(
             s"Leader replied with partition $tp not requested in OffsetsForLeaderEpoch request")
-        }
+        })
         val leaderEpochInRequest = partitionEpochRequest.currentLeaderEpoch.get
         curPartitionState != null && leaderEpochInRequest == curPartitionState.currentLeaderEpoch
       }
@@ -594,18 +595,17 @@ abstract class AbstractFetcherThread(name: String,
     * @param fetchOffsets the partitions to update fetch offset and maybe mark truncation complete
     */
   private def updateFetchOffsetAndMaybeMarkTruncationComplete(fetchOffsets: Map[TopicPartition, OffsetTruncationState]): Unit = {
-    val newStates: Map[TopicPartition, PartitionFetchState] = partitionStates.partitionStates.asScala
-      .map { state =>
-        val currentFetchState = state.value
-        val maybeTruncationComplete = fetchOffsets.get(state.topicPartition) match {
+    val newStates: Map[TopicPartition, PartitionFetchState] = partitionStates.partitionStateMap.asScala
+      .map { case (topicPartition, currentFetchState) =>
+        val maybeTruncationComplete = fetchOffsets.get(topicPartition) match {
           case Some(offsetTruncationState) =>
             val state = if (offsetTruncationState.truncationCompleted) Fetching else Truncating
             PartitionFetchState(offsetTruncationState.offset, currentFetchState.lag,
               currentFetchState.currentLeaderEpoch, currentFetchState.delay, state)
           case None => currentFetchState
         }
-        (state.topicPartition, maybeTruncationComplete)
-      }.toMap
+        (topicPartition, maybeTruncationComplete)
+      }
     partitionStates.set(newStates.asJava)
   }
 
@@ -807,12 +807,12 @@ abstract class AbstractFetcherThread(name: String,
   }
 
   private[server] def partitionsAndOffsets: Map[TopicPartition, InitialFetchState] = inLock(partitionMapLock) {
-    partitionStates.partitionStates.asScala.map { state =>
+    partitionStates.partitionStateMap.asScala.map { case (topicPartition, currentFetchState) =>
       val initialFetchState = InitialFetchState(sourceBroker,
-        currentLeaderEpoch = state.value.currentLeaderEpoch,
-        initOffset = state.value.fetchOffset)
-      state.topicPartition -> initialFetchState
-    }.toMap
+        currentLeaderEpoch = currentFetchState.currentLeaderEpoch,
+        initOffset = currentFetchState.fetchOffset)
+      topicPartition -> initialFetchState
+    }
   }
 
   protected def toMemoryRecords(records: Records): MemoryRecords = {
@@ -967,7 +967,7 @@ case class OffsetTruncationState(offset: Long, truncationCompleted: Boolean) {
 
   def this(offset: Long) = this(offset, true)
 
-  override def toString = "offset:%d-truncationCompleted:%b".format(offset, truncationCompleted)
+  override def toString: String = "offset:%d-truncationCompleted:%b".format(offset, truncationCompleted)
 }
 
 case class OffsetAndEpoch(offset: Long, leaderEpoch: Int) {

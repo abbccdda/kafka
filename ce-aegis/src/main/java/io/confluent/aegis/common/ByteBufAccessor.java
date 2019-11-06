@@ -18,6 +18,7 @@
 package io.confluent.aegis.common;
 
 import io.netty.buffer.ByteBuf;
+import java.nio.ByteBuffer;
 import org.apache.kafka.common.protocol.Readable;
 import org.apache.kafka.common.protocol.Writable;
 import org.apache.kafka.common.utils.ByteUtils;
@@ -60,6 +61,20 @@ public class ByteBufAccessor implements Readable, Writable {
     }
 
     @Override
+    public ByteBuffer readByteBuffer(int length) {
+        if (buf.nioBufferCount() == -1) {
+            // Since the ByteBuf is not backed by a ByteBuffer assume that the user wants a non-direct buffer.
+            ByteBuffer buffer = ByteBuffer.allocate(length);
+            buf.readBytes(buffer);
+            return buffer;
+        } else {
+            ByteBuffer buffer = buf.nioBuffer(buf.readerIndex(), length);
+            buf.readerIndex(buf.readerIndex() + length);
+            return buffer;
+        }
+    }
+
+    @Override
     public void writeByte(byte val) {
         buf.writeByte(val);
     }
@@ -82,6 +97,11 @@ public class ByteBufAccessor implements Readable, Writable {
     @Override
     public void writeByteArray(byte[] arr) {
         buf.writeBytes(arr);
+    }
+
+    @Override
+    public void writeByteBuffer(ByteBuffer buffer) {
+        buf.writeBytes(buffer);
     }
 
     @Override

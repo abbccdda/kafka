@@ -17,7 +17,7 @@
 
 package kafka.admin
 
-import kafka.controller.PartitionReplicaAssignment
+import kafka.controller.ReplicaAssignment
 import kafka.network.SocketServer
 import org.junit.Assert._
 import kafka.utils.TestUtils._
@@ -39,15 +39,15 @@ class AddPartitionsTest extends BaseRequestTest {
   val partitionId = 0
 
   val topic1 = "new-topic1"
-  val topic1Assignment = Map(0 -> PartitionReplicaAssignment.fromCreate(Seq(0,1), Seq.empty))
+  val topic1Assignment = Map(0 -> ReplicaAssignment(Seq(0,1), Seq.empty))
   val topic2 = "new-topic2"
-  val topic2Assignment = Map(0 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty))
+  val topic2Assignment = Map(0 -> ReplicaAssignment(Seq(1,2), Seq.empty))
   val topic3 = "new-topic3"
-  val topic3Assignment = Map(0 -> PartitionReplicaAssignment.fromCreate(Seq(2,3,0,1), Seq.empty))
+  val topic3Assignment = Map(0 -> ReplicaAssignment(Seq(2,3,0,1), Seq.empty))
   val topic4 = "new-topic4"
-  val topic4Assignment = Map(0 -> PartitionReplicaAssignment.fromCreate(Seq(0,3), Seq.empty))
+  val topic4Assignment = Map(0 -> ReplicaAssignment(Seq(0,3), Seq.empty))
   val topic5 = "new-topic5"
-  val topic5Assignment = Map(1 -> PartitionReplicaAssignment.fromCreate(Seq(0,1), Seq.empty))
+  val topic5Assignment = Map(1 -> ReplicaAssignment(Seq(0,1), Seq.empty))
 
   @Before
   override def setUp(): Unit = {
@@ -66,8 +66,8 @@ class AddPartitionsTest extends BaseRequestTest {
         topic1, topic1Assignment, adminZkClient.getBrokerMetadatas(), 2,
         Some(
           Map(
-            0 -> PartitionReplicaAssignment.fromCreate(Seq(0, 1), Seq.empty),
-            1 -> PartitionReplicaAssignment.fromCreate(Seq(0, 1, 2), Seq.empty)
+            0 -> ReplicaAssignment(Seq(0, 1), Seq.empty),
+            1 -> ReplicaAssignment(Seq(0, 1, 2), Seq.empty)
           )
         )
       )
@@ -84,8 +84,8 @@ class AddPartitionsTest extends BaseRequestTest {
         topic5, topic5Assignment, adminZkClient.getBrokerMetadatas(), 2,
         Some(
           Map(
-            1 -> PartitionReplicaAssignment.fromCreate(Seq(0, 1), Seq.empty),
-            2 -> PartitionReplicaAssignment.fromCreate(Seq(0, 1, 2), Seq.empty)
+            1 -> ReplicaAssignment(Seq(0, 1), Seq.empty),
+            2 -> ReplicaAssignment(Seq(0, 1, 2), Seq.empty)
           )
         )
       )
@@ -128,9 +128,9 @@ class AddPartitionsTest extends BaseRequestTest {
       topic2, topic2Assignment, adminZkClient.getBrokerMetadatas(), 3,
       Some(
         Map(
-          0 -> PartitionReplicaAssignment.fromCreate(Seq(1, 2), Seq.empty),
-          1 -> PartitionReplicaAssignment.fromCreate(Seq(0, 1), Seq.empty),
-          2 -> PartitionReplicaAssignment.fromCreate(Seq(2, 3), Seq.empty)
+          0 -> ReplicaAssignment(Seq(1, 2), Seq.empty),
+          1 -> ReplicaAssignment(Seq(0, 1), Seq.empty),
+          2 -> ReplicaAssignment(Seq(2, 3), Seq.empty)
         )
       )
     )

@@ -6,7 +6,7 @@ package kafka.cluster
 import kafka.admin.{AdminUtils, BrokerMetadata}
 import kafka.common.TopicPlacement
 import kafka.common.TopicPlacement.ConstraintCount
-import kafka.controller.PartitionReplicaAssignment
+import kafka.controller.ReplicaAssignment
 import org.apache.kafka.common.errors.{InvalidConfigurationException, InvalidReplicaAssignmentException}
 
 import scala.collection.JavaConverters._
@@ -41,7 +41,7 @@ object Observer {
                            numPartitions: Int,
                            replicationFactor: Int,
                            fixedStartIndex: Int = -1,
-                           startPartitionId: Int = -1): Map[Int, PartitionReplicaAssignment] = {
+                           startPartitionId: Int = -1): Map[Int, ReplicaAssignment] = {
     /**
      * Partition the brokers into different sets along with number of brokers that need to be picked from the set.
      * As an example, for following broker configuration:
@@ -101,7 +101,7 @@ object Observer {
   private[this] def partitionReplicaAssignment(
     syncReplicas: Map[Int, Seq[Int]],
     observerReplicas: Map[Int, Seq[Int]]
-  ): Map[Int, PartitionReplicaAssignment] = {
+  ): Map[Int, ReplicaAssignment] = {
     if (observerReplicas.nonEmpty && syncReplicas.keySet != observerReplicas.keySet) {
       val syncSize = syncReplicas.keySet.size
       val observerSize = observerReplicas.keySet.size
@@ -114,7 +114,7 @@ object Observer {
     syncReplicas.map { case (partition, replicas) =>
       val observerAssignment = observerReplicas.getOrElse(partition, Seq.empty)
 
-      partition -> PartitionReplicaAssignment.fromCreate(replicas ++ observerAssignment, observerAssignment)
+      partition -> ReplicaAssignment(replicas ++ observerAssignment, observerAssignment)
     }
   }
 

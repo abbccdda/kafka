@@ -20,7 +20,7 @@ import java.util
 import java.util.Properties
 
 import kafka.common.TopicPlacement
-import kafka.controller.PartitionReplicaAssignment
+import kafka.controller.ReplicaAssignment
 import kafka.log._
 import kafka.server.DynamicConfig.Broker._
 import kafka.server.KafkaConfig._
@@ -64,7 +64,7 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
       adminZkClient.createTopicWithAssignment(
         "test",
         topicConfig,
-        Map(0 -> PartitionReplicaAssignment.fromCreate(Seq(0,0), Seq.empty))
+        Map(0 -> ReplicaAssignment(Seq(0,0), Seq.empty))
       )
     }
 
@@ -74,8 +74,8 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
         "test",
         topicConfig,
         Map(
-          0 -> PartitionReplicaAssignment.fromCreate(Seq(0,1), Seq.empty),
-          1 -> PartitionReplicaAssignment.fromCreate(Seq(0), Seq.empty)
+          0 -> ReplicaAssignment(Seq(0,1), Seq.empty),
+          1 -> ReplicaAssignment(Seq(0), Seq.empty)
         )
       )
     }
@@ -86,8 +86,8 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
         "test",
         topicConfig,
         Map(
-          1 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty),
-          2 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty)
+          1 -> ReplicaAssignment(Seq(1,2), Seq.empty),
+          2 -> ReplicaAssignment(Seq(1,2), Seq.empty)
         )
       )
     }
@@ -98,9 +98,9 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
         "test",
         topicConfig,
         Map(
-          0 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty),
-          0 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty),
-          3 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty)
+          0 -> ReplicaAssignment(Seq(1,2), Seq.empty),
+          0 -> ReplicaAssignment(Seq(1,2), Seq.empty),
+          3 -> ReplicaAssignment(Seq(1,2), Seq.empty)
         )
       )
     }
@@ -111,18 +111,18 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
         "test",
         topicConfig,
         Map(
-          -1 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty),
-          1 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty),
-          2 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty),
-          4 -> PartitionReplicaAssignment.fromCreate(Seq(1,2), Seq.empty)
+          -1 -> ReplicaAssignment(Seq(1,2), Seq.empty),
+          1 -> ReplicaAssignment(Seq(1,2), Seq.empty),
+          2 -> ReplicaAssignment(Seq(1,2), Seq.empty),
+          4 -> ReplicaAssignment(Seq(1,2), Seq.empty)
         )
       )
     }
 
     // good assignment
     val assignment = Map(
-      0 -> PartitionReplicaAssignment.fromCreate(Seq(0, 1, 2), Seq.empty),
-      1 -> PartitionReplicaAssignment.fromCreate(Seq(1, 2, 3), Seq.empty)
+      0 -> ReplicaAssignment(Seq(0, 1, 2), Seq.empty),
+      1 -> ReplicaAssignment(Seq(1, 2, 3), Seq.empty)
     )
     adminZkClient.createTopicWithAssignment("test", topicConfig, assignment)
     val found = zkClient.getPartitionAssignmentForTopics(Set("test"))
@@ -132,18 +132,18 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
   @Test
   def testTopicCreationInZK(): Unit = {
     val expectedReplicaAssignment = Map(
-      0  -> PartitionReplicaAssignment.fromCreate(List(0, 1, 2), Seq.empty),
-      1  -> PartitionReplicaAssignment.fromCreate(List(1, 2, 3), Seq.empty),
-      2  -> PartitionReplicaAssignment.fromCreate(List(2, 3, 4), Seq.empty),
-      3  -> PartitionReplicaAssignment.fromCreate(List(3, 4, 0), Seq.empty),
-      4  -> PartitionReplicaAssignment.fromCreate(List(4, 0, 1), Seq.empty),
-      5  -> PartitionReplicaAssignment.fromCreate(List(0, 2, 3), Seq.empty),
-      6  -> PartitionReplicaAssignment.fromCreate(List(1, 3, 4), Seq.empty),
-      7  -> PartitionReplicaAssignment.fromCreate(List(2, 4, 0), Seq.empty),
-      8  -> PartitionReplicaAssignment.fromCreate(List(3, 0, 1), Seq.empty),
-      9  -> PartitionReplicaAssignment.fromCreate(List(4, 1, 2), Seq.empty),
-      10 -> PartitionReplicaAssignment.fromCreate(List(1, 2, 3), Seq.empty),
-      11 -> PartitionReplicaAssignment.fromCreate(List(1, 3, 4), Seq.empty)
+      0  -> ReplicaAssignment(List(0, 1, 2), Seq.empty),
+      1  -> ReplicaAssignment(List(1, 2, 3), Seq.empty),
+      2  -> ReplicaAssignment(List(2, 3, 4), Seq.empty),
+      3  -> ReplicaAssignment(List(3, 4, 0), Seq.empty),
+      4  -> ReplicaAssignment(List(4, 0, 1), Seq.empty),
+      5  -> ReplicaAssignment(List(0, 2, 3), Seq.empty),
+      6  -> ReplicaAssignment(List(1, 3, 4), Seq.empty),
+      7  -> ReplicaAssignment(List(2, 4, 0), Seq.empty),
+      8  -> ReplicaAssignment(List(3, 0, 1), Seq.empty),
+      9  -> ReplicaAssignment(List(4, 1, 2), Seq.empty),
+      10 -> ReplicaAssignment(List(1, 2, 3), Seq.empty),
+      11 -> ReplicaAssignment(List(1, 3, 4), Seq.empty)
     )
     val leaderForPartitionMap = immutable.Map(
       0 -> 0,
@@ -318,7 +318,7 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
    */
   @Test
   def testAddPartitionWithNoPlacementConstraintNoAssignment(): Unit = {
-    val existingAssignment = Map(0 -> PartitionReplicaAssignment.fromCreate(List(0, 1, 2), Seq.empty))
+    val existingAssignment = Map(0 -> ReplicaAssignment(List(0, 1, 2), Seq.empty))
 
     val brokers = (0 until 10).map { id =>
       val rack = s"rack-${id / 5 + 1}"
@@ -358,7 +358,7 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
    */
   @Test
   def testAddPartitionWithNoPlacementConstraintWithAssignment(): Unit = {
-    val existingAssignment = Map(0 -> PartitionReplicaAssignment.fromCreate(List(0, 1, 2), Seq.empty))
+    val existingAssignment = Map(0 -> ReplicaAssignment(List(0, 1, 2), Seq.empty))
 
     val brokers = (0 until 10).map { id =>
       val rack = s"rack-${id / 5 + 1}"
@@ -371,15 +371,15 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
     adminZkClient.createTopic(topicName, 1, 3, props)
 
     val newReplicaAssignment = Map(
-      1  -> PartitionReplicaAssignment.fromCreate(List(1, 2, 3), Seq.empty),
-      2  -> PartitionReplicaAssignment.fromCreate(List(2, 3, 4), Seq.empty),
-      3  -> PartitionReplicaAssignment.fromCreate(List(3, 4, 0), Seq.empty),
-      4  -> PartitionReplicaAssignment.fromCreate(List(4, 0, 1), Seq.empty),
-      5  -> PartitionReplicaAssignment.fromCreate(List(0, 2, 3), Seq.empty),
-      6  -> PartitionReplicaAssignment.fromCreate(List(1, 3, 4), Seq.empty),
-      7  -> PartitionReplicaAssignment.fromCreate(List(2, 4, 0), Seq.empty),
-      8  -> PartitionReplicaAssignment.fromCreate(List(3, 0, 1), Seq.empty),
-      9  -> PartitionReplicaAssignment.fromCreate(List(4, 1, 2), Seq.empty)
+      1  -> ReplicaAssignment(List(1, 2, 3), Seq.empty),
+      2  -> ReplicaAssignment(List(2, 3, 4), Seq.empty),
+      3  -> ReplicaAssignment(List(3, 4, 0), Seq.empty),
+      4  -> ReplicaAssignment(List(4, 0, 1), Seq.empty),
+      5  -> ReplicaAssignment(List(0, 2, 3), Seq.empty),
+      6  -> ReplicaAssignment(List(1, 3, 4), Seq.empty),
+      7  -> ReplicaAssignment(List(2, 4, 0), Seq.empty),
+      8  -> ReplicaAssignment(List(3, 0, 1), Seq.empty),
+      9  -> ReplicaAssignment(List(4, 1, 2), Seq.empty)
     )
 
     val partitionAssignment = adminZkClient.addPartitions(
@@ -416,7 +416,7 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
                           |  }]
                           |}""".stripMargin
     val topicPlacement = TopicPlacement.parse(placementJson)
-    val existingAssignment = Map(0 -> PartitionReplicaAssignment.fromCreate(List(0, 1, 5, 6), List(5, 6)))
+    val existingAssignment = Map(0 -> ReplicaAssignment(List(0, 1, 5, 6), List(5, 6)))
 
     val brokers = (0 until 10).map { id =>
       val rack = s"rack-${id / 5 + 1}"
@@ -481,8 +481,8 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
                           |  }]
                           |}""".stripMargin
     val topicPlacement = TopicPlacement.parse(placementJson)
-    val existingAssignment = Map(0 -> PartitionReplicaAssignment.fromCreate(List(0, 1, 5, 6), List(5, 6)))
-    val newAssignment = Map(1 -> PartitionReplicaAssignment.fromCreate(List(2, 3, 7, 8), List(7, 8)))
+    val existingAssignment = Map(0 -> ReplicaAssignment(List(0, 1, 5, 6), List(5, 6)))
+    val newAssignment = Map(1 -> ReplicaAssignment(List(2, 3, 7, 8), List(7, 8)))
 
     val brokers = (0 until 10).map { id =>
       val rack = s"rack-${id / 5 + 1}"
@@ -524,7 +524,7 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
                           |  }]
                           |}""".stripMargin
     val topicPlacement = TopicPlacement.parse(placementJson)
-    val existingAssignment = Map(0 -> PartitionReplicaAssignment.fromCreate(0 to 7, List(6, 7)))
+    val existingAssignment = Map(0 -> ReplicaAssignment(0 to 7, List(6, 7)))
 
     val brokers = (0 until 10).map { id =>
       val rack = s"rack-${id / 5 + 1}"
@@ -566,7 +566,7 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
                           |  }]
                           |}""".stripMargin
     val topicPlacement = TopicPlacement.parse(placementJson)
-    val existingAssignment = Map(0 -> PartitionReplicaAssignment.fromCreate(2 until 10, 4 until 10))
+    val existingAssignment = Map(0 -> ReplicaAssignment(2 until 10, 4 until 10))
 
     val brokers = (0 until 10).map { id =>
       val rack = s"rack-${id / 5 + 1}"

@@ -599,7 +599,7 @@ public final class Utils {
         } else {
             buffer.mark();
             buffer.position(offset);
-            buffer.get(dest, 0, length);
+            buffer.get(dest);
             buffer.reset();
         }
         return dest;

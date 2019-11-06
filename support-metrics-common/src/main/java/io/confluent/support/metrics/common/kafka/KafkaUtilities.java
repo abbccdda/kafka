@@ -36,7 +36,7 @@ import java.util.concurrent.TimeoutException;
 import kafka.admin.AdminOperationException;
 import kafka.admin.RackAwareMode.Disabled$;
 import kafka.cluster.Broker;
-import kafka.controller.PartitionReplicaAssignment;
+import kafka.controller.ReplicaAssignment;
 import kafka.log.LogConfig;
 import kafka.server.BrokerShuttingDown;
 import kafka.server.KafkaServer;
@@ -263,12 +263,12 @@ public class KafkaUtilities {
     try {
       Set<String> topics = new HashSet<>();
       topics.add(topic);
-      scala.Option<scala.collection.Map<Object, PartitionReplicaAssignment>> partitionAssignmentOption =
+      scala.Option<scala.collection.Map<Object, ReplicaAssignment>> partitionAssignmentOption =
           zkClient.getPartitionAssignmentForTopics(
               JavaConversions.asScalaSet(topics).<String>toSet()).get(topic);
       if (!partitionAssignmentOption.isEmpty()) {
-          scala.collection.Map<Object, PartitionReplicaAssignment> partitionAssignment =
-              partitionAssignmentOption.get();
+        scala.collection.Map<Object, ReplicaAssignment> partitionAssignment =
+            partitionAssignmentOption.get();
         int actualNumPartitions = partitionAssignment.size();
         if (actualNumPartitions != expPartitions) {
           log.warn(
@@ -280,7 +280,7 @@ public class KafkaUtilities {
           verifyTopicState = VerifyTopicState.Less;
         }
         int firstPartitionId = 0;
-        scala.Option<PartitionReplicaAssignment> replicasOfFirstPartitionOption =
+        scala.Option<ReplicaAssignment> replicasOfFirstPartitionOption =
             partitionAssignment.get(firstPartitionId);
         if (!replicasOfFirstPartitionOption.isEmpty()) {
           int actualReplication = replicasOfFirstPartitionOption.get().replicas().size();

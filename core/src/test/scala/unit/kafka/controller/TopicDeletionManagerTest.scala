@@ -466,7 +466,7 @@ class TopicDeletionManagerTest {
       }
       context.updatePartitionFullReplicaAssignment(
         partition,
-        PartitionReplicaAssignment.fromCreate(replicas, Seq.empty)
+        ReplicaAssignment(replicas, Seq.empty)
       )
       leaderIndex += 1
     }

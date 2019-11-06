@@ -30,7 +30,7 @@ import kafka.api.ElectLeadersRequestOps
 import kafka.api.{ApiVersion, KAFKA_0_11_0_IV0, KAFKA_2_3_IV0}
 import kafka.cluster.Partition
 import kafka.common.OffsetAndMetadata
-import kafka.controller.{KafkaController, PartitionReplicaAssignment}
+import kafka.controller.{KafkaController, ReplicaAssignment}
 import kafka.coordinator.group.{GroupCoordinator, JoinGroupResult, LeaveGroupResult, SyncGroupResult}
 import kafka.coordinator.transaction.{InitProducerIdResult, TransactionCoordinator}
 import kafka.message.ZStdCompressionCodec
@@ -844,9 +844,12 @@ class KafkaApis(val requestChannel: RequestChannel,
     // the callback for process a fetch response, invoked before throttling
     def processResponseCallback(responsePartitionData: Seq[(TopicPartition, FetchPartitionData)]): Unit = {
       val partitions = new util.LinkedHashMap[TopicPartition, FetchResponse.PartitionData[Records]]
+      val reassigningPartitions = mutable.Set[TopicPartition]()
       responsePartitionData.foreach { case (tp, data) =>
         val abortedTransactions = data.abortedTransactions.map(_.asJava).orNull
         val lastStableOffset = data.lastStableOffset.getOrElse(FetchResponse.INVALID_LAST_STABLE_OFFSET)
+        if (data.isReassignmentFetch)
+          reassigningPartitions.add(tp)
         partitions.put(tp, new FetchResponse.PartitionData(data.error, data.highWatermark, lastStableOffset,
           data.logStartOffset, data.preferredReadReplica.map(int2Integer).asJava,
           abortedTransactions, data.records))
@@ -872,9 +875,9 @@ class KafkaApis(val requestChannel: RequestChannel,
         // Prepare fetch response from converted data
         val response = new FetchResponse(unconvertedFetchResponse.error(), convertedData, throttleTimeMs,
           unconvertedFetchResponse.sessionId())
-        response.responseData.asScala.foreach { case (topicPartition, data) =>
-          // record the bytes out metrics only when the response is being sent
-          brokerTopicStats.updateBytesOut(topicPartition.topic, fetchRequest.isFromFollower, data.records.sizeInBytes)
+        // record the bytes out metrics only when the response is being sent
+        response.responseData.asScala.foreach { case (tp, data) =>
+          brokerTopicStats.updateBytesOut(tp.topic, fetchRequest.isFromFollower, reassigningPartitions.contains(tp), data.records.sizeInBytes)
         }
         response
       }
@@ -2518,7 +2521,7 @@ class KafkaApis(val requestChannel: RequestChannel,
             tp -> None // revert call
           else
             tp -> Some(
-              PartitionReplicaAssignment.Assignment(
+              ReplicaAssignment.Assignment(
                 reassignablePartition.replicas().asScala.map(_.toInt),
                 reassignablePartition.observers().asScala.map(_.toInt)
               )
@@ -2533,7 +2536,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     authorizeClusterOperation(request, DESCRIBE)
     val listPartitionReassignmentsRequest = request.body[ListPartitionReassignmentsRequest]
 
-    def sendResponseCallback(result: Either[Map[TopicPartition, PartitionReplicaAssignment], ApiError]): Unit = {
+    def sendResponseCallback(result: Either[Map[TopicPartition, ReplicaAssignment], ApiError]): Unit = {
       val responseData = result match {
         case Right(error) => new ListPartitionReassignmentsResponseData().setErrorMessage(error.message()).setErrorCode(error.error().code())
 

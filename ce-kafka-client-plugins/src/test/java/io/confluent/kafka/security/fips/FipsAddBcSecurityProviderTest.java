@@ -12,7 +12,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.kafka.common.config.SecurityConfig;
-import org.apache.kafka.common.security.SecurityProviderCreator;
+import org.apache.kafka.common.security.auth.SecurityProviderCreator;
 import org.apache.kafka.common.utils.SecurityUtils;
 import io.confluent.kafka.security.fips.provider.BcFipsJsseProviderCreator;
 import io.confluent.kafka.security.fips.provider.BcFipsProviderCreator;

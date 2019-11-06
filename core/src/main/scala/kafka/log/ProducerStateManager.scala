@@ -612,8 +612,9 @@ class ProducerStateManager(val topicPartition: TopicPartition,
    * Truncate the producer id mapping to the given offset range and reload the entries from the most recent
    * snapshot in range (if there is one). We delete snapshot files prior to the logStartOffset but do not remove
    * producer state from the map. This means that in-memory and on-disk state can diverge, and in the case of
-   * broker failover or unclean shutdown, any in-memory state not persisted in the snapshots will be lost.
-   * Note that the log end offset is assumed to be less than or equal to the high watermark.
+   * broker failover or unclean shutdown, any in-memory state not persisted in the snapshots will be lost, which
+   * would lead to UNKNOWN_PRODUCER_ID errors. Note that the log end offset is assumed to be less than or equal
+   * to the high watermark.
    */
   def truncateAndReload(logStartOffset: Long, logEndOffset: Long, currentTimeMs: Long): Unit = {
     // remove all out of range snapshots
@@ -629,6 +630,8 @@ class ProducerStateManager(val topicPartition: TopicPartition,
       // safe to clear the unreplicated transactions
       unreplicatedTxns.clear()
       loadFromSnapshot(logStartOffset, currentTimeMs)
+    } else {
+      truncateHead(logStartOffset)
     }
   }
 

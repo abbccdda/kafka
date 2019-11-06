@@ -119,7 +119,7 @@ class ControllerChannelManagerTest {
         Seq(2),
         partition,
         leaderIsrAndControllerEpoch,
-        PartitionReplicaAssignment.fromCreate(Seq(1, 2, 3), Seq.empty),
+        ReplicaAssignment(Seq(1, 2, 3), Seq.empty),
         isNew = false
       )
     }
@@ -749,9 +749,7 @@ class ControllerChannelManagerTest {
     KafkaConfig.fromProps(props)
   }
 
-  private def replicaAssignment(replicas: Seq[Int]): PartitionReplicaAssignment = {
-    PartitionReplicaAssignment.fromCreate(replicas, Seq.empty)
-  }
+  private def replicaAssignment(replicas: Seq[Int]): ReplicaAssignment = ReplicaAssignment(replicas, Seq.empty)
 
   private def initContext(brokers: Seq[Int],
                           topicIds: mutable.Map[String, UUID],
@@ -777,7 +775,7 @@ class ControllerChannelManagerTest {
       }
       context.updatePartitionFullReplicaAssignment(
         partition,
-        PartitionReplicaAssignment.fromCreate(replicas, Seq.empty)
+        ReplicaAssignment(replicas, Seq.empty)
       )
       leaderIndex += 1
     }

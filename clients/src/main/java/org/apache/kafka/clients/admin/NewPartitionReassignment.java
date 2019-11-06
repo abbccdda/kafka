@@ -17,7 +17,6 @@
 
 package org.apache.kafka.clients.admin;
 
-import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -30,25 +29,41 @@ import java.util.Optional;
  * {@code targetReplicas} is the total set of brokers assigned while {@code targetObservers} is the set brokers that will act as observers. The size of {@code targetReplicas} must be greater than the size of {@code targetObservers} and every {@code targetObservers} must be included in {@code targetReplicas}.
  */
 public class NewPartitionReassignment {
-    private final List<Integer> targetBrokers;
+    private final List<Integer> targetReplicas;
     private final List<Integer> targetObservers;
 
-    public static Optional<NewPartitionReassignment> of(Integer... brokers) {
-        return Optional.of(new NewPartitionReassignment(Arrays.asList(brokers)));
+    /**
+     * @throws IllegalArgumentException if no replicas are supplied
+     */
+    public static Optional<NewPartitionReassignment> of(List<Integer> replicas) {
+        if (replicas == null || replicas.size() == 0)
+            throw new IllegalArgumentException("Cannot create a new partition reassignment without any replicas");
+        return Optional.of(new NewPartitionReassignment(replicas));
     }
 
-    public NewPartitionReassignment(List<Integer> targetBrokers) {
-        this.targetBrokers = Collections.unmodifiableList(new ArrayList<>(targetBrokers));
+    /**
+     * @throws IllegalArgumentException if no replicas are supplied
+     */
+    public static Optional<NewPartitionReassignment> ofReplicasAndObservers(List<Integer> replicas, List<Integer> observers) {
+        if (replicas == null || replicas.size() == 0) {
+            throw new IllegalArgumentException("Cannot create a new partition reassignment without any replicas");
+        }
+
+        return Optional.of(new NewPartitionReassignment(replicas, observers));
+    }
+
+    private NewPartitionReassignment(List<Integer> targetReplicas) {
+        this.targetReplicas = Collections.unmodifiableList(new ArrayList<>(targetReplicas));
         this.targetObservers = Collections.emptyList();
     }
 
-    public NewPartitionReassignment(List<Integer> targetBrokers, List<Integer> targetObservers) {
-        this.targetBrokers = Collections.unmodifiableList(new ArrayList<>(targetBrokers));
-        this.targetObservers = Collections.unmodifiableList(new ArrayList<>(targetObservers));
+    private NewPartitionReassignment(List<Integer> targetReplicas, List<Integer> targetObservers) {
+        this.targetReplicas = Collections.unmodifiableList(new ArrayList<>(targetReplicas));
+        this.targetObservers = Collections.unmodifiableList(new ArrayList<>(targetObservers == null ? Collections.emptyList() : targetObservers));
     }
 
-    public List<Integer> targetBrokers() {
-        return targetBrokers;
+    public List<Integer> targetReplicas() {
+        return targetReplicas;
     }
 
     public List<Integer> targetObservers() {

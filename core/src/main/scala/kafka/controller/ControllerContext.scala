@@ -24,8 +24,8 @@ import org.apache.kafka.common.TopicPartition
 
 import scala.collection.{Map, Seq, Set, mutable}
 
-object PartitionReplicaAssignment {
-  def fromOriginalAndTarget(original: Assignment, target: Assignment): PartitionReplicaAssignment = {
+object ReplicaAssignment {
+  def fromOriginalAndTarget(original: Assignment, target: Assignment): ReplicaAssignment = {
     // fullReplicaSet should have the following order: TSR, OSR, TOR, OOR
     val fullReplica = (
       // TSR is target sync replicas
@@ -52,7 +52,7 @@ object PartitionReplicaAssignment {
       (original.observers, Some(target.observers))
     }
 
-    PartitionReplicaAssignment(
+    ReplicaAssignment(
       fullReplica,
       addingReplicas,
       removingReplicas,
@@ -61,8 +61,8 @@ object PartitionReplicaAssignment {
     )
   }
 
-  def fromCreate(replicas: Seq[Int], observers: Seq[Int]): PartitionReplicaAssignment = {
-    PartitionReplicaAssignment(
+  def apply(replicas: Seq[Int], observers: Seq[Int]): ReplicaAssignment = {
+    ReplicaAssignment(
       replicas,
       Seq.empty,
       Seq.empty,
@@ -71,11 +71,11 @@ object PartitionReplicaAssignment {
     )
   }
 
-  def fromAssignment(assignment: Assignment): PartitionReplicaAssignment = {
-    fromCreate(assignment.replicas, assignment.observers)
+  def fromAssignment(assignment: Assignment): ReplicaAssignment = {
+    apply(assignment.replicas, assignment.observers)
   }
 
-  val empty = PartitionReplicaAssignment(Seq.empty, Seq.empty, Seq.empty, Seq.empty, None)
+  val empty = ReplicaAssignment(Seq.empty, Seq.empty, Seq.empty, Seq.empty, None)
 
   case class Assignment(replicas: Seq[Int], observers: Seq[Int]) {
     def syncReplicas: Seq[Int] = replicas.diff(observers)
@@ -96,44 +96,48 @@ object PartitionReplicaAssignment {
  * @param targetObservers value is a Some if there is a reassignment pending where the value is the new set of
  *                        observer. Otherwise None if there are no reassignment pending.
  */
-case class PartitionReplicaAssignment(
+case class ReplicaAssignment(
   replicas: Seq[Int],
   addingReplicas: Seq[Int],
   removingReplicas: Seq[Int],
   observers: Seq[Int],
   targetObservers: Option[Seq[Int]]
 ) {
-  import PartitionReplicaAssignment._
-
-  def isBeingReassigned: Boolean = {
-    addingReplicas.nonEmpty || removingReplicas.nonEmpty || targetObservers.nonEmpty
-  }
+  import ReplicaAssignment._
 
   /**
-    * Returns the partition replica assignment previous to this one.
-    * It is different than this one only when the partition is undergoing reassignment
-    * Note that this will not preserve the original ordering
-    */
-  def previousAssignment: Assignment = {
+   * Remove adding replicas and reorder so that observers are last
+   */
+  lazy val originAssignment: Assignment = {
     Assignment(
-      replicas.diff(addingReplicas),
+      replicas.diff(addingReplicas).diff(observers) ++ observers,
       observers
     )
   }
 
   /**
-   * Returns the target assignment if the partition is being reassigned; otherwise it returns None.
+   * Remove removing replicas and reorder so that targetObservers are last
    */
-
-  def targetAssignment: Option[Assignment] = {
-    targetObservers.map(Assignment(targetReplicas, _))
+  lazy val targetAssignment: Option[Assignment] = {
+    targetObservers.map { targetObservers =>
+      Assignment(
+        replicas.diff(removingReplicas).diff(targetObservers) ++ targetObservers,
+        targetObservers
+      )
+    }
   }
 
-  /**
-    * Returns the target replica assignment for this partition.
-    * This is different than the `replicas` variable only when there is a reassignment going on
-    */
-  def targetReplicas: Seq[Int] = replicas.diff(removingReplicas)
+  def isBeingReassigned: Boolean = {
+    addingReplicas.nonEmpty || removingReplicas.nonEmpty || targetObservers.nonEmpty
+  }
+
+  def reassignTo(newAssignment: Assignment): ReplicaAssignment = {
+    fromOriginalAndTarget(originAssignment, newAssignment)
+  }
+
+  def targetReplicaAssignment: ReplicaAssignment = {
+    targetAssignment.fold(ReplicaAssignment.fromAssignment(originAssignment))(ReplicaAssignment.fromAssignment)
+  }
 
   /**
     * Returns the replicas that are expected to be in the ISR for the reassignment to complete. This includes:
@@ -141,7 +145,9 @@ case class PartitionReplicaAssignment(
     * 2. Replicas that were observer and are now sync replicas
     */
   def expectedInSyncReplicas: Seq[Int] = {
-    targetReplicas.diff(targetObservers.getOrElse(observers))
+    targetAssignment.fold(Seq.empty[Int]) { assignment =>
+      assignment.replicas.diff(assignment.observers)
+    }
   }
 
   /**
@@ -154,8 +160,8 @@ case class PartitionReplicaAssignment(
     replicas.dropWhile(id => !activeObservers.contains(id))
   }
 
-  def removeReplica(replica: Int): PartitionReplicaAssignment = {
-    PartitionReplicaAssignment(
+  def removeReplica(replica: Int): ReplicaAssignment = {
+    ReplicaAssignment(
       replicas.filterNot(_ == replica),
       addingReplicas.filterNot(_ == replica),
       removingReplicas.filterNot(_ == replica),
@@ -164,9 +170,12 @@ case class PartitionReplicaAssignment(
     )
   }
 
-  override def toString: String = s"PartitionReplicaAssignment(replicas: ${replicas.mkString(",")}, " +
-    s"addingReplicas: ${addingReplicas.mkString(",")}, removingReplicas: ${removingReplicas.mkString(",")}, " +
-    s"observers: ${observers.mkString(",")}, targetObservers: ${targetObservers.mkString(",")})"
+  override def toString: String = s"ReplicaAssignment(" +
+    s"replicas=${replicas.mkString(",")}, " +
+    s"addingReplicas=${addingReplicas.mkString(",")}, " +
+    s"removingReplicas=${removingReplicas.mkString(",")}, " +
+    s"observers=${observers.mkString(",")}, " +
+    s"targetObservers=${targetObservers.map(_.mkString(","))})"
 }
 
 class ControllerContext {
@@ -180,9 +189,9 @@ class ControllerContext {
 
   var allTopics: Set[String] = Set.empty
   var topicIds = mutable.Map.empty[String, UUID]
-  val partitionAssignments = mutable.Map.empty[String, mutable.Map[Int, PartitionReplicaAssignment]]
+  val partitionAssignments = mutable.Map.empty[String, mutable.Map[Int, ReplicaAssignment]]
   val partitionLeadershipInfo = mutable.Map.empty[TopicPartition, LeaderIsrAndControllerEpoch]
-  val partitionsBeingReassigned = mutable.Map.empty[TopicPartition, ReassignedPartitionsContext]
+  val partitionsBeingReassigned = mutable.Set.empty[TopicPartition]
   val partitionStates = mutable.Map.empty[TopicPartition, PartitionState]
   val replicaStates = mutable.Map.empty[PartitionAndReplica, ReplicaState]
   val replicasOnOfflineDirs: mutable.Map[Int, Set[TopicPartition]] = mutable.Map.empty
@@ -242,12 +251,12 @@ class ControllerContext {
       }
   }
 
-  def partitionFullReplicaAssignment(topicPartition: TopicPartition): PartitionReplicaAssignment = {
+  def partitionFullReplicaAssignment(topicPartition: TopicPartition): ReplicaAssignment = {
     partitionAssignments.getOrElse(topicPartition.topic, mutable.Map.empty)
-      .getOrElse(topicPartition.partition, PartitionReplicaAssignment.empty)
+      .getOrElse(topicPartition.partition, ReplicaAssignment.empty)
   }
 
-  def updatePartitionFullReplicaAssignment(topicPartition: TopicPartition, newAssignment: PartitionReplicaAssignment): Unit = {
+  def updatePartitionFullReplicaAssignment(topicPartition: TopicPartition, newAssignment: ReplicaAssignment): Unit = {
     val assignments = partitionAssignments.getOrElseUpdate(topicPartition.topic, mutable.Map.empty)
     assignments.put(topicPartition.partition, newAssignment)
   }
@@ -258,7 +267,7 @@ class ControllerContext {
     }.toMap
   }
 
-  def partitionFullReplicaAssignmentForTopic(topic : String): Map[TopicPartition, PartitionReplicaAssignment] = {
+  def partitionFullReplicaAssignmentForTopic(topic : String): Map[TopicPartition, ReplicaAssignment] = {
     partitionAssignments.getOrElse(topic, Map.empty).map {
       case (partition, assignment) => (new TopicPartition(topic, partition), assignment)
     }.toMap

@@ -22,18 +22,18 @@ import java.util.{Collections, Properties}
 
 import joptsimple._
 import kafka.common.{AdminCommandFailedException, TopicPlacement}
-import kafka.controller.PartitionReplicaAssignment
+import kafka.controller.ReplicaAssignment
 import kafka.log.LogConfig
 import kafka.server.ConfigType
 import kafka.utils.Implicits._
 import kafka.utils._
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.clients.admin.{Admin, ConfigEntry, ListTopicsOptions, NewPartitions, NewTopic, AdminClient => JAdminClient, Config => JConfig}
+import org.apache.kafka.clients.admin.{Admin, ConfigEntry, ListPartitionReassignmentsOptions, ListTopicsOptions, NewPartitions, NewTopic, PartitionReassignment, AdminClient => JAdminClient, Config => JConfig}
 import org.apache.kafka.common.{Node, TopicPartition, TopicPartitionInfo}
 import org.apache.kafka.common.config.ConfigResource.Type
 import org.apache.kafka.common.config.{ConfigResource, ConfluentTopicConfig, TopicConfig}
-import org.apache.kafka.common.errors.{InvalidTopicException, TopicExistsException}
+import org.apache.kafka.common.errors.{InvalidTopicException, TopicExistsException, UnsupportedVersionException}
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.security.JaasUtils
 import org.apache.kafka.common.utils.{Time, Utils}
@@ -42,6 +42,7 @@ import org.apache.zookeeper.KeeperException.NodeExistsException
 import scala.collection.JavaConverters._
 import scala.collection._
 import scala.compat.java8.OptionConverters._
+import scala.concurrent.ExecutionException
 import scala.io.StdIn
 
 object TopicCommand extends Logging {
@@ -119,6 +120,7 @@ object TopicCommand extends Logging {
                                   info: TopicPartitionInfo,
                                   config: Option[JConfig],
                                   markedForDeletion: Boolean,
+                                  reassignment: Option[PartitionReassignment],
                                   liveBrokerIds: Set[Int]) {
     private val allReplicaIds = info.replicas.asScala.map(_.id)
     private val offlineReplicaIds = allReplicaIds.toSet -- liveBrokerIds
@@ -130,7 +132,7 @@ object TopicCommand extends Logging {
     }
 
     def hasUnderReplicatedPartitions: Boolean = {
-      !hasLeader || info.isr.size < allReplicaIds.size - observerIds.size
+      !hasLeader || getReplicationFactor(info, reassignment) - info.isr.size - observerIds.size > 0
     }
 
     private def hasLeader: Boolean = {
@@ -285,6 +287,22 @@ object TopicCommand extends Logging {
       val allConfigs = adminClient.describeConfigs(topics.map(new ConfigResource(Type.TOPIC, _)).asJavaCollection).values()
       val liveBrokers = adminClient.describeCluster().nodes().get().asScala.map(_.id())
       val topicDescriptions = adminClient.describeTopics(topics.asJavaCollection).all().get().values().asScala
+      val reassignments: util.Map[TopicPartition, PartitionReassignment] = try {
+        if (opts.topic.isEmpty) {
+          adminClient.listPartitionReassignments(new ListPartitionReassignmentsOptions).reassignments().get()
+        } else {
+          val topicPartitions = topicDescriptions.flatMap(pi => pi.partitions().asScala.map(tpi => new TopicPartition(pi.name(), tpi.partition())))
+          adminClient.listPartitionReassignments(topicPartitions.toSet.asJava).reassignments().get()
+        }
+      } catch {
+        case e: ExecutionException =>
+          e.getCause match {
+            case ex: UnsupportedVersionException =>
+              logger.debug("Couldn't query reassignments through the AdminClient API", ex)
+              Collections.emptyMap()
+            case t => throw t
+          }
+      }
       val describeOptions = new DescribeOptions(opts, liveBrokers.toSet)
 
       for (td <- topicDescriptions) {
@@ -296,21 +314,27 @@ object TopicCommand extends Logging {
           val hasNonDefault = config.entries().asScala.exists(!_.isDefault)
           if (!opts.reportOverriddenConfigs || hasNonDefault) {
             val numPartitions = td.partitions().size
-            val replicationFactor = td.partitions.iterator.next().replicas.size
-            val topicDesc = TopicDescription(topicName, numPartitions, replicationFactor, config, markedForDeletion = false)
+            val firstPartition = td.partitions.iterator.next()
+            val reassignment = getReassignment(td.name, firstPartition.partition, reassignments)
+            val topicDesc = TopicDescription(topicName, numPartitions, getReplicationFactor(firstPartition, reassignment), config, markedForDeletion = false)
             topicDesc.printDescription()
           }
         }
 
         if (describeOptions.describePartitions) {
           for (partition <- sortedPartitions) {
-            val partitionDesc = PartitionDescription(topicName, partition, Some(config), markedForDeletion = false,
-              liveBrokers.toSet)
+            val reassignment = getReassignment(td.name, partition.partition, reassignments)
+            val partitionDesc = PartitionDescription(topicName, partition, Some(config), markedForDeletion = false, reassignment, liveBrokers.toSet)
             describeOptions.maybePrintPartitionDescription(partitionDesc)
           }
         }
       }
     }
+
+    private def getReassignment(topic: String,
+                                partition: Int,
+                                reassignments: util.Map[TopicPartition, PartitionReassignment]): Option[PartitionReassignment] =
+      Option(reassignments.get(new TopicPartition(topic, partition)))
 
     override def deleteTopic(opts: TopicCommandOptions): Unit = {
       val topics = getTopics(opts.topic, opts.excludeInternalTopics)
@@ -343,7 +367,7 @@ object TopicCommand extends Logging {
       try {
         if (topic.hasReplicaAssignment) {
           val replicaAssignment = topic.replicaAssignment.get.map { case (key, replicas) =>
-            key -> PartitionReplicaAssignment.fromCreate(replicas, Seq.empty)
+            key -> ReplicaAssignment(replicas, Seq.empty)
           }
           adminZkClient.createTopicWithAssignment(topic.name, topic.configsToAdd, replicaAssignment)
         } else {
@@ -401,7 +425,7 @@ object TopicCommand extends Logging {
               assignments
                 .filterKeys(partition => partition >= existingAssignment.size)
                 .map { case (key, replicas) =>
-                  key -> PartitionReplicaAssignment.fromCreate(replicas, Seq.empty)
+                  key -> ReplicaAssignment(replicas, Seq.empty)
                 }
             }
             .filter(_.nonEmpty)
@@ -456,7 +480,7 @@ object TopicCommand extends Logging {
                   assignedReplicas.map(asNode).toList.asJava, List().asJava,
                   isr.map(asNode).toList.asJava)
 
-                val partitionDesc = PartitionDescription(topic, info, config = None, markedForDeletion, liveBrokerIds)
+                val partitionDesc = PartitionDescription(topic, info, config = None, markedForDeletion, reassignment = None, liveBrokerIds)
                 describeOptions.maybePrintPartitionDescription(partitionDesc)
               }
             }
@@ -506,7 +530,7 @@ object TopicCommand extends Logging {
     *                           If set to true, the command will throw an exception if the topic with the
     *                           requested name does not exist.
     */
-  private def ensureTopicExists(foundTopics: Seq[String], requestedTopic: Option[String], requireTopicExists: Boolean = true) = {
+  private def ensureTopicExists(foundTopics: Seq[String], requestedTopic: Option[String], requireTopicExists: Boolean = true): Unit = {
     // If no topic name was mentioned, do not need to throw exception.
     if (requestedTopic.isDefined && requireTopicExists && foundTopics.isEmpty) {
       // If given topic doesn't exist then throw exception
@@ -566,6 +590,13 @@ object TopicCommand extends Logging {
 
   def asJavaReplicaReassignment(original: Map[Int, List[Int]]): util.Map[Integer, util.List[Integer]] = {
     original.map(f => Integer.valueOf(f._1) -> f._2.map(e => Integer.valueOf(e)).asJava).asJava
+  }
+
+  private def getReplicationFactor(tpi: TopicPartitionInfo, reassignment: Option[PartitionReassignment]): Int = {
+    reassignment match {
+      case Some(ra) => ra.replicas.asScala.diff(ra.addingReplicas.asScala).size
+      case None => tpi.replicas.size
+    }
   }
 
   class TopicCommandOptions(args: Array[String]) extends CommandDefaultOptions(args) {

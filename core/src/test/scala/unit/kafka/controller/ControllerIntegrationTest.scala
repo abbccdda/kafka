@@ -234,7 +234,7 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
   @Test
   def testTopicIdMigrationAndHandling(): Unit = {
     val tp = new TopicPartition("t", 0)
-    val assignment = Map(tp.partition -> PartitionReplicaAssignment.fromCreate(Seq(0), Seq.empty))
+    val assignment = Map(tp.partition -> ReplicaAssignment(Seq(0), Seq.empty))
     val adminZkClient = new AdminZkClient(zkClient)
 
     // start server with tier feature = true
@@ -280,8 +280,8 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
     val tp1 = new TopicPartition("t", 1)
     val assignment = Map(tp0.partition -> Seq(0))
     val expandedAssignment = Map(
-      tp0 -> PartitionReplicaAssignment.fromCreate(Seq(0), Seq.empty),
-      tp1 -> PartitionReplicaAssignment.fromCreate(Seq(0), Seq.empty)
+      tp0 -> ReplicaAssignment(Seq(0), Seq.empty),
+      tp1 -> ReplicaAssignment(Seq(0), Seq.empty)
     )
     TestUtils.createTopic(zkClient, tp0.topic, partitionReplicaAssignment = assignment, servers = servers)
     zkClient.setTopicAssignment(tp0.topic, None, expandedAssignment, firstControllerEpochZkVersion)
@@ -299,8 +299,8 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
     val tp1 = new TopicPartition("t", 1)
     val assignment = Map(tp0.partition -> Seq(otherBrokerId, controllerId))
     val expandedAssignment = Map(
-      tp0 -> PartitionReplicaAssignment.fromCreate(Seq(otherBrokerId, controllerId), Seq.empty),
-      tp1 -> PartitionReplicaAssignment.fromCreate(Seq(otherBrokerId, controllerId), Seq.empty)
+      tp0 -> ReplicaAssignment(Seq(otherBrokerId, controllerId), Seq.empty),
+      tp1 -> ReplicaAssignment(Seq(otherBrokerId, controllerId), Seq.empty)
     )
     TestUtils.createTopic(zkClient, tp0.topic, partitionReplicaAssignment = assignment, servers = servers)
     servers(otherBrokerId).shutdown()
@@ -322,7 +322,7 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
     val otherBrokerId = servers.map(_.config.brokerId).filter(_ != controllerId).head
     val tp = new TopicPartition("t", 0)
     val assignment = Map(tp.partition -> Seq(controllerId))
-    val reassignment = Map(tp -> PartitionReplicaAssignment.fromCreate(Seq(otherBrokerId), Seq.empty))
+    val reassignment = Map(tp -> ReplicaAssignment(Seq(otherBrokerId), Seq.empty))
     TestUtils.createTopic(zkClient, tp.topic, partitionReplicaAssignment = assignment, servers = servers)
     zkClient.createPartitionReassignment(reassignment.mapValues(_.replicas).toMap)
     waitForPartitionState(tp, firstControllerEpoch, otherBrokerId, LeaderAndIsr.initialLeaderEpoch + 3,
@@ -362,7 +362,7 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
     val otherBrokerId = servers.map(_.config.brokerId).filter(_ != controllerId).head
     val tp = new TopicPartition("t", 0)
     val assignment = Map(tp.partition -> Seq(controllerId))
-    val reassignment = Map(tp -> PartitionReplicaAssignment.fromCreate(Seq(otherBrokerId), Seq.empty))
+    val reassignment = Map(tp -> ReplicaAssignment(Seq(otherBrokerId), Seq.empty))
     TestUtils.createTopic(zkClient, tp.topic, partitionReplicaAssignment = assignment, servers = servers)
     servers(otherBrokerId).shutdown()
     servers(otherBrokerId).awaitShutdown()
@@ -544,7 +544,7 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
     servers = makeServers(1)
     TestUtils.waitUntilControllerElected(zkClient)
     val tp = new TopicPartition("t", 0)
-    val assignment = Map(tp.partition -> PartitionReplicaAssignment.fromCreate(Seq(0), Seq.empty))
+    val assignment = Map(tp.partition -> ReplicaAssignment(Seq(0), Seq.empty))
 
     testControllerMove(() => {
       val adminZkClient = new AdminZkClient(zkClient)
@@ -660,8 +660,6 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
       TestUtils.waitUntilTrue(() => !controller.isActive, "Controller fails to resign")
 
       // Expect to capture the ControllerMovedException in the log of ControllerEventThread
-      println(appender.getMessages.find(e => e.getLevel == Level.INFO
-        && e.getThrowableInformation != null))
       val event = appender.getMessages.find(e => e.getLevel == Level.INFO
         && e.getThrowableInformation != null
         && e.getThrowableInformation.getThrowable.getClass.getName.equals(classOf[ControllerMovedException].getName))

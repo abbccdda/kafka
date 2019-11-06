@@ -6,7 +6,7 @@ package io.confluent.kafka.security.fips.provider;
 
 import java.security.Provider;
 
-import org.apache.kafka.common.security.SecurityProviderCreator;
+import org.apache.kafka.common.security.auth.SecurityProviderCreator;
 import org.bouncycastle.jcajce.provider.BouncyCastleFipsProvider;
 
 

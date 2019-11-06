@@ -149,7 +149,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
 
       // Reassign the observer to a different broker matching the existing observer constraint
       client.alterPartitionReassignments(
-        Map(topicPartition -> Optional.of(reassignmentEntry(Seq(broker1, broker2, broker4), Seq(broker4)))).asJava
+        Map(topicPartition -> reassignmentEntry(Seq(broker1, broker2, broker4), Seq(broker4))).asJava
       ).all().get()
 
       waitForAllReassignmentsToComplete(client)
@@ -193,7 +193,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       }
 
       client.alterPartitionReassignments(
-        Map(topicPartition -> Optional.of(reassignmentEntry(Seq(broker1, broker2, broker5), Seq(broker5)))).asJava
+        Map(topicPartition -> reassignmentEntry(Seq(broker1, broker2, broker5), Seq(broker5))).asJava
       ).all().get()
 
       waitForAllReassignmentsToComplete(client)
@@ -232,7 +232,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       }
 
       client.alterPartitionReassignments(
-        Map(topicPartition -> Optional.of(reassignmentEntry(Seq(broker1, broker2, broker3), Seq(broker3)))).asJava
+        Map(topicPartition -> reassignmentEntry(Seq(broker1, broker2, broker3), Seq(broker3))).asJava
       ).all().get()
 
       waitForAllReassignmentsToComplete(client)
@@ -275,7 +275,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       }
 
       client.alterPartitionReassignments(
-        Map(topicPartition -> Optional.of(reassignmentEntry(Seq(broker3, broker4, broker1, broker2), Seq(broker1, broker2)))).asJava
+        Map(topicPartition -> reassignmentEntry(Seq(broker3, broker4, broker1, broker2), Seq(broker1, broker2))).asJava
       ).all().get()
 
       waitForAllReassignmentsToComplete(client)
@@ -311,7 +311,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       TestUtils.alterTopicConfigs(client, topic, new Properties())
 
       client.alterPartitionReassignments(
-        Map(topicPartition -> Optional.of(reassignmentEntry(Seq(broker1, broker2, broker3), Seq.empty))).asJava
+        Map(topicPartition -> reassignmentEntry(Seq(broker1, broker2, broker3), Seq.empty)).asJava
       ).all().get()
 
       waitForAllReassignmentsToComplete(client)
@@ -345,7 +345,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       TestUtils.alterTopicConfigs(client, topic, new Properties())
 
       client.alterPartitionReassignments(
-        Map(topicPartition -> Optional.of(reassignmentEntry(Seq(broker1, broker2), Seq.empty))).asJava
+        Map(topicPartition -> reassignmentEntry(Seq(broker1, broker2), Seq.empty)).asJava
       ).all().get()
 
       waitForAllReassignmentsToComplete(client)
@@ -381,7 +381,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       }
 
       client.alterPartitionReassignments(
-        Map(topicPartition -> Optional.of(reassignmentEntry(Seq(broker1, broker2, broker3), Seq(broker3)))).asJava
+        Map(topicPartition -> reassignmentEntry(Seq(broker1, broker2, broker3), Seq(broker3))).asJava
       ).all().get()
 
       waitForAllReassignmentsToComplete(client)
@@ -414,8 +414,8 @@ object ConfluentObserverTest {
     )
   }
 
-  def reassignmentEntry(replicas: Seq[Int], observers: Seq[Int]): NewPartitionReassignment = {
-    new NewPartitionReassignment(
+  def reassignmentEntry(replicas: Seq[Int], observers: Seq[Int]): Optional[NewPartitionReassignment] = {
+    NewPartitionReassignment.ofReplicasAndObservers(
       replicas.map(_.asInstanceOf[Integer]).asJava,
       observers.map(_.asInstanceOf[Integer]).asJava
     )

@@ -20,11 +20,12 @@ package kafka.server
 import java.net.InetAddress
 import java.nio.charset.StandardCharsets
 import java.util
-import java.util.{Collections, Optional}
 import java.util.Arrays.asList
+import java.util.{Collections, Optional}
 
 import kafka.api.{ApiVersion, KAFKA_0_10_2_IV0, KAFKA_2_2_IV1}
-import kafka.controller.{KafkaController, PartitionReplicaAssignment}
+import kafka.cluster.Partition
+import kafka.controller.{KafkaController, ReplicaAssignment}
 import kafka.coordinator.group.GroupCoordinator
 import kafka.coordinator.transaction.TransactionCoordinator
 import kafka.network.RequestChannel
@@ -32,30 +33,30 @@ import kafka.network.RequestChannel.SendResponse
 import kafka.server.QuotaFactory.QuotaManagers
 import kafka.utils.{MockTime, TestUtils}
 import kafka.zk.KafkaZkClient
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.{IsolationLevel, TopicPartition}
 import org.apache.kafka.common.errors.UnsupportedVersionException
 import org.apache.kafka.common.memory.MemoryPool
-import org.apache.kafka.common.metrics.Metrics
-import org.apache.kafka.common.network.ListenerName
-import org.apache.kafka.common.protocol.{ApiKeys, Errors}
-import org.apache.kafka.common.record._
-import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
-import org.apache.kafka.common.requests.WriteTxnMarkersRequest.TxnMarkerEntry
-import org.apache.kafka.common.requests.{FetchMetadata => JFetchMetadata, _}
-import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
-import org.easymock.{Capture, EasyMock, IAnswer}
-import EasyMock._
-import org.apache.kafka.common.message.{HeartbeatRequestData, JoinGroupRequestData, ListPartitionReassignmentsRequestData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteRequestData, SyncGroupRequestData, TxnOffsetCommitRequestData}
 import org.apache.kafka.common.message.JoinGroupRequestData.JoinGroupRequestProtocol
-import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
-import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.message.LeaveGroupRequestData.MemberIdentity
 import org.apache.kafka.common.message.ListPartitionReassignmentsRequestData.ListPartitionReassignmentsTopics
 import org.apache.kafka.common.message.ListPartitionReassignmentsResponseData.OngoingPartitionReassignment
 import org.apache.kafka.common.message.OffsetDeleteRequestData.{OffsetDeleteRequestPartition, OffsetDeleteRequestTopic, OffsetDeleteRequestTopicCollection}
 import org.apache.kafka.common.message.UpdateMetadataRequestData.{UpdateMetadataBroker, UpdateMetadataEndpoint, UpdateMetadataPartitionState}
+import org.apache.kafka.common.message._
+import org.apache.kafka.common.metrics.Metrics
+import org.apache.kafka.common.network.ListenerName
+import org.apache.kafka.common.protocol.{ApiKeys, Errors}
+import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
+import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
+import org.apache.kafka.common.record._
 import org.apache.kafka.common.replica.ClientMetadata
+import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
+import org.apache.kafka.common.requests.WriteTxnMarkersRequest.TxnMarkerEntry
+import org.apache.kafka.common.requests.{FetchMetadata => JFetchMetadata, _}
+import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
 import org.apache.kafka.server.authorizer.Authorizer
+import org.easymock.EasyMock._
+import org.easymock.{Capture, EasyMock, IAnswer}
 import org.junit.Assert.{assertEquals, assertNull, assertTrue}
 import org.junit.{After, Test}
 
@@ -89,6 +90,7 @@ class KafkaApisTest {
   @After
   def tearDown(): Unit = {
     quotas.shutdown()
+    TestUtils.clearYammerMetrics()
     metrics.close()
   }
 
@@ -555,8 +557,8 @@ class KafkaApisTest {
         val callback = getCurrentArguments.apply(7).asInstanceOf[(Seq[(TopicPartition, FetchPartitionData)] => Unit)]
         val records = MemoryRecords.withRecords(CompressionType.NONE,
           new SimpleRecord(timestamp, "foo".getBytes(StandardCharsets.UTF_8)))
-        callback(Seq(tp -> new FetchPartitionData(Errors.NONE, hw, 0, records,
-          None, None, Option.empty)))
+        callback(Seq(tp -> FetchPartitionData(Errors.NONE, hw, 0, records,
+          None, None, Option.empty, isReassignmentFetch = false)))
       }
     })
 
@@ -749,7 +751,7 @@ class KafkaApisTest {
       def answer: Unit = {
         val callback = getCurrentArguments.apply(7).asInstanceOf[Seq[(TopicPartition, FetchPartitionData)] => Unit]
         callback(Seq(topicPartition -> FetchPartitionData(Errors.NONE, hw, 0, records,
-          None, None, None)))
+          None, None, None, false)))
       }
     })
 
@@ -873,7 +875,7 @@ class KafkaApisTest {
   @Test
   def testListReassignmentShouldIncludeObservers(): Unit = {
     def sendRequestAndReceiveResponse(requestBuilder: ListPartitionReassignmentsRequest.Builder,
-                                      expectedReassignments: Map[TopicPartition, PartitionReplicaAssignment]): ListPartitionReassignmentsResponse = {
+                                      expectedReassignments: Map[TopicPartition, ReplicaAssignment]): ListPartitionReassignmentsResponse = {
       val kafkaApis = createKafkaApis()
       val (listReassignmentRequest, request) = buildRequest(requestBuilder)
 
@@ -899,8 +901,8 @@ class KafkaApisTest {
     val fooPartition = new TopicPartition("foo", 0)
     val barPartition = new TopicPartition("bar", 1)
     val expectedReassignments = Map(
-      fooPartition -> new PartitionReplicaAssignment(Seq(1, 2, 3, 4), Seq(3, 4), Seq(), Seq(3, 4), None),
-      barPartition -> new PartitionReplicaAssignment(Seq(1, 2, 3, 4), Seq(), Seq(), Seq(4), None)
+      fooPartition -> new ReplicaAssignment(Seq(1, 2, 3, 4), Seq(3, 4), Seq(), Seq(3, 4), None),
+      barPartition -> new ReplicaAssignment(Seq(1, 2, 3, 4), Seq(), Seq(), Seq(4), None)
     )
 
     val data = new ListPartitionReassignmentsRequestData().setTopics(List(
@@ -915,7 +917,7 @@ class KafkaApisTest {
     assertEquals(2, listReassignmentResponse.data.topics.size)
     val topicReassignments = listReassignmentResponse.data.topics.asScala
 
-    def assertReassignment(expected: PartitionReplicaAssignment, value: OngoingPartitionReassignment): Unit = {
+    def assertReassignment(expected: ReplicaAssignment, value: OngoingPartitionReassignment): Unit = {
       assertEquals(expected.replicas, value.replicas.asScala)
       assertEquals(expected.addingReplicas, value.addingReplicas.asScala)
       assertEquals(expected.removingReplicas, value.removingReplicas.asScala)
@@ -931,6 +933,66 @@ class KafkaApisTest {
     assertEquals("bar", barReassignment.name)
     assertEquals(1, barReassignment.partitions.size)
     assertReassignment(expectedReassignments(barPartition), barReassignment.partitions.asScala.head)
+  }
+
+  @Test
+  def testReassignmentAndReplicationBytesOutRateWhenReassigning(): Unit = {
+    assertReassignmentAndReplicationBytesOutPerSec(true)
+  }
+
+  @Test
+  def testReassignmentAndReplicationBytesOutRateWhenNotReassigning(): Unit = {
+    assertReassignmentAndReplicationBytesOutPerSec(false)
+  }
+
+  private def assertReassignmentAndReplicationBytesOutPerSec(isReassigning: Boolean) {
+    val leaderEpoch = 0
+    val tp0 = new TopicPartition("tp", 0)
+
+    val fetchData = Collections.singletonMap(tp0, new FetchRequest.PartitionData(0,0, Int.MaxValue, Optional.of(leaderEpoch)))
+    val (_, fetchFromFollower) = buildRequest(new FetchRequest.Builder(
+      ApiKeys.FETCH.oldestVersion(), ApiKeys.FETCH.latestVersion(), 1, 1000, 0, fetchData))
+
+    setupBasicMetadataCache(tp0.topic, numPartitions = 1)
+    val hw = 3
+
+    val records = MemoryRecords.withRecords(CompressionType.NONE,
+      new SimpleRecord(1000, "foo".getBytes(StandardCharsets.UTF_8)))
+    replicaManager.fetchMessages(anyLong, anyInt, anyInt, anyInt, anyBoolean,
+      anyObject[Seq[(TopicPartition, FetchRequest.PartitionData)]], anyObject[ReplicaQuota],
+      anyObject[Seq[(TopicPartition, FetchPartitionData)] => Unit](), anyObject[IsolationLevel],
+      anyObject[Option[ClientMetadata]])
+    expectLastCall[Unit].andAnswer(new IAnswer[Unit] {
+      def answer: Unit = {
+        val callback = getCurrentArguments.apply(7).asInstanceOf[Seq[(TopicPartition, FetchPartitionData)] => Unit]
+        callback(Seq(tp0 -> FetchPartitionData(Errors.NONE, hw, 0, records, None, None, Option.empty, isReassignmentFetch = isReassigning)))
+      }
+    })
+
+    val fetchMetadata = new JFetchMetadata(0, 0)
+    val fetchContext = new FullFetchContext(time, new FetchSessionCache(1000, 100),
+      fetchMetadata, fetchData, true)
+    expect(fetchManager.newContext(anyObject[JFetchMetadata],
+      anyObject[util.Map[TopicPartition, FetchRequest.PartitionData]],
+      anyObject[util.List[TopicPartition]],
+      anyBoolean)).andReturn(fetchContext)
+
+    expect(replicaQuotaManager.record(anyLong()))
+    expect(replicaManager.getLogConfig(EasyMock.eq(tp0))).andReturn(None)
+
+    val partition: Partition = createNiceMock(classOf[Partition])
+    expect(replicaManager.isAddingReplica(anyObject(), anyInt())).andReturn(isReassigning)
+
+    replay(replicaManager, fetchManager, clientQuotaManager, requestChannel, replicaQuotaManager, partition)
+
+    createKafkaApis().handle(fetchFromFollower)
+
+    if (isReassigning)
+      assertEquals(records.sizeInBytes(), brokerTopicStats.allTopicsStats.reassignmentBytesOutPerSec.get.count())
+    else
+      assertEquals(0, brokerTopicStats.allTopicsStats.reassignmentBytesOutPerSec.get.count())
+    assertEquals(records.sizeInBytes(), brokerTopicStats.allTopicsStats.replicationBytesOutRate.get.count())
+
   }
 
   /**
