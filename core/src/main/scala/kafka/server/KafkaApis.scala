@@ -236,9 +236,11 @@ class KafkaApis(val requestChannel: RequestChannel,
           .setReplicas(replicas.map { status =>
             new ReplicaStatusReplicaResponse()
               .setId(status.brokerId)
-              .setMode(status.mode().value())
+              .setIsLeader(status.isLeader())
+              .setIsObserver(status.isObserver())
+              .setIsIsrEligible(status.isIsrEligible())
+              .setIsInIsr(status.isInIsr())
               .setIsCaughtUp(status.isCaughtUp())
-              .setIsInSync(status.isInSync())
               .setLogStartOffset(status.logStartOffset())
               .setLogEndOffset(status.logEndOffset())
               .setLastCaughtUpTimeMs(status.lastCaughtUpTimeMs())

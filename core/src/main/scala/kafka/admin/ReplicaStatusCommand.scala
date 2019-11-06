@@ -5,6 +5,7 @@ package kafka.admin
 
 import java.util.Properties
 import java.util.concurrent.ExecutionException
+import joptsimple.ArgumentAcceptingOptionSpec
 
 import kafka.common.AdminCommandFailedException
 import kafka.utils.CommandDefaultOptions
@@ -25,9 +26,9 @@ import scala.concurrent.duration._
 object ReplicaStatusCommand extends Logging {
   case class Args(topics: Seq[String],
     partitions: Seq[Int],
-    modes: Set[ReplicaStatus.Mode],
+    leaders: Option[Boolean],
+    observers: Option[Boolean],
     compactOutput: Boolean,
-    onlyNotCaughtUp: Boolean,
     excludeInternalTopics: Boolean)
 
   def main(args: Array[String]): Unit = {
@@ -102,24 +103,20 @@ object ReplicaStatusCommand extends Logging {
     val result = client.replicaStatus(topicPartitions.toSet.asJava, new ReplicaStatusOptions)
 
     if (args.compactOutput)
-      println("Topic\tPartition\tReplica\tMode\tIsCaughtUp\tIsInSync\tLastCaughtUpLagMs\tLastFetchLagMs\tLogStartOffset\tLogEndOffset")
+      println("Topic\tPartition\tReplica\tIsLeader\tIsObserver\tIsIsrEligible\tIsInIsr\tIsCaughtUp\tLastCaughtUpLagMs\tLastFetchLagMs\tLogStartOffset\tLogEndOffset")
 
     result.result.asScala.toList.sortBy { case (key, _) =>
       (key.topic, key.partition)
     }.foreach { case (partition, replicas) =>
       val status = replicas.get.asScala.sortBy(_.brokerId)
-      val leaderTimeMs = status.filter(_.mode == ReplicaStatus.Mode.LEADER).map(_.lastCaughtUpTimeMs).headOption.getOrElse[Long](0)
+      val leaderTimeMs = status.filter(_.isLeader).map(_.lastCaughtUpTimeMs).headOption.getOrElse[Long](0)
       status.foreach(maybePrintReplicaStatus(args, partition, _, leaderTimeMs))
     }
   }
 
   private def maybePrintReplicaStatus(args: Args, partition: TopicPartition, status: ReplicaStatus, leaderTimeMs: Long): Unit = {
-    if (args.onlyNotCaughtUp && status.isCaughtUp)
+    if (args.leaders.exists(_ != status.isLeader) || args.observers.exists(_ != status.isObserver))
       return
-    if (!args.modes.contains(status.mode))
-      return
-
-    def toYesNo(yes: Boolean): String = if (yes) "yes" else "no"
 
     def toLagMsStr(timeMs: Long): String = if (timeMs <= 0) "unknown" else (leaderTimeMs - timeMs).toString
 
@@ -141,9 +138,11 @@ object ReplicaStatusCommand extends Logging {
     } else {
       printEntry("Topic-Partition-Replica", s"${partition.topic}-${partition.partition}-${status.brokerId}", true, false)
     }
-    printEntry("Mode", status.mode.toString, false, false)
-    printEntry("IsCaughtUp", toYesNo(status.isCaughtUp), false, false)
-    printEntry("IsInSync", toYesNo(status.isInSync), false, false)
+    printEntry("IsLeader", status.isLeader.toString, false, false)
+    printEntry("IsObserver", status.isObserver.toString, false, false)
+    printEntry("IsIsrEligible", status.isIsrEligible.toString, false, false)
+    printEntry("IsInIsr", status.isInIsr.toString, false, false)
+    printEntry("IsCaughtUp", status.isCaughtUp.toString, false, false)
     printEntry("LastCaughtUpLagMs", toLagMsStr(status.lastCaughtUpTimeMs), false, false)
     printEntry("LastFetchLagMs", toLagMsStr(status.lastFetchTimeMs), false, false)
     printEntry("LogStartOffset", toLogOffsetStr(status.logStartOffset), false, false)
@@ -194,24 +193,24 @@ object ReplicaStatusCommand extends Logging {
       partitionsArg = tmpPartitions;
     }
 
-    // Extract the modes, if provided, otherwise initialize the modes to include all.
-    val modesArg = if (commandOptions.options.has(commandOptions.modesOpt)) {
-      commandOptions.options.valueOf(commandOptions.modesOpt).split(",").map { value =>
-        try {
-          ReplicaStatus.Mode.valueOf(value.toUpperCase)
-        } catch {
-          case e: IllegalArgumentException =>
-            throw new IllegalArgumentException(s"Failed to parse mode: ${value}")
-        }
-      }.toSet
-    } else
-      ReplicaStatus.Mode.values().toSet
+    val compactOutputArg = commandOptions.options.has(commandOptions.compactOutputOpt)
+    val excludeInternalTopicsArg = commandOptions.options.has(commandOptions.excludeInternalTopicsOpt)
 
-    val compactOutputArg = commandOptions.options.has(commandOptions.compactOutputOpt);
-    val onlyNotCaughtUpArg = commandOptions.options.has(commandOptions.onlyNotCaughtUpOpt);
-    val excludeInternalTopicsArg = commandOptions.options.has(commandOptions.excludeInternalTopicsOpt);
+    def parseBoolOpt(spec: ArgumentAcceptingOptionSpec[String]): Option[Boolean] = {
+      if (!commandOptions.options.has(spec))
+        None
+      else if (commandOptions.options.valueOf(spec) == null)
+        Some(true)
+      else commandOptions.options.valueOf(spec).toLowerCase match {
+        case "only" => Some(true)
+        case "exclude" => Some(false)
+        case value => throw new IllegalArgumentException(s"Unexpected value: ${value}")
+      }
+    }
+    val leadersArg = parseBoolOpt(commandOptions.leadersOpt)
+    val observersArg = parseBoolOpt(commandOptions.observersOpt)
 
-    Args(topicsArg, partitionsArg, modesArg, compactOutputArg, onlyNotCaughtUpArg, excludeInternalTopicsArg)
+    Args(topicsArg, partitionsArg, leadersArg, observersArg, compactOutputArg, excludeInternalTopicsArg)
   }
 }
 
@@ -237,15 +236,18 @@ private final class ReplicaStatusCommandOptions(args: Array[String]) extends Com
     .withRequiredArg
     .describedAs("partitions")
     .ofType(classOf[String])
-  val modesOpt = parser
-    .accepts("modes", "The modes for the displayed replicas. If empty, all replicas will be displayed.")
-    .withRequiredArg
-    .describedAs("leader,follower,observer")
+  val leadersOpt = parser
+    .accepts("leaders", "If set, only display the partition leaders' status information, or excluded if 'exclude'.")
+    .withOptionalArg
+    .describedAs("leaders")
+    .ofType(classOf[String])
+  val observersOpt = parser
+    .accepts("observers", "If set, only display the partition observers' status information, or excluded if 'exclude'.")
+    .withOptionalArg
+    .describedAs("observers")
     .ofType(classOf[String])
   val compactOutputOpt = parser
     .accepts("compact", "If set, show compact output with one replica per line, values separated by spaces.")
-  val onlyNotCaughtUpOpt = parser
-    .accepts("only-not-caught-up", "If set, only show replicas that aren't caught up. All replicas are displayed by default.")
   val excludeInternalTopicsOpt = parser
     .accepts("exclude-internal", "If set, exclude internal topics. All topics will be displayed by default.")
 

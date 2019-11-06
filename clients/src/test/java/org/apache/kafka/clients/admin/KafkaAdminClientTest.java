@@ -2290,6 +2290,23 @@ public class KafkaAdminClientTest {
         }
     }
 
+    private ReplicaStatusReplicaResponse newReplicaStatusReplicaResponse(int brokerId, boolean isLeader, boolean isObserver,
+                                                                         boolean isIsrEligible, boolean isInIsr, boolean isCaughtUp,
+                                                                         long logStartOffset, long logEndOffset,
+                                                                         long lastCaughtUpTimeMs, long lastFetchTimeMs) {
+        return new ReplicaStatusReplicaResponse()
+                .setId(brokerId)
+                .setIsLeader(isLeader)
+                .setIsObserver(isObserver)
+                .setIsIsrEligible(isIsrEligible)
+                .setIsInIsr(isInIsr)
+                .setIsCaughtUp(isCaughtUp)
+                .setLogStartOffset(logStartOffset)
+                .setLogEndOffset(logEndOffset)
+                .setLastCaughtUpTimeMs(lastCaughtUpTimeMs)
+                .setLastFetchTimeMs(lastFetchTimeMs);
+    }
+
     @Test
     public void testReplicaStatus() throws Exception {
         final String topic = "replica-status-topic";
@@ -2332,25 +2349,20 @@ public class KafkaAdminClientTest {
 
           final long leaderTimeMs = time.milliseconds();
           final long followerTimeMs = leaderTimeMs - 10000;
+          final long observerTimeMs = leaderTimeMs - 1000;
           List<ReplicaStatusReplicaResponse> replicaResponse0 = new ArrayList<ReplicaStatusReplicaResponse>();
-          replicaResponse0.add(new ReplicaStatusReplicaResponse()
-              .setId(0)
-              .setMode((byte) 0)
-              .setIsCaughtUp(true)
-              .setIsInSync(true)
-              .setLogStartOffset(10)
-              .setLogEndOffset(100)
-              .setLastCaughtUpTimeMs(leaderTimeMs)
-              .setLastFetchTimeMs(leaderTimeMs));
-          replicaResponse0.add(new ReplicaStatusReplicaResponse()
-              .setId(1)
-              .setMode((byte) 1)
-              .setIsCaughtUp(false)
-              .setIsInSync(false)
-              .setLogStartOffset(5)
-              .setLogEndOffset(50)
-              .setLastCaughtUpTimeMs(followerTimeMs)
-              .setLastFetchTimeMs(followerTimeMs));
+          replicaResponse0.add(newReplicaStatusReplicaResponse(
+              0, /* isLeader = */ true, /* isObserver = */ false,
+              /* isIsrEligible = */ true, /* isInIsr = */ true, /* isCaughtUp = */ true,
+              10, 100, leaderTimeMs, leaderTimeMs));
+          replicaResponse0.add(newReplicaStatusReplicaResponse(
+              1, /* isLeader = */ false, /* isObserver = */ false,
+              /* isIsrEligible = */ true, /* isInIsr = */ false, /* isCaughtUp = */ false,
+              5, 50, followerTimeMs, followerTimeMs));
+          replicaResponse0.add(newReplicaStatusReplicaResponse(
+              2, /* isLeader = */ false, /* isObserver = */ true,
+              /* isIsrEligible = */ false, /* isInIsr = */ false, /* isCaughtUp = */ true,
+              10, 100, observerTimeMs, observerTimeMs));
           List<ReplicaStatusPartitionResponse> partitionResponse0 = new ArrayList<ReplicaStatusPartitionResponse>();
           partitionResponse0.add(new ReplicaStatusPartitionResponse()
               .setPartitionIndex(0)
@@ -2386,25 +2398,40 @@ public class KafkaAdminClientTest {
 
           KafkaFuture<List<ReplicaStatus>> result0 = result.result().get(new TopicPartition(topic, 0));
           assertNotNull(result0);
-          assertTrue(result0.get().size() == 2);
+          assertTrue(result0.get().size() == 3);
           ReplicaStatus result00 = result0.get().get(0);
           assertTrue(result00.brokerId() == 0);
-          assertTrue(result00.mode() == ReplicaStatus.Mode.LEADER);
+          assertTrue(result00.isLeader());
+          assertFalse(result00.isObserver());
+          assertTrue(result00.isIsrEligible());
+          assertTrue(result00.isInIsr());
           assertTrue(result00.isCaughtUp());
-          assertTrue(result00.isInSync());
           assertTrue(result00.logStartOffset() == 10);
           assertTrue(result00.logEndOffset() == 100);
           assertTrue(result00.lastCaughtUpTimeMs() == leaderTimeMs);
           assertTrue(result00.lastFetchTimeMs() == leaderTimeMs);
           ReplicaStatus result01 = result0.get().get(1);
           assertTrue(result01.brokerId() == 1);
-          assertTrue(result01.mode() == ReplicaStatus.Mode.FOLLOWER);
+          assertFalse(result01.isLeader());
+          assertFalse(result01.isObserver());
+          assertTrue(result01.isIsrEligible());
+          assertFalse(result01.isInIsr());
           assertFalse(result01.isCaughtUp());
-          assertFalse(result01.isInSync());
           assertTrue(result01.logStartOffset() == 5);
           assertTrue(result01.logEndOffset() == 50);
           assertTrue(result01.lastCaughtUpTimeMs() == followerTimeMs);
           assertTrue(result01.lastFetchTimeMs() == followerTimeMs);
+          ReplicaStatus result02 = result0.get().get(2);
+          assertTrue(result02.brokerId() == 2);
+          assertFalse(result02.isLeader());
+          assertTrue(result02.isObserver());
+          assertFalse(result02.isIsrEligible());
+          assertFalse(result02.isInIsr());
+          assertTrue(result02.isCaughtUp());
+          assertTrue(result02.logStartOffset() == 10);
+          assertTrue(result02.logEndOffset() == 100);
+          assertTrue(result02.lastCaughtUpTimeMs() == observerTimeMs);
+          assertTrue(result02.lastFetchTimeMs() == observerTimeMs);
 
           KafkaFuture<List<ReplicaStatus>> result1 = result.result().get(new TopicPartition(topic, 1));
           assertNotNull(result1);
