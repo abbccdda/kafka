@@ -31,6 +31,14 @@ public class ConfluentTopicConfig {
             "free up space. Segments discarded from local store could continue to exist in tiered storage and remain " +
             "available for fetches depending on retention configurations. If set to -1, no time limit is applied.";
 
+    public static final String TIER_SEGMENT_HOTSET_ROLL_MIN_BYTES_CONFIG =
+            CONFLUENT_PREFIX + "tier.segment.hotset.roll.min.bytes";
+    public static final String TIER_SEGMENT_HOTSET_ROLL_MIN_BYTES_CONFIG_DOC = "Allows a segment roll to be forced if the active " +
+            "segment is larger than `confluent.tier.segment.hotset.roll.min.bytes` and if all records in the segment " +
+            "are ready for eviction from the hotset. Rolling the segment ensures that it can be tiered and the segment " +
+            "can then be deleted from the hotset. A minimum size is enforced to ensure efficient tiering and " +
+            "consumption.";
+
     public static final String APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG = CONFLUENT_PREFIX + "append.record.interceptor.classes";
     public static final String APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG_DOC = "A list of classes to use as interceptors. " +
         "Implementing the <code>RecordInterceptor</code> interface allows you to intercept and possibly reject " +

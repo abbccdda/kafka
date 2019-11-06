@@ -98,6 +98,7 @@ object KafkaServer {
     logProps.put(LogConfig.TierEnableProp, kafkaConfig.tierEnable: java.lang.Boolean)
     logProps.put(LogConfig.TierLocalHotsetBytesProp, kafkaConfig.tierLocalHotsetBytes: java.lang.Long)
     logProps.put(LogConfig.TierLocalHotsetMsProp, kafkaConfig.tierLocalHotsetMs: java.lang.Long)
+    logProps.put(LogConfig.TierSegmentHotsetRollMinBytesProp, kafkaConfig.tierSegmentHotsetRollMinBytes: java.lang.Integer)
 
     // confluent configs needed for topic-level overrides below:
 
