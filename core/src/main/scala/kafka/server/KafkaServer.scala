@@ -445,14 +445,6 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         socketServer.startControlPlaneProcessor(authorizerFutures)
         socketServer.startDataPlaneProcessors(authorizerFutures)
 
-        // confluent-server` disables license only for Cloud. Start license manager if
-        // not using the multi-tenant authorizer.
-        if (!authorizer.map(_.getClass.getName).contains(KafkaServer.MULTI_TENANT_AUTHORIZER_CLASS_NAME)) {
-          val interBrokerEndpoint = brokerInfo.broker.endPoint(config.interBrokerListenerName).toJava
-          licenseValidator = ConfluentConfigs.buildLicenseValidator(config, interBrokerEndpoint)
-          licenseValidator.start(config.brokerId.toString)
-        }
-
         brokerState.newState(RunningAsBroker)
         shutdownLatch = new CountDownLatch(1)
 
@@ -473,6 +465,14 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         isStartingUp.set(false)
         AppInfoParser.registerAppInfo(jmxPrefix, config.brokerId.toString, metrics, time.milliseconds())
         info("started")
+
+        // confluent-server` disables license only for Cloud. Start license manager if
+        // not using the multi-tenant authorizer.
+        if (!authorizer.map(_.getClass.getName).contains(KafkaServer.MULTI_TENANT_AUTHORIZER_CLASS_NAME)) {
+          val interBrokerEndpoint = brokerInfo.broker.endPoint(config.interBrokerListenerName).toJava
+          licenseValidator = ConfluentConfigs.buildLicenseValidator(config, interBrokerEndpoint)
+          licenseValidator.start(config.brokerId.toString)
+        }
       }
     }
     catch {

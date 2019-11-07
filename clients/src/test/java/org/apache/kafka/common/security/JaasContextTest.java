@@ -32,6 +32,7 @@ import javax.security.auth.login.Configuration;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.fail;
 
 import org.apache.kafka.common.config.SaslConfigs;
@@ -222,6 +223,75 @@ public class JaasContextTest {
         writeConfiguration("Server", "test.LoginModule required;");
         JaasContext.loadServerContext(new ListenerName("plaintext"), "SOME-MECHANISM",
             Collections.emptyMap());
+    }
+
+    @Test
+    public void testListenerSaslJaasConfig() throws Exception {
+        ListenerName listenerName = new ListenerName("testListener");
+
+        writeConfiguration(Collections.singletonList(
+            "KafkaServer { test.KafkaServerLoginModule required; };"
+        ));
+        assertEquals("test.KafkaServerLoginModule required;",
+            JaasContext.listenerSaslJaasConfig(listenerName, "PLAIN"));
+
+        writeConfiguration(Collections.singletonList(
+            "testlistener.KafkaServer { testListener.KafkaServerLoginModule required; };"
+        ));
+        assertEquals("testListener.KafkaServerLoginModule required;",
+            JaasContext.listenerSaslJaasConfig(listenerName, "PLAIN"));
+
+        writeConfiguration(Arrays.asList(
+            "KafkaServer { test.KafkaServerLoginModule required; };",
+            "testlistener.KafkaServer { testListener.KafkaServerLoginModule required; };"
+        ));
+        assertEquals("testListener.KafkaServerLoginModule required;",
+            JaasContext.listenerSaslJaasConfig(listenerName, "PLAIN"));
+
+        writeConfiguration(Collections.singletonList(
+            "KafkaServer { test.KafkaServerLoginModule required; testListener.KafkaServerLoginModule required; };"
+        ));
+        assertThrows(IllegalArgumentException.class, () ->
+            JaasContext.listenerSaslJaasConfig(listenerName, "PLAIN"));
+
+        writeConfiguration(Collections.singletonList(
+            "KafkaServer { org.apache.kafka.common.security.plain.PlainLoginModule required; testListener.KafkaServerLoginModule required; };"
+        ));
+        assertThrows(IllegalArgumentException.class, () ->
+            JaasContext.listenerSaslJaasConfig(listenerName, "UNKNOWN"));
+
+        writeConfiguration(Collections.singletonList(
+            "KafkaServer { org.apache.kafka.common.security.plain.PlainLoginModule required; testListener.KafkaServerLoginModule required; };"
+        ));
+        assertThrows(IllegalArgumentException.class, () ->
+            JaasContext.listenerSaslJaasConfig(listenerName, "GSSAPI"));
+
+        writeConfiguration(Collections.singletonList(
+            "KafkaServer { org.apache.kafka.common.security.plain.PlainLoginModule required; testListener.KafkaServerLoginModule required; };"
+        ));
+        assertEquals("org.apache.kafka.common.security.plain.PlainLoginModule required;",
+            JaasContext.listenerSaslJaasConfig(listenerName, "PLAIN"));
+
+        writeConfiguration(Collections.singletonList(
+            "KafkaServer { com.sun.security.auth.module.Krb5LoginModule required; testListener.KafkaServerLoginModule required; };"
+        ));
+        assertEquals("com.sun.security.auth.module.Krb5LoginModule required;",
+            JaasContext.listenerSaslJaasConfig(listenerName, "GSSAPI"));
+
+        writeConfiguration(Collections.singletonList(
+            "testlistener.KafkaServer { org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required; testListener.KafkaServerLoginModule required; };"
+        ));
+        assertEquals("org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required;",
+            JaasContext.listenerSaslJaasConfig(listenerName, "OAUTHBEARER"));
+
+        writeConfiguration(Collections.singletonList(
+            "testlistener.KafkaServer { org.apache.kafka.common.security.scram.ScramLoginModule required; testListener.KafkaServerLoginModule required; };"
+        ));
+        assertEquals("org.apache.kafka.common.security.scram.ScramLoginModule required;",
+            JaasContext.listenerSaslJaasConfig(listenerName, "SCRAM-SHA-256"));
+        assertEquals("org.apache.kafka.common.security.scram.ScramLoginModule required;",
+            JaasContext.listenerSaslJaasConfig(listenerName, "SCRAM-SHA-512"));
+
     }
 
     private AppConfigurationEntry configurationEntry(JaasContext.Type contextType, String jaasConfigProp) {

@@ -19,6 +19,8 @@ package org.apache.kafka.common.security;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.config.types.Password;
 import org.apache.kafka.common.network.ListenerName;
+import org.apache.kafka.common.security.scram.internals.ScramMechanism;
+import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,6 +39,14 @@ public class JaasContext {
 
     private static final String GLOBAL_CONTEXT_NAME_SERVER = "KafkaServer";
     private static final String GLOBAL_CONTEXT_NAME_CLIENT = "KafkaClient";
+
+    private static final Map<String, String> JAAS_LOGIN_MODULES = Utils.mkMap(
+        Utils.mkEntry("GSSAPI", "Krb5LoginModule"),
+        Utils.mkEntry("PLAIN", "PlainLoginModule"),
+        Utils.mkEntry(ScramMechanism.SCRAM_SHA_256.mechanismName(), "ScramLoginModule"),
+        Utils.mkEntry(ScramMechanism.SCRAM_SHA_512.mechanismName(), "ScramLoginModule"),
+        Utils.mkEntry("OAUTHBEARER", "OAuthBearerLoginModule"));
+
 
     /**
      * Returns an instance of this class.
@@ -134,6 +144,45 @@ public class JaasContext {
         }
 
         return new JaasContext(contextName, contextType, jaasConfig, null);
+    }
+
+    public static String listenerSaslJaasConfig(ListenerName listenerName, String saslMechanism) {
+        JaasContext context = loadServerContext(listenerName, saslMechanism, Collections.emptyMap());
+        AppConfigurationEntry entry = jaasEntry(context.configurationEntries(), saslMechanism);
+        if (entry != null) {
+            StringBuffer jaasConfig = new StringBuffer();
+            jaasConfig.append(entry.getLoginModuleName());
+            jaasConfig.append(" required");
+            entry.getOptions().forEach((k, v) -> {
+                jaasConfig.append(" \"");
+                jaasConfig.append(k);
+                jaasConfig.append("\"=\"");
+                jaasConfig.append(v);
+                jaasConfig.append('"');
+            });
+            jaasConfig.append(';');
+            return jaasConfig.toString();
+        } else {
+            throw new IllegalArgumentException("JAAS login entry could not be determined for " + saslMechanism +
+                ". 'sasl.jaas.config' must be configured for listeners since multiple SASL mechanisms are configured.");
+        }
+    }
+
+    private static AppConfigurationEntry jaasEntry(List<AppConfigurationEntry> entries, String saslMechanism) {
+        if (entries.isEmpty())
+            throw new IllegalArgumentException("No login modules found in JAAS configuration");
+        else if (entries.size() == 1)
+            return entries.get(0);
+        else {
+            String loginModule = JAAS_LOGIN_MODULES.get(saslMechanism);
+            if (loginModule == null)
+                return null;
+            for (AppConfigurationEntry entry : entries) {
+                if (entry.getLoginModuleName().endsWith(loginModule))
+                    return entry;
+            }
+            return null;
+        }
     }
 
     /**
