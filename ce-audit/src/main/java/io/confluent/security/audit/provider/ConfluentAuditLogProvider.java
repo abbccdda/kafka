@@ -108,7 +108,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
     AuditLogConfig auditLogConfig = new AuditLogConfig(configs);
 
     // Abort if not enabled.
-    if (!auditLogConfig.getBoolean(AuditLogConfig.AUDIT_LOGGER_ENABLED_CONFIG)) {
+    if (!auditLogConfig.getBoolean(AuditLogConfig.AUDIT_LOGGER_ENABLE_CONFIG)) {
       return;
     }
 
@@ -207,7 +207,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
   @Override
   public boolean providerConfigured(Map<String, ?> configs) {
     AuditLogConfig cfg = new AuditLogConfig(configs);
-    return cfg.getBoolean(AuditLogConfig.AUDIT_LOGGER_ENABLED_CONFIG);
+    return cfg.getBoolean(AuditLogConfig.AUDIT_LOGGER_ENABLE_CONFIG);
   }
 
   @Override

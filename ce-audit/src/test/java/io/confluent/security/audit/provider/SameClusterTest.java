@@ -46,7 +46,7 @@ public class SameClusterTest extends ClusterTestCommon {
     rbacConfig = new RbacClusters.Config()
         .users(BROKER_USER, otherUsers)
         // simplify debugging to only have audit log topics on one of the clusters
-        .overrideMetadataBrokerConfig(AuditLogConfig.AUDIT_LOGGER_ENABLED_CONFIG, "false")
+        .overrideMetadataBrokerConfig(AuditLogConfig.AUDIT_LOGGER_ENABLE_CONFIG, "false")
         .withLdapGroups();
   }
 
