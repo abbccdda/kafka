@@ -168,7 +168,7 @@ class TierIntegrationTest {
       assertEquals("batch 1: segment should be materialized with correct offset relationship",
         0L, log.tierPartitionState.metadata(0).get().baseOffset)
       assertTrue("batch 1: segment should be materialized with correct end offset",
-        log.tierPartitionState.committedEndOffset.get() >= 3L)
+        log.tierPartitionState.committedEndOffset >= 3L)
     }
 
     validatePartitionStateContainedInObjectStore(tierTopicManager, tierObjectStore, logs)
@@ -190,7 +190,7 @@ class TierIntegrationTest {
       assertEquals("batch 2: segment should be materialized with correct offset relationship",
         4L, tierPartitionState.metadata(6).get().baseOffset)
       assertTrue("batch 2: segment should be materialized with correct end offset",
-        tierPartitionState.committedEndOffset.get() >= 7L)
+        tierPartitionState.committedEndOffset >= 7L)
     }
 
     validatePartitionStateContainedInObjectStore(tierTopicManager, tierObjectStore, logs)
@@ -208,7 +208,7 @@ class TierIntegrationTest {
       assertEquals("batch 3: segment should be materialized with correct offset relationship",
         8L, log.tierPartitionState.metadata(10).get().baseOffset)
       assertTrue("batch 3: segment should be materialized with correct end offset",
-        log.tierPartitionState.committedEndOffset.get() >= 11L)
+        log.tierPartitionState.committedEndOffset >= 11L)
     }
 
     validatePartitionStateContainedInObjectStore(tierTopicManager, tierObjectStore, logs)
@@ -242,7 +242,7 @@ class TierIntegrationTest {
       assertEquals("Segment should be materialized with correct offset relationship",
         0L, log.tierPartitionState.metadata(0).get().baseOffset)
       assertTrue("Segment should be materialized with correct end offset",
-        log.tierPartitionState.committedEndOffset.get() >= 3)
+        log.tierPartitionState.committedEndOffset >= 3)
     }
     validatePartitionStateContainedInObjectStore(tierTopicManager, tierObjectStore, logs)
   }

@@ -26,13 +26,17 @@ class ACLs(KafkaPathResolverMixin):
 
         # Set server ACLs
         kafka_principal = "User:CN=systemtest" if protocol == "SSL" else "User:kafka"
-        self.acls_command(node, ACLs.add_cluster_acl(setting, kafka_principal))
-        self.acls_command(node, ACLs.broker_read_acl(setting, "*", kafka_principal))
+        self.set_broker_acls(node, setting, kafka_principal)
 
         # Set client ACLs
         client_principal = "User:CN=systemtest" if protocol == "SSL" else "User:client"
         self.acls_command(node, ACLs.produce_acl(setting, topic, client_principal))
         self.acls_command(node, ACLs.consume_acl(setting, topic, group, client_principal))
+
+    def set_broker_acls(self, node, zk_connect, kafka_principal):
+        self.acls_command(node, ACLs.add_cluster_acl(zk_connect, kafka_principal))
+        self.acls_command(node, ACLs.broker_read_acl(zk_connect, "*", kafka_principal))
+        self.acls_command(node, ACLs.produce_acl(zk_connect, "_confluent-license", kafka_principal))
 
     def acls_command(self, node, properties):
         cmd = "%s %s" % (self.path.script("kafka-acls.sh", node), properties)

@@ -242,7 +242,7 @@ class MergedLog(private[log] val localLog: Log,
       }
 
       // Apply hotset retention: do not delete any untiered segments
-      val deletionUpperBoundOffset = tierPartitionState.committedEndOffset.asScala.map(upperBound => upperBound + 1).getOrElse(0L)
+      val deletionUpperBoundOffset = tierPartitionState.committedEndOffset + 1
       val hotsetDeleted = localLog.deleteOldSegments(Some(deletionUpperBoundOffset), retentionType = HotsetRetention, deletionCanProceed)
 
       if (retentionDeleted > 0)
@@ -254,6 +254,9 @@ class MergedLog(private[log] val localLog: Log,
         // maybeIncrementLogStartOffset will set the new local log start offset, delete any
         // producer state snapshot files prior to this.
         localLog.producerStateManager.deleteSnapshotsBefore(localLogStartOffset)
+      } else {
+        // We may force active segment of tiered log to roll.
+        localLog.maybeForceRoll()
       }
 
       retentionDeleted + hotsetDeleted
@@ -410,7 +413,7 @@ class MergedLog(private[log] val localLog: Log,
     val tieredSegment = TierUtils.tierLogSegmentForOffset(tierPartitionState, startOffset, tierLogComponents.objectStoreOpt.asJava).asScala
     val tierEndOffset = tierPartitionState.endOffset
 
-    if (tieredSegment.isEmpty || startOffset > tierEndOffset.get || startOffset < logStartOffset)
+    if (tieredSegment.isEmpty || startOffset > tierEndOffset || startOffset < logStartOffset)
       throw new OffsetOutOfRangeException(s"Received request for offset $startOffset for partition $topicPartition, " +
         s"but we only have log segments in the range $logStartOffset to $logEndOffset with tierLogEndOffset: " +
         s"$tierEndOffset and localLogStartOffset: ${localLog.localLogStartOffset}")
@@ -694,7 +697,7 @@ object MergedLog {
   }
 
   private def firstUntieredOffset(tierPartitionState: TierPartitionState): Long = {
-    tierPartitionState.endOffset.asScala.map(endOffset => endOffset + 1).getOrElse(0L)
+    tierPartitionState.endOffset + 1
   }
 }
 

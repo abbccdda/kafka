@@ -226,6 +226,9 @@ object Defaults {
   /** Tiered storage archiver configs **/
   val TierArchiverNumThreads = 2: Integer
 
+  /** Tiered storage segment roll configs **/
+  val TierSegmentHotsetRollMinBytes = 100 * 1024 * 1024
+
   /** Observer configs **/
   val ObserverFeature = false
 
@@ -506,6 +509,9 @@ object KafkaConfig {
 
   /** Tiered storage topic deletion configs **/
   val TierTopicDeleteCheckIntervalMsProp = ConfluentPrefix + "tier.topic.delete.check.interval.ms"
+
+  /** Tiered storage segment roll config **/
+  val TierSegmentHotsetRollMinBytesProp = ConfluentPrefix + "tier.segment.hotset.roll.min.bytes"
 
   /** Observer configs **/
   val ObserverFeatureProp = ConfluentPrefix + "observer.feature"
@@ -899,6 +905,12 @@ object KafkaConfig {
   /** Tiered storage archiver configs **/
   val TierArchiverNumThreadsDoc = "The size of the threadpool used for TierArchiver state transitions."
 
+  /** Tiered storage segment roll configs **/
+  val TierSegmentHotsetRollMinBytesDoc = "Allows a segment roll to be forced if the active segment is larger than " +
+    "`confluent.tier.segment.hotset.roll.min.bytes` and if all records in the segment are ready for eviction from the " +
+    "hotset. Rolling the segment ensures that it can be tiered and the segment can then be deleted from the hotset. A " +
+    "minimum size is enforced to ensure efficient tiering and consumption."
+
   /** Observer configs **/
   val ObserverFeatureDoc = "Feature flag that enables the observer feature."
 
@@ -1201,6 +1213,7 @@ object KafkaConfig {
       .defineInternal(TierGcsWriteChunkSizeProp, INT, Defaults.TierGcsWriteChunkSize, atLeast(0), LOW, TierGcsWriteChunkSizeDoc)
       .defineInternal(TierGcsReadChunkSizeProp, INT, Defaults.TierGcsReadChunkSize, atLeast(0), LOW, TierGcsReadChunkSizeDoc)
       .defineInternal(TierTopicDeleteCheckIntervalMsProp, LONG, Defaults.TierTopicDeleteCheckIntervalMs, atLeast(1), LOW, TierTopicDeleteCheckIntervalMsDoc)
+      .defineInternal(TierSegmentHotsetRollMinBytesProp, INT, Defaults.TierSegmentHotsetRollMinBytes, atLeast(1024 * 1024), MEDIUM, TierSegmentHotsetRollMinBytesDoc)
 
       /** ********* Observer Configuration **************/
       .defineInternal(ObserverFeatureProp, BOOLEAN, Defaults.ObserverFeature, MEDIUM, ObserverFeatureDoc)
@@ -1589,6 +1602,7 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierGcsWriteChunkSize = getInt(KafkaConfig.TierGcsWriteChunkSizeProp)
   val tierGcsReadChunkSize = getInt(KafkaConfig.TierGcsReadChunkSizeProp)
   val tierTopicDeleteCheckIntervalMs = getLong(KafkaConfig.TierTopicDeleteCheckIntervalMsProp)
+  def tierSegmentHotsetRollMinBytes = getInt(KafkaConfig.TierSegmentHotsetRollMinBytesProp)
 
   /** ********* Interceptor Configuration ***********/
   val observerFeature = getBoolean(KafkaConfig.ObserverFeatureProp)

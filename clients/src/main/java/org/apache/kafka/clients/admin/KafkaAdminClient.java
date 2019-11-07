@@ -3580,9 +3580,11 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
                                     for (ReplicaStatusReplicaResponse replicaResponse : partitionResponse.replicas()) {
                                       replicas.add(new ReplicaStatus(
                                           replicaResponse.id(),
-                                          ReplicaStatus.Mode.fromValue(replicaResponse.mode()),
+                                          replicaResponse.isLeader(),
+                                          replicaResponse.isObserver(),
+                                          replicaResponse.isIsrEligible(),
+                                          replicaResponse.isInIsr(),
                                           replicaResponse.isCaughtUp(),
-                                          replicaResponse.isInSync(),
                                           replicaResponse.logStartOffset(),
                                           replicaResponse.logEndOffset(),
                                           replicaResponse.lastCaughtUpTimeMs(),

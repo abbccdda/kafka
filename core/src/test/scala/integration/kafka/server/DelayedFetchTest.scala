@@ -486,6 +486,9 @@ class DelayedFetchTest extends EasyMockSupport {
       case (tp, fetchDataInfo: FetchDataInfo, exceptionOpt: Option[Throwable]) =>
         (tp, LogReadResult(info = fetchDataInfo, highWatermark, 0, 0, 0, mockTime.milliseconds(), 0, None, true, None, false, exceptionOpt))
     }
+
+    EasyMock.expect(replicaManager.isAddingReplica(EasyMock.anyObject(), EasyMock.anyInt())).andReturn(false).anyTimes()
+
     EasyMock.expect(replicaManager.readFromLocalLog(EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject(),
       EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject()))
       .andReturn(readResults)

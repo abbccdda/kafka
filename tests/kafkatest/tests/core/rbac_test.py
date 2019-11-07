@@ -263,8 +263,8 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
     def set_acls(self, principal):
         zk_connect = self.kafka.zk_connect_setting()
         node = self.kafka.nodes[0]
-        self.acls.acls_command(node, ACLs.add_cluster_acl(zk_connect, "User:ANONYMOUS"))
-        self.acls.acls_command(node, ACLs.broker_read_acl(zk_connect, "*", "User:ANONYMOUS"))
+        self.acls.set_broker_acls(node, zk_connect, "User:ANONYMOUS")
+
         self.acls.acls_command(node, ACLs.produce_acl(zk_connect, self.topic, principal))
         self.acls.acls_command(node, ACLs.consume_acl(zk_connect, self.topic, self.group_id, principal))
 

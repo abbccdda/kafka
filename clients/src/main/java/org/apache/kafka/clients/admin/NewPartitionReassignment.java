@@ -44,12 +44,8 @@ public class NewPartitionReassignment {
     /**
      * @throws IllegalArgumentException if no replicas are supplied
      */
-    public static Optional<NewPartitionReassignment> ofReplicasAndObservers(List<Integer> replicas, List<Integer> observers) {
-        if (replicas == null || replicas.size() == 0) {
-            throw new IllegalArgumentException("Cannot create a new partition reassignment without any replicas");
-        }
-
-        return Optional.of(new NewPartitionReassignment(replicas, observers));
+    public static NewPartitionReassignment ofReplicasAndObservers(List<Integer> replicas, List<Integer> observers) {
+        return new NewPartitionReassignment(replicas, observers);
     }
 
     private NewPartitionReassignment(List<Integer> targetReplicas) {
@@ -58,8 +54,12 @@ public class NewPartitionReassignment {
     }
 
     private NewPartitionReassignment(List<Integer> targetReplicas, List<Integer> targetObservers) {
+        if (targetReplicas == null || targetReplicas.size() == 0) {
+            throw new IllegalArgumentException("Cannot create a new partition reassignment without any replicas");
+        }
+
         this.targetReplicas = Collections.unmodifiableList(new ArrayList<>(targetReplicas));
-        this.targetObservers = Collections.unmodifiableList(new ArrayList<>(targetObservers == null ? Collections.emptyList() : targetObservers));
+        this.targetObservers = targetObservers == null ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(targetObservers));
     }
 
     public List<Integer> targetReplicas() {

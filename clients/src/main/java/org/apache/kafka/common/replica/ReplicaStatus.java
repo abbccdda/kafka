@@ -12,9 +12,11 @@ import java.util.Objects;
  */
 public class ReplicaStatus {
     private final int brokerId;
-    private final Mode mode;
+    private final boolean isLeader;
+    private final boolean isObserver;
+    private final boolean isIsrEligible;
+    private final boolean isInIsr;
     private final boolean isCaughtUp;
-    private final boolean isInSync;
     private final long logStartOffset;
     private final long logEndOffset;
     private final long lastCaughtUpTimeMs;
@@ -49,6 +51,29 @@ public class ReplicaStatus {
     }
 
     public ReplicaStatus(int brokerId,
+                         boolean isLeader,
+                         boolean isObserver,
+                         boolean isIsrEligible,
+                         boolean isInIsr,
+                         boolean isCaughtUp,
+                         long logStartOffset,
+                         long logEndOffset,
+                         long lastCaughtUpTimeMs,
+                         long lastFetchTimeMs) {
+        this.brokerId = brokerId;
+        this.isLeader = isLeader;
+        this.isObserver = isObserver;
+        this.isIsrEligible = isIsrEligible;
+        this.isInIsr = isInIsr;
+        this.isCaughtUp = isCaughtUp;
+        this.logStartOffset = logStartOffset;
+        this.logEndOffset = logEndOffset;
+        this.lastCaughtUpTimeMs = lastCaughtUpTimeMs;
+        this.lastFetchTimeMs = lastFetchTimeMs;
+    }
+
+    @Deprecated
+    public ReplicaStatus(int brokerId,
                          Mode mode,
                          boolean isCaughtUp,
                          boolean isInSync,
@@ -57,9 +82,11 @@ public class ReplicaStatus {
                          long lastCaughtUpTimeMs,
                          long lastFetchTimeMs) {
         this.brokerId = brokerId;
-        this.mode = mode;
+        this.isLeader = mode == Mode.LEADER;
+        this.isObserver = mode == Mode.OBSERVER;
+        this.isIsrEligible = mode != Mode.OBSERVER;
+        this.isInIsr = isInSync;
         this.isCaughtUp = isCaughtUp;
-        this.isInSync = isInSync;
         this.logStartOffset = logStartOffset;
         this.logEndOffset = logEndOffset;
         this.lastCaughtUpTimeMs = lastCaughtUpTimeMs;
@@ -74,10 +101,31 @@ public class ReplicaStatus {
     }
 
     /**
-     * The current mode of the replica.
+     * Whether the replica is the ISR leader.
      */
-    public Mode mode() {
-        return mode;
+    public boolean isLeader() {
+        return isLeader;
+    }
+
+    /**
+     * Whether the replica is an observer, otherwise a sync replica.
+     */
+    public boolean isObserver() {
+        return isObserver;
+    }
+
+    /**
+     * Whether the replica is a candidate for the ISR set.
+     */
+    public boolean isIsrEligible() {
+        return isIsrEligible;
+    }
+
+    /**
+     * Whether the replica is in the ISR set.
+     */
+    public boolean isInIsr() {
+        return isInIsr;
     }
 
     /**
@@ -89,13 +137,6 @@ public class ReplicaStatus {
      */
     public boolean isCaughtUp() {
         return isCaughtUp;
-    }
-
-    /**
-     * Whether the replica is in the ISR set.
-     */
-    public boolean isInSync() {
-        return isInSync;
     }
 
     /**
@@ -130,15 +171,43 @@ public class ReplicaStatus {
         return lastFetchTimeMs;
     }
 
+    /**
+     * Whether the replica is in the ISR set.
+     *
+     * DEPRECATED: Replaced by `isInIsr()`.
+     */
+    @Deprecated
+    public boolean isInSync() {
+        return isInIsr;
+    }
+
+    /**
+     * The current mode of the replica.
+     *
+     * DEPRECATED: Replaced by `isLeader()` and `isFollower()`.
+     */
+    @Deprecated
+    public Mode mode() {
+      if (isLeader) {
+        return Mode.LEADER;
+      } else if (isObserver) {
+        return Mode.OBSERVER;
+      } else {
+        return Mode.FOLLOWER;
+      }
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         ReplicaStatus that = (ReplicaStatus) o;
         return brokerId == that.brokerId &&
-                mode == that.mode &&
+                isLeader == that.isLeader &&
+                isObserver == that.isObserver &&
+                isIsrEligible == that.isIsrEligible &&
+                isInIsr == that.isInIsr &&
                 isCaughtUp == that.isCaughtUp &&
-                isInSync == that.isInSync &&
                 logStartOffset == that.logStartOffset &&
                 logEndOffset == that.logEndOffset &&
                 lastCaughtUpTimeMs == that.lastCaughtUpTimeMs &&
@@ -147,16 +216,19 @@ public class ReplicaStatus {
 
     @Override
     public int hashCode() {
-        return Objects.hash(brokerId, mode, isCaughtUp, isInSync, logStartOffset, logEndOffset, lastCaughtUpTimeMs, lastFetchTimeMs);
+        return Objects.hash(brokerId, isLeader, isObserver, isIsrEligible, isInIsr, isCaughtUp,
+                            logStartOffset, logEndOffset, lastCaughtUpTimeMs, lastFetchTimeMs);
     }
 
     @Override
     public String toString() {
         return "ReplicaStatus{" +
                 "brokerId=" + brokerId +
-                ", mode=" + mode +
+                ", isLeader=" + isLeader +
+                ", isObserver=" + isObserver +
+                ", isIsrEligible=" + isIsrEligible +
+                ", isInIsr=" + isInIsr +
                 ", isCaughtUp=" + isCaughtUp +
-                ", isInSync=" + isInSync +
                 ", logStartOffset=" + logStartOffset +
                 ", logEndOffset=" + logEndOffset +
                 ", lastCaughtUpTimeMs=" + lastCaughtUpTimeMs +

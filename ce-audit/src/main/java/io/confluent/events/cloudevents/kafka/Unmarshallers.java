@@ -9,6 +9,7 @@ import static io.cloudevents.extensions.DistributedTracingExtension.Format.TRACE
 import static io.cloudevents.json.Json.MAPPER;
 import static java.util.Optional.ofNullable;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.protobuf.Message;
 import com.google.protobuf.Parser;
 import com.hubspot.jackson.datatype.protobuf.ProtobufModule;
@@ -33,8 +34,19 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.apache.kafka.common.errors.SerializationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class Unmarshallers {
+
+  private static final Logger log = LoggerFactory.getLogger(Unmarshallers.class);
+
+  static {
+    // Ensure module is registered. This ensures the mapper is initialized completely
+    // before main(...) starts up. See: https://confluentinc.atlassian.net/browse/CPKAFKA-3888
+    ObjectMapper o = MAPPER.registerModule(new ProtobufModule());
+    log.info("Registered Jackson modules {} ", o.getRegisteredModuleIds());
+  }
 
   private Unmarshallers() {
   }

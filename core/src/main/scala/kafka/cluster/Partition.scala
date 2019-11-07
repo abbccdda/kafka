@@ -1333,16 +1333,16 @@ class Partition(val topicPartition: TopicPartition,
     leaderLogIfLocal match {
       case Some(leaderLog) =>
         val curTimeMs = time.milliseconds
-        new ReplicaStatus(localBrokerId, ReplicaStatus.Mode.LEADER, true, true,
+        new ReplicaStatus(localBrokerId, true,
+          assignmentState.observers.contains(localBrokerId),
+          isBrokerIsrEligible(localBrokerId), true, true,
           leaderLog.logStartOffset, leaderLog.logEndOffset, curTimeMs, curTimeMs) ::
         remoteReplicasMap.values.map { replica =>
-          val mode = if (assignmentState.observers.contains(replica.brokerId))
-            ReplicaStatus.Mode.OBSERVER
-          else
-            ReplicaStatus.Mode.FOLLOWER
-          new ReplicaStatus(replica.brokerId, mode,
-            isFollowerInSync(replica, leaderLog.highWatermark),
+          new ReplicaStatus(replica.brokerId, false,
+            assignmentState.observers.contains(replica.brokerId),
+            isBrokerIsrEligible(replica.brokerId),
             inSyncReplicaIds.contains(replica.brokerId),
+            isFollowerInSync(replica, leaderLog.highWatermark),
             replica.logStartOffset, replica.logEndOffsetMetadata.messageOffset,
             replica.lastCaughtUpTimeMs, replica.lastFetchTimeMs)
         }.toList

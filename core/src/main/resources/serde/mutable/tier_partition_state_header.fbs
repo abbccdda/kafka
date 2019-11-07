@@ -14,6 +14,7 @@ table TierPartitionStateHeader {
   topicId: UUID (id: 1);
   tierEpoch: int (id: 2);
   status: byte (id: 3);
+  endOffset: long = -1 (id: 4);
 }
 
 root_type TierPartitionStateHeader;

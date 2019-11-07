@@ -244,6 +244,75 @@ class MergedLogTest {
     log.close()
   }
 
+  /*
+   ** Tests for the forced roll on tiered logs. This test simulates active segment with insufficient size and
+   * time for roll but having enough size for active roll. Then verifies that call to delete segment will force roll.
+   */
+  @Test
+  def testForceRollOnTieredSegments(): Unit = {
+    def createRecords = TestUtils.singletonRecords(value = "test".getBytes, timestamp = mockTime.milliseconds)
+    val recordSize = createRecords.sizeInBytes()
+
+    // create a log.
+    val logConfig = LogTest.createLogConfig(
+      segmentBytes = 10 * recordSize,
+      tierEnable = true,
+      tierSegmentHotsetRollMinBytes = 5 * recordSize,
+      segmentMs = Long.MaxValue,
+      retentionBytes = Long.MaxValue,
+      tierLocalHotsetMs = 10 * 60 * 60L)
+
+    // Create log with just active segment.
+    val log = createMergedLog(logConfig)
+
+    log.appendAsLeader(createRecords, 0)
+    assertEquals("There should be only active log", 1, log.numberOfSegments)
+    assertEquals("There should not be any segment for deletion", 0, log.deleteOldSegments())
+
+    for (_ <- 1 to 2)
+      log.appendAsLeader(createRecords, leaderEpoch = 0)
+
+    // Make sure that append has not caused any size based roll.
+    assertEquals("There should be only active log", 1, log.numberOfSegments)
+
+    // Before writing tierSegmentHotsetRollMinBytes, make sure that deleteOldSegments return 0 segments and do not roll,
+    // even when tierLocalHotsetMs has elapsed.
+    mockTime.sleep(10 * 60 * 60L + 1)
+    assertEquals("There should not be any segment for deletion", 0, log.deleteOldSegments())
+    assertEquals("There should be only active segment", 1, log.numberOfSegments)
+
+    // After writing tierSegmentHotsetRollMinBytes, make sure that deleteOldSegments rolls as tierLocalHotsetMs has
+    // passed since first message in active segment.
+    for (_ <- 3 to 5)
+      log.appendAsLeader(createRecords, leaderEpoch = 0)
+    assertEquals("There should not be any segment for deletion", 0, log.deleteOldSegments())
+    assertEquals("There should be only active segment", 2, log.numberOfSegments)
+
+    // After writing tierSegmentHotsetRollMinBytes, make sure that roll does not automatically triggers if
+    // deleteOldSegments is not called.
+    for (_ <- 1 to 5)
+      log.appendAsLeader(createRecords, leaderEpoch = 0)
+    mockTime.sleep(10 * 60 * 60L + 1)
+    assertEquals("There should be rolled segment plus the active one", 2, log.numberOfSegments)
+
+    // After writing segmentBytes, make sure that roll automatically triggers.
+    for (_ <- 6 to 11)
+      log.appendAsLeader(createRecords, leaderEpoch = 0)
+    assertEquals("There should be 2 rolled segment plus the active one", 3, log.numberOfSegments)
+
+    // After writing tierSegmentHotsetRollMinBytes, the force roll should not happen even on call for deleteOldSegments.
+    // We need tierLocalHotsetMs since first append.
+    for (_ <- 1 to 5)
+      log.appendAsLeader(createRecords, leaderEpoch = 0)
+    assertEquals("There should not be any segment for deletion", 0, log.deleteOldSegments())
+    assertEquals("There should be only active segment", 3, log.numberOfSegments)
+
+    mockTime.sleep(10 * 60 * 60L + 1)
+    // Now the deleteOldSegment should force roll.
+    assertEquals("There should not be any segment for deletion", 0, log.deleteOldSegments())
+    assertEquals("There should be only active segment", 4, log.numberOfSegments)
+  }
+
   @Test
   def testHotsetSizeRetentionOnTieredSegments(): Unit = {
     val numTieredSegments = 30
@@ -663,7 +732,7 @@ class MergedLogTest {
     assertEquals(1, mergedLog.deleteOldSegments())
 
     // restore producer state to restore ongoing transactions
-    mergedLog.onRestoreTierState(tierPartitionState.endOffset().get(), new TierState(List(), Some(readProducerStateFile)))
+    mergedLog.onRestoreTierState(tierPartitionState.endOffset(), new TierState(List(), Some(readProducerStateFile)))
 
     assertEquals("expected an active producer after restore", 1, mergedLog.producerStateManager.activeProducers.size)
 

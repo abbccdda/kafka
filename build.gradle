@@ -133,6 +133,13 @@ allprojects {
       }
     }
     configurations {
+      // Pin protobuf. See: https://confluentinc.atlassian.net/browse/CPKAFKA-3888
+      all {
+        resolutionStrategy {
+          force "com.google.protobuf:protobuf-java:$versions.protobuf"
+          force "com.google.protobuf:protobuf-java-util:$versions.protobuf"
+        }
+      }
       runtime {
         resolutionStrategy {
           force "com.fasterxml.jackson.core:jackson-annotations:$versions.jackson"
@@ -1017,7 +1024,9 @@ project(':core') {
     from(project(':ce-auth-providers').jar) { into("libs/") }
     from(project(':ce-auth-providers').configurations.runtime) { into("libs/") }
     from(project(':ce-audit').jar) { into("libs/") }
+    from(project(':ce-audit').configurations.runtime) { into("libs/") }
     from(project(':ce-resource-names').jar) { into("libs/") }
+    from(project(':ce-resource-names').configurations.runtime) { into("libs/") }
     exclude('confluent-serializers*')
     exclude('confluent-licensing*')
     exclude('bc*jdk15on*jar')
@@ -2346,9 +2355,17 @@ project(':ce-metrics') {
       force = true
     }
 
-    compile libs.opencensusProto
-    compile libs.telemetryApi
-    compile libs.telemetryClient
+    // Exclude GRPC's protobuf-lite dependency.
+    // https://confluentinc.atlassian.net/browse/CPKAFKA-3888
+    compile(libs.opencensusProto) {
+        exclude module: 'grpc-protobuf'
+    }
+    compile(libs.telemetryApi){
+      exclude module: 'grpc-protobuf'
+    }
+    compile(libs.telemetryClient){
+      exclude module: 'grpc-protobuf'
+    }
     compile libs.guava
     compile libs.jacksonDatabind
 
@@ -3002,7 +3019,10 @@ project(':ce-audit') {
     compile project(':ce-resource-names')
     compile project(':clients')
     compile project(':ce-auth-providers')
-    compile libs.cloudEventsKafka
+    // Use the current version of the clients.
+    compile(libs.cloudEventsKafka) {
+      exclude module: 'kafka-clients'
+    }
     compile libs.jacksonProtobufDatatype
     testCompile libs.junit
     testCompile project(':clients').sourceSets.test.output

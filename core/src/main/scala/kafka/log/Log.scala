@@ -2024,6 +2024,31 @@ class Log(@volatile var dir: File,
   }
 
   /**
+   * Tier storage feature where we force the log roll in case where active roll has reached
+   * 'tierSegmentHotsetRollMinBytes' and tierLocalHotsetMs has passed since the first append. The reason for comparing
+   * with first append/create time is to workaround slow partitions problem where few appends between retention check
+   * interval will keep moving the maxTimestamp value and hence prevent force roll. With current approach, the rolled
+   * segment will have to wait for maximum 'tier.tierLocalHotsetMs' before getting deleted. This helps us in
+   * provisioning planning for the hotset.
+   */
+  def maybeForceRoll(): Unit = {
+    if (config.tierEnable) {
+      // Check for the condition under log lock and since the lock is reentrant the call to roll can happily execute.
+      lock synchronized  {
+        val currentMs = time.milliseconds()
+        // 'timeWaitedForRoll' call is not in append context hence called with current time as both params.
+        val timeElapsed = activeSegment.timeWaitedForRoll(currentMs, currentMs)
+        val reachedForcedRollMs = timeElapsed > config.tierLocalHotsetMs
+
+        if (config.tierLocalHotsetMs > 0 && reachedForcedRollMs && size >= config.tierSegmentHotsetRollMinBytes) {
+          info(s"Forcing roll of new log segment at size $size after $timeElapsed ms.")
+          roll()
+        }
+      }
+    }
+  }
+
+  /**
    * The number of messages appended to the log since the last flush
    */
   def unflushedMessages: Long = this.logEndOffset - this.recoveryPoint

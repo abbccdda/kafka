@@ -51,6 +51,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       config.setProperty(KafkaConfig.ControlledShutdownMaxRetriesProp, "1")
       config.setProperty(KafkaConfig.ControlledShutdownRetryBackoffMsProp, "1000")
       config.setProperty(KafkaConfig.ObserverFeatureProp, "true")
+      config.setProperty(KafkaConfig.ReplicaLagTimeMaxMsProp, "1000")
       TestUtils.createServer(KafkaConfig.fromProps(config))
     }
   }
@@ -415,9 +416,11 @@ object ConfluentObserverTest {
   }
 
   def reassignmentEntry(replicas: Seq[Int], observers: Seq[Int]): Optional[NewPartitionReassignment] = {
-    NewPartitionReassignment.ofReplicasAndObservers(
-      replicas.map(_.asInstanceOf[Integer]).asJava,
-      observers.map(_.asInstanceOf[Integer]).asJava
+    Optional.of(
+      NewPartitionReassignment.ofReplicasAndObservers(
+        replicas.map(r => r: Integer).asJava,
+        observers.map(o => o: Integer).asJava
+      )
     )
   }
 

@@ -4281,7 +4281,8 @@ object LogTest {
                       fileDeleteDelayMs: Long = Defaults.FileDeleteDelayMs,
                       tierEnable: Boolean = Defaults.TierEnable,
                       tierLocalHotsetBytes: Long = Defaults.TierLocalHotsetBytes,
-                      tierLocalHotsetMs: Long = Defaults.TierLocalHotsetMs): LogConfig = {
+                      tierLocalHotsetMs: Long = Defaults.TierLocalHotsetMs,
+                      tierSegmentHotsetRollMinBytes: Int = Defaults.TierSegmentHotsetRollMinBytes): LogConfig = {
     val logProps = new Properties()
 
     logProps.put(LogConfig.SegmentMsProp, segmentMs: java.lang.Long)
@@ -4299,6 +4300,7 @@ object LogTest {
     logProps.put(LogConfig.TierLocalHotsetBytesProp, tierLocalHotsetBytes: java.lang.Long)
     logProps.put(LogConfig.TierLocalHotsetMsProp, tierLocalHotsetMs: java.lang.Long)
     logProps.put(LogConfig.AppendRecordInterceptorClassesProp, classOf[MockRecordInterceptor].getName: String)
+    logProps.put(LogConfig.TierSegmentHotsetRollMinBytesProp, tierSegmentHotsetRollMinBytes: Integer)
     LogConfig(logProps)
   }
 

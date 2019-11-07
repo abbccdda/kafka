@@ -16,12 +16,14 @@
  */
 package kafka.admin
 
+import java.util.Optional
 import java.util.Scanner
 import kafka.integration.KafkaServerTestHarness
+import kafka.log.LogConfig
 import kafka.server.KafkaConfig
 import kafka.server.KafkaServer
 import kafka.utils.TestUtils
-import org.apache.kafka.clients.admin.{AdminClient, AdminClientConfig, CreateTopicsOptions, DescribeTopicsOptions, NewTopic}
+import org.apache.kafka.clients.admin.{AdminClient, AdminClientConfig, NewTopic}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.network.ListenerName
 import org.junit.Assert._
@@ -35,40 +37,68 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
   import ReplicaStatusCommandTest._
 
   override def generateConfigs: Seq[KafkaConfig] =
-    TestUtils.createBrokerConfigs(3, zkConnect, false).map(KafkaConfig.fromProps)
+    TestUtils.createBrokerConfigs(
+      numConfigs = 3,
+      zkConnect,
+      enableControlledShutdown = false,
+      rackInfo = Map(0 -> "a", 1 -> "a", 2 -> "b")).map { config =>
+      config.setProperty(KafkaConfig.AutoLeaderRebalanceEnableProp, "false")
+      config.setProperty(KafkaConfig.ObserverFeatureProp, "true")
+      KafkaConfig.fromProps(config)
+    }
 
-  private def createTopicAndWait(client: AdminClient, topic: String, numPartitions: Int, numReplicas: Int): Unit = {
-    client.createTopics(List(new NewTopic(topic, numPartitions, numReplicas.toShort)).asJava,
-      new CreateTopicsOptions().timeoutMs(1000)).all.get()
+  private def createTopicAndWait(client: AdminClient, topic: String, numPartitions: Integer): Unit = {
+    val newTopic = new NewTopic(topic, Optional.of(numPartitions), Optional.empty[java.lang.Short])
+    newTopic.configs(Map(LogConfig.TopicPlacementConstraintsProp ->
+      """{
+        "version":1,
+        "replicas":[{
+          "count": 2,
+          "constraints":{"rack":"a"}
+        }],
+        "observers":[{
+         "count": 1,
+         "constraints":{"rack":"b"}
+        }]
+      }"""
+    ).asJava)
+    client.createTopics(List(newTopic).asJava).all.get()
 
     TestUtils.waitUntilTrue(() => {
-      client.describeTopics(List(topic).asJava, new DescribeTopicsOptions()).all().get().get(topic) match {
+      client.describeTopics(List(topic).asJava).all().get().get(topic) match {
         case null => false
         case td => td.partitions.asScala.forall(_.leader != null)
       }
     }, "Failed to create topic")
   }
 
-  private def runCommand(topics: Array[String], numPartitions: Int, numReplicas: Int, args: Array[String]): String = {
+  /**
+    * Runs the ReplicaStatusCommand with the given args, first creating the specified topics with the provided number of
+    * partitions. The test cluster created will always consist of `3` brokers `{0, 1, 2}`, where broker `2` is always an
+    * observer.
+    */
+  private def runCommand(topics: Array[String], numPartitions: Int, args: Array[String]): String = {
     TestUtils.resource(AdminClient.create(createConfig(servers).asJava)) { client =>
-      topics.foreach(createTopicAndWait(client, _, numPartitions, numReplicas))
+      topics.foreach(createTopicAndWait(client, _, numPartitions))
+
       TestUtils.grabConsoleOutput(ReplicaStatusCommand.main(Array("--bootstrap-server", bootstrapServers(servers)) ++ args))
     }
   }
 
-  case class ReplicaStatusEntry(topic: String, partition: Int, replica: Int, mode: String, isCaughtUp: Boolean, isInSync: Boolean,
-    lastCaughtUpLagMs: Option[Long], lastFetchLagMs: Option[Long], logStartOffset: Option[Long], logEndOffset: Option[Long]) {
+  case class ReplicaStatusEntry(topic: String, partition: Int, replica: Int, isLeader: Boolean, isObserver: Boolean,
+    isIsrEligible: Boolean, isInIsr: Boolean, isCaughtUp: Boolean, lastCaughtUpLagMs: Option[Long], lastFetchLagMs: Option[Long],
+    logStartOffset: Option[Long], logEndOffset: Option[Long]) {
   }
 
-  private def runCommandParseCompactOutput(topics: Array[String], numPartitions: Int, numReplicas: Int, args: Array[String]): List[ReplicaStatusEntry] = {
-    val output = runCommand(topics, numPartitions, numReplicas, args :+ "--compact")
+  private def runCommandParseCompactOutput(topics: Array[String], numPartitions: Int, args: Array[String]): List[ReplicaStatusEntry] = {
+    val output = runCommand(topics, numPartitions, args :+ "--compact")
     val scanner = new Scanner(output)
     assertTrue(scanner.hasNextLine)
-    scanner.findInLine("(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)")
+    scanner.findInLine("(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)")
     val topMatch = scanner.`match`
 
     val expectedHeader =
-      Array("Topic", "Partition", "Replica", "Mode", "IsCaughtUp", "IsInSync", "LastCaughtUpLagMs", "LastFetchLagMs", "LogStartOffset", "LogEndOffset")
+      Array("Topic", "Partition", "Replica", "IsLeader", "IsObserver", "IsIsrEligible", "IsInIsr", "IsCaughtUp", "LastCaughtUpLagMs", "LastFetchLagMs", "LogStartOffset", "LogEndOffset")
     assertTrue(topMatch.groupCount == expectedHeader.size)
     for (idx <- 0 until topMatch.groupCount) {
       assertTrue(topMatch.group(idx + 1) == expectedHeader(idx))
@@ -76,8 +106,8 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
     scanner.nextLine
 
     def toBoolean(value: String): Boolean = value match {
-      case "yes" => true
-      case "no" => false
+      case "true" => true
+      case "false" => false
     }
     def toLongOption(value: String): Option[Long] = value match {
       case "unknown" => None
@@ -86,12 +116,12 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
 
     val result = mutable.Buffer[ReplicaStatusEntry]()
     while (scanner.hasNextLine) {
-      scanner.findInLine("(\\S+)\t(\\d+)\t(\\d+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)")
+      scanner.findInLine("(\\S+)\t(\\d+)\t(\\d+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)")
       val subMatch = scanner.`match`
       assertTrue(subMatch.groupCount == expectedHeader.size)
-      result += new ReplicaStatusEntry(subMatch.group(1), subMatch.group(2).toInt, subMatch.group(3).toInt, subMatch.group(4),
-        toBoolean(subMatch.group(5)), toBoolean(subMatch.group(6)), toLongOption(subMatch.group(7)), toLongOption(subMatch.group(8)),
-        toLongOption(subMatch.group(9)), toLongOption(subMatch.group(10)))
+      result += new ReplicaStatusEntry(subMatch.group(1), subMatch.group(2).toInt, subMatch.group(3).toInt, toBoolean(subMatch.group(4)),
+        toBoolean(subMatch.group(5)), toBoolean(subMatch.group(6)), toBoolean(subMatch.group(7)), toBoolean(subMatch.group(8)),
+        toLongOption(subMatch.group(9)), toLongOption(subMatch.group(10)), toLongOption(subMatch.group(11)), toLongOption(subMatch.group(12)))
       scanner.nextLine
     }
     result.toList
@@ -101,23 +131,24 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
   def testAllTopicPartitions(): Unit = {
     val topics = Array("test-topic-1", "test-topic-2")
     val numPartitions = 2
-    val numReplicas = servers.size
 
-    val output = runCommand(topics, numPartitions, numReplicas, Array())
+    val output = runCommand(topics, numPartitions, Array())
     for (topic <- topics)
       for (partition <- 0 until numPartitions)
-        for (replica <- 0 until numReplicas)
+        for (replica <- 0 until servers.size)
           assertTrue(output.contains(s"Topic-Partition-Replica: ${topic}-${partition}-${replica}"))
-    assertTrue(output.contains("Mode: LEADER"))
-    assertTrue(output.contains("Mode: FOLLOWER"))
-    assertFalse(output.contains("Mode: OBSERVER"))  // Not instantiated
+    assertTrue(output.contains("IsLeader: true"))
+    assertTrue(output.contains("IsLeader: false"))
+    assertTrue(output.contains("IsObserver: true"))
+    assertTrue(output.contains("IsObserver: false"))
+    assertTrue(output.contains("IsIsrEligible: true"))
+    assertTrue(output.contains("IsIsrEligible: false"))
   }
 
   @Test
   def testSpecifiedTopics(): Unit = {
     val topics = Array("test-topic-1", "test-topic-2", "test-topic-3")
-
-    val output = runCommand(topics, 1, 1, Array("--topics", topics(0) + "," + topics(2)))
+    val output = runCommand(topics, 1, Array("--topics", topics(0) + "," + topics(2)))
     assertTrue(output.contains(topics(0)))
     assertFalse(output.contains(topics(1)))
     assertTrue(output.contains(topics(2)))
@@ -126,8 +157,7 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
   @Test
   def testSpecifiedPartitions(): Unit = {
     val topics = Array("test-topic")
-
-    val output = runCommand(topics, 4, 1, Array("--partitions", "0,2-3"))
+    val output = runCommand(topics, 4, Array("--partitions", "0,2-3"))
     assertTrue(output.contains(topics(0) + "-0-"))
     assertFalse(output.contains(topics(0) + "-1-"))
     assertTrue(output.contains(topics(0) + "-2-"))
@@ -135,17 +165,47 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
   }
 
   @Test
-  def testSpecifiedModes(): Unit = {
-    val topics = Array("test-topic")
-
-    val output = runCommand(topics, 1, 2, Array("--modes", "follower"))
-    assertFalse(output.contains("Mode: LEADER"))
-    assertTrue(output.contains("Mode: FOLLOWER"))
-    assertFalse(output.contains("Mode: OBSERVER"))
+  def testLeadersOnly(): Unit = {
+    val topic = "test-topic"
+    val output = runCommand(Array(topic), 1, Array("--leaders"))
+    assertFalse(output.contains(s"Topic-Partition-Replica: ${topic}-0-2"))
+    assertTrue(output.contains("IsLeader: true"))
+    assertFalse(output.contains("IsLeader: false"))
   }
 
   @Test
-  def testNotCaughtUp(): Unit = {
+  def testLeadersExcluded(): Unit = {
+    val topic = "test-topic"
+    val output = runCommand(Array(topic), 1, Array("--leaders", "exclude"))
+    assertTrue(output.contains(s"Topic-Partition-Replica: ${topic}-0-2"))
+    assertFalse(output.contains("IsLeader: true"))
+    assertTrue(output.contains("IsLeader: false"))
+  }
+
+  @Test
+  def testObserversOnly(): Unit = {
+    val topic = "test-topic"
+    val output = runCommand(Array(topic), 1, Array("--observers"))
+    assertFalse(output.contains(s"Topic-Partition-Replica: ${topic}-0-0"))
+    assertFalse(output.contains(s"Topic-Partition-Replica: ${topic}-0-1"))
+    assertTrue(output.contains(s"Topic-Partition-Replica: ${topic}-0-2"))
+    assertTrue(output.contains("IsObserver: true"))
+    assertFalse(output.contains("IsObserver: false"))
+  }
+
+  @Test
+  def testObserversExcluded(): Unit = {
+    val topic = "test-topic"
+    val output = runCommand(Array(topic), 1, Array("--observers", "exclude"))
+    assertTrue(output.contains(s"Topic-Partition-Replica: ${topic}-0-0"))
+    assertTrue(output.contains(s"Topic-Partition-Replica: ${topic}-0-1"))
+    assertFalse(output.contains(s"Topic-Partition-Replica: ${topic}-0-2"))
+    assertFalse(output.contains("IsObserver: true"))
+    assertTrue(output.contains("IsObserver: false"))
+  }
+
+  @Test
+  def testNotInIsr(): Unit = {
     val topic = "test-topic"
     val topicPartition = new TopicPartition(topic, 0)
     val assignments = Map(0 -> Seq(0, 1))
@@ -158,20 +218,18 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
       TestUtils.waitForLeaderToBecome(client, topicPartition, Some(0))
       TestUtils.produceMessage(servers, topic, "message")
 
-      val output = TestUtils.grabConsoleOutput(ReplicaStatusCommand.main(Array("--bootstrap-server", bootstrapServers(servers), "--only-not-caught-up")))
+      val output = TestUtils.grabConsoleOutput(ReplicaStatusCommand.main(Array("--bootstrap-server", bootstrapServers(servers), "--leaders", "exclude")))
       assertFalse(output.contains(s"${topic}-0-0"))
-      assertFalse(output.contains("IsCaughtUp: yes"))
-      assertFalse(output.contains("IsInSync: yes"))
+      assertFalse(output.contains("IsInIsr: true"))
       assertTrue(output.contains(s"${topic}-0-1"))
-      assertTrue(output.contains("IsCaughtUp: no"))
-      assertTrue(output.contains("IsInSync: no"))
+      assertTrue(output.contains("IsInIsr: false"))
     }
   }
 
   @Test
   def testCompact(): Unit = {
-    val entries = runCommandParseCompactOutput(Array("test-topic-1", "test-topic-2"), 2, 2, Array())
-    assertTrue(entries.size == 8)
+    val entries = runCommandParseCompactOutput(Array("test-topic-1", "test-topic-2"), 2, Array())
+    assertTrue(entries.size == 12)
     val tpr = mutable.Set[String]()
     val leaders = mutable.Set[String]()
     entries.foreach { entry =>
@@ -179,23 +237,29 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
       assertTrue(entry.partition == 0 || entry.partition == 1)
       assertTrue(entry.replica >= 0 && entry.replica < servers.size)
       assertTrue(tpr.add(entry.topic + "-" + entry.partition + "-" + entry.replica))
-      assertTrue(entry.mode match {
-        case "LEADER" =>
-          assertTrue(leaders.add(entry.topic + "-" + entry.partition))
-          assertTrue(entry.isCaughtUp)
-          assertTrue(entry.isInSync)
-          true
-        case "FOLLOWER" | "OBSERVER" => true
-        case _ => false
-      })
+      if (entry.isLeader) {
+        assertTrue(leaders.add(entry.topic + "-" + entry.partition))
+        assertTrue(entry.isInIsr)
+        assertTrue(entry.isCaughtUp)
+      }
+      if (entry.replica == 2) {
+        assertTrue(entry.isObserver)
+        assertFalse(entry.isIsrEligible)
+
+        // An observer may be temporarily considered in the in sync set upon new topic creation, therefore
+        // we can't assert that it's not a part of the ISR, despite not being eligible.
+      } else {
+        assertFalse(entry.isObserver)
+        assertTrue(entry.isIsrEligible)
+        assertTrue(entry.isInIsr)
+      }
       entry.lastCaughtUpLagMs.foreach(value => assertTrue(value >= 0))
       entry.lastFetchLagMs.foreach { value =>
         assertTrue(value >= 0)
 
-        // Only assert that the replica is in sync and caught up if it reports a last fetch
-        // time, otherwise the leader may not see it as such despite the test producing no data.
+        // Only assert that the replica is caught up if it reports a last fetch time, otherwise the leader
+        // may not see it as such despite the test producing no data.
         assertTrue(entry.isCaughtUp)
-        assertTrue(entry.isInSync)
       }
       entry.logStartOffset.foreach(value => assertTrue(value >= 0))
       entry.logEndOffset.foreach(value => assertTrue(value >= 0))
