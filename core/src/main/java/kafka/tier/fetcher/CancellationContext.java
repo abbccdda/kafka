@@ -5,11 +5,10 @@
 package kafka.tier.fetcher;
 
 import java.io.Closeable;
-import java.util.ArrayList;
 
 /**
  * A tree to notify processes of cancellation in a thread safe way.
- * Parent element in the tree can set the cancellation status of children.
+ * Parent element in the tree can result in cancellation of children.
  *
  * Useful for request chaining where we wish to maintain a root handle for
  * cancellation, or the ability to cancel sub-requests arbitrarily.
@@ -17,11 +16,10 @@ import java.util.ArrayList;
 
 public class CancellationContext implements Closeable {
     private boolean cancelled;
-    private final ArrayList<CancellationContext> child;
+    private CancellationContext parent;
 
-    private CancellationContext(boolean cancelled) {
-        this.child = new ArrayList<>();
-        this.cancelled = cancelled;
+    private CancellationContext(CancellationContext parent) {
+        this.parent = parent;
     }
 
     /**
@@ -31,7 +29,7 @@ public class CancellationContext implements Closeable {
      * @return A new root CancellationContext with no parent.
      */
     public static CancellationContext newContext() {
-        return new CancellationContext(false);
+        return new CancellationContext(null);
     }
 
     /**
@@ -40,11 +38,7 @@ public class CancellationContext implements Closeable {
      * @return a new child CancellationContext
      */
     public CancellationContext subContext() {
-        CancellationContext newContext = new CancellationContext(this.cancelled);
-        synchronized (this) {
-            this.child.add(newContext);
-        }
-        return newContext;
+        return new CancellationContext(this);
     }
 
     /**
@@ -54,9 +48,6 @@ public class CancellationContext implements Closeable {
     public void cancel() {
         synchronized (this) {
             cancelled = true;
-            for (CancellationContext childContext : child) {
-                childContext.cancel();
-            }
         }
     }
 
@@ -66,7 +57,7 @@ public class CancellationContext implements Closeable {
      */
     public boolean isCancelled() {
         synchronized (this) {
-            return cancelled;
+            return cancelled || parent != null && parent.isCancelled();
         }
     }
 
