@@ -6,16 +6,17 @@ package kafka.tier.tasks.archive
 
 import java.io.File
 import java.nio.ByteBuffer
+import java.nio.file.NoSuchFileException
 import java.util.Collections
 import java.util.concurrent.{CompletableFuture, TimeUnit}
 import java.util.UUID
 
-import kafka.log.{AbstractLog, LogSegment, OffsetIndex, ProducerStateManager, TimeIndex}
+import kafka.log.{AbstractLog, LogSegment, OffsetIndex, ProducerStateManager, TimeIndex, UploadableSegment}
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.ReplicaManager
 import kafka.server.epoch.LeaderEpochFileCache
 import kafka.tier.domain.{TierObjectMetadata, TierSegmentUploadComplete, TierSegmentUploadInitiate}
-import kafka.tier.exceptions.{TierMetadataRetriableException, TierObjectStoreRetriableException}
+import kafka.tier.exceptions.{TierArchiverFencedException, TierMetadataRetriableException, TierObjectStoreRetriableException}
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState
 import kafka.tier.state.TierPartitionState.AppendResult
@@ -65,7 +66,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     assertEquals("Expected task to establish leadership", BeforeUpload(leaderEpoch), nextState)
 
     when(tierTopicManager.becomeArchiver(topicIdPartition, leaderEpoch))
-      .thenReturn(CompletableFutureUtil.completed(AppendResult.ILLEGAL))
+      .thenReturn(CompletableFutureUtil.completed(AppendResult.NOT_TIERABLE))
     val illegal = Await.ready(ArchiveTask.establishLeadership(BeforeLeader(0), topicIdPartition, tierTopicManager), 50 millis)
     assertTrue("Expected establishing leadership to fail", illegal.value.get.isFailure)
 
@@ -192,16 +193,8 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
   }
 
   @Test
-  def testSegmentDeletedDuringInitiateUpload(): Unit = {
-    val nextState = testExceptionHandlingDuringInitiateUpload(new IllegalStateException("offset not local"), deleteSegment = true)
-    assertThrows(classOf[SegmentDeletedException], new ThrowingRunnable {
-      override def run(): Unit = Await.result(nextState, 1 second)
-    })
-  }
-
-  @Test
-  def testUnknownExceptionDuringInitiateUpload(): Unit = {
-    val nextState = testExceptionHandlingDuringInitiateUpload(new IllegalStateException("illegal state"), deleteSegment = false)
+  def testExceptionDuringInitiateUpload(): Unit = {
+    val nextState = testExceptionHandlingDuringInitiateUpload(new IllegalStateException("illegal state"))
     assertThrows(classOf[IllegalStateException], new ThrowingRunnable {
       override def run(): Unit = Await.result(nextState, 1 second)
     })
@@ -209,7 +202,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
 
   @Test
   def testSegmentDeletedDuringUpload(): Unit = {
-    val nextState = testExceptionHandlingDuringUpload(new IllegalStateException("segment deleted"), deleteSegment = true)
+    val nextState = testExceptionHandlingDuringUpload(new NoSuchFileException("segment deleted"), deleteSegment = true)
     assertThrows(classOf[SegmentDeletedException], new ThrowingRunnable {
       override def run(): Unit = Await.result(nextState, 1 second)
     })
@@ -269,6 +262,9 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     when(log.producerStateManager).thenReturn(mockProducerStateManager)
     when(log.collectAbortedTransactions(ArgumentMatchers.any(classOf[Long]), ArgumentMatchers.any(classOf[Long])))
       .thenReturn(List())
+    val uploadableSegment = UploadableSegment(log, logSegment, logSegment.readNextOffset, None, None, None)
+    when(log.createUploadableSegment(logSegment)).thenReturn(uploadableSegment)
+
 
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
     when(tierTopicManager.addMetadata(any(classOf[TierSegmentUploadInitiate]))).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
@@ -307,6 +303,9 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
     when(tierTopicManager.addMetadata(any(classOf[TierSegmentUploadInitiate]))).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
     when(tierTopicManager.addMetadata(any(classOf[TierSegmentUploadComplete]))).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
+
+    val uploadableSegment = UploadableSegment(log, logSegment, logSegment.readNextOffset, None, Option(mockLeaderEpochCache.file), None)
+    when(log.createUploadableSegment(logSegment)).thenReturn(uploadableSegment)
 
     val metadata = tierSegment(log, leaderEpoch)
 
@@ -386,7 +385,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     verify(beforeUpload, times(1)).handleSegmentDeletedException(exception)
   }
 
-  private def testExceptionHandlingDuringInitiateUpload(e: Exception, deleteSegment: Boolean): Future[ArchiveTaskState] = {
+  private def testExceptionHandlingDuringInitiateUpload(e: Exception): Future[ArchiveTaskState] = {
     val leaderEpoch = 0
     val tierPartitionState = mock(classOf[TierPartitionState])
     val logSegment = mockLogSegment(tmpFile)
@@ -401,11 +400,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     when(log.leaderEpochCache).thenReturn(None)
     when(log.producerStateManager).thenReturn(mockProducerStateManager)
     when(mockProducerStateManager.snapshotFileForOffset(any())).thenReturn(None)
-
-    if (deleteSegment)
-      when(log.localLogSegments(logSegment.baseOffset, logSegment.baseOffset + 1)).thenReturn(Iterable.empty)
-    else
-      when(log.localLogSegments(logSegment.baseOffset, logSegment.baseOffset + 1)).thenReturn(Seq(logSegment))
+    when(log.createUploadableSegment(logSegment)).thenThrow(e)
 
     ArchiveTask.maybeInitiateUpload(
       BeforeUpload(leaderEpoch),
@@ -418,7 +413,14 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
 
   private def testExceptionHandlingDuringUpload(e: Exception, deleteSegment: Boolean): Future[ArchiveTaskState] = {
     val leaderEpoch = 0
-    val logSegment = mockLogSegment(tmpFile)
+
+    var fileToUse : File = tmpFile
+    if (deleteSegment) {
+      fileToUse = mock(classOf[File])
+      when(fileToUse.exists).thenReturn(false)
+    }
+
+    val logSegment = mockLogSegment(fileToUse)
     val log = mockAbstractLog(logSegment)
 
     val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition,
@@ -436,10 +438,6 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     val upload = Upload(leaderEpoch, uploadInitiate, uploadableSegment)
 
     when(tierObjectStore.putSegment(any(), any(), any(), any(), any(), any(), any())).thenThrow(e)
-    if (deleteSegment)
-      when(log.localLogSegments(logSegment.baseOffset, logSegment.baseOffset + 1)).thenReturn(Iterable.empty)
-    else
-      when(log.localLogSegments(logSegment.baseOffset, logSegment.baseOffset + 1)).thenReturn(Seq(logSegment))
 
     ArchiveTask.upload(upload, topicIdPartition, time, tierObjectStore)
   }

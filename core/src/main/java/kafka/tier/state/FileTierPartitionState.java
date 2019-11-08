@@ -488,7 +488,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     private AppendResult appendMetadata(AbstractTierMetadata entry) throws IOException {
         synchronized (lock) {
             if (!status.isOpenForWrite())
-                return AppendResult.ILLEGAL;
+                return AppendResult.NOT_TIERABLE;
 
             switch (entry.type()) {
                 case InitLeader:

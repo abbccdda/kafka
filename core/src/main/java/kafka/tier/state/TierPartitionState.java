@@ -22,8 +22,8 @@ public interface TierPartitionState {
      * The result of an attempt to append a tier metadata entry.
      */
     enum AppendResult {
-        // the tier partition status has not been initialized
-        ILLEGAL,
+        // the tier partition status has not been initialized, or it has been closed/deleted
+        NOT_TIERABLE,
         // the entry was materialized but was fenced
         FENCED,
         // the entry was materialized
