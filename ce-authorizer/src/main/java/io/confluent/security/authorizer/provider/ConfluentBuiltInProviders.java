@@ -4,6 +4,7 @@ package io.confluent.security.authorizer.provider;
 
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -19,21 +20,25 @@ import org.apache.kafka.common.utils.Utils;
 public class ConfluentBuiltInProviders {
 
   public enum AccessRuleProviders {
-    ACL,           // Broker's ACL provider consistent with SimpleAclAuthorizer
+    ZK_ACL,        // Broker's ACL provider consistent with SimpleAclAuthorizer
     MULTI_TENANT,  // Multi-tenant ACL provider for CCloud
-    RBAC           // RBAC metadata provider that uses centralized auth topic with roles and groups
+    CONFLUENT      // RBAC metadata provider that uses centralized auth topic with roles and groups
   }
 
   public enum GroupProviders {
     LDAP,          // LDAP group provider that directly obtains groups from LDAP
-    RBAC,          // RBAC metadata provider that uses centralized auth topic with roles and groups
+    CONFLUENT,     // MDS-based metadata provider that uses centralized auth topic with roles and groups
     NONE           // Groups disabled
   }
 
   public enum MetadataProviders {
-    RBAC,          // Embedded Metadata Server with REST interface
+    CONFLUENT,          // Embedded Metadata Server with REST interface
     NONE           // Embedded Metadata Service not enabled on the broker
   }
+
+  private static final Map<String, String> OLD_PROVIDER_NAMES = Utils.mkMap(
+      Utils.mkEntry("ACL", AccessRuleProviders.ZK_ACL.name()),
+      Utils.mkEntry("RBAC", AccessRuleProviders.CONFLUENT.name()));
 
   public static Set<String> builtInAccessRuleProviders() {
     return Utils.mkSet(AccessRuleProviders.values()).stream()
@@ -53,7 +58,25 @@ public class ConfluentBuiltInProviders {
     if (authProviders.size() != names.size()) {
       Set<String> remainingNames = new HashSet<>(names);
       remainingNames.removeAll(authProviders.keySet());
-      throw new ConfigException("Provider not found for " + remainingNames);
+      if (OLD_PROVIDER_NAMES.keySet().containsAll(remainingNames)) {
+
+        StringBuilder error = new StringBuilder();
+        remainingNames.forEach(name -> {
+          error.append(name);
+          error.append(" is supported by the provider named ");
+          error.append(OLD_PROVIDER_NAMES.get(name));
+          error.append(", ");
+        });
+        error.append("you should configure '");
+        error.append(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP);
+        error.append('=');
+        Collection<String> newProviders = names.stream().map(OLD_PROVIDER_NAMES::get).collect(Collectors.toSet());
+        error.append(Utils.join(newProviders, ","));
+        error.append("'");
+        throw new ConfigException(error.toString());
+      } else {
+        throw new ConfigException("Access rule provider not found for " + remainingNames);
+      }
     }
     return names.stream().map(authProviders::get).collect(Collectors.toList());
   }

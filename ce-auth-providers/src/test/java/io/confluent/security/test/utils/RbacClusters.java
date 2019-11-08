@@ -13,7 +13,7 @@ import io.confluent.license.test.utils.LicenseTestUtils;
 import io.confluent.license.validator.LicenseConfig;
 import io.confluent.security.auth.metadata.AuthStore;
 import io.confluent.security.auth.metadata.MetadataServiceConfig;
-import io.confluent.security.auth.provider.rbac.RbacProvider;
+import io.confluent.security.auth.provider.ConfluentProvider;
 import io.confluent.security.auth.store.data.UserKey;
 import io.confluent.security.auth.store.data.UserValue;
 import io.confluent.security.auth.store.kafka.KafkaAuthStore;
@@ -346,7 +346,7 @@ public class RbacClusters {
     serverConfig.setProperty(KafkaConfig$.MODULE$.AuthorizerClassNameProp(),
         ConfluentServerAuthorizer.class.getName());
     serverConfig.setProperty("super.users", "User:" + config.brokerUser);
-    serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL,RBAC");
+    serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ZK_ACL,CONFLUENT");
 
     if (config.enableTokenLogin) {
       attachTokenListener(serverConfig, config.publicKey);
@@ -366,7 +366,7 @@ public class RbacClusters {
     }
     serverConfig.setProperty(KafkaConfig$.MODULE$.AuthorizerClassNameProp(),
         ConfluentServerAuthorizer.class.getName());
-    serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL,RBAC");
+    serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ZK_ACL,CONFLUENT");
     serverConfig.setProperty("broker.users", "User:" + config.brokerUser);
     int metadataPort = 8000 + index;
     serverConfig.setProperty(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP,
@@ -408,14 +408,14 @@ public class RbacClusters {
     }
   }
 
-  private RbacProvider rbacProvider(KafkaServer kafkaServer) {
+  private ConfluentProvider rbacProvider(KafkaServer kafkaServer) {
     ConfluentServerAuthorizer authorizer = (ConfluentServerAuthorizer) kafkaServer.authorizer().get();
-    return (RbacProvider) authorizer.metadataProvider();
+    return (ConfluentProvider) authorizer.metadataProvider();
   }
 
   private KafkaAuthWriter kafkaAuthWriter(KafkaServer kafkaServer) {
     try {
-      RbacProvider rbacProvider = rbacProvider(kafkaServer);
+      ConfluentProvider rbacProvider = rbacProvider(kafkaServer);
       TestUtils.waitForCondition(() -> rbacProvider.authStore() != null,
           "Metadata server not created");
       TestUtils.waitForCondition(() -> rbacProvider.authStore().writer() != null,

@@ -5,7 +5,7 @@ package io.confluent.security.auth.metadata;
 import static org.junit.Assert.fail;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
-import io.confluent.security.auth.provider.rbac.RbacProvider;
+import io.confluent.security.auth.provider.ConfluentProvider;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
@@ -68,7 +68,7 @@ public class MetadataAuthorizationTest {
     authorizer.configure(props);
     authorizer.configureServerInfo(KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL));
     authorizer.start(props).get();
-    RbacProvider rbacProvider = (RbacProvider) authorizer.accessRuleProvider("MOCK_RBAC");
+    ConfluentProvider rbacProvider = (ConfluentProvider) authorizer.accessRuleProvider("MOCK_RBAC");
     this.authCache = (DefaultAuthCache) rbacProvider.authStore().authCache();
     RbacTestUtils.updateRoleBinding(authCache, admin, "SystemAdmin", clusterA, Collections.emptySet());
   }

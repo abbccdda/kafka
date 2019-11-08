@@ -228,7 +228,7 @@ public class MockConfluentServerAuthorizerTest {
         Set<KafkaPrincipal> groupPrincipals, Scope scope, ResourcePattern resource) {
       if (resource.name().startsWith("allowed")) {
         AccessRule rule = new AccessRule(resource, principal, PermissionType.ALLOW, "*",
-            Operation.ALL, PolicyType.ALLOW_ACL, "ACL");
+            Operation.ALL, PolicyType.ALLOW_ACL, "ZK_ACL");
         return Collections.singleton(rule);
       } else {
         return Collections.emptySet();

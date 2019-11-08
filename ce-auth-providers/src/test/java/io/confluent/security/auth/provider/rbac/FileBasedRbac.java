@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.security.auth.metadata.AuthStore;
 import io.confluent.security.auth.metadata.AuthWriter;
 import io.confluent.security.auth.metadata.MetadataServer;
+import io.confluent.security.auth.provider.ConfluentProvider;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.Authorizer;
@@ -31,13 +32,13 @@ import org.slf4j.LoggerFactory;
  * RBAC provider for use in system tests. This is used to load roles from a file
  * during start up in system tests since we don't have a real Metadata Server in ce-kafka.
  */
-public class FileBasedRbac extends RbacProvider {
+public class FileBasedRbac extends ConfluentProvider {
   private static final Logger log = LoggerFactory.getLogger(FileBasedRbac.class);
 
   private static final String PROVIDER_NAME = "FILE_RBAC";
   private static final String FILENAME_PROP = "test.metadata.rbac.file";
 
-  public static class Provider extends RbacProvider {
+  public static class Provider extends ConfluentProvider {
     @Override
     public String providerName() {
       return PROVIDER_NAME;
