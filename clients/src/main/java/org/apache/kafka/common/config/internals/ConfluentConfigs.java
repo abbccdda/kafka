@@ -153,6 +153,12 @@ public class ConfluentConfigs {
     public static final String APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS_DOC = "If this is set, " +
         "CreateTopicsPolicy will also apply to CreatePartitions.";
 
+    public static final String VERIFY_GROUP_SUBSCRIPTION_PREFIX =
+        CONFLUENT_PREFIX + "verify.group.subscription.prefix";
+    public static final boolean VERIFY_GROUP_SUBSCRIPTION_PREFIX_DEFAULT = false;
+    public static final String VERIFY_GROUP_SUBSCRIPTION_PREFIX_DOC = "If this is set, the group " +
+        "coordinator will verify that the subscriptions are prefixed with the tenant.";
+
     public static final String REST_SERVER_CLASS_CONFIG = CONFLUENT_PREFIX + "rest.server.class";
     public static final String REST_SERVER_CLASS_DOC = "The fully qualified name of a class that implements " + RestServer.class.getName()
         + " interface, which is used by the broker to start the Rest Server.";

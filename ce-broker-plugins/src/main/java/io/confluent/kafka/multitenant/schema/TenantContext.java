@@ -66,6 +66,10 @@ public class TenantContext implements TransformContext {
     return prefix;
   }
 
+  public int prefixSizeInBytes() {
+    return prefixSizeInBytes;
+  }
+
   public TopicPartition removeTenantPrefix(TopicPartition tp) {
     return new TopicPartition(removeTenantPrefix(tp.topic()), tp.partition());
   }

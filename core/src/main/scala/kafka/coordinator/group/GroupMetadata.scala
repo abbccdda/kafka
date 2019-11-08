@@ -19,6 +19,7 @@ package kafka.coordinator.group
 import java.nio.ByteBuffer
 import java.util.UUID
 import java.util.concurrent.locks.ReentrantLock
+import java.util.regex.Pattern
 
 import kafka.common.OffsetAndMetadata
 import kafka.utils.{CoreUtils, Logging, nonthreadsafe}
@@ -145,6 +146,9 @@ private object GroupMetadata {
   }
 
   private val MemberIdDelimiter = "-"
+
+  private val TenantPrefix = Pattern.compile("^(lkc-[0-9a-z]+_).+")
+  var VerifyGroupSubscriptionPrefix = false
 }
 
 /**
@@ -457,7 +461,7 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
     protocolType match {
       case Some(ConsumerProtocol.PROTOCOL_TYPE) if members.nonEmpty && protocol.isDefined =>
         try {
-          Some(
+          var topics: Option[Set[String]] = Some(
             members.map { case (_, member) =>
               // The consumer protocol is parsed with V0 which is the based prefix of all versions.
               // This way the consumer group manager does not depend on any specific existing or
@@ -467,6 +471,26 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
               ConsumerProtocol.deserializeSubscriptionV0(buffer).topics.asScala.toSet
             }.reduceLeft(_ ++ _)
           )
+
+          // In the cloud where the multi tenant interceptor is used, groups could have been stored in
+          // the log with metadata which hasn't been prefixed yet. The code below ensures that the
+          // expiration and deletion of offsets while the group is stable is disabled if the computed
+          // subscribed topics are not prefixed yet while the group is.
+          // This code can be removed once all clusters have been upgraded and all groups have been
+          // rebalanced.
+          if (GroupMetadata.VerifyGroupSubscriptionPrefix) {
+            val matcher = GroupMetadata.TenantPrefix.matcher(groupId)
+            if (matcher.matches) {
+              val prefix = matcher.group(1)
+              if (topics.isDefined && !topics.get.forall(_.startsWith(prefix))) {
+                warn(s"The subscriptions of group $groupId are not prefixed with the tenant " +
+                  s"$prefix. Consumer group coordinator is not aware of the subscribed topics.")
+                topics = None
+              }
+            }
+          }
+
+          topics
         } catch {
           case e: SchemaException => {
             warn(s"Failed to parse Consumer Protocol ${ConsumerProtocol.PROTOCOL_TYPE}:${protocol.get} " +
@@ -724,17 +748,15 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
             .getOrElse(commitRecordMetadataAndOffset.offsetAndMetadata.commitTimestamp)
         )
 
-// Disabled because KIP-496 does not work when the multi-tenant interceptor
-// is used. ~dajac
-//      case Some(ConsumerProtocol.PROTOCOL_TYPE) if subscribedTopics.isDefined =>
-//        // consumers exist in the group =>
-//        // - if the group is aware of the subscribed topics and retention period had passed since the
-//        //   the last commit timestamp, expire the offset. offset with pending offset commit are not
-//        //   expired
-//        getExpiredOffsets(
-//          _.offsetAndMetadata.commitTimestamp,
-//          subscribedTopics.get
-//        )
+      case Some(ConsumerProtocol.PROTOCOL_TYPE) if subscribedTopics.isDefined =>
+        // consumers exist in the group =>
+        // - if the group is aware of the subscribed topics and retention period had passed since the
+        //   the last commit timestamp, expire the offset. offset with pending offset commit are not
+        //   expired
+        getExpiredOffsets(
+          _.offsetAndMetadata.commitTimestamp,
+          subscribedTopics.get
+        )
 
       case None =>
         // protocolType is None => standalone (simple) consumer, that uses Kafka for offset storage only

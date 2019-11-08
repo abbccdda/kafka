@@ -42,6 +42,7 @@ import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.requests.OffsetFetchResponse
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
+import org.apache.kafka.common.utils.Time
 import org.easymock.{Capture, EasyMock, IAnswer}
 import org.junit.Assert.{assertEquals, assertFalse, assertNull, assertTrue}
 import org.junit.{Before, Ignore, Test}
@@ -871,6 +872,59 @@ class GroupMetadataManagerTest {
     assertEquals(protocol, group.protocolOrNull)
     assertEquals(None, group.getSubscribedTopics)
     assertTrue(group.has(memberId))
+  }
+
+  // This test can be removed when the specific logic in GroupMetadata#computeSubscribedTopics is
+  // removed.
+  @Test
+  def testLoadAndOffsetsMigrationInMultiTenantEnv(): Unit = {
+    def loadGroupAndOffsetsMigration(groupId: String, protocolType: String, state: GroupState,
+                                     subscribedTopics: List[String]): Option[Set[String]] = {
+      val subscriptions = List(
+        ("protocol", ConsumerProtocol.serializeSubscription(new Subscription(subscribedTopics.asJava)).array())
+      )
+
+      val member = new MemberMetadata("member", groupId, groupInstanceId, "", "", rebalanceTimeout,
+        sessionTimeout, protocolType, subscriptions)
+
+      val group = GroupMetadata.loadGroup(groupId, state, 27, protocolType, "protocol", null, None,
+        if (state == Stable) Seq(member) else Seq(), time)
+
+      group.getSubscribedTopics
+    }
+
+    // Enable the verification
+    GroupMetadata.VerifyGroupSubscriptionPrefix = true
+
+    // Group is prefixed, group is empty
+    assertEquals(Some(Set.empty),
+      loadGroupAndOffsetsMigration("lkc-14lpo5k_group", ConsumerProtocol.PROTOCOL_TYPE, Empty,
+        List.empty))
+
+    // Group is prefixed, group is stable, subscriptions are not prefixed
+    assertEquals(None,
+      loadGroupAndOffsetsMigration("lkc-14lpo5k_group", ConsumerProtocol.PROTOCOL_TYPE, Stable,
+        List("foo", "bar")))
+
+    // Group is prefixed, group is stable, subscriptions are prefixed
+    assertEquals(Some(Set("lkc-14lpo5k_foo", "lkc-14lpo5k_bar")),
+      loadGroupAndOffsetsMigration("lkc-14lpo5k_group", ConsumerProtocol.PROTOCOL_TYPE, Stable,
+        List("lkc-14lpo5k_foo", "lkc-14lpo5k_bar")))
+
+    // Regular group, group is empty
+    assertEquals(Some(Set.empty),
+      loadGroupAndOffsetsMigration("group_with_underscore", ConsumerProtocol.PROTOCOL_TYPE, Empty,
+        List.empty))
+
+    // Regular group, group is stable, subscriptions are not prefixed
+    assertEquals(Some(Set("foo", "bar")),
+      loadGroupAndOffsetsMigration("group_with_underscore", ConsumerProtocol.PROTOCOL_TYPE, Stable,
+        List("foo", "bar")))
+
+    // Not a consumer group
+    assertEquals(None,
+      loadGroupAndOffsetsMigration("group_with_underscore", "not_consumer", Stable,
+        List("foo", "bar")))
   }
 
   @Test
@@ -1742,9 +1796,6 @@ class GroupMetadataManagerTest {
     assert(group.is(Dead))
   }
 
-  // Disabled because KIP-496 does not work when the multi-tenant interceptor
-  // is used. ~dajac
-  @Ignore
   @Test
   def testOffsetExpirationOfActiveGroupSemantics(): Unit = {
     val memberId = "memberId"

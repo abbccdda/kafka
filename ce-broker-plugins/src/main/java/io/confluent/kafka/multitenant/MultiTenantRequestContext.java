@@ -8,6 +8,7 @@ import io.confluent.kafka.multitenant.quota.TenantPartitionAssignor;
 import io.confluent.kafka.multitenant.schema.MultiTenantApis;
 import io.confluent.kafka.multitenant.schema.TenantContext;
 import io.confluent.kafka.multitenant.schema.TransformableType;
+import org.apache.kafka.clients.consumer.internals.ConsumerProtocol;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.acl.AclBinding;
@@ -27,7 +28,12 @@ import org.apache.kafka.common.message.CreateTopicsResponseData;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicConfigs;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResult;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResultCollection;
+import org.apache.kafka.common.message.DescribeGroupsResponseData.DescribedGroup;
+import org.apache.kafka.common.message.DescribeGroupsResponseData.DescribedGroupMember;
 import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
+import org.apache.kafka.common.message.JoinGroupRequestData.JoinGroupRequestProtocol;
+import org.apache.kafka.common.message.JoinGroupRequestData.JoinGroupRequestProtocolCollection;
+import org.apache.kafka.common.message.JoinGroupResponseData.JoinGroupResponseMember;
 import org.apache.kafka.common.message.ListGroupsResponseData;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.network.ListenerName;
@@ -53,8 +59,11 @@ import org.apache.kafka.common.requests.DeleteAclsResponse;
 import org.apache.kafka.common.requests.DescribeAclsRequest;
 import org.apache.kafka.common.requests.DescribeAclsResponse;
 import org.apache.kafka.common.requests.DescribeConfigsResponse;
+import org.apache.kafka.common.requests.DescribeGroupsResponse;
 import org.apache.kafka.common.requests.FetchResponse;
 import org.apache.kafka.common.requests.IncrementalAlterConfigsRequest;
+import org.apache.kafka.common.requests.JoinGroupRequest;
+import org.apache.kafka.common.requests.JoinGroupResponse;
 import org.apache.kafka.common.requests.ListGroupsResponse;
 import org.apache.kafka.common.requests.MetadataRequest;
 import org.apache.kafka.common.requests.MetadataResponse;
@@ -102,6 +111,7 @@ public class MultiTenantRequestContext extends RequestContext {
   private final Time time;
   private final long startNanos;
   private boolean isMetadataFetchForAllTopics;
+  private boolean isJoinConsumerGroup = false;
   private PatternType describeAclsPatternType;
   private boolean requestParsingFailed = false;
   private ApiException tenantApiException;
@@ -175,6 +185,8 @@ public class MultiTenantRequestContext extends RequestContext {
           body = transformAlterConfigsRequest((AlterConfigsRequest) body, apiVersion);
         } else if (body instanceof IncrementalAlterConfigsRequest) {
           body = transformIncrementalAlterConfigsRequest((IncrementalAlterConfigsRequest) body, apiVersion);
+        } else if (body instanceof JoinGroupRequest) {
+          body = transformJoinGroupRequest((JoinGroupRequest) body);
         }
 
       } catch (InvalidRequestException e) {
@@ -251,8 +263,11 @@ public class MultiTenantRequestContext extends RequestContext {
         filteredResponse = transformDeleteAclsResponse((DeleteAclsResponse) body);
       } else if (body instanceof CreateTopicsResponse) {
         filteredResponse = filteredCreateTopicsResponse((CreateTopicsResponse) body);
+      } else if (body instanceof JoinGroupResponse) {
+        filteredResponse = transformJoinGroupResponse((JoinGroupResponse) body);
+      } else if (body instanceof DescribeGroupsResponse) {
+        filteredResponse = transformDescribeGroupsResponse((DescribeGroupsResponse) body);
       }
-
 
       TransformableType<TenantContext> schema = MultiTenantApis.responseSchema(api, apiVersion);
       Struct responseHeaderStruct = responseHeader.toStruct();
@@ -467,6 +482,81 @@ public class MultiTenantRequestContext extends RequestContext {
         partitionsRequest.timeout(), partitionsRequest.validateOnly()).build(version);
   }
 
+  private JoinGroupRequest transformJoinGroupRequest(JoinGroupRequest joinGroupRequest) {
+    if (joinGroupRequest.data().protocolType().equals(ConsumerProtocol.PROTOCOL_TYPE)) {
+      isJoinConsumerGroup = true;
+
+      JoinGroupRequestProtocolCollection protocols = joinGroupRequest.data().protocols();
+      for (JoinGroupRequestProtocol protocol : protocols) {
+        protocol.setMetadata(transformSubscription(protocol.metadata(), true));
+      }
+    }
+
+    return joinGroupRequest;
+  }
+
+  private JoinGroupResponse transformJoinGroupResponse(JoinGroupResponse response) {
+    if (isJoinConsumerGroup && response.isLeader()) {
+      for (JoinGroupResponseMember member : response.data().members()) {
+        member.setMetadata(transformSubscription(member.metadata(), false));
+      }
+    }
+
+    return response;
+  }
+
+  private DescribeGroupsResponse transformDescribeGroupsResponse(DescribeGroupsResponse response) {
+    for (DescribedGroup group : response.data().groups()) {
+      if (group.protocolType().equals(ConsumerProtocol.PROTOCOL_TYPE)) {
+        for (DescribedGroupMember member : group.members()) {
+          member.setMemberMetadata(transformSubscription(member.memberMetadata(), false));
+        }
+      }
+    }
+
+    return response;
+  }
+
+  /**
+   * Transforms a subscription to either add or remove the tenant prefix. All subscriptions
+   * are parsed with the version 0 of the consumer protocol, which prefixes all the newer
+   * versions, and trailing bytes are copied over.
+   */
+  private byte[] transformSubscription(byte[] metadata, boolean addPrefix) {
+    // Parse the subscription
+    ByteBuffer buffer = ByteBuffer.wrap(metadata);
+    short ver = ConsumerProtocol.deserializeVersion(buffer);
+    Struct struct = ConsumerProtocol.SUBSCRIPTION_V0.read(buffer);
+
+    // Transform the topics
+    Object[] topics = struct.getArray(ConsumerProtocol.TOPICS_KEY_NAME);
+    int bytesDelta = 0;
+    for (int i = 0; i < topics.length; i++) {
+      String topic = (String) topics[i];
+      if (addPrefix) {
+        topics[i] = tenantContext.addTenantPrefix(topic);
+        bytesDelta += tenantContext.prefixSizeInBytes();
+      } else {
+        // Active groups may not have the prefix yet.
+        if (tenantContext.hasTenantPrefix(topic)) {
+          topics[i] = tenantContext.removeTenantPrefix((String) topics[i]);
+          bytesDelta -= tenantContext.prefixSizeInBytes();
+        }
+      }
+    }
+    struct.set(ConsumerProtocol.TOPICS_KEY_NAME, topics);
+
+    // Serialize the subscription
+    ByteBuffer newBuffer = ByteBuffer.allocate(buffer.capacity() + bytesDelta);
+    ConsumerProtocol.CONSUMER_PROTOCOL_HEADER_SCHEMA.write(newBuffer,
+        new Struct(ConsumerProtocol.CONSUMER_PROTOCOL_HEADER_SCHEMA).set(ConsumerProtocol.VERSION_KEY_NAME, ver));
+    ConsumerProtocol.SUBSCRIPTION_V0.write(newBuffer, struct);
+    // Copy trailing bytes
+    newBuffer.put(buffer);
+    newBuffer.flip();
+
+    return newBuffer.array();
+  }
 
   private Send transformFetchResponse(FetchResponse<MemoryRecords> fetchResponse, short version,
                                       ResponseHeader header) {

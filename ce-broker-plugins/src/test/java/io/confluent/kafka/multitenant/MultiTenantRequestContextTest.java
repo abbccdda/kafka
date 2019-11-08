@@ -6,7 +6,11 @@ import io.confluent.kafka.multitenant.metrics.PartitionSensors;
 import io.confluent.kafka.multitenant.metrics.TenantMetrics;
 import io.confluent.kafka.multitenant.quota.TenantPartitionAssignor;
 import io.confluent.kafka.multitenant.quota.TestCluster;
+import java.util.Random;
+import java.util.function.Consumer;
 import java.util.stream.StreamSupport;
+import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor.Subscription;
+import org.apache.kafka.clients.consumer.internals.ConsumerProtocol;
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
@@ -39,18 +43,31 @@ import org.apache.kafka.common.message.DeleteTopicsResponseData.DeletableTopicRe
 import org.apache.kafka.common.message.DeleteTopicsResponseData.DeletableTopicResultCollection;
 import org.apache.kafka.common.message.DescribeGroupsRequestData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData;
+import org.apache.kafka.common.message.DescribeGroupsResponseData.DescribedGroup;
+import org.apache.kafka.common.message.DescribeGroupsResponseData.DescribedGroupMember;
 import org.apache.kafka.common.message.FindCoordinatorRequestData;
 import org.apache.kafka.common.message.HeartbeatRequestData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsResponseData;
 import org.apache.kafka.common.message.InitProducerIdRequestData;
 import org.apache.kafka.common.message.JoinGroupRequestData;
+import org.apache.kafka.common.message.JoinGroupResponseData;
+import org.apache.kafka.common.message.JoinGroupResponseData.JoinGroupResponseMember;
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState;
 import org.apache.kafka.common.message.LeaveGroupRequestData;
 import org.apache.kafka.common.message.ListGroupsResponseData;
 import org.apache.kafka.common.message.MetadataRequestData;
 import org.apache.kafka.common.message.MetadataRequestData.MetadataRequestTopic;
 import org.apache.kafka.common.message.OffsetCommitRequestData;
+import org.apache.kafka.common.message.OffsetDeleteRequestData;
+import org.apache.kafka.common.message.OffsetDeleteRequestData.OffsetDeleteRequestPartition;
+import org.apache.kafka.common.message.OffsetDeleteRequestData.OffsetDeleteRequestTopic;
+import org.apache.kafka.common.message.OffsetDeleteRequestData.OffsetDeleteRequestTopicCollection;
+import org.apache.kafka.common.message.OffsetDeleteResponseData;
+import org.apache.kafka.common.message.OffsetDeleteResponseData.OffsetDeleteResponsePartition;
+import org.apache.kafka.common.message.OffsetDeleteResponseData.OffsetDeleteResponsePartitionCollection;
+import org.apache.kafka.common.message.OffsetDeleteResponseData.OffsetDeleteResponseTopic;
+import org.apache.kafka.common.message.OffsetDeleteResponseData.OffsetDeleteResponseTopicCollection;
 import org.apache.kafka.common.message.SyncGroupRequestData;
 import org.apache.kafka.common.message.TxnOffsetCommitRequestData;
 import org.apache.kafka.common.message.TxnOffsetCommitRequestData.TxnOffsetCommitRequestPartition;
@@ -115,6 +132,7 @@ import org.apache.kafka.common.requests.IncrementalAlterConfigsResponse;
 import org.apache.kafka.common.requests.InitProducerIdRequest;
 import org.apache.kafka.common.requests.IsolationLevel;
 import org.apache.kafka.common.requests.JoinGroupRequest;
+import org.apache.kafka.common.requests.JoinGroupResponse;
 import org.apache.kafka.common.requests.LeaderAndIsrRequest;
 import org.apache.kafka.common.requests.LeaderAndIsrResponse;
 import org.apache.kafka.common.requests.LeaveGroupRequest;
@@ -125,6 +143,8 @@ import org.apache.kafka.common.requests.MetadataRequest;
 import org.apache.kafka.common.requests.MetadataResponse;
 import org.apache.kafka.common.requests.OffsetCommitRequest;
 import org.apache.kafka.common.requests.OffsetCommitResponse;
+import org.apache.kafka.common.requests.OffsetDeleteRequest;
+import org.apache.kafka.common.requests.OffsetDeleteResponse;
 import org.apache.kafka.common.requests.OffsetFetchRequest;
 import org.apache.kafka.common.requests.OffsetFetchResponse;
 import org.apache.kafka.common.requests.OffsetsForLeaderEpochRequest;
@@ -178,9 +198,11 @@ import java.util.stream.Stream;
 import static java.util.Arrays.asList;
 import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toList;
+import static org.apache.kafka.clients.consumer.internals.ConsumerProtocol.PROTOCOL_TYPE;
 import static org.apache.kafka.common.utils.Utils.mkEntry;
 import static org.apache.kafka.common.utils.Utils.mkMap;
 import static org.apache.kafka.common.utils.Utils.mkSet;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -632,26 +654,158 @@ public class MultiTenantRequestContextTest {
 
   @Test
   public void testJoinGroupRequest() {
+    String group = "group";
+    String protocolName = "protocol";
+    Subscription subscription = new Subscription(
+        Collections.singletonList("topic"),
+        ByteBuffer.allocate(10),
+        Collections.singletonList(new TopicPartition("topic", 0)));
+
+    // Not a consumer group
+    byte[] protocolMetadata = new byte[20];
+    new Random().nextBytes(protocolMetadata);
+    testJoinGroupRequest(group, "non-consumer", protocolName, protocolMetadata,
+        metadata -> assertArrayEquals(protocolMetadata, metadata));
+
+    // A consumer group (V0)
+    byte[] protocolMetadataV0 = ConsumerProtocol.serializeSubscriptionV0(subscription).array();
+    testJoinGroupRequest(group, PROTOCOL_TYPE, protocolName, protocolMetadataV0, metadata -> {
+      Subscription interceptedSubscription = ConsumerProtocol.deserializeSubscription(
+          ByteBuffer.wrap(metadata));
+      assertArrayEquals(Collections.singletonList("tenant_topic").toArray(),
+          interceptedSubscription.topics().toArray());
+      assertEquals(subscription.userData(), interceptedSubscription.userData());
+    });
+
+    // A consumer group (V1)
+    byte[] protocolMetadataV1 = ConsumerProtocol.serializeSubscriptionV1(subscription).array();
+    testJoinGroupRequest(group, PROTOCOL_TYPE, protocolName, protocolMetadataV1, metadata -> {
+      Subscription interceptedSubscription = ConsumerProtocol.deserializeSubscription(
+          ByteBuffer.wrap(metadata));
+      assertArrayEquals(Collections.singletonList("tenant_topic").toArray(),
+          interceptedSubscription.topics().toArray());
+      assertEquals(subscription.userData(), interceptedSubscription.userData());
+      assertArrayEquals(subscription.ownedPartitions().toArray(),
+          interceptedSubscription.ownedPartitions().toArray());
+    });
+  }
+
+  private void testJoinGroupRequest(String group, String protocolType, String protocolName,
+      byte[] protocolMetadata, Consumer<byte[]> verifySubscription) {
     for (short ver = ApiKeys.JOIN_GROUP.oldestVersion(); ver <= ApiKeys.JOIN_GROUP.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.JOIN_GROUP, ver);
 
-      JoinGroupRequestData.JoinGroupRequestProtocolCollection protocols = new JoinGroupRequestData.JoinGroupRequestProtocolCollection(
-              Collections.singleton(
-                      new JoinGroupRequestData.JoinGroupRequestProtocol()
-                              .setMetadata(new byte[0])
-              ).iterator()
-      );
-      JoinGroupRequestData data = new JoinGroupRequestData()
-              .setGroupId("group")
-              .setSessionTimeoutMs(30000)
-              .setMemberId("")
-              .setProtocolType("consumer")
-              .setProtocols(protocols);
-      JoinGroupRequest inbound = new JoinGroupRequest.Builder(data).build(ver);
+      JoinGroupRequest inbound = buildJoinGroupRequest(group, protocolType, protocolName,
+          protocolMetadata, ver);
       JoinGroupRequest intercepted = (JoinGroupRequest) parseRequest(context, inbound);
+
       assertEquals("tenant_group", intercepted.data().groupId());
+      assertEquals(1, intercepted.data().protocols().size());
+
+      verifySubscription.accept(intercepted.data().protocols().find("protocol").metadata());
       verifyRequestMetrics(ApiKeys.JOIN_GROUP);
     }
+  }
+
+  @Test
+  public void testJoinGroupResponse() throws IOException {
+    String group = "group";
+    String protocolName = "protocol";
+    Subscription subscription = new Subscription(
+        Collections.singletonList("topic"),
+        ByteBuffer.allocate(10),
+        Collections.singletonList(new TopicPartition("topic", 0)));
+
+    // Not a consumer group
+    byte[] protocolMetadata = new byte[20];
+    new Random().nextBytes(protocolMetadata);
+    testJoinGroupResponse(group, "non-consumer", protocolName, protocolMetadata, true);
+    testJoinGroupResponse(group, "non-consumer", protocolName, protocolMetadata, false);
+
+    // A consumer group (V0)
+    byte[] protocolMetadataV0 = ConsumerProtocol.serializeSubscriptionV0(subscription).array();
+    testJoinGroupResponse(group, PROTOCOL_TYPE, protocolName, protocolMetadataV0, true);
+    testJoinGroupResponse(group, PROTOCOL_TYPE, protocolName, protocolMetadataV0, false);
+
+    // A consumer group (V1)
+    byte[] protocolMetadataV1 = ConsumerProtocol.serializeSubscriptionV1(subscription).array();
+    testJoinGroupResponse(group, PROTOCOL_TYPE, protocolName, protocolMetadataV1, true);
+    testJoinGroupResponse(group, PROTOCOL_TYPE, protocolName, protocolMetadataV1, false);
+  }
+
+  private void testJoinGroupResponse(String group, String protocolType, String protocolName,
+      byte[] protocolMetadata, boolean leader) throws IOException {
+
+    for (short ver = ApiKeys.JOIN_GROUP.oldestVersion(); ver <= ApiKeys.JOIN_GROUP.latestVersion(); ver++) {
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.JOIN_GROUP, ver);
+
+      JoinGroupRequest inbound = buildJoinGroupRequest(group, protocolType,
+          protocolName, protocolMetadata, ver);
+      JoinGroupRequest inboundIntercepted = (JoinGroupRequest) parseRequest(context, inbound);
+
+      // The test assumes that the request is processed correctly thus it reuses the intercepted
+      // metadata.
+      JoinGroupResponse outbound = buildJoinGroupResponse(leader, protocolName,
+          inboundIntercepted.data().protocols().find(protocolName).metadata());
+      Struct struct = parseResponse(ApiKeys.JOIN_GROUP, ver, context.buildResponse(outbound));
+      JoinGroupResponse intercepted = new JoinGroupResponse(struct, ver);
+
+      assertEquals(outbound.isLeader(), intercepted.isLeader());
+      assertEquals(outbound.data().generationId(), intercepted.data().generationId());
+      assertEquals(outbound.data().protocolName(), intercepted.data().protocolName());
+      assertEquals(outbound.data().memberId(), intercepted.data().memberId());
+      assertEquals(outbound.data().members().size(), intercepted.data().members().size());
+
+      for (int i = 0; i < outbound.data().members().size(); i++) {
+        JoinGroupResponseMember member = intercepted.data().members().get(i);
+        assertEquals(i == 0 ? "leader" : "follower", member.memberId());
+        assertArrayEquals(protocolMetadata, member.metadata());
+      }
+    }
+  }
+
+  private JoinGroupRequest buildJoinGroupRequest(String group, String protocolType,
+      String protocolName, byte[] protocolMetadata, short version) {
+
+    JoinGroupRequestData.JoinGroupRequestProtocolCollection protocols =
+        new JoinGroupRequestData.JoinGroupRequestProtocolCollection(Collections.singleton(
+            new JoinGroupRequestData.JoinGroupRequestProtocol()
+                .setName(protocolName)
+                .setMetadata(protocolMetadata)
+        ).iterator()
+    );
+
+    JoinGroupRequestData data = new JoinGroupRequestData()
+        .setGroupId(group)
+        .setSessionTimeoutMs(30000)
+        .setMemberId("")
+        .setProtocolType(protocolType)
+        .setProtocols(protocols);
+
+    return new JoinGroupRequest.Builder(data).build(version);
+  }
+
+  private JoinGroupResponse buildJoinGroupResponse(boolean leader, String protocolName, byte[] protocolMetadata) {
+    JoinGroupResponseData data = new JoinGroupResponseData()
+        .setLeader("leader")
+        .setMemberId(leader ? "leader" : "follower")
+        .setGenerationId(10)
+        .setProtocolName(protocolName);
+
+    if (leader) {
+      List<JoinGroupResponseMember> members = Arrays.asList(
+          new JoinGroupResponseMember()
+              .setMemberId("leader")
+              .setMetadata(protocolMetadata),
+          new JoinGroupResponseMember()
+              .setMemberId("follower")
+              .setMetadata(protocolMetadata)
+      );
+
+      data.setMembers(members);
+    }
+
+    return new JoinGroupResponse(data);
   }
 
   @Test
@@ -708,25 +862,95 @@ public class MultiTenantRequestContextTest {
 
   @Test
   public void testDescribeGroupsResponse() throws IOException {
+    List<String> outboundGroups = Arrays.asList("tenant_foo", "tenant_bar");
+    Subscription outboundSubscriptionWithPrefix = new Subscription(
+        Collections.singletonList("tenant_topic"),
+        ByteBuffer.allocate(10),
+        Collections.singletonList(new TopicPartition("topic", 0)));
+    Subscription outboundSubscriptionWithoutPrefix = new Subscription(
+        Collections.singletonList("topic"),
+        ByteBuffer.allocate(10),
+        Collections.singletonList(new TopicPartition("topic", 0)));
+    Subscription interceptedSubscription = new Subscription(
+        Collections.singletonList("topic"),
+        ByteBuffer.allocate(10),
+        Collections.singletonList(new TopicPartition("topic", 0)));
+
+    // Not a consumer group
+    byte[] protocolMetadata = new byte[20];
+    new Random().nextBytes(protocolMetadata);
+    testDescribeGroupsResponse(outboundGroups, "non-consumer", protocolMetadata, protocolMetadata);
+
+    // A consumer group (V0), prefixed subscriptions
+    byte[] outboundProtocolMetadataV0 = ConsumerProtocol.serializeSubscriptionV0(outboundSubscriptionWithPrefix).array();
+    byte[] interceptedProtocolMetadataV0 = ConsumerProtocol.serializeSubscriptionV0(interceptedSubscription).array();
+    testDescribeGroupsResponse(outboundGroups, PROTOCOL_TYPE, outboundProtocolMetadataV0, interceptedProtocolMetadataV0);
+
+    // A consumer group (V0), not prefixed subscriptions
+    outboundProtocolMetadataV0 = ConsumerProtocol.serializeSubscriptionV0(outboundSubscriptionWithoutPrefix).array();
+    interceptedProtocolMetadataV0 = ConsumerProtocol.serializeSubscriptionV0(interceptedSubscription).array();
+    testDescribeGroupsResponse(outboundGroups, PROTOCOL_TYPE, outboundProtocolMetadataV0, interceptedProtocolMetadataV0);
+
+    // A consumer group (V1), prefixed subscriptions
+    byte[] outboundProtocolMetadataV1 = ConsumerProtocol.serializeSubscriptionV1(outboundSubscriptionWithPrefix).array();
+    byte[] interceptedProtocolMetadataV1 = ConsumerProtocol.serializeSubscriptionV1(interceptedSubscription).array();
+    testDescribeGroupsResponse(outboundGroups, PROTOCOL_TYPE, outboundProtocolMetadataV1, interceptedProtocolMetadataV1);
+
+    // A consumer group (V1), not prefixed subscriptions
+    outboundProtocolMetadataV1 = ConsumerProtocol.serializeSubscriptionV1(outboundSubscriptionWithoutPrefix).array();
+    interceptedProtocolMetadataV1 = ConsumerProtocol.serializeSubscriptionV1(interceptedSubscription).array();
+    testDescribeGroupsResponse(outboundGroups, PROTOCOL_TYPE, outboundProtocolMetadataV1, interceptedProtocolMetadataV1);
+  }
+
+  private void testDescribeGroupsResponse(List<String> outboundGroups, String protocolType,
+      byte[] outboundProtocolMetadata, byte[] interceptedProtocolMetadata) throws IOException {
+
     for (short ver = ApiKeys.DESCRIBE_GROUPS.oldestVersion(); ver <= ApiKeys.DESCRIBE_GROUPS.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.DESCRIBE_GROUPS, ver);
-      DescribeGroupsResponseData describeGroupsResponseData = new DescribeGroupsResponseData();
-      describeGroupsResponseData.groups().add(DescribeGroupsResponse.groupMetadata("tenant_foo", Errors.NONE,
-              "EMPTY", "consumer", "range", Collections.emptyList(), Collections.emptySet()));
-      describeGroupsResponseData.groups().add(DescribeGroupsResponse.groupMetadata("tenant_bar", Errors.NONE,
-              "EMPTY", "consumer", "range", Collections.emptyList(), Collections.emptySet()));
 
-      DescribeGroupsResponse outbound = new DescribeGroupsResponse(describeGroupsResponseData);
+      DescribeGroupsResponse outbound = buildDescribeGroupsResponse(outboundGroups, protocolType, "range",
+        outboundProtocolMetadata);
       Struct struct = parseResponse(ApiKeys.DESCRIBE_GROUPS, ver, context.buildResponse(outbound));
       DescribeGroupsResponse intercepted = new DescribeGroupsResponse(struct, ver);
-      assertEquals(mkSet("foo", "bar"), intercepted
-              .data()
-              .groups()
-              .stream()
-              .map(DescribeGroupsResponseData.DescribedGroup::groupId)
-              .collect(Collectors.toSet()));
+
+      for (int i = 0; i < intercepted.data().groups().size(); i++) {
+        DescribedGroup interceptedGroup = intercepted.data().groups().get(i);
+        DescribedGroup outboundGroup = outbound.data().groups().get(i);
+
+        assertEquals(context.tenantContext.removeTenantPrefix(outboundGroup.groupId()),
+            interceptedGroup.groupId());
+        assertEquals(outboundGroup.groupState(), interceptedGroup.groupState());
+        assertEquals(outboundGroup.protocolType(), interceptedGroup.protocolType());
+        assertEquals(outboundGroup.protocolData(), interceptedGroup.protocolData());
+
+        for (int j = 0; j < interceptedGroup.members().size(); j++) {
+          DescribedGroupMember interceptedMember = interceptedGroup.members().get(j);
+          DescribedGroupMember outboundMember = outboundGroup.members().get(j);
+
+          assertEquals(outboundMember.memberId(), interceptedMember.memberId());
+          assertArrayEquals(outboundMember.memberAssignment(), interceptedMember.memberAssignment());
+          assertArrayEquals(interceptedProtocolMetadata, interceptedMember.memberMetadata());
+        }
+      }
+
       verifyResponseMetrics(ApiKeys.DESCRIBE_GROUPS, Errors.NONE);
     }
+  }
+
+  private DescribeGroupsResponse buildDescribeGroupsResponse(List<String> groups, String protocolType,
+      String protocolName, byte[] protocolMetadata) {
+    DescribeGroupsResponseData describeGroupsResponseData = new DescribeGroupsResponseData();
+
+    for (String group : groups) {
+      DescribedGroupMember member1 = DescribeGroupsResponse.groupMember("member1", "groupinstanceid",
+          "clientid", "clienthost", new byte[0], protocolMetadata);
+      DescribedGroupMember member2 = DescribeGroupsResponse.groupMember("member2", "groupinstanceid",
+          "clientid", "clienthost", new byte[0], protocolMetadata);
+      describeGroupsResponseData.groups().add(DescribeGroupsResponse.groupMetadata(group, Errors.NONE,
+          "STABLE", protocolType, protocolName, Arrays.asList(member1, member2), Collections.emptySet()));
+    }
+
+    return new DescribeGroupsResponse(describeGroupsResponseData);
   }
 
   @Test
@@ -792,6 +1016,86 @@ public class MultiTenantRequestContextTest {
       DeleteGroupsResponse intercepted = new DeleteGroupsResponse(struct, ver);
       assertEquals(mkSet("foo", "bar"), intercepted.errors().keySet());
       verifyResponseMetrics(ApiKeys.DELETE_GROUPS, Errors.NONE);
+    }
+  }
+
+  @Test
+  public void testOffsetDeleteRequest() {
+    String tenantPrefix = principal.tenantMetadata().tenantPrefix();
+
+    for (short ver = ApiKeys.OFFSET_DELETE.oldestVersion(); ver <= ApiKeys.OFFSET_DELETE.latestVersion(); ver++) {
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_DELETE, ver);
+
+      OffsetDeleteRequestTopicCollection topics = new OffsetDeleteRequestTopicCollection();
+      topics.add(new OffsetDeleteRequestTopic().setName("foo").setPartitions(Arrays.asList(
+          new OffsetDeleteRequestPartition().setPartitionIndex(0),
+          new OffsetDeleteRequestPartition().setPartitionIndex(1))));
+      topics.add(new OffsetDeleteRequestTopic().setName("bar").setPartitions(Arrays.asList(
+          new OffsetDeleteRequestPartition().setPartitionIndex(2),
+          new OffsetDeleteRequestPartition().setPartitionIndex(3))));
+
+      OffsetDeleteRequestData data = new OffsetDeleteRequestData()
+          .setGroupId("group")
+          .setTopics(topics);
+
+      OffsetDeleteRequest inbound = new OffsetDeleteRequest.Builder(data).build(ver);
+      OffsetDeleteRequest intercepted = (OffsetDeleteRequest) parseRequest(context, inbound);
+
+      assertTrue(intercepted.data.groupId().startsWith(tenantPrefix));
+      assertEquals(inbound.data.topics().size(), intercepted.data.topics().size());
+
+      for (OffsetDeleteRequestTopic topic : intercepted.data.topics()) {
+        assertTrue(topic.name().startsWith(tenantPrefix));
+        assertArrayEquals(
+            inbound.data.topics().find(topic.name().substring(tenantPrefix.length())).partitions().toArray(),
+            topic.partitions().toArray());
+      }
+
+      verifyRequestMetrics(ApiKeys.OFFSET_DELETE);
+    }
+  }
+
+  @Test
+  public void testOffsetDeleteResponse() throws IOException {
+    String tenantPrefix = principal.tenantMetadata().tenantPrefix();
+
+    for (short ver = ApiKeys.OFFSET_DELETE.oldestVersion(); ver <= ApiKeys.OFFSET_DELETE.latestVersion(); ver++) {
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_DELETE, ver);
+
+      OffsetDeleteResponseTopicCollection topics = new OffsetDeleteResponseTopicCollection();
+      topics.add(new OffsetDeleteResponseTopic()
+          .setName("tenant_foo")
+          .setPartitions(new OffsetDeleteResponsePartitionCollection(
+              Arrays.asList(
+                  new OffsetDeleteResponsePartition().setPartitionIndex(0),
+                  new OffsetDeleteResponsePartition().setPartitionIndex(1)
+              ).iterator())));
+      topics.add(new OffsetDeleteResponseTopic()
+          .setName("tenant_bar")
+          .setPartitions(new OffsetDeleteResponsePartitionCollection(
+              Arrays.asList(
+                  new OffsetDeleteResponsePartition().setPartitionIndex(2),
+                  new OffsetDeleteResponsePartition().setPartitionIndex(3)
+              ).iterator())));
+
+      OffsetDeleteResponseData data = new OffsetDeleteResponseData()
+          .setTopics(topics);
+
+      OffsetDeleteResponse outbound = new OffsetDeleteResponse(data);
+      Struct struct = parseResponse(ApiKeys.OFFSET_DELETE, ver, context.buildResponse(outbound));
+      OffsetDeleteResponse intercepted = new OffsetDeleteResponse(struct, ver);
+
+      assertEquals(outbound.data.topics().size(), intercepted.data.topics().size());
+
+      for (OffsetDeleteResponseTopic interceptedTopic : intercepted.data.topics()) {
+        assertFalse(interceptedTopic.name().startsWith(tenantPrefix));
+        OffsetDeleteResponseTopic outboundOriginal = outbound.data.topics()
+            .find(context.tenantContext.addTenantPrefix(interceptedTopic.name()));
+        assertEquals(context.tenantContext.removeTenantPrefix(outboundOriginal.name()), interceptedTopic.name());
+        assertEquals(outboundOriginal.partitions().size(), interceptedTopic.partitions().size());
+      }
+
+      verifyResponseMetrics(ApiKeys.OFFSET_DELETE, Errors.NONE);
     }
   }
 
