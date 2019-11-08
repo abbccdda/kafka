@@ -3,14 +3,14 @@
  */
 package kafka.server
 
-import java.util.Optional
+import java.util.{Optional, Properties}
 
 import kafka.log.LogConfig
 import kafka.utils.TestUtils
 import kafka.zk.ZooKeeperTestHarness
 import org.apache.kafka.clients.admin.{AdminClient, NewTopic}
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.errors.InvalidReplicaAssignmentException
+import org.apache.kafka.common.errors.{InvalidConfigurationException, InvalidReplicaAssignmentException}
 import org.apache.kafka.test.{TestUtils => JTestUtils}
 import org.junit.{After, Before, Test}
 
@@ -89,6 +89,25 @@ class ObserverCompatibilityTest extends ZooKeeperTestHarness {
       ).all()
 
       JTestUtils.assertFutureError(future, classOf[InvalidReplicaAssignmentException])
+    }
+  }
+
+  @Test
+  def testCannotEnableObserversThroughAlterConfigAPIs(): Unit = {
+    TestUtils.resource(AdminClient.create(createConfig(servers).asJava)) { client =>
+      val topic = "observer-topic"
+      val newTopic = new NewTopic(topic, Optional.of(1: Integer), Optional.empty[java.lang.Short])
+      client.createTopics(Seq(newTopic).asJava).all().get()
+
+      val configUpdate = new Properties()
+      configUpdate.setProperty(LogConfig.TopicPlacementConstraintsProp,
+        basicTopicPlacement(BasicConstraint(1, "a"), Some(BasicConstraint(1, "b"))))
+
+      val alterConfigFuture = TestUtils.alterTopicConfigs(client, topic, configUpdate).all()
+      JTestUtils.assertFutureError(alterConfigFuture, classOf[InvalidConfigurationException])
+
+      val incrementalAlterConfigFuture = TestUtils.incrementalAlterTopicConfigs(client, topic, configUpdate).all()
+      JTestUtils.assertFutureError(incrementalAlterConfigFuture, classOf[InvalidConfigurationException])
     }
   }
 

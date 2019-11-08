@@ -3,24 +3,20 @@
  */
 package kafka.server
 
-import java.util.Optional
-import java.util.Properties
-import java.util.Arrays
+import java.util.{Arrays, Optional, Properties}
 
 import kafka.log.LogConfig
 import kafka.utils.TestUtils
 import kafka.zk.ZooKeeperTestHarness
 import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, NewPartitionReassignment, NewTopic, AdminClient => JAdminClient}
-import org.apache.kafka.common.ElectionType
-import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.TopicPartitionInfo
+import org.apache.kafka.common.errors.InvalidRequestException
 import org.apache.kafka.common.network.ListenerName
-import org.junit.After
-import org.junit.Before
-import org.junit.Test
+import org.apache.kafka.common.{ElectionType, TopicPartition, TopicPartitionInfo}
+import org.apache.kafka.test.{TestUtils => JTestUtils}
+import org.junit.{After, Before, Test}
 
-import scala.compat.java8.OptionConverters._
 import scala.collection.JavaConverters._
+import scala.compat.java8.OptionConverters._
 
 final class ConfluentObserverTest extends ZooKeeperTestHarness {
   import ConfluentObserverTest._
@@ -391,6 +387,24 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
       // All observer replicas are not in the ISR
       TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3))
+    }
+  }
+
+  @Test
+  def testInvalidPlacementConstraintInConfiguration(): Unit = {
+    TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
+      val topic = "observer-topic"
+      val newTopic = new NewTopic(topic, Optional.of(1: Integer), Optional.empty[java.lang.Short])
+      client.createTopics(Seq(newTopic).asJava).all().get()
+
+      val configUpdate = new Properties()
+      configUpdate.setProperty(LogConfig.TopicPlacementConstraintsProp, "invalid json")
+
+      val alterConfigFuture = TestUtils.alterTopicConfigs(client, topic, configUpdate).all()
+      JTestUtils.assertFutureError(alterConfigFuture, classOf[InvalidRequestException])
+
+      val incrementalAlterConfigFuture = TestUtils.incrementalAlterTopicConfigs(client, topic, configUpdate).all()
+      JTestUtils.assertFutureError(incrementalAlterConfigFuture, classOf[InvalidRequestException])
     }
   }
 

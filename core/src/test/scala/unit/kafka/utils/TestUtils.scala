@@ -25,6 +25,7 @@ import java.nio.charset.{Charset, StandardCharsets}
 import java.nio.file.{Files, StandardOpenOption}
 import java.security.cert.X509Certificate
 import java.time.Duration
+import java.util
 import java.util.Arrays
 import java.util.Collections
 import java.util.Properties
@@ -1511,6 +1512,15 @@ object TestUtils extends Logging {
     val newConfig = new Config(configEntries)
     val configs = Map(new ConfigResource(ConfigResource.Type.TOPIC, topic) -> newConfig).asJava
     adminClient.alterConfigs(configs)
+  }
+
+  def incrementalAlterTopicConfigs(adminClient: Admin, topic: String, topicConfigs: Properties): AlterConfigsResult = {
+    val alterConfigOps: util.Collection[AlterConfigOp] = topicConfigs.asScala.map { case (k, v) =>
+      val configEntry = new ConfigEntry(k, v)
+      new AlterConfigOp(configEntry, OpType.SET)
+    }.toList.asJava
+    val configs = Map(new ConfigResource(ConfigResource.Type.TOPIC, topic) -> alterConfigOps).asJava
+    adminClient.incrementalAlterConfigs(configs)
   }
 
   def assertLeader(client: Admin, topicPartition: TopicPartition, expectedLeader: Int): Unit = {

@@ -19,7 +19,7 @@ package kafka.log
 
 import java.util.{Collections, Locale, Properties}
 
-import kafka.api.{ApiVersion, ApiVersionValidator}
+import kafka.api.{ApiVersion, ApiVersionValidator, KAFKA_2_4_IV1}
 import kafka.common.TopicPlacement
 import kafka.message.BrokerCompressionCodec
 import kafka.server.{KafkaConfig, ThrottledReplicaListValidator}
@@ -457,12 +457,18 @@ object LogConfig {
     validateValues(valueMaps)
   }
 
-  def validateChange(current: LogConfig, proposed: LogConfig): Unit = {
+  def validateChange(current: LogConfig,
+                     proposed: LogConfig,
+                     interBrokerProtocolVersion: ApiVersion): Unit = {
     if (current.tierEnable && !proposed.tierEnable)
       throw new InvalidConfigurationException("Configs cannot be altered to disable tiering")
 
     if (current.tierEnable && !current.compact && proposed.compact)
-      throw new InvalidConfigurationException("Configs cannot be altered to enable compaction")
+      throw new InvalidConfigurationException("Configs cannot be altered to enable compaction if tiering is enabled")
+
+    if (interBrokerProtocolVersion < KAFKA_2_4_IV1 && proposed.topicPlacementConstraints.hasObserverConstraints)
+      throw new InvalidConfigurationException("Observer constraints are not allowed with current " +
+        s"`inter.broker.protocol.version=$interBrokerProtocolVersion` (must be 2.4 or higher)")
   }
 
   /**

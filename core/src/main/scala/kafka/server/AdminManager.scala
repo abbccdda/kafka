@@ -515,7 +515,8 @@ class AdminManager(val config: KafkaConfig,
     val currentDefault = config.originals
     val currentConfigs = LogConfig.fromProps(currentDefault, adminZkClient.fetchEntityConfig(ConfigType.Topic, topic))
     val proposedConfigs = LogConfig.fromProps(currentDefault, configProps)
-    LogConfig.validateChange(currentConfigs, proposedConfigs)
+
+    LogConfig.validateChange(currentConfigs, proposedConfigs, config.interBrokerProtocolVersion)
 
     adminZkClient.validateTopicConfig(topic, configProps)
     validateConfigPolicy(resource, configEntriesMap, principal)
