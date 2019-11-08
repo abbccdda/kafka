@@ -52,6 +52,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -171,7 +172,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
         StatusValue initializing = new StatusValue(MetadataStoreStatus.INITIALIZING, generationId,
             config.brokerId, null);
         partitionWriters.forEach((partition, writer) ->
-            writer.start(generationId, new StatusKey(partition), initializing));
+            writer.start(generationId, new StatusKey(partition), initializing, writeExecutor));
         ready = true;
 
       } catch (Throwable e) {
@@ -183,9 +184,9 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     mgmtExecutor.submit(() -> {
       try {
         externalAuthStores.forEach((type, store) -> store.start(generationId));
-        writeExternalStatus(MetadataStoreStatus.INITIALIZED, null, generationId);
+        updateExternalStatus(MetadataStoreStatus.INITIALIZED, null, generationId);
       } catch (Throwable e) {
-        writeExternalStatus(MetadataStoreStatus.FAILED, e.getMessage(), generationId);
+        updateExternalStatus(MetadataStoreStatus.FAILED, e.getMessage(), generationId);
       }
     });
   }
@@ -342,16 +343,17 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
 
     Map<AclBinding, CompletionStage<AclCreateResult>> futures = aclBindings.stream()
         .collect(Collectors.toMap(Function.identity(), b -> new CompletableFuture<>()));
-    writeExecutor.submit(() -> {
-      try {
-        createAcls(scope, bindingsByResource, futures);
-      } catch (Throwable t) {
-        futures.values().stream()
-            .map(CompletionStage::toCompletableFuture)
-            .filter(future -> !future.isDone())
-            .forEach(future -> future.complete(new AclCreateResult(new ApiException(t))));
-      }
-    });
+    try {
+      writeExecutor.submit(() -> {
+        try {
+          createAcls(scope, bindingsByResource, futures);
+        } catch (Throwable t) {
+          populateAclCreateFailure(futures, t);
+        }
+      });
+    } catch (Throwable t) {
+      populateAclCreateFailure(futures, t);
+    }
     return futures;
   }
 
@@ -375,6 +377,23 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
           .exceptionally(e -> new AclCreateResult(new ProviderFailedException(e)))
           .thenAccept(result -> bindings.forEach(b -> futures.get(b).toCompletableFuture().complete(result)));
     });
+  }
+
+  private void populateAclCreateFailure(Map<AclBinding, CompletionStage<AclCreateResult>> futures, Throwable t) {
+    futures.values().stream()
+        .map(CompletionStage::toCompletableFuture)
+        .filter(future -> !future.isDone())
+        .forEach(future -> future.complete(new AclCreateResult(toApiException(t))));
+  }
+
+  private ApiException toApiException(Throwable t) {
+    if (t instanceof RejectedExecutionException)
+      return new NotMasterWriterException("This node is currently not the master writer for Metadata Service."
+          + " This could be a transient exception during writer election.");
+    else if (t instanceof ApiException)
+      return (ApiException) t;
+    else
+      return new ApiException(t);
   }
 
   @Override
@@ -412,14 +431,22 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
         readyFutures[i] = partitionWriters.get(i).incrementalUpdateFuture();
       }
       CompletableFuture.allOf(readyFutures)
-          .thenAcceptAsync(v -> deleteAcls(scope, filters, resourceAccess, futures), writeExecutor);
+          .thenAcceptAsync(v -> deleteAcls(scope, filters, resourceAccess, futures), writeExecutor)
+          .whenComplete((unused, exception) -> {
+            if (exception != null)
+              populateAclDeleteFailure(futures, exception);
+          });
     } catch (Throwable t) {
-      futures.values().stream()
-         .map(CompletionStage::toCompletableFuture)
-         .filter(future -> !future.isDone())
-         .forEach(future -> future.complete(new AclDeleteResult(new ApiException(t))));
+      populateAclDeleteFailure(futures, t);
     }
     return futures;
+  }
+
+  private void populateAclDeleteFailure(Map<AclBindingFilter, CompletionStage<AclDeleteResult>> futures, Throwable t) {
+    futures.values().stream()
+        .map(CompletionStage::toCompletableFuture)
+        .filter(future -> !future.isDone())
+        .forEach(future -> future.complete(new AclDeleteResult(toApiException(t))));
   }
 
   private void deleteAcls(Scope scope,
@@ -623,36 +650,45 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   public void writeExternalStatus(MetadataStoreStatus status, String errorMessage, int generationId) {
     ExecutorService executor = this.mgmtExecutor;
     if (executor != null && !executor.isShutdown()) {
-      executor.submit(() -> {
-        try {
-          boolean hasFailure = externalAuthStores.values().stream().anyMatch(ExternalStore::failed);
-          switch (status) {
-            case INITIALIZED:
-              if (hasFailure)
-                return;
-              else
-                break;
-            case FAILED:
-              if (!hasFailure)
-                return;
-              else
-                break;
-            default:
-              throw new IllegalStateException("Unexpected status for external store " + status);
-          }
-          StatusValue statusValue = new StatusValue(status, generationId, config.brokerId, errorMessage);
-          partitionWriters.forEach((partition, writer) ->
-              writer.writeStatus(generationId, new StatusKey(partition), statusValue, status));
-        } catch (Throwable e) {
-          log.error("Failed to write external status to auth topic, writer resigning", e);
-          rebalanceListener.onWriterResigned(generationId);
-        }
-        StatusValue statusValue = new StatusValue(status, generationId, config.brokerId, errorMessage);
-        partitionWriters.forEach((partition, writer) ->
-            writer.writeStatus(generationId, new StatusKey(partition), statusValue, status));
-
-      });
+      try {
+        executor.submit(() -> {
+          updateExternalStatus(status, errorMessage, generationId);
+        });
+      } catch (RejectedExecutionException e) {
+        log.trace("Status could not be updated since executor has been shutdown");
+        if (!executor.isShutdown())
+          throw e;
+      }
     }
+  }
+
+  private void updateExternalStatus(MetadataStoreStatus status, String errorMessage, int generationId) {
+    try {
+      boolean hasFailure = externalAuthStores.values().stream().anyMatch(ExternalStore::failed);
+      switch (status) {
+        case INITIALIZED:
+          if (hasFailure)
+            return;
+          else
+            break;
+        case FAILED:
+          if (!hasFailure)
+            return;
+          else
+            break;
+        default:
+          throw new IllegalStateException("Unexpected status for external store " + status);
+      }
+      StatusValue statusValue = new StatusValue(status, generationId, config.brokerId, errorMessage);
+      partitionWriters.forEach((partition, writer) ->
+          writer.writeStatus(generationId, new StatusKey(partition), statusValue, status));
+    } catch (Throwable e) {
+      log.error("Failed to write external status to auth topic, writer resigning", e);
+      rebalanceListener.onWriterResigned(generationId);
+    }
+    StatusValue statusValue = new StatusValue(status, generationId, config.brokerId, errorMessage);
+    partitionWriters.forEach((partition, writer) ->
+        writer.writeStatus(generationId, new StatusKey(partition), statusValue, status));
   }
 
   private void createPartitionWriters() throws Throwable {
@@ -663,7 +699,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
       TopicPartition tp = new TopicPartition(topic, i);
       partitionWriters.put(i,
           new KafkaPartitionWriter<>(tp, producer, authCache, rebalanceListener, statusListener,
-              writeExecutor, config.refreshTimeout, time));
+              config.refreshTimeout, time));
     }
   }
 
