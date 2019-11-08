@@ -20,7 +20,7 @@ package kafka.server
 import java.util
 import java.util.{Collections, Locale, Properties}
 
-import kafka.api.{ApiVersion, ApiVersionValidator, KAFKA_0_10_0_IV1, KAFKA_2_1_IV0}
+import kafka.api.{ApiVersion, ApiVersionValidator, KAFKA_0_10_0_IV1, KAFKA_2_1_IV0, KAFKA_2_4_IV1}
 import kafka.cluster.EndPoint
 import kafka.coordinator.group.OffsetConfig
 import kafka.coordinator.transaction.{TransactionLog, TransactionStateManager}
@@ -228,9 +228,6 @@ object Defaults {
 
   /** Tiered storage segment roll configs **/
   val TierSegmentHotsetRollMinBytes = 100 * 1024 * 1024
-
-  /** Observer configs **/
-  val ObserverFeature = false
 
   /** ********* Fetch Configuration **************/
   val MaxIncrementalFetchSessionCacheSlots = 1000
@@ -516,9 +513,6 @@ object KafkaConfig {
 
   /** Tiered storage segment roll config **/
   val TierSegmentHotsetRollMinBytesProp = ConfluentPrefix + "tier.segment.hotset.roll.min.bytes"
-
-  /** Observer configs **/
-  val ObserverFeatureProp = ConfluentPrefix + "observer.feature"
 
   /** Segment speculative prefetching optimization **/
   val SegmentSpeculativePrefetchEnableProp = ConfluentPrefix + "segment.speculative.prefetch.enable"
@@ -920,9 +914,6 @@ object KafkaConfig {
     "hotset. Rolling the segment ensures that it can be tiered and the segment can then be deleted from the hotset. A " +
     "minimum size is enforced to ensure efficient tiering and consumption."
 
-  /** Observer configs **/
-  val ObserverFeatureDoc = "Feature flag that enables the observer feature."
-
   /** ********* Fetch Configuration **************/
   val MaxIncrementalFetchSessionCacheSlotsDoc = "The maximum number of incremental fetch sessions that we will maintain."
   val FetchMaxBytesDoc = "The maximum number of bytes we will return for a fetch request. Must be at least 1024."
@@ -1227,9 +1218,6 @@ object KafkaConfig {
       .defineInternal(TierGcsReadChunkSizeProp, INT, Defaults.TierGcsReadChunkSize, atLeast(0), LOW, TierGcsReadChunkSizeDoc)
       .defineInternal(TierTopicDeleteCheckIntervalMsProp, LONG, Defaults.TierTopicDeleteCheckIntervalMs, atLeast(1), LOW, TierTopicDeleteCheckIntervalMsDoc)
       .defineInternal(TierSegmentHotsetRollMinBytesProp, INT, Defaults.TierSegmentHotsetRollMinBytes, atLeast(1024 * 1024), MEDIUM, TierSegmentHotsetRollMinBytesDoc)
-
-      /** ********* Observer Configuration **************/
-      .defineInternal(ObserverFeatureProp, BOOLEAN, Defaults.ObserverFeature, MEDIUM, ObserverFeatureDoc)
 
       /** ********* Fetch Configuration **************/
       .define(MaxIncrementalFetchSessionCacheSlots, INT, Defaults.MaxIncrementalFetchSessionCacheSlots, atLeast(0), MEDIUM, MaxIncrementalFetchSessionCacheSlotsDoc)
@@ -1624,9 +1612,6 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierTopicDeleteCheckIntervalMs = getLong(KafkaConfig.TierTopicDeleteCheckIntervalMsProp)
   def tierSegmentHotsetRollMinBytes = getInt(KafkaConfig.TierSegmentHotsetRollMinBytesProp)
 
-  /** ********* Interceptor Configuration ***********/
-  val observerFeature = getBoolean(KafkaConfig.ObserverFeatureProp)
-
   /** ********* Segment speculative prefetching optimization ***********/
   def segmentSpeculativePrefetchEnable = getBoolean(KafkaConfig.SegmentSpeculativePrefetchEnableProp)
 
@@ -1806,6 +1791,10 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
       case _: IllegalArgumentException =>
         throw new ConfigException(s"Invalid security protocol `$protocolName` defined in $configName")
     }
+  }
+
+  def isObserverSupportEnabled: Boolean = {
+    interBrokerProtocolVersion >= KAFKA_2_4_IV1
   }
 
   def listenerSecurityProtocolMap: Map[ListenerName, SecurityProtocol] = {

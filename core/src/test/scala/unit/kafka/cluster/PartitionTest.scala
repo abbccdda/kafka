@@ -84,11 +84,11 @@ class PartitionTest {
       tierLogComponents = TierLogComponents.EMPTY)
     logManager.startup()
 
-    partition = new Partition(topicPartition,
+    partition = new Partition(
+      topicPartition,
       replicaLagTimeMaxMs = Defaults.ReplicaLagTimeMaxMs,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       localBrokerId = brokerId,
-      observerFeature = false,
       time,
       stateStore,
       delayedOperations,
@@ -975,7 +975,6 @@ class PartitionTest {
         replicaLagTimeMaxMs = Defaults.ReplicaLagTimeMaxMs,
         interBrokerProtocolVersion = ApiVersion.latestVersion,
         localBrokerId = brokerId,
-        observerFeature = false,
         time,
         stateStore,
         delayedOperations,
@@ -1588,7 +1587,6 @@ class PartitionTest {
       replicaLagTimeMaxMs = Defaults.ReplicaLagTimeMaxMs,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       localBrokerId = brokerId,
-      observerFeature = false,
       time,
       stateStore,
       delayedOperations,
@@ -1626,7 +1624,6 @@ class PartitionTest {
       replicaLagTimeMaxMs = Defaults.ReplicaLagTimeMaxMs,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       localBrokerId = brokerId,
-      observerFeature = false,
       time,
       stateStore,
       delayedOperations,
@@ -1661,11 +1658,11 @@ class PartitionTest {
       }
     }).when(spyLogManager).initializingLog(ArgumentMatchers.eq(topicPartition))
 
-    val partition = new Partition(topicPartition,
+    val partition = new Partition(
+      topicPartition,
       replicaLagTimeMaxMs = Defaults.ReplicaLagTimeMaxMs,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       localBrokerId = brokerId,
-      observerFeature = false,
       time,
       stateStore,
       delayedOperations,
@@ -1733,7 +1730,6 @@ class PartitionTest {
 
   @Test
   def testShouldRemoveObserversFromIsr(): Unit = {
-    val partition = createPartitionWithObserverFeature()
     val zkVersion = 23934
     val controllerEpoch = 137
     val leaderEpoch = 245
@@ -1780,7 +1776,6 @@ class PartitionTest {
     val logConfig = LogConfig(createLogProperties(Map(LogConfig.MinInSyncReplicasProp -> "2")))
     logManager.getOrCreateLog(topicPartition, logConfig)
 
-    val partition = createPartitionWithObserverFeature()
     val zkVersion = 23934
     val controllerEpoch = 137
     val leaderEpoch = 245
@@ -1820,7 +1815,6 @@ class PartitionTest {
 
   @Test
   def testShouldAddAllReplicasToIsrWhenLeaderIsAnObserver(): Unit = {
-    val partition = createPartitionWithObserverFeature()
     val zkVersion = 23934
     val controllerEpoch = 137
     val leaderEpoch = 245
@@ -1880,7 +1874,6 @@ class PartitionTest {
 
   @Test
   def testShouldNotAddObserversToIsrWhenLeaderIsNotAnObserver(): Unit = {
-    val partition = createPartitionWithObserverFeature()
     val zkVersion = 23934
     val controllerEpoch = 137
     val leaderEpoch = 245
@@ -1924,7 +1917,6 @@ class PartitionTest {
 
   @Test
   def testShouldAddSyncReplicaToIsrWhenLeaderIsNotAnObserver(): Unit = {
-    val partition = createPartitionWithObserverFeature()
     val zkVersion = 23934
     val controllerEpoch = 137
     val leaderEpoch = 245
@@ -1968,20 +1960,6 @@ class PartitionTest {
     assertEquals(Set(syncReplicaId1, syncReplicaId2), partition.inSyncReplicaIds)
     assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.assignmentState.replicas)
     assertFalse(partition.isUnderReplicated)
-  }
-
-  private def createPartitionWithObserverFeature(): Partition = {
-    new Partition(topicPartition,
-      replicaLagTimeMaxMs = Defaults.ReplicaLagTimeMaxMs,
-      interBrokerProtocolVersion = ApiVersion.latestVersion,
-      localBrokerId = brokerId,
-      observerFeature = true,
-      time,
-      stateStore,
-      delayedOperations,
-      metadataCache,
-      logManager,
-      None)
   }
 
   private def seedLogData(log: AbstractLog, numRecords: Int, leaderEpoch: Int): Unit = {

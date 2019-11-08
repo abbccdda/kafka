@@ -117,12 +117,13 @@ class AdminManager(val config: KafkaConfig,
         val resolvedReplicationFactor = if (topic.replicationFactor == NO_REPLICATION_FACTOR)
           defaultReplicationFactor else topic.replicationFactor
 
-        val replicaPlacement = Option(configs.get(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG))
+        val replicaPlacementOpt = Option(configs.get(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG))
           .map(value => TopicPlacement.parse(value.toString))
-        if (replicaPlacement.nonEmpty) {
-          if (!config.observerFeature) {
-            throw new InvalidRequestException(s"Configuration ${ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG}" +
-              s" can only be specified if ${KafkaConfig.ObserverFeatureProp} is enabled.")
+        replicaPlacementOpt.foreach { replicaPlacement =>
+          if (replicaPlacement.hasObserverConstraints && !config.isObserverSupportEnabled) {
+            throw new InvalidReplicaAssignmentException(s"Configuration ${ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG}" +
+              s" specifies observer constraints which are only allowed if ${KafkaConfig.InterBrokerProtocolVersionProp}" +
+              s" is 2.4 or higher (currently it is ${config.interBrokerProtocolVersion}).")
           }
           if (!topic.assignments().isEmpty) {
             throw new InvalidRequestException(s"Both assignments and ${ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG} are set. Both cannot be " +
@@ -135,7 +136,7 @@ class AdminManager(val config: KafkaConfig,
         }
 
         val assignments = if (topic.assignments().isEmpty) {
-          Observer.getReplicaAssignment(brokers, replicaPlacement, resolvedNumPartitions, resolvedReplicationFactor)
+          Observer.getReplicaAssignment(brokers, replicaPlacementOpt, resolvedNumPartitions, resolvedReplicationFactor)
         } else {
           val assignments = mutable.Map.empty[Int, ReplicaAssignment]
           // Note: we don't check that replicaAssignment contains unknown brokers - unlike in add-partitions case,
@@ -776,12 +777,11 @@ class AdminManager(val config: KafkaConfig,
     configs.filter { case (configName, _) =>
       /* Only allow tier configs when confluent.tier.feature is enabled */
       val tierFeatureCheck = config.tierFeature || !configName.startsWith(KafkaConfig.ConfluentTierPrefix)
-      // Only allow placement constraint if the observer feature is enabled
-      val observerCheck = config.observerFeature || !configName.equals(LogConfig.TopicPlacementConstraintsProp)
       // Do not allow record interceptor classes since for now as we would only have built-in implementations
       val recordInterceptorCheck = !configName.equals(LogConfig.AppendRecordInterceptorClassesProp)
       /* Always returns true if configNames is None */
-      tierFeatureCheck && observerCheck && recordInterceptorCheck && configNames.forall(_.contains(configName))
+      tierFeatureCheck && recordInterceptorCheck && configNames.forall(_.contains(configName))
     }.toBuffer
   }
+
 }

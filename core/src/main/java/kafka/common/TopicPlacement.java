@@ -86,6 +86,10 @@ final public class TopicPlacement {
         return observers;
     }
 
+    public boolean hasObserverConstraints() {
+        return !observers.isEmpty();
+    }
+
     /**
      * Determines if a set of attributes matches the replicas constraints.
      *

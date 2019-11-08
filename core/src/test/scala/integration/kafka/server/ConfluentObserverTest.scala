@@ -43,14 +43,12 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       broker4 -> "b",
       broker5 -> "c"
     )
-    val brokerConfigs = TestUtils.createBrokerConfigs(5, zkConnect, false)
+    val brokerConfigs = TestUtils.createBrokerConfigs(5, zkConnect, enableControlledShutdown = true)
     servers = brokerConfigs.map { config =>
       config.setProperty(KafkaConfig.RackProp, rack(config.getProperty(KafkaConfig.BrokerIdProp).toInt))
       config.setProperty(KafkaConfig.AutoLeaderRebalanceEnableProp, "false")
-      config.setProperty(KafkaConfig.ControlledShutdownEnableProp, "true")
       config.setProperty(KafkaConfig.ControlledShutdownMaxRetriesProp, "1")
       config.setProperty(KafkaConfig.ControlledShutdownRetryBackoffMsProp, "1000")
-      config.setProperty(KafkaConfig.ObserverFeatureProp, "true")
       config.setProperty(KafkaConfig.ReplicaLagTimeMaxMsProp, "1000")
       TestUtils.createServer(KafkaConfig.fromProps(config))
     }

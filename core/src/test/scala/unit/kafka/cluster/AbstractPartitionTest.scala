@@ -65,7 +65,6 @@ class AbstractPartitionTest {
       replicaLagTimeMaxMs = Defaults.ReplicaLagTimeMaxMs,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       localBrokerId = brokerId,
-      observerFeature = false,
       time,
       stateStore,
       delayedOperations,

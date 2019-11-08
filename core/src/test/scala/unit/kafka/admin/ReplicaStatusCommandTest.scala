@@ -43,7 +43,6 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
       enableControlledShutdown = false,
       rackInfo = Map(0 -> "a", 1 -> "a", 2 -> "b")).map { config =>
       config.setProperty(KafkaConfig.AutoLeaderRebalanceEnableProp, "false")
-      config.setProperty(KafkaConfig.ObserverFeatureProp, "true")
       KafkaConfig.fromProps(config)
     }
 

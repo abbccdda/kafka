@@ -142,7 +142,6 @@ object Partition extends KafkaMetricsGroup {
       replicaLagTimeMaxMs = replicaManager.config.replicaLagTimeMaxMs,
       interBrokerProtocolVersion = replicaManager.config.interBrokerProtocolVersion,
       localBrokerId = replicaManager.config.brokerId,
-      observerFeature = replicaManager.config.observerFeature,
       time = time,
       stateStore = zkIsrBackingStore,
       delayedOperations = delayedOperations,
@@ -191,7 +190,6 @@ class Partition(val topicPartition: TopicPartition,
                 val replicaLagTimeMaxMs: Long,
                 interBrokerProtocolVersion: ApiVersion,
                 localBrokerId: Int,
-                observerFeature: Boolean,
                 time: Time,
                 stateStore: PartitionStateStore,
                 delayedOperations: DelayedOperations,
@@ -800,8 +798,7 @@ class Partition(val topicPartition: TopicPartition,
   private[this] def isBrokerIsrEligible(brokerId: Int): Boolean = {
     // A broker should join the ISR if it is not an observer or if we are operating
     // in a degraded state and the leader is an observer
-    !observerFeature ||
-      assignmentState.observers.contains(localBrokerId) ||
+    assignmentState.observers.contains(localBrokerId) ||
       !assignmentState.observers.contains(brokerId)
   }
 

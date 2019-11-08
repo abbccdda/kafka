@@ -161,7 +161,7 @@ public class PartitionBenchmark {
         PartitionStateStore partitionStateStore = Mockito.mock(PartitionStateStore.class);
         Mockito.when(partitionStateStore.fetchTopicConfig()).thenReturn(new Properties());
         partition = new Partition(topicPartition, 100,
-                ApiVersion$.MODULE$.latestVersion(), 0, observerFeature,
+                ApiVersion$.MODULE$.latestVersion(), 0,
                 Time.SYSTEM, partitionStateStore, delayedOperations,
                 metadataCache, logManager, Option.empty());
         partition.makeLeader(0, partitionState, 0, offsetCheckpoints);

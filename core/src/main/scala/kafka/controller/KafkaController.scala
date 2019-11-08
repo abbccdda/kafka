@@ -1682,8 +1682,14 @@ class KafkaController(val config: KafkaConfig,
       reassignments.foreach { case (tp, targetAssignment) =>
         if (replicasAreValid(tp, targetAssignment)) {
           maybeBuildReassignment(tp, targetAssignment) match {
-            case Some(context) => partitionsToReassign.put(tp, context)
-            case None => reassignmentResults.put(tp, new ApiError(Errors.NO_REASSIGNMENT_IN_PROGRESS))
+            case Some(reassignment) =>
+              if (reassignment.targetObservers.nonEmpty && !config.isObserverSupportEnabled)
+                reassignmentResults.put(tp, new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT))
+              else
+                partitionsToReassign.put(tp, reassignment)
+
+            case None =>
+              reassignmentResults.put(tp, new ApiError(Errors.NO_REASSIGNMENT_IN_PROGRESS))
           }
         } else {
           reassignmentResults.put(tp, new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT))

@@ -22,6 +22,7 @@ import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.common.config.ConfluentTopicConfig;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.NotLeaderForPartitionException;
 import org.apache.kafka.common.message.ControlledShutdownRequestData;
@@ -1244,7 +1245,8 @@ public class MultiTenantRequestContextTest {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_TOPICS, ver);
       List<CreatableTopicConfigs> configs = Arrays.asList(
           new CreatableTopicConfigs().setConfigName("confluent.tier.enable").setValue("true"),
-          new CreatableTopicConfigs().setConfigName("max.messsage.bytes").setValue("100000"),
+          new CreatableTopicConfigs().setConfigName(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG).setValue("{}"),
+          new CreatableTopicConfigs().setConfigName("max.message.bytes").setValue("100000"),
           new CreatableTopicConfigs().setConfigName("tenant_config").setValue("somevalue")
       );
       Collection<CreatableTopicResult> results = asList(
@@ -1267,7 +1269,7 @@ public class MultiTenantRequestContextTest {
       assertEquals(new HashSet<>(asList("foo", "bar")), intercepted.data().topics()
               .stream().map(CreatableTopicResult::name).collect(Collectors.toSet()));
       if (ver >= 5) {
-        assertEquals(Utils.mkSet("max.messsage.bytes", "tenant_config"),
+        assertEquals(Utils.mkSet("max.message.bytes", "tenant_config"),
             intercepted.data().topics().find("foo").configs().stream().map(CreatableTopicConfigs::configName).collect(Collectors.toSet()));
       } else {
         assertTrue(intercepted.data().topics().find("foo").configs().isEmpty());
@@ -2327,6 +2329,11 @@ public class MultiTenantRequestContextTest {
       // Configs should be transformed by removing non-updateable configs, except for min.insync.replicas
       assertEquals(expected.data().resources().valuesSet(), actual.data().resources().valuesSet());
 
+      // AlterConfigsResource only checks for name/type equality, so we need to extract the config values
+      assertEquals(
+              new HashSet<>(expected.data().resources().find(ConfigResource.Type.TOPIC.id(), "tenant_foo").configs()),
+              new HashSet<>(actual.data().resources().find(ConfigResource.Type.TOPIC.id(), "tenant_foo").configs()));
+
       verifyRequestMetrics(ApiKeys.INCREMENTAL_ALTER_CONFIGS);
     }
   }
@@ -2487,6 +2494,7 @@ public class MultiTenantRequestContextTest {
   private CreateableTopicConfigCollection transformedTestConfigs() {
     CreateableTopicConfigCollection transformedConfigs = testConfigs();
     transformedConfigs.remove(new CreateableTopicConfig().setName(TopicConfig.COMPRESSION_TYPE_CONFIG).setValue("lz4"));
+    transformedConfigs.remove(new CreateableTopicConfig().setName(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG));
     return transformedConfigs;
   }
 
@@ -2506,6 +2514,7 @@ public class MultiTenantRequestContextTest {
     configs.add(new CreateableTopicConfig().setName(TopicConfig.SEGMENT_MS_CONFIG).setValue("100"));
     configs.add(new CreateableTopicConfig().setName(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG).setValue("3"));
     configs.add(new CreateableTopicConfig().setName(TopicConfig.COMPRESSION_TYPE_CONFIG).setValue("lz4"));
+    configs.add(new CreateableTopicConfig().setName(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG).setValue("{}"));
 
     return configs;
   }

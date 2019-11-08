@@ -81,14 +81,12 @@ final class ObserverPartitionTest {
       replicaLagTimeMaxMs = Defaults.ReplicaLagTimeMaxMs,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       localBrokerId = brokerId,
-      observerFeature = true,
       time,
       stateStore,
       delayOperations,
       metadataCache,
       logManager,
-      Some(mock(classOf[TierReplicaManager]))
-    )
+      Some(mock(classOf[TierReplicaManager])))
 
     when(stateStore.fetchTopicConfig()).thenReturn(createLogProperties(Map.empty))
     when(offsetCheckpoints.fetch(ArgumentMatchers.anyString, ArgumentMatchers.eq(topicPartition))).thenReturn(None)
