@@ -88,7 +88,8 @@ public class UpdateMetadataRequestTest {
                     .setIsr(asList(0, 1))
                     .setZkVersion(10)
                     .setReplicas(asList(0, 1, 2))
-                    .setOfflineReplicas(asList(2)),
+                    .setOfflineReplicas(asList(2))
+                    .setObservers(asList(2)),
                 new UpdateMetadataPartitionState()
                     .setTopicName("topic0")
                     .setPartitionIndex(1)
@@ -182,6 +183,10 @@ public class UpdateMetadataRequestTest {
             // Offline replicas are only supported from version 4
             if (version < 4)
                 partitionStates.get(0).setOfflineReplicas(emptyList());
+
+            // observers are only supported from version 6
+            if (version < 6)
+                partitionStates.get(0).setObservers(emptyList());
 
             assertEquals(new HashSet<>(partitionStates), iterableToSet(deserializedRequest.partitionStates()));
             assertEquals(liveBrokers, deserializedRequest.liveBrokers());

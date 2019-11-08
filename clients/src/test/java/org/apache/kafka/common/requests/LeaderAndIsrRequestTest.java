@@ -91,7 +91,8 @@ public class LeaderAndIsrRequestTest {
                     .setZkVersion(10)
                     .setReplicas(asList(0, 1, 2))
                     .setAddingReplicas(asList(3))
-                    .setRemovingReplicas(asList(2)),
+                    .setRemovingReplicas(asList(2))
+                    .setObservers(asList(2)),
                 new LeaderAndIsrPartitionState()
                     .setTopicName("topic0")
                     .setTopicId(topic0)
@@ -147,10 +148,12 @@ public class LeaderAndIsrRequestTest {
                     .setRemovingReplicas(emptyList());
             }
 
-            // Topic id is only supported from version 4, so the deserialized request won't have
-            // it for earlier versions.
-            if (version < 4)
+            // The TopicId and Observers fields are only supported from version 4, so the deserialized
+            // request won't have it for earlier versions.
+            if (version < 4) {
                 partitionStates.forEach(ps -> ps.setTopicId(MessageUtil.ZERO_UUID));
+                partitionStates.get(0).setObservers(emptyList());
+            }
 
             assertEquals(new HashSet<>(partitionStates), iterableToSet(deserializedRequest.partitionStates()));
             assertEquals(liveLeaders, deserializedRequest.liveLeaders());

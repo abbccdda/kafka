@@ -277,6 +277,228 @@ public final class MessageTest {
     }
 
     @Test
+    public void testLeaderAndIsrRequestWithObserversGroupedTopics() throws Exception {
+        LeaderAndIsrRequestData.LeaderAndIsrTopicState partitionStateWithObserver =
+                new LeaderAndIsrRequestData.LeaderAndIsrTopicState()
+                        .setTopicName("topic")
+                        .setPartitionStates(Collections.singletonList(
+                                new LeaderAndIsrRequestData.LeaderAndIsrPartitionState()
+                                        .setPartitionIndex(0)
+                                        .setReplicas(Arrays.asList(0, 1, 2))
+                                        .setObservers(Collections.singletonList(2))
+                        ));
+        LeaderAndIsrRequestData leaderAndIsrRequestDataWithObservers = new LeaderAndIsrRequestData()
+                .setTopicStates(Collections.singletonList(partitionStateWithObserver));
+
+        LeaderAndIsrRequestData.LeaderAndIsrTopicState partitionStateWithoutObserver =
+                new LeaderAndIsrRequestData.LeaderAndIsrTopicState()
+                        .setTopicName("topic")
+                        .setPartitionStates(Collections.singletonList(
+                                new LeaderAndIsrRequestData.LeaderAndIsrPartitionState()
+                                        .setPartitionIndex(0)
+                                        .setReplicas(Arrays.asList(0, 1, 2))
+                        ));
+        LeaderAndIsrRequestData leaderAndIsrRequestDataWithoutObservers = new LeaderAndIsrRequestData()
+                .setTopicStates(Collections.singletonList(partitionStateWithoutObserver));
+
+        testAllMessageRoundTripsBetweenVersions((short) 2, (short) 4,
+                leaderAndIsrRequestDataWithObservers,
+                leaderAndIsrRequestDataWithoutObservers);
+        testAllMessageRoundTripsFromVersion((short) 4, leaderAndIsrRequestDataWithObservers);
+    }
+
+    @Test
+    public void testLeaderAndIsrRequestWithObserversUngroupedTopics() throws Exception {
+        LeaderAndIsrRequestData.LeaderAndIsrPartitionState partitionStateWithObserver =
+                new LeaderAndIsrRequestData.LeaderAndIsrPartitionState()
+                        .setTopicName("topic")
+                        .setPartitionIndex(0)
+                        .setReplicas(Arrays.asList(0, 1, 2))
+                        .setObservers(Collections.singletonList(2));
+
+        LeaderAndIsrRequestData leaderAndIsrRequestDataWithObservers = new LeaderAndIsrRequestData()
+                .setUngroupedPartitionStates(Collections.singletonList(partitionStateWithObserver));
+
+        LeaderAndIsrRequestData.LeaderAndIsrPartitionState partitionStateWithoutObserver =
+                new LeaderAndIsrRequestData.LeaderAndIsrPartitionState()
+                        .setTopicName("topic")
+                        .setPartitionIndex(0)
+                        .setReplicas(Arrays.asList(0, 1, 2));
+        LeaderAndIsrRequestData leaderAndIsrRequestDataWithoutObservers = new LeaderAndIsrRequestData()
+                .setUngroupedPartitionStates(Collections.singletonList(partitionStateWithoutObserver));
+
+        testAllMessageRoundTripsBetweenVersions((short) 0, (short) 2,
+                leaderAndIsrRequestDataWithObservers,
+                leaderAndIsrRequestDataWithoutObservers);
+    }
+
+    @Test
+    public void testAlterPartitionReassignmentRequestWithObservers() throws Exception {
+        AlterPartitionReassignmentsRequestData.ReassignablePartition reassignablePartition =
+                new AlterPartitionReassignmentsRequestData.ReassignablePartition()
+                        .setPartitionIndex(0)
+                        .setReplicas(Arrays.asList(1, 2, 3, 4, 5, 6))
+                        .setObservers(Arrays.asList(4, 5, 6));
+        AlterPartitionReassignmentsRequestData.ReassignableTopic reassignableTopic =
+                new AlterPartitionReassignmentsRequestData.ReassignableTopic()
+                        .setName("topic-0")
+                        .setPartitions(Collections.singletonList(reassignablePartition));
+
+        AlterPartitionReassignmentsRequestData requestWithObservers = new AlterPartitionReassignmentsRequestData()
+                .setTopics(Collections.singletonList(reassignableTopic))
+                .setTimeoutMs(60 * 1000);
+
+        testAllMessageRoundTrips(requestWithObservers);
+    }
+
+    @Test
+    public void testAlterPartitionReassignmentRequestWithoutObservers() throws Exception {
+        AlterPartitionReassignmentsRequestData.ReassignablePartition reassignablePartition =
+                new AlterPartitionReassignmentsRequestData.ReassignablePartition()
+                        .setPartitionIndex(0)
+                        .setReplicas(Arrays.asList(1, 2, 3, 4, 5, 6));
+        AlterPartitionReassignmentsRequestData.ReassignableTopic reassignableTopic =
+                new AlterPartitionReassignmentsRequestData.ReassignableTopic()
+                        .setName("topic-0")
+                        .setPartitions(Collections.singletonList(reassignablePartition));
+
+        AlterPartitionReassignmentsRequestData requestWithoutObservers = new AlterPartitionReassignmentsRequestData()
+                .setTopics(Collections.singletonList(reassignableTopic))
+                .setTimeoutMs(60 * 1000);
+
+        testAllMessageRoundTrips(requestWithoutObservers);
+    }
+
+    @Test
+    public void testMetadataResponseResultWithObservers() throws Exception {
+        MetadataResponseData.MetadataResponsePartition responsePartitionWithObserver =
+                new MetadataResponseData.MetadataResponsePartition()
+                        .setPartitionIndex(0)
+                        .setReplicaNodes(Arrays.asList(1, 2, 3, 4, 5, 6))
+                        .setIsrNodes(Arrays.asList(1, 2, 3))
+                        .setLeaderId(1)
+                        .setObservers(Arrays.asList(4, 5, 6));
+
+        MetadataResponseData.MetadataResponseTopic responseTopicWithObserver =
+                new MetadataResponseData.MetadataResponseTopic()
+                        .setErrorCode(Errors.NONE.code())
+                        .setName("topic-0")
+                        .setIsInternal(false)
+                        .setPartitions(Collections.singletonList(responsePartitionWithObserver));
+
+        MetadataResponseData.MetadataResponseTopicCollection responseTopicCollectionWithObserver =
+                new MetadataResponseData.MetadataResponseTopicCollection(
+                        Collections.singletonList(responseTopicWithObserver).iterator());
+
+        MetadataResponseData metadataResponseDataWithObservers = new MetadataResponseData()
+                .setTopics(responseTopicCollectionWithObserver);
+
+        MetadataResponseData.MetadataResponsePartition responsePartitionWithoutObserver =
+                new MetadataResponseData.MetadataResponsePartition()
+                        .setPartitionIndex(0)
+                        .setReplicaNodes(Arrays.asList(1, 2, 3, 4, 5, 6))
+                        .setIsrNodes(Arrays.asList(1, 2, 3))
+                        .setLeaderId(1);
+
+        MetadataResponseData.MetadataResponseTopic responseTopicWithoutObserver =
+                new MetadataResponseData.MetadataResponseTopic()
+                        .setErrorCode(Errors.NONE.code())
+                        .setName("topic-0")
+                        .setIsInternal(false)
+                        .setPartitions(Collections.singletonList(responsePartitionWithoutObserver));
+
+        MetadataResponseData.MetadataResponseTopicCollection responseTopicCollectionWithoutObserver =
+                new MetadataResponseData.MetadataResponseTopicCollection(
+                        Collections.singletonList(responseTopicWithoutObserver).iterator());
+
+        MetadataResponseData metadataResponseDataWithoutObservers = new MetadataResponseData()
+                .setTopics(responseTopicCollectionWithoutObserver);
+
+        testAllMessageRoundTripsBetweenVersions((short) 0, (short) 9,
+                metadataResponseDataWithObservers,
+                metadataResponseDataWithoutObservers);
+
+        testAllMessageRoundTripsFromVersion((short) 9, metadataResponseDataWithObservers);
+    }
+
+    @Test
+    public void testUpdateMetadataRequestWithObserversGroupedTopics() throws Exception {
+        UpdateMetadataRequestData.UpdateMetadataPartitionState partitionWithObserver =
+                new UpdateMetadataRequestData.UpdateMetadataPartitionState()
+                        .setPartitionIndex(0)
+                        .setControllerEpoch(2)
+                        .setLeader(0)
+                        .setLeaderEpoch(10)
+                        .setIsr(Arrays.asList(0, 1))
+                        .setZkVersion(10)
+                        .setReplicas(Arrays.asList(0, 1, 2))
+                        .setOfflineReplicas(Arrays.asList(2))
+                        .setObservers(Arrays.asList(2));
+        UpdateMetadataRequestData.UpdateMetadataTopicState topicWithObserver =
+                new UpdateMetadataRequestData.UpdateMetadataTopicState()
+                        .setTopicName("topic-0")
+                        .setPartitionStates(Arrays.asList(partitionWithObserver));
+        UpdateMetadataRequestData updateMetadataWithObservers = new UpdateMetadataRequestData()
+                .setTopicStates(Arrays.asList(topicWithObserver));
+
+        UpdateMetadataRequestData.UpdateMetadataPartitionState partitionWithoutObserver =
+                new UpdateMetadataRequestData.UpdateMetadataPartitionState()
+                        .setPartitionIndex(0)
+                        .setControllerEpoch(2)
+                        .setLeader(0)
+                        .setLeaderEpoch(10)
+                        .setIsr(Arrays.asList(0, 1))
+                        .setZkVersion(10)
+                        .setReplicas(Arrays.asList(0, 1, 2))
+                        .setOfflineReplicas(Arrays.asList(2));
+        UpdateMetadataRequestData.UpdateMetadataTopicState topicWithoutObserver =
+                new UpdateMetadataRequestData.UpdateMetadataTopicState()
+                        .setTopicName("topic-0")
+                        .setPartitionStates(Arrays.asList(partitionWithoutObserver));
+        UpdateMetadataRequestData updateMetadataWithoutObservers = new UpdateMetadataRequestData()
+                .setTopicStates(Arrays.asList(topicWithoutObserver));
+
+        testAllMessageRoundTripsBetweenVersions((short) 5, (short) 6,
+                updateMetadataWithObservers,
+                updateMetadataWithoutObservers);
+        testAllMessageRoundTripsFromVersion((short) 6, updateMetadataWithObservers);
+    }
+
+    @Test
+    public void testUpdateMetadataRequestWithObserversUngroupedTopics() throws Exception {
+        UpdateMetadataRequestData.UpdateMetadataPartitionState partitionWithObserver =
+                new UpdateMetadataRequestData.UpdateMetadataPartitionState()
+                        .setTopicName("topic-0")
+                        .setPartitionIndex(0)
+                        .setControllerEpoch(2)
+                        .setLeader(0)
+                        .setLeaderEpoch(10)
+                        .setIsr(Arrays.asList(0, 1))
+                        .setZkVersion(10)
+                        .setReplicas(Arrays.asList(0, 1, 2))
+                        .setObservers(Arrays.asList(2));
+        UpdateMetadataRequestData updateMetadataWithObservers = new UpdateMetadataRequestData()
+                .setUngroupedPartitionStates(Collections.singletonList(partitionWithObserver));
+
+        UpdateMetadataRequestData.UpdateMetadataPartitionState partitionWithoutObserver =
+                new UpdateMetadataRequestData.UpdateMetadataPartitionState()
+                        .setTopicName("topic-0")
+                        .setPartitionIndex(0)
+                        .setControllerEpoch(2)
+                        .setLeader(0)
+                        .setLeaderEpoch(10)
+                        .setIsr(Arrays.asList(0, 1))
+                        .setZkVersion(10)
+                        .setReplicas(Arrays.asList(0, 1, 2));
+        UpdateMetadataRequestData updateMetadataWithoutObservers = new UpdateMetadataRequestData()
+                .setUngroupedPartitionStates(Collections.singletonList(partitionWithoutObserver));
+
+        testAllMessageRoundTripsBetweenVersions((short) 0, (short) 5,
+                updateMetadataWithObservers,
+                updateMetadataWithoutObservers);
+    }
+
+    @Test
     public void testOffsetCommitRequestVersions() throws Exception {
         String groupId = "groupId";
         String topicName = "topic";
