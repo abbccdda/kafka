@@ -185,7 +185,6 @@ class TierPartitionStateTest {
     state.flush()
 
     // verify objectId target overlap offsets
-    // state metadata startOffsets are different for runtime and rematerialized view, this is expected
     assertFalse(state.metadata(150).isPresent)
     assertEquals(objectId3, state.metadata(151).get().objectId())
     assertEquals(objectId3, state.metadata(175).get().objectId())
@@ -199,6 +198,7 @@ class TierPartitionStateTest {
     assertEquals(175L, reopenedState.committedEndOffset)
 
     // verify objectId target overlap offsets
+    // state metadata startOffsets are different for runtime and rematerialized view, this is expected
     assertFalse(reopenedState.metadata(74).isPresent)
     assertEquals(objectId3, reopenedState.metadata(75).get().objectId())
     assertEquals(objectId3, reopenedState.metadata(175).get().objectId())
@@ -621,7 +621,8 @@ class TierPartitionStateTest {
       offset += 5
     }
 
-    def validateBeforeAndAfterReOpenedState(state: FileTierPartitionState, isLeader: Boolean, expectedEndOffset: Long, expectedSize: Long): Unit = {
+    def maybeIncrementEpochAndValidateTierState(state: FileTierPartitionState, isLeader: Boolean,
+                                                expectedEndOffset: Long, expectedSize: Long): Unit = {
       // Before
       assertEquals("FileTierPartitionState endOffset at run time", expectedEndOffset, state.endOffset())
       assertEquals("FileTierPartitionState totalSize at run time", expectedSize, state.totalSize())
@@ -643,23 +644,23 @@ class TierPartitionStateTest {
 
     var currentState = state
     try {
-      // Test Leader
+      // As Leader (increment epoch)
       // Transition each segment to DeleteInitiate and then since leader restarts the segment should be transitioned to
       // fenced state
       for (i <- 0 until numSegments/2) {
         assertEquals(AppendResult.ACCEPTED, currentState.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(i))))
-        validateBeforeAndAfterReOpenedState(currentState, true, endOffset, numSegments - (i + 1))
+        maybeIncrementEpochAndValidateTierState(currentState, true, endOffset, numSegments - (i + 1))
         currentState = new FileTierPartitionState(dir, tp, true)
       }
-      // Test Follower
+      // As a follower (does not increment epoch)
       // Transition each segment to DeleteInitiate and then DeleteComplete and at each step verify state before and after
       // reopening the FileTierPartitionState.
       for (i <- numSegments/2 until numSegments) {
         assertEquals(AppendResult.ACCEPTED, currentState.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(i))))
-        validateBeforeAndAfterReOpenedState(currentState, false, endOffset, numSegments - (i + 1))
+        maybeIncrementEpochAndValidateTierState(currentState, false, endOffset, numSegments - (i + 1))
         currentState = new FileTierPartitionState(dir, tp, true)
         assertEquals(AppendResult.ACCEPTED, currentState.append(new TierSegmentDeleteComplete(tpid, epoch, objectIds(i))))
-        validateBeforeAndAfterReOpenedState(currentState, false, endOffset, numSegments - (i + 1))
+        maybeIncrementEpochAndValidateTierState(currentState, false, endOffset, numSegments - (i + 1))
         currentState = new FileTierPartitionState(dir, tp, true)
       }
     }finally {
@@ -668,7 +669,7 @@ class TierPartitionStateTest {
   }
 
   /**
-   * Verifies that endOffset and totalSize is updated for deleteIntiate fenced segment during both runtime and on reload
+   * Verifies that endOffset and totalSize is updated for deleteInitiate fenced segment during both runtime and on reload
    * (broker restart) of tier partition state. Additionally verifies for uploadInitiate fenced segment the endOffset and
    * totalSize is NOT modified.
    */
