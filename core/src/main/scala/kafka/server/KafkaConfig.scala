@@ -232,8 +232,9 @@ object Defaults {
   /** Observer configs **/
   val ObserverFeature = false
 
-  /** ********* Fetch Session Configuration **************/
+  /** ********* Fetch Configuration **************/
   val MaxIncrementalFetchSessionCacheSlots = 1000
+  val FetchMaxBytes = 55 * 1024 * 1024
 
   /** ********* Quota Configuration ***********/
   val ProducerQuotaBytesPerSecondDefault = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
@@ -522,8 +523,9 @@ object KafkaConfig {
 
   val RequestLogFilterClass = ConfluentConfigs.REQUEST_LOG_FILTER_CLASS_CONFIG
 
-  /** ********* Fetch Session Configuration **************/
+  /** ********* Fetch Configuration **************/
   val MaxIncrementalFetchSessionCacheSlots = "max.incremental.fetch.session.cache.slots"
+  val FetchMaxBytes = "fetch.max.bytes"
 
   /** ********* Quota Configuration ***********/
   val ProducerQuotaBytesPerSecondDefaultProp = "quota.producer.default"
@@ -914,8 +916,9 @@ object KafkaConfig {
   /** Observer configs **/
   val ObserverFeatureDoc = "Feature flag that enables the observer feature."
 
-  /** ********* Fetch Session Configuration **************/
+  /** ********* Fetch Configuration **************/
   val MaxIncrementalFetchSessionCacheSlotsDoc = "The maximum number of incremental fetch sessions that we will maintain."
+  val FetchMaxBytesDoc = "The maximum number of bytes we will return for a fetch request. Must be at least 1024."
 
   /** ********* Quota Configuration ***********/
   val ProducerQuotaBytesPerSecondDefaultDoc = "DEPRECATED: Used only when dynamic default quotas are not configured for <user>, <client-id> or <user, client-id> in Zookeeper. " +
@@ -1218,8 +1221,9 @@ object KafkaConfig {
       /** ********* Observer Configuration **************/
       .defineInternal(ObserverFeatureProp, BOOLEAN, Defaults.ObserverFeature, MEDIUM, ObserverFeatureDoc)
 
-    /** ********* Fetch Session Configuration **************/
+      /** ********* Fetch Configuration **************/
       .define(MaxIncrementalFetchSessionCacheSlots, INT, Defaults.MaxIncrementalFetchSessionCacheSlots, atLeast(0), MEDIUM, MaxIncrementalFetchSessionCacheSlotsDoc)
+      .define(FetchMaxBytes, INT, Defaults.FetchMaxBytes, atLeast(1024), MEDIUM, FetchMaxBytesDoc)
 
       /** ********* Kafka Metrics Configuration ***********/
       .define(MetricNumSamplesProp, INT, Defaults.MetricNumSamples, atLeast(1), LOW, MetricNumSamplesDoc)
@@ -1677,8 +1681,9 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
     getBoolean(ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS)
   val verifyGroupSubscriptionPrefix = getBoolean(ConfluentConfigs.VERIFY_GROUP_SUBSCRIPTION_PREFIX)
 
-  /** ********* Fetch Session Configuration **************/
+  /** ********* Fetch Configuration **************/
   val maxIncrementalFetchSessionCacheSlots = getInt(KafkaConfig.MaxIncrementalFetchSessionCacheSlots)
+  val fetchMaxBytes = getInt(KafkaConfig.FetchMaxBytes)
 
   val deleteTopicEnable = getBoolean(KafkaConfig.DeleteTopicEnableProp)
   def compressionType = getString(KafkaConfig.CompressionTypeProp)

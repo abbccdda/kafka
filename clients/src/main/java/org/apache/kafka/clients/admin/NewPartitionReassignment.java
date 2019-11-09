@@ -21,7 +21,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * A new partition reassignment, which can be applied via {@link AdminClient#alterPartitionReassignments(Map, AlterPartitionReassignmentsOptions)}.
@@ -35,31 +34,28 @@ public class NewPartitionReassignment {
     /**
      * @throws IllegalArgumentException if no replicas are supplied
      */
-    public static Optional<NewPartitionReassignment> of(List<Integer> replicas) {
-        if (replicas == null || replicas.size() == 0)
-            throw new IllegalArgumentException("Cannot create a new partition reassignment without any replicas");
-        return Optional.of(new NewPartitionReassignment(replicas));
+    public static NewPartitionReassignment ofReplicasAndObservers(List<Integer> replicas,
+                                                                  List<Integer> observers) {
+        return new NewPartitionReassignment(replicas, observers);
     }
 
     /**
      * @throws IllegalArgumentException if no replicas are supplied
      */
-    public static NewPartitionReassignment ofReplicasAndObservers(List<Integer> replicas, List<Integer> observers) {
-        return new NewPartitionReassignment(replicas, observers);
-    }
-
-    private NewPartitionReassignment(List<Integer> targetReplicas) {
-        this.targetReplicas = Collections.unmodifiableList(new ArrayList<>(targetReplicas));
-        this.targetObservers = Collections.emptyList();
+    public NewPartitionReassignment(List<Integer> targetReplicas) {
+        this(targetReplicas, Collections.emptyList());
     }
 
     private NewPartitionReassignment(List<Integer> targetReplicas, List<Integer> targetObservers) {
         if (targetReplicas == null || targetReplicas.size() == 0) {
             throw new IllegalArgumentException("Cannot create a new partition reassignment without any replicas");
         }
+        if (targetObservers == null) {
+            throw new IllegalArgumentException("Cannot create a new partition reassignment with null observers");
+        }
 
         this.targetReplicas = Collections.unmodifiableList(new ArrayList<>(targetReplicas));
-        this.targetObservers = targetObservers == null ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(targetObservers));
+        this.targetObservers = Collections.unmodifiableList(new ArrayList<>(targetObservers));
     }
 
     public List<Integer> targetReplicas() {

@@ -384,6 +384,13 @@ public class ProduceResponse extends AbstractResponse {
             this.message = null;
         }
 
+        @Override
+        public String toString() {
+            return "RecordError{" +
+                "batchIndex=" + batchIndex +
+                ", message='" + message + '\'' +
+                '}';
+        }
     }
 
     public static ProduceResponse parse(ByteBuffer buffer, short version) {
