@@ -29,11 +29,11 @@ import kafka.utils.TestUtils
 import org.apache.kafka.common.record.FileRecords
 import org.apache.kafka.common.utils.{MockTime, Time}
 import org.junit.{After, Test}
-import org.junit.Assert.{assertEquals, assertFalse, assertThrows, assertTrue}
-import org.junit.function.ThrowingRunnable
+import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import org.mockito.ArgumentMatchers
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.{doNothing, mock, reset, times, verify, when}
+import org.scalatest.Assertions.assertThrows
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.collection.JavaConverters._
@@ -195,25 +195,25 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
   @Test
   def testExceptionDuringInitiateUpload(): Unit = {
     val nextState = testExceptionHandlingDuringInitiateUpload(new IllegalStateException("illegal state"))
-    assertThrows(classOf[IllegalStateException], new ThrowingRunnable {
-      override def run(): Unit = Await.result(nextState, 1 second)
-    })
+    assertThrows[IllegalStateException] {
+      Await.result(nextState, 1 second)
+    }
   }
 
   @Test
   def testSegmentDeletedDuringUpload(): Unit = {
     val nextState = testExceptionHandlingDuringUpload(new NoSuchFileException("segment deleted"), deleteSegment = true)
-    assertThrows(classOf[SegmentDeletedException], new ThrowingRunnable {
-      override def run(): Unit = Await.result(nextState, 1 second)
-    })
+    assertThrows[SegmentDeletedException] {
+      Await.result(nextState, 1 second)
+    }
   }
 
   @Test
   def testUnknownExceptionDuringUpload(): Unit = {
     val nextState = testExceptionHandlingDuringUpload(new IllegalStateException("illegal state"), deleteSegment = false)
-    assertThrows(classOf[IllegalStateException], new ThrowingRunnable {
-      override def run(): Unit = Await.result(nextState, 1 second)
-    })
+    assertThrows[IllegalStateException] {
+      Await.result(nextState, 1 second)
+    }
   }
 
   @Test
@@ -358,16 +358,16 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     val upload = Upload(0, mock(classOf[TierSegmentUploadInitiate]), mock(classOf[UploadableSegment]))
     val afterUpload = AfterUpload(0, mock(classOf[TierSegmentUploadInitiate]), 0L)
 
-    assertThrows(exception.getClass, new ThrowingRunnable {
-      override def run(): Unit = beforeLeader.handleSegmentDeletedException(exception)
-    })
+    assertThrows[SegmentDeletedException] {
+      beforeLeader.handleSegmentDeletedException(exception)
+    }
 
     assertEquals(classOf[BeforeUpload], beforeUpload.handleSegmentDeletedException(exception).getClass)
     assertEquals(classOf[BeforeUpload], upload.handleSegmentDeletedException(exception).getClass)
 
-    assertThrows(exception.getClass, new ThrowingRunnable {
-      override def run(): Unit = afterUpload.handleSegmentDeletedException(exception)
-    })
+    assertThrows[SegmentDeletedException] {
+      afterUpload.handleSegmentDeletedException(exception)
+    }
   }
 
   @Test

@@ -69,7 +69,6 @@ import org.apache.zookeeper.KeeperException.SessionExpiredException
 import org.apache.zookeeper.ZooDefs._
 import org.apache.zookeeper.data.ACL
 import org.junit.Assert._
-import org.junit.function.ThrowingRunnable
 import org.scalatest.Assertions.fail
 
 import scala.collection.JavaConverters._
@@ -1764,11 +1763,5 @@ object TestUtils extends Logging {
   def waitForAllReassignmentsToComplete(adminClient: Admin, pause: Long = 100L): Unit = {
     waitUntilTrue(() => adminClient.listPartitionReassignments().reassignments().get().isEmpty,
       s"There still are ongoing reassignments", pause = pause)
-  }
-
-  def throwingRunnable(closure: () => Any): ThrowingRunnable = {
-    new ThrowingRunnable {
-      override def run(): Unit = closure()
-    }
   }
 }

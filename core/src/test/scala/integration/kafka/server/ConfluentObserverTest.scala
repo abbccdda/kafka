@@ -19,6 +19,7 @@ import org.apache.kafka.common.{ElectionType, TopicPartition, TopicPartitionInfo
 import org.apache.kafka.test.{TestUtils => JTestUtils}
 import org.junit.Assert._
 import org.junit.{After, Before, Test}
+import org.scalatest.Assertions.intercept
 
 import scala.collection.JavaConverters._
 import scala.compat.java8.OptionConverters._
@@ -414,14 +415,11 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       // All observer replicas are not in the ISR
       TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3, broker4))
 
-      val exception = assertThrows(
-        classOf[ExecutionException],
-        TestUtils.throwingRunnable { () =>
-          client.alterPartitionReassignments(
-            Map(topicPartition -> reassignmentEntry(Seq(broker1, broker5, broker3, broker4), Seq(broker3, broker4))).asJava
-          ).all().get()
-        }
-      )
+      val exception = intercept[ExecutionException] {
+        client.alterPartitionReassignments(
+          Map(topicPartition -> reassignmentEntry(Seq(broker1, broker5, broker3, broker4), Seq(broker3, broker4))).asJava
+        ).all().get()
+      }
       assertEquals(classOf[InvalidReplicaAssignmentException], exception.getCause.getClass)
     }
   }
@@ -445,14 +443,11 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       // All observer replicas are not in the ISR
       TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3, broker4))
 
-      val exception = assertThrows(
-        classOf[ExecutionException],
-        TestUtils.throwingRunnable { () =>
-          client.alterPartitionReassignments(
-            Map(topicPartition -> reassignmentEntry(Seq(broker1, broker2, broker3, broker5), Seq(broker3, broker5))).asJava
-          ).all().get()
-        }
-      )
+      val exception = intercept[ExecutionException] {
+        client.alterPartitionReassignments(
+          Map(topicPartition -> reassignmentEntry(Seq(broker1, broker2, broker3, broker5), Seq(broker3, broker5))).asJava
+        ).all().get()
+      }
       assertEquals(classOf[InvalidReplicaAssignmentException], exception.getCause.getClass)
     }
   }

@@ -19,9 +19,9 @@ import kafka.tier.tools.DumpTierPartitionState
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
 import org.junit.Assert._
-import org.junit.function.ThrowingRunnable
 import org.junit.{After, Before, Test}
 import org.mockito.Mockito.{mock, when}
+import org.scalatest.Assertions.assertThrows
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
@@ -719,9 +719,9 @@ class TierPartitionStateTest {
   @Test
   def testIllegalTransitions(): Unit = {
     def assertIllegal(metadata: AbstractTierMetadata): Unit = {
-      assertThrows(classOf[IllegalStateException], new ThrowingRunnable {
-        override def run(): Unit = state.append(metadata)
-      })
+      assertThrows[IllegalStateException] {
+        state.append(metadata)
+      }
     }
     state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0))
 

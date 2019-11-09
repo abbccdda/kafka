@@ -10,9 +10,9 @@ import org.apache.kafka.clients.admin.{AlterConfigOp, AlterConfigsResult, Config
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.errors.InvalidConfigurationException
-import org.junit.Assert.{assertFalse, assertThrows, assertTrue}
-import org.junit.function.ThrowingRunnable
-import org.junit.{Before, Test}
+import org.junit.Assert.{assertFalse, assertTrue}
+import org.junit.{Assert, Before, Test}
+import org.scalatest.Assertions.intercept
 
 import scala.concurrent.ExecutionException
 
@@ -81,12 +81,9 @@ class TierConfigurationTest extends IntegrationTestHarness {
   }
 
   private def assertInvalid(result: AlterConfigsResult): Unit = {
-    assertThrows(classOf[InvalidConfigurationException], new ThrowingRunnable {
-      override def run(): Unit = try {
-        result.all.get
-      } catch {
-        case e: ExecutionException => throw e.getCause
-      }
-    })
+    val exception = intercept[ExecutionException] {
+      result.all.get
+    }
+    Assert.assertEquals(classOf[InvalidConfigurationException], exception.getCause.getClass)
   }
 }
