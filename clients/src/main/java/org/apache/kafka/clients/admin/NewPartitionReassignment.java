@@ -32,7 +32,7 @@ public class NewPartitionReassignment {
     private final List<Integer> targetObservers;
 
     /**
-     * @throws IllegalArgumentException if no replicas are supplied
+     * @throws IllegalArgumentException if no replicas are supplied or observers is null
      */
     public static NewPartitionReassignment ofReplicasAndObservers(List<Integer> replicas,
                                                                   List<Integer> observers) {
