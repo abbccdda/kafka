@@ -42,6 +42,8 @@ import static org.apache.kafka.common.protocol.CommonFields.TOPIC_NAME;
 public class ListOffsetRequest extends AbstractRequest {
     public static final long EARLIEST_TIMESTAMP = -2L;
     public static final long LATEST_TIMESTAMP = -1L;
+    public static final long LOCAL_START_OFFSET = -10000;
+    public static final long LOCAL_END_OFFSET = -10001;
 
     public static final int CONSUMER_REPLICA_ID = -1;
     public static final int DEBUGGING_REPLICA_ID = -2;

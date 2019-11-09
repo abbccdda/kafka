@@ -294,7 +294,12 @@ class KafkaApis(val requestChannel: RequestChannel,
           else
             Some(leaderEpoch)
 
-        val offsetOpt = replicaManager.fetchTierOffset(topicPartition, OffsetType.forId(partitionRequest.offsetType),
+        val timestamp = OffsetType.forId(partitionRequest.offsetType) match {
+          case TierListOffsetRequest.OffsetType.LOCAL_START_OFFSET => ListOffsetRequest.LOCAL_START_OFFSET
+          case TierListOffsetRequest.OffsetType.LOCAL_END_OFFSET => ListOffsetRequest.LOCAL_END_OFFSET
+        }
+
+        val offsetOpt = replicaManager.fetchTierOffset(topicPartition, timestamp,
           leaderEpochOpt, fetchOnlyFromLeader = true)
         offsetOpt match {
           case Some(offset) =>

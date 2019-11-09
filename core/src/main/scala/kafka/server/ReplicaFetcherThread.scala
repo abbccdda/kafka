@@ -264,10 +264,18 @@ class ReplicaFetcherThread(name: String,
   }
 
   override protected def fetchEarliestLocalOffsetFromLeader(topicPartition: TopicPartition, currentLeaderEpoch: Int): Long = {
-    if (brokerConfig.tierFeature)
-      fetchLocalOffsetFromLeader(topicPartition, currentLeaderEpoch, OffsetType.LOCAL_START_OFFSET)
-    else
+    if (brokerConfig.tierFeature) {
+      // TierListOffsetRequest has been replaced by use of ListOffsetRequest with negative timestamp
+      // sentinels. TierListOffsetRequest is kept to allow for rolling upgrades in CCloud
+      // and will be deleted once all of CCloud with tiered enabled is running with IBP >= 2.4-IV1
+      // `confluent.tier.feature` with IBP < 2.4 is not allowed for on-premise releases
+      if (brokerConfig.interBrokerProtocolVersion >= KAFKA_2_4_IV1)
+        fetchOffsetFromLeader(topicPartition, currentLeaderEpoch, ListOffsetRequest.LOCAL_START_OFFSET)
+      else
+        fetchLocalOffsetFromLeader(topicPartition, currentLeaderEpoch, OffsetType.LOCAL_START_OFFSET)
+    } else {
       throw new IllegalStateException("Incompatible configuration for tiered storage")
+    }
   }
 
   override protected def fetchLatestOffsetFromLeader(topicPartition: TopicPartition, currentLeaderEpoch: Int): Long = {

@@ -121,7 +121,7 @@ class ListOffsetsRequestTest extends BaseRequestTest {
     TestUtils.generateAndProduceMessages(servers, topic, 10)
 
     def fetchOffsetAndEpoch(serverId: Int,
-                            timestamp: Long): (Long, Int) = {
+                            timestamp: Long): (Long, Optional[Integer]) = {
       val targetTimes = Map(topicPartition -> new ListOffsetRequest.PartitionData(
         timestamp, Optional.empty[Integer]())).asJava
 
@@ -133,14 +133,16 @@ class ListOffsetsRequestTest extends BaseRequestTest {
       val response = sendRequest(serverId, request)
       val partitionData = response.responseData.get(topicPartition)
       val epochOpt = partitionData.leaderEpoch
-      assertTrue(epochOpt.isPresent)
 
-      (partitionData.offset, epochOpt.get)
+      (partitionData.offset, epochOpt)
     }
 
-    assertEquals((0L, 0), fetchOffsetAndEpoch(firstLeaderId, 0L))
-    assertEquals((0L, 0), fetchOffsetAndEpoch(firstLeaderId, ListOffsetRequest.EARLIEST_TIMESTAMP))
-    assertEquals((10L, 0), fetchOffsetAndEpoch(firstLeaderId, ListOffsetRequest.LATEST_TIMESTAMP))
+    assertEquals((0L, Optional.of(0)), fetchOffsetAndEpoch(firstLeaderId, 0L))
+    assertEquals((0L, Optional.of(0)), fetchOffsetAndEpoch(firstLeaderId, ListOffsetRequest.EARLIEST_TIMESTAMP))
+    assertEquals((10L, Optional.of(0)), fetchOffsetAndEpoch(firstLeaderId, ListOffsetRequest.LATEST_TIMESTAMP))
+
+    assertEquals((0L, Optional.empty()), fetchOffsetAndEpoch(firstLeaderId, ListOffsetRequest.LOCAL_START_OFFSET))
+    assertEquals((10L, Optional.empty()), fetchOffsetAndEpoch(firstLeaderId, ListOffsetRequest.LOCAL_END_OFFSET))
 
     // Kill the first leader so that we can verify the epoch change when fetching the latest offset
     killBroker(firstLeaderId)
@@ -148,11 +150,11 @@ class ListOffsetsRequestTest extends BaseRequestTest {
     val secondLeaderEpoch = TestUtils.findLeaderEpoch(secondLeaderId, topicPartition, servers)
 
     // No changes to written data
-    assertEquals((0L, 0), fetchOffsetAndEpoch(secondLeaderId, 0L))
-    assertEquals((0L, 0), fetchOffsetAndEpoch(secondLeaderId, ListOffsetRequest.EARLIEST_TIMESTAMP))
+    assertEquals((0L, Optional.of(0)), fetchOffsetAndEpoch(secondLeaderId, 0L))
+    assertEquals((0L, Optional.of(0)), fetchOffsetAndEpoch(secondLeaderId, ListOffsetRequest.EARLIEST_TIMESTAMP))
 
     // The latest offset reflects the updated epoch
-    assertEquals((10L, secondLeaderEpoch), fetchOffsetAndEpoch(secondLeaderId, ListOffsetRequest.LATEST_TIMESTAMP))
+    assertEquals((10L, Optional.of(secondLeaderEpoch)), fetchOffsetAndEpoch(secondLeaderId, ListOffsetRequest.LATEST_TIMESTAMP))
   }
 
   private def assertResponseError(error: Errors, brokerId: Int, request: ListOffsetRequest): Unit = {
