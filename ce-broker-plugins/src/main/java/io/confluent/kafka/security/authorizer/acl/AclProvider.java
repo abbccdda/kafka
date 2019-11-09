@@ -31,7 +31,7 @@ public class AclProvider extends AclAuthorizer implements AccessRuleProvider {
 
   @Override
   public String providerName() {
-    return AccessRuleProviders.ACL.name();
+    return AccessRuleProviders.ZK_ACL.name();
   }
 
   @Override

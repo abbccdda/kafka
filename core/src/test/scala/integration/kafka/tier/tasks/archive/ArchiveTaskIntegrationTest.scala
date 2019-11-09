@@ -211,12 +211,13 @@ class ArchiveTaskIntegrationTest {
     // transition segment to Upload state
     val maybeUpload_1 = Await.result(
       task.transition(mockTime, tierTopicManager, tierObjectStore, mockReplicaManager), transitionWaitTime)
-    val segmentBeingUploaded = maybeUpload_1.state.asInstanceOf[Upload].uploadableSegment.logSegment
+    val segmentFileBeingUploaded = maybeUpload_1.state.asInstanceOf[Upload].uploadableSegment.logSegmentFile
     assertEquals(classOf[Upload], maybeUpload_1.state.getClass)
-    assertEquals(segmentBeingUploaded, log.localLogSegments.head)
+    assertEquals(segmentFileBeingUploaded, log.localLogSegments.head.log.file)
 
     // simulate DeleteRecords by incrementing the log start offset; delete the segment that is being uploaded
     val newFirstSegment = log.localLogSegments.toList(3)
+    val newFirstSegmentFile = newFirstSegment.log.file
     log.maybeIncrementLogStartOffset(newFirstSegment.baseOffset + 3)
 
     // Transitioning the task will raise an exception and lead us back to the BeforeUpload state
@@ -228,6 +229,6 @@ class ArchiveTaskIntegrationTest {
     val maybeUpload_2 = Await.result(
       task.transition(mockTime, tierTopicManager, tierObjectStore, mockReplicaManager), transitionWaitTime)
     assertEquals(classOf[Upload], maybeUpload_2.state.getClass)
-    assertEquals(newFirstSegment, maybeUpload_2.state.asInstanceOf[Upload].uploadableSegment.logSegment)
+    assertEquals(newFirstSegmentFile, maybeUpload_2.state.asInstanceOf[Upload].uploadableSegment.logSegmentFile)
   }
 }

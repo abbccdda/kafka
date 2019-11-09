@@ -76,7 +76,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                           authorizer_class_name="io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer",
                           server_prop_overides=[
                               ["super.users", "User:ANONYMOUS"],
-                              ["confluent.authorizer.access.rule.providers", "ACL,FILE_RBAC"],
+                              ["confluent.authorizer.access.rule.providers", "ZK_ACL,FILE_RBAC"],
                               ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH]
                           ])
         self.kafka.start()
@@ -101,7 +101,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                           authorizer_class_name="io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer",
                           server_prop_overides=[
                               ["super.users", "User:ANONYMOUS"],
-                              ["confluent.authorizer.access.rule.providers", "ACL,FILE_RBAC"],
+                              ["confluent.authorizer.access.rule.providers", "ZK_ACL,FILE_RBAC"],
                               ["ldap.java.naming.provider.url", self.minildap.ldap_url],
                               ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH]
                           ])
@@ -136,7 +136,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
         self.start_producer_and_consumer()
 
 	server_prop_overides=[
-	    ["confluent.authorizer.access.rule.providers", "ACL,FILE_RBAC"],
+	    ["confluent.authorizer.access.rule.providers", "ZK_ACL,FILE_RBAC"],
 	    ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH]
 	]
         self.configure_rbac(server_prop_overides)
@@ -173,7 +173,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
         self.start_producer_and_consumer()
 
 	server_prop_overides=[
-	    ["confluent.authorizer.access.rule.providers", "ACL,FILE_RBAC"],
+	    ["confluent.authorizer.access.rule.providers", "ZK_ACL,FILE_RBAC"],
 	    ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH],
 	    ["ldap.java.naming.provider.url", self.minildap.ldap_url],
 	]
@@ -202,7 +202,7 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                           authorizer_class_name="io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer",
                           server_prop_overides=[
                               ["super.users", "User:ANONYMOUS"],
-                              ["confluent.authorizer.access.rule.providers", "ACL,FILE_RBAC"],
+                              ["confluent.authorizer.access.rule.providers", "ZK_ACL,FILE_RBAC"],
                               ["confluent.license.topic.replication.factor", "3"],
                               ["ldap.java.naming.provider.url", self.minildap.ldap_url],
                               ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH]

@@ -1211,6 +1211,10 @@ object GroupCoordinator {
       groupMaxSize = config.groupMaxSize,
       groupInitialRebalanceDelayMs = config.groupInitialRebalanceDelay)
 
+    // Yes, this is ugly but the alternative approach consisting of wiring the config down to the
+    // GroupMetadata instances is worst.
+    GroupMetadata.VerifyGroupSubscriptionPrefix = config.verifyGroupSubscriptionPrefix
+
     val groupMetadataManager = new GroupMetadataManager(config.brokerId, config.interBrokerProtocolVersion,
       offsetConfig, replicaManager, zkClient, time, metrics)
     new GroupCoordinator(config.brokerId, groupConfig, offsetConfig, groupMetadataManager, heartbeatPurgatory, joinPurgatory, time, metrics)

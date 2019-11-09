@@ -488,7 +488,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     private AppendResult appendMetadata(AbstractTierMetadata entry) throws IOException {
         synchronized (lock) {
             if (!status.isOpenForWrite())
-                return AppendResult.ILLEGAL;
+                return AppendResult.NOT_TIERABLE;
 
             switch (entry.type()) {
                 case InitLeader:
@@ -794,7 +794,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                     currentPosition + " size: " + channel.size() + " for partition " + topicIdPartition);
 
         if (header.endOffset() != -1 && state.endOffset != header.endOffset()) {
-            log.debug("File header endOffset does not match the materialized endOffset. Setting state endOffset to be " +
+            log.info("File header endOffset does not match the materialized endOffset. Setting state endOffset to be " +
                     "equal to header endOffset. Header endOffset: " + header.endOffset() + " materialized state endOffset: " +
                     state.endOffset + " for partition " + topicIdPartition);
             state.endOffset = header.endOffset();
@@ -841,7 +841,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 break;
 
             case SEGMENT_DELETE_INITIATE:
-                // If the partition state is rematerialized follower restart the segment in deleteInitiate will not be
+                // If the partition state is materialized on broker restart the segment in deleteInitiate will not be
                 // included in validSegments, therefore only reduce the validSegmentSize if segment was actually present
                 // and removed, this will be the case during runtime.
                 if (state.validSegments.remove(startOffset) != null)

@@ -4,6 +4,7 @@ package io.confluent.security.auth.provider.rbac;
 
 import io.confluent.security.auth.metadata.AuthStore;
 import io.confluent.security.auth.metadata.AuthWriter;
+import io.confluent.security.auth.provider.ConfluentProvider;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.MetadataProvider;
@@ -17,7 +18,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 
-public class MockRbacProvider extends RbacProvider implements MetadataProvider {
+public class MockRbacProvider extends ConfluentProvider implements MetadataProvider {
 
   @Override
   public String providerName() {
@@ -35,7 +36,7 @@ public class MockRbacProvider extends RbacProvider implements MetadataProvider {
     private final Collection<URL> activeNodes;
     private final DefaultAuthCache authCache;
 
-    MockAuthStore(RbacRoles rbacRoles, Scope scope) {
+    public MockAuthStore(RbacRoles rbacRoles, Scope scope) {
       this.scope = scope;
       this.authCache = new DefaultAuthCache(rbacRoles, scope);
       this.activeNodes = new HashSet<>();

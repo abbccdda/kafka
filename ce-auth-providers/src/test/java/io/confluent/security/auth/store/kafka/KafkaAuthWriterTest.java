@@ -540,6 +540,19 @@ public class KafkaAuthWriterTest {
   }
 
   @Test
+  public void testMultipleWriterElections() throws Exception {
+    int generationId = 1;
+    for (int i = 0; i < 3; i++) {
+      TestUtils.waitForCondition(() -> authWriter.ready(), "Writer not ready");
+      authWriter.addResourceRoleBinding(alice, "Reader", clusterA,
+          resources("topic" + i, "group" + i)).toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+      authWriter.stopWriter(generationId);
+      authWriter.startWriter(++generationId);
+    }
+  }
+
+  @Test
   public void testAclBinding() {
     // 1. create alice topicA binding
     AclBinding aliceTopicABinding = topicBinding("Alice", "TopicA", new Operation("Read"), PermissionType.ALLOW);

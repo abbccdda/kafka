@@ -63,8 +63,8 @@ public class KafkaPartitionWriter<K, V> {
   private final Time time;
   private final BlockingQueue<PendingWrite> pendingWrites;
   private final BlockingQueue<QueuedTask> queuedTasks;
-  private final ScheduledExecutorService executor;
 
+  private ScheduledExecutorService executor;
   private MetadataStoreStatus status;
   private int generationId;
   private long lastProducedOffset;
@@ -76,7 +76,6 @@ public class KafkaPartitionWriter<K, V> {
                               KeyValueStore<K, V> cache,
                               MetadataServiceRebalanceListener rebalanceListener,
                               StatusListener statusListener,
-                              ScheduledExecutorService executor,
                               Duration refreshTimeout,
                               Time time) {
     this.topicPartition = topicPartition;
@@ -84,7 +83,6 @@ public class KafkaPartitionWriter<K, V> {
     this.cache = cache;
     this.rebalanceListener = rebalanceListener;
     this.statusListener = statusListener;
-    this.executor = executor;
     this.refreshTimeout = refreshTimeout;
     this.time = time;
     this.generationId = NOT_MASTER_WRITER;
@@ -105,10 +103,11 @@ public class KafkaPartitionWriter<K, V> {
    * to the producer. Subsequent updates will be blocked until the status is written to log
    * and consumed by the cache on this node.
    */
-  public void start(final int generationId, K statusKey, V statusValue) {
+  public void start(final int generationId, K statusKey, V statusValue, ScheduledExecutorService executor) {
     log.debug("Starting generation {} for partition writer {}", generationId, topicPartition);
 
     synchronized (this) {
+      this.executor = executor;
       status(MetadataStoreStatus.INITIALIZING);
       this.generationId = generationId;
     }
@@ -157,6 +156,7 @@ public class KafkaPartitionWriter<K, V> {
       if (!write.future.isDone())
         write.fail(notMasterWriterException());
     }
+    executor = null;
   }
 
   /**
@@ -262,6 +262,8 @@ public class KafkaPartitionWriter<K, V> {
     QueuedTask queuedTask = new QueuedTask(task, future);
     if (!queuedTasks.offer(queuedTask))
       throw new BufferExhaustedException("Failed to queue update request");
+    else
+      queuedTask.scheduleTimeout();
   }
 
   private void scheduleQueuedTasks() {
@@ -611,11 +613,14 @@ public class KafkaPartitionWriter<K, V> {
 
     private final Predicate<Void> retriableTask;
     private final CompletableFuture<Void> future;
-    private final Future<?> timeoutFuture;
+    private Future<?> timeoutFuture;
 
     QueuedTask(Predicate<Void> retriableTask, CompletableFuture<Void> taskFuture) {
       this.retriableTask = retriableTask;
       this.future = taskFuture;
+    }
+
+    public void scheduleTimeout() {
       timeoutFuture = executor.schedule(this::failWithTimeout,
           refreshTimeout.toMillis(), TimeUnit.MILLISECONDS);
     }

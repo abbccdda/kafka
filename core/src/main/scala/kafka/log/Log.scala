@@ -19,6 +19,7 @@ package kafka.log
 
 import java.io.{File, IOException}
 import java.lang.{Long => JLong}
+import java.nio.ByteBuffer
 import java.nio.file.{Files, NoSuchFileException}
 import java.text.NumberFormat
 import java.util.Map.{Entry => JEntry}
@@ -170,6 +171,32 @@ case class RollParams(maxSegmentMs: Long,
                       maxOffsetInMessages: Long,
                       messagesSize: Int,
                       now: Long)
+
+/**
+  * A class containing the files that are uploaded to object storage by the tier archiver.
+  */
+case class UploadableSegment(log: AbstractLog,
+                             private val logSegment: LogSegment,
+                             nextOffset: Long,
+                             producerStateOpt: Option[File],
+                             leaderEpochStateOpt: Option[File],
+                             abortedTxnIndexOpt: Option[ByteBuffer]) {
+  val logSegmentFile: File = logSegment.log.file
+  val offsetIndex: File = logSegment.offsetIndex.file
+  val timeIndex: File = logSegment.timeIndex.file
+
+  val uploadedSize: Long = logSegment.size + Seq(producerStateOpt.map(_.length),
+                                                 leaderEpochStateOpt.map(_.length),
+                                                 abortedTxnIndexOpt.map { bb => (bb.limit() - bb.position()).toLong }
+                                               ).map(_.getOrElse(0L)).sum
+
+  def allFiles: List[File] = {
+    var files = List(logSegmentFile, offsetIndex, timeIndex)
+    producerStateOpt.foreach(files :+= _)
+    leaderEpochStateOpt.foreach(files :+= _)
+    files
+  }
+}
 
 object RollParams {
   def apply(config: LogConfig, appendInfo: LogAppendInfo, messagesSize: Int, now: Long): RollParams = {
@@ -1885,6 +1912,8 @@ class Log(@volatile var dir: File,
 
   def isFuture: Boolean = dir.getName.endsWith(Log.FutureDirSuffix)
 
+  def isDeleted: Boolean = dir.getName.endsWith(Log.DeleteDirSuffix)
+
   /**
    * The size of the log in bytes
    */
@@ -2492,6 +2521,41 @@ class Log(@volatile var dir: File,
         throw e
     }
   }
+
+  /**
+    * Collect the files to create an UploadableSegment object for the Tier Archiver to upload to object storage.
+    * @param log Reference to the AbstractLog used to create the UploadableSegment
+    * @param logSegment The LogSegment containing the segment and offsets to create the UploadableSegment
+    * @return An UploadableSegment to be used by the Tier Archiver
+    */
+  def createUploadableSegment(log: AbstractLog, logSegment: LogSegment): UploadableSegment = {
+    lock synchronized {
+      if (!logSegment.log.file.exists) {
+        throw new NoSuchFileException(s"Segment $logSegment of ${log.topicPartition} not found when creating UploadableSegment")
+      }
+
+      val nextOffset = logSegment.readNextOffset
+
+      // Get an uploadable leader epoch state file by cloning state from leader epoch cache and truncating it to the next offset
+      val leaderEpochStateOpt = leaderEpochCache.map { cache =>
+        val checkpointClone = new LeaderEpochCheckpointFile(new File(cache.file.getAbsolutePath + ".tier"))
+        val leaderEpochCacheClone = cache.clone(checkpointClone)
+        leaderEpochCacheClone.truncateFromEnd(nextOffset)
+        leaderEpochCacheClone.file
+      }
+
+      // The producer state snapshot for `logSegment` should be named with the next logSegment's base offset
+      // Because we never upload the active segment, and a snapshot is created on roll, we expect that either
+      // this snapshot file is present, or the snapshot file was deleted.
+      val producerStateOpt = producerStateManager.snapshotFileForOffset(nextOffset)
+
+      // Collect the set of aborted transactions between baseOffset and nextOffset (the end offset) into a ByteBuffer for tiering.
+      val abortedTxnsList = log.collectAbortedTransactions(logSegment.baseOffset, nextOffset)
+      val abortedTransactions = serializeAbortedTransactions(abortedTxnsList)
+
+      UploadableSegment(log, logSegment, nextOffset, producerStateOpt, leaderEpochStateOpt, abortedTransactions)
+    }
+  }
 }
 
 /**
@@ -2736,5 +2800,21 @@ object Log {
       }.getOrElse(segments.headMap(to))
       view
     }
+  }
+
+  /**
+    * Serializes the provided AbortedTxns to a ByteBuffer for tiering.
+    */
+  def serializeAbortedTransactions(abortedTxnsList: Seq[AbortedTxn]): Option[ByteBuffer] = {
+    var maybeAbortedTxnsBuf: Option[ByteBuffer] = None
+    if (abortedTxnsList.nonEmpty) {
+      val buf = ByteBuffer.allocate(abortedTxnsList.length * AbortedTxn.TotalSize)
+      for (abortedTxn <- abortedTxnsList) {
+        buf.put(abortedTxn.buffer.duplicate())
+      }
+      buf.flip()
+      maybeAbortedTxnsBuf = Some(buf)
+    }
+    maybeAbortedTxnsBuf
   }
 }

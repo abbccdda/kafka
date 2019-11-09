@@ -109,7 +109,7 @@ public class EventLogClusters {
     serverConfig.setProperty(KafkaConfig$.MODULE$.AuthorizerClassNameProp(),
         AclAuthorizer.class.getName());
     serverConfig.setProperty("super.users", "User:" + config.brokerUser);
-    serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL");
+    serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ZK_ACL");
     if (config.routerConfig != null) {
       serverConfig.put(AuditLogConfig.ROUTER_CONFIG, config.routerConfig);
     }

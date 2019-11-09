@@ -167,26 +167,26 @@ public class ConfluentServerAuthorizerTest {
   @Test
   public void testCentralizedAclsOnly() throws Throwable {
     rbacConfig = rbacConfig
-        .overrideBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "RBAC")
-        .overrideMetadataBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "RBAC");
+        .overrideBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "CONFLUENT")
+        .overrideMetadataBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "CONFLUENT");
     verifyAcls(false);
   }
 
   @Test
   public void testCentralizedAclsMigrationDisabled() throws Throwable {
     rbacConfig = rbacConfig
-        .overrideBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL,RBAC")
+        .overrideBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ZK_ACL,CONFLUENT")
         .overrideBrokerConfig(ConfluentAuthorizerConfig.MIGRATE_ACLS_FROM_ZK_PROP, "false")
-        .overrideMetadataBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL,RBAC");
+        .overrideMetadataBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ZK_ACL,CONFLUENT");
     verifyAcls(true);
   }
 
   @Test
   public void testCentralizedAclsMigrationEnabled() throws Throwable {
     rbacConfig = rbacConfig
-        .overrideBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL,RBAC")
+        .overrideBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ZK_ACL,CONFLUENT")
         .overrideBrokerConfig(ConfluentAuthorizerConfig.MIGRATE_ACLS_FROM_ZK_PROP, "true")
-        .overrideMetadataBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ACL,RBAC");
+        .overrideMetadataBrokerConfig(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ZK_ACL,CONFLUENT");
     verifyAcls(true);
   }
 

@@ -1,6 +1,6 @@
 // (Copyright) [2019 - 2019] Confluent, Inc.
 
-package io.confluent.security.auth.provider.rbac;
+package io.confluent.security.auth.provider;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -8,6 +8,7 @@ import static org.junit.Assert.fail;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.security.auth.metadata.MetadataServiceConfig;
+import io.confluent.security.auth.provider.rbac.MockRbacProvider.MockAuthStore;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.auth.store.data.AclBindingKey;
 import io.confluent.security.auth.store.data.AclBindingValue;
@@ -58,12 +59,12 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-public class RbacProviderTest {
+public class ConfluentProviderTest {
 
   private final Scope clusterA = new Scope.Builder("testOrg").withKafkaCluster("clusterA").build();
   private final Scope clusterB = new Scope.Builder("testOrg").withKafkaCluster("clusterB").build();
   private final ResourcePattern clusterResource = new ResourcePattern(new ResourceType("Cluster"), "kafka-cluster", PatternType.LITERAL);
-  private RbacProvider rbacProvider;
+  private ConfluentProvider rbacProvider;
   private DefaultAuthCache authCache;
   private Optional<TestMdsAdminClient> aclClientOp;
   private ResourcePattern topic = new ResourcePattern("Topic", "topicA", PatternType.LITERAL);
@@ -131,8 +132,8 @@ public class RbacProviderTest {
     // For the metadata service authorizer, these users are not granted access to any other resource.
     Operation alter = new Operation("Alter");
     Operation alterAccess = new Operation("AlterAccess");
-    verifyAccess(authorizer, admin, metadataCluster, RbacProvider.SECURITY_METADATA, alter, AuthorizeResult.ALLOWED);
-    verifyAccess(authorizer, admin, otherCluster, RbacProvider.SECURITY_METADATA, alter, AuthorizeResult.ALLOWED);
+    verifyAccess(authorizer, admin, metadataCluster, ConfluentProvider.SECURITY_METADATA, alter, AuthorizeResult.ALLOWED);
+    verifyAccess(authorizer, admin, otherCluster, ConfluentProvider.SECURITY_METADATA, alter, AuthorizeResult.ALLOWED);
     verifyAccess(authorizer, admin, metadataCluster, topic.resourceType(), alter, AuthorizeResult.DENIED);
     verifyAccess(authorizer, admin, otherCluster, topic.resourceType(), alter, AuthorizeResult.DENIED);
     verifyAccess(authorizer, admin, metadataCluster, topic.resourceType(), alterAccess, AuthorizeResult.ALLOWED);
@@ -141,8 +142,8 @@ public class RbacProviderTest {
     // SystemAdmin role has access to all resources within the role binding scope
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
     updateRoleBinding(alice, "SystemAdmin", metadataCluster, Collections.emptySet());
-    verifyAccess(authorizer, alice, metadataCluster, RbacProvider.SECURITY_METADATA, alter, AuthorizeResult.ALLOWED);
-    verifyAccess(authorizer, alice, otherCluster, RbacProvider.SECURITY_METADATA, alter, AuthorizeResult.DENIED);
+    verifyAccess(authorizer, alice, metadataCluster, ConfluentProvider.SECURITY_METADATA, alter, AuthorizeResult.ALLOWED);
+    verifyAccess(authorizer, alice, otherCluster, ConfluentProvider.SECURITY_METADATA, alter, AuthorizeResult.DENIED);
     verifyAccess(authorizer, alice, metadataCluster, topic.resourceType(), alter, AuthorizeResult.ALLOWED);
     verifyAccess(authorizer, alice, otherCluster, topic.resourceType(), alter, AuthorizeResult.DENIED);
     verifyAccess(authorizer, alice, metadataCluster, topic.resourceType(), alterAccess, AuthorizeResult.ALLOWED);
@@ -338,14 +339,14 @@ public class RbacProviderTest {
 
   private void initializeRbacProvider(String clusterId, Scope authStoreScope,  Map<String, ?> configs) throws Exception {
     RbacRoles rbacRoles = RbacRoles.load(this.getClass().getClassLoader(), "test_rbac_roles.json");
-    MockRbacProvider.MockAuthStore authStore = new MockRbacProvider.MockAuthStore(rbacRoles, authStoreScope);
+    MockAuthStore authStore = new MockAuthStore(rbacRoles, authStoreScope);
     authCache = authStore.authCache();
     aclClientOp = Optional.of(new TestMdsAdminClient(Collections.singletonList(new Node(1, "localhost", 9092))));
-    rbacProvider = new RbacProvider() {
+    rbacProvider = new ConfluentProvider() {
       @Override
       public void configure(Map<String, ?> configs) {
         super.configure(configs);
-        KafkaTestUtils.setFinalField(rbacProvider, RbacProvider.class, "authCache", authCache);
+        KafkaTestUtils.setFinalField(rbacProvider, ConfluentProvider.class, "authCache", authCache);
       }
 
       @Override

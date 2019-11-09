@@ -11,7 +11,7 @@ import static org.junit.Assert.assertTrue;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.security.auth.metadata.MockMetadataServer.ServerState;
-import io.confluent.security.auth.provider.rbac.RbacProvider;
+import io.confluent.security.auth.provider.ConfluentProvider;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.Action;
@@ -41,7 +41,7 @@ public class MetadataServerTest {
   private final Scope clusterA = new Scope.Builder("testOrg").withKafkaCluster("clusterA").build();
   private final ResourcePattern clusterResource = new ResourcePattern(new ResourceType("Cluster"), "kafka-cluster", PatternType.LITERAL);
   private EmbeddedAuthorizer authorizer;
-  private RbacProvider metadataRbacProvider;
+  private ConfluentProvider metadataRbacProvider;
   private MockMetadataServer metadataServer;
   private ResourcePattern topic = new ResourcePattern("Topic", "topicA", PatternType.LITERAL);
 
@@ -62,7 +62,7 @@ public class MetadataServerTest {
   public void testNoRbacProviderOnBrokerWithoutRbacAccessControl() throws Exception {
     createEmbeddedAuthorizer(Collections.singletonMap(
         ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "SUPER_USERS"));
-    assertFalse(authorizer.metadataProvider() instanceof RbacProvider);
+    assertFalse(authorizer.metadataProvider() instanceof ConfluentProvider);
   }
 
   private void verifyMetadataServer(Scope cacheScope, Scope invalidScope) {
@@ -71,7 +71,7 @@ public class MetadataServerTest {
     assertNotNull(metadataServer.embeddedAuthorizer);
     assertTrue(metadataServer.embeddedAuthorizer instanceof EmbeddedAuthorizer);
     EmbeddedAuthorizer authorizer = (EmbeddedAuthorizer) metadataServer.embeddedAuthorizer;
-    metadataRbacProvider = (RbacProvider) authorizer.accessRuleProvider("MOCK_RBAC");
+    metadataRbacProvider = (ConfluentProvider) authorizer.accessRuleProvider("MOCK_RBAC");
     assertNotNull(metadataRbacProvider);
     DefaultAuthCache metadataAuthCache = (DefaultAuthCache) metadataRbacProvider.authStore().authCache();
     assertSame(metadataServer.authCache, metadataAuthCache);
@@ -143,8 +143,8 @@ public class MetadataServerTest {
   }
 
   private MockMetadataServer metadataServer(EmbeddedAuthorizer authorizer) {
-    assertTrue(authorizer.metadataProvider() instanceof  RbacProvider);
-    MetadataServer metadataServer = ((RbacProvider) authorizer.metadataProvider()).metadataServer();
+    assertTrue(authorizer.metadataProvider() instanceof ConfluentProvider);
+    MetadataServer metadataServer = ((ConfluentProvider) authorizer.metadataProvider()).metadataServer();
     if (metadataServer != null) {
       assertTrue(metadataServer instanceof MockMetadataServer);
       return (MockMetadataServer) metadataServer;

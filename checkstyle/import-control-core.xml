@@ -65,6 +65,7 @@
     <allow pkg="org.apache.kafka.clients.producer" />
     <allow class="kafka.server.KafkaConfig" />
     <allow class="kafka.server.Defaults"/>
+    <allow class="kafka.log.Log" />
     <allow class="kafka.log.LogConfig" />
     <allow class="kafka.log.OffsetPosition" />
     <allow class="kafka.log.IndexEntry" />

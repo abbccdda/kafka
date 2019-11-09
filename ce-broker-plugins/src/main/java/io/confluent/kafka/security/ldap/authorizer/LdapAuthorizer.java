@@ -15,7 +15,7 @@ public class LdapAuthorizer extends ConfluentServerAuthorizer {
   public void configure(Map<String, ?> configs) {
     Map<String, Object>  authorizerConfigs = new HashMap<>(configs);
     authorizerConfigs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP,
-        AccessRuleProviders.ACL.name());
+        AccessRuleProviders.ZK_ACL.name());
     super.configure(authorizerConfigs);
   }
 }

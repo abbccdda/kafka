@@ -569,6 +569,8 @@ class MergedLog(private[log] val localLog: Log,
 
   override def isFuture: Boolean = localLog.isFuture
 
+  override def isDeleted: Boolean = localLog.isDeleted
+
   override def leaderEpochCache: Option[LeaderEpochFileCache] = localLog.leaderEpochCache
 
   override def firstUnstableOffset: Option[Long] = {
@@ -641,6 +643,8 @@ class MergedLog(private[log] val localLog: Log,
   private def logDirFailureChannel: LogDirFailureChannel = localLog.logDirFailureChannel
 
   override def producerStateManager: ProducerStateManager = localLog.producerStateManager
+
+  override def createUploadableSegment(segment: LogSegment): UploadableSegment = localLog.createUploadableSegment(this, segment)
 
   /* --------- End pass-through methods --------- */
 
@@ -747,6 +751,11 @@ sealed trait AbstractLog {
     * @return True if this log is for a "future" partition; false otherwise
     */
   def isFuture: Boolean
+
+  /**
+    * @return True if this log has been deleted; false otherwise
+    */
+  def isDeleted: Boolean
 
   /**
     * @return The leader epoch cache file
@@ -1093,4 +1102,6 @@ sealed trait AbstractLog {
   def roll(expectedNextOffset: Option[Long] = None): LogSegment
 
   def producerStateManager: ProducerStateManager
+
+  def createUploadableSegment(segment: LogSegment): UploadableSegment
 }

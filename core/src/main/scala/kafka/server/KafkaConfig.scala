@@ -1337,6 +1337,9 @@ object KafkaConfig {
       .defineInternal(ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS, BOOLEAN,
                       ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS_DEFAULT, HIGH,
                       ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS_DOC)
+      .defineInternal(ConfluentConfigs.VERIFY_GROUP_SUBSCRIPTION_PREFIX, BOOLEAN,
+                      ConfluentConfigs.VERIFY_GROUP_SUBSCRIPTION_PREFIX_DEFAULT, HIGH,
+                      ConfluentConfigs.VERIFY_GROUP_SUBSCRIPTION_PREFIX_DOC)
   }
 
   def configNames() = configDef.names().asScala.toList.sorted
@@ -1672,6 +1675,7 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   /** ********* Confluent **************/
   val applyCreateTopicsPolicyToCreatePartitions =
     getBoolean(ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS)
+  val verifyGroupSubscriptionPrefix = getBoolean(ConfluentConfigs.VERIFY_GROUP_SUBSCRIPTION_PREFIX)
 
   /** ********* Fetch Session Configuration **************/
   val maxIncrementalFetchSessionCacheSlots = getInt(KafkaConfig.MaxIncrementalFetchSessionCacheSlots)

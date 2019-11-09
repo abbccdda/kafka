@@ -28,6 +28,6 @@ public interface MetadataServer extends Configurable, Closeable {
              AuthenticateCallbackHandler authenticateCallbackHandler);
 
   default String providerName() {
-    return "RBAC";
+    return "CONFLUENT";
   }
 }

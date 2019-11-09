@@ -16,3 +16,6 @@ class TierArchiverFatalException(message: String, cause: Throwable = null)
     this(s"Fatal exception for $topicIdPartition", cause)
   }
 }
+
+class NotTierablePartitionException(val topicIdPartition: TopicIdPartition)
+  extends RuntimeException(s"Partition $topicIdPartition is closed or deleted, stopping actions")

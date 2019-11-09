@@ -97,6 +97,7 @@ public class MultiTenantApis {
       case CREATE_PARTITIONS:
       case OFFSET_FOR_LEADER_EPOCH:
       case REPLICA_STATUS:
+      case OFFSET_DELETE:
         return true;
 
       case CONTROLLED_SHUTDOWN:
@@ -115,8 +116,6 @@ public class MultiTenantApis {
       case TIER_LIST_OFFSET:
       case LIST_PARTITION_REASSIGNMENTS:
       case ALTER_PARTITION_REASSIGNMENTS:
-      // Temporarily disabled until we verify that it's OK to enable
-      case OFFSET_DELETE:
         return false;
 
       default:
@@ -208,6 +207,7 @@ public class MultiTenantApis {
         case OFFSET_COMMIT:
         case OFFSET_FETCH:
         case TXN_OFFSET_COMMIT:
+        case OFFSET_DELETE:
           if (field != null) {
             if (field.name.equals("group_id")) {
               return Optional.some(new StringTenantTransformer(type,
@@ -355,6 +355,7 @@ public class MultiTenantApis {
         case OFFSET_COMMIT:
         case OFFSET_FETCH:
         case TXN_OFFSET_COMMIT:
+        case OFFSET_DELETE:
           if (field != null && field.name.equals("name")) {
               return Optional.some(new StringTenantTransformer(type,
                       TenantTransform.REMOVE_PREFIX));

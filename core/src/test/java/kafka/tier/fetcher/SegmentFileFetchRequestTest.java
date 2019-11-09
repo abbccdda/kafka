@@ -5,6 +5,7 @@
 package kafka.tier.fetcher;
 
 import kafka.log.AbortedTxn;
+import kafka.log.Log;
 import kafka.log.LogConfig;
 import kafka.log.LogSegment;
 import kafka.tier.TopicIdPartition;
@@ -13,7 +14,6 @@ import kafka.tier.fetcher.offsetcache.FetchOffsetCache;
 import kafka.tier.store.MockInMemoryTierObjectStore;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreConfig;
-import kafka.tier.tasks.archive.ArchiveTask;
 import org.apache.kafka.common.IsolationLevel;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.record.CompressionType;
@@ -339,7 +339,7 @@ public class SegmentFileFetchRequestTest {
     }
 
     Optional<ByteBuffer> serializeAbortedTxns(AbortedTxn... abortedTxns) {
-        return OptionConverters.toJava(ArchiveTask.serializeAbortedTransactions(
+        return OptionConverters.toJava(Log.serializeAbortedTransactions(
                 JavaConversions.asScalaBuffer(Arrays.asList(abortedTxns))));
     }
 

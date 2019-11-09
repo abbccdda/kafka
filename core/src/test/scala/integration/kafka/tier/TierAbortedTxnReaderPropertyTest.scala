@@ -4,8 +4,7 @@
 
 package integration.kafka.tier
 
-import kafka.log.AbortedTxn
-import kafka.tier.tasks.archive.ArchiveTask
+import kafka.log.{AbortedTxn, Log}
 import kafka.tier.fetcher.{CancellationContext, TierAbortedTxnReader}
 import org.apache.kafka.common.utils.ByteBufferInputStream
 import org.apache.kafka.test.IntegrationTest
@@ -86,7 +85,7 @@ class TierAbortedTxnReaderPropertyTest extends FunSuite with Checkers {
   }
 
   private def checkEmptyOrNonEmpty(abortedTxns: Seq[AbortedTxn]): Prop = {
-    val abortedTxnsBuf = ArchiveTask.serializeAbortedTransactions(abortedTxns)
+    val abortedTxnsBuf = Log.serializeAbortedTransactions(abortedTxns)
     abortedTxnsBuf.isEmpty && abortedTxns.isEmpty || abortedTxnsBuf.nonEmpty && abortedTxns.nonEmpty
   }
 
@@ -94,7 +93,7 @@ class TierAbortedTxnReaderPropertyTest extends FunSuite with Checkers {
     * Verify that all provided AbortedTxn markers can be serialized and deserialized.
     */
   private def checkReadAllMarkers(abortedTxns: Seq[AbortedTxn]): Prop = {
-    ArchiveTask.serializeAbortedTransactions(abortedTxns).map {
+    Log.serializeAbortedTransactions(abortedTxns).map {
       abortedTxnBuf =>
         val inputStream = new ByteBufferInputStream(abortedTxnBuf)
         val readMarkers = TierAbortedTxnReader.readInto(
@@ -129,7 +128,7 @@ class TierAbortedTxnReaderPropertyTest extends FunSuite with Checkers {
         // TierAbortedTxnReader.readInto()
         case (abortedTxns: Seq[AbortedTxn], guaranteedItem: AbortedTxn, startOffset: Long, lastOffset: Long) =>
           // Safe to `get()` because we predicate the generator on the set of aborted txns being non empty
-          val buffer = ArchiveTask.serializeAbortedTransactions(abortedTxns).get
+          val buffer = Log.serializeAbortedTransactions(abortedTxns).get
           val inputStream = new ByteBufferInputStream(buffer)
           val readAbortedTransactions = TierAbortedTxnReader.readInto(CancellationContext.newContext(), inputStream, startOffset, lastOffset).asScala
           all {
@@ -170,7 +169,7 @@ class TierAbortedTxnReaderPropertyTest extends FunSuite with Checkers {
           if (abortedTxns.isEmpty) {
             Prop.undecided
           } else {
-            val buffer = ArchiveTask.serializeAbortedTransactions(abortedTxns).get
+            val buffer = Log.serializeAbortedTransactions(abortedTxns).get
             val inputStream = new ByteBufferInputStream(buffer)
             val readAbortedTxns = TierAbortedTxnReader.readInto(CancellationContext.newContext(), inputStream, fetchStart, fetchEnd)
             val expectedAbortedTxns = abortedTxns.filter(abortedTxnInRange(fetchStart, fetchEnd))

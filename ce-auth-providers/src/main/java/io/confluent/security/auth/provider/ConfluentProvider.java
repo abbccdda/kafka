@@ -1,6 +1,6 @@
 // (Copyright) [2019 - 2019] Confluent, Inc.
 
-package io.confluent.security.auth.provider.rbac;
+package io.confluent.security.auth.provider;
 
 import io.confluent.security.auth.client.acl.MdsAclMigration;
 import io.confluent.security.auth.metadata.AuthCache;
@@ -72,10 +72,10 @@ import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class RbacProvider implements AccessRuleProvider, GroupProvider, MetadataProvider,
+public class ConfluentProvider implements AccessRuleProvider, GroupProvider, MetadataProvider,
     org.apache.kafka.server.authorizer.Authorizer, ClusterResourceListener,
     Auditable, AclMigrationAware {
-  private static final Logger log = LoggerFactory.getLogger(RbacProvider.class);
+  private static final Logger log = LoggerFactory.getLogger(ConfluentProvider.class);
 
   static final ResourceType SECURITY_METADATA = new ResourceType("SecurityMetadata");
   private static final Set<ResourceType> METADATA_RESOURCE_TYPES = Utils.mkSet(SECURITY_METADATA);
@@ -98,7 +98,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
   private Collection<URL> metadataServerUrls;
   private Set<KafkaPrincipal> configuredSuperUsers;
 
-  public RbacProvider() {
+  public ConfluentProvider() {
     this.authScope = Scope.ROOT_SCOPE;
   }
 
@@ -139,7 +139,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
 
   @Override
   public String providerName() {
-    return AccessRuleProviders.RBAC.name();
+    return AccessRuleProviders.CONFLUENT.name();
   }
 
   /**
@@ -197,7 +197,8 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
 
           Set<String> accessProviders = Utils.mkSet(((String)
               configs.get(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP)).split(","));
-          if (accessProviders.contains(AccessRuleProviders.ACL.name()) || accessProviders.contains(AccessRuleProviders.RBAC.name())) {
+          if (accessProviders.contains(AccessRuleProviders.ZK_ACL.name()) ||
+              accessProviders.contains(AccessRuleProviders.CONFLUENT.name())) {
             aclClient = Optional.of(createMdsAdminClient(serverInfo, clientConfigs));
           }
           return null;
@@ -255,7 +256,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
     Utils.closeQuietly(aclClient.orElse(null), "aclClient", firstException);
     Throwable exception = firstException.getAndSet(null);
     if (exception != null)
-      throw new KafkaException("RbacProvider could not be closed cleanly", exception);
+      throw new KafkaException("ConfluentProvider could not be closed cleanly", exception);
   }
 
   @Override
@@ -483,7 +484,7 @@ public class RbacProvider implements AccessRuleProvider, GroupProvider, Metadata
 
   private class RbacAuthorizer extends EmbeddedAuthorizer {
     RbacAuthorizer() {
-      configureProviders(Collections.singletonList(RbacProvider.this), RbacProvider.this, null, auditLogProvider);
+      configureProviders(Collections.singletonList(ConfluentProvider.this), ConfluentProvider.this, null, auditLogProvider);
     }
 
     /**

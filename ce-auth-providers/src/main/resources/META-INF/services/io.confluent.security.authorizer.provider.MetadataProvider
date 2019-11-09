@@ -1,4 +1,4 @@
 # (Copyright) [2019 - 2019] Confluent, Inc.
 
-io.confluent.security.auth.provider.rbac.RbacProvider
+io.confluent.security.auth.provider.ConfluentProvider
 

@@ -42,7 +42,7 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
   private static final ConfigDef CONFIG;
 
   public static final String ACCESS_RULE_PROVIDERS_PROP = "confluent.authorizer.access.rule.providers";
-  private static final String ACCESS_RULE_PROVIDERS_DEFAULT = AccessRuleProviders.ACL.name();
+  private static final String ACCESS_RULE_PROVIDERS_DEFAULT = AccessRuleProviders.ZK_ACL.name();
   private static final String ACCESS_RULE_PROVIDERS_DOC = "List of access rule providers enabled. "
       + " Access rule providers supported are " + ConfluentBuiltInProviders.builtInAccessRuleProviders()
       + ". ACL-based provider is enabled by default.";
@@ -136,10 +136,10 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
   public final Providers createProviders(String clusterId) {
     List<String> authProviderNames = getList(ACCESS_RULE_PROVIDERS_PROP);
     // Multitenant ACLs are included in the MultiTenantProvider, so include only the MultiTenantProvider
-    if (authProviderNames.contains(AccessRuleProviders.ACL.name())
+    if (authProviderNames.contains(AccessRuleProviders.ZK_ACL.name())
         && authProviderNames.contains(AccessRuleProviders.MULTI_TENANT.name())) {
       authProviderNames = new ArrayList<>(authProviderNames);
-      authProviderNames.remove(AccessRuleProviders.ACL.name());
+      authProviderNames.remove(AccessRuleProviders.ZK_ACL.name());
     }
     if (authProviderNames.isEmpty())
       throw new ConfigException("No access rule providers specified");

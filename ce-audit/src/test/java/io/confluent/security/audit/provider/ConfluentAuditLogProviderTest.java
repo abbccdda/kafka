@@ -65,7 +65,7 @@ public class ConfluentAuditLogProviderTest {
 
     AuditLogProvider defaultProvider = ConfluentBuiltInProviders
         .loadAuditLogProvider(
-            Collections.singletonMap(AuditLogConfig.AUDIT_LOGGER_ENABLED_CONFIG, "false"));
+            Collections.singletonMap(AuditLogConfig.AUDIT_LOGGER_ENABLE_CONFIG, "false"));
     assertEquals(DefaultAuditLogProvider.class, defaultProvider.getClass());
   }
 

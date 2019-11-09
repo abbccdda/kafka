@@ -16,10 +16,8 @@
  */
 package org.apache.kafka.common.config.internals;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.ServiceLoader;
-import javax.security.auth.login.AppConfigurationEntry;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.AbstractConfig;
@@ -155,9 +153,16 @@ public class ConfluentConfigs {
     public static final String APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS_DOC = "If this is set, " +
         "CreateTopicsPolicy will also apply to CreatePartitions.";
 
+    public static final String VERIFY_GROUP_SUBSCRIPTION_PREFIX =
+        CONFLUENT_PREFIX + "verify.group.subscription.prefix";
+    public static final boolean VERIFY_GROUP_SUBSCRIPTION_PREFIX_DEFAULT = false;
+    public static final String VERIFY_GROUP_SUBSCRIPTION_PREFIX_DOC = "If this is set, the group " +
+        "coordinator will verify that the subscriptions are prefixed with the tenant.";
+
     public static final String REST_SERVER_CLASS_CONFIG = CONFLUENT_PREFIX + "rest.server.class";
     public static final String REST_SERVER_CLASS_DOC = "The fully qualified name of a class that implements " + RestServer.class.getName()
         + " interface, which is used by the broker to start the Rest Server.";
+
 
     public static BrokerInterceptor buildBrokerInterceptor(Mode mode, Map<String, ?> configs) {
         if (mode == Mode.CLIENT)
@@ -233,23 +238,8 @@ public class ConfluentConfigs {
 
             // If broker is configured with static JAAS config, set client sasl.jaas.config
             if (!clientConfigs.containsKey(SaslConfigs.SASL_JAAS_CONFIG)) {
-                JaasContext context = JaasContext
-                    .loadServerContext(listenerName, saslMechanism, Collections.emptyMap());
-                if (context.dynamicJaasConfig() == null && !context.configurationEntries().isEmpty()) {
-                    StringBuffer jaasConfig = new StringBuffer();
-                    AppConfigurationEntry entry = context.configurationEntries().get(0);
-                    jaasConfig.append(entry.getLoginModuleName());
-                    jaasConfig.append(" required");
-                    entry.getOptions().forEach((k, v) -> {
-                        jaasConfig.append(" \"");
-                        jaasConfig.append(k);
-                        jaasConfig.append("\"=\"");
-                        jaasConfig.append(v);
-                        jaasConfig.append('"');
-                    });
-                    jaasConfig.append(';');
-                    clientConfigs.put(SaslConfigs.SASL_JAAS_CONFIG, jaasConfig.toString());
-                }
+                String jaasConfig = JaasContext.listenerSaslJaasConfig(listenerName, saslMechanism);
+                clientConfigs.put(SaslConfigs.SASL_JAAS_CONFIG, jaasConfig);
             }
         }
         clientConfigs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, interBrokerEndpoint.host() + ":" + interBrokerEndpoint.port());

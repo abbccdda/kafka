@@ -45,7 +45,7 @@ import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Authorizer, Reconfigurable {
 
   private static final Set<String> UNSCOPED_PROVIDERS =
-      Utils.mkSet(AccessRuleProviders.ACL.name(), AccessRuleProviders.MULTI_TENANT.name());
+      Utils.mkSet(AccessRuleProviders.ZK_ACL.name(), AccessRuleProviders.MULTI_TENANT.name());
 
   private AclUpdater aclUpdater;
 

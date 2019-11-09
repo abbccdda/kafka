@@ -41,9 +41,9 @@ public class AuditLogConfig extends AbstractConfig {
   public static final String AUDIT_EVENT_LOGGER_PREFIX = AUDIT_PREFIX + EVENT_LOGGER_PREFIX;
   public static final String AUDIT_EVENT_ROUTER_PREFIX = AUDIT_PREFIX + "event.router.";
 
-  public static final String AUDIT_LOGGER_ENABLED_CONFIG = AUDIT_EVENT_LOGGER_PREFIX + "enabled";
-  public static final String DEFAULT_AUDIT_LOGGER_ENABLED_CONFIG = "true";
-  public static final String AUDIT_LOGGER_ENABLED_DOC = "Should the event logger be enabled.";
+  public static final String AUDIT_LOGGER_ENABLE_CONFIG = AUDIT_EVENT_LOGGER_PREFIX + "enable";
+  public static final String DEFAULT_AUDIT_LOGGER_ENABLE_CONFIG = "true";
+  public static final String AUDIT_LOGGER_ENABLE_DOC = "Should the event logger be enabled.";
 
   public static final String AUDIT_CLOUD_EVENT_ENCODING_CONFIG =
       AUDIT_PREFIX + EventLoggerConfig.CLOUD_EVENT_ENCODING_CONFIG;
@@ -113,11 +113,11 @@ public class AuditLogConfig extends AbstractConfig {
   static {
     CONFIG = new ConfigDef()
         .define(
-            AUDIT_LOGGER_ENABLED_CONFIG,
+            AUDIT_LOGGER_ENABLE_CONFIG,
             ConfigDef.Type.BOOLEAN,
-            DEFAULT_AUDIT_LOGGER_ENABLED_CONFIG,
+            DEFAULT_AUDIT_LOGGER_ENABLE_CONFIG,
             ConfigDef.Importance.HIGH,
-            AUDIT_LOGGER_ENABLED_DOC
+            AUDIT_LOGGER_ENABLE_DOC
         ).define(
             EVENT_EXPORTER_CLASS_CONFIG,
             ConfigDef.Type.CLASS,
