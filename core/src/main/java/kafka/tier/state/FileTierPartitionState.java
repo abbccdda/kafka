@@ -379,6 +379,22 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return metadataForStates(topicIdPartition, currentState, FENCED_STATES);
     }
 
+    public static Optional<Header> readHeader(FileChannel channel) throws IOException {
+        Optional<Short> headerSizeOpt = readHeaderSize(channel);
+        if (!headerSizeOpt.isPresent())
+            return Optional.empty();
+        short headerSize = headerSizeOpt.get();
+
+        ByteBuffer headerBuf = ByteBuffer.allocate(headerSize);
+        Utils.readFully(channel, headerBuf, Header.HEADER_LENGTH_LENGTH);
+        headerBuf.flip();
+
+        if (headerBuf.limit() != headerSize)
+            return Optional.empty();
+
+        return Optional.of(new Header(TierPartitionStateHeader.getRootAsTierPartitionStateHeader(headerBuf)));
+    }
+
     public static Optional<FileTierPartitionIterator> iterator(TopicPartition topicPartition,
                                                                FileChannel channel) throws IOException {
         Optional<Header> headerOpt = readHeader(channel);
@@ -749,22 +765,6 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return channel;
     }
 
-    private static Optional<Header> readHeader(FileChannel channel) throws IOException {
-        Optional<Short> headerSizeOpt = readHeaderSize(channel);
-        if (!headerSizeOpt.isPresent())
-            return Optional.empty();
-        short headerSize = headerSizeOpt.get();
-
-        ByteBuffer headerBuf = ByteBuffer.allocate(headerSize);
-        Utils.readFully(channel, headerBuf, Header.HEADER_LENGTH_LENGTH);
-        headerBuf.flip();
-
-        if (headerBuf.limit() != headerSize)
-            return Optional.empty();
-
-        return Optional.of(new Header(TierPartitionStateHeader.getRootAsTierPartitionStateHeader(headerBuf)));
-    }
-
     private void scanAndInitialize(FileChannel channel) throws IOException, StateCorruptedException {
         log.debug("scan and truncate TierPartitionState {}", topicPartition);
 
@@ -879,7 +879,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         }
     }
 
-    private static class Header {
+    public static class Header {
         private static final int HEADER_LENGTH_LENGTH = 2;
         private final TierPartitionStateHeader header;
 

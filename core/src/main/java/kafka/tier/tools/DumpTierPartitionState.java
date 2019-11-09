@@ -35,6 +35,13 @@ public class DumpTierPartitionState {
     private static void dumpTierState(TopicPartition topicPartition, File file) {
         try (FileChannel fileChannel = FileChannel.open(file.toPath(), StandardOpenOption.READ)) {
             System.out.println("Dumping state in file " + file);
+            Optional<FileTierPartitionState.Header>  headerOpt = FileTierPartitionState.readHeader(fileChannel);
+            if (!headerOpt.isPresent()) {
+                System.out.println("Empty header");
+                return;
+            }
+            System.out.println(headerOpt.get().toString());
+
             Optional<FileTierPartitionIterator> iteratorOpt = FileTierPartitionState.iterator(topicPartition, fileChannel);
             if (!iteratorOpt.isPresent()) {
                 System.out.println("Empty file");
