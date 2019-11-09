@@ -8,6 +8,7 @@ import static io.confluent.events.EventLoggerConfig.CLOUD_EVENT_STRUCTURED_ENCOD
 import static io.confluent.events.EventLoggerConfig.EVENT_LOGGER_PREFIX;
 import static io.confluent.events.EventLoggerConfig.KAFKA_EXPORTER_PREFIX;
 import static io.confluent.events.EventLoggerConfig.TOPIC_CONFIG;
+import static org.apache.kafka.clients.admin.AdminClientConfig.METRIC_REPORTER_CLASSES_CONFIG;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.events.EventLoggerConfig;
@@ -226,6 +227,8 @@ public class AuditLogConfig extends AbstractConfig {
             .contains(e.getKey()))
         .filter(e -> e.getValue() instanceof String)
         .forEach(e -> props.setProperty(e.getKey(), String.valueOf(e.getValue())));
+    // Don't turn on metric reporter for this client
+    props.remove(METRIC_REPORTER_CLASSES_CONFIG);
     return props;
   }
 

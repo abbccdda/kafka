@@ -20,11 +20,16 @@ import io.confluent.security.authorizer.provider.AuditLogProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders;
 import io.confluent.security.authorizer.provider.DefaultAuditLogProvider;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.metrics.KafkaMetric;
+import org.apache.kafka.common.metrics.MetricsReporter;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.apache.kafka.test.TestUtils;
@@ -112,6 +117,59 @@ public class ConfluentAuditLogProviderTest {
     provider.close();
     verifyExecutorTerminated(provider);
   }
+
+
+  public static class MockMetricsReporterNeedsConfigs implements MetricsReporter {
+
+    @Override
+    public void init(List<KafkaMetric> metrics) {
+
+    }
+
+    @Override
+    public void metricChange(KafkaMetric metric) {
+
+    }
+
+    @Override
+    public void metricRemoval(KafkaMetric metric) {
+
+    }
+
+    @Override
+    public void close() {
+
+    }
+
+    @Override
+    public void configure(Map<String, ?> configs) {
+      if (!configs.containsKey("confluent.metrics.reporter.bootstrap.servers")) {
+        throw new ConfigException("no bootstrap servers");
+      }
+    }
+  }
+
+  @Test
+  public void testAuditLogProviderConfigWithMetrics() throws Exception {
+    Map<String, Object> metricsConfigs = new HashMap<>(configs);
+    configs.put("metric.reporters", MockMetricsReporterNeedsConfigs.class.getName());
+    configs.put("confluent.metrics.reporter.bootstrap.servers", "localhost:9092");
+    configs.put("confluent.metrics.reporter.topic.replicas", "3");
+    configs.put("confluent.support.metrics.enable", "true");
+
+    AuditLogProvider provider = ConfluentBuiltInProviders.loadAuditLogProvider(metricsConfigs);
+    provider.configure(metricsConfigs);
+    assertEquals(ConfluentAuditLogProvider.class, provider.getClass());
+
+    ConfluentAuditLogProvider confluentProvider = (ConfluentAuditLogProvider) provider;
+    provider.start(serverInfo, configs).toCompletableFuture().get();
+    verifyExecutorTerminated(confluentProvider);
+
+    EventLogger eventLogger = ((ConfluentAuditLogProvider) provider).getEventLogger();
+    assertNotNull(eventLogger);
+    assertEquals(KafkaExporter.class, eventLogger.eventExporter().getClass());
+  }
+
 
   private ConfluentAuditLogProvider createTestableProvider() {
     ConfluentAuditLogProvider provider = new ConfluentAuditLogProvider();
