@@ -15,11 +15,6 @@ import scala.collection.{Map, Seq, immutable, mutable}
 
 class ObserverTest {
 
-  private val TOPIC_WITH_CONSTRAINT = "topic-with-constraint"
-  private val TOPIC_WITHOUT_CONSTRAINT = "topic-without-constraint"
-  private val TOPIC_WITHOUT_OBSERVERS = "topic-without-observers"
-
-
   private val placementJson = """{
                                 | "version": 1,
                                 |  "replicas": [{
@@ -69,9 +64,16 @@ class ObserverTest {
   private val topicWithoutObserversConstraint: Option[TopicPlacement] =
     Some(TopicPlacement.parse(placementJsonWithoutObservers))
 
-  private val allBrokers: Seq[BrokerMetadata] = (0 to 2).map(id => BrokerMetadata(id, Some("east-1"))) ++
-    (3 to 4).map(id => BrokerMetadata(id, Some("east-2"))) ++
-    (5 to 7).map(id => BrokerMetadata(id, Some("west-1")))
+  private val allBrokersAttributes = (0 to 9).map { id =>
+    val rack = id match {
+      case x if 0 to 2 contains x => "east-1"  // 0, 1, 2
+      case x if 3 to 4 contains x => "east-2"  // 3, 4
+      case x if 5 to 7 contains x => "west-1"  // 5, 6, 7
+      case _ => "west-2"                       // 8, 9
+    }
+
+    id -> Map("rack" -> rack)
+  }.toMap
 
   /**
    * Test a match is made for a broker that matches a rack of a constraint.
@@ -581,7 +583,7 @@ class ObserverTest {
    */
   @Test
   def testValidateReplicasNoPlacementConstraint(): Unit = {
-    validateReplicasHonorTopicPlacement(TOPIC_WITHOUT_CONSTRAINT, None, 0 to 6, allBrokers)
+    Observer.validateReplicaAssignment(None, ReplicaAssignment.Assignment(0 to 6, Seq.empty), allBrokersAttributes)
   }
 
   /**
@@ -589,8 +591,11 @@ class ObserverTest {
    */
   @Test(expected = classOf[InvalidReplicaAssignmentException])
   def testValidateObserversConstraint(): Unit = {
-    validateReplicasHonorTopicPlacement(
-      TOPIC_WITH_CONSTRAINT, topicWithObserverPlacementConstraint, 0 to 3, allBrokers)
+    Observer.validateReplicaAssignment(
+      topicWithObserverPlacementConstraint,
+      ReplicaAssignment.Assignment(0 to 3, Seq.empty),
+      allBrokersAttributes
+    )
   }
 
   /**
@@ -599,8 +604,11 @@ class ObserverTest {
    */
   @Test
   def testValidateReplicasMatchesConstraint(): Unit = {
-    validateReplicasHonorTopicPlacement(
-      TOPIC_WITHOUT_OBSERVERS, topicWithoutObserversConstraint, 0 to 6, allBrokers)
+    Observer.validateReplicaAssignment(
+      topicWithoutObserversConstraint,
+      ReplicaAssignment.Assignment(0 to 6, Seq.empty),
+      allBrokersAttributes
+    )
   }
 
   /**
@@ -608,8 +616,11 @@ class ObserverTest {
    */
   @Test(expected = classOf[InvalidReplicaAssignmentException])
   def testValidateReplicasOverConstraintCount(): Unit = {
-    validateReplicasHonorTopicPlacement(
-      TOPIC_WITHOUT_OBSERVERS, topicWithoutObserversConstraint, 0 to 7, allBrokers)
+    Observer.validateReplicaAssignment(
+      topicWithoutObserversConstraint,
+      ReplicaAssignment.Assignment(0 to 7, Seq.empty),
+      allBrokersAttributes
+    )
   }
 
   /**
@@ -617,8 +628,11 @@ class ObserverTest {
    */
   @Test(expected = classOf[InvalidReplicaAssignmentException])
   def testValidateReplicasUnderConstraintCount(): Unit = {
-    validateReplicasHonorTopicPlacement(
-      TOPIC_WITHOUT_OBSERVERS, topicWithoutObserversConstraint, 0 to 4, allBrokers)
+    Observer.validateReplicaAssignment(
+      topicWithoutObserversConstraint,
+      ReplicaAssignment.Assignment(0 to 4, Seq.empty),
+      allBrokersAttributes
+    )
   }
 
   /**
@@ -626,17 +640,46 @@ class ObserverTest {
    */
   @Test(expected = classOf[InvalidReplicaAssignmentException])
   def testReplicaIndividualConstraintCountNotSatisfied(): Unit = {
-    validateReplicasHonorTopicPlacement(
-      TOPIC_WITHOUT_OBSERVERS, topicWithoutObserversConstraint, Seq(0, 1, 3, 4, 5, 6, 7), allBrokers)
+    Observer.validateReplicaAssignment(
+      topicWithoutObserversConstraint,
+      ReplicaAssignment.Assignment(Seq(0, 1, 3, 4, 5, 6, 7), Seq.empty),
+      allBrokersAttributes
+    )
   }
 
-  private def validateReplicasHonorTopicPlacement(topic: String,
-                                                  topicPlacement: Option[TopicPlacement],
-                                                  replicas: Seq[Int],
-                                                  allBrokers: Seq[kafka.admin.BrokerMetadata]): Unit = {
-    val allBrokerProperties: Map[Int, Map[String, String]] = allBrokers.map { broker =>
-      broker.id -> broker.rack.map("rack"-> _).toMap
-    }.toMap
-    Observer.validateReplicasHonorTopicPlacement(topic, topicPlacement, replicas, allBrokerProperties)
+  @Test
+  def testObseverMatchesConstraint(): Unit = {
+    Observer.validateReplicaAssignment(
+      topicWithObserverPlacementConstraint,
+      ReplicaAssignment.Assignment(0 to 6, 5 to 6),
+      allBrokersAttributes
+    )
+  }
+
+  @Test(expected = classOf[InvalidReplicaAssignmentException])
+  def testInvalidObseverCount(): Unit = {
+    Observer.validateReplicaAssignment(
+      topicWithObserverPlacementConstraint,
+      ReplicaAssignment.Assignment(0 to 7, 5 to 7),
+      allBrokersAttributes
+    )
+  }
+
+  @Test(expected = classOf[InvalidReplicaAssignmentException])
+  def testInvalidObseverAttribute(): Unit = {
+    Observer.validateReplicaAssignment(
+      topicWithObserverPlacementConstraint,
+      ReplicaAssignment.Assignment((0 to 5) ++ Seq(9), Seq(5, 9)),
+      allBrokersAttributes
+    )
+  }
+
+  @Test(expected = classOf[InvalidReplicaAssignmentException])
+  def testReplicasHasObserverAsSuffix(): Unit = {
+    Observer.validateReplicaAssignment(
+      None,
+      ReplicaAssignment.Assignment(0 to 5, 0 to 1),
+      allBrokersAttributes
+    )
   }
 }

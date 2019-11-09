@@ -4,15 +4,20 @@
 package kafka.server
 
 import java.util.{Arrays, Optional, Properties}
+import java.util.concurrent.ExecutionException
 
 import kafka.log.LogConfig
 import kafka.utils.TestUtils
+import kafka.zk.ReassignPartitionsZNode
+import kafka.zk.ZkVersion
 import kafka.zk.ZooKeeperTestHarness
 import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, NewPartitionReassignment, NewTopic, AdminClient => JAdminClient}
+import org.apache.kafka.common.errors.InvalidReplicaAssignmentException
 import org.apache.kafka.common.errors.InvalidRequestException
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.{ElectionType, TopicPartition, TopicPartitionInfo}
 import org.apache.kafka.test.{TestUtils => JTestUtils}
+import org.junit.Assert._
 import org.junit.{After, Before, Test}
 
 import scala.collection.JavaConverters._
@@ -391,6 +396,102 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
   }
 
   @Test
+  def testReassignWithInvalidSyncReplicas(): Unit = {
+    TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
+      val topic = "observer-topic"
+      val partition = 0
+
+      val newTopic = new NewTopic(topic, Optional.of(1: Integer), Optional.empty[java.lang.Short])
+      newTopic.configs(
+        Map(LogConfig.TopicPlacementConstraintsProp -> basicTopicPlacement(BasicConstraint(2, "a"), Some(BasicConstraint(2, "b")))).asJava
+      )
+      client.createTopics(Seq(newTopic).asJava).all().get()
+
+      val topicPartition = new TopicPartition(topic, partition)
+
+      // All sync replicas are in the ISR
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
+      // All observer replicas are not in the ISR
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3, broker4))
+
+      val exception = assertThrows(
+        classOf[ExecutionException],
+        TestUtils.throwingRunnable { () =>
+          client.alterPartitionReassignments(
+            Map(topicPartition -> reassignmentEntry(Seq(broker1, broker5, broker3, broker4), Seq(broker3, broker4))).asJava
+          ).all().get()
+        }
+      )
+      assertEquals(classOf[InvalidReplicaAssignmentException], exception.getCause.getClass)
+    }
+  }
+
+  @Test
+  def testReassignWithInvalidObserverReplicas(): Unit = {
+    TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
+      val topic = "observer-topic"
+      val partition = 0
+
+      val newTopic = new NewTopic(topic, Optional.of(1: Integer), Optional.empty[java.lang.Short])
+      newTopic.configs(
+        Map(LogConfig.TopicPlacementConstraintsProp -> basicTopicPlacement(BasicConstraint(2, "a"), Some(BasicConstraint(2, "b")))).asJava
+      )
+      client.createTopics(Seq(newTopic).asJava).all().get()
+
+      val topicPartition = new TopicPartition(topic, partition)
+
+      // All sync replicas are in the ISR
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
+      // All observer replicas are not in the ISR
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3, broker4))
+
+      val exception = assertThrows(
+        classOf[ExecutionException],
+        TestUtils.throwingRunnable { () =>
+          client.alterPartitionReassignments(
+            Map(topicPartition -> reassignmentEntry(Seq(broker1, broker2, broker3, broker5), Seq(broker3, broker5))).asJava
+          ).all().get()
+        }
+      )
+      assertEquals(classOf[InvalidReplicaAssignmentException], exception.getCause.getClass)
+    }
+  }
+
+  @Test
+  def testZkReassignWithInvalidAssignment(): Unit = {
+    TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
+      val topic = "observer-topic"
+      val partition = 0
+
+      val newTopic = new NewTopic(topic, Optional.of(1: Integer), Optional.empty[java.lang.Short])
+      newTopic.configs(
+        Map(LogConfig.TopicPlacementConstraintsProp -> basicTopicPlacement(BasicConstraint(2, "a"), Some(BasicConstraint(2, "b")))).asJava
+      )
+      client.createTopics(Seq(newTopic).asJava).all().get()
+
+      val topicPartition = new TopicPartition(topic, partition)
+
+      // All sync replicas are in the ISR
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
+      // All observer replicas are not in the ISR
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3, broker4))
+
+      val zkReassignments = Map(
+        topicPartition -> Seq(broker1, broker2, broker3, broker4)
+      )
+
+      zkClient.setOrCreatePartitionReassignment(zkReassignments, ZkVersion.MatchAnyVersion)
+      waitForZkReassignmentToComplete()
+
+      // Changes should not apply since it violates the topic placement constraint
+      // All sync replicas are in the ISR
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
+      // All observer replicas are not in the ISR
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3, broker4))
+    }
+  }
+
+  @Test
   def testInvalidPlacementConstraintInConfiguration(): Unit = {
     TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
       val topic = "observer-topic"
@@ -415,6 +516,10 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
     }
   }
 
+  private def waitForZkReassignmentToComplete(pause: Long = 100L): Unit = {
+    TestUtils.waitUntilTrue(() => !zkClient.reassignPartitionsInProgress,
+      s"Znode ${ReassignPartitionsZNode.path} wasn't deleted", pause = pause)
+  }
 }
 
 object ConfluentObserverTest {
@@ -470,5 +575,4 @@ object ConfluentObserverTest {
 
     s"""{"version":1,"replicas":[{"count": ${replicaConstraint.count}, "constraints":{"rack":"${replicaConstraint.rack}"}}]$observers}"""
   }
-
 }

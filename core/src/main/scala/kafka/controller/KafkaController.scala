@@ -23,6 +23,7 @@ import kafka.admin.AdminOperationException
 import kafka.api._
 import kafka.common._
 import kafka.controller.KafkaController.{AlterReassignmentsCallback, ElectLeadersCallback, ListReassignmentsCallback}
+import kafka.cluster.Observer
 import kafka.metrics.{KafkaMetricsGroup, KafkaTimer}
 import kafka.server._
 import kafka.tier.topic.TierTopicManager
@@ -34,6 +35,7 @@ import kafka.zookeeper.{StateChangeHandler, ZNodeChangeHandler, ZNodeChildChange
 import org.apache.kafka.common.ElectionType
 import org.apache.kafka.common.KafkaException
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.config.ConfluentTopicConfig
 import org.apache.kafka.common.errors.{BrokerNotAvailableException, ControllerMovedException, StaleBrokerEpochException}
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.Errors
@@ -1641,9 +1643,14 @@ class KafkaController(val config: KafkaConfig,
       val partitionsToReassign = mutable.Map.empty[TopicPartition, ReplicaAssignment]
 
       zkClient.getPartitionReassignment().foreach { case (tp, targetReplicas) =>
-        maybeBuildReassignment(tp, Some(ReplicaAssignment.Assignment(targetReplicas, Seq.empty))) match {
-          case Some(context) => partitionsToReassign.put(tp, context)
-          case None => reassignmentResults.put(tp, new ApiError(Errors.NO_REASSIGNMENT_IN_PROGRESS))
+        val targetAssignment = ReplicaAssignment.Assignment(targetReplicas, Seq.empty)
+        if (replicasAreValidForZkReassign(tp, targetAssignment)) {
+          maybeBuildReassignment(tp, Some(targetAssignment)) match {
+            case Some(context) => partitionsToReassign.put(tp, context)
+            case None => reassignmentResults.put(tp, new ApiError(Errors.NO_REASSIGNMENT_IN_PROGRESS))
+          }
+        } else {
+          reassignmentResults.put(tp, new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT))
         }
       }
 
@@ -1680,7 +1687,7 @@ class KafkaController(val config: KafkaConfig,
       val partitionsToReassign = mutable.Map.empty[TopicPartition, ReplicaAssignment]
 
       reassignments.foreach { case (tp, targetAssignment) =>
-        if (replicasAreValid(tp, targetAssignment)) {
+        if (targetAssignment.forall(assignment => replicasAreValid(tp, assignment))) {
           maybeBuildReassignment(tp, targetAssignment) match {
             case Some(reassignment) =>
               if (reassignment.targetObservers.nonEmpty && !config.isObserverSupportEnabled)
@@ -1705,26 +1712,71 @@ class KafkaController(val config: KafkaConfig,
     }
   }
 
+  /*
+   * For backward compatibility when validating reassign through ZK, only require that
+   * the brokers are online and meet the constraint when topic placement constraint
+   * has been specified.
+   *
+   * This is slightly different to validating reassignment through the RPC which always
+   * requires that the new replicas are online.
+   */
+  private def replicasAreValidForZkReassign(
+    topicPartition: TopicPartition,
+    assignment: ReplicaAssignment.Assignment
+  ): Boolean = {
+    val replicaSet = assignment.replicas.toSet
+    if (assignment.replicas.isEmpty || assignment.replicas.size != replicaSet.size)
+      false
+    else if (assignment.replicas.exists(_ < 0))
+      false
+    else {
+      validateAssignmentAndConstraint(topicPartition, assignment)
+    }
+  }
+
   private def replicasAreValid(
     topicPartition: TopicPartition,
-    assignmentOpt: Option[ReplicaAssignment.Assignment]
+    assignment: ReplicaAssignment.Assignment
   ): Boolean = {
-    assignmentOpt match {
-      case Some(assignment) =>
-        val replicaSet = assignment.replicas.toSet
-        if (assignment.replicas.isEmpty || assignment.replicas.size != replicaSet.size)
-          false
-        else if (assignment.replicas.exists(_ < 0))
-          false
-        else {
-          // Ensure that any new replicas are among the live brokers
-          val currentAssignment = controllerContext.partitionFullReplicaAssignment(topicPartition)
-          val newAssignment = currentAssignment.reassignTo(assignment)
-          newAssignment.addingReplicas.toSet.subsetOf(controllerContext.liveBrokerIds)
-        }
-
-      case None => true
+    val replicaSet = assignment.replicas.toSet
+    if (assignment.replicas.isEmpty || assignment.replicas.size != replicaSet.size)
+      false
+    else if (assignment.replicas.exists(_ < 0))
+      false
+    else if (!areNewReplicasAlive(topicPartition, assignment)) {
+      false
+    } else {
+      validateAssignmentAndConstraint(topicPartition, assignment)
     }
+  }
+
+  private def validateAssignmentAndConstraint(
+    topicPartition: TopicPartition,
+    assignment: ReplicaAssignment.Assignment
+  ): Boolean = {
+    val topicProps = new AdminZkClient(zkClient).fetchEntityConfig(ConfigType.Topic, topicPartition.topic)
+    val placement = Option(topicProps.getProperty(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG))
+      .map(TopicPlacement.parse)
+
+    Try(
+      Observer.validateReplicaAssignment(
+        placement,
+        assignment,
+        controllerContext.liveOrShuttingDownBrokers.map { broker =>
+          broker.id -> broker.rack.map("rack" -> _).toMap
+        }.toMap
+      )
+    ).isSuccess
+  }
+
+  private def areNewReplicasAlive(
+    topicPartition: TopicPartition,
+    assignment: ReplicaAssignment.Assignment
+  ): Boolean = {
+    // Ensure that any new replicas are among the live brokers
+    val currentAssignment = controllerContext.partitionFullReplicaAssignment(topicPartition)
+    val newAssignment = currentAssignment.reassignTo(assignment)
+    newAssignment.addingReplicas.toSet.subsetOf(controllerContext.liveBrokerIds)
   }
 
   private def maybeBuildReassignment(

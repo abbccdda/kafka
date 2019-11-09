@@ -291,7 +291,7 @@ class AdminManager(val config: KafkaConfig,
 
     val allBrokers = adminZkClient.getBrokerMetadatas()
     val allBrokerIds = allBrokers.map(_.id)
-    val allBrokerProperties: Map[Int, Map[String, String]] = allBrokers.map { broker =>
+    val allBrokerProperties = allBrokers.map { broker =>
       broker.id -> broker.rack.map("rack"-> _).toMap
     }.toMap
 
@@ -321,8 +321,8 @@ class AdminManager(val config: KafkaConfig,
         }
 
         val topicProps = adminZkClient.fetchEntityConfig(ConfigType.Topic, topic)
-        val topicPlacement = Option(topicProps.get(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG))
-          .map(value => TopicPlacement.parse(value.toString))
+        val topicPlacement = Option(topicProps.getProperty(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG))
+          .map(TopicPlacement.parse)
 
         val newPartitionsAssignment = Option(newPartition.newAssignments)
           .map { value =>
@@ -342,7 +342,11 @@ class AdminManager(val config: KafkaConfig,
 
             assignments.zipWithIndex.map { case (replicas, index) =>
               val intReplicas = replicas.map(_.toInt)
-              Observer.validateReplicasHonorTopicPlacement(topic, topicPlacement, intReplicas, allBrokerProperties)
+              Observer.validateReplicaAssignment(
+                topicPlacement,
+                ReplicaAssignment.Assignment(intReplicas, Seq.empty),
+                allBrokerProperties
+              )
               existingAssignment.size + index -> ReplicaAssignment(intReplicas, Seq.empty)
             }.toMap
           }

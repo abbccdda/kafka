@@ -193,46 +193,57 @@ object Observer {
   }
 
   /**
-   * We don't expose observers to users in most of the apis/commands, so any api that takes a replica
-   * assignment need to check if there is no observer passed. Clients are supposed to
-   * let Kafka server assign replica and observers based on topic placement constraint instead of
-   * providing the list themselves.
+   * This method validates that one topic partition assignment is valid given an optional topic placement
+   * constraint.
    *
-   * This method is used to validate this use case. It makes following checks:
+   * Always check that the observers assignment is the suffix of the replicas assignment
    *
-   * 1. If topic placement constraint is None, return success.
-   * 2. There are no observers in topic placement constraint. If observers are present, then
-   *    a user can't specify replica assignment.
-   * 3. Confirm that the count of brokers in replica assignment matches to sum of counts for
-   *    all constraint in the topic placement constraint.
-   * 4. For each constraint in topic placement constraint, there is matching set of brokers in
-   *    the provided replica assignment list.
+   * If topic placement is given then validate that the assignment matches the constraint. This implementation
+   * assumes that topic placement constraints are mutually exclusive.
    */
-  def validateReplicasHonorTopicPlacement(topic: String,
-                                          topicPlacement: Option[TopicPlacement],
-                                          replicas: Seq[Int],
-                                          allBrokerProperties: Map[Int, Map[String, String]]): Unit = {
+  def validateReplicaAssignment(
+    topicPlacement: Option[TopicPlacement],
+    assignment: ReplicaAssignment.Assignment,
+    liveBrokerAttributes: Map[Int, Map[String, String]]
+  ): Unit = {
+    if (!assignment.replicas.endsWith(assignment.observers)) {
+      throw new InvalidReplicaAssignmentException(
+        s"Assignment contains observers (${assignment.observers}) and the replicas' (${assignment.replicas}) " +
+        "suffix doesn't matches observers."
+      )
+    }
+
     topicPlacement.foreach { placementConstraint =>
-      if (!placementConstraint.observers().isEmpty) {
-        throw new InvalidReplicaAssignmentException(s"Replica assignment cannot be specified for topic $topic. " +
-          s"The topic placement constraint contains observers. Topic placement constraint: $topicPlacement")
-      }
+      matchesConstraints("sync replicas", placementConstraint.replicas.asScala, assignment.syncReplicas, liveBrokerAttributes)
 
-      val constraintReplicaCount = placementConstraint.replicas().asScala.map(_.count).sum
-      if (constraintReplicaCount != replicas.size) {
-        throw new InvalidReplicaAssignmentException(s"Replica assignment $replicas doesn't match the observer " +
-          s"constraints ${placementConstraint.observers()}")
-      }
+      matchesConstraints("observers", placementConstraint.observers.asScala, assignment.observers, liveBrokerAttributes)
+    }
+  }
 
-      placementConstraint.replicas().asScala.foreach { replicaConstraint =>
-        val replicasMatchingConstraint = replicas.count {
-          replica => replicaConstraint.matches(allBrokerProperties(replica).asJava)
-        }
-        if (replicasMatchingConstraint != replicaConstraint.count()) {
-          throw new InvalidReplicaAssignmentException(s"Replica constraint for topic $topic is not satisfied " +
-            s"for replica placement: $replicaConstraint. Only $replicasMatchingConstraint replicas found. " +
-            s"All replicas: ${replicas.mkString(",")}.")
-        }
+  private[this] def matchesConstraints(
+    scope: String,
+    constraints: Seq[ConstraintCount],
+    replicas: Seq[Int],
+    liveBrokerAttributes: Map[Int, Map[String, String]]
+  ): Unit = {
+    val constraintSum = constraints.map(_.count).sum
+    if (constraintSum != replicas.size) {
+      throw new InvalidReplicaAssignmentException(
+        s"Number of assigned replicas (${replicas.mkString(",")}) doesn't match the $scope constraint counts " +
+        s"$constraintSum"
+      )
+    }
+
+    constraints.foreach { constraint =>
+      val matchingReplicas = replicas.filter {
+        replica => constraint.matches(liveBrokerAttributes.getOrElse(replica, Map.empty).asJava)
+      }
+      if (matchingReplicas.size != constraint.count) {
+        throw new InvalidReplicaAssignmentException(
+          s"Replicas (${replicas.mkString(",")}) do not match the replica constraint ($constraint). " +
+          s"Expected to match for ${constraint.count} instead the following replicas matched: " +
+          s"${matchingReplicas.mkString(",")}."
+        )
       }
     }
   }
