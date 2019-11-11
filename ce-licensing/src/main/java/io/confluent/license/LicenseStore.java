@@ -16,6 +16,7 @@ import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.errors.InvalidReplicationFactorException;
 import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.TopicExistsException;
+import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.connect.util.Callback;
 import org.apache.kafka.connect.util.KafkaBasedLog;
@@ -190,8 +191,24 @@ public class LicenseStore {
       @Override
       public void run() {
         try (Admin admin = Admin.create(topicConfig)) {
-          Throwable lastException = null;
 
+          try {
+            admin.describeTopics(Collections.singleton(topic)).all().get();
+            log.debug("Topic {} already exists.", topic);
+            return;
+          } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof UnknownTopicOrPartitionException)
+              log.debug("Topic {} does not exist, will attempt to create", topic);
+            else if (cause instanceof RetriableException) {
+              log.debug("Topic could not be described, will attempt to create", e);
+            } else
+              throw toKafkaException(cause);
+          } catch (InterruptedException e) {
+            throw new InterruptException(e);
+          }
+
+          Throwable lastException = null;
           while (true) {
             try {
               admin.createTopics(Collections.singleton(topicDescription)).all().get();
@@ -210,7 +227,7 @@ public class LicenseStore {
                 break;
               } else if (!(cause instanceof RetriableException ||
                   cause instanceof InvalidReplicationFactorException)) {
-                throw cause instanceof KafkaException ? (KafkaException) cause : new KafkaException(cause);
+                throw toKafkaException(cause);
               }
             } catch (InterruptedException e) {
               throw new InterruptException(e);
@@ -235,6 +252,10 @@ public class LicenseStore {
         time,
         createTopics
     );
+  }
+
+  private KafkaException toKafkaException(Throwable t) {
+    return t instanceof KafkaException ? (KafkaException) t : new KafkaException(t);
   }
 
   public static class LicenseKeySerde extends ProtoSerde<CommandKey> {
