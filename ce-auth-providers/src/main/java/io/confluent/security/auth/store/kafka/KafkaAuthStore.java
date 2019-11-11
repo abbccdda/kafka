@@ -208,13 +208,12 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
   @Override
   public void close() {
     log.debug("Closing auth store");
-    long endMs = time.milliseconds() + CLOSE_TIMEOUT.toMillis();
     if (nodeManager != null)
-      nodeManager.close(Duration.ofMillis(endMs - time.milliseconds()));
+      nodeManager.close(CLOSE_TIMEOUT);
     if (writer != null)
-      writer.close(Duration.ofMillis(Math.max(0, endMs - time.milliseconds())));
+      writer.close(CLOSE_TIMEOUT);
     if (reader != null)
-      reader.close(Duration.ofMillis(Math.max(0, endMs - time.milliseconds())));
+      reader.close(CLOSE_TIMEOUT);
     MetricsUtils.removeMetrics(metricNames);
   }
 
