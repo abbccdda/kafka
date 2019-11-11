@@ -74,7 +74,11 @@ class SecurityTest(EndToEndTest):
         self.zk.start()
 
         self.create_kafka(security_protocol=security_protocol,
-                          interbroker_security_protocol=interbroker_security_protocol)
+                          interbroker_security_protocol=interbroker_security_protocol,
+                          server_prop_overides=[
+                              ["confluent.license.ssl.endpoint.identification.algorithm", ""]
+                          ])
+
         self.kafka.start()
 
         # We need more verbose logging to catch the expected errors
