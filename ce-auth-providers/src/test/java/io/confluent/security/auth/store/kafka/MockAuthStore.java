@@ -382,8 +382,8 @@ public class MockAuthStore extends KafkaAuthStore {
 
     @Override
     public synchronized void onRevoked(int generationId) {
-      revokeCount.incrementAndGet();
       super.onRevoked(generationId);
+      revokeCount.incrementAndGet();
     }
 
     @Override

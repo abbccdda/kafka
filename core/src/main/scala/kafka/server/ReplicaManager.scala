@@ -930,11 +930,11 @@ class ReplicaManager(val config: KafkaConfig,
   }
 
   def fetchTierOffset(topicPartition: TopicPartition,
-                      offset: OffsetType,
+                      timestamp: Long,
                       currentLeaderEpoch: Option[Integer],
                       fetchOnlyFromLeader: Boolean): Option[Long] = {
     val partition = getPartitionOrException(topicPartition, expectLeader = fetchOnlyFromLeader)
-    partition.fetchTierOffsetForType(offset, currentLeaderEpoch, fetchOnlyFromLeader)
+    partition.fetchTierOffsetForType(timestamp, currentLeaderEpoch, fetchOnlyFromLeader)
   }
 
   /**
@@ -993,7 +993,12 @@ class ReplicaManager(val config: KafkaConfig,
                                       currentLeaderEpoch: Optional[Integer],
                                       fetchOnlyFromLeader: Boolean): Option[TimestampAndOffset] = {
     val partition = getPartitionOrException(topicPartition, expectLeader = fetchOnlyFromLeader)
-    partition.fetchOffsetForTimestamp(timestamp, isolationLevel, currentLeaderEpoch, fetchOnlyFromLeader)
+    if (timestamp == ListOffsetRequest.LOCAL_START_OFFSET || timestamp == ListOffsetRequest.LOCAL_END_OFFSET) {
+      val offsetOpt = fetchTierOffset(topicPartition, timestamp, currentLeaderEpoch.asScala, fetchOnlyFromLeader = true)
+      offsetOpt.map(offset => new FileTimestampAndOffset(timestamp, offset, Optional.empty(): Optional[Integer]))
+    } else {
+      partition.fetchOffsetForTimestamp(timestamp, isolationLevel, currentLeaderEpoch, fetchOnlyFromLeader)
+    }
   }
 
   def legacyFetchOffsetsForTimestamp(topicPartition: TopicPartition,

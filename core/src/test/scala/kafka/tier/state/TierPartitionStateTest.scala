@@ -883,6 +883,8 @@ class TierPartitionStateTest {
       System.setOut(sysOut)
     }
     val lines = contents.toString.split("\n")
+    val headerLines = lines.count(_.startsWith("Header"))
+    assertEquals(1, headerLines)
     val numLines = lines.count(_.startsWith("TierObjectMetadata"))
     assertEquals(numSegments, numLines)
   }

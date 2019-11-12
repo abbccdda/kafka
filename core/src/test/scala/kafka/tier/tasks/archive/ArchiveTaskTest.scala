@@ -16,7 +16,7 @@ import kafka.metrics.KafkaMetricsGroup
 import kafka.server.ReplicaManager
 import kafka.server.epoch.LeaderEpochFileCache
 import kafka.tier.domain.{TierObjectMetadata, TierSegmentUploadComplete, TierSegmentUploadInitiate}
-import kafka.tier.exceptions.{TierArchiverFencedException, TierMetadataRetriableException, TierObjectStoreRetriableException}
+import kafka.tier.exceptions.{TierMetadataRetriableException, TierObjectStoreRetriableException}
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState
 import kafka.tier.state.TierPartitionState.AppendResult

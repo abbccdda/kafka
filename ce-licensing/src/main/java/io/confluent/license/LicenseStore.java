@@ -16,6 +16,8 @@ import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.errors.InvalidReplicationFactorException;
 import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.TopicExistsException;
+import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
+import org.apache.kafka.common.errors.UnsupportedVersionException;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.connect.util.Callback;
 import org.apache.kafka.connect.util.KafkaBasedLog;
@@ -190,8 +192,24 @@ public class LicenseStore {
       @Override
       public void run() {
         try (Admin admin = Admin.create(topicConfig)) {
-          Throwable lastException = null;
 
+          try {
+            admin.describeTopics(Collections.singleton(topic)).all().get();
+            log.debug("Topic {} already exists.", topic);
+            return;
+          } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof UnknownTopicOrPartitionException)
+              log.debug("Topic {} does not exist, will attempt to create", topic);
+            else if (cause instanceof RetriableException) {
+              log.debug("Topic could not be described, will attempt to create", e);
+            } else
+              throw toKafkaException(cause);
+          } catch (InterruptedException e) {
+            throw new InterruptException(e);
+          }
+
+          Throwable lastException = null;
           while (true) {
             try {
               admin.createTopics(Collections.singleton(topicDescription)).all().get();
@@ -199,18 +217,31 @@ public class LicenseStore {
               break;
             } catch (ExecutionException e) {
               Throwable cause = e.getCause();
-              if (lastException == null && cause instanceof InvalidReplicationFactorException) {
-                log.info("Creating {} with replication factor {}. " +
-                      "At least {} brokers must be started concurrently to complete license registration.",
-                    topic, topicDescription.replicationFactor(), topicDescription.replicationFactor());
+              if (lastException == null) {
+                if (cause instanceof InvalidReplicationFactorException) {
+                  log.info("Creating topic {} with replication factor {}. " +
+                          "At least {} brokers must be started concurrently to complete license registration.",
+                      topic, topicDescription.replicationFactor(),
+                      topicDescription.replicationFactor());
+                } else if (cause instanceof UnsupportedVersionException) {
+                  log.info("Topic {} could not be created due to UnsupportedVersionException. " +
+                          "This may be indicate that a rolling upgrade from an older version is in progress. " +
+                          "The request will be retried.", topic);
+                }
               }
               lastException = cause;
               if (cause instanceof TopicExistsException) {
                 log.debug("License topic {} was created by different node", topic);
                 break;
               } else if (!(cause instanceof RetriableException ||
-                  cause instanceof InvalidReplicationFactorException)) {
-                throw cause instanceof KafkaException ? (KafkaException) cause : new KafkaException(cause);
+                  cause instanceof InvalidReplicationFactorException ||
+                  cause instanceof UnsupportedVersionException)) {
+                // Retry for:
+                // 1) any retriable exception
+                // 2) InvalidReplicationFactorException -  may indicate that brokers are starting up
+                // 3) UnsupportedVersionException -  may be a rolling upgrade from a version older than
+                //    0.10.1.0 before CreateTopics request was introduced
+                throw toKafkaException(cause);
               }
             } catch (InterruptedException e) {
               throw new InterruptException(e);
@@ -235,6 +266,10 @@ public class LicenseStore {
         time,
         createTopics
     );
+  }
+
+  private KafkaException toKafkaException(Throwable t) {
+    return t instanceof KafkaException ? (KafkaException) t : new KafkaException(t);
   }
 
   public static class LicenseKeySerde extends ProtoSerde<CommandKey> {

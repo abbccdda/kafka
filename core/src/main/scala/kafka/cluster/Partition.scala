@@ -1125,16 +1125,16 @@ class Partition(val topicPartition: TopicPartition,
       lastStableOffset = initialLastStableOffset)
   }
 
-  def fetchTierOffsetForType(offsetType: OffsetType,
+  def fetchTierOffsetForType(timestamp: Long,
                              currentLeaderEpoch: Option[Integer],
                              fetchOnlyFromLeader: Boolean): Option[Long] = inReadLock(leaderIsrUpdateLock) {
     // decide whether to only fetch from leader
     localLogWithEpochOrException(currentLeaderEpoch.asJava, fetchOnlyFromLeader)
     logManager.getLog(topicPartition).map { log =>
-      offsetType match {
-        case OffsetType.LOCAL_START_OFFSET => log.localLogStartOffset
-        case OffsetType.LOCAL_END_OFFSET => log.localLogEndOffset
-        case _ => throw new UnsupportedOperationException(s"Lookup for $offsetType not supported")
+      timestamp match {
+        case ListOffsetRequest.LOCAL_START_OFFSET => log.localLogStartOffset
+        case ListOffsetRequest.LOCAL_END_OFFSET => log.localLogEndOffset
+        case _ => throw new UnsupportedOperationException(s"Lookup for $timestamp not supported")
       }
     }
   }
