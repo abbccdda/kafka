@@ -438,8 +438,8 @@ public class MultiTenantRequestContext extends RequestContext {
 
   // To preserve compatibility with clients that perform config updates (for example, Replicator mirroring
   // topic configs from the source cluster), remove non-updateable configs prior to config policy validation.
-  // For configs with a range of allowable values, and for min.insync.replicas (which must be equal to 2),
-  // leave the configs in the request and let them fail the config policy, rather than changing their values.
+  // For configs with a range of allowable values leave the configs in the request
+  // and let them fail the config policy, rather than changing their values.
   private boolean allowConfigInRequest(String key) {
     if (MultiTenantConfigRestrictions.UPDATABLE_TOPIC_CONFIGS.contains(key) ||
             key.equals(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG)) {

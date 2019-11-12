@@ -31,6 +31,7 @@ public class MultiTenantConfigRestrictions {
       "min.compaction.lag.ms",
       "retention.bytes",
       "retention.ms",
+      "min.insync.replicas",
       "delete.retention.ms",
       "segment.bytes",
       "segment.ms"

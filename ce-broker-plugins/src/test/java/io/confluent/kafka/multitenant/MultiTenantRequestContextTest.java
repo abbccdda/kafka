@@ -2154,7 +2154,7 @@ public class MultiTenantRequestContextTest {
         assertEquals(
             mkMap(
                 mkEntry("retention.bytes", Boolean.FALSE),
-                mkEntry("min.insync.replicas", Boolean.TRUE),
+                mkEntry("min.insync.replicas", Boolean.FALSE),
                 mkEntry("min.cleanable.dirty.ratio", Boolean.TRUE)),
             topicReadOnlyMap);
       }

@@ -58,7 +58,6 @@ public class BrokerBackpressureTest {
     props.put(KafkaConfig$.MODULE$.NumNetworkThreadsProp(), numNetworkThreads.toString());
     props.put(KafkaConfig$.MODULE$.NumIoThreadsProp(), numIoThreads.toString());
     props.put(TopicPolicyConfig.REPLICATION_FACTOR_CONFIG, "1");
-    props.put(TopicPolicyConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "1");
     return props;
   }
 

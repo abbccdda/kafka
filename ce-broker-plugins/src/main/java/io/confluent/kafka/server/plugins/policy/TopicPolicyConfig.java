@@ -89,10 +89,6 @@ public class TopicPolicyConfig extends AbstractConfig {
             ConfigDef.Type.SHORT,
             ConfigDef.Importance.HIGH,
             REPLICATION_FACTOR_DOC
-        ).define(MIN_IN_SYNC_REPLICAS_CONFIG,
-            ConfigDef.Type.SHORT,
-            ConfigDef.Importance.HIGH,
-            MIN_IN_SYNC_REPLICAS_CONFIG_DOC
         ).define(MAX_MESSAGE_BYTES_MAX_CONFIG,
             ConfigDef.Type.INT,
             DEFAULT_MAX_MESSAGE_BYTES_MAX,
@@ -135,13 +131,17 @@ public class TopicPolicyConfig extends AbstractConfig {
             INTERNAL_LISTENER_CONFIG_DOC
         );
   }
+  public static final short MIN_ISR = 1;
+  private short requiredRepFactor;
 
   public TopicPolicyConfig(Map<String, ?> clientConfigs) {
     super(CONFIG, clientConfigs);
+    this.requiredRepFactor = getShort(TopicPolicyConfig.REPLICATION_FACTOR_CONFIG);
   }
 
   public TopicPolicyConfig(Properties props) {
     super(CONFIG, props);
+    this.requiredRepFactor = getShort(TopicPolicyConfig.REPLICATION_FACTOR_CONFIG);
   }
 
   public static void main(String[] args) {
@@ -149,21 +149,9 @@ public class TopicPolicyConfig extends AbstractConfig {
   }
 
   void validateConfigsAreUpdatable(Map<String, String> configs) {
-    short requiredMinIsrs = getShort(TopicPolicyConfig.MIN_IN_SYNC_REPLICAS_CONFIG);
-
     for (Map.Entry<String, String> entry : configs.entrySet()) {
       String configName = entry.getKey();
       if (!MultiTenantConfigRestrictions.UPDATABLE_TOPIC_CONFIGS.contains(configName)) {
-        // preserve previous behavior for min.insync.replicas.
-        if (configName.equals(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG)) {
-          if (Integer.parseInt(entry.getValue()) == requiredMinIsrs) {
-            continue;
-          }
-          throw new PolicyViolationException(
-              String.format("Config property '%s' must be set to %d or left empty.",
-                            TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, requiredMinIsrs)
-          );
-        }
         throw new PolicyViolationException(
             String.format("Altering config property '%s' is disallowed.", configName));
       }
@@ -207,11 +195,19 @@ public class TopicPolicyConfig extends AbstractConfig {
         TopicConfig.RETENTION_MS_CONFIG);
     checkPolicyMax(configs, TopicPolicyConfig.SEGMENT_BYTES_MAX_CONFIG,
         TopicConfig.SEGMENT_BYTES_CONFIG);
-
     checkPolicyMin(configs, TopicPolicyConfig.SEGMENT_BYTES_MIN_CONFIG,
         TopicConfig.SEGMENT_BYTES_CONFIG);
     checkPolicyMin(configs, TopicPolicyConfig.SEGMENT_MS_MIN_CONFIG,
         TopicConfig.SEGMENT_MS_CONFIG);
+
+    if (configs.containsKey(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG)) {
+      int passedMinIsr = Integer.parseInt(configs.get(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG));
+      if (passedMinIsr < MIN_ISR || passedMinIsr >= requiredRepFactor)
+        throw new PolicyViolationException(
+            String.format("Config property '%s' with value '%d' must be greater or equal to %d and less than %d, or left empty.",
+                TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, passedMinIsr, MIN_ISR, requiredRepFactor)
+        );
+    }
   }
 
   public void validateTopicConfigs(Map<String, String> configs) {

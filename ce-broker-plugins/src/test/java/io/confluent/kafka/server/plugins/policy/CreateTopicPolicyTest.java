@@ -22,8 +22,8 @@ import java.util.Map;
 public class CreateTopicPolicyTest {
   private static final String TENANT_PREFIX = "xx_";
   private static final String TOPIC = "xx_test-topic";
-  private static final short REPLICATION_FACTOR = 5;
-  private static final short MIN_IN_SYNC_REPLICAS = 4;
+  private static final short REPLICATION_FACTOR = 3;
+  private static final short MIN_IN_SYNC_REPLICAS = 1;
   private static final int MAX_PARTITIONS = 21;
   private static final int MAX_MESSAGE_BYTES = 4242;
 
@@ -34,7 +34,6 @@ public class CreateTopicPolicyTest {
   public void setUp() throws Exception {
     Map<String, String> config = new HashMap<>();
     config.put(TopicPolicyConfig.REPLICATION_FACTOR_CONFIG, String.valueOf(REPLICATION_FACTOR));
-    config.put(TopicPolicyConfig.MIN_IN_SYNC_REPLICAS_CONFIG, String.valueOf(MIN_IN_SYNC_REPLICAS));
     config.put(TopicPolicyConfig.MAX_PARTITIONS_PER_TENANT_CONFIG, String.valueOf(MAX_PARTITIONS));
     policy = new CreateTopicPolicy();
     policy.configure(config);
@@ -119,6 +118,7 @@ public class CreateTopicPolicyTest {
     topicConfigs.put(TopicConfig.MESSAGE_TIMESTAMP_DIFFERENCE_MAX_MS_CONFIG, "100");
     topicConfigs.put(TopicConfig.MESSAGE_TIMESTAMP_TYPE_CONFIG, "CreateTime");
     topicConfigs.put(TopicConfig.MIN_COMPACTION_LAG_MS_CONFIG, "100");
+    topicConfigs.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Integer.toString(REPLICATION_FACTOR - 1));
     topicConfigs.put(TopicConfig.RETENTION_BYTES_CONFIG, "100");
     topicConfigs.put(TopicConfig.RETENTION_MS_CONFIG, "135217728");
     topicConfigs.put(TopicConfig.SEGMENT_MS_CONFIG, "600000");
@@ -130,8 +130,8 @@ public class CreateTopicPolicyTest {
   @Test
   public void validateValidPartitionAssignmentOk() {
     updateTopicMetadata(Collections.singletonMap(TOPIC, 5));
-    List<Integer> part0Assignment = Arrays.asList(0, 1, 2, 3, 4);
-    List<Integer> part1Assignment = Arrays.asList(1, 2, 3, 4, 5);
+    List<Integer> part0Assignment = Arrays.asList(0, 1, 2);
+    List<Integer> part1Assignment = Arrays.asList(3, 4, 5);
 
     HashMap<Integer, List<Integer>> replicaAssignments = new HashMap<>();
     replicaAssignments.put(0, part0Assignment);
@@ -179,7 +179,7 @@ public class CreateTopicPolicyTest {
   public void validateInvalidTopicConfigsNotOk() throws Exception {
     HashMap<String, String> topicConfigs = new HashMap<>();
     topicConfigs.put(TopicConfig.DELETE_RETENTION_MS_CONFIG, "100");
-    topicConfigs.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "5"); // disallowed
+    topicConfigs.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Integer.toString(REPLICATION_FACTOR)); // disallowed
     topicConfigs.put(TopicConfig.RETENTION_MS_CONFIG, "135217728"); // allowed
     RequestMetadata requestMetadata = new RequestMetadata(TOPIC, 10, null, null, topicConfigs);
     policy.validate(requestMetadata);
@@ -200,12 +200,42 @@ public class CreateTopicPolicyTest {
   }
 
   @Test(expected = PolicyViolationException.class)
-  public void rejectsBadMinIsrs() throws Exception {
+  public void rejectsSmallMinIsrs() throws Exception {
     Map<String, String> topicConfigs = Collections.
-            singletonMap(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "3");
+            singletonMap(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Integer.toString(MIN_IN_SYNC_REPLICAS - 1));
     RequestMetadata requestMetadata = new RequestMetadata(
         TOPIC, MAX_PARTITIONS, REPLICATION_FACTOR, null, topicConfigs);
     policy.validate(requestMetadata);
+  }
+
+  @Test(expected = PolicyViolationException.class)
+  public void rejectsLargeMinIsrs() throws Exception {
+    Map<String, String> topicConfigs = Collections.
+            singletonMap(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Integer.toString(REPLICATION_FACTOR));
+    RequestMetadata requestMetadata = new RequestMetadata(
+        TOPIC, MAX_PARTITIONS, REPLICATION_FACTOR, null, topicConfigs);
+    policy.validate(requestMetadata);
+  }
+
+  @Test
+  public void acceptsValidMinIsr() throws Exception {
+    Map<String, Integer> topicPartitions = new HashMap<>();
+    topicPartitions.put("xyz_foo", 3);
+    updateTopicMetadata(topicPartitions);
+
+    // minIsr at the minimum allowed value
+    Map<String, String> topicConfigs = Collections.
+            singletonMap(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Integer.toString(MIN_IN_SYNC_REPLICAS));
+    RequestMetadata requestMetadata = new RequestMetadata(
+            TOPIC, MAX_PARTITIONS, REPLICATION_FACTOR, null, topicConfigs);
+    policy.validate(requestMetadata);
+
+    // minIsr at the maximum allowed value
+    Map<String, String> topicConfigs2 = Collections.
+            singletonMap(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Integer.toString(REPLICATION_FACTOR - 1));
+    RequestMetadata requestMetadata2 = new RequestMetadata(
+            TOPIC, MAX_PARTITIONS, REPLICATION_FACTOR, null, topicConfigs2);
+    policy.validate(requestMetadata2);
   }
 
   @Test(expected = RuntimeException.class)

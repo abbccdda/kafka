@@ -24,19 +24,20 @@ import static org.mockito.Mockito.when;
 public class AlterConfigPolicyTest {
   private AlterConfigPolicy policy;
   private RequestMetadata requestMetadata;
+  private final short minIsr = 1;
+  private final short replicationFactor = 3;
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     Map<String, String> config = new HashMap<>();
-    config.put(TopicPolicyConfig.REPLICATION_FACTOR_CONFIG, "5");
-    config.put(TopicPolicyConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "4");
+    config.put(TopicPolicyConfig.REPLICATION_FACTOR_CONFIG, Short.toString(replicationFactor));
     config.put(TopicPolicyConfig.MAX_PARTITIONS_PER_TENANT_CONFIG, "21");
     config.put(TopicPolicyConfig.MAX_MESSAGE_BYTES_MAX_CONFIG, "3145728");
 
     policy = new AlterConfigPolicy();
     policy.configure(config);
     Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
-        .put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "4")
+        .put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Short.toString(minIsr))
         .put(TopicConfig.MAX_MESSAGE_BYTES_CONFIG, "4242")
         .build();
 
@@ -48,12 +49,12 @@ public class AlterConfigPolicyTest {
   }
 
   @Test
-  public void validateParamsSetOk() throws Exception {
+  public void validateParamsSetOk() {
     policy.validate(requestMetadata);
   }
 
   @Test
-  public void validateNoParamsGivenOk() throws Exception {
+  public void validateNoParamsGivenOk() {
     Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
         .build();
     when(requestMetadata.configs()).thenReturn(topicConfigs);
@@ -97,7 +98,7 @@ public class AlterConfigPolicyTest {
   }
 
   @Test
-  public void validateAllAllowedProperties() throws Exception {
+  public void validateAllAllowedProperties() {
     Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
         .put(TopicConfig.CLEANUP_POLICY_CONFIG, "delete")
         .put(TopicConfig.MAX_MESSAGE_BYTES_CONFIG, "100")
@@ -113,16 +114,42 @@ public class AlterConfigPolicyTest {
   }
 
   @Test(expected = PolicyViolationException.class)
-  public void rejectsBadMinIsrs() throws Exception {
+  public void rejectsSmallMinIsrs() {
     Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
-        .put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "3")
+        .put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Integer.toString(minIsr - 1))
         .build();
     when(requestMetadata.configs()).thenReturn(topicConfigs);
     policy.validate(requestMetadata);
   }
 
   @Test(expected = PolicyViolationException.class)
-  public void rejectDisallowedConfigProperty1() throws Exception {
+  public void rejectsLargeMinIsrs() {
+    Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
+        .put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Integer.toString(replicationFactor))
+        .build();
+    when(requestMetadata.configs()).thenReturn(topicConfigs);
+    policy.validate(requestMetadata);
+  }
+
+  @Test
+  public void acceptsValidMinIsr() {
+    // minIsr at the minimum allowed value
+    Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
+        .put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Integer.toString(minIsr))
+        .build();
+    when(requestMetadata.configs()).thenReturn(topicConfigs);
+    policy.validate(requestMetadata);
+
+    // minIsr at the maximum allowed value
+    Map<String, String> topicConfigs2 = ImmutableMap.<String, String>builder()
+        .put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Integer.toString(replicationFactor - 1))
+        .build();
+    when(requestMetadata.configs()).thenReturn(topicConfigs2);
+    policy.validate(requestMetadata);
+  }
+
+  @Test(expected = PolicyViolationException.class)
+  public void rejectDisallowedConfigProperty1() {
     Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
         .put(TopicConfig.MAX_MESSAGE_BYTES_CONFIG, "100") // allowed
         .put(TopicConfig.SEGMENT_MS_CONFIG, "100") // disallowed
@@ -153,7 +180,7 @@ public class AlterConfigPolicyTest {
   }
 
   @Test(expected = PolicyViolationException.class)
-  public void rejectMaxMessageBytesOutOfRange() throws Exception {
+  public void rejectMaxMessageBytesOutOfRange() {
     Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
         .put(TopicConfig.MAX_MESSAGE_BYTES_CONFIG, "4123123") // above max configured limit.
         .build();
@@ -162,7 +189,7 @@ public class AlterConfigPolicyTest {
   }
 
   @Test
-  public void acceptMaxMessageBytesAtLimit() throws Exception {
+  public void acceptMaxMessageBytesAtLimit() {
     Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
         .put(TopicConfig.MAX_MESSAGE_BYTES_CONFIG, "3145728") // equal to max limit.
         .build();
@@ -171,7 +198,7 @@ public class AlterConfigPolicyTest {
   }
 
   @Test
-  public void acceptMaxMessageBytesInRange() throws Exception {
+  public void acceptMaxMessageBytesInRange() {
     Map<String, String> topicConfigs = ImmutableMap.<String, String>builder()
         .put(TopicConfig.MAX_MESSAGE_BYTES_CONFIG, "10000")
         .build();
@@ -180,14 +207,14 @@ public class AlterConfigPolicyTest {
   }
 
   @Test(expected = PolicyViolationException.class)
-  public void rejectsBrokerConfigUpdatesFromTenant() throws Exception {
+  public void rejectsBrokerConfigUpdatesFromTenant() {
     RequestMetadata brokerRequestMetadata = createBrokerRequestMetadata(
         new MultiTenantPrincipal("tenantUserA", new TenantMetadata("cluster1", "cluster1")));
     policy.validate(brokerRequestMetadata);
   }
 
   @Test
-  public void allowsBrokerConfigUpdatesFromInternalUser() throws Exception {
+  public void allowsBrokerConfigUpdatesFromInternalUser() {
     RequestMetadata brokerRequestMetadata = createBrokerRequestMetadata(
         new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "ANONYMOUS"));
     policy.validate(brokerRequestMetadata);
@@ -206,7 +233,7 @@ public class AlterConfigPolicyTest {
   }
 
   @Test(expected = PolicyViolationException.class)
-  public void rejectsUnknownTypeConfigs() throws Exception {
+  public void rejectsUnknownTypeConfigs() {
     RequestMetadata brokerRequestMetadata = mock(RequestMetadata.class);
     ConfigResource cfgResource = new ConfigResource(ConfigResource.Type.UNKNOWN, "dummy");
     when(brokerRequestMetadata.resource()).thenReturn(cfgResource);
