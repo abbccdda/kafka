@@ -32,6 +32,12 @@ import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.server.epoch.LeaderEpochFileCache
 import kafka.server.checkpoints.LazyOffsetCheckpoints
 import kafka.server.epoch.util.ReplicaFetcherMockBlockingSend
+import kafka.tier.TierTestUtils
+import kafka.tier.TopicIdPartition
+import kafka.tier.domain.TierTopicInitLeader
+import kafka.tier.state.TierPartitionState.AppendResult
+import kafka.tier.state.TierPartitionStateFactory
+import kafka.tier.store.TierObjectStore
 import kafka.utils.TestUtils.createBroker
 import kafka.utils.timer.MockTimer
 import kafka.utils.{MockScheduler, MockTime, TestUtils}
@@ -857,6 +863,113 @@ class ReplicaManagerTest {
   }
 
   /**
+   * Full fetch responses require all partitions to have a read result, even if any of them resulted in an error.
+   * This test tests fetchMessages calls for a mix of tiered and non-tiered partitions where the non-tiered partition
+   * results in an error.
+   */
+  @Test
+  def testFetchMixedTierAndNonTieredWhenPartitionInError(): Unit = {
+    val replicaManager = setupReplicaManagerWithMockedPurgatories(new MockTimer, aliveBrokerIds = Seq(0, 1, 2), tierEnabled = true)
+
+    try {
+      val tp0 = new TopicPartition(topic, 0)
+      val tp1 = new TopicPartition(topic, 1)
+      val topicId = UUID.randomUUID
+      val offsetCheckpoints = new LazyOffsetCheckpoints(replicaManager.highWatermarkCheckpoints)
+      replicaManager.createPartition(tp0).createLogIfNotExists(0, isNew = false, isFutureReplica = false, offsetCheckpoints)
+      replicaManager.createPartition(tp1).createLogIfNotExists(0, isNew = false, isFutureReplica = false, offsetCheckpoints)
+      val partition0Replicas = Seq[Integer](0, 1).asJava
+      val partition1Replicas = Seq[Integer](0, 2).asJava
+      val leaderAndIsrRequest = new LeaderAndIsrRequest.Builder(ApiKeys.LEADER_AND_ISR.latestVersion, 0, 0, brokerEpoch,
+        Seq(
+          new LeaderAndIsrPartitionState()
+            .setTopicName(tp0.topic)
+            .setTopicId(topicId)
+            .setPartitionIndex(tp0.partition)
+            .setControllerEpoch(0)
+            .setLeader(0)
+            .setLeaderEpoch(0)
+            .setIsr(partition0Replicas)
+            .setZkVersion(0)
+            .setReplicas(partition0Replicas)
+            .setIsNew(true),
+          new LeaderAndIsrPartitionState()
+            .setTopicName(tp1.topic)
+            .setTopicId(topicId)
+            .setPartitionIndex(tp1.partition)
+            .setControllerEpoch(0)
+            .setLeader(0)
+            .setLeaderEpoch(0)
+            .setIsr(partition1Replicas)
+            .setZkVersion(0)
+            .setReplicas(partition1Replicas)
+            .setIsNew(true)
+        ).asJava,
+        Set(new Node(0, "host1", 0), new Node(1, "host2", 1)).asJava).build()
+      replicaManager.becomeLeaderOrFollower(0, leaderAndIsrRequest, (_, _) => ())
+
+      // Append a couple of messages.
+      for (i <- 1 to 2) {
+        appendRecords(replicaManager, tp0, TestUtils.singletonRecords(s"message $i".getBytes)).onFire { response =>
+          assertEquals(Errors.NONE, response.error)
+        }
+        appendRecords(replicaManager, tp1, TestUtils.singletonRecords(s"message $i".getBytes)).onFire { response =>
+          assertEquals(Errors.NONE, response.error)
+        }
+      }
+
+      // setup tp0 to have a segment tiered so that ReplicaManager.fetchMessages will perform a tiered fetch
+      val log0 = replicaManager.getLog(tp0).get
+      val log0tierPartitionState = log0.tierPartitionState
+      log0tierPartitionState.onCatchUpComplete()
+      log0.roll()
+      log0.updateHighWatermark(log0.logEndOffset)
+      val tp0topicIdPartition = new TopicIdPartition(tp0.topic(), topicId, tp0.partition())
+      log0tierPartitionState.append(new TierTopicInitLeader(tp0topicIdPartition, 0, java.util.UUID.randomUUID(), 0))
+      val result = TierTestUtils.uploadWithMetadata(log0tierPartitionState, tp0topicIdPartition, 0, UUID.randomUUID(), 0, 1)
+      assertEquals(AppendResult.ACCEPTED, result)
+      log0tierPartitionState.flush()
+      assertEquals(1, log0.deleteOldSegments())
+
+
+      def fetchCallback(responseStatus: Seq[(TopicPartition, FetchPartitionData)]) = {
+        val responseStatusMap = responseStatus.toMap
+        assertEquals(Set(tp0, tp1), responseStatusMap.keySet)
+
+        val tp0Status = responseStatusMap.get(tp0)
+        assertTrue(tp0Status.isDefined)
+        assertEquals(Some(2), tp0Status.get.lastStableOffset)
+        assertEquals(Errors.NONE, tp0Status.get.error)
+        assertEquals(MemoryRecords.EMPTY, tp0Status.get.records)
+
+        val tp1Status = responseStatusMap.get(tp1)
+        assertTrue(tp1Status.isDefined)
+        assertEquals(Errors.OFFSET_OUT_OF_RANGE, tp1Status.get.error)
+        assertEquals(MemoryRecords.EMPTY, tp1Status.get.records)
+      }
+
+      // consumer fetch to test tiered / non-tiered fetch with error behavior
+      replicaManager.fetchMessages(
+        timeout = 1000,
+        replicaId = -1,
+        fetchMinBytes = 0,
+        fetchMaxBytes = Int.MaxValue,
+        hardMaxBytesLimit = false,
+        fetchInfos = Seq(
+          tp0 -> new PartitionData(1, 0, 100000, Optional.empty()),
+          // pass in fetch with out of range fetch offset to test a consumer fetch with an error and non-error
+          tp1 -> new PartitionData(4, 0, 100000, Optional.empty())),
+        quota = UnboundedQuota,
+        responseCallback = fetchCallback,
+        isolationLevel = IsolationLevel.READ_UNCOMMITTED,
+        clientMetadata = None
+      )
+    } finally {
+      replicaManager.shutdown(checkpointHW = false)
+    }
+  }
+
+  /**
     * If a partition becomes a follower and the leader is unchanged it should check for truncation
     * if the epoch has increased by more than one (which suggests it has missed an update)
     */
@@ -1586,12 +1699,25 @@ class ReplicaManagerTest {
     result
   }
 
-  private def setupReplicaManagerWithMockedPurgatories(timer: MockTimer, aliveBrokerIds: Seq[Int] = Seq(0, 1)): ReplicaManager = {
+  private def setupReplicaManagerWithMockedPurgatories(timer: MockTimer, aliveBrokerIds: Seq[Int] = Seq(0, 1), tierEnabled: Boolean = false): ReplicaManager = {
     val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect)
     props.put("log.dir", TestUtils.tempRelativeDir("data").getAbsolutePath)
+    props.put("confluent.tier.feature", tierEnabled.toString)
+    props.put("confluent.tier.enable", tierEnabled.toString)
+
     val config = KafkaConfig.fromProps(props)
     val logProps = new Properties()
-    val mockLogMgr = TestUtils.createLogManager(config.logDirs.map(new File(_)), LogConfig(logProps),  CleanerConfig(enableCleaner = false), timer.time)
+    val tierLogComponents = if (tierEnabled) {
+      logProps.put("confluent.tier.feature", tierEnabled.toString)
+      logProps.put("confluent.tier.enable", tierEnabled.toString)
+      logProps.put("confluent.tier.local.hotset.bytes", "0")
+      val tierObjectStore : TierObjectStore = EasyMock.mock(classOf[TierObjectStore])
+      TierLogComponents(None, Some(tierObjectStore), new TierPartitionStateFactory(true))
+    } else {
+      TierLogComponents.EMPTY
+    }
+
+    val mockLogMgr = TestUtils.createLogManager(config.logDirs.map(new File(_)), LogConfig(logProps),  CleanerConfig(enableCleaner = false), timer.time, tierLogComponents = tierLogComponents)
     val aliveBrokers = aliveBrokerIds.map(brokerId => createBroker(brokerId, s"host$brokerId", brokerId))
     val metadataCache: MetadataCache = EasyMock.createMock(classOf[MetadataCache])
     EasyMock.expect(metadataCache.getAliveBrokers).andReturn(aliveBrokers).anyTimes()

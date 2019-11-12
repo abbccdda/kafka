@@ -1102,13 +1102,16 @@ class ReplicaManager(val config: KafkaConfig,
     //                        4) some error happens while reading data
     //                        5) any of the requested partitions need HW update
     if (timeout <= 0 || fetchInfos.isEmpty || (tierLogReadResultMap.isEmpty && localReadableBytes >= fetchMinBytes) || errorReadingData || anyPartitionsNeedHwUpdate) {
-      val fetchPartitionData = logReadResults.flatMap {
-        case (tp, result: LogReadResult) =>
-          FetchLag.maybeRecordConsumerFetchTimeLag(!isFromFollower, result, brokerTopicStats)
-
-          Some(tp -> FetchPartitionData(result.error, result.highWatermark, result.leaderLogStartOffset, result.info.records,
-            result.lastStableOffset, result.info.abortedTransactions, result.preferredReadReplica, isFromFollower && isAddingReplica(tp, replicaId)))
-        case _ => None
+      val fetchPartitionData = logReadResults.map { case (tp, result) =>
+        val records = result match {
+          case logReadResult: LogReadResult =>
+            FetchLag.maybeRecordConsumerFetchTimeLag(!isFromFollower, logReadResult, brokerTopicStats)
+            logReadResult.info.records
+          case _: TierLogReadResult => MemoryRecords.EMPTY
+        }
+        tp -> FetchPartitionData(result.error, result.highWatermark, result.leaderLogStartOffset, records,
+          result.lastStableOffset, result.info.abortedTransactions, result.preferredReadReplica,
+          isFromFollower && isAddingReplica(tp, replicaId))
       }
       maybeUpdateHwAndSendResponse(fetchPartitionData)
     } else {
