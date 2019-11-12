@@ -17,6 +17,7 @@ import org.apache.kafka.common.errors.InvalidReplicationFactorException;
 import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.TopicExistsException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
+import org.apache.kafka.common.errors.UnsupportedVersionException;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.connect.util.Callback;
 import org.apache.kafka.connect.util.KafkaBasedLog;
@@ -216,17 +217,30 @@ public class LicenseStore {
               break;
             } catch (ExecutionException e) {
               Throwable cause = e.getCause();
-              if (lastException == null && cause instanceof InvalidReplicationFactorException) {
-                log.info("Creating {} with replication factor {}. " +
-                      "At least {} brokers must be started concurrently to complete license registration.",
-                    topic, topicDescription.replicationFactor(), topicDescription.replicationFactor());
+              if (lastException == null) {
+                if (cause instanceof InvalidReplicationFactorException) {
+                  log.info("Creating topic {} with replication factor {}. " +
+                          "At least {} brokers must be started concurrently to complete license registration.",
+                      topic, topicDescription.replicationFactor(),
+                      topicDescription.replicationFactor());
+                } else if (cause instanceof UnsupportedVersionException) {
+                  log.info("Topic {} could not be created due to UnsupportedVersionException. " +
+                          "This may be indicate that a rolling upgrade from an older version is in progress. " +
+                          "The request will be retried.", topic);
+                }
               }
               lastException = cause;
               if (cause instanceof TopicExistsException) {
                 log.debug("License topic {} was created by different node", topic);
                 break;
               } else if (!(cause instanceof RetriableException ||
-                  cause instanceof InvalidReplicationFactorException)) {
+                  cause instanceof InvalidReplicationFactorException ||
+                  cause instanceof UnsupportedVersionException)) {
+                // Retry for:
+                // 1) any retriable exception
+                // 2) InvalidReplicationFactorException -  may indicate that brokers are starting up
+                // 3) UnsupportedVersionException -  may be a rolling upgrade from a version older than
+                //    0.10.1.0 before CreateTopics request was introduced
                 throw toKafkaException(cause);
               }
             } catch (InterruptedException e) {
