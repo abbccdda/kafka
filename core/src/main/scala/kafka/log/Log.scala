@@ -322,6 +322,14 @@ class Log(@volatile var dir: File,
   // Visible for testing
   @volatile var leaderEpochCache: Option[LeaderEpochFileCache] = None
 
+  // Tracks the number of segment reads that have been performed.
+  val segmentReadsPerSec = newMeter("SegmentReadsPerSec", "reads", TimeUnit.SECONDS)
+
+  // Tracks the number of times that segment prefetching has been performed for non-active segments. Note that
+  // prefetching may be redundant in cases where the segment was recently accessed, and therefore this does not
+  // accurately predict the number of segments that were successfully paged in from disk.
+  val segmentSpeculativePrefetchesPerSec = newMeter("SegmentSpeculativePrefetchesPerSec", "prefetches", TimeUnit.SECONDS)
+
   locally {
     val startMs = time.milliseconds
 
@@ -1542,6 +1550,22 @@ class Log(@volatile var dir: File,
         if (fetchInfo == null) {
           segmentEntry = segments.higherEntry(segmentEntry.getKey)
         } else {
+          segmentReadsPerSec.mark();
+
+          // We'll assume the entries on the active segment are hot enough to have all data in the page cache.
+          // Most of the fetch requests should be fetching from the tail of the log, so this optimization should
+          // save from unnecessary prefetching.
+          if (segment.baseOffset != activeSegment.baseOffset &&
+            config.segmentSpeculativePrefetchEnable &&
+            fetchInfo.records.isInstanceOf[FileRecords]) {
+            try {
+              segmentSpeculativePrefetchesPerSec.mark()
+              fetchInfo.records.asInstanceOf[FileRecords].loadIntoPageCache()
+            } catch {
+              case e: Throwable => warn("Failed to prepare cache for read", e)
+            }
+          }
+
           return if (includeAbortedTxns)
             addAbortedTransactions(startOffset, segmentEntry, fetchInfo)
           else
@@ -2426,7 +2450,8 @@ class Log(@volatile var dir: File,
    * remove deleted log metrics
    */
   private[log] def removeLogMetrics(): Unit = {
-    // nothing to do
+    removeMetric("SegmentReadsPerSec")
+    removeMetric("SegmentSpeculativePrefetchesPerSec")
   }
 
   /**

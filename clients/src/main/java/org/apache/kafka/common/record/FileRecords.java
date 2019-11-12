@@ -31,6 +31,8 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.GatheringByteChannel;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.Objects;
 import java.util.Optional;
@@ -41,6 +43,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * instance to enable slicing a range of the log records.
  */
 public class FileRecords extends AbstractRecords implements Closeable {
+    private static final Path DEVNULL_PATH = Paths.get("/dev/null");
+
     private final boolean isSlice;
     private final int start;
     private final int end;
@@ -401,6 +405,20 @@ public class FileRecords extends AbstractRecords implements Closeable {
             end = this.sizeInBytes();
         FileLogInputStream inputStream = new FileLogInputStream(this, start, end);
         return new RecordBatchIterator<>(inputStream);
+    }
+
+    /**
+     * Loads the file's records into the kernel's page cache in preparation for reading. This is to be used as an
+     * optimization; no guarantees are provided about the status of the pages in the page cache or latency of
+     * subsequent reads.
+     */
+    public void loadIntoPageCache() throws IOException {
+        // Reads the record data into /dev/null. By doing so, the file's data will be pulled into the page cache,
+        // however the kernel should optimize the write such that no actual data is copied/transferred.
+        long size = Math.min(channel.size(), end) - start;
+        try (FileChannel devnullChannel = FileChannel.open(DEVNULL_PATH, StandardOpenOption.WRITE)) {
+            channel.transferTo(start, size, devnullChannel);
+        }
     }
 
     public static FileRecords open(File file,

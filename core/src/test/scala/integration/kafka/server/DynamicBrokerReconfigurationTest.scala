@@ -531,6 +531,7 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
     props.put(KafkaConfig.LogMessageTimestampTypeProp, TimestampType.LOG_APPEND_TIME.toString)
     props.put(KafkaConfig.LogMessageTimestampDifferenceMaxMsProp, "1000")
     props.put(KafkaConfig.LogMessageDownConversionEnableProp, "false")
+    props.put(KafkaConfig.SegmentSpeculativePrefetchEnableProp, "true")
     reconfigureServers(props, perBrokerConfig = false, (KafkaConfig.LogSegmentBytesProp, "4000"))
 
     // Verify that all broker defaults have been updated

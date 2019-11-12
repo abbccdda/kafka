@@ -42,6 +42,7 @@ public class MultiTenantConfigRestrictions {
         // we will not allow users to turn on / off schema validation in CC for now
         !configName.startsWith("confluent.key.schema.validation") &&
         !configName.startsWith("confluent.value.schema.validation") &&
-        !configName.equals("confluent.placement.constraints");
+        !configName.equals("confluent.placement.constraints") &&
+        !configName.equals("confluent.segment.speculative.prefetch.enable");
   }
 }

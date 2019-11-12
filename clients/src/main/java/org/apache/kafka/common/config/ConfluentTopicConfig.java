@@ -77,4 +77,11 @@ public class ConfluentTopicConfig {
             "    }" + LINE_SEPARATOR +
             "  ]" + LINE_SEPARATOR +
             "}";
+
+    public static final String SEGMENT_SPECULATIVE_PREFETCH_ENABLE_CONFIG = CONFLUENT_PREFIX + "segment.speculative.prefetch.enable";
+    public static final String SEGMENT_SPECULATIVE_PREFETCH_ENABLE_DOC = "If <code>true</code>, reads to log " +
+        "segments may be prefetched from disk if they're predicted to not be resident in memory. This can reduce " +
+        "latency and mitigate pipeline stalls when fetching from older log segments, at the expense of potentially " +
+        "increased memory usage, which may have adverse affects on other cached data. If <code>false</code>, no " +
+        "explicit prefetching is performed.";
 }

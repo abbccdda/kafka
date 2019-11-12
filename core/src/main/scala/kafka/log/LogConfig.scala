@@ -74,6 +74,7 @@ object Defaults {
   val TierLocalHotsetBytes = kafka.server.Defaults.TierLocalHotsetBytes
   val TierLocalHotsetMs = kafka.server.Defaults.TierLocalHotsetMs
   val TierSegmentHotsetRollMinBytes = kafka.server.Defaults.TierSegmentHotsetRollMinBytes
+  val SegmentSpeculativePrefetchEnable = kafka.server.Defaults.SegmentSpeculativePrefetchEnable
 
   /* Use the empty string instead of null. With a default value of null some clients may
    * not handle it correctly when calling DescribeConfig. Some clients may send the string
@@ -123,6 +124,7 @@ case class LogConfig(props: java.util.Map[_, _], overriddenConfigs: Set[String] 
   val tierLocalHotsetBytes = getLong(LogConfig.TierLocalHotsetBytesProp)
   val tierLocalHotsetMs = getLong(LogConfig.TierLocalHotsetMsProp)
   val tierSegmentHotsetRollMinBytes = getInt(LogConfig.TierSegmentHotsetRollMinBytesProp)
+  val segmentSpeculativePrefetchEnable = getBoolean(LogConfig.SegmentSpeculativePrefetchEnableProp)
 
   val appendRecordInterceptors = getConfiguredInstances(LogConfig.AppendRecordInterceptorClassesProp, classOf[RecordInterceptor])
   val topicPlacementConstraints: TopicPlacement = {
@@ -196,6 +198,7 @@ object LogConfig {
   val KeySchemaValidationEnableProp = ConfluentTopicConfig.KEY_SCHEMA_VALIDATION_CONFIG
   val ValueSchemaValidationEnableProp = ConfluentTopicConfig.VALUE_SCHEMA_VALIDATION_CONFIG
   val TopicPlacementConstraintsProp = ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG
+  val SegmentSpeculativePrefetchEnableProp = ConfluentTopicConfig.SEGMENT_SPECULATIVE_PREFETCH_ENABLE_CONFIG
 
   // Leave these out of TopicConfig for now as they are replication quota configs
   val LeaderReplicationThrottledReplicasProp = "leader.replication.throttled.replicas"
@@ -231,6 +234,7 @@ object LogConfig {
   val AppendRecordInterceptorClassesDoc = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG_DOC
   val TopicPlacementConstraintsDoc = ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_DOC
   val TierSegmentHotsetRollMinBytesDoc = ConfluentTopicConfig.TIER_SEGMENT_HOTSET_ROLL_MIN_BYTES_CONFIG_DOC
+  val SegmentSpeculativePrefetchEnableDoc = ConfluentTopicConfig.SEGMENT_SPECULATIVE_PREFETCH_ENABLE_DOC
 
   val LeaderReplicationThrottledReplicasDoc = "A list of replicas for which log replication should be throttled on " +
     "the leader side. The list should describe a set of replicas in the form " +
@@ -400,6 +404,8 @@ object LogConfig {
       .defineInternal(TierLocalHotsetBytesProp, LONG, Defaults.TierLocalHotsetBytes, MEDIUM, TierLocalHotsetBytesDoc, KafkaConfig.TierLocalHotsetBytesProp)
       .defineInternal(TierLocalHotsetMsProp, LONG, Defaults.TierLocalHotsetMs, MEDIUM, TierLocalHotsetMsDoc, KafkaConfig.TierLocalHotsetMsProp)
       .defineInternal(AppendRecordInterceptorClassesProp, LIST, Collections.emptyList(), LOW, AppendRecordInterceptorClassesDoc, AppendRecordInterceptorClassesProp)
+      .defineInternal(SegmentSpeculativePrefetchEnableProp, BOOLEAN, Defaults.SegmentSpeculativePrefetchEnable, LOW,
+        SegmentSpeculativePrefetchEnableDoc, KafkaConfig.SegmentSpeculativePrefetchEnableProp)
 
     /* --- End Internal Configurations --- */
   }
@@ -492,7 +498,8 @@ object LogConfig {
     TierLocalHotsetBytesProp -> KafkaConfig.TierLocalHotsetBytesProp,
     TierLocalHotsetMsProp -> KafkaConfig.TierLocalHotsetMsProp,
     TierSegmentHotsetRollMinBytesProp -> KafkaConfig.TierSegmentHotsetRollMinBytesProp,
-    AppendRecordInterceptorClassesProp -> KafkaConfig.AppendRecordInterceptorClassesProp
+    AppendRecordInterceptorClassesProp -> KafkaConfig.AppendRecordInterceptorClassesProp,
+    SegmentSpeculativePrefetchEnableProp -> KafkaConfig.SegmentSpeculativePrefetchEnableProp
   )
 
 }

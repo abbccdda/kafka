@@ -236,6 +236,9 @@ object Defaults {
   val MaxIncrementalFetchSessionCacheSlots = 1000
   val FetchMaxBytes = 55 * 1024 * 1024
 
+  /** Segment speculative prefetching optimization **/
+  val SegmentSpeculativePrefetchEnable = false
+
   /** ********* Quota Configuration ***********/
   val ProducerQuotaBytesPerSecondDefault = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
   val ConsumerQuotaBytesPerSecondDefault = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
@@ -517,6 +520,9 @@ object KafkaConfig {
   /** Observer configs **/
   val ObserverFeatureProp = ConfluentPrefix + "observer.feature"
 
+  /** Segment speculative prefetching optimization **/
+  val SegmentSpeculativePrefetchEnableProp = ConfluentPrefix + "segment.speculative.prefetch.enable"
+
   /** ********* Interceptor Configurations ***********/
   val AppendRecordInterceptorClassesProp = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG
   val BrokerInterceptorClassProp = ConfluentConfigs.BROKER_INTERCEPTOR_CLASS_CONFIG
@@ -785,7 +791,8 @@ object KafkaConfig {
     "implement the <code>org.apache.kafka.server.policy.CreateTopicPolicy</code> interface."
   val AlterConfigPolicyClassNameDoc = "The alter configs policy class that should be used for validation. The class should " +
     "implement the <code>org.apache.kafka.server.policy.AlterConfigPolicy</code> interface."
-  val LogMessageDownConversionEnableDoc = TopicConfig.MESSAGE_DOWNCONVERSION_ENABLE_DOC;
+  val LogMessageDownConversionEnableDoc = TopicConfig.MESSAGE_DOWNCONVERSION_ENABLE_DOC
+
 
   /** ********* Replication configuration ***********/
   val ControllerSocketTimeoutMsDoc = "The socket timeout for controller-to-broker channels"
@@ -852,7 +859,7 @@ object KafkaConfig {
   val OffsetCommitRequiredAcksDoc = "The required acks before the commit can be accepted. In general, the default (-1) should not be overridden"
   /** ********* Transaction management configuration ***********/
   val TransactionalIdExpirationMsDoc = "The time in ms that the transaction coordinator will wait without receiving any transaction status updates " +
-    "for the current transaction before expiring its transactional id. This setting also influences producer id expiration - producer ids are expired " + 
+    "for the current transaction before expiring its transactional id. This setting also influences producer id expiration - producer ids are expired " +
     "once this time has elapsed after the last write with the given producer id. Note that producer ids may expire sooner if the last write from the producer id is deleted due to the topic's retention settings."
   val TransactionsMaxTimeoutMsDoc = "The maximum allowed timeout for transactions. " +
     "If a client’s requested transaction time exceed this, then the broker will return an error in InitProducerIdRequest. This prevents a client from too large of a timeout, which can stall consumers reading from topics included in the transaction."
@@ -919,6 +926,9 @@ object KafkaConfig {
   /** ********* Fetch Configuration **************/
   val MaxIncrementalFetchSessionCacheSlotsDoc = "The maximum number of incremental fetch sessions that we will maintain."
   val FetchMaxBytesDoc = "The maximum number of bytes we will return for a fetch request. Must be at least 1024."
+
+  /** Segment speculative prefetching optimization **/
+  val SegmentSpeculativePrefetchEnableDoc = ConfluentTopicConfig.SEGMENT_SPECULATIVE_PREFETCH_ENABLE_DOC
 
   /** ********* Quota Configuration ***********/
   val ProducerQuotaBytesPerSecondDefaultDoc = "DEPRECATED: Used only when dynamic default quotas are not configured for <user>, <client-id> or <user, client-id> in Zookeeper. " +
@@ -1224,6 +1234,9 @@ object KafkaConfig {
       /** ********* Fetch Configuration **************/
       .define(MaxIncrementalFetchSessionCacheSlots, INT, Defaults.MaxIncrementalFetchSessionCacheSlots, atLeast(0), MEDIUM, MaxIncrementalFetchSessionCacheSlotsDoc)
       .define(FetchMaxBytes, INT, Defaults.FetchMaxBytes, atLeast(1024), MEDIUM, FetchMaxBytesDoc)
+
+      /** ********* Segment speculative prefetching optimization **************/
+      .defineInternal(SegmentSpeculativePrefetchEnableProp, BOOLEAN, Defaults.SegmentSpeculativePrefetchEnable, MEDIUM, SegmentSpeculativePrefetchEnableDoc)
 
       /** ********* Kafka Metrics Configuration ***********/
       .define(MetricNumSamplesProp, INT, Defaults.MetricNumSamples, atLeast(1), LOW, MetricNumSamplesDoc)
@@ -1613,6 +1626,9 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
 
   /** ********* Interceptor Configuration ***********/
   val observerFeature = getBoolean(KafkaConfig.ObserverFeatureProp)
+
+  /** ********* Segment speculative prefetching optimization ***********/
+  def segmentSpeculativePrefetchEnable = getBoolean(KafkaConfig.SegmentSpeculativePrefetchEnableProp)
 
   /** ********* Interceptor Configuration ***********/
   val appendRecordInterceptors = getConfiguredInstances(KafkaConfig.AppendRecordInterceptorClassesProp, classOf[RecordInterceptor])
