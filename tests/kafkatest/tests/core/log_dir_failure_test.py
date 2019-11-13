@@ -66,13 +66,11 @@ class LogDirFailureTest(ProduceConsumeValidateTest):
         self.kafka = KafkaService(test_context,
                                   num_nodes=3,
                                   zk=self.zk,
-                                  topics={
-                                      self.topic1: {"partitions": 1, "replication-factor": 3, "configs": {"min.insync.replicas": 1}},
-                                      self.topic2: {"partitions": 1, "replication-factor": 3, "configs": {"min.insync.replicas": 2}}
-                                  },
                                   # Set log.roll.ms to 3 seconds so that broker will detect disk error sooner when it creates log segment
                                   # Otherwise broker will still be able to read/write the log file even if the log directory is inaccessible.
                                   server_prop_overides=[
+                                      ["confluent.license.topic.replication.factor", "3"],
+                                      ["confluent.license.topic.min.insync.replicas", "1"],
                                       [config_property.OFFSETS_TOPIC_NUM_PARTITIONS, "1"],
                                       [config_property.LOG_FLUSH_INTERVAL_MESSAGE, "5"],
                                       [config_property.REPLICA_HIGHWATERMARK_CHECKPOINT_INTERVAL_MS, "60000"],
@@ -109,7 +107,17 @@ class LogDirFailureTest(ProduceConsumeValidateTest):
 
         self.kafka.security_protocol = security_protocol
         self.kafka.interbroker_security_protocol = security_protocol
-        self.kafka.start()
+        self.kafka.start_concurrently()
+
+        # Partitions are allocated on DATA_LOG_DIR_1 and DATA_LOG_DIR_2. Wait for license topic to be created on DATA_LOG_DIR_1.
+        # And then create the test topics which will be on DATA_LOG_DIR_2 and DATA_LOG_DIR_1. Consumer offsets topic created later
+        # will be on DATA_LOG_DIR_2. Note that these directory allocations are different from AK where there is no license topic.
+        wait_until(lambda:  path_exists(self.kafka.nodes[0], KafkaService.DATA_LOG_DIR_1 + "/_confluent-license-0"),
+                   timeout_sec=60, err_msg="License topic not created")
+        self.kafka.create_topic({"topic" : self.topic1, "partitions": 1, "replication-factor": 3, "configs": {"min.insync.replicas": 1}})
+        self.kafka.create_topic({"topic" : self.topic2, "partitions": 1, "replication-factor": 3, "configs": {"min.insync.replicas": 2}})
+        topic_1_log_dir = KafkaService.DATA_LOG_DIR_2
+        topic_2_log_dir = KafkaService.DATA_LOG_DIR_1
 
         try:
             # Initialize producer/consumer for topic2
@@ -127,14 +135,14 @@ class LogDirFailureTest(ProduceConsumeValidateTest):
                    "Broker %d should be in isr set %s" % (broker_idx, str(self.kafka.isr_idx_list(self.topic2)))
 
             # Verify that topic1 and the consumer offset topic is in the first log directory and topic2 is in the second log directory
-            topic_1_partition_0 = KafkaService.DATA_LOG_DIR_1 + "/test_topic_1-0"
-            topic_2_partition_0 = KafkaService.DATA_LOG_DIR_2 + "/test_topic_2-0"
-            offset_topic_partition_0 = KafkaService.DATA_LOG_DIR_1 + "/__consumer_offsets-0"
+            topic_1_partition_0 = topic_1_log_dir + "/test_topic_1-0"
+            topic_2_partition_0 = topic_2_log_dir + "/test_topic_2-0"
+            offset_topic_partition_0 = topic_1_log_dir + "/__consumer_offsets-0"
             for path in [topic_1_partition_0, topic_2_partition_0, offset_topic_partition_0]:
                 assert path_exists(broker_node, path), "%s should exist" % path
 
-            self.logger.debug("Making log dir %s inaccessible" % (KafkaService.DATA_LOG_DIR_2))
-            cmd = "chmod a-w %s -R" % (KafkaService.DATA_LOG_DIR_2)
+            self.logger.debug("Making log dir %s inaccessible" % (topic_2_log_dir))
+            cmd = "chmod a-w %s -R" % (topic_2_log_dir)
             broker_node.account.ssh(cmd, allow_fail=False)
 
             if bounce_broker:
