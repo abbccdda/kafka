@@ -41,6 +41,7 @@ class IsrExpirationTest {
   val replicaLagTimeMaxMs = 100L
   val replicaFetchWaitMaxMs = 100
   val leaderLogEndOffset = 20
+  val leaderLogHighWatermark = 20L
 
   val overridingProps = new Properties()
   overridingProps.put(KafkaConfig.ReplicaLagTimeMaxMsProp, replicaLagTimeMaxMs.toString)
@@ -102,7 +103,8 @@ class IsrExpirationTest {
         followerFetchOffsetMetadata = LogOffsetMetadata(leaderLogEndOffset - 1),
         followerStartOffset = 0L,
         followerFetchTimeMs= time.milliseconds,
-        leaderEndOffset = leaderLogEndOffset)
+        leaderEndOffset = leaderLogEndOffset,
+        lastSentHighwatermark = partition0.localLogOrException.highWatermark)
     var partition0OSR = partition0.getOutOfSyncReplicas(configs.head.replicaLagTimeMaxMs)
     assertEquals("No replica should be out of sync", Set.empty[Int], partition0OSR)
 
@@ -151,7 +153,8 @@ class IsrExpirationTest {
         followerFetchOffsetMetadata = LogOffsetMetadata(leaderLogEndOffset - 2),
         followerStartOffset = 0L,
         followerFetchTimeMs= time.milliseconds,
-        leaderEndOffset = leaderLogEndOffset)
+        leaderEndOffset = leaderLogEndOffset,
+        lastSentHighwatermark = partition0.localLogOrException.highWatermark)
 
     // Simulate 2 fetch requests spanning more than 100 ms which do not read to the end of the log.
     // The replicas will no longer be in ISR. We do 2 fetches because we want to simulate the case where the replica is lagging but is not stuck
@@ -165,7 +168,8 @@ class IsrExpirationTest {
         followerFetchOffsetMetadata = LogOffsetMetadata(leaderLogEndOffset - 1),
         followerStartOffset = 0L,
         followerFetchTimeMs= time.milliseconds,
-        leaderEndOffset = leaderLogEndOffset)
+        leaderEndOffset = leaderLogEndOffset,
+        lastSentHighwatermark = partition0.localLogOrException.highWatermark)
     }
     partition0OSR = partition0.getOutOfSyncReplicas(configs.head.replicaLagTimeMaxMs)
     assertEquals("No replica should be out of sync", Set.empty[Int], partition0OSR)
@@ -182,7 +186,8 @@ class IsrExpirationTest {
         followerFetchOffsetMetadata = LogOffsetMetadata(leaderLogEndOffset),
         followerStartOffset = 0L,
         followerFetchTimeMs= time.milliseconds,
-        leaderEndOffset = leaderLogEndOffset)
+        leaderEndOffset = leaderLogEndOffset,
+        lastSentHighwatermark = partition0.localLogOrException.highWatermark)
     }
     partition0OSR = partition0.getOutOfSyncReplicas(configs.head.replicaLagTimeMaxMs)
     assertEquals("No replica should be out of sync", Set.empty[Int], partition0OSR)
@@ -207,7 +212,8 @@ class IsrExpirationTest {
         followerFetchOffsetMetadata = LogOffsetMetadata(leaderLogEndOffset),
         followerStartOffset = 0L,
         followerFetchTimeMs= time.milliseconds,
-        leaderEndOffset = leaderLogEndOffset)
+        leaderEndOffset = leaderLogEndOffset,
+        lastSentHighwatermark = partition0.localLogOrException.highWatermark)
 
     var partition0OSR = partition0.getOutOfSyncReplicas(configs.head.replicaLagTimeMaxMs)
     assertEquals("No replica should be out of sync", Set.empty[Int], partition0OSR)
@@ -242,7 +248,8 @@ class IsrExpirationTest {
         followerFetchOffsetMetadata = LogOffsetMetadata(0L),
         followerStartOffset = 0L,
         followerFetchTimeMs= time.milliseconds,
-        leaderEndOffset = 0L)
+        leaderEndOffset = 0L,
+        lastSentHighwatermark = partition.localLogOrException.highWatermark)
 
     // set the leader and its hw and the hw update time
     partition.leaderReplicaIdOpt = Some(leaderId)
@@ -254,7 +261,7 @@ class IsrExpirationTest {
     EasyMock.expect(log.dir).andReturn(TestUtils.tempDir()).anyTimes()
     EasyMock.expect(log.logEndOffsetMetadata).andReturn(LogOffsetMetadata(leaderLogEndOffset)).anyTimes()
     EasyMock.expect(log.logEndOffset).andReturn(leaderLogEndOffset).anyTimes()
-    EasyMock.expect(log.config).andReturn(LogConfig(new Properties)).anyTimes()
+    EasyMock.expect(log.highWatermark).andReturn(leaderLogHighWatermark).anyTimes()
     EasyMock.replay(log)
     log
   }

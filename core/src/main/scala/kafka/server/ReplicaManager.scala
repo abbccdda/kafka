@@ -1086,16 +1086,6 @@ class ReplicaManager(val config: KafkaConfig,
         tierLogReadResultMap.put(topicPartition, tierLogReadResult)
     }
 
-    // Wrap the given callback function with another function that will update the HW for the remote follower
-    def maybeUpdateHwAndSendResponse(fetchPartitionData: Seq[(TopicPartition, FetchPartitionData)]): Unit = {
-      if (isFromFollower) {
-        fetchPartitionData.foreach {
-          case (tp, partitionData) => updateFollowerHighWatermark(tp, replicaId, partitionData.highWatermark)
-        }
-      }
-      responseCallback(fetchPartitionData)
-    }
-
     // respond immediately if 1) fetch request does not want to wait
     //                        2) fetch request does not require any data
     //                        3) fetch request does not require any tiered data and has enough data available in local store to respond
@@ -1113,7 +1103,7 @@ class ReplicaManager(val config: KafkaConfig,
           result.lastStableOffset, result.info.abortedTransactions, result.preferredReadReplica,
           isFromFollower && isAddingReplica(tp, replicaId))
       }
-      maybeUpdateHwAndSendResponse(fetchPartitionData)
+      responseCallback(fetchPartitionData)
     } else {
       val tierFetchPartitionStatusList = mergeIntoFetchPartitionStatusList(fetchInfos, tierLogReadResultMap)
       val localFetchPartitionStatusList = mergeIntoFetchPartitionStatusList(fetchInfos, localLogReadResultMap)
@@ -1126,7 +1116,7 @@ class ReplicaManager(val config: KafkaConfig,
           fetchIsolation, isFromFollower, replicaId, localFetchPartitionStatusList)
 
         val delayedFetch = new DelayedFetch(timeout, localFetchMetadata, this, quota, None,
-          clientMetadata, brokerTopicStats, maybeUpdateHwAndSendResponse)
+          clientMetadata, brokerTopicStats, responseCallback)
 
         // try to complete the request immediately, otherwise put it into the purgatory;
         // this is because while the delayed fetch operation is being created, new requests
@@ -1152,7 +1142,7 @@ class ReplicaManager(val config: KafkaConfig,
         val tierAndLocalFetchMetadata = SFetchMetadata(fetchMinBytes, fetchMaxBytes, hardMaxBytesLimit, fetchOnlyFromLeader,
           fetchIsolation, isFromFollower, replicaId, localFetchPartitionStatusList ++ tierFetchPartitionStatusList)
         val delayedFetch = new DelayedFetch(boundedTimeout, tierAndLocalFetchMetadata, this, quota, Some(pendingFetch),
-          clientMetadata, brokerTopicStats, maybeUpdateHwAndSendResponse)
+          clientMetadata, brokerTopicStats, responseCallback)
         // Gather up all of the fetchInfos
         delayedFetchPurgatory.tryCompleteElseWatch(delayedFetch, delayedFetchKeys)
       }
@@ -1856,12 +1846,13 @@ class ReplicaManager(val config: KafkaConfig,
                   followerFetchOffsetMetadata = readResult.info.fetchOffsetMetadata,
                   followerStartOffset = readResult.followerLogStartOffset,
                   followerFetchTimeMs = readResult.fetchTimeMs,
-                  leaderEndOffset = readResult.leaderLogEndOffset)) {
+                  leaderEndOffset = readResult.leaderLogEndOffset,
+                  lastSentHighwatermark = readResult.highWatermark)) {
                   readResult
                 } else {
                   warn(s"Leader $localBrokerId failed to record follower $followerId's position " +
-                    s"${readResult.info.fetchOffsetMetadata.messageOffset} since the replica is not recognized to be " +
-                    s"one of the assigned replicas ${partition.assignmentState.replicas.mkString(",")} " +
+                    s"${readResult.info.fetchOffsetMetadata.messageOffset}, and last sent HW since the replica " +
+                    s"is not recognized to be one of the assigned replicas ${partition.assignmentState.replicas.mkString(",")} " +
                     s"for partition $topicPartition. Empty records will be returned for this partition.")
                   readResult.withEmptyFetchInfo
                 }
@@ -1889,17 +1880,7 @@ class ReplicaManager(val config: KafkaConfig,
     }
   }
 
-
-  private def updateFollowerHighWatermark(topicPartition: TopicPartition, followerId: Int, highWatermark: Long): Unit = {
-    nonOfflinePartition(topicPartition).flatMap(_.getReplica(followerId)) match {
-      case Some(replica) => replica.updateLastSentHighWatermark(highWatermark)
-      case None =>
-        warn(s"While updating the HW for follower $followerId for partition $topicPartition, " +
-          s"the replica could not be found.")
-    }
-  }
-
-  def leaderPartitionsIterator: Iterator[Partition] =
+ def leaderPartitionsIterator: Iterator[Partition] =
     nonOfflinePartitionsIterator.filter(_.leaderLogIfLocal.isDefined)
 
   def getLogEndOffset(topicPartition: TopicPartition): Option[Long] =
