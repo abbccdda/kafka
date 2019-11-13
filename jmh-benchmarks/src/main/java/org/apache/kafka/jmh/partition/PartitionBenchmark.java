@@ -209,9 +209,9 @@ public class PartitionBenchmark {
     public void updateFollowerFetchStateBench() {
         // measure the impact of two follower fetches on the leader
         partition.updateFollowerFetchState(1, new LogOffsetMetadata(nextOffset, nextOffset, 0),
-                0, 1, nextOffset);
+                0, 1, nextOffset, nextOffset);
         partition.updateFollowerFetchState(2, new LogOffsetMetadata(nextOffset, nextOffset, 0),
-                0, 1, nextOffset);
+                0, 1, nextOffset, nextOffset);
         nextOffset++;
     }
 
@@ -221,9 +221,9 @@ public class PartitionBenchmark {
         // measure the impact of two follower fetches on the leader when the follower didn't
         // end up fetching anything
         partition.updateFollowerFetchState(1, new LogOffsetMetadata(nextOffset, nextOffset, 0),
-                0, 1, 100);
+                0, 1, 100, nextOffset);
         partition.updateFollowerFetchState(2, new LogOffsetMetadata(nextOffset, nextOffset, 0),
-                0, 1, 100);
+                0, 1, 100, nextOffset);
     }
 
     @Benchmark

@@ -1869,7 +1869,8 @@ class PartitionTest {
         LogOffsetMetadata(0L),
         followerStartOffset = 0L,
         followerFetchTimeMs = time.milliseconds(),
-        leaderEndOffset = 0L)
+        leaderEndOffset = 0L,
+        partition.localLogOrException.highWatermark)
 
       assertEquals(Set(observerId1, observerId2), partition.assignmentState.observers)
       assertEquals(expectedIsr.toSet, partition.inSyncReplicaIds)
@@ -1917,7 +1918,8 @@ class PartitionTest {
       LogOffsetMetadata(0L),
       followerStartOffset = 0L,
       followerFetchTimeMs = time.milliseconds(),
-      leaderEndOffset = 0L)
+      leaderEndOffset = 0L,
+      partition.localLogOrException.highWatermark)
 
     assertEquals(Set(observerId1, observerId2), partition.assignmentState.observers)
     assertEquals(Set(syncReplicaId1, syncReplicaId2), partition.inSyncReplicaIds)
@@ -1964,7 +1966,8 @@ class PartitionTest {
       LogOffsetMetadata(0L),
       followerStartOffset = 0L,
       followerFetchTimeMs = time.milliseconds(),
-      leaderEndOffset = 0L)
+      leaderEndOffset = 0L,
+      partition.localLogOrException.highWatermark)
 
     assertEquals(Set(observerId1, observerId2), partition.assignmentState.observers)
     assertEquals(Set(syncReplicaId1, syncReplicaId2), partition.inSyncReplicaIds)
