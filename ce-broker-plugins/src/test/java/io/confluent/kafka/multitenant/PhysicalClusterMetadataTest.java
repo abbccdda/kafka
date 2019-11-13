@@ -426,13 +426,21 @@ public class PhysicalClusterMetadataTest {
         "Expected metadata of 'lkc-abc' logical cluster to be present in metadata cache");
     quotaCallback.updateClusterMetadata(quotaCallback.cluster());
 
-    // verify quotas are also updated
+    // verify quotas are also updated. Tenant quota and cluster metadata may be updated in any order
+    // since updates are on different threads. If tenant quota is updated first, quota is set
+    // to min quota followed by tenantQuota/numBrokers. If cluster metadata is updated first, quota
+    // is set to unlimited quota followed by tenantQuota/numBrokers.
     Map<String, String> tags = Collections.singletonMap("tenant", LC_META_ABC.logicalClusterId());
     TestUtils.waitForCondition(
         () -> quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, tags) >
               TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE,
         TEST_MAX_WAIT_MS,
-        "Expected unlimited quota for tenant with no quota");
+        "Tenant quota not configured within timeout, expected to be greater than min quota");
+    TestUtils.waitForCondition(
+        () -> quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, tags) <
+              QuotaConfig.UNLIMITED_QUOTA.quota(ClientQuotaType.PRODUCE),
+        TEST_MAX_WAIT_MS,
+        "Tenant quota not configured within timeout, expected to be lower than unlimited quota");
 
     assertEquals(10240000L / numBrokers,
                  quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, tags), 0.001);
