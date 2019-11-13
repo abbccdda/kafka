@@ -77,23 +77,46 @@ abstract class ClusterTestCommon {
       PolicyType policyType) {
     boolean success = true;
     if (!userName.equals(entry.getAuthenticationInfo().getPrincipal())) {
-      log.debug("{} != {}", userName, entry.getAuthenticationInfo().getPrincipal());
+      log.info("{} != {}", userName, entry.getAuthenticationInfo().getPrincipal());
       success = false;
     }
     if (!resourceName.equals(entry.getResourceName())) {
-      log.debug("{} != {}", resourceName, entry.getResourceName());
+      log.info("{} != {}", resourceName, entry.getResourceName());
       success = false;
     }
     if (!operation.equals(entry.getMethodName())) {
-      log.debug("{} != {}", operation, entry.getMethodName());
+      log.info("{} != {}", operation, entry.getMethodName());
       success = false;
     }
     if ((result == AuthorizeResult.ALLOWED) != entry.getAuthorizationInfo().getGranted()) {
-      log.debug("{} != {}", result, entry.getAuthorizationInfo().getGranted());
+      log.info("{} != {}", result, entry.getAuthorizationInfo().getGranted());
       success = false;
+    }
+    if (success) {
+      switch (policyType) {
+        case ALLOW_ROLE:
+          if (entry.getAuthorizationInfo().getRbacAuthorization().getRole().isEmpty()) {
+            log.info("Role is empty for " + entry.getMethodName());
+            success = false;
+          }
+          break;
+        case ALLOW_ACL:
+          if (entry.getAuthorizationInfo().getAclAuthorization().getHost().isEmpty()) {
+            log.info("Host is empty for " + entry.getMethodName());
+            success = false;
+          }
+          break;
+        case SUPER_USER:
+          if (!entry.getAuthorizationInfo().getSuperUserAuthorization()) {
+            log.info("Not superuser for " + entry.getMethodName());
+            success = false;
+          }
+          break;
+      }
     }
     return success;
   }
+
 
   private static Map<String, Object> asMap(Headers kafkaHeaders) {
     return StreamSupport.stream(kafkaHeaders.spliterator(), Boolean.FALSE)
@@ -117,7 +140,7 @@ abstract class ClusterTestCommon {
 
           AuditLogEntry entry = value.getData().get();
           if (predicates.get(i).test(entry)) {
-            log.debug("CloudEvent matched: " + CloudEventUtils.toJsonString(value));
+            log.info("CloudEvent matched: " + CloudEventUtils.toJsonString(value));
             i++;
             if (i >= predicates.size()) {
               return true;
@@ -237,7 +260,7 @@ abstract class ClusterTestCommon {
     // Verify RBAC authorization logs
     // consumer
     rbacClusters.produceConsume(RESOURCE_OWNER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
-    assertTrue(eventsMatched(consumer, 30000, Arrays.asList(
+    assertTrue(eventsMatched(consumer, 60000, Arrays.asList(
         // group
         e -> match(e, "User:" + RESOURCE_OWNER1, app1GroupCrn, "kafka.JoinGroup",
             AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE),

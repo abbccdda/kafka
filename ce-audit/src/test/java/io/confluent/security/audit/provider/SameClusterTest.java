@@ -134,6 +134,34 @@ public class SameClusterTest extends ClusterTestCommon {
   }
 
   @Test
+  public void testSuperuser() throws Throwable {
+    // Don't configure anything about audit logs. They should be on by default,
+    // they should send the logs to the local cluster. They should include management
+    // messages only
+    rbacClusters = new RbacClusters(rbacConfig);
+
+    initializeClusters();
+    TestUtils.waitForCondition(() -> auditLoggerReady(), "auditLoggerReady");
+
+    consumer("event-log");
+
+    rbacClusters.clientBuilder(BROKER_USER).buildAdminClient()
+        .createTopics(Collections.singleton(new NewTopic(APP3_TOPIC, 1, (short) 1)));
+
+    String app3TopicCrn = ConfluentResourceName.newBuilder()
+        .addElement("kafka", rbacClusters.kafkaClusterId())
+        .addElement("topic", APP3_TOPIC)
+        .build()
+        .toString();
+
+    assertTrue(eventsMatched(consumer, 30000, Collections.singletonList(
+        e -> match(e, "User:" + BROKER_USER, app3TopicCrn, "kafka.CreateTopics",
+            AuthorizeResult.ALLOWED, AuthorizePolicy.PolicyType.SUPER_USER)
+    )));
+  }
+
+
+  @Test
   public void testProduceConsume() throws Throwable {
 
     rbacConfig.overrideBrokerConfig(

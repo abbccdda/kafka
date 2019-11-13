@@ -192,7 +192,7 @@ public class KafkaExporter implements Exporter {
         log.trace("Exception while checking for event log partitions", e);
       }
       if (!partitionInfo.isEmpty()) {
-        log.info("Event log topic {} is ready with {} partitions", route, partitionInfo.size());
+        log.debug("Event log topic {} is ready with {} partitions", route, partitionInfo.size());
         return true;
       }
     }

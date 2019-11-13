@@ -64,7 +64,6 @@ public class AuditLogUtils {
         .setResourceType(action.resourcePattern().resourceType().toString())
         .setResourceName(action.resourcePattern().name())
         .setPatternType(action.resourcePattern().patternType().toString());
-    builder.setAuthorizationInfo(authorizationBuilder);
 
     switch (authorizePolicy.policyType()) {
       case SUPER_USER:
@@ -96,6 +95,8 @@ public class AuditLogUtils {
       case ALLOW_ON_NO_RULE:
         break;
     }
+
+    builder.setAuthorizationInfo(authorizationBuilder);
 
     Struct.Builder requestBuilder = Struct.newBuilder()
         .putFields("correlation_id", Value.newBuilder()
