@@ -1,0 +1,17 @@
+---
+version: v1.0
+name: ce-kefka
+agent:
+  machine:
+    type: e1-standard-2
+    os_image: ubuntu1804
+blocks:
+  - name: dummy (always successful)
+    dependencies: []
+    task:
+      jobs:
+        - name: success
+          commands:
+            # can't be just true, as semaphore yaml parser would parse
+            # it as a boolean.
+            - /bin/true
