@@ -153,6 +153,9 @@ abstract class ClusterTestCommon {
         }
       }
     }
+    if (i < predicates.size()) {
+      log.error("eventsMatched failed at " + i);
+    }
     return i >= predicates.size();
   }
 
@@ -258,27 +261,20 @@ abstract class ClusterTestCommon {
         .toString();
 
     // Verify RBAC authorization logs
-    // consumer
+    // consumer group
     rbacClusters.produceConsume(RESOURCE_OWNER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
-    assertTrue(eventsMatched(consumer, 60000, Arrays.asList(
-        // group
+    assertTrue(eventsMatched(consumer, 10000, Collections.singletonList(
         e -> match(e, "User:" + RESOURCE_OWNER1, app1GroupCrn, "kafka.JoinGroup",
-            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE),
-        e -> match(e, "User:" + RESOURCE_OWNER1, app1GroupCrn, "kafka.SyncGroup",
-            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE),
-        // topic
-        e -> match(e, "User:" + RESOURCE_OWNER1, app1TopicCrn, "kafka.OffsetFetch",
-            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE),
-        e -> match(e, "User:" + RESOURCE_OWNER1, app1TopicCrn, "kafka.ListOffsets",
-            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE),
-        e -> match(e, "User:" + RESOURCE_OWNER1, app1TopicCrn, "kafka.FetchConsumer",
-            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE),
-        // group
-        e -> match(e, "User:" + RESOURCE_OWNER1, app1GroupCrn, "kafka.OffsetCommit",
-            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE),
-        e -> match(e, "User:" + RESOURCE_OWNER1, app1GroupCrn, "kafka.LeaveGroup",
             AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE)
     )));
+
+    // consumer topic
+    rbacClusters.produceConsume(RESOURCE_OWNER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
+    assertTrue(eventsMatched(consumer, 10000, Collections.singletonList(
+        e -> match(e, "User:" + RESOURCE_OWNER1, app1TopicCrn, "kafka.FetchConsumer",
+            AuthorizeResult.ALLOWED, PolicyType.ALLOW_ROLE)
+    )));
+
     // producer
     rbacClusters.produceConsume(RESOURCE_OWNER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
     assertTrue(eventsMatched(consumer, 10000, Collections.singletonList(
