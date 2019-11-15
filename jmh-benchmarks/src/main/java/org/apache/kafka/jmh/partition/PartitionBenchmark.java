@@ -34,7 +34,6 @@ import kafka.server.MetadataCache;
 import kafka.server.checkpoints.OffsetCheckpoints;
 import kafka.utils.KafkaScheduler;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.config.ConfluentTopicConfig;
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState;
 import org.apache.kafka.common.message.UpdateMetadataRequestData.UpdateMetadataBroker;
 import org.apache.kafka.common.message.UpdateMetadataRequestData.UpdateMetadataPartitionState;
@@ -60,6 +59,7 @@ import scala.collection.JavaConverters;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
@@ -88,7 +88,7 @@ public class PartitionBenchmark {
     public void setUp() {
         boolean observerFeature = Boolean.parseBoolean(observerFeatureStr);
         scheduler.startup();
-        LogConfig logConfig = createLogConfig(observerFeature);
+        LogConfig logConfig = createLogConfig();
         List<File> logDirs = Collections.singletonList(logDir);
         logManager = new LogManager(JavaConverters.asScalaIteratorConverter(logDirs.iterator()).asScala().toSeq(),
                 JavaConverters.asScalaIteratorConverter(new ArrayList<File>().iterator()).asScala().toSeq(),
@@ -117,7 +117,7 @@ public class PartitionBenchmark {
         replicas.add(0);
         replicas.add(1);
         replicas.add(2);
-        LeaderAndIsrPartitionState partitionState = new LeaderAndIsrPartitionState()
+        LeaderAndIsrPartitionState leaderAndIsr = new LeaderAndIsrPartitionState()
             .setTopicName(topicPartition.topic())
             .setPartitionIndex(topicPartition.partition())
             .setControllerEpoch(0)
@@ -128,35 +128,40 @@ public class PartitionBenchmark {
             .setReplicas(replicas)
             .setIsNew(true);
 
+        if (observerFeature) {
+            leaderAndIsr.setObservers(Arrays.asList(2));
+        }
+
         List<UpdateMetadataBroker> brokers = new ArrayList<>();
         brokers.add(new UpdateMetadataBroker()
             .setId(0)
-            .setEndpoints(Collections.emptyList())
-            .setRack("rack-a"));
+            .setEndpoints(Collections.emptyList()));
         brokers.add(new UpdateMetadataBroker()
             .setId(1)
-            .setEndpoints(Collections.emptyList())
-            .setRack("rack-a"));
+            .setEndpoints(Collections.emptyList()));
         brokers.add(new UpdateMetadataBroker()
             .setId(2)
-            .setEndpoints(Collections.emptyList())
-            .setRack("rack-b"));
+            .setEndpoints(Collections.emptyList()));
 
         MetadataCache metadataCache = new MetadataCache(0);
-        List<UpdateMetadataPartitionState> partitionStates = Collections.singletonList(
-            new UpdateMetadataPartitionState()
-                .setTopicName(topicPartition.topic())
-                .setPartitionIndex(topicPartition.partition())
-                .setControllerEpoch(0)
-                .setLeader(0)
-                .setLeaderEpoch(0)
-                .setIsr(replicas)
-                .setZkVersion(1)
-                .setReplicas(replicas)
-                .setOfflineReplicas(Collections.emptyList()));
+        UpdateMetadataPartitionState updateMetadata = new UpdateMetadataPartitionState()
+            .setTopicName(topicPartition.topic())
+            .setPartitionIndex(topicPartition.partition())
+            .setControllerEpoch(0)
+            .setLeader(0)
+            .setLeaderEpoch(0)
+            .setIsr(replicas)
+            .setZkVersion(1)
+            .setReplicas(replicas)
+            .setOfflineReplicas(Collections.emptyList());
+
+        if (observerFeature) {
+            updateMetadata.setObservers(Arrays.asList(2));
+        }
+
         UpdateMetadataRequest request = new UpdateMetadataRequest.Builder(
             ApiKeys.UPDATE_METADATA.latestVersion(), 0, 0, 0,
-            partitionStates, brokers).build();
+            Collections.singletonList(updateMetadata), brokers).build();
         metadataCache.updateMetadata(0, request);
         PartitionStateStore partitionStateStore = Mockito.mock(PartitionStateStore.class);
         Mockito.when(partitionStateStore.fetchTopicConfig()).thenReturn(new Properties());
@@ -164,7 +169,7 @@ public class PartitionBenchmark {
                 ApiVersion$.MODULE$.latestVersion(), 0,
                 Time.SYSTEM, partitionStateStore, delayedOperations,
                 metadataCache, logManager, Option.empty());
-        partition.makeLeader(0, partitionState, 0, offsetCheckpoints);
+        partition.makeLeader(0, leaderAndIsr, 0, offsetCheckpoints);
     }
 
     // avoid mocked DelayedOperations to avoid mocked class affecting benchmark results
@@ -185,7 +190,7 @@ public class PartitionBenchmark {
         scheduler.shutdown();
     }
 
-    private LogConfig createLogConfig(Boolean observerFeature) {
+    private LogConfig createLogConfig() {
         Properties logProps = new Properties();
         logProps.put(LogConfig.SegmentMsProp(), Defaults.SegmentMs());
         logProps.put(LogConfig.SegmentBytesProp(), Defaults.SegmentSize());
@@ -198,9 +203,6 @@ public class PartitionBenchmark {
         logProps.put(LogConfig.SegmentIndexBytesProp(), Defaults.MaxIndexSize());
         logProps.put(LogConfig.MessageFormatVersionProp(), Defaults.MessageFormatVersion());
         logProps.put(LogConfig.FileDeleteDelayMsProp(), Defaults.FileDeleteDelayMs());
-        if (observerFeature)
-            logProps.put(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, "{\"version\":1,"
-                + "\"replicas\":[{\"count\":2,\"constraints\":{\"rack\":\"rack-a\"}}],\"observers\":[{\"count\":1,\"constraints\":{\"rack\":\"rack-b\"}}]}");
         return LogConfig.apply(logProps, new scala.collection.immutable.HashSet<>());
     }
 
