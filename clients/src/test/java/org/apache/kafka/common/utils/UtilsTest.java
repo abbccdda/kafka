@@ -264,12 +264,9 @@ public class UtilsTest {
         this.subTest(buffer);
     }
 
-    /**
-     * Test to read a simple file as string.
-     */
     @Test
     public void testFileAsStringSimpleFile() throws IOException {
-        File tempFile = File.createTempFile("UtilsTestTempFlie", ".tmp");
+        File tempFile = TestUtils.tempFile();
         try {
             String testContent = "Test Content";
             Files.write(tempFile.toPath(), testContent.getBytes());
@@ -280,9 +277,10 @@ public class UtilsTest {
     }
 
     /**
-     * Test to read content of named pipe as string.
+     * Test to read content of named pipe as string. As reading/writing to a pipe can block,
+     * timeout test after a minute (test finishes within 100 ms normally).
      */
-    @Test
+    @Test(timeout = 60 * 1000)
     public void testFileAsStringNamedPipe() throws Exception {
 
         // Create a temporary name for named pipe
@@ -306,7 +304,7 @@ public class UtilsTest {
                 try {
                     Files.write(fifo.toPath(), testFileContent.getBytes());
                 } catch (IOException e) {
-                    e.printStackTrace();
+                    fail("Error when producing to fifo : " + e.getMessage());
                 }
             }, "FIFO-Producer");
             producerThread.start();
@@ -315,7 +313,7 @@ public class UtilsTest {
         } finally {
             Files.deleteIfExists(fifo.toPath());
             if (producerThread != null) {
-                producerThread.join(60 * 1000); // Wait for a min for thread to terminate
+                producerThread.join(30 * 1000); // Wait for thread to terminate
                 assertFalse(producerThread.isAlive());
             }
         }

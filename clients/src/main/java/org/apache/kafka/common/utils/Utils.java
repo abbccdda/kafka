@@ -621,7 +621,7 @@ public final class Utils {
             byte[] allBytes = Files.readAllBytes(Paths.get(path));
             return new String(allBytes, StandardCharsets.UTF_8);
         } catch (IOException ex) {
-            throw new RuntimeException("Unable to read file " + path, ex);
+            throw new IOException("Unable to read file " + path, ex);
         }
     }
 

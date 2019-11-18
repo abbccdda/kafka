@@ -12,10 +12,10 @@ import org.apache.kafka.common.utils.Exit.Procedure
 import org.junit.{After, Before}
 import org.junit.Assert
 
-class TierFeatureAdminClientIntegrationTest extends AdminClientIntegrationTest {
+class TierFeatureAdminIntegrationTest extends PlaintextAdminIntegrationTest {
   val exited = new AtomicBoolean(false)
-  override val tierFeature = true
-  override val logDirCount = 1
+  override def tierFeature = true
+  override def logDirCount = 1
   this.serverConfig.setProperty(KafkaConfig.TierFeatureProp, tierFeature.toString)
   this.serverConfig.setProperty(KafkaConfig.TierEnableProp, tierFeature.toString)
   this.serverConfig.setProperty(KafkaConfig.TierBackendProp, "mock")
