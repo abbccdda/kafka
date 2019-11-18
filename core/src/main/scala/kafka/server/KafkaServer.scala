@@ -109,15 +109,16 @@ object KafkaServer {
     // which should be fine since we do not guarantee any sharing of interceptors anyways
     logProps.put(LogConfig.AppendRecordInterceptorClassesProp, kafkaConfig.getList(KafkaConfig.AppendRecordInterceptorClassesProp))
 
+    logProps.computeIfAbsent(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG, new function.Function[String, Object] {
+      override def apply(t: String): Object = kafkaConfig.getString(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG)
+    })
+
     logProps
   }
 
   private [kafka] def augmentWithKafkaConfig(logProps: util.Map[String, Object], kafkaConfig: KafkaConfig) {
     // we augment the props with broker-level kafka configs for configuring the interceptor
     if (kafkaConfig != null) {
-      logProps.computeIfAbsent(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG, new function.Function[String, Object] {
-        override def apply(t: String): Object = kafkaConfig.getString(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG)
-      })
       logProps.computeIfAbsent(ConfluentConfigs.KEY_SUBJECT_NAME_STRATEGY_CONFIG, new function.Function[String, Object] {
         override def apply(t: String): Object = kafkaConfig.getString(ConfluentConfigs.KEY_SUBJECT_NAME_STRATEGY_CONFIG)
       })

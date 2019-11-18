@@ -37,6 +37,7 @@ import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import org.apache.kafka.common.acl.{AccessControlEntry, AclBinding, AclBindingFilter, AclOperation, AclPermissionType}
 import org.apache.kafka.common.config.{ConfigResource, LogLevelConfig}
+import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.requests.{DeleteRecordsRequest, MetadataResponse}
 import org.apache.kafka.common.resource.{PatternType, ResourcePattern, ResourceType}
@@ -346,6 +347,7 @@ class PlaintextAdminIntegrationTest extends BaseAdminIntegrationTest {
     def tierFeatureFilteredConfigCount(server: KafkaServer): Long = {
       server.config.values.keySet().asScala.filterNot(config =>
         !tierFeature && config.startsWith(KafkaConfig.ConfluentTierPrefix) ||
+        config.equals(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG) ||
         config.equals(LogConfig.AppendRecordInterceptorClassesProp)).size
     }
     // Remove Confluent configs that are not defined in KafkaConfig from described configs

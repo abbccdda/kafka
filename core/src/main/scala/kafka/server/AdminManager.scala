@@ -32,6 +32,7 @@ import org.apache.kafka.clients.admin.AlterConfigOp
 import org.apache.kafka.clients.admin.AlterConfigOp.OpType
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.ConfigDef.ConfigKey
+import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, ConfigResource, ConfluentTopicConfig, LogLevelConfig}
 import org.apache.kafka.common.errors.{ApiException, InvalidConfigurationException, InvalidPartitionsException, InvalidReplicaAssignmentException, InvalidRequestException, ReassignmentInProgressException, TopicExistsException, UnknownTopicOrPartitionException}
 import org.apache.kafka.common.internals.Topic
@@ -784,8 +785,10 @@ class AdminManager(val config: KafkaConfig,
       val tierFeatureCheck = config.tierFeature || !configName.startsWith(KafkaConfig.ConfluentTierPrefix)
       // Do not allow record interceptor classes since for now as we would only have built-in implementations
       val recordInterceptorCheck = !configName.equals(LogConfig.AppendRecordInterceptorClassesProp)
+      // Do not allow schema registry URL since that is a broker-only config
+      val schemaRegistryUrlCheck = !configName.equals(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG)
       /* Always returns true if configNames is None */
-      tierFeatureCheck && recordInterceptorCheck && configNames.forall(_.contains(configName))
+      tierFeatureCheck && recordInterceptorCheck && schemaRegistryUrlCheck && configNames.forall(_.contains(configName))
     }.toBuffer
   }
 
