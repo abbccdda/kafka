@@ -108,8 +108,8 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
   }
 
   override def backpressureEnabled: Boolean =
-    config.backpressureConfig.backpressureEnabledInConfig &&
-    config.backpressureConfig.tenantEndpointListenerNames.nonEmpty
+    dynamicBackpressureConfig.backpressureEnabledInConfig &&
+    dynamicBackpressureConfig.tenantEndpointListenerNames.nonEmpty
 
   override protected def throttleTime(clientMetric: KafkaMetric): Long = {
     math.min(super.throttleTime(clientMetric), maxThrottleTimeMs)
@@ -197,7 +197,7 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
       math.max(nonExemptCapacity, minNonExemptCapacity)
     }
 
-    val tenantEndpointsListenerNames = config.backpressureConfig.tenantEndpointListenerNames
+    val tenantEndpointsListenerNames = dynamicBackpressureConfig.tenantEndpointListenerNames
     if (quotasEnabled && tenantEndpointsListenerNames.nonEmpty) {
       val nonExemptIoThreadUsage = ThreadUsageMetrics.ioThreadsUsage(metrics, Some(NonExemptRequest))
       val ioThreadUsage = ThreadUsageMetrics.ioThreadsUsage(metrics)
