@@ -10,6 +10,7 @@ import java.util.{Properties, UUID}
 
 import kafka.log.{LogConfig, MergedLog, TierLogSegment}
 import kafka.server.ReplicaManager
+import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState
 import kafka.tier.state.TierPartitionState.AppendResult
@@ -25,6 +26,7 @@ import org.junit.Test
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.{mock, when}
 
+import scala.collection.JavaConverters._
 import scala.collection.immutable.ListSet
 import scala.collection.mutable
 import scala.concurrent.Await
@@ -69,9 +71,9 @@ class DeletionTaskQueueTest {
 
     val task_1 = new DeletionTask(ctx.subContext(), partition_1, logCleanupIntervalMs = 5, CollectDeletableSegments(retentionMetadata(leaderEpoch = 0)))
     val task_2 = new DeletionTask(ctx.subContext(), partition_2, logCleanupIntervalMs = 5, CollectDeletableSegments(retentionMetadata(leaderEpoch = 1)))
-    val task_3 = new DeletionTask(ctx.subContext(), partition_3, logCleanupIntervalMs = 5, Delete(retentionMetadata(leaderEpoch = 0), mock(classOf[mutable.Queue[TierObjectStore.ObjectMetadata]])))
-    val task_4 = new DeletionTask(ctx.subContext(), partition_4, logCleanupIntervalMs = 5, CompleteDelete(retentionMetadata(leaderEpoch = 0), mock(classOf[mutable.Queue[TierObjectStore.ObjectMetadata]])))
-    val task_5 = new DeletionTask(ctx.subContext(), partition_5, logCleanupIntervalMs = 5, InitiateDelete(retentionMetadata(leaderEpoch = 0), mock(classOf[mutable.Queue[TierObjectStore.ObjectMetadata]])))
+    val task_3 = new DeletionTask(ctx.subContext(), partition_3, logCleanupIntervalMs = 5, Delete(retentionMetadata(leaderEpoch = 0), mock(classOf[mutable.Queue[DeleteObjectMetadata]])))
+    val task_4 = new DeletionTask(ctx.subContext(), partition_4, logCleanupIntervalMs = 5, CompleteDelete(retentionMetadata(leaderEpoch = 0), mock(classOf[mutable.Queue[DeleteObjectMetadata]])))
+    val task_5 = new DeletionTask(ctx.subContext(), partition_5, logCleanupIntervalMs = 5, InitiateDelete(retentionMetadata(leaderEpoch = 0), mock(classOf[mutable.Queue[DeleteObjectMetadata]])))
 
     task_1.lastProcessedMs = Some(time.hiResClockMs() - 100)
     task_2.lastProcessedMs = Some(time.hiResClockMs() - 300)
@@ -130,6 +132,10 @@ class DeletionTaskQueueTest {
 
     // mock tier partition state
     when(tierPartitionState.tierEpoch).thenReturn(0)
+    when(tierPartitionState.fencedSegments()).thenReturn(List(
+      new TierObjectMetadata(partition, 0, UUID.randomUUID, 100L, 3252334L, 1000L,
+        102, TierObjectMetadata.State.SEGMENT_FENCED, true, false, false)
+    ).asJava)
 
     // mock tier object metadata
     when(tierObjectMetadata.topicIdPartition).thenReturn(partition)
@@ -138,6 +144,7 @@ class DeletionTaskQueueTest {
     deletionTaskQueue.maybeAddTask(StartLeadership(partition, 0))
 
     // 1. `CollectDeletableSegments`
+    val nowMs = time.hiResClockMs()
     var task = deletionTaskQueue.poll().get.head
     assertEquals(classOf[CollectDeletableSegments], task.state.getClass)
     assertEquals(None, task.pausedUntil)
@@ -146,11 +153,14 @@ class DeletionTaskQueueTest {
     var future = task.transition(time, tierTopicAppender, tierObjectStore, replicaManager)
     task = Await.result(future, 1.seconds)
     assertEquals(classOf[InitiateDelete], task.state.getClass)
-    assertEquals(None, task.pausedUntil)
+    // No delay for non-fenced segment delete so assert that the pauseUntil as same as current time
+    assertEquals(Some(Instant.ofEpochMilli(nowMs)), task.pausedUntil)
     deletionTaskQueue.done(task)
+    // move the time beyond now
+    time.sleep(1)
 
     // 3. Transition to `Delete`. The task should be paused for configured log file delete delay.
-    val timeBeforeTransitionMs = time.hiResClockMs()
+    var timeBeforeTransitionMs = time.hiResClockMs()
     task = deletionTaskQueue.poll().get.head
     future = task.transition(time, tierTopicAppender, tierObjectStore, replicaManager)
     task = Await.result(future, 1.seconds)
@@ -165,6 +175,47 @@ class DeletionTaskQueueTest {
     time.sleep(fileDeleteDelayMs + 1)
 
     // 5. Transition to `CompleteDelete`
+    timeBeforeTransitionMs = time.hiResClockMs()
+    task = deletionTaskQueue.poll().get.head
+    future = task.transition(time, tierTopicAppender, tierObjectStore, replicaManager)
+    task = Await.result(future, 1.seconds)
+    assertEquals(classOf[CompleteDelete], task.state.getClass)
+    assertTrue(task.pausedUntil.isEmpty)
+    deletionTaskQueue.done(task)
+
+    // 6. Transition to `InitiateDelete` for fenced segment
+    task = deletionTaskQueue.poll().get.head
+    future = task.transition(time, tierTopicAppender, tierObjectStore, replicaManager)
+    task = Await.result(future, 1.seconds)
+    assertEquals(classOf[InitiateDelete], task.state.getClass)
+    assertTrue(task.pausedUntil.isDefined)
+    assertEquals(Some(Instant.ofEpochMilli(Math.addExact(nowMs, DeletionTask.FencedSegmentDeleteDelayMs))), task.pausedUntil)
+    deletionTaskQueue.done(task)
+
+    // 7. polling would not return any tasks until DeletionTask.FencedSegmentDeleteDelayMs elapses
+    assertTrue(deletionTaskQueue.poll().isEmpty)
+    assertEquals(1, deletionTaskQueue.taskCount)
+    // Elapse remaining time to meet the DeletionTask.FencedSegmentDeleteDelayMs + 1, note that "fileDeleteDelayMs + 1"
+    // was already spent to delete the non-fenced delete segment #4.
+    time.sleep(DeletionTask.FencedSegmentDeleteDelayMs - (fileDeleteDelayMs + 1) + 1)
+
+    // 8. Transition to `Delete`. The task should be paused for configured log file delete delay.
+    timeBeforeTransitionMs = time.hiResClockMs()
+    task = deletionTaskQueue.poll().get.head
+    future = task.transition(time, tierTopicAppender, tierObjectStore, replicaManager)
+    task = Await.result(future, 1.seconds)
+    assertEquals(classOf[Delete], task.state.getClass)
+    assertTrue(task.pausedUntil.isDefined)
+    assertEquals(Instant.ofEpochMilli(timeBeforeTransitionMs).plusMillis(fileDeleteDelayMs), task.pausedUntil.get)
+    deletionTaskQueue.done(task)
+
+    // 9. polling would not return any tasks until file delete delay elapses
+    assertTrue(deletionTaskQueue.poll().isEmpty)
+    assertEquals(1, deletionTaskQueue.taskCount)
+    time.sleep(fileDeleteDelayMs + 1)
+
+    // 10. Transition to `CompleteDelete`
+    timeBeforeTransitionMs = time.hiResClockMs()
     task = deletionTaskQueue.poll().get.head
     future = task.transition(time, tierTopicAppender, tierObjectStore, replicaManager)
     task = Await.result(future, 1.seconds)
@@ -185,7 +236,7 @@ class DeletionTaskQueueTest {
     }
   }
 
-  private def retentionMetadata(leaderEpoch: Int): RetentionMetadata = {
-    RetentionMetadata(replicaManager, leaderEpoch)
+  private def retentionMetadata(leaderEpoch: Int): DeleteAsLeaderMetadata = {
+    DeleteAsLeaderMetadata(replicaManager, leaderEpoch)
   }
 }
