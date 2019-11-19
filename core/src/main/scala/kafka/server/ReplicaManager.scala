@@ -480,7 +480,20 @@ class ReplicaManager(val config: KafkaConfig,
         tierReplicaComponents.replicaManagerOpt.foreach(_.delete(topicIdPartition))
       }
     }
+
+    // If we were the leader, we may have some operations still waiting for completion.
+    // We force completion to prevent them from timing out.
+    completeDelayedRequests(topicPartition)
+
     stateChangeLogger.trace(s"Finished handling stop replica (delete=$deletePartition) for partition $topicPartition")
+  }
+
+  private def completeDelayedRequests(topicPartition: TopicPartition): Unit = {
+    val topicPartitionOperationKey = TopicPartitionOperationKey(topicPartition)
+    delayedProducePurgatory.checkAndComplete(topicPartitionOperationKey)
+    delayedFetchPurgatory.checkAndComplete(topicPartitionOperationKey)
+    // Used for tiered storage
+    delayedListOffsetsPurgatory.checkAndComplete(topicPartitionOperationKey)
   }
 
   def stopReplicas(stopReplicaRequest: StopReplicaRequest): (mutable.Map[TopicPartition, Errors], Errors) = {
@@ -551,12 +564,24 @@ class ReplicaManager(val config: KafkaConfig,
   }
 
   def getPartitionOrException(topicPartition: TopicPartition, expectLeader: Boolean): Partition = {
+    getPartitionOrError(topicPartition, expectLeader) match {
+      case Left(Errors.KAFKA_STORAGE_ERROR) =>
+        throw new KafkaStorageException(s"Partition $topicPartition is in an offline log directory")
+
+      case Left(error) =>
+        throw error.exception(s"Error while fetching partition state for $topicPartition")
+
+      case Right(partition) => partition
+    }
+  }
+
+  def getPartitionOrError(topicPartition: TopicPartition, expectLeader: Boolean): Either[Errors, Partition] = {
     getPartition(topicPartition) match {
       case HostedPartition.Online(partition) =>
-        partition
+        Right(partition)
 
       case HostedPartition.Offline =>
-        throw new KafkaStorageException(s"Partition $topicPartition is in an offline log directory")
+        Left(Errors.KAFKA_STORAGE_ERROR)
 
       case HostedPartition.None if metadataCache.contains(topicPartition) =>
         if (expectLeader) {
@@ -564,13 +589,13 @@ class ReplicaManager(val config: KafkaConfig,
           // forces clients to refresh metadata to find the new location. This can happen, for example,
           // during a partition reassignment if a produce request from the client is sent to a broker after
           // the local replica has been deleted.
-          throw new NotLeaderForPartitionException(s"Broker $localBrokerId is not a replica of $topicPartition")
+          Left(Errors.NOT_LEADER_FOR_PARTITION)
         } else {
-          throw new ReplicaNotAvailableException(s"Partition $topicPartition is not available")
+          Left(Errors.REPLICA_NOT_AVAILABLE)
         }
 
       case HostedPartition.None =>
-        throw new UnknownTopicOrPartitionException(s"Partition $topicPartition doesn't exist")
+        Left(Errors.UNKNOWN_TOPIC_OR_PARTITION)
     }
   }
 
@@ -1760,10 +1785,7 @@ class ReplicaManager(val config: KafkaConfig,
       }
 
       partitionsToMakeFollower.foreach { partition =>
-        val topicPartitionOperationKey = TopicPartitionOperationKey(partition.topicPartition)
-        delayedProducePurgatory.checkAndComplete(topicPartitionOperationKey)
-        delayedFetchPurgatory.checkAndComplete(topicPartitionOperationKey)
-        delayedListOffsetsPurgatory.checkAndComplete(topicPartitionOperationKey)
+        completeDelayedRequests(partition.topicPartition)
       }
 
       partitionsToMakeFollower.foreach { partition =>
