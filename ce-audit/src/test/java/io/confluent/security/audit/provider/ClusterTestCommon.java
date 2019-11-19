@@ -1,6 +1,5 @@
 package io.confluent.security.audit.provider;
 
-import static io.confluent.events.EventLoggerConfig.CLOUD_EVENT_STRUCTURED_ENCODING;
 import static io.confluent.events.cloudevents.kafka.Unmarshallers.structuredProto;
 import static org.junit.Assert.assertTrue;
 
@@ -8,8 +7,6 @@ import io.cloudevents.CloudEvent;
 import io.cloudevents.v03.AttributesImpl;
 import io.confluent.crn.ConfluentResourceName;
 import io.confluent.events.CloudEventUtils;
-import io.confluent.events.ProtobufEvent;
-import io.confluent.events.exporter.kafka.KafkaExporter;
 import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.KafkaTestUtils.ClientBuilder;
@@ -182,22 +179,6 @@ abstract class ClusterTestCommon {
             (ConfluentAuditLogProvider) authorizer.auditLogProvider();
         if (!provider.isEventLoggerReady()) {
           return false;
-        }
-
-        // The producer needs some time to make the routes ready. This makes the integration tests
-        // flaky as the logs are sent to the fallback logger if the routes are not ready.
-        KafkaExporter k = (KafkaExporter) provider.getEventLogger().eventExporter();
-        boolean routeReady = false;
-        while (!routeReady) {
-          routeReady = k.eventLogConfig().getTopicSpecs().keySet().stream()
-              .allMatch(t -> provider.getEventLogger().ready(ProtobufEvent.newBuilder()
-                  .setType("io.confluent.security.authorization")
-                  .setSource("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA")
-                  .setSubject("foo")
-                  .setEncoding(CLOUD_EVENT_STRUCTURED_ENCODING)
-                  .setData(AuditLogEntry.newBuilder().build())
-                  .setRoute(t)
-                  .build()));
         }
       }
       return true;
