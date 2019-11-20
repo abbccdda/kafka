@@ -38,7 +38,7 @@ public class TopicManager implements Closeable {
 
   private static final Logger log = LoggerFactory.getLogger(TopicManager.class);
 
-  private final ConcurrentHashMap<String, Boolean> topicReady;
+  private final ConcurrentHashMap<String, Boolean> topicExists;
   private final ConcurrentHashMap<String, TopicSpec> topicMap;
 
   private final ThreadPoolExecutor reconcileJobExecutor;
@@ -83,12 +83,12 @@ public class TopicManager implements Closeable {
     // We probably create our topics at startup, so we don't need to keep the thread around
     reconcileJobExecutor.allowCoreThreadTimeOut(true);
 
-    topicReady = new ConcurrentHashMap<>();
+    topicExists = new ConcurrentHashMap<>();
     topicMap = new ConcurrentHashMap<>();
 
     topics.entrySet().stream().forEach(t -> {
       topicMap.put(t.getKey(), t.getValue());
-      topicReady.put(t.getKey(), false);
+      topicExists.put(t.getKey(), false);
     });
 
   }
@@ -132,19 +132,19 @@ public class TopicManager implements Closeable {
       // Verify that the topics are not already there.
       // It is possible that this AdminClient has permission to DescribeTopics, but not CreateTopics.
       // If something else has created topics that we don't have permission to create, we'd like this
-      // reconcile job to notice that and update topicReady
+      // reconcile job to notice that and update topicExists
       DescribeTopicsResult describeResult = adminClient.describeTopics(topicMap.keySet(),
           new DescribeTopicsOptions().timeoutMs(timeOutMs));
       for (Map.Entry<String, KafkaFuture<TopicDescription>> entry : describeResult.values()
           .entrySet()) {
         try {
           TopicDescription description = entry.getValue().get(timeOutMs, TimeUnit.MILLISECONDS);
-          topicReady.put(description.name(), true);
+          topicExists.put(description.name(), true);
           log.debug("Event log topic {} ready with {} partitions", entry.getKey(),
               description.partitions().size());
         } catch (ExecutionException | TimeoutException e) {
           if (e.getCause() instanceof UnknownTopicOrPartitionException) {
-            topicReady.put(entry.getKey(), false);
+            topicExists.put(entry.getKey(), false);
           } else {
             // something bad happened
             log.error("error while describing topics", e);
@@ -152,13 +152,13 @@ public class TopicManager implements Closeable {
         }
       }
 
-      Set<String> unready = topicReady.entrySet().stream()
+      Set<String> missing = topicExists.entrySet().stream()
           .filter(e -> !e.getValue())
           .map(Map.Entry::getKey)
           .collect(Collectors.toSet());
 
-      // create if some topics are still not ready
-      List<NewTopic> newTopics = unready.stream().map(topicName -> {
+      // create if some topics still do not exist
+      List<NewTopic> newTopics = missing.stream().map(topicName -> {
         TopicSpec ts = topicMap.get(topicName);
         mergeDefaults(ts);
         return new NewTopic(topicName, ts.partitions(), (short) ts.replicationFactor())
@@ -170,10 +170,10 @@ public class TopicManager implements Closeable {
       for (Map.Entry<String, KafkaFuture<Void>> entry : createResult.values().entrySet()) {
         try {
           entry.getValue().get(timeOutMs, TimeUnit.MILLISECONDS);
-          topicReady.put(entry.getKey(), true);
+          topicExists.put(entry.getKey(), true);
         } catch (ExecutionException | TimeoutException e) {
           if (e.getCause() instanceof TopicExistsException) {
-            topicReady.put(entry.getKey(), true);
+            topicExists.put(entry.getKey(), true);
           } else {
             // Ignore if the topic already exists, otherwise this is a problem
             log.error("error while creating topics", e);
@@ -184,7 +184,7 @@ public class TopicManager implements Closeable {
       log.warn("Event log topic initialization interrupted");
     }
 
-    return topicReady.values().stream().allMatch(v -> v);
+    return topicExists.values().stream().allMatch(v -> v);
   }
 
   public void addTopic(TopicSpec spec) {
@@ -192,11 +192,15 @@ public class TopicManager implements Closeable {
   }
 
   public boolean topicExists(String name) {
-    return topicReady.containsKey(name);
+    return topicExists.getOrDefault(name, false);
   }
 
   public boolean topicManaged(String name) {
     return topicMap.containsKey(name);
+  }
+
+  public Set<String> managedTopics() {
+    return topicMap.keySet();
   }
 
   @Override

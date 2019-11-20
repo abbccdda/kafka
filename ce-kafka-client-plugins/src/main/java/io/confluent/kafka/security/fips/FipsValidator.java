@@ -68,7 +68,7 @@ public class FipsValidator {
                 "TLS_RSA_WITH_AES_256_CBC_SHA256",
                 "TLS_RSA_WITH_AES_256_CCM"                    // not in SunJSSE provoder.
         ).collect(Collectors.toCollection(HashSet::new));
-        ALLOWED_TLS_PROTOCOLS = Stream.of("TLSv1.2", "TLSv1.1").collect(Collectors.toCollection(HashSet::new));
+        ALLOWED_TLS_PROTOCOLS = Stream.of("TLSv1.2").collect(Collectors.toCollection(HashSet::new));
         ALLOWED_BROKER_PROTOCOLS = Stream.of("SASL_SSL", "SSL").collect(Collectors.toCollection(HashSet::new));
     }
 

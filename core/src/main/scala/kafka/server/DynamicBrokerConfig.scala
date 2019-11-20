@@ -25,6 +25,7 @@ import kafka.cluster.EndPoint
 import kafka.log.{LogCleaner, LogConfig, LogManager}
 import kafka.network.SocketServer
 import kafka.server.DynamicBrokerConfig._
+import kafka.server.QuotaType.{Fetch, Produce, Request}
 import kafka.utils.{CoreUtils, Logging, PasswordEncoder}
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.common.Reconfigurable
@@ -34,6 +35,7 @@ import org.apache.kafka.common.config.types.Password
 import org.apache.kafka.common.network.{ListenerName, ListenerReconfigurable}
 import org.apache.kafka.common.security.authenticator.LoginManager
 import org.apache.kafka.common.utils.Utils
+import org.apache.kafka.common.config.internals.ConfluentConfigs
 
 import scala.collection._
 import scala.collection.JavaConverters._
@@ -82,7 +84,8 @@ object DynamicBrokerConfig {
     DynamicThreadPool.ReconfigurableConfigs ++
     Set(KafkaConfig.MetricReporterClassesProp) ++
     DynamicListenerConfig.ReconfigurableConfigs ++
-    SocketServer.ReconfigurableConfigs
+    SocketServer.ReconfigurableConfigs ++
+    DynamicBackpressure.ReconfigurableConfigs
 
   private val ClusterLevelListenerConfigs = Set(KafkaConfig.MaxConnectionsProp)
   private val PerBrokerConfigs = DynamicSecurityConfigs  ++
@@ -246,6 +249,7 @@ class DynamicBrokerConfig(private val kafkaConfig: KafkaConfig) extends Logging 
     addBrokerReconfigurable(new DynamicLogConfig(kafkaServer.logManager, kafkaServer))
     addBrokerReconfigurable(new DynamicListenerConfig(kafkaServer))
     addBrokerReconfigurable(kafkaServer.socketServer)
+    addBrokerReconfigurable(new DynamicBackpressure(kafkaServer))
   }
 
   def addReconfigurable(reconfigurable: Reconfigurable): Unit = CoreUtils.inWriteLock(lock) {
@@ -917,6 +921,36 @@ class DynamicListenerConfig(server: KafkaServer) extends BrokerReconfigurable wi
   private def listenersToMap(listeners: Seq[EndPoint]): Map[ListenerName, EndPoint] =
     listeners.map(e => (e.listenerName, e)).toMap
 
+}
+
+object DynamicBackpressure {
+  val ReconfigurableConfigs = Set(
+    ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG)
+}
+
+class DynamicBackpressure(server: KafkaServer) extends BrokerReconfigurable {
+
+  override def reconfigurableConfigs: Set[String] = {
+    DynamicBackpressure.ReconfigurableConfigs
+  }
+
+  override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
+    if (Option(newConfig.getString(ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG)).isDefined && !QuotaFactory.isMultiTenant(newConfig)) {
+      throw new ConfigException(s"Enabling backpressure requires '${KafkaConfig.ClientQuotaCallbackClassProp}' " +
+                                s"to be set to '${ConfluentConfigs.TENANT_QUOTA_CALLBACK_CLASS}'.")
+    }
+    if (QuotaFactory.backpressureEnabledInConfig(newConfig, Request) &&
+        QuotaFactory.brokerBackpressureConfig(newConfig, Request).tenantEndpointListenerNames.isEmpty) {
+      throw new ConfigException(s"'${ConfluentConfigs.MULTITENANT_LISTENER_NAMES_CONFIG}' must " +
+                                s"be set for request backpressure to be enabled.")
+    }
+  }
+
+  override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
+    server.quotaManagers.fetch.updateBackpressureConfig(QuotaFactory.brokerBackpressureConfig(newConfig, Fetch))
+    server.quotaManagers.produce.updateBackpressureConfig(QuotaFactory.brokerBackpressureConfig(newConfig, Produce))
+    server.quotaManagers.request.updateBackpressureConfig(QuotaFactory.brokerBackpressureConfig(newConfig, Request))
+  }
 }
 
 

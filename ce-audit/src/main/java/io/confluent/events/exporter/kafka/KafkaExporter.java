@@ -21,7 +21,6 @@ import io.confluent.events.EventLoggerConfig;
 import io.confluent.events.cloudevents.extensions.RouteExtension;
 import io.confluent.events.exporter.Exporter;
 import java.time.Duration;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,6 +49,7 @@ public class KafkaExporter implements Exporter {
   private static final Logger log = LoggerFactory.getLogger(KafkaExporter.class);
   // TODO: Make this a property.
   private static final long TOPIC_READY_TIMEOUT_MS = 15_000L;
+  private static final long TOPIC_PARTITION_TIMEOUT_MS = 1_000L;
 
   private KafkaProducer<String, byte[]> producer;
 
@@ -94,7 +94,7 @@ public class KafkaExporter implements Exporter {
         .setTopics(eventLogConfig.getTopicSpecs())
         .build();
 
-    ensureTopics();
+    ensureTopicsWithMetadata();
   }
 
   @Override
@@ -167,13 +167,12 @@ public class KafkaExporter implements Exporter {
   @Override
   public boolean routeReady(CloudEvent event) {
     // This checks if the producer is ready to produce to this topic.
-    List<PartitionInfo> partitionInfo = Collections.emptyList();
 
     String route = route(event);
 
     boolean topicExists = topicManager.topicExists(route);
-    // Check if this topic exists. If not, ask the manager to manage the topic if the topic is managed by the
-    // topic manager.
+    // Check if this topic exists. If not, ask the manager to create the topic if the topic
+    // is managed by the topic manager.
     if (!topicExists && topicManager.topicManaged(route) && this.createTopic) {
       // Queue a reconcile job if it is not running (or queued) yet.
       topicManager.ensureTopics();
@@ -183,18 +182,23 @@ public class KafkaExporter implements Exporter {
 
     // Only refresh metadata if the topic has been created.
     if (topicExists) {
-      try {
-        // This makes a blocking metadata call. See {@link KafkaProducer#partitionsFor(String)}
-        // But audit log code sets `max.block.ms = 0` to make it non-blocking.
-        partitionInfo = producer.partitionsFor(route);
-      } catch (Exception e) {
-        // We expect to get TimeoutExceptions here if the topic is not ready
-        log.trace("Exception while checking for event log partitions", e);
-      }
+      return metadataReady(route);
+    }
+    return false;
+  }
+
+  private boolean metadataReady(String topic) {
+    try {
+      // This makes a blocking metadata call. See {@link KafkaProducer#partitionsFor(String)}
+      // But audit log code sets `max.block.ms = 0` to make it non-blocking.
+      List<PartitionInfo> partitionInfo = producer.partitionsFor(topic);
       if (!partitionInfo.isEmpty()) {
-        log.debug("Event log topic {} is ready with {} partitions", route, partitionInfo.size());
+        log.debug("Event log topic {} is ready with {} partitions", topic, partitionInfo.size());
         return true;
       }
+    } catch (Exception e) {
+      // We expect to get TimeoutExceptions here if the topic is not ready
+      log.trace("Exception while checking for event log partitions", e);
     }
     return false;
   }
@@ -238,10 +242,10 @@ public class KafkaExporter implements Exporter {
     EventLoggerConfig n = new EventLoggerConfig(configs);
     n.getTopicSpecs().values().stream().forEach(e -> this.topicManager.addTopic(e));
 
-    ensureTopics();
+    ensureTopicsWithMetadata();
   }
 
-  private void ensureTopics() {
+  private void ensureTopicsWithMetadata() {
     if (this.createTopic) {
       try {
         // Wait for all topics to be created.
@@ -252,6 +256,27 @@ public class KafkaExporter implements Exporter {
         }
       } catch (Exception e) {
         log.error("error while creating topics", e);
+      }
+
+      // We want to make sure the producer is actually ready to write to these topics
+      // If max.block.ms == 0, this might fail the first time, but should
+      // succeed after a short wait
+      Set<String> topicsWithoutMetadata = topicManager.managedTopics();
+      topicsWithoutMetadata.removeIf(this::metadataReady);
+      long waited = 0;
+      while (!topicsWithoutMetadata.isEmpty() && waited < TOPIC_READY_TIMEOUT_MS) {
+        log.info("Event logger is waiting for metadata for topics: " + topicsWithoutMetadata);
+        try {
+          waited += TOPIC_PARTITION_TIMEOUT_MS;
+          Thread.sleep(TOPIC_PARTITION_TIMEOUT_MS);
+        } catch (InterruptedException ignored) {
+        }
+        topicsWithoutMetadata.removeIf(this::metadataReady);
+      }
+      if (topicsWithoutMetadata.isEmpty()) {
+        log.info("Event logger has metadata for all topics");
+      } else {
+        log.warn("Event logger is missing metadata for topics: " + topicsWithoutMetadata);
       }
     }
   }

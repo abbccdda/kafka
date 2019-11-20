@@ -451,6 +451,49 @@ class MergedLogTest {
     recoveredLog.close()
   }
 
+  /*
+   * Test for the case when local log segment is partially deleted such that logEndOffset is greater than logStartOffset
+   * but less than firstUntieredOffset. The recovered log's active segments baseOffset should be equal to the
+   * firstUntieredOffset.
+   */
+  @Test
+  def testRecoverLogAfterPartialLocalSegmentsLostAndLogStartOffsetLesserThanFirstUntieredOffset(): Unit = {
+    val numTieredSegments = 10
+    val numLocalSegments = 5
+    val numOverlap = 5
+    val numSegmentsToRetain = 15
+
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes,
+      tierEnable = true,
+      tierLocalHotsetBytes = Long.MaxValue,
+      retentionMs = Long.MaxValue,
+      retentionBytes = segmentBytes * numSegmentsToRetain)
+    val log = createLogWithOverlap(numTieredSegments, numLocalSegments, numOverlap, logConfig)
+
+    // Delete latest 8 segments(All LocalSegment and 3 overlap segments) such that during recovery local segments
+    // provides lastOffset to be less than firstUntieredOffset.
+    assertEquals(numLocalSegments + numOverlap, log.localLogSegments.size)
+    val files = log.localLogSegments.takeRight(8).map(_.log.file)
+    log.close()
+    files.foreach(_.delete())
+
+    val logRecovery = Try(createMergedLog(logConfig))
+    assertTrue("expected log recovery to succeed", logRecovery.isSuccess)
+    val recoveredLog = logRecovery.get
+
+    assertEquals("Only 1 segment(new rolled) expected, the 2 local segments should be deleted.", 1,
+      recoveredLog.localLogSegments.size)
+    assertTrue("First untiered offset is expected to be greater than merged log start offset ",
+      recoveredLog.tieredLogSegments.last.endOffset + 1 > recoveredLog.logStartOffset)
+    assertEquals("baseOffset for first local segment after recovery must be max(firstUntieredOffset, " +
+      "mergedLogStartOffset)", recoveredLog.tieredLogSegments.last.endOffset + 1,
+      recoveredLog.activeSegment.baseOffset)
+    assertEquals("endOffset for the mergedLog after deletion and recovery must be equal to the baseOffset " +
+      "of first local segment ", recoveredLog.localLogSegments.last.baseOffset, recoveredLog.logEndOffset)
+
+    recoveredLog.close()
+  }
+
   @Test
   def testRecoverLogAfterLocalSegmentsLostAndLogStartOffsetHigherThanFirstUntieredOffset(): Unit = {
     val numTieredSegments = 4

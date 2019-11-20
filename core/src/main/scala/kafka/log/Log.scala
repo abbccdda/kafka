@@ -802,9 +802,10 @@ class Log(@volatile var dir: File,
 
     if (logSegments.nonEmpty) {
       val logEndOffset = activeSegment.readNextOffset
-      if (logEndOffset < mergedLogStartOffset) {
-        warn(s"Deleting all segments because logEndOffset ($logEndOffset) is smaller than logStartOffset ($mergedLogStartOffset). " +
-          "This could happen if segment files were deleted from the file system.")
+      if (logEndOffset < mergedLogStartOffset || logEndOffset < initialUntieredOffset) {
+        warn(s"Deleting all segments because logEndOffset ($logEndOffset) is smaller than logStartOffset " +
+          s"{$mergedLogStartOffset} or firstUntieredOffset ($initialUntieredOffset). This could happen if segment " +
+          s"files were deleted from the file system.")
         removeAndDeleteSegments(logSegments, asyncDelete = true)
       }
     }

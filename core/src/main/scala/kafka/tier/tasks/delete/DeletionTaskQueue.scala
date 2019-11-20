@@ -9,7 +9,7 @@ import kafka.server.ReplicaManager
 import kafka.tier.TopicIdPartition
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.tasks._
-import kafka.tier.tasks.delete.DeletionTask.{CollectDeletableSegments, DeletedPartitionMetadata, RetentionMetadata}
+import kafka.tier.tasks.delete.DeletionTask.{CollectDeletableSegments, DeletedPartitionMetadata, DeleteAsLeaderMetadata}
 import org.apache.kafka.common.utils.Time
 
 import scala.collection.immutable.ListSet
@@ -29,7 +29,7 @@ private[delete] class DeletionTaskQueue(ctx: CancellationContext,
   override protected[tasks] def newTask(topicIdPartition: TopicIdPartition, change: StartChangeMetadata): DeletionTask = {
     val stateMetadata = change match {
       case startLeadership: StartLeadership =>
-        RetentionMetadata(replicaManager, startLeadership.leaderEpoch)
+        DeleteAsLeaderMetadata(replicaManager, startLeadership.leaderEpoch)
       case startDeletedPartitionDeletion: StartPartitionDeletion =>
         DeletedPartitionMetadata(startDeletedPartitionDeletion.tieredObjects)
     }

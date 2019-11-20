@@ -3,6 +3,7 @@
  */
 package io.confluent.security.audit.provider;
 
+import static io.confluent.security.audit.router.AuditLogRouterJsonConfig.TOPIC_PREFIX;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -41,6 +42,32 @@ public class SameClusterTest extends ClusterTestCommon {
 
   static final String APP3_TOPIC = "app3-topic";
 
+  static final String APP3_ROUTER_CONFIG =
+      "{\n"
+          + "    \"routes\": {\n"
+          + "        \"crn:///kafka=*/topic=app3-topic\": {\n"
+          + "            \"produce\": {\n"
+          + "                \"allowed\": \"_confluent-audit-log-app3\",\n"
+          + "                \"denied\": \"_confluent-audit-log-app3\"\n"
+          + "            }\n"
+          + "        }\n"
+          + "    },\n"
+          + "    \"destinations\": {\n"
+          + "        \"topics\": {\n"
+          + "            \"_confluent-audit-log\": {\n"
+          + "                \"retention_ms\": 7776000000\n"
+          + "            },\n"
+          + "            \"_confluent-audit-log-app3\": {\n"
+          + "                \"retention_ms\": 7776000000\n"
+          + "            }\n"
+          + "        }\n"
+          + "    },\n"
+          + "    \"default_topics\": {\n"
+          + "        \"allowed\": \"_confluent-audit-log\",\n"
+          + "        \"denied\": \"_confluent-audit-log\"\n"
+          + "    }\n"
+          + "}";
+
   @Before
   public void setUp() {
     rbacConfig = new RbacClusters.Config()
@@ -71,15 +98,15 @@ public class SameClusterTest extends ClusterTestCommon {
     rbacClusters.assignRole(KafkaPrincipal.USER_TYPE, LOG_READER_USER, "DeveloperRead", clusterId,
         Utils.mkSet(
             new io.confluent.security.authorizer.ResourcePattern("Topic",
-                AuditLogRouterJsonConfig.TOPIC_PREFIX, PatternType.PREFIXED),
+                TOPIC_PREFIX, PatternType.PREFIXED),
             new io.confluent.security.authorizer.ResourcePattern("Group", "*",
                 PatternType.LITERAL)));
 
     // give us something to wait on
-    rbacClusters.kafkaCluster.createTopic(AuditLogRouterJsonConfig.TOPIC_PREFIX + "_dummy", 1, 1);
+    rbacClusters.kafkaCluster.createTopic(TOPIC_PREFIX + "_dummy", 1, 1);
 
     rbacClusters
-        .waitUntilAccessAllowed(LOG_READER_USER, AuditLogRouterJsonConfig.TOPIC_PREFIX + "_dummy");
+        .waitUntilAccessAllowed(LOG_READER_USER, TOPIC_PREFIX + "_dummy");
   }
 
   KafkaConsumer<byte[], byte[]> consumer(String consumerGroup, String topic) {
@@ -135,9 +162,6 @@ public class SameClusterTest extends ClusterTestCommon {
 
   @Test
   public void testSuperuser() throws Throwable {
-    // Don't configure anything about audit logs. They should be on by default,
-    // they should send the logs to the local cluster. They should include management
-    // messages only
     rbacClusters = new RbacClusters(rbacConfig);
 
     initializeClusters();
@@ -156,6 +180,75 @@ public class SameClusterTest extends ClusterTestCommon {
 
     assertTrue(eventsMatched(consumer, 30000, Collections.singletonList(
         e -> match(e, "User:" + BROKER_USER, app3TopicCrn, "kafka.CreateTopics",
+            AuthorizeResult.ALLOWED, AuthorizePolicy.PolicyType.SUPER_USER)
+    )));
+  }
+
+  @Test
+  public void testFirstMessage() throws Throwable {
+    // Because of max.block.ms = 0, it's possible that the producer won't have
+    // the metadata it needs to write on the first try, and will send the first
+    // message to the fallback log. We don't want that.
+
+    rbacConfig.overrideBrokerConfig(
+        AuditLogConfig.ROUTER_CONFIG, APP3_ROUTER_CONFIG);
+
+    rbacClusters = new RbacClusters(rbacConfig);
+
+    initializeClusters();
+    TestUtils.waitForCondition(() -> auditLoggerReady(), "auditLoggerReady");
+
+    consumer("event-log", TOPIC_PREFIX + "-app3");
+
+    rbacClusters.clientBuilder(BROKER_USER).buildAdminClient()
+        .createTopics(Collections.singleton(new NewTopic(APP3_TOPIC, 1, (short) 1)));
+
+    String app3TopicCrn = ConfluentResourceName.newBuilder()
+        .addElement("kafka", rbacClusters.kafkaClusterId())
+        .addElement("topic", APP3_TOPIC)
+        .build()
+        .toString();
+
+    rbacClusters.produceConsume(BROKER_USER, APP3_TOPIC, APP1_CONSUMER_GROUP, true);
+
+    assertTrue(eventsMatched(consumer, 30000, Collections.singletonList(
+        e -> match(e, "User:" + BROKER_USER, app3TopicCrn, "kafka.Produce",
+            AuthorizeResult.ALLOWED, AuthorizePolicy.PolicyType.SUPER_USER)
+    )));
+  }
+
+  @Test
+  public void testSecondMessage() throws Throwable {
+    // If this succeeds and testFirstMessage does not, there's a problem with the
+    // code in KafkaExporter.ensureTopics
+
+    rbacConfig.overrideBrokerConfig(
+        AuditLogConfig.ROUTER_CONFIG, APP3_ROUTER_CONFIG);
+
+    rbacClusters = new RbacClusters(rbacConfig);
+
+    initializeClusters();
+    TestUtils.waitForCondition(() -> auditLoggerReady(), "auditLoggerReady");
+
+    consumer("event-log", TOPIC_PREFIX + "-app3");
+
+    rbacClusters.clientBuilder(BROKER_USER).buildAdminClient()
+        .createTopics(Collections.singleton(new NewTopic(APP3_TOPIC, 1, (short) 1)));
+
+    String app3TopicCrn = ConfluentResourceName.newBuilder()
+        .addElement("kafka", rbacClusters.kafkaClusterId())
+        .addElement("topic", APP3_TOPIC)
+        .build()
+        .toString();
+
+    // first message causes the producer to get the partitions
+    rbacClusters.produceConsume(BROKER_USER, APP3_TOPIC, APP1_CONSUMER_GROUP, true);
+    Thread.sleep(1000);
+    // second message actually makes it through
+    rbacClusters.produceConsume(BROKER_USER, APP3_TOPIC, APP1_CONSUMER_GROUP, true);
+
+    assertTrue(eventsMatched(consumer, 30000, Collections.singletonList(
+        e -> match(e, "User:" + BROKER_USER, app3TopicCrn, "kafka.Produce",
             AuthorizeResult.ALLOWED, AuthorizePolicy.PolicyType.SUPER_USER)
     )));
   }

@@ -46,13 +46,13 @@ public class FipsValidatorTest {
         Map<String, Object> config = new HashMap<>();
         config.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG,
                     Arrays.asList("TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA", "TLS_DHE_DSS_WITH_AES_128_CBC_SHA"));
-        config.put(SslConfigs.SSL_ENABLED_PROTOCOLS_CONFIG, Arrays.asList("TLSv1.2", "TLSv1.1"));
+        config.put(SslConfigs.SSL_ENABLED_PROTOCOLS_CONFIG, Arrays.asList("TLSv1.2"));
         FipsValidator.validateFipsTls(config);
 
         List<String> cipherSuites = Arrays.asList("TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA", "TLS_DHE_DSS_WITH_AES_128_CBC_SHA");
         FipsValidator.validateFipsTlsCipherSuite(cipherSuites);
 
-        List<String> tlsVersions = Arrays.asList("TLSv1.2", "TLSv1.1");
+        List<String> tlsVersions = Arrays.asList("TLSv1.2");
         FipsValidator.validateFipsTlsVersion(tlsVersions);
     }
 

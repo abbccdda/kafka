@@ -1,11 +1,20 @@
 // (Copyright) [2019 - 2019] Confluent, Inc.
 package io.confluent.kafka.multitenant.integration.test;
 
+import org.apache.kafka.clients.admin.AlterConfigOp;
+import org.apache.kafka.clients.admin.AlterConfigsOptions;
+import org.apache.kafka.clients.admin.ConfigEntry;
+import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.test.IntegrationTest;
+import org.apache.kafka.clients.admin.AdminClient;
 
+import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ExecutionException;
 
 import io.confluent.kafka.multitenant.integration.cluster.PhysicalCluster;
 import io.confluent.kafka.multitenant.quota.TenantQuotaCallback;
@@ -17,10 +26,12 @@ import kafka.server.ThreadUsageMetrics;
 
 import scala.collection.JavaConversions;
 
+import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertEquals;
@@ -39,6 +50,9 @@ public class BrokerBackpressureTest {
 
   private final Integer numIoThreads = 8;
   private final Integer numNetworkThreads = 4;
+  private final AlterConfigsOptions configsOptions = new AlterConfigsOptions().timeoutMs(30000);
+  private final ConfigResource defaultBrokerConfigResource =
+      new ConfigResource(ConfigResource.Type.BROKER, "");
 
   private IntegrationTestHarness testHarness;
 
@@ -244,6 +258,86 @@ public class BrokerBackpressureTest {
                broker.quotaManagers().produce().backpressureEnabled());
     assertFalse("Expected request backpressure to be disabled",
                 broker.quotaManagers().request().backpressureEnabled());
+  }
+
+  @Test
+  public void testDynamicBackpressureConfig() throws Exception {
+    final PhysicalCluster physicalCluster = testHarness.start(brokerPropsWithTenantQuotas());
+
+    // verify backpressure is disabled on every broker
+    for (KafkaServer broker : physicalCluster.kafkaCluster().brokers()) {
+      assertFalse("Expected consume backpressure to be disabled on broker " + broker.config().brokerId(),
+                  broker.quotaManagers().fetch().backpressureEnabled());
+      assertFalse("Expected produce backpressure to be disabled on broker " + broker.config().brokerId(),
+                  broker.quotaManagers().produce().backpressureEnabled());
+      assertFalse("Expected request backpressure to be disabled on broker " + broker.config().brokerId(),
+                  broker.quotaManagers().request().backpressureEnabled());
+    }
+
+    AdminClient adminClient = physicalCluster.superAdminClient();
+    adminClient.incrementalAlterConfigs(backpressureTypesConfigs("fetch,produce,request"), configsOptions).all().get();
+
+    // verify backpressure is enabled on every broker
+    for (KafkaServer broker : physicalCluster.kafkaCluster().brokers()) {
+      TestUtils.waitForCondition(
+          () -> broker.quotaManagers().fetch().backpressureEnabled(),
+          "Expected consume backpressure to be enabled on broker " + broker.config().brokerId());
+      TestUtils.waitForCondition(
+          () -> broker.quotaManagers().produce().backpressureEnabled(),
+          "Expected produce backpressure to be enabled on broker " + broker.config().brokerId());
+      TestUtils.waitForCondition(
+          () -> broker.quotaManagers().request().backpressureEnabled(),
+          "Expected request backpressure to be enabled on broker " + broker.config().brokerId());
+    }
+
+    // disable one backpressure type
+    adminClient.incrementalAlterConfigs(backpressureTypesConfigs("fetch,produce"), configsOptions).all().get();
+    for (KafkaServer broker : physicalCluster.kafkaCluster().brokers()) {
+      assertTrue("Expected consume backpressure to be enabled on broker " + broker.config().brokerId(),
+                 broker.quotaManagers().fetch().backpressureEnabled());
+      assertTrue("Expected produce backpressure to be enabled on broker " + broker.config().brokerId(),
+                 broker.quotaManagers().produce().backpressureEnabled());
+      TestUtils.waitForCondition(
+          () -> !broker.quotaManagers().request().backpressureEnabled(),
+          "Expected request backpressure to be disabled on broker " + broker.config().brokerId());
+    }
+
+    // disable all backpressure types
+    adminClient.incrementalAlterConfigs(backpressureTypesConfigs(""), configsOptions).all().get();
+    for (KafkaServer broker : physicalCluster.kafkaCluster().brokers()) {
+      TestUtils.waitForCondition(
+          () -> !broker.quotaManagers().fetch().backpressureEnabled(),
+          "Expected consume backpressure to be disabled on broker " + broker.config().brokerId());
+      TestUtils.waitForCondition(
+          () -> !broker.quotaManagers().produce().backpressureEnabled(),
+          "Expected produce backpressure to be disabled on broker " + broker.config().brokerId());
+      TestUtils.waitForCondition(
+          () -> !broker.quotaManagers().request().backpressureEnabled(),
+          "Expected request backpressure to be disabled on broker " + broker.config().brokerId());
+    }
+  }
+
+  @Test(expected = ExecutionException.class)
+  public void testDynamicEnableRequestBackpressureFailsWithoutMultitenantListener() throws Exception {
+    final PhysicalCluster physicalCluster = testHarness.start(brokerPropsWithInvalidMultitenantListenerName());
+    AdminClient adminClient = physicalCluster.superAdminClient();
+    adminClient.incrementalAlterConfigs(backpressureTypesConfigs("request"), configsOptions).all().get();
+  }
+
+  @Test(expected = ExecutionException.class)
+  public void testDynamicEnableBackpressureFailsWithoutTenantQuotasEnabled() throws Exception {
+    final PhysicalCluster physicalCluster = testHarness.start(brokerProps());
+    AdminClient adminClient = physicalCluster.superAdminClient();
+    adminClient.incrementalAlterConfigs(backpressureTypesConfigs("fetch,produce,request"), configsOptions).all().get();
+  }
+
+  private Map<ConfigResource, Collection<AlterConfigOp>> backpressureTypesConfigs(
+      String backpressureTypes) {
+    ConfigEntry backpressureCfg = new ConfigEntry(ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG,
+                                                  backpressureTypes);
+    List<AlterConfigOp> brokerConfigs = Collections.singletonList(
+        new AlterConfigOp(backpressureCfg, AlterConfigOp.OpType.SET));
+    return Collections.singletonMap(defaultBrokerConfigResource, brokerConfigs);
   }
 
 }

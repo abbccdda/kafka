@@ -182,6 +182,8 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
 
   private val lastBackpressureCheckTimeMs = new AtomicLong(time.milliseconds())
 
+  @volatile protected var dynamicBackpressureConfig = config.backpressureConfig
+
   private var brokerQuotaLimit: Double = Long.MaxValue
 
   private val delayQueueSensor = metrics.sensor(quotaType + "-delayQueue")
@@ -220,9 +222,27 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
    */
   def quotasEnabled: Boolean = quotaTypesEnabled != QuotaTypes.NoQuotas
 
-  def backpressureEnabled: Boolean = config.backpressureConfig.backpressureEnabledInConfig
+  def backpressureEnabled: Boolean = dynamicBackpressureConfig.backpressureEnabledInConfig
 
   def tenantLevelQuotasEnabled: Boolean = activeTenantsManager.isDefined
+
+  def updateBackpressureConfig(newConfig: BrokerBackpressureConfig): Unit = {
+    if (!newConfig.backpressureEnabledInConfig && dynamicBackpressureConfig.backpressureEnabledInConfig) {
+      // reset dynamic quotas to configured limit
+      // only active tenants would have dynamic quota limit != configured limit
+      val tenantsManager = activeTenantsManager.getOrElse(throw new IllegalStateException("ActiveTenantsManager not available"))
+      val activeTenants = tenantsManager.getActiveTenants(resetQuotaCallback)
+      activeTenants.foreach((metricTags: Map[String, String]) => {
+        val clientMetric = metrics.metrics().get(clientRateMetricName(metricTags))
+        if (clientMetric != null) {
+          clientMetric.config(getQuotaMetricConfig(quotaLimit(metricTags.asJava)))
+        }
+      })
+    }
+
+    dynamicBackpressureConfig = newConfig
+    info(s"Updated $quotaType backpressure config to $newConfig")
+  }
 
   /**
     * Records that a user/clientId changed produced/consumed bytes being throttled at the specified time. If quota has
@@ -449,7 +469,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
       val lastCheck = lastBackpressureCheckTimeMs.get()
       // we update broker quota limit even if backpressure is disabled, because we emit broker
       // quota limit as a metric
-      if (lastCheck + config.backpressureConfig.backpressureCheckFrequencyMs < timeMs) {
+      if (lastCheck + dynamicBackpressureConfig.backpressureCheckFrequencyMs < timeMs) {
         if (lastBackpressureCheckTimeMs.compareAndSet(lastCheck, timeMs)) {
           updateBrokerQuotaLimit()
           if (backpressureEnabled) {
