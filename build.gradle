@@ -133,11 +133,11 @@ allprojects {
       }
     }
     configurations {
-      // Pin protobuf. See: https://confluentinc.atlassian.net/browse/CPKAFKA-3888
       all {
         resolutionStrategy {
           force "com.google.protobuf:protobuf-java:$versions.protobuf"
           force "com.google.protobuf:protobuf-java-util:$versions.protobuf"
+          force "org.javassist:javassist:$versions.javassist"
         }
       }
       runtime {

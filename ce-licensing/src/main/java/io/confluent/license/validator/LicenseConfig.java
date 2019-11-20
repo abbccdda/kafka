@@ -2,6 +2,7 @@
 
 package io.confluent.license.validator;
 
+import static org.apache.kafka.clients.admin.AdminClientConfig.METRIC_REPORTER_CLASSES_CONFIG;
 import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
 
 import io.confluent.license.LicenseStore;
@@ -70,27 +71,32 @@ public class LicenseConfig extends AbstractConfig {
   }
 
   public Map<String, Object> producerConfigs() {
-    Map<String, Object> configs = baseConfigs();
-    configs.putAll(originalsWithPrefix(PRODUCER_PREFIX));
-    configs.putIfAbsent(CommonClientConfigs.CLIENT_ID_CONFIG,
-          String.format("%s-producer-%s", TOPIC_DEFAULT, componentId));
-    return configs;
+    return clientConfigs("%s-producer-%s", PRODUCER_PREFIX);
   }
 
   public Map<String, Object> consumerConfigs() {
-    Map<String, Object> configs = baseConfigs();
-    configs.putAll(originalsWithPrefix(CONSUMER_PREFIX));
-    configs.putIfAbsent(CommonClientConfigs.CLIENT_ID_CONFIG,
-        String.format("%s-consumer-%s", TOPIC_DEFAULT, componentId));
-    return configs;
+    return clientConfigs("%s-consumer-%s", CONSUMER_PREFIX);
   }
 
   public Map<String, Object> topicConfigs() {
     Map<String, Object> configs = baseConfigs();
     configs.put(LicenseStore.REPLICATION_FACTOR_CONFIG, String.valueOf(replicationFactor));
-    configs.putIfAbsent(CommonClientConfigs.CLIENT_ID_CONFIG,
-        String.format("%s-admin-%s", TOPIC_DEFAULT, componentId));
+    processConfigs(configs, "%s-admin-%s");
     return configs;
+  }
+
+  private Map<String, Object> clientConfigs(String clientIdFormat, String configPrefix) {
+    Map<String, Object> configs = baseConfigs();
+    configs.putAll(originalsWithPrefix(configPrefix));
+    processConfigs(configs, clientIdFormat);
+    return configs;
+  }
+
+  private void processConfigs(Map<String, Object> configs, String clientIdFormat) {
+    configs.putIfAbsent(CommonClientConfigs.CLIENT_ID_CONFIG,
+        String.format(clientIdFormat, TOPIC_DEFAULT, componentId));
+    // Don't turn on metric reporters for LicenseStore clients
+    configs.remove(METRIC_REPORTER_CLASSES_CONFIG);
   }
 
   private Map<String, Object> baseConfigs() {

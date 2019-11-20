@@ -103,13 +103,6 @@ public class LicenseStoreTest {
     );
   }
 
-  static {
-    CONSUMER_PROPS.put(
-        CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG,
-        "broker1:9092,broker2:9093"
-    );
-  }
-
   private static final CommandKey KEY = CommandKey.newBuilder()
       .setConfigType(CommandConfigType.LICENSE_INFO)
       .setGuid("CONFLUENT_LICENSE")
@@ -212,39 +205,23 @@ public class LicenseStoreTest {
     assertEquals(0L, consumer.position(LICENSE_TP));
 
     final CountDownLatch finishedLatch = new CountDownLatch(1);
-    consumer.schedulePollTask(new Runnable() {
-      @Override
-      public void run() {
-        consumer.scheduleNopPollTask();
-        consumer.scheduleNopPollTask();
-        consumer.schedulePollTask(new Runnable() {
-          @Override
-          public void run() {
-            consumer.addRecord(new ConsumerRecord<>(
-                TOPIC, 0, 0, 0L, TimestampType.CREATE_TIME, 0L, 0, 0, KEY, LICENSE_MSG0)
-            );
-            consumer.addRecord(new ConsumerRecord<>(
-                TOPIC, 0, 1, 0L, TimestampType.CREATE_TIME, 0L, 0, 0, KEY, LICENSE_MSG1)
-            );
-          }
-        });
-        consumer.scheduleNopPollTask();
-        consumer.scheduleNopPollTask();
-        consumer.schedulePollTask(new Runnable() {
-          @Override
-          public void run() {
-            consumer.addRecord(new ConsumerRecord<>(
-                TOPIC, 0, 2, 0L, TimestampType.CREATE_TIME, 0L, 0, 0, KEY, LICENSE_MSG2)
-            );
-          }
-        });
-        consumer.schedulePollTask(new Runnable() {
-          @Override
-          public void run() {
-            finishedLatch.countDown();
-          }
-        });
-      }
+    consumer.schedulePollTask(() -> {
+      consumer.scheduleNopPollTask();
+      consumer.scheduleNopPollTask();
+      consumer.schedulePollTask(() -> {
+        consumer.addRecord(new ConsumerRecord<>(
+            TOPIC, 0, 0, 0L, TimestampType.CREATE_TIME, 0L, 0, 0, KEY, LICENSE_MSG0)
+        );
+        consumer.addRecord(new ConsumerRecord<>(
+            TOPIC, 0, 1, 0L, TimestampType.CREATE_TIME, 0L, 0, 0, KEY, LICENSE_MSG1)
+        );
+      });
+      consumer.scheduleNopPollTask();
+      consumer.scheduleNopPollTask();
+      consumer.schedulePollTask(() -> consumer.addRecord(new ConsumerRecord<>(
+          TOPIC, 0, 2, 0L, TimestampType.CREATE_TIME, 0L, 0, 0, KEY, LICENSE_MSG2)
+      ));
+      consumer.schedulePollTask(() -> finishedLatch.countDown());
     });
 
     assertTrue(finishedLatch.await(10000, TimeUnit.MILLISECONDS));
@@ -287,13 +264,8 @@ public class LicenseStoreTest {
 
     // Set some keys
     final AtomicInteger invoked = new AtomicInteger(0);
-    org.apache.kafka.clients.producer.Callback producerCallback = new org.apache.kafka.clients
-        .producer.Callback() {
-      @Override
-      public void onCompletion(RecordMetadata metadata, Exception exception) {
+    org.apache.kafka.clients.producer.Callback producerCallback = (metadata, exception) ->
         invoked.incrementAndGet();
-      }
-    };
 
     store.registerLicense(LICENSE_MSG0.getLicenseInfo().getJwt(), producerCallback);
     assertEquals(0, invoked.get());
@@ -302,27 +274,19 @@ public class LicenseStoreTest {
     assertEquals(1, invoked.get());
 
     final CountDownLatch finishedLatch = new CountDownLatch(1);
-    consumer.schedulePollTask(new Runnable() {
-      @Override
-      public void run() {
-        consumer.scheduleNopPollTask();
-        consumer.scheduleNopPollTask();
-        consumer.schedulePollTask(new Runnable() {
-          @Override
-          public void run() {
-            consumer.addRecord(new ConsumerRecord<>(
-                TOPIC, 0, 0, 0L, TimestampType.CREATE_TIME, 0L, 0, 0, KEY, LICENSE_MSG0)
-            );
-          }
-        });
-        consumer.scheduleNopPollTask();
-        consumer.schedulePollTask(new Runnable() {
-          @Override
-          public void run() {
-            finishedLatch.countDown();
-          }
-        });
-      }
+    consumer.schedulePollTask(() -> {
+      consumer.scheduleNopPollTask();
+      consumer.scheduleNopPollTask();
+      consumer.schedulePollTask(new Runnable() {
+        @Override
+        public void run() {
+          consumer.addRecord(new ConsumerRecord<>(
+              TOPIC, 0, 0, 0L, TimestampType.CREATE_TIME, 0L, 0, 0, KEY, LICENSE_MSG0)
+          );
+        }
+      });
+      consumer.scheduleNopPollTask();
+      consumer.schedulePollTask(() -> finishedLatch.countDown());
     });
 
     assertTrue(finishedLatch.await(10000, TimeUnit.MILLISECONDS));
@@ -354,46 +318,26 @@ public class LicenseStoreTest {
     assertEquals(0L, consumer.position(LICENSE_TP));
 
     final CountDownLatch finishedLatch = new CountDownLatch(1);
-    consumer.schedulePollTask(new Runnable() {
-      @Override
-      public void run() {
-        consumer.scheduleNopPollTask();
-        consumer.scheduleNopPollTask();
-        consumer.schedulePollTask(new Runnable() {
-          @Override
-          public void run() {
-            consumer.addRecord(new ConsumerRecord<>(
-                TOPIC, 0, 0, 0L, TimestampType.CREATE_TIME, 0L, 0, 0, KEY, LICENSE_MSG0)
-            );
-            consumer.addRecord(new ConsumerRecord<>(
-                TOPIC, 0, 1, 0L, TimestampType.CREATE_TIME, 0L, 0, 0, KEY, LICENSE_MSG1)
-            );
-          }
-        });
-        consumer.scheduleNopPollTask();
-        // Trigger exception
-        consumer.schedulePollTask(new Runnable() {
-          @Override
-          public void run() {
-            consumer.setPollException(Errors.COORDINATOR_NOT_AVAILABLE.exception());
-          }
-        });
-        consumer.scheduleNopPollTask();
-        consumer.schedulePollTask(new Runnable() {
-          @Override
-          public void run() {
-            consumer.addRecord(new ConsumerRecord<>(
-                TOPIC, 0, 2, 0L, TimestampType.CREATE_TIME, 0L, 0, 0, KEY, LICENSE_MSG2)
-            );
-          }
-        });
-        consumer.schedulePollTask(new Runnable() {
-          @Override
-          public void run() {
-            finishedLatch.countDown();
-          }
-        });
-      }
+    consumer.schedulePollTask(() -> {
+      consumer.scheduleNopPollTask();
+      consumer.scheduleNopPollTask();
+      consumer.schedulePollTask(() -> {
+        consumer.addRecord(new ConsumerRecord<>(
+            TOPIC, 0, 0, 0L, TimestampType.CREATE_TIME, 0L, 0, 0, KEY, LICENSE_MSG0)
+        );
+        consumer.addRecord(new ConsumerRecord<>(
+            TOPIC, 0, 1, 0L, TimestampType.CREATE_TIME, 0L, 0, 0, KEY, LICENSE_MSG1)
+        );
+      });
+      consumer.scheduleNopPollTask();
+      // Trigger exception
+      consumer.schedulePollTask(
+          () -> consumer.setPollException(Errors.COORDINATOR_NOT_AVAILABLE.exception()));
+      consumer.scheduleNopPollTask();
+      consumer.schedulePollTask(() -> consumer.addRecord(new ConsumerRecord<>(
+          TOPIC, 0, 2, 0L, TimestampType.CREATE_TIME, 0L, 0, 0, KEY, LICENSE_MSG2)
+      ));
+      consumer.schedulePollTask(() -> finishedLatch.countDown());
     });
 
     assertTrue(finishedLatch.await(10000, TimeUnit.MILLISECONDS));
