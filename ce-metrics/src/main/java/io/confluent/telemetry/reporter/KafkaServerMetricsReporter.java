@@ -55,6 +55,14 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
 
     @Override
     public void onUpdate(ClusterResource clusterResource) {
+        // prevent this reporter from starting up on clients
+        //   note: this is not a completely fail-safe check, it is still possible
+        //   for a degenerate client configs to contain broker id configs
+        if (config.getBrokerId() == null || clusterResource.clusterId() == null) {
+            log.warn("{} only supports Kafka brokers, metrics collection will not be started", KafkaServerMetricsReporter.class);
+            return;
+        }
+
         if (this.collectorTask != null) {
             log.warn("onUpdate called multiple times for {}", KafkaServerMetricsReporter.class);
             // Exit early so we don't start a second collector task

@@ -19,6 +19,7 @@ import org.junit.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.Assert.assertNull;
 
 public class KafkaServerMetricsReporterTest {
 
@@ -61,6 +62,16 @@ public class KafkaServerMetricsReporterTest {
         reporter.configure(configs);
 
         assertThat(reporter.getExporters()).isEmpty();
+    }
+
+    @Test
+    public void testInitNonBrokers() {
+        Map<String, String> configs = ImmutableMap.of(
+            ConfluentTelemetryConfig.EXPORTER_KAFKA_ENABLED_CONFIG, "true",
+            KafkaExporterConfig.BOOTSTRAP_SERVERS_CONFIG, "127.0.0.1:9092");
+        reporter.configure(configs);
+        reporter.onUpdate(new ClusterResource(null));
+        assertNull(reporter.getCollectors());
     }
 
     @Test
