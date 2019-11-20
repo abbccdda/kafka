@@ -16,7 +16,6 @@ import java.util.concurrent.TimeUnit;
 import static junit.framework.TestCase.assertTrue;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
 
 public class SecretsLoaderTest {
@@ -81,7 +80,6 @@ public class SecretsLoaderTest {
     assertEquals("myCluster", entry.logicalClusterId);
     assertEquals("no hash", entry.hashedSecret);
     assertEquals("none", entry.hashFunction);
-    assertNull(tenantConfig.quotas);
   }
 
   @Test

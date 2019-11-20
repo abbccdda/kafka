@@ -13,11 +13,8 @@ import com.google.gson.stream.JsonReader;
 
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.TenantMetadata;
-import io.confluent.kafka.multitenant.quota.QuotaConfig;
-import io.confluent.kafka.multitenant.quota.TenantQuotaCallback;
 import io.confluent.kafka.server.plugins.auth.stats.TenantAuthenticationStats;
 
-import java.util.stream.Collectors;
 import org.apache.kafka.common.config.ConfigException;
 
 import java.io.FileInputStream;
@@ -39,7 +36,6 @@ import java.util.concurrent.TimeUnit;
  */
 public class SecretsLoader {
   static final String KEY = "key";
-  private static final String DEFAULT_QUOTA_KEY  = "";
   private final LoadingCache<String, Map<String, KeyConfigEntry>> cache;
 
   public SecretsLoader(String filePath, long refreshMs) {
@@ -80,9 +76,6 @@ public class SecretsLoader {
       throw new ConfigException("Missing top level \"keys\"");
     }
     tenantConfig.apiKeys.entrySet().forEach(SecretsLoader::validateKeyEntry);
-    if (tenantConfig.quotas != null) {
-      tenantConfig.quotas.entrySet().forEach(SecretsLoader::validateQuotaEntry);
-    }
   }
 
   private static void validateKeyEntry(Map.Entry<String, KeyConfigEntry> entry) {
@@ -112,14 +105,6 @@ public class SecretsLoader {
     }
   }
 
-  private static void validateQuotaEntry(Map.Entry<String, QuotaConfigEntry> entry) {
-    String tenant = entry.getKey();
-    QuotaConfigEntry v = entry.getValue();
-    if (v == null) {
-      throw new ConfigException("Missing quota value for tenant " + tenant);
-    }
-  }
-
   private static boolean isEmpty(String str) {
     return str == null || str.isEmpty();
   }
@@ -138,9 +123,6 @@ public class SecretsLoader {
       }
       TenantConfig tenantConfig = SecretsLoader.loadFile(filePath);
       Map<String, KeyConfigEntry> entries = tenantConfig.apiKeys;
-      if (tenantConfig.quotas != null) {
-        notifyTenantQuotaCallback(tenantConfig.quotas);
-      }
       removeUnusedStatsMbeans(entries);
       return entries;
     }
@@ -154,21 +136,5 @@ public class SecretsLoader {
       }
       TenantAuthenticationStats.instance().removeUnusedMBeans(validPrincipals);
     }
-  }
-
-  private static void notifyTenantQuotaCallback(Map<String, QuotaConfigEntry> quotas) {
-    QuotaConfigEntry defaultQuotaEntry = quotas.get(DEFAULT_QUOTA_KEY);
-    QuotaConfig defaultQuota = defaultQuotaEntry == null ? QuotaConfig.UNLIMITED_QUOTA
-        : quotaConfig(defaultQuotaEntry, QuotaConfig.UNLIMITED_QUOTA);
-    Map<String, QuotaConfig> tenantQuotas = quotas.entrySet().stream()
-        .collect(Collectors.toMap(Map.Entry::getKey, e -> quotaConfig(e.getValue(), defaultQuota)));
-    TenantQuotaCallback.updateQuotas(tenantQuotas, defaultQuota);
-  }
-
-  private static QuotaConfig quotaConfig(QuotaConfigEntry config, QuotaConfig defaultQuota) {
-    return new QuotaConfig(config.producerByteRate,
-                           config.consumerByteRate,
-                           config.requestPercentage,
-                           defaultQuota);
   }
 }
