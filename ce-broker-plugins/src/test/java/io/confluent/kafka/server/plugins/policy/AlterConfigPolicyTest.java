@@ -220,6 +220,20 @@ public class AlterConfigPolicyTest {
     policy.validate(brokerRequestMetadata);
   }
 
+  @Test(expected = PolicyViolationException.class)
+  public void rejectsBrokerLoggerUpdatesFromTenant() throws Exception {
+    RequestMetadata brokerRequestMetadata = createBrokerLoggerRequestMetadata(
+        new MultiTenantPrincipal("tenantUserA", new TenantMetadata("cluster1", "cluster1")));
+    policy.validate(brokerRequestMetadata);
+  }
+
+  @Test
+  public void allowsBrokerLoggerUpdatesFromInternalUser() throws Exception {
+    RequestMetadata brokerRequestMetadata = createBrokerLoggerRequestMetadata(
+        new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "ANONYMOUS"));
+    policy.validate(brokerRequestMetadata);
+  }
+
   private RequestMetadata createBrokerRequestMetadata(KafkaPrincipal principal) {
     RequestMetadata brokerRequestMetadata = mock(RequestMetadata.class);
     ConfigResource cfgResource = new ConfigResource(ConfigResource.Type.BROKER, "dummy");
@@ -230,6 +244,18 @@ public class AlterConfigPolicyTest {
     when(brokerRequestMetadata.configs()).thenReturn(brokerConfigs);
     when(brokerRequestMetadata.principal()).thenReturn(principal);
     return brokerRequestMetadata;
+  }
+
+  private RequestMetadata createBrokerLoggerRequestMetadata(KafkaPrincipal principal) {
+    RequestMetadata reqMetadata = mock(RequestMetadata.class);
+    ConfigResource cfgResource = new ConfigResource(ConfigResource.Type.BROKER_LOGGER, "dummy");
+    when(reqMetadata.resource()).thenReturn(cfgResource);
+    Map<String, String> loggerConfigs = ImmutableMap.<String, String>builder()
+        .put("kafka.tier.archiver.TierArchiver", "INFO")
+        .build();
+    when(reqMetadata.configs()).thenReturn(loggerConfigs);
+    when(reqMetadata.principal()).thenReturn(principal);
+    return reqMetadata;
   }
 
   @Test(expected = PolicyViolationException.class)
