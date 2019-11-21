@@ -185,7 +185,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
     @Override
     public long committedEndOffset() {
-        return state.committedEndOffset;
+        return state.committedEndOffset();
     }
 
     @Override
@@ -551,11 +551,14 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     private AppendResult maybeTransitionSegment(AbstractTierSegmentMetadata metadata) throws IOException {
-        SegmentState currentState = state.allSegments.get(metadata.objectId());
+        SegmentState currentState = state.getState(metadata.objectId());
 
         // Fence transitions that do not belong to the current epoch
         if (metadata.tierEpoch() != state.currentEpoch) {
             log.info("Fenced {} as currentEpoch={} ({})", metadata, state.currentEpoch, topicIdPartition);
+            // We do not need to track SegmentUploadInitiate messages that are fenced due to
+            // epoch changes for later deletion. The prior leader will also see a fenced
+            // transition, and will not stage an upload.
             return AppendResult.FENCED;
         }
 
@@ -604,7 +607,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     private TierObjectMetadata updateState(UUID objectId, TierObjectMetadata.State newState) throws IOException {
-        SegmentState currentState = state.allSegments.get(objectId);
+        SegmentState currentState = state.getState(objectId);
         if (currentState == null)
             throw new IllegalStateException("No metadata found for " + objectId + " in " + topicIdPartition);
 
@@ -810,22 +813,10 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 topicPartition, status, topicIdPartition(), tierEpoch(), endOffset());
     }
 
-    // As there may be arbitrary overlap between flushedSegments, it is possible for a new
-    // segment to completely overlap a previous segment. We rely on on lookup via the
-    // start offset, and if we insert into the lookup map with the raw offset, it is possible
-    // for portions of a segment to be unfetchable unless we bound overlapping flushedSegments
-    // in the lookup map. e.g. if [100 - 200] is in the map at 100, and we insert [50 - 250]
-    // at 50, the portion 201 - 250 will be inaccessible.
-    private long startOffsetOfSegment(TierObjectMetadata metadata) {
-        return Math.max(metadata.baseOffset(), endOffset() + 1);
-    }
+
 
     private void addSegmentMetadata(TierObjectMetadata metadata, long byteOffset) {
-        state.allSegments.putIfAbsent(metadata.objectId(), new SegmentState(startOffsetOfSegment(metadata), byteOffset));
-        SegmentState segmentState = state.allSegments.get(metadata.objectId());
-        segmentState.state = metadata.state();
-        long startOffset = segmentState.startOffset;
-
+        SegmentState segmentState = state.updateAndGetState(byteOffset, metadata);
         switch (metadata.state()) {
             case SEGMENT_UPLOAD_INITIATE:
                 if (uploadInProgress != null)
@@ -835,18 +826,12 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 break;
 
             case SEGMENT_UPLOAD_COMPLETE:
-                state.validSegments.put(startOffset, metadata.objectId());
-                state.validSegmentsSize += metadata.size();
-                state.endOffset = Math.max(state.endOffset, metadata.endOffset());
+                state.putValid(segmentState, metadata);
                 uploadInProgress = null;
                 break;
 
             case SEGMENT_DELETE_INITIATE:
-                // If the partition state is materialized on broker restart the segment in deleteInitiate will not be
-                // included in validSegments, therefore only reduce the validSegmentSize if segment was actually present
-                // and removed, this will be the case during runtime.
-                if (state.validSegments.remove(startOffset) != null)
-                    state.validSegmentsSize -= metadata.size();
+                state.removeValid(segmentState, metadata);
                 break;
 
             case SEGMENT_DELETE_COMPLETE:
@@ -977,8 +962,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         private final ConcurrentNavigableMap<Long, UUID> validSegments = new ConcurrentSkipListMap<>();
         private final ConcurrentNavigableMap<UUID, SegmentState> allSegments = new ConcurrentSkipListMap<>();
 
-        private volatile Long endOffset = -1L;
-        private volatile Long committedEndOffset = -1L;
+        private volatile long endOffset = -1L;
+        private volatile long committedEndOffset = -1L;
         private volatile int currentEpoch = -1;
         private volatile long validSegmentsSize = 0;
 
@@ -986,11 +971,53 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             this.channel = channel;
         }
 
+        SegmentState updateAndGetState(long byteOffset, TierObjectMetadata metadata) {
+            allSegments.putIfAbsent(metadata.objectId(), new SegmentState(startOffsetOfSegment(metadata), byteOffset));
+            SegmentState found = allSegments.get(metadata.objectId());
+            found.state = metadata.state();
+            return found;
+        }
+
+        SegmentState getState(UUID objectId) {
+            return allSegments.get(objectId);
+        }
+
+        void putValid(SegmentState state, TierObjectMetadata metadata) {
+            validSegments.put(state.startOffset, metadata.objectId());
+            validSegmentsSize += metadata.size();
+            endOffset = Math.max(endOffset, metadata.endOffset());
+        }
+
+        void removeValid(SegmentState segmentState, TierObjectMetadata metadata) {
+            // If the partition state is materialized on broker restart the segment in deleteInitiate will not be
+            // included in validSegments, therefore only reduce the validSegmentSize if segment was actually present
+            // and removed, this will be the case during runtime.
+            UUID toRemove = validSegments.get(segmentState.startOffset);
+            if (toRemove != null && toRemove.equals(metadata.objectId())) {
+                validSegments.remove(segmentState.startOffset);
+                validSegmentsSize -= metadata.size();
+            }
+        }
+
+        long committedEndOffset() {
+            return committedEndOffset;
+        }
+
         long position(UUID objectId) {
-            SegmentState state = allSegments.get(objectId);
+            SegmentState state = getState(objectId);
             if (state != null)
                 return state.position;
             throw new IllegalStateException("Could not find object " + objectId);
+        }
+
+        // As there may be arbitrary overlap between flushedSegments, it is possible for a new
+        // segment to completely overlap a previous segment. We rely on on lookup via the
+        // start offset, and if we insert into the lookup map with the raw offset, it is possible
+        // for portions of a segment to be unfetchable unless we bound overlapping flushedSegments
+        // in the lookup map. e.g. if [100 - 200] is in the map at 100, and we insert [50 - 250]
+        // at 50, the portion 201 - 250 will be inaccessible.
+        private long startOffsetOfSegment(TierObjectMetadata metadata) {
+            return Math.max(metadata.baseOffset(), endOffset + 1);
         }
     }
 
@@ -1033,7 +1060,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         }
     }
 
-    private class StateCorruptedException extends RetriableException {
+    private static class StateCorruptedException extends RetriableException {
         StateCorruptedException(String message) {
             super(message);
         }

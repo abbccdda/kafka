@@ -549,6 +549,71 @@ class TierPartitionStateTest {
   }
 
   @Test
+  // Tests what happens when a TierPartitionState is reopened with both fenced and unfenced segments at the same offset
+  def testFencedSegmentHandlingOnReopen(): Unit = {
+    // upload few segments at epoch=0
+    state.append(new TierTopicInitLeader(tpid, 0, UUID.randomUUID, 0))
+
+    // begin an upload at epoch=0
+    val abortedObjectId = UUID.randomUUID
+
+    // initiate an upload to be fenced
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, abortedObjectId, 0, 1, 100, 100, false, false, false)))
+    // transition to epoch=1
+    state.append(new TierTopicInitLeader(tpid, 1, UUID.randomUUID, 0))
+    // check segment is fenced
+    val fenced = state.fencedSegments().stream().findFirst()
+    assertEquals(fenced.get().objectId(), abortedObjectId)
+    // try to complete fenced upload, should be fenced
+    assertEquals(AppendResult.FENCED, state.append(new TierSegmentUploadComplete(tpid, 0, abortedObjectId)))
+    val completedObjectId = UUID.randomUUID
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 1, completedObjectId, 0, 1, 100, 100, false, false, false)))
+    // delete initiated upload in between initiate and upload of overlapping segment
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, 1, abortedObjectId)))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 1, completedObjectId)))
+
+    // check fenced segment is removed after delete initiate for fenced segment
+    val fencedBefore = state.fencedSegments()
+    assertEquals(0, fencedBefore.size())
+    assertEquals(completedObjectId, state.metadata(0).get().objectId())
+
+    state.close()
+    val reopenedState = new FileTierPartitionState(dir, tp, true)
+    try {
+      // check segments are seekable and fencedSegments list is the same after file is reopened
+      assertArrayEquals(fencedBefore.toArray, reopenedState.fencedSegments().toArray)
+      assertTrue(reopenedState.metadata(0).isPresent)
+      assertEquals(completedObjectId, reopenedState.metadata(0).get().objectId())
+    } finally {
+      reopenedState.close()
+    }
+  }
+
+  @Test
+  // Tests what happens when a fenced segment is deleted when another segment has completed with the same offset
+  def testFencedSegmentHandlingOnDeletion(): Unit = {
+
+    state.append(new TierTopicInitLeader(tpid, 0, UUID.randomUUID, 0))
+
+    // begin an upload at epoch=0
+    val abortedObjectId = UUID.randomUUID
+    // initiate an upload that will be fenced
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, abortedObjectId, 0, 1, 100, 100, false, false, false)))
+    // transition to epoch=1
+    state.append(new TierTopicInitLeader(tpid, 1, UUID.randomUUID, 0))
+    val completedObjectId = UUID.randomUUID
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 1, completedObjectId, 0, 1, 100, 100, false, false, false)))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 1, completedObjectId)))
+
+    // completed segment should be able to be looked up
+    assertEquals(completedObjectId, state.metadata(0).get().objectId())
+    // delete the fenced segment
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, 1, abortedObjectId)))
+    // completed segment should still be able to be looked up after fenced segment deletion
+    assertEquals(completedObjectId, state.metadata(0).get().objectId())
+  }
+
+  @Test
   def testDeleteSegments(): Unit = {
     val numSegments = 20
     val epoch = 0
