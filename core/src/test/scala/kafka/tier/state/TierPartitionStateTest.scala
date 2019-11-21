@@ -358,6 +358,42 @@ class TierPartitionStateTest {
   }
 
   @Test
+  def testMetadataReadReturnsValidSegments(): Unit = {
+    var epoch = 0
+
+    assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0)))
+
+    // upload few segments at epoch=0
+    val objectId = UUID.randomUUID
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 100, 100, 100, false, false, false)))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId)))
+
+    // fenced segment
+    val fencedObjectId = UUID.randomUUID()
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, fencedObjectId, 101, 200, 100, 100, false, false, false)))
+
+    // append object at the same offset range as the fenced segment
+    epoch += 1
+    val expectedObjectId =  UUID.randomUUID
+    state.append(new TierTopicInitLeader(tpid, epoch, UUID.randomUUID(), 0))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, expectedObjectId, 150, 200, 100, 100, false, false, false)))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, expectedObjectId)))
+
+    assertEquals(2, state.numSegments())
+    assertEquals(1, state.fencedSegments().size())
+
+    // delete the fenced segment
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, fencedObjectId)))
+
+    assertEquals(2, state.numSegments())
+    assertEquals(0, state.fencedSegments().size())
+
+    // validate that the correct segment is returned
+    assertTrue(state.metadata(149).isPresent)
+    assertEquals(expectedObjectId, state.metadata(149).get().objectId())
+  }
+
+  @Test
   def testMultipleInitiatesScannedCorrectlyOnReload(): Unit = {
     var epoch = 0
     var offset = 0

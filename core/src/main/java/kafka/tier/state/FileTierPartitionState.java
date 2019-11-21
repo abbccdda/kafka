@@ -364,7 +364,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         State currentState = state;
         Map.Entry<Long, UUID> entry = currentState.validSegments.floorEntry(targetOffset);
         if (entry != null)
-            return read(topicIdPartition, currentState, currentState.position(entry.getValue()), targetOffset);
+            return readValidObjectMetadata(topicIdPartition, currentState, currentState.position(entry.getValue()), targetOffset);
         else
             return Optional.empty();
     }
@@ -468,9 +468,10 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     /**
-     * Reads the first segment object metadata with offset >= targetOffset. This is intended to
-     * be used when a consumer / reader wishes to read records with offset >= targetOffset as
-     * it will skip over any segments with endOffset < targetOffset.
+     * Reads the first segment object metadata in SEGMENT_UPLOAD_COMPLETE state
+     * with offset >= targetOffset. This is intended to be used when a consumer / reader wishes
+     * to read records with offset >= targetOffset as it will skip over any segments with
+     * endOffset < targetOffset.
      * @param topicIdPartition TopicIdPartition for tier partition state being read
      * @param state write state
      * @param initialBytePosition the initial byte position for the FileTierPartitionIterator
@@ -478,10 +479,10 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
      * @return optional TierObjectMetadata for a containing data with offsets >= targetOffset
      * @throws IOException
      */
-    private static Optional<TierObjectMetadata> read(TopicIdPartition topicIdPartition,
-                                                     State state,
-                                                     long initialBytePosition,
-                                                     long targetOffset) throws IOException {
+    private static Optional<TierObjectMetadata> readValidObjectMetadata(TopicIdPartition topicIdPartition,
+                                                                        State state,
+                                                                        long initialBytePosition,
+                                                                        long targetOffset) throws IOException {
         if (!state.validSegments.isEmpty()) {
             FileTierPartitionIterator iterator = iterator(topicIdPartition, state.channel, initialBytePosition);
             // The entry at `position` must be known to be fully written to the underlying file
@@ -493,7 +494,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             // higher offset than the target offset
             while (iterator.hasNext()) {
                 TierObjectMetadata metadata = iterator.next();
-                if (metadata.endOffset() >= targetOffset)
+                if (metadata.endOffset() >= targetOffset && metadata.state().equals(TierObjectMetadata.State.SEGMENT_UPLOAD_COMPLETE))
                     return Optional.of(metadata);
             }
             return Optional.empty();
