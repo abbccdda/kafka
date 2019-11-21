@@ -138,11 +138,17 @@ allprojects {
           force "com.google.protobuf:protobuf-java:$versions.protobuf"
           force "com.google.protobuf:protobuf-java-util:$versions.protobuf"
           force "org.javassist:javassist:$versions.javassist"
-        }
-      }
-      runtime {
-        resolutionStrategy {
           force "com.fasterxml.jackson.core:jackson-annotations:$versions.jackson"
+          force "com.fasterxml.jackson.core:jackson-databind:$versions.jacksonDatabind"
+          force "com.fasterxml.jackson.core:jackson-core:$versions.jackson"
+          force "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:$versions.jackson"
+          force "com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:$versions.jackson"
+          force "com.fasterxml.jackson.dataformat:jackson-dataformat-csv:$versions.jackson"
+          force "com.fasterxml.jackson.jaxrs:jackson-jaxrs-base:$versions.jackson"
+          force "com.fasterxml.jackson.jaxrs:jackson-jaxrs-json-provider:$versions.jackson"
+          force "com.fasterxml.jackson.module:jackson-module-jaxb-annotations:$versions.jackson"
+          force "com.fasterxml.jackson.module:jackson-module-paranamer:$versions.jackson"
+          force "com.fasterxml.jackson.module:jackson-module-scala_2.12:$versions.jackson"
         }
       }
     }
