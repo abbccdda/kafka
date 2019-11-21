@@ -221,6 +221,8 @@ class BrokerTopicMetrics(name: Option[String]) extends KafkaMetricsGroup {
     metricTypeMap.put(BrokerTopicStats.ReplicationBytesOutPerSec, MeterWrapper(BrokerTopicStats.ReplicationBytesOutPerSec, "bytes"))
     metricTypeMap.put(BrokerTopicStats.ReassignmentBytesInPerSec, MeterWrapper(BrokerTopicStats.ReassignmentBytesInPerSec, "bytes"))
     metricTypeMap.put(BrokerTopicStats.ReassignmentBytesOutPerSec, MeterWrapper(BrokerTopicStats.ReassignmentBytesOutPerSec, "bytes"))
+    metricTypeMap.put(BrokerTopicStats.SegmentReadsPerSec, MeterWrapper(BrokerTopicStats.SegmentReadsPerSec, "requests"))
+    metricTypeMap.put(BrokerTopicStats.SegmentSpeculativePrefetchesPerSec, MeterWrapper(BrokerTopicStats.SegmentSpeculativePrefetchesPerSec, "requests"))
   }
 
   // used for testing only
@@ -262,6 +264,14 @@ class BrokerTopicMetrics(name: Option[String]) extends KafkaMetricsGroup {
 
   def consumerFetchLagTimeMs = newHistogram(BrokerTopicStats.ConsumerFetchLagTimeMs, biased = true, tags)
 
+  def segmentReadRate: Option[Meter] =
+    if (name.isEmpty) Some(metricTypeMap.get(BrokerTopicStats.SegmentReadsPerSec).meter())
+    else None
+
+  def segmentSpeculativePrefetchRate: Option[Meter] =
+    if (name.isEmpty) Some(metricTypeMap.get(BrokerTopicStats.SegmentSpeculativePrefetchesPerSec).meter())
+    else None
+
   def produceMessageConversionsRate: Meter = metricTypeMap.get(BrokerTopicStats.ProduceMessageConversionsPerSec).meter()
 
   def noKeyCompactedTopicRecordsPerSec: Meter = metricTypeMap.get(BrokerTopicStats.NoKeyCompactedTopicRecordsPerSec).meter()
@@ -302,6 +312,8 @@ object BrokerTopicStats {
   val ReassignmentBytesInPerSec = "ReassignmentBytesInPerSec"
   val ReassignmentBytesOutPerSec = "ReassignmentBytesOutPerSec"
   val ConsumerFetchLagTimeMs = "ConsumerFetchLagTimeMs"
+  val SegmentReadsPerSec = "SegmentReadsPerSec"
+  val SegmentSpeculativePrefetchesPerSec = "SegmentSpeculativePrefetchesPerSec"
 
   // These following topics are for LogValidator for better debugging on failed records
   val NoKeyCompactedTopicRecordsPerSec = "NoKeyCompactedTopicRecordsPerSec"

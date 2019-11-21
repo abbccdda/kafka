@@ -24,6 +24,7 @@ import com.yammer.metrics.Metrics
 import com.yammer.metrics.core.MetricPredicate
 import org.junit.Test
 import org.junit.Assert._
+import org.scalatest.Assertions.assertThrows
 import kafka.integration.KafkaServerTestHarness
 import kafka.server._
 import kafka.utils._
@@ -188,6 +189,47 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
     assertEquals(1, metrics.keySet.asScala.count(_.getMBeanName.startsWith("kafka.server:type=BrokerTopicMetrics,name=InvalidMagicNumberRecordsPerSec")))
     assertEquals(1, metrics.keySet.asScala.count(_.getMBeanName.startsWith("kafka.server:type=BrokerTopicMetrics,name=InvalidMessageCrcRecordsPerSec")))
     assertEquals(1, metrics.keySet.asScala.count(_.getMBeanName.startsWith("kafka.server:type=BrokerTopicMetrics,name=NonIncreasingOffsetRecordsPerSec")))
+  }
+
+  @Test
+  def testBrokerTopicMetricsSegmentReads(): Unit = {
+    val topic = "test-segment-reads"
+    val segmentReads = BrokerTopicStats.SegmentReadsPerSec
+    val segmentSpeculativePrefetches = BrokerTopicStats.SegmentSpeculativePrefetchesPerSec
+
+    val topicConfig = new Properties
+    topicConfig.setProperty(LogConfig.SegmentSpeculativePrefetchEnableProp, "true")
+    topicConfig.setProperty(LogConfig.SegmentBytesProp, "128")
+    createTopic(topic, 1, numNodes, topicConfig)
+
+    // Initially should not have any recorded segment reads.
+    assertEquals(0, TestUtils.meterCount(segmentReads))
+    assertEquals(0, TestUtils.meterCount(segmentSpeculativePrefetches))
+
+    // Verify per-topic metrics aren't exported.
+    def testTopicMetricFails(metric: String): Unit = assertThrows[Throwable] {
+      TestUtils.meterCount(s"${metric},topic=${topic}")
+    }
+    testTopicMetricFails(segmentReads)
+    testTopicMetricFails(segmentSpeculativePrefetches)
+
+    // Produce and consume a single record. There should still only be a single (active) segment,
+    // therefore no speculative prefetches.
+    TestUtils.generateAndProduceMessages(servers, topic, 1)
+    TestUtils.consumeTopicRecords(servers, topic, 1)
+
+    assertTrue(TestUtils.meterCount(segmentReads) > 0)
+    assertEquals(0, TestUtils.meterCount(segmentSpeculativePrefetches))
+
+    // Produce and consume enough messages to at least generate a second segment, and verify the
+    // the resulting metrics. Note we cannot produce a batch larger than the segment size.
+    (0 until 32).foreach(_ => TestUtils.generateAndProduceMessages(servers, topic, 1))
+    TestUtils.consumeTopicRecords(servers, topic, 32)
+
+    assertTrue(TestUtils.meterCount(segmentReads) > 1)
+    assertTrue(TestUtils.meterCount(segmentSpeculativePrefetches) > 0)
+    assertTrue(TestUtils.meterCount(segmentReads) - 1 >
+      TestUtils.meterCount(segmentSpeculativePrefetches))
   }
 
   /**
