@@ -219,15 +219,15 @@ public enum ApiKeys {
                                  ListPartitionReassignmentsResponseData.SCHEMAS),
     OFFSET_DELETE(47, "OffsetDelete", OffsetDeleteRequestData.SCHEMAS, OffsetDeleteResponseData.SCHEMAS),
 
-    /* ----- Begin internal APIs: API ids decrement sequentially starting from Short.MAX_VALUE with `isInternal` set to true ----- */
+    /* ----- Begin Confluent APIs: API ids decrement sequentially starting from Short.MAX_VALUE ----- */
 
-    REPLICA_STATUS(32765, "ReplicaStatus", false, ReplicaStatusRequestData.SCHEMAS, ReplicaStatusResponseData.SCHEMAS, true),
+    REPLICA_STATUS(32765, "ReplicaStatus", ReplicaStatusRequestData.SCHEMAS, ReplicaStatusResponseData.SCHEMAS),
     CONFLUENT_LEADER_AND_ISR(32766, "ConfluentLeaderAndIsr", true, ConfluentLeaderAndIsrRequestData.SCHEMAS,
                              ConfluentLeaderAndIsrResponseData.SCHEMAS, true),
     TIER_LIST_OFFSET(32767, "TierListOffsets", true, TierListOffsetRequestData.SCHEMAS,
                      TierListOffsetResponseData.SCHEMAS, true);
 
-    /* ----- End internal APIs ----- */
+    /* ----- End Confluent APIs ----- */
 
     private static final Map<Short, ApiKeys> ID_TO_TYPE = new HashMap<>(values().length);
 

@@ -134,8 +134,11 @@ public class SaslServerAuthenticatorTest {
 
     @Test
     public void testExternalApiVersionRequestContainsNoInternalApis() throws IOException {
-        assertEquals(ApiKeys.publicExposedApis(), fetchSupportedApis(false));
+        Set<ApiKeys> supportedApis = fetchSupportedApis(false);
+        assertEquals(ApiKeys.publicExposedApis(), supportedApis);
 
+        // Ensure external Confluent APIs are visible.
+        assertTrue(supportedApis.stream().anyMatch(key -> key.name.equals("ReplicaStatus")));
     }
 
     @Test

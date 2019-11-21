@@ -202,6 +202,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.ALTER_PARTITION_REASSIGNMENTS => handleAlterPartitionReassignmentsRequest(request)
         case ApiKeys.LIST_PARTITION_REASSIGNMENTS => handleListPartitionReassignmentsRequest(request)
         case ApiKeys.OFFSET_DELETE => handleOffsetDeleteRequest(request)
+        case ApiKeys.REPLICA_STATUS => handleReplicaStatusRequest(request)
         case _ if request.header.apiKey.isInternal => handleInternalRequest(request)
       }
     } catch {
@@ -214,7 +215,6 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   private def handleInternalRequest(request: RequestChannel.Request) {
     request.header.apiKey match {
-      case ApiKeys.REPLICA_STATUS => handleReplicaStatusRequest(request)
       case ApiKeys.TIER_LIST_OFFSET => handleTierListOffsetRequest(request)
       case ApiKeys.CONFLUENT_LEADER_AND_ISR => handleLeaderAndIsrRequest(request)
       case _ => throw new IllegalArgumentException(s"Unsupported API key ${request.header.apiKey.id}")
