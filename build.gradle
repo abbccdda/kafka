@@ -148,7 +148,7 @@ allprojects {
           force "com.fasterxml.jackson.jaxrs:jackson-jaxrs-json-provider:$versions.jackson"
           force "com.fasterxml.jackson.module:jackson-module-jaxb-annotations:$versions.jackson"
           force "com.fasterxml.jackson.module:jackson-module-paranamer:$versions.jackson"
-          force "com.fasterxml.jackson.module:jackson-module-scala_2.12:$versions.jackson"
+          force "com.fasterxml.jackson.module:jackson-module-scala_${versions.baseScala}:$versions.jackson"
         }
       }
     }
