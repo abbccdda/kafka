@@ -33,6 +33,16 @@ public class TopicPartitionInfo {
     private final List<Node> observers;
     private final List<Node> isr;
 
+    @Confluent
+    public static TopicPartitionInfo ofReplicasAndObservers(
+            int partition,
+            Node leader,
+            List<Node> replicas,
+            List<Node> observers,
+            List<Node> isr) {
+        return new TopicPartitionInfo(partition, leader, replicas, observers, isr);
+    }
+
     /**
      * Create an instance of this class with the provided parameters.
      *
@@ -46,7 +56,7 @@ public class TopicPartitionInfo {
         this(partition, leader, replicas, Collections.emptyList(), isr);
     }
 
-    public TopicPartitionInfo(int partition, Node leader, List<Node> replicas, List<Node> observers, List<Node> isr) {
+    private TopicPartitionInfo(int partition, Node leader, List<Node> replicas, List<Node> observers, List<Node> isr) {
         this.partition = partition;
         this.leader = leader;
         this.replicas = Collections.unmodifiableList(replicas);
@@ -82,6 +92,7 @@ public class TopicPartitionInfo {
      * Return the observer replicas of the partition. Observers are not part of ISR and cannot be
      * elected as leader.
      */
+    @Confluent
     public List<Node> observers() {
         return this.observers;
     }

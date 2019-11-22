@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import org.apache.kafka.common.Confluent;
 
 /**
  * A new partition reassignment, which can be applied via {@link AdminClient#alterPartitionReassignments(Map, AlterPartitionReassignmentsOptions)}.
@@ -34,6 +35,7 @@ public class NewPartitionReassignment {
     /**
      * @throws IllegalArgumentException if no replicas are supplied or observers is null
      */
+    @Confluent
     public static NewPartitionReassignment ofReplicasAndObservers(List<Integer> replicas,
                                                                   List<Integer> observers) {
         return new NewPartitionReassignment(replicas, observers);
@@ -62,6 +64,7 @@ public class NewPartitionReassignment {
         return targetReplicas;
     }
 
+    @Confluent
     public List<Integer> targetObservers() {
         return targetObservers;
     }

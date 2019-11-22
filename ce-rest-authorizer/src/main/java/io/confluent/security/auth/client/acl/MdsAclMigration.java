@@ -119,7 +119,7 @@ public class MdsAclMigration {
           try {
             ensureNoRebalance();
             FilterResults deleteResults = mdsAdminClient
-                .deleteAcls(Collections.singleton(aclBindingFilter), new DeleteAclsOptions(), clusterId, writerBrokerId)
+                .deleteCentralizedAcls(Collections.singleton(aclBindingFilter), new DeleteAclsOptions(), clusterId, writerBrokerId)
                 .values().get(aclBindingFilter).get();
 
             Map<AclBinding, ApiException> failedDeleteResults = failedDeleteResults(deleteResults);
@@ -165,7 +165,7 @@ public class MdsAclMigration {
 
   private Map<AclBinding, ApiError> createAcls(final ConfluentAdmin mdsAdminClient, List<AclBinding> aclBatch) {
     ensureNoRebalance();
-    return mdsAdminClient.createAcls(aclBatch, new CreateAclsOptions(), clusterId, writerBrokerId).values()
+    return mdsAdminClient.createCentralizedAcls(aclBatch, new CreateAclsOptions(), clusterId, writerBrokerId).values()
         .entrySet().stream()
         .collect(Collectors.toMap(Map.Entry::getKey, e -> {
           try {

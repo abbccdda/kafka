@@ -476,9 +476,13 @@ object TopicCommand extends Logging {
                   }
                 }
 
-                val info = new TopicPartitionInfo(partitionId, leaderOpt.map(asNode).orNull,
-                  assignedReplicas.map(asNode).toList.asJava, List().asJava,
-                  isr.map(asNode).toList.asJava)
+                val info = TopicPartitionInfo.ofReplicasAndObservers(
+                  partitionId,
+                  leaderOpt.map(asNode).orNull,
+                  assignedReplicas.map(asNode).toList.asJava,
+                  List().asJava,
+                  isr.map(asNode).toList.asJava
+                )
 
                 val partitionDesc = PartitionDescription(topic, info, config = None, markedForDeletion, reassignment = None, liveBrokerIds)
                 describeOptions.maybePrintPartitionDescription(partitionDesc)

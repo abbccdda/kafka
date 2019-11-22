@@ -371,7 +371,7 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
           results.add(result);
         }
       } else {
-        Map<AclBinding, KafkaFuture<Void>> futures = adminClient.createAcls(aclBindings,
+        Map<AclBinding, KafkaFuture<Void>> futures = adminClient.createCentralizedAcls(aclBindings,
             new CreateAclsOptions(),
             clusterId,
             writerId).values();
@@ -436,7 +436,7 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
           results.add(result);
         }
       } else {
-        Map<AclBindingFilter, KafkaFuture<FilterResults>> futures = adminClient.deleteAcls(aclBindingFilters,
+        Map<AclBindingFilter, KafkaFuture<FilterResults>> futures = adminClient.deleteCentralizedAcls(aclBindingFilters,
             new DeleteAclsOptions(),
             clusterId,
             writerId).values();

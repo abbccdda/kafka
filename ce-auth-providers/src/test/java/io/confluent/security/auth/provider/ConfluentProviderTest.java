@@ -484,24 +484,24 @@ public class ConfluentProviderTest {
 
     AclRule aliceReadRule = new AclRule(alice, PermissionType.ALLOW, "", new Operation("Read"));
     AclBinding aclBinding = new AclBinding(ResourcePattern.to(resourcePattern), aliceReadRule.toAccessControlEntry());
-    aclClient.createAcls(Collections.singletonList(aclBinding), new CreateAclsOptions(), "clusterA", 0);
+    aclClient.createCentralizedAcls(Collections.singletonList(aclBinding), new CreateAclsOptions(), "clusterA", 0);
     verifyRules(accessRules(alice, emptyGroups, clusterResource));
     verifyRules(accessRules(alice, emptyGroups, topic), "Read");
 
     AclRule adminWriteReadRule = new AclRule(admin, PermissionType.ALLOW, "", new Operation("Write"));
     aclBinding = new AclBinding(ResourcePattern.to(resourcePattern), adminWriteReadRule.toAccessControlEntry());
-    aclClient.createAcls(Collections.singletonList(aclBinding), new CreateAclsOptions(), "clusterA", 0);
+    aclClient.createCentralizedAcls(Collections.singletonList(aclBinding), new CreateAclsOptions(), "clusterA", 0);
     verifyRules(accessRules(alice, groups, topic),  "Write");
 
     AclRule aliceWriteRule = new AclRule(alice, PermissionType.ALLOW, "", new Operation("Write"));
     aclBinding = new AclBinding(ResourcePattern.to(resourcePattern), aliceWriteRule.toAccessControlEntry());
 
-    aclClient.createAcls(Collections.singletonList(aclBinding), new CreateAclsOptions(), "clusterA", 0);
+    aclClient.createCentralizedAcls(Collections.singletonList(aclBinding), new CreateAclsOptions(), "clusterA", 0);
     verifyRules(accessRules(alice, emptyGroups, topic), "Write");
 
     AclBindingFilter deleteFilter = new AclBindingFilter(ResourcePattern.to(resourcePattern).toFilter(),
         AccessControlEntryFilter.ANY);
-    aclClient.deleteAcls(Collections.singleton(deleteFilter), new DeleteAclsOptions(), "clusterA", 0);
+    aclClient.deleteCentralizedAcls(Collections.singleton(deleteFilter), new DeleteAclsOptions(), "clusterA", 0);
     verifyRules(accessRules(alice, groups, topic));
   }
 
@@ -518,7 +518,7 @@ public class ConfluentProviderTest {
     }
 
     @Override
-    public CreateAclsResult createAcls(Collection<AclBinding> acls,
+    public CreateAclsResult createCentralizedAcls(Collection<AclBinding> acls,
         CreateAclsOptions options, String clusterId, int writerBrokerId) {
       Scope scope = new Scope(Collections.singletonList("testOrg"), Collections.singletonMap("kafka-cluster", clusterId));
       for (AclBinding aclBinding: acls) {
@@ -529,7 +529,7 @@ public class ConfluentProviderTest {
     }
 
     @Override
-    public DeleteAclsResult deleteAcls(Collection<AclBindingFilter> filters,
+    public DeleteAclsResult deleteCentralizedAcls(Collection<AclBindingFilter> filters,
         DeleteAclsOptions options, String clusterId, int writerBrokerId) {
       Map<AclBindingFilter, Collection<AclBinding>> toBeDeleted = new HashMap<>();
       Scope scope = new Scope(Collections.singletonList("testOrg"), Collections.singletonMap("kafka-cluster", clusterId));

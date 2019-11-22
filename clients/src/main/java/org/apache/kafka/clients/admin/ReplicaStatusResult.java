@@ -4,6 +4,7 @@
 
 package org.apache.kafka.clients.admin;
 
+import org.apache.kafka.common.Confluent;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.annotation.InterfaceStability;
@@ -17,6 +18,7 @@ import java.util.Map;
  *
  * The API of this class is evolving, see {@link Admin} for details.
  */
+@Confluent
 @InterfaceStability.Evolving
 public class ReplicaStatusResult {
     private final Map<TopicPartition, KafkaFuture<List<ReplicaStatus>>> result;

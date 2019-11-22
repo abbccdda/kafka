@@ -9,6 +9,7 @@ import org.apache.kafka.common.TopicPartition;
 import java.util.Set;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
+import org.apache.kafka.common.Confluent;
 
 /**
  * This interface contains admin client methods that:
@@ -19,6 +20,7 @@ import org.apache.kafka.common.acl.AclBindingFilter;
  *
  * Any new or update to admin client api that need these features should be done here.
  */
+@Confluent
 public interface ConfluentAdmin extends Admin {
 
     /**
@@ -45,6 +47,7 @@ public interface ConfluentAdmin extends Admin {
      * @param options The options to use.
      * @return The resulting replica status of every requested partition.
      */
+    @Confluent
     ReplicaStatusResult replicaStatus(Set<TopicPartition> partitions, ReplicaStatusOptions options);
 
     /**
@@ -63,7 +66,8 @@ public interface ConfluentAdmin extends Admin {
      * @param writerBrokerId Broker id of the current centralized metadata master writer
      * @return The CreateAclsResult.
      */
-    CreateAclsResult createAcls(Collection<AclBinding> acls, CreateAclsOptions options, String clusterId, int writerBrokerId);
+    @Confluent
+    CreateAclsResult createCentralizedAcls(Collection<AclBinding> acls, CreateAclsOptions options, String clusterId, int writerBrokerId);
 
     /**
      * Deletes access control lists (ACLs) according to the supplied filters.
@@ -78,5 +82,6 @@ public interface ConfluentAdmin extends Admin {
      * @param writerBrokerId Broker id of the current centralized metadata master writer
      * @return The DeleteAclsResult.
      */
-    DeleteAclsResult deleteAcls(Collection<AclBindingFilter> filters, DeleteAclsOptions options, String clusterId, int writerBrokerId);
+    @Confluent
+    DeleteAclsResult deleteCentralizedAcls(Collection<AclBindingFilter> filters, DeleteAclsOptions options, String clusterId, int writerBrokerId);
 }

@@ -38,6 +38,7 @@ import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor.Assignment;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.consumer.internals.ConsumerProtocol;
 import org.apache.kafka.common.Cluster;
+import org.apache.kafka.common.Confluent;
 import org.apache.kafka.common.ConsumerGroupState;
 import org.apache.kafka.common.ElectionType;
 import org.apache.kafka.common.KafkaException;
@@ -1600,8 +1601,10 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
                     List<PartitionInfo> partitionInfos = cluster.partitionsForTopic(topicName);
                     List<TopicPartitionInfo> partitions = new ArrayList<>(partitionInfos.size());
                     for (PartitionInfo partitionInfo : partitionInfos) {
-                        TopicPartitionInfo topicPartitionInfo = new TopicPartitionInfo(
-                            partitionInfo.partition(), leader(partitionInfo), Arrays.asList(partitionInfo.replicas()),
+                        TopicPartitionInfo topicPartitionInfo = TopicPartitionInfo.ofReplicasAndObservers(
+                            partitionInfo.partition(),
+                            leader(partitionInfo),
+                            Arrays.asList(partitionInfo.replicas()),
                             Arrays.asList(partitionInfo.observers()),
                             Arrays.asList(partitionInfo.inSyncReplicas()));
                         partitions.add(topicPartitionInfo);
@@ -1728,15 +1731,16 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
 
     @Override
     public CreateAclsResult createAcls(Collection<AclBinding> acls, CreateAclsOptions options) {
-        return createAcls(acls, options, null, Node.noNode().id());
+        return createCentralizedAcls(acls, options, null, Node.noNode().id());
     }
 
 
+    @Confluent
     @Override
-    public CreateAclsResult createAcls(Collection<AclBinding> acls,
-                                       CreateAclsOptions options,
-                                       String clusterId,
-                                       int writerBrokerId) {
+    public CreateAclsResult createCentralizedAcls(Collection<AclBinding> acls,
+                                                  CreateAclsOptions options,
+                                                  String clusterId,
+                                                  int writerBrokerId) {
         final long now = time.milliseconds();
         final Map<AclBinding, KafkaFutureImpl<Void>> futures = new HashMap<>();
         final List<AclCreation> aclCreations = new ArrayList<>();
@@ -1798,14 +1802,15 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
 
     @Override
     public DeleteAclsResult deleteAcls(Collection<AclBindingFilter> filters, DeleteAclsOptions options) {
-        return deleteAcls(filters, options, null, Node.noNode().id());
+        return deleteCentralizedAcls(filters, options, null, Node.noNode().id());
     }
 
+    @Confluent
     @Override
-    public DeleteAclsResult deleteAcls(Collection<AclBindingFilter> filters,
-                                       DeleteAclsOptions options,
-                                       String clusterId,
-                                       int writerBrokerId) {
+    public DeleteAclsResult deleteCentralizedAcls(Collection<AclBindingFilter> filters,
+                                                  DeleteAclsOptions options,
+                                                  String clusterId,
+                                                  int writerBrokerId) {
         final long now = time.milliseconds();
         final Map<AclBindingFilter, KafkaFutureImpl<FilterResults>> futures = new HashMap<>();
         final List<AclBindingFilter> filterList = new ArrayList<>();
@@ -3496,6 +3501,7 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
         return new ListPartitionReassignmentsResult(partitionReassignmentsFuture);
     }
 
+    @Confluent
     @Override
     public ReplicaStatusResult replicaStatus(Set<TopicPartition> partitions, ReplicaStatusOptions options) {
         final Map<TopicPartition, KafkaFutureImpl<List<ReplicaStatus>>> result = new HashMap<>();

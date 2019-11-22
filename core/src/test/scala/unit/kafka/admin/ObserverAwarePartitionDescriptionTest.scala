@@ -24,7 +24,8 @@ class ObserverAwarePartitionDescriptionTest {
   private def partitionInfo(leader: Option[Int],
                             isr: Set[Int],
                             observers: List[Int]): TopicPartitionInfo = {
-    new TopicPartitionInfo(0,
+    TopicPartitionInfo.ofReplicasAndObservers(
+      0,
       leader.map(nodes).orNull,
       nodes.values.toList.asJava,
       nodes.filterKeys(observers.contains).values.toList.asJava,
