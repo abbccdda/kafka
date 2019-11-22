@@ -13,10 +13,14 @@ import java.util.Optional;
 public class TierTimestampAndOffset implements FileRecords.TimestampAndOffset {
     public final TierObjectStore.ObjectMetadata metadata;
     public final long timestamp;
+    public final int segmentSize;
 
-    public TierTimestampAndOffset(long timestamp, TierObjectStore.ObjectMetadata metadata) {
+    public TierTimestampAndOffset(long timestamp,
+                                  TierObjectStore.ObjectMetadata metadata,
+                                  int segmentSize) {
         this.timestamp = timestamp;
         this.metadata = metadata;
+        this.segmentSize = segmentSize;
     }
 
 
@@ -32,16 +36,21 @@ public class TierTimestampAndOffset implements FileRecords.TimestampAndOffset {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o)
+            return true;
+
+        if (o == null || getClass() != o.getClass())
+            return false;
+
         TierTimestampAndOffset that = (TierTimestampAndOffset) o;
         return timestamp == that.timestamp &&
-                metadata.equals(that.metadata);
+                metadata.equals(that.metadata) &&
+                segmentSize == that.segmentSize;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(timestamp, metadata);
+        return Objects.hash(timestamp, metadata, segmentSize);
     }
 
     @Override
@@ -49,6 +58,7 @@ public class TierTimestampAndOffset implements FileRecords.TimestampAndOffset {
         return "TierTimestampAndOffset(" +
                 "timestamp=" + timestamp +
                 ", metadata=" + metadata +
+                ", segmentSize=" + segmentSize +
                 ')';
     }
 }

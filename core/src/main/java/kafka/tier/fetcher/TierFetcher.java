@@ -47,7 +47,7 @@ public class TierFetcher {
         this.tierObjectStore = tierObjectStore;
         this.logger = logContext.logger(TierFetcher.class);
         this.executorService = (ThreadPoolExecutor) (Executors.newFixedThreadPool(tierFetcherConfig.numFetchThreads));
-        this.cache =  new FetchOffsetCache(Time.SYSTEM, tierFetcherConfig.offsetCacheSize,
+        this.cache = new FetchOffsetCache(Time.SYSTEM, tierFetcherConfig.offsetCacheSize,
                 tierFetcherConfig.offsetCacheExpirationMs);
         this.tierFetcherMetrics = new TierFetcherMetrics(metrics, executorService, cache);
 
@@ -107,6 +107,7 @@ public class TierFetcher {
                                 fetchCompletionCallback,
                                 targetOffset,
                                 maxBytes,
+                                firstFetchMetadata.segmentSize(),
                                 isolationLevel,
                                 ignoredTopicPartitions);
             } else {

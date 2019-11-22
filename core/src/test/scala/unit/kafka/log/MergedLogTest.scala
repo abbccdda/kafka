@@ -958,7 +958,8 @@ class MergedLogTest {
     val metadata = tierPartitionState.metadata(0).get
     log.deleteOldSegments()
     val firstTimestamp = metadata.maxTimestamp()
-    assertEquals(Some(new TierTimestampAndOffset(firstTimestamp, new TierObjectStore.ObjectMetadata(metadata))), log.fetchOffsetByTimestamp(firstTimestamp))
+    assertEquals(Some(new TierTimestampAndOffset(firstTimestamp, new TierObjectStore.ObjectMetadata(metadata), metadata.size)),
+      log.fetchOffsetByTimestamp(firstTimestamp))
     log.close()
   }
 

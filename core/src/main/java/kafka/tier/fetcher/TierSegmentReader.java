@@ -4,43 +4,36 @@
 
 package kafka.tier.fetcher;
 
+import kafka.tier.fetcher.offsetcache.FetchOffsetMetadata;
 import org.apache.kafka.common.record.AbstractLegacyRecordBatch;
 import org.apache.kafka.common.record.DefaultRecordBatch;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.Record;
 import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.utils.Utils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 import static org.apache.kafka.common.record.DefaultRecordBatch.PARTITION_LEADER_EPOCH_LENGTH;
+import static org.apache.kafka.common.record.RecordBatch.CURRENT_MAGIC_VALUE;
 import static org.apache.kafka.common.record.Records.HEADER_SIZE_UP_TO_MAGIC;
 import static org.apache.kafka.common.record.Records.MAGIC_LENGTH;
 import static org.apache.kafka.common.record.Records.MAGIC_OFFSET;
 import static org.apache.kafka.common.record.Records.SIZE_OFFSET;
 
 public class TierSegmentReader {
-    private final CancellationContext cancellationContext;
-    private final InputStream inputStream;
-    private int finalBatchStartPosition = 0;
-    private Long nextOffset = null;
-    private Integer nextBatchSize = null;
+    private static final Logger log = LoggerFactory.getLogger(TierSegmentReader.class);
+    private final String logPrefix;
 
-    TierSegmentReader(CancellationContext cancellationContext, InputStream inputStream) {
-        this.cancellationContext = cancellationContext;
-        this.inputStream = inputStream;
-    }
-
-    public Long nextOffset() {
-        return nextOffset;
-    }
-
-    public Integer nextBatchSize() {
-        return nextBatchSize;
+    public TierSegmentReader(String logPrefix) {
+        this.logPrefix = logPrefix;
     }
 
     /**
@@ -55,82 +48,186 @@ public class TierSegmentReader {
      * individual record batch level. That's to say, cancellation must wait for the current record
      * batch to be parsed and loaded (or ignored) before taking effect.
      */
-    public MemoryRecords readRecords(int maxBytes, long targetOffset) throws IOException {
-        RecordBatch firstBatch = null;
-        // skip over batches < targetOffset
-        while (!cancellationContext.isCancelled()) {
-            try {
-                RecordBatch recordBatch = readBatch(inputStream);
-                if (recordBatch.baseOffset() <= targetOffset && recordBatch.lastOffset() >= targetOffset) {
-                    firstBatch = recordBatch;
-                    break;
-                }
-            } catch (EOFException e) {
-                return MemoryRecords.EMPTY;
-            }
-        }
-
-        if (firstBatch == null)
-            return MemoryRecords.EMPTY;
+    public RecordsAndNextBatchMetadata readRecords(CancellationContext cancellationContext,
+                                                   InputStream inputStream,
+                                                   int maxBytes,
+                                                   long targetOffset,
+                                                   int startBytePosition,
+                                                   int segmentSize) throws IOException {
+        BatchAndReadState firstBatchAndState = readFirstBatch(cancellationContext, inputStream, targetOffset, segmentSize);
+        if (firstBatchAndState == null)
+            return new RecordsAndNextBatchMetadata(MemoryRecords.EMPTY, null);
 
         // insert the first batch, ensuring the buffer size to at least as big as the first
         // batch, even if this exceeds maxBytes
-        final int firstBatchSize = firstBatch.sizeInBytes();
-        final int totalRequestBytes = Math.max(firstBatchSize, maxBytes);
-        final ByteBuffer buffer = ByteBuffer.allocate(totalRequestBytes);
+        RecordBatch firstBatch = firstBatchAndState.recordBatch;
+        int firstBatchSize = firstBatch.sizeInBytes();
+        int totalRequestBytes = Math.max(firstBatchSize, maxBytes);
+        ByteBuffer buffer = ByteBuffer.allocate(totalRequestBytes);
         firstBatch.writeTo(buffer);
 
-        // We have already read more than maxBytes in the first record batch.
-        // Read the following record batch header to allow the next batch size to be cached
-        if (firstBatchSize >= maxBytes) {
-            // Read the next header to optimize the next range fetch
-            final ByteBuffer logHeaderBuffer = ByteBuffer.allocate(HEADER_SIZE_UP_TO_MAGIC);
-            final int bytesRead = Utils.readBytes(inputStream, logHeaderBuffer, HEADER_SIZE_UP_TO_MAGIC);
-            if (bytesRead == HEADER_SIZE_UP_TO_MAGIC)
-                nextBatchSize = readMagicAndBatchSize(logHeaderBuffer, 0).batchSize;
+        ReadState firstBatchState = firstBatchAndState.readState;
+
+        // Read all subsequent batches, if any
+        ReadState subsequentBatchState = readInto(cancellationContext, inputStream, buffer, segmentSize);
+
+        NextOffsetAndBatchMetadata nextOffsetAndBatchMetadata;
+        if (subsequentBatchState.totalBytesRead > 0) {
+           ReadState mergedState = new ReadState(firstBatchState.totalBytesRead + subsequentBatchState.totalBytesRead,
+                   subsequentBatchState.lastBatchStartPosition,
+                   subsequentBatchState.nextBatchSize,
+                   subsequentBatchState.safeToReadMore);
+           nextOffsetAndBatchMetadata = determineNextFetchMetadata(buffer, inputStream, mergedState, startBytePosition, segmentSize);
         } else {
-            readBatchesUpToMaxBytes(cancellationContext, inputStream, buffer);
+           ReadState mergedState = new ReadState(firstBatchState.totalBytesRead,
+                   firstBatchState.lastBatchStartPosition,
+                   firstBatchState.nextBatchSize,
+                   firstBatchState.safeToReadMore && subsequentBatchState.safeToReadMore);
+           nextOffsetAndBatchMetadata = determineNextFetchMetadata(buffer, inputStream, mergedState, startBytePosition, segmentSize);
         }
 
         buffer.flip();
-        nextOffset = nextOffset(finalBatchStartPosition, buffer);
-        return new MemoryRecords(buffer);
+        return new RecordsAndNextBatchMetadata(new MemoryRecords(buffer), nextOffsetAndBatchMetadata);
     }
 
-    // Read additional batches from input stream up to maxBytes
-    private void readBatchesUpToMaxBytes(CancellationContext cancellationContext, InputStream inputStream, ByteBuffer buffer) {
-        while (!cancellationContext.isCancelled() && buffer.position() < buffer.limit()) {
-            final int positionCheckpoint = buffer.position();
-            try {
-                final int bytesRead = Utils.readBytes(inputStream, buffer, HEADER_SIZE_UP_TO_MAGIC);
-                if (bytesRead < HEADER_SIZE_UP_TO_MAGIC) {
-                    buffer.position(positionCheckpoint);
-                    throw new EOFException("Could not read HEADER_SIZE_UP_TO_MAGIC from InputStream");
+    /**
+     * Read the supplied input stream to find the first offset with a timestamp >= targetTimestamp
+     *
+     * @param cancellationContext cancellation context to allow reads of InputStream to be aborted
+     * @param inputStream         InputStream for the tiered segment
+     * @param targetTimestamp     target timestamp to lookup the offset for
+     * @param segmentSize         total size of the segment we are reading
+     * @return Optional<Long> containing the offset for the supplied target timestamp
+     * @throws IOException
+     */
+    public Optional<Long> offsetForTimestamp(CancellationContext cancellationContext,
+                                             InputStream inputStream,
+                                             long targetTimestamp,
+                                             int segmentSize) throws IOException {
+        while (!cancellationContext.isCancelled()) {
+            final RecordBatch recordBatch = readBatch(inputStream, segmentSize);
+            if (recordBatch.maxTimestamp() >= targetTimestamp) {
+                for (final Record record : recordBatch) {
+                    if (record.timestamp() >= targetTimestamp)
+                        return Optional.of(record.offset());
                 }
+            }
+        }
+        return Optional.empty();
+    }
 
-                final int batchSize = readMagicAndBatchSize(buffer, positionCheckpoint).batchSize;
-                // store the current batch size in case we can't read the full batch. If we can't
-                // fit a full batch into max bytes, then, then we will be able to cache the size of
-                // the batch that will be read in the follow on fetch request.
-                nextBatchSize = batchSize;
+    private BatchAndReadState readFirstBatch(CancellationContext cancellationContext,
+                                             InputStream inputStream,
+                                             long targetOffset,
+                                             int segmentSize) throws IOException {
+        RecordBatch firstBatch = null;
+        int totalBytesRead = 0;
 
-                final int remaining = batchSize - HEADER_SIZE_UP_TO_MAGIC;
-                if (remaining <= buffer.remaining() && Utils.readBytes(inputStream, buffer, remaining) >= remaining) {
-                    finalBatchStartPosition = positionCheckpoint;
-                    // we fully read the batch, so we do not need to know this batch size for the next fetch
-                    nextBatchSize = null;
-                } else {
-                    buffer.position(positionCheckpoint);
-                    break;
-                }
-            } catch (IOException | IndexOutOfBoundsException ignored) {
-                buffer.position(positionCheckpoint);
+        while (!cancellationContext.isCancelled()) {
+            RecordBatch recordBatch = readBatch(inputStream, segmentSize);
+            totalBytesRead += recordBatch.sizeInBytes();
+
+            if (recordBatch.baseOffset() <= targetOffset && recordBatch.lastOffset() >= targetOffset) {
+                firstBatch = recordBatch;
                 break;
             }
         }
+
+        if (firstBatch != null) {
+            ReadState readState = new ReadState(totalBytesRead, 0, OptionalInt.empty(), true);
+            log.debug("{} completed reading first batch: {}", logPrefix, readState);
+            return new BatchAndReadState(firstBatch, readState);
+        }
+
+        // We could be here in couple of scenarios:
+        // 1. The context was cancelled, forcing us to terminate the fetch.
+        // 2. targetOffset is not present in the segment we are reading.
+        log.debug("{} could not read first batch", logPrefix);
+        return null;
     }
 
-    private static long nextOffset(int finalBatchStartPosition, ByteBuffer buffer) {
+    // Read additional batches from input stream up to maxBytes
+    private ReadState readInto(CancellationContext cancellationContext,
+                               InputStream inputStream,
+                               ByteBuffer buffer,
+                               int segmentSize) {
+        int initialPosition = buffer.position();
+        int lastBatchStartPosition = initialPosition;
+        int totalBytesRead = 0;
+        OptionalInt nextBatchSize = OptionalInt.empty();
+        boolean readPartialData = false;
+
+        // First, fill required bytes into the buffer
+        while (!cancellationContext.isCancelled() && buffer.position() < buffer.limit()) {
+            try {
+                int headerStartPosition = buffer.position();
+                int headerBytesRead = Utils.readBytes(inputStream, buffer, HEADER_SIZE_UP_TO_MAGIC);
+
+                // End the read loop if we are at the end of the stream while reading the header
+                if (headerBytesRead < HEADER_SIZE_UP_TO_MAGIC) {
+                    readPartialData = true;
+                    break;
+                }
+
+                int batchSize = readMagicAndBatchSize(buffer, headerStartPosition, segmentSize).batchSize;
+                int remainingBytes = batchSize - HEADER_SIZE_UP_TO_MAGIC;
+                int payloadBytesRead = Utils.readBytes(inputStream, buffer, remainingBytes);
+
+                // End the read loop if we are at the end of the stream while reading the payload. Opportunistically
+                // store the size of the batch we were trying to read, as it would be useful for subsequent fetch.
+                if (payloadBytesRead < remainingBytes) {
+                    log.debug("{} could not read full batch at end of stream", logPrefix);
+                    nextBatchSize = OptionalInt.of(batchSize);
+                    readPartialData = true;
+                    break;
+                }
+
+                lastBatchStartPosition = headerStartPosition;
+                totalBytesRead += headerBytesRead + remainingBytes;
+            } catch (EOFException e) {
+                log.debug("{} terminating read loop due to EOFException", logPrefix, e);
+                break;
+            } catch (IOException e) {
+                log.error("{} terminating read loop due to IOException", logPrefix, e);
+                break;
+            }
+        }
+        buffer.position(initialPosition + totalBytesRead);
+
+        ReadState state = new ReadState(totalBytesRead, lastBatchStartPosition, nextBatchSize, !readPartialData);
+        log.debug("{} completed reading all batches: {}", logPrefix, state);
+        return state;
+    }
+
+    private NextOffsetAndBatchMetadata determineNextFetchMetadata(ByteBuffer buffer,
+                                                                  InputStream inputStream,
+                                                                  ReadState readState,
+                                                                  int startBytePosition,
+                                                                  int segmentSize) throws IOException {
+        if (readState.totalBytesRead == 0)
+            return null;
+
+        // determine nextBatchSize, if we don't already have one
+        OptionalInt nextBatchSize = readState.nextBatchSize;
+        if (!nextBatchSize.isPresent() && readState.safeToReadMore) {
+            ByteBuffer tmpBuffer = ByteBuffer.allocate(HEADER_SIZE_UP_TO_MAGIC);
+            Utils.readFully(inputStream, tmpBuffer);
+            if (!tmpBuffer.hasRemaining())
+                nextBatchSize = OptionalInt.of(readMagicAndBatchSize(tmpBuffer, 0, segmentSize).batchSize);
+        }
+
+        // determine nextOffset
+        long nextOffset = nextOffset(readState.lastBatchStartPosition, buffer);
+
+        // determine bytePosition
+        int nextOffsetBytePosition = startBytePosition + readState.totalBytesRead;
+
+        if (nextOffsetBytePosition < segmentSize)
+            return new NextOffsetAndBatchMetadata(new FetchOffsetMetadata(nextOffsetBytePosition, nextBatchSize), nextOffset);
+        return null;
+    }
+
+    private long nextOffset(int finalBatchStartPosition, ByteBuffer buffer) {
         final ByteBuffer duplicate = buffer.duplicate();
         duplicate.position(finalBatchStartPosition);
         final ByteBuffer batchBuffer = duplicate.slice();
@@ -145,36 +242,19 @@ public class TierSegmentReader {
         return batch.nextOffset();
     }
 
-    /**
-     * Read the supplied input stream to find the first offset with a timestamp >= targetTimestamp
-     *
-     * @param cancellationContext cancellation context to allow reads of InputStream to be aborted
-     * @param inputStream         InputStream for the tiered segment
-     * @param targetTimestamp     target timestamp to lookup the offset for
-     * @return Optional<Long> containing the offset for the supplied target timestamp
-     * @throws IOException
-     */
-    public static Optional<Long> offsetForTimestamp(CancellationContext cancellationContext,
-                                                    InputStream inputStream,
-                                                    long targetTimestamp) throws IOException {
-        while (!cancellationContext.isCancelled()) {
-            final RecordBatch recordBatch = readBatch(inputStream);
-            if (recordBatch.maxTimestamp() >= targetTimestamp) {
-                for (final Record record : recordBatch) {
-                    if (record.timestamp() >= targetTimestamp)
-                        return Optional.of(record.offset());
-                }
-            }
-        }
-        return Optional.empty();
-    }
-
-    private static MagicAndBatchSizePair readMagicAndBatchSize(ByteBuffer buffer,
-                                                               int headerStartPosition) {
+    private MagicAndBatchSizePair readMagicAndBatchSize(ByteBuffer buffer,
+                                                        int headerStartPosition,
+                                                        int segmentSize) {
         final byte magic = buffer.get(headerStartPosition + MAGIC_OFFSET);
-        final int extraLength =
-                HEADER_SIZE_UP_TO_MAGIC - PARTITION_LEADER_EPOCH_LENGTH - MAGIC_LENGTH;
+        if (magic > CURRENT_MAGIC_VALUE)
+            throw new IllegalStateException(logPrefix + " unknown magic: " + magic);
+
+        final int extraLength = HEADER_SIZE_UP_TO_MAGIC - PARTITION_LEADER_EPOCH_LENGTH - MAGIC_LENGTH;
         int batchSize = buffer.getInt(headerStartPosition + SIZE_OFFSET) + extraLength;
+
+        if (batchSize <= 0 || batchSize > segmentSize)
+            throw new IllegalStateException(logPrefix + " illegal batch size: " + batchSize);
+
         return new MagicAndBatchSizePair(magic, batchSize);
     }
 
@@ -184,8 +264,9 @@ public class TierSegmentReader {
      * corresponding to the header.
      * <p>
      * Throws EOFException if either the header or full record batch cannot be read.
+     * Visible for testing.
      */
-    static RecordBatch readBatch(InputStream inputStream) throws IOException {
+    public RecordBatch readBatch(InputStream inputStream, int segmentSize) throws IOException {
         final ByteBuffer logHeaderBuffer = ByteBuffer.allocate(HEADER_SIZE_UP_TO_MAGIC);
         final int bytesRead = Utils.readBytes(inputStream, logHeaderBuffer, HEADER_SIZE_UP_TO_MAGIC);
         if (bytesRead < HEADER_SIZE_UP_TO_MAGIC)
@@ -193,7 +274,7 @@ public class TierSegmentReader {
 
         logHeaderBuffer.rewind();
 
-        final MagicAndBatchSizePair magicAndBatchSizePair = readMagicAndBatchSize(logHeaderBuffer, 0);
+        final MagicAndBatchSizePair magicAndBatchSizePair = readMagicAndBatchSize(logHeaderBuffer, 0, segmentSize);
         final byte magic = magicAndBatchSizePair.magic;
         final int batchSize = magicAndBatchSizePair.batchSize;
 
@@ -217,12 +298,67 @@ public class TierSegmentReader {
     }
 
     private static class MagicAndBatchSizePair {
-        final byte magic;
-        final int batchSize;
+        private final byte magic;
+        private final int batchSize;
 
-        private MagicAndBatchSizePair(byte magic, int batchSize) {
+        MagicAndBatchSizePair(byte magic, int batchSize) {
             this.magic = magic;
             this.batchSize = batchSize;
+        }
+    }
+
+    public static class RecordsAndNextBatchMetadata {
+        final MemoryRecords records;
+        final NextOffsetAndBatchMetadata nextOffsetAndBatchMetadata;
+
+        public RecordsAndNextBatchMetadata(MemoryRecords records, NextOffsetAndBatchMetadata nextOffsetAndBatchMetadata) {
+            this.records = records;
+            this.nextOffsetAndBatchMetadata = nextOffsetAndBatchMetadata;
+        }
+    }
+
+    public static class NextOffsetAndBatchMetadata {
+        final FetchOffsetMetadata nextBatchMetadata;
+        final long nextOffset;
+
+        public NextOffsetAndBatchMetadata(FetchOffsetMetadata nextBatchMetadata, long nextOffset) {
+            this.nextBatchMetadata = nextBatchMetadata;
+            this.nextOffset = nextOffset;
+        }
+
+        @Override
+        public String toString() {
+            return "NextOffsetAndBatchMetadata(" +
+                    "nextBatchMetadata=" + nextBatchMetadata + ", " +
+                    "nextOffset=" + nextOffset +
+                    ')';
+        }
+    }
+
+    private static class BatchAndReadState {
+        private final RecordBatch recordBatch;
+        private final ReadState readState;
+
+        BatchAndReadState(RecordBatch recordBatch, ReadState readState) {
+            this.recordBatch = recordBatch;
+            this.readState = readState;
+        }
+    }
+
+    private static class ReadState {
+        final int totalBytesRead;
+        final int lastBatchStartPosition;
+        final OptionalInt nextBatchSize;
+        final boolean safeToReadMore;
+
+        private ReadState(int totalBytesRead,
+                          int lastBatchStartPosition,
+                          OptionalInt nextBatchSize,
+                          boolean safeToReadMore) {
+            this.totalBytesRead = totalBytesRead;
+            this.lastBatchStartPosition = lastBatchStartPosition;
+            this.nextBatchSize = nextBatchSize;
+            this.safeToReadMore = safeToReadMore;
         }
     }
 }

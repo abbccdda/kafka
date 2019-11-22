@@ -157,7 +157,7 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
         }
 
         @Override
-        public Long getStreamSize() {
+        public long getStreamSize() {
             return this.objectSize;
         }
 

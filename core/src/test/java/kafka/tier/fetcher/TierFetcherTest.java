@@ -174,6 +174,99 @@ public class TierFetcherTest {
     }
 
     @Test
+    public void tierFetcherLocateTargetOffsetTest() throws Exception {
+        MemoryRecords[] recordArr = {
+                buildWithOffset(0),
+                buildWithOffset(50),
+                buildWithOffset(100),
+                buildWithOffset(150),
+                buildWithOffset(200)
+        };
+
+        int indexInterval = recordArr[0].sizeInBytes() + 1;
+        File logSegmentDir = TestUtils.tempDirectory();
+        Properties logProps = new Properties();
+        logProps.put(LogConfig.IndexIntervalBytesProp(), indexInterval);
+        Set<String> override = Collections.emptySet();
+        LogConfig logConfig = LogConfig.apply(logProps, scala.collection.JavaConverters.asScalaSetConverter(override).asScala().toSet());
+        LogSegment logSegment = LogSegment.open(logSegmentDir, 0, logConfig, mockTime, false, 4096, false, "");
+
+        try {
+            for (MemoryRecords records : recordArr)
+                logSegment.append(records.batches().iterator().next().baseOffset(), 1L, 1, records);
+            logSegment.flush();
+            logSegment.offsetIndex().flush();
+            logSegment.offsetIndex().trimToValidSize();
+
+            long expectedEndOffset = logSegment.readNextOffset() - 1;
+
+            File offsetIndexFile = logSegment.offsetIndex().file();
+            ByteBuffer offsetIndexBuffer = ByteBuffer.wrap(Files.readAllBytes(offsetIndexFile.toPath()));
+            File timestampIndexFile = logSegment.offsetIndex().file();
+            ByteBuffer timestampIndexBuffer = ByteBuffer.wrap(Files.readAllBytes(timestampIndexFile.toPath()));
+            File segmentFile = logSegment.log().file();
+            ByteBuffer segmentFileBuffer = ByteBuffer.wrap(Files.readAllBytes(segmentFile.toPath()));
+
+            MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
+                    offsetIndexBuffer, timestampIndexBuffer);
+            TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
+            UUID objectId = UUID.randomUUID();
+            TierObjectStore.ObjectMetadata tierObjectMetadata =
+                    new TierObjectStore.ObjectMetadata(topicIdPartition, objectId, 0, 0, false);
+            Metrics metrics = new Metrics();
+
+            KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
+            TierFetcher tierFetcher = new TierFetcher(tierObjectStore, kafkaScheduler, metrics);
+            try {
+                int expectedCacheEntries = 0;
+                long fetchOffset = 150L;
+
+                while (fetchOffset < expectedEndOffset) {
+                    TierFetchMetadata fetchMetadata =
+                            new TierFetchMetadata(topicIdPartition.topicPartition(), fetchOffset,
+                                    1000, 1000L, true,
+                                    tierObjectMetadata, Option.empty(), 0, segmentFileBuffer.limit());
+                    CompletableFuture<Boolean> f = new CompletableFuture<>();
+
+                    PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
+                            IsolationLevel.READ_UNCOMMITTED,
+                            ignored -> f.complete(true));
+                    DelayedOperation delayedFetch = new MockDelayedFetch(pending);
+                    assertTrue(f.get(4000, TimeUnit.MILLISECONDS));
+
+                    Map<TopicPartition, TierFetchResult> fetchResults = pending.finish();
+                    assertNotNull("expected non-null fetch result", fetchResults);
+
+                    assertTrue((Double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue() > 0.0);
+                    assertTrue(delayedFetch.tryComplete());
+
+                    TierFetchResult fetchResult = fetchResults.get(topicIdPartition.topicPartition());
+                    Records records = fetchResult.records;
+                    for (Record record : records.records()) {
+                        assertEquals("Offset not expected", fetchOffset, record.offset());
+                        fetchOffset++;
+                    }
+
+                    // cache entry will not be inserted for final read, as there's nothing after
+                    // the final read for the segment
+                    if (fetchOffset < expectedEndOffset)
+                        expectedCacheEntries++;
+
+                    final long expected = expectedCacheEntries;
+                    TestUtils.waitForCondition(() -> expected == tierFetcher.cache.size(),
+                            "cache not updated by timeout");
+                }
+                assertEquals(fetchOffset - 1, expectedEndOffset);
+                assertEquals("offset index should have been used exactly once, for the initial fetch", 1, tierObjectStore.offsetIndexReads);
+            } finally {
+                tierFetcher.close();
+            }
+        } finally {
+            logSegment.deleteIfExists();
+        }
+    }
+
+    @Test
     public void tierFetcherRepeatedFetchesViaOffsetCacheTest() throws Exception {
         // this test performs repeated tier fetches from a single segment
         // to test the use of the offset cache. The first fetch will be from the start of the
@@ -248,7 +341,7 @@ public class TierFetcherTest {
 
                     // cache entry will not be inserted for final read, as there's nothing after
                     // the final read for the segment
-                    if (fetchOffset != expectedEndOffset)
+                    if (fetchOffset < expectedEndOffset)
                         expectedCacheEntries++;
 
                     final long expected = expectedCacheEntries;
@@ -392,7 +485,7 @@ public class TierFetcherTest {
                     CompletableFuture<Boolean> f = new CompletableFuture<>();
                     HashMap<TopicPartition, TierTimestampAndOffset> timestamps = new HashMap<>();
                     timestamps.put(topicIdPartition.topicPartition(), new TierTimestampAndOffset(101L,
-                            tierObjectMetadata));
+                            tierObjectMetadata, segmentFileBuffer.limit()));
                     PendingOffsetForTimestamp pending = tierFetcher.fetchOffsetForTimestamp(timestamps,
                             ignored -> f.complete(true));
                     f.get(2000, TimeUnit.MILLISECONDS);
@@ -407,7 +500,7 @@ public class TierFetcherTest {
                     CompletableFuture<Boolean> f = new CompletableFuture<>();
                     HashMap<TopicPartition, TierTimestampAndOffset> timestamps = new HashMap<>();
                     timestamps.put(topicIdPartition.topicPartition(), new TierTimestampAndOffset(101L,
-                            tierObjectMetadata));
+                            tierObjectMetadata, segmentFileBuffer.limit()));
                     PendingOffsetForTimestamp pending = tierFetcher.fetchOffsetForTimestamp(timestamps,
                             ignored -> f.complete(true));
                     f.get(2000, TimeUnit.MILLISECONDS);
@@ -529,7 +622,7 @@ public class TierFetcherTest {
             }
 
             @Override
-            public Long getStreamSize() {
+            public long getStreamSize() {
                 return size;
             }
 
@@ -569,10 +662,10 @@ public class TierFetcherTest {
             }
 
             int start = byteOffset == null ? 0 : byteOffset;
-            int end = byteOffsetEnd == null ? buffer.array().length : Math.min(byteOffsetEnd, buffer.array().length);
+            int end = byteOffsetEnd == null ? buffer.limit() : Math.min(byteOffsetEnd, buffer.limit());
             int byteBufferSize = Math.min(end - start, buffer.array().length);
             ByteBuffer buf = ByteBuffer.allocate(byteBufferSize);
-            buf.put(buffer.array(), start, end - start);
+            buf.put(buffer.array(), start, byteBufferSize);
             buf.flip();
 
             return new MockTierObjectStoreResponse(new ByteBufferInputStream(buf), byteBufferSize);

@@ -264,7 +264,7 @@ public class S3TierObjectStore implements TierObjectStore {
         }
 
         @Override
-        public Long getStreamSize() {
+        public long getStreamSize() {
             return streamSize;
         }
     }

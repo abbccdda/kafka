@@ -542,7 +542,7 @@ class MergedLog(private[log] val localLog: Log,
       .asScala
       .find(_.maxTimestamp >= targetTimestamp) match {
       case Some(logSegment) =>
-        Some(new TierTimestampAndOffset(targetTimestamp, logSegment.metadata))
+        Some(new TierTimestampAndOffset(targetTimestamp, logSegment.metadata, logSegment.size))
 
       // if the offset for timestamp isn't in tiered section, dispatch to local log lookup
       case None => localLog.fetchOffsetByTimestamp(targetTimestamp)

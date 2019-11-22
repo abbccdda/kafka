@@ -8,7 +8,7 @@ import kafka.log.AbortedTxn;
 import kafka.log.OffsetPosition;
 import kafka.server.DelayedOperationKey;
 import kafka.server.TierFetchOperationKey;
-import kafka.tier.fetcher.offsetcache.CachedMetadata;
+import kafka.tier.fetcher.offsetcache.FetchOffsetMetadata;
 import kafka.tier.fetcher.offsetcache.FetchOffsetCache;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
@@ -18,6 +18,8 @@ import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.Records;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -25,12 +27,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 
 public class PendingFetch implements Runnable {
+    private static final Logger log = LoggerFactory.getLogger(PendingFetch.class);
+
     private final CancellationContext cancellationContext;
     private final TierObjectStore tierObjectStore;
     private final Optional<Sensor> recordBytesFetched;
@@ -38,12 +43,15 @@ public class PendingFetch implements Runnable {
     private final Consumer<DelayedOperationKey> fetchCompletionCallback;
     private final long targetOffset;
     private final int maxBytes;
+    private final int segmentSize;
     private final List<TopicPartition> ignoredTopicPartitions;
     private final UUID requestId = UUID.randomUUID();
     private final CompletableFuture<TierFetchResult> transferPromise;
     private final IsolationLevel isolationLevel;
     private final FetchOffsetCache cache;
-    private final CachedMetadata cachedMetadata;
+    private final FetchOffsetMetadata fetchOffsetMetadata;
+    private final TierSegmentReader reader;
+    private final String logPrefix;
 
     PendingFetch(CancellationContext cancellationContext,
                  TierObjectStore tierObjectStore,
@@ -53,6 +61,7 @@ public class PendingFetch implements Runnable {
                  Consumer<DelayedOperationKey> fetchCompletionCallback,
                  long targetOffset,
                  int maxBytes,
+                 int segmentSize,
                  IsolationLevel isolationLevel,
                  List<TopicPartition> ignoredTopicPartitions) {
         this.cancellationContext = cancellationContext;
@@ -62,13 +71,18 @@ public class PendingFetch implements Runnable {
         this.fetchCompletionCallback = fetchCompletionCallback;
         this.targetOffset = targetOffset;
         this.maxBytes = maxBytes;
+        this.segmentSize = segmentSize;
         this.cache = cache;
         this.ignoredTopicPartitions = ignoredTopicPartitions;
         this.transferPromise = new CompletableFuture<>();
         this.isolationLevel = isolationLevel;
-        // avoid unnecessary cache lookup for reads at the start of a segment.
-        this.cachedMetadata = targetOffset != objectMetadata.baseOffset() ?
-                cache.get(objectMetadata.objectId(), targetOffset) : null;
+        this.logPrefix = "PendingFetch(requestId=" + requestId + ")";
+        this.reader = new TierSegmentReader(logPrefix);
+
+        if (targetOffset == objectMetadata.baseOffset())
+            this.fetchOffsetMetadata = new FetchOffsetMetadata(0, OptionalInt.empty());
+        else
+            this.fetchOffsetMetadata = cache.get(objectMetadata.objectId(), targetOffset);
     }
 
     /**
@@ -88,16 +102,13 @@ public class PendingFetch implements Runnable {
     }
 
     private OffsetPosition fetchOffsetPosition() throws Exception {
-        // base offset matches start of segment, the first byte of the object
-        // will correspond to the target offset
-        if (targetOffset == objectMetadata.baseOffset())
-            return new OffsetPosition(targetOffset, 0);
-
-        // used cached position stored via a previous fetch
-        if (cachedMetadata != null)
-            return new OffsetPosition(targetOffset, cachedMetadata.byteOffset);
+        if (fetchOffsetMetadata != null) {
+            log.debug("{} using fetch position {}", logPrefix, fetchOffsetMetadata);
+            return new OffsetPosition(targetOffset, fetchOffsetMetadata.bytePosition);
+        }
 
         // lookup closest offset via offset index
+        log.debug("{} fetching offset index", logPrefix);
         return OffsetIndexFetchRequest.fetchOffsetPositionForStartingOffset(
                         cancellationContext,
                         tierObjectStore,
@@ -106,12 +117,12 @@ public class PendingFetch implements Runnable {
     }
 
     private Integer getEndRange(OffsetPosition offsetPosition) {
-        if (cachedMetadata != null && cachedMetadata.recordBatchSize != null) {
+        if (fetchOffsetMetadata != null && fetchOffsetMetadata.recordBatchSize.isPresent()) {
             // We know the first batch size, so we can perform an object store range request as
             // we can guarantee that we will be able to read at least one batch with the request.
             // We will attempt to read the next batch header in excess of what we return so we know
             // the next batch size (and thus the range) for the next follow up request.
-            int length = Math.max(cachedMetadata.recordBatchSize + Records.HEADER_SIZE_UP_TO_MAGIC, maxBytes);
+            int length = Math.max(fetchOffsetMetadata.recordBatchSize.getAsInt() + Records.HEADER_SIZE_UP_TO_MAGIC, maxBytes);
             return offsetPosition.position() + length;
         }
 
@@ -121,9 +132,12 @@ public class PendingFetch implements Runnable {
     private TierObjectStoreResponse fetchSegment(OffsetPosition offsetPosition) throws IOException {
         Integer endRange = getEndRange(offsetPosition);
         if (endRange != null) {
+            log.debug("{} fetching segment startPosition: {}, endPosition: {}", logPrefix, offsetPosition, endRange);
             return tierObjectStore.getObject(objectMetadata, TierObjectStore.FileType.SEGMENT,
                     offsetPosition.position(), endRange);
         }
+
+        log.debug("{} fetching segment startPosition: {}", logPrefix, offsetPosition);
         return tierObjectStore.getObject(objectMetadata, TierObjectStore.FileType.SEGMENT,
                 offsetPosition.position());
     }
@@ -154,12 +168,20 @@ public class PendingFetch implements Runnable {
     @Override
     public void run() {
         try {
+            log.debug("Starting tiered fetch. requestId={}, objectMetadata={}, targetOffset={}, maxBytes={}, isolationLevel={}.",
+                    requestId, objectMetadata, targetOffset, maxBytes, isolationLevel);
+
             if (!cancellationContext.isCancelled()) {
                 final OffsetPosition offsetPosition = fetchOffsetPosition();
                 try (final TierObjectStoreResponse response = fetchSegment(offsetPosition)) {
-                    final TierSegmentReader reader = new TierSegmentReader(cancellationContext,
-                            response.getInputStream());
-                    final MemoryRecords records = reader.readRecords(maxBytes, targetOffset);
+                    TierSegmentReader.RecordsAndNextBatchMetadata recordsAndNextBatchMetadata = reader.readRecords(cancellationContext,
+                            response.getInputStream(),
+                            maxBytes,
+                            targetOffset,
+                            offsetPosition.position(),
+                            segmentSize);
+                    MemoryRecords records = recordsAndNextBatchMetadata.records;
+                    updateCache(recordsAndNextBatchMetadata.nextOffsetAndBatchMetadata);
 
                     if (objectMetadata.hasAbortedTxns() && isolationLevel == IsolationLevel.READ_COMMITTED) {
                         final List<AbortedTxn> abortedTxns = fetchAbortedTxns(records);
@@ -167,7 +189,6 @@ public class PendingFetch implements Runnable {
                     } else {
                         completeFetch(records, Collections.emptyList(), null);
                     }
-                    updateCache(reader, records, offsetPosition.position());
                 }
             } else {
                 completeFetch(MemoryRecords.EMPTY, Collections.emptyList(), null);
@@ -177,14 +198,15 @@ public class PendingFetch implements Runnable {
         }
     }
 
-    private void updateCache(TierSegmentReader reader,
-                             MemoryRecords records,
-                             int prevByteStart) {
-        if (reader.nextOffset() != null) {
-            // buffers returned by tier fetcher are exactly aligned to the end of batches,
-            // so we know the next expected fetch offset and its corresponding byte offset
-            final int nextByteOffset = prevByteStart + records.buffer().limit();
-            cache.put(objectMetadata.objectId(), reader.nextOffset(), nextByteOffset, reader.nextBatchSize());
+    private void updateCache(TierSegmentReader.NextOffsetAndBatchMetadata nextOffsetAndBatchMetadata) {
+        if (nextOffsetAndBatchMetadata != null) {
+            long nextOffset = nextOffsetAndBatchMetadata.nextOffset;
+            FetchOffsetMetadata nextBatchMetadata = nextOffsetAndBatchMetadata.nextBatchMetadata;
+
+            if (nextBatchMetadata != null) {
+                log.debug("{} updating cache. metadata: {}", logPrefix, nextOffsetAndBatchMetadata);
+                cache.put(objectMetadata.objectId(), nextOffset, nextBatchMetadata);
+            }
         }
     }
 
@@ -225,6 +247,9 @@ public class PendingFetch implements Runnable {
     private void completeFetch(MemoryRecords records,
                                List<AbortedTxn> abortedTxns,
                                Throwable throwable) {
+        if (throwable != null)
+            log.error("{} tier fetch completed with exception", logPrefix, throwable);
+
         final TierFetchResult tierFetchResult = new TierFetchResult(records, abortedTxns, throwable);
         transferPromise.complete(tierFetchResult);
         if (fetchCompletionCallback != null) {

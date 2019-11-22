@@ -34,6 +34,8 @@ public class PendingOffsetForTimestamp implements Runnable {
     private final ConcurrentHashMap<TopicPartition,
             Optional<FileRecords.FileTimestampAndOffset>> results = new ConcurrentHashMap<>();
     private final UUID requestId = UUID.randomUUID();
+    private final TierSegmentReader reader;
+    private final String logPrefix = "PendingOffsetForTimestamp(" + requestId + ")";
 
     PendingOffsetForTimestamp(CancellationContext cancellationContext,
                               TierObjectStore tierObjectStore,
@@ -43,6 +45,7 @@ public class PendingOffsetForTimestamp implements Runnable {
         this.tierObjectStore = tierObjectStore;
         this.timestamps = Collections.unmodifiableMap(timestamps);
         this.fetchCompletionCallback = fetchCompletionCallback;
+        this.reader = new TierSegmentReader(logPrefix);
     }
 
     /**
@@ -112,11 +115,14 @@ public class PendingOffsetForTimestamp implements Runnable {
 
     @Override
     public void run() {
+        log.debug("Starting offsetForTimestamp. requestId={}, timestamps={}.", requestId, timestamps);
+
         for (Map.Entry<TopicPartition, TierTimestampAndOffset> entry : timestamps.entrySet()) {
             final TopicPartition topicPartition = entry.getKey();
             final TierTimestampAndOffset tierTimestampAndOffset = entry.getValue();
-            final TierObjectStore.ObjectMetadata objectMetadata = entry.getValue().metadata;
+            final TierObjectStore.ObjectMetadata objectMetadata = tierTimestampAndOffset.metadata;
             final long targetTimestamp = tierTimestampAndOffset.timestamp;
+
             try {
                 if (fetchable(topicPartition)) {
                     final TimestampOffset indexOffsetTimestamp = TimestampIndexFetchRequest
@@ -138,9 +144,10 @@ public class PendingOffsetForTimestamp implements Runnable {
                                                  TierObjectStore.FileType.SEGMENT,
                                                  offsetPosition.position())) {
                                 final Optional<Long> offsetOpt =
-                                        TierSegmentReader.offsetForTimestamp(cancellationContext,
+                                        reader.offsetForTimestamp(cancellationContext,
                                                 response.getInputStream(),
-                                                targetTimestamp);
+                                                targetTimestamp,
+                                                tierTimestampAndOffset.segmentSize);
                                 results.putIfAbsent(topicPartition,
                                         offsetOpt.map(offset ->
                                                 new FileRecords.FileTimestampAndOffset(targetTimestamp, offset,

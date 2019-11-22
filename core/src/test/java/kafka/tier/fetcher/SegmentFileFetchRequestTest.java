@@ -68,7 +68,7 @@ public class SegmentFileFetchRequestTest {
             long targetOffset = 149L;
             PendingFetch pendingFetch =
                     new PendingFetch(ctx, tierObjectStore, new FetchOffsetCache(Time.SYSTEM, 10, 1000),
-                    Optional.empty(), metadata, key -> { }, targetOffset, 1024,
+                            Optional.empty(), metadata, key -> { }, targetOffset, 1024, segment.size(),
                             IsolationLevel.READ_UNCOMMITTED, Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
@@ -112,8 +112,8 @@ public class SegmentFileFetchRequestTest {
             Long targetOffset = 150L;
             PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
                     new FetchOffsetCache(Time.SYSTEM, 10, 1000), Optional.empty(), metadata,
-                    key -> { },
-                    targetOffset, 1024, IsolationLevel.READ_UNCOMMITTED, Collections.emptyList());
+                    key -> { }, targetOffset, 1024, segment.size(), IsolationLevel.READ_UNCOMMITTED,
+                    Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
 
@@ -195,8 +195,8 @@ public class SegmentFileFetchRequestTest {
             long targetOffset = 0L;
             PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
                     new FetchOffsetCache(Time.SYSTEM, 10, 1000), Optional.empty(), metadata,
-                    key -> { }, targetOffset, 1024,
-                    IsolationLevel.READ_COMMITTED, Collections.emptyList());
+                    key -> { }, targetOffset, 1024, segment.size(), IsolationLevel.READ_COMMITTED,
+                    Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
 
@@ -242,8 +242,8 @@ public class SegmentFileFetchRequestTest {
             long targetOffset = 0L;
             PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
                     new FetchOffsetCache(Time.SYSTEM, 10, 1000), Optional.empty(), metadata,
-                    key -> { }, targetOffset, 1024,
-                    IsolationLevel.READ_COMMITTED, Collections.emptyList());
+                    key -> { }, targetOffset, 1024, segment.size(), IsolationLevel.READ_COMMITTED,
+                    Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
 
@@ -297,8 +297,8 @@ public class SegmentFileFetchRequestTest {
 
             PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
                     new FetchOffsetCache(Time.SYSTEM, 10, 1000), Optional.empty(), metadata,
-                    key -> { }, 0L, 1024,
-                    IsolationLevel.READ_COMMITTED, Collections.emptyList());
+                    key -> { }, 0L, 1024, segment.size(), IsolationLevel.READ_COMMITTED,
+                    Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
 
@@ -315,8 +315,8 @@ public class SegmentFileFetchRequestTest {
 
             pendingFetch = new PendingFetch(ctx, tierObjectStore,
                     new FetchOffsetCache(Time.SYSTEM, 10, 1000), Optional.empty(), metadata,
-                    key -> { }, 0L, 1024,
-                    IsolationLevel.READ_COMMITTED, Collections.emptyList());
+                    key -> { }, 0L, 1024, segment.size(), IsolationLevel.READ_COMMITTED,
+                    Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             result = pendingFetch.finish().get(topicPartition);
 
@@ -368,7 +368,8 @@ public class SegmentFileFetchRequestTest {
         return segment;
     }
 
-    private void putSegment(TierObjectStore tierObjectStore, LogSegment segment,
+    private void putSegment(TierObjectStore tierObjectStore,
+                            LogSegment segment,
                             TierObjectStore.ObjectMetadata metadata,
                             Optional<ByteBuffer> abortedTxns)
             throws IOException {

@@ -18,9 +18,10 @@ public class TierFetchResult {
 
     public TierFetchResult(Records records, List<AbortedTxn> abortedTxns, Throwable exception) {
         this.records = records;
-        this.exception = exception;
         this.abortedTxns = abortedTxns;
+        this.exception = exception;
     }
+
     public static TierFetchResult emptyFetchResult() {
         return new TierFetchResult(MemoryRecords.EMPTY, Collections.emptyList(), null);
     }

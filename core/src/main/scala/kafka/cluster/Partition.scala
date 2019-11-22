@@ -41,7 +41,6 @@ import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
 import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.replica.ReplicaStatus
 import org.apache.kafka.common.requests.EpochEndOffset._
-import org.apache.kafka.common.requests.TierListOffsetRequest.OffsetType
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.utils.Time
 
