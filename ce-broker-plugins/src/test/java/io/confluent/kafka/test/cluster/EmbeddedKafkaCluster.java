@@ -33,6 +33,7 @@ import kafka.utils.MockTime;
 import kafka.zk.EmbeddedZookeeper;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.message.UpdateMetadataRequestData.UpdateMetadataPartitionState;
+import org.apache.kafka.server.http.MetadataServerConfig;
 import org.apache.kafka.test.TestUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -87,6 +88,8 @@ public class EmbeddedKafkaCluster {
     putIfAbsent(brokerConfig, KafkaConfig$.MODULE$.OffsetsTopicPartitionsProp(), 5);
     putIfAbsent(brokerConfig, KafkaConfig$.MODULE$.AutoCreateTopicsEnableProp(), true);
     brokerConfig.put(KafkaConfig$.MODULE$.BrokerIdProp(), brokerId);
+    // By default, do not start a MetadataServer.
+    putIfAbsent(brokerConfig, MetadataServerConfig.METADATA_SERVER_LISTENERS_PROP, "");
     return brokerConfig;
   }
 

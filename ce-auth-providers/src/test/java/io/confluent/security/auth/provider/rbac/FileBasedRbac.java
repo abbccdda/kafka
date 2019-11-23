@@ -5,7 +5,6 @@ package io.confluent.security.auth.provider.rbac;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.security.auth.metadata.AuthStore;
 import io.confluent.security.auth.metadata.AuthWriter;
-import io.confluent.security.auth.metadata.MetadataServer;
 import io.confluent.security.auth.provider.ConfluentProvider;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
@@ -18,12 +17,11 @@ import io.confluent.security.authorizer.utils.JsonMapper;
 import io.confluent.security.rbac.RoleBinding;
 import io.confluent.security.store.NotMasterWriterException;
 import java.io.File;
-import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
 import org.apache.kafka.common.config.ConfigException;
-import org.apache.kafka.common.security.auth.AuthenticateCallbackHandler;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.server.http.MetadataServer;
 import org.apache.kafka.test.TestUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,22 +63,26 @@ public class FileBasedRbac extends ConfluentProvider {
     }
 
     @Override
-    public void start(Authorizer embeddedAuthorizer,
-                      AuthStore authStore,
-                      AuthenticateCallbackHandler callbackHandler) {
-      this.authorizer = embeddedAuthorizer;
-      this.authStore = authStore;
-      isAlive = true;
-      this.start();
-    }
-
-    @Override
-    public String providerName() {
+    public String serverName() {
       return PROVIDER_NAME;
     }
 
     @Override
-    public void close() throws IOException {
+    public void registerMetadataProvider(String providerName, MetadataServer.Injector injector) {
+      if (providerName.equals(PROVIDER_NAME)) {
+        this.authorizer = injector.getInstance(Authorizer.class);
+        this.authStore = injector.getInstance(AuthStore.class);
+      }
+    }
+
+    @Override
+    public synchronized void start() {
+      isAlive = true;
+      super.start();
+    }
+
+    @Override
+    public void close() {
       isAlive = false;
     }
 

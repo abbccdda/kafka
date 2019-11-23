@@ -7,7 +7,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.fail;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
-import io.confluent.security.auth.metadata.MetadataServiceConfig;
 import io.confluent.security.auth.provider.rbac.MockRbacProvider.MockAuthStore;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.auth.store.data.AclBindingKey;
@@ -26,7 +25,6 @@ import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.acl.AclRule;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.rbac.RbacRoles;
-
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -36,7 +34,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.CreateAclsOptions;
 import org.apache.kafka.clients.admin.CreateAclsResult;
@@ -55,6 +52,7 @@ import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.server.http.MetadataServerConfig;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -123,7 +121,7 @@ public class ConfluentProviderTest {
     Scope otherCluster = Scope.kafkaClusterScope("anotherCluster");
     Map<String, Object> configs = new HashMap<>();
     configs.put("super.users", admin.toString());
-    configs.put(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP, "http://127.0.0.1:8090");
+    configs.put(MetadataServerConfig.METADATA_SERVER_LISTENERS_PROP, "http://127.0.0.1:8090");
     initializeRbacProvider("metadataCluster", Scope.ROOT_SCOPE, configs);
     EmbeddedAuthorizer authorizer = rbacProvider.createRbacAuthorizer();
 

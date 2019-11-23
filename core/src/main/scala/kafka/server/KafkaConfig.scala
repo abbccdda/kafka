@@ -1305,8 +1305,6 @@ object KafkaConfig {
       .define(PasswordEncoderIterationsProp, INT, Defaults.PasswordEncoderIterations, atLeast(1024), LOW, PasswordEncoderIterationsDoc)
 
       /** ********* Confluent Configuration ****************/
-      .defineInternal(ConfluentConfigs.REST_SERVER_CLASS_CONFIG, CLASS, null, LOW)
-
       .defineInternal(BrokerInterceptorClassProp, CLASS, ConfluentConfigs.BROKER_INTERCEPTOR_CLASS_DEFAULT, LOW)
       .defineInternal(AppendRecordInterceptorClassesProp, LIST, Collections.emptyList(), LOW)
 

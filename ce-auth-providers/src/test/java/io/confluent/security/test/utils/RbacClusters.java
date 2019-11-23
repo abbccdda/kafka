@@ -12,7 +12,6 @@ import io.confluent.kafka.test.utils.KafkaTestUtils.ClientBuilder;
 import io.confluent.license.test.utils.LicenseTestUtils;
 import io.confluent.license.validator.LicenseConfig;
 import io.confluent.security.auth.metadata.AuthStore;
-import io.confluent.security.auth.metadata.MetadataServiceConfig;
 import io.confluent.security.auth.provider.ConfluentProvider;
 import io.confluent.security.auth.store.data.UserKey;
 import io.confluent.security.auth.store.data.UserValue;
@@ -40,7 +39,6 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-
 import kafka.security.authorizer.AclAuthorizer;
 import kafka.server.KafkaConfig$;
 import kafka.server.KafkaServer;
@@ -56,6 +54,7 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.authorizer.AclCreateResult;
+import org.apache.kafka.server.http.MetadataServerConfig;
 import org.apache.kafka.test.TestUtils;
 import scala.Option;
 
@@ -64,7 +63,7 @@ public class RbacClusters {
   private final Config config;
   public final SecurityProtocol kafkaSecurityProtocol = SecurityProtocol.SASL_PLAINTEXT;
   public final String kafkaSaslMechanism = "SCRAM-SHA-256";
-  private final EmbeddedKafkaCluster metadataCluster;
+  public final EmbeddedKafkaCluster metadataCluster;
   public final EmbeddedKafkaCluster kafkaCluster;
   public final Map<String, User> users;
   public final MiniKdcWithLdapService miniKdcWithLdapService;
@@ -347,6 +346,7 @@ public class RbacClusters {
         ConfluentServerAuthorizer.class.getName());
     serverConfig.setProperty("super.users", "User:" + config.brokerUser);
     serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ZK_ACL,CONFLUENT");
+    serverConfig.setProperty(MetadataServerConfig.METADATA_SERVER_LISTENERS_PROP, "");
 
     if (config.enableTokenLogin) {
       attachTokenListener(serverConfig, config.publicKey);
@@ -369,10 +369,11 @@ public class RbacClusters {
     serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ZK_ACL,CONFLUENT");
     serverConfig.setProperty("broker.users", "User:" + config.brokerUser);
     int metadataPort = 8000 + index;
-    serverConfig.setProperty(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP,
+    serverConfig.setProperty(MetadataServerConfig.METADATA_SERVER_LISTENERS_PROP,
         "http://0.0.0.0:" + metadataPort);
-    serverConfig.setProperty(MetadataServiceConfig.METADATA_SERVER_ADVERTISED_LISTENERS_PROP,
+    serverConfig.setProperty(MetadataServerConfig.METADATA_SERVER_ADVERTISED_LISTENERS_PROP,
         "http://localhost:" + metadataPort);
+    serverConfig.setProperty(MetadataServerConfig.METADATA_SERVER_NAME_PROP, "MOCK_RBAC");
     serverConfig.setProperty(KafkaStoreConfig.REPLICATION_FACTOR_PROP, "1");
     serverConfig.setProperty(LicenseConfig.REPLICATION_FACTOR_PROP, "1");
     serverConfig.setProperty(KafkaConfig$.MODULE$.AutoCreateTopicsEnableProp(), "false");

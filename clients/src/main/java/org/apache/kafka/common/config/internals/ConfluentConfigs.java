@@ -17,7 +17,9 @@
 package org.apache.kafka.common.config.internals;
 
 import java.util.HashMap;
+import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.AbstractConfig;
@@ -32,11 +34,6 @@ import org.apache.kafka.server.interceptor.BrokerInterceptor;
 import org.apache.kafka.server.interceptor.DefaultBrokerInterceptor;
 import org.apache.kafka.server.license.LicenseValidator;
 import org.apache.kafka.server.multitenant.MultiTenantMetadata;
-import org.apache.kafka.server.rest.RestServer;
-
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
-
 
 public class ConfluentConfigs {
     private static final String CONFLUENT_PREFIX = "confluent.";
@@ -159,11 +156,6 @@ public class ConfluentConfigs {
     public static final String VERIFY_GROUP_SUBSCRIPTION_PREFIX_DOC = "If this is set, the group " +
         "coordinator will verify that the subscriptions are prefixed with the tenant.";
 
-    public static final String REST_SERVER_CLASS_CONFIG = CONFLUENT_PREFIX + "rest.server.class";
-    public static final String REST_SERVER_CLASS_DOC = "The fully qualified name of a class that implements " + RestServer.class.getName()
-        + " interface, which is used by the broker to start the Rest Server.";
-
-
     public static BrokerInterceptor buildBrokerInterceptor(Mode mode, Map<String, ?> configs) {
         if (mode == Mode.CLIENT)
             return null;
@@ -189,18 +181,6 @@ public class ConfluentConfigs {
             meta.configure(configs);
         }
         return meta;
-    }
-
-    public static RestServer buildRestServer(AbstractConfig configs) {
-        RestServer server = null;
-        if (configs.getClass(REST_SERVER_CLASS_CONFIG) != null) {
-            @SuppressWarnings("unchecked")
-            Class<? extends RestServer> restServerClass =
-                (Class<? extends RestServer>) configs.getClass(REST_SERVER_CLASS_CONFIG);
-            server = Utils.newInstance(restServerClass);
-            server.configure(configs.originals());
-        }
-        return server;
     }
 
     public static LicenseValidator buildLicenseValidator(AbstractConfig config,

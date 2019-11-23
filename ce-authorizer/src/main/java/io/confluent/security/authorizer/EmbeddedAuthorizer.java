@@ -7,11 +7,11 @@ import io.confluent.security.authorizer.AuthorizePolicy.SuperUser;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import io.confluent.security.authorizer.provider.AuditLogProvider;
 import io.confluent.security.authorizer.provider.DefaultAuditLogProvider;
+import io.confluent.security.authorizer.provider.GroupProvider;
+import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.authorizer.provider.MetadataProvider;
 import io.confluent.security.authorizer.provider.Provider;
 import io.confluent.security.authorizer.provider.ProviderFailedException;
-import io.confluent.security.authorizer.provider.GroupProvider;
-import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.authorizer.utils.ThreadUtils;
 import java.time.Duration;
 import java.util.Collection;
@@ -30,9 +30,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -154,10 +154,6 @@ public class EmbeddedAuthorizer implements Authorizer {
     return auditLogProvider;
   }
 
-  public CompletableFuture<Void> start(Map<String, ?> interBrokerListenerConfigs) {
-    return start(null, interBrokerListenerConfigs, () -> { });
-  }
-
   public CompletableFuture<Void> start(AuthorizerServerInfo serverInfo, Map<String, ?> interBrokerListenerConfigs, Runnable initTask) {
     initTimeout = authorizerConfig.initTimeout;
     if (groupProvider != null && groupProvider.usesMetadataFromThisKafkaCluster())
@@ -173,8 +169,12 @@ public class EmbeddedAuthorizer implements Authorizer {
     if (groupProvider != null)
       allProviders.add(groupProvider);
     allProviders.addAll(accessRuleProviders);
-    if (metadataProvider != null)
+
+    if (metadataProvider != null) {
+      metadataProvider.registerMetadataServer(serverInfo.metadataServer());
       allProviders.add(metadataProvider);
+    }
+
     List<CompletableFuture<Void>> futures = allProviders.stream()
         .map(provider -> provider.start(serverInfo, interBrokerListenerConfigs))
         .map(CompletionStage::toCompletableFuture)

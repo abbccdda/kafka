@@ -199,6 +199,7 @@
   <subpackage name="server">
     <allow pkg="org.slf4j" />
     <allow pkg="org.apache.kafka.common" />
+    <allow pkg="org.apache.kafka.server" />
     <allow pkg="org.apache.kafka.test" />
   </subpackage>
 

@@ -59,9 +59,9 @@ import org.apache.kafka.common.utils.{AppInfoParser, LogContext, Time}
 import org.apache.kafka.common.{ClusterResource, Endpoint, Node}
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.server.authorizer.Authorizer
+import org.apache.kafka.server.http.{MetadataServer, MetadataServerFactory}
 import org.apache.kafka.server.license.LicenseValidator
 import org.apache.kafka.server.multitenant.MultiTenantMetadata
-import org.apache.kafka.server.rest.{BrokerProxy, RestServer}
 
 import scala.collection.JavaConverters._
 import scala.collection.{Map, Seq, mutable}
@@ -167,6 +167,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   var dataPlaneRequestProcessor: KafkaApis = null
   var controlPlaneRequestProcessor: KafkaApis = null
 
+  var metadataServer: MetadataServer = null
+
   var authorizer: Option[Authorizer] = None
   var socketServer: SocketServer = null
   var dataPlaneRequestHandlerPool: KafkaRequestHandlerPool = null
@@ -215,8 +217,6 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   var multitenantMetadata: MultiTenantMetadata = null
 
   private var licenseValidator: LicenseValidator = null
-
-  var restServer: RestServer = null
 
   def clusterId: String = _clusterId
 
@@ -390,12 +390,14 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         transactionCoordinator = TransactionCoordinator(config, replicaManager, new KafkaScheduler(threads = 1, threadNamePrefix = "transaction-log-manager-"), zkClient, metrics, metadataCache, Time.SYSTEM)
         transactionCoordinator.startup()
 
+        metadataServer = MetadataServerFactory.create(clusterId, config.originals)
+
         /* Get the authorizer and initialize it if one is specified.*/
         authorizer = config.authorizer
         authorizer.foreach(_.configure(config.originals))
         val authorizerFutures: Map[Endpoint, CompletableFuture[Void]] = authorizer match {
           case Some(authZ) =>
-            authZ.start(brokerInfo.broker.toServerInfo(clusterId, config)).asScala.mapValues(_.toCompletableFuture).toMap
+            authZ.start(brokerInfo.broker.toServerInfo(clusterId, config, metadataServer)).asScala.mapValues(_.toCompletableFuture).toMap
           case None =>
             brokerInfo.broker.endPoints.map { ep => ep.toJava -> CompletableFuture.completedFuture[Void](null) }.toMap
         }
@@ -447,19 +449,15 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         socketServer.startControlPlaneProcessor(authorizerFutures)
         socketServer.startDataPlaneProcessors(authorizerFutures)
 
+        authorizerFutures.values.foreach(_.join())
+        metadataServer.start()
+
         brokerState.newState(RunningAsBroker)
         shutdownLatch = new CountDownLatch(1)
 
         if (multitenantMetadata != null) {
           val endpoint = brokerInfo.broker.brokerEndPoint(config.interBrokerListenerName).connectionString()
           multitenantMetadata.handleSocketServerInitialized(endpoint)
-        }
-
-        restServer = ConfluentConfigs.buildRestServer(config)
-        if (restServer != null) {
-          restServer.startup(new BrokerProxy {
-            override def clusterId(): String = _clusterId
-          })
         }
 
         startupComplete.set(true)
@@ -759,9 +757,6 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         if (dynamicConfigManager != null)
           CoreUtils.swallow(dynamicConfigManager.shutdown(), this)
 
-        if (restServer != null)
-          CoreUtils.swallow(restServer.shutdown(), this)
-
         // Stop socket server to stop accepting any more connections and requests.
         // Socket server will be shutdown towards the end of the sequence.
         if (socketServer != null)
@@ -777,6 +772,10 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           CoreUtils.swallow(dataPlaneRequestProcessor.close(), this)
         if (controlPlaneRequestProcessor != null)
           CoreUtils.swallow(controlPlaneRequestProcessor.close(), this)
+
+        if (metadataServer != null)
+          CoreUtils.swallow(metadataServer.close(), this)
+
         CoreUtils.swallow(authorizer.foreach(_.close()), this)
         if (adminManager != null)
           CoreUtils.swallow(adminManager.shutdown(), this)

@@ -25,6 +25,7 @@ import org.apache.kafka.common.{ClusterResource, Endpoint, Node}
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo
+import org.apache.kafka.server.http.{MetadataServer, MetadataServerFactory}
 
 import scala.collection.Seq
 import scala.collection.JavaConverters._
@@ -33,7 +34,8 @@ object Broker {
   private[cluster] case class ServerInfo(clusterResource: ClusterResource,
                                          brokerId: Int,
                                          endpoints: util.List[Endpoint],
-                                         interBrokerEndpoint: Endpoint) extends AuthorizerServerInfo
+                                         interBrokerEndpoint: Endpoint,
+                                         override val metadataServer: MetadataServer) extends AuthorizerServerInfo
 }
 
 /**
@@ -80,10 +82,12 @@ case class Broker(id: Int, endPoints: Seq[EndPoint], rack: Option[String]) {
       throw new BrokerEndPointNotAvailableException(s"End point with listener name ${listenerName.value} not found for broker $id"))
   }
 
-  def toServerInfo(clusterId: String, config: KafkaConfig): AuthorizerServerInfo = {
+  def toServerInfo(clusterId: String,
+                   config: KafkaConfig,
+                   metadataServer: MetadataServer = MetadataServerFactory.none()): AuthorizerServerInfo = {
     val clusterResource: ClusterResource = new ClusterResource(clusterId)
     val interBrokerEndpoint: Endpoint = endPoint(config.interBrokerListenerName).toJava
     val brokerEndpoints: util.List[Endpoint] = endPoints.toList.map(_.toJava).asJava
-    Broker.ServerInfo(clusterResource, id, brokerEndpoints, interBrokerEndpoint)
+    Broker.ServerInfo(clusterResource, id, brokerEndpoints, interBrokerEndpoint, metadataServer)
   }
 }

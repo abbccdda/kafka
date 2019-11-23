@@ -16,6 +16,7 @@ import java.util.stream.Collectors;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.http.MetadataServer;
 
 public class ConfluentBuiltInProviders {
 
@@ -32,7 +33,7 @@ public class ConfluentBuiltInProviders {
   }
 
   public enum MetadataProviders {
-    CONFLUENT,          // Embedded Metadata Server with REST interface
+    CONFLUENT,     // RBAC metadata provider that uses centralized auth topic with roles and groups
     NONE           // Embedded Metadata Service not enabled on the broker
   }
 
@@ -185,6 +186,10 @@ public class ConfluentBuiltInProviders {
     @Override
     public boolean providerConfigured(Map<String, ?> configs) {
       return true;
+    }
+
+    @Override
+    public void registerMetadataServer(MetadataServer metadataServer) {
     }
 
     @Override

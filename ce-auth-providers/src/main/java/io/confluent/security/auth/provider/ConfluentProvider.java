@@ -6,8 +6,6 @@ import io.confluent.security.auth.client.acl.MdsAclMigration;
 import io.confluent.security.auth.metadata.AuthCache;
 import io.confluent.security.auth.metadata.AuthStore;
 import io.confluent.security.auth.metadata.AuthWriter;
-import io.confluent.security.auth.metadata.MetadataServer;
-import io.confluent.security.auth.metadata.MetadataServiceConfig;
 import io.confluent.security.auth.provider.ldap.LdapAuthenticateCallbackHandler;
 import io.confluent.security.auth.provider.ldap.LdapConfig;
 import io.confluent.security.auth.store.kafka.KafkaAuthStore;
@@ -29,46 +27,44 @@ import io.confluent.security.authorizer.provider.GroupProvider;
 import io.confluent.security.authorizer.provider.MetadataProvider;
 import io.confluent.security.store.NotMasterWriterException;
 import io.confluent.security.store.kafka.KafkaStoreConfig;
-import java.io.IOException;
 import java.net.URL;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
-
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.CreateAclsOptions;
 import org.apache.kafka.clients.admin.DeleteAclsOptions;
 import org.apache.kafka.clients.admin.DeleteAclsResult.FilterResults;
+import org.apache.kafka.common.ClusterResource;
+import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.Endpoint;
+import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.errors.RebalanceInProgressException;
-import org.apache.kafka.common.utils.Utils;
-import org.apache.kafka.common.ClusterResource;
-import org.apache.kafka.common.ClusterResourceListener;
-import org.apache.kafka.common.KafkaException;
-import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.security.auth.AuthenticateCallbackHandler;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.authorizer.AclCreateResult;
 import org.apache.kafka.server.authorizer.AclDeleteResult;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.server.http.MetadataServer;
+import org.apache.kafka.server.http.MetadataServerConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -85,6 +81,7 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
   );
 
   private Map<String, ?> configs;
+  private MetadataServerConfig metadataServerConfig;
   private LdapAuthenticateCallbackHandler authenticateCallbackHandler;
   private AuditLogProvider auditLogProvider;
   private Scope authScope;
@@ -94,9 +91,9 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
   private Optional<ConfluentAdmin> aclClient = Optional.empty();
 
   private String clusterId;
-  private MetadataServer metadataServer;
-  private Collection<URL> metadataServerUrls;
   private Set<KafkaPrincipal> configuredSuperUsers;
+
+  private MetadataServer metadataServer;
 
   public ConfluentProvider() {
     this.authScope = Scope.ROOT_SCOPE;
@@ -112,17 +109,13 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
   @Override
   public void configure(Map<String, ?> configs) {
     this.configs = configs;
+    metadataServerConfig = new MetadataServerConfig(configs);
     if (clusterId == null)
       throw new IllegalStateException("Kafka cluster id not known");
 
     authStoreScope = Objects.requireNonNull(authScope, "authScope");
-    if (configs.containsKey(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP)) {
-      MetadataServiceConfig metadataServiceConfig = new MetadataServiceConfig(configs);
-      metadataServer = createMetadataServer(metadataServiceConfig);
-      metadataServerUrls = metadataServiceConfig.metadataServerUrls;
-
-      Scope metadataScope = metadataServiceConfig.scope;
-
+    if (usesMetadataFromThisKafkaCluster()) {
+      Scope metadataScope = Scope.ROOT_SCOPE;
       // If authorizer scope is defined, then it must be contained within the metadata server
       // scope. We use the metadata server scope for the single AuthStore shared by the authorizer
       // on this broker and the metadata server. If the broker authorizer is not RBAC-enabled,
@@ -149,8 +142,15 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
    */
   @Override
   public boolean providerConfigured(Map<String, ?> configs) {
-    return configs.containsKey(MetadataServiceConfig.METADATA_SERVER_LISTENERS_PROP) ||
+    return new MetadataServerConfig(configs).isMetadataServerEnabled() ||
         configs.containsKey(KafkaStoreConfig.BOOTSTRAP_SERVERS_PROP);
+  }
+
+  @Override
+  public void registerMetadataServer(MetadataServer metadataServer) {
+    if (usesMetadataFromThisKafkaCluster()) {
+      this.metadataServer = metadataServer;
+    }
   }
 
   /**
@@ -188,12 +188,23 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
       authenticateCallbackHandler.configure(configs, "PLAIN", Collections.emptyList());
     }
 
-    if (metadataServer != null)
-      authStore.startService(metadataServerUrls);
+    if (usesMetadataFromThisKafkaCluster()) {
+      List<URL> advertisedUrls = metadataServerConfig.metadataServerAdvertisedListeners();
+      authStore.startService(
+          !advertisedUrls.isEmpty()
+              ? advertisedUrls
+              : metadataServerConfig.metadataServerListeners());
+    }
+
     return authStore.startReader()
         .thenApply(unused -> {
-          if (metadataServer != null)
-            metadataServer.start(createRbacAuthorizer(), authStore, authenticateCallbackHandler);
+          if (metadataServer != null) {
+            SimpleInjector injector = new SimpleInjector();
+            injector.putInstance(Authorizer.class, createRbacAuthorizer());
+            injector.putInstance(AuthStore.class, authStore);
+            injector.putInstance(AuthenticateCallbackHandler.class, authenticateCallbackHandler);
+            metadataServer.registerMetadataProvider(providerName(), injector);
+          }
 
           Set<String> accessProviders = Utils.mkSet(((String)
               configs.get(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP)).split(","));
@@ -210,9 +221,14 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
     return true;
   }
 
+  /**
+   * Returns true if this broker is running the RBAC service in the embedded {@link MetadataServer},
+   * or false if the {@link AuthStore} is listening to RBAC service in another cluster instead.
+   */
   @Override
   public boolean usesMetadataFromThisKafkaCluster() {
-    return metadataServer != null;
+    return metadataServerConfig.isMetadataServerEnabled()
+        && !configs.containsKey(KafkaStoreConfig.BOOTSTRAP_SERVERS_PROP);
   }
 
   @Override
@@ -249,7 +265,6 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
   public void close() {
     log.debug("Closing RBAC provider");
     AtomicReference<Throwable> firstException = new AtomicReference<>();
-    Utils.closeQuietly(metadataServer, "metadataServer", firstException);
     Utils.closeQuietly(authStore, "authStore", firstException);
     if (authenticateCallbackHandler != null)
       Utils.closeQuietly(authenticateCallbackHandler, "authenticateCallbackHandler", firstException);
@@ -276,11 +291,6 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
   }
 
   // Visibility for testing
-  public MetadataServer metadataServer() {
-    return metadataServer;
-  }
-
-  // Visibility for testing
   EmbeddedAuthorizer createRbacAuthorizer() {
     return new RbacAuthorizer();
   }
@@ -295,24 +305,6 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
     KafkaAuthStore authStore = new KafkaAuthStore(scope, serverInfo);
     authStore.configure(configs);
     return authStore;
-  }
-
-  private MetadataServer createMetadataServer(MetadataServiceConfig metadataServiceConfig) {
-    ServiceLoader<MetadataServer> servers = ServiceLoader.load(MetadataServer.class);
-    MetadataServer metadataServer = null;
-    for (MetadataServer server : servers) {
-      if (server.providerName().equals(providerName())) {
-        metadataServer = server;
-        break;
-      }
-    }
-    if (metadataServer == null)
-      metadataServer = new DummyMetadataServer();
-    if (metadataServer instanceof ClusterResourceListener) {
-      ((ClusterResourceListener) metadataServer).onUpdate(new ClusterResource(clusterId));
-    }
-    metadataServer.configure(metadataServiceConfig.metadataServerConfigs());
-    return metadataServer;
   }
 
   @Override
@@ -503,18 +495,18 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
     }
   }
 
-  private static class DummyMetadataServer implements MetadataServer {
+  private static final class SimpleInjector implements MetadataServer.Injector {
+
+    private final HashMap<Class<?>, Object> instances = new HashMap<>();
 
     @Override
-    public void start(Authorizer embeddedAuthorizer, AuthStore authStore, AuthenticateCallbackHandler callbackHandler) {
+    @SuppressWarnings("unchecked")
+    public <T> T getInstance(Class<T> clazz) {
+      return (T) instances.get(clazz);
     }
 
-    @Override
-    public void configure(Map<String, ?> configs) {
-    }
-
-    @Override
-    public void close() throws IOException {
+    private <T> void putInstance(Class<T> clazz, T instance) {
+      instances.put(clazz, instance);
     }
   }
 }
