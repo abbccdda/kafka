@@ -211,7 +211,7 @@ public class TierMessageFormatterTest {
                 unknown.serializeValue());
         formatter.writeTo(record, ps);
 
-        String expected = String.format("(%d, %d, %s): failed to deserialize tier metadata. Error message: Unknown id -1. Record: %s\n",
+        String expected = String.format("(%d, %d, %s): failed to deserialize tier metadata. Error message: Deserialization error [Unknown id -1]. Record: %s\n",
                 record.partition(), record.offset(), Instant.ofEpochMilli(record.timestamp()), record.toString());
         assertEquals(expected, baos.toString());
     }

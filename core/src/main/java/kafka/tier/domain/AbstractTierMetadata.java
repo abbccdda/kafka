@@ -81,13 +81,19 @@ public abstract class AbstractTierMetadata {
 
     /**
      * Deserializes byte key and value read from Tier State Topic into Tier Metadata.
+     * Current implementation maps any exception while deserialization as TierMetadataDeserializationException. In
+     * future, we may adopt more stronger checks before throwing TierMetadataDeserializationException.
      * @param key Key containing archived topic partition
      * @param value Value containing tier metadata.
      * @return AbstractTierMetadata if one could be deserialized. Empty if Tier Metadata ID unrecognized.
      * @throws TierMetadataDeserializationException
      */
     public static Optional<AbstractTierMetadata> deserialize(byte[] key, byte[] value) throws TierMetadataDeserializationException {
-        return deserialize(ByteBuffer.wrap(key), ByteBuffer.wrap(value));
+        try {
+            return deserialize(ByteBuffer.wrap(key), ByteBuffer.wrap(value));
+        } catch (Exception e) {
+            throw new TierMetadataDeserializationException(String.format("Deserialization error [%s]", e.getMessage()), e);
+        }
     }
 
     public static Optional<AbstractTierMetadata> deserialize(ByteBuffer key, ByteBuffer value) throws TierMetadataDeserializationException {

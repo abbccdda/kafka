@@ -282,6 +282,7 @@ public class TierTopicConsumer implements Runnable {
      * @param requiredState the tier partition must be in this state or else the metadata will be ignored.
      * @param commitPositions boolean denoting whether to send the consumer positions to the
      *                        committer. Only the primary consumer should commit offsets.
+     * @throws TierMetadataFatalException
      */
     private void processRecords(ConsumerRecords<byte[], byte[]> records,
                                 TierPartitionStatus requiredState,
@@ -290,21 +291,27 @@ public class TierTopicConsumer implements Runnable {
             return;
 
         for (ConsumerRecord<byte[], byte[]> record : records) {
-            final Optional<AbstractTierMetadata> entryOpt = AbstractTierMetadata.deserialize(record.key(), record.value());
-            if (entryOpt.isPresent()) {
-                AbstractTierMetadata entry = entryOpt.get();
-                log.trace("Read {} at offset {} of partition {}", entry, record.offset(), record.partition());
-                processEntry(entry, record.partition(), record.offset(), requiredState);
+            try {
+                final Optional<AbstractTierMetadata> entryOpt =
+                        AbstractTierMetadata.deserialize(record.key(), record.value());
 
-                if (commitPositions)
-                    committer.updatePosition(record.partition(), record.offset() + 1);
-            } else {
-                log.info("Skipping message at offset {} of partition {}. Message for {} "
-                                + "and type: {} cannot be deserialized.",
-                        record.offset(),
-                        record.partition(),
-                        AbstractTierMetadata.deserializeKey(record.key()),
-                        AbstractTierMetadata.getTypeId(record.value()));
+                if (entryOpt.isPresent()) {
+                    AbstractTierMetadata entry = entryOpt.get();
+                    log.trace("Read {} at offset {} of partition {}", entry, record.offset(), record.partition());
+                    processEntry(entry, record.partition(), record.offset(), requiredState);
+
+                    if (commitPositions)
+                        committer.updatePosition(record.partition(), record.offset() + 1);
+                } else {
+                    throw new TierMetadataFatalException(
+                            String.format("Fatal Exception message for %s and unknown type: %d cannot be deserialized.",
+                                AbstractTierMetadata.deserializeKey(record.key()).toString(),
+                                AbstractTierMetadata.getTypeId(record.value())));
+                }
+            } catch (Exception e) {
+                throw new TierMetadataFatalException(
+                        String.format("Unable to process message at offset %d of partition %d",
+                                record.offset(), record.partition()), e);
             }
         }
     }

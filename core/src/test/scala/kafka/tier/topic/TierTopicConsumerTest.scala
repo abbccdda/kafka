@@ -6,9 +6,12 @@ import java.util.function.Supplier
 
 import kafka.tier.{TierTopicManagerCommitter, TopicIdPartition}
 import kafka.tier.client.{MockConsumerSupplier, MockProducerSupplier}
+import kafka.tier.domain.AbstractTierMetadata
+import kafka.tier.exceptions.TierMetadataDeserializationException
 import kafka.tier.state.TierPartitionStatus
 import kafka.tier.topic.TierTopicConsumer.ClientCtx
 import kafka.utils.TestUtils
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.junit.Assert._
 import org.junit.{Before, Test}
@@ -16,6 +19,7 @@ import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito._
 import org.mockito.invocation.InvocationOnMock
 import org.mockito.stubbing.Answer
+import org.scalatest.Assertions.assertThrows
 
 import scala.collection.JavaConverters._
 
@@ -196,5 +200,17 @@ class TierTopicConsumerTest {
     assertEquals(Set(tp_1, tp_2), tierTopicConsumer.onlinePartitions.keySet.asScala)
     verify(ctx_1, times(1)).completeCatchup()
     verify(ctx_2, times(1)).completeCatchup()
+  }
+
+  @Test
+  def testGarbageHandling(): Unit = {
+    // process a garbage message. Make sure we throw TierMetadataDeserializationException. This exception will lead to
+    //  identifying and skipping of garbage message.
+    val garbageRecord: ConsumerRecord[Array[Byte], Array[Byte]] =
+      new ConsumerRecord("foo-1", 0, 1, "key".getBytes(), "value".getBytes())
+
+    assertThrows[TierMetadataDeserializationException] {
+      AbstractTierMetadata.deserialize(garbageRecord.key, garbageRecord.value)
+    }
   }
 }
