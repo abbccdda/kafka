@@ -153,6 +153,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   @Override
   public void startWriter(int generationId) {
     log.info("Starting writer with generation {}", generationId);
+
     if (generationId < 0)
       throw new IllegalArgumentException("Invalid generation id for master writer " + generationId);
 
@@ -197,7 +198,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
       log.info("Stopping writer {}", generationId == null ? "" : "with generation " + generationId);
       ready = false;
       externalAuthStores.values().forEach(store -> store.stop(generationId));
-      partitionWriters.values().forEach(p -> p.stop(generationId));
+      partitionWriters.values().forEach(KafkaPartitionWriter::stop);
 
       if (mgmtExecutor != null)
         mgmtExecutor.shutdownNow();

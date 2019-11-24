@@ -43,6 +43,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
@@ -549,6 +550,43 @@ public class KafkaAuthWriterTest {
 
       authWriter.stopWriter(generationId);
       authWriter.startWriter(++generationId);
+    }
+  }
+
+  @Test
+  public void testStopDifferentGeneration() throws Exception {
+    int generationId = 1;
+    authStore.close();
+    Semaphore writeSemaphore = new Semaphore(0);
+    Semaphore rebalanceSemaphore = new Semaphore(0);
+    authStore = new MockAuthStore(rbacRoles, time, rootScope, numPartitions, storeNodeId) {
+      @Override
+      protected void onSend(ProducerRecord<AuthKey, AuthValue> record, ScheduledExecutorService executor) {
+        if (record.key() instanceof RoleBindingKey) {
+          executor.submit(() -> {
+            try {
+              rebalanceSemaphore.release();
+              assertTrue(writeSemaphore.tryAcquire(10, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+              throw new RuntimeException(e);
+            }
+          });
+        }
+        super.onSend(record, executor);
+      }
+    };
+    startAuthStore(authStore, null, 0);
+    for (int i = 0; i < 3; i++) {
+      TestUtils.waitForCondition(() -> authWriter.ready(), "Writer not ready");
+      CompletionStage<Void> stage = authWriter.addResourceRoleBinding(alice, "Reader", clusterA,
+          resources("topic" + i, "group" + i));
+
+      assertTrue(rebalanceSemaphore.tryAcquire(10, TimeUnit.SECONDS));
+      authWriter.stopWriter(generationId - 1);
+      authWriter.startWriter(++generationId);
+      writeSemaphore.release();
+
+      stage.toCompletableFuture().get(10, TimeUnit.SECONDS);
     }
   }
 

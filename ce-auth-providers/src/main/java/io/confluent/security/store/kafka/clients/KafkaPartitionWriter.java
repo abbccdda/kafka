@@ -145,18 +145,16 @@ public class KafkaPartitionWriter<K, V> {
    * Stops this writer in preparation for rebalance. Pending writes that have not been completed
    * by the time the first status record is received from the new writer will be cancelled.
    */
-  public synchronized void stop(Integer stoppingGeneration) {
+  public synchronized void stop() {
     log.debug("Stop generation {} for partition writer {}", generationId, topicPartition);
-    if (stoppingGeneration == null || stoppingGeneration == generationId) {
-      this.generationId = NOT_MASTER_WRITER;
-      this.status(MetadataStoreStatus.UNKNOWN);
-    }
+    this.generationId = NOT_MASTER_WRITER;
+    this.status(MetadataStoreStatus.UNKNOWN);
+    executor = null;
     while (!queuedTasks.isEmpty()) {
       QueuedTask write = queuedTasks.poll();
       if (!write.future.isDone())
         write.fail(notMasterWriterException());
     }
-    executor = null;
   }
 
   /**
