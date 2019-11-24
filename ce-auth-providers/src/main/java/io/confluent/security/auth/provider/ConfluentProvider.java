@@ -207,7 +207,7 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
           }
 
           Set<String> accessProviders = Utils.mkSet(((String)
-              configs.get(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP)).split(","));
+              configs.get(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP)).trim().split("\\s*,\\s*"));
           if (accessProviders.contains(AccessRuleProviders.ZK_ACL.name()) ||
               accessProviders.contains(AccessRuleProviders.CONFLUENT.name())) {
             aclClient = Optional.of(createMdsAdminClient(serverInfo, clientConfigs));
