@@ -24,34 +24,6 @@ public class ReplicaStatus {
     private final long lastCaughtUpTimeMs;
     private final long lastFetchTimeMs;
 
-    /**
-     * The replication mode for a replica.
-     */
-    public enum Mode {
-        LEADER((byte) 0),
-        FOLLOWER((byte) 1),
-        OBSERVER((byte) 2);
-
-        private final byte value;
-
-        Mode(byte value) {
-            this.value = value;
-        }
-
-        public byte value() {
-          return value;
-        }
-
-        public static Mode fromValue(byte value) {
-            for (Mode mode : values()) {
-                if (mode.value == value) {
-                    return mode;
-                }
-            }
-            throw new NoSuchElementException("Invalid replica mode " + value);
-        }
-    }
-
     public ReplicaStatus(int brokerId,
                          boolean isLeader,
                          boolean isObserver,
@@ -67,27 +39,6 @@ public class ReplicaStatus {
         this.isObserver = isObserver;
         this.isIsrEligible = isIsrEligible;
         this.isInIsr = isInIsr;
-        this.isCaughtUp = isCaughtUp;
-        this.logStartOffset = logStartOffset;
-        this.logEndOffset = logEndOffset;
-        this.lastCaughtUpTimeMs = lastCaughtUpTimeMs;
-        this.lastFetchTimeMs = lastFetchTimeMs;
-    }
-
-    @Deprecated
-    public ReplicaStatus(int brokerId,
-                         Mode mode,
-                         boolean isCaughtUp,
-                         boolean isInSync,
-                         long logStartOffset,
-                         long logEndOffset,
-                         long lastCaughtUpTimeMs,
-                         long lastFetchTimeMs) {
-        this.brokerId = brokerId;
-        this.isLeader = mode == Mode.LEADER;
-        this.isObserver = mode == Mode.OBSERVER;
-        this.isIsrEligible = mode != Mode.OBSERVER;
-        this.isInIsr = isInSync;
         this.isCaughtUp = isCaughtUp;
         this.logStartOffset = logStartOffset;
         this.logEndOffset = logEndOffset;
@@ -171,32 +122,6 @@ public class ReplicaStatus {
      */
     public long lastFetchTimeMs() {
         return lastFetchTimeMs;
-    }
-
-    /**
-     * Whether the replica is in the ISR set.
-     *
-     * DEPRECATED: Replaced by `isInIsr()`.
-     */
-    @Deprecated
-    public boolean isInSync() {
-        return isInIsr;
-    }
-
-    /**
-     * The current mode of the replica.
-     *
-     * DEPRECATED: Replaced by `isLeader()` and `isFollower()`.
-     */
-    @Deprecated
-    public Mode mode() {
-      if (isLeader) {
-        return Mode.LEADER;
-      } else if (isObserver) {
-        return Mode.OBSERVER;
-      } else {
-        return Mode.FOLLOWER;
-      }
     }
 
     @Override
