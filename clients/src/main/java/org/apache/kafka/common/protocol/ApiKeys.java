@@ -219,9 +219,11 @@ public enum ApiKeys {
                                  ListPartitionReassignmentsResponseData.SCHEMAS),
     OFFSET_DELETE(47, "OffsetDelete", OffsetDeleteRequestData.SCHEMAS, OffsetDeleteResponseData.SCHEMAS),
 
-    /* ----- Begin Confluent APIs: API ids decrement sequentially starting from Short.MAX_VALUE ----- */
+    /* ----- Begin Confluent APIs: API ids increment sequentially from 10000 ----- */
 
-    REPLICA_STATUS(32765, "ReplicaStatus", ReplicaStatusRequestData.SCHEMAS, ReplicaStatusResponseData.SCHEMAS),
+    REPLICA_STATUS(10000, "ReplicaStatus", ReplicaStatusRequestData.SCHEMAS, ReplicaStatusResponseData.SCHEMAS),
+
+    // The following APIs are deprecated and will be removed in a future release
     CONFLUENT_LEADER_AND_ISR(32766, "ConfluentLeaderAndIsr", true, ConfluentLeaderAndIsrRequestData.SCHEMAS,
                              ConfluentLeaderAndIsrResponseData.SCHEMAS, true),
     TIER_LIST_OFFSET(32767, "TierListOffsets", true, TierListOffsetRequestData.SCHEMAS,

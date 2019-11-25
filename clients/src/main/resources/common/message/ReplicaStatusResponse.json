@@ -1,7 +1,7 @@
 // Copyright 2019 Confluent Inc.
 
 {
-  "apiKey": 32765,
+  "apiKey": 10000,
   "type": "response",
   "name": "ReplicaStatusResponse",
   "validVersions": "0",

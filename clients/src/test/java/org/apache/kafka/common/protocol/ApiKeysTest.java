@@ -35,7 +35,7 @@ public class ApiKeysTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void testForIdWithInvalidIdHigh() {
-        ApiKeys.forId(10000);
+        ApiKeys.forId(50000);
     }
 
     @Test(expected = IllegalArgumentException.class)
