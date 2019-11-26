@@ -108,19 +108,19 @@ class MergedLog(private[log] val localLog: Log,
   }
 
   // Number of segments in local log
-  newGauge("NumLogSegments",
+  newGauge(LogMetricNames.NumLogSegments,
     new Gauge[Int] {
       def value = localLog.numberOfSegments
     },
     tags)
 
-  newGauge("LogStartOffset",
+  newGauge(LogMetricNames.LogStartOffset,
     new Gauge[Long] {
       def value = logStartOffset
     },
     tags)
 
-  newGauge("LogEndOffset",
+  newGauge(LogMetricNames.LogEndOffset,
     new Gauge[Long] {
       def value = logEndOffset
     },
@@ -129,21 +129,21 @@ class MergedLog(private[log] val localLog: Log,
   // Size of local log. For compatibility with tools like ADB and Cruise Control, we continue to report the local size
   // of the log for this metric. Tools that require the total size of the log, including the tiered portion, must use
   // `TotalSize` instead.
-  newGauge("Size",
+  newGauge(LogMetricNames.Size,
     new Gauge[Long] {
       def value = localLog.size
     },
     tags)
 
   // Size of tiered portion of the log.
-  newGauge("TierSize",
+  newGauge(LogMetricNames.TierSize,
     new Gauge[Long] {
       def value = tierPartitionState.totalSize
     },
     tags)
 
   // Total size of the log. See AbstractLog#size for details.
-  newGauge("TotalSize",
+  newGauge(LogMetricNames.TotalSize,
     new Gauge[Long] {
       def value = size
     },
@@ -173,12 +173,12 @@ class MergedLog(private[log] val localLog: Log,
   }
 
   override private[log] def removeLogMetrics(): Unit = {
-    removeMetric("NumLogSegments", tags)
-    removeMetric("LogStartOffset", tags)
-    removeMetric("LogEndOffset", tags)
-    removeMetric("Size", tags)
-    removeMetric("TierSize", tags)
-    removeMetric("TotalSize", tags)
+    removeMetric(LogMetricNames.NumLogSegments, tags)
+    removeMetric(LogMetricNames.LogStartOffset, tags)
+    removeMetric(LogMetricNames.LogEndOffset, tags)
+    removeMetric(LogMetricNames.Size, tags)
+    removeMetric(LogMetricNames.TierSize, tags)
+    removeMetric(LogMetricNames.TotalSize, tags)
     localLog.removeLogMetrics()
   }
 
@@ -638,7 +638,10 @@ class MergedLog(private[log] val localLog: Log,
 
   override def lastFlushTime: Long = localLog.lastFlushTime
 
-  override private[log] def delete(): Unit = localLog.delete()
+  override private[log] def delete(): Unit = {
+    localLog.delete()
+    removeLogMetrics()
+  }
 
   private def logDirFailureChannel: LogDirFailureChannel = localLog.logDirFailureChannel
 

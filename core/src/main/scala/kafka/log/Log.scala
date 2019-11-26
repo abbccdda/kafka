@@ -2838,3 +2838,16 @@ object Log {
     maybeAbortedTxnsBuf
   }
 }
+
+object LogMetricNames {
+  val NumLogSegments: String = "NumLogSegments"
+  val LogStartOffset: String = "LogStartOffset"
+  val LogEndOffset: String = "LogEndOffset"
+  val Size: String = "Size"
+  val TierSize: String = "TierSize"
+  val TotalSize: String = "TotalSize"
+
+  def allMetricNames: List[String] = {
+    List(NumLogSegments, LogStartOffset, LogEndOffset, Size, TierSize, TotalSize)
+  }
+}

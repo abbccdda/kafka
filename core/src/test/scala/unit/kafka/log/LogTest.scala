@@ -50,7 +50,7 @@ import org.scalatest.Assertions
 import scala.collection.{Iterable, mutable}
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
-import org.scalatest.Assertions.{assertThrows, intercept, withClue}
+import org.scalatest.Assertions.{assertThrows, fail, intercept, withClue}
 
 class LogTest {
   var config: KafkaConfig = null
@@ -4173,6 +4173,27 @@ class LogTest {
     val logConfig = LogTest.createLogConfig()
     val log = createLog(logDir, logConfig)
     assertEquals(1, log.numberOfSegments)
+  }
+
+  @Test
+  def testMetricsRemovedOnLogDeletion(): Unit = {
+    TestUtils.clearYammerMetrics()
+
+    val logConfig = LogTest.createLogConfig(segmentBytes = 1024 * 1024)
+    val log = createLog(logDir, logConfig)
+    val topicPartition = Log.parseTopicPartitionName(logDir)
+    val metricTag = s"topic=${topicPartition.topic},partition=${topicPartition.partition}"
+
+    val logMetrics = metricsKeySet.filter(_.getType == "Log")
+    assertEquals(LogMetricNames.allMetricNames.size, logMetrics.size)
+    logMetrics.foreach { metric =>
+      assertTrue(metric.getMBeanName.contains(metricTag))
+    }
+
+    // Delete the log and validate that corresponding metrics were removed.
+    log.delete()
+    val logMetricsAfterDeletion = metricsKeySet.filter(_.getType == "Log")
+    assertTrue(logMetricsAfterDeletion.isEmpty)
   }
 
   private def allAbortedTransactions(log: AbstractLog) = log.localLogSegments.flatMap(_.txnIndex.allAbortedTxns)
