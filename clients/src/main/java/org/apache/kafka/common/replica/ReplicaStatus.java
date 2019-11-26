@@ -4,7 +4,6 @@
 
 package org.apache.kafka.common.replica;
 
-import java.util.NoSuchElementException;
 import java.util.Objects;
 import org.apache.kafka.common.Confluent;
 
