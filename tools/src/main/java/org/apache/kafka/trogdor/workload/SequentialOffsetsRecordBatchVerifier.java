@@ -33,6 +33,10 @@ public class SequentialOffsetsRecordBatchVerifier implements RecordBatchVerifier
         }
     }
 
+    public void resetTrackedOffset(final TopicPartition topicPartition) {
+        lastOffsets.remove(topicPartition);
+    }
+
     @Override
     public void onPartitionsRevoked(final Collection<TopicPartition> partitions) {
         lastOffsets.clear();

@@ -22,8 +22,10 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.Optional;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.InvalidOffsetException;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.ConfigException;
@@ -156,7 +158,14 @@ public class ConsumeBenchWorker implements TaskWorker {
             props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, spec.bootstrapServers());
             props.put(ConsumerConfig.CLIENT_ID_CONFIG, clientId);
             props.put(ConsumerConfig.GROUP_ID_CONFIG, consumerGroup);
-            props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+            // if there is a record batch verifier specified, ensure that the consumer does not
+            // automatically reset it's offset when retention happens. Note that we will manually
+            // seek to earliest during a rebalance for any partition
+            if (spec.recordBatchVerifier().isPresent()) {
+                props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "none");
+            } else {
+                props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+            }
             props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 100000);
             // these defaults maybe over-written by the user-specified commonClientConf or consumerConf
             WorkerUtils.addConfigsToProperties(props, spec.commonClientConf(), spec.consumerConf());
@@ -245,32 +254,43 @@ public class ConsumeBenchWorker implements TaskWorker {
             long maxMessages = spec.maxMessages();
             try {
                 while (messagesConsumed < maxMessages) {
-                    ConsumerRecords<byte[], byte[]> records = consumer.poll();
-                    if (records.isEmpty()) {
-                        continue;
-                    }
-                    long endBatchMs = Time.SYSTEM.milliseconds();
-                    long elapsedBatchMs = endBatchMs - startBatchMs;
-                    for (ConsumerRecord<byte[], byte[]> record : records) {
-                        messagesConsumed++;
-                        long messageBytes = 0;
-                        if (record.key() != null) {
-                            messageBytes += record.serializedKeySize();
+                    try {
+                        ConsumerRecords<byte[], byte[]> records = consumer.poll();
+                        if (records.isEmpty()) {
+                            continue;
                         }
-                        if (record.value() != null) {
-                            messageBytes += record.serializedValueSize();
-                        }
-                        latencyHistogram.add(elapsedBatchMs);
-                        messageSizeHistogram.add(messageBytes);
-                        bytesConsumed += messageBytes;
-                        if (messagesConsumed >= maxMessages)
-                            break;
+                        long endBatchMs = Time.SYSTEM.milliseconds();
+                        long elapsedBatchMs = endBatchMs - startBatchMs;
+                        for (ConsumerRecord<byte[], byte[]> record : records) {
+                            messagesConsumed++;
+                            long messageBytes = 0;
+                            if (record.key() != null) {
+                                messageBytes += record.serializedKeySize();
+                            }
+                            if (record.value() != null) {
+                                messageBytes += record.serializedValueSize();
+                            }
+                            latencyHistogram.add(elapsedBatchMs);
+                            messageSizeHistogram.add(messageBytes);
+                            bytesConsumed += messageBytes;
+                            if (messagesConsumed >= maxMessages)
+                                break;
 
-                        throttle.increment();
-                    }
-                    startBatchMs = Time.SYSTEM.milliseconds();
-                    if (recordBatchVerifier.isPresent()) {
-                        recordBatchVerifier.get().verifyRecords(records);
+                            throttle.increment();
+                        }
+                        startBatchMs = Time.SYSTEM.milliseconds();
+                        recordBatchVerifier.ifPresent(batchVerifier -> batchVerifier.verifyRecords(records));
+                    } catch (InvalidOffsetException ioe) {
+                        // when a record batch verifier is used, auto.offset.none
+                        // is used to allow us to detect when a fetch offset is reset
+                        // due to offset out of range / no offset errors errors
+                        if (recordBatchVerifier.isPresent()) {
+                            for (TopicPartition tp: ioe.partitions())
+                                recordBatchVerifier.get().resetTrackedOffset(tp);
+                            consumer.seekToBeginning(ioe.partitions());
+                        } else {
+                            throw ioe;
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -512,10 +532,34 @@ public class ConsumeBenchWorker implements TaskWorker {
             this.consumerLock.lock();
             try {
                 if (listener.isPresent()) {
-                    consumer.subscribe(topics, listener.get());
+                    consumer.subscribe(topics, new ConsumerRebalanceListener() {
+                        @Override
+                        public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
+                            listener.get().onPartitionsRevoked(partitions);
+                        }
+
+                        @Override
+                        public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
+                            log.info("Consumer onPartitionsAssigned with RecordBatchVerifier. "
+                                    + "Resetting validated offsets and seeking to beginning for "
+                                    + "partitions {}", partitions);
+                            listener.get().onPartitionsAssigned(partitions);
+                            // seek to beginning manually due to auto.offset.reset = none
+                            consumer.seekToBeginning(partitions);
+                        }
+                    });
                 } else {
                     consumer.subscribe(topics);
                 }
+            } finally {
+                this.consumerLock.unlock();
+            }
+        }
+
+        void seekToBeginning(Collection<TopicPartition> topicPartitions) {
+            this.consumerLock.lock();
+            try {
+                consumer.seekToBeginning(topicPartitions);
             } finally {
                 this.consumerLock.unlock();
             }
