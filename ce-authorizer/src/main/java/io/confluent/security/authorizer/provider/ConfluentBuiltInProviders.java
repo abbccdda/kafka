@@ -16,7 +16,6 @@ import java.util.stream.Collectors;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
-import org.apache.kafka.server.http.MetadataServer;
 
 public class ConfluentBuiltInProviders {
 
@@ -186,10 +185,6 @@ public class ConfluentBuiltInProviders {
     @Override
     public boolean providerConfigured(Map<String, ?> configs) {
       return true;
-    }
-
-    @Override
-    public void registerMetadataServer(MetadataServer metadataServer) {
     }
 
     @Override

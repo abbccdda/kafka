@@ -27,7 +27,6 @@ import io.confluent.security.authorizer.provider.GroupProvider;
 import io.confluent.security.authorizer.provider.MetadataProvider;
 import io.confluent.security.store.NotMasterWriterException;
 import io.confluent.security.store.kafka.KafkaStoreConfig;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -93,8 +92,6 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
   private String clusterId;
   private Set<KafkaPrincipal> configuredSuperUsers;
 
-  private MetadataServer metadataServer;
-
   public ConfluentProvider() {
     this.authScope = Scope.ROOT_SCOPE;
   }
@@ -136,21 +133,14 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
   }
 
   /**
-   * Brokers running RBAC should be either:
+   * Brokers running ConfluentProvider should be either:
    *   - in the metadata cluster, running MDS. These should have metadata server listeners configured.
    *   - in another cluster. These should have metadata bootstrap servers configured.
    */
   @Override
   public boolean providerConfigured(Map<String, ?> configs) {
-    return new MetadataServerConfig(configs).isMetadataServerEnabled() ||
+    return new MetadataServerConfig(configs).isConfluentMetadataServerEnabled() ||
         configs.containsKey(KafkaStoreConfig.BOOTSTRAP_SERVERS_PROP);
-  }
-
-  @Override
-  public void registerMetadataServer(MetadataServer metadataServer) {
-    if (usesMetadataFromThisKafkaCluster()) {
-      this.metadataServer = metadataServer;
-    }
   }
 
   /**
@@ -189,16 +179,13 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
     }
 
     if (usesMetadataFromThisKafkaCluster()) {
-      List<URL> advertisedUrls = metadataServerConfig.metadataServerAdvertisedListeners();
-      authStore.startService(
-          !advertisedUrls.isEmpty()
-              ? advertisedUrls
-              : metadataServerConfig.metadataServerListeners());
+      authStore.startService(metadataServerConfig.metadataServerAdvertisedListeners());
     }
 
     return authStore.startReader()
         .thenApply(unused -> {
-          if (metadataServer != null) {
+          if (usesMetadataFromThisKafkaCluster()) {
+            MetadataServer metadataServer = serverInfo.metadataServer();
             SimpleInjector injector = new SimpleInjector();
             injector.putInstance(Authorizer.class, createRbacAuthorizer());
             injector.putInstance(AuthStore.class, authStore);
@@ -206,8 +193,7 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
             metadataServer.registerMetadataProvider(providerName(), injector);
           }
 
-          Set<String> accessProviders = Utils.mkSet(((String)
-              configs.get(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP)).trim().split("\\s*,\\s*"));
+          Set<String> accessProviders = ConfluentAuthorizerConfig.accessRuleProviders(configs);
           if (accessProviders.contains(AccessRuleProviders.ZK_ACL.name()) ||
               accessProviders.contains(AccessRuleProviders.CONFLUENT.name())) {
             aclClient = Optional.of(createMdsAdminClient(serverInfo, clientConfigs));
@@ -222,13 +208,14 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
   }
 
   /**
-   * Returns true if this broker is running the RBAC service in the embedded {@link MetadataServer},
-   * or false if the {@link AuthStore} is listening to RBAC service in another cluster instead.
+   * Returns true if this broker is running the centralized Metadata Service in the embedded
+   * {@link MetadataServer} as indicated by {@link MetadataServerConfig#METADATA_SERVER_LISTENERS_PROP}.
+   * Otherwise returns false and {@link AuthStore} listens to Metadata Service in another cluster
+   * configured using {@link KafkaStoreConfig#BOOTSTRAP_SERVERS_PROP}.
    */
   @Override
   public boolean usesMetadataFromThisKafkaCluster() {
-    return metadataServerConfig.isMetadataServerEnabled()
-        && !configs.containsKey(KafkaStoreConfig.BOOTSTRAP_SERVERS_PROP);
+    return metadataServerConfig.isConfluentMetadataServerEnabled();
   }
 
   @Override

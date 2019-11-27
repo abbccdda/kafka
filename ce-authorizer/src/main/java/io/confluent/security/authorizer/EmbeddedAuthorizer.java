@@ -58,7 +58,6 @@ public class EmbeddedAuthorizer implements Authorizer {
   protected Set<KafkaPrincipal> brokerUsers;
   protected String interBrokerListener;
   private Duration initTimeout;
-  private boolean usesMetadataFromThisKafkaCluster;
   private volatile boolean ready;
   private volatile String clusterId;
   private volatile Scope scope;
@@ -105,16 +104,6 @@ public class EmbeddedAuthorizer implements Authorizer {
         providers.groupProvider,
         providers.metadataProvider,
         providers.auditLogProvider);
-
-    initTimeout = authorizerConfig.initTimeout;
-    if (groupProvider != null && groupProvider.usesMetadataFromThisKafkaCluster())
-      usesMetadataFromThisKafkaCluster = true;
-    else if (accessRuleProviders.stream()
-        .anyMatch(AccessRuleProvider::usesMetadataFromThisKafkaCluster))
-      usesMetadataFromThisKafkaCluster = true;
-    else
-      usesMetadataFromThisKafkaCluster =
-          metadataProvider != null && metadataProvider.usesMetadataFromThisKafkaCluster();
   }
 
   @Override
@@ -156,14 +145,6 @@ public class EmbeddedAuthorizer implements Authorizer {
 
   public CompletableFuture<Void> start(AuthorizerServerInfo serverInfo, Map<String, ?> interBrokerListenerConfigs, Runnable initTask) {
     initTimeout = authorizerConfig.initTimeout;
-    if (groupProvider != null && groupProvider.usesMetadataFromThisKafkaCluster())
-      usesMetadataFromThisKafkaCluster = true;
-    else if (accessRuleProviders.stream().anyMatch(AccessRuleProvider::usesMetadataFromThisKafkaCluster))
-      usesMetadataFromThisKafkaCluster = true;
-    else if (auditLogProvider.usesMetadataFromThisKafkaCluster())
-      usesMetadataFromThisKafkaCluster = true;
-    else
-      usesMetadataFromThisKafkaCluster = metadataProvider != null && metadataProvider.usesMetadataFromThisKafkaCluster();
 
     Set<Provider> allProviders = new HashSet<>(); // Use a set to remove duplicates
     if (groupProvider != null)
@@ -171,7 +152,6 @@ public class EmbeddedAuthorizer implements Authorizer {
     allProviders.addAll(accessRuleProviders);
 
     if (metadataProvider != null) {
-      metadataProvider.registerMetadataServer(serverInfo.metadataServer());
       allProviders.add(metadataProvider);
     }
 
@@ -192,6 +172,11 @@ public class EmbeddedAuthorizer implements Authorizer {
     // hosting the metadata topic, we will wait later after starting the inter-broker
     // listener, to enable metadata to be loaded into cache prior to accepting connections
     // on other listeners.
+    boolean usesMetadataFromThisKafkaCluster =
+        (groupProvider != null && groupProvider.usesMetadataFromThisKafkaCluster()) ||
+        (metadataProvider != null && metadataProvider.usesMetadataFromThisKafkaCluster()) ||
+         accessRuleProviders.stream().anyMatch(AccessRuleProvider::usesMetadataFromThisKafkaCluster) ||
+         auditLogProvider.usesMetadataFromThisKafkaCluster();
     if (!usesMetadataFromThisKafkaCluster)
       future.join();
     return future;

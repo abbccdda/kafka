@@ -4,9 +4,14 @@ package io.confluent.security.auth.provider;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
+import io.confluent.security.auth.metadata.AuthStore;
+import io.confluent.security.auth.metadata.MockMetadataServer;
+import io.confluent.security.auth.metadata.MockMetadataServer.ServerState;
 import io.confluent.security.auth.provider.rbac.MockRbacProvider.MockAuthStore;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.auth.store.data.AclBindingKey;
@@ -16,6 +21,7 @@ import io.confluent.security.auth.store.data.RoleBindingValue;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
+import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.EmbeddedAuthorizer;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.PermissionType;
@@ -25,6 +31,8 @@ import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.acl.AclRule;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.rbac.RbacRoles;
+import java.net.URL;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -48,8 +56,10 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.acl.AccessControlEntryFilter;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
+import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.apache.kafka.server.http.MetadataServerConfig;
@@ -335,7 +345,85 @@ public class ConfluentProviderTest {
     }
   }
 
-  private void initializeRbacProvider(String clusterId, Scope authStoreScope,  Map<String, ?> configs) throws Exception {
+  @Test
+  public void testMetadataServer() throws Exception {
+    Map<String, Object> configs = new HashMap<>();
+    configs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "CONFLUENT");
+    configs.put(MetadataServerConfig.METADATA_SERVER_LISTENERS_PROP, "http://somehost:8095");
+    initializeRbacProvider("clusterA", Scope.intermediateScope("testOrg"), configs);
+    MockMetadataServer metadataServer = new MockMetadataServer() {
+      @Override
+      public boolean providerConfigured(Map<String, ?> configs) {
+        return true;
+      }
+    };
+
+    rbacProvider
+        .start(KafkaTestUtils.serverInfo("clusterA", metadataServer, SecurityProtocol.PLAINTEXT),
+            configs)
+        .toCompletableFuture().get();
+    assertTrue(rbacProvider.providerConfigured(configs));
+    assertTrue(rbacProvider.usesMetadataFromThisKafkaCluster());
+    assertEquals(ServerState.REGISTERED, metadataServer.serverState);
+  }
+
+  @Test
+  public void testMetadataServerConfigs() throws Exception {
+    Map<String, Object> configs = new HashMap<>();
+    configs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "CONFLUENT");
+    configs.put(MetadataServerConfig.HTTP_SERVER_LISTENERS_PROP, "http://localhost:8091");
+    configs.put(MetadataServerConfig.METADATA_SERVER_LISTENERS_PROP, "http://somehost:8095");
+    configs.put(SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG, "keystore.jks");
+    configs.put(MetadataServerConfig.HTTP_SERVER_PREFIX + SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, "truststore.jks");
+    configs.put(MetadataServerConfig.METADATA_SERVER_PREFIX + SslConfigs.SSL_KEYSTORE_PASSWORD_CONFIG, "mds-ks-password");
+    configs.put(MetadataServerConfig.HTTP_SERVER_PREFIX + SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, "http-ts-password");
+    configs.put(MetadataServerConfig.METADATA_SERVER_PREFIX + SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, "mds-ts-password");
+    MetadataServerConfig serverConfig = new MetadataServerConfig(configs);
+    assertTrue(serverConfig.isConfluentMetadataServerEnabled());
+    assertTrue(serverConfig.isServerEnabled());
+    assertEquals(Collections.singletonList(new URL("http://somehost:8095")), serverConfig.listeners());
+    assertEquals(Collections.singletonList(new URL("http://somehost:8095")), serverConfig.metadataServerAdvertisedListeners());
+    assertEquals("http://somehost:8095", serverConfig.serverConfigs().get("listeners"));
+    assertEquals("http://somehost:8095", serverConfig.serverConfigs().get("advertised.listeners"));
+    assertEquals("http://somehost:8095", serverConfig.serverConfigs().get(MetadataServerConfig.METADATA_SERVER_LISTENERS_PROP));
+    assertNull(serverConfig.serverConfigs().get(SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG));
+    assertEquals("truststore.jks", serverConfig.serverConfigs().get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG));
+    assertEquals("mds-ks-password", serverConfig.serverConfigs().get(SslConfigs.SSL_KEYSTORE_PASSWORD_CONFIG));
+    assertEquals("mds-ts-password", serverConfig.serverConfigs().get(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG));
+  }
+
+  @Test
+  public void testMetadataServerDisabled() throws Exception {
+    Map<String, Object> configs = new HashMap<>();
+    configs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "CONFLUENT");
+    configs.put(MetadataServerConfig.HTTP_SERVER_LISTENERS_PROP, "http://localhost:8091,https://localhost:8092");
+    configs.put(SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG, "keystore.jks");
+    configs.put(MetadataServerConfig.HTTP_SERVER_PREFIX + SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, "truststore.jks");
+    configs.put(MetadataServerConfig.METADATA_SERVER_PREFIX + SslConfigs.SSL_KEYSTORE_PASSWORD_CONFIG, "mds-ks-password");
+    configs.put(MetadataServerConfig.HTTP_SERVER_PREFIX + SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, "http-ts-password");
+    configs.put(MetadataServerConfig.METADATA_SERVER_PREFIX + SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, "mds-ts-password");
+
+    MetadataServerConfig serverConfig = new MetadataServerConfig(configs);
+    assertFalse(serverConfig.isConfluentMetadataServerEnabled());
+    assertTrue(serverConfig.isServerEnabled());
+    assertEquals(Arrays.asList(new URL("http://localhost:8091"), new URL("https://localhost:8092")),
+        serverConfig.listeners());
+    assertEquals(Collections.emptyList(), serverConfig.metadataServerAdvertisedListeners());
+    assertEquals("http://localhost:8091,https://localhost:8092", serverConfig.serverConfigs().get("listeners"));
+    assertNull("keystore.jks", serverConfig.serverConfigs().get(SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG));
+    assertEquals("truststore.jks", serverConfig.serverConfigs().get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG));
+    assertNull(serverConfig.serverConfigs().get(SslConfigs.SSL_KEYSTORE_PASSWORD_CONFIG));
+    assertEquals("http-ts-password", serverConfig.serverConfigs().get(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG));
+
+    configs = new HashMap<>();
+    configs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "CONFLUENT");
+    configs.put("listeners", "http://localhost:9092");
+    serverConfig = new MetadataServerConfig(configs);
+    assertEquals(Collections.singletonList(new URL(MetadataServerConfig.HTTP_SERVER_LISTENERS_DEFAULT)), serverConfig.listeners());
+    assertEquals(MetadataServerConfig.HTTP_SERVER_LISTENERS_DEFAULT, serverConfig.serverConfigs().get("listeners"));
+  }
+
+  private void initializeRbacProvider(String clusterId, Scope authStoreScope, Map<String, ?> configs) throws Exception {
     RbacRoles rbacRoles = RbacRoles.load(this.getClass().getClassLoader(), "test_rbac_roles.json");
     MockAuthStore authStore = new MockAuthStore(rbacRoles, authStoreScope);
     authCache = authStore.authCache();
@@ -350,6 +438,11 @@ public class ConfluentProviderTest {
       @Override
       protected ConfluentAdmin createMdsAdminClient(AuthorizerServerInfo serverInfo, Map<String, ?> clientConfigs) {
         return aclClientOp.get();
+      }
+
+      @Override
+      protected AuthStore createAuthStore(Scope scope, AuthorizerServerInfo serverInfo, Map<String, ?> configs) {
+        return new MockAuthStore(RbacRoles.loadDefaultPolicy(), scope);
       }
     };
     rbacProvider.onUpdate(new ClusterResource(clusterId));

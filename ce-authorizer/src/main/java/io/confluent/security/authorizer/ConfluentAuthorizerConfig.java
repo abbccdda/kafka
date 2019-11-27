@@ -191,6 +191,13 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
     return creator.apply(originals());
   }
 
+  public static Set<String> accessRuleProviders(Map<String, ?> configs) {
+    String accessProviders = (String) configs.get(ACCESS_RULE_PROVIDERS_PROP);
+    if (accessProviders == null)
+      return Collections.emptySet();
+    return Utils.mkSet(accessProviders.trim().split("\\s*,\\s*"));
+  }
+
   @Override
   public String toString() {
     return Utils.mkString(values(), "", "", "=", "%n\t");

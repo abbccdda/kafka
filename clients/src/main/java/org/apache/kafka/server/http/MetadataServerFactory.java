@@ -16,13 +16,13 @@ public final class MetadataServerFactory {
   protected static final Logger log = LoggerFactory.getLogger(MetadataServerFactory.class);
 
   /**
-   * Creates a {@code MetadataServer} based on {@link
-   * MetadataServerConfig#METADATA_SERVER_NAME_PROP} configuration.
+   * Creates a {@code MetadataServer}.
    */
   public static MetadataServer create(String clusterId, Map<String, ?> configurations) {
     MetadataServerConfig metadataServerConfig = new MetadataServerConfig(configurations);
 
-    if (!metadataServerConfig.isMetadataServerEnabled()) {
+    if (!metadataServerConfig.isServerEnabled()) {
+      log.info("MetadataServer is disabled on this broker");
       return none();
     }
 
@@ -30,29 +30,25 @@ public final class MetadataServerFactory {
 
     ArrayList<MetadataServer> implementations = new ArrayList<>();
     for (MetadataServer implementation : serviceLoader) {
-      if (implementation.serverName().equals(metadataServerConfig.metadataServerName())) {
+      if (implementation.providerConfigured(configurations)) {
         implementations.add(implementation);
       }
     }
 
     if (implementations.isEmpty()) {
-      log.warn(
-          "Could not find suitable MetadataServer implementation with name {}.",
-          metadataServerConfig.metadataServerName());
+      log.warn("Could not find suitable MetadataServer implementation.");
       return none();
     }
     if (implementations.size() > 1) {
       throw new ConfigException(
-          String.format(
-              "Found multiple MetadataServer implementations with name %s.",
-              metadataServerConfig.metadataServerName()));
+          String.format("Found multiple MetadataServer implementations : %s.", implementations));
     }
 
     MetadataServer metadataServer = implementations.get(0);
     if (metadataServer instanceof ClusterResourceListener) {
       ((ClusterResourceListener) metadataServer).onUpdate(new ClusterResource(clusterId));
     }
-    metadataServer.configure(metadataServerConfig.metadataServerConfigs());
+    metadataServer.configure(metadataServerConfig.serverConfigs());
     return metadataServer;
   }
 
@@ -70,8 +66,8 @@ public final class MetadataServerFactory {
     }
 
     @Override
-    public String serverName() {
-      return MetadataServers.NONE.name();
+    public boolean providerConfigured(Map<String, ?> configs) {
+      return true;
     }
 
     @Override

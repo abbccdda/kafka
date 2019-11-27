@@ -3,17 +3,15 @@
 package org.apache.kafka.server.http;
 
 import java.io.Closeable;
+import java.util.Map;
 import org.apache.kafka.common.Configurable;
 
 public interface MetadataServer extends Configurable, Closeable {
 
   /**
-   * Returns the name of this server.
-   *
-   * <p>If no matching implementation is found, a dummy {@code MetadataServer} is returned instead.
-   * If multiple matching implementations are found, and error will be raised at configuration time.
+   * Returns true if minimal configs for this metadata server have been provided.
    */
-  String serverName();
+  boolean providerConfigured(Map<String, ?> configs);
 
   /**
    * Registers a provider with this {@code MetadataServer}.

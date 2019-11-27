@@ -9,6 +9,7 @@ import io.confluent.security.auth.provider.ConfluentProvider;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.Authorizer;
+import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
@@ -63,8 +64,8 @@ public class FileBasedRbac extends ConfluentProvider {
     }
 
     @Override
-    public String serverName() {
-      return PROVIDER_NAME;
+    public boolean providerConfigured(Map<String, ?> configs) {
+      return ConfluentAuthorizerConfig.accessRuleProviders(configs).contains(PROVIDER_NAME);
     }
 
     @Override

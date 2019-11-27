@@ -47,6 +47,8 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.server.http.MetadataServer;
+import org.apache.kafka.server.http.MetadataServerFactory;
 import org.apache.kafka.test.TestUtils;
 
 public class KafkaTestUtils {
@@ -338,6 +340,10 @@ public class KafkaTestUtils {
   }
 
   public static AuthorizerServerInfo serverInfo(String clusterId, SecurityProtocol... protocols) {
+    return serverInfo(clusterId, MetadataServerFactory.none(), protocols);
+  }
+
+  public static AuthorizerServerInfo serverInfo(String clusterId, MetadataServer metadataServer, SecurityProtocol... protocols) {
     List<Endpoint> endpoints = new ArrayList<>(protocols.length);
     int port = 9092;
     if (protocols.length != 0) {
@@ -369,6 +375,11 @@ public class KafkaTestUtils {
       @Override
       public Endpoint interBrokerEndpoint() {
         return endpoints.get(0);
+      }
+
+      @Override
+      public MetadataServer metadataServer() {
+        return metadataServer;
       }
     };
   }

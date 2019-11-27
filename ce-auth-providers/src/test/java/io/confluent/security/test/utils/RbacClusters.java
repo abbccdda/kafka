@@ -346,7 +346,7 @@ public class RbacClusters {
         ConfluentServerAuthorizer.class.getName());
     serverConfig.setProperty("super.users", "User:" + config.brokerUser);
     serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ZK_ACL,CONFLUENT");
-    serverConfig.setProperty(MetadataServerConfig.METADATA_SERVER_LISTENERS_PROP, "");
+    serverConfig.setProperty(MetadataServerConfig.HTTP_SERVER_LISTENERS_PROP, "");
 
     if (config.enableTokenLogin) {
       attachTokenListener(serverConfig, config.publicKey);
@@ -373,7 +373,6 @@ public class RbacClusters {
         "http://0.0.0.0:" + metadataPort);
     serverConfig.setProperty(MetadataServerConfig.METADATA_SERVER_ADVERTISED_LISTENERS_PROP,
         "http://localhost:" + metadataPort);
-    serverConfig.setProperty(MetadataServerConfig.METADATA_SERVER_NAME_PROP, "MOCK_RBAC");
     serverConfig.setProperty(KafkaStoreConfig.REPLICATION_FACTOR_PROP, "1");
     serverConfig.setProperty(LicenseConfig.REPLICATION_FACTOR_PROP, "1");
     serverConfig.setProperty(KafkaConfig$.MODULE$.AutoCreateTopicsEnableProp(), "false");

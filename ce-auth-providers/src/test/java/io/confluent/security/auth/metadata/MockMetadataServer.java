@@ -2,20 +2,23 @@
 
 package io.confluent.security.auth.metadata;
 
+import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import java.util.Map;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.server.http.MetadataServer;
 
 public class MockMetadataServer implements MetadataServer, ClusterResourceListener {
+
   public enum ServerState {
     CREATED,
     CONFIGURED,
+    REGISTERED,
     STARTED,
     CLOSED
   }
 
-  private ServerState serverState;
+  public ServerState serverState;
 
   public MockMetadataServer() {
     this.serverState = ServerState.CREATED;
@@ -30,13 +33,13 @@ public class MockMetadataServer implements MetadataServer, ClusterResourceListen
   }
 
   @Override
-  public String serverName() {
-    return "MOCK_RBAC";
+  public boolean providerConfigured(Map<String, ?> configs) {
+    return ConfluentAuthorizerConfig.accessRuleProviders(configs).contains("MOCK_RBAC");
   }
 
   @Override
   public void registerMetadataProvider(String providerName, MetadataServer.Injector injector) {
-    // Do nothing.
+    this.serverState = ServerState.REGISTERED;
   }
 
   @Override

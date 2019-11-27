@@ -67,7 +67,6 @@ public class MetadataAuthorizationTest {
     Map<String, Object> props = new HashMap<>();
     props.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "MOCK_RBAC");
     props.put(MetadataServerConfig.METADATA_SERVER_LISTENERS_PROP, "http://127.0.0.1:8090");
-    props.put(MetadataServerConfig.METADATA_SERVER_NAME_PROP, "MOCK_RBAC");
     authorizer.configure(props);
     AuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL);
     authorizer.configureServerInfo(serverInfo);
