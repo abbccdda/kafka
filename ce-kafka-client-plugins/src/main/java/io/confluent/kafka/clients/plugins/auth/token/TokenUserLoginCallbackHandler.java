@@ -10,6 +10,7 @@ import org.apache.kafka.common.security.oauthbearer.OAuthBearerTokenCallback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -45,10 +46,11 @@ public class TokenUserLoginCallbackHandler extends AbstractTokenLoginCallbackHan
 
   private RestClient restClient;
 
-  public void configure(Map<String, String> configs) {
+  public void configure(Map<String, ?> configs) {
 
-    final String user = configs.get(USER_OPTION);
-    final String pass = configs.get(PASSWORD_OPTION);
+    Map<String, Object> tempConfigs = new HashMap<>(configs);
+    final String user = (String) tempConfigs.get(USER_OPTION);
+    final String pass = (String) tempConfigs.get(PASSWORD_OPTION);
 
     if (user.isEmpty() || pass.isEmpty()) {
       throw new ConfigException(String.format(
@@ -56,13 +58,13 @@ public class TokenUserLoginCallbackHandler extends AbstractTokenLoginCallbackHan
               USER_OPTION, PASSWORD_OPTION));
     }
 
-    configs.put(RestClientConfig.HTTP_AUTH_CREDENTIALS_PROVIDER_PROP,
+    tempConfigs.put(RestClientConfig.HTTP_AUTH_CREDENTIALS_PROVIDER_PROP,
             BuiltInAuthProviders.HttpCredentialProviders.BASIC.name());
 
-    configs.put(RestClientConfig.BASIC_AUTH_USER_INFO_PROP,
+    tempConfigs.put(RestClientConfig.BASIC_AUTH_USER_INFO_PROP,
             String.join(":", user, pass));
 
-    restClient = new RestClient(configs);
+    restClient = new RestClient(tempConfigs);
   }
 
   void attachAuthToken(OAuthBearerTokenCallback callback) {

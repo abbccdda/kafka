@@ -170,21 +170,47 @@ public class RestClientTest {
 
     @Test
     public void testRestClientConfigs() {
+        Map<String, String> configs = new HashMap<>();
+        configs.put(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP, "http://localhost:8080,http://localhost:8081");
+        configs.put("confluent.metadata.bootstrap.server.urls", "http://localhost:8080");
+
+        configs.put("confluent.metadata.http.auth.credentials.provider", "BEARER");
+        configs.put("confluent.metadata.enable.server.urls.refresh", "false");
+
+        RestClientConfig config = RestClientConfig.clientConfig(configs);
+
+        assertEquals(2, config.getList(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP).size());
+        assertEquals("BEARER", config.getString(RestClientConfig.HTTP_AUTH_CREDENTIALS_PROVIDER_PROP));
+        assertEquals(false, config.getBoolean(RestClientConfig.ENABLE_METADATA_SERVER_URL_REFRESH));
+        assertEquals(RestClientConfig.METADATA_SERVER_URL_MAX_AGE_DEFAULT,
+            config.getLong(RestClientConfig.METADATA_SERVER_URL_MAX_AGE_PROP));
+    }
+
+    @Test
+    public void testSslClientConfigs() {
         Properties props = new Properties();
         String sslTruststore = "test.truststore.jks";
-        String sslKeystore = "test.truststore.jks";
+        String sslKeystore = "test.global.keystore.jks";
 
-        props.put(SslConfigs.SSL_PROTOCOL_CONFIG, "TLSv1.2");
+        props.put(SslConfigs.SSL_PROTOCOL_CONFIG, "TLSv1.1");
+        props.put("confluent.metadata.rest.ssl.protocol", "TLSv1.2");
+
         props.put(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, sslTruststore);
+
         props.put(SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG, sslKeystore);
         props.put("confluent.metadata.ssl.keystore.location", "rest.keystore.jks");
+
+        props.put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "");
+        props.put("confluent.metadata.ssl.endpoint.identification.algorithm", "http");
+        props.put("confluent.metadata.rest.ssl.endpoint.identification.algorithm", "https");
 
         RestClientConfig config = new RestClientConfig(props);
 
         Map<String, ?> sslClientConfigs = config.sslClientConfigs();
+        assertEquals("TLSv1.2", sslClientConfigs.get(SslConfigs.SSL_PROTOCOL_CONFIG));
         assertEquals(sslTruststore, sslClientConfigs.get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG));
         assertEquals("rest.keystore.jks", sslClientConfigs.get(SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG));
-        assertEquals("TLSv1.2", sslClientConfigs.get(SslConfigs.SSL_PROTOCOL_CONFIG));
+        assertEquals("https", sslClientConfigs.get(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG));
     }
 
     private static class TimeoutTestRequestSender implements RequestSender {

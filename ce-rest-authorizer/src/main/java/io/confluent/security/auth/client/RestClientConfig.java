@@ -14,13 +14,14 @@ import org.apache.kafka.common.utils.Utils;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.Map;
 
 import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
 
 public class RestClientConfig extends AbstractConfig {
 
-  public static final String CONFIG_PREFIX = "confluent.metadata.";
+  public static final String CONFIG_PREFIX = "confluent.metadata.rest.";
 
   private static final ConfigDef CONFIG;
 
@@ -92,16 +93,30 @@ public class RestClientConfig extends AbstractConfig {
                     TOKEN_AUTH_CREDENTIAL_DOC);
   }
 
-  public RestClientConfig(Map<?, ?> props) {
-    super(CONFIG, props);
+  public RestClientConfig(Map<?, ?> props, boolean doLog) {
+    super(CONFIG, props, doLog);
     validate();
   }
 
-  // Allow inheritance of security configs
+  public RestClientConfig(Map<?, ?> props) {
+    this(props, true);
+  }
+
+  /**
+   * Ssl client configs are derived from the provided configs in the following order of precedence
+   *
+   * <ul>
+   *   <li>confluent.metadata.rest.sslConfigName</li>
+   *   <li>confluent.metadata.sslConfigName</li>
+   *   <li>sslConfigName</li>
+   * </ul>
+   *
+   */
   public Map<String, ?> sslClientConfigs() {
     Map<String, Object> configs = originals();
+    configs.putAll(originalsWithPrefix("confluent.metadata."));
     configs.putAll(originalsWithPrefix(CONFIG_PREFIX));
-    configs.keySet().removeAll(originalsWithPrefix(CONFIG_PREFIX, false).keySet());
+    configs.keySet().removeAll(originalsWithPrefix("confluent.metadata.", false).keySet());
 
     ConfigDef sslConfigDef = new ConfigDef();
     sslConfigDef.withClientSslSupport();
@@ -125,6 +140,31 @@ public class RestClientConfig extends AbstractConfig {
   @Override
   public String toString() {
     return Utils.mkString(values(), "", "", "=", "%n\t");
+  }
+
+  /**
+   * we support both "confluent.metadata.rest." and "confluent.metadata." prefix.
+   * Rest client configs are derived from the provided configs in the following order of precedence.
+   *
+   * <ul>
+   *   <li>confluent.metadata.rest.</li>
+   *   <li>confluent.metadata.</li>
+   * </ul>
+   *
+   */
+  public static RestClientConfig clientConfig(final Map<String, ?> configs) {
+    Map<String, Object> clientConfigs = new HashMap<>(configs);
+    RestClientConfig tmpConfig = new RestClientConfig(configs, false);
+    Map<String, Object> originals = tmpConfig.originals();
+    for (String name : CONFIG.names()) {
+      if (!originals.containsKey(name)) {
+        String substring = name.substring(RestClientConfig.CONFIG_PREFIX.length());
+        if (originals.containsKey("confluent.metadata." + substring)) {
+          clientConfigs.put(name, originals.get("confluent.metadata." + substring));
+        }
+      }
+    }
+    return new RestClientConfig(clientConfigs);
   }
 
   public static void main(String[] args) throws Exception {

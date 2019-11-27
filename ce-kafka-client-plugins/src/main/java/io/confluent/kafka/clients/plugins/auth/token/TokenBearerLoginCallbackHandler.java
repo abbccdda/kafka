@@ -13,6 +13,7 @@ import org.apache.kafka.common.security.oauthbearer.OAuthBearerTokenCallback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -48,12 +49,12 @@ public class TokenBearerLoginCallbackHandler
           TokenBearerLoginCallbackHandler.class);
 
   private RestClient restClient;
-  private Map<String, String> configs;
+  private Map<String, Object> configs;
 
-  public void configure(Map<String, String> configs) {
+  public void configure(Map<String, ?> configs) {
 
-    this.configs = configs;
-    final String authenticationToken = configs.get(TOKEN_OPTION);
+    this.configs = new HashMap<>(configs);
+    final String authenticationToken = (String) configs.get(TOKEN_OPTION);
 
     if (authenticationToken.isEmpty()) {
       throw new ConfigException(String.format(
@@ -61,10 +62,10 @@ public class TokenBearerLoginCallbackHandler
               TOKEN_OPTION));
     }
 
-    createRestClient(configs, authenticationToken);
+    createRestClient(this.configs, authenticationToken);
   }
 
-  private void createRestClient(final Map<String, String> configs, final String authenticationToken) {
+  private void createRestClient(final Map<String, Object> configs, final String authenticationToken) {
     closeRestClient();
 
     configs.put(RestClientConfig.HTTP_AUTH_CREDENTIALS_PROVIDER_PROP,

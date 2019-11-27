@@ -52,7 +52,7 @@ public abstract class AbstractTokenLoginCallbackHandler
   static final String PASSWORD_OPTION = "password";
 
 
-  public abstract void configure(Map<String, String> configs);
+  public abstract void configure(Map<String, ?> configs);
 
   abstract void attachAuthToken(OAuthBearerTokenCallback callback);
 
@@ -61,7 +61,6 @@ public abstract class AbstractTokenLoginCallbackHandler
                         List<AppConfigurationEntry> jaasConfigEntries) {
 
     Map<String, String> moduleOptions = jaasConfigDef(saslMechanism, jaasConfigEntries);
-
 
     String loginServer =  moduleOptions.getOrDefault(LOGIN_SERVER_OPTION, "");
     String authenticationToken = moduleOptions.getOrDefault(TOKEN_OPTION, "");
@@ -76,7 +75,7 @@ public abstract class AbstractTokenLoginCallbackHandler
               LOGIN_SERVER_OPTION));
     }
 
-    Map<String, String> loginConfigs = new HashMap<>();
+    Map<String, Object> loginConfigs = new HashMap<>(configs);
 
     loginConfigs.put(LOGIN_SERVER_OPTION, loginServer);
     loginConfigs.put(USER_OPTION, user);

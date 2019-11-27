@@ -97,7 +97,8 @@ public class RestClient implements Closeable {
 
   public RestClient(final Map<String, ?> configs, final Time time) {
     this.time = time;
-    RestClientConfig rbacClientConfig = new RestClientConfig(configs);
+    RestClientConfig rbacClientConfig = RestClientConfig.clientConfig(configs);
+
     bootstrapMetadataServerURLs =
             rbacClientConfig.getList(RestClientConfig.BOOTSTRAP_METADATA_SERVER_URLS_PROP);
     if (bootstrapMetadataServerURLs.isEmpty())
