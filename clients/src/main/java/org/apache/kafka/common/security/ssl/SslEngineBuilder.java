@@ -16,15 +16,6 @@
  */
 package org.apache.kafka.common.security.ssl;
 
-import io.netty.buffer.ByteBufAllocator;
-import io.netty.handler.ssl.ApplicationProtocolConfig;
-import io.netty.handler.ssl.ClientAuth;
-import io.netty.handler.ssl.OpenSsl;
-import io.netty.handler.ssl.SslContext;
-import io.netty.handler.ssl.SslContextBuilder;
-import io.netty.handler.ssl.SslProvider;
-import io.netty.util.internal.logging.InternalLoggerFactory;
-import io.netty.util.internal.logging.Log4JLoggerFactory;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.SslClientAuth;
 import org.apache.kafka.common.config.SslConfigs;
@@ -55,7 +46,6 @@ import java.security.UnrecoverableEntryException;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.Enumeration;
@@ -66,10 +56,6 @@ import java.util.stream.Collectors;
 
 public class SslEngineBuilder {
     private static final Logger log = LoggerFactory.getLogger(SslEngineBuilder.class);
-
-    static {
-        InternalLoggerFactory.setDefaultFactory(Log4JLoggerFactory.INSTANCE);
-    }
 
     private final Map<String, ?> configs;
     private final String protocol;
@@ -82,9 +68,8 @@ public class SslEngineBuilder {
     private final String[] enabledProtocols;
     private final SecureRandom secureRandomImplementation;
     private final SSLContext sslContext;
-    private final SslContext nettySslContext;
     private final SslClientAuth sslClientAuth;
-    private final boolean useNetty;
+    private final NettySslEngineBuilder nettySslEngineBuilder;
 
     @SuppressWarnings("unchecked")
     SslEngineBuilder(Map<String, ?> configs, boolean nettyAllowed) {
@@ -125,25 +110,17 @@ public class SslEngineBuilder {
                 (String) configs.get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG),
                 (Password) configs.get(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG));
 
+        this.sslContext = createSSLContext();
         if (!nettyAllowed) {
-            this.useNetty = false;
+            this.nettySslEngineBuilder = null;
         } else if (!sslEngineBuilderClassIsNetty((String)
                 configs.get(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG))) {
-            this.useNetty = false;
-        } else if (!OpenSsl.isAvailable()) {
-            log.warn("Disabling netty because no OpenSSL is not available.");
-            this.useNetty = false;
-        } else if (keystore == null) {
+            this.nettySslEngineBuilder = null;
+        } else if (this.keystore == null) {
             log.warn("Disabling netty because no keystore is configured.");
-            this.useNetty = false;
+            this.nettySslEngineBuilder = null;
         } else {
-            this.useNetty = true;
-        }
-        this.sslContext = createSSLContext();
-        if (useNetty) {
-            this.nettySslContext = createNettySslContext();
-        } else {
-            this.nettySslContext = null;
+            this.nettySslEngineBuilder = NettySslEngineBuilder.maybeCreate(this);
         }
     }
 
@@ -219,48 +196,6 @@ public class SslEngineBuilder {
         }
     }
 
-    private SslContext createNettySslContext() {
-        try {
-            if (keystore == null) {
-                throw new KafkaException("Whe using netty in server mode, a keystore must be configured.");
-            }
-            // The keystore should contain the private key as well as the
-            // certificate chain for the server.
-            PrivateKeyData keystorePrivateKeyData = keystore.loadPrivateKeyData();
-            X509Certificate[] truststoreCerts = truststore == null ?
-                    null : truststore.loadAllCertificates();
-
-            SslContextBuilder builder = SslContextBuilder.
-                    forServer(keystorePrivateKeyData.key(), keystorePrivateKeyData.certificateChain()).
-                    applicationProtocolConfig(ApplicationProtocolConfig.DISABLED).
-                    sslProvider(SslProvider.OPENSSL).
-                    trustManager(truststoreCerts);
-            if (enabledProtocols != null) {
-                builder.protocols(enabledProtocols);
-            }
-            if (cipherSuites != null) {
-                builder.ciphers(Arrays.asList(cipherSuites));
-            }
-            switch (sslClientAuth) {
-                case NONE:
-                    builder.clientAuth(ClientAuth.NONE);
-                    break;
-                case REQUIRED:
-                    builder.clientAuth(ClientAuth.REQUIRE);
-                    break;
-                case REQUESTED:
-                    builder.clientAuth(ClientAuth.OPTIONAL);
-                    break;
-            }
-            // Note: we ignore endpointIdentificationAlgorithm here.
-            // It is only relevant for client mode, and we are in server mode.
-            log.info("netty is enabled for SSL context with keystore {}, truststore {}.", keystore, truststore);
-            return builder.build();
-        } catch (Exception e) {
-            throw new KafkaException(e);
-        }
-    }
-
     private static SecurityStore createKeystore(String type, String path, Password password, Password keyPassword) {
         if (path == null && password != null) {
             throw new KafkaException("SSL key store is not specified, but key store password is specified.");
@@ -294,6 +229,18 @@ public class SslEngineBuilder {
         return truststore;
     }
 
+    String[] cipherSuites() {
+        return cipherSuites;
+    }
+
+    String[] enabledProtocols() {
+        return enabledProtocols;
+    }
+
+    SslClientAuth sslClientAuth() {
+        return sslClientAuth;
+    }
+
     /**
      * Create a new SSLEngine object.
      *
@@ -304,8 +251,8 @@ public class SslEngineBuilder {
      * @return          The new SSLEngine.
      */
     public SSLEngine createSslEngine(Mode mode, String peerHost, int peerPort, String endpointIdentification) {
-        if (mode == Mode.SERVER && useNetty) {
-            return nettySslContext.newEngine(ByteBufAllocator.DEFAULT, peerHost, peerPort);
+        if (mode == Mode.SERVER && nettySslEngineBuilder != null) {
+            return nettySslEngineBuilder.newEngine(peerHost, peerPort);
         }
         SSLEngine sslEngine = sslContext.createSSLEngine(peerHost, peerPort);
         if (cipherSuites != null) sslEngine.setEnabledCipherSuites(cipherSuites);
