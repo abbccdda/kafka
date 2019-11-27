@@ -236,7 +236,7 @@ fi
 
 # Log directory to use
 if [ "x$LOG_DIR" = "x" ]; then
-  LOG_DIR="/var/log/kafka"
+  LOG_DIR="$base_dir/logs"
 fi
 
 # Log4j settings
