@@ -19,6 +19,8 @@ import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigDef.Importance;
 import org.apache.kafka.common.config.ConfigDef.Type;
 import org.apache.kafka.common.config.TopicConfig;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.config.internals.ConfluentConfigs.ClientType;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
@@ -89,10 +91,7 @@ public class KafkaStoreConfig extends AbstractConfig {
   }
 
   public Map<String, Object> consumerConfigs(String topic) {
-    Map<String, Object> configs = baseConfigs();
-    configs.putAll(originalsWithPrefix(PREFIX + "consumer."));
-
-    configs.put(ConsumerConfig.CLIENT_ID_CONFIG, String.format("%s-consumer-%s", topic, brokerId));
+    Map<String, Object> configs = ConfluentConfigs.clientConfigs(this, PREFIX, ClientType.CONSUMER, topic, String.valueOf(brokerId));
 
     configs.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
     configs.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
@@ -101,9 +100,7 @@ public class KafkaStoreConfig extends AbstractConfig {
   }
 
   public Map<String, Object> producerConfigs(String topic) {
-    Map<String, Object> configs = baseConfigs();
-    configs.putAll(originalsWithPrefix(PREFIX + "producer."));
-    configs.put(ConsumerConfig.CLIENT_ID_CONFIG,  String.format("%s-producer-%s", topic, brokerId));
+    Map<String, Object> configs = ConfluentConfigs.clientConfigs(this, PREFIX, ClientType.PRODUCER, topic, String.valueOf(brokerId));
 
     configs.put(ProducerConfig.ACKS_CONFIG, "all");
     configs.put(ProducerConfig.RETRIES_CONFIG, "0");
@@ -112,11 +109,9 @@ public class KafkaStoreConfig extends AbstractConfig {
   }
 
   public Map<String, Object> coordinatorConfigs() {
-    Map<String, Object> configs = baseConfigs();
-    configs.putAll(originalsWithPrefix(PREFIX + "coordinator."));
-    configs.put(ConsumerConfig.GROUP_ID_CONFIG, TOPIC_PREFIX + "-coordinator-group");
-    configs.put(ConsumerConfig.CLIENT_ID_CONFIG, String.format("%s-coordinator-%s", TOPIC_PREFIX, brokerId));
+    Map<String, Object> configs = ConfluentConfigs.clientConfigs(this, PREFIX, ClientType.COORDINATOR, TOPIC_PREFIX, String.valueOf(brokerId));
 
+    configs.put(ConsumerConfig.GROUP_ID_CONFIG, TOPIC_PREFIX + "-coordinator-group");
     configs.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
     configs.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
     configs.put(ConsumerConfig.ALLOW_AUTO_CREATE_TOPICS_CONFIG, "false");
@@ -128,21 +123,7 @@ public class KafkaStoreConfig extends AbstractConfig {
   }
 
   public Map<String, Object> adminClientConfigs() {
-    Map<String, Object> configs = baseConfigs();
-    configs.putAll(originalsWithPrefix(PREFIX + "admin."));
-    configs.put(ConsumerConfig.CLIENT_ID_CONFIG, String.format("%s-admin-%s", TOPIC_PREFIX, brokerId));
-    return configs;
-  }
-
-  // Allow inheritance of security configs for reader/writer/coordinator
-  private Map<String, Object> baseConfigs() {
-    Map<String, Object> configs = originals();
-    configs.putAll(originalsWithPrefix(PREFIX));
-    configs.keySet().removeAll(originalsWithPrefix(PREFIX, false).keySet());
-    CONFIG.names().stream().filter(name -> name.startsWith(PREFIX))
-        .map(name -> name.substring(PREFIX.length()))
-        .forEach(configs::remove);
-    return configs;
+    return ConfluentConfigs.clientConfigs(this, PREFIX, ClientType.ADMIN, TOPIC_PREFIX, String.valueOf(brokerId));
   }
 
   public NewTopic metadataTopicCreateConfig(String topic, int numPartitions) {

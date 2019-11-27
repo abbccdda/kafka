@@ -98,7 +98,7 @@ public class ConfluentLicenseValidatorTest {
             ConsumerConfig.METRIC_REPORTER_CLASSES_CONFIG));
         assertNull(licenseConfig.producerConfigs().get(
             ProducerConfig.METRIC_REPORTER_CLASSES_CONFIG));
-        assertNull(licenseConfig.topicConfigs().get(
+        assertNull(licenseConfig.topicAndAdminClientConfigs().get(
             AdminClientConfig.METRIC_REPORTER_CLASSES_CONFIG));
         LicenseStore store = EasyMock.niceMock(LicenseStore.class);
         replay(store);

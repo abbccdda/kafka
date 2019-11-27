@@ -84,6 +84,7 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
     replacePrefix(tmpConfig, licenseConfigs, "confluent.metadata.", LicenseConfig.PREFIX);
     replacePrefix(tmpConfig, licenseConfigs, "confluent.metadata.consumer.", LicenseConfig.CONSUMER_PREFIX);
     replacePrefix(tmpConfig, licenseConfigs, "confluent.metadata.producer.", LicenseConfig.PRODUCER_PREFIX);
+    replacePrefix(tmpConfig, licenseConfigs, "confluent.metadata.admin.", LicenseConfig.ADMIN_PREFIX);
     LicenseConfig licenseConfig = new LicenseConfig(componentId, configs);
 
     licenseManager = createLicenseManager(licenseConfig);
@@ -144,7 +145,7 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
     return new LicenseManager(licenseConfig.topic,
         licenseConfig.producerConfigs(),
         licenseConfig.consumerConfigs(),
-        licenseConfig.topicConfigs(),
+        licenseConfig.topicAndAdminClientConfigs(),
         licenseConfig.topicCreateTimeout);
   }
 

@@ -4,6 +4,7 @@ package io.confluent.kafka.security.authorizer;
 
 import io.confluent.kafka.security.authorizer.acl.AclMapper;
 import io.confluent.kafka.security.authorizer.acl.AclProvider;
+import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import io.confluent.security.authorizer.AclMigrationAware;
 import io.confluent.security.authorizer.Action;
@@ -138,7 +139,7 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
     Runnable migrationTask = createMigrationTask();
     CompletableFuture<Void> startFuture = super.start(
         serverInfo,
-        ConfluentConfigs.interBrokerClientConfigs(authorizerConfig, serverInfo.interBrokerEndpoint()),
+        ConfluentConfigs.interBrokerClientConfigs(new KafkaConfig(authorizerConfig.originals()), serverInfo.interBrokerEndpoint()),
         migrationTask);
 
     Map<Endpoint, CompletableFuture<Void>> futures = new HashMap<>(serverInfo.endpoints().size());

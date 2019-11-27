@@ -19,8 +19,13 @@ package org.apache.kafka.common.config.internals;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.SaslConfigs;
@@ -156,6 +161,22 @@ public class ConfluentConfigs {
     public static final String VERIFY_GROUP_SUBSCRIPTION_PREFIX_DOC = "If this is set, the group " +
         "coordinator will verify that the subscriptions are prefixed with the tenant.";
 
+    public enum ClientType {
+        PRODUCER("producer", ProducerConfig.configNames()),
+        CONSUMER("consumer", ConsumerConfig.configNames()),
+        ADMIN("admin", AdminClientConfig.configNames()),
+        COORDINATOR("coordinator", ConsumerConfig.configNames());
+
+        final String type;
+        final Set<String> configNames;
+
+        ClientType(String type, Set<String> configNames) {
+            this.type = type;
+            this.configNames = configNames;
+        }
+    }
+
+
     public static BrokerInterceptor buildBrokerInterceptor(Mode mode, Map<String, ?> configs) {
         if (mode == Mode.CLIENT)
             return null;
@@ -200,14 +221,25 @@ public class ConfluentConfigs {
         return licenseValidator;
     }
 
-    public static Map<String, Object> interBrokerClientConfigs(AbstractConfig brokerConfig, Endpoint interBrokerEndpoint) {
-        Map<String, Object>  clientConfigs = new HashMap<>();
+    /**
+     * Returns inter-broker client configs that are used as default values for producers, consumers
+     * and admin clients created by brokers. These can be overridden with prefixed configs if
+     * required. The returned map also contains all other broker configs including any custom configs.
+     */
+    public static Map<String, Object> interBrokerClientConfigs(AbstractConfig brokerConfig,
+                                                               Endpoint interBrokerEndpoint) {
+        Map<String, Object> configs = brokerConfig.originals();
+        Map<String, Object> clientConfigs = new HashMap<>(configs);
+
+        // Remove broker configs that are not client configs. Using AdminClient config names for
+        // filtering since they apply to producer/consumer as well.
+        Set<String> brokerConfigNames = brokerConfig.values().keySet();
+        clientConfigs.keySet().removeIf(n ->
+            (brokerConfigNames.contains(n) && !AdminClientConfig.configNames().contains(n)) ||
+                n.startsWith("listener.name."));
+
         ListenerName listenerName = new ListenerName(interBrokerEndpoint.listenerName().get());
         String listenerPrefix = listenerName.configPrefix();
-        Map<String, Object> configs = brokerConfig.originals();
-        clientConfigs.putAll(configs);
-        updatePrefixedConfigs(configs, clientConfigs, listenerPrefix);
-
         SecurityProtocol securityProtocol = interBrokerEndpoint.securityProtocol();
         if (securityProtocol == SecurityProtocol.SASL_PLAINTEXT || securityProtocol == SecurityProtocol.SASL_SSL) {
             String saslMechanism = (String) brokerConfig.originals().get("sasl.mechanism.inter.broker.protocol");
@@ -222,19 +254,59 @@ public class ConfluentConfigs {
                 clientConfigs.put(SaslConfigs.SASL_JAAS_CONFIG, jaasConfig);
             }
         }
+        updatePrefixedConfigs(configs, clientConfigs, listenerPrefix);
         clientConfigs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, interBrokerEndpoint.host() + ":" + interBrokerEndpoint.port());
         clientConfigs.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol.name);
-        // Broker id in client configs causes issues in metrics reporter, so don't include.
-        clientConfigs.remove("broker.id");
         return clientConfigs;
     }
 
-    private static void updatePrefixedConfigs(Map<String, Object> srcConfigs, Map<String, Object> dstConfigs, String prefix) {
-        srcConfigs.entrySet().stream()
-            .filter(e -> e.getKey().startsWith(prefix))
-            .forEach(e -> {
-                dstConfigs.remove(e.getKey());
-                dstConfigs.put(e.getKey().substring(prefix.length()), e.getValue());
-            });
+    /**
+     * Client configs are derived from the provided `config` in the following order of precedence:
+     * <ul>
+     *   <li>configPrefix.clientPrefix.configName</li>
+     *   <li>configPrefix.configName</li>
+     *   <li>configName</li>
+     * </ul>
+     *
+     * Metrics reporters are defined only if configured with a prefix to avoid broker's metrics
+     * reporter being used when not required. Configs are not filtered out by client type since we
+     * want to retain custom configs.
+     */
+    public static Map<String, Object> clientConfigs(AbstractConfig config,
+                                                    String configPrefix,
+                                                    ClientType clientType,
+                                                    String topicPrefix,
+                                                    String componentId) {
+        // Process all configs from originals except the config names defined in `config`
+        // since they are not client configs (e.g. license store/metadata store configs)
+        Map<String, Object> srcConfigs = config.originals();
+        srcConfigs.keySet().removeAll(config.values().keySet());
+
+        Map<String, Object> clientConfigs = new HashMap<>(srcConfigs);
+        clientConfigs.remove(AdminClientConfig.METRIC_REPORTER_CLASSES_CONFIG);
+        clientConfigs.put(CommonClientConfigs.CLIENT_ID_CONFIG,
+            String.format("%s-%s-%s", topicPrefix, clientType.type, componentId));
+
+        updatePrefixedConfigs(srcConfigs, clientConfigs, configPrefix + clientType.type + ".");
+        updatePrefixedConfigs(srcConfigs, clientConfigs, configPrefix);
+        return clientConfigs;
+    }
+
+    /**
+     * Copy configs starting with `prefix` from `configs` to `dstConfigs` without the prefix.
+     * Prefixed configs that are processed are removed from `configs` and `dstConfigs`.
+     */
+    private static void updatePrefixedConfigs(Map<String, Object> configs,
+                                              Map<String, Object> dstConfigs,
+                                              String prefix) {
+        Set<String> prefixed = configs.keySet().stream()
+            .filter(n -> n.startsWith(prefix))
+            .collect(Collectors.toSet());
+
+        prefixed.forEach(name -> {
+            dstConfigs.remove(name);
+            dstConfigs.put(name.substring(prefix.length()), configs.get(name));
+        });
+        configs.keySet().removeAll(prefixed);
     }
 }

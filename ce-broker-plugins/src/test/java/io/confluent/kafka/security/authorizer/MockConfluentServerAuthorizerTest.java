@@ -70,9 +70,10 @@ public class MockConfluentServerAuthorizerTest {
 
     Map<String, Object> configs = new HashMap<>();
     configs.put(KafkaConfig$.MODULE$.BrokerIdProp(), 1);
+    configs.put(KafkaConfig$.MODULE$.ZkConnectProp(), "localhost:2181");
     configs.put(KafkaConfig$.MODULE$.ControlPlaneListenerNameProp(), "control");
     configs.put(KafkaConfig$.MODULE$.InterBrokerListenerNameProp(), "internal");
-    configs.put(KafkaConfig$.MODULE$.ListenersProp(), "control://9090,internal://:9091,external://:9092");
+    configs.put(KafkaConfig$.MODULE$.ListenersProp(), "control://:9090,internal://:9091,external://:9092");
     configs.put(KafkaConfig$.MODULE$.ListenerSecurityProtocolMapProp(), "control:SSL,internal:PLAINTEXT,external:SASL_SSL");
     configs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "MOCK_ACL");
     authorizer.configure(configs);

@@ -2,7 +2,6 @@
 
 package io.confluent.license.validator;
 
-import static org.apache.kafka.clients.admin.AdminClientConfig.METRIC_REPORTER_CLASSES_CONFIG;
 import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
 
 import io.confluent.license.LicenseStore;
@@ -11,11 +10,12 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
-import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigDef.Importance;
 import org.apache.kafka.common.config.ConfigDef.Type;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.config.internals.ConfluentConfigs.ClientType;
 import org.apache.kafka.common.utils.Utils;
 
 public class LicenseConfig extends AbstractConfig {
@@ -23,6 +23,7 @@ public class LicenseConfig extends AbstractConfig {
   public static final String PREFIX = "confluent.license.";
   public static final String PRODUCER_PREFIX = PREFIX + "producer.";
   public static final String CONSUMER_PREFIX = PREFIX + "consumer.";
+  public static final String ADMIN_PREFIX = PREFIX + "admin.";
 
   public static final String LICENSE_PROP = "confluent.license";
   private static final String LICENSE_DEFAULT = "";
@@ -71,38 +72,18 @@ public class LicenseConfig extends AbstractConfig {
   }
 
   public Map<String, Object> producerConfigs() {
-    return clientConfigs("%s-producer-%s", PRODUCER_PREFIX);
+    return ConfluentConfigs.clientConfigs(this, PREFIX, ClientType.PRODUCER, TOPIC_DEFAULT, componentId);
   }
 
   public Map<String, Object> consumerConfigs() {
-    return clientConfigs("%s-consumer-%s", CONSUMER_PREFIX);
+    return ConfluentConfigs.clientConfigs(this, PREFIX, ClientType.CONSUMER, TOPIC_DEFAULT, componentId);
   }
 
-  public Map<String, Object> topicConfigs() {
-    Map<String, Object> configs = baseConfigs();
+  public Map<String, Object> topicAndAdminClientConfigs() {
+    Map<String, Object> configs =
+        ConfluentConfigs.clientConfigs(this, PREFIX, ClientType.ADMIN, TOPIC_DEFAULT, componentId);
     configs.put(LicenseStore.REPLICATION_FACTOR_CONFIG, String.valueOf(replicationFactor));
-    processConfigs(configs, "%s-admin-%s");
-    return configs;
-  }
-
-  private Map<String, Object> clientConfigs(String clientIdFormat, String configPrefix) {
-    Map<String, Object> configs = baseConfigs();
-    configs.putAll(originalsWithPrefix(configPrefix));
-    processConfigs(configs, clientIdFormat);
-    return configs;
-  }
-
-  private void processConfigs(Map<String, Object> configs, String clientIdFormat) {
-    configs.putIfAbsent(CommonClientConfigs.CLIENT_ID_CONFIG,
-        String.format(clientIdFormat, TOPIC_DEFAULT, componentId));
-    // Don't turn on metric reporters for LicenseStore clients
-    configs.remove(METRIC_REPORTER_CLASSES_CONFIG);
-  }
-
-  private Map<String, Object> baseConfigs() {
-    Map<String, Object> configs = originals();
-    configs.putAll(originalsWithPrefix(PREFIX));
-    configs.keySet().removeAll(originalsWithPrefix(PREFIX, false).keySet());
+    configs.put(LicenseStore.MIN_INSYNC_REPLICAS_CONFIG, String.valueOf(Math.min(replicationFactor, 2)));
     return configs;
   }
 
