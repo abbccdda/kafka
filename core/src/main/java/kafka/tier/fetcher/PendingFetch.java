@@ -14,7 +14,6 @@ import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
 import org.apache.kafka.common.IsolationLevel;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.Records;
@@ -35,10 +34,9 @@ import java.util.function.Consumer;
 
 public class PendingFetch implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(PendingFetch.class);
-
     private final CancellationContext cancellationContext;
     private final TierObjectStore tierObjectStore;
-    private final Optional<Sensor> recordBytesFetched;
+    private final Optional<TierFetcherMetrics> tierFetcherMetrics;
     private final TierObjectStore.ObjectMetadata objectMetadata;
     private final Consumer<DelayedOperationKey> fetchCompletionCallback;
     private final long targetOffset;
@@ -56,7 +54,7 @@ public class PendingFetch implements Runnable {
     PendingFetch(CancellationContext cancellationContext,
                  TierObjectStore tierObjectStore,
                  FetchOffsetCache cache,
-                 Optional<Sensor> recordBytesFetched,
+                 Optional<TierFetcherMetrics> tierFetcherMetrics,
                  TierObjectStore.ObjectMetadata objectMetadata,
                  Consumer<DelayedOperationKey> fetchCompletionCallback,
                  long targetOffset,
@@ -66,7 +64,7 @@ public class PendingFetch implements Runnable {
                  List<TopicPartition> ignoredTopicPartitions) {
         this.cancellationContext = cancellationContext;
         this.tierObjectStore = tierObjectStore;
-        this.recordBytesFetched = recordBytesFetched;
+        this.tierFetcherMetrics = tierFetcherMetrics;
         this.objectMetadata = objectMetadata;
         this.fetchCompletionCallback = fetchCompletionCallback;
         this.targetOffset = targetOffset;
@@ -218,11 +216,15 @@ public class PendingFetch implements Runnable {
         final HashMap<TopicPartition, TierFetchResult> resultMap = new HashMap<>();
         try {
             final TierFetchResult tierFetchResult = transferPromise.get();
-            recordBytesFetched.ifPresent(sensor -> sensor.record(tierFetchResult.records.sizeInBytes()));
+            tierFetcherMetrics.ifPresent(metrics -> metrics.bytesFetched().record(tierFetchResult.records.sizeInBytes()));
             resultMap.put(objectMetadata.topicIdPartition().topicPartition(), tierFetchResult);
         } catch (InterruptedException e) {
             resultMap.put(objectMetadata.topicIdPartition().topicPartition(), TierFetchResult.emptyFetchResult());
         } catch (ExecutionException e) {
+            log.warn("Failed exceptionally while finishing pending fetch request for partition {} from tiered storage." +
+                    " This exception is unexpected as the promise in not completed exceptionally ",
+                    objectMetadata.topicIdPartition().topicPartition(), e);
+            tierFetcherMetrics.ifPresent(metrics -> metrics.fetchException().record());
             resultMap.put(objectMetadata.topicIdPartition().topicPartition(),
                     new TierFetchResult(MemoryRecords.EMPTY, Collections.emptyList(), e.getCause()));
         }
@@ -238,6 +240,7 @@ public class PendingFetch implements Runnable {
      */
     public void cancel() {
         cancellationContext.cancel();
+        tierFetcherMetrics.ifPresent(metrics -> metrics.fetchCancelled().record());
     }
 
     /**
@@ -247,8 +250,10 @@ public class PendingFetch implements Runnable {
     private void completeFetch(MemoryRecords records,
                                List<AbortedTxn> abortedTxns,
                                Throwable throwable) {
-        if (throwable != null)
+        if (throwable != null) {
             log.error("{} tier fetch completed with exception", logPrefix, throwable);
+            tierFetcherMetrics.ifPresent(metrics -> metrics.fetchException().record());
+        }
 
         final TierFetchResult tierFetchResult = new TierFetchResult(records, abortedTxns, throwable);
         transferPromise.complete(tierFetchResult);

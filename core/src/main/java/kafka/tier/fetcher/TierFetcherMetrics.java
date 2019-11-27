@@ -17,7 +17,13 @@ class TierFetcherMetrics {
     private final Metrics metrics;
     private final String metricGroupName = "TierFetcher";
     private final String bytesFetchedPrefix = "BytesFetched";
+    private final String fetchExceptionPrefix = "FetchException";
+    private final String fetchCancellationPrefix = "FetchCancellation";
+    private final String fetchOffsetForTimestampExceptionPrefix = "FetchOffsetForTimestampException";
     private final Sensor bytesFetched;
+    private final Sensor fetchException;
+    private final Sensor fetchCancelled;
+    private final Sensor fetchOffsetForTimestampException;
 
     private final String queueSizeName = "QueueSize";
     private final String offsetCacheHitName = "OffsetCacheHitRatio";
@@ -29,6 +35,12 @@ class TierFetcherMetrics {
     final MetricName bytesFetchedTotalMetricName;
     final MetricName offsetCacheHitMetricName;
     final MetricName offsetCacheSizeMetricName;
+    final MetricName fetchExceptionRateMetricName;
+    final MetricName fetchExceptionTotalMetricName;
+    final MetricName fetchCancellationRateMetricName;
+    final MetricName fetchCancellationTotalMetricName;
+    final MetricName fetchOffsetForTimestampExceptionRateMetricName;
+    final MetricName fetchOffsetForTimestampExceptionTotalMetricName;
 
     TierFetcherMetrics(Metrics metrics, ThreadPoolExecutor executor, FetchOffsetCache cache) {
         this.metrics = metrics;
@@ -52,6 +64,36 @@ class TierFetcherMetrics {
                 + "storage", Collections.emptyMap());
         final Meter bytesFetchedMeter = new Meter(bytesFetchedRateMetricName,
                 bytesFetchedTotalMetricName);
+
+        this.fetchException = sensor(fetchExceptionPrefix);
+        this.fetchExceptionRateMetricName = metrics.metricName(fetchExceptionPrefix +
+                "Rate", metricGroupName, "The number exceptional fetch requests per second from tiered "
+                + "storage", Collections.emptyMap());
+        this.fetchExceptionTotalMetricName = metrics.metricName(fetchExceptionPrefix +
+                "Total", metricGroupName, "The total number of exceptional fetch requests from tiered "
+                + "storage", Collections.emptyMap());
+        final Meter fetchObjectStoreExceptionMeter = new Meter(fetchExceptionRateMetricName,
+                fetchExceptionTotalMetricName);
+
+        this.fetchCancelled = sensor(fetchCancellationPrefix);
+        this.fetchCancellationRateMetricName = metrics.metricName(fetchCancellationPrefix +
+                "Rate", metricGroupName, "The number of cancelled fetch requests per second from tiered "
+                + "storage", Collections.emptyMap());
+        this.fetchCancellationTotalMetricName = metrics.metricName(fetchCancellationPrefix +
+                "Total", metricGroupName, "The total number of cancelled fetch requests from tiered "
+                + "storage", Collections.emptyMap());
+        final Meter fetchCancelledMeter = new Meter(fetchCancellationRateMetricName,
+                fetchCancellationTotalMetricName);
+
+        this.fetchOffsetForTimestampException = sensor(fetchOffsetForTimestampExceptionPrefix);
+        this.fetchOffsetForTimestampExceptionRateMetricName = metrics.metricName(fetchOffsetForTimestampExceptionPrefix +
+                "Rate", metricGroupName, "The number of exceptional fetch offset for timestamps requests per second from tiered "
+                + "storage", Collections.emptyMap());
+        this.fetchOffsetForTimestampExceptionTotalMetricName = metrics.metricName(fetchOffsetForTimestampExceptionPrefix +
+                "Total", metricGroupName, "The total number of exceptional fetch offset for timestamps requests from tiered "
+                + "storage", Collections.emptyMap());
+        final Meter fetchTierTimestampAndOffsetExceptionMeter = new Meter(fetchOffsetForTimestampExceptionRateMetricName,
+                fetchOffsetForTimestampExceptionTotalMetricName);
 
         final Gauge<Integer> queueSizeGauge = new Gauge<Integer>() {
             @Override
@@ -78,6 +120,9 @@ class TierFetcherMetrics {
         metrics.addMetric(offsetCacheHitMetricName, offsetCacheHitGauge);
 
         this.bytesFetched.add(bytesFetchedMeter);
+        this.fetchException.add(fetchObjectStoreExceptionMeter);
+        this.fetchCancelled.add(fetchCancelledMeter);
+        this.fetchOffsetForTimestampException.add(fetchTierTimestampAndOffsetExceptionMeter);
     }
 
     private Sensor sensor(String name, Sensor... parents) {
@@ -95,5 +140,17 @@ class TierFetcherMetrics {
 
     public Sensor bytesFetched() {
         return this.bytesFetched;
+    }
+
+    public Sensor fetchException() {
+        return this.fetchException;
+    }
+
+    public Sensor fetchCancelled() {
+        return this.fetchCancelled;
+    }
+
+    public Sensor fetchOffsetForTimestampException() {
+        return this.fetchOffsetForTimestampException;
     }
 }

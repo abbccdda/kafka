@@ -74,18 +74,57 @@ public class TierFetcherTest {
 
             CompletableFuture<Boolean> f = new CompletableFuture<>();
             tierObjectStore.failNextRequest();
-            assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
+            assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0);
+            assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchExceptionTotalMetricName).metricValue(), 0);
             PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
                     IsolationLevel.READ_UNCOMMITTED,
                     ignored -> f.complete(true));
             assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
 
             // We fetched no bytes because there was an exception.
-            assertEquals((double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0, 0);
+            assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0);
+            assertEquals(1.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchExceptionTotalMetricName).metricValue(), 0);
         } finally {
             tierFetcher.close();
         }
     }
+
+    @Test
+    public void tierFetcherFetchCancelled() throws Exception {
+        ByteBuffer offsetIndexBuffer = ByteBuffer.allocate(1);
+        ByteBuffer segmentFileBuffer = ByteBuffer.allocate(1);
+        ByteBuffer timestampFileBuffer = ByteBuffer.allocate(1);
+
+        MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer, offsetIndexBuffer, timestampFileBuffer);
+        TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
+        TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
+        Metrics metrics = new Metrics();
+        KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
+        TierFetcher tierFetcher = new TierFetcher(tierObjectStore, kafkaScheduler, metrics);
+        try {
+            int maxBytes = 600;
+            TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicIdPartition.topicPartition(), 0,
+                    maxBytes, 1000L, true, tierObjectMetadata,
+                    Option.empty(), 0, 1000);
+
+            CompletableFuture<Boolean> f = new CompletableFuture<>();
+            assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0);
+            assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchCancellationTotalMetricName).metricValue(), 0);
+            PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
+                    IsolationLevel.READ_UNCOMMITTED,
+                    ignored -> f.complete(true));
+            pending.cancel();
+            assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
+
+            // We fetched no bytes because there was an exception.
+            assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0);
+            assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchExceptionTotalMetricName).metricValue(), 0);
+            assertEquals(1.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchCancellationTotalMetricName).metricValue(), 0);
+        } finally {
+            tierFetcher.close();
+        }
+    }
+
 
     private ByteBuffer getMemoryRecordsBuffer() {
         ByteBuffer buffer = ByteBuffer.allocate(2048);
@@ -503,10 +542,12 @@ public class TierFetcherTest {
                             tierObjectMetadata, segmentFileBuffer.limit()));
                     PendingOffsetForTimestamp pending = tierFetcher.fetchOffsetForTimestamp(timestamps,
                             ignored -> f.complete(true));
+                    assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchOffsetForTimestampExceptionTotalMetricName).metricValue(), 0);
                     f.get(2000, TimeUnit.MILLISECONDS);
                     assertNotNull("tier object store through exception, pending result should "
                             + "have been completed exceptionally",
                             pending.results().get(topicIdPartition.topicPartition()).get().exception);
+                    assertEquals(1.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchOffsetForTimestampExceptionTotalMetricName).metricValue(), 0);
                 }
             } finally {
                 tierFetcher.close();

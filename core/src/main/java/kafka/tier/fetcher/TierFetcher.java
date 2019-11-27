@@ -102,7 +102,7 @@ public class TierFetcher {
                                 cancellationContext,
                                 tierObjectStore,
                                 cache,
-                                Optional.of(tierFetcherMetrics.bytesFetched()),
+                                Optional.of(tierFetcherMetrics),
                                 firstFetchMetadata.segmentMetadata(),
                                 fetchCompletionCallback,
                                 targetOffset,
@@ -142,6 +142,7 @@ public class TierFetcher {
         final PendingOffsetForTimestamp pending = new PendingOffsetForTimestamp(cancellationContext,
                 tierObjectStore,
                 tierTimestampAndOffsets,
+                Optional.of(tierFetcherMetrics),
                 fetchCompletionCallback);
         executorService.execute(pending);
         return pending;

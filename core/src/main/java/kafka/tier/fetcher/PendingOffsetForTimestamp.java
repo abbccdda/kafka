@@ -30,6 +30,7 @@ public class PendingOffsetForTimestamp implements Runnable {
     private final CancellationContext cancellationContext;
     private final TierObjectStore tierObjectStore;
     private final Map<TopicPartition, TierTimestampAndOffset> timestamps;
+    private final Optional<TierFetcherMetrics> tierFetcherMetrics;
     private final Consumer<DelayedOperationKey> fetchCompletionCallback;
     private final ConcurrentHashMap<TopicPartition,
             Optional<FileRecords.FileTimestampAndOffset>> results = new ConcurrentHashMap<>();
@@ -40,10 +41,12 @@ public class PendingOffsetForTimestamp implements Runnable {
     PendingOffsetForTimestamp(CancellationContext cancellationContext,
                               TierObjectStore tierObjectStore,
                               Map<TopicPartition, TierTimestampAndOffset> timestamps,
+                              Optional<TierFetcherMetrics> tierFetcherMetrics,
                               Consumer<DelayedOperationKey> fetchCompletionCallback) {
         this.cancellationContext = cancellationContext;
         this.tierObjectStore = tierObjectStore;
         this.timestamps = Collections.unmodifiableMap(timestamps);
+        this.tierFetcherMetrics = tierFetcherMetrics;
         this.fetchCompletionCallback = fetchCompletionCallback;
         this.reader = new TierSegmentReader(logPrefix);
     }
@@ -159,6 +162,7 @@ public class PendingOffsetForTimestamp implements Runnable {
             } catch (Exception e) {
                 log.debug("Failed to fetch TierTimestampAndOffset {} from tiered storage",
                         tierTimestampAndOffset, e);
+                tierFetcherMetrics.ifPresent(metrics -> metrics.fetchOffsetForTimestampException().record());
                 results.putIfAbsent(topicPartition,
                         Optional.of(new FileRecords.FileTimestampAndOffset(targetTimestamp,
                                 tierTimestampAndOffset.leaderEpoch(),
