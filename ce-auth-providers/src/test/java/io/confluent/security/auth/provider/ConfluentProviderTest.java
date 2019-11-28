@@ -57,6 +57,7 @@ import org.apache.kafka.common.acl.AccessControlEntryFilter;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.config.SslConfigs;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
@@ -378,6 +379,8 @@ public class ConfluentProviderTest {
     configs.put(MetadataServerConfig.METADATA_SERVER_PREFIX + SslConfigs.SSL_KEYSTORE_PASSWORD_CONFIG, "mds-ks-password");
     configs.put(MetadataServerConfig.HTTP_SERVER_PREFIX + SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, "http-ts-password");
     configs.put(MetadataServerConfig.METADATA_SERVER_PREFIX + SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, "mds-ts-password");
+    configs.put(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG, "http://localhost:8070");
+
     MetadataServerConfig serverConfig = new MetadataServerConfig(configs);
     assertTrue(serverConfig.isConfluentMetadataServerEnabled());
     assertTrue(serverConfig.isServerEnabled());
@@ -390,6 +393,7 @@ public class ConfluentProviderTest {
     assertEquals("truststore.jks", serverConfig.serverConfigs().get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG));
     assertEquals("mds-ks-password", serverConfig.serverConfigs().get(SslConfigs.SSL_KEYSTORE_PASSWORD_CONFIG));
     assertEquals("mds-ts-password", serverConfig.serverConfigs().get(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG));
+    assertEquals("http://localhost:8070", serverConfig.serverConfigs().get(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG));
   }
 
   @Test

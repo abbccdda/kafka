@@ -19,6 +19,7 @@ import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigDef.Importance;
 import org.apache.kafka.common.config.ConfigDef.Type;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.utils.Utils;
 
 public final class MetadataServerConfig extends AbstractConfig {
@@ -134,9 +135,15 @@ public final class MetadataServerConfig extends AbstractConfig {
       configs.put("listeners", Utils.join(listeners, ","));
 
     // This config is used to choose metadata server implementation, hence including in configs
-    Object accessRuleProviders = configs.get("confluent.authorizer.access.rule.providers");
+    Map<String, Object> originals = originals();
+    Object accessRuleProviders = originals.get("confluent.authorizer.access.rule.providers");
     if (accessRuleProviders != null)
       configs.put("confluent.authorizer.access.rule.providers", accessRuleProviders);
+
+    // We expose this from the HTTP server
+    Object schemaRegistryUrls = originals.get(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG);
+    if (schemaRegistryUrls != null)
+      configs.put(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG, schemaRegistryUrls);
     return configs;
   }
 
