@@ -671,7 +671,7 @@ public class SslTransportLayerTest {
      * Tests that time spent on the network thread is accumulated on each channel
      */
     @Test
-    public void testNetworkThreadTimeRecorded() throws Exception {
+    public void testNetworkIoTimeRecorded() throws Exception {
         selector.close();
         this.selector = new Selector(NetworkReceive.UNLIMITED, Selector.NO_IDLE_TIMEOUT_MS, new Metrics(), Time.SYSTEM,
                 "MetricGroup", new HashMap<String, String>(), false, true, channelBuilder, MemoryPool.NONE, new LogContext());
@@ -684,17 +684,22 @@ public class SslTransportLayerTest {
         String message = TestUtils.randomString(1024 * 1024);
         NetworkTestUtils.waitForChannelReady(selector, node);
         final KafkaChannel channel = selector.channel(node);
-        assertTrue("SSL handshake time not recorded", channel.getAndResetNetworkThreadTimeNanos() > 0);
-        assertEquals("Time not reset", 0, channel.getAndResetNetworkThreadTimeNanos());
+        assertTrue("SSL handshake time not recorded", channel.networkIoTimeNanos() > 0);
+        assertEquals(0L, channel.writeIoTimeNanos());
+        channel.resetNetworkIoTimes();
+        assertEquals("Time not reset", 0, channel.networkIoTimeNanos());
 
         selector.mute(node);
         selector.send(new NetworkSend(node, ByteBuffer.wrap(message.getBytes())));
         while (selector.completedSends().isEmpty()) {
             selector.poll(100L);
         }
-        long sendTimeNanos = channel.getAndResetNetworkThreadTimeNanos();
+        long sendTimeNanos = channel.networkIoTimeNanos();
         assertTrue("Send time not recorded: " + sendTimeNanos, sendTimeNanos > 0);
-        assertEquals("Time not reset", 0, channel.getAndResetNetworkThreadTimeNanos());
+        assertEquals(sendTimeNanos, channel.writeIoTimeNanos());
+        channel.resetNetworkIoTimes();
+        assertEquals("Time not reset", 0, channel.networkIoTimeNanos());
+        assertEquals("Write time not reset", 0, channel.writeIoTimeNanos());
         assertFalse("Unexpected bytes buffered", channel.hasBytesBuffered());
         assertEquals(0, selector.completedReceives().size());
 
@@ -713,8 +718,9 @@ public class SslTransportLayerTest {
             }
         }, "Timed out waiting for a message to receive from echo server");
 
-        long receiveTimeNanos = channel.getAndResetNetworkThreadTimeNanos();
+        long receiveTimeNanos = channel.networkIoTimeNanos();
         assertTrue("Receive time not recorded: " + receiveTimeNanos, receiveTimeNanos > 0);
+        assertEquals(0L, channel.writeIoTimeNanos());
     }
 
     /**

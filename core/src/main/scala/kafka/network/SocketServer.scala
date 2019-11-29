@@ -884,7 +884,7 @@ private[kafka] class Processor(val id: Int,
     // `channel` can be None if the connection was closed remotely or if selector closed it for being idle for too long
     if (channel(connectionId).isEmpty) {
       warn(s"Attempting to send response via channel for which there is no open connection, connection id $connectionId")
-      response.request.updateRequestMetrics(0L, response)
+      response.request.updateRequestMetrics(0L, 0L, response)
     }
     // Invoke send for closingChannel as well so that the send is failed and the channel closed properly and
     // removed from the Selector after discarding any pending staged receives.
@@ -972,8 +972,15 @@ private[kafka] class Processor(val id: Int,
 
   private def updateRequestMetrics(response: RequestChannel.Response): Unit = {
     val request = response.request
-    val networkThreadTimeNanos = openOrClosingChannel(request.context.connectionId).fold(0L)(_.getAndResetNetworkThreadTimeNanos())
-    request.updateRequestMetrics(networkThreadTimeNanos, response)
+    val (networkThreadTimeNanos, responseSendIoTimeNanos) = openOrClosingChannel(request.context.connectionId) match {
+      case Some(channel) =>
+        val timeIntervals = (channel.networkIoTimeNanos, channel.writeIoTimeNanos)
+        channel.resetNetworkIoTimes()
+        timeIntervals
+      case None =>
+        (0L, 0L)
+    }
+    request.updateRequestMetrics(networkThreadTimeNanos, responseSendIoTimeNanos, response)
   }
 
   private def processDisconnected(): Unit = {

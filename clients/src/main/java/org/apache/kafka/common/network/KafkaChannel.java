@@ -122,9 +122,12 @@ public class KafkaChannel implements AutoCloseable {
     private final Supplier<Authenticator> authenticatorCreator;
     private final BrokerInterceptor interceptor;
     private Authenticator authenticator;
-    // Tracks accumulated network thread time. This is updated on the network thread.
-    // The values are read and reset after each response is sent.
-    private long networkThreadTimeNanos;
+    // Tracks accumulated network thread time for any I/O on this channel. This is updated on the
+    // network thread. The values are read and reset after each response is sent.
+    private long networkIoTimeNanos;
+    // Tracks accumulated network thread time for I/O writes. This is updated on the network thread
+    // and reset after each response is sent. This time is also included in `networkIoTimeNanos`.
+    private long writeIoTimeNanos;
     private final int maxReceiveSize;
     private final MemoryPool memoryPool;
     private NetworkReceive receive;
@@ -145,7 +148,8 @@ public class KafkaChannel implements AutoCloseable {
         this.transportLayer = transportLayer;
         this.authenticatorCreator = authenticatorCreator;
         this.authenticator = authenticatorCreator.get();
-        this.networkThreadTimeNanos = 0L;
+        this.networkIoTimeNanos = 0L;
+        this.writeIoTimeNanos = 0L;
         this.maxReceiveSize = maxReceiveSize;
         this.memoryPool = memoryPool;
         this.disconnected = false;
@@ -435,20 +439,30 @@ public class KafkaChannel implements AutoCloseable {
     }
 
     /**
-     * Accumulates network thread time for this channel.
+     * Accumulates network I/O time for this channel. This is enabled only on
+     * the Selector in SocketServer on brokers.
      */
-    public void addNetworkThreadTimeNanos(long nanos) {
-        networkThreadTimeNanos += nanos;
+    public void addNetworkIoTimeNanos(long nanos, boolean hasWrite) {
+        networkIoTimeNanos += nanos;
+        if (hasWrite)
+          writeIoTimeNanos += nanos;
     }
 
     /**
-     * Returns accumulated network thread time for this channel and resets
-     * the value to zero.
+     * Resets network I/O time. This is invoked by SocketServer to reset the times
+     * after each response is sent.
      */
-    public long getAndResetNetworkThreadTimeNanos() {
-        long current = networkThreadTimeNanos;
-        networkThreadTimeNanos = 0;
-        return current;
+    public void resetNetworkIoTimes() {
+        networkIoTimeNanos = 0;
+        writeIoTimeNanos = 0;
+    }
+
+    public long networkIoTimeNanos() {
+        return networkIoTimeNanos;
+    }
+
+    public long writeIoTimeNanos() {
+        return writeIoTimeNanos;
     }
 
     private long receive(NetworkReceive receive) throws IOException {

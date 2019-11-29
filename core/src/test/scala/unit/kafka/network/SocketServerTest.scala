@@ -1254,6 +1254,38 @@ class SocketServerTest {
     }
   }
 
+  @Test
+  def testResponseSendTimeMetrics(): Unit = {
+    shutdownServerAndMetrics(server)
+    withTestableServer (testWithServer = { testableServer =>
+      val testableSelector = testableServer.testableSelector
+      val requestChannel = testableServer.dataPlaneRequestChannel
+      val socket = connect(testableServer)
+      sendRequest(socket, producerRequestBytes())
+      val request = receiveRequest(requestChannel)
+      // Sleep for some milliseconds to so that metrics show non-zero send times
+      testableSelector.writeCallback = () => Thread.sleep(2)
+      testableSelector.pollCallback = () => Thread.sleep(10)
+      processRequest(requestChannel, request)
+      receiveResponse(socket)
+      testableSelector.writeCallback = () => {}
+      testableSelector.pollCallback = () => {}
+
+      val requestMetrics = requestChannel.metrics(request.header.apiKey.name)
+      val responseSendTime = requestMetrics.responseSendTimeHist
+      val responseSendIoTime = requestMetrics.responseSendIoTimeHist
+      TestUtils.waitUntilTrue(() => responseSendTime.count > 0, "ResponseSendTime metric not updated")
+      TestUtils.waitUntilTrue(() => responseSendIoTime.count > 0, "ResponseSendIoTime metric not updated")
+      assertEquals(1, responseSendIoTime.count)
+      assertEquals(1, responseSendTime.count)
+      assertTrue(s"Unexpected send time ${responseSendTime.sum}", responseSendTime.sum > 10)
+      assertTrue(s"Unexpected send I/O time ${responseSendIoTime.sum}", responseSendIoTime.sum >= 1)
+      assertTrue(s"Unexpected send time ${responseSendTime.sum}", responseSendTime.sum < 10000)
+      assertTrue(s"Unexpected send time ${responseSendIoTime.sum} ${responseSendTime.sum}",
+        responseSendTime.sum - responseSendIoTime.sum >= 5)
+    })
+  }
+
   private def withTestableServer(config : KafkaConfig = config, testWithServer: TestableSocketServer => Unit): Unit = {
     props.put("listeners", "PLAINTEXT://localhost:0")
     val testableServer = new TestableSocketServer(config = config)
@@ -1404,6 +1436,7 @@ class SocketServerTest {
     @volatile var minWakeupCount = 0
     @volatile var pollTimeoutOverride: Option[Long] = None
     @volatile var pollCallback: () => Unit = () => {}
+    @volatile var writeCallback: () => Unit = () => {}
 
     def addFailure(operation: SelectorOperation, exception: Option[Throwable] = None): Unit = {
       failures += operation ->
@@ -1457,6 +1490,11 @@ class SocketServerTest {
         cachedCompletedSends.update(super.completedSends.asScala)
         cachedDisconnected.update(super.disconnected.asScala.toBuffer)
       }
+    }
+
+    override protected def write(channel: KafkaChannel): Unit = {
+      writeCallback.apply()
+      super.write(channel)
     }
 
     override def mute(id: String): Unit = {

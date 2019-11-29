@@ -116,7 +116,7 @@ object RequestChannel extends Logging {
       math.max(apiLocalCompleteTimeNanos - requestDequeueTimeNanos, 0L)
     }
 
-    def updateRequestMetrics(networkThreadTimeNanos: Long, response: Response): Unit = {
+    def updateRequestMetrics(networkThreadTimeNanos: Long, responseSendIoTimeNanos: Long, response: Response): Unit = {
       val endTimeNanos = Time.SYSTEM.nanoseconds
       // In some corner cases, apiLocalCompleteTimeNanos may not be set when the request completes if the remote
       // processing time is really small. This value is set in KafkaApis from a request handling thread.
@@ -166,6 +166,7 @@ object RequestChannel extends Logging {
         m.throttleTimeHist.update(Math.round(apiThrottleTimeMs))
         m.responseQueueTimeHist.update(Math.round(responseQueueTimeMs))
         m.responseSendTimeHist.update(Math.round(responseSendTimeMs))
+        m.responseSendIoTimeHist.update(Math.round(nanosToMs(responseSendIoTimeNanos)))
         m.totalTimeHist.update(Math.round(totalTimeMs))
         m.requestBytesHist.update(sizeOfBodyInBytes)
         m.messageConversionsTimeHist.foreach(_.update(Math.round(messageConversionsTimeMs)))
@@ -381,6 +382,7 @@ object RequestMetrics {
   val ThrottleTimeMs = "ThrottleTimeMs"
   val ResponseQueueTimeMs = "ResponseQueueTimeMs"
   val ResponseSendTimeMs = "ResponseSendTimeMs"
+  val ResponseSendIoTimeMs = "ResponseSendIoTimeMs"
   val TotalTimeMs = "TotalTimeMs"
   val RequestBytes = "RequestBytes"
   val MessageConversionsTimeMs = "MessageConversionsTimeMs"
@@ -404,8 +406,12 @@ class RequestMetrics(name: String) extends KafkaMetricsGroup {
   val throttleTimeHist = newHistogram(ThrottleTimeMs, biased = true, tags)
   // time a response spent in a response queue
   val responseQueueTimeHist = newHistogram(ResponseQueueTimeMs, biased = true, tags)
-  // time to send the response to the requester
+  // total time to send the response to the requester
   val responseSendTimeHist = newHistogram(ResponseSendTimeMs, biased = true, tags)
+  // I/O time to send the response to the requester. This excludes the time when the broker is
+  // not attempting to send because the client is not polling, so it helps us differentiate
+  // broker slowness from client slowness
+  val responseSendIoTimeHist = newHistogram(ResponseSendIoTimeMs, biased = true, tags)
   val totalTimeHist = newHistogram(TotalTimeMs, biased = true, tags)
   // request size in bytes
   val requestBytesHist = newHistogram(RequestBytes, biased = true, tags)
@@ -471,6 +477,7 @@ class RequestMetrics(name: String) extends KafkaMetricsGroup {
     removeMetric(ResponseQueueTimeMs, tags)
     removeMetric(TotalTimeMs, tags)
     removeMetric(ResponseSendTimeMs, tags)
+    removeMetric(ResponseSendIoTimeMs, tags)
     removeMetric(RequestBytes, tags)
     removeMetric(ResponseSendTimeMs, tags)
     if (name == ApiKeys.FETCH.name || name == ApiKeys.PRODUCE.name) {

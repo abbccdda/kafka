@@ -522,6 +522,7 @@ public class Selector implements Selectable, AutoCloseable {
             long channelStartTimeNanos = recordTimePerConnection ? time.nanoseconds() : 0;
             boolean sendFailed = false;
             String nodeId = channel.id();
+            boolean performedWrite = false;
 
             // register all per-connection metrics at once
             sensors.maybeRegisterConnectionMetrics(nodeId);
@@ -592,7 +593,7 @@ public class Selector implements Selectable, AutoCloseable {
 
                 long nowNanos = channelStartTimeNanos != 0 ? channelStartTimeNanos : currentTimeNanos;
                 try {
-                    attemptWrite(key, channel, nowNanos);
+                    performedWrite = attemptWrite(key, channel, nowNanos);
                 } catch (Exception e) {
                     sendFailed = true;
                     throw e;
@@ -626,22 +627,25 @@ public class Selector implements Selectable, AutoCloseable {
                 else
                     close(channel, sendFailed ? CloseMode.NOTIFY_ONLY : CloseMode.GRACEFUL);
             } finally {
-                maybeRecordTimePerConnection(channel, channelStartTimeNanos);
+                maybeRecordTimePerConnection(channel, channelStartTimeNanos, performedWrite);
             }
         }
     }
 
-    private void attemptWrite(SelectionKey key, KafkaChannel channel, long nowNanos) throws IOException {
+    private boolean attemptWrite(SelectionKey key, KafkaChannel channel, long nowNanos) throws IOException {
         if (channel.hasSend()
                 && channel.ready()
                 && key.isWritable()
                 && !channel.maybeBeginClientReauthentication(() -> nowNanos)) {
             write(channel);
+            return true;
+        } else {
+            return false;
         }
     }
 
-    // package-private for testing
-    void write(KafkaChannel channel) throws IOException {
+    // Visible for testing
+    protected void write(KafkaChannel channel) throws IOException {
         String nodeId = channel.id();
         long bytesSent = channel.write();
         Send send = channel.maybeCompleteSend();
@@ -704,9 +708,9 @@ public class Selector implements Selectable, AutoCloseable {
     }
 
     // Record time spent in pollSelectionKeys for channel (moved into a method to keep checkstyle happy)
-    private void maybeRecordTimePerConnection(KafkaChannel channel, long startTimeNanos) {
+    private void maybeRecordTimePerConnection(KafkaChannel channel, long startTimeNanos, boolean hasWrite) {
         if (recordTimePerConnection)
-            channel.addNetworkThreadTimeNanos(time.nanoseconds() - startTimeNanos);
+            channel.addNetworkIoTimeNanos(time.nanoseconds() - startTimeNanos, hasWrite);
     }
 
     @Override
