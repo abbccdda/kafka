@@ -486,7 +486,10 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
           leaderAndIsrRequestVersion, controllerId, controllerEpoch, brokerEpoch,
           leaderAndIsrPartitionStates.values.toBuffer.asJava, leaders.asJava, useConfluentRequest)
 
-        sendRequest(broker, leaderAndIsrRequestBuilder, (r: AbstractResponse) => sendEvent(LeaderAndIsrResponseReceived(r, broker)))
+        sendRequest(broker, leaderAndIsrRequestBuilder, (r: AbstractResponse) => {
+          val leaderAndIsrResponse = r.asInstanceOf[LeaderAndIsrResponse]
+          sendEvent(LeaderAndIsrResponseReceived(leaderAndIsrResponse, broker))
+        })
     }
     leaderAndIsrRequestMap.clear()
   }
@@ -535,9 +538,13 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
 
     updateMetadataRequestBrokerSet.intersect(controllerContext.liveOrShuttingDownBrokerIds).foreach { broker =>
       val brokerEpoch = controllerContext.liveBrokerIdAndEpochs(broker)
-      val updateMetadataRequest = new UpdateMetadataRequest.Builder(updateMetadataRequestVersion, controllerId, controllerEpoch,
-        brokerEpoch, partitionStates.asJava, liveBrokers.asJava)
-      sendRequest(broker, updateMetadataRequest)
+      val updateMetadataRequestBuilder = new UpdateMetadataRequest.Builder(updateMetadataRequestVersion,
+        controllerId, controllerEpoch, brokerEpoch, partitionStates.asJava, liveBrokers.asJava)
+      sendRequest(broker, updateMetadataRequestBuilder, (r: AbstractResponse) => {
+        val updateMetadataResponse = r.asInstanceOf[UpdateMetadataResponse]
+        sendEvent(UpdateMetadataResponseReceived(updateMetadataResponse, broker))
+      })
+
     }
     updateMetadataRequestBrokerSet.clear()
     updateMetadataRequestPartitionInfoMap.clear()
@@ -617,4 +624,3 @@ case class ControllerBrokerStateInfo(networkClient: NetworkClient,
                                      queueSizeGauge: Gauge[Int],
                                      requestRateAndTimeMetrics: Timer,
                                      reconfigurableChannelBuilder: Option[Reconfigurable])
-

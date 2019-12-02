@@ -200,6 +200,7 @@ import static java.util.Arrays.asList;
 import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toList;
 import static org.apache.kafka.clients.consumer.internals.ConsumerProtocol.PROTOCOL_TYPE;
+import static org.apache.kafka.common.requests.DescribeGroupsResponse.AUTHORIZED_OPERATIONS_OMITTED;
 import static org.apache.kafka.common.utils.Utils.mkEntry;
 import static org.apache.kafka.common.utils.Utils.mkMap;
 import static org.apache.kafka.common.utils.Utils.mkSet;
@@ -943,12 +944,12 @@ public class MultiTenantRequestContextTest {
     DescribeGroupsResponseData describeGroupsResponseData = new DescribeGroupsResponseData();
 
     for (String group : groups) {
-      DescribedGroupMember member1 = DescribeGroupsResponse.groupMember("member1", "groupinstanceid",
+      DescribedGroupMember member1 = DescribeGroupsResponse.groupMember("member1", null,
           "clientid", "clienthost", new byte[0], protocolMetadata);
-      DescribedGroupMember member2 = DescribeGroupsResponse.groupMember("member2", "groupinstanceid",
+      DescribedGroupMember member2 = DescribeGroupsResponse.groupMember("member2", null,
           "clientid", "clienthost", new byte[0], protocolMetadata);
       describeGroupsResponseData.groups().add(DescribeGroupsResponse.groupMetadata(group, Errors.NONE,
-          "STABLE", protocolType, protocolName, Arrays.asList(member1, member2), Collections.emptySet()));
+          "STABLE", protocolType, protocolName, Arrays.asList(member1, member2), AUTHORIZED_OPERATIONS_OMITTED));
     }
 
     return new DescribeGroupsResponse(describeGroupsResponseData);
@@ -1249,15 +1250,17 @@ public class MultiTenantRequestContextTest {
           new CreatableTopicConfigs().setConfigName("max.message.bytes").setValue("100000"),
           new CreatableTopicConfigs().setConfigName("tenant_config").setValue("somevalue")
       );
+      CreatableTopicResult firstResult = new CreatableTopicResult()
+              .setErrorCode(Errors.NONE.code())
+              .setErrorMessage("")
+              .setName("tenant_foo")
+              .setTopicConfigErrorCode(Errors.NONE.code());
+      if (ver >= 5) {
+          // Will throw for versions < 5
+          firstResult = firstResult.setConfigs(configs).setNumPartitions(2).setReplicationFactor((short) 3);
+      }
       Collection<CreatableTopicResult> results = asList(
-              new CreatableTopicResult()
-                      .setErrorCode(Errors.NONE.code())
-                      .setErrorMessage("")
-                      .setName("tenant_foo")
-                      .setConfigs(configs)
-                      .setTopicConfigErrorCode(Errors.NONE.code())
-                      .setNumPartitions(2)
-                      .setReplicationFactor((short) 3),
+              firstResult,
               new CreatableTopicResult()
                       .setErrorCode(Errors.NONE.code())
                       .setErrorMessage("")
