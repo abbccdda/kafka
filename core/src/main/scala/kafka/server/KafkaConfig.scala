@@ -868,7 +868,7 @@ object KafkaConfig {
 
   /** ********* Tiered Storage Configurations ***********/
   /** Tiered storage feature configs **/
-  val TierFeatureDoc = "Feature flag that enables components related to tiered storage, and enable the tiered storage feature."
+  val TierFeatureDoc = "Feature flag that enables the tiered storage feature by enabling components related to tiered storage."
 
   /** Tiered storage metadata configs **/
   val TierMetadataBootstrapServersDoc = "The bootstrap servers for the tier topic cluster. Kafka will default to the local broker if this is not defined."
@@ -1185,38 +1185,38 @@ object KafkaConfig {
       .define(TransactionsRemoveExpiredTransactionalIdCleanupIntervalMsProp, INT, Defaults.TransactionsRemoveExpiredTransactionsCleanupIntervalMS, atLeast(1), LOW, TransactionsRemoveExpiredTransactionsIntervalMsDoc)
 
       /** ********* Tier management configuration ***********/
-      .defineInternal(TierFeatureProp, BOOLEAN, Defaults.TierFeature, MEDIUM, TierFeatureDoc)
-      .defineInternal(TierEnableProp, BOOLEAN, Defaults.TierEnable, MEDIUM, TierEnableDoc)
-      .defineInternal(TierBackendProp, STRING, Defaults.TierBackend, in("S3", "GCS", "mock", ""), MEDIUM, TierBackendDoc)
+      .define(TierFeatureProp, BOOLEAN, Defaults.TierFeature, MEDIUM, TierFeatureDoc)
+      .define(TierEnableProp, BOOLEAN, Defaults.TierEnable, MEDIUM, TierEnableDoc)
+      .define(TierBackendProp, STRING, Defaults.TierBackend, in("S3", "GCS", "mock", ""), MEDIUM, TierBackendDoc)
       .defineInternal(TierMetadataBootstrapServersProp, STRING, Defaults.TierMetadataBootstrapServers, MEDIUM, TierMetadataBootstrapServersDoc)
       .defineInternal(TierMetadataMaxPollMsProp, LONG, Defaults.TierMetadataMaxPollMs, atLeast(1), MEDIUM, TierMetadataMaxPollMsDoc)
       .defineInternal(TierMetadataRequestTimeoutMsProp, INT, Defaults.TierMetadataRequestTimeoutMs, atLeast(1), MEDIUM, TierMetadataRequestTimeoutMsDoc)
       .defineInternal(TierMetadataNamespaceProp, STRING, Defaults.TierMetadataNamespace, MEDIUM, TierMetadataNamespaceDoc)
       .defineInternal(TierMetadataNumPartitionsProp, SHORT, Defaults.TierMetadataNumPartitions, atLeast(1), HIGH, TierMetadataNumPartitionsDoc)
-      .defineInternal(TierMetadataReplicationFactorProp, SHORT, Defaults.TierMetadataReplicationFactor, atLeast(1), HIGH, TierMetadataReplicationFactorDoc)
-      .defineInternal(TierS3BucketProp, STRING, Defaults.TierS3Bucket, HIGH, TierS3BucketDoc)
-      .defineInternal(TierS3RegionProp, STRING, Defaults.TierS3Region, HIGH, TierS3RegionDoc)
+      .define(TierMetadataReplicationFactorProp, SHORT, Defaults.TierMetadataReplicationFactor, atLeast(1), HIGH, TierMetadataReplicationFactorDoc)
+      .define(TierS3BucketProp, STRING, Defaults.TierS3Bucket, HIGH, TierS3BucketDoc)
+      .define(TierS3RegionProp, STRING, Defaults.TierS3Region, HIGH, TierS3RegionDoc)
       .defineInternal(TierS3SseAlgorithmProp, STRING, Defaults.TierS3SseAlgorithm, in("AES256", TIER_S3_SSE_ALGORITHM_NONE), HIGH, TierS3SseAlgorithmDoc)
       .defineInternal(TierS3MultipartUploadSizeProp, INT, Defaults.TierS3MultipartUploadSize, atLeast(5 * 1024 * 1024), LOW, TierS3MultipartUploadSizeDoc)
-      .defineInternal(TierS3AwsAccessKeyIdProp, PASSWORD, Defaults.TierS3AwsAccessKeyId, MEDIUM, TierS3AwsAccessKeyIdDoc)
-      .defineInternal(TierS3AwsSecretAccessKeyProp, PASSWORD, Defaults.TierS3AwsSecretAccessKey, MEDIUM, TierS3AwsSecretAccessKeyDoc)
+      .define(TierS3AwsAccessKeyIdProp, PASSWORD, Defaults.TierS3AwsAccessKeyId, MEDIUM, TierS3AwsAccessKeyIdDoc)
+      .define(TierS3AwsSecretAccessKeyProp, PASSWORD, Defaults.TierS3AwsSecretAccessKey, MEDIUM, TierS3AwsSecretAccessKeyDoc)
       .defineInternal(TierS3EndpointOverrideProp, STRING, Defaults.TierS3EndpointOverride, LOW, TierS3EndpointOverrideDoc)
       .defineInternal(TierS3SignerOverrideProp, STRING, Defaults.TierS3SignerOverride, LOW, TierS3SignerOverrideDoc)
       .defineInternal(TierS3AutoAbortThresholdBytesProp, INT, Defaults.TierS3AutoAbortThresholdBytes, atLeast(0), LOW, TierS3AutoAbortThresholdBytesDoc)
-      .defineInternal(TierFetcherNumThreadsProp, INT, Defaults.TierFetcherNumThreads, atLeast(1), MEDIUM, TierFetcherNumThreadsDoc)
+      .define(TierFetcherNumThreadsProp, INT, Defaults.TierFetcherNumThreads, atLeast(1), MEDIUM, TierFetcherNumThreadsDoc)
       .defineInternal(TierFetcherOffsetCacheSizeProp, INT, Defaults.TierFetcherOffsetCacheSize, atLeast(1), MEDIUM, TierFetcherOffsetCacheSizeDoc)
       .defineInternal(TierFetcherOffsetCacheExpirationMsProp, INT, Defaults.TierFetcherOffsetCacheExpirationMs, atLeast(1), LOW, TierFetcherOffsetCacheExpirationMsDoc)
       .defineInternal(TierFetcherOffsetCacheExpiryPeriodMsProp, INT, Defaults.TierFetcherOffsetCacheExpiryPeriodMs , atLeast(1), LOW, TierFetcherOffsetCacheExpiryPeriodMsDoc)
       .defineInternal(TierObjectFetcherThreadsProp, INT, Defaults.TierObjectFetcherThreads, atLeast(1), MEDIUM, TierObjectFetcherThreadsDoc)
       .defineInternal(TierPartitionStateCommitIntervalProp, INT, Defaults.TierPartitionStateCommitInterval, atLeast(0), MEDIUM, TierPartitionStateCommitIntervalDoc)
-      .defineInternal(TierLocalHotsetBytesProp, LONG, Defaults.TierLocalHotsetBytes, HIGH, TierLocalHotsetBytesDoc)
-      .defineInternal(TierLocalHotsetMsProp, LONG, Defaults.TierLocalHotsetMs, HIGH, TierLocalHotsetMsDoc)
-      .defineInternal(TierArchiverNumThreadsProp, INT, Defaults.TierArchiverNumThreads, atLeast(1), MEDIUM, TierArchiverNumThreadsDoc)
+      .define(TierLocalHotsetBytesProp, LONG, Defaults.TierLocalHotsetBytes, HIGH, TierLocalHotsetBytesDoc)
+      .define(TierLocalHotsetMsProp, LONG, Defaults.TierLocalHotsetMs, HIGH, TierLocalHotsetMsDoc)
+      .define(TierArchiverNumThreadsProp, INT, Defaults.TierArchiverNumThreads, atLeast(1), MEDIUM, TierArchiverNumThreadsDoc)
       .defineInternal(TierGcsBucketProp, STRING, Defaults.TierGcsBucket, HIGH, TierGcsBucketDoc)
       .defineInternal(TierGcsRegionProp, STRING, Defaults.TierGcsRegion, HIGH, TierGcsRegionDoc)
       .defineInternal(TierGcsWriteChunkSizeProp, INT, Defaults.TierGcsWriteChunkSize, atLeast(0), LOW, TierGcsWriteChunkSizeDoc)
       .defineInternal(TierGcsReadChunkSizeProp, INT, Defaults.TierGcsReadChunkSize, atLeast(0), LOW, TierGcsReadChunkSizeDoc)
-      .defineInternal(TierTopicDeleteCheckIntervalMsProp, LONG, Defaults.TierTopicDeleteCheckIntervalMs, atLeast(1), LOW, TierTopicDeleteCheckIntervalMsDoc)
+      .define(TierTopicDeleteCheckIntervalMsProp, LONG, Defaults.TierTopicDeleteCheckIntervalMs, atLeast(1), LOW, TierTopicDeleteCheckIntervalMsDoc)
       .defineInternal(TierSegmentHotsetRollMinBytesProp, INT, Defaults.TierSegmentHotsetRollMinBytes, atLeast(1024 * 1024), MEDIUM, TierSegmentHotsetRollMinBytesDoc)
 
       /** ********* Fetch Configuration **************/
