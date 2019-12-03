@@ -18,11 +18,13 @@ package kafka.admin
 
 import java.util.Optional
 import java.util.Scanner
+import java.util.regex.Pattern
 import kafka.integration.KafkaServerTestHarness
 import kafka.log.LogConfig
 import kafka.server.KafkaConfig
 import kafka.server.KafkaServer
 import kafka.utils.TestUtils
+import kafka.utils.Json
 import org.apache.kafka.clients.admin.{AdminClient, AdminClientConfig, NewTopic}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.network.ListenerName
@@ -35,6 +37,10 @@ import scala.collection.mutable
 
 final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
   import ReplicaStatusCommandTest._
+
+  private val headers =
+    Array("Topic", "Partition", "Replica", "IsLeader", "IsObserver", "IsIsrEligible", "IsInIsr", "IsCaughtUp",
+      "LastCaughtUpLagMs", "LastFetchLagMs", "LogStartOffset", "LogEndOffset")
 
   override def generateConfigs: Seq[KafkaConfig] =
     TestUtils.createBrokerConfigs(
@@ -89,18 +95,16 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
     logStartOffset: Option[Long], logEndOffset: Option[Long]) {
   }
 
-  private def runCommandParseCompactOutput(topics: Array[String], numPartitions: Int, args: Array[String]): List[ReplicaStatusEntry] = {
-    val output = runCommand(topics, numPartitions, args :+ "--compact")
+  private def runCommandParseOutput(topics: Array[String], numPartitions: Int, args: Array[String]): List[ReplicaStatusEntry] = {
+    val output = runCommand(topics, numPartitions, args)
     val scanner = new Scanner(output)
     assertTrue(scanner.hasNextLine)
-    scanner.findInLine("(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)")
+    scanner.findInLine("""(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)""")
     val topMatch = scanner.`match`
 
-    val expectedHeader =
-      Array("Topic", "Partition", "Replica", "IsLeader", "IsObserver", "IsIsrEligible", "IsInIsr", "IsCaughtUp", "LastCaughtUpLagMs", "LastFetchLagMs", "LogStartOffset", "LogEndOffset")
-    assertTrue(topMatch.groupCount == expectedHeader.size)
-    for (idx <- 0 until topMatch.groupCount) {
-      assertTrue(topMatch.group(idx + 1) == expectedHeader(idx))
+    assertTrue(topMatch.groupCount == headers.size)
+    for (idx <- 0 until headers.size) {
+      assertTrue(topMatch.group(idx + 1) == headers(idx))
     }
     scanner.nextLine
 
@@ -108,16 +112,20 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
       case "true" => true
       case "false" => false
     }
-    def toLongOption(value: String): Option[Long] = value match {
-      case "unknown" => None
-      case _ => Some(value.toLong)
+    def toLongOption(value: String): Option[Long] = if (value == "-1")
+      None
+    else {
+      val num = value.toLong
+      assertTrue(num >= 0)
+      Some(num)
     }
 
     val result = mutable.Buffer[ReplicaStatusEntry]()
+    val pattern = Pattern.compile("""(\S+)\s+(\d+)\s+(\d+)\s+(true|false)\s+(true|false)\s+(true|false)\s+(true|false)\s+(true|false)\s+(-?[0-9]+)\s+(-?[0-9]+)\s+(-?[0-9]+)\s+(-?[0-9]+)""")
     while (scanner.hasNextLine) {
-      scanner.findInLine("(\\S+)\t(\\d+)\t(\\d+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)\t(\\w+)")
+      scanner.findInLine(pattern)
       val subMatch = scanner.`match`
-      assertTrue(subMatch.groupCount == expectedHeader.size)
+      assertTrue(subMatch.groupCount == headers.size)
       result += new ReplicaStatusEntry(subMatch.group(1), subMatch.group(2).toInt, subMatch.group(3).toInt, toBoolean(subMatch.group(4)),
         toBoolean(subMatch.group(5)), toBoolean(subMatch.group(6)), toBoolean(subMatch.group(7)), toBoolean(subMatch.group(8)),
         toLongOption(subMatch.group(9)), toLongOption(subMatch.group(10)), toLongOption(subMatch.group(11)), toLongOption(subMatch.group(12)))
@@ -127,15 +135,18 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
   }
 
   @Test
-  def testAllTopicPartitions(): Unit = {
+  def testVerboseTopicPartitions(): Unit = {
     val topics = Array("test-topic-1", "test-topic-2")
     val numPartitions = 2
 
-    val output = runCommand(topics, numPartitions, Array())
+    val output = runCommand(topics, numPartitions, Array("--verbose"))
     for (topic <- topics)
       for (partition <- 0 until numPartitions)
-        for (replica <- 0 until servers.size)
-          assertTrue(output.contains(s"Topic-Partition-Replica: ${topic}-${partition}-${replica}"))
+        for (replica <- 0 until servers.size) {
+          assertTrue(output.contains(s"Topic: ${topic}"))
+          assertTrue(output.contains(s"Partition: ${partition}"))
+          assertTrue(output.contains(s"Replica: ${replica}"))
+        }
     assertTrue(output.contains("IsLeader: true"))
     assertTrue(output.contains("IsLeader: false"))
     assertTrue(output.contains("IsObserver: true"))
@@ -147,27 +158,27 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
   @Test
   def testSpecifiedTopics(): Unit = {
     val topics = Array("test-topic-1", "test-topic-2", "test-topic-3")
-    val output = runCommand(topics, 1, Array("--topics", topics(0) + "," + topics(2)))
-    assertTrue(output.contains(topics(0)))
-    assertFalse(output.contains(topics(1)))
-    assertTrue(output.contains(topics(2)))
+    val output = runCommand(topics, 1, Array("--topics", topics(0) + "," + topics(2), "--verbose"))
+    assertTrue(output.contains(s"Topic: ${topics(0)}"))
+    assertFalse(output.contains(s"Topic: ${topics(1)}"))
+    assertTrue(output.contains(s"Topic: ${topics(2)}"))
   }
 
   @Test
   def testSpecifiedPartitions(): Unit = {
     val topics = Array("test-topic")
-    val output = runCommand(topics, 4, Array("--partitions", "0,2-3"))
-    assertTrue(output.contains(topics(0) + "-0-"))
-    assertFalse(output.contains(topics(0) + "-1-"))
-    assertTrue(output.contains(topics(0) + "-2-"))
-    assertTrue(output.contains(topics(0) + "-3-"))
+    val output = runCommand(topics, 4, Array("--partitions", "0,2-3", "--verbose"))
+    assertTrue(output.contains("Partition: 0"))
+    assertFalse(output.contains("Partition: 1"))
+    assertTrue(output.contains("Partition: 2"))
+    assertTrue(output.contains("Partition: 3"))
   }
 
   @Test
   def testLeadersOnly(): Unit = {
     val topic = "test-topic"
-    val output = runCommand(Array(topic), 1, Array("--leaders"))
-    assertFalse(output.contains(s"Topic-Partition-Replica: ${topic}-0-2"))
+    val output = runCommand(Array(topic), 1, Array("--leaders", "--verbose"))
+    assertFalse(output.contains(s"Topic: ${topic}\nPartition: 0\nReplica: 2"))
     assertTrue(output.contains("IsLeader: true"))
     assertFalse(output.contains("IsLeader: false"))
   }
@@ -175,8 +186,8 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
   @Test
   def testLeadersExcluded(): Unit = {
     val topic = "test-topic"
-    val output = runCommand(Array(topic), 1, Array("--leaders", "exclude"))
-    assertTrue(output.contains(s"Topic-Partition-Replica: ${topic}-0-2"))
+    val output = runCommand(Array(topic), 1, Array("--leaders", "exclude", "--verbose"))
+    assertTrue(output.contains(s"Topic: ${topic}\nPartition: 0\nReplica"))
     assertFalse(output.contains("IsLeader: true"))
     assertTrue(output.contains("IsLeader: false"))
   }
@@ -184,10 +195,10 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
   @Test
   def testObserversOnly(): Unit = {
     val topic = "test-topic"
-    val output = runCommand(Array(topic), 1, Array("--observers"))
-    assertFalse(output.contains(s"Topic-Partition-Replica: ${topic}-0-0"))
-    assertFalse(output.contains(s"Topic-Partition-Replica: ${topic}-0-1"))
-    assertTrue(output.contains(s"Topic-Partition-Replica: ${topic}-0-2"))
+    val output = runCommand(Array(topic), 1, Array("--observers", "--verbose"))
+    assertFalse(output.contains(s"Topic: ${topic}\nPartition: 0\nReplica: 0"))
+    assertFalse(output.contains(s"Topic: ${topic}\nPartition: 0\nReplica: 1"))
+    assertTrue(output.contains(s"Topic: ${topic}\nPartition: 0\nReplica: 2"))
     assertTrue(output.contains("IsObserver: true"))
     assertFalse(output.contains("IsObserver: false"))
   }
@@ -195,10 +206,10 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
   @Test
   def testObserversExcluded(): Unit = {
     val topic = "test-topic"
-    val output = runCommand(Array(topic), 1, Array("--observers", "exclude"))
-    assertTrue(output.contains(s"Topic-Partition-Replica: ${topic}-0-0"))
-    assertTrue(output.contains(s"Topic-Partition-Replica: ${topic}-0-1"))
-    assertFalse(output.contains(s"Topic-Partition-Replica: ${topic}-0-2"))
+    val output = runCommand(Array(topic), 1, Array("--observers", "exclude", "--verbose"))
+    assertTrue(output.contains(s"Topic: ${topic}\nPartition: 0\nReplica: 0"))
+    assertTrue(output.contains(s"Topic: ${topic}\nPartition: 0\nReplica: 1"))
+    assertFalse(output.contains(s"Topic: ${topic}\nPartition: 0\nReplica: 2"))
     assertFalse(output.contains("IsObserver: true"))
     assertTrue(output.contains("IsObserver: false"))
   }
@@ -217,17 +228,17 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
       TestUtils.waitForLeaderToBecome(client, topicPartition, Some(0))
       TestUtils.produceMessage(servers, topic, "message")
 
-      val output = TestUtils.grabConsoleOutput(ReplicaStatusCommand.main(Array("--bootstrap-server", bootstrapServers(servers), "--leaders", "exclude")))
-      assertFalse(output.contains(s"${topic}-0-0"))
+      val output = TestUtils.grabConsoleOutput(ReplicaStatusCommand.main(Array("--bootstrap-server", bootstrapServers(servers), "--leaders", "exclude", "--verbose")))
+      assertFalse(output.contains(s"Topic: ${topic}\nPartition: 0\nReplica: 0"))
       assertFalse(output.contains("IsInIsr: true"))
-      assertTrue(output.contains(s"${topic}-0-1"))
+      assertTrue(output.contains(s"Topic: ${topic}\nPartition: 0\nReplica: 1"))
       assertTrue(output.contains("IsInIsr: false"))
     }
   }
 
   @Test
-  def testCompact(): Unit = {
-    val entries = runCommandParseCompactOutput(Array("test-topic-1", "test-topic-2"), 2, Array())
+  def testOutput(): Unit = {
+    val entries = runCommandParseOutput(Array("test-topic-1", "test-topic-2"), 2, Array())
     assertTrue(entries.size == 12)
     val tpr = mutable.Set[String]()
     val leaders = mutable.Set[String]()
@@ -267,6 +278,46 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
         logEndOffset <- entry.logEndOffset
       } yield assertTrue(logStartOffset <= logEndOffset)
     }
+  }
+
+  @Test
+  def testJson(): Unit = {
+    val topics = Array("test-topic-1", "test-topic-2")
+    val jsonTopics = Json.parseFull(runCommand(topics, 2, Array("--json"))).get.asJsonArray.iterator
+
+    var topicsCount = 0
+    while (jsonTopics.hasNext) {
+      val jsonTopic = jsonTopics.next.asJsonObject
+      topicsCount += 1
+
+      val topic = jsonTopic("Topic").to[String]
+      assertTrue(topic == "test-topic-1" || topic == "test-topic-2")
+
+      var partitionsCount = 0
+      val jsonPartitions = jsonTopic("Partitions").asJsonArray.iterator
+      while (jsonPartitions.hasNext) {
+        val jsonPartition = jsonPartitions.next.asJsonObject
+        partitionsCount += 1
+
+        val partition = jsonPartition("Partition").to[Int]
+        assertTrue(partition == 0 || partition == 1)
+
+        var replicasCount = 0
+        val jsonReplicas = jsonPartition("Replicas").asJsonArray.iterator
+        while (jsonReplicas.hasNext) {
+          val jsonReplica = jsonReplicas.next.asJsonObject
+          replicasCount += 1
+
+          val replica = jsonReplica("Replica").to[Int]
+          assertTrue(replica >= 0 && replica <= 2)
+          for (idx <- 3 until headers.size)
+            assertTrue(jsonReplica(headers(idx)) != null)
+        }
+        assertTrue(replicasCount == 3)
+      }
+      assertTrue(partitionsCount == 2)
+    }
+    assertTrue(topicsCount == 2)
   }
 
   @Test
