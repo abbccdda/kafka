@@ -32,7 +32,7 @@ public class PartitionInfoTest {
         Node[] observers = new Node[] {r2};
         Node[] inSyncReplicas = new Node[] {leader, r1};
         Node[] offlineReplicas = new Node[] {r2};
-        PartitionInfo partitionInfo = new PartitionInfo(topic, partition, leader, replicas, observers, inSyncReplicas, offlineReplicas);
+        PartitionInfo partitionInfo = PartitionInfo.of(topic, partition, leader, replicas, observers, inSyncReplicas, offlineReplicas);
 
         String expected = String.format("Partition(topic = %s, partition = %d, leader = %s, replicas = %s, observers = %s, isr = %s, offlineReplicas = %s)",
                 topic, partition, leader.idString(), "[0,1,2]", "[2]",  "[0,1]", "[2]");

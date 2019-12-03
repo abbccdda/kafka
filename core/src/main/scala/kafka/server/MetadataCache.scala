@@ -226,7 +226,7 @@ class MetadataCache(brokerId: Int) extends Logging {
     val partitions = getAllPartitions(snapshot)
       .filter { case (_, state) => state.leader != LeaderAndIsr.LeaderDuringDelete }
       .map { case (tp, state) =>
-        new PartitionInfo(tp.topic, tp.partition, node(state.leader),
+        PartitionInfo.of(tp.topic, tp.partition, node(state.leader),
           state.replicas.asScala.map(node).toArray,
           state.observers.asScala.map(node).toArray,
           state.isr.asScala.map(node).toArray,

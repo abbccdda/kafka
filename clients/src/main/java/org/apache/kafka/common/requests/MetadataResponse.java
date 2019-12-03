@@ -154,7 +154,7 @@ public class MetadataResponse extends AbstractResponse {
      * Transform a topic and PartitionMetadata into PartitionInfo.
      */
     public static PartitionInfo partitionMetaToInfo(String topic, PartitionMetadata partitionMetadata) {
-        return new PartitionInfo(
+        return PartitionInfo.of(
                 topic,
                 partitionMetadata.partition(),
                 partitionMetadata.leader(),

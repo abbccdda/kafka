@@ -39,10 +39,10 @@ public class PartitionInfo {
                          Node[] replicas,
                          Node[] inSyncReplicas,
                          Node[] offlineReplicas) {
-        this(topic, partition, leader, replicas, new Node[0], inSyncReplicas, new Node[0]);
+        this(topic, partition, leader, replicas, new Node[0], inSyncReplicas, offlineReplicas);
     }
 
-    public PartitionInfo(String topic,
+    private PartitionInfo(String topic,
                          int partition,
                          Node leader,
                          Node[] replicas,
@@ -56,6 +56,17 @@ public class PartitionInfo {
         this.observers = observers;
         this.inSyncReplicas = inSyncReplicas;
         this.offlineReplicas = offlineReplicas;
+    }
+
+    @Confluent
+    public static PartitionInfo of(String topic,
+                                   int partition,
+                                   Node leader,
+                                   Node[] replicas,
+                                   Node[] observers,
+                                   Node[] inSyncReplicas,
+                                   Node[] offlineReplicas) {
+        return new PartitionInfo(topic, partition, leader, replicas, observers, inSyncReplicas, offlineReplicas);
     }
 
     /**
