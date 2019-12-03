@@ -749,6 +749,8 @@ project(':core') {
 
   dependencies {
     compile project(':clients')
+    // KSTORAGE-284 - Explicit Jackson CBOR dependency to avoid the S3 client pulling in an older vulnerable version.
+    compile libs.jacksonCbor
     compile libs.jacksonDatabind
     compile libs.jacksonModuleScala
     compile libs.jacksonDataformatCsv

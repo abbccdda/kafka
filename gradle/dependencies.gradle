@@ -20,7 +20,7 @@
 ext {
   versions = [:]
   libs = [:]
-  
+
   // Enabled by default when commands like `testAll` are invoked
   defaultScalaVersions = [ '2.11', '2.12' ]
   // Available if -PscalaVersion is used. This is useful when we want to support a Scala version that has
@@ -63,7 +63,7 @@ versions += [
   cloudEventsKafka: '0.3.1',
   jacksonProtobufDatatype: '0.9.11-jackson2.9',
   activation: "1.1.1",
-  amazons3client: "1.11.475",
+  amazons3client: "1.11.656",
   apacheda: "1.0.2",
   apachedaLdapCodec: "1.0.0",
   apacheds: "2.0.0-M24",
@@ -180,6 +180,7 @@ libs += [
   guava: "com.google.guava:guava:$versions.guava",
   guavaTestLib: "com.google.guava:guava-testlib:$versions.guava",
   jacksonDatabind: "com.fasterxml.jackson.core:jackson-databind:$versions.jacksonDatabind",
+  jacksonCbor: "com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:$versions.jackson",
   jacksonDataformatCsv: "com.fasterxml.jackson.dataformat:jackson-dataformat-csv:$versions.jackson",
   jacksonModuleScala: "com.fasterxml.jackson.module:jackson-module-scala_$versions.baseScala:$versions.jackson",
   jacksonJDK8Datatypes: "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:$versions.jackson",
