@@ -80,6 +80,8 @@ public class SslTransportLayerTest {
         clientCertStores = new CertStores(false, "client", "localhost");
         sslServerConfigs = serverCertStores.getTrustingConfig(clientCertStores);
         sslClientConfigs = clientCertStores.getTrustingConfig(serverCertStores);
+        sslServerConfigs.put(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG, SslConfigs.KAFKA_SSL_ENGINE_BUILDER_CLASS);
+        sslClientConfigs.put(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG, SslConfigs.KAFKA_SSL_ENGINE_BUILDER_CLASS);
         this.channelBuilder = new SslChannelBuilder(Mode.CLIENT, null, false);
         this.channelBuilder.configure(sslClientConfigs);
         this.selector = new Selector(5000, new Metrics(), time, "MetricGroup", channelBuilder, new LogContext());

@@ -49,6 +49,7 @@ import javax.security.sasl.SaslException;
 import org.apache.kafka.clients.NetworkClient;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.SaslConfigs;
+import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.internals.BrokerSecurityConfigs;
 import org.apache.kafka.common.config.types.Password;
 import org.apache.kafka.common.errors.SaslAuthenticationException;
@@ -149,6 +150,8 @@ public class SaslAuthenticatorTest {
         clientCertStores = new CertStores(false, "localhost");
         saslServerConfigs = serverCertStores.getTrustingConfig(clientCertStores);
         saslClientConfigs = clientCertStores.getTrustingConfig(serverCertStores);
+        saslServerConfigs.put(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG, SslConfigs.KAFKA_SSL_ENGINE_BUILDER_CLASS);
+        saslClientConfigs.put(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG, SslConfigs.KAFKA_SSL_ENGINE_BUILDER_CLASS);
         credentialCache = new CredentialCache();
         TestLogin.loginCount.set(0);
     }
