@@ -6,7 +6,7 @@ package io.confluent.license;
 
 import java.time.Duration;
 import java.util.Collections;
-import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -39,6 +39,17 @@ import io.confluent.command.record.Command.CommandMessage;
 import io.confluent.command.record.Command.LicenseInfo;
 import io.confluent.serializers.ProtoSerde;
 
+/**
+ * IMPORTANT: This class should not use Kafka APIs newer than AK 0.11.0/CP 3.3.0.
+ *
+ * All of our proprietary connectors are dependent upon the LicenseManager framework
+ * and they all include this dependency in their plugin directory. So, when the connectors are
+ * installed into any CP version, the connector's LicenseManager uses the AK APIs provided by the
+ * Connect installation to create the license topic if necessary. Connectors may be installed into
+ * CP 3.3.0 or newer when `AdminClient.createTopics(...)` was added. We should maintain
+ * compatibility for the LicenseManager for all these versions by using only older APIs that are
+ * available from 3.3.0.
+ */
 public class LicenseStore {
 
   private static final Logger log = LoggerFactory.getLogger(LicenseStore.class);
@@ -191,8 +202,9 @@ public class LicenseStore {
     Runnable createTopics = new Runnable() {
       @Override
       public void run() {
-        try (Admin admin = Admin.create(topicConfig)) {
-
+        // NOTE: This uses AdminClient and not the new Admin API to ensure that connectors
+        // using this framework can be installed into Connect from older CP versions.
+        try (AdminClient admin = AdminClient.create(topicConfig)) {
           try {
             admin.describeTopics(Collections.singleton(topic)).all().get();
             log.debug("Topic {} already exists.", topic);
