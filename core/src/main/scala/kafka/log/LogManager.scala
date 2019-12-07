@@ -1060,7 +1060,9 @@ class LogManager(logDirs: Seq[File],
     }
   }
 
-  private def checkpointTierState(): Unit = {
+  // We need synchronization with log deletion here, as the delete operation renames the log directory while the
+  // checkpoint operation writes to the log directory
+  private[log] def checkpointTierState(): Unit = logCreationOrDeletionLock synchronized {
     if (allLogs.nonEmpty)
       tierLogComponents.topicConsumerOpt.foreach(_.commitPositions(allLogs.map(_.tierPartitionState).toIterator.asJava))
   }

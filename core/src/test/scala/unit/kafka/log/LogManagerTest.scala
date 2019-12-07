@@ -22,6 +22,12 @@ import java.util.{Collections, Properties}
 
 import kafka.server.{FetchDataInfo, FetchLogEnd}
 import kafka.server.checkpoints.OffsetCheckpointFile
+import kafka.tier.TopicIdPartition
+import kafka.tier.domain.TierTopicInitLeader
+import kafka.tier.state.TierPartitionState.AppendResult
+import kafka.tier.state.{TierPartitionState, TierPartitionStateFactory}
+import kafka.tier.store.TierObjectStore
+import kafka.tier.topic.TierTopicConsumer
 import kafka.utils._
 import org.apache.kafka.common.errors.OffsetOutOfRangeException
 import org.apache.kafka.common.utils.Utils
@@ -30,10 +36,11 @@ import org.easymock.EasyMock
 import org.junit.Assert._
 import org.junit.{After, Before, Test}
 import org.mockito.ArgumentMatchers.any
-import org.mockito.Mockito.{doAnswer, spy}
+import org.mockito.Mockito._
 import org.mockito.invocation.InvocationOnMock
 import org.mockito.stubbing.Answer
 
+import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.util.{Failure, Try}
 
@@ -387,11 +394,13 @@ class LogManagerTest {
     }
   }
 
-  private def createLogManager(logDirs: Seq[File] = Seq(this.logDir)): LogManager = {
+  private def createLogManager(logDirs: Seq[File] = Seq(this.logDir),
+                               tierLogComponents: TierLogComponents = TierLogComponents.EMPTY): LogManager = {
     TestUtils.createLogManager(
       defaultConfig = logConfig,
       logDirs = logDirs,
-      time = this.time)
+      time = this.time,
+      tierLogComponents = tierLogComponents)
   }
 
   @Test
@@ -567,5 +576,70 @@ class LogManagerTest {
     logManager.brokerConfigUpdated()
     logManager.topicConfigUpdated("test-topic")
     assertTrue(logManager.partitionsInitializing.isEmpty)
+  }
+
+  @Test
+  def testDeleteAndTierStateFlushConcurrency(): Unit = {
+    val logDir = TestUtils.tempDir()
+    val tierTopicConsumer = mock(classOf[TierTopicConsumer])
+    val tierObjectStore = mock(classOf[TierObjectStore])
+    val tierPartitionStateFactory = new TierPartitionStateFactory(true)
+    val tierLogComponents = TierLogComponents(Some(tierTopicConsumer), Some(tierObjectStore), tierPartitionStateFactory)
+
+    when(tierTopicConsumer.commitPositions(any())).thenAnswer(new Answer[Unit] {
+      override def answer(invocation: InvocationOnMock): Unit = {
+        val iterator = invocation.getArgument(0).asInstanceOf[java.util.Iterator[TierPartitionState]].asScala
+        iterator.foreach(_.flush())
+      }
+    })
+
+    val logManager = createLogManager(logDirs = Seq(logDir), tierLogComponents = tierLogComponents)
+
+    @volatile var isDone = false
+    @volatile var exceptionOpt: Option[Exception] = None
+    val logProps = new Properties()
+    logProps.put(LogConfig.TierEnableProp, true: java.lang.Boolean)
+    val config = LogConfig.fromProps(logConfig.originals, logProps)
+    val numPartitions = 50
+
+    val t = new Thread() {
+      override def run(): Unit = {
+        try {
+          while (!isDone)
+            logManager.checkpointTierState()
+        } catch {
+          case e: Exception => exceptionOpt = Some(e)
+        }
+      }
+    }
+
+    // create logs
+    for (i <- 0 to numPartitions) {
+      val topicPartition = new TopicPartition(name, i)
+      val topicIdPartition = new TopicIdPartition(topicPartition.topic, java.util.UUID.randomUUID, topicPartition.partition)
+
+      val log = logManager.getOrCreateLog(topicPartition, config)
+      log.tierPartitionState.setTopicId(topicIdPartition.topicId)
+
+      // append InitLeader to tier partition state file, so that it actually has some state to flush
+      val result = log.tierPartitionState.append(new TierTopicInitLeader(topicIdPartition, 0, java.util.UUID.randomUUID, 0))
+      assertEquals(AppendResult.ACCEPTED, result)
+    }
+
+    // start the background checkpoint thread
+    t.start()
+
+    // delete logs
+    val allLogs =
+      for (i <- 0 to numPartitions)
+        yield logManager.asyncDelete(new TopicPartition(name, i))
+
+    isDone = true
+    t.join()
+
+    allLogs.foreach(_.close())
+    Utils.delete(logDir)
+
+    exceptionOpt.foreach(throw _)
   }
 }
