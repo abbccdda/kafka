@@ -11,10 +11,12 @@ import org.apache.kafka.common.record.DefaultRecordBatch;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.MemoryRecordsBuilder;
 import org.apache.kafka.common.record.MutableRecordBatch;
+import org.apache.kafka.common.record.Record;
 import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.SimpleRecord;
 import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.utils.ByteBufferInputStream;
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.EOFException;
@@ -64,6 +66,49 @@ public class TierSegmentReaderTest {
         testExpected(combinedBuffer, 5L, 3L, 5L);
         testThrows(reader, combinedBuffer, 6L, EOFException.class);
         testThrows(reader, combinedBuffer, 7L, EOFException.class);
+    }
+
+    @Test // Test that on EOF, the stream is no longer read
+    public void testAbortOnEOF() {
+        List<MemoryRecords> batches = createBatches();
+        int size = batches.stream().mapToInt(MemoryRecords::sizeInBytes).sum();
+        try (InputStream stream = toStream(batches)) {
+            InputStream faulty = new InputStream() {
+                private final InputStream inner = stream;
+                private int bytesRead = -1;
+                @Override
+                public int read() throws IOException {
+                    // Keep track of how much we've read from the input stream,
+                    // if we try to read more than the size of the object, throw.
+                    if (bytesRead >= (size - 1))
+                        throw new IOException("hit eof!");
+                    bytesRead += 1;
+                    return inner.read();
+                }
+            };
+            CancellationContext ctx = CancellationContext.newContext();
+            TierSegmentReader reader = new TierSegmentReader("");
+            // Perform a fetch for the first offset in the segment, but incorrectly state
+            // the size of the segment as 2x the known size.
+            // This will cause the fetch to attempt to continue reading from the input stream
+            // past what the input stream contains.
+            final long targetOffset = 100;
+            TierSegmentReader.RecordsAndNextBatchMetadata recordsAndMetadata =
+                    reader.readRecords(ctx, faulty, 1024 * 1024, targetOffset, 0, size * 2);
+
+
+            long expectedOffset = 100;
+            for (RecordBatch batch : recordsAndMetadata.records.batches()) {
+                for (Record record : batch) {
+                    Assert.assertEquals(
+                            "expected to find target offset 100 and all offsets after to be "
+                                    + "linearly increasing.", expectedOffset, record.offset());
+                    expectedOffset += 1;
+                }
+            }
+        } catch (IOException e) {
+            Assert.fail("expected no exception to be thrown");
+        }
     }
 
     @Test

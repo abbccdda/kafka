@@ -185,9 +185,11 @@ public class TierSegmentReader {
                 lastBatchStartPosition = headerStartPosition;
                 totalBytesRead += headerBytesRead + remainingBytes;
             } catch (EOFException e) {
+                readPartialData = true;
                 log.debug("{} terminating read loop due to EOFException", logPrefix, e);
                 break;
             } catch (IOException e) {
+                readPartialData = true;
                 log.error("{} terminating read loop due to IOException", logPrefix, e);
                 break;
             }
