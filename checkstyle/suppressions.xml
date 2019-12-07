@@ -297,6 +297,7 @@
     <suppress checks="ClassDataAbstractionCoupling" files="(MultiTenantRequestContext|LdapGroupManager|OAuthBearerSecureTokenValidatorCallbackHandler|SecretsLoader).java"/>
     <suppress checks="BooleanExpressionComplexity" files="MultiTenantRequestContext"/>
     <suppress checks="ClassFanOutComplexity" files="MultiTenantRequestContext.java"/>
+    <suppress checks="ParameterNumber" files="LogicalClusterMetadata.java"/>
 
     <!-- ce-broker-plugins test suppressions -->
     <suppress checks="ClassDataAbstractionCoupling" files="MultiTenantRequestContextTest.java"/>

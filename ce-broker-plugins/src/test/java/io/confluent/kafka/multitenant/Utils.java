@@ -25,14 +25,14 @@ public class Utils {
   public static final LogicalClusterMetadata LC_META_XYZ =
       new LogicalClusterMetadata("lkc-xyz", "pkc-xyz", "xyz",
           "my-account", "k8s-abc", LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
-          104857600L, 10240000L, 2048L,
+          104857600L, 10240000L, 2048L, null, null,
           LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER.longValue(),
           LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
           new LogicalClusterMetadata.LifecycleMetadata("xyz", "pkc-xyz", null, null));
   public static final LogicalClusterMetadata LC_META_ABC =
       new LogicalClusterMetadata("lkc-abc", "pkc-abc", "abc",
           "my-account", "k8s-abc", LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
-          10485760L, 10240000L, 204800L,
+          10485760L, 10240000L, 204800L, null, null,
           LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER.longValue(),
           LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
           new LogicalClusterMetadata.LifecycleMetadata("abc", "pkc-abc", null, null));
@@ -40,7 +40,7 @@ public class Utils {
   public static final LogicalClusterMetadata LC_META_DED =
           new LogicalClusterMetadata("lkc-ded", "pkc-ded", "ded",
           "my-account", "k8s-abc", LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
-          10485760L, 10240000L, 20480000L,
+          10485760L, 10240000L, 20480000L, null, null,
           LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER.longValue(),
           LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
           new LogicalClusterMetadata.LifecycleMetadata("ded", "pkc-ded", null, new Date()));
@@ -49,7 +49,7 @@ public class Utils {
   public static final LogicalClusterMetadata LC_META_MEH =
           new LogicalClusterMetadata("lkc-meh", "pkc-meh", "meh",
                   "my-account", "k8s-abc", LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
-                  10485760L, 10240000L, 204800L,
+                  10485760L, 10240000L, 204800L, null, null,
                   LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER.longValue(),
                   LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
                   new LogicalClusterMetadata.LifecycleMetadata("meh", "pkc-meh", null,
@@ -58,7 +58,7 @@ public class Utils {
   public static final LogicalClusterMetadata LC_META_HEALTHCHECK =
       new LogicalClusterMetadata("lkc-htc", "pkc-xyz", "external-healthcheck-pkc-xyz", "my-account",
                                  "k8s-abc", LogicalClusterMetadata.HEALTHCHECK_LOGICAL_CLUSTER_TYPE,
-                                 null, null, null, null, null, null);
+                                 null, null, null, null, null, null, null, null);
 
   static final SslCertificateSpecification SSL_CERT_SPEC_NO_TYPE =
           new SslCertificateSpecification(null, "mystorepassword",
@@ -137,7 +137,7 @@ public class Utils {
         lcMeta.logicalClusterId(), lcMeta.physicalClusterId(),
         lcMeta.logicalClusterName(), lcMeta.accountId(), lcMeta.k8sClusterId(),
         LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE, lcMeta.storageBytes(),
-        producerByteRate, consumerByteRate, brokerRequestPercentage,
+        producerByteRate, consumerByteRate, null, null, brokerRequestPercentage,
         lcMeta.networkQuotaOverhead(), lcMeta.lifecycleMetadata());
   }
 

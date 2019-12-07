@@ -210,7 +210,7 @@ public class PhysicalClusterMetadataTest {
         LC_META_XYZ.logicalClusterId(), LC_META_XYZ.physicalClusterId(),
         "new-name", "new-account", LC_META_XYZ.k8sClusterId(),
         LC_META_XYZ.logicalClusterType(), LC_META_XYZ.storageBytes(),
-        LC_META_XYZ.producerByteRate(), LC_META_XYZ.consumerByteRate(),
+        LC_META_XYZ.producerByteRate(), LC_META_XYZ.consumerByteRate(), null, null,
         LC_META_XYZ.brokerRequestPercentage().longValue(), LC_META_XYZ.networkQuotaOverhead(), null
     );
     Utils.updateLogicalClusterFile(updatedLcMeta, tempFolder);
@@ -247,7 +247,7 @@ public class PhysicalClusterMetadataTest {
     final LogicalClusterMetadata anotherMeta = new LogicalClusterMetadata(
         "lkc-123", "pkc-123", "123", "my-account", "k8s-123",
         LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
-        10485760L, 102400L, 204800L,
+        10485760L, 102400L, 204800L, null, null,
         LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER.longValue(),
         LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE, null);
     Utils.createLogicalClusterFile(anotherMeta, tempFolder);
@@ -387,7 +387,7 @@ public class PhysicalClusterMetadataTest {
         new LogicalClusterMetadata(
             "lkc-inv", "pkc-a7sjfe", "my-poc-cluster", "my-account", "k8s-abc",
             LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
-            5242880000L, 104857600L, null, 0L,
+            5242880000L, 104857600L, null, null, null, 0L,
             LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
             new LogicalClusterMetadata.LifecycleMetadata("my-poc-cluster", "pkc-a7sjfe", null, null));
     final int numBrokers = 8;
@@ -518,7 +518,7 @@ public class PhysicalClusterMetadataTest {
     final LogicalClusterMetadata lcMeta =
         new LogicalClusterMetadata("lkc-qwr", "pkc-qwr", "xyz", "my-account", "k8s-abc",
                                    LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
-                                   104857600L, 1024L, null,
+                                   104857600L, 1024L, null, null, null,
                                    LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER.longValue(),
                                    LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE, null);
 
@@ -535,7 +535,8 @@ public class PhysicalClusterMetadataTest {
     // "fix" cluster meta, which should cause cache update
     final LogicalClusterMetadata lcValidMeta = new LogicalClusterMetadata(
         "lkc-qwr", "pkc-qwr", "xyz", "my-account", "k8s-abc",
-        LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE, 104857600L, 1024L, 2048L,
+        LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
+        104857600L, 1024L, 2048L, null, null,
         LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER.longValue(),
         LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE, null);
     Utils.updateLogicalClusterFile(lcValidMeta, tempFolder);
@@ -702,7 +703,7 @@ public class PhysicalClusterMetadataTest {
         new LogicalClusterMetadata(
             "lkc-leg", "pkc-a7sjfe", "my-poc-cluster", "my-account", "k8s-abc",
             LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
-            5242880000L, 5242880L, 5242880L, 50L,
+            5242880000L, 5242880L, 5242880L, null, null, 50L,
             LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
             new LogicalClusterMetadata.LifecycleMetadata("my-poc-cluster", "pkc-a7sjfe", null, null));
     final LogicalClusterMetadata upgradedTenant =

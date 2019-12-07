@@ -20,9 +20,11 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 import java.io.IOException;
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Date;
+import java.util.Formatter;
 
 import io.confluent.kafka.multitenant.quota.QuotaConfig;
 
@@ -60,7 +62,7 @@ public class LogicalClusterMetadataTest {
         LC_META_ABC.logicalClusterId(), LC_META_ABC.physicalClusterId(),
         "new-name", "new-account", LC_META_XYZ.k8sClusterId(),
         LC_META_ABC.logicalClusterType(), LC_META_ABC.storageBytes(),
-        5L * 1024L * 1024L, 5L * 1024L * 1024L,
+        5L * 1024L * 1024L, 5L * 1024L * 1024L, null, null,
         LC_META_ABC.brokerRequestPercentage().longValue(), null, null
     );
     assertEquals(LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
@@ -76,7 +78,7 @@ public class LogicalClusterMetadataTest {
         LC_META_ABC.logicalClusterId(), LC_META_ABC.physicalClusterId(),
         "new-name", "new-account", LC_META_XYZ.k8sClusterId(),
         LC_META_ABC.logicalClusterType(), LC_META_ABC.storageBytes(),
-        1024L * 1024L, 100L * 1024L * 1024L,
+        1024L * 1024L, 100L * 1024L * 1024L, null, null,
         LC_META_ABC.brokerRequestPercentage().longValue(), null, null
     );
     assertEquals(LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
@@ -94,7 +96,7 @@ public class LogicalClusterMetadataTest {
         LC_META_ABC.logicalClusterId(), LC_META_ABC.physicalClusterId(),
         "new-name", "new-account", LC_META_XYZ.k8sClusterId(),
         LC_META_ABC.logicalClusterType(), LC_META_ABC.storageBytes(),
-        100L * 1024L * 1024L, 100L * 1024L * 1024L,
+        100L * 1024L * 1024L, 100L * 1024L * 1024L, null, null,
         LC_META_ABC.brokerRequestPercentage().longValue(), null, null
     );
     assertEquals(LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
@@ -114,7 +116,8 @@ public class LogicalClusterMetadataTest {
         LC_META_ABC.logicalClusterId(), LC_META_ABC.physicalClusterId(),
         "new-name", "new-account", LC_META_XYZ.k8sClusterId(),
         LC_META_ABC.logicalClusterType(), LC_META_ABC.storageBytes(),
-        0L, 0L, LC_META_ABC.brokerRequestPercentage().longValue(), null, null
+        0L, 0L, null, null, LC_META_ABC.brokerRequestPercentage().longValue(),
+        null, null
     );
     assertEquals(LogicalClusterMetadata.DEFAULT_MIN_NETWORK_BYTE_RATE,
                  zeroQuotaMeta.producerByteRate());
@@ -126,7 +129,8 @@ public class LogicalClusterMetadataTest {
         LC_META_ABC.logicalClusterId(), LC_META_ABC.physicalClusterId(),
         "new-name", "new-account", LC_META_XYZ.k8sClusterId(),
         LC_META_ABC.logicalClusterType(), LC_META_ABC.storageBytes(),
-        0L, 100L * 1024L * 1024L, LC_META_ABC.brokerRequestPercentage().longValue(), null, null
+        0L, 100L * 1024L * 1024L, null, null,
+        LC_META_ABC.brokerRequestPercentage().longValue(), null, null
     );
     assertEquals(LogicalClusterMetadata.DEFAULT_MIN_NETWORK_BYTE_RATE,
                  produceZeroQuotaMeta.producerByteRate());
@@ -226,6 +230,45 @@ public class LogicalClusterMetadataTest {
     // but not valid metadata
     assertFalse(meta.isValid());
     assertEquals(lcId, meta.logicalClusterId());
+    assertEquals((Long) 1024L, meta.producerByteRate());
+    assertEquals((Long) 1024L, meta.consumerByteRate());
+  }
+
+  @Test
+  public void testLoadMetadataWithMaxQuotas() throws IOException {
+    final String lcId = "lkc-fhg";
+    final String metadataTemplate = "{" +
+            "\"logical_cluster_id\": \"" + lcId + "\"," +
+            "\"physical_cluster_id\": \"pkc-fhg\"," +
+            "\"logical_cluster_name\": \"name\"," +
+            "\"account_id\": \"account\"," +
+            "\"k8s_cluster_id\": \"k8s-cluster\"," +
+            "\"logical_cluster_type\": \"nobody-cares\"," +
+            "\"storage_bytes\": 100," +
+            "\"network_ingress_byte_rate\": %d," +
+            "\"network_egress_byte_rate\": %d," +
+            "\"max_network_ingress_byte_rate\": %d," +
+            "\"max_network_egress_byte_rate\": %d}";
+
+    File metaFile = tempFolder.newFile(lcId + ".1.json");
+    Formatter formatter = new Formatter(metaFile.toString());
+    formatter.format(metadataTemplate, 1024L, 1024L, 2048L, 2048L);
+    formatter.close();
+
+    LogicalClusterMetadata meta = loadFromFile(metaFile.toPath());
+    assertNotNull(meta);
+    assertFalse(meta.isValid());
+    assertEquals((Long) 2048L, meta.producerByteRate());
+    assertEquals((Long) 2048L, meta.consumerByteRate());
+
+    metaFile = tempFolder.newFile(lcId + ".2.json");
+    formatter = new Formatter(metaFile.toString());
+    formatter.format(metadataTemplate, 1024L, 1024L, -1L, -1L);
+    formatter.close();
+
+    meta = loadFromFile(metaFile.toPath());
+    assertNotNull(meta);
+    assertFalse(meta.isValid());
     assertEquals((Long) 1024L, meta.producerByteRate());
     assertEquals((Long) 1024L, meta.consumerByteRate());
   }

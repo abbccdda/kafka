@@ -45,7 +45,6 @@ public class LogicalClusterMetadata {
   private final Integer networkQuotaOverhead;
   private final LifecycleMetadata lifecycleMetadata;
 
-
   @JsonCreator
   public LogicalClusterMetadata(
       @JsonProperty("logical_cluster_id") String logicalClusterId,
@@ -57,6 +56,8 @@ public class LogicalClusterMetadata {
       @JsonProperty("storage_bytes") Long storageBytes,
       @JsonProperty("network_ingress_byte_rate") Long producerByteRate,
       @JsonProperty("network_egress_byte_rate") Long consumerByteRate,
+      @JsonProperty("max_network_ingress_byte_rate") Long maxProducerByteRate,
+      @JsonProperty("max_network_egress_byte_rate") Long maxConsumerByteRate,
       @JsonProperty("broker_request_percentage") Long brokerRequestPercentage,
       @JsonProperty("network_quota_overhead") Integer networkQuotaOverhead,
       @JsonProperty("metadata") LifecycleMetadata lifecycleMetadata
@@ -77,16 +78,20 @@ public class LogicalClusterMetadata {
     // will be defined by per-broker minimums.
     Long validProducerByteRate = producerByteRate;
     if (validProducerByteRate != null) {
-      validProducerByteRate = Math.max(DEFAULT_MIN_NETWORK_BYTE_RATE, producerByteRate);
+      validProducerByteRate = Math.max(maxProducerByteRate != null ? maxProducerByteRate : 0,
+              Math.max(DEFAULT_MIN_NETWORK_BYTE_RATE, producerByteRate));
     } else if (HEALTHCHECK_LOGICAL_CLUSTER_TYPE.equals(logicalClusterType)) {
       validProducerByteRate = DEFAULT_HEALTHCHECK_MAX_PRODUCER_RATE;
     }
     Long validConsumerByteRate = consumerByteRate;
     if (validConsumerByteRate != null) {
-      validConsumerByteRate = Math.max(DEFAULT_MIN_NETWORK_BYTE_RATE, consumerByteRate);
+      validConsumerByteRate = Math.max(maxConsumerByteRate != null ? maxConsumerByteRate : 0,
+              Math.max(DEFAULT_MIN_NETWORK_BYTE_RATE, consumerByteRate));
     } else if (HEALTHCHECK_LOGICAL_CLUSTER_TYPE.equals(logicalClusterType)) {
       validConsumerByteRate = DEFAULT_HEALTHCHECK_MAX_CONSUMER_RATE;
     }
+    // CPKAFKA-3468: Add an override for maximum, to work around wrong quota numbers in the
+    // database. Should be removed when we're sure every row in the database has correct quotas.
     this.producerByteRate = validProducerByteRate;
     this.consumerByteRate = validConsumerByteRate;
     this.brokerRequestPercentage = brokerRequestPercentage == null || brokerRequestPercentage == 0 ?
