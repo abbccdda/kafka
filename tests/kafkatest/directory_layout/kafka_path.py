@@ -56,8 +56,7 @@ JARS = {
     }
 }
 
-
-def create_path_resolver(context, project="kafka"):
+def create_path_resolver(context, project="kafka", dist_version=None):
     """Factory for generating a path resolver class
 
     This will first check for a fully qualified path resolver classname in context.globals.
@@ -75,7 +74,7 @@ def create_path_resolver(context, project="kafka"):
     (module_name, resolver_class_name) = resolver_fully_qualified_classname.rsplit('.', 1)
     cluster_mod = importlib.import_module(module_name)
     path_resolver_class = getattr(cluster_mod, resolver_class_name)
-    path_resolver = path_resolver_class(context, project)
+    path_resolver = path_resolver_class(context, project, dist_version)
 
     return path_resolver
 
@@ -91,7 +90,17 @@ class KafkaPathResolverMixin(object):
     @property
     def path(self):
         if not hasattr(self, "_path"):
-            setattr(self, "_path", create_path_resolver(self.context, "kafka"))
+            if hasattr(self, "project"):
+                project = self.project
+            else:
+                project = "kafka"
+
+            if hasattr(self, "dist_version"):
+                dist_version = self.dist_version
+            else:
+                dist_version = None
+
+            setattr(self, "_path", create_path_resolver(self.context, project, dist_version))
             if hasattr(self.context, "logger") and self.context.logger is not None:
                 self.context.logger.debug("Using path resolver %s" % self._path.__class__.__name__)
 
@@ -106,15 +115,24 @@ class KafkaSystemTestPathResolver(object):
         /opt/kafka-<version>    # Other previous versions of kafka
         ...
     """
-    def __init__(self, context, project="kafka"):
+    def __init__(self, context, project="kafka", dist_version=None):
         self.context = context
         self.project = project
+        self.dist_version = dist_version
 
     def home(self, node_or_version=DEV_BRANCH, project=None):
-        version = self._version(node_or_version)
-        home_dir = project or self.project
+        if node_or_version == DEV_BRANCH:
+            # DEV_BRANCH is hard coded to /opt/kafka-dev in various places
+            # including the docker VOLUME. We choose to detect this case
+            # to minimize conflicts with AK
+            home_dir = "kafka"
+            version = str(self._version(node_or_version))
+        else:
+            home_dir = project or self.project
+            version = self.dist_version or str(self._version(node_or_version))
+
         if version is not None:
-            home_dir += "-%s" % str(version)
+            home_dir += "-%s" % version
 
         return os.path.join(KAFKA_INSTALL_ROOT, home_dir)
 

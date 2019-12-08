@@ -93,6 +93,25 @@ get_kafka() {
     fi
 }
 
+get_confluent_platform() {
+    base_version=$1
+    version=$2
+    scala_version=$3
+    kafka_dir=/opt/confluentplatform-$version
+    url="https://s3-us-west-2.amazonaws.com/confluent-packages-$base_version.0/archive/$base_version/confluent-$version-$scala_version.tar.gz"
+    if [ ! -d $kafka_dir ]; then
+        pushd /tmp
+	mkdir $kafka_dir
+	chmod a+rw $kafka_dir
+	curl -s $url | tar xz --strip-components=1 -C $kafka_dir
+	# for compatibility with AK, copy tools scripts to .sh variants: https://confluentinc.atlassian.net/browse/CPKAFKA-4209
+	for i in $kafka_dir/bin/kafka-*; do
+		cp "$i" "$i.sh";
+	done
+        popd
+    fi
+}
+
 # Install Kibosh
 apt-get update -y && apt-get install -y git cmake pkg-config libfuse-dev
 pushd /opt
@@ -138,6 +157,8 @@ get_kafka 2.2.1 2.12
 chmod a+rw /opt/kafka-2.2.1
 get_kafka 2.3.0 2.12
 chmod a+rw /opt/kafka-2.3.0
+
+get_confluent_platform 5.3 5.3.0 2.12
 
 # For EC2 nodes, we want to use /mnt, which should have the local disk. On local
 # VMs, we can just create it if it doesn't exist and use it like we'd use
