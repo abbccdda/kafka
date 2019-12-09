@@ -169,7 +169,8 @@ object QuotaFactory extends Logging {
 
     BrokerBackpressureConfig(
       backpressureEnabledInConfig = backpressureEnabled,
-      tenantEndpointListenerNames = tenantListenerNames
+      tenantEndpointListenerNames = tenantListenerNames,
+      maxQueueSize = cfg.queuedMaxRequests.toDouble
     )
   }
 

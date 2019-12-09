@@ -8,7 +8,7 @@ import java.net.InetAddress
 import java.util.Collections
 import java.util.concurrent.TimeUnit
 
-import kafka.network.RequestChannel
+import kafka.network.{RequestChannel, SocketServer}
 import kafka.network.RequestChannel.Session
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.requests.{OffsetFetchRequest, RequestContext, RequestHeader}
@@ -30,6 +30,7 @@ class ClientRequestQuotaManagerTest {
   private val networkThreadpoolSize = 4
   private val ioThreadpoolCapacity = ioThreadpoolSize * 100
   private val networkThreadpoolCapacity = networkThreadpoolSize * 100
+  private val maxQueueSize = 500
   private val totalCapacity = ioThreadpoolCapacity + networkThreadpoolCapacity
   private val testUser = "ANONYMOUS"
   private val testClient = "Client1"
@@ -48,7 +49,8 @@ class ClientRequestQuotaManagerTest {
     backpressureConfig = BrokerBackpressureConfig(
       backpressureEnabledInConfig = true,
       backpressureCheckFrequencyMs = 10 * TimeUnit.HOURS.toMillis(1),
-      tenantEndpointListenerNames = Seq(testListener.value)
+      tenantEndpointListenerNames = Seq(testListener.value),
+      maxQueueSize = maxQueueSize
     )
   )
   private val twoTenantEndpointsConfig = ClientQuotaManagerConfig(
@@ -456,6 +458,138 @@ class ClientRequestQuotaManagerTest {
   }
 
   @Test
+  def testUpdateAdjustedCapacityDoesNotAdjustLimitWhenQueueSizeBelowThreshold(): Unit = {
+    val brokerRequestLimit = 800.0
+    val queueSizeSensor = metrics.sensor("RequestQueueSize")
+    val queueSizePercentiles = RequestQueueSizePercentiles.createPercentiles(metrics, maxQueueSize, SocketServer.DataPlaneMetricPrefix)
+    queueSizeSensor.add(queueSizePercentiles)
+
+    // queue size is zero at this point (since we did not simulate requests in the queue)
+    val correctedLimit = requestQuotaManager.updateAdjustedCapacity(brokerRequestLimit)
+    assertEquals("Expected no request limit correction during no request load",
+      brokerRequestLimit, correctedLimit, 0)
+
+    // simulate that queue size is consistently just under queue size threshold
+    for (i <- 0 until 100000) {
+      queueSizeSensor.record(config.backpressureConfig.queueSizeCap - 1)
+    }
+    val newCorrectedLimit = requestQuotaManager.updateAdjustedCapacity(brokerRequestLimit)
+    assertEquals(
+      "Expected no request limit correction when queue load is below the threshold",
+      brokerRequestLimit, newCorrectedLimit, 0)
+  }
+
+  @Test
+  def testUpdateAdjustedCapacityDecreasesLimitDuringRequestOverloadAndBacksOffDuringUnderload(): Unit = {
+    val mult = 10
+    val brokerRequestLimit = BrokerBackpressureConfig.DefaultMinRequestQuotaLimit + mult * BrokerBackpressureConfig.DefaultRequestQuotaAdjustment
+    val queueSizeSensor = metrics.sensor("RequestQueueSize")
+    val queueSizePercentiles = RequestQueueSizePercentiles.createPercentiles(metrics, maxQueueSize, SocketServer.DataPlaneMetricPrefix)
+    queueSizeSensor.add(queueSizePercentiles)
+
+    // simulate that the request queue is consistently overloaded
+    for (i <- 0 until 100000) {
+      queueSizeSensor.record(config.backpressureConfig.queueSizeCap + 1)
+    }
+
+    var expectedLimit = brokerRequestLimit
+    for (i <- 0 until mult) {
+      val correctedLimit = requestQuotaManager.updateAdjustedCapacity(brokerRequestLimit)
+      expectedLimit -= BrokerBackpressureConfig.DefaultRequestQuotaAdjustment
+      assertEquals("Expected request limit correction during request overload", expectedLimit, correctedLimit, 0)
+    }
+    // once the request limit reaches the minimum, it does not get corrected anymore
+    val minCorrectedLimit = requestQuotaManager.updateAdjustedCapacity(brokerRequestLimit)
+    assertEquals("Expected request limit correction during request overload", expectedLimit, minCorrectedLimit, 0)
+
+    time.sleep(100000)
+    // simulate some small load
+    for (i <- 0 until 100000) {
+      queueSizeSensor.record(i % 10)
+    }
+
+    for (i <- 0 until mult) {
+      val correctedLimit = requestQuotaManager.updateAdjustedCapacity(brokerRequestLimit)
+      expectedLimit += BrokerBackpressureConfig.DefaultRequestQuotaAdjustment
+      assertEquals("Expected request limit correction during request overload", expectedLimit, correctedLimit, 0)
+    }
+    // once the corrected limit reaches given 'brokerRequestLimit', it does not increase anymore
+    val maxCorrectedLimit = requestQuotaManager.updateAdjustedCapacity(brokerRequestLimit)
+    assertEquals("Expected request limit correction during request overload", expectedLimit, maxCorrectedLimit, 0)
+  }
+
+  @Test
+  def testBrokerRequestLimitIsAdjustedOnRequestOverload(): Unit = {
+    val request = buildRequest()
+    simulateTimeOnRequestHandlerThread(request, 500)
+    val throttleMs = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request)
+    assertEquals(0, throttleMs)
+
+    assertIoThreadUsageMetricValue("request-io-time", Some(50), 0.01)
+    assertIoThreadUsageMetricValue("request-non-exempt-io-time", Some(50), 0.01)
+
+    requestQuotaManager.updateBrokerQuotaLimit()
+    val expectedBrokerQuotaLimit = totalCapacity * BrokerBackpressureConfig.DefaultMaxResourceUtilization
+    assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedBrokerQuotaLimit), 0.01)
+
+    time.sleep(10) // 10 millisecond
+    request.recordNetworkThreadTimeCallback.foreach(record => record(10000000))
+    assertNetworkThreadUsageMetricValue(s"request-network-time", Some(1), 0.01)
+    assertNetworkThreadUsageMetricValue(s"request-non-exempt-network-time",  Some(1), 0.01)
+
+    // broker quota limit should not change since extra non-exempt network usage is tiny
+    requestQuotaManager.updateBrokerQuotaLimit()
+    assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedBrokerQuotaLimit), 0.01)
+
+    // simulate request overload
+    val queueSizeSensor = metrics.sensor("RequestQueueSize")
+    val queueSizePercentiles = RequestQueueSizePercentiles.createPercentiles(metrics, maxQueueSize, SocketServer.DataPlaneMetricPrefix)
+    queueSizeSensor.add(queueSizePercentiles)
+
+    // simulate that queue size is consistently over queue size threshold
+    for (i <- 0 until 100000) {
+      queueSizeSensor.record(config.backpressureConfig.queueSizeCap + 1)
+    }
+    assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedBrokerQuotaLimit), 0.01)
+    requestQuotaManager.updateBrokerQuotaLimit()
+    assertBackpressureMetricValue("non-exempt-request-time-capacity",
+      Some(expectedBrokerQuotaLimit - BrokerBackpressureConfig.DefaultRequestQuotaAdjustment), 0.01)
+
+    // once request queues are not overloaded, request limit is lifted up
+    time.sleep(100000)
+    requestQuotaManager.updateBrokerQuotaLimit()
+    assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedBrokerQuotaLimit), 0.01)
+  }
+
+  @Test
+  def testBrokerRequestLimitDoesNotFallBelowMinimum(): Unit = {
+    val request = buildRequest()
+    simulateTimeOnRequestHandlerThread(request, 500)
+    val throttleMs = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request)
+    assertEquals(0, throttleMs)
+    time.sleep(10) // 10 millisecond
+    request.recordNetworkThreadTimeCallback.foreach(record => record(10000000))
+
+    val expectedBrokerQuotaLimit = totalCapacity * BrokerBackpressureConfig.DefaultMaxResourceUtilization
+    requestQuotaManager.updateBrokerQuotaLimit()
+    assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedBrokerQuotaLimit), 0.01)
+
+    // simulate request overload
+    val queueSizeSensor = metrics.sensor("RequestQueueSize")
+    val queueSizePercentiles = RequestQueueSizePercentiles.createPercentiles(metrics, maxQueueSize, SocketServer.DataPlaneMetricPrefix)
+    queueSizeSensor.add(queueSizePercentiles)
+    for (i <- 0 until 100000) {
+      queueSizeSensor.record(config.backpressureConfig.queueSizeCap + 1)
+    }
+    // make sure that limit does not fall below the minimum
+    for (i <- 0 until 1000) {
+      requestQuotaManager.updateBrokerQuotaLimit()
+    }
+    assertBackpressureMetricValue("non-exempt-request-time-capacity",
+      Some(BrokerBackpressureConfig.DefaultMinRequestQuotaLimit), 0.01)
+  }
+
+  @Test
   def testMultipleTenantEndpoints(): Unit = {
     recreateRequestQuotaManagerWithTwoTenantEnpoints()
 
@@ -538,6 +672,11 @@ class ClientRequestQuotaManagerTest {
 
   private def assertBackpressureMetricValue(metricName: String, expectedValueOpt: Option[Double], delta: Double): Unit = {
     assertMetricValue(metricName, "backpressure-metrics", Map.empty, expectedValueOpt, delta)
+  }
+
+  private def brokerRequestLimit: Double = {
+    val metric = metrics.metric(BrokerBackpressureMetrics.nonExemptRequestCapacityMetricName(metrics))
+    metric.metricValue.asInstanceOf[Double]
   }
 
   private def assertIoThreadUsageMetricValue(metricName: String, expectedValueOpt: Option[Double], delta: Double): Unit = {

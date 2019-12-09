@@ -24,8 +24,10 @@ import java.util.concurrent._
 import com.typesafe.scalalogging.Logger
 import com.yammer.metrics.core.{Gauge, Meter}
 import kafka.metrics.KafkaMetricsGroup
+import kafka.server.RequestQueueSizePercentiles
 import kafka.utils.{Logging, NotNothing, Pool}
 import org.apache.kafka.common.memory.MemoryPool
+import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.Send
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.requests._
@@ -277,13 +279,15 @@ object RequestChannel extends Logging {
   }
 }
 
-class RequestChannel(val queueSize: Int, val metricNamePrefix : String) extends KafkaMetricsGroup {
+class RequestChannel(val queueSize: Int, val metricNamePrefix : String, val serverMetrics: Metrics) extends KafkaMetricsGroup {
   import RequestChannel._
   val metrics = new RequestChannel.Metrics
   private val requestQueue = new ArrayBlockingQueue[BaseRequest](queueSize)
   private val processors = new ConcurrentHashMap[Int, Processor]()
   val requestQueueSizeMetricName = metricNamePrefix.concat(RequestQueueSizeMetric)
   val responseQueueSizeMetricName = metricNamePrefix.concat(ResponseQueueSizeMetric)
+  private val queueSizeSensor = serverMetrics.sensor(requestQueueSizeMetricName)
+  queueSizeSensor.add(RequestQueueSizePercentiles.createPercentiles(serverMetrics, queueSize, metricNamePrefix))
 
   newGauge(requestQueueSizeMetricName, new Gauge[Int] {
       def value = requestQueue.size
@@ -314,6 +318,7 @@ class RequestChannel(val queueSize: Int, val metricNamePrefix : String) extends 
 
   /** Send a request to be handled, potentially blocking until there is room in the queue for the request */
   def sendRequest(request: RequestChannel.Request): Unit = {
+    queueSizeSensor.record(requestQueue.size)
     requestQueue.put(request)
   }
 

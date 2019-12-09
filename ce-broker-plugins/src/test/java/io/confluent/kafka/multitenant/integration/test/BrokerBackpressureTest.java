@@ -50,6 +50,7 @@ public class BrokerBackpressureTest {
 
   private final Integer numIoThreads = 8;
   private final Integer numNetworkThreads = 4;
+  private final Integer maxQueueSize = 500;
   private final AlterConfigsOptions configsOptions = new AlterConfigsOptions().timeoutMs(30000);
   private final ConfigResource defaultBrokerConfigResource =
       new ConfigResource(ConfigResource.Type.BROKER, "");
@@ -71,6 +72,7 @@ public class BrokerBackpressureTest {
     props.put(KafkaConfig$.MODULE$.AlterConfigPolicyClassNameProp(), AlterConfigPolicy.class.getName());
     props.put(KafkaConfig$.MODULE$.NumNetworkThreadsProp(), numNetworkThreads.toString());
     props.put(KafkaConfig$.MODULE$.NumIoThreadsProp(), numIoThreads.toString());
+    props.put(KafkaConfig$.MODULE$.QueuedMaxRequestsProp(), maxQueueSize.toString());
     props.put(TopicPolicyConfig.REPLICATION_FACTOR_CONFIG, "1");
     return props;
   }
@@ -192,6 +194,8 @@ public class BrokerBackpressureTest {
                 broker.quotaManagers().produce().backpressureEnabled());
     assertTrue("Expected request backpressure to be enabled",
                broker.quotaManagers().request().backpressureEnabled());
+    assertEquals((double) maxQueueSize,
+                 broker.quotaManagers().request().dynamicBackpressureConfig().maxQueueSize(), 0);
 
     assertEquals(numIoThreads * 100.0, ThreadUsageMetrics.ioThreadsCapacity(broker.metrics()), 1.0);
     assertEquals(numNetworkThreads * 100.0,
@@ -288,6 +292,8 @@ public class BrokerBackpressureTest {
       TestUtils.waitForCondition(
           () -> broker.quotaManagers().request().backpressureEnabled(),
           "Expected request backpressure to be enabled on broker " + broker.config().brokerId());
+      assertEquals((double) maxQueueSize,
+                   broker.quotaManagers().request().dynamicBackpressureConfig().maxQueueSize(), 0);
     }
 
     // disable one backpressure type

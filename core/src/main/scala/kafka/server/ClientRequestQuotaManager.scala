@@ -35,6 +35,11 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
                                 activeTenantsManager: Option[ActiveTenantsManager])
                                 extends ClientQuotaManager(config, metrics, QuotaType.Request, time, threadNamePrefix, quotaCallback, activeTenantsManager) {
   private val threadUsageSensors = new ThreadUsageSensors(metrics, ClientQuotaManagerConfig.InactiveSensorExpirationTimeSeconds)
+  // tracks the decrease in broker request quota limit due to request overload, if any
+  // dynamic broker request quota limit is the percent of time available on IO and network threads (based on number
+  // of threads and their current usage) minus 'lastLimitCorrection' which gets increased/decreased dynamically based
+  // on the load of the data-plane request queue
+  private var lastLimitCorrection: Double = 0.0
 
   val maxThrottleTimeMs = TimeUnit.SECONDS.toMillis(this.config.quotaWindowSizeSeconds)
   def exemptSensor = getOrCreateSensor(exemptSensorName, exemptMetricName)
@@ -171,18 +176,25 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
     * requests ('confluent.backpressure.types' config contains 'request'). Broker request quota
     * limit is applied only to requests non exempt from throttling.
     *
-    * There are three goals when setting broker request quota limit: 1) Keep total
-    * utilization below 100% (the desired percent is set in ClientQuotaManagerConfig
-    * .DefaultMaxResourceUtilization); 2) Allocate some headroom to requests exempt from
-    * throttling (since we cannot control their usage); 3) Make sure that utilization of each
-    * type of threads also stays below 100% (controlled by same config ClientQuotaManagerConfig
-    * .DefaultMaxResourceUtilization).
+    * Broker request quota limit is set based on both (1) threads usage and (2) request load:
+    * 1. Threads usage of IO and network threads determines the upper limit on Broker Request Quota Limit, since we
+    *    we cannot use any more threads than available. There are three goals when setting broker request quota limit
+    *    based on usage : 1) Keep total utilization below 100% (the desired percent is set in ClientQuotaManagerConfig
+    *    .DefaultMaxResourceUtilization); 2) Allocate some headroom to requests exempt from
+    *    throttling (since we cannot control their usage); 3) Make sure that utilization of each
+    *    type of threads also stays below 100% (controlled by same config ClientQuotaManagerConfig
+    *    .DefaultMaxResourceUtilization).
     *
-    * In common case, broker request quota limit is set to ClientQuotaManagerConfig
-    * .DefaultMaxResourceUtilization of total available time on network and request handler
-    * threads, minus current usage of requests exempt from throttling. As soon as current usage of
-    * one type of threads exceeds non-exempt capacity, the total broker limit is set to the current
-    * usage (to ensure that over-utilized threads do not get used even more).
+    *    In common case, broker request quota limit is set to ClientQuotaManagerConfig
+    *    .DefaultMaxResourceUtilization of total available time on network and request handler
+    *    threads, minus current usage of requests exempt from throttling. As soon as current usage of
+    *    one type of threads exceeds non-exempt capacity, the total broker limit is set to the current
+    *    usage (to ensure that over-utilized threads do not get used even more).
+    * 2. If combined number of IO and network is larger than number of cores, there will be more thread capacity available
+    *    than capacity that is available to use. If requests are not processed fast enough, requests queues build up.
+    *    If 95th percentile of request queue size exceeds threshold, broker request quota limit is further decreased.
+    *    Once request queues stop building up, broker request quota limit is lifted up again back to (1) estimate based
+    *    thread capacity and current thread usage.
     */
   override protected[server] def updateBrokerQuotaLimit(): Unit = {
 
@@ -221,11 +233,32 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
       else
         math.min(networkThreadUsage, nonExemptNetworkThreadLimit) + math.min(ioThreadUsage, nonExemptIoThreadLimit)
 
-      nonExemptCapacitySensor.record(brokerRequestQuotaLimit)
-      debug(s"RequestQuotaLimit=$brokerRequestQuotaLimit, ioThreadUsage=$ioThreadUsage, " +
-           s"nonExemptIoThreadUsage=$nonExemptIoThreadUsage, " +
-           s"networkThreadUsage=$networkThreadUsage, nonExemptNetworkThreadUsage=$nonExemptNetworkThreadUsage")
+      // step 2: in setups where number of threads >> cores, broker may get overloaded on
+      // requests while there are enough "threads" available but no CPU to process the requests
+      // Additionally decrease Request Limit if queues are getting close to full
+      val correctedLimit = updateAdjustedCapacity(brokerRequestQuotaLimit)
+      nonExemptCapacitySensor.record(correctedLimit)
     }
   }
-  
+
+  /**
+    * This method checks whether requests queues are overloaded, and further reduces Broker
+    * Request Quota Limit if queues are very close to being filled up.
+    * Backpressure is increased/decreased in linear constant steps. This approach may be a bit slow during sudden overload.
+    */
+  def updateAdjustedCapacity(brokerRequestLimit: Double): Double = {
+    val queueSize = RequestQueueSizePercentiles.dataPlaneQueueSize(metrics, "p95")
+    val minCap = BrokerBackpressureConfig.DefaultMinRequestQuotaLimit
+    lastLimitCorrection = if (queueSize >= dynamicBackpressureConfig.queueSizeCap) {
+      val maxAdjustmentLimit = math.max(brokerRequestLimit - minCap, 0.0)
+      if (lastLimitCorrection < maxAdjustmentLimit)
+        lastLimitCorrection + BrokerBackpressureConfig.DefaultRequestQuotaAdjustment
+      else
+        lastLimitCorrection
+    } else
+      math.max(0.0, lastLimitCorrection - BrokerBackpressureConfig.DefaultRequestQuotaAdjustment)
+
+    debug(s"queueSize(p95)=$queueSize,  lastLimitCorrection=$lastLimitCorrection")
+    math.max(brokerRequestLimit - lastLimitCorrection, minCap)
+  }
 }
