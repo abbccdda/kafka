@@ -137,5 +137,8 @@ class JmxMixin(object):
         for node in self.nodes:
             self.read_jmx_output(self.idx(node), node)
 
+    def last_jmx_item(self, idx):
+        return sorted(self.jmx_stats[idx-1].items(), key=lambda kv: kv[0])[-1][1]
+
     def jmx_class_name(self):
         return "kafka.tools.JmxTool"

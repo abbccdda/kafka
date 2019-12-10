@@ -193,7 +193,9 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
         if to_tiered_storage:
             if not from_tiered_storage:
                 self.add_tiered_storage_metrics()
-            for i in range(0, self.PARTITIONS):
-                self.logger.debug("Checking archiving for partition {}..".format(i))
-                wait_until(lambda: self.tiering_started(self.topic, partition=i),
-                           timeout_sec=120, backoff_sec=2, err_msg="no evidence of archival within timeout")
+            partitions = range(0, self.PARTITIONS)
+            self.add_log_metrics(self.topic, partitions=partitions)
+            self.kafka.jmx_object_names += [TieredStorageMetricsRegistry.ARCHIVER_LAG.mbean]
+            self.restart_jmx_tool()
+            wait_until(lambda: self.tiering_started(self.topic, partitions=partitions),
+                    timeout_sec=120, backoff_sec=2, err_msg="no evidence of archival within timeout")

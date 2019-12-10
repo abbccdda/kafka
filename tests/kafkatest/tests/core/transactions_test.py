@@ -260,9 +260,10 @@ class TransactionsTest(Test, TierSupport):
             num_messages_to_copy=self.num_seed_messages)
 
         if tier:
-            self.add_log_metrics(self.output_topic)
+            partitions = range(0, self.num_output_partitions)
+            self.add_log_metrics(self.output_topic, partitions)
             self.restart_jmx_tool()
-            wait_until(lambda: self.tiering_completed(self.output_topic),
+            wait_until(lambda: self.tiering_completed(self.output_topic, partitions=partitions),
                        timeout_sec=360, backoff_sec=2, err_msg="archive did not complete within timeout")
 
         output_messages = self.get_messages_from_topic(self.output_topic, self.num_seed_messages)

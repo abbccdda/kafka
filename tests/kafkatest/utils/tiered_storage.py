@@ -64,28 +64,49 @@ class TierSupport():
                                      TieredStorageMetricsRegistry.FETCHER_BYTES_FETCHED.attribute]
         self.kafka.server_prop_overides = tier_server_props(bucket, **server_props_kwargs)
 
-    def tiering_completed(self, topic, partition=0):
-        self.kafka.read_jmx_output_all_nodes()
-        num_log_segments_metric = str(TieredStorageMetricsRegistry.num_log_segments(topic, partition))
-        max_log_segments = self.kafka.maximum_jmx_value.get(num_log_segments_metric, -1)
-        if max_log_segments < 2:
-            self.logger.debug("Waiting for sufficient segments to be created for tiering to kick in")
+    def tiering_completed(self, topic, partitions=[0]):
+	"""Ensure that:
+	   1. Archive lag is 0 on all brokers
+	   2. One log segment is present on one broker (the leader)
+	   3. Fewer than two log segments are present on other brokers.
+	      The segments between replicas will not necessarily align."""
+
+        # check that tiering started first - tiered log size should be non-zero
+        if not self.tiering_started(topic, partitions):
             return False
 
-        for node_stats in self.kafka.jmx_stats:
-            last_jmx_entry = sorted(node_stats.items(), key=lambda kv: kv[0])[-1][1]
-            archiver_lag = last_jmx_entry.get(str(TieredStorageMetricsRegistry.ARCHIVER_LAG), -1)
-            num_log_segments = last_jmx_entry.get(num_log_segments_metric, -1)
-            if archiver_lag != 0 or num_log_segments != 1:
-                self.logger.debug("Archiving not complete. lag: " + str(archiver_lag) + " num_log_segments: " + str(num_log_segments))
+        self.kafka.read_jmx_output_all_nodes()
+        for partition in partitions:
+            num_log_segments_metric = str(TieredStorageMetricsRegistry.num_log_segments(topic, partition))
+            leader_idx = self.kafka.idx(self.kafka.leader(topic, partition))
+            if leader_idx is None:
                 return False
+
+            leader_num_log_segments = self.kafka.last_jmx_item(leader_idx).get(num_log_segments_metric, -1)
+            if leader_num_log_segments != 1:
+                self.logger.debug("Archiving not complete as leader has "
+                        + str(leader_num_log_segments) + " local log segments for partition " + str(partition))
+                return False
+
+            for node in self.kafka.nodes:
+                last_jmx_entry = self.kafka.last_jmx_item(self.kafka.idx(node))
+                archiver_lag = last_jmx_entry.get(str(TieredStorageMetricsRegistry.ARCHIVER_LAG), -1)
+                num_log_segments = last_jmx_entry.get(num_log_segments_metric, -1)
+                if archiver_lag != 0 or num_log_segments > 2:
+                    self.logger.debug("Archiving not complete for partition " + str(partition) + ". lag: "
+                            + str(archiver_lag) + " num_log_segments: " + str(num_log_segments))
+                    return False
 
         return True
 
-    def tiering_started(self, topic, partition=0):
+    def tiering_started(self, topic, partitions=[0]):
         self.kafka.read_jmx_output_all_nodes()
-        tier_size = self.kafka.maximum_jmx_value.get(str(TieredStorageMetricsRegistry.log_tier_size(topic, partition)), -1)
-        return tier_size > 0
+        for partition in partitions:
+            tier_size = self.kafka.maximum_jmx_value.get(str(TieredStorageMetricsRegistry.log_tier_size(topic, partition)), -1)
+            if tier_size <= 0:
+                return False
+
+        return True
 
     def add_log_metrics(self, topic, partitions=[0]):
         """Log-specific beans are not available at server startup"""
@@ -99,9 +120,8 @@ class TierSupport():
                       TieredStorageMetricsRegistry.log_tier_size(topic, p).mbean]
 
     def restart_jmx_tool(self):
-        for knode in self.kafka.nodes:
-            knode.account.kill_java_processes(self.kafka.jmx_class_name(), clean_shutdown=False, allow_fail=True)
-            idx = self.kafka.idx(knode)
+        for node in self.kafka.nodes:
+            node.account.kill_java_processes(self.kafka.jmx_class_name(), clean_shutdown=False, allow_fail=True)
+            idx = self.kafka.idx(node)
             self.kafka.started[idx-1] = False
-            self.kafka.start_jmx_tool(idx, knode)
-
+            self.kafka.start_jmx_tool(idx, node)
