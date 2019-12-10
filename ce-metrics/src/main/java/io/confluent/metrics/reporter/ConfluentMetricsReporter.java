@@ -96,6 +96,7 @@ public class ConfluentMetricsReporter
   private boolean createTopic;
   private Pattern pattern = null;
   private volatile String clusterId = null;
+  private volatile boolean started;
   private int brokerId;
   private String clientId;
   private String groupId;
@@ -108,17 +109,33 @@ public class ConfluentMetricsReporter
 
   @Override
   public void onUpdate(ClusterResource clusterResource) {
-    this.clusterId = clusterResource.clusterId();
+    String newClusterId = clusterResource.clusterId();
+    if (started) {
+      if (newClusterId == null) {
+        if (clusterId != null) {
+          // This may happen during upgrade when some brokers are pre-0.10.1.0 and some are newer
+          log.debug("Confluent metrics reporter received null cluster id, continuing to use old cluster id {}",
+              clusterId);
+        }
+      } else if (!newClusterId.equals(clusterId)) {
+        log.info("Updating cluster id of Confluent metrics reporter from {} to {}", clusterId, newClusterId);
+        this.clusterId = newClusterId;
+      }
+      return;
+    }
+
+    this.clusterId = newClusterId;
 
     log.info("Starting Confluent metrics reporter for cluster id {} with an interval of {} ms",
              clusterId, reportIntervalMs
     );
     executor.scheduleAtFixedRate(
-        new MetricReportRunnable(),
+        metricReportRunnable(),
         reportIntervalMs,
         reportIntervalMs,
         TimeUnit.MILLISECONDS
     );
+    started = true;
   }
 
   /**
@@ -299,6 +316,16 @@ public class ConfluentMetricsReporter
   public void metricRemoval(KafkaMetric metric) {
     log.debug("removing kafka metric : {}", metric.metricName());
     metricMap.remove(metric.metricName());
+  }
+
+  // Visibility to override for testing
+  protected Runnable metricReportRunnable() {
+    return new MetricReportRunnable();
+  }
+
+  // Visible for testing
+  String clusterId() {
+    return clusterId;
   }
 
   private class MetricReportRunnable implements Runnable {
