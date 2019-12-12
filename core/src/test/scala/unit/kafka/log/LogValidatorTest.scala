@@ -31,7 +31,7 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{InvalidTimestampException, UnsupportedCompressionTypeException, UnsupportedForMessageFormatException}
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.utils.Time
-import org.apache.kafka.server.interceptor.RecordInterceptor
+import org.apache.kafka.test.InterceptorUtils.MockRecordInterceptor
 import org.apache.kafka.test.TestUtils
 import org.junit.Assert._
 import org.junit.Test
@@ -105,7 +105,7 @@ class LogValidatorTest {
       magic,
       TimestampType.CREATE_TIME,
       1000L,
-      Collections.emptyList[RecordInterceptor].asScala,
+      List(new MockRecordInterceptor()),
       interceptorStats,
       RecordBatch.NO_PRODUCER_EPOCH,
       isFromClient = true,
@@ -1407,6 +1407,76 @@ class LogValidatorTest {
     assertTrue(e.invalidException.isInstanceOf[InvalidTimestampException])
     assertTrue(e.recordErrors.nonEmpty)
     assertEquals(6, e.recordErrors.size)
+  }
+
+  @Test
+  def testBatchWithInvalidTimestampInterceptedAndInvalidRecords(): Unit = {
+    val records = (0 until 5).map(id =>
+      LegacyRecord.create(RecordBatch.MAGIC_VALUE_V0, 0L, null, id.toString.getBytes())
+    )
+
+    val buffer = ByteBuffer.allocate(1024)
+    val builder = MemoryRecords.builder(buffer, RecordBatch.MAGIC_VALUE_V1, CompressionType.GZIP,
+      TimestampType.CREATE_TIME, 0L)
+    var offset = 0
+
+    // we want to mix in a record with invalid timestamp range
+    builder.appendUncheckedWithOffset(offset, LegacyRecord.create(RecordBatch.MAGIC_VALUE_V1,
+      1200L, null, "timestamp".getBytes))
+    // we also want to mix in a record rejected by interceptor
+    offset += 1
+    builder.appendUncheckedWithOffset(offset, LegacyRecord.create(RecordBatch.MAGIC_VALUE_V1,
+      0L, null, "reject me".getBytes))
+    records.foreach { record =>
+      offset += 30
+      builder.appendUncheckedWithOffset(offset, record)
+    }
+    val invalidOffsetTimestampRecords = builder.build()
+
+    val e = intercept[RecordValidationException] {
+      validateMessages(invalidOffsetTimestampRecords,
+        RecordBatch.MAGIC_VALUE_V0, CompressionType.GZIP, CompressionType.GZIP)
+    }
+    // if there is a mix of both regular InvalidRecordException and InvalidTimestampException,
+    // InvalidTimestampException takes precedence
+    assertTrue(e.invalidException.isInstanceOf[InvalidTimestampException])
+    assertTrue(e.recordErrors.nonEmpty)
+    assertEquals(7, e.recordErrors.size)
+    // The second record in the batch was rejected by interceptor
+    assertTrue(e.recordErrors(1).message.endsWith(s"rejected by the record interceptor ${classOf[MockRecordInterceptor].getName}"))
+  }
+
+  @Test
+  def testBatchWithInterceptedAndInvalidRecords(): Unit = {
+    val records = (0 until 5).map(id =>
+      LegacyRecord.create(RecordBatch.MAGIC_VALUE_V0, 0L, null, id.toString.getBytes())
+    )
+
+    val buffer = ByteBuffer.allocate(1024)
+    val builder = MemoryRecords.builder(buffer, RecordBatch.MAGIC_VALUE_V1, CompressionType.GZIP,
+      TimestampType.CREATE_TIME, 0L)
+    var offset = 0
+
+    // we want to mix in a record rejected by interceptor
+    builder.appendUncheckedWithOffset(offset, LegacyRecord.create(RecordBatch.MAGIC_VALUE_V1,
+      0L, null, "reject me".getBytes))
+    records.foreach { record =>
+      offset += 30
+      builder.appendUncheckedWithOffset(offset, record)
+    }
+    val invalidOffsetTimestampRecords = builder.build()
+
+    val e = intercept[RecordValidationException] {
+      validateMessages(invalidOffsetTimestampRecords,
+        RecordBatch.MAGIC_VALUE_V0, CompressionType.GZIP, CompressionType.GZIP)
+    }
+    // check that the global error for the batch is InvalidRecordException
+    assertTrue(e.invalidException.isInstanceOf[InvalidRecordException])
+    assertEquals("One or more records have been rejected", e.invalidException.getMessage)
+    assertTrue(e.recordErrors.nonEmpty)
+    assertEquals(6, e.recordErrors.size)
+    // The first record in the batch was rejected by interceptor
+    assertTrue(e.recordErrors.head.message.endsWith(s"rejected by the record interceptor ${classOf[MockRecordInterceptor].getName}"))
   }
 
   private def testBatchWithoutRecordsNotAllowed(sourceCodec: CompressionCodec, targetCodec: CompressionCodec): Unit = {

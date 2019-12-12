@@ -28,6 +28,7 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.requests.{ProduceRequest, ProduceResponse}
+import org.apache.kafka.test.InterceptorUtils.{AnotherMockRecordInterceptor, MockRecordInterceptor}
 import org.junit.Assert._
 import org.junit.Test
 import org.scalatest.Assertions.fail
@@ -192,6 +193,120 @@ class ProduceRequestTest extends BaseRequestTest {
     val (tp2, partitionResponse2) = res2.responses.asScala.head
     assertEquals(topicPartition, tp2)
     assertEquals(Errors.UNSUPPORTED_COMPRESSION_TYPE, partitionResponse2.error)
+  }
+
+  @Test
+  def testProduceRequestIncludesRecordsRejectedByTheSameInterceptor(): Unit = {
+    val topic = "topic"
+    val partition = 0
+
+    // Create a single-partition topic
+    val topicConfig = new Properties
+    topicConfig.setProperty(LogConfig.AppendRecordInterceptorClassesProp, classOf[MockRecordInterceptor].getName)
+    val partitionToLeader = TestUtils.createTopic(zkClient, topic, 1, 1, servers, topicConfig)
+    val leader = partitionToLeader(partition)
+    val memoryRecords = MemoryRecords.withRecords(CompressionType.NONE,
+      new SimpleRecord(System.currentTimeMillis(), "key0".getBytes, "reject me".getBytes),
+      new SimpleRecord(System.currentTimeMillis(), "key1".getBytes, "reject me".getBytes),
+      new SimpleRecord(System.currentTimeMillis(), "key2".getBytes, "value".getBytes),
+      new SimpleRecord(System.currentTimeMillis(), "key3".getBytes, "value".getBytes),
+      new SimpleRecord(System.currentTimeMillis(), "key4".getBytes, "reject me".getBytes),
+      new SimpleRecord(System.currentTimeMillis(), "key5".getBytes, "value".getBytes))
+
+    val topicPartition = new TopicPartition(topic, partition)
+    val partitionRecords = Map(topicPartition -> memoryRecords)
+
+    val produceResponse = sendProduceRequest(leader,
+      ProduceRequest.Builder.forCurrentMagic(-1, 3000, partitionRecords.asJava).build())
+    assertEquals(1, produceResponse.responses.size)
+    val (tp, partitionResponse) = produceResponse.responses.asScala.head
+    assertEquals(topicPartition, tp)
+    assertEquals(Errors.INVALID_RECORD, partitionResponse.error)
+    assertEquals(-1, partitionResponse.baseOffset)
+    assertEquals(-1, partitionResponse.logAppendTime)
+    assertNotNull(partitionResponse.recordErrors)
+    val recordErrors = partitionResponse.recordErrors
+    assertEquals(3, recordErrors.size)
+    assertEquals(0, recordErrors.get(0).batchIndex)
+    assertTrue(recordErrors.get(0).message.endsWith(s"rejected by the record interceptor ${classOf[MockRecordInterceptor].getName}"))
+    assertEquals(1, recordErrors.get(1).batchIndex)
+    assertTrue(recordErrors.get(1).message.endsWith(s"rejected by the record interceptor ${classOf[MockRecordInterceptor].getName}"))
+    assertEquals(4, recordErrors.get(2).batchIndex)
+    assertTrue(recordErrors.get(2).message.endsWith(s"rejected by the record interceptor ${classOf[MockRecordInterceptor].getName}"))
+    assertEquals("One or more records have been rejected", partitionResponse.errorMessage)
+  }
+
+  @Test
+  def testProduceRequestIncludesRecordsRejectedByDifferentInterceptors(): Unit = {
+    val topic = "topic"
+    val partition = 0
+
+    // Create a single-partition topic
+    val topicConfig = new Properties
+    topicConfig.setProperty(LogConfig.AppendRecordInterceptorClassesProp, s"${classOf[MockRecordInterceptor].getName},${classOf[AnotherMockRecordInterceptor].getName}")
+    val partitionToLeader = TestUtils.createTopic(zkClient, topic, 1, 1, servers, topicConfig)
+    val leader = partitionToLeader(partition)
+    val memoryRecords = MemoryRecords.withRecords(CompressionType.NONE,
+      new SimpleRecord(System.currentTimeMillis(), "key0".getBytes, "reject me".getBytes),
+      new SimpleRecord(System.currentTimeMillis(), "key1".getBytes, "value".getBytes),
+      new SimpleRecord(System.currentTimeMillis(), "key2".getBytes, "reject me please".getBytes),
+      new SimpleRecord(System.currentTimeMillis(), "key3".getBytes, "value".getBytes))
+
+    val topicPartition = new TopicPartition(topic, partition)
+    val partitionRecords = Map(topicPartition -> memoryRecords)
+
+    val produceResponse = sendProduceRequest(leader,
+      ProduceRequest.Builder.forCurrentMagic(-1, 3000, partitionRecords.asJava).build())
+    assertEquals(1, produceResponse.responses.size)
+    val (tp, partitionResponse) = produceResponse.responses.asScala.head
+    assertEquals(topicPartition, tp)
+    assertEquals(Errors.INVALID_RECORD, partitionResponse.error)
+    assertEquals(-1, partitionResponse.baseOffset)
+    assertEquals(-1, partitionResponse.logAppendTime)
+    assertNotNull(partitionResponse.recordErrors)
+    val recordErrors = partitionResponse.recordErrors
+    assertEquals(2, recordErrors.size)
+    assertEquals(0, recordErrors.get(0).batchIndex)
+    assertTrue(partitionResponse.recordErrors.get(0).message.endsWith(s"rejected by the record interceptor ${classOf[MockRecordInterceptor].getName}"))
+    assertEquals(2, recordErrors.get(1).batchIndex)
+    assertTrue(partitionResponse.recordErrors.get(1).message.endsWith(s"rejected by the record interceptor ${classOf[AnotherMockRecordInterceptor].getName}"))
+    assertEquals("One or more records have been rejected", partitionResponse.errorMessage)
+  }
+
+  /**
+   * If a batch contains records both rejected because of interceptors and of invalid timestamp
+   * then test that the error code is INVALID_TIMESTAMP
+   */
+  @Test
+  def testProduceRequestIncludesInvalidTimestampAndInterceptedRecords(): Unit = {
+    val topic = "topic"
+    val partition = 0
+    val topicConfig = new Properties
+    topicConfig.setProperty(LogConfig.MessageTimestampDifferenceMaxMsProp, "1000")
+    topicConfig.setProperty(LogConfig.AppendRecordInterceptorClassesProp, classOf[MockRecordInterceptor].getName)
+    val partitionToLeader = TestUtils.createTopic(zkClient, topic, 1, 1, servers, topicConfig)
+    val leader = partitionToLeader(partition)
+
+    val timestamp = System.currentTimeMillis() - 1001L
+    val buf = ByteBuffer.allocate(512)
+    val builder = MemoryRecords.builder(buf, RecordBatch.MAGIC_VALUE_V2, CompressionType.NONE, TimestampType.CREATE_TIME, 0L)
+    builder.appendWithOffset(0, timestamp, null, "hello".getBytes)
+    builder.appendWithOffset(1, timestamp, null, "there".getBytes)
+    builder.appendWithOffset(2, timestamp, null, "beautiful".getBytes)
+    // we want this record to fail because of interceptor
+    builder.appendWithOffset(3, System.currentTimeMillis(), null, "reject me".getBytes)
+    val records = builder.build()
+
+    val topicPartition = new TopicPartition("topic", partition)
+    val partitionRecords = Map(topicPartition -> records)
+    val produceResponse = sendProduceRequest(leader, ProduceRequest.Builder.forCurrentMagic(-1, 3000, partitionRecords.asJava).build())
+    val (tp, partitionResponse) = produceResponse.responses.asScala.head
+    assertEquals(topicPartition, tp)
+    assertEquals(Errors.INVALID_TIMESTAMP, partitionResponse.error)
+    assertEquals(4, partitionResponse.recordErrors.size())
+    assertTrue(partitionResponse.recordErrors.get(3).message.endsWith(s"rejected by the record interceptor ${classOf[MockRecordInterceptor].getName}"))
+    // the global error message is still related to timestamp
+    assertEquals("One or more records have been rejected due to invalid timestamp", partitionResponse.errorMessage)
   }
 
   private def sendProduceRequest(leaderId: Int, request: ProduceRequest): ProduceResponse = {

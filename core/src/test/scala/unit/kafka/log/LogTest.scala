@@ -41,7 +41,7 @@ import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.requests.FetchResponse.AbortedTransaction
 import org.apache.kafka.common.requests.{ListOffsetRequest, ListOffsetResponse}
 import org.apache.kafka.common.utils.{Time, Utils}
-import org.apache.kafka.test.MockRecordInterceptor
+import org.apache.kafka.test.InterceptorUtils.MockRecordInterceptor
 import org.easymock.EasyMock
 import org.junit.Assert._
 import org.junit.{After, Before, Test}
@@ -344,16 +344,18 @@ class LogTest {
   def testAppendSingleRecordRejectedByInterceptorMetricsLogged(): Unit = {
     val log = createLog(logDir, LogTest.createLogConfig())
 
-    val e = intercept[RecordValidationException](log.appendAsLeader(MemoryRecords.withRecords(
-      CompressionType.NONE, new SimpleRecord(RecordBatch.NO_TIMESTAMP, "key".getBytes,
-      "reject me".getBytes)), leaderEpoch = 0))
-    assertEquals(classOf[InvalidRecordException], e.invalidException.getClass)
+    val e = intercept[RecordValidationException] {
+      log.appendAsLeader(MemoryRecords.withRecords(CompressionType.NONE,
+        new SimpleRecord(RecordBatch.NO_TIMESTAMP, "key".getBytes, "reject me".getBytes)), leaderEpoch = 0)
+    }
+    assertTrue(e.invalidException.isInstanceOf[InvalidRecordException])
 
     assertEquals(metricsKeySet.count(_.getMBeanName.startsWith(
       s"kafka.log:type=InterceptorMetrics," +
       s"name=TotalRejectedRecordsPerSec," +
       s"topic=${log.topicPartition.topic}," +
-      s"interceptorClassName=${classOf[MockRecordInterceptor].getName}")), 1)
+      "interceptorClassName=\"" +
+        classOf[MockRecordInterceptor].getName + "\"")), 1)
   }
 
   /**
