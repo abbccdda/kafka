@@ -233,6 +233,11 @@ public class S3TierObjectStore implements TierObjectStore {
             throws TierObjectStoreFatalException {
         try {
             String actualRegion = client.getBucketLocation(bucket);
+
+            // Buckets in us-east-1 return a value of "US" due to a backwards compatibility issue in S3.
+            if (actualRegion.equals("US") && expectedRegion.equals("us-east-1"))
+                return;
+
             if (!expectedRegion.equals(actualRegion)) {
                 log.warn("Bucket region {} does not match expected region {}",
                         actualRegion, expectedRegion);
