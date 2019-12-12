@@ -183,7 +183,7 @@ public class KafkaExporterTest {
         .setSource("crn://authority/kafka=source")
         .setSubject("crn://authority/kafka=subject")
         .setData(entry)
-        .setRoute("_confluent-audit-log")
+        .setRoute("confluent-audit-log-events")
         .setEncoding(EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG)
         .build();
   }

@@ -24,8 +24,8 @@ public class AuditLogRouterJsonConfig {
       Utils.mkMap(Utils.mkEntry("allowed", AuthorizeResult.ALLOWED),
           Utils.mkEntry("denied", AuthorizeResult.DENIED));
 
-  public static final String DEFAULT_TOPIC = "_confluent-audit-log";
-  public static final String TOPIC_PREFIX = "_confluent-audit-log";
+  public static final String TOPIC_PREFIX = "confluent-audit-log-events";
+  public static final String DEFAULT_TOPIC = TOPIC_PREFIX;
   public static final long DEFAULT_RETENTION_MS = 90L * 24 * 60 * 60 * 1000; // 90 days
 
   public static class DestinationTopic {

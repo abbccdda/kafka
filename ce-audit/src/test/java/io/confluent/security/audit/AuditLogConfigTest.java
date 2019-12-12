@@ -49,7 +49,7 @@ public class AuditLogConfigTest {
 
     assertTrue(o.containsKey(EventLoggerConfig.TOPIC_CONFIG));
     assertEquals(o.get(EventLoggerConfig.TOPIC_CONFIG),
-        "{\"topics\":[{\"name\":\"_confluent-audit-log\",\"partitions\":0,\"replicationFactor\":0,\"config\":{\"retention.ms\":\"7776000000\"}}]}");
+        "{\"topics\":[{\"name\":\"confluent-audit-log-events\",\"partitions\":0,\"replicationFactor\":0,\"config\":{\"retention.ms\":\"7776000000\"}}]}");
 
     assertTrue(o.containsKey(EventLoggerConfig.BOOTSTRAP_SERVERS_CONFIG));
     assertEquals("foo:9093", o.get(EventLoggerConfig.BOOTSTRAP_SERVERS_CONFIG));
