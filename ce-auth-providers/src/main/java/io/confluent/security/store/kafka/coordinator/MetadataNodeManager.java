@@ -102,7 +102,7 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
     List<InetSocketAddress> addresses = ClientUtils.parseAndValidateAddresses(
         coordinatorConfig.getList(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG),
         coordinatorConfig.getString(CommonClientConfigs.CLIENT_DNS_LOOKUP_CONFIG));
-    metadata.bootstrap(addresses, time.milliseconds());
+    metadata.bootstrap(addresses);
 
     KafkaClient networkClient = createKafkaClient(coordinatorConfig, metadata, time, logContext);
     coordinatorNetworkClient = new ConsumerNetworkClient(

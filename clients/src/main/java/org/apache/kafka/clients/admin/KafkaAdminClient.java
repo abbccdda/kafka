@@ -2817,6 +2817,10 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
                             context.node().get(),
                             authorizedOperations);
                     context.future().complete(consumerGroupDescription);
+                } else {
+                    context.future().completeExceptionally(new IllegalArgumentException(
+                        String.format("GroupId {} is not a consumer group ({}).",
+                            context.groupId(), protocolType)));
                 }
             }
 

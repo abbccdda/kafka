@@ -7,7 +7,7 @@ import kafka.server.BaseRequestTest
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.message.TierListOffsetRequestData
 import org.apache.kafka.common.message.TierListOffsetRequestData.{TierListOffsetPartition, TierListOffsetTopic}
-import org.apache.kafka.common.protocol.{ApiKeys, Errors}
+import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.TierListOffsetRequest.OffsetType
 import org.apache.kafka.common.requests.{TierListOffsetRequest, TierListOffsetResponse}
 import org.junit.Assert._
@@ -100,7 +100,6 @@ class TierListOffsetRequestTest extends BaseRequestTest {
 
   private def sendRequest(leaderId: Int, request: TierListOffsetRequest): TierListOffsetResponse = {
     val socketServer = brokerSocketServer(leaderId)
-    val response = connectAndSend(request, ApiKeys.TIER_LIST_OFFSET, destination = socketServer)
-    TierListOffsetResponse.parse(response, request.version)
+    connectAndReceive[TierListOffsetResponse](request, destination = socketServer)
   }
 }
