@@ -79,6 +79,8 @@ class MergedLog(private[log] val localLog: Log,
                 @volatile var logStartOffset: Long,
                 val tierPartitionState: TierPartitionState,
                 private val tierLogComponents: TierLogComponents) extends Logging with KafkaMetricsGroup with AbstractLog {
+  this.logIdent = s"[MergedLog partition=$topicPartition, dir=${dir.getParent}] "
+
   /* Protects modification to log start offset */
   private val lock = new Object
 
@@ -100,7 +102,6 @@ class MergedLog(private[log] val localLog: Log,
       s"local start offset ${localLog.localLogStartOffset}, log end offset $logEndOffset")
   }
 
-  this.logIdent = s"[MergedLog partition=$topicPartition, dir=${dir.getParent}] "
 
   private val tags = {
     val maybeFutureTag = if (isFuture) Map("is-future" -> "true") else Map.empty[String, String]
