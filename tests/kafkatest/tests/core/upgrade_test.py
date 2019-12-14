@@ -83,8 +83,8 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
         self.restart_jmx_tool()
 
     @cluster(num_nodes=6)
-    @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.3.0"], from_kafka_version=[str(LATEST_2_3)], to_message_format_version=[None], compression_types=[["none"]], from_tiered_storage=[False], to_tiered_storage=[False, True])
-    @parametrize(from_kafka_version=str(LATEST_2_3), to_message_format_version=None, compression_types=["none"], from_tiered_storage=False, to_tiered_storage=True)
+    @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.3.0"], from_kafka_version=[str(LATEST_2_3)], to_message_format_version=[None], compression_types=[["none"]], from_tiered_storage=[False], to_tiered_storage=[False, True], hotset_bytes=[-1, 1])
+    @matrix(from_kafka_version=[str(LATEST_2_3)], to_message_format_version=[None], compression_types=[["none"]], from_tiered_storage=[False], to_tiered_storage=[True], hotset_bytes=[-1, 1])
     @parametrize(from_kafka_version=str(LATEST_2_3), to_message_format_version=None, compression_types=["none"])
     @parametrize(from_kafka_version=str(LATEST_2_3), to_message_format_version=None, compression_types=["zstd"])
     @parametrize(from_kafka_version=str(LATEST_2_2), to_message_format_version=None, compression_types=["none"])
@@ -118,7 +118,7 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
     @parametrize(from_kafka_version=str(LATEST_0_8_2), to_message_format_version=None, compression_types=["none"])
     @parametrize(from_kafka_version=str(LATEST_0_8_2), to_message_format_version=None, compression_types=["snappy"])
     def test_upgrade(self, from_kafka_version, to_message_format_version, compression_types, 
-            from_tiered_storage=False, to_tiered_storage=False, security_protocol="PLAINTEXT", dist_version=None, from_kafka_project="kafka"):
+            from_tiered_storage=False, to_tiered_storage=False, hotset_bytes=None, security_protocol="PLAINTEXT", dist_version=None, from_kafka_project="kafka"):
         """Test upgrade of Kafka broker cluster from various versions to the current version
 
         from_kafka_version is a Kafka version to upgrade from
@@ -151,9 +151,9 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
                                                        'configs': {"min.insync.replicas": 2}}})
 
         if from_tiered_storage or to_tiered_storage:
+            assert hotset_bytes is not None
             tier_set_configs(self.kafka, self.TIER_S3_BUCKET, feature = from_tiered_storage, enable = from_tiered_storage,
-                    hotset_bytes = -1, hotset_ms = -1, metadata_replication_factor=3)
-
+                    hotset_bytes = hotset_bytes, hotset_ms = -1, metadata_replication_factor=3)
 
         self.kafka.security_protocol = security_protocol
         self.kafka.interbroker_security_protocol = security_protocol
