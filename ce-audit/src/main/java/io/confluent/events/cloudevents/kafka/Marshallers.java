@@ -6,6 +6,7 @@ package io.confluent.events.cloudevents.kafka;
 import static io.cloudevents.json.Json.MAPPER;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.google.protobuf.Message;
 import com.hubspot.jackson.datatype.protobuf.ProtobufModule;
 import io.cloudevents.extensions.ExtensionFormat;
@@ -18,6 +19,7 @@ import io.cloudevents.v03.Accessor;
 import io.cloudevents.v03.AttributesImpl;
 import io.cloudevents.v03.CloudEventImpl;
 import io.cloudevents.v03.kafka.HeaderMapper;
+import java.time.ZonedDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -28,10 +30,16 @@ public class Marshallers {
   private static final Map<String, byte[]> NO_HEADERS = new HashMap<>();
   private static final Logger log = LoggerFactory.getLogger(Marshallers.class);
 
+
   static {
     // Ensure module is registered. This ensures the mapper is initialized completely
     // before main(...) starts up. See: https://confluentinc.atlassian.net/browse/CPKAFKA-3888
     ObjectMapper o = MAPPER.registerModule(new ProtobufModule());
+
+    final SimpleModule module = new SimpleModule();
+    module.addSerializer(ZonedDateTime.class, new ZonedDateTimeMillisSerializer());
+    o.registerModule(module);
+
     log.info("Registered Jackson modules {} ", o.getRegisteredModuleIds());
   }
 
