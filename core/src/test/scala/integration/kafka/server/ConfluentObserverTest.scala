@@ -425,6 +425,51 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
   }
 
   @Test
+  def testReassignRearrangeReplicaAndObserver(): Unit = {
+    TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
+      val topic = "observer-topic"
+      val partition = 0
+
+      val newTopic = new NewTopic(topic, Optional.of(1: Integer), Optional.empty[java.lang.Short])
+      newTopic.configs(
+        Map(LogConfig.TopicPlacementConstraintsProp -> basicTopicPlacement(BasicConstraint(2, "a"), Some(BasicConstraint(2, "b")))).asJava
+      )
+      client.createTopics(Seq(newTopic).asJava).all().get()
+
+      val topicPartition = new TopicPartition(topic, partition)
+      // All sync replicas are in the ISR
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
+      // All observer replicas are not in the ISR
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3, broker4))
+
+      // Get current assignment
+      val description = client.describeTopics(Set(topic).asJava).all.get.asScala
+      val replicas = description
+        .values
+        .flatMap(_.partitions.asScala.flatMap(_.replicas.asScala))
+        .map(_.id)
+        .toSeq
+
+      // Swap first two elements and last two elements
+      val newReplicaOrder = Seq(replicas(1), replicas(0), replicas(3), replicas(2))
+      val newObserverOrder = Seq(replicas(3), replicas(2))
+
+      client.alterPartitionReassignments(
+        Map(topicPartition -> reassignmentEntry(newReplicaOrder, newObserverOrder)).asJava
+      ).all().get()
+
+      waitForAllReassignmentsToComplete(client)
+
+      // Check that assignment order changed
+      TestUtils.waitForReplicasAssigned(client, topicPartition, newReplicaOrder)
+      // All sync replicas are in the ISR
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker2, broker1))
+      // All observer replicas are not in the ISR
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker4, broker3))
+    }
+  }
+
+  @Test
   def testReassignWithInvalidObserverReplicas(): Unit = {
     TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
       val topic = "observer-topic"
@@ -449,6 +494,34 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
         ).all().get()
       }
       assertEquals(classOf[InvalidReplicaAssignmentException], exception.getCause.getClass)
+    }
+  }
+
+  @Test
+  def testReassignWithOfflineBrokers(): Unit = {
+    TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
+      val topic = "observer-topic"
+      val partition = 0
+
+      val newTopic = new NewTopic(topic, Optional.of(1: Integer), Optional.empty[java.lang.Short])
+      newTopic.configs(
+        Map(LogConfig.TopicPlacementConstraintsProp -> basicTopicPlacement(BasicConstraint(2, "a"), Some(BasicConstraint(2, "b")))).asJava
+      )
+      client.createTopics(Seq(newTopic).asJava).all().get()
+
+      val topicPartition = new TopicPartition(topic, partition)
+
+      // All sync replicas are in the ISR
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
+      // All observer replicas are not in the ISR
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3, broker4))
+
+      val offlineBrokerId = 5
+      val future = client.alterPartitionReassignments(
+        Map(topicPartition -> reassignmentEntry(Seq(broker1, broker2, broker3, offlineBrokerId), Seq(broker3, offlineBrokerId))).asJava
+      ).all()
+
+      JTestUtils.assertFutureThrows(future, classOf[InvalidReplicaAssignmentException])
     }
   }
 

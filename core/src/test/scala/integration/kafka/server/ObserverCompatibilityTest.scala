@@ -62,6 +62,31 @@ class ObserverCompatibilityTest extends ZooKeeperTestHarness {
   }
 
   @Test
+  def testCanReassignToEmptyObservers(): Unit = {
+    TestUtils.resource(AdminClient.create(createConfig(servers).asJava)) { client =>
+      val topic = "observer-topic"
+      val topicPartition = new TopicPartition(topic, 0)
+      val newTopic = new NewTopic(topic, Optional.of(1: Integer), Optional.of(2.toShort: java.lang.Short))
+      client.createTopics(Seq(newTopic).asJava).all().get()
+
+      // Get current assignment
+      val description = client.describeTopics(Set(topic).asJava).all.get.asScala
+      val replicas = description
+        .values
+        .flatMap(_.partitions.asScala.flatMap(_.replicas.asScala))
+        .map(_.id)
+        .toSeq
+
+      val swappedBrokers = Seq(replicas(1), replicas(0))
+      client.alterPartitionReassignments(
+        Map(topicPartition -> reassignmentEntry(swappedBrokers, Seq())).asJava
+      ).all().get()
+
+      TestUtils.waitForReplicasAssigned(client, topicPartition, swappedBrokers)
+    }
+  }
+
+  @Test
   def testCannotUseReplicaPlacementConstraintWithObservers(): Unit = {
     TestUtils.resource(AdminClient.create(createConfig(servers).asJava)) { client =>
       val topic = "observer-topic"

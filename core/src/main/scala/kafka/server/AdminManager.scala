@@ -343,11 +343,12 @@ class AdminManager(val config: KafkaConfig,
 
             assignments.zipWithIndex.map { case (replicas, index) =>
               val intReplicas = replicas.map(_.toInt)
-              Observer.validateReplicaAssignment(
+              val maybeError = Observer.validateReplicaAssignment(
                 topicPlacement,
                 ReplicaAssignment.Assignment(intReplicas, Seq.empty),
                 allBrokerProperties
               )
+              maybeError.foreach(err => throw err.exception())
               existingAssignment.size + index -> ReplicaAssignment(intReplicas, Seq.empty)
             }.toMap
           }

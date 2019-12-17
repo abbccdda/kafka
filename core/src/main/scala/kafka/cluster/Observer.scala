@@ -7,7 +7,9 @@ import kafka.admin.{AdminUtils, BrokerMetadata}
 import kafka.common.TopicPlacement
 import kafka.common.TopicPlacement.ConstraintCount
 import kafka.controller.ReplicaAssignment
-import org.apache.kafka.common.errors.{InvalidConfigurationException, InvalidReplicaAssignmentException}
+import org.apache.kafka.common.errors.InvalidConfigurationException
+import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.requests.ApiError
 
 import scala.collection.JavaConverters._
 import scala.collection.{Map, Seq, mutable}
@@ -205,18 +207,18 @@ object Observer {
     topicPlacement: Option[TopicPlacement],
     assignment: ReplicaAssignment.Assignment,
     liveBrokerAttributes: Map[Int, Map[String, String]]
-  ): Unit = {
+  ): Option[ApiError] = {
     if (!assignment.replicas.endsWith(assignment.observers)) {
-      throw new InvalidReplicaAssignmentException(
+      Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
         s"Assignment contains observers (${assignment.observers}) and the replicas' (${assignment.replicas}) " +
-        "suffix doesn't matches observers."
-      )
-    }
-
-    topicPlacement.foreach { placementConstraint =>
-      matchesConstraints("sync replicas", placementConstraint.replicas.asScala, assignment.syncReplicas, liveBrokerAttributes)
-
-      matchesConstraints("observers", placementConstraint.observers.asScala, assignment.observers, liveBrokerAttributes)
+        "suffix doesn't matches observers."))
+    } else {
+      topicPlacement.flatMap { placementConstraint =>
+        val maybeError = matchesConstraints(
+          "sync replicas", placementConstraint.replicas.asScala, assignment.syncReplicas, liveBrokerAttributes)
+        maybeError.orElse(matchesConstraints(
+          "observers", placementConstraint.observers.asScala, assignment.observers, liveBrokerAttributes))
+      }
     }
   }
 
@@ -225,25 +227,24 @@ object Observer {
     constraints: Seq[ConstraintCount],
     replicas: Seq[Int],
     liveBrokerAttributes: Map[Int, Map[String, String]]
-  ): Unit = {
+  ): Option[ApiError] = {
     val constraintSum = constraints.map(_.count).sum
     if (constraintSum != replicas.size) {
-      throw new InvalidReplicaAssignmentException(
+      Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
         s"Number of assigned replicas (${replicas.mkString(",")}) doesn't match the $scope constraint counts " +
-        s"$constraintSum"
-      )
-    }
-
-    constraints.foreach { constraint =>
-      val matchingReplicas = replicas.filter {
-        replica => constraint.matches(liveBrokerAttributes.getOrElse(replica, Map.empty).asJava)
-      }
-      if (matchingReplicas.size != constraint.count) {
-        throw new InvalidReplicaAssignmentException(
-          s"Replicas (${replicas.mkString(",")}) do not match the replica constraint ($constraint). " +
-          s"Expected to match for ${constraint.count} instead the following replicas matched: " +
-          s"${matchingReplicas.mkString(",")}."
-        )
+        s"$constraintSum"))
+    } else {
+      constraints.map { constraint =>
+        val matchingReplicas = replicas.filter { replica =>
+          constraint.matches(liveBrokerAttributes.getOrElse(replica, Map.empty).asJava)
+        }
+        (constraint, matchingReplicas)
+      }.collectFirst {
+        case (constraint, matchingReplicas) if matchingReplicas.size != constraint.count =>
+          new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
+            s"Replicas (${replicas.mkString(",")}) do not match the replica constraint ($constraint). " +
+              s"Expected to match for ${constraint.count} instead the following replicas matched: " +
+              s"${matchingReplicas.mkString(",")}.")
       }
     }
   }

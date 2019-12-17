@@ -6,7 +6,8 @@ package kafka.cluster
 import kafka.admin.BrokerMetadata
 import kafka.common.TopicPlacement
 import kafka.controller.ReplicaAssignment
-import org.apache.kafka.common.errors.{InvalidConfigurationException, InvalidReplicaAssignmentException}
+import org.apache.kafka.common.errors.InvalidConfigurationException
+import org.apache.kafka.common.protocol.Errors
 import org.junit.Assert._
 import org.junit.Test
 
@@ -589,13 +590,14 @@ class ObserverTest {
   /**
    * Test if topic placement contains observers validation fails with exception.
    */
-  @Test(expected = classOf[InvalidReplicaAssignmentException])
+  @Test
   def testValidateObserversConstraint(): Unit = {
-    Observer.validateReplicaAssignment(
+    val err = Observer.validateReplicaAssignment(
       topicWithObserverPlacementConstraint,
       ReplicaAssignment.Assignment(0 to 3, Seq.empty),
       allBrokersAttributes
     )
+    assertEquals(Some(Errors.INVALID_REPLICA_ASSIGNMENT), err.map(_.error))
   }
 
   /**
@@ -614,41 +616,44 @@ class ObserverTest {
   /**
    * Test if replica count doesn't match those in constraint we fail.
    */
-  @Test(expected = classOf[InvalidReplicaAssignmentException])
+  @Test
   def testValidateReplicasOverConstraintCount(): Unit = {
-    Observer.validateReplicaAssignment(
+    val err = Observer.validateReplicaAssignment(
       topicWithoutObserversConstraint,
       ReplicaAssignment.Assignment(0 to 7, Seq.empty),
       allBrokersAttributes
     )
+    assertEquals(Some(Errors.INVALID_REPLICA_ASSIGNMENT), err.map(_.error))
   }
 
   /**
    * Test if replica count doesn't match those in constraint we fail.
    */
-  @Test(expected = classOf[InvalidReplicaAssignmentException])
+  @Test
   def testValidateReplicasUnderConstraintCount(): Unit = {
-    Observer.validateReplicaAssignment(
+    val err = Observer.validateReplicaAssignment(
       topicWithoutObserversConstraint,
       ReplicaAssignment.Assignment(0 to 4, Seq.empty),
       allBrokersAttributes
     )
+    assertEquals(Some(Errors.INVALID_REPLICA_ASSIGNMENT), err.map(_.error))
   }
 
   /**
    * Test if replica provided match the overall count, but not individual count validation fails.
    */
-  @Test(expected = classOf[InvalidReplicaAssignmentException])
+  @Test
   def testReplicaIndividualConstraintCountNotSatisfied(): Unit = {
-    Observer.validateReplicaAssignment(
+    val err = Observer.validateReplicaAssignment(
       topicWithoutObserversConstraint,
       ReplicaAssignment.Assignment(Seq(0, 1, 3, 4, 5, 6, 7), Seq.empty),
       allBrokersAttributes
     )
+    assertEquals(Some(Errors.INVALID_REPLICA_ASSIGNMENT), err.map(_.error))
   }
 
   @Test
-  def testObseverMatchesConstraint(): Unit = {
+  def testObserverMatchesConstraint(): Unit = {
     Observer.validateReplicaAssignment(
       topicWithObserverPlacementConstraint,
       ReplicaAssignment.Assignment(0 to 6, 5 to 6),
@@ -656,30 +661,33 @@ class ObserverTest {
     )
   }
 
-  @Test(expected = classOf[InvalidReplicaAssignmentException])
-  def testInvalidObseverCount(): Unit = {
-    Observer.validateReplicaAssignment(
+  @Test
+  def testInvalidObserverCount(): Unit = {
+    val err = Observer.validateReplicaAssignment(
       topicWithObserverPlacementConstraint,
       ReplicaAssignment.Assignment(0 to 7, 5 to 7),
       allBrokersAttributes
     )
+    assertEquals(Some(Errors.INVALID_REPLICA_ASSIGNMENT), err.map(_.error))
   }
 
-  @Test(expected = classOf[InvalidReplicaAssignmentException])
-  def testInvalidObseverAttribute(): Unit = {
-    Observer.validateReplicaAssignment(
+  @Test
+  def testInvalidObserverAttribute(): Unit = {
+    val err = Observer.validateReplicaAssignment(
       topicWithObserverPlacementConstraint,
       ReplicaAssignment.Assignment((0 to 5) ++ Seq(9), Seq(5, 9)),
       allBrokersAttributes
     )
+    assertEquals(Some(Errors.INVALID_REPLICA_ASSIGNMENT), err.map(_.error))
   }
 
-  @Test(expected = classOf[InvalidReplicaAssignmentException])
+  @Test
   def testReplicasHasObserverAsSuffix(): Unit = {
-    Observer.validateReplicaAssignment(
+    val err = Observer.validateReplicaAssignment(
       None,
       ReplicaAssignment.Assignment(0 to 5, 0 to 1),
       allBrokersAttributes
     )
+    assertEquals(Some(Errors.INVALID_REPLICA_ASSIGNMENT), err.map(_.error))
   }
 }
