@@ -48,7 +48,7 @@ public final class MetadataServerConfig extends AbstractConfig {
           + "the host name in advertised listeners.";
 
   public static final String HTTP_SERVER_LISTENERS_PROP = "confluent.http.server.listeners";
-  public static final String HTTP_SERVER_LISTENERS_DEFAULT = "http://127.0.0.1:8090";
+  public static final String HTTP_SERVER_LISTENERS_DEFAULT = "http://0.0.0.0:8090";
   private static final String HTTP_SERVER_LISTENERS_DOC =
       "Comma-separated list of listener URLs for HTTP server to listener on if this broker "
           + "hosts an embedded HTTP server plugin for metadata related to the local cluster. "
