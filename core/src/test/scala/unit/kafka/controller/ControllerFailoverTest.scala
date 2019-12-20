@@ -92,7 +92,7 @@ class ControllerFailoverTest extends KafkaServerTestHarness with Logging {
       servers.exists { server =>
         server.kafkaController.isActive && server.kafkaController.epoch > initialEpoch
       }
-    }, "Failed to find controller")
+    }, "Failed to find updated controller")
 
   }
 }

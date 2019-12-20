@@ -89,13 +89,54 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
   /**
     * Registers the broker in zookeeper and return the broker epoch.
     * @param brokerInfo payload of the broker znode
-    * @return broker epoch (znode create transaction id)
+    * @return broker epoch (znode create transaction id) and broker ephemeral znode version
     */
-  def registerBroker(brokerInfo: BrokerInfo): Long = {
+  def registerBroker(brokerInfo: BrokerInfo): BrokerEpochAndZkVersion = {
     val path = brokerInfo.path
     val stat = checkedEphemeralCreate(path, brokerInfo.toJsonBytes)
     info(s"Registered broker ${brokerInfo.broker.id} at path $path with addresses: ${brokerInfo.broker.endPoints}, czxid (broker epoch): ${stat.getCzxid}")
-    stat.getCzxid
+    BrokerEpochAndZkVersion(stat.getCzxid, stat.getVersion)
+  }
+
+  /**
+   * Unregisters the broker
+   * @param brokerInfo payload of the broker being unregistered
+   * @param brokerZkVersion version for the broker znode
+   */
+  def unregisterBroker(brokerInfo: BrokerInfo, brokerZkVersion: Int): Unit = {
+    val response = retryRequestUntilConnected(
+      DeleteRequest(brokerInfo.path, brokerZkVersion))
+
+    info(s"unregistering broker ${brokerInfo.path} version $brokerZkVersion")
+    response.resultCode match {
+      // Code.BADVERSION may indicate that another instance with the same ID has taken over.
+      // This should only happen for a new instance, so we should treat this as a success.
+      case Code.NONODE | Code.OK =>
+      case Code.BADVERSION => info(s"unregistering broker was no-op due to version mismatch")
+      case code => throw KeeperException.create(code)
+    }
+  }
+
+  /**
+   * Unregisters the broker and unregisters it as a controller if it is one.
+   * @param brokerInfo payload of the broker being unregistered
+   * @param brokerZkVersion version for the broker znode
+   * @param expectedControllerEpochZkVersion expected controller epoch version
+   */
+  def unregisterBrokerAndController(brokerInfo: BrokerInfo, brokerZkVersion: Int, expectedControllerEpochZkVersion: Int): Unit = {
+    info(s"unregistering broker ${brokerInfo.path} version $brokerZkVersion and " +
+      s"controller ${ControllerZNode.path} epoch $expectedControllerEpochZkVersion")
+    val response = retryRequestUntilConnected(
+      MultiRequest(Seq(
+        CheckOp(ControllerEpochZNode.path, expectedControllerEpochZkVersion),
+        DeleteOp(ControllerZNode.path, ZkVersion.MatchAnyVersion),
+        DeleteOp(brokerInfo.path, brokerZkVersion))))
+
+    response.resultCode match {
+      case Code.NONODE | Code.OK =>
+      case Code.BADVERSION => info(s"unregistering broker and controller was no-op due to version mismatch")
+      case code => throw KeeperException.create(code)
+    }
   }
 
   /**
@@ -1908,6 +1949,11 @@ object KafkaZkClient {
   case class UpdateLeaderAndIsrResult(
     finishedPartitions: Map[TopicPartition, Either[Exception, LeaderAndIsr]],
     partitionsToRetry: Seq[TopicPartition]
+  )
+
+  case class BrokerEpochAndZkVersion(
+    epoch: Long,
+    zkVersion: Int
   )
 
   /**
