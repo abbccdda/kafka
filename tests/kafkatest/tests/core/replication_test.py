@@ -24,6 +24,7 @@ from kafkatest.services.kafka import config_property
 from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry
 
 import signal
+import time
 
 def broker_node(test, broker_type):
     """ Discover node of requested type. For leader type, discovers leader for our topic and partition 0
@@ -102,6 +103,7 @@ class ReplicationTest(EndToEndTest, TierSupport):
     }
 
     TIER_S3_BUCKET = "confluent-tier-system-test"
+    TIER_RETENTION_CHECK_INTERVAL = 1000
 
     def __init__(self, test_context):
         """:type test_context: ducktape.tests.test.TestContext"""
@@ -163,7 +165,7 @@ class ReplicationTest(EndToEndTest, TierSupport):
             # Use shorter log retention check interval to help ensure hotset retention is invoked before the consumer finishes
             self.configure_tiering(self.TIER_S3_BUCKET, enable=True,
                                    log_segment_bytes=102400,
-                                   log_retention_check_interval=1000)
+                                   log_retention_check_interval=self.TIER_RETENTION_CHECK_INTERVAL)
 
         self.kafka.start()
 
@@ -179,6 +181,8 @@ class ReplicationTest(EndToEndTest, TierSupport):
             # wait for some records to archive
             wait_until(lambda: self.tiering_started(self.topic),
                        timeout_sec=30, backoff_sec=2, err_msg="no segments archived within timeout")
+            # wait for long enough that for hotset retention will delete local segments
+            time.sleep(2*self.TIER_RETENTION_CHECK_INTERVAL/1000)
 
         self.consumer.start()
 
