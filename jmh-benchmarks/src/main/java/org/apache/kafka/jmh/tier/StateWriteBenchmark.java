@@ -55,7 +55,7 @@ public class StateWriteBenchmark {
         state.beginCatchup();
         state.setTopicId(TOPIC_PARTITION.topicId());
         state.append(new TierTopicInitLeader(TOPIC_PARTITION, EPOCH,
-                UUID.randomUUID(), 0));
+                UUID.randomUUID(), 0), 0);
         for (int i = 0; i < COUNT; i++) {
             TierUtils.uploadWithMetadata(state,
                     TOPIC_PARTITION,

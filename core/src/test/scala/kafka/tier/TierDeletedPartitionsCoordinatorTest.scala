@@ -191,11 +191,11 @@ class TierDeletedPartitionsCoordinatorTest {
     val inProgress_1 = inProgressPartitions(deletedPartition_1)
     tieredSegments_1.foreach { segment =>
       inProgress_1.process(new TierSegmentUploadInitiate(segment.topicIdPartition, segment.tierEpoch, segment.objectId,
-        segment.baseOffset, segment.baseOffset + 1, 0, 100, false, false, false))
+        segment.baseOffset, segment.baseOffset + 1, 0, 100, false, false, false), 0)
     }
 
     // simulate reading of deleteInitiated message for partition 1 ==> signals completion of materialization
-    inProgress_1.process(new TierPartitionDeleteInitiate(deletedPartition_1, 0, UUID.randomUUID))
+    inProgress_1.process(new TierPartitionDeleteInitiate(deletedPartition_1, 0, UUID.randomUUID), 0)
     assertEquals(MaterializationComplete, inProgress_1.deletionState)
 
     // begin deletion for partition 1

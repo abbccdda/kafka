@@ -622,7 +622,7 @@ class LogManagerTest {
       log.tierPartitionState.setTopicId(topicIdPartition.topicId)
 
       // append InitLeader to tier partition state file, so that it actually has some state to flush
-      val result = log.tierPartitionState.append(new TierTopicInitLeader(topicIdPartition, 0, java.util.UUID.randomUUID, 0))
+      val result = log.tierPartitionState.append(new TierTopicInitLeader(topicIdPartition, 0, java.util.UUID.randomUUID, 0), 0)
       assertEquals(AppendResult.ACCEPTED, result)
     }
 

@@ -313,7 +313,7 @@ private class InProgressDeletion(val tierTopicPartitionId: Int,
                                  tieredObjects: mutable.Map[UUID, TierObjectStore.ObjectMetadata] = mutable.Map(),
                                  @volatile var status: TierPartitionStatus = TierPartitionStatus.INIT,
                                  private[tier] var currentState: DeletionState = MaterializingState) extends ClientCtx with Logging {
-  override def process(metadata: AbstractTierMetadata): TierPartitionState.AppendResult = synchronized {
+  override def process(metadata: AbstractTierMetadata, offset: Long): TierPartitionState.AppendResult = synchronized {
     metadata match {
       case segmentUpload: TierSegmentUploadInitiate =>
         val objectMetadata = new TierObjectStore.ObjectMetadata(segmentUpload.topicIdPartition,

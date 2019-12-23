@@ -551,7 +551,7 @@ class MergedLogTest {
     tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
-      leaderEpoch, java.util.UUID.randomUUID(), 0))
+      leaderEpoch, java.util.UUID.randomUUID(), 0), 0)
     val pid1 = 1L
     var lastOffset = 0L
     for (i <- 0 to 15) {
@@ -646,7 +646,7 @@ class MergedLogTest {
     tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
-      leaderEpoch, java.util.UUID.randomUUID(), 0))
+      leaderEpoch, java.util.UUID.randomUUID(), 0), 0)
     val pid1 = 1L
     var lastOffset = 0L
     for (i <- 0 to 20) {
@@ -729,7 +729,7 @@ class MergedLogTest {
     tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
-      leaderEpoch, java.util.UUID.randomUUID(), 0))
+      leaderEpoch, java.util.UUID.randomUUID(), 0), 0)
 
     val pid = 137L
     val epoch = 5.toShort
@@ -860,7 +860,7 @@ class MergedLogTest {
     tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
-      epoch, java.util.UUID.randomUUID(), 0))
+      epoch, java.util.UUID.randomUUID(), 0), 0)
 
     // append metadata for tiered segments
     tieredSegments.foreach { segment =>
@@ -923,7 +923,7 @@ class MergedLogTest {
     tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
-      epoch, java.util.UUID.randomUUID(), 0))
+      epoch, java.util.UUID.randomUUID(), 0), 0)
 
     // append metadata for tiered segments
     tieredSegments.foreach { segment =>
@@ -1089,7 +1089,7 @@ class MergedLogTest {
     tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
-      epoch, java.util.UUID.randomUUID(), 0))
+      epoch, java.util.UUID.randomUUID(), 0), 0)
   }
 
   private def logRanges(log: MergedLog): LogRanges = {
@@ -1180,7 +1180,7 @@ object MergedLogTest {
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
       epoch,
       java.util.UUID.randomUUID(),
-      0))
+      0), 0)
 
     // initialize metadata for tiered segments
     val segmentsToTier = log.localLogSegments.take(numTieredSegments + numOverlap)

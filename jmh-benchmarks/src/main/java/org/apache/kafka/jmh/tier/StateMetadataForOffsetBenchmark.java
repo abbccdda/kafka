@@ -78,7 +78,7 @@ public class StateMetadataForOffsetBenchmark {
             factory = new TierPartitionStateFactory(true);
             state = factory.initState(new File(BASE_DIR), TOPIC_PARTITION.topicPartition(), config);
             state.append(new TierTopicInitLeader(TOPIC_PARTITION, EPOCH,
-                    java.util.UUID.randomUUID(), 0));
+                    java.util.UUID.randomUUID(), 0), 0);
             for (int i = 0; i < COUNT; i++) {
                 TierUtils.uploadWithMetadata(state,
                         TOPIC_PARTITION,

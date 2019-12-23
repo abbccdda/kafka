@@ -108,12 +108,12 @@ object TierTestUtils {
     val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, tierEpoch, objectId, startOffset, endOffset,
       maxTimestamp, size, hasEpochState, hasAbortedTxnIndex, hasProducerState)
 
-    val result = tierPartitionState.append(uploadInitiate)
+    val result = tierPartitionState.append(uploadInitiate, 0)
     if (result != AppendResult.ACCEPTED) {
       result
     } else {
       val uploadComplete = new TierSegmentUploadComplete(uploadInitiate)
-      tierPartitionState.append(uploadComplete)
+      tierPartitionState.append(uploadComplete, 0)
     }
   }
 

@@ -926,7 +926,7 @@ class ReplicaManagerTest {
       log0.roll()
       log0.updateHighWatermark(log0.logEndOffset)
       val tp0topicIdPartition = new TopicIdPartition(tp0.topic(), topicId, tp0.partition())
-      log0tierPartitionState.append(new TierTopicInitLeader(tp0topicIdPartition, 0, java.util.UUID.randomUUID(), 0))
+      log0tierPartitionState.append(new TierTopicInitLeader(tp0topicIdPartition, 0, java.util.UUID.randomUUID(), 0), 0)
       val result = TierTestUtils.uploadWithMetadata(log0tierPartitionState, tp0topicIdPartition, 0, UUID.randomUUID(), 0, 1)
       assertEquals(AppendResult.ACCEPTED, result)
       log0tierPartitionState.flush()

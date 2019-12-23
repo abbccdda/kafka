@@ -76,9 +76,9 @@ public class StateScanBenchmark {
             state = factory.initState(new File(BASE_DIR), TOPIC_PARTITION.topicPartition(), config);
             state.setTopicId(TOPIC_PARTITION.topicId());
             state.append(new TierTopicInitLeader(TOPIC_PARTITION, EPOCH,
-                    java.util.UUID.randomUUID(), 0));
+                    java.util.UUID.randomUUID(), 0), 0);
             state.append(new TierTopicInitLeader(TOPIC_PARTITION, EPOCH,
-                    java.util.UUID.randomUUID(), 0));
+                    java.util.UUID.randomUUID(), 0), 0);
             for (int i = 0; i < COUNT; i++) {
                 TierUtils.uploadWithMetadata(state,
                         TOPIC_PARTITION,

@@ -103,7 +103,7 @@ class TierPartitionStateConcurrencyTest {
         new TierTopicInitLeader(tpid,
           epoch,
           java.util.UUID.randomUUID(),
-          0))
+          0), 0)
       var size = 0
       var i = 0
       while (System.currentTimeMillis() < startTime + runLengthMs) {

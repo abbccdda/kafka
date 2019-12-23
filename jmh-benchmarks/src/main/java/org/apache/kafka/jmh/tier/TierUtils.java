@@ -35,12 +35,12 @@ public class TierUtils {
                 hasAbortedTxns,
                 hasProducerState);
 
-        TierPartitionState.AppendResult result = tierPartitionState.append(uploadInitiate);
+        TierPartitionState.AppendResult result = tierPartitionState.append(uploadInitiate, 0);
         if (result != TierPartitionState.AppendResult.ACCEPTED) {
             return result;
         } else {
             TierSegmentUploadComplete uploadComplete = new TierSegmentUploadComplete(uploadInitiate);
-            return tierPartitionState.append(uploadComplete);
+            return tierPartitionState.append(uploadComplete, 0);
         }
     }
 }

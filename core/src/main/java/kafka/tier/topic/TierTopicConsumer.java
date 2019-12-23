@@ -352,7 +352,7 @@ public class TierTopicConsumer implements Runnable {
 
                     default:
                         if (currentState == requiredState) {
-                            TierPartitionState.AppendResult result = clientCtx.process(entry);
+                            TierPartitionState.AppendResult result = clientCtx.process(entry, offset);
                             resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.complete(result));
                         } else {
                             // We partition the materialization between the primary and catchup consumer based on the
@@ -418,9 +418,10 @@ public class TierTopicConsumer implements Runnable {
         /**
          * Process metadata for this context.
          * @param metadata Metadata to process
+         * @param tierTopicPartitionOffset  Metadata's offset in TierTopicPartition
          * @return Result of processing
          */
-        TierPartitionState.AppendResult process(AbstractTierMetadata metadata);
+        TierPartitionState.AppendResult process(AbstractTierMetadata metadata, long tierTopicPartitionOffset);
 
         /**
          * Retrieve status of tiered partition.

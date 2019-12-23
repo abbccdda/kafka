@@ -78,14 +78,14 @@ class TierTopicManagerTest {
     val initLeader_1 = new TierTopicInitLeader(topicIdPartition_1, epoch, UUID.randomUUID, 0)
     val clientCtx_1 = mock(classOf[ClientCtx])
     when(clientCtx_1.status).thenReturn(TierPartitionStatus.ONLINE)
-    when(clientCtx_1.process(initLeader_1)).thenReturn(AppendResult.ACCEPTED)
+    when(clientCtx_1.process(initLeader_1, 0)).thenReturn(AppendResult.ACCEPTED)
     tierTopicConsumer.register(topicIdPartition_1, clientCtx_1)
 
     val topicIdPartition_2 = new TopicIdPartition("foo_2", UUID.randomUUID, 0)
     val initLeader_2 = new TierTopicInitLeader(topicIdPartition_2, epoch, UUID.randomUUID, 0)
     val clientCtx_2 = mock(classOf[ClientCtx])
     when(clientCtx_2.status).thenReturn(TierPartitionStatus.ONLINE)
-    when(clientCtx_2.process(initLeader_2)).thenReturn(AppendResult.ACCEPTED)
+    when(clientCtx_2.process(initLeader_2, 0)).thenReturn(AppendResult.ACCEPTED)
     tierTopicConsumer.register(topicIdPartition_2, clientCtx_2)
 
     val future_1 = tierTopicManager.addMetadata(initLeader_1)
@@ -188,7 +188,7 @@ class TierTopicManagerTest {
     tierPartitionStateFiles :+= tierPartitionState
 
     tierTopicConsumer.register(topicIdPartition, new ClientCtx {
-      override def process(metadata: AbstractTierMetadata): AppendResult = tierPartitionState.append(metadata)
+      override def process(metadata: AbstractTierMetadata, offset: Long): AppendResult = tierPartitionState.append(metadata, offset)
       override def status(): TierPartitionStatus = tierPartitionState.status
       override def beginCatchup(): Unit = tierPartitionState.beginCatchup()
       override def completeCatchup(): Unit = tierPartitionState.onCatchUpComplete()

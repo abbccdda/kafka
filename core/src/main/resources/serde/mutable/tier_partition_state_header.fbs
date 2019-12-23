@@ -14,7 +14,17 @@ table TierPartitionStateHeader {
   topicId: UUID (id: 1);
   tierEpoch: int (id: 2);
   status: byte (id: 3);
+
+  // version 1
   endOffset: long = -1 (id: 4);
+
+  // version 2
+  materializationInfo: MaterializationTrackingInfo (id: 5);
+}
+
+table MaterializationTrackingInfo {
+    globalMaterializedOffset: long = -1 (id: 0);  // Initialized to offset -1 which means yet to start materialization.
+    localMaterializedOffset: long = -1 (id: 1);   // Initialized to offset -1 which means yet to start materialization.
 }
 
 root_type TierPartitionStateHeader;

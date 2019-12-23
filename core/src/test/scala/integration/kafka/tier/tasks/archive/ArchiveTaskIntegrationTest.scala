@@ -84,12 +84,12 @@ class ArchiveTaskIntegrationTest {
     override def becomeArchiver(topicPartition: TopicIdPartition, tierEpoch: Int): CompletableFuture[TierPartitionState.AppendResult] = {
       val tierPartitionState = tierPartitionStates.get(topicPartition)
       val becomeLeaderMessage = new TierTopicInitLeader(topicPartition, tierEpoch, UUID.randomUUID(), 0)
-      Future.successful(tierPartitionState.append(becomeLeaderMessage)).toJava.toCompletableFuture
+      Future.successful(tierPartitionState.append(becomeLeaderMessage, 0)).toJava.toCompletableFuture
     }
 
     override def addMetadata(entry: AbstractTierMetadata): CompletableFuture[TierPartitionState.AppendResult] = {
       val tierPartitionState = tierPartitionStates.get(topicIdPartition)
-      Future.successful(tierPartitionState.append(entry)).toJava.toCompletableFuture
+      Future.successful(tierPartitionState.append(entry, 0)).toJava.toCompletableFuture
     }
 
     override def isReady: Boolean = true
