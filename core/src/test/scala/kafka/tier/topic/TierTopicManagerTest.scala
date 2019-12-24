@@ -24,6 +24,7 @@ import org.apache.kafka.common.errors.{TimeoutException, TopicExistsException}
 import org.apache.kafka.common.utils.Utils
 import org.junit.Assert._
 import org.junit.{After, Test}
+import org.mockito.ArgumentMatchers
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito._
 
@@ -78,14 +79,14 @@ class TierTopicManagerTest {
     val initLeader_1 = new TierTopicInitLeader(topicIdPartition_1, epoch, UUID.randomUUID, 0)
     val clientCtx_1 = mock(classOf[ClientCtx])
     when(clientCtx_1.status).thenReturn(TierPartitionStatus.ONLINE)
-    when(clientCtx_1.process(initLeader_1, 0)).thenReturn(AppendResult.ACCEPTED)
+    when(clientCtx_1.process(ArgumentMatchers.eq(initLeader_1), any())).thenReturn(AppendResult.ACCEPTED)
     tierTopicConsumer.register(topicIdPartition_1, clientCtx_1)
 
     val topicIdPartition_2 = new TopicIdPartition("foo_2", UUID.randomUUID, 0)
     val initLeader_2 = new TierTopicInitLeader(topicIdPartition_2, epoch, UUID.randomUUID, 0)
     val clientCtx_2 = mock(classOf[ClientCtx])
     when(clientCtx_2.status).thenReturn(TierPartitionStatus.ONLINE)
-    when(clientCtx_2.process(initLeader_2, 0)).thenReturn(AppendResult.ACCEPTED)
+    when(clientCtx_2.process(ArgumentMatchers.eq(initLeader_2), any())).thenReturn(AppendResult.ACCEPTED)
     tierTopicConsumer.register(topicIdPartition_2, clientCtx_2)
 
     val future_1 = tierTopicManager.addMetadata(initLeader_1)
