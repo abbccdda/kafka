@@ -821,20 +821,20 @@ class TierPartitionStateTest {
   @Test
   def testMaterializedOffset(): Unit = {
     // Make sure it's initialized with -1.
-    assertEquals(-1, state.tierTopicPartitionOffset)
+    assertEquals(-1, state.lastConsumedSrcOffset)
 
     // Send materialization request at offset 100.
     state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), 100)
-    assertEquals(100, state.tierTopicPartitionOffset)
+    assertEquals(100, state.lastConsumedSrcOffset)
 
     // Send previous offset request, simulating possible duplicates during recovery or during transition from catchup.
     state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), 98)
-    assertEquals(100, state.tierTopicPartitionOffset)
+    assertEquals(100, state.lastConsumedSrcOffset)
 
     // Broker restart.
     state.close()
     val restartState = new FileTierPartitionState(dir, tp, true)
-    assertEquals(100, restartState.tierTopicPartitionOffset)
+    assertEquals(100, restartState.lastConsumedSrcOffset)
 
     // Test for the state version.
     assertEquals(2, state.version())

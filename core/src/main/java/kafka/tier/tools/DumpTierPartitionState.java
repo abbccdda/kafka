@@ -7,6 +7,7 @@ package kafka.tier.tools;
 import kafka.log.Log;
 import kafka.tier.state.FileTierPartitionIterator;
 import kafka.tier.state.FileTierPartitionState;
+import kafka.tier.state.Header;
 import org.apache.kafka.common.TopicPartition;
 
 import java.io.File;
@@ -35,7 +36,7 @@ public class DumpTierPartitionState {
     private static void dumpTierState(TopicPartition topicPartition, File file) {
         try (FileChannel fileChannel = FileChannel.open(file.toPath(), StandardOpenOption.READ)) {
             System.out.println("Dumping state in file " + file);
-            Optional<FileTierPartitionState.Header>  headerOpt = FileTierPartitionState.readHeader(fileChannel);
+            Optional<Header>  headerOpt = FileTierPartitionState.readHeader(fileChannel);
             if (!headerOpt.isPresent()) {
                 System.out.println("Empty header");
                 return;
