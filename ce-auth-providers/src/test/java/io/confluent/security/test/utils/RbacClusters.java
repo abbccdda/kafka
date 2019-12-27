@@ -93,7 +93,7 @@ public class RbacClusters {
     kafkaCluster.startZooKeeper();
     createUsers(kafkaCluster, config.brokerUser, config.userNames);
     createAclBindings(kafkaCluster, config.serverAclBindings);
-    kafkaCluster.startBrokers(1, serverConfig());
+    kafkaCluster.startBrokers(config.numKafkaServers, serverConfig());
   }
 
   public String kafkaClusterId() {
@@ -431,6 +431,7 @@ public class RbacClusters {
     private final Properties metadataClusterPropOverrides = new Properties();
     private final Properties serverConfigOverrides = new Properties();
     private int numMetadataServers = 1;
+    private int numKafkaServers = 1;
     private String brokerUser;
     private List<String> userNames;
     private boolean enableLdap;
@@ -492,6 +493,11 @@ public class RbacClusters {
 
     public Config withBrokerAcls(List<AclBinding> aclBindings) {
       serverAclBindings.addAll(aclBindings);
+      return this;
+    }
+
+    public Config withKafkaServers(int servers) {
+      numKafkaServers = servers;
       return this;
     }
   }

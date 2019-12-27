@@ -6,6 +6,7 @@ package io.confluent.security.audit;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.security.audit.router.AuditLogCategoryResultRouter;
+import io.confluent.security.audit.router.AuditLogRouter;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig.DefaultTopics;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig.DestinationTopic;
@@ -76,8 +77,18 @@ public class AuditLogRouterJsonConfigUtils {
                 Utils.mkMap(Utils.mkEntry("allowed", defaultTopicAllowed),
                     Utils.mkEntry("denied", defaultTopicDenied))),
             Utils.mkEntry(AuditLogCategoryResultRouter.DESCRIBE_CATEGORY,
-                Utils.mkMap(Utils.mkEntry("allowed", ""),
+                Utils.mkMap(Utils.mkEntry("allowed", AuditLogRouter.SUPPRESSED),
                     Utils.mkEntry("denied", defaultTopicDenied)))));
+    config.routes.put("crn://" + crnAuthority + "/kafka=*/topic=_*",
+        Utils.mkMap(Utils.mkEntry(AuditLogCategoryResultRouter.PRODUCE_CATEGORY,
+            Utils.mkMap(Utils.mkEntry("allowed", AuditLogRouter.SUPPRESSED),
+                Utils.mkEntry("denied", AuditLogRouter.SUPPRESSED))),
+            Utils.mkEntry(AuditLogCategoryResultRouter.CONSUME_CATEGORY,
+                Utils.mkMap(Utils.mkEntry("allowed", AuditLogRouter.SUPPRESSED),
+                    Utils.mkEntry("denied", AuditLogRouter.SUPPRESSED))),
+            Utils.mkEntry(AuditLogCategoryResultRouter.DESCRIBE_CATEGORY,
+                Utils.mkMap(Utils.mkEntry("allowed", AuditLogRouter.SUPPRESSED),
+                    Utils.mkEntry("denied", AuditLogRouter.SUPPRESSED)))));
     config.routes.put("crn://" + crnAuthority + "/kafka=*/group=*",
         Utils.mkMap(Utils.mkEntry(AuditLogCategoryResultRouter.CONSUME_CATEGORY,
             Utils.mkMap(Utils.mkEntry("allowed", defaultTopicAllowed),

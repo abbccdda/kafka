@@ -15,6 +15,7 @@ import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogRouterJsonConfigUtils;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import io.confluent.security.authorizer.AuthorizePolicy;
+import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.test.utils.RbacClusters;
 import java.util.Collections;
@@ -148,16 +149,16 @@ public class SameClusterTest extends ClusterTestCommon {
         .build()
         .toString();
 
-    assertTrue(eventsMatched(consumer, 30000, Collections.singletonList(
+    assertTrue(eventsMatchUnordered(consumer, 30000,
         e -> match(e, "User:" + RESOURCE_OWNER1, app3TopicCrn, "kafka.CreateTopics",
             AuthorizeResult.ALLOWED, AuthorizePolicy.PolicyType.ALLOW_ROLE)
-    )));
+    ));
 
     // Consume message should *not* be received
     rbacClusters.produceConsume(RESOURCE_OWNER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
-    assertFalse(eventsMatched(consumer, 10000, Collections.singletonList(
-        e -> "kafka.CreateTopics".equals(e.getMethodName())
-    )));
+    assertFalse(eventsMatchUnordered(consumer, 10000,
+        e -> "kafka.FetchConsumer".equals(e.getMethodName())
+    ));
   }
 
   @Test
@@ -178,10 +179,10 @@ public class SameClusterTest extends ClusterTestCommon {
         .build()
         .toString();
 
-    assertTrue(eventsMatched(consumer, 30000, Collections.singletonList(
+    assertTrue(eventsMatchUnordered(consumer, 30000,
         e -> match(e, "User:" + BROKER_USER, app3TopicCrn, "kafka.CreateTopics",
             AuthorizeResult.ALLOWED, AuthorizePolicy.PolicyType.SUPER_USER)
-    )));
+    ));
   }
 
   @Test
@@ -211,10 +212,10 @@ public class SameClusterTest extends ClusterTestCommon {
 
     rbacClusters.produceConsume(BROKER_USER, APP3_TOPIC, APP1_CONSUMER_GROUP, true);
 
-    assertTrue(eventsMatched(consumer, 30000, Collections.singletonList(
+    assertTrue(eventsMatchUnordered(consumer, 30000,
         e -> match(e, "User:" + BROKER_USER, app3TopicCrn, "kafka.Produce",
             AuthorizeResult.ALLOWED, AuthorizePolicy.PolicyType.SUPER_USER)
-    )));
+    ));
   }
 
   @Test
@@ -247,10 +248,10 @@ public class SameClusterTest extends ClusterTestCommon {
     // second message actually makes it through
     rbacClusters.produceConsume(BROKER_USER, APP3_TOPIC, APP1_CONSUMER_GROUP, true);
 
-    assertTrue(eventsMatched(consumer, 30000, Collections.singletonList(
+    assertTrue(eventsMatchUnordered(consumer, 30000,
         e -> match(e, "User:" + BROKER_USER, app3TopicCrn, "kafka.Produce",
             AuthorizeResult.ALLOWED, AuthorizePolicy.PolicyType.SUPER_USER)
-    )));
+    ));
   }
 
 
@@ -276,5 +277,45 @@ public class SameClusterTest extends ClusterTestCommon {
     consumer("event-log");
 
     produceConsume();
+  }
+
+
+  @Test
+  public void testInterbroker() throws Throwable {
+
+    rbacConfig.overrideBrokerConfig(
+        AuditLogConfig.ROUTER_CONFIG,
+        AuditLogRouterJsonConfigUtils.defaultConfigProduceConsumeInterbroker(
+            null,
+            AUTHORITY_NAME,
+            AuditLogRouterJsonConfig.DEFAULT_TOPIC,
+            AuditLogRouterJsonConfig.DEFAULT_TOPIC,
+            Collections.singletonList(
+                new KafkaPrincipal(KafkaPrincipal.USER_TYPE, LOG_READER_USER))))
+        .overrideBrokerConfig(CrnAuthorityConfig.AUTHORITY_NAME_PROP, AUTHORITY_NAME)
+        .withKafkaServers(1);
+
+    rbacClusters = new RbacClusters(rbacConfig);
+
+    initializeClusters();
+    TestUtils.waitForCondition(() -> auditLoggerReady(), "auditLoggerReady");
+
+    consumer("event-log");
+
+    rbacClusters.clientBuilder(BROKER_USER).buildAdminClient()
+        .createTopics(Collections.singleton(new NewTopic(APP3_TOPIC, 1, (short) 1)));
+
+    String clusterCrn = ConfluentResourceName.newBuilder()
+        .setAuthority(AUTHORITY_NAME)
+        .addElement("kafka", rbacClusters.kafkaClusterId())
+        .build()
+        .toString();
+
+    assertTrue(eventsMatchUnordered(consumer, 30000,
+        e -> match(e, "User:" + BROKER_USER, clusterCrn, "kafka.LeaderAndIsr",
+            AuthorizeResult.ALLOWED, PolicyType.SUPER_USER),
+        e -> match(e, "User:" + BROKER_USER, clusterCrn, "kafka.UpdateMetadata",
+            AuthorizeResult.ALLOWED, PolicyType.SUPER_USER)
+    ));
   }
 }
