@@ -37,6 +37,7 @@ import org.mockito.invocation.InvocationOnMock
 import org.mockito.stubbing.Answer
 
 import scala.collection.mutable
+import scala.concurrent.CancellationException
 
 class TopicDeletionManagerTest {
 
@@ -253,6 +254,66 @@ class TopicDeletionManagerTest {
     assertEquals(Set.empty[PartitionAndReplica], controllerContext.replicaStates.keySet.filter(_.topic == "foo"))
     assertEquals(Set(), controllerContext.topicsToBeDeleted)
     assertEquals(Set(), controllerContext.topicsWithDeletionStarted)
+    assertEquals(Set(), controllerContext.topicsIneligibleForDeletion)
+  }
+
+  @Test
+  def testDeletionDuringShutdownProcess(): Unit = {
+    // Tests deletion manager handling during shutdown
+    // CPKAFKA-4272 shuts down the TierTopicManager in advance of the controller
+    // After doing so, addMetadata calls will result in futures completed with CancellationException(s)
+    // This test is very similar to testExceptionWhenDeletingTieredTopic, however it tests CancellationException(s)
+    // for correct behavior as these exceptions are non retriable
+    val brokerProperties = TestUtils.createBrokerConfig(brokerId, "zkConnect")
+    brokerProperties.put(KafkaConfig.TierFeatureProp, "true")
+    val config = KafkaConfig.fromProps(brokerProperties)
+
+    val topicProperties = new Properties()
+    topicProperties.setProperty(LogConfig.TierEnableProp, "true")
+    when(deletionClient.topicConfig(any(), any())).thenReturn(LogConfig.fromProps(config.originals, topicProperties))
+
+    val controllerContext = initContext(
+      brokers = Seq(1, 2, 3),
+      topics = Set("foo", "bar"),
+      numPartitions = 2,
+      replicationFactor = 3,
+      addTopicId = true)
+
+    val futureWithException = new CompletableFuture[AppendResult]()
+    futureWithException.completeExceptionally(new CancellationException("TierTopicManager is shutting down"))
+
+    val tierTopicManager = mock(classOf[TierTopicManager])
+    when(tierTopicManager.addMetadata(any())).thenReturn(futureWithException)
+
+    val replicaStateMachine = new MockReplicaStateMachine(controllerContext)
+    replicaStateMachine.startup()
+
+    val partitionStateMachine = new MockPartitionStateMachine(controllerContext, uncleanLeaderElectionEnabled = false)
+    partitionStateMachine.startup()
+
+    val deletionManager = new TopicDeletionManager(config, controllerContext, replicaStateMachine,
+      partitionStateMachine, deletionClient, Some(tierTopicManager))
+    assertTrue(deletionManager.isDeleteTopicEnabled)
+    deletionManager.init(Set.empty, Set.empty)
+
+    val fooPartitions = controllerContext.partitionsForTopic("foo")
+    val fooReplicas = controllerContext.replicasForPartition(fooPartitions).toSet
+
+    // Queue the topic for deletion
+    deletionManager.enqueueTopicsForDeletion(Set("foo"))
+
+    assertEquals(fooPartitions, controllerContext.partitionsInState("foo", NonExistentPartition))
+    assertEquals(fooReplicas, controllerContext.replicasInState("foo", ReplicaDeletionStarted))
+    verify(deletionClient).sendMetadataUpdate(fooPartitions)
+    assertEquals(Set("foo"), controllerContext.topicsToBeDeleted)
+    assertEquals(Set("foo"), controllerContext.topicsWithDeletionStarted)
+    assertEquals(Set(), controllerContext.topicsIneligibleForDeletion)
+
+    // Complete deletion. Deletion will fail as a result of the cancellation exception in the add metadata call
+    deletionManager.completeReplicaDeletion(fooReplicas)
+    assertEquals(fooPartitions, controllerContext.partitionsInState("foo", NonExistentPartition))
+    assertEquals(Set("foo"), controllerContext.topicsToBeDeleted)
+    assertEquals(Set("foo"), controllerContext.topicsWithDeletionStarted)
     assertEquals(Set(), controllerContext.topicsIneligibleForDeletion)
   }
 

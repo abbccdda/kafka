@@ -29,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -265,8 +266,11 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
     private void addMetadata(AbstractTierMetadata metadata, CompletableFuture<AppendResult> future) {
         sendLock.readLock().lock();
         try {
-            if (shutdown.get())
-                throw new IllegalStateException("TierTopicManager thread has exited. Cannot add metadata.");
+            if (shutdown.get()) {
+                future.completeExceptionally(
+                        new CancellationException("TierTopicManager component is shutting down, failing request."));
+                return;
+            }
 
             synchronized (this) {
                 if (!ready.get()) {

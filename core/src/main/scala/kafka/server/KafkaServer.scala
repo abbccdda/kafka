@@ -352,7 +352,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         replicaManager.startup()
 
         val brokerInfo = createBrokerInfo
-        val brokerEpochAndVersion = zkClient.registerBroker(brokerInfo)
+        val brokerEpoch = zkClient.registerBroker(brokerInfo)
 
         // Now that the broker is successfully registered, checkpoint its metadata
         checkpointBrokerMetadata(BrokerMetadata(config.brokerId, Some(clusterId)))
@@ -375,7 +375,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         }
 
         /* start kafka controller */
-        kafkaController = new KafkaController(config, zkClient, time, metrics, brokerInfo, brokerEpochAndVersion, tokenManager, tierTopicManagerOpt, threadNamePrefix)
+        kafkaController = new KafkaController(config, zkClient, time, metrics, brokerInfo, brokerEpoch, tokenManager, tierTopicManagerOpt, threadNamePrefix)
         kafkaController.startup()
 
         adminManager = new AdminManager(config, metrics, metadataCache, zkClient)
@@ -785,8 +785,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         if (groupCoordinator != null)
           CoreUtils.swallow(groupCoordinator.shutdown(), this)
 
-        if (kafkaController != null)
-          CoreUtils.swallow(kafkaController.shutdown(), this)
+        if (tokenManager != null)
+          CoreUtils.swallow(tokenManager.shutdown(), this)
 
         CoreUtils.swallow(tierDeletedPartitionsCoordinatorOpt.foreach(_.shutdown()), this)
 
@@ -794,12 +794,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         CoreUtils.swallow(tierTopicManagerOpt.foreach(_.shutdown()), this)
 
-        if (tokenManager != null)
-          CoreUtils.swallow(tokenManager.shutdown(), this)
-
         if (replicaManager != null)
           CoreUtils.swallow(replicaManager.shutdown(), this)
-
         if (logManager != null)
           CoreUtils.swallow(logManager.shutdown(), this)
 
@@ -811,6 +807,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         if (tierObjectStoreOpt.isDefined)
           CoreUtils.swallow(tierObjectStoreOpt.get.close(), this)
+
+        if (kafkaController != null)
+          CoreUtils.swallow(kafkaController.shutdown(), this)
 
         if (zkClient != null)
           CoreUtils.swallow(zkClient.close(), this)

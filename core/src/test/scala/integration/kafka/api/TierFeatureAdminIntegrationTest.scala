@@ -34,9 +34,6 @@ class TierFeatureAdminIntegrationTest extends PlaintextAdminIntegrationTest {
     Assert.assertFalse(exited.get())
   }
 
-  // CPKAFKA-4033: temporarily disabled due to flaky test design triggered by 2b6fbf7d5d522729486e5d0eb213e09f85759b6d
-  override def testReplicaCanFetchFromLogStartOffsetAfterDeleteRecords(): Unit = { }
-
   // Multiple log dirs are not supported in tiered storage yet
   override def testAlterLogDirsAfterDeleteRecords(): Unit = { }
   override def testAlterReplicaLogDirs(): Unit = { }

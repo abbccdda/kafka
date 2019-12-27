@@ -29,7 +29,6 @@ import kafka.server._
 import kafka.tier.topic.TierTopicManager
 import kafka.utils._
 import kafka.zk.KafkaZkClient.UpdateLeaderAndIsrResult
-import kafka.zk.KafkaZkClient.BrokerEpochAndZkVersion
 import kafka.zk._
 import kafka.zk.TopicZNode.TopicIdReplicaAssignment
 import kafka.zookeeper.{StateChangeHandler, ZNodeChangeHandler, ZNodeChildChangeHandler}
@@ -69,7 +68,7 @@ class KafkaController(val config: KafkaConfig,
                       time: Time,
                       metrics: Metrics,
                       initialBrokerInfo: BrokerInfo,
-                      initialBrokerEpochAndVersion: BrokerEpochAndZkVersion,
+                      initialBrokerEpoch: Long,
                       tokenManager: DelegationTokenManager,
                       tierTopicManagerOpt: Option[TierTopicManager],
                       threadNamePrefix: Option[String] = None)
@@ -78,7 +77,7 @@ class KafkaController(val config: KafkaConfig,
   this.logIdent = s"[Controller id=${config.brokerId}] "
 
   @volatile private var brokerInfo = initialBrokerInfo
-  @volatile private var _brokerEpochVersion = initialBrokerEpochAndVersion
+  @volatile private var _brokerEpoch = initialBrokerEpoch
 
   private val stateChangeLogger = new StateChangeLogger(config.brokerId, inControllerContext = true, None)
   val controllerContext = new ControllerContext
@@ -201,9 +200,7 @@ class KafkaController(val config: KafkaConfig,
    */
   def isActive: Boolean = activeControllerId == config.brokerId
 
-  def brokerEpoch: Long = _brokerEpochVersion.epoch
-
-  def brokerZkVersion: Int = _brokerEpochVersion.zkVersion
+  def brokerEpoch: Long = _brokerEpoch
 
   def epoch: Int = controllerContext.epoch
 
@@ -237,11 +234,6 @@ class KafkaController(val config: KafkaConfig,
    */
   def shutdown() = {
     eventManager.close()
-    if (isActive)
-      zkClient.unregisterBrokerAndController(brokerInfo, brokerZkVersion, controllerContext.epochZkVersion)
-    else
-      zkClient.unregisterBroker(brokerInfo, brokerZkVersion)
-
     onControllerResignation()
   }
 
@@ -1979,7 +1971,7 @@ class KafkaController(val config: KafkaConfig,
   }
 
   private def processRegisterBrokerAndReelect(): Unit = {
-     _brokerEpochVersion = zkClient.registerBroker(brokerInfo)
+    _brokerEpoch = zkClient.registerBroker(brokerInfo)
     processReelect()
   }
 
