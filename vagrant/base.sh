@@ -157,6 +157,8 @@ get_kafka 2.2.2 2.12
 chmod a+rw /opt/kafka-2.2.2
 get_kafka 2.3.1 2.12
 chmod a+rw /opt/kafka-2.3.1
+get_kafka 2.4.0 2.12
+chmod a+rw /opt/kafka-2.4.0
 
 get_confluent_platform 5.3 5.3.0 2.12
 

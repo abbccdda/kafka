@@ -39,8 +39,10 @@ public class KafkaChannelTest {
         Authenticator authenticator = Mockito.mock(Authenticator.class);
         TransportLayer transport = Mockito.mock(TransportLayer.class);
         MemoryPool pool = Mockito.mock(MemoryPool.class);
+        ChannelMetadataRegistry metadataRegistry = Mockito.mock(ChannelMetadataRegistry.class);
 
-        KafkaChannel channel = new KafkaChannel("0", transport, () -> authenticator, 1024, pool, new DefaultBrokerInterceptor());
+        KafkaChannel channel = new KafkaChannel("0", transport, () -> authenticator, 1024, pool,
+                metadataRegistry, new DefaultBrokerInterceptor());
         NetworkSend send = new NetworkSend("0", ByteBuffer.wrap(TestUtils.randomBytes(128)));
 
         channel.setSend(send);
@@ -68,13 +70,15 @@ public class KafkaChannelTest {
         Authenticator authenticator = Mockito.mock(Authenticator.class);
         TransportLayer transport = Mockito.mock(TransportLayer.class);
         MemoryPool pool = Mockito.mock(MemoryPool.class);
+        ChannelMetadataRegistry metadataRegistry = Mockito.mock(ChannelMetadataRegistry.class);
 
         ArgumentCaptor<Integer> sizeCaptor = ArgumentCaptor.forClass(Integer.class);
         Mockito.when(pool.tryAllocate(sizeCaptor.capture())).thenAnswer(invocation -> {
             return ByteBuffer.allocate(sizeCaptor.getValue());
         });
 
-        KafkaChannel channel = new KafkaChannel("0", transport, () -> authenticator, 1024, pool, new DefaultBrokerInterceptor());
+        KafkaChannel channel = new KafkaChannel("0", transport, () -> authenticator, 1024, pool,
+                metadataRegistry, new DefaultBrokerInterceptor());
 
         ArgumentCaptor<ByteBuffer> bufferCaptor = ArgumentCaptor.forClass(ByteBuffer.class);
         Mockito.when(transport.read(bufferCaptor.capture())).thenAnswer(invocation -> {

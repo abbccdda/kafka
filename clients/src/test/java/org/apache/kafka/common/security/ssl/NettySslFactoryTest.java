@@ -17,19 +17,16 @@
 package org.apache.kafka.common.security.ssl;
 
 import org.apache.kafka.common.config.SslConfigs;
-import org.apache.kafka.common.utils.Utils;
 
 import java.util.Map;
-import java.util.Set;
 
 public class NettySslFactoryTest extends SslFactoryTest {
-    @Override
-    protected void configureSslBuilderClass(Map<String, Object> conf) {
-        conf.put(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG, SslConfigs.NETTY_SSL_ENGINE_BUILDER_CLASS);
+    public NettySslFactoryTest(String tlsProtocol) {
+        super(tlsProtocol);
     }
 
     @Override
-    protected Set<String> enabledProtocols() {
-        return Utils.mkSet("TLSv1.2", "SSLv2Hello");
+    protected void configureSslBuilderClass(Map<String, Object> conf) {
+        conf.put(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG, SslConfigs.NETTY_SSL_ENGINE_BUILDER_CLASS);
     }
 }

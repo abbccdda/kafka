@@ -36,6 +36,7 @@ import org.apache.kafka.common.message.JoinGroupRequestData.JoinGroupRequestProt
 import org.apache.kafka.common.message.JoinGroupResponseData.JoinGroupResponseMember;
 import org.apache.kafka.common.message.ListGroupsResponseData;
 import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.network.ClientInformation;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.network.NetworkSend;
 import org.apache.kafka.common.network.Send;
@@ -127,11 +128,12 @@ public class MultiTenantRequestContext extends RequestContext {
                                    KafkaPrincipal principal,
                                    ListenerName listenerName,
                                    SecurityProtocol securityProtocol,
+                                   ClientInformation clientInformation,
                                    Time time,
                                    Metrics metrics,
                                    TenantMetrics tenantMetrics,
                                    TenantPartitionAssignor partitionAssignor) {
-    super(header, connectionId, clientAddress, principal, listenerName, securityProtocol);
+    super(header, connectionId, clientAddress, principal, listenerName, securityProtocol, clientInformation);
 
     if (!(principal instanceof MultiTenantPrincipal)) {
       throw new IllegalArgumentException("Unexpected principal type " + principal);

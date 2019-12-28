@@ -7,6 +7,7 @@ import io.confluent.kafka.multitenant.metrics.TenantMetrics;
 
 import io.confluent.kafka.multitenant.quota.TenantQuotaCallback;
 import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.network.ClientInformation;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.requests.RequestContext;
 import org.apache.kafka.common.requests.RequestHeader;
@@ -57,9 +58,10 @@ public class MultiTenantInterceptor implements BrokerInterceptor {
                                    KafkaPrincipal principal,
                                    ListenerName listenerName,
                                    SecurityProtocol securityProtocol,
+                                   ClientInformation clientInformation,
                                    Metrics metrics) {
     return new MultiTenantRequestContext(header, connectionId, clientAddress, principal,
-        listenerName, securityProtocol, time, metrics, tenantMetrics, partitionAssignor);
+        listenerName, securityProtocol, clientInformation, time, metrics, tenantMetrics, partitionAssignor);
   }
 
 }

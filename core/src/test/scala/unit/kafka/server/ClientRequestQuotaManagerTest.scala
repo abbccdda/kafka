@@ -15,7 +15,7 @@ import org.apache.kafka.common.requests.{OffsetFetchRequest, RequestContext, Req
 import org.apache.kafka.common.utils.MockTime
 import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
 import org.apache.kafka.common.metrics.{MetricConfig, Metrics, Quota, Sensor}
-import org.apache.kafka.common.network.ListenerName
+import org.apache.kafka.common.network.{ClientInformation, ListenerName}
 import org.apache.kafka.common.memory.MemoryPool
 import org.apache.kafka.common.metrics.stats.Value
 import org.easymock.EasyMock
@@ -727,7 +727,7 @@ class ClientRequestQuotaManagerTest {
 
     // read the header from the buffer first so that the body can be read next from the Request constructor
     val header = RequestHeader.parse(buffer)
-    val context = new RequestContext(header, "1", InetAddress.getLocalHost, testPrincipal, listenerName, SecurityProtocol.PLAINTEXT)
+    val context = new RequestContext(header, "1", InetAddress.getLocalHost, testPrincipal, listenerName, SecurityProtocol.PLAINTEXT, ClientInformation.EMPTY)
     new RequestChannel.Request(processor = 1, context, startTimeNanos =  0, MemoryPool.NONE, buffer, requestChannelMetrics)
   }
 

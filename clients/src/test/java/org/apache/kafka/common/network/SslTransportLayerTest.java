@@ -16,7 +16,6 @@
  */
 package org.apache.kafka.common.network;
 
-import java.util.List;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.internals.BrokerSecurityConfigs;
@@ -26,6 +25,7 @@ import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.security.TestSecurityConfig;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.security.ssl.SslFactory;
+import org.apache.kafka.common.utils.Java;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
@@ -34,6 +34,8 @@ import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
@@ -46,7 +48,11 @@ import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -60,11 +66,13 @@ import static org.junit.Assert.fail;
 /**
  * Tests for the SSL transport layer. These use a test harness that runs a simple socket server that echos back responses.
  */
+@RunWith(value = Parameterized.class)
 public class SslTransportLayerTest {
 
     private static final int BUFFER_SIZE = 4 * 1024;
     private static Time time = Time.SYSTEM;
 
+    private final String tlsProtocol;
     private NioEchoServer server;
     private Selector selector;
     private ChannelBuilder channelBuilder;
@@ -72,6 +80,25 @@ public class SslTransportLayerTest {
     private CertStores clientCertStores;
     private Map<String, Object> sslClientConfigs;
     private Map<String, Object> sslServerConfigs;
+    private Map<String, Object> sslConfigOverrides;
+
+    @Parameterized.Parameters(name = "tlsProtocol={0}")
+    public static Collection<Object[]> data() {
+        List<Object[]> values = new ArrayList<>();
+        values.add(new Object[] {"TLSv1.2"});
+        if (Java.IS_JAVA11_COMPATIBLE) {
+            values.add(new Object[] {"TLSv1.3"});
+        }
+        return values;
+    }
+
+    public SslTransportLayerTest(String tlsProtocol) {
+        this.tlsProtocol = tlsProtocol;
+
+        sslConfigOverrides = new HashMap<>();
+        sslConfigOverrides.put(SslConfigs.SSL_PROTOCOL_CONFIG, tlsProtocol);
+        sslConfigOverrides.put(SslConfigs.SSL_ENABLED_PROTOCOLS_CONFIG, Collections.singletonList(tlsProtocol));
+    }
 
     @Before
     public void setup() throws Exception {
@@ -82,6 +109,11 @@ public class SslTransportLayerTest {
         sslClientConfigs = clientCertStores.getTrustingConfig(serverCertStores);
         sslServerConfigs.put(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG, SslConfigs.KAFKA_SSL_ENGINE_BUILDER_CLASS);
         sslClientConfigs.put(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG, SslConfigs.KAFKA_SSL_ENGINE_BUILDER_CLASS);
+        // TODO: GV Look into this
+        sslServerConfigs = getTrustingConfig(serverCertStores, clientCertStores);
+        sslClientConfigs = getTrustingConfig(clientCertStores, serverCertStores);
+        sslServerConfigs.putAll(sslConfigOverrides);
+        sslClientConfigs.putAll(sslConfigOverrides);
         this.channelBuilder = new SslChannelBuilder(Mode.CLIENT, null, false);
         this.channelBuilder.configure(sslClientConfigs);
         this.selector = new Selector(5000, new Metrics(), time, "MetricGroup", channelBuilder, new LogContext());
@@ -121,8 +153,8 @@ public class SslTransportLayerTest {
         String node = "0";
         serverCertStores = new CertStores(true, "server", InetAddress.getByName("127.0.0.1"));
         clientCertStores = new CertStores(false, "client", InetAddress.getByName("127.0.0.1"));
-        sslServerConfigs = serverCertStores.getTrustingConfig(clientCertStores);
-        sslClientConfigs = clientCertStores.getTrustingConfig(serverCertStores);
+        sslServerConfigs = getTrustingConfig(serverCertStores, clientCertStores);
+        sslClientConfigs = getTrustingConfig(clientCertStores, serverCertStores);
         server = createEchoServer(SecurityProtocol.SSL);
         sslClientConfigs.put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "HTTPS");
         createSelector(sslClientConfigs);
@@ -141,8 +173,8 @@ public class SslTransportLayerTest {
         String node = "0";
         serverCertStores = new CertStores(true, "localhost");
         clientCertStores = new CertStores(false, "localhost");
-        sslServerConfigs = serverCertStores.getTrustingConfig(clientCertStores);
-        sslClientConfigs = clientCertStores.getTrustingConfig(serverCertStores);
+        sslServerConfigs = getTrustingConfig(serverCertStores, clientCertStores);
+        sslClientConfigs = getTrustingConfig(clientCertStores, serverCertStores);
         server = createEchoServer(SecurityProtocol.SSL);
         sslClientConfigs.put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "HTTPS");
         createSelector(sslClientConfigs);
@@ -191,8 +223,8 @@ public class SslTransportLayerTest {
         // Create client certificate with an invalid hostname
         clientCertStores = new CertStores(false, "non-existent.com");
         serverCertStores = new CertStores(true, "localhost");
-        sslServerConfigs = serverCertStores.getTrustingConfig(clientCertStores);
-        sslClientConfigs = clientCertStores.getTrustingConfig(serverCertStores);
+        sslServerConfigs = getTrustingConfig(serverCertStores, clientCertStores);
+        sslClientConfigs = getTrustingConfig(clientCertStores, serverCertStores);
 
         // Create a server with endpoint validation enabled on the server SSL engine
         SslChannelBuilder serverChannelBuilder = new TestSslChannelBuilder(Mode.SERVER) {
@@ -226,8 +258,8 @@ public class SslTransportLayerTest {
         String node = "0";
         serverCertStores = new CertStores(true, "server", "notahost");
         clientCertStores = new CertStores(false, "client", "localhost");
-        sslServerConfigs = serverCertStores.getTrustingConfig(clientCertStores);
-        sslClientConfigs = clientCertStores.getTrustingConfig(serverCertStores);
+        sslServerConfigs = getTrustingConfig(serverCertStores, clientCertStores);
+        sslClientConfigs = getTrustingConfig(clientCertStores, serverCertStores);
         sslClientConfigs.put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "HTTPS");
         server = createEchoServer(SecurityProtocol.SSL);
         createSelector(sslClientConfigs);
@@ -246,8 +278,8 @@ public class SslTransportLayerTest {
     public void testEndpointIdentificationDisabled() throws Exception {
         serverCertStores = new CertStores(true, "server", "notahost");
         clientCertStores = new CertStores(false, "client", "localhost");
-        sslServerConfigs = serverCertStores.getTrustingConfig(clientCertStores);
-        sslClientConfigs = clientCertStores.getTrustingConfig(serverCertStores);
+        sslServerConfigs = getTrustingConfig(serverCertStores, clientCertStores);
+        sslClientConfigs = getTrustingConfig(clientCertStores, serverCertStores);
 
         SecurityProtocol securityProtocol = SecurityProtocol.SSL;
         server = createEchoServer(SecurityProtocol.SSL);
@@ -340,6 +372,7 @@ public class SslTransportLayerTest {
     public void testClientAuthenticationRequiredUntrustedProvided() throws Exception {
         String node = "0";
         sslServerConfigs = serverCertStores.getUntrustingConfig();
+        sslServerConfigs.putAll(sslConfigOverrides);
         sslServerConfigs.put(BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG, "required");
         server = createEchoServer(SecurityProtocol.SSL);
         createSelector(sslClientConfigs);
@@ -379,6 +412,7 @@ public class SslTransportLayerTest {
     public void testClientAuthenticationDisabledUntrustedProvided() throws Exception {
         String node = "0";
         sslServerConfigs = serverCertStores.getUntrustingConfig();
+        sslServerConfigs.putAll(sslConfigOverrides);
         sslServerConfigs.put(BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG, "none");
         server = createEchoServer(SecurityProtocol.SSL);
         createSelector(sslClientConfigs);
@@ -545,7 +579,7 @@ public class SslTransportLayerTest {
     @Test
     public void testUnsupportedCiphers() throws Exception {
         String node = "0";
-        SSLContext context = SSLContext.getInstance("TLSv1.2");
+        SSLContext context = SSLContext.getInstance(tlsProtocol);
         context.init(null, null, null);
         String[] cipherSuites = context.getDefaultSSLParameters().getCipherSuites();
         sslServerConfigs.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG, Arrays.asList(cipherSuites[0]));
@@ -815,6 +849,7 @@ public class SslTransportLayerTest {
             KafkaChannel channel = selector.channel(node);
             if (channel != null)
                 assertTrue("Channel not ready or disconnected:" + channel.state().state(), channel.ready());
+            selector.close();
         }
         assertTrue("Too many invocations of read/write during SslTransportLayer.handshake()", done);
     }
@@ -827,6 +862,7 @@ public class SslTransportLayerTest {
     @Test
     public void testPeerNotifiedOfHandshakeFailure() throws Exception {
         sslServerConfigs = serverCertStores.getUntrustingConfig();
+        sslServerConfigs.putAll(sslConfigOverrides);
         sslServerConfigs.put(BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG, "required");
 
         // Test without delay and a couple of delay counts to ensure delay applies to handshake failure
@@ -971,7 +1007,7 @@ public class SslTransportLayerTest {
         NetworkTestUtils.waitForChannelClose(oldClientSelector, "1", ChannelState.State.AUTHENTICATION_FAILED);
 
         // Verify that new client with new truststore can authenticate, send and receive
-        sslClientConfigs = clientCertStores.getTrustingConfig(newServerCertStores);
+        sslClientConfigs = getTrustingConfig(clientCertStores, newServerCertStores);
         Selector newClientSelector = createSelector(sslClientConfigs);
         newClientSelector.connect("2", addr, BUFFER_SIZE, BUFFER_SIZE);
         NetworkTestUtils.checkClientConnection(newClientSelector, "2", 100, 10);
@@ -980,7 +1016,7 @@ public class SslTransportLayerTest {
         NetworkTestUtils.checkClientConnection(oldClientSelector, oldNode, 100, 10);
 
         CertStores invalidCertStores = new CertStores(true, "server", "127.0.0.1");
-        Map<String, Object>  invalidConfigs = invalidCertStores.getTrustingConfig(clientCertStores);
+        Map<String, Object>  invalidConfigs = getTrustingConfig(invalidCertStores, clientCertStores);
         verifyInvalidReconfigure(reconfigurableBuilder, invalidConfigs, "keystore with different SubjectAltName");
 
         Map<String, Object>  missingStoreConfigs = new HashMap<>();
@@ -1019,7 +1055,7 @@ public class SslTransportLayerTest {
         NetworkTestUtils.checkClientConnection(selector, oldNode, 100, 10);
 
         CertStores newClientCertStores = new CertStores(true, "client", "localhost");
-        sslClientConfigs = newClientCertStores.getTrustingConfig(serverCertStores);
+        sslClientConfigs = getTrustingConfig(newClientCertStores, serverCertStores);
         Map<String, Object> newTruststoreConfigs = newClientCertStores.trustStoreProps();
         assertTrue("SslChannelBuilder not reconfigurable", serverChannelBuilder instanceof ListenerReconfigurable);
         ListenerReconfigurable reconfigurableBuilder = (ListenerReconfigurable) serverChannelBuilder;
@@ -1080,7 +1116,7 @@ public class SslTransportLayerTest {
         channelBuilder.configureBufferSizes(netReadBufSize, netWriteBufSize, appBufSize);
         this.channelBuilder = channelBuilder;
         this.channelBuilder.configure(sslClientConfigs);
-        this.selector = new Selector(5000, new Metrics(), time, "MetricGroup", channelBuilder, new LogContext());
+        this.selector = new Selector(100 * 5000, new Metrics(), time, "MetricGroup", channelBuilder, new LogContext());
         return selector;
     }
 
@@ -1090,6 +1126,12 @@ public class SslTransportLayerTest {
 
     private NioEchoServer createEchoServer(SecurityProtocol securityProtocol) throws Exception {
         return createEchoServer(ListenerName.forSecurityProtocol(securityProtocol), securityProtocol);
+    }
+
+    private Map<String, Object> getTrustingConfig(CertStores certStores, CertStores peerCertStores) {
+        Map<String, Object> configs = certStores.getTrustingConfig(peerCertStores);
+        configs.putAll(sslConfigOverrides);
+        return configs;
     }
 
     @FunctionalInterface
@@ -1122,7 +1164,8 @@ public class SslTransportLayerTest {
         }
 
         @Override
-        protected SslTransportLayer buildTransportLayer(SslFactory sslFactory, String id, SelectionKey key, String host) throws IOException {
+        protected SslTransportLayer buildTransportLayer(SslFactory sslFactory, String id, SelectionKey key,
+                                                        String host, ChannelMetadataRegistry metadataRegistry) throws IOException {
             SocketChannel socketChannel = (SocketChannel) key.channel();
             SSLEngine sslEngine = sslFactory.createSslEngine(host, socketChannel.socket().getPort());
             TestSslTransportLayer transportLayer = newTransportLayer(id, key, sslEngine);
@@ -1153,7 +1196,7 @@ public class SslTransportLayerTest {
             private final AtomicInteger numDelayedFlushesRemaining;
 
             public TestSslTransportLayer(String channelId, SelectionKey key, SSLEngine sslEngine) throws IOException {
-                super(channelId, key, sslEngine);
+                super(channelId, key, sslEngine, new DefaultChannelMetadataRegistry());
                 this.netReadBufSize = new ResizeableBufferSize(netReadBufSizeOverride);
                 this.netWriteBufSize = new ResizeableBufferSize(netWriteBufSizeOverride);
                 this.appBufSize = new ResizeableBufferSize(appBufSizeOverride);
