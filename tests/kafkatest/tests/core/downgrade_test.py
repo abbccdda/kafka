@@ -52,13 +52,15 @@ class TestDowngrade(EndToEndTest):
             del node.config[config_property.MESSAGE_FORMAT_VERSION]
             self.kafka.start_node(node)
 
-    def setup_services(self, kafka_version, compression_types, security_protocol):
+    def setup_services(self, from_kafka_project, dist_version, kafka_version, compression_types, security_protocol):
         self.create_zookeeper()
         self.zk.start()
 
         self.create_kafka(num_nodes=3,
                           security_protocol=security_protocol,
                           interbroker_security_protocol=security_protocol,
+                          project=from_kafka_project,
+                          dist_version=dist_version,
                           version=kafka_version)
         self.kafka.start()
 
@@ -72,6 +74,7 @@ class TestDowngrade(EndToEndTest):
         self.consumer.start()
 
     @cluster(num_nodes=7)
+    @parametrize(from_kafka_project="confluentplatform", dist_version="5.3.0", version=str(LATEST_2_3), compression_types=["none"])
     @parametrize(version=str(LATEST_2_3), compression_types=["none"])
     @parametrize(version=str(LATEST_2_3), compression_types=["zstd"], security_protocol="SASL_SSL")
     @parametrize(version=str(LATEST_2_2), compression_types=["none"])
@@ -82,7 +85,7 @@ class TestDowngrade(EndToEndTest):
     @parametrize(version=str(LATEST_2_0), compression_types=["snappy"], security_protocol="SASL_SSL")
     @parametrize(version=str(LATEST_1_1), compression_types=["none"])
     @parametrize(version=str(LATEST_1_1), compression_types=["lz4"], security_protocol="SASL_SSL")
-    def test_upgrade_and_downgrade(self, version, compression_types, security_protocol="PLAINTEXT"):
+    def test_upgrade_and_downgrade(self, version, compression_types, security_protocol="PLAINTEXT", from_kafka_project="kafka", dist_version=None):
         """Test upgrade and downgrade of Kafka cluster from old versions to the current version
 
         `version` is the Kafka version to upgrade from and downgrade back to
@@ -103,7 +106,7 @@ class TestDowngrade(EndToEndTest):
         """
         kafka_version = KafkaVersion(version)
 
-        self.setup_services(kafka_version, compression_types, security_protocol)
+        self.setup_services(from_kafka_project, dist_version, kafka_version, compression_types, security_protocol)
         self.await_startup()
 
         self.logger.info("First pass bounce - rolling upgrade")
