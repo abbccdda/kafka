@@ -57,7 +57,7 @@ import java.security.Security;
 @RunWith(value = Parameterized.class)
 public class SslFactoryTest {
 
-    private final String tlsProtocol;
+    final String tlsProtocol;
 
     @Parameterized.Parameters(name = "tlsProtocol={0}")
     public static Collection<Object[]> data() {
@@ -407,7 +407,7 @@ public class SslFactoryTest {
         );
     }
 
-    private TestSslUtils.SslConfigsBuilder sslConfigsBuilder(Mode mode) {
+    TestSslUtils.SslConfigsBuilder sslConfigsBuilder(Mode mode) {
         return new TestSslUtils.SslConfigsBuilder(mode).tlsProtocol(tlsProtocol);
     }
 }
