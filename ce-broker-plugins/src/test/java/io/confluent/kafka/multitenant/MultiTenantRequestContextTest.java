@@ -79,6 +79,7 @@ import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.metrics.Sensor;
+import org.apache.kafka.common.network.ClientInformation;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.network.Send;
 import org.apache.kafka.common.protocol.ApiKeys;
@@ -2388,7 +2389,7 @@ public class MultiTenantRequestContextTest {
   private MultiTenantRequestContext newRequestContext(ApiKeys api, short version) {
     RequestHeader header = new RequestHeader(api, version, "clientId", 23);
     return new MultiTenantRequestContext(header, "1", null, principal, listenerName,
-        securityProtocol, time, metrics, tenantMetrics, partitionAssignor);
+        securityProtocol, ClientInformation.EMPTY, time, metrics, tenantMetrics, partitionAssignor);
   }
 
   private ByteBuffer toByteBuffer(AbstractRequest request) {

@@ -53,6 +53,7 @@ import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaA
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfig;
 import org.apache.kafka.common.message.CreateTopicsResponseData;
+import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicConfigs;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResult;
 import org.apache.kafka.common.message.DeleteGroupsRequestData;
 import org.apache.kafka.common.message.DeleteGroupsResponseData;
@@ -283,6 +284,19 @@ public class RequestResponseTest {
         checkRequest(createCreateTopicRequest(1), true);
         checkErrorResponse(createCreateTopicRequest(1), new UnknownServerException(), true);
         checkResponse(createCreateTopicResponse(), 1, true);
+        checkRequest(createCreateTopicRequest(2), true);
+        checkErrorResponse(createCreateTopicRequest(2), new UnknownServerException(), true);
+        checkResponse(createCreateTopicResponse(), 2, true);
+        checkRequest(createCreateTopicRequest(3), true);
+        checkErrorResponse(createCreateTopicRequest(3), new UnknownServerException(), true);
+        checkResponse(createCreateTopicResponse(), 3, true);
+        checkRequest(createCreateTopicRequest(4), true);
+        checkErrorResponse(createCreateTopicRequest(4), new UnknownServerException(), true);
+        checkResponse(createCreateTopicResponse(), 4, true);
+        checkRequest(createCreateTopicRequest(5), true);
+        checkErrorResponse(createCreateTopicRequest(5), new UnknownServerException(), true);
+        checkResponse(createCreateTopicResponse(), 5, true);
+
         checkRequest(createDeleteTopicsRequest(), true);
         checkErrorResponse(createDeleteTopicsRequest(), new UnknownServerException(), true);
         checkResponse(createDeleteTopicsResponse(), 0, true);
@@ -1581,14 +1595,22 @@ public class RequestResponseTest {
 
     private CreateTopicsResponse createCreateTopicResponse() {
         CreateTopicsResponseData data = new CreateTopicsResponseData();
-        data.topics().add(new CreatableTopicResult().
-            setName("t1").
-            setErrorCode(Errors.INVALID_TOPIC_EXCEPTION.code()).
-            setErrorMessage(null));
-        data.topics().add(new CreatableTopicResult().
-            setName("t2").
-            setErrorCode(Errors.LEADER_NOT_AVAILABLE.code()).
-            setErrorMessage("Leader with id 5 is not available."));
+        data.topics().add(new CreatableTopicResult()
+            .setName("t1")
+            .setErrorCode(Errors.INVALID_TOPIC_EXCEPTION.code())
+            .setErrorMessage(null));
+        data.topics().add(new CreatableTopicResult()
+            .setName("t2")
+            .setErrorCode(Errors.LEADER_NOT_AVAILABLE.code())
+            .setErrorMessage("Leader with id 5 is not available."));
+        data.topics().add(new CreatableTopicResult()
+            .setName("t3")
+            .setErrorCode(Errors.NONE.code())
+            .setNumPartitions(1)
+            .setReplicationFactor((short) 2)
+            .setConfigs(Collections.singletonList(new CreatableTopicConfigs()
+                .setConfigName("min.insync.replicas")
+                .setValue("2"))));
         return new CreateTopicsResponse(data);
     }
 

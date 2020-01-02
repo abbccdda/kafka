@@ -33,6 +33,7 @@ import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.network.ClientInformation;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourceType;
@@ -145,7 +146,7 @@ public class MockConfluentServerAuthorizerTest {
 
     AuthorizableRequestContext requestContext = new org.apache.kafka.common.requests.RequestContext(
         null, "", InetAddress.getLocalHost(), KafkaPrincipal.ANONYMOUS,
-        ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), SecurityProtocol.PLAINTEXT);
+        ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), SecurityProtocol.PLAINTEXT, ClientInformation.EMPTY);
     org.apache.kafka.server.authorizer.Action allowedWithLog = new org.apache.kafka.server.authorizer.Action(
         AclOperation.DESCRIBE,
         new org.apache.kafka.common.resource.ResourcePattern(ResourceType.TOPIC, "allowedWithLog", PatternType.LITERAL),

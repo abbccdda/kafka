@@ -243,14 +243,13 @@ public class KafkaAdminClientTest {
                 KafkaAdminClient.generateClientId(newConfMap(AdminClientConfig.CLIENT_ID_CONFIG, "myCustomId")));
     }
 
-    private static Cluster mockCluster(int controllerIndex) {
+    private static Cluster mockCluster(int numNodes, int controllerIndex) {
         HashMap<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-        nodes.put(1, new Node(1, "localhost", 8122));
-        nodes.put(2, new Node(2, "localhost", 8123));
+        for (int i = 0; i < numNodes; i++)
+            nodes.put(i, new Node(i, "localhost", 8121 + i));
         return new Cluster("mockClusterId", nodes.values(),
-                Collections.emptySet(), Collections.emptySet(),
-                Collections.emptySet(), nodes.get(controllerIndex));
+            Collections.emptySet(), Collections.emptySet(),
+            Collections.emptySet(), nodes.get(controllerIndex));
     }
 
     private static Cluster mockBootstrapCluster() {
@@ -259,7 +258,7 @@ public class KafkaAdminClientTest {
     }
 
     private static AdminClientUnitTestEnv mockClientEnv(String... configVals) {
-        return new AdminClientUnitTestEnv(mockCluster(0), configVals);
+        return new AdminClientUnitTestEnv(mockCluster(3, 0), configVals);
     }
 
     @Test
@@ -365,7 +364,7 @@ public class KafkaAdminClientTest {
 
         Cluster cluster = mockBootstrapCluster();
         try (final AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(Time.SYSTEM, cluster)) {
-            Cluster discoveredCluster = mockCluster(0);
+            Cluster discoveredCluster = mockCluster(3, 0);
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
             env.kafkaClient().prepareResponse(request -> request instanceof MetadataRequest, null, true);
             env.kafkaClient().prepareResponse(request -> request instanceof MetadataRequest,
@@ -391,7 +390,7 @@ public class KafkaAdminClientTest {
         Map<Node, Long> unreachableNodes = Collections.singletonMap(cluster.nodes().get(0), 200L);
         try (final AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(Time.SYSTEM, cluster,
                 AdminClientUnitTestEnv.clientConfigs(), unreachableNodes)) {
-            Cluster discoveredCluster = mockCluster(0);
+            Cluster discoveredCluster = mockCluster(3, 0);
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
             env.kafkaClient().prepareResponse(body -> body instanceof MetadataRequest,
                     MetadataResponse.prepareResponse(discoveredCluster.nodes(), discoveredCluster.clusterResource().clusterId(),
@@ -412,12 +411,12 @@ public class KafkaAdminClientTest {
      */
     @Test
     public void testPropagatedMetadataFetchException() throws Exception {
-        Cluster cluster = mockCluster(0);
-        try (final AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(Time.SYSTEM, cluster,
+        try (final AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(Time.SYSTEM,
+                mockCluster(3, 0),
                 newStrMap(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:8121",
-                    AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, "10"))) {
+                AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, "10"))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
-            env.kafkaClient().createPendingAuthenticationError(cluster.nodeById(0),
+            env.kafkaClient().createPendingAuthenticationError(env.cluster().nodeById(0),
                     TimeUnit.DAYS.toMillis(1));
             env.kafkaClient().prepareResponse(prepareCreateTopicsResponse("myTopic", Errors.NONE));
             KafkaFuture<Void> future = env.adminClient().createTopics(
@@ -442,11 +441,11 @@ public class KafkaAdminClientTest {
 
     @Test
     public void testCreateTopicsRetryBackoff() throws Exception {
-        Cluster cluster = mockCluster(0);
         MockTime time = new MockTime();
         int retryBackoff = 100;
 
-        try (final AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(time, cluster,
+        try (final AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(time,
+                mockCluster(3, 0),
                 newStrMap(AdminClientConfig.RETRY_BACKOFF_MS_CONFIG, "" + retryBackoff))) {
             MockClient mockClient = env.kafkaClient();
 
@@ -612,7 +611,7 @@ public class KafkaAdminClientTest {
 
         String topic = "topic";
         Cluster bootstrapCluster = Cluster.bootstrap(singletonList(new InetSocketAddress("localhost", 9999)));
-        Cluster initializedCluster = mockCluster(0);
+        Cluster initializedCluster = mockCluster(3, 0);
 
         try (final AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(Time.SYSTEM, bootstrapCluster,
                 newStrMap(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9999",
@@ -879,14 +878,10 @@ public class KafkaAdminClientTest {
     @Ignore // The test is flaky. Should be renabled when this JIRA is fixed: https://issues.apache.org/jira/browse/KAFKA-5792
     @Test
     public void testHandleTimeout() throws Exception {
-        HashMap<Integer, Node> nodes = new HashMap<>();
         MockTime time = new MockTime();
-        nodes.put(0, new Node(0, "localhost", 8121));
-        Cluster cluster = new Cluster("mockClusterId", nodes.values(),
-            Collections.<PartitionInfo>emptySet(), Collections.<String>emptySet(),
-            Collections.<String>emptySet(), nodes.get(0));
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(time, cluster,
-            AdminClientConfig.RECONNECT_BACKOFF_MAX_MS_CONFIG, "1",
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(time,
+                mockCluster(1, 0),
+                AdminClientConfig.RECONNECT_BACKOFF_MAX_MS_CONFIG, "1",
                 AdminClientConfig.RECONNECT_BACKOFF_MS_CONFIG, "1")) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
             assertEquals(time, env.time());
@@ -997,11 +992,10 @@ public class KafkaAdminClientTest {
         TopicPartition tp0 = new TopicPartition(topic, 0);
         TopicPartition tp1 = new TopicPartition(topic, 1);
 
-        Cluster cluster = mockCluster(0);
         MockTime time = new MockTime();
 
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(time, cluster)) {
-            List<Node> nodes = cluster.nodes();
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(time, mockCluster(3, 0))) {
+            List<Node> nodes = env.cluster().nodes();
 
             List<MetadataResponse.PartitionMetadata> partitionMetadata = new ArrayList<>();
             partitionMetadata.add(new MetadataResponse.PartitionMetadata(Errors.NONE, tp0.partition(), nodes.get(0),
@@ -1013,8 +1007,8 @@ public class KafkaAdminClientTest {
             List<MetadataResponse.TopicMetadata> topicMetadata = new ArrayList<>();
             topicMetadata.add(new MetadataResponse.TopicMetadata(Errors.NONE, topic, false, partitionMetadata));
 
-            env.kafkaClient().prepareResponse(MetadataResponse.prepareResponse(cluster.nodes(),
-                    cluster.clusterResource().clusterId(), cluster.controller().id(), topicMetadata));
+            env.kafkaClient().prepareResponse(MetadataResponse.prepareResponse(env.cluster().nodes(),
+                    env.cluster().clusterResource().clusterId(), env.cluster().controller().id(), topicMetadata));
 
             Map<TopicPartition, DeleteRecordsResponse.PartitionResponse> deletedPartitions = new HashMap<>();
             deletedPartitions.put(tp0, new DeleteRecordsResponse.PartitionResponse(3, Errors.NONE));
@@ -1035,7 +1029,6 @@ public class KafkaAdminClientTest {
 
     @Test
     public void testDeleteRecords() throws Exception {
-
         HashMap<Integer, Node> nodes = new HashMap<>();
         nodes.put(0, new Node(0, "localhost", 8121));
         List<PartitionInfo> partitionInfos = new ArrayList<>();
@@ -1141,29 +1134,13 @@ public class KafkaAdminClientTest {
 
     @Test
     public void testDescribeCluster() throws Exception {
-        final HashMap<Integer, Node> nodes = new HashMap<>();
-        Node node0 = new Node(0, "localhost", 8121);
-        Node node1 = new Node(1, "localhost", 8122);
-        Node node2 = new Node(2, "localhost", 8123);
-        Node node3 = new Node(3, "localhost", 8124);
-        nodes.put(0, node0);
-        nodes.put(1, node1);
-        nodes.put(2, node2);
-        nodes.put(3, node3);
-
-        final Cluster cluster = new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.emptyList(),
-                Collections.emptySet(),
-                Collections.emptySet(), nodes.get(0));
-
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster, AdminClientConfig.RETRIES_CONFIG, "2")) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(4, 0),
+                AdminClientConfig.RETRIES_CONFIG, "2")) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             // Prepare the metadata response used for the first describe cluster
             MetadataResponse response = MetadataResponse.prepareResponse(0,
-                    new ArrayList<>(nodes.values()),
+                    env.cluster().nodes(),
                     env.cluster().clusterResource().clusterId(),
                     2,
                     Collections.emptyList(),
@@ -1172,7 +1149,7 @@ public class KafkaAdminClientTest {
 
             // Prepare the metadata response used for the second describe cluster
             MetadataResponse response2 = MetadataResponse.prepareResponse(0,
-                    new ArrayList<>(nodes.values()),
+                    env.cluster().nodes(),
                     env.cluster().clusterResource().clusterId(),
                     3,
                     Collections.emptyList(),
@@ -1196,24 +1173,8 @@ public class KafkaAdminClientTest {
 
     @Test
     public void testListConsumerGroups() throws Exception {
-        final HashMap<Integer, Node> nodes = new HashMap<>();
-        Node node0 = new Node(0, "localhost", 8121);
-        Node node1 = new Node(1, "localhost", 8122);
-        Node node2 = new Node(2, "localhost", 8123);
-        Node node3 = new Node(3, "localhost", 8124);
-        nodes.put(0, node0);
-        nodes.put(1, node1);
-        nodes.put(2, node2);
-        nodes.put(3, node3);
-
-        final Cluster cluster = new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.emptyList(),
-                Collections.emptySet(),
-                Collections.emptySet(), nodes.get(0));
-
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster, AdminClientConfig.RETRIES_CONFIG, "2")) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(4, 0),
+                AdminClientConfig.RETRIES_CONFIG, "2")) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             // Empty metadata response should be retried
@@ -1243,7 +1204,7 @@ public class KafkaAdminClientTest {
                                             .setGroupId("group-connect-1")
                                             .setProtocolType("connector")
                             ))),
-                    node0);
+                    env.cluster().nodeById(0));
 
             // handle retriable errors
             env.kafkaClient().prepareResponseFrom(
@@ -1252,14 +1213,14 @@ public class KafkaAdminClientTest {
                                     .setErrorCode(Errors.COORDINATOR_NOT_AVAILABLE.code())
                                     .setGroups(Collections.emptyList())
                     ),
-                    node1);
+                    env.cluster().nodeById(1));
             env.kafkaClient().prepareResponseFrom(
                     new ListGroupsResponse(
                             new ListGroupsResponseData()
                                     .setErrorCode(Errors.COORDINATOR_LOAD_IN_PROGRESS.code())
                                     .setGroups(Collections.emptyList())
                     ),
-                    node1);
+                    env.cluster().nodeById(1));
             env.kafkaClient().prepareResponseFrom(
                     new ListGroupsResponse(
                             new ListGroupsResponseData()
@@ -1272,7 +1233,7 @@ public class KafkaAdminClientTest {
                                                     .setGroupId("group-connect-2")
                                                     .setProtocolType("connector")
                             ))),
-                    node1);
+                    env.cluster().nodeById(1));
 
             env.kafkaClient().prepareResponseFrom(
                     new ListGroupsResponse(
@@ -1286,7 +1247,7 @@ public class KafkaAdminClientTest {
                                                     .setGroupId("group-connect-3")
                                                     .setProtocolType("connector")
                                     ))),
-                    node2);
+                    env.cluster().nodeById(2));
 
             // fatal error
             env.kafkaClient().prepareResponseFrom(
@@ -1294,7 +1255,7 @@ public class KafkaAdminClientTest {
                             new ListGroupsResponseData()
                                     .setErrorCode(Errors.UNKNOWN_SERVER_ERROR.code())
                                     .setGroups(Collections.emptyList())),
-                    node3);
+                    env.cluster().nodeById(3));
 
             final ListConsumerGroupsResult result = env.adminClient().listConsumerGroups();
             TestUtils.assertFutureError(result.all(), UnknownServerException.class);
@@ -1314,20 +1275,7 @@ public class KafkaAdminClientTest {
 
     @Test
     public void testListConsumerGroupsMetadataFailure() throws Exception {
-        final HashMap<Integer, Node> nodes = new HashMap<>();
-        Node node0 = new Node(0, "localhost", 8121);
-        Node node1 = new Node(1, "localhost", 8122);
-        Node node2 = new Node(2, "localhost", 8123);
-        nodes.put(0, node0);
-        nodes.put(1, node1);
-        nodes.put(2, node2);
-
-        final Cluster cluster = new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.emptyList(),
-                Collections.emptySet(),
-                Collections.emptySet(), nodes.get(0));
+        final Cluster cluster = mockCluster(3, 0);
         final Time time = new MockTime();
 
         try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(time, cluster,
@@ -1350,18 +1298,7 @@ public class KafkaAdminClientTest {
 
     @Test
     public void testDescribeConsumerGroups() throws Exception {
-        final HashMap<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-
-        final Cluster cluster =
-            new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.<PartitionInfo>emptyList(),
-                Collections.<String>emptySet(),
-                Collections.<String>emptySet(), nodes.get(0));
-
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(1, 0))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             //Retriable FindCoordinatorResponse errors should be retried
@@ -1456,18 +1393,7 @@ public class KafkaAdminClientTest {
 
     @Test
     public void testDescribeMultipleConsumerGroups() throws Exception {
-        final HashMap<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-
-        final Cluster cluster =
-                new Cluster(
-                        "mockClusterId",
-                        nodes.values(),
-                        Collections.<PartitionInfo>emptyList(),
-                        Collections.<String>emptySet(),
-                        Collections.<String>emptySet(), nodes.get(0));
-
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(1, 0))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             env.kafkaClient().prepareResponse(prepareFindCoordinatorResponse(Errors.NONE, env.cluster().controller()));
@@ -1525,18 +1451,7 @@ public class KafkaAdminClientTest {
 
     @Test
     public void testDescribeConsumerGroupsWithAuthorizedOperationsOmitted() throws Exception {
-        final HashMap<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-
-        final Cluster cluster =
-            new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.<PartitionInfo>emptyList(),
-                Collections.<String>emptySet(),
-                Collections.<String>emptySet(), nodes.get(0));
-
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(1, 0))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             env.kafkaClient().prepareResponse(
@@ -1563,18 +1478,7 @@ public class KafkaAdminClientTest {
 
     @Test
     public void testDescribeNonConsumerGroups() throws Exception {
-        final HashMap<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-
-        final Cluster cluster =
-            new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.<PartitionInfo>emptyList(),
-                Collections.<String>emptySet(),
-                Collections.<String>emptySet(), nodes.get(0));
-
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(1, 0))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             env.kafkaClient().prepareResponse(prepareFindCoordinatorResponse(Errors.NONE, env.cluster().controller()));
@@ -1600,18 +1504,7 @@ public class KafkaAdminClientTest {
 
     @Test
     public void testDescribeConsumerGroupOffsets() throws Exception {
-        final HashMap<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-
-        final Cluster cluster =
-            new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.emptyList(),
-                Collections.emptySet(),
-                Collections.emptySet(), nodes.get(0));
-
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(1, 0))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             // Retriable FindCoordinatorResponse errors should be retried
@@ -1656,20 +1549,9 @@ public class KafkaAdminClientTest {
 
     @Test
     public void testDeleteConsumerGroups() throws Exception {
-        final Map<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-
-        final Cluster cluster =
-            new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.<PartitionInfo>emptyList(),
-                Collections.<String>emptySet(),
-                Collections.<String>emptySet(), nodes.get(0));
-
         final List<String> groupIds = singletonList("group-0");
 
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(1, 0))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             //Retriable FindCoordinatorResponse errors should be retried
@@ -1751,23 +1633,12 @@ public class KafkaAdminClientTest {
     public void testDeleteConsumerGroupOffsets() throws Exception {
         // Happy path
 
-        final Map<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-
-        final Cluster cluster =
-            new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.<PartitionInfo>emptyList(),
-                Collections.<String>emptySet(),
-                Collections.<String>emptySet(), nodes.get(0));
-
         final String groupId = "group-0";
         final TopicPartition tp1 = new TopicPartition("foo", 0);
         final TopicPartition tp2 = new TopicPartition("bar", 0);
         final TopicPartition tp3 = new TopicPartition("foobar", 0);
 
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(1, 0))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             env.kafkaClient().prepareResponse(
@@ -1808,21 +1679,10 @@ public class KafkaAdminClientTest {
     public void testDeleteConsumerGroupOffsetsRetriableErrors() throws Exception {
         // Retriable errors should be retried
 
-        final Map<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-
-        final Cluster cluster =
-            new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.<PartitionInfo>emptyList(),
-                Collections.<String>emptySet(),
-                Collections.<String>emptySet(), nodes.get(0));
-
         final String groupId = "group-0";
         final TopicPartition tp1 = new TopicPartition("foo", 0);
 
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(1, 0))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             env.kafkaClient().prepareResponse(
@@ -1860,23 +1720,12 @@ public class KafkaAdminClientTest {
     public void testDeleteConsumerGroupOffsetsNonRetriableErrors() throws Exception {
         // Non-retriable errors throw an exception
 
-        final Map<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-
-        final Cluster cluster =
-            new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.<PartitionInfo>emptyList(),
-                Collections.<String>emptySet(),
-                Collections.<String>emptySet(), nodes.get(0));
-
         final String groupId = "group-0";
         final TopicPartition tp1 = new TopicPartition("foo", 0);
         final List<Errors> nonRetriableErrors = Arrays.asList(
             Errors.GROUP_AUTHORIZATION_FAILED, Errors.INVALID_GROUP_ID, Errors.GROUP_ID_NOT_FOUND);
 
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(1, 0))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             for (Errors error : nonRetriableErrors) {
@@ -1899,21 +1748,10 @@ public class KafkaAdminClientTest {
     public void testDeleteConsumerGroupOffsetsFindCoordinatorRetriableErrors() throws Exception {
         // Retriable FindCoordinatorResponse errors should be retried
 
-        final Map<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-
-        final Cluster cluster =
-            new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.<PartitionInfo>emptyList(),
-                Collections.<String>emptySet(),
-                Collections.<String>emptySet(), nodes.get(0));
-
         final String groupId = "group-0";
         final TopicPartition tp1 = new TopicPartition("foo", 0);
 
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(1, 0))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             env.kafkaClient().prepareResponse(
@@ -1939,21 +1777,10 @@ public class KafkaAdminClientTest {
     public void testDeleteConsumerGroupOffsetsFindCoordinatorNonRetriableErrors() throws Exception {
         // Non-retriable FindCoordinatorResponse errors throw an exception
 
-        final Map<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-
-        final Cluster cluster =
-            new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.<PartitionInfo>emptyList(),
-                Collections.<String>emptySet(),
-                Collections.<String>emptySet(), nodes.get(0));
-
         final String groupId = "group-0";
         final TopicPartition tp1 = new TopicPartition("foo", 0);
 
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(1, 0))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             env.kafkaClient().prepareResponse(
@@ -2516,23 +2343,12 @@ public class KafkaAdminClientTest {
     public void testAlterConsumerGroupOffsets() throws Exception {
         // Happy path
 
-        final Map<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-
-        final Cluster cluster =
-            new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.<PartitionInfo>emptyList(),
-                Collections.<String>emptySet(),
-                Collections.<String>emptySet(), nodes.get(0));
-
         final String groupId = "group-0";
         final TopicPartition tp1 = new TopicPartition("foo", 0);
         final TopicPartition tp2 = new TopicPartition("bar", 0);
         final TopicPartition tp3 = new TopicPartition("foobar", 0);
 
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(1, 0))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             env.kafkaClient().prepareResponse(
@@ -2560,21 +2376,10 @@ public class KafkaAdminClientTest {
     public void testAlterConsumerGroupOffsetsRetriableErrors() throws Exception {
         // Retriable errors should be retried
 
-        final Map<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-
-        final Cluster cluster =
-            new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.<PartitionInfo>emptyList(),
-                Collections.<String>emptySet(),
-                Collections.<String>emptySet(), nodes.get(0));
-
         final String groupId = "group-0";
         final TopicPartition tp1 = new TopicPartition("foo", 0);
 
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(1, 0))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             env.kafkaClient().prepareResponse(
@@ -2615,23 +2420,12 @@ public class KafkaAdminClientTest {
     public void testAlterConsumerGroupOffsetsNonRetriableErrors() throws Exception {
         // Non-retriable errors throw an exception
 
-        final Map<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-
-        final Cluster cluster =
-            new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.<PartitionInfo>emptyList(),
-                Collections.<String>emptySet(),
-                Collections.<String>emptySet(), nodes.get(0));
-
         final String groupId = "group-0";
         final TopicPartition tp1 = new TopicPartition("foo", 0);
         final List<Errors> nonRetriableErrors = Arrays.asList(
             Errors.GROUP_AUTHORIZATION_FAILED, Errors.INVALID_GROUP_ID, Errors.GROUP_ID_NOT_FOUND);
 
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(1, 0))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             for (Errors error : nonRetriableErrors) {
@@ -2655,21 +2449,10 @@ public class KafkaAdminClientTest {
     public void testAlterConsumerGroupOffsetsFindCoordinatorRetriableErrors() throws Exception {
         // Retriable FindCoordinatorResponse errors should be retried
 
-        final Map<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-
-        final Cluster cluster =
-            new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.<PartitionInfo>emptyList(),
-                Collections.<String>emptySet(),
-                Collections.<String>emptySet(), nodes.get(0));
-
         final String groupId = "group-0";
         final TopicPartition tp1 = new TopicPartition("foo", 0);
 
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(1, 0))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             env.kafkaClient().prepareResponse(
@@ -2697,21 +2480,10 @@ public class KafkaAdminClientTest {
     public void testAlterConsumerGroupOffsetsFindCoordinatorNonRetriableErrors() throws Exception {
         // Non-retriable FindCoordinatorResponse errors throw an exception
 
-        final Map<Integer, Node> nodes = new HashMap<>();
-        nodes.put(0, new Node(0, "localhost", 8121));
-
-        final Cluster cluster =
-            new Cluster(
-                "mockClusterId",
-                nodes.values(),
-                Collections.<PartitionInfo>emptyList(),
-                Collections.<String>emptySet(),
-                Collections.<String>emptySet(), nodes.get(0));
-
         final String groupId = "group-0";
         final TopicPartition tp1 = new TopicPartition("foo", 0);
 
-        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(mockCluster(1, 0))) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             env.kafkaClient().prepareResponse(

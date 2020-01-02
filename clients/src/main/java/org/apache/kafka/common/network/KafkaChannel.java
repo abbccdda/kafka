@@ -17,6 +17,7 @@
 package org.apache.kafka.common.network;
 
 import org.apache.kafka.common.errors.AuthenticationException;
+import org.apache.kafka.common.errors.SslAuthenticationException;
 import org.apache.kafka.common.memory.MemoryPool;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.requests.RequestContext;
@@ -34,7 +35,6 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
@@ -131,6 +131,7 @@ public class KafkaChannel implements AutoCloseable {
     private long writeIoTimeNanos;
     private final int maxReceiveSize;
     private final MemoryPool memoryPool;
+    private final ChannelMetadataRegistry metadataRegistry;
     private NetworkReceive receive;
     private Send send;
     // Track connection and mute state of channels to enable outstanding requests on channels to be
@@ -144,7 +145,7 @@ public class KafkaChannel implements AutoCloseable {
     private long lastReauthenticationStartNanos;
 
     public KafkaChannel(String id, TransportLayer transportLayer, Supplier<Authenticator> authenticatorCreator,
-        int maxReceiveSize, MemoryPool memoryPool, BrokerInterceptor interceptor) {
+        int maxReceiveSize, MemoryPool memoryPool, ChannelMetadataRegistry metadataRegistry, BrokerInterceptor interceptor) {
         this.id = id;
         this.transportLayer = transportLayer;
         this.authenticatorCreator = authenticatorCreator;
@@ -153,6 +154,7 @@ public class KafkaChannel implements AutoCloseable {
         this.writeIoTimeNanos = 0L;
         this.maxReceiveSize = maxReceiveSize;
         this.memoryPool = memoryPool;
+        this.metadataRegistry = metadataRegistry;
         this.disconnected = false;
         this.muteState = ChannelMuteState.NOT_MUTED;
         this.state = ChannelState.NOT_CONNECTED;
@@ -161,7 +163,7 @@ public class KafkaChannel implements AutoCloseable {
 
     public void close() throws IOException {
         this.disconnected = true;
-        Utils.closeAll(transportLayer, authenticator, receive);
+        Utils.closeAll(transportLayer, authenticator, receive, metadataRegistry);
     }
 
     /**
@@ -467,7 +469,15 @@ public class KafkaChannel implements AutoCloseable {
     }
 
     private long receive(NetworkReceive receive) throws IOException {
-        return receive.readFrom(transportLayer);
+        try {
+            return receive.readFrom(transportLayer);
+        } catch (SslAuthenticationException e) {
+            // With TLSv1.3, post-handshake messages may throw SSLExceptions, which are
+            // handled as authentication failures
+            String remoteDesc = remoteAddress != null ? remoteAddress.toString() : null;
+            state = new ChannelState(ChannelState.State.AUTHENTICATION_FAILED, e, remoteDesc);
+            throw e;
+        }
     }
 
     /**
@@ -502,8 +512,9 @@ public class KafkaChannel implements AutoCloseable {
     public RequestContext newRequestContext(RequestHeader header,
         ListenerName listenerName,
         SecurityProtocol protocol,
+        ClientInformation clientInformation,
         Metrics metrics) {
-      return interceptor.newContext(header, id, socketAddress(), principal(), listenerName, protocol, metrics);
+      return interceptor.newContext(header, id, socketAddress(), principal(), listenerName, protocol, clientInformation, metrics);
     }
     
     /**
@@ -686,7 +697,7 @@ public class KafkaChannel implements AutoCloseable {
         authenticator.reauthenticate(reauthenticationContext);
     }
 
-    public Optional<CipherInformation> cipherInformation() {
-        return transportLayer.cipherInformation();
+    public ChannelMetadataRegistry channelMetadataRegistry() {
+        return metadataRegistry;
     }
 }

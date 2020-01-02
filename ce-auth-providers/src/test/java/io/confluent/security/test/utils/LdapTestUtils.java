@@ -17,6 +17,7 @@ import kafka.utils.TestUtils;
 import org.apache.kafka.common.network.Mode;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.test.TestSslUtils;
 import scala.Some;
 
 import java.io.File;
@@ -34,7 +35,8 @@ public class LdapTestUtils {
     Properties ldapConf = MiniKdcWithLdapService.createConfig();
     if (securityProtocol == LdapSecurityProtocol.SSL) {
       File ldapTrustStore = File.createTempFile("truststore", ".jks");
-      Properties ldapSslProps = TestUtils.sslConfigs(Mode.SERVER, false, new Some<>(ldapTrustStore), "ldap", "localhost");
+      Properties ldapSslProps = TestUtils.sslConfigs(Mode.SERVER, false,
+              new Some<>(ldapTrustStore), "ldap", "localhost", TestSslUtils.DEFAULT_TLS_PROTOCOL_FOR_TESTS);
       MiniKdcWithLdapService.addSslConfig(ldapConf, ldapSslProps);
     }
 

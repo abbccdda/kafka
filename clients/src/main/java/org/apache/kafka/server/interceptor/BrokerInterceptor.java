@@ -4,6 +4,7 @@ package org.apache.kafka.server.interceptor;
 
 import org.apache.kafka.common.Configurable;
 import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.network.ClientInformation;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.requests.RequestContext;
 import org.apache.kafka.common.requests.RequestHeader;
@@ -28,6 +29,7 @@ public interface BrokerInterceptor extends Configurable {
                               KafkaPrincipal principal,
                               ListenerName listenerName,
                               SecurityProtocol securityProtocol,
+                              ClientInformation clientInformation,
                               Metrics metrics);
 
 }

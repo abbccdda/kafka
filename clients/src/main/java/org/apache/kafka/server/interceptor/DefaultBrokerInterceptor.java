@@ -3,6 +3,7 @@
 package org.apache.kafka.server.interceptor;
 
 import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.network.ClientInformation;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.requests.RequestContext;
 import org.apache.kafka.common.requests.RequestHeader;
@@ -29,8 +30,10 @@ public class DefaultBrokerInterceptor implements BrokerInterceptor {
                                      KafkaPrincipal principal,
                                      ListenerName listenerName,
                                      SecurityProtocol securityProtocol,
+                                     ClientInformation clientInformation,
                                      Metrics metrics) {
-        return new RequestContext(header, connectionId, clientAddress, principal, listenerName, securityProtocol);
+        return new RequestContext(header, connectionId, clientAddress, principal, listenerName,
+                securityProtocol, clientInformation);
     }
 
     @Override

@@ -18,6 +18,7 @@ import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.utils.AuthorizerUtils;
 import java.io.IOException;
 import java.net.InetAddress;
+import org.apache.kafka.common.network.ClientInformation;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.requests.RequestContext;
@@ -43,7 +44,7 @@ public class AuthorizationEventTest {
             new RequestContext(new RequestHeader(ApiKeys.ALTER_CONFIGS, (short) 1, "123", 1234),
                 "connectionId", InetAddress.getLocalHost(), principal,
                 ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT),
-                SecurityProtocol.PLAINTEXT)),
+                SecurityProtocol.PLAINTEXT, ClientInformation.EMPTY)),
         new Action(Scope.ROOT_SCOPE, ResourcePattern.ALL, Operation.ALL),
         AuthorizeResult.ALLOWED,
         AuthorizePolicy.ALLOW_ON_NO_RULE

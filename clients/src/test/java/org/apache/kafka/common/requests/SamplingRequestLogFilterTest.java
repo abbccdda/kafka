@@ -4,6 +4,7 @@
 package org.apache.kafka.common.requests;
 
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.network.ClientInformation;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -182,7 +183,8 @@ public class SamplingRequestLogFilterTest {
                 InetAddress.getLoopbackAddress(),
                 KafkaPrincipal.ANONYMOUS,
                 new ListenerName("PLAINTEXT"),
-                SecurityProtocol.PLAINTEXT);
+                SecurityProtocol.PLAINTEXT,
+                ClientInformation.EMPTY);
     }
 
 
