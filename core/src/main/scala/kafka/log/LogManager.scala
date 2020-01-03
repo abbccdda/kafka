@@ -86,6 +86,7 @@ class LogManager(logDirs: Seq[File],
   private val _liveLogDirs: ConcurrentLinkedQueue[File] = createAndValidateLogDirs(logDirs, initialOfflineDirs)
   @volatile private var _currentDefaultConfig = initialDefaultConfig
   @volatile private var numRecoveryThreadsPerDataDir = recoveryThreadsPerDataDir
+  @volatile private var tierCommit = true
 
   // This map contains all partitions whose logs are getting loaded and initialized. If log configuration
   // of these partitions get updated at the same time, the corresponding entry in this map is set to "true",
@@ -459,9 +460,7 @@ class LogManager(logDirs: Seq[File],
       CoreUtils.swallow(cleaner.shutdown(), this)
     }
 
-    // checkpoint tier partition states
-    debug(s"Checkpointing tier partition states")
-    checkpointTierState()
+    shutdownTierCheckpointing()
 
     val localLogsByDir = logsByDir
 
@@ -1063,8 +1062,16 @@ class LogManager(logDirs: Seq[File],
   // We need synchronization with log deletion here, as the delete operation renames the log directory while the
   // checkpoint operation writes to the log directory
   private[log] def checkpointTierState(): Unit = logCreationOrDeletionLock synchronized {
-    if (allLogs.nonEmpty)
+    if (allLogs.nonEmpty && tierCommit)
       tierLogComponents.topicConsumerOpt.foreach(_.commitPositions(allLogs.map(_.tierPartitionState).toIterator.asJava))
+  }
+
+  // defensively ensure tier states stop checkpointing before we start closing logs
+  private[log] def shutdownTierCheckpointing(): Unit = logCreationOrDeletionLock synchronized  {
+      // final checkpoint of tier partition states
+      debug(s"Checkpointing tier partition states")
+      checkpointTierState()
+      tierCommit = false
   }
 }
 

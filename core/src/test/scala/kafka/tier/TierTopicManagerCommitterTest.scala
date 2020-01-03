@@ -3,6 +3,7 @@ package kafka.tier
 import java.io.BufferedWriter
 import java.io.File
 import java.io.FileWriter
+import java.io.IOException
 import java.util
 import java.util.{Collections, UUID}
 import java.util.function.Supplier
@@ -78,6 +79,49 @@ class TierTopicManagerCommitterTest {
     for (partitionId <- 0 until numPartitions)
       assertEquals(expectedPositions(partitionId).getOrElse(null), committer2.positionFor(partitionId))
   }
+
+  @Test
+  def failedFlushTest(): Unit = {
+    val logDir = System.getProperty("java.io.tmpdir")+"/"+UUID.randomUUID.toString
+    val file = new File(logDir)
+    file.mkdir()
+    val numPartitions = 6: Short
+    val tierTopicManagerConfig = new TierTopicManagerConfig(
+      new Supplier[String] {
+        override def get(): String = "bootstrap"
+      },
+      null,
+      numPartitions,
+      1,
+      33,
+      "cluster99",
+      200L,
+      500,
+      500,
+      Collections.singletonList(logDir))
+
+    val logDirFailureChannel = new LogDirFailureChannel(10)
+    val tps : TierPartitionState = EasyMock.mock(classOf[TierPartitionState])
+    EasyMock.expect(tps.flush()).andThrow(new IOException("failed to flush"))
+    EasyMock.expect(tps.dir()).andReturn(new File(logDir)).anyTimes()
+    EasyMock.replay(tps)
+
+    val committer = new TierTopicManagerCommitter(tierTopicManagerConfig, logDirFailureChannel)
+    committer.updatePosition(3, 1L)
+    committer.updatePosition(5, 4L)
+    committer.updatePosition(5, 5L)
+    committer.flush(Collections.singletonList(tps).iterator)
+
+    val committer2 = new TierTopicManagerCommitter(tierTopicManagerConfig, logDirFailureChannel)
+    // none of the positions should have committed as a result of the TierPartitionState flush failure
+    val expectedPositions: Array[Option[Long]] = Array.apply(None, None, None, None, None, None)
+
+    for (partitionId <- 0 until numPartitions)
+      assertEquals(expectedPositions(partitionId).getOrElse(null), committer2.positionFor(partitionId))
+
+    assertEquals(System.getProperty("java.io.tmpdir").replaceFirst("/$", ""), logDirFailureChannel.takeNextOfflineLogDir())
+  }
+
 
   @Test
   def unsupportedVersionResetsPositions(): Unit = {

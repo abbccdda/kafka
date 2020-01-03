@@ -83,11 +83,13 @@ public class TierTopicManagerCommitter {
     public synchronized void flush(Iterator<TierPartitionState> tierPartitionStateIterator) {
         // take a copy of the positions so that we don't commit positions later than what we will flush.
         HashMap<Integer, Long> flushPositions = new HashMap<>(positions);
+        boolean error = false;
         while (tierPartitionStateIterator.hasNext()) {
             TierPartitionState state = tierPartitionStateIterator.next();
             try {
                 state.flush();
             } catch (IOException ioe) {
+                error = true;
                 log.error("Error committing progress or flushing TierPartitionStates.", ioe);
                 String logDir = state.dir().getParent();
                 logDirFailureChannel.maybeAddOfflineLogDir(logDir,
@@ -95,7 +97,10 @@ public class TierTopicManagerCommitter {
             }
         }
 
-        writeOffsets(flushPositions);
+        // if any TierPartitionState files failed to flush, it is not safe
+        // to write the consumer positions, as that may lead to divergence
+        if (!error)
+            writeOffsets(flushPositions);
     }
 
     /**
