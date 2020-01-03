@@ -4,8 +4,6 @@
 
 package kafka.tier.tasks.archive
 
-import java.util.UUID
-
 import com.yammer.metrics.Metrics
 import com.yammer.metrics.core.Gauge
 import kafka.cluster.Partition
@@ -16,8 +14,8 @@ import kafka.tier.state.TierPartitionState
 import kafka.tier.store.TierObjectStore
 import kafka.tier.tasks.TierTasksConfig
 import kafka.tier.topic.TierTopicManager
-import kafka.tier.TopicIdPartition
 import kafka.utils.{MockTime, TestUtils}
+import org.apache.kafka.common.TopicPartition
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.mockito.Mockito.{mock, when}
@@ -31,19 +29,29 @@ class TierArchiverTest {
   @Test
   def testLagCalculation(): Unit = {
     val replicaManager = mock(classOf[ReplicaManager])
-    val topicIdPartitions = List(new TopicIdPartition("mytopic-1", UUID.randomUUID, 0),
-      new TopicIdPartition("mytopic-2", UUID.randomUUID, 0))
+
+    val partition1 = new TopicPartition("mytopic-1", 0)
+    val partition2 = new TopicPartition("mytopic-2", 0)
+    val partition3 = new TopicPartition("mytopic-3", 0)
+
+    // Map of TopicPartition -> PerSegmentSize
+    val topicIdPartitionsMap = Map(
+      partition1 -> 20,
+      partition2 -> 10,
+      partition3 -> 30
+    )
 
     val partitions =
-      topicIdPartitions.map { topicIdPartition =>
+      topicIdPartitionsMap.map { case (topicPartition, segmentSize) =>
         val segment = mock(classOf[LogSegment])
-        when(segment.size).thenReturn(Integer.MAX_VALUE)
+        when(segment.size).thenReturn(segmentSize)
 
         val log = mock(classOf[AbstractLog])
-        when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
+        when(replicaManager.getLog(topicPartition)).thenReturn(Some(log))
 
-        // 4 segments, each with of Integer.MAX_VALUE size
+        // 4 segments, each with the same segment size
         when(log.tierableLogSegments).thenReturn(List(segment, segment, segment, segment))
+        when(log.topicPartition).thenReturn(topicPartition)
 
         val tierPartitionState = mock(classOf[TierPartitionState])
         when(tierPartitionState.isTieringEnabled).thenReturn(true)
@@ -59,22 +67,34 @@ class TierArchiverTest {
         partitions.iterator
       }
     })
-
-    // two logs * 4 segments * MAX_VALUE
-    assertEquals(17179869176L, TierArchiver.totalLag(replicaManager))
-
     val tierTopicManager = mock(classOf[TierTopicManager])
     val tierObjectStore = mock(classOf[TierObjectStore])
     val time = new MockTime()
     val config = TierTasksConfig(numThreads = 2)
-
     TestUtils.clearYammerMetrics()
-    new TierArchiver(config, replicaManager, tierTopicManager, tierObjectStore, CancellationContext.newContext(),
-      config.numThreads, time)
-    assertEquals(17179869176L, metricValue("TotalLag"))
+    val archiver = new TierArchiver(
+      config,
+      replicaManager,
+      tierTopicManager,
+      tierObjectStore,
+      CancellationContext.newContext(),
+      config.numThreads,
+      time)
+
+    val laggingPartitions = archiver.partitionLagInfo
+    assertEquals(3, laggingPartitions.size)
+    assertEquals((partition3, 120), laggingPartitions(0))
+    assertEquals((partition1, 80), laggingPartitions(1))
+    assertEquals((partition2, 40), laggingPartitions(2))
+
+    archiver.logPartitionLagInfo()
+    // Expect the total lag to match that of: num_logs x num_segments_per_log x per_segment_size
+    assertEquals(240L, metricValue[Long]("TotalLagValue"))
+    assertEquals(120, metricValue[Long]("PartitionLagMaxValue"))
+    assertEquals(3, metricValue[Int]("LaggingPartitionsCount"))
   }
 
-  private def metricValue(name: String): Long = {
-    Metrics.defaultRegistry.allMetrics.asScala.filterKeys(_.getName == name).values.headOption.get.asInstanceOf[Gauge[Long]].value()
+  private def metricValue[T](name: String): T = {
+    Metrics.defaultRegistry.allMetrics.asScala.filterKeys(_.getName == name).values.headOption.get.asInstanceOf[Gauge[T]].value()
   }
 }

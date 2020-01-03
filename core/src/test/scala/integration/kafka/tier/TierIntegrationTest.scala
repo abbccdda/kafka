@@ -279,7 +279,7 @@ class TierIntegrationTest {
     setup(numLogs)
     tierTasks.start()
 
-    def totalLag: Long = metricValue("TotalLag")
+    def totalLag: Long = metricValue("TotalLagValue")
 
     def awaitMaterializeBatchAndAssertLag(archivedBatches: Int): Unit = {
       archiveAndMaterializeUntilTrue(() => {
@@ -291,6 +291,8 @@ class TierIntegrationTest {
       }, s"Should materialize segments for batch $archivedBatches or greater", tierTopicManager, consumerSupplier)
 
       // one more tick for the transition from AfterUpload to BeforeUpload
+      mockTime.sleep(TierTasks.PERIODIC_LOG_LAG_MS + 1)
+      tierTasks.logTierArchiverLagInfo()
       assertEquals(logs.map(_.tierableLogSegments.map(_.size).sum).sum, totalLag)
     }
 
@@ -310,6 +312,9 @@ class TierIntegrationTest {
     logs.foreach { log =>
       writeRecordBatches(log, leaderEpoch, 0L, batches, recordsPerBatch)
     }
+
+    mockTime.sleep(TierTasks.PERIODIC_LOG_LAG_MS + 1)
+    tierTasks.logTierArchiverLagInfo()
 
     // assert initial lag based on the sum of expected log end offsets
     // minus the last segment

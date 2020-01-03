@@ -47,6 +47,7 @@ class TierTasks(config: TierTasksConfig,
                 time: Time = Time.SYSTEM) extends ShutdownableThread(name = "tier-tasks") with KafkaMetricsGroup with Logging {
   override protected def loggerName: String = classOf[TierTasks].getName
 
+  private var lastLagPrintTimeMs = time.milliseconds()
   private val ctx: CancellationContext = CancellationContext.newContext()
   private val executor = Executors.newFixedThreadPool(config.numThreads, new ThreadFactory {
     val threadNum = new AtomicInteger(-1)
@@ -104,6 +105,8 @@ class TierTasks(config: TierTasksConfig,
     changeManager.process()
     val archiverFutures = tierArchiver.doWork()
     val deletionFutures = tierDeletionManager.doWork()
+    logTierArchiverLagInfo()
+
     val futures = archiverFutures ++ deletionFutures
 
     if (tierArchiver.taskQueue.taskCount == 0 && tierDeletionManager.taskQueue.taskCount == 0) {
@@ -131,6 +134,14 @@ class TierTasks(config: TierTasksConfig,
     }
   }
 
+  // visible for testing
+  def logTierArchiverLagInfo(): Unit = {
+    if (time.milliseconds() > (lastLagPrintTimeMs + TierTasks.PERIODIC_LOG_LAG_MS)) {
+      tierArchiver.logPartitionLagInfo()
+      lastLagPrintTimeMs = time.milliseconds()
+    }
+  }
+
   override def shutdown(): Unit = {
     info("shutting down")
     initiateShutdown()
@@ -144,4 +155,8 @@ class TierTasks(config: TierTasksConfig,
 
   // visible for testing
   def archiverTaskQueue: ArchiverTaskQueue = tierArchiver.taskQueue
+}
+
+object TierTasks {
+  final val PERIODIC_LOG_LAG_MS: Int = 60000
 }

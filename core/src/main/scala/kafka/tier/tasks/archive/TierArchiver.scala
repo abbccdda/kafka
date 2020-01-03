@@ -16,6 +16,7 @@ import kafka.tier.tasks.{TierTaskWorkingSet, TierTasksConfig}
 import kafka.tier.topic.TierTopicAppender
 import kafka.utils.Logging
 import org.apache.kafka.common.utils.Time
+import org.apache.kafka.common.TopicPartition
 
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -41,15 +42,33 @@ final class TierArchiver(config: TierTasksConfig,
 
   override protected def loggerName: String = classOf[TierArchiver].getName
 
+  private final val TOP_LAGGING_PARTITIONS_COUNT = 5
+
   removeMetric("BytesPerSec")
   private val byteRate = newMeter("BytesPerSec", "bytes per second", TimeUnit.SECONDS)
 
   removeMetric("RetriesPerSec")
   private val retryRate = newMeter("RetriesPerSec", "number of retries per second", TimeUnit.SECONDS)
 
-  removeMetric("TotalLag")
-  newGauge("TotalLag", new Gauge[Long] {
-    def value(): Long = TierArchiver.totalLag(replicaManager)
+  // Sum of lag of all partitions
+  @volatile private var totalLagValue = 0L
+  removeMetric("TotalLagValue")
+  newGauge("TotalLagValue", new Gauge[Long] {
+    def value(): Long = totalLagValue
+  })
+
+  // Lag value (in bytes) of the partition with the highest lag
+  @volatile private var partitionLagMaxValue = 0L
+  removeMetric("PartitionLagMaxValue")
+  newGauge("PartitionLagMaxValue", new Gauge[Long] {
+    def value(): Long = partitionLagMaxValue
+  })
+
+  // Count of partitions seen with lag > 0
+  @volatile private var laggingPartitionsCount = 0
+  removeMetric("LaggingPartitionsCount")
+  newGauge("LaggingPartitionsCount", new Gauge[Int] {
+    def value(): Int = laggingPartitionsCount
   })
 
   private[tasks] val taskQueue = new ArchiverTaskQueue(ctx.subContext(), maxTasks, time, schedulingLag,
@@ -72,6 +91,42 @@ final class TierArchiver(config: TierTasksConfig,
   }
 
   /**
+   * Returns archiver lag information for lagging partitions with their lag. Method is kept visible
+   * for testing.
+   *
+   * @return   a list containing lagging partitions along with their lag value
+   */
+  def partitionLagInfo: List[(TopicPartition, Long)] = {
+    return replicaManager
+      .leaderPartitionsIterator
+      .flatMap(_.log)
+      .filter(_.tierPartitionState.isTieringEnabled)
+      .map(log => (log.topicPartition, sizeOfTierableSegments(log)))
+      .filter { case (_, size) => size > 0 }
+      .toList
+      .sortBy { case (_, size) => 0 - size }
+  }
+
+  def logPartitionLagInfo(): Unit = {
+    val laggingPartitions = partitionLagInfo
+    totalLagValue = laggingPartitions.map(_._2).sum
+    info("Sum of TierArchiver lag of all partitions: " + totalLagValue)
+    laggingPartitionsCount = laggingPartitions.size
+    val topLaggingPartitions = laggingPartitions.take(TOP_LAGGING_PARTITIONS_COUNT)
+    if (topLaggingPartitions.nonEmpty) {
+      info(
+          s"$laggingPartitionsCount partitions seen with lag > 0. Partitions with most" +
+            s" TierArchiver lag in descending order of lag (TopicPartition, LagInBytes):" +
+            s" $topLaggingPartitions")
+      partitionLagMaxValue = topLaggingPartitions(0)._2
+    }
+  }
+
+  private def sizeOfTierableSegments(log: AbstractLog): Long = {
+    log.tierableLogSegments.map(_.size.toLong).sum
+  }
+
+  /**
     * Tasks are ordered in the following way,
     *
     *   1. AfterUpload > Upload > BeforeLeader > BeforeUpload
@@ -91,30 +146,10 @@ final class TierArchiver(config: TierTasksConfig,
       case _: BeforeUpload =>
         replicaManager
           .getLog(task.topicPartition)
-          .map { log => TierArchiver.sizeOfTierableSegments(log) }
+          .map { log => sizeOfTierableSegments(log) }
       case _: Upload => Some(-2)
       case _: AfterUpload => Some(-3)
     }
-  }
-}
-
-object TierArchiver {
-  private[archive] def sizeOfTierableSegments(log: AbstractLog): Long = {
-    log.tierableLogSegments.map(_.size.toLong).sum
-  }
-
-  private[archive] def totalLag(replicaManager: ReplicaManager): Long = {
-    var totalSize = 0L
-
-    replicaManager.leaderPartitionsIterator.foreach { leaderPartition =>
-      leaderPartition.log.foreach { log =>
-        val tierPartitionState = log.tierPartitionState
-        if (tierPartitionState.isTieringEnabled)
-          totalSize += sizeOfTierableSegments(log)
-      }
-    }
-
-    totalSize
   }
 }
 
