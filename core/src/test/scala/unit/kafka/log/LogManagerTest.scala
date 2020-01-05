@@ -606,7 +606,7 @@ class LogManagerTest {
       override def run(): Unit = {
         try {
           while (!isDone)
-            logManager.checkpointTierState()
+            logManager.checkpointTierState(isFinalCheckpoint = false)
         } catch {
           case e: Exception => exceptionOpt = Some(e)
         }

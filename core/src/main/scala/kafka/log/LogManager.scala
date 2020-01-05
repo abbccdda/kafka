@@ -84,9 +84,9 @@ class LogManager(logDirs: Seq[File],
   private val logsToBeDeleted = new LinkedBlockingQueue[(AbstractLog, Long)]()
 
   private val _liveLogDirs: ConcurrentLinkedQueue[File] = createAndValidateLogDirs(logDirs, initialOfflineDirs)
+  private var checkpointTierState = true
   @volatile private var _currentDefaultConfig = initialDefaultConfig
   @volatile private var numRecoveryThreadsPerDataDir = recoveryThreadsPerDataDir
-  @volatile private var tierCommit = true
 
   // This map contains all partitions whose logs are getting loaded and initialized. If log configuration
   // of these partitions get updated at the same time, the corresponding entry in this map is set to "true",
@@ -432,7 +432,7 @@ class LogManager(logDirs: Seq[File],
                          delay = InitialTaskDelayMs,
                          unit = TimeUnit.MILLISECONDS)
       scheduler.schedule("tier-flush-state",
-                         checkpointTierState _,
+                         () => checkpointTierState(isFinalCheckpoint = false),
                          delay = 0,
                          period = tierStateCheckpointMs,
                          TimeUnit.MILLISECONDS)
@@ -460,7 +460,9 @@ class LogManager(logDirs: Seq[File],
       CoreUtils.swallow(cleaner.shutdown(), this)
     }
 
-    shutdownTierCheckpointing()
+    // checkpoint tier partition states
+    debug(s"Checkpointing tier partition states")
+    checkpointTierState(isFinalCheckpoint = true)
 
     val localLogsByDir = logsByDir
 
@@ -1061,17 +1063,12 @@ class LogManager(logDirs: Seq[File],
 
   // We need synchronization with log deletion here, as the delete operation renames the log directory while the
   // checkpoint operation writes to the log directory
-  private[log] def checkpointTierState(): Unit = logCreationOrDeletionLock synchronized {
-    if (allLogs.nonEmpty && tierCommit)
+  private[log] def checkpointTierState(isFinalCheckpoint: Boolean): Unit = logCreationOrDeletionLock synchronized {
+    if (allLogs.nonEmpty && checkpointTierState)
       tierLogComponents.topicConsumerOpt.foreach(_.commitPositions(allLogs.map(_.tierPartitionState).toIterator.asJava))
-  }
 
-  // defensively ensure tier states stop checkpointing before we start closing logs
-  private[log] def shutdownTierCheckpointing(): Unit = logCreationOrDeletionLock synchronized  {
-      // final checkpoint of tier partition states
-      debug(s"Checkpointing tier partition states")
-      checkpointTierState()
-      tierCommit = false
+    if (isFinalCheckpoint)
+      checkpointTierState = false
   }
 }
 
