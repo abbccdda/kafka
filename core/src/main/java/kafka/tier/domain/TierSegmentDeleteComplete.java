@@ -80,6 +80,6 @@ public class TierSegmentDeleteComplete extends AbstractTierSegmentMetadata {
                 "version=" + metadata.version() + ", " +
                 "topicIdPartition=" + topicIdPartition() + ", " +
                 "tierEpoch=" + tierEpoch() + ", " +
-                "objectIdAsBAse64=" + objectIdAsBase64() + ")";
+                "objectIdAsBase64=" + objectIdAsBase64() + ")";
     }
 }
