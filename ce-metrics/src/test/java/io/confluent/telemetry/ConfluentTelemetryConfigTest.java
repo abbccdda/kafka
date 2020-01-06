@@ -53,6 +53,23 @@ public class ConfluentTelemetryConfigTest {
   }
 
   @Test
+  public void metricFilterTestCompleteStringMatch() {
+    builder.put(ConfluentTelemetryConfig.WHITELIST_CONFIG, ".*match_complete_string");
+
+    ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
+
+    Predicate<MetricKey> filter = config.getMetricFilter();
+
+    // Below metric shall not be included as its not matching the given regex. Hence use `Matches`
+    // method of `Pattern` class instead of `Find` method. Always check for complete string match
+    // instead of sub string match.
+    assertFalse(filter.test(new MetricKey("foobar/match_complete_string/total",
+        Collections.emptyMap())));
+    assertTrue(filter.test(new MetricKey("foobar/match_complete_string",
+        Collections.emptyMap())));
+  }
+
+  @Test
   public void testDeprecatedProperties() {
     builder
         .put("confluent.telemetry.metrics.reporter.whitelist", "mockWhitelist")

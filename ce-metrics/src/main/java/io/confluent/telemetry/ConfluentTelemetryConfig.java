@@ -195,13 +195,15 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         if (regexString.isEmpty()) {
             return ALWAYS_TRUE;
         }
-        Predicate<String> patternPredicate = Pattern.compile(regexString).asPredicate();
+        // sourceCompatibility and targetCompatibility is set to Java 8 in build.gradle hence avoid
+        // using `asMatchPredicate` method of `Predicate` class.
+        Pattern pattern = Pattern.compile(regexString);
 
         // TODO We eventually plan to also support configuration of blacklist via label values.
         // Presumably we need a Map<String, Map<String, String>> of:
         // metric name -> label key -> label value
 
-        return metricNameAndLabels -> patternPredicate.test(metricNameAndLabels.getName());
+        return metricNameAndLabels -> pattern.matcher(metricNameAndLabels.getName()).matches();
     }
 
     /**
