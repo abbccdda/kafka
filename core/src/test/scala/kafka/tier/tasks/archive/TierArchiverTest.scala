@@ -89,7 +89,7 @@ class TierArchiverTest {
 
     archiver.logPartitionLagInfo()
     // Expect the total lag to match that of: num_logs x num_segments_per_log x per_segment_size
-    assertEquals(240L, metricValue[Long]("TotalLagValue"))
+    assertEquals(240L, metricValue[Long]("TotalLag"))
     assertEquals(120, metricValue[Long]("PartitionLagMaxValue"))
     assertEquals(3, metricValue[Int]("LaggingPartitionsCount"))
   }

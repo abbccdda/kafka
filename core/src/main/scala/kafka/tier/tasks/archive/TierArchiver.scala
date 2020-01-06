@@ -52,8 +52,8 @@ final class TierArchiver(config: TierTasksConfig,
 
   // Sum of lag of all partitions
   @volatile private var totalLagValue = 0L
-  removeMetric("TotalLagValue")
-  newGauge("TotalLagValue", new Gauge[Long] {
+  removeMetric("TotalLag")
+  newGauge("TotalLag", new Gauge[Long] {
     def value(): Long = totalLagValue
   })
 
@@ -110,7 +110,7 @@ final class TierArchiver(config: TierTasksConfig,
   def logPartitionLagInfo(): Unit = {
     val laggingPartitions = partitionLagInfo
     totalLagValue = laggingPartitions.map(_._2).sum
-    info("Sum of TierArchiver lag of all partitions: " + totalLagValue)
+    info(s"Sum of TierArchiver lag of all partitions: $totalLagValue")
     laggingPartitionsCount = laggingPartitions.size
     val topLaggingPartitions = laggingPartitions.take(TOP_LAGGING_PARTITIONS_COUNT)
     if (topLaggingPartitions.nonEmpty) {

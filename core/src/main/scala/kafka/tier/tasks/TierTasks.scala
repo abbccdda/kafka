@@ -105,7 +105,7 @@ class TierTasks(config: TierTasksConfig,
     changeManager.process()
     val archiverFutures = tierArchiver.doWork()
     val deletionFutures = tierDeletionManager.doWork()
-    logTierArchiverLagInfo()
+    maybeLogTierArchiverLagInfo()
 
     val futures = archiverFutures ++ deletionFutures
 
@@ -135,7 +135,7 @@ class TierTasks(config: TierTasksConfig,
   }
 
   // visible for testing
-  def logTierArchiverLagInfo(): Unit = {
+  def maybeLogTierArchiverLagInfo(): Unit = {
     if (time.milliseconds() > (lastLagPrintTimeMs + TierTasks.PERIODIC_LOG_LAG_MS)) {
       tierArchiver.logPartitionLagInfo()
       lastLagPrintTimeMs = time.milliseconds()
