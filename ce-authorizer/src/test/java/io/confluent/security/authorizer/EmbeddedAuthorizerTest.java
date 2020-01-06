@@ -86,14 +86,14 @@ public class EmbeddedAuthorizerTest {
     PolicyType policyType = PolicyType.ALLOW_ROLE;
     Set<AccessRule> topicRules = new HashSet<>();
     TestAccessRuleProvider.accessRules.put(topic, topicRules);
-    topicRules.add(new AccessRule(topic, rulePrincipal, PermissionType.ALLOW, "127.0.0.1", read.operation(), policyType, ""));
+    topicRules.add(new MockRoleAccessRule(topic, rulePrincipal, PermissionType.ALLOW, "127.0.0.1", read.operation(), policyType));
 
     result = authorizer.authorize(requestContext, Arrays.asList(read, write));
     assertEquals(Arrays.asList(AuthorizeResult.ALLOWED, AuthorizeResult.DENIED), result);
     result = authorizer.authorize(requestContext, Arrays.asList(write, read));
     assertEquals(Arrays.asList(AuthorizeResult.DENIED, AuthorizeResult.ALLOWED), result);
 
-    topicRules.add(new AccessRule(topic, rulePrincipal, PermissionType.ALLOW, "127.0.0.1", write.operation(), policyType, ""));
+    topicRules.add(new MockRoleAccessRule(topic, rulePrincipal, PermissionType.ALLOW, "127.0.0.1", write.operation(), policyType));
     result = authorizer.authorize(requestContext, Arrays.asList(write, read));
     assertEquals(Arrays.asList(AuthorizeResult.ALLOWED, AuthorizeResult.ALLOWED), result);
 
@@ -289,5 +289,17 @@ public class EmbeddedAuthorizerTest {
 
   private RequestContext requestContext(KafkaPrincipal principal, String host) {
     return AuthorizerUtils.newRequestContext(RequestContext.KAFKA, principal, host);
+  }
+
+  /**
+   * This is a standin for RbacAccessRule, which is not used here for dependency reasons
+   */
+  private static class MockRoleAccessRule extends AccessRule {
+
+    public MockRoleAccessRule(ResourcePattern resourcePattern,
+        KafkaPrincipal principal, PermissionType permissionType, String host,
+        Operation operation, PolicyType policyType) {
+      super(resourcePattern, principal, permissionType, host, operation, policyType);
+    }
   }
 }

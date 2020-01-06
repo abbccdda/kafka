@@ -1,26 +1,26 @@
 // (Copyright) [2019 - 2019] Confluent, Inc.
 package io.confluent.kafka.security.authorizer;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
 import io.confluent.security.authorizer.AccessRule;
-import io.confluent.security.authorizer.Action;
-import io.confluent.security.authorizer.AuthorizePolicy;
+import io.confluent.security.authorizer.AclAccessRule;
 import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.PermissionType;
-import io.confluent.security.authorizer.RequestContext;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
-import io.confluent.security.authorizer.provider.AuditLogProvider;
 import java.net.InetAddress;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -31,8 +31,10 @@ import java.util.concurrent.TimeUnit;
 import kafka.server.KafkaConfig$;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.Endpoint;
+import org.apache.kafka.common.acl.AccessControlEntry;
+import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclOperation;
-import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.network.ClientInformation;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.resource.PatternType;
@@ -46,11 +48,6 @@ import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
 
 public class MockConfluentServerAuthorizerTest {
 
@@ -229,8 +226,11 @@ public class MockConfluentServerAuthorizerTest {
     public Set<AccessRule> accessRules(KafkaPrincipal principal,
         Set<KafkaPrincipal> groupPrincipals, Scope scope, ResourcePattern resource) {
       if (resource.name().startsWith("allowed")) {
-        AccessRule rule = new AccessRule(resource, principal, PermissionType.ALLOW, "*",
-            Operation.ALL, PolicyType.ALLOW_ACL, "ZK_ACL");
+        AccessRule rule = new AclAccessRule(resource, principal, PermissionType.ALLOW, "*",
+            Operation.ALL, PolicyType.ALLOW_ACL,
+            new AclBinding(ResourcePattern.to(resource),
+                new AccessControlEntry(principal.getName(),
+                    "*", AclOperation.ALL, AclPermissionType.ALLOW)));
         return Collections.singleton(rule);
       } else {
         return Collections.emptySet();
@@ -249,99 +249,6 @@ public class MockConfluentServerAuthorizerTest {
     static void reset() {
       usesMetadataFromThisKafkaCluster = true;
       startFuture = new CompletableFuture<>();
-    }
-  }
-
-  private static class AuditLogEntry {
-    private final RequestContext requestContext;
-    private final Action action;
-    private final AuthorizeResult authorizeResult;
-    private final AuthorizePolicy authorizePolicy;
-
-    AuditLogEntry(RequestContext requestContext, Action action,
-        AuthorizeResult authorizeResult, AuthorizePolicy authorizePolicy) {
-      this.requestContext = requestContext;
-      this.action = action;
-      this.authorizeResult = authorizeResult;
-      this.authorizePolicy = authorizePolicy;
-    }
-
-  }
-
-  public static final class MockAuditLogProvider implements AuditLogProvider {
-
-    private static volatile MockAuditLogProvider instance;
-    private final List<AuditLogEntry> auditLog = new ArrayList<>();
-    private final ArrayList<String> states = new ArrayList<>();
-
-    public MockAuditLogProvider() {
-      instance = this;
-    }
-
-    @Override
-    public Set<String> reconfigurableConfigs() {
-      return Collections.emptySet();
-    }
-
-    @Override
-    public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
-    }
-
-    @Override
-    public void reconfigure(Map<String, ?> configs) {
-    }
-
-    @Override
-    public void configure(Map<String, ?> configs) {
-      states.add("configured");
-    }
-
-    @Override
-    public CompletionStage<Void> start(AuthorizerServerInfo serverInfo, Map<String, ?> interBrokerListenerConfigs) {
-      states.add("started");
-      // Return incomplete future to ensure authorizer is not blocked by audit logger
-      return new CompletableFuture<>();
-    }
-
-    @Override
-    public boolean providerConfigured(Map<String, ?> configs) {
-      return "MOCK_ACL".equals(configs.get(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP));
-    }
-
-    @Override
-    public String providerName() {
-      return "MOCK_AUDIT";
-    }
-
-    @Override
-    public boolean usesMetadataFromThisKafkaCluster() {
-      return false;
-    }
-
-    @Override
-    public void logAuthorization(RequestContext requestContext, Action action,
-        AuthorizeResult authorizeResult, AuthorizePolicy authorizePolicy) {
-      if (action.logIfAllowed() && authorizeResult == AuthorizeResult.ALLOWED ||
-          action.logIfDenied() && authorizeResult == AuthorizeResult.DENIED) {
-        auditLog.add(new AuditLogEntry(requestContext, action, authorizeResult, authorizePolicy));
-      }
-    }
-
-    @Override
-    public void close() {
-    }
-
-    AuditLogEntry lastEntry() {
-      return auditLog.get(auditLog.size() - 1);
-    }
-
-    void ensureStarted() throws Exception {
-      TestUtils.waitForCondition(() -> states.equals(Arrays.asList("configured", "started")),
-          "Audit log provider not started, states=" + states);
-    }
-
-    static void reset() {
-      instance = null;
     }
   }
 

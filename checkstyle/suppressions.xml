@@ -339,4 +339,7 @@
     <suppress checks="ImportControl" files="ce-audit/src/test/java/io/confluent/security/audit/*"/>
     <suppress checks="ImportControl" files="ce-audit/src/main/java/io/confluent/security/audit/appender/.*"/>
 
+    <!-- ce-broker-plugins tests exclusion -->
+    <suppress checks="CyclomaticComplexity" files="MultiTenantAuditLogTest.java"/>
+
 </suppressions>

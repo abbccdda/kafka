@@ -16,15 +16,15 @@ import io.confluent.security.auth.provider.audit.MockAuditLogProvider;
 import io.confluent.security.auth.provider.audit.MockAuditLogProvider.AuditLogEntry;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.auth.provider.ldap.LdapConfig;
+import io.confluent.security.authorizer.AclAccessRule;
 import io.confluent.security.authorizer.AuthorizePolicy;
-import io.confluent.security.authorizer.AuthorizePolicy.AccessRulePolicy;
 import io.confluent.security.authorizer.AuthorizePolicy.NoMatchingRule;
 import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.AuthorizePolicy.SuperUser;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.PermissionType;
-import io.confluent.security.rbac.RoleBinding;
+import io.confluent.security.rbac.RbacAccessRule;
 import io.confluent.security.test.utils.LdapTestUtils;
 import io.confluent.security.test.utils.RbacClusters;
 import io.confluent.security.test.utils.RbacTestUtils;
@@ -465,14 +465,10 @@ public class ConfluentServerAuthorizerTest {
         break;
       case ALLOW_ACL:
       case DENY_ACL:
-        assertTrue("Unexpected policy " + policy, policy instanceof AccessRulePolicy);
-        AccessRulePolicy aclRule = (AccessRulePolicy) policy;
-        assertTrue("Unexpected source " + aclRule.sourceMetadata(), aclRule.sourceMetadata() instanceof AclBinding);
+        assertTrue("Unexpected policy " + policy, policy instanceof AclAccessRule);
         break;
       case ALLOW_ROLE:
-        assertTrue("Unexpected policy " + policy, policy instanceof AccessRulePolicy);
-        AccessRulePolicy rbacRule = (AccessRulePolicy) policy;
-        assertTrue("Unexpected source " + rbacRule.sourceMetadata(), rbacRule.sourceMetadata() instanceof RoleBinding);
+        assertTrue("Unexpected policy " + policy, policy instanceof RbacAccessRule);
         break;
       default:
           fail("Unexpected authorize policy in audit log entry: " + policy);

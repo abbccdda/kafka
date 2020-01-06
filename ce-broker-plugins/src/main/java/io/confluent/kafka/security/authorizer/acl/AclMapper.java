@@ -3,6 +3,7 @@
 package io.confluent.kafka.security.authorizer.acl;
 
 import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.AclAccessRule;
 import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.ResourcePattern;
@@ -96,7 +97,7 @@ public class AclMapper {
 
   public static AccessRule accessRule(AclBinding aclBinding) {
     AccessControlEntry ace = aclBinding.entry();
-    return new AccessRule(ResourcePattern.from(aclBinding.pattern()),
+    return new AclAccessRule(ResourcePattern.from(aclBinding.pattern()),
         SecurityUtils.parseKafkaPrincipal(ace.principal()),
         permissionType(PermissionType$.MODULE$.fromJava(ace.permissionType())),
         ace.host(),

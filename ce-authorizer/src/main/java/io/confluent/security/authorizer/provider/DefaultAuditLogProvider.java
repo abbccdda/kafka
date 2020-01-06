@@ -6,6 +6,7 @@ import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.RequestContext;
+import io.confluent.security.authorizer.Scope;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
@@ -72,7 +73,8 @@ public class DefaultAuditLogProvider implements AuditLogProvider {
    * </pre>
    */
   @Override
-  public void logAuthorization(RequestContext requestContext,
+  public void logAuthorization(Scope sourceScope,
+                  RequestContext requestContext,
                   Action action,
                   AuthorizeResult authorizeResult,
                   AuthorizePolicy authorizePolicy) {

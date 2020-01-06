@@ -34,7 +34,7 @@ import java.util.Objects;
 public class Scope {
 
   public static final Scope ROOT_SCOPE = new Scope(Collections.emptyList(), Collections.emptyMap());
-  private static final String KAFKA_CLUSTER_TYPE = "kafka-cluster";
+  public static final String KAFKA_CLUSTER_TYPE = "kafka-cluster";
 
   private final Scope parent;
   private final List<String> path;

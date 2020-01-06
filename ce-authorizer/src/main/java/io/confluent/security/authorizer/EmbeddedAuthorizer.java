@@ -224,7 +224,7 @@ public class EmbeddedAuthorizer implements Authorizer {
       }
 
       AuthorizeResult authorizeResult = authorizePolicy.policyType().accessGranted() ? AuthorizeResult.ALLOWED : AuthorizeResult.DENIED;
-      logAuditMessage(requestContext, action, authorizeResult, authorizePolicy);
+      logAuditMessage(scope, requestContext, action, authorizeResult, authorizePolicy);
       return authorizeResult;
 
     } catch (InvalidScopeException e) {
@@ -304,10 +304,9 @@ public class EmbeddedAuthorizer implements Authorizer {
       if (rule.permissionType().equals(permissionType)
           && (op.equals(rule.operation()) || rule.operation().equals(Operation.ALL))
           && (rule.host().equals(host) || rule.host().equals(AccessRule.ALL_HOSTS))) {
-        AuthorizePolicy policy = rule.toAuthorizePolicy();
         log.debug("operation = {} on resource = {} from host = {} is {} based on policy = {}",
-            op, resource, host, permissionType, policy);
-        return Optional.of(policy);
+            op, resource, host, permissionType, rule);
+        return Optional.of(rule);
       }
     }
     return Optional.empty();
@@ -328,11 +327,13 @@ public class EmbeddedAuthorizer implements Authorizer {
         : sessionPrincipal;
   }
 
-  private void logAuditMessage(RequestContext requestContext,
-                               Action action,
-                               AuthorizeResult authorizeResult,
-                               AuthorizePolicy authorizePolicy) {
-    auditLogProvider.logAuthorization(requestContext, action, authorizeResult, authorizePolicy);
+  protected void logAuditMessage(Scope sourceScope,
+      RequestContext requestContext,
+      Action action,
+      AuthorizeResult authorizeResult,
+      AuthorizePolicy authorizePolicy) {
+    auditLogProvider
+        .logAuthorization(sourceScope, requestContext, action, authorizeResult, authorizePolicy);
   }
 
   // Allowing read, write, delete, or alter implies allowing describe.

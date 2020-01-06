@@ -16,6 +16,7 @@ import io.confluent.security.auth.store.data.StatusValue;
 import io.confluent.security.auth.store.data.UserKey;
 import io.confluent.security.auth.store.data.UserValue;
 import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.AclAccessRule;
 import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.PermissionType;
@@ -25,6 +26,7 @@ import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.acl.AclRule;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.rbac.AccessPolicy;
+import io.confluent.security.rbac.RbacAccessRule;
 import io.confluent.security.rbac.RbacRoles;
 import io.confluent.security.rbac.Role;
 import io.confluent.security.rbac.RoleBinding;
@@ -483,7 +485,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
       for (ResourcePattern resource : resources) {
         Set<AccessRule> resourceRules = new HashSet<>();
         for (Operation op : accessPolicy.allowedOperations(resource.resourceType())) {
-          AccessRule rule = new AccessRule(resource, principal, PermissionType.ALLOW,
+          AccessRule rule = new RbacAccessRule(resource, principal, PermissionType.ALLOW,
               WILDCARD_HOST, op, PolicyType.ALLOW_ROLE, roleBinding(roleBindingKey, roleBindingValue));
           resourceRules.add(rule);
         }
@@ -536,7 +538,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     org.apache.kafka.common.resource.ResourcePattern kafkaResource = ResourcePattern.to(resource);
     AclBinding aclBinding = new AclBinding(kafkaResource, rule.toAccessControlEntry());
     PolicyType policyType = rule.permissionType() == PermissionType.ALLOW ? PolicyType.ALLOW_ACL : PolicyType.DENY_ACL;
-    return new AccessRule(resource, rule.principal(), rule.permissionType(),
+    return new AclAccessRule(resource, rule.principal(), rule.permissionType(),
         rule.host(), rule.operation(), policyType, aclBinding);
   }
 

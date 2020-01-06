@@ -1,3 +1,6 @@
+/*
+ * Copyright [2019 - 2020] Confluent Inc.
+ */
 package io.confluent.security.audit.provider;
 
 import static io.confluent.events.cloudevents.kafka.Unmarshallers.structuredProto;

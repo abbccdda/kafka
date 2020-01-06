@@ -38,8 +38,6 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import org.apache.kafka.common.ClusterResource;
-import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.utils.Utils;
@@ -47,7 +45,7 @@ import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResourceListener {
+public class ConfluentAuditLogProvider implements AuditLogProvider {
 
   public static final String AUTHORIZATION_MESSAGE_TYPE = "io.confluent.kafka.server/authorization";
   protected static final Logger log = LoggerFactory.getLogger(ConfluentAuditLogProvider.class);
@@ -72,7 +70,6 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
   private volatile boolean eventLoggerReady;
   private String clusterId;
 
-  private Scope scope;
   // The router is used in the logAuthorization() and can be reconfigured. It is best to update it atomically.
 
   // These should always be updated together
@@ -87,14 +84,6 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
       this.router = router;
       this.config = config;
     }
-  }
-
-  @Override
-  public void onUpdate(ClusterResource clusterResource) {
-    this.clusterId = clusterResource.clusterId();
-    this.scope = Scope.kafkaClusterScope(clusterId);
-    this.scope.validate(false);
-
   }
 
   /**
@@ -211,7 +200,8 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
   }
 
   @Override
-  public void logAuthorization(RequestContext requestContext,
+  public void logAuthorization(Scope sourceScope,
+      RequestContext requestContext,
       Action action,
       AuthorizeResult authorizeResult,
       AuthorizePolicy authorizePolicy) {
@@ -231,7 +221,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
     }
 
     try {
-      String source = crnAuthority.canonicalCrn(scope).toString();
+      String source = crnAuthority.canonicalCrn(sourceScope).toString();
       String subject = crnAuthority.canonicalCrn(action.scope(), action.resourcePattern())
           .toString();
 
@@ -305,11 +295,6 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
   // Visibility for testing
   public EventLogger getEventLogger() {
     return configuredState.logger;
-  }
-
-  // Visibility for testing
-  public Scope getScope() {
-    return scope;
   }
 
   // Visibility for testing

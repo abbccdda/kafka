@@ -2,8 +2,6 @@
 
 package io.confluent.security.authorizer;
 
-import io.confluent.security.authorizer.AuthorizePolicy.AccessRulePolicy;
-import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import java.util.Objects;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 
@@ -12,7 +10,7 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal;
  * Operations and resource types are extensible to enable this to be used for
  * authorization in different components.
  */
-public class AccessRule {
+public abstract class AccessRule implements AuthorizePolicy {
 
   public static final String ALL_HOSTS = "*";
   public static final KafkaPrincipal WILDCARD_USER_PRINCIPAL = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "*");
@@ -25,22 +23,19 @@ public class AccessRule {
   private final String host;
   private final Operation operation;
   private final PolicyType policyType;
-  private final Object sourceMetadata;
 
   public AccessRule(ResourcePattern resourcePattern,
                     KafkaPrincipal principal,
                     PermissionType permissionType,
                     String host,
                     Operation operation,
-                    PolicyType policyType,
-                    Object sourceMetadata) {
+                    PolicyType policyType) {
     this.resourcePattern = Objects.requireNonNull(resourcePattern);
     this.principal = Objects.requireNonNull(principal);
     this.permissionType = Objects.requireNonNull(permissionType);
     this.host = host;
     this.operation = Objects.requireNonNull(operation);
     this.policyType = Objects.requireNonNull(policyType);
-    this.sourceMetadata = Objects.requireNonNull(sourceMetadata);
   }
 
   public ResourcePattern resourcePattern() {
@@ -65,14 +60,6 @@ public class AccessRule {
 
   public PolicyType policyType() {
     return policyType;
-  }
-
-  public Object sourceMetadata() {
-    return sourceMetadata;
-  }
-
-  public AuthorizePolicy toAuthorizePolicy() {
-    return new AccessRulePolicy(policyType, sourceMetadata, resourcePattern);
   }
 
   @Override
@@ -100,7 +87,7 @@ public class AccessRule {
 
   @Override
   public String toString() {
-    return String.format("%s has %s permission for operation %s on %s from host %s (source: %s: %s)",
-        principal, permissionType, operation, resourcePattern, host, policyType, sourceMetadata);
+    return String.format("%s has %s permission for operation %s on %s from host %s (source: %s)",
+        principal, permissionType, operation, resourcePattern, host, policyType);
   }
 }

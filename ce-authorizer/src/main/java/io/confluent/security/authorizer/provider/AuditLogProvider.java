@@ -6,6 +6,7 @@ import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.RequestContext;
+import io.confluent.security.authorizer.Scope;
 import java.util.Map;
 import org.apache.kafka.common.Reconfigurable;
 
@@ -17,6 +18,7 @@ public interface AuditLogProvider extends Provider, Reconfigurable {
   /**
    * Generates an audit log entry with the provided data.
    *
+   * @param sourceScope     Scope of the cluster making the authorization decision
    * @param requestContext  Request context that contains details of the request that was being
    *                        authorized. This includes the user principal.
    * @param action          The action that was being authorized including resource and operation.
@@ -24,10 +26,11 @@ public interface AuditLogProvider extends Provider, Reconfigurable {
    * @param authorizePolicy Details of the authorization policy that granted or denied access.
    *                        This includes any ACL/Role binding that produced the result.
    */
-  void logAuthorization(RequestContext requestContext,
-           Action action,
-           AuthorizeResult authorizeResult,
-           AuthorizePolicy authorizePolicy);
+  void logAuthorization(Scope sourceScope,
+      RequestContext requestContext,
+      Action action,
+      AuthorizeResult authorizeResult,
+      AuthorizePolicy authorizePolicy);
 
   /**
    * Returns true if minimal configs of this provider are included in the provided configs.

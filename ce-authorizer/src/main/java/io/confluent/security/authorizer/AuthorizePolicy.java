@@ -87,40 +87,4 @@ public interface AuthorizePolicy {
           ')';
     }
   }
-
-  class AccessRulePolicy implements AuthorizePolicy {
-    private final PolicyType authorizeType;
-    private final ResourcePattern resourcePattern;
-    private final Object sourceMetadata;
-
-    public AccessRulePolicy(PolicyType authorizeType, Object sourceMetadata, ResourcePattern resourcePattern) {
-      if (authorizeType != PolicyType.ALLOW_ACL && authorizeType != PolicyType.DENY_ACL && authorizeType != PolicyType.ALLOW_ROLE)
-        throw new IllegalArgumentException("Invalid authorizeType " + authorizeType);
-      this.authorizeType = authorizeType;
-      this.sourceMetadata = sourceMetadata;
-      this.resourcePattern = resourcePattern;
-    }
-
-    @Override
-    public PolicyType policyType() {
-      return authorizeType;
-    }
-
-    public Object sourceMetadata() {
-      return sourceMetadata;
-    }
-
-    public ResourcePattern resourcePattern() {
-      return resourcePattern;
-    }
-
-    @Override
-    public String toString() {
-      return "AccessRulePolicy(" +
-          "authorizeType=" + authorizeType +
-          ", resourcePattern=" + resourcePattern +
-          ", sourceMetadata=" + sourceMetadata +
-          ')';
-    }
-  }
 }

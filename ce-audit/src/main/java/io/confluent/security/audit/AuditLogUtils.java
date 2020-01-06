@@ -9,18 +9,52 @@ import com.google.protobuf.Value;
 import io.confluent.crn.ConfluentResourceName;
 import io.confluent.crn.ConfluentResourceName.Element;
 import io.confluent.crn.CrnSyntaxException;
+import io.confluent.security.authorizer.AclAccessRule;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizePolicy;
-import io.confluent.security.authorizer.AuthorizePolicy.AccessRulePolicy;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.RequestContext;
+import io.confluent.security.rbac.RbacAccessRule;
 import io.confluent.security.rbac.RoleBinding;
 import org.apache.kafka.common.acl.AccessControlEntry;
-import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.protocol.ApiKeys;
 
 public class AuditLogUtils {
+
+  private static void addAuthorizationInfo(AuthorizationInfo.Builder authorizationBuilder,
+      AuthorizePolicy authorizePolicy) {
+    switch (authorizePolicy.policyType()) {
+      case NO_MATCHING_RULE:
+      case DENY_ON_NO_RULE:
+      case ALLOW_ON_NO_RULE:
+        break;
+      case SUPER_USER:
+      case SUPER_GROUP:
+        authorizationBuilder
+            .setSuperUserAuthorization(true);
+        break;
+      case ALLOW_ACL:
+      case DENY_ACL:
+        AccessControlEntry entry =
+            ((AclAccessRule) authorizePolicy).aclBinding().entry();
+        authorizationBuilder
+            .setAclAuthorization(AclAuthorizationInfo.newBuilder()
+                .setHost(entry.host())
+                .setPermissionType(entry.permissionType().toString()));
+        break;
+      case ALLOW_ROLE:
+        RoleBinding roleBinding =
+            ((RbacAccessRule) authorizePolicy).roleBinding();
+        authorizationBuilder
+            .setRbacAuthorization(RbacAuthorizationInfo.newBuilder()
+                .setRole(roleBinding.role())
+                .setScope(AuthorizationScope.newBuilder()
+                    .addAllOuterScope(roleBinding.scope().path())
+                    .putAllClusters(roleBinding.scope().clusters())));
+        break;
+    }
+  }
 
   public static AuditLogEntry authorizationEvent(String source, String subject,
       RequestContext requestContext, Action action, AuthorizeResult authorizeResult,
@@ -65,37 +99,7 @@ public class AuditLogUtils {
         .setResourceName(action.resourcePattern().name())
         .setPatternType(action.resourcePattern().patternType().toString());
 
-    switch (authorizePolicy.policyType()) {
-      case SUPER_USER:
-      case SUPER_GROUP:
-        authorizationBuilder
-            .setSuperUserAuthorization(true);
-        break;
-      case ALLOW_ACL:
-      case DENY_ACL:
-        AccessControlEntry entry =
-            ((AclBinding) ((AccessRulePolicy) authorizePolicy).sourceMetadata()).entry();
-        authorizationBuilder
-            .setAclAuthorization(AclAuthorizationInfo.newBuilder()
-                .setHost(entry.host())
-                .setPermissionType(entry.permissionType().toString()));
-        break;
-      case ALLOW_ROLE:
-        RoleBinding roleBinding =
-            (RoleBinding) ((AccessRulePolicy) authorizePolicy).sourceMetadata();
-        authorizationBuilder
-            .setRbacAuthorization(RbacAuthorizationInfo.newBuilder()
-                .setRole(roleBinding.role())
-                .setScope(AuthorizationScope.newBuilder()
-                    .addAllOuterScope(roleBinding.scope().path())
-                    .putAllClusters(roleBinding.scope().clusters())));
-        break;
-      case NO_MATCHING_RULE:
-      case DENY_ON_NO_RULE:
-      case ALLOW_ON_NO_RULE:
-        break;
-    }
-
+    addAuthorizationInfo(authorizationBuilder, authorizePolicy);
     builder.setAuthorizationInfo(authorizationBuilder);
 
     Struct.Builder requestBuilder = Struct.newBuilder()

@@ -6,6 +6,7 @@ import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.RequestContext;
+import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.DefaultAuditLogProvider;
 import java.util.Collections;
 import java.util.Map;
@@ -61,7 +62,8 @@ public class MockAuditLogProvider extends DefaultAuditLogProvider {
   }
 
   @Override
-  public void logAuthorization(RequestContext requestContext,
+  public void logAuthorization(Scope sourceScope,
+                  RequestContext requestContext,
                   Action action,
                   AuthorizeResult authorizeResult,
                   AuthorizePolicy authorizePolicy) {

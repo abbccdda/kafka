@@ -32,16 +32,23 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
 
   private int maxAclsPerTenant;
   private boolean authorizationDisabled;
+  private boolean auditLogEnabled;
 
   @Override
   public void configure(Map<String, ?> configs) {
-    Map<String, Object>  authorizerConfigs = new HashMap<>(configs);
+    Map<String, Object> authorizerConfigs = new HashMap<>(configs);
     String maxAcls = (String) configs.get(MAX_ACLS_PER_TENANT_PROP);
-    maxAclsPerTenant = maxAcls != null ? Integer.parseInt(maxAcls) : DEFAULT_MAX_ACLS_PER_TENANT_PROP;
+    maxAclsPerTenant =
+        maxAcls != null ? Integer.parseInt(maxAcls) : DEFAULT_MAX_ACLS_PER_TENANT_PROP;
     authorizationDisabled = maxAclsPerTenant == ACLS_DISABLED;
 
     authorizerConfigs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP,
         AccessRuleProviders.MULTI_TENANT.name());
+
+    MultiTenantAuditLogProviderConfig multiTenantAuditLogProviderConfig =
+        new MultiTenantAuditLogProviderConfig(configs);
+    auditLogEnabled = multiTenantAuditLogProviderConfig
+        .getBoolean(MultiTenantAuditLogProviderConfig.MULTI_TENANT_AUDIT_LOGGER_ENABLE_CONFIG);
     super.configure(authorizerConfigs);
   }
 
@@ -61,7 +68,8 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
     // with non-tenant principals (e.g broker ACLs will not specify tenant resource names)
     // We don't have a way to verify this, but describe/delete filters rely on this assumption.
     String firstTenantPrefix = null;
-    KafkaPrincipal firstPrincipal = SecurityUtils.parseKafkaPrincipal(aclBindings.get(0).entry().principal());
+    KafkaPrincipal firstPrincipal = SecurityUtils
+        .parseKafkaPrincipal(aclBindings.get(0).entry().principal());
     if (MultiTenantPrincipal.isTenantPrincipal(firstPrincipal)) {
       firstTenantPrefix = tenantPrefix(firstPrincipal.getName());
       if (maxAclsPerTenant != Integer.MAX_VALUE
@@ -102,8 +110,11 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
   protected void configureProviders(List<AccessRuleProvider> accessRuleProviders,
       GroupProvider groupProvider, MetadataProvider metadataProvider,
       AuditLogProvider auditLogProvider) {
-    // Disable enable audit logger until multi-tenant audit logger for Cloud has been tested
-    super.configureProviders(accessRuleProviders, groupProvider, metadataProvider, null);
+    MultiTenantAuditLogProvider multiTenantAuditLogProvider =
+        auditLogEnabled ? new MultiTenantAuditLogProvider(auditLogProvider) : null;
+    super
+        .configureProviders(accessRuleProviders, groupProvider,
+            metadataProvider, multiTenantAuditLogProvider);
   }
 
   private String tenantPrefix(String name) {
@@ -134,8 +145,9 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
   private long tenantAclCount(String tenantPrefix) {
     int count = 0;
     for (AclBinding binding : acls(AclBindingFilter.ANY)) {
-      if (inScope(binding.entry().principal(), tenantPrefix))
+      if (inScope(binding.entry().principal(), tenantPrefix)) {
         count++;
+      }
     }
     return count;
   }
@@ -144,5 +156,10 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
     if (authorizationDisabled) {
       throw new InvalidRequestException("ACLs are not enabled on this broker");
     }
+  }
+
+  // Visibility for testing
+  public boolean isAuditLogEnabled() {
+    return auditLogEnabled;
   }
 }

@@ -16,7 +16,6 @@ import io.cloudevents.v03.AttributesImpl;
 import io.confluent.crn.CrnAuthorityConfig;
 import io.confluent.events.ProtobufEvent;
 import io.confluent.events.cloudevents.extensions.RouteExtension;
-import io.confluent.events.exporter.Exporter;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogEntry;
@@ -29,16 +28,12 @@ import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.RequestContext;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
+import io.confluent.security.authorizer.Scope;
 import java.net.InetAddress;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import org.apache.kafka.common.ClusterResource;
-import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.protocol.ApiKeys;
@@ -75,8 +70,8 @@ public class ProviderRoutingTest {
     configs.put(AuditLogConfig.EVENT_EXPORTER_CLASS_CONFIG, MockExporter.class.getName());
     configs.putAll(configOverrides);
     provider.configure(configs);
-    provider.onUpdate(new ClusterResource(clusterId));
-    CompletableFuture<Void> startFuture = provider.start(KafkaTestUtils.serverInfo(clusterId), configs).toCompletableFuture();
+    CompletableFuture<Void> startFuture = provider
+        .start(KafkaTestUtils.serverInfo(clusterId), configs).toCompletableFuture();
     startFuture.get(10_000, TimeUnit.MILLISECONDS);
     return provider;
   }
@@ -88,6 +83,7 @@ public class ProviderRoutingTest {
 
     ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA",
         Utils.mkMap());
+    Scope clusterScope = Scope.kafkaClusterScope("63REM3VWREiYtMuVxZeplA");
 
     KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "user1");
     ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"), "testTopic",
@@ -97,12 +93,12 @@ public class ProviderRoutingTest {
         new RequestHeader(ApiKeys.CREATE_TOPICS, (short) 1, "", 1), "",
         InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
         SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
-    Action write = new Action(provider.getScope(), topic.resourceType(), topic.name(),
+    Action write = new Action(clusterScope, topic.resourceType(), topic.name(),
         new Operation("CreateTopics"));
     AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
         principal);
 
-    provider.logAuthorization(requestContext, write, AuthorizeResult.ALLOWED, policy);
+    provider.logAuthorization(clusterScope, requestContext, write, AuthorizeResult.ALLOWED, policy);
 
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
     assertEquals(1, ma.events.size());
@@ -150,6 +146,7 @@ public class ProviderRoutingTest {
 
     ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA",
         Utils.mkMap());
+    Scope clusterScope = Scope.kafkaClusterScope("63REM3VWREiYtMuVxZeplA");
 
     KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Bob");
     ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"), "testTopic",
@@ -159,12 +156,13 @@ public class ProviderRoutingTest {
         new RequestHeader(ApiKeys.CREATE_TOPICS, (short) 1, "", 1), "",
         InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
         SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
-    Action create = new Action(provider.getScope(), topic.resourceType(), topic.name(),
+    Action create = new Action(clusterScope, topic.resourceType(), topic.name(),
         new Operation("Produce"));
     AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
         principal);
 
-    provider.logAuthorization(requestContext, create, AuthorizeResult.ALLOWED, policy);
+    provider
+        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
 
     assertEquals(1, ma.events.size());
@@ -182,6 +180,7 @@ public class ProviderRoutingTest {
   public void testEventSuppressedTopic() throws Throwable {
     ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA",
         Utils.mkMap());
+    Scope clusterScope = Scope.kafkaClusterScope("63REM3VWREiYtMuVxZeplA");
 
     KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Bob");
     ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"), "payroll",
@@ -191,12 +190,13 @@ public class ProviderRoutingTest {
         new RequestHeader(ApiKeys.PRODUCE, (short) 1, "", 1), "", InetAddress.getLoopbackAddress(),
         principal, ListenerName.normalised("EXTERNAL"), SecurityProtocol.SASL_SSL,
         RequestContext.KAFKA);
-    Action create = new Action(provider.getScope(), topic.resourceType(), topic.name(),
+    Action create = new Action(clusterScope, topic.resourceType(), topic.name(),
         new Operation("Produce"));
     AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
         principal);
 
-    provider.logAuthorization(requestContext, create, AuthorizeResult.ALLOWED, policy);
+    provider
+        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
 
     assertEquals(0, ma.events.size());
@@ -208,6 +208,7 @@ public class ProviderRoutingTest {
   public void testEventExcludedUser() throws Throwable {
     ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA",
         Utils.mkMap());
+    Scope clusterScope = Scope.kafkaClusterScope("63REM3VWREiYtMuVxZeplA");
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
 
     KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
@@ -219,12 +220,13 @@ public class ProviderRoutingTest {
         principal, ListenerName.normalised("EXTERNAL"), SecurityProtocol.SASL_SSL,
         RequestContext.KAFKA);
 
-    Action create = new Action(provider.getScope(), topic.resourceType(), topic.name(),
+    Action create = new Action(clusterScope, topic.resourceType(), topic.name(),
         new Operation("Write"));
     AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
         principal);
 
-    provider.logAuthorization(requestContext, create, AuthorizeResult.ALLOWED, policy);
+    provider
+        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
 
     assertEquals(0, ma.events.size());
 
@@ -245,6 +247,7 @@ public class ProviderRoutingTest {
                     Collections.emptyList()))
         )
     );
+    Scope clusterScope = Scope.kafkaClusterScope("63REM3VWREiYtMuVxZeplA");
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
 
     KafkaPrincipal principal = SecurityUtils.parseKafkaPrincipal("User:kafka");
@@ -256,12 +259,13 @@ public class ProviderRoutingTest {
         new RequestHeader(ApiKeys.PRODUCE, (short) 1, "", 1), "",
         InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
         SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
-    Action create = new Action(provider.getScope(), topic.resourceType(), topic.name(),
+    Action create = new Action(clusterScope, topic.resourceType(), topic.name(),
         new Operation("Produce"));
     AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
         principal);
 
-    provider.logAuthorization(requestContext, create, AuthorizeResult.ALLOWED, policy);
+    provider
+        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
 
     assertEquals(0, ma.events.size());
 
@@ -272,6 +276,7 @@ public class ProviderRoutingTest {
   public void testSendLogOnlyWhenRouteIsReady() throws Throwable {
     ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA",
         Utils.mkMap());
+    Scope clusterScope = Scope.kafkaClusterScope("63REM3VWREiYtMuVxZeplA");
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
 
     KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "FOO");
@@ -282,18 +287,20 @@ public class ProviderRoutingTest {
         new RequestHeader(ApiKeys.CREATE_TOPICS, (short) 1, "", 1), "",
         InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
         SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
-    Action create = new Action(provider.getScope(), topic.resourceType(), topic.name(),
+    Action create = new Action(clusterScope, topic.resourceType(), topic.name(),
         new Operation("CreateTopics"));
     AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
         principal);
 
     ma.routeReady = false;
-    provider.logAuthorization(requestContext, create, AuthorizeResult.ALLOWED, policy);
+    provider
+        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
 
     assertEquals(0, ma.events.size());
 
     ma.routeReady = true;
-    provider.logAuthorization(requestContext, create, AuthorizeResult.ALLOWED, policy);
+    provider
+        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
     assertEquals(1, ma.events.size());
 
     provider.close();
@@ -309,6 +316,7 @@ public class ProviderRoutingTest {
             DEFAULT_TOPIC))
     );
     ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA", config);
+    Scope clusterScope = Scope.kafkaClusterScope("63REM3VWREiYtMuVxZeplA");
 
     KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "eventLogReader");
     ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"), "testTopic",
@@ -318,12 +326,13 @@ public class ProviderRoutingTest {
         new RequestHeader(ApiKeys.CREATE_TOPICS, (short) 1, "", 1), "",
         InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
         SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
-    Action create = new Action(provider.getScope(), topic.resourceType(), topic.name(),
+    Action create = new Action(clusterScope, topic.resourceType(), topic.name(),
         new Operation("CreateTopics"));
     AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
         principal);
 
-    provider.logAuthorization(requestContext, create, AuthorizeResult.ALLOWED, policy);
+    provider
+        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
 
     assertEquals(1, ma.events.size());
@@ -357,13 +366,14 @@ public class ProviderRoutingTest {
         new RequestHeader(ApiKeys.CREATE_TOPICS, (short) 1, "", 1), "",
         InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
         SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
-    create = new Action(provider.getScope(), topic.resourceType(), topic.name(),
+    create = new Action(clusterScope, topic.resourceType(), topic.name(),
         new Operation("CreateTopics"));
     policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER, principal);
 
     ma = (MockExporter) provider.getEventLogger().eventExporter();
     ma.events.clear();
-    provider.logAuthorization(requestContext, create, AuthorizeResult.ALLOWED, policy);
+    provider
+        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
 
     assertEquals(1, ma.events.size());
 
@@ -375,7 +385,7 @@ public class ProviderRoutingTest {
     assertEquals(newAllowedTopic, re.getRoute());
 
     ma.events.clear();
-    provider.logAuthorization(requestContext, create, AuthorizeResult.DENIED, policy);
+    provider.logAuthorization(clusterScope, requestContext, create, AuthorizeResult.DENIED, policy);
 
     assertEquals(1, ma.events.size());
 
@@ -398,6 +408,7 @@ public class ProviderRoutingTest {
             DEFAULT_TOPIC))
     );
     ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA", config);
+    Scope clusterScope = Scope.kafkaClusterScope("63REM3VWREiYtMuVxZeplA");
 
     KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "eventLogReader");
     ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"), "testTopic",
@@ -407,12 +418,13 @@ public class ProviderRoutingTest {
         new RequestHeader(ApiKeys.CREATE_TOPICS, (short) 1, "", 1), "",
         InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
         SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
-    Action create = new Action(provider.getScope(), topic.resourceType(), topic.name(),
+    Action create = new Action(clusterScope, topic.resourceType(), topic.name(),
         new Operation("CreateTopics"));
     AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
         principal);
 
-    provider.logAuthorization(requestContext, create, AuthorizeResult.ALLOWED, policy);
+    provider
+        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
 
     assertEquals(1, ma.events.size());
@@ -443,19 +455,20 @@ public class ProviderRoutingTest {
         new RequestHeader(ApiKeys.CREATE_TOPICS, (short) 1, "", 1), "",
         InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
         SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
-    create = new Action(provider.getScope(), topic.resourceType(), topic.name(),
+    create = new Action(clusterScope, topic.resourceType(), topic.name(),
         new Operation("CreateTopics"));
     policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER, principal);
 
     ma = (MockExporter) provider.getEventLogger().eventExporter();
     ma.events.clear();
-    provider.logAuthorization(requestContext, create, AuthorizeResult.ALLOWED, policy);
+    provider
+        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
 
     // Make sure the event is not routed
     assertEquals(0, ma.events.size());
 
     ma.events.clear();
-    provider.logAuthorization(requestContext, create, AuthorizeResult.DENIED, policy);
+    provider.logAuthorization(clusterScope, requestContext, create, AuthorizeResult.DENIED, policy);
     // Make sure the event is not routed
     assertEquals(0, ma.events.size());
 
@@ -527,50 +540,6 @@ public class ProviderRoutingTest {
     @Override
     public String requestSource() {
       return requestSource;
-    }
-  }
-
-  public static class MockExporter implements Exporter {
-
-    public RuntimeException configureException;
-    public boolean routeReady = true;
-    public List<CloudEvent> events = new ArrayList<>();
-
-    public MockExporter() {
-    }
-
-    @Override
-    public void configure(Map<String, ?> configs) {
-      if (configureException != null) {
-        throw configureException;
-      }
-    }
-
-    @Override
-    public void append(CloudEvent event) throws RuntimeException {
-      events.add(event);
-    }
-
-    @Override
-    public boolean routeReady(CloudEvent event) {
-      return routeReady;
-    }
-
-    @Override
-    public Set<String> reconfigurableConfigs() {
-      return Collections.emptySet();
-    }
-
-    @Override
-    public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
-    }
-
-    @Override
-    public void reconfigure(Map<String, ?> configs) {
-    }
-
-    @Override
-    public void close() throws Exception {
     }
   }
 }
