@@ -8,6 +8,8 @@ import java.io.{ByteArrayOutputStream, File, PrintStream}
 import java.nio.channels.FileChannel
 import java.nio.file.{Paths, StandardOpenOption}
 import java.nio.{ByteBuffer, ByteOrder}
+import java.util
+import java.util.concurrent.TimeUnit
 import java.util.{Optional, UUID}
 
 import kafka.log.{Log, LogConfig}
@@ -25,6 +27,7 @@ import org.scalatest.Assertions.assertThrows
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
+import scala.concurrent.ExecutionException
 
 class TierPartitionStateTest {
   val factory = new TierPartitionStateFactory(true)
@@ -295,7 +298,7 @@ class TierPartitionStateTest {
   }
 
   @Test
-  def testUpgrade(): Unit = {
+  def testReopenFileAfterVersionChange(): Unit = {
     val numSegments = 200
     val epoch = 0
     val initialVersion = state.version
@@ -972,6 +975,83 @@ class TierPartitionStateTest {
     for (transition <- Seq(uploadInitiate2, uploadComplete2, deleteInitiate2, deleteComplete2)) {
       testDuplicateAppend(transition, currentTransitions, AppendResult.ACCEPTED)
       currentTransitions += transition
+    }
+  }
+
+  @Test
+  def testMaterializationListenerCompletion(): Unit = {
+    val epoch = 3
+    val baseOffsets = new util.TreeSet[Long]()
+    val numOffsetsInSegment = 49
+    state.append(new TierTopicInitLeader(tpid, epoch, UUID.randomUUID, 0), 0)
+
+    // upload few segments: [0-49], [50-99], [100-149], [150-199]
+    var baseOffset = 0
+    for (_ <- 0 to 3) {
+      val objectId = UUID.randomUUID
+      val endOffset = baseOffset + numOffsetsInSegment
+
+      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, baseOffset, endOffset, 100, 100, false, false, false), 0))
+      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), 0))
+
+      baseOffsets.add(baseOffset)
+      baseOffset = endOffset + 1
+    }
+
+    // initiate upload for segment [200-249]
+    val lastObjectId = UUID.randomUUID
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, lastObjectId, baseOffset, baseOffset + 49, 100, 100, false, false, false), 0))
+    assertEquals(baseOffsets.last + numOffsetsInSegment, state.endOffset)
+    assertEquals(-1, state.committedEndOffset)
+
+    // Verify that materialization listeners are completed with the right segment metadata. In addition, we must flush
+    // the state file before completing the listener.
+    assertEquals(baseOffsets.floor(49), state.materializationListener(49).get(0, TimeUnit.MILLISECONDS).baseOffset)
+    assertEquals(baseOffsets.last + numOffsetsInSegment, state.committedEndOffset)
+
+    assertEquals(baseOffsets.floor(50), state.materializationListener(50).get(0, TimeUnit.MILLISECONDS).baseOffset)
+    assertEquals(baseOffsets.floor(155), state.materializationListener(155).get(0, TimeUnit.MILLISECONDS).baseOffset)
+    assertEquals(baseOffsets.floor(199), state.materializationListener(199).get(0, TimeUnit.MILLISECONDS).baseOffset)
+
+    // Verify that listener is not completed for offsets that has not been materialized yet
+    val promise = state.materializationListener(200)
+    assertFalse(promise.isDone)
+
+    // complete upload for segment [200-249]; this should also complete the materialization listener
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, lastObjectId), 0))
+
+    // materialization listener must now be completed and the state file should have been flushed
+    assertTrue(promise.isDone)
+    assertEquals(200, promise.get.baseOffset)
+    assertEquals(lastObjectId, promise.get.objectId)
+    assertEquals(200 + numOffsetsInSegment, state.committedEndOffset)
+
+    // must be able to register a new materialization listener
+    assertFalse(state.materializationListener(500).isDone)
+  }
+
+  @Test
+  def testPreviousMaterializationListenerCancelled(): Unit = {
+    val promise_1 = state.materializationListener(200)
+    assertFalse(promise_1.isDone)
+
+    // register another listener; this will cause the first one to be cancelled exceptionally
+    val promise_2 = state.materializationListener(400)
+    assertFalse(promise_2.isDone)
+    assertThrows[IllegalStateException] {
+      try {
+        promise_1.get(0, TimeUnit.MILLISECONDS)
+      } catch {
+        case e: ExecutionException => throw e.getCause
+      }
+    }
+  }
+
+  @Test
+  def testMaterializationListenerAfterClose(): Unit = {
+    state.close()
+    assertThrows[Exception] {
+      state.materializationListener(200).get(0, TimeUnit.MILLISECONDS)
     }
   }
 

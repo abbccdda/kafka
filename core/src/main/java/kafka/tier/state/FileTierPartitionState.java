@@ -83,9 +83,9 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         }
     }
 
-    // Version 0: Original version
-    // Version 1: `endOffset` added to tier partition state header to reduce complexity of determining the correct value when materialized
-    // Version 2: `tierStateCommittedOffset` added to tier partition state header. This will be used by metadata integrity validator tool.
+    // Version 0: Initial version
+    // Version 1: `endOffset` added to tier partition state header
+    // Version 2: `globalMaterializedOffset` and `localMaterializedOffset` added to tier partition state header
     private static final byte CURRENT_VERSION = 2;
     private static final int ENTRY_LENGTH_SIZE = 2;
     private static final long FILE_OFFSET = 0;
@@ -255,7 +255,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                     state = State.UNINITIALIZED_STATE;
                     uploadInProgress = null;
                     if (materializationTracker != null) {
-                        materializationTracker.promise.completeExceptionally(
+                        completeMaterializationTrackerExceptionally(
                                 new TierPartitionStateIllegalListenerException("Tier partition state for " +
                                         topicPartition + " has been closed."));
                     }
@@ -297,37 +297,32 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
     @Override
     public Future<TierObjectMetadata> materializationListener(long targetOffset) throws IOException {
-        CompletableFuture<TierObjectMetadata> promise = new CompletableFuture<>();
-        if (!status.isOpen()) {
-            promise.completeExceptionally(new TierPartitionStateIllegalListenerException("Tier partition state for " +
-                    topicPartition + " is not open."));
+        synchronized (lock) {
+            if (materializationTracker != null)
+                completeMaterializationTrackerExceptionally(
+                        new IllegalStateException("Duplicate materialization listener registration for " + topicIdPartition));
+
+            materializationTracker = new ReplicationMaterializationListener(log, topicIdPartition, targetOffset);
+            Future<TierObjectMetadata> promise = materializationTracker.promise();
+
+            if (status.isOpen()) {
+                Optional<TierObjectMetadata> metadata = Optional.empty();
+                long uncommittedEndOffset = endOffset();
+                if (uncommittedEndOffset != -1L && targetOffset <= uncommittedEndOffset)
+                    metadata = metadata(targetOffset);
+
+                if (metadata.isPresent()) {
+                    if (metadata.get().endOffset() < targetOffset)
+                        throw new IllegalStateException("Metadata lookup for offset " + targetOffset +
+                                " returned unexpected segment " + metadata + " for " + topicIdPartition);
+                    maybeCompleteMaterializationTracker(metadata.get());
+                }
+            } else {
+                completeMaterializationTrackerExceptionally(new TierPartitionStateIllegalListenerException(
+                        "Tier partition state for " + topicPartition + " is not open."));
+            }
             return promise;
         }
-
-        Optional<TierObjectMetadata> metadata = Optional.empty();
-        long uncommittedEndOffset = endOffset();
-        if (uncommittedEndOffset != -1L && targetOffset <= uncommittedEndOffset)
-            metadata = metadata(targetOffset);
-
-        if (metadata.isPresent()) {
-            // flush to ensure readable TierPartitionState aligns with the local log
-            // that will be fetched by the Replica Fetcher. Otherwise we could end up in an unsafe
-            // state where the TierPartitionState doesn't align if the broker shuts down
-            flush();
-            if (metadata.get().endOffset() < targetOffset)
-                throw new IllegalStateException("Metadata lookup for offset " + targetOffset +
-                        " returned unexpected segment " + metadata + " for " + topicIdPartition);
-            // listener is able to fire immediately
-            promise.complete(metadata.get());
-        } else {
-            if (materializationTracker != null)
-                materializationTracker.promise.completeExceptionally(new IllegalStateException(
-                        "Cancelled materialization tracker, as another materialization tracker has been started."));
-
-            materializationTracker = new ReplicationMaterializationListener(targetOffset, promise);
-        }
-
-        return promise;
     }
 
     @Override
@@ -428,6 +423,22 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return version;
     }
 
+    private void maybeCompleteMaterializationTracker(TierObjectMetadata lastMaterializedSegment) throws IOException {
+        if (materializationTracker.canComplete(lastMaterializedSegment)) {
+            // flush to ensure readable TierPartitionState aligns with the local log
+            // that will be fetched by the Replica Fetcher. Otherwise we could end up in an unsafe
+            // state where the TierPartitionState doesn't align if the broker shuts down
+            flush();
+            materializationTracker.complete(lastMaterializedSegment);
+            materializationTracker = null;
+        }
+    }
+
+    private void completeMaterializationTrackerExceptionally(Exception e) {
+        materializationTracker.completeExceptionally(e);
+        materializationTracker = null;
+    }
+
     private static FileTierPartitionIterator iterator(TopicIdPartition topicIdPartition,
                                                       FileChannel channel,
                                                       long position) throws IOException {
@@ -440,7 +451,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         log.info("Status updated to {} for {}", status, topicIdPartition());
     }
 
-    // Caller needs to make sure of thread safety.
+    // Caller must synchronize accesses
     private void updateLocalMaterializedOffset(long offset) {
         // Ignore this duplicate message of previous as the local state has advanced to a future offset, some reasons
         // why a duplicate event can occur are:
@@ -532,7 +543,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return Optional.empty();
     }
 
-    // Caller needs to make synchronized call.
+    // Caller must synchronize accesses
     private AppendResult appendMetadata(AbstractTierMetadata entry) throws IOException {
         switch (entry.type()) {
             case InitLeader:
@@ -683,15 +694,10 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
         TierObjectMetadata metadata = updateState(uploadComplete.objectId(), TierObjectMetadata.State.SEGMENT_UPLOAD_COMPLETE);
 
-        if (materializationTracker != null &&
-                metadata.endOffset() >= materializationTracker.offsetToMaterialize) {
-            // manually flush to ensure readable TierPartitionState aligns with the local
-            // log that will be fetched by the Replica Fetcher. Otherwise we could end up in an unsafe
-            // state where the TierPartitionState doesn't align if the broker shuts down
-            flush();
-            materializationTracker.promise.complete(metadata);
-            materializationTracker = null;
-        }
+        // Try completing materialization tracker, now that we have materialized a new segment
+        if (materializationTracker != null)
+            maybeCompleteMaterializationTracker(metadata);
+
         return AppendResult.ACCEPTED;
     }
 
@@ -885,16 +891,6 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return StateFileType.TEMPORARY.filePath(basePath);
     }
 
-    private static class ReplicationMaterializationListener {
-        final CompletableFuture<TierObjectMetadata> promise;
-        final long offsetToMaterialize;
-
-        ReplicationMaterializationListener(long offsetToMaterialize, CompletableFuture<TierObjectMetadata> promise) {
-            this.offsetToMaterialize = offsetToMaterialize;
-            this.promise = promise;
-        }
-    }
-
     /**
      * Tracks metadata related to the tier topic partition we are consuming from, to materialize this tier partition
      * state file.
@@ -1013,5 +1009,50 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         StateCorruptedException(String message) {
             super(message);
         }
+    }
+}
+
+class ReplicationMaterializationListener {
+    private final Logger log;
+    private final TopicIdPartition topicIdPartition;
+    private final CompletableFuture<TierObjectMetadata> promise;
+    private final long offsetToMaterialize;
+
+    ReplicationMaterializationListener(Logger log,
+                                       TopicIdPartition topicIdPartition,
+                                       long offsetToMaterialize) {
+        this.log = log;
+        this.topicIdPartition = topicIdPartition;
+        this.offsetToMaterialize = offsetToMaterialize;
+        this.promise = new CompletableFuture<>();
+    }
+
+    Future<TierObjectMetadata> promise() {
+        return promise;
+    }
+
+    synchronized void complete(TierObjectMetadata lastFlushedSegment) {
+        if (!promise.isDone()) {
+            log.info("Completing {} successfully. lastFlushedSegment: {}", this, lastFlushedSegment);
+            promise.complete(lastFlushedSegment);
+        }
+    }
+
+    synchronized void completeExceptionally(Exception e) {
+        if (!promise.isDone()) {
+            log.info("Completing {} exceptionally", this, e);
+            promise.completeExceptionally(e);
+        }
+    }
+
+    boolean canComplete(TierObjectMetadata lastMaterializedSegment) {
+        return lastMaterializedSegment.endOffset() >= offsetToMaterialize;
+    }
+
+    @Override
+    public String toString() {
+        return "ReplicationMaterializationListener(" +
+                "topicIdPartition: " + topicIdPartition + ", " +
+                "offsetToMaterialize: " + offsetToMaterialize + ")";
     }
 }
