@@ -234,7 +234,7 @@ object Defaults {
   val FetchMaxBytes = 55 * 1024 * 1024
 
   /** Segment speculative prefetching optimization **/
-  val SegmentSpeculativePrefetchEnable = false
+  val SegmentSpeculativePrefetchEnable = true
 
   /** ********* Quota Configuration ***********/
   val ProducerQuotaBytesPerSecondDefault = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
