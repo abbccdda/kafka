@@ -53,6 +53,22 @@ public class ConfluentTopicConfig {
     public static final String VALUE_SCHEMA_VALIDATION_CONFIG = CONFLUENT_PREFIX + "value." + SCHEMA_VALIDATION;
     public static final String VALUE_SCHEMA_VALIDATION_DOC = "True if schema validation at record value is enabled for this topic.";
 
+    private static final String KEY_SUBJECT_NAME_STRATEGY = "key.subject.name.strategy";
+    private static final String VALUE_SUBJECT_NAME_STRATEGY = "value.subject.name.strategy";
+
+    // default TopicNameStrategy.class cannot be defined here, but should be in the plugin that can
+    // depend on schema.registry
+    public static final String KEY_SUBJECT_NAME_STRATEGY_CONFIG = CONFLUENT_PREFIX + KEY_SUBJECT_NAME_STRATEGY;
+    public static final String KEY_SUBJECT_NAME_STRATEGY_DOC =
+            "Determines how to construct the subject name under which the key schema is registered "
+                    + "with the schema registry. By default, TopicNameStrategy is used";
+
+
+    public static final String VALUE_SUBJECT_NAME_STRATEGY_CONFIG = CONFLUENT_PREFIX + VALUE_SUBJECT_NAME_STRATEGY;
+    public static final String VALUE_SUBJECT_NAME_STRATEGY_DOC =
+            "Determines how to construct the subject name under which the value schema is registered "
+                    + "with the schema registry. By default, TopicNameStrategy is used";
+
     private static final String LINE_SEPARATOR = System.lineSeparator();
     public static final String TOPIC_PLACEMENT_CONSTRAINTS_CONFIG = CONFLUENT_PREFIX + "placement.constraints";
     public static final String TOPIC_PLACEMENT_CONSTRAINTS_DOC = "This configuration is a JSON object that controls the set of " +

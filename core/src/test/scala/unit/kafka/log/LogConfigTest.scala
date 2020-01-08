@@ -48,7 +48,9 @@ class LogConfigTest {
       config match {
         case LogConfig.TopicPlacementConstraintsProp |
              LogConfig.KeySchemaValidationEnableProp |
-             LogConfig.ValueSchemaValidationEnableProp =>
+             LogConfig.ValueSchemaValidationEnableProp |
+             LogConfig.KeySchemaValidationStrategyProp |
+             LogConfig.ValueSchemaValidationStrategyProp =>
           // These properties are topic only and don't have a server configuraiton.
           true
         case _ =>
@@ -128,6 +130,8 @@ class LogConfigTest {
       case LogConfig.TierLocalHotsetMsProp => assertPropertyInvalid(name, "not_a_number", "-0.1", "1.2")
       case LogConfig.TopicPlacementConstraintsProp => assertPropertyInvalid(name, "json only", "null")
       case LogConfig.TierSegmentHotsetRollMinBytesProp => assertPropertyInvalid(name, values = "not_a_number")
+      case LogConfig.KeySchemaValidationStrategyProp =>
+      case LogConfig.ValueSchemaValidationStrategyProp =>
       case _ => assertPropertyInvalid(name, "not_a_number", "-1")
     })
   }
