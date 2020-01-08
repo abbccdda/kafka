@@ -2001,7 +2001,11 @@ project(':jmh-benchmarks') {
     compile project(':core')
     compile project(':clients')
     compile project(':streams')
+    compile project(':ce-resource-names')
+    compile project(':ce-authorizer')
+    compile project(':ce-audit')
     compile project(':ce-metrics')
+    compile libs.cloudEventsKafka
     compile libs.metrics
     compile libs.jmhCore
     compile libs.mockitoCore

@@ -43,7 +43,6 @@
     <allow class="org.apache.kafka.clients.FetchSessionHandler"/>
     <allow pkg="org.mockito"/>
 
-
     <subpackage name="cache">
     </subpackage>
 
@@ -55,5 +54,15 @@
         <allow pkg="kafka.tier.serdes"/>
         <allow pkg="kafka.tier.topic"/>
         <allow class="kafka.tier.TopicIdPartition"/>
+    </subpackage>
+
+    <subpackage name="audit">
+        <allow pkg="io.cloudevents" />
+        <allow pkg="io.confluent.crn" />
+        <allow pkg="io.confluent.events" />
+        <allow pkg="io.confluent.security.audit" />
+        <allow pkg="io.confluent.security.authorizer" />
+        <allow class="org.apache.kafka.clients.CommonClientConfigs" />
+        <allow class="org.apache.kafka.server.authorizer.AuthorizerServerInfo" />
     </subpackage>
 </import-control>
