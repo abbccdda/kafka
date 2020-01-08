@@ -4,14 +4,17 @@
 package io.confluent.kafka.multitenant.utils;
 
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
+import io.confluent.kafka.security.authorizer.acl.AclMapper;
 import io.confluent.security.authorizer.AclAccessRule;
 import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.RequestContext;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import java.net.InetAddress;
+import kafka.security.auth.Cluster$;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.resource.Resource;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.SecurityUtils;
@@ -54,6 +57,11 @@ public class TenantView {
 
   public static ResourcePattern tenantResourcePattern(
       ResourcePattern resourcePattern, String tenantPrefix) {
+    if (resourcePattern.name().equals(Resource.CLUSTER_NAME) &&
+        AclMapper.kafkaResourceType(resourcePattern.resourceType()) == Cluster$.MODULE$) {
+      // The tenant may attempt to authorize for a cluster-scoped action (which should be denied)
+      return resourcePattern;
+    }
     if (!resourcePattern.name().startsWith(tenantPrefix)) {
       throw new NotTenantPrefixedException(
           "Expected a multi-tenant prefix: " + resourcePattern.name());

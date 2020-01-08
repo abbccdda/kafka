@@ -4,6 +4,7 @@
 package io.confluent.kafka.multitenant.integration.test;
 
 import static java.util.stream.Collectors.toList;
+import static org.apache.kafka.common.resource.Resource.CLUSTER_NAME;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -18,11 +19,18 @@ import io.confluent.kafka.security.authorizer.MockAuditLogProvider;
 import io.confluent.kafka.test.cluster.EmbeddedKafka;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
 import io.confluent.security.authorizer.AclAccessRule;
+import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.Scope;
+import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.ExecutionException;
 import kafka.admin.AclCommand;
 import kafka.server.KafkaConfig$;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.common.config.ConfigResource.Type;
+import org.apache.kafka.common.errors.ClusterAuthorizationException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
@@ -104,6 +112,7 @@ public class MultiTenantAuditLogTest {
     addConsumerAcls(user2, topic, consumerGroup, PatternType.LITERAL);
     testHarness.produceConsume(user1, user2, topic, consumerGroup, 0);
 
+    // for debugging
     List<MockAuditLogEntry> user1s = MockAuditLogProvider.instance.auditLog.stream()
         .filter(e -> e.requestContext.principal().toString().equals("User:1")
         ).collect(toList());
@@ -171,6 +180,37 @@ public class MultiTenantAuditLogTest {
                     .startsWith("TenantUser:")));
   }
 
+  @Test
+  public void testClusterResource() throws Throwable {
+    startTestHarness(brokerProps(true));
+
+    AdminClient adminClient = testHarness.createAdminClient(user1);
+    try {
+      adminClient.describeConfigs(Collections.singleton(new ConfigResource(Type.BROKER, "0")))
+          .all().get();
+    } catch (ExecutionException e) {
+      if (e.getCause() instanceof ClusterAuthorizationException) {
+        // expected
+      } else {
+        throw e;
+      }
+    }
+
+    // for debugging
+    List<MockAuditLogEntry> user1s = MockAuditLogProvider.instance.auditLog.stream()
+        .filter(e -> e.requestContext.principal().toString().equals("User:1")
+        ).collect(toList());
+
+    // make sure we have an appropriate describe denial event
+    List<MockAuditLogEntry> describes = MockAuditLogProvider.instance.auditLog.stream()
+        .filter(e -> e.requestContext.principal().toString().equals("User:1") &&
+            e.action.resourceName().equals(CLUSTER_NAME) &&
+            e.action.operation().name().equals("DescribeConfigs") &&
+            e.authorizeResult == AuthorizeResult.DENIED
+        ).collect(toList());
+    assertEquals(1, describes.size());
+  }
+
   private Properties brokerProps(boolean auditLoggerEnable) {
     Properties props = new Properties();
     props.put(KafkaConfig$.MODULE$.AuthorizerClassNameProp(),
@@ -182,7 +222,6 @@ public class MultiTenantAuditLogTest {
     }
     return props;
   }
-
 
   private void addProducerAcls(LogicalClusterUser user, String topic, PatternType patternType) {
     AclCommand.main(SecurityTestUtils.produceAclArgs(testHarness.zkConnect(),
