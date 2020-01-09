@@ -224,7 +224,15 @@ public class EmbeddedAuthorizer implements Authorizer {
       }
 
       AuthorizeResult authorizeResult = authorizePolicy.policyType().accessGranted() ? AuthorizeResult.ALLOWED : AuthorizeResult.DENIED;
-      logAuditMessage(scope, requestContext, action, authorizeResult, authorizePolicy);
+      try {
+        logAuditMessage(scope, requestContext, action, authorizeResult, authorizePolicy);
+      } catch (Exception e) {
+        log.error("Failed to log Audit message.\n  scope: {}\n  context: {}\n  principal: {}\n"
+                + "  action: {}\n  result: {}\n  policy: {}",
+            scope, requestContext, requestContext.principal(),
+            action, authorizeResult, authorizePolicy,
+            e);
+      }
       return authorizeResult;
 
     } catch (InvalidScopeException e) {

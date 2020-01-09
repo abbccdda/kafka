@@ -182,6 +182,44 @@ public class MockConfluentServerAuthorizerTest {
     auditLogProvider.auditLog.clear();
 
     assertEquals(AuthorizationResult.DENIED, authorizer.authorize(requestContext, Collections.singletonList(deniedNoLog)).get(0));
+  }
+
+  @Test
+  public void testAuditLogException() throws Exception {
+    MockAclProvider.startFuture.complete(null);
+    authorizer.start(serverInfo).values().forEach(future -> future.toCompletableFuture().join());
+    MockAuditLogProvider.instance.setFail(true);
+
+    AuthorizableRequestContext requestContext = new org.apache.kafka.common.requests.RequestContext(
+        null, "", InetAddress.getLocalHost(), KafkaPrincipal.ANONYMOUS,
+        ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), SecurityProtocol.PLAINTEXT,
+        ClientInformation.EMPTY);
+    org.apache.kafka.server.authorizer.Action allowedWithLog = new org.apache.kafka.server.authorizer.Action(
+        AclOperation.DESCRIBE,
+        new org.apache.kafka.common.resource.ResourcePattern(ResourceType.TOPIC, "allowedWithLog",
+            PatternType.LITERAL),
+        1, true, false);
+    org.apache.kafka.server.authorizer.Action allowedNoLog = new org.apache.kafka.server.authorizer.Action(
+        AclOperation.DESCRIBE,
+        new org.apache.kafka.common.resource.ResourcePattern(ResourceType.TOPIC, "allowedNoLog",
+            PatternType.LITERAL),
+        1, false, true);
+    org.apache.kafka.server.authorizer.Action deniedWithLog = new org.apache.kafka.server.authorizer.Action(
+        AclOperation.DESCRIBE,
+        new org.apache.kafka.common.resource.ResourcePattern(ResourceType.TOPIC, "deniedWithLog",
+            PatternType.LITERAL),
+        1, false, true);
+    org.apache.kafka.server.authorizer.Action deniedNoLog = new org.apache.kafka.server.authorizer.Action(
+        AclOperation.DESCRIBE,
+        new org.apache.kafka.common.resource.ResourcePattern(ResourceType.TOPIC, "deniedNoLog",
+            PatternType.LITERAL),
+        1, true, false);
+
+    // Even though the audit logger threw an exception, the authorization succeeded
+    assertEquals(AuthorizationResult.ALLOWED,
+        authorizer.authorize(requestContext, Collections.singletonList(allowedWithLog)).get(0));
+
+    MockAuditLogProvider auditLogProvider = MockAuditLogProvider.instance;
     assertTrue(auditLogProvider.auditLog.isEmpty());
   }
 

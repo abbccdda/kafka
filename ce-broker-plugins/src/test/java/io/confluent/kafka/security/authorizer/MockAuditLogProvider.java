@@ -26,6 +26,7 @@ public class MockAuditLogProvider implements AuditLogProvider {
   public static volatile MockAuditLogProvider instance;
   public final List<MockAuditLogEntry> auditLog = new ArrayList<>();
   private final ArrayList<String> states = new ArrayList<>();
+  private boolean fail = false;
 
   public MockAuditLogProvider() {
     instance = this;
@@ -78,6 +79,9 @@ public class MockAuditLogProvider implements AuditLogProvider {
   @Override
   public void logAuthorization(Scope sourceScope, RequestContext requestContext, Action action,
       AuthorizeResult authorizeResult, AuthorizePolicy authorizePolicy) {
+    if (fail) {
+      throw new RuntimeException("MockAuditLogProvider intentional failure");
+    }
     if (action.logIfAllowed() && authorizeResult == AuthorizeResult.ALLOWED ||
         action.logIfDenied() && authorizeResult == AuthorizeResult.DENIED) {
       auditLog.add(new MockAuditLogEntry(sourceScope, requestContext, action, authorizeResult,
@@ -100,5 +104,9 @@ public class MockAuditLogProvider implements AuditLogProvider {
 
   public static void reset() {
     instance = null;
+  }
+
+  void setFail(boolean fail) {
+    this.fail = fail;
   }
 }
