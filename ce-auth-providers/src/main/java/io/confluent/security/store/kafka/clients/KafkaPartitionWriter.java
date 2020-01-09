@@ -150,8 +150,10 @@ public class KafkaPartitionWriter<K, V> {
     this.generationId = NOT_MASTER_WRITER;
     this.status(MetadataStoreStatus.UNKNOWN);
     executor = null;
-    while (!queuedTasks.isEmpty()) {
+    while (true) {
       QueuedTask write = queuedTasks.poll();
+      if (write == null)
+        break;
       if (!write.future.isDone())
         write.fail(notMasterWriterException());
     }
@@ -268,9 +270,9 @@ public class KafkaPartitionWriter<K, V> {
     notifyAll();
     if (generationId != NOT_MASTER_WRITER && status == MetadataStoreStatus.INITIALIZED) {
       executor.submit(() -> {
-        while (!queuedTasks.isEmpty()) {
+        while (true) {
           QueuedTask queuedTask = queuedTasks.peek();
-          if (!queuedTask.future.isDone() && queuedTask.test(null)) {
+          if (queuedTask != null && !queuedTask.future.isDone() && queuedTask.test(null)) {
             queuedTasks.remove(queuedTask);
           } else {
             break;

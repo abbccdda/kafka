@@ -578,7 +578,7 @@ public class KafkaAuthWriterTest {
     startAuthStore(authStore, null, 0);
     for (int i = 0; i < 3; i++) {
       TestUtils.waitForCondition(() -> authWriter.ready(), "Writer not ready");
-      CompletionStage<Void> stage = authWriter.addResourceRoleBinding(alice, "Reader", clusterA,
+      CompletionStage<Void> stage1 = authWriter.addResourceRoleBinding(alice, "Reader", clusterA,
           resources("topic" + i, "group" + i));
 
       assertTrue(rebalanceSemaphore.tryAcquire(10, TimeUnit.SECONDS));
@@ -586,7 +586,20 @@ public class KafkaAuthWriterTest {
       authWriter.startWriter(++generationId);
       writeSemaphore.release();
 
-      stage.toCompletableFuture().get(10, TimeUnit.SECONDS);
+      // Create a separate update request after rebalance and ensure that the request completes
+      // without an exception. Using AclBinding here to avoid the test semaphores used to
+      // control rebalance timing.
+      TestUtils.waitForCondition(() -> authWriter.ready(), "Writer not ready");
+      CompletionStage<Void> stage2 = authWriter.createAcls(clusterA,
+          topicBinding("Alice", "Topic" + i, new Operation("Read"), PermissionType.ALLOW));
+
+      try {
+        stage1.toCompletableFuture().get(10, TimeUnit.SECONDS);
+      } catch (ExecutionException e) {
+        // Ignore failure due to rebalance
+        assertEquals(NotMasterWriterException.class, e.getCause().getClass());
+      }
+      stage2.toCompletableFuture().get(10, TimeUnit.SECONDS);
     }
   }
 
