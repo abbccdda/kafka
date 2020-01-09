@@ -12,7 +12,6 @@ import io.confluent.events.cloudevents.extensions.RouteExtension;
 import io.confluent.events.exporter.Exporter;
 import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.provider.ConfluentAuditLogProvider;
-import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizeResult;
