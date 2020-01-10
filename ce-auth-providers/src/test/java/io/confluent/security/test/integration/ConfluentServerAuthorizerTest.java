@@ -13,7 +13,6 @@ import io.confluent.kafka.test.utils.KafkaTestUtils.ClientBuilder;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
 import io.confluent.security.auth.provider.audit.MockAuditLogProvider;
-import io.confluent.security.auth.provider.audit.MockAuditLogProvider.AuditLogEntry;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.auth.provider.ldap.LdapConfig;
 import io.confluent.security.authorizer.AclAccessRule;
@@ -24,6 +23,7 @@ import io.confluent.security.authorizer.AuthorizePolicy.SuperUser;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.PermissionType;
+import io.confluent.security.authorizer.provider.AuthorizationLogData;
 import io.confluent.security.rbac.RbacAccessRule;
 import io.confluent.security.test.utils.LdapTestUtils;
 import io.confluent.security.test.utils.RbacClusters;
@@ -439,7 +439,7 @@ public class ConfluentServerAuthorizerTest {
       String operation,
       AuthorizeResult result,
       PolicyType policyType) {
-    Queue<AuditLogEntry> entries = MockAuditLogProvider.AUDIT_LOG;
+    Queue<AuthorizationLogData> entries = MockAuditLogProvider.AUDIT_LOG;
     assertFalse("No audit log entries", entries.isEmpty());
     boolean hasEntry = entries.stream().anyMatch(e -> e.requestContext.principal().getName().equals(userName) &&
         e.action.resourceName().equals(resourceName) &&
@@ -450,8 +450,8 @@ public class ConfluentServerAuthorizerTest {
     entries.forEach(this::verifyAuditLogEntry);
   }
 
-  private void verifyAuditLogEntry(AuditLogEntry entry) {
-    AuthorizePolicy policy = entry.authorizePolicy;
+  private void verifyAuditLogEntry(AuthorizationLogData data) {
+    AuthorizePolicy policy = data.authorizePolicy;
     switch (policy.policyType()) {
       case SUPER_USER:
       case SUPER_GROUP:

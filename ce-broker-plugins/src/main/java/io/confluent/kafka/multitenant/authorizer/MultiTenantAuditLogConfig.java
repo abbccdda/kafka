@@ -7,7 +7,7 @@ import java.util.Map;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 
-public class MultiTenantAuditLogProviderConfig extends AbstractConfig {
+public class MultiTenantAuditLogConfig extends AbstractConfig {
 
   // We can't refer to the AuditLogConfig and EventLog config to build this for dependency reasons
   public static final String MULTI_TENANT_AUDIT_LOGGER_ENABLE_CONFIG = "confluent.security.event.logger.multitenant.enable";
@@ -27,7 +27,7 @@ public class MultiTenantAuditLogProviderConfig extends AbstractConfig {
         );
   }
 
-  public MultiTenantAuditLogProviderConfig(Map<String, ?> configs) {
+  public MultiTenantAuditLogConfig(Map<String, ?> configs) {
     super(CONFIG, configs);
   }
 }

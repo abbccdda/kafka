@@ -3,12 +3,9 @@
  */
 package io.confluent.kafka.security.authorizer;
 
-import io.confluent.security.authorizer.Action;
-import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizeResult;
-import io.confluent.security.authorizer.RequestContext;
-import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.AuditLogProvider;
+import io.confluent.security.authorizer.provider.AuthorizationLogData;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -17,6 +14,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.function.UnaryOperator;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.apache.kafka.test.TestUtils;
@@ -24,9 +22,10 @@ import org.apache.kafka.test.TestUtils;
 public class MockAuditLogProvider implements AuditLogProvider {
 
   public static volatile MockAuditLogProvider instance;
-  public final List<MockAuditLogEntry> auditLog = new ArrayList<>();
+  public final List<AuthorizationLogData> auditLog = new ArrayList<>();
   private final ArrayList<String> states = new ArrayList<>();
   private boolean fail = false;
+  private UnaryOperator<AuthorizationLogData> santizer;
 
   public MockAuditLogProvider() {
     instance = this;
@@ -67,6 +66,11 @@ public class MockAuditLogProvider implements AuditLogProvider {
   }
 
   @Override
+  public void setSanitizer(UnaryOperator<AuthorizationLogData> sanitizer) {
+    this.santizer = sanitizer;
+  }
+
+  @Override
   public String providerName() {
     return "MOCK_AUDIT";
   }
@@ -77,15 +81,17 @@ public class MockAuditLogProvider implements AuditLogProvider {
   }
 
   @Override
-  public void logAuthorization(Scope sourceScope, RequestContext requestContext, Action action,
-      AuthorizeResult authorizeResult, AuthorizePolicy authorizePolicy) {
+
+  public void logAuthorization(AuthorizationLogData data) {
     if (fail) {
       throw new RuntimeException("MockAuditLogProvider intentional failure");
     }
-    if (action.logIfAllowed() && authorizeResult == AuthorizeResult.ALLOWED ||
-        action.logIfDenied() && authorizeResult == AuthorizeResult.DENIED) {
-      auditLog.add(new MockAuditLogEntry(sourceScope, requestContext, action, authorizeResult,
-          authorizePolicy));
+    if (data.action.logIfAllowed() && data.authorizeResult == AuthorizeResult.ALLOWED ||
+        data.action.logIfDenied() && data.authorizeResult == AuthorizeResult.DENIED) {
+      if (santizer != null) {
+        data = santizer.apply(data);
+      }
+      auditLog.add(data);
     }
   }
 
@@ -93,7 +99,7 @@ public class MockAuditLogProvider implements AuditLogProvider {
   public void close() {
   }
 
-  MockAuditLogEntry lastEntry() {
+  AuthorizationLogData lastEntry() {
     return auditLog.get(auditLog.size() - 1);
   }
 

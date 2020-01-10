@@ -20,12 +20,8 @@ import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.AuditLogUtils;
 import io.confluent.security.audit.router.AuditLogRouter;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
-import io.confluent.security.authorizer.Action;
-import io.confluent.security.authorizer.AuthorizePolicy;
-import io.confluent.security.authorizer.AuthorizeResult;
-import io.confluent.security.authorizer.RequestContext;
-import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.AuditLogProvider;
+import io.confluent.security.authorizer.provider.AuthorizationLogData;
 import io.confluent.security.authorizer.utils.ThreadUtils;
 import java.io.IOException;
 import java.time.Duration;
@@ -38,6 +34,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.function.UnaryOperator;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.utils.Utils;
@@ -54,6 +51,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   // Fallback logger that is used if audit logging to Kafka topic fails or if events are not generated
   // TODO(sumit): Make sure this logger has sane defaults.
   protected final Logger fallbackLog = LoggerFactory.getLogger(FALLBACK_LOGGER);
+  private UnaryOperator<AuthorizationLogData> sanitizer;
 
   // The Audit events feature has very strange requirements like dynamic config support for changing bootstrap servers
   // at runtime. They can have very high volume event streams for logging produce / consume audit events which
@@ -200,20 +198,21 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   }
 
   @Override
-  public void logAuthorization(Scope sourceScope,
-      RequestContext requestContext,
-      Action action,
-      AuthorizeResult authorizeResult,
-      AuthorizePolicy authorizePolicy) {
+  public void setSanitizer(UnaryOperator<AuthorizationLogData> sanitizer) {
+    this.sanitizer = sanitizer;
+  }
+
+  @Override
+  public void logAuthorization(AuthorizationLogData data) {
 
     // Should this event be sent to Kafka ?
     boolean generateEvent;
-    switch (authorizeResult) {
+    switch (data.authorizeResult) {
       case ALLOWED:
-        generateEvent = action.logIfAllowed();
+        generateEvent = data.action.logIfAllowed();
         break;
       case DENIED:
-        generateEvent = action.logIfDenied();
+        generateEvent = data.action.logIfDenied();
         break;
       default:
         generateEvent = true;
@@ -221,22 +220,38 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
     }
 
     try {
-      String source = crnAuthority.canonicalCrn(sourceScope).toString();
-      String subject = crnAuthority.canonicalCrn(action.scope(), action.resourcePattern())
+      String source = crnAuthority.canonicalCrn(data.sourceScope).toString();
+      String subject = crnAuthority.canonicalCrn(data.action.scope(), data.action.resourcePattern())
           .toString();
 
       // use the config and event logger from a particular point in time
       ConfiguredState state = this.configuredState;
 
       AuditLogEntry entry = AuditLogUtils
-          .authorizationEvent(source, subject, requestContext, action, authorizeResult,
-              authorizePolicy);
+          .authorizationEvent(source, subject, data.requestContext, data.action,
+              data.authorizeResult, data.authorizePolicy);
 
       // Figure out the topic.
       Optional<String> route = state.router.topic(entry);
 
       if (route.isPresent() && route.get().equalsIgnoreCase(AuditLogRouter.SUPPRESSED)) {
         return;
+      }
+
+      // at this point we've decided that we intend to log, so we calculate the content
+      if (sanitizer != null) {
+        data = sanitizer.apply(data);
+        if (data == null) {
+          return;
+        }
+
+        // need to recalculate these with the transformed data
+        source = crnAuthority.canonicalCrn(data.sourceScope).toString();
+        subject = crnAuthority.canonicalCrn(data.action.scope(), data.action.resourcePattern())
+            .toString();
+        entry = AuditLogUtils
+            .authorizationEvent(source, subject, data.requestContext, data.action,
+                data.authorizeResult, data.authorizePolicy);
       }
 
       ProtobufEvent.Builder eventBuilder = ProtobufEvent.newBuilder()

@@ -2,11 +2,9 @@
 
 package io.confluent.security.auth.provider.audit;
 
-import io.confluent.security.authorizer.Action;
-import io.confluent.security.authorizer.AuthorizePolicy;
-import io.confluent.security.authorizer.AuthorizeResult;
-import io.confluent.security.authorizer.RequestContext;
-import io.confluent.security.authorizer.Scope;
+import static org.junit.Assert.assertTrue;
+
+import io.confluent.security.authorizer.provider.AuthorizationLogData;
 import io.confluent.security.authorizer.provider.DefaultAuditLogProvider;
 import java.util.Collections;
 import java.util.Map;
@@ -15,12 +13,10 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import org.apache.kafka.common.config.ConfigException;
 
-import static org.junit.Assert.assertTrue;
-
 public class MockAuditLogProvider extends DefaultAuditLogProvider {
 
   public static final String AUDIT_LOG_SIZE_CONFIG = "mock.audit.log.size";
-  public static final Queue<AuditLogEntry> AUDIT_LOG = new ConcurrentLinkedQueue<>();
+  public static final Queue<AuthorizationLogData> AUDIT_LOG = new ConcurrentLinkedQueue<>();
 
   public static volatile int logSize;
 
@@ -62,43 +58,12 @@ public class MockAuditLogProvider extends DefaultAuditLogProvider {
   }
 
   @Override
-  public void logAuthorization(Scope sourceScope,
-                  RequestContext requestContext,
-                  Action action,
-                  AuthorizeResult authorizeResult,
-                  AuthorizePolicy authorizePolicy) {
+  public void logAuthorization(AuthorizationLogData data) {
     assertTrue("Too many log entries:" + AUDIT_LOG, AUDIT_LOG.size() < logSize);
-    AUDIT_LOG.add(new AuditLogEntry(requestContext, action, authorizeResult, authorizePolicy));
-  }
-
-  public static class AuditLogEntry {
-    public RequestContext requestContext;
-    public Action action;
-    public AuthorizeResult authorizeResult;
-    public AuthorizePolicy authorizePolicy;
-
-    AuditLogEntry(RequestContext requestContext,
-                  Action action,
-                  AuthorizeResult authorizeResult,
-                  AuthorizePolicy authorizePolicy) {
-      this.requestContext = requestContext;
-      this.action = action;
-      this.authorizeResult = authorizeResult;
-      this.authorizePolicy = authorizePolicy;
+    if (sanitizer != null) {
+      data = sanitizer.apply(data);
     }
-
-    @Override
-    public String toString() {
-      return "AuditLogEntry(" +
-          "requestSource='" + requestContext.requestSource() + '\'' +
-          ", principal='" + requestContext.principal() + '\'' +
-          ", resource='" + action.resourcePattern() + '\'' +
-          ", scope='" + action.scope() + '\'' +
-          ", operation='" + action.operation() + '\'' +
-          ", authorizeResult='" + authorizeResult + '\'' +
-          ", authorizePolicy='" + authorizePolicy.policyType() + '\'' +
-          ')';
-    }
+    AUDIT_LOG.add(data);
   }
 
 }

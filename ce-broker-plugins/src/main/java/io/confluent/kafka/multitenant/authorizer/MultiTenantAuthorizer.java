@@ -3,6 +3,7 @@
 package io.confluent.kafka.multitenant.authorizer;
 
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
+import io.confluent.kafka.multitenant.utils.TenantSanitizer;
 import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
@@ -50,10 +51,10 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
     authorizerConfigs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP,
         AccessRuleProviders.MULTI_TENANT.name());
 
-    MultiTenantAuditLogProviderConfig multiTenantAuditLogProviderConfig =
-        new MultiTenantAuditLogProviderConfig(configs);
-    auditLogEnabled = multiTenantAuditLogProviderConfig
-        .getBoolean(MultiTenantAuditLogProviderConfig.MULTI_TENANT_AUDIT_LOGGER_ENABLE_CONFIG);
+    MultiTenantAuditLogConfig multiTenantAuditLogConfig =
+        new MultiTenantAuditLogConfig(configs);
+    auditLogEnabled = multiTenantAuditLogConfig
+        .getBoolean(MultiTenantAuditLogConfig.MULTI_TENANT_AUDIT_LOGGER_ENABLE_CONFIG);
     super.configure(authorizerConfigs);
   }
 
@@ -153,11 +154,15 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
   protected void configureProviders(List<AccessRuleProvider> accessRuleProviders,
       GroupProvider groupProvider, MetadataProvider metadataProvider,
       AuditLogProvider auditLogProvider) {
-    MultiTenantAuditLogProvider multiTenantAuditLogProvider =
-        auditLogEnabled ? new MultiTenantAuditLogProvider(auditLogProvider) : null;
-    super
-        .configureProviders(accessRuleProviders, groupProvider,
-            metadataProvider, multiTenantAuditLogProvider);
+
+    if (auditLogEnabled) {
+      auditLogProvider.setSanitizer(TenantSanitizer::tenantAuthorizationLogData);
+      super.configureProviders(accessRuleProviders, groupProvider,
+          metadataProvider, auditLogProvider);
+    } else {
+      super.configureProviders(accessRuleProviders, groupProvider,
+          metadataProvider, null);
+    }
   }
 
   private String tenantPrefix(String name) {

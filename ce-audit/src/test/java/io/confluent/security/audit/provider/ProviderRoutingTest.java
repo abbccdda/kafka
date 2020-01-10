@@ -29,6 +29,7 @@ import io.confluent.security.authorizer.RequestContext;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.provider.AuthorizationLogData;
 import java.net.InetAddress;
 import java.util.Collections;
 import java.util.Map;
@@ -98,7 +99,9 @@ public class ProviderRoutingTest {
     AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
         principal);
 
-    provider.logAuthorization(clusterScope, requestContext, write, AuthorizeResult.ALLOWED, policy);
+    provider.logAuthorization(
+        new AuthorizationLogData(clusterScope, requestContext, write, AuthorizeResult.ALLOWED,
+            policy));
 
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
     assertEquals(1, ma.events.size());
@@ -162,7 +165,9 @@ public class ProviderRoutingTest {
         principal);
 
     provider
-        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
+        .logAuthorization(
+            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+                policy));
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
 
     assertEquals(1, ma.events.size());
@@ -196,7 +201,9 @@ public class ProviderRoutingTest {
         principal);
 
     provider
-        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
+        .logAuthorization(
+            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+                policy));
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
 
     assertEquals(0, ma.events.size());
@@ -226,7 +233,9 @@ public class ProviderRoutingTest {
         principal);
 
     provider
-        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
+        .logAuthorization(
+            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+                policy));
 
     assertEquals(0, ma.events.size());
 
@@ -265,7 +274,9 @@ public class ProviderRoutingTest {
         principal);
 
     provider
-        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
+        .logAuthorization(
+            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+                policy));
 
     assertEquals(0, ma.events.size());
 
@@ -294,13 +305,17 @@ public class ProviderRoutingTest {
 
     ma.routeReady = false;
     provider
-        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
+        .logAuthorization(
+            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+                policy));
 
     assertEquals(0, ma.events.size());
 
     ma.routeReady = true;
     provider
-        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
+        .logAuthorization(
+            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+                policy));
     assertEquals(1, ma.events.size());
 
     provider.close();
@@ -332,7 +347,9 @@ public class ProviderRoutingTest {
         principal);
 
     provider
-        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
+        .logAuthorization(
+            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+                policy));
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
 
     assertEquals(1, ma.events.size());
@@ -373,7 +390,9 @@ public class ProviderRoutingTest {
     ma = (MockExporter) provider.getEventLogger().eventExporter();
     ma.events.clear();
     provider
-        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
+        .logAuthorization(
+            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+                policy));
 
     assertEquals(1, ma.events.size());
 
@@ -385,7 +404,9 @@ public class ProviderRoutingTest {
     assertEquals(newAllowedTopic, re.getRoute());
 
     ma.events.clear();
-    provider.logAuthorization(clusterScope, requestContext, create, AuthorizeResult.DENIED, policy);
+    provider.logAuthorization(
+        new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.DENIED,
+            policy));
 
     assertEquals(1, ma.events.size());
 
@@ -424,7 +445,9 @@ public class ProviderRoutingTest {
         principal);
 
     provider
-        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
+        .logAuthorization(
+            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+                policy));
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
 
     assertEquals(1, ma.events.size());
@@ -462,13 +485,17 @@ public class ProviderRoutingTest {
     ma = (MockExporter) provider.getEventLogger().eventExporter();
     ma.events.clear();
     provider
-        .logAuthorization(clusterScope, requestContext, create, AuthorizeResult.ALLOWED, policy);
+        .logAuthorization(
+            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+                policy));
 
     // Make sure the event is not routed
     assertEquals(0, ma.events.size());
 
     ma.events.clear();
-    provider.logAuthorization(clusterScope, requestContext, create, AuthorizeResult.DENIED, policy);
+    provider.logAuthorization(
+        new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.DENIED,
+            policy));
     // Make sure the event is not routed
     assertEquals(0, ma.events.size());
 

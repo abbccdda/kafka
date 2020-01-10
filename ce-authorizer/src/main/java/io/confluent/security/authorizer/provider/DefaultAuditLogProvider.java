@@ -2,17 +2,14 @@
 
 package io.confluent.security.authorizer.provider;
 
-import io.confluent.security.authorizer.Action;
-import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizeResult;
-import io.confluent.security.authorizer.RequestContext;
-import io.confluent.security.authorizer.Scope;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.function.UnaryOperator;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.SecurityUtils;
@@ -23,6 +20,7 @@ import org.slf4j.LoggerFactory;
 public class DefaultAuditLogProvider implements AuditLogProvider {
 
   protected static final Logger log = LoggerFactory.getLogger("kafka.authorizer.logger");
+  protected UnaryOperator<AuthorizationLogData> sanitizer;
 
   @Override
   public void configure(Map<String, ?> configs) {
@@ -61,6 +59,11 @@ public class DefaultAuditLogProvider implements AuditLogProvider {
     return true;
   }
 
+  @Override
+  public void setSanitizer(UnaryOperator<AuthorizationLogData> sanitizer) {
+    this.sanitizer = sanitizer;
+  }
+
   /**
    * Log using the same format as AK AclAuthorizer:
    * <pre>
@@ -73,25 +76,24 @@ public class DefaultAuditLogProvider implements AuditLogProvider {
    * </pre>
    */
   @Override
-  public void logAuthorization(Scope sourceScope,
-                  RequestContext requestContext,
-                  Action action,
-                  AuthorizeResult authorizeResult,
-                  AuthorizePolicy authorizePolicy) {
+  public void logAuthorization(AuthorizationLogData data) {
+    if (sanitizer != null) {
+      data = sanitizer.apply(data);
+    }
     String logMessage = "Principal = {} is {} Operation = {} from host = {} on resource = {}";
-    KafkaPrincipal principal = requestContext.principal();
-    String host = requestContext.clientAddress().getHostAddress();
-    String operation = action.operation().name();
-    String resource = SecurityUtils.toPascalCase(action.resourceType().name()) + ":" +
-        action.resourcePattern().patternType() + ":" +
-        action.resourceName();
-    if (authorizeResult == AuthorizeResult.ALLOWED) {
-      if (action.logIfAllowed())
+    KafkaPrincipal principal = data.requestContext.principal();
+    String host = data.requestContext.clientAddress().getHostAddress();
+    String operation = data.action.operation().name();
+    String resource = SecurityUtils.toPascalCase(data.action.resourceType().name()) + ":" +
+        data.action.resourcePattern().patternType() + ":" +
+        data.action.resourceName();
+    if (data.authorizeResult == AuthorizeResult.ALLOWED) {
+      if (data.action.logIfAllowed())
         log.debug(logMessage, principal, "Allowed", operation, host, resource);
       else
         log.trace(logMessage, principal, "Allowed", operation, host, resource);
     } else {
-      if (action.logIfDenied())
+      if (data.action.logIfDenied())
         log.info(logMessage, principal, "Denied", operation, host, resource);
       else
         log.trace(logMessage, principal, "Denied", operation, host, resource);

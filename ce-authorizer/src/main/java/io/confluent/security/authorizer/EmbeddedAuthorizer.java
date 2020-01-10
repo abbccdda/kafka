@@ -6,6 +6,7 @@ import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.AuthorizePolicy.SuperUser;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import io.confluent.security.authorizer.provider.AuditLogProvider;
+import io.confluent.security.authorizer.provider.AuthorizationLogData;
 import io.confluent.security.authorizer.provider.DefaultAuditLogProvider;
 import io.confluent.security.authorizer.provider.GroupProvider;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
@@ -342,8 +343,9 @@ public class EmbeddedAuthorizer implements Authorizer {
       Action action,
       AuthorizeResult authorizeResult,
       AuthorizePolicy authorizePolicy) {
-    auditLogProvider
-        .logAuthorization(sourceScope, requestContext, action, authorizeResult, authorizePolicy);
+    auditLogProvider.logAuthorization(
+        new AuthorizationLogData(sourceScope, requestContext, action, authorizeResult,
+            authorizePolicy));
   }
 
   // Allowing read, write, delete, or alter implies allowing describe.

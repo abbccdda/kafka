@@ -1,5 +1,8 @@
 package org.apache.kafka.jmh.audit;
 
+import io.confluent.kafka.multitenant.MultiTenantPrincipal;
+import io.confluent.kafka.multitenant.TenantMetadata;
+import io.confluent.kafka.multitenant.utils.TenantSanitizer;
 import io.confluent.security.audit.provider.ConfluentAuditLogProvider;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizePolicy;
@@ -60,7 +63,9 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 @Measurement(iterations = 7)
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
-public class ProviderLogAuthorizationBenchmark {
+public class MultiTenantProviderLogAuthorizationBenchmark {
+
+  private static final String TENANT_ID = "lkc-1234";
 
   private long counter = 0;
 
@@ -70,20 +75,24 @@ public class ProviderLogAuthorizationBenchmark {
   @Setup(Level.Trial)
   public void setUp()
       throws Exception {
-
+    TenantMetadata metadata = new TenantMetadata(TENANT_ID, TENANT_ID);
     for (int i = 0; i < LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS; i++) {
       Scope scope = Scope.kafkaClusterScope(LogAuthorizationBenchmarkDefaults.CLUSTER_ID);
-      KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "user" + i % LogAuthorizationBenchmarkDefaults.USERS);
-      ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"), "topic" + i % LogAuthorizationBenchmarkDefaults.TOPICS,
+      KafkaPrincipal principal =
+          new MultiTenantPrincipal("" + i % LogAuthorizationBenchmarkDefaults.USERS, metadata);
+      ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"),
+          TENANT_ID + "_topic" + i % LogAuthorizationBenchmarkDefaults.TOPICS,
           PatternType.LITERAL);
       RequestContext context = new MockRequestContext(
           new RequestHeader(
-              LogAuthorizationBenchmarkDefaults.API_KEYS[i % LogAuthorizationBenchmarkDefaults.API_KEYS.length], (short) 1, "", i), "",
+              LogAuthorizationBenchmarkDefaults.API_KEYS[i
+                  % LogAuthorizationBenchmarkDefaults.API_KEYS.length], (short) 1, "", i), "",
           InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
           SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
       Action action = new Action(scope, topic.resourceType(), topic.name(),
           new Operation(
-              LogAuthorizationBenchmarkDefaults.ACTIONS[i % LogAuthorizationBenchmarkDefaults.ACTIONS.length]));
+              LogAuthorizationBenchmarkDefaults.ACTIONS[i
+                  % LogAuthorizationBenchmarkDefaults.ACTIONS.length]));
       AuthorizeResult result =
           i % 2 == 0 ? AuthorizeResult.ALLOWED : AuthorizeResult.DENIED;
       AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
@@ -92,12 +101,18 @@ public class ProviderLogAuthorizationBenchmark {
       args[i] = new LogAuthorizationArguments(scope, context, action, result, policy);
     }
 
-    LogAuthorizationBenchmarkDefaults.noneProvider.setSanitizer(null);
-    LogAuthorizationBenchmarkDefaults.createProvider.setSanitizer(null);
-    LogAuthorizationBenchmarkDefaults.createProduceOneLogProvider.setSanitizer(null);
-    LogAuthorizationBenchmarkDefaults.createProduceSomeLogProvider.setSanitizer(null);
-    LogAuthorizationBenchmarkDefaults.createProduceAllLogProvider.setSanitizer(null);
-    LogAuthorizationBenchmarkDefaults.everythingLogProvider.setSanitizer(null);
+    LogAuthorizationBenchmarkDefaults.noneProvider.setSanitizer(
+        TenantSanitizer::tenantAuthorizationLogData);
+    LogAuthorizationBenchmarkDefaults.createProvider.setSanitizer(
+        TenantSanitizer::tenantAuthorizationLogData);
+    LogAuthorizationBenchmarkDefaults.createProduceOneLogProvider.setSanitizer(
+        TenantSanitizer::tenantAuthorizationLogData);
+    LogAuthorizationBenchmarkDefaults.createProduceSomeLogProvider.setSanitizer(
+        TenantSanitizer::tenantAuthorizationLogData);
+    LogAuthorizationBenchmarkDefaults.createProduceAllLogProvider.setSanitizer(
+        TenantSanitizer::tenantAuthorizationLogData);
+    LogAuthorizationBenchmarkDefaults.everythingLogProvider.setSanitizer(
+        TenantSanitizer::tenantAuthorizationLogData);
   }
 
   @TearDown(Level.Trial)
@@ -177,7 +192,7 @@ public class ProviderLogAuthorizationBenchmark {
 
   public static void main(String[] args) throws RunnerException {
     Options opt = new OptionsBuilder()
-        .include(ProviderLogAuthorizationBenchmark.class.getSimpleName())
+        .include(MultiTenantProviderLogAuthorizationBenchmark.class.getSimpleName())
         .forks(2)
         .build();
 

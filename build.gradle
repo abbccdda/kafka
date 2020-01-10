@@ -2005,6 +2005,7 @@ project(':jmh-benchmarks') {
     compile project(':ce-authorizer')
     compile project(':ce-audit')
     compile project(':ce-metrics')
+    compile project(':ce-broker-plugins')
     compile libs.cloudEventsKafka
     compile libs.metrics
     compile libs.jmhCore

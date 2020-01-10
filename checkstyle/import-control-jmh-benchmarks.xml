@@ -60,6 +60,18 @@
         <allow pkg="io.cloudevents" />
         <allow pkg="io.confluent.crn" />
         <allow pkg="io.confluent.events" />
+        <allow pkg="io.confluent.kafka.multitenant" />
+        <allow pkg="io.confluent.security.audit" />
+        <allow pkg="io.confluent.security.authorizer" />
+        <allow class="org.apache.kafka.clients.CommonClientConfigs" />
+        <allow class="org.apache.kafka.server.authorizer.AuthorizerServerInfo" />
+        <allow class="io.confluent.kafka.multitenant.authorizer.MultiTenantAuditLogProvider" />
+    </subpackage>
+
+    <subpackage name="audit">
+        <allow pkg="io.cloudevents" />
+        <allow pkg="io.confluent.crn" />
+        <allow pkg="io.confluent.events" />
         <allow pkg="io.confluent.security.audit" />
         <allow pkg="io.confluent.security.authorizer" />
         <allow class="org.apache.kafka.clients.CommonClientConfigs" />

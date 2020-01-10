@@ -9,18 +9,18 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import io.confluent.kafka.multitenant.authorizer.MultiTenantAuditLogProviderConfig;
+import io.confluent.kafka.multitenant.authorizer.MultiTenantAuditLogConfig;
 import io.confluent.kafka.multitenant.authorizer.MultiTenantAuthorizer;
 import io.confluent.kafka.multitenant.integration.cluster.LogicalCluster;
 import io.confluent.kafka.multitenant.integration.cluster.LogicalClusterUser;
 import io.confluent.kafka.multitenant.integration.cluster.PhysicalCluster;
-import io.confluent.kafka.security.authorizer.MockAuditLogEntry;
 import io.confluent.kafka.security.authorizer.MockAuditLogProvider;
 import io.confluent.kafka.test.cluster.EmbeddedKafka;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
 import io.confluent.security.authorizer.AclAccessRule;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.provider.AuthorizationLogData;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
@@ -81,10 +81,6 @@ public class MultiTenantAuditLogTest {
         if (!authorizer.isAuditLogEnabled()) {
           return true;
         }
-        String name = authorizer.auditLogProvider().providerName();
-        if (!name.equals("MULTI_TENANT_MOCK_AUDIT")) {
-          return false;
-        }
       }
       return true;
     } catch (ClassCastException e) {
@@ -113,12 +109,12 @@ public class MultiTenantAuditLogTest {
     testHarness.produceConsume(user1, user2, topic, consumerGroup, 0);
 
     // for debugging
-    List<MockAuditLogEntry> user1s = MockAuditLogProvider.instance.auditLog.stream()
+    List<AuthorizationLogData> user1s = MockAuditLogProvider.instance.auditLog.stream()
         .filter(e -> e.requestContext.principal().toString().equals("User:1")
         ).collect(toList());
 
     // make sure we have an appropriate produce event
-    List<MockAuditLogEntry> produces = MockAuditLogProvider.instance.auditLog.stream()
+    List<AuthorizationLogData> produces = MockAuditLogProvider.instance.auditLog.stream()
         .filter(e -> e.requestContext.principal().toString().equals("User:1") &&
             e.action.resourceName().equals(topic) &&
             e.action.operation().name().equals("Write") &&
@@ -129,7 +125,7 @@ public class MultiTenantAuditLogTest {
 
     // make sure we have at least one appropriate consume event (probably multiple because
     // message might not be delivered for the first)
-    List<MockAuditLogEntry> topicReads = MockAuditLogProvider.instance.auditLog.stream()
+    List<AuthorizationLogData> topicReads = MockAuditLogProvider.instance.auditLog.stream()
         .filter(e -> e.requestContext.principal().toString().equals("User:2") &&
             e.action.resourceName().equals(topic) &&
             e.action.operation().name().equals("Read") &&
@@ -138,7 +134,7 @@ public class MultiTenantAuditLogTest {
         ).collect(toList());
     assertFalse(topicReads.isEmpty());
 
-    List<MockAuditLogEntry> groupReads = MockAuditLogProvider.instance.auditLog.stream()
+    List<AuthorizationLogData> groupReads = MockAuditLogProvider.instance.auditLog.stream()
         .filter(e -> e.requestContext.principal().toString().equals("User:2") &&
             e.action.resourceName().equals(consumerGroup) &&
             e.action.operation().name().equals("Read") &&
@@ -153,7 +149,7 @@ public class MultiTenantAuditLogTest {
             .anyMatch(e -> e.requestContext.principal().toString().contains("TenantUser:")));
 
     // make sure that for all events for Tenant users, all of the other information is correct
-    List<MockAuditLogEntry> tenantUserEntries = MockAuditLogProvider.instance.auditLog.stream()
+    List<AuthorizationLogData> tenantUserEntries = MockAuditLogProvider.instance.auditLog.stream()
         .filter(e -> e.requestContext.principal().toString().equals("User:1") ||
             e.requestContext.principal().toString().equals("User:2"))
         .collect(toList());
@@ -197,12 +193,12 @@ public class MultiTenantAuditLogTest {
     }
 
     // for debugging
-    List<MockAuditLogEntry> user1s = MockAuditLogProvider.instance.auditLog.stream()
+    List<AuthorizationLogData> user1s = MockAuditLogProvider.instance.auditLog.stream()
         .filter(e -> e.requestContext.principal().toString().equals("User:1")
         ).collect(toList());
 
     // make sure we have an appropriate describe denial event
-    List<MockAuditLogEntry> describes = MockAuditLogProvider.instance.auditLog.stream()
+    List<AuthorizationLogData> describes = MockAuditLogProvider.instance.auditLog.stream()
         .filter(e -> e.requestContext.principal().toString().equals("User:1") &&
             e.action.resourceName().equals(CLUSTER_NAME) &&
             e.action.operation().name().equals("DescribeConfigs") &&
@@ -218,7 +214,7 @@ public class MultiTenantAuditLogTest {
     props.put(MultiTenantAuthorizer.MAX_ACLS_PER_TENANT_PROP, "100");
     if (auditLoggerEnable) {
       // this is disabled by default, so we don't need to explicitly set it to false
-      props.put(MultiTenantAuditLogProviderConfig.MULTI_TENANT_AUDIT_LOGGER_ENABLE_CONFIG, "true");
+      props.put(MultiTenantAuditLogConfig.MULTI_TENANT_AUDIT_LOGGER_ENABLE_CONFIG, "true");
     }
     return props;
   }
