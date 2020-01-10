@@ -476,8 +476,10 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
      * cluster, but these are handled by the broker authorizer.
      */
     @Override
-    protected boolean isSuperUser(KafkaPrincipal principal, Action action) {
-      return configuredSuperUsers.contains(principal) &&
+    protected boolean isSuperUser(KafkaPrincipal sessionPrincipal,
+                                  KafkaPrincipal userOrGroupPrincipal,
+                                  Action action) {
+      return configuredSuperUsers.contains(userOrGroupPrincipal) &&
           (METADATA_RESOURCE_TYPES.contains(action.resourceType()) || METADATA_OPS.contains(action.operation()));
     }
   }

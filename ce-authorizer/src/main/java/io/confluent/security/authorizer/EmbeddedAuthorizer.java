@@ -196,8 +196,10 @@ public class EmbeddedAuthorizer implements Authorizer {
     return ready;
   }
 
-  protected boolean isSuperUser(KafkaPrincipal principal, Action action) {
-    return superUsers.contains(principal);
+  protected boolean isSuperUser(KafkaPrincipal sessionPrincipal,
+                                KafkaPrincipal userOrGroupPrincipal,
+                                Action action) {
+    return superUsers.contains(userOrGroupPrincipal);
   }
 
   private AuthorizeResult authorize(RequestContext requestContext, Action action) {
@@ -207,13 +209,13 @@ public class EmbeddedAuthorizer implements Authorizer {
       String host = requestContext.clientAddress().getHostAddress();
       KafkaPrincipal userPrincipal = userPrincipal(sessionPrincipal);
 
-      if (isSuperUser(userPrincipal, action)) {
+      if (isSuperUser(sessionPrincipal, userPrincipal, action)) {
         log.debug("principal = {} is a super user, allowing operation without checking any providers.", userPrincipal);
         authorizePolicy = new SuperUser(PolicyType.SUPER_USER, userPrincipal);
       } else {
         Set<KafkaPrincipal> groupPrincipals = groupProvider.groups(sessionPrincipal);
         Optional<KafkaPrincipal> superGroup = groupPrincipals.stream()
-            .filter(group -> isSuperUser(group, action)).findFirst();
+            .filter(group -> isSuperUser(sessionPrincipal, group, action)).findFirst();
         if (superGroup.isPresent()) {
           log.debug("principal = {} belongs to super group {}, allowing operation without checking acls.",
               userPrincipal, superGroup.get());

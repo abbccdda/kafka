@@ -9,13 +9,10 @@ import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import kafka.security.auth.Acl;
-import kafka.security.auth.Cluster$;
 import kafka.security.auth.ResourceType;
-import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import scala.collection.JavaConversions;
 
@@ -57,25 +54,9 @@ import scala.collection.JavaConversions;
  */
 public class TenantAclProvider extends AclProvider {
 
-  private boolean authorizationDisabled;
-
-  @Override
-  public void configure(Map<String, ?> configs) {
-    String maxAcls = (String) configs.get(MultiTenantAuthorizer.MAX_ACLS_PER_TENANT_PROP);
-    int maxAclsPerTenant = maxAcls != null ? Integer.parseInt(maxAcls) : MultiTenantAuthorizer.ACLS_DISABLED;
-    authorizationDisabled = maxAclsPerTenant == MultiTenantAuthorizer.ACLS_DISABLED;
-    super.configure(configs);
-  }
-
   @Override
   public String providerName() {
     return AccessRuleProviders.MULTI_TENANT.name();
-  }
-
-  @Override
-  public boolean isSuperUser(KafkaPrincipal principal,
-                             Scope scope) {
-    return authorizationDisabled || super.isSuperUser(principal, scope) || isSuperUser(principal);
   }
 
   @Override
@@ -95,11 +76,6 @@ public class TenantAclProvider extends AclProvider {
         new KafkaPrincipal(MultiTenantPrincipal.TENANT_WILDCARD_USER_TYPE, tenantPrefix);
 
     ResourceType resourceType = AclMapper.kafkaResourceType(resource.resourceType());
-    if (AclMapper.kafkaResourceType(resource.resourceType()) == Cluster$.MODULE$) {
-      String prefixedCluster = tenantPrefix + resource.name();
-      resource = new ResourcePattern(resource.resourceType(), prefixedCluster, PatternType.LITERAL);
-    }
-
     return JavaConversions.setAsJavaSet(matchingAcls(resourceType, resource.name())).stream()
         .map(AclMapper::accessRule)
         .filter(acl -> userAcl(acl, userPrincipal, wildcardPrincipal))
@@ -114,11 +90,6 @@ public class TenantAclProvider extends AclProvider {
   @Override
   public boolean usesMetadataFromThisKafkaCluster() {
     return false;
-  }
-
-  public boolean isSuperUser(KafkaPrincipal userPrincipal) {
-    return (userPrincipal instanceof MultiTenantPrincipal)
-        && ((MultiTenantPrincipal) userPrincipal).tenantMetadata().isSuperUser;
   }
 
   private boolean userAcl(AccessRule rule,

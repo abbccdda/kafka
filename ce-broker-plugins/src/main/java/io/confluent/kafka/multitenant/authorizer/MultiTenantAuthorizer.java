@@ -15,20 +15,25 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
+import java.util.stream.Collectors;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.errors.InvalidRequestException;
+import org.apache.kafka.common.resource.ResourcePattern;
+import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.kafka.server.authorizer.AclCreateResult;
 import org.apache.kafka.server.authorizer.AclDeleteResult;
+import org.apache.kafka.server.authorizer.Action;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
+import org.apache.kafka.server.authorizer.AuthorizationResult;
 
 public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
 
   public static final String MAX_ACLS_PER_TENANT_PROP = "confluent.max.acls.per.tenant";
-  public static final int DEFAULT_MAX_ACLS_PER_TENANT_PROP = 1000;
-  static final int ACLS_DISABLED = 0;
+  private static final int DEFAULT_MAX_ACLS_PER_TENANT_PROP = 1000;
+  private static final int ACLS_DISABLED = 0;
 
   private int maxAclsPerTenant;
   private boolean authorizationDisabled;
@@ -50,6 +55,44 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
     auditLogEnabled = multiTenantAuditLogProviderConfig
         .getBoolean(MultiTenantAuditLogProviderConfig.MULTI_TENANT_AUDIT_LOGGER_ENABLE_CONFIG);
     super.configure(authorizerConfigs);
+  }
+
+
+  @Override
+  public List<AuthorizationResult> authorize(AuthorizableRequestContext requestContext, List<Action> actions) {
+    List<Action> authorizeActions = actions;
+    if (requestContext.principal() instanceof MultiTenantPrincipal) {
+      String tenantPrefix = ((MultiTenantPrincipal) requestContext.principal()).tenantMetadata().tenantPrefix();
+      authorizeActions = actions.stream().map(action -> {
+        ResourcePattern resource = action.resourcePattern();
+        if (resource.resourceType() == ResourceType.CLUSTER) {
+          ResourcePattern prefixedResource = new ResourcePattern(ResourceType.CLUSTER,
+              tenantPrefix + resource.name(), resource.patternType());
+          return new Action(action.operation(), prefixedResource, action.resourceReferenceCount(),
+              action.logIfAllowed(), action.logIfDenied());
+        } else {
+          return action;
+        }
+      }).collect(Collectors.toList());
+    }
+    return super.authorize(requestContext, authorizeActions);
+  }
+
+  @Override
+  protected boolean isSuperUser(KafkaPrincipal sessionPrincipal,
+                                KafkaPrincipal userOrGroupPrincipal,
+                                io.confluent.security.authorizer.Action action) {
+    if (super.isSuperUser(sessionPrincipal, userOrGroupPrincipal, action)) {
+      return true;
+    } else if (sessionPrincipal instanceof MultiTenantPrincipal) {
+      MultiTenantPrincipal tenantPrincipal = (MultiTenantPrincipal) sessionPrincipal;
+      if (authorizationDisabled || tenantPrincipal.tenantMetadata().isSuperUser)
+        return action.resourceName().startsWith(tenantPrincipal.tenantMetadata().tenantPrefix());
+      else
+        return false;
+    } else {
+      return false;
+    }
   }
 
   @Override
