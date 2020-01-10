@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClientConfig;
@@ -226,15 +227,18 @@ public class EventLoggerConfig extends AbstractConfig {
   public Properties producerProperties() {
     Properties props = new Properties();
     props.putAll(producerConfigDefaults());
-    props.putAll(clientProperties());
+    props.putAll(clientProperties(ProducerConfig.configNames()));
     return props;
   }
 
-  public Properties clientProperties() {
+  public Properties clientProperties(Set<String> allowedKeys) {
     Properties props = new Properties();
     for (Map.Entry<String, ?> entry : super.originals().entrySet()) {
       if (entry.getKey().startsWith(KAFKA_EXPORTER_PREFIX)) {
-        props.put(entry.getKey().substring(KAFKA_EXPORTER_PREFIX.length()), entry.getValue());
+        String unprefixed = entry.getKey().substring(KAFKA_EXPORTER_PREFIX.length());
+        if (allowedKeys.contains(unprefixed)) {
+          props.put(unprefixed, entry.getValue());
+        }
       }
     }
 

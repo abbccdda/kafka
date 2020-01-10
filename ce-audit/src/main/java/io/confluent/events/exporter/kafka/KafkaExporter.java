@@ -30,6 +30,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.PartitionInfo;
@@ -86,7 +87,7 @@ public class KafkaExporter implements Exporter {
     }
 
     this.topicManager = TopicManager.newBuilder()
-        .setAdminClientProperties(eventLogConfig.clientProperties())
+        .setAdminClientProperties(eventLogConfig.clientProperties(AdminClientConfig.configNames()))
         .setDefaultTopicConfig(eventLogConfig.defaultTopicConfig())
         .setDefaultTopicPartitions(eventLogConfig.getInt(EventLoggerConfig.TOPIC_PARTITIONS_CONFIG))
         .setDefaultTopicReplicas(eventLogConfig.getInt(EventLoggerConfig.TOPIC_REPLICAS_CONFIG))

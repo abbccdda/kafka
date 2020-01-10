@@ -6,13 +6,16 @@ package io.confluent.security.audit;
 import static io.confluent.security.audit.AuditLogConfig.AUDIT_PREFIX;
 import static io.confluent.security.audit.AuditLogConfig.toEventLoggerConfig;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.google.common.collect.ImmutableMap;
 import io.confluent.events.EventLoggerConfig;
 import io.confluent.events.exporter.kafka.KafkaExporter;
 import java.util.Map;
+import java.util.Properties;
 import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.config.SslConfigs;
@@ -77,6 +80,56 @@ public class AuditLogConfigTest {
         o.get(EventLoggerConfig.KAFKA_EXPORTER_PREFIX + SslConfigs.SSL_ENABLED_PROTOCOLS_CONFIG));
 
 
+  }
+
+  @Test
+  public void testAdminClientProperties() {
+    Map<String, Object> o = toEventLoggerConfig(ImmutableMap.<String, Object>builder()
+        .put(AUDIT_PREFIX + EventLoggerConfig.KAFKA_EXPORTER_PREFIX
+                + ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+            ByteArraySerializer.class.getName())
+        .put(AUDIT_PREFIX + EventLoggerConfig.EVENT_EXPORTER_CLASS_CONFIG,
+            KafkaExporter.class.getName())
+        .put(AuditLogConfig.ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig("foo:9093"))
+        .put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "bar:9093")
+        .put(AUDIT_PREFIX + EventLoggerConfig.TOPIC_REPLICAS_CONFIG, "1")
+        .build());
+
+    EventLoggerConfig config = new EventLoggerConfig(o);
+
+    Properties props = config.clientProperties(AdminClientConfig.configNames());
+    assertTrue(props.containsKey("bootstrap.servers"));
+    assertFalse(props.containsKey("value.serializer"));
+    assertFalse(props.containsKey("topic.config"));
+
+    for (String key : props.stringPropertyNames()) {
+      assertTrue(key + " not in expected set", AdminClientConfig.configNames().contains(key));
+    }
+  }
+
+  @Test
+  public void testProducerProperties() {
+    Map<String, Object> o = toEventLoggerConfig(ImmutableMap.<String, Object>builder()
+        .put(AUDIT_PREFIX + EventLoggerConfig.KAFKA_EXPORTER_PREFIX
+                + ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+            ByteArraySerializer.class.getName())
+        .put(AUDIT_PREFIX + EventLoggerConfig.EVENT_EXPORTER_CLASS_CONFIG,
+            KafkaExporter.class.getName())
+        .put(AuditLogConfig.ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig("foo:9093"))
+        .put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "bar:9093")
+        .put(AUDIT_PREFIX + EventLoggerConfig.TOPIC_REPLICAS_CONFIG, "1")
+        .build());
+
+    EventLoggerConfig config = new EventLoggerConfig(o);
+
+    Properties props = config.clientProperties(ProducerConfig.configNames());
+    assertTrue(props.containsKey("bootstrap.servers"));
+    assertTrue(props.containsKey("value.serializer"));
+    assertFalse(props.containsKey("topic.config"));
+
+    for (String key : props.stringPropertyNames()) {
+      assertTrue(key + " not in expected set", ProducerConfig.configNames().contains(key));
+    }
   }
 
 
