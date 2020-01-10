@@ -227,8 +227,6 @@ class DelayedFetchTest extends EasyMockSupport {
       responseCallback = callback
     )
 
-    val partition: Partition = mock(classOf[Partition])
-
     EasyMock.expect(replicaManager.getPartitionOrException(topicPartition, expectLeader = true))
       .andThrow(new ReplicaNotAvailableException(s"Replica for $topicPartition not available"))
     expectReadFromReplicaWithError(replicaId, topicPartition, fetchStatus.fetchInfo, Errors.REPLICA_NOT_AVAILABLE)

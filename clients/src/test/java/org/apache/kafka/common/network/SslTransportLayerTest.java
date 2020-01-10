@@ -114,9 +114,10 @@ public class SslTransportLayerTest {
         sslClientConfigs = getTrustingConfig(clientCertStores, serverCertStores);
         sslServerConfigs.putAll(sslConfigOverrides);
         sslClientConfigs.putAll(sslConfigOverrides);
-        this.channelBuilder = new SslChannelBuilder(Mode.CLIENT, null, false);
+        LogContext logContext = new LogContext();
+        this.channelBuilder = new SslChannelBuilder(Mode.CLIENT, null, false, logContext);
         this.channelBuilder.configure(sslClientConfigs);
-        this.selector = new Selector(5000, new Metrics(), time, "MetricGroup", channelBuilder, new LogContext());
+        this.selector = new Selector(5000, new Metrics(), time, "MetricGroup", channelBuilder, logContext);
     }
 
     @After
@@ -483,7 +484,7 @@ public class SslTransportLayerTest {
      */
     @Test
     public void testInvalidSecureRandomImplementation() throws Exception {
-        try (SslChannelBuilder channelBuilder = new SslChannelBuilder(Mode.CLIENT, null, false)) {
+        try (SslChannelBuilder channelBuilder = newClientChannelBuilder()) {
             sslClientConfigs.put(SslConfigs.SSL_SECURE_RANDOM_IMPLEMENTATION_CONFIG, "invalid");
             channelBuilder.configure(sslClientConfigs);
             fail("SSL channel configured with invalid SecureRandom implementation");
@@ -497,7 +498,7 @@ public class SslTransportLayerTest {
      */
     @Test
     public void testInvalidTruststorePassword() throws Exception {
-        try (SslChannelBuilder channelBuilder = new SslChannelBuilder(Mode.CLIENT, null, false)) {
+        try (SslChannelBuilder channelBuilder = newClientChannelBuilder()) {
             sslClientConfigs.put(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, "invalid");
             channelBuilder.configure(sslClientConfigs);
             fail("SSL channel configured with invalid truststore password");
@@ -511,7 +512,7 @@ public class SslTransportLayerTest {
      */
     @Test
     public void testInvalidKeystorePassword() throws Exception {
-        try (SslChannelBuilder channelBuilder = new SslChannelBuilder(Mode.CLIENT, null, false)) {
+        try (SslChannelBuilder channelBuilder = newClientChannelBuilder()) {
             sslClientConfigs.put(SslConfigs.SSL_KEYSTORE_PASSWORD_CONFIG, "invalid");
             channelBuilder.configure(sslClientConfigs);
             fail("SSL channel configured with invalid keystore password");
@@ -887,12 +888,16 @@ public class SslTransportLayerTest {
 
     @Test
     public void testCloseSsl() throws Exception {
-        testClose(SecurityProtocol.SSL, new SslChannelBuilder(Mode.CLIENT, null, false));
+        testClose(SecurityProtocol.SSL, newClientChannelBuilder());
     }
 
     @Test
     public void testClosePlaintext() throws Exception {
         testClose(SecurityProtocol.PLAINTEXT, new PlaintextChannelBuilder(Mode.CLIENT, null));
+    }
+    
+    private SslChannelBuilder newClientChannelBuilder() {
+        return new SslChannelBuilder(Mode.CLIENT, null, false, new LogContext());
     }
 
     private void testClose(SecurityProtocol securityProtocol, ChannelBuilder clientChannelBuilder) throws Exception {
@@ -948,7 +953,7 @@ public class SslTransportLayerTest {
         TestSecurityConfig config = new TestSecurityConfig(sslServerConfigs);
         ListenerName listenerName = ListenerName.forSecurityProtocol(securityProtocol);
         ChannelBuilder serverChannelBuilder = ChannelBuilders.serverChannelBuilder(listenerName,
-                true, securityProtocol, config, null, null, time);
+                true, securityProtocol, config, null, null, time, new LogContext());
         server = new NioEchoServer(listenerName, securityProtocol, config,
                 "localhost", serverChannelBuilder, null, time);
         server.start();
@@ -969,7 +974,8 @@ public class SslTransportLayerTest {
         sslServerConfigs.put(BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG, "required");
         TestSecurityConfig config = new TestSecurityConfig(sslServerConfigs);
         ListenerName listenerName = ListenerName.forSecurityProtocol(securityProtocol);
-        ChannelBuilders.serverChannelBuilder(listenerName, true, securityProtocol, config, null, null, time);
+        ChannelBuilders.serverChannelBuilder(listenerName, true, securityProtocol, config,
+                null, null, time, new LogContext());
     }
 
     /**
@@ -982,7 +988,7 @@ public class SslTransportLayerTest {
         TestSecurityConfig config = new TestSecurityConfig(sslServerConfigs);
         ListenerName listenerName = ListenerName.forSecurityProtocol(securityProtocol);
         ChannelBuilder serverChannelBuilder = ChannelBuilders.serverChannelBuilder(listenerName,
-                false, securityProtocol, config, null, null, time);
+                false, securityProtocol, config, null, null, time, new LogContext());
         server = new NioEchoServer(listenerName, securityProtocol, config,
                 "localhost", serverChannelBuilder, null, time);
         server.start();
@@ -1042,7 +1048,7 @@ public class SslTransportLayerTest {
         TestSecurityConfig config = new TestSecurityConfig(sslServerConfigs);
         ListenerName listenerName = ListenerName.forSecurityProtocol(securityProtocol);
         ChannelBuilder serverChannelBuilder = ChannelBuilders.serverChannelBuilder(listenerName,
-                false, securityProtocol, config, null, null, time);
+                false, securityProtocol, config, null, null, time, new LogContext());
         server = new NioEchoServer(listenerName, securityProtocol, config,
                 "localhost", serverChannelBuilder, null, time);
         server.start();
@@ -1154,7 +1160,7 @@ public class SslTransportLayerTest {
         int flushDelayCount = 0;
 
         public TestSslChannelBuilder(Mode mode) {
-            super(mode, ListenerName.forSecurityProtocol(SecurityProtocol.SSL), false);
+            super(mode, ListenerName.forSecurityProtocol(SecurityProtocol.SSL), false, new LogContext());
         }
 
         public void configureBufferSizes(Integer netReadBufSize, Integer netWriteBufSize, Integer appBufSize) {

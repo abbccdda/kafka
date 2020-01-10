@@ -16,7 +16,6 @@
 from ducktape.mark import parametrize, matrix
 from ducktape.mark.resource import cluster
 from ducktape.utils.util import wait_until
-
 from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.services.kafka import KafkaService
 from kafkatest.services.verifiable_producer import VerifiableProducer
@@ -36,6 +35,8 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
 
     def setUp(self):
         self.topic = "test_topic"
+        self.partitions = 3
+        self.replication_factor = 3
         self.zk = ZookeeperService(self.test_context, num_nodes=1)
         self.zk.start()
 
@@ -43,6 +44,11 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
         self.producer_throughput = 1000
         self.num_producers = 1
         self.num_consumers = 1
+
+    def wait_until_rejoin(self):
+        for partition in range(0, self.partitions):
+            wait_until(lambda: len(self.kafka.isr_idx_list(self.topic, partition)) == self.replication_factor, timeout_sec=60,
+                       backoff_sec=1, err_msg="Replicas did not rejoin the ISR in a reasonable amount of time")
 
     def perform_upgrade(self, from_kafka_version, to_message_format_version, from_tiered_storage, to_tiered_storage):
         if to_tiered_storage:
@@ -63,6 +69,7 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             node.config[config_property.INTER_BROKER_PROTOCOL_VERSION] = from_kafka_version
             node.config[config_property.MESSAGE_FORMAT_VERSION] = from_kafka_version
             self.kafka.start_node(node)
+            self.wait_until_rejoin()
 
         self.logger.info("Second pass bounce - remove inter.broker.protocol.version config")
         for node in self.kafka.nodes:
@@ -76,6 +83,7 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             node.config[config_property.CONFLUENT_TIER_FEATURE] = to_tiered_storage
             node.config[config_property.CONFLUENT_TIER_ENABLE] = to_tiered_storage
             self.kafka.start_node(node)
+            self.wait_until_rejoin()
 
     def add_tiered_storage_metrics(self):
         self.add_log_metrics(self.topic, partitions=range(0, self.PARTITIONS))
@@ -149,7 +157,8 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
                                   dist_version=dist_version,
                                   jmx_attributes=["Value"],
                                   jmx_object_names=["kafka.server:type=ReplicaManager,name=UnderReplicatedPartitions"],
-                                  topics={self.topic: {"partitions": self.PARTITIONS, "replication-factor": 3,
+                                  topics={self.topic: {"partitions": self.partitions,
+                                                       "replication-factor": self.replication_factor,
                                                        'configs': {"min.insync.replicas": 2}}})
 
         if from_tiered_storage or to_tiered_storage:
@@ -192,6 +201,8 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
         assert cluster_id is not None
         assert len(cluster_id) == 22
 
+        assert self.kafka.check_protocol_errors(self)
+
         if to_tiered_storage:
             if not from_tiered_storage:
                 self.add_tiered_storage_metrics()
@@ -201,3 +212,4 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             self.restart_jmx_tool()
             wait_until(lambda: self.tiering_started(self.topic, partitions=partitions),
                     timeout_sec=120, backoff_sec=2, err_msg="no evidence of archival within timeout")
+

@@ -254,7 +254,7 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
         metrics,
         time,
         COORDINATOR_METRICS_PREFIX,
-        ClientUtils.createChannelBuilder(coordinatorConfig, time),
+        ClientUtils.createChannelBuilder(coordinatorConfig, time, logContext),
         logContext);
 
    return new NetworkClient(

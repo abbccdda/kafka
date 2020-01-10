@@ -20,7 +20,6 @@ package kafka.tools
 import java.io.{File, ByteArrayOutputStream}
 import java.util.Properties
 
-import scala.collection.mutable
 import kafka.log._
 import kafka.server.{LogDirFailureChannel, BrokerTopicStats}
 import kafka.tools.DumpLogSegments.TimeIndexDumpErrors
@@ -32,6 +31,7 @@ import org.junit.{After, Before, Test}
 import org.scalatest.Assertions.fail
 
 import scala.collection.Seq
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 case class BatchInfo(records: Seq[SimpleRecord], hasKeys: Boolean, hasValues: Boolean)

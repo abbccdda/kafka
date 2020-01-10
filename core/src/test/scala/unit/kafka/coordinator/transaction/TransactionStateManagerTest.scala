@@ -469,6 +469,63 @@ class TransactionStateManagerTest {
     verifyMetadataDoesExistAndIsUsable(transactionalId2)
   }
 
+  @Test
+  def testSuccessfulReimmigration(): Unit = {
+    txnMetadata1.state = PrepareCommit
+    txnMetadata1.addPartitions(Set[TopicPartition](new TopicPartition("topic1", 0),
+      new TopicPartition("topic1", 1)))
+
+    txnRecords += new SimpleRecord(txnMessageKeyBytes1, TransactionLog.valueToBytes(txnMetadata1.prepareNoTransit()))
+    val startOffset = 0L
+    val records = MemoryRecords.withRecords(startOffset, CompressionType.NONE, txnRecords.toArray: _*)
+
+    prepareTxnLog(topicPartition, 0, records)
+
+    // immigrate partition at epoch 0
+    transactionManager.loadTransactionsForTxnTopicPartition(partitionId, coordinatorEpoch = 0, (_, _, _, _, _) => ())
+    assertEquals(0, transactionManager.loadingPartitions.size)
+    assertEquals(0, transactionManager.leavingPartitions.size)
+
+    // Re-immigrate partition at epoch 1. This should be successful even though we didn't get to emigrate the partition.
+    prepareTxnLog(topicPartition, 0, records)
+    transactionManager.loadTransactionsForTxnTopicPartition(partitionId, coordinatorEpoch = 1, (_, _, _, _, _) => ())
+    assertEquals(0, transactionManager.loadingPartitions.size)
+    assertEquals(0, transactionManager.leavingPartitions.size)
+    assertTrue(transactionManager.transactionMetadataCache.get(partitionId).isDefined)
+    assertEquals(1, transactionManager.transactionMetadataCache.get(partitionId).get.coordinatorEpoch)
+  }
+
+  @Test
+  def testLoadTransactionMetadataWithCorruptedLog(): Unit = {
+    // Simulate a case where startOffset < endOffset but log is empty. This could theoretically happen
+    // when all the records are expired and the active segment is truncated or when the partition
+    // is accidentally corrupted.
+    val startOffset = 0L
+    val endOffset = 10L
+
+    val logMock: AbstractLog = EasyMock.mock(classOf[AbstractLog])
+    EasyMock.expect(replicaManager.getLog(topicPartition)).andStubReturn(Some(logMock))
+    EasyMock.expect(logMock.logStartOffset).andStubReturn(startOffset)
+    EasyMock.expect(logMock.read(EasyMock.eq(startOffset),
+      maxLength = EasyMock.anyInt(),
+      isolation = EasyMock.eq(FetchLogEnd),
+      minOneMessage = EasyMock.eq(true))
+    ).andReturn(FetchDataInfo(LogOffsetMetadata(startOffset), MemoryRecords.EMPTY))
+    EasyMock.expect(replicaManager.getLogEndOffset(topicPartition)).andStubReturn(Some(endOffset))
+
+    EasyMock.replay(logMock)
+    EasyMock.replay(replicaManager)
+
+    transactionManager.loadTransactionsForTxnTopicPartition(partitionId, coordinatorEpoch = 0, (_, _, _, _, _) => ())
+
+    // let the time advance to trigger the background thread loading
+    scheduler.tick()
+
+    EasyMock.verify(logMock)
+    EasyMock.verify(replicaManager)
+    assertEquals(0, transactionManager.loadingPartitions.size)
+  }
+
   private def verifyMetadataDoesExistAndIsUsable(transactionalId: String): Unit = {
     transactionManager.getTransactionState(transactionalId) match {
       case Left(_) => fail("shouldn't have been any errors")
