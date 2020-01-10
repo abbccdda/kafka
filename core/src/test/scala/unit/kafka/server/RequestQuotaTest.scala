@@ -241,7 +241,8 @@ class RequestQuotaTest extends BaseRequestTest {
               .setZkVersion(2)
               .setReplicas(Seq(brokerId).asJava)
               .setIsNew(true)).asJava,
-            Set(new Node(brokerId, "localhost", 0)).asJava)
+            Set(new Node(brokerId, "localhost", 0)).asJava,
+            false)
 
         case ApiKeys.CONFLUENT_LEADER_AND_ISR =>
           val partitionStates = Seq(new LeaderAndIsrPartitionState()
@@ -257,6 +258,7 @@ class RequestQuotaTest extends BaseRequestTest {
             .setIsNew(true)).asJava
           LeaderAndIsrRequest.Builder.create(ApiKeys.LEADER_AND_ISR.latestVersion, brokerId, Int.MaxValue, Long.MaxValue,
             partitionStates, Set(new Node(brokerId, "localhost", 0)).asJava,
+            false,
             true)
 
         case ApiKeys.STOP_REPLICA =>

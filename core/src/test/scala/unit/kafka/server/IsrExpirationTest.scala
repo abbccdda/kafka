@@ -21,7 +21,6 @@ import java.util.Properties
 import java.util.concurrent.atomic.AtomicBoolean
 
 import kafka.log.AbstractLog
-import kafka.log.LogConfig
 import kafka.cluster.Partition
 import kafka.log.LogManager
 import kafka.utils._

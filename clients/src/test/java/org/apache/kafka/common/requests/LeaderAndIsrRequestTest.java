@@ -44,6 +44,7 @@ import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 import static org.apache.kafka.common.protocol.ApiKeys.LEADER_AND_ISR;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
@@ -53,7 +54,7 @@ public class LeaderAndIsrRequestTest {
     public void testUnsupportedVersion() {
         LeaderAndIsrRequest.Builder builder = new LeaderAndIsrRequest.Builder(
                 (short) (LEADER_AND_ISR.latestVersion() + 1), 0, 0, 0,
-                Collections.emptyList(), Collections.emptySet());
+                Collections.emptyList(), Collections.emptySet(), false);
         assertThrows(UnsupportedVersionException.class, builder::build);
     }
 
@@ -61,7 +62,7 @@ public class LeaderAndIsrRequestTest {
     public void testGetErrorResponse() {
         for (short version = LEADER_AND_ISR.oldestVersion(); version < LEADER_AND_ISR.latestVersion(); version++) {
             LeaderAndIsrRequest.Builder builder = new LeaderAndIsrRequest.Builder(version, 0, 0, 0,
-                    Collections.emptyList(), Collections.emptySet());
+                    Collections.emptyList(), Collections.emptySet(), false);
             LeaderAndIsrRequest request = builder.build();
             LeaderAndIsrResponse response = request.getErrorResponse(0,
                     new ClusterAuthorizationException("Not authorized"));
@@ -124,7 +125,7 @@ public class LeaderAndIsrRequestTest {
                 new Node(1, "host1", 9091)
             );
             LeaderAndIsrRequest request = new LeaderAndIsrRequest.Builder(version, 1, 2, 3, partitionStates,
-                liveNodes).build();
+                liveNodes, false).build();
 
             List<LeaderAndIsrLiveLeader> liveLeaders = liveNodes.stream().map(n -> new LeaderAndIsrLiveLeader()
                 .setBrokerId(n.id())
@@ -135,6 +136,7 @@ public class LeaderAndIsrRequestTest {
             assertEquals(1, request.controllerId());
             assertEquals(2, request.controllerEpoch());
             assertEquals(3, request.brokerEpoch());
+            assertFalse(request.containsAllReplicas());
 
             ByteBuffer byteBuffer = MessageTestUtil.messageToByteBuffer(request.data(), request.version());
             LeaderAndIsrRequest deserializedRequest = new LeaderAndIsrRequest(new LeaderAndIsrRequestData(
@@ -173,7 +175,7 @@ public class LeaderAndIsrRequestTest {
                 .setPartitionIndex(tp.partition()));
         }
         LeaderAndIsrRequest.Builder builder = new LeaderAndIsrRequest.Builder((short) 2, 0, 0, 0,
-            partitionStates, Collections.emptySet());
+            partitionStates, Collections.emptySet(), false);
 
         LeaderAndIsrRequest v2 = builder.build((short) 2);
         LeaderAndIsrRequest v1 = builder.build((short) 1);
@@ -181,6 +183,22 @@ public class LeaderAndIsrRequestTest {
         int size1 = MessageTestUtil.messageSize(v1.data(), v1.version());
 
         assertTrue("Expected v2 < v1: v2=" + size2 + ", v1=" + size1, size2 < size1);
+    }
+
+    @Test
+    public void testContainsAllReplicas() {
+        Set<TopicPartition> tps = TestUtils.generateRandomTopicPartitions(10, 10);
+        List<LeaderAndIsrPartitionState> partitionStates = new ArrayList<>();
+        for (TopicPartition tp : tps) {
+            partitionStates.add(new LeaderAndIsrPartitionState()
+                    .setTopicName(tp.topic())
+                    .setPartitionIndex(tp.partition()));
+        }
+        LeaderAndIsrRequest.Builder builder = new LeaderAndIsrRequest.Builder(LEADER_AND_ISR.latestVersion(), 0, 0, 0,
+                partitionStates, Collections.emptySet(), true);
+
+        LeaderAndIsrRequest request = builder.build();
+        assertTrue(request.containsAllReplicas());
     }
 
     private <T> Set<T> iterableToSet(Iterable<T> iterable) {

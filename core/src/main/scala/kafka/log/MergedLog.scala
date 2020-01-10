@@ -451,6 +451,12 @@ class MergedLog(private[log] val localLog: Log,
   // It will lookup the tier metadata from the TierPartitionState for each TierLogSegment
   override def tieredLogSegments: Iterable[TierLogSegment] = tieredLogSegments(0, Long.MaxValue)
 
+  override def stopTierMaterialization(): Unit = {
+    topicIdPartition.foreach { topicIdPartition =>
+      tierLogComponents.topicConsumerOpt.foreach(_.deregister(topicIdPartition))
+    }
+  }
+
   private[log] def tieredLogSegments(from: Long, to: Long): Iterable[TierLogSegment] = {
     TierUtils.tieredSegments(tieredOffsets(from, to), tierPartitionState, tierLogComponents.objectStoreOpt.asJava)
       .asScala.toIterable
@@ -1073,6 +1079,12 @@ sealed trait AbstractLog {
     * @return tier partition state instance
     */
   def tierPartitionState: TierPartitionState
+
+  /**
+    * Stop tier state materialization for this log. This is called when the partition
+    * is deleted from the broker.
+    */
+  def stopTierMaterialization(): Unit
 
   /**
     * Remove all log metrics

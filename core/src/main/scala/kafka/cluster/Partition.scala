@@ -161,6 +161,27 @@ object Partition extends KafkaMetricsGroup {
     removeMetric("IsNotCaughtUp", tags)
     removeMetric("ObserverReplicasCount", tags)
   }
+
+  def deleteLog(topicPartition: TopicPartition,
+                logManager: LogManager,
+                tierReplicaManagerOpt: Option[TierReplicaManager]): Unit = {
+    def maybeDeleteTieredLog(log: AbstractLog): Unit = {
+      log.topicIdPartition.foreach { topicIdPartition =>
+        log.stopTierMaterialization()
+        tierReplicaManagerOpt.foreach(_.delete(topicIdPartition))
+      }
+    }
+
+    logManager.getLog(topicPartition).foreach { log =>
+      maybeDeleteTieredLog(log)
+      logManager.asyncDelete(topicPartition)
+    }
+
+    logManager.getLog(topicPartition, isFuture = true).foreach { log =>
+      maybeDeleteTieredLog(log)
+      logManager.asyncDelete(topicPartition, isFuture = true)
+    }
+  }
 }
 
 
@@ -539,9 +560,7 @@ class Partition(val topicPartition: TopicPartition,
       leaderReplicaIdOpt = None
       leaderEpochStartOffsetOpt = None
       Partition.removeMetrics(topicPartition)
-      logManager.asyncDelete(topicPartition)
-      if (logManager.getLog(topicPartition, isFuture = true).isDefined)
-        logManager.asyncDelete(topicPartition, isFuture = true)
+      Partition.deleteLog(topicPartition, logManager, tierReplicaManagerOpt)
     }
   }
 

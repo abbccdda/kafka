@@ -178,6 +178,36 @@ class ControllerChannelManagerTest {
   }
 
   @Test
+  def testLeaderAndIsrRequestContainsAllReplicas(): Unit = {
+    val allBrokers = Seq(1, 2, 3)
+    val newBrokers = Seq(1, 2)
+    val context = initContext(allBrokers, mutable.Map("foo" -> UUID.randomUUID), 1, 3)
+    val batch = new MockControllerBrokerRequestBatch(context)
+
+    val partition = new TopicPartition("foo", 0)
+    val leaderAndIsr = LeaderAndIsr(1, List(1, 2))
+
+    val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)
+    context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
+
+    batch.newBatch()
+    batch.addLeaderAndIsrRequestForBrokers(allBrokers, partition, leaderIsrAndControllerEpoch, replicaAssignment(Seq(1, 2, 3)), isNew = false)
+    batch.setContainsAllReplicas(newBrokers.toSet)
+    batch.sendRequestsToBrokers(controllerEpoch)
+
+    allBrokers.foreach { brokerId =>
+      val leaderAndIsrRequests = batch.collectLeaderAndIsrRequestsFor(brokerId)
+      assertEquals(1, leaderAndIsrRequests.size)
+      val leaderAndIsrRequest = leaderAndIsrRequests.head
+
+      if (newBrokers.contains(brokerId))
+        assertTrue(leaderAndIsrRequest.containsAllReplicas)
+      else
+        assertFalse(leaderAndIsrRequest.containsAllReplicas)
+    }
+  }
+
+  @Test
   def testLeaderAndIsrRequestSentToLiveOrShuttingDownBrokers(): Unit = {
     val context = initContext(Seq(1, 2, 3), mutable.Map("foo" -> UUID.fromString("7957e4fe-3ceb-4c29-bd74-62bdb4e08cb4"),
       "bar" -> UUID.fromString("25ee26f4-f6b6-4961-95b4-a1c9a242451e")),2, 3)

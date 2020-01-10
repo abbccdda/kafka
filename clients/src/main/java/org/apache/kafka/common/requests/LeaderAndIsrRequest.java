@@ -46,25 +46,29 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
 
         private final List<LeaderAndIsrPartitionState> partitionStates;
         private final Collection<Node> liveLeaders;
+        private final boolean containsAllReplicas;
 
         public Builder(short version, int controllerId, int controllerEpoch, long brokerEpoch,
-            List<LeaderAndIsrPartitionState> partitionStates, Collection<Node> liveLeaders) {
+                       List<LeaderAndIsrPartitionState> partitionStates, Collection<Node> liveLeaders,
+                       boolean containsAllReplicas) {
             this(ApiKeys.LEADER_AND_ISR, version, controllerId, controllerEpoch, brokerEpoch,
-                partitionStates, liveLeaders);
+                partitionStates, liveLeaders, containsAllReplicas);
         }
 
         private Builder(ApiKeys apiKey, short version, int controllerId, int controllerEpoch,
                         long brokerEpoch, List<LeaderAndIsrPartitionState> partitionStates,
-                        Collection<Node> liveLeaders) {
+                        Collection<Node> liveLeaders, boolean containsAllReplicas) {
             super(apiKey, version, controllerId, controllerEpoch, brokerEpoch);
             this.partitionStates = partitionStates;
             this.liveLeaders = liveLeaders;
+            this.containsAllReplicas = containsAllReplicas;
         }
 
         public static Builder create(short version, int controllerId, int controllerEpoch,
                                      long brokerEpoch,
                                      List<LeaderAndIsrPartitionState> partitionStates,
                                      Collection<Node> liveLeaders,
+                                     boolean containsAllReplicas,
                                      boolean useConfluentRequest) {
             ApiKeys apiKey = ApiKeys.LEADER_AND_ISR;
             if (useConfluentRequest) {
@@ -75,7 +79,7 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
                     version = 0;
             }
             return new Builder(apiKey, version, controllerId, controllerEpoch, brokerEpoch, partitionStates,
-                liveLeaders);
+                    liveLeaders, containsAllReplicas);
         }
 
         @Override
@@ -119,7 +123,8 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
                 .setControllerId(controllerId)
                 .setControllerEpoch(controllerEpoch)
                 .setBrokerEpoch(brokerEpoch)
-                .setLiveLeaders(leaders);
+                .setLiveLeaders(leaders)
+                .setContainsAllReplicas(containsAllReplicas);
 
             if (version >= 2) {
                 Map<String, LeaderAndIsrTopicState> topicStatesMap = groupByTopic(partitionStates);
@@ -176,6 +181,7 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
                 .append(", controllerId=").append(controllerId)
                 .append(", controllerEpoch=").append(controllerEpoch)
                 .append(", brokerEpoch=").append(brokerEpoch)
+                .append(", containsAllReplicas=").append(containsAllReplicas)
                 .append(", partitionStates=").append(partitionStates)
                 .append(", liveLeaders=(").append(Utils.join(liveLeaders, ", ")).append(")")
                 .append(")");
@@ -263,6 +269,12 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
         if (data instanceof ConfluentLeaderAndIsrRequestData)
             return ((ConfluentLeaderAndIsrRequestData) data).brokerEpoch();
         return ((LeaderAndIsrRequestData) data).brokerEpoch();
+    }
+
+    public boolean containsAllReplicas() {
+        if (data instanceof ConfluentLeaderAndIsrRequestData)
+            return false;
+        return ((LeaderAndIsrRequestData) data).containsAllReplicas();
     }
 
     public Iterable<LeaderAndIsrPartitionState> partitionStates() {

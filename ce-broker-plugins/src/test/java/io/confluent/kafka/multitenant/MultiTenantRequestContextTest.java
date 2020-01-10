@@ -1426,7 +1426,8 @@ public class MultiTenantRequestContextTest {
               .setZkVersion(15)
               .setReplicas(Collections.emptyList())
               .setIsNew(false)),
-          Collections.emptySet()).build(ver);
+              Collections.emptySet(),
+              false).build(ver);
       LeaderAndIsrRequest request = (LeaderAndIsrRequest) parseRequest(context, inbound);
       assertTrue(context.shouldIntercept());
       LeaderAndIsrResponse response = (LeaderAndIsrResponse) context.intercept(request, 0);

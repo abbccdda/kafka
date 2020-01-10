@@ -283,7 +283,7 @@ class ReplicaManager(val config: KafkaConfig,
   /* epoch of the controller that last changed the leader */
   @volatile var controllerEpoch: Int = KafkaController.InitialControllerEpoch
   private val localBrokerId = config.brokerId
-  private val allPartitions = new Pool[TopicPartition, HostedPartition](
+  private[server] val allPartitions = new Pool[TopicPartition, HostedPartition](
     valueFactory = Some(tp => HostedPartition.Online(Partition(tp, time, this)))
   )
   private val replicaStateChangeLock = new Object
@@ -449,8 +449,6 @@ class ReplicaManager(val config: KafkaConfig,
     stateChangeLogger.trace(s"Handling stop replica (delete=$deletePartition) for partition $topicPartition")
 
     if (deletePartition) {
-      val topicIdPartitionOpt = logManager.getLog(topicPartition).flatMap(_.topicIdPartition)
-
       getPartition(topicPartition) match {
         case HostedPartition.Offline =>
           throw new KafkaStorageException(s"Partition $topicPartition is on an offline disk")
@@ -469,15 +467,7 @@ class ReplicaManager(val config: KafkaConfig,
 
       // Delete log and corresponding folders in case replica manager doesn't hold them anymore.
       // This could happen when topic is being deleted while broker is down and recovers.
-      if (logManager.getLog(topicPartition).isDefined)
-        logManager.asyncDelete(topicPartition)
-      if (logManager.getLog(topicPartition, isFuture = true).isDefined)
-        logManager.asyncDelete(topicPartition, isFuture = true)
-
-      topicIdPartitionOpt.foreach { topicIdPartition =>
-        tierReplicaComponents.logComponents.topicConsumerOpt.foreach(_.deregister(topicIdPartition))
-        tierReplicaComponents.replicaManagerOpt.foreach(_.delete(topicIdPartition))
-      }
+      Partition.deleteLog(topicPartition, logManager, tierReplicaComponents.replicaManagerOpt)
     }
 
     // If we were the leader, we may have some operations still waiting for completion.
@@ -485,6 +475,17 @@ class ReplicaManager(val config: KafkaConfig,
     completeDelayedRequests(topicPartition)
 
     stateChangeLogger.trace(s"Finished handling stop replica (delete=$deletePartition) for partition $topicPartition")
+  }
+
+  // package private for testing
+  private[server] def deleteStrayLogs(): Unit = {
+    val allReplicas = nonOfflinePartitionsIterator.map(_.topicPartition).toSet
+    logManager.allLogs.map(_.topicPartition).filterNot { topicPartition =>
+      allReplicas.contains(topicPartition)
+    }.foreach { strayPartition =>
+      warn(s"Deleting stray partition $strayPartition")
+      Partition.deleteLog(strayPartition, logManager, tierReplicaComponents.replicaManagerOpt)
+    }
   }
 
   private def completeDelayedRequests(topicPartition: TopicPartition): Unit = {
@@ -1584,6 +1585,10 @@ class ReplicaManager(val config: KafkaConfig,
         // we initialize highwatermark thread after the first leaderisrrequest. This ensures that all the partitions
         // have been completely populated before starting the checkpointing there by avoiding weird race conditions
         startHighWatermarkCheckPointThread()
+
+        // delete stray logs
+        if (leaderAndIsrRequest.containsAllReplicas)
+          deleteStrayLogs()
 
         val futureReplicasAndInitialOffset = new mutable.HashMap[TopicPartition, InitialFetchState]
         for (partition <- newPartitions) {

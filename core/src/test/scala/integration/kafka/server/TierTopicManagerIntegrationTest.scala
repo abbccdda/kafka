@@ -1,3 +1,6 @@
+/*
+ * Copyright 2019 Confluent Inc.
+ */
 package kafka.server
 
 import java.util.{Properties, UUID}
