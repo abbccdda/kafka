@@ -495,7 +495,7 @@ class MergedLog(private[log] val localLog: Log,
 
   private def maybeBeginTierMaterialization(): Unit = {
     // We can begin tier partition state materialization if tiering is enabled for the topic and if we have a topic id assigned
-    if (tierPartitionState.isTieringEnabled) {
+    if (!isDeleted && tierPartitionState.isTieringEnabled) {
       val clientCtx = new ClientCtx {
         override def process(metadata: AbstractTierMetadata, offset: Long): TierPartitionState.AppendResult = tierPartitionState.append(metadata, offset)
         override def status: TierPartitionStatus = tierPartitionState.status

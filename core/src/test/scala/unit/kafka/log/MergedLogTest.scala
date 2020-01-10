@@ -7,6 +7,7 @@ package kafka.log
 import java.io.File
 import java.io.FileInputStream
 import java.nio.ByteBuffer
+import java.nio.file.Files
 import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, ScheduledFuture, TimeUnit}
 import java.util.UUID
 
@@ -1084,6 +1085,23 @@ class MergedLogTest {
     }
   }
 
+  @Test
+  def testTierConsumerRegistrationForDeletedLog(): Unit = {
+    val deletedDir = new File(Log.logDeleteDirName(Log.parseTopicPartitionName(logDir)))
+    Files.createDirectory(deletedDir.toPath)
+    val logConfig = LogTest.createLogConfig(tierEnable = true)
+    val log = createMergedLog(logConfig, logDir = deletedDir)
+
+    try {
+      log.assignTopicId(UUID.randomUUID)
+    } finally {
+      log.close()
+      Utils.delete(deletedDir)
+    }
+
+    verifyZeroInteractions(tierTopicConsumer)
+  }
+
   private def initializeTierPartitionState(tierPartitionState: TierPartitionState, epoch: Int): Unit = {
     // append an init message
     tierPartitionState.setTopicId(topicIdPartition.topicId)
@@ -1106,7 +1124,10 @@ class MergedLogTest {
       LogRanges(firstTieredOffset, lastTieredOffset, firstLocalOffset, lastLocalOffset, None, None)
   }
 
-  private def createMergedLog(config: LogConfig, scheduler: Scheduler = mockTime.scheduler, logStartOffset: Long = 0L): MergedLog = {
+  private def createMergedLog(config: LogConfig,
+                              scheduler: Scheduler = mockTime.scheduler,
+                              logStartOffset: Long = 0L,
+                              logDir: File = logDir): MergedLog = {
     MergedLogTest.createMergedLog(tierLogComponents, logDir, config, brokerTopicStats, scheduler, mockTime, logStartOffset)
   }
 
