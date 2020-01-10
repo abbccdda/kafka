@@ -4,22 +4,32 @@
 
 package com.linkedin.kafka.cruisecontrol.executor;
 
-import com.yammer.metrics.core.Gauge;
-import com.yammer.metrics.core.MetricName;
-import com.yammer.metrics.core.MetricsRegistry;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
-import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.common.MetadataClient;
+import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.detector.AnomalyDetector;
 import com.linkedin.kafka.cruisecontrol.executor.strategy.ReplicaMovementStrategy;
 import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
-import java.time.Instant;
+import com.yammer.metrics.core.Gauge;
+import com.yammer.metrics.core.MetricName;
+import com.yammer.metrics.core.MetricsRegistry;
+import kafka.zk.KafkaZkClient;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.common.Cluster;
+import org.apache.kafka.common.Node;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.utils.Time;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -31,24 +41,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-import kafka.zk.KafkaZkClient;
-import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.common.Cluster;
-import org.apache.kafka.common.Node;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.utils.Time;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import java.util.Collection;
-import java.util.List;
 
-import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.currentUtcDate;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.OPERATION_LOGGER;
+import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.currentUtcDate;
 import static com.linkedin.kafka.cruisecontrol.executor.ExecutionTaskTracker.ExecutionTasksSummary;
 import static com.linkedin.kafka.cruisecontrol.executor.ExecutorAdminUtils.executeIntraBrokerReplicaMovements;
 import static com.linkedin.kafka.cruisecontrol.executor.ExecutorAdminUtils.getLogdirInfoForExecutionTask;
 import static com.linkedin.kafka.cruisecontrol.executor.ExecutorAdminUtils.isOngoingIntraBrokerReplicaMovement;
-
 import static org.apache.kafka.clients.admin.DescribeReplicaLogDirsResult.ReplicaLogDirInfo;
 
 /**
@@ -86,8 +85,6 @@ public class Executor {
   private volatile ExecutorState _executorState;
   private volatile String _uuid;
   private final ExecutorNotifier _executorNotifier;
-  private final long _selfHealingPauseMs;
-  private volatile long _selfHealingResumeTime;
 
   private AtomicInteger _numExecutionStopped;
   private AtomicInteger _numExecutionStoppedByUser;
@@ -231,8 +228,6 @@ public class Executor {
                                                          TimeUnit.SECONDS);
     _throttleHelper = new ReplicationThrottleHelper(_kafkaZkClient,
         config.getLong(KafkaCruiseControlConfig.DEFAULT_REPLICATION_THROTTLE_CONFIG), loadMonitor);
-    _selfHealingPauseMs = config.getLong(KafkaCruiseControlConfig.BROKER_FAILURE_SELF_HEALING_PAUSE_MS_CONFIG);
-    _selfHealingResumeTime = _time.milliseconds();
   }
 
   public void startUp() {
@@ -392,7 +387,6 @@ public class Executor {
    * @param requestedLeadershipMovementConcurrency The maximum number of concurrent leader movements
    *                                               (if null, use num.concurrent.leader.movements).
    * @param replicaMovementStrategy The strategy used to determine the execution order of generated replica movement tasks.
-   * @param userTriggeredExecution Whether this was triggered by a user (via the REST API) or by the AnomalyDetector (via self-healing)
    * @param replicationThrottle The replication throttle (bytes/second) to apply to both leaders and followers
    *                            when executing a proposal (if null, no throttling is applied).
    * @param uuid UUID of the execution.
@@ -406,11 +400,10 @@ public class Executor {
                                             Integer requestedLeadershipMovementConcurrency,
                                             ReplicaMovementStrategy replicaMovementStrategy,
                                             Long replicationThrottle,
-                                            String uuid,
-                                            boolean userTriggeredExecution) {
+                                            String uuid) {
     initProposalExecution(proposals, unthrottledBrokers, loadMonitor, requestedInterBrokerPartitionMovementConcurrency,
                           requestedIntraBrokerPartitionMovementConcurrency, requestedLeadershipMovementConcurrency,
-                          replicaMovementStrategy, uuid, userTriggeredExecution);
+                          replicaMovementStrategy, uuid);
     startExecution(loadMonitor, null, removedBrokers, replicationThrottle);
   }
 
@@ -422,16 +415,9 @@ public class Executor {
                                           Integer requestedIntraBrokerPartitionMovementConcurrency,
                                           Integer requestedLeadershipMovementConcurrency,
                                           ReplicaMovementStrategy replicaMovementStrategy,
-                                          String uuid,
-                                          boolean userTriggeredExecution) {
+                                          String uuid) {
     if (_hasOngoingExecution) {
       throw new IllegalStateException("Cannot execute new proposals while there is an ongoing execution.");
-    }
-
-    if (!userTriggeredExecution && _time.milliseconds() < _selfHealingResumeTime) {
-      throw new IllegalStateException(String.format(
-              "Cannot execute self-healing proposals because self-healing is paused until %s",
-              Instant.ofEpochMilli(_selfHealingResumeTime)));
     }
 
     if (loadMonitor == null) {
@@ -472,7 +458,7 @@ public class Executor {
                                                   Long replicationThrottle,
                                                   String uuid) {
     initProposalExecution(proposals, demotedBrokers, loadMonitor, concurrentSwaps, 0, requestedLeadershipMovementConcurrency,
-                          replicaMovementStrategy, uuid, false);
+                          replicaMovementStrategy, uuid);
     startExecution(loadMonitor, demotedBrokers, null, replicationThrottle);
   }
 
@@ -840,7 +826,6 @@ public class Executor {
       _state = ExecutorState.State.NO_TASK_IN_PROGRESS;
       // The _executorState might be inconsistent with _state if the user checks it between the two assignments.
       _executorState = ExecutorState.noTaskInProgress(_recentlyDemotedBrokers, _recentlyRemovedBrokers);
-      _selfHealingResumeTime = _time.milliseconds() + _selfHealingPauseMs;
       _hasOngoingExecution = false;
       _stopRequested.set(false);
       _executionStoppedByUser.set(false);

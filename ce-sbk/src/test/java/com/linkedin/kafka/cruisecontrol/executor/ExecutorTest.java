@@ -4,28 +4,18 @@
 
 package com.linkedin.kafka.cruisecontrol.executor;
 
-import com.yammer.metrics.core.MetricsRegistry;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import com.linkedin.kafka.cruisecontrol.common.MetadataClient;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityConfigFileResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
-import com.linkedin.kafka.cruisecontrol.metricsreporter.utils.CCKafkaClientsIntegrationTestHarness;
-import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
 import com.linkedin.kafka.cruisecontrol.detector.AnomalyDetector;
 import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType;
+import com.linkedin.kafka.cruisecontrol.metricsreporter.utils.CCKafkaClientsIntegrationTestHarness;
+import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.NoopSampler;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
-
+import com.yammer.metrics.core.MetricsRegistry;
 import kafka.log.LogConfig;
 import kafka.log.LogConfig$;
 import kafka.server.ConfigType;
@@ -56,24 +46,32 @@ import org.apache.kafka.test.TestUtils;
 import org.easymock.Capture;
 import org.easymock.CaptureType;
 import org.easymock.EasyMock;
-import org.junit.Assert;
-import org.junit.Test;
-import org.junit.Before;
 import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
 
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC0;
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC1;
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC2;
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC3;
 import static com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig.NO_THROTTLE;
-import static com.linkedin.kafka.cruisecontrol.executor.ExecutorNotification.ActionAgent.EXECUTION_COMPLETION;
 import static com.linkedin.kafka.cruisecontrol.executor.ExecutorNotification.ActionAgent.CRUISE_CONTROL;
+import static com.linkedin.kafka.cruisecontrol.executor.ExecutorNotification.ActionAgent.EXECUTION_COMPLETION;
 import static com.linkedin.kafka.cruisecontrol.executor.ExecutorNotification.ActionAgent.UNKNOWN;
 import static java.lang.String.valueOf;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
@@ -301,7 +299,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
 
       // Initialize the proposal
       executor.initProposalExecution(proposalsToExecute, Collections.emptySet(), loadMonitor, null, null, null,
-                                     null, RANDOM_UUID, true);
+                                     null, RANDOM_UUID);
 
       // Delete the topic after the proposal has been initialized but before it is executed.
       deleteTopics(Collections.singletonList(TOPIC0));
@@ -362,8 +360,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                               null,
                               null,
                               NO_THROTTLE,
-                              RANDOM_UUID,
-                              true);
+                              RANDOM_UUID);
     // Wait until the execution to start so the task timestamp is set to time.milliseconds.
     while (executor.state().state() != ExecutorState.State.LEADER_MOVEMENT_TASK_IN_PROGRESS) {
       Thread.sleep(10);
@@ -429,8 +426,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                 null,
                 null,
                 override,
-                RANDOM_UUID,
-                true);
+            RANDOM_UUID);
         String expectedThrottle = override == null ? null : override.toString();
         String expectedReplicaLeaderThrottle = override == null ? null : "0:0,0:1";
         String expectedReplicaFollowerThrottle = override == null ? null : "0:0,0:1";
@@ -518,8 +514,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                 1,
                 null,
                 initialThrottle,
-                RANDOM_UUID,
-                true);
+            RANDOM_UUID);
 
         String expectedThrottle = initialThrottle == null ? null : Long.toString(initialThrottle);
         waitForAssert(() -> {
@@ -613,7 +608,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                                      43200000L, mockExecutorNotifier, getMockAnomalyDetector(uuid));
     executor.setExecutionMode(false);
     executor.executeProposals(proposalsToExecute, Collections.emptySet(), null, EasyMock.mock(LoadMonitor.class), null,
-                              null, null, null, NO_THROTTLE, uuid, true);
+                              null, null, null, NO_THROTTLE, uuid);
     waitUntilExecutionFinishes(executor);
 
     executor.shutdown();
@@ -650,40 +645,6 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   }
 
   @Test
-  public void testPauseSelfHealingAfterExecution() throws Exception {
-    Map<String, TopicDescription> topicDescriptions = createTopics();
-    int initialLeader0 = topicDescriptions.get(TOPIC0).partitions().get(0).leader().id();
-    int initialLeader1 = topicDescriptions.get(TOPIC1).partitions().get(0).leader().id();
-
-    ExecutionProposal proposal0 =
-            new ExecutionProposal(TP0, 0, new ReplicaPlacementInfo(initialLeader0),
-                    Collections.singletonList(new ReplicaPlacementInfo(initialLeader0)),
-                    Collections.singletonList(new ReplicaPlacementInfo(initialLeader0 == 0 ? 1 : 0)));
-    ExecutionProposal proposal1 =
-            new ExecutionProposal(TP1, 0, new ReplicaPlacementInfo(initialLeader1),
-                    Arrays.asList(new ReplicaPlacementInfo(initialLeader1), new ReplicaPlacementInfo(initialLeader1 == 0 ? 1 : 0)),
-                    Arrays.asList(new ReplicaPlacementInfo(initialLeader1 == 0 ? 1 : 0), new ReplicaPlacementInfo(initialLeader1)));
-
-    Collection<ExecutionProposal> proposals = Arrays.asList(proposal0, proposal1);
-
-    KafkaCruiseControlConfig configs = new KafkaCruiseControlConfig(getExecutorProperties());
-    Executor executor = new Executor(configs, new SystemTime(), new MetricsRegistry(), null, 86400000L,
-            43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
-    executor.setExecutionMode(false);
-    executor.executeProposals(proposals, Collections.emptySet(), null, EasyMock.mock(LoadMonitor.class), null,
-            null, null, null, NO_THROTTLE, RANDOM_UUID, false);
-    waitUntilExecutionFinishes(executor);
-
-    // Attempt to execute proposals again, should throw an exception because self-healing is paused
-    Assert.assertThrows("Cannot execute self-healing proposals because self-healing is paused",
-        IllegalStateException.class,
-            () -> executor.executeProposals(proposals, Collections.emptySet(), null, EasyMock.mock(LoadMonitor.class), null,
-            null, null, null, NO_THROTTLE, RANDOM_UUID, false));
-
-    executor.shutdown();
-  }
-
-  @Test
   public void testUserTriggeredExecutionDuringSelfHealingPause() throws Exception {
     Map<String, TopicDescription> topicDescriptions = createTopics();
     int initialLeader0 = topicDescriptions.get(TOPIC0).partitions().get(0).leader().id();
@@ -705,12 +666,12 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
             43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
     executor.setExecutionMode(false);
     executor.executeProposals(proposals, Collections.emptySet(), null, EasyMock.mock(LoadMonitor.class), null,
-            null, null, null, NO_THROTTLE, RANDOM_UUID, false);
+            null, null, null, NO_THROTTLE, RANDOM_UUID);
     waitUntilExecutionFinishes(executor);
 
     // Execute proposals again with userTriggeredExecution set to true to bypass self-healing pause. Should not raise an IllegalStateException
     executor.executeProposals(proposals, Collections.emptySet(), null, EasyMock.mock(LoadMonitor.class), null,
-            null, null, null, NO_THROTTLE, RANDOM_UUID, true);
+            null, null, null, NO_THROTTLE, RANDOM_UUID);
 
     executor.shutdown();
   }
@@ -870,8 +831,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   }
 
   /**
-   * A helper method that wraps #{@link TestUtils#waitForCondition()}
-   * with a condition that can throw #{@link AssertionError}
+   * A helper method that wraps #{@link TestUtils#waitForCondition(TestCondition testCondition, long maxWaitMs,
+   * String conditionDetails)} with a condition that can throw #{@link AssertionError}
    */
   private void waitForAssert(TestCondition testCondition, long maxWaitMs, String conditionDetails)
       throws InterruptedException {
@@ -893,7 +854,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     executor.setExecutionMode(false);
     executor.executeProposals(proposalsToExecute, Collections.emptySet(), null, EasyMock.mock(LoadMonitor.class), null,
         null, null, null,
-        replicationThrottle, RANDOM_UUID, true);
+        replicationThrottle, RANDOM_UUID);
 
     return executor;
   }

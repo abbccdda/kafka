@@ -4,12 +4,12 @@
 
 package com.linkedin.kafka.cruisecontrol;
 
-import com.yammer.metrics.core.MetricsRegistry;
 import com.linkedin.kafka.cruisecontrol.analyzer.AnalyzerUtils;
+import com.linkedin.kafka.cruisecontrol.analyzer.GoalOptimizer;
 import com.linkedin.kafka.cruisecontrol.analyzer.OptimizerResult;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.Goal;
-import com.linkedin.kafka.cruisecontrol.analyzer.GoalOptimizer;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.PreferredLeaderElectionGoal;
+import com.linkedin.kafka.cruisecontrol.async.progress.OperationProgress;
 import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.common.MetadataClient;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
@@ -19,7 +19,6 @@ import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType;
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import com.linkedin.kafka.cruisecontrol.executor.ExecutionProposal;
 import com.linkedin.kafka.cruisecontrol.executor.Executor;
-import com.linkedin.kafka.cruisecontrol.async.progress.OperationProgress;
 import com.linkedin.kafka.cruisecontrol.executor.ExecutorState;
 import com.linkedin.kafka.cruisecontrol.executor.strategy.ReplicaMovementStrategy;
 import com.linkedin.kafka.cruisecontrol.model.Broker;
@@ -27,12 +26,20 @@ import com.linkedin.kafka.cruisecontrol.model.ClusterModel;
 import com.linkedin.kafka.cruisecontrol.model.ModelParameters;
 import com.linkedin.kafka.cruisecontrol.model.ModelUtils;
 import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
-import com.linkedin.kafka.cruisecontrol.monitor.ModelCompletenessRequirements;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
+import com.linkedin.kafka.cruisecontrol.monitor.ModelCompletenessRequirements;
 import com.linkedin.kafka.cruisecontrol.monitor.MonitorUtils;
 import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
 import com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState;
 import com.linkedin.kafka.cruisecontrol.servlet.response.stats.BrokerStats;
+import com.yammer.metrics.core.MetricsRegistry;
+import org.apache.kafka.common.Cluster;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.utils.SystemTime;
+import org.apache.kafka.common.utils.Time;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.InputStream;
 import java.util.Arrays;
 import java.util.Collection;
@@ -47,27 +54,21 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.apache.kafka.common.Cluster;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.utils.SystemTime;
-import org.apache.kafka.common.utils.Time;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.ensureDisJoint;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.isKafkaAssignerMode;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.populateRackInfoForReplicationFactorChange;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.sanityCheckBrokersHavingOfflineReplicasOnBadDisks;
-import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.sanityCheckNonExistingGoal;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.sanityCheckNoOfflineReplica;
+import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.sanityCheckNonExistingGoal;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.sanityCheckOfflineReplicaPresence;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.shouldRefreshClusterAndGeneration;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.topicsForReplicationFactorChange;
 import static com.linkedin.kafka.cruisecontrol.model.Disk.State.DEMOTED;
-import static com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState.SubState.EXECUTOR;
 import static com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState.SubState.ANALYZER;
-import static com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState.SubState.MONITOR;
 import static com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState.SubState.ANOMALY_DETECTOR;
+import static com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState.SubState.EXECUTOR;
+import static com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState.SubState.MONITOR;
 
 
 /**
@@ -201,8 +202,7 @@ public class KafkaCruiseControl {
                                                            String uuid,
                                                            boolean excludeRecentlyDemotedBrokers,
                                                            boolean excludeRecentlyRemovedBrokers,
-                                                           Set<Integer> requestedDestinationBrokerIds,
-                                                           boolean userTriggeredExecution)
+                                                           Set<Integer> requestedDestinationBrokerIds)
       throws KafkaCruiseControlException {
     sanityCheckDryRun(dryRun);
     sanityCheckHardGoalPresence(goals, skipHardGoalCheck);
@@ -226,7 +226,7 @@ public class KafkaCruiseControl {
       if (!dryRun) {
         executeRemoval(result.goalProposals(), throttleDecommissionedBroker, removedBrokers, isKafkaAssignerMode(goals),
                        concurrentInterBrokerPartitionMovements, concurrentLeaderMovements, replicaMovementStrategy,
-                       replicationThrottle, uuid, userTriggeredExecution);
+                       replicationThrottle, uuid);
       }
       return result;
     } catch (KafkaCruiseControlException kcce) {
@@ -257,7 +257,6 @@ public class KafkaCruiseControl {
    * @param uuid UUID of the execution.
    * @param excludeRecentlyDemotedBrokers Exclude recently demoted brokers from proposal generation for leadership transfer.
    * @param excludeRecentlyRemovedBrokers Exclude recently removed brokers from proposal generation for replica transfer.
-   * @param userTriggeredExecution Whether this was triggered by a user (via the REST API) or by the AnomalyDetector (via self-healing)
    * @return the optimization result.
    *
    * @throws KafkaCruiseControlException when any exception occurred during the process of fixing offline replicas.
@@ -275,8 +274,7 @@ public class KafkaCruiseControl {
                                                           Long replicationThrottle,
                                                           String uuid,
                                                           boolean excludeRecentlyDemotedBrokers,
-                                                          boolean excludeRecentlyRemovedBrokers,
-                                                          boolean userTriggeredExecution)
+                                                          boolean excludeRecentlyRemovedBrokers)
       throws KafkaCruiseControlException {
     sanityCheckDryRun(dryRun);
     sanityCheckHardGoalPresence(goals, skipHardGoalCheck);
@@ -306,8 +304,7 @@ public class KafkaCruiseControl {
                          concurrentLeaderMovements,
                          replicaMovementStrategy,
                          replicationThrottle,
-                         uuid,
-                         userTriggeredExecution);
+                         uuid);
       }
       return result;
     } catch (KafkaCruiseControlException kcce) {
@@ -359,7 +356,6 @@ public class KafkaCruiseControl {
    * @param uuid UUID of the execution.
    * @param excludeRecentlyDemotedBrokers Exclude recently demoted brokers from proposal generation for leadership transfer.
    * @param excludeRecentlyRemovedBrokers Exclude recently removed brokers from proposal generation for replica transfer.
-   * @param userTriggeredExecution Whether this was triggered by a user (via the REST API) or by the AnomalyDetector (via self-healing)
    * @return The optimization result.
    * @throws KafkaCruiseControlException When any exception occurred during the broker addition.
    */
@@ -378,8 +374,7 @@ public class KafkaCruiseControl {
                                                   Long replicationThrottle,
                                                   String uuid,
                                                   boolean excludeRecentlyDemotedBrokers,
-                                                  boolean excludeRecentlyRemovedBrokers,
-                                                  boolean userTriggeredExecution) throws KafkaCruiseControlException {
+                                                  boolean excludeRecentlyRemovedBrokers) throws KafkaCruiseControlException {
     sanityCheckDryRun(dryRun);
     sanityCheckHardGoalPresence(goals, skipHardGoalCheck);
     List<Goal> goalsByPriority = goalsByPriority(goals);
@@ -410,8 +405,7 @@ public class KafkaCruiseControl {
                          concurrentLeaderMovements,
                          replicaMovementStrategy,
                          replicationThrottle,
-                         uuid,
-                         userTriggeredExecution);
+                         uuid);
       }
       return result;
     } catch (KafkaCruiseControlException kcce) {
@@ -469,7 +463,6 @@ public class KafkaCruiseControl {
    * @param requestedDestinationBrokerIds Explicitly requested destination broker Ids to limit the replica movement to
    *                                      these brokers (if empty, no explicit filter is enforced -- cannot be null).
    * @param isRebalanceDiskMode Whether rebalance between brokers or disks within the brokers.
-   * @param userTriggeredExecution Whether this was triggered by a user (via the REST API) or by the AnomalyDetector (via self-healing)
    * @return The optimization result.
    * @throws KafkaCruiseControlException When the rebalance encounter errors.
    */
@@ -491,8 +484,7 @@ public class KafkaCruiseControl {
                                                  boolean ignoreProposalCache,
                                                  boolean isTriggeredByGoalViolation,
                                                  Set<Integer> requestedDestinationBrokerIds,
-                                                 boolean isRebalanceDiskMode,
-                                                 boolean userTriggeredExecution) throws KafkaCruiseControlException {
+                                                 boolean isRebalanceDiskMode) throws KafkaCruiseControlException {
     sanityCheckDryRun(dryRun);
     OptimizerResult result = getProposals(goals, requirements, operationProgress,
                                           allowCapacityEstimation, skipHardGoalCheck,
@@ -505,8 +497,7 @@ public class KafkaCruiseControl {
     if (!dryRun) {
       executeProposals(result.goalProposals(), Collections.emptySet(), isKafkaAssignerMode(goals),
                        concurrentInterBrokerPartitionMovements, concurrentIntraBrokerPartitionMovements, concurrentLeaderMovements,
-                       replicaMovementStrategy, replicationThrottle, uuid,
-                       userTriggeredExecution);
+                       replicaMovementStrategy, replicationThrottle, uuid);
     }
     return result;
   }
@@ -972,7 +963,6 @@ public class KafkaCruiseControl {
    * @param replicationThrottle The replication throttle (bytes/second) to apply to both leaders and followers
    *                            when executing proposals (if null, no throttling is applied).
    * @param uuid UUID of the execution.
-   * @param userTriggeredExecution Whether this was triggered by a user (via the REST API) or by the AnomalyDetector (via self-healing)
    */
   private void executeProposals(Set<ExecutionProposal> proposals,
                                 Set<Integer> unthrottledBrokers,
@@ -982,15 +972,14 @@ public class KafkaCruiseControl {
                                 Integer concurrentLeaderMovements,
                                 ReplicaMovementStrategy replicaMovementStrategy,
                                 Long replicationThrottle,
-                                String uuid,
-                                boolean userTriggeredExecution) {
+                                String uuid) {
     if (hasProposalsToExecute(proposals, uuid)) {
       // Set the execution mode, add execution proposals, and start execution.
       _executor.setExecutionMode(isKafkaAssignerMode);
       _executor.executeProposals(proposals, unthrottledBrokers, null, _loadMonitor,
                                  concurrentInterBrokerPartitionMovements, concurrentIntraBrokerPartitionMovements,
                                  concurrentLeaderMovements, replicaMovementStrategy, replicationThrottle,
-                                 uuid, userTriggeredExecution);
+                                 uuid);
     }
   }
 
@@ -1018,15 +1007,13 @@ public class KafkaCruiseControl {
                               Integer concurrentLeaderMovements,
                               ReplicaMovementStrategy replicaMovementStrategy,
                               Long replicationThrottle,
-                              String uuid,
-                              boolean userTriggeredExecution) {
+                              String uuid) {
     if (hasProposalsToExecute(proposals, uuid)) {
       // Set the execution mode, add execution proposals, and start execution.
       _executor.setExecutionMode(isKafkaAssignerMode);
       _executor.executeProposals(proposals, throttleDecommissionedBroker ? Collections.emptySet() : removedBrokers,
                                  removedBrokers, _loadMonitor, concurrentInterBrokerPartitionMovements, 0,
-                                 concurrentLeaderMovements, replicaMovementStrategy, replicationThrottle, uuid,
-                                 userTriggeredExecution);
+                                 concurrentLeaderMovements, replicaMovementStrategy, replicationThrottle, uuid);
     }
   }
 
@@ -1181,7 +1168,7 @@ public class KafkaCruiseControl {
                                             true);
       if (!dryRun) {
         executeProposals(result.goalProposals(), Collections.emptySet(), false, concurrentInterBrokerPartitionMovements,
-                         0, concurrentLeaderMovements, replicaMovementStrategy, replicationThrottle, uuid, false);
+                         0, concurrentLeaderMovements, replicaMovementStrategy, replicationThrottle, uuid);
       }
     } catch (KafkaCruiseControlException kcce) {
       throw kcce;

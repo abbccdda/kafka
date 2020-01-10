@@ -16,7 +16,10 @@ import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType;
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import com.linkedin.kafka.cruisecontrol.executor.ExecutorState;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
-import com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.easymock.EasyMock;
+import org.junit.Test;
+
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -26,17 +29,9 @@ import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.kafka.clients.admin.AdminClient;
-
-import org.apache.kafka.common.utils.MockTime;
-import org.apache.kafka.common.utils.Time;
-import org.easymock.EasyMock;
-import org.junit.Ignore;
-import org.junit.Test;
-
 import static com.linkedin.kafka.cruisecontrol.detector.AnomalyDetectorState.NUM_SELF_HEALING_STARTED;
-import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 
 /**
@@ -130,7 +125,6 @@ public class AnomalyDetectorTest {
                                                    EasyMock.eq(TimeUnit.MILLISECONDS)))
             .andReturn(null);
     shutdownDetector(mockDetectorScheduler, executorService);
-    Time time = new MockTime();
 
     // The following state are used to test the delayed check when executor is idle.
     EasyMock.expect(mockKafkaCruiseControl.executionState()).andReturn(ExecutorState.State.NO_TASK_IN_PROGRESS);
@@ -140,7 +134,7 @@ public class AnomalyDetectorTest {
     AnomalyDetector anomalyDetector = new AnomalyDetector(anomalies, mockAdminClient, MOCK_ANOMALY_DETECTION_INTERVAL_MS, mockKafkaCruiseControl,
                                                           mockAnomalyNotifier, mockGoalViolationDetector, mockBrokerFailureDetector,
                                                           mockMetricAnomalyDetector, mockDiskFailureDetector, mockDetectorScheduler,
-                                                          EasyMock.mock(LoadMonitor.class), time, 900000L);
+                                                          EasyMock.mock(LoadMonitor.class));
 
     try {
       anomalyDetector.startDetection();
@@ -154,7 +148,6 @@ public class AnomalyDetectorTest {
       assertEquals(0, anomalyDetector.numSelfHealingStarted());
       assertEquals(1, anomalyDetector.numCheckedWithDelay());
       assertTrue(executorService.awaitTermination(5000, TimeUnit.MILLISECONDS));
-      assertEquals(time.milliseconds() + 900000, anomalyDetector.selfHealingResumeTime());
       AnomalyDetectorState anomalyDetectorState = anomalyDetector.anomalyDetectorState();
       assertEquals((long) anomalyDetectorState.metrics().get(NUM_SELF_HEALING_STARTED), 0L);
       assertEquals(anomalyDetectorState.recentAnomaliesByType().get(AnomalyType.BROKER_FAILURE).size(), 1);
@@ -217,7 +210,6 @@ public class AnomalyDetectorTest {
                                                        EasyMock.eq(false),
                                                        EasyMock.eq(true),
                                                        EasyMock.eq(Collections.emptySet()),
-                                                       EasyMock.eq(false),
                                                        EasyMock.eq(false)))
               .andReturn(null);
     } else if (anomalyType == AnomalyType.DISK_FAILURE) {
@@ -235,8 +227,7 @@ public class AnomalyDetectorTest {
                                                                 EasyMock.eq(null),
                                                                 EasyMock.anyString(),
                                                                 EasyMock.eq(true),
-                                                                EasyMock.eq(true),
-                                                                EasyMock.eq(false)))
+                                                                EasyMock.eq(true)))
               .andReturn(null);
     }
     EasyMock.expect(mockKafkaCruiseControl.meetCompletenessRequirements(Collections.emptyList())).andReturn(true);
@@ -250,7 +241,7 @@ public class AnomalyDetectorTest {
     AnomalyDetector anomalyDetector = new AnomalyDetector(anomalies, mockAdminClient, MOCK_ANOMALY_DETECTION_INTERVAL_MS, mockKafkaCruiseControl,
                                                           mockAnomalyNotifier, mockGoalViolationDetector, mockBrokerFailureDetector,
                                                           mockMetricAnomalyDetector, mockDiskFailureDetector, mockDetectorScheduler,
-                                                          EasyMock.mock(LoadMonitor.class), new MockTime(), 0L);
+                                                          EasyMock.mock(LoadMonitor.class));
 
     try {
       anomalyDetector.startDetection();
@@ -318,7 +309,7 @@ public class AnomalyDetectorTest {
     AnomalyDetector anomalyDetector = new AnomalyDetector(anomalies, mockAdminClient, MOCK_ANOMALY_DETECTION_INTERVAL_MS, mockKafkaCruiseControl,
                                                           mockAnomalyNotifier, mockGoalViolationDetector, mockBrokerFailureDetector,
                                                           mockMetricAnomalyDetector, mockDiskFailureDetector, mockDetectorScheduler,
-                                                          EasyMock.mock(LoadMonitor.class), EasyMock.mock(Time.class), 0L);
+                                                          EasyMock.mock(LoadMonitor.class));
 
     try {
       anomalyDetector.startDetection();
@@ -358,7 +349,7 @@ public class AnomalyDetectorTest {
     AnomalyDetector anomalyDetector = new AnomalyDetector(new LinkedBlockingDeque<>(), mockAdminClient, MOCK_ANOMALY_DETECTION_INTERVAL_MS,
                                                           mockKafkaCruiseControl, mockAnomalyNotifier, mockGoalViolationDetector,
                                                           mockBrokerFailureDetector, mockMetricAnomalyDetector, mockDiskFailureDetector,
-                                                          detectorScheduler, EasyMock.mock(LoadMonitor.class), EasyMock.mock(Time.class), 0L);
+                                                          detectorScheduler, EasyMock.mock(LoadMonitor.class));
 
     anomalyDetector.shutdown();
     Thread t = new Thread(anomalyDetector::shutdown);
@@ -367,181 +358,5 @@ public class AnomalyDetectorTest {
     assertEquals(0, anomalyDetector.numSelfHealingStarted());
     assertEquals(0, anomalyDetector.numCheckedWithDelay());
     assertTrue(detectorScheduler.isTerminated());
-  }
-
-  @Ignore  //CNKAF-450: This test is flaky, likely race between shutdown and event processing.
-  @Test
-  public void testPauseSelfHealingAfterBrokerFailure() throws InterruptedException, KafkaCruiseControlException {
-    LinkedBlockingDeque<Anomaly> anomalies = new LinkedBlockingDeque<>();
-    AnomalyNotifier mockAnomalyNotifier = EasyMock.mock(AnomalyNotifier.class);
-    BrokerFailureDetector mockBrokerFailureDetector = EasyMock.createNiceMock(BrokerFailureDetector.class);
-    DiskFailureDetector mockDiskFailureDetector = EasyMock.createNiceMock(DiskFailureDetector.class);
-    GoalViolationDetector mockGoalViolationDetector = EasyMock.createNiceMock(GoalViolationDetector.class);
-    MetricAnomalyDetector mockMetricAnomalyDetector = EasyMock.createNiceMock(MetricAnomalyDetector.class);
-    ScheduledExecutorService mockDetectorScheduler = EasyMock.mock(ScheduledExecutorService.class);
-    ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
-    KafkaCruiseControl mockKafkaCruiseControl = EasyMock.mock(KafkaCruiseControl.class);
-    LoadMonitor mockLoadMonitor = EasyMock.mock(LoadMonitor.class);
-    AdminClient mockAdminClient = EasyMock.createNiceMock(AdminClient.class);
-    Time time = new MockTime();
-    Properties props = KafkaCruiseControlUnitTestUtils.getKafkaCruiseControlProperties();
-    EasyMock.expect(mockKafkaCruiseControl.config()).andReturn(new KafkaCruiseControlConfig(props)).anyTimes();
-    EasyMock.expect(mockLoadMonitor.taskRunnerState())
-            .andReturn(LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.RUNNING).times(2);
-
-    EasyMock.expect(mockAnomalyNotifier.onBrokerFailure(EasyMock.isA(BrokerFailures.class)))
-            .andReturn(AnomalyNotificationResult.check(1000L));
-    EasyMock.expect(mockAnomalyNotifier.onGoalViolation(EasyMock.isA(GoalViolations.class)))
-            .andReturn(AnomalyNotificationResult.fix()).times(1, 3);
-
-    startPeriodicDetectors(mockDetectorScheduler,
-            mockGoalViolationDetector,
-            mockMetricAnomalyDetector,
-            mockDiskFailureDetector,
-            executorService);
-
-    // Delayed broker failure check after detecting broker failure
-    EasyMock.expect(mockDetectorScheduler.schedule(EasyMock.isA(Runnable.class), EasyMock.eq(1000L), EasyMock.eq(TimeUnit.MILLISECONDS)))
-            .andDelegateTo(executorService);
-    EasyMock.expect(mockDetectorScheduler.schedule(EasyMock.isA(Runnable.class), EasyMock.anyLong(), EasyMock.eq(TimeUnit.MILLISECONDS))).andReturn(null);
-    mockDetectorScheduler.shutdown();
-    EasyMock.expectLastCall().andDelegateTo(executorService);
-    EasyMock.expect(mockDetectorScheduler.awaitTermination(3000L, TimeUnit.MILLISECONDS)).andDelegateTo(executorService);
-    EasyMock.expect(mockDetectorScheduler.isTerminated()).andDelegateTo(executorService);
-
-    EasyMock.expect(mockKafkaCruiseControl.executionState()).andReturn(ExecutorState.State.NO_TASK_IN_PROGRESS).times(2, 3);
-    // Expect only one rebalance for two goal violation anomalies because the first one is detected while self-healing is paused
-    EasyMock.expect(mockKafkaCruiseControl.rebalance(EasyMock.eq(Collections.emptyList()),
-            EasyMock.eq(false),
-            EasyMock.eq(null),
-            EasyMock.anyObject(OperationProgress.class),
-            EasyMock.eq(true),
-            EasyMock.eq(null),
-            EasyMock.eq(null),
-            EasyMock.eq(null),
-            EasyMock.eq(false),
-            EasyMock.eq(null),
-            EasyMock.eq(null),
-            EasyMock.eq(null),
-            EasyMock.anyString(),
-            EasyMock.eq(true),
-            EasyMock.eq(true),
-            EasyMock.eq(false),
-            EasyMock.eq(true),
-            EasyMock.eq(Collections.emptySet()),
-            EasyMock.eq(false),
-            EasyMock.eq(false)))
-            .andReturn(null)
-            .once();
-    EasyMock.expect(mockKafkaCruiseControl.meetCompletenessRequirements(EasyMock.anyObject())).andReturn(true);
-
-    EasyMock.replay(mockAnomalyNotifier);
-    EasyMock.replay(mockBrokerFailureDetector);
-    EasyMock.replay(mockGoalViolationDetector);
-    EasyMock.replay(mockMetricAnomalyDetector);
-    EasyMock.replay(mockDetectorScheduler);
-    EasyMock.replay(mockKafkaCruiseControl);
-    EasyMock.replay(mockLoadMonitor);
-
-    AnomalyDetector anomalyDetector = new AnomalyDetector(anomalies, mockAdminClient, MOCK_ANOMALY_DETECTION_INTERVAL_MS, mockKafkaCruiseControl,
-            mockAnomalyNotifier, mockGoalViolationDetector, mockBrokerFailureDetector,
-            mockMetricAnomalyDetector, mockDiskFailureDetector, mockDetectorScheduler,
-            EasyMock.mock(LoadMonitor.class), time, 1000L);
-
-    try {
-      anomalyDetector.startDetection();
-      Map<Integer, Long> failedBrokers = new HashMap<>();
-      failedBrokers.put(0, time.milliseconds());
-
-      anomalies.add(new BrokerFailures(mockKafkaCruiseControl, failedBrokers, true, true, true, Collections.emptyList()));
-      anomalies.add(new GoalViolations(mockKafkaCruiseControl, true, true, true, Collections.emptyList()));
-
-      while (!anomalies.isEmpty()) {
-        // Just wait for the anomalies to be drained.
-      }
-
-      long expectedSelfHealingResumeTime = time.milliseconds() + 1000;
-
-      // Advance time past the self-healing pause time. Actually sleep briefly so the second goal violation anomaly isn't
-      // cleared from the queue when the first one is processed
-      time.sleep(2000);
-      Thread.sleep(10);
-      anomalies.add(new GoalViolations(mockKafkaCruiseControl, true, true, true, Collections.emptyList()));
-
-      while (!anomalies.isEmpty()) {
-        // Just wait for the anomalies to be drained.
-      }
-
-      anomalyDetector.shutdown();
-      assertTrue(executorService.awaitTermination(5000, TimeUnit.MILLISECONDS));
-      assertEquals(expectedSelfHealingResumeTime, anomalyDetector.selfHealingResumeTime());
-      EasyMock.verify(mockAnomalyNotifier, mockDetectorScheduler, mockKafkaCruiseControl);
-    } finally {
-      executorService.shutdown();
-    }
-  }
-
-  @Ignore  //CNKAF-450: This test is flaky, likely race between shutdown and event processing.
-  @Test
-  public void testBrokerFailureDuringExecution() throws InterruptedException, KafkaCruiseControlException {
-    LinkedBlockingDeque<Anomaly> anomalies = new LinkedBlockingDeque<>();
-    AnomalyNotifier mockAnomalyNotifier = EasyMock.mock(AnomalyNotifier.class);
-    BrokerFailureDetector mockBrokerFailureDetector = EasyMock.createNiceMock(BrokerFailureDetector.class);
-    GoalViolationDetector mockGoalViolationDetector = EasyMock.createNiceMock(GoalViolationDetector.class);
-    MetricAnomalyDetector mockMetricAnomalyDetector = EasyMock.createNiceMock(MetricAnomalyDetector.class);
-    DiskFailureDetector mockDiskFailureDetector = EasyMock.createNiceMock(DiskFailureDetector.class);
-    ScheduledExecutorService mockDetectorScheduler = EasyMock.mock(ScheduledExecutorService.class);
-    ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
-    KafkaCruiseControl mockKafkaCruiseControl = EasyMock.mock(KafkaCruiseControl.class);
-    LoadMonitor mockLoadMonitor = EasyMock.mock(LoadMonitor.class);
-    AdminClient mockAdminClient = EasyMock.createNiceMock(AdminClient.class);
-    Time time = new MockTime();
-
-    EasyMock.expect(mockLoadMonitor.taskRunnerState())
-            .andReturn(LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.RUNNING).times(2);
-
-    startPeriodicDetectors(mockDetectorScheduler, mockGoalViolationDetector, mockMetricAnomalyDetector, mockDiskFailureDetector, executorService);
-
-    mockDetectorScheduler.shutdown();
-    EasyMock.expectLastCall().andDelegateTo(executorService);
-    EasyMock.expect(mockDetectorScheduler.awaitTermination(MOCK_ANOMALY_DETECTION_INTERVAL_MS, TimeUnit.MILLISECONDS)).andDelegateTo(executorService);
-    EasyMock.expect(mockDetectorScheduler.isTerminated()).andDelegateTo(executorService);
-    Properties props = KafkaCruiseControlUnitTestUtils.getKafkaCruiseControlProperties();
-    EasyMock.expect(mockKafkaCruiseControl.config()).andReturn(new KafkaCruiseControlConfig(props)).times(1, 2);
-    EasyMock.expect(mockKafkaCruiseControl.executionState()).andReturn(ExecutorState.State.INTER_BROKER_REPLICA_MOVEMENT_TASK_IN_PROGRESS).times(1);
-    mockKafkaCruiseControl.userTriggeredStopExecution();
-    EasyMock.expectLastCall();
-
-    EasyMock.replay(mockAnomalyNotifier);
-    EasyMock.replay(mockBrokerFailureDetector);
-    EasyMock.replay(mockGoalViolationDetector);
-    EasyMock.replay(mockMetricAnomalyDetector);
-    EasyMock.replay(mockDetectorScheduler);
-    EasyMock.replay(mockKafkaCruiseControl);
-    EasyMock.replay(mockLoadMonitor);
-
-    AnomalyDetector anomalyDetector = new AnomalyDetector(anomalies, mockAdminClient, MOCK_ANOMALY_DETECTION_INTERVAL_MS, mockKafkaCruiseControl,
-            mockAnomalyNotifier, mockGoalViolationDetector, mockBrokerFailureDetector,
-            mockMetricAnomalyDetector, mockDiskFailureDetector, mockDetectorScheduler,
-            EasyMock.mock(LoadMonitor.class), time, 900000L);
-
-    try {
-      anomalyDetector.startDetection();
-      Map<Integer, Long> failedBrokers = new HashMap<>();
-      failedBrokers.put(0, time.milliseconds());
-      anomalies.add(new BrokerFailures(mockKafkaCruiseControl, failedBrokers, true, true, true, Collections.emptyList()));
-
-      while (!anomalies.isEmpty()) {
-        // Just wait for the anomalies to be drained.
-      }
-
-      anomalyDetector.shutdown();
-      assertTrue(executorService.awaitTermination(5000, TimeUnit.MILLISECONDS));
-      assertEquals(time.milliseconds() + 900000, anomalyDetector.selfHealingResumeTime());
-      Thread.sleep(100); // a bit of a sleep to avoid race conditions and flaky tests
-      EasyMock.verify(mockAnomalyNotifier, mockDetectorScheduler, mockKafkaCruiseControl);
-    } finally {
-      executorService.shutdown();
-    }
   }
 }

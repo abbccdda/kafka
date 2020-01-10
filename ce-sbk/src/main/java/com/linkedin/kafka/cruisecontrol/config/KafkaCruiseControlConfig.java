@@ -966,13 +966,6 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   // CONFLUENT CONFIGS
 
   /**
-   * <code>broker.failure.self.healing.pause.ms</code>
-   */
-  public static final String BROKER_FAILURE_SELF_HEALING_PAUSE_MS_CONFIG = "broker.failure.self.healing.pause.ms";
-  private static final String BROKER_FAILURE_SELF_HEALING_PAUSE_MS_DOC = "The length of time after detecting a broker " +
-          "failure during which self healing actions are disabled";
-
-  /**
    * <code>max.volume.throughput</code>
    */
   public static final String MAX_VOLUME_THROUGHPUT_MB_CONFIG = "max.volume.throughput.mb";
@@ -1575,11 +1568,6 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 DEFAULT_DESCRIBE_TOPICS_RESPONSE_TIMEOUT_MS,
                 ConfigDef.Importance.LOW,
                 DESCRIBE_TOPICS_RESPONSE_TIMEOUT_MS_DOC)
-        .define(BROKER_FAILURE_SELF_HEALING_PAUSE_MS_CONFIG,
-                ConfigDef.Type.LONG,
-                900000,
-                ConfigDef.Importance.MEDIUM,
-                BROKER_FAILURE_SELF_HEALING_PAUSE_MS_DOC)
         .define(MAX_VOLUME_THROUGHPUT_MB_CONFIG,
                 ConfigDef.Type.INT,
                 0,

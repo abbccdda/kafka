@@ -102,7 +102,6 @@ public class GoalViolations extends KafkaAnomaly {
                                                                                    false,
                                                                                    true,
                                                                                    Collections.emptySet(),
-                                                                                   false,
                                                                                    false),
                                                      null);
         // Ensure that only the relevant response is cached to avoid memory pressure.

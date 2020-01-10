@@ -4,13 +4,11 @@
 
 package com.linkedin.kafka.cruisecontrol.detector;
 
-import com.yammer.metrics.core.Gauge;
-import com.yammer.metrics.core.MetricsRegistry;
 import com.linkedin.cruisecontrol.detector.Anomaly;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
-import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
+import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyNotificationResult;
 import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyNotifier;
 import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType;
@@ -19,7 +17,14 @@ import com.linkedin.kafka.cruisecontrol.exception.OptimizationFailureException;
 import com.linkedin.kafka.cruisecontrol.executor.ExecutorState;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner;
-import java.time.Instant;
+import com.yammer.metrics.core.Gauge;
+import com.yammer.metrics.core.MetricsRegistry;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.common.utils.SystemTime;
+import org.apache.kafka.common.utils.Time;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -31,16 +36,10 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.common.utils.SystemTime;
-import org.apache.kafka.common.utils.Time;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.OPERATION_LOGGER;
+import static com.linkedin.kafka.cruisecontrol.detector.AnomalyDetectorUtils.SHUTDOWN_ANOMALY;
 import static com.linkedin.kafka.cruisecontrol.detector.AnomalyDetectorUtils.getAnomalyType;
 import static com.linkedin.kafka.cruisecontrol.detector.AnomalyDetectorUtils.getSelfHealingGoalNames;
-import static com.linkedin.kafka.cruisecontrol.detector.AnomalyDetectorUtils.SHUTDOWN_ANOMALY;
 
 
 /**
@@ -71,9 +70,6 @@ public class AnomalyDetector {
   private volatile Anomaly _anomalyInProgress;
   private AtomicLong _numCheckedWithDelay;
   private final Object _shutdownLock;
-  private final Time _time;
-  private final long _selfHealingPauseMs;
-  private volatile long _selfHealingResumeTime;
 
   public AnomalyDetector(KafkaCruiseControlConfig config,
                          LoadMonitor loadMonitor,
@@ -113,9 +109,6 @@ public class AnomalyDetector {
                                                      _anomalyNotifier.selfHealingEnabled(),
                                                      numCachedRecentAnomalyStates,
                                                      metricRegistry);
-    _time = time;
-    _selfHealingPauseMs = config.getLong(KafkaCruiseControlConfig.BROKER_FAILURE_SELF_HEALING_PAUSE_MS_CONFIG);
-    _selfHealingResumeTime = _time.milliseconds();
   }
 
   /**
@@ -131,9 +124,7 @@ public class AnomalyDetector {
                   MetricAnomalyDetector metricAnomalyDetector,
                   DiskFailureDetector diskFailureDetector,
                   ScheduledExecutorService detectorScheduler,
-                  LoadMonitor loadMonitor,
-                  Time time,
-                  long selfHealingPauseMs) {
+                  LoadMonitor loadMonitor) {
     _anomalies = anomalies;
     _adminClient = adminClient;
     _anomalyDetectionIntervalMs = anomalyDetectionIntervalMs;
@@ -154,9 +145,6 @@ public class AnomalyDetector {
     _shutdownLock = new Object();
     // Add anomaly detector state
     _anomalyDetectorState = new AnomalyDetectorState(new SystemTime(), new HashMap<>(AnomalyType.cachedValues().size()), 10, null);
-    _time = time;
-    _selfHealingPauseMs = selfHealingPauseMs;
-    _selfHealingResumeTime = _time.milliseconds();
   }
 
   public void startDetection() {
@@ -258,11 +246,6 @@ public class AnomalyDetector {
     _anomalyDetectorState.markSelfHealingFinished(anomalyId);
   }
 
-  // package-private for unit testing
-  long selfHealingResumeTime() {
-    return _selfHealingResumeTime;
-  }
-
   /**
    * A class that handles all the anomalies.
    */
@@ -309,15 +292,6 @@ public class AnomalyDetector {
       if (executorState != ExecutorState.State.NO_TASK_IN_PROGRESS) {
         LOG.debug("Schedule delayed check for anomaly {} because executor is in {} state", _anomalyInProgress, executorState);
         checkWithDelay(_anomalyDetectionIntervalMs);
-
-        // When a broker failure is detected, stop ongoing execution
-        if (_anomalyInProgress instanceof BrokerFailures) {
-          LOG.info("Broker failure detected: {}. Stopping execution, cancelling reassignments and" +
-                   "blocking self-healing until {}",
-                   _anomalyInProgress, Instant.ofEpochMilli(_selfHealingResumeTime));
-          _kafkaCruiseControl.userTriggeredStopExecution();
-          _selfHealingResumeTime = _time.milliseconds() + _selfHealingPauseMs;
-        }
       } else {
         processAnomalyInProgress(anomalyType);
       }
@@ -368,10 +342,6 @@ public class AnomalyDetector {
         case BROKER_FAILURE:
           BrokerFailures brokerFailures = (BrokerFailures) _anomalyInProgress;
           notificationResult = _anomalyNotifier.onBrokerFailure(brokerFailures);
-          // When a broker failure is detected, temporarily block further self healing
-          _selfHealingResumeTime = _time.milliseconds() + _selfHealingPauseMs;
-          LOG.info("Broker failure detected: {}. Blocking self-healing until {}",
-                  brokerFailures, Instant.ofEpochMilli(_selfHealingResumeTime));
           break;
         case METRIC_ANOMALY:
           KafkaMetricAnomaly metricAnomaly = (KafkaMetricAnomaly) _anomalyInProgress;
@@ -380,9 +350,6 @@ public class AnomalyDetector {
         case DISK_FAILURE:
           DiskFailures diskFailures = (DiskFailures) _anomalyInProgress;
           notificationResult = _anomalyNotifier.onDiskFailure(diskFailures);
-          // When a disk failure is detected, temporarily block further self healing
-          _selfHealingResumeTime = _time.milliseconds() + _selfHealingPauseMs;
-          LOG.info("Disk failure detected, blocking self-healing until {}", Instant.ofEpochMilli(_selfHealingResumeTime));
           break;
         default:
           throw new IllegalStateException("Unrecognized anomaly type.");
@@ -418,12 +385,6 @@ public class AnomalyDetector {
      */
     private boolean isAnomalyInProgressReadyToFix(AnomalyType anomalyType) {
       LoadMonitorTaskRunner.LoadMonitorTaskRunnerState loadMonitorTaskRunnerState = _loadMonitor.taskRunnerState();
-
-      // Don't fix any anomalies if we're within the pause time after detecting a broker failure
-      if (_time.milliseconds() < _selfHealingResumeTime) {
-        LOG.debug("Skipping {} because self healing is paused until {}", anomalyType, Instant.ofEpochMilli(_selfHealingResumeTime));
-        return false;
-      }
 
       // Fixing anomalies is possible only when (1) the state is not in and unavailable state ( e.g. loading or
       // bootstrapping) and (2) the completeness requirements are met for all goals.

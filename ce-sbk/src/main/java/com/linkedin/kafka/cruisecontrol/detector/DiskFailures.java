@@ -82,8 +82,7 @@ public class DiskFailures extends KafkaAnomaly {
                                                                                         _replicationThrottle,
                                                                                         _anomalyId,
                                                                                         _excludeRecentlyDemotedBrokers,
-                                                                                        _excludeRecentlyRemovedBrokers,
-                                                                    false),
+                                                                                        _excludeRecentlyRemovedBrokers),
                                                  null);
     // Ensure that only the relevant response is cached to avoid memory pressure.
     _optimizationResult.discardIrrelevantAndCacheJsonAndPlaintext();
