@@ -801,6 +801,8 @@ class KafkaConfigTest {
         case ConfluentConfigs.MULTITENANT_LISTENER_NAMES_CONFIG => // ignore
 
         case ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG =>
+        case ConfluentConfigs.KEY_SUBJECT_NAME_STRATEGY_CONFIG =>
+        case ConfluentConfigs.VALUE_SUBJECT_NAME_STRATEGY_CONFIG =>
         case ConfluentConfigs.MAX_CACHE_SIZE_CONFIG =>
         case ConfluentConfigs.MAX_RETRIES_CONFIG =>
         case ConfluentConfigs.RETRIES_WAIT_MS_CONFIG =>

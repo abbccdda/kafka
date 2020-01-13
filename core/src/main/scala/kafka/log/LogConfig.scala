@@ -197,8 +197,6 @@ object LogConfig {
   val AppendRecordInterceptorClassesProp = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG
   val KeySchemaValidationEnableProp = ConfluentTopicConfig.KEY_SCHEMA_VALIDATION_CONFIG
   val ValueSchemaValidationEnableProp = ConfluentTopicConfig.VALUE_SCHEMA_VALIDATION_CONFIG
-  val KeySchemaValidationStrategyProp = ConfluentTopicConfig.KEY_SUBJECT_NAME_STRATEGY_CONFIG
-  val ValueSchemaValidationStrategyProp = ConfluentTopicConfig.VALUE_SUBJECT_NAME_STRATEGY_CONFIG
   val TopicPlacementConstraintsProp = ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG
   val SegmentSpeculativePrefetchEnableProp = ConfluentTopicConfig.SEGMENT_SPECULATIVE_PREFETCH_ENABLE_CONFIG
 
@@ -396,8 +394,7 @@ object LogConfig {
 
       .define(KeySchemaValidationEnableProp, BOOLEAN, false, MEDIUM, ConfluentTopicConfig.KEY_SCHEMA_VALIDATION_DOC) // we do not have this config at broker-level
       .define(ValueSchemaValidationEnableProp, BOOLEAN, false, MEDIUM, ConfluentTopicConfig.VALUE_SCHEMA_VALIDATION_DOC) // we do not have this config at broker-level
-      .define(KeySchemaValidationStrategyProp, STRING, null, MEDIUM, ConfluentTopicConfig.KEY_SUBJECT_NAME_STRATEGY_DOC) // we do not have this config at broker-level
-      .define(ValueSchemaValidationStrategyProp, STRING, null, MEDIUM, ConfluentTopicConfig.VALUE_SUBJECT_NAME_STRATEGY_DOC) // we do not have this config at broker-level
+
       /* --- End Confluent Configurations --- */
 
 
