@@ -252,9 +252,6 @@ public class EventLoggerConfig extends AbstractConfig {
   public Map<String, String> defaultTopicConfig() {
     final Map<String, String> topicConfig = new HashMap<>();
 
-    // Set default min.isr to 1. https://github.com/confluentinc/ce-kafka/pull/772
-    topicConfig.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, DEFAULT_MIN_ISR);
-
     topicConfig.put(TopicConfig.RETENTION_MS_CONFIG, getLong(TOPIC_RETENTION_MS_CONFIG).toString());
     topicConfig
         .put(TopicConfig.RETENTION_BYTES_CONFIG, getLong(TOPIC_RETENTION_BYTES_CONFIG).toString());
