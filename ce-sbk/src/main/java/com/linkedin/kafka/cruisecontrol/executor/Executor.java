@@ -227,7 +227,7 @@ public class Executor {
                                                          EXECUTION_HISTORY_SCANNER_PERIOD_SECONDS,
                                                          TimeUnit.SECONDS);
     _throttleHelper = new ReplicationThrottleHelper(_kafkaZkClient,
-        config.getLong(KafkaCruiseControlConfig.DEFAULT_REPLICATION_THROTTLE_CONFIG), loadMonitor);
+        config.getLong(KafkaCruiseControlConfig.DEFAULT_REPLICATION_THROTTLE_CONFIG));
   }
 
   public void startUp() {
@@ -636,14 +636,14 @@ public class Executor {
    *  and set a new throttle value, persisted in memory until the process dies
    * @param newThrottle The new throttle rate, in bytes
    */
-  public boolean updateThrottle(long newThrottle, LoadMonitor loadMonitor) {
+  public boolean updateThrottle(long newThrottle) {
     if (newThrottle < 0) {
       throw new IllegalArgumentException("Cannot set a negative throttle");
     }
     int updatedBrokers;
     boolean updatedRate;
     synchronized (_throttleHelper) {
-      updatedRate = _throttleHelper.setThrottleRate(newThrottle, loadMonitor);
+      updatedRate = _throttleHelper.setThrottleRate(newThrottle);
       updatedBrokers = _throttleHelper.updateOrRemoveThrottleRate(newThrottle);
     }
 
@@ -885,7 +885,7 @@ public class Executor {
 
     private void interBrokerMoveReplicas() {
       synchronized (_throttleHelper) {
-        _throttleHelper.setThrottleRate(_replicationThrottle, _loadMonitor);
+        _throttleHelper.setThrottleRate(_replicationThrottle);
       }
       int numTotalPartitionMovements = _executionTaskManager.numRemainingInterBrokerPartitionMovements();
       long totalDataToMoveInMB = _executionTaskManager.remainingInterBrokerDataToMoveInMB();
@@ -900,7 +900,7 @@ public class Executor {
         if (!tasksToExecute.isEmpty()) {
           synchronized (_throttleHelper) {
             _throttleHelper.setThrottles(
-                tasksToExecute.stream().map(ExecutionTask::proposal).collect(Collectors.toList()));
+                tasksToExecute.stream().map(ExecutionTask::proposal).collect(Collectors.toList()), _loadMonitor);
           }
           // Execute the tasks.
           _executionTaskManager.markTasksInProgress(tasksToExecute);

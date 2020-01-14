@@ -51,32 +51,32 @@ class ReplicationThrottleHelper {
   private final Long _originalThrottleRate;
 
   ReplicationThrottleHelper(KafkaZkClient kafkaZkClient, Long throttleRate) {
-    this(kafkaZkClient, throttleRate, null);
-  }
-
-  ReplicationThrottleHelper(KafkaZkClient kafkaZkClient, Long throttleRate, LoadMonitor loadMonitor) {
     this._kafkaZkClient = kafkaZkClient;
     this._adminZkClient = new AdminZkClient(kafkaZkClient);
-    setThrottleRate(throttleRate, loadMonitor);
-    _originalThrottleRate = throttleRate;
+    this._throttleRate = throttleRate;
+    this._originalThrottleRate = throttleRate;
+    LOG.info("Set throttle rate {}", this._throttleRate);
   }
 
-  boolean setThrottleRate(Long throttleRate, LoadMonitor loadMonitor) {
+  boolean setThrottleRate(Long throttleRate) {
     if ((_originalThrottleRate == null && throttleRate == null) ||
         (_originalThrottleRate != null && throttleRate != null) && _originalThrottleRate.equals(throttleRate)) {
       LOG.warn("Ignored setting requested throttle rate {} " +
           "because it is the same as the originally configured rate", throttleRate);
       return false;
     }
-    if (throttleRate != null && throttleRate == AUTO_THROTTLE) {
-      throttleRate = loadMonitor.computeThrottle();
-    }
     this._throttleRate = throttleRate;
     return true;
   }
 
-  void setThrottles(List<ExecutionProposal> replicaMovementProposals) {
+  void setThrottles(List<ExecutionProposal> replicaMovementProposals, LoadMonitor loadMonitor) {
     if (throttlingEnabled()) {
+
+      // Compute the throttle from the current load. Because this method is only called during proposal execution,
+      // the load monitor will have enough metrics for this computation
+      if (this._throttleRate == AUTO_THROTTLE) {
+        this._throttleRate = loadMonitor.computeThrottle();
+      }
       Set<Integer> participatingBrokers = getParticipatingBrokers(replicaMovementProposals);
       Map<String, Set<String>> throttledReplicas = getThrottledReplicasByTopic(replicaMovementProposals);
       LOG.info("Setting a rebalance throttle of {} bytes/sec to {} brokers and {} topics",
@@ -85,6 +85,11 @@ class ReplicationThrottleHelper {
       participatingBrokers.forEach(this::setFollowerThrottledRateIfUnset);
       throttledReplicas.forEach(this::setLeaderThrottledReplicas);
       throttledReplicas.forEach(this::setFollowerThrottledReplicas);
+
+      // If AUTO_THROTTLE is configured, reset _throttleRate to allow recomputing next time throttles are set
+      if (this._originalThrottleRate != null && this._originalThrottleRate == AUTO_THROTTLE) {
+        _throttleRate = AUTO_THROTTLE;
+      }
     } else {
       LOG.info("Skipped setting rebalance throttle because it is not enabled");
     }

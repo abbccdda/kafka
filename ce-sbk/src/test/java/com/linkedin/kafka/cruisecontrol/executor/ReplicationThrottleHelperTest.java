@@ -7,6 +7,7 @@ package com.linkedin.kafka.cruisecontrol.executor;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.utils.CCKafkaIntegrationTestHarness;
 import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
+import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import kafka.server.ConfigType;
 import kafka.zk.AdminZkClient;
 import kafka.zk.KafkaZkClient;
@@ -27,7 +28,7 @@ import java.util.Set;
 
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC0;
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC1;
-
+import static com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig.AUTO_THROTTLE;
 import static junit.framework.TestCase.assertTrue;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -90,7 +91,7 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
 
     ExecutionTask task = completedTaskForProposal(0, proposal);
 
-    throttleHelper.setThrottles(Collections.singletonList(proposal));
+    throttleHelper.setThrottles(Collections.singletonList(proposal), null);
     throttleHelper.clearThrottles(Collections.singletonList(task), Collections.emptyList());
   }
 
@@ -127,7 +128,7 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
 
       ExecutionTask task = completedTaskForProposal(0, proposal);
 
-      throttleHelper.setThrottles(Collections.singletonList(proposal));
+    throttleHelper.setThrottles(Collections.singletonList(proposal), null);
 
       assertExpectedThrottledRateForBroker(kafkaZkClient, 0, throttleRate);
       assertExpectedThrottledRateForBroker(kafkaZkClient, 1, throttleRate);
@@ -187,7 +188,7 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
       topic1Config.setProperty(ReplicationThrottleHelper.FOLLOWER_THROTTLED_REPLICAS, "1:1");
       ExecutorUtils.changeTopicConfig(new AdminZkClient(kafkaZkClient), TOPIC1, topic1Config);
 
-      throttleHelper.setThrottles(Collections.singletonList(proposal));
+    throttleHelper.setThrottles(Collections.singletonList(proposal), null);
 
       assertExpectedThrottledRateForBroker(kafkaZkClient, 0, preExistingBroker0ThrottleRate);
       assertExpectedThrottledRateForBroker(kafkaZkClient, 1, throttleRate);
@@ -239,7 +240,7 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
               Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(3)),
               Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)));
 
-      throttleHelper.setThrottles(Arrays.asList(proposal, proposal2));
+    throttleHelper.setThrottles(Arrays.asList(proposal, proposal2), null);
 
       ExecutionTask completedTask = completedTaskForProposal(0, proposal);
       ExecutionTask inProgressTask = inProgressTaskForProposal(1, proposal2);
@@ -302,22 +303,69 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
 
     try {
       ReplicationThrottleHelper helper = new ReplicationThrottleHelper(kafkaZkClient, throttleRate);
-      boolean updatedThrottle = helper.setThrottleRate(throttleRate, null);
+      boolean updatedThrottle = helper.setThrottleRate(throttleRate);
       assertFalse("Setting the throttle to the same rate should not update it", updatedThrottle);
 
       ReplicationThrottleHelper helper2 = new ReplicationThrottleHelper(kafkaZkClient, null);
-      updatedThrottle = helper2.setThrottleRate(null, null);
+      updatedThrottle = helper2.setThrottleRate(null);
       assertFalse("Setting the throttle to the same rate should not update it", updatedThrottle);
 
       ReplicationThrottleHelper helper3 = new ReplicationThrottleHelper(kafkaZkClient, throttleRate + 1);
-      updatedThrottle = helper3.setThrottleRate(throttleRate, null);
+      updatedThrottle = helper3.setThrottleRate(throttleRate);
       assertTrue("Setting the throttle to a different rate should update it", updatedThrottle);
 
       ReplicationThrottleHelper helper4 = new ReplicationThrottleHelper(kafkaZkClient, throttleRate);
-      updatedThrottle = helper4.setThrottleRate(null, null);
+      updatedThrottle = helper4.setThrottleRate(null);
       assertTrue("Setting the throttle to a different rate should update it", updatedThrottle);
     } finally {
       KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
     }
+  }
+
+  @Test
+  public void testAutomaticThrottleComputation() {
+    KafkaZkClient kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(zookeeper().connectionString(),
+            "ReplicationThrottleHelperTestMetricGroup",
+            "AddingThrottlesWithNoPreExistingThrottles",
+            false);
+
+    Long throttleRate1 = 50000000L;
+    Long throttleRate2 = 30000000L;
+    LoadMonitor mockLoadMonitor = EasyMock.createMock(LoadMonitor.class);
+    EasyMock.expect(mockLoadMonitor.computeThrottle()).andReturn(throttleRate1).once();
+    EasyMock.expect(mockLoadMonitor.computeThrottle()).andReturn(throttleRate2).once();
+    EasyMock.replay(mockLoadMonitor);
+
+    ReplicationThrottleHelper helper = new ReplicationThrottleHelper(kafkaZkClient, AUTO_THROTTLE);
+    ExecutionProposal proposal = new ExecutionProposal(
+            new TopicPartition(TOPIC0, 0),
+            100,
+            new ReplicaPlacementInfo(0),
+            Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(1)),
+            Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)));
+
+    ExecutionProposal proposal2 = new ExecutionProposal(
+            new TopicPartition(TOPIC0, 1),
+            100,
+            new ReplicaPlacementInfo(0),
+            Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(3)),
+            Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)));
+
+    // Throttle should be computed by the load monitor
+    helper.setThrottles(Arrays.asList(proposal, proposal2), mockLoadMonitor);
+    assertExpectedThrottledRateForBroker(kafkaZkClient, 0, throttleRate1);
+    assertExpectedThrottledRateForBroker(kafkaZkClient, 1, throttleRate1);
+    assertExpectedThrottledRateForBroker(kafkaZkClient, 2, throttleRate1);
+    assertExpectedThrottledRateForBroker(kafkaZkClient, 3, throttleRate1);
+    helper.removeAllThrottles();
+
+    // After setting throttles, the state should be reset, so the throttle should be recomputed
+    helper.setThrottles(Arrays.asList(proposal, proposal2), mockLoadMonitor);
+    assertExpectedThrottledRateForBroker(kafkaZkClient, 0, throttleRate2);
+    assertExpectedThrottledRateForBroker(kafkaZkClient, 1, throttleRate2);
+    assertExpectedThrottledRateForBroker(kafkaZkClient, 2, throttleRate2);
+    assertExpectedThrottledRateForBroker(kafkaZkClient, 3, throttleRate2);
+
+    EasyMock.verify(mockLoadMonitor);
   }
 }

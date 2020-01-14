@@ -1314,7 +1314,7 @@ public class KafkaCruiseControl {
    * @throws Exception
    */
   public void updateThrottle(long newThrottle) {
-    if (!_executor.updateThrottle(newThrottle, _loadMonitor)) {
+    if (!_executor.updateThrottle(newThrottle)) {
       LOG.warn("Throttle was not updated. This could be either because the set throttle is" +
           "the same as the initially configured one or because the throttle in ZooKeeper" +
           "is equal to the requested throttle");

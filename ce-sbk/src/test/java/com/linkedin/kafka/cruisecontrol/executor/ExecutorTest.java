@@ -59,17 +59,20 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC0;
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC1;
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC2;
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC3;
+import static com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig.AUTO_THROTTLE;
 import static com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig.NO_THROTTLE;
 import static com.linkedin.kafka.cruisecontrol.executor.ExecutorNotification.ActionAgent.CRUISE_CONTROL;
 import static com.linkedin.kafka.cruisecontrol.executor.ExecutorNotification.ActionAgent.EXECUTION_COMPLETION;
 import static com.linkedin.kafka.cruisecontrol.executor.ExecutorNotification.ActionAgent.UNKNOWN;
 import static java.lang.String.valueOf;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -497,7 +500,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                 43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
         executor.setExecutionMode(false);
         if (initialThrottle != null) {
-            executor.updateThrottle(initialThrottle, null);
+            executor.updateThrottle(initialThrottle);
             waitForAssert(() -> {
                 for (Integer broker : _brokers.keySet()) {
                     verifyThrottleInZk(kafkaZkClient, ConfigType.Broker(), valueOf(broker), Long.toString(initialThrottle));
@@ -527,7 +530,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
             try {
                 waitForAssert(() -> {
                     String newExpectedThrottle = "1000000";
-                    boolean succeeded = executor.updateThrottle(Long.parseLong(newExpectedThrottle), null);
+                    boolean succeeded = executor.updateThrottle(Long.parseLong(newExpectedThrottle));
                     assertTrue("Throttle rate update failed", succeeded);
                     for (Integer broker : _brokers.keySet()) {
                         verifyThrottleInZk(kafkaZkClient, ConfigType.Broker(), valueOf(broker), newExpectedThrottle);
@@ -727,6 +730,67 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
 
     executor.shutdown();
     KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
+  }
+
+  @Test
+  public void testThrottleComputationThrowsException() throws InterruptedException {
+    LoadMonitor mockLoadMonitor = EasyMock.mock(LoadMonitor.class);
+    String msg = "throttle computation failed";
+    mockLoadMonitor.pauseMetricSampling(EasyMock.anyString());
+    EasyMock.expectLastCall();
+    mockLoadMonitor.resumeMetricSampling(EasyMock.anyString());
+    EasyMock.expectLastCall();
+    EasyMock.expect(mockLoadMonitor.computeThrottle()).andThrow(new IllegalStateException(msg));
+    EasyMock.replay(mockLoadMonitor);
+
+    KafkaCruiseControlConfig config = new KafkaCruiseControlConfig(getExecutorProperties());
+
+    Map<String, TopicDescription> topicDescriptions = createTopics();
+    int oldReplica = topicDescriptions.get(TP1.topic()).partitions().get(0).leader().id();
+    int newReplica = oldReplica == 0 ? 1 : 0;
+
+    ExecutionProposal proposal =
+            new ExecutionProposal(TP1, 0, new ReplicaPlacementInfo(oldReplica),
+                    Collections.singletonList(new ReplicaPlacementInfo(oldReplica)),
+                    Collections.singletonList(new ReplicaPlacementInfo(newReplica)));
+
+    Time time = new MockTime();
+    MetadataClient metadataClient = new MetadataClient(config,
+            -1L,
+            time);
+
+    AtomicReference<ExecutorNotification> testNotification = new AtomicReference<>();
+    ExecutorNotifier notifier = new ExecutorNotifier() {
+      @Override
+      public void sendNotification(ExecutorNotification notification) {
+        testNotification.set(notification);
+      }
+
+      @Override
+      public void configure(Map<String, ?> configs) {
+
+      }
+    };
+    Executor executor = new Executor(config, time, new MetricsRegistry(), metadataClient, 86400000L,
+            43200000L, notifier,
+            getMockAnomalyDetector(RANDOM_UUID));
+    executor.setExecutionMode(false);
+    executor.executeProposals(Collections.singletonList(proposal),
+            Collections.emptySet(),
+            null,
+            mockLoadMonitor,
+            null,
+            null,
+            null,
+            null,
+            AUTO_THROTTLE,
+            RANDOM_UUID);
+    waitUntilExecutionFinishes(executor);
+
+    assertFalse(testNotification.get().executionSucceeded());
+    assertTrue(testNotification.get().exception() instanceof IllegalStateException);
+    assertEquals(msg, testNotification.get().exception().getMessage());
+    EasyMock.verify(mockLoadMonitor);
   }
 
   private Map<String, TopicDescription> createTopics() throws InterruptedException {
