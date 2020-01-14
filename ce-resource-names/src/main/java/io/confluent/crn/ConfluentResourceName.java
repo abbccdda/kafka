@@ -378,9 +378,6 @@ public class ConfluentResourceName implements Comparable {
     }
 
     public ConfluentResourceName build() throws CrnSyntaxException {
-      if (elements.isEmpty()) {
-        throw new CrnSyntaxException("", "Need at least one Element");
-      }
       return new ConfluentResourceName(this.authority, this.elements, this.stringForm);
     }
   }

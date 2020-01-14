@@ -163,11 +163,13 @@ public class ConfluentResourceNameTest {
   }
 
   @Test
-  public void testBuildCrnNoElements() {
-    ConfluentResourceName.Builder builder = ConfluentResourceName.newBuilder()
-        .setAuthority("confluent.cloud");
+  public void testBuildCrnNoElements() throws CrnSyntaxException {
+    ConfluentResourceName crn = ConfluentResourceName.newBuilder()
+        .setAuthority("confluent.cloud")
+        .build();
 
-    Assert.assertThrows(CrnSyntaxException.class, builder::build);
+    Assert.assertNotNull(crn);
+    Assert.assertEquals("crn://confluent.cloud/", crn.toString());
   }
 
   @Test
@@ -220,14 +222,6 @@ public class ConfluentResourceNameTest {
     Element topic = crn.elements().get(1);
     Assert.assertEquals("topic", topic.resourceType());
     Assert.assertEquals("clicks", topic.encodedResourceName());
-  }
-
-  @Test
-  public void testFromStringNoElements() {
-    Assert.assertThrows(CrnSyntaxException.class, () -> {
-      ConfluentResourceName.fromString(
-          "crn://confluent.cloud/");
-    });
   }
 
   @Test

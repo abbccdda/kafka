@@ -15,7 +15,6 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -222,8 +221,21 @@ public class ConfluentServerCrnAuthority implements CrnAuthority, Configurable {
       builder.addElement(ENVIRONMENT_TYPE, path.get(path.size() - 1));
     }
 
-    // Kafka Cluster must be the first, because it's the one we know has a unique ID
+    // empty scopes are allowed (eg. ROOT_SCOPE)
+    if (scope.clusters().isEmpty() && resourcePattern == null) {
+      return builder.build();
+    }
+
+    // but if the scope is not empty, it must contain at least a Kafka cluster
+    addClusters(builder, scope);
+    addResource(builder, resourcePattern);
+    return builder.build();
+  }
+
+  private void addClusters(ConfluentResourceName.Builder builder, Scope scope)
+      throws CrnSyntaxException {
     Map<String, String> clusters = scope.clusters();
+
     if (clusters.containsKey(KAFKA_CLUSTER_KEY)) {
       builder.addElement(KAFKA_CLUSTER_TYPE, clusters.get(KAFKA_CLUSTER_KEY));
     } else {
@@ -232,7 +244,7 @@ public class ConfluentServerCrnAuthority implements CrnAuthority, Configurable {
     ArrayList<CrnSyntaxException> exceptions = new ArrayList<>();
     clusters.entrySet().stream()
         .filter(e -> !KAFKA_CLUSTER_KEY.equals(e.getKey()))
-        .sorted(Comparator.comparing(Entry::getKey))
+        .sorted(Entry.comparingByKey())
         .forEach(e -> {
           try {
             String clusterType = CLUSTER_TYPE_BY_KEY.get(e.getKey());
@@ -248,8 +260,11 @@ public class ConfluentServerCrnAuthority implements CrnAuthority, Configurable {
     if (!exceptions.isEmpty()) {
       throw new CrnSyntaxException("", exceptions);
     }
+  }
 
-    // see if we need to add a resource or if the cluster was specified above
+  private void addResource(ConfluentResourceName.Builder builder, ResourcePattern resourcePattern)
+      throws CrnSyntaxException {
+    // see if we need to add a resource or if it was already there as a cluster
     if (resourcePattern != null &&
         !CLUSTER_RESOURCE_TYPES.contains(resourcePattern.resourceType().name())) {
       String resourceType = toCrnResourceType(resourcePattern.resourceType().name());
@@ -262,7 +277,6 @@ public class ConfluentServerCrnAuthority implements CrnAuthority, Configurable {
         builder.addElement(resourceType, resourceName);
       }
     }
-    return builder.build();
   }
 
   public ConfluentResourceName canonicalCrn(Scope scope, ResourcePattern resourcePattern)

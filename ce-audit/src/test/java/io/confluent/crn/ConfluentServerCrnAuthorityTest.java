@@ -120,6 +120,25 @@ public class ConfluentServerCrnAuthorityTest {
   }
 
   @Test
+  public void testCrnForRootScope() throws CrnSyntaxException {
+
+    Assert.assertEquals(
+        "crn://mds.example.com/",
+        authority.canonicalCrn(Scope.ROOT_SCOPE).toString()
+    );
+  }
+
+  @Test
+  public void testCrnForScopeNoResource() throws CrnSyntaxException {
+
+    Assert.assertEquals(
+        "crn://mds.example.com/environment=env",
+        authority.canonicalCrn(
+            new Scope(Collections.singletonList("env"), Collections.emptyMap())).toString()
+    );
+  }
+
+  @Test
   public void testCanonicalOrgEnv() throws CrnSyntaxException {
     Assert.assertEquals(
         authority.canonicalCrn(
@@ -314,13 +333,21 @@ public class ConfluentServerCrnAuthorityTest {
     );
   }
 
-
   @Test
   public void testTopicTopic() {
     Assert.assertThrows(CrnSyntaxException.class, () ->
         authority.resolveScopePattern(
             ConfluentResourceName
                 .fromString("crn://confluent.cloud/kafka=abc123/topic=topic_1/topic=topic_2"))
+    );
+  }
+
+  @Test
+  public void testTopicNoKafkaCluster() throws CrnSyntaxException {
+    Assert.assertThrows(CrnSyntaxException.class, () ->
+        authority.resolveScopePattern(
+            ConfluentResourceName
+                .fromString("crn://confluent.cloud/topic=topic_1"))
     );
   }
 
