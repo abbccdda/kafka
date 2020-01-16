@@ -525,10 +525,7 @@ class TopicDeletionManagerTest {
         val replica = brokers((i + leaderIndex) % brokers.size)
         replica
       }
-      context.updatePartitionFullReplicaAssignment(
-        partition,
-        ReplicaAssignment(replicas, Seq.empty)
-      )
+      context.updatePartitionFullReplicaAssignment(partition, ReplicaAssignment(replicas, Seq.empty))
       leaderIndex += 1
     }
 

@@ -599,9 +599,11 @@ class MergedLog(private[log] val localLog: Log,
 
   override def activeSegment: LogSegment = localLog.activeSegment
 
-  override def appendAsLeader(records: MemoryRecords, leaderEpoch: Int, isFromClient: Boolean,
+  override def appendAsLeader(records: MemoryRecords,
+                              leaderEpoch: Int,
+                              origin: AppendOrigin = AppendOrigin.Client,
                               interBrokerProtocolVersion: ApiVersion): LogAppendInfo = {
-    localLog.appendAsLeader(records, leaderEpoch, isFromClient, interBrokerProtocolVersion)
+    localLog.appendAsLeader(records, leaderEpoch, origin, interBrokerProtocolVersion)
   }
 
   // Get the segment following the given local segment
@@ -860,12 +862,13 @@ sealed trait AbstractLog {
     * Append this message set to the active segment of the log, assigning offsets and Partition Leader Epochs
     *
     * @param records The records to append
-    * @param isFromClient Whether or not this append is from a producer
+    * @param origin Declares the origin of the append which affects required validations
     * @param interBrokerProtocolVersion Inter-broker message protocol version
     * @throws KafkaStorageException If the append fails due to an I/O error.
     * @return Information about the appended messages including the first and last offset.
     */
-  def appendAsLeader(records: MemoryRecords, leaderEpoch: Int, isFromClient: Boolean = true,
+  def appendAsLeader(records: MemoryRecords, leaderEpoch: Int,
+                     origin: AppendOrigin = AppendOrigin.Client,
                      interBrokerProtocolVersion: ApiVersion = ApiVersion.latestVersion): LogAppendInfo
 
   /**

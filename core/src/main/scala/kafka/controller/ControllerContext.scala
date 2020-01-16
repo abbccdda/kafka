@@ -22,45 +22,9 @@ import java.util.UUID
 import kafka.cluster.Broker
 import org.apache.kafka.common.TopicPartition
 
-import scala.collection.{Map, Seq, Set, mutable}
+import scala.collection.{mutable, Map, Seq, Set}
 
 object ReplicaAssignment {
-  def fromOriginalAndTarget(original: Assignment, target: Assignment): ReplicaAssignment = {
-    // fullReplicaSet should have the following order: TSR, OSR, TOR, OOR
-    val fullReplica = (
-      // TSR is target sync replicas
-      target.syncReplicas ++
-      // OSR is original sync replicas minus target observers
-      original.syncReplicas.diff(target.observers) ++
-      // TOR is target observer replicas
-      target.observers ++
-      // OOR is original observer replicas
-      original.observers
-    ).distinct // Note that is required that distinct returns the order of the first unique element
-
-    val addingReplicas = fullReplica.diff(original.replicas)
-    val removingReplicas = fullReplica.diff(target.replicas)
-
-    val (originalObservers, targetObservers) = if (addingReplicas.isEmpty &&
-      removingReplicas.isEmpty &&
-      original.observers.toSet == target.observers.toSet) {
-      /* It is possible that the reassignment simply rearrange the sync replicas and the observer replicas.  In
-       * that case, simply ignore the reassignment.
-       */
-      (target.observers, None)
-    } else {
-      (original.observers, Some(target.observers))
-    }
-
-    ReplicaAssignment(
-      fullReplica,
-      addingReplicas,
-      removingReplicas,
-      originalObservers,
-      targetObservers
-    )
-  }
-
   def apply(replicas: Seq[Int], observers: Seq[Int]): ReplicaAssignment = {
     ReplicaAssignment(
       replicas,
@@ -75,36 +39,30 @@ object ReplicaAssignment {
     apply(assignment.replicas, assignment.observers)
   }
 
-  val empty = ReplicaAssignment(Seq.empty, Seq.empty, Seq.empty, Seq.empty, None)
+  val empty: ReplicaAssignment = apply(Seq.empty, Seq.empty)
 
   case class Assignment(replicas: Seq[Int], observers: Seq[Int]) {
     def syncReplicas: Seq[Int] = replicas.diff(observers)
 
     override def toString: String = s"Assignment(replicas=$replicas, observers=$observers)"
   }
-
-  object Assignment {
-    val empty = Assignment(Seq.empty, Seq.empty)
-  }
 }
 
 /**
- * @param replicas the seq of brokers assigned to the partition
- * @param addingReplicas the replicas that were added if there is a pending reassignment
- * @param removingReplicas the replicas that were removed if there is a pending reassignment
+ * @param replicas the sequence of brokers assigned to the partition. It includes the set of brokers
+ *                 that were added (`addingReplicas`) and removed (`removingReplicas`).
+ * @param addingReplicas the replicas that are being added if there is a pending reassignment
+ * @param removingReplicas the replicas that are being removed if there is a pending reassignment
  * @param observers the sub set of replicas that participate as observers
  * @param targetObservers value is a Some if there is a reassignment pending where the value is the new set of
  *                        observer. Otherwise None if there are no reassignment pending.
  */
-case class ReplicaAssignment(
-  replicas: Seq[Int],
-  addingReplicas: Seq[Int],
-  removingReplicas: Seq[Int],
-  observers: Seq[Int],
-  targetObservers: Option[Seq[Int]]
-) {
+case class ReplicaAssignment (replicas: Seq[Int],
+                              addingReplicas: Seq[Int],
+                              removingReplicas: Seq[Int],
+                              observers: Seq[Int],
+                              targetObservers: Option[Seq[Int]]) {
   import ReplicaAssignment._
-
   /**
    * Remove adding replicas and reorder so that observers are last
    */
@@ -131,8 +89,40 @@ case class ReplicaAssignment(
     addingReplicas.nonEmpty || removingReplicas.nonEmpty || targetObservers.nonEmpty
   }
 
-  def reassignTo(newAssignment: Assignment): ReplicaAssignment = {
-    fromOriginalAndTarget(originAssignment, newAssignment)
+  def reassignTo(target: Assignment): ReplicaAssignment = {
+    // fullReplicaSet should have the following order: TSR, OSR, TOR, OOR
+    val fullReplica = (
+      // TSR is target sync replicas
+      target.syncReplicas ++
+        // OSR is original sync replicas minus target observers
+        originAssignment.syncReplicas.diff(target.observers) ++
+        // TOR is target observer replicas
+        target.observers ++
+        // OOR is original observer replicas
+        originAssignment.observers
+      ).distinct // Note that is required that distinct returns the order of the first unique element
+
+    val addingReplicas = fullReplica.diff(originAssignment.replicas)
+    val removingReplicas = fullReplica.diff(target.replicas)
+
+    val (originalObservers, targetObservers) = if (addingReplicas.isEmpty &&
+      removingReplicas.isEmpty &&
+      originAssignment.observers.toSet == target.observers.toSet) {
+      /* It is possible that the reassignment simply rearrange the sync replicas and the observer replicas.  In
+       * that case, simply ignore the reassignment.
+       */
+      (target.observers, None)
+    } else {
+      (originAssignment.observers, Some(target.observers))
+    }
+
+    ReplicaAssignment(
+      fullReplica,
+      addingReplicas,
+      removingReplicas,
+      originalObservers,
+      targetObservers
+    )
   }
 
   def targetReplicaAssignment: ReplicaAssignment = {

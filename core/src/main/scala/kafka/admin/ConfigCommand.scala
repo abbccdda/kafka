@@ -32,6 +32,7 @@ import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin.{Admin, AlterConfigOp, AlterConfigsOptions, ConfigEntry, DescribeClusterOptions, AdminClient => JAdminClient, Config => JConfig, ListTopicsOptions}
 import org.apache.kafka.common.config.ConfluentTopicConfig
 import org.apache.kafka.common.config.ConfigResource
+import org.apache.kafka.common.config.ConfluentTopicConfig
 import org.apache.kafka.common.config.types.Password
 import org.apache.kafka.common.errors.InvalidConfigurationException
 import org.apache.kafka.common.internals.Topic

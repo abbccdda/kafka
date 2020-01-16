@@ -1580,7 +1580,8 @@ class KafkaController(val config: KafkaConfig,
     val partitionsToBeAdded = partitionReplicaAssignment.filter { case (topicPartition, _) =>
       controllerContext.partitionReplicaAssignment(topicPartition).isEmpty
     }
-    if (topicDeletionManager.isTopicQueuedUpForDeletion(topic))
+
+    if (topicDeletionManager.isTopicQueuedUpForDeletion(topic)) {
       if (partitionsToBeAdded.nonEmpty) {
         warn("Skipping adding partitions %s for topic %s since it is currently being deleted"
           .format(partitionsToBeAdded.map(_._1.partition).mkString(","), topic))
@@ -1590,20 +1591,18 @@ class KafkaController(val config: KafkaConfig,
         // This can happen if existing partition replica assignment are restored to prevent increasing partition count during topic deletion
         info("Ignoring partition change during topic deletion as no new partitions are added")
       }
-    else {
-      if (partitionsToBeAdded.nonEmpty) {
-        info(s"New partitions to be added $partitionsToBeAdded")
-        partitionsToBeAdded.foreach { case (topicPartition, assignedReplicas) =>
-          val assignment = if (assignedReplicas.isBeingReassigned) {
-            error(s"The assignment $assignedReplicas for new partition $topicPartition is being reassigned")
-            ReplicaAssignment(assignedReplicas.replicas, assignedReplicas.observers)
-          } else {
-            assignedReplicas
-          }
-          controllerContext.updatePartitionFullReplicaAssignment(topicPartition, assignment)
+    } else if (partitionsToBeAdded.nonEmpty) {
+      info(s"New partitions to be added $partitionsToBeAdded")
+      partitionsToBeAdded.foreach { case (topicPartition, assignedReplicas) =>
+        val assignment = if (assignedReplicas.isBeingReassigned) {
+          error(s"The assignment $assignedReplicas for new partition $topicPartition is being reassigned")
+          ReplicaAssignment(assignedReplicas.replicas, assignedReplicas.observers)
+        } else {
+          assignedReplicas
         }
-        onNewPartitionCreation(partitionsToBeAdded.keySet)
+        controllerContext.updatePartitionFullReplicaAssignment(topicPartition, assignment)
       }
+      onNewPartitionCreation(partitionsToBeAdded.keySet)
     }
   }
 

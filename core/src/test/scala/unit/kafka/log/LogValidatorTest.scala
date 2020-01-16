@@ -108,7 +108,7 @@ class LogValidatorTest {
       List(new MockRecordInterceptor()),
       interceptorStats,
       RecordBatch.NO_PRODUCER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       KAFKA_2_3_IV1,
       brokerTopicStats
     )
@@ -137,7 +137,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
     val validatedRecords = validatedResults.validatedRecords
@@ -179,7 +179,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
     val validatedRecords = validatedResults.validatedRecords
@@ -225,7 +225,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
     val validatedRecords = validatedResults.validatedRecords
@@ -287,7 +287,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
   }
@@ -333,7 +333,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats,
       partitionLeaderEpoch = partitionLeaderEpoch,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
     val validatedRecords = validatingResults.validatedRecords
@@ -404,7 +404,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats,
       partitionLeaderEpoch = partitionLeaderEpoch,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
     val validatedRecords = validatingResults.validatedRecords
@@ -459,7 +459,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
     val validatedRecords = validatedResults.validatedRecords
@@ -505,7 +505,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
     val validatedRecords = validatedResults.validatedRecords
@@ -564,7 +564,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = partitionLeaderEpoch,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
     val validatedRecords = validatedResults.validatedRecords
@@ -619,7 +619,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
   }
@@ -644,7 +644,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
   }
@@ -669,7 +669,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
   }
@@ -694,7 +694,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
   }
@@ -718,7 +718,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
@@ -742,7 +742,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
@@ -767,7 +767,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats).validatedRecords
     checkOffsets(messageWithOffset, offset)
@@ -793,7 +793,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats).validatedRecords
     checkOffsets(messageWithOffset, offset)
@@ -820,7 +820,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats).validatedRecords
     checkOffsets(compressedMessagesWithOffset, offset)
@@ -847,7 +847,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats).validatedRecords
     checkOffsets(compressedMessagesWithOffset, offset)
@@ -872,7 +872,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
     checkOffsets(validatedResults.validatedRecords, offset)
@@ -899,7 +899,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
     checkOffsets(validatedResults.validatedRecords, offset)
@@ -926,7 +926,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
     checkOffsets(validatedResults.validatedRecords, offset)
@@ -953,7 +953,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
     checkOffsets(validatedResults.validatedRecords, offset)
@@ -980,7 +980,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
   }
@@ -1004,7 +1004,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = false,
+      origin = AppendOrigin.Coordinator,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
     val batches = TestUtils.toList(result.validatedRecords.batches)
@@ -1033,7 +1033,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
@@ -1058,7 +1058,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
@@ -1082,7 +1082,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
@@ -1106,7 +1106,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
@@ -1131,7 +1131,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
@@ -1156,7 +1156,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
@@ -1183,7 +1183,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
@@ -1210,7 +1210,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
@@ -1235,7 +1235,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
@@ -1260,7 +1260,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats).validatedRecords, offset)
   }
@@ -1284,7 +1284,7 @@ class LogValidatorTest {
         interceptors = Collections.emptyList().asScala,
         interceptorStats,
         partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-        isFromClient = true,
+        origin = AppendOrigin.Client,
         interBrokerProtocolVersion = ApiVersion.latestVersion,
         brokerTopicStats = brokerTopicStats)
     }
@@ -1316,7 +1316,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = KAFKA_2_0_IV1,
       brokerTopicStats = brokerTopicStats)
   }
@@ -1350,7 +1350,7 @@ class LogValidatorTest {
         timestampType = TimestampType.CREATE_TIME,
         timestampDiffMaxMs = 1000L,
         partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-        isFromClient = true,
+        origin = AppendOrigin.Client,
         interBrokerProtocolVersion = ApiVersion.latestVersion,
         brokerTopicStats = brokerTopicStats,
         interceptors = Collections.emptyList().asScala,
@@ -1503,7 +1503,7 @@ class LogValidatorTest {
       interceptors = Collections.emptyList().asScala,
       interceptorStats = interceptorStats,
       partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
-      isFromClient = true,
+      origin = AppendOrigin.Client,
       interBrokerProtocolVersion = ApiVersion.latestVersion,
       brokerTopicStats = brokerTopicStats)
   }

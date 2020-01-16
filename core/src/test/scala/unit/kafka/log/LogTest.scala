@@ -303,7 +303,6 @@ class LogTest {
     assertFalse(Log.FutureDirPattern.matcher(name1).matches())
     val name2 = Log.logDeleteDirName(
       new TopicPartition("n" + String.join("", Collections.nCopies(248, "o")), 5))
-    System.out.println("name2 = " + name2)
     assertEquals(255, name2.length)
     assertTrue(Pattern.compile("n[o]{212}-5\\.[0-9a-z]{32}-delete").matcher(name2).matches())
     assertTrue(Log.DeleteDirPattern.matcher(name2).matches())
@@ -532,6 +531,40 @@ class LogTest {
     // We progressively create a snapshot for each segment after the recovery point
     expectedSnapshotOffsets = log.localLogSegments.map(_.baseOffset).tail.toVector :+ log.logEndOffset
     assertEquals(expectedSnapshotOffsets, listProducerSnapshotOffsets)
+    log.close()
+  }
+
+
+  @Test
+  def testRecoverAfterNonMonotonicCoordinatorEpochWrite(): Unit = {
+    // Due to KAFKA-9144, we may encounter a coordinator epoch which goes backwards.
+    // This test case verifies that recovery logic relaxes validation in this case and
+    // just takes the latest write.
+
+    val producerId = 1L
+    val coordinatorEpoch = 5
+    val logConfig = LogTest.createLogConfig(segmentBytes = 1024 * 1024 * 5)
+    val maxProducerIdExpirationMs = 60 * 60 * 1000
+    var log = createLog(logDir, logConfig, maxProducerIdExpirationMs = maxProducerIdExpirationMs)
+    val epoch = 0.toShort
+
+    val firstAppendTimestamp = mockTime.milliseconds()
+    appendEndTxnMarkerAsLeader(log, producerId, epoch, ControlRecordType.ABORT,
+      timestamp = firstAppendTimestamp, coordinatorEpoch = coordinatorEpoch)
+    assertEquals(firstAppendTimestamp, log.producerStateManager.lastEntry(producerId).get.lastTimestamp)
+
+    mockTime.sleep(maxProducerIdExpirationMs)
+    assertEquals(None, log.producerStateManager.lastEntry(producerId))
+
+    val secondAppendTimestamp = mockTime.milliseconds()
+    appendEndTxnMarkerAsLeader(log, producerId, epoch, ControlRecordType.ABORT,
+      timestamp = secondAppendTimestamp, coordinatorEpoch = coordinatorEpoch - 1)
+
+    log.close()
+
+    // Force recovery by setting the recoveryPoint to the log start
+    log = createLog(logDir, logConfig, recoveryPoint = 0L)
+    assertEquals(secondAppendTimestamp, log.producerStateManager.lastEntry(producerId).get.lastTimestamp)
     log.close()
   }
 
@@ -986,10 +1019,10 @@ class LogTest {
 
     // create a batch with a couple gaps to simulate compaction
     val records = TestUtils.records(producerId = pid, producerEpoch = epoch, sequence = seq, baseOffset = baseOffset, records = List(
-      new SimpleRecord(System.currentTimeMillis(), "a".getBytes),
-      new SimpleRecord(System.currentTimeMillis(), "key".getBytes, "b".getBytes),
-      new SimpleRecord(System.currentTimeMillis(), "c".getBytes),
-      new SimpleRecord(System.currentTimeMillis(), "key".getBytes, "d".getBytes)))
+      new SimpleRecord(mockTime.milliseconds(), "a".getBytes),
+      new SimpleRecord(mockTime.milliseconds(), "key".getBytes, "b".getBytes),
+      new SimpleRecord(mockTime.milliseconds(), "c".getBytes),
+      new SimpleRecord(mockTime.milliseconds(), "key".getBytes, "d".getBytes)))
     records.batches.asScala.foreach(_.setPartitionLeaderEpoch(0))
 
     val filtered = ByteBuffer.allocate(2048)
@@ -1004,8 +1037,8 @@ class LogTest {
 
     // append some more data and then truncate to force rebuilding of the PID map
     val moreRecords = TestUtils.records(baseOffset = baseOffset + 4, records = List(
-      new SimpleRecord(System.currentTimeMillis(), "e".getBytes),
-      new SimpleRecord(System.currentTimeMillis(), "f".getBytes)))
+      new SimpleRecord(mockTime.milliseconds(), "e".getBytes),
+      new SimpleRecord(mockTime.milliseconds(), "f".getBytes)))
     moreRecords.batches.asScala.foreach(_.setPartitionLeaderEpoch(0))
     log.appendAsFollower(moreRecords)
 
@@ -1029,8 +1062,8 @@ class LogTest {
 
     // create an empty batch
     val records = TestUtils.records(producerId = pid, producerEpoch = epoch, sequence = seq, baseOffset = baseOffset, records = List(
-      new SimpleRecord(System.currentTimeMillis(), "key".getBytes, "a".getBytes),
-      new SimpleRecord(System.currentTimeMillis(), "key".getBytes, "b".getBytes)))
+      new SimpleRecord(mockTime.milliseconds(), "key".getBytes, "a".getBytes),
+      new SimpleRecord(mockTime.milliseconds(), "key".getBytes, "b".getBytes)))
     records.batches.asScala.foreach(_.setPartitionLeaderEpoch(0))
 
     val filtered = ByteBuffer.allocate(2048)
@@ -1045,8 +1078,8 @@ class LogTest {
 
     // append some more data and then truncate to force rebuilding of the PID map
     val moreRecords = TestUtils.records(baseOffset = baseOffset + 2, records = List(
-      new SimpleRecord(System.currentTimeMillis(), "e".getBytes),
-      new SimpleRecord(System.currentTimeMillis(), "f".getBytes)))
+      new SimpleRecord(mockTime.milliseconds(), "e".getBytes),
+      new SimpleRecord(mockTime.milliseconds(), "f".getBytes)))
     moreRecords.batches.asScala.foreach(_.setPartitionLeaderEpoch(0))
     log.appendAsFollower(moreRecords)
 
@@ -1070,10 +1103,10 @@ class LogTest {
 
     // create a batch with a couple gaps to simulate compaction
     val records = TestUtils.records(producerId = pid, producerEpoch = epoch, sequence = seq, baseOffset = baseOffset, records = List(
-      new SimpleRecord(System.currentTimeMillis(), "a".getBytes),
-      new SimpleRecord(System.currentTimeMillis(), "key".getBytes, "b".getBytes),
-      new SimpleRecord(System.currentTimeMillis(), "c".getBytes),
-      new SimpleRecord(System.currentTimeMillis(), "key".getBytes, "d".getBytes)))
+      new SimpleRecord(mockTime.milliseconds(), "a".getBytes),
+      new SimpleRecord(mockTime.milliseconds(), "key".getBytes, "b".getBytes),
+      new SimpleRecord(mockTime.milliseconds(), "c".getBytes),
+      new SimpleRecord(mockTime.milliseconds(), "key".getBytes, "d".getBytes)))
     records.batches.asScala.foreach(_.setPartitionLeaderEpoch(0))
 
     val filtered = ByteBuffer.allocate(2048)
@@ -1319,7 +1352,7 @@ class LogTest {
 
     val lastEntry = log.producerStateManagerLastEntry(producerId)
     assertTrue(lastEntry.isDefined)
-    assertEquals(0L, lastEntry.get.firstOffset)
+    assertEquals(0L, lastEntry.get.firstDataOffset)
     assertEquals(0L, lastEntry.get.lastDataOffset)
   }
 
@@ -1338,9 +1371,8 @@ class LogTest {
       new SimpleRecord("bar".getBytes),
       new SimpleRecord("baz".getBytes))
     log.appendAsLeader(records, leaderEpoch = 0)
-    val commitAppendInfo = log.appendAsLeader(endTxnRecords(ControlRecordType.ABORT, pid, epoch),
-      isFromClient = false, leaderEpoch = 0)
-    log.updateHighWatermark(commitAppendInfo.lastOffset + 1)
+    val abortAppendInfo = appendEndTxnMarkerAsLeader(log, pid, epoch, ControlRecordType.ABORT)
+    log.updateHighWatermark(abortAppendInfo.lastOffset + 1)
 
     // now there should be no first unstable offset
     assertEquals(None, log.firstUnstableOffset)
@@ -1348,7 +1380,7 @@ class LogTest {
     log.close()
 
     val reopenedLog = createLog(logDir, logConfig)
-    reopenedLog.updateHighWatermark(commitAppendInfo.lastOffset + 1)
+    reopenedLog.updateHighWatermark(abortAppendInfo.lastOffset + 1)
     assertEquals(None, reopenedLog.firstUnstableOffset)
   }
 
@@ -1357,9 +1389,10 @@ class LogTest {
                             epoch: Short,
                             offset: Long = 0L,
                             coordinatorEpoch: Int = 0,
-                            partitionLeaderEpoch: Int = 0): MemoryRecords = {
+                            partitionLeaderEpoch: Int = 0,
+                            timestamp: Long = mockTime.milliseconds()): MemoryRecords = {
     val marker = new EndTransactionMarker(controlRecordType, coordinatorEpoch)
-    MemoryRecords.withEndTransactionMarker(offset, mockTime.milliseconds(), partitionLeaderEpoch, producerId, epoch, marker)
+    MemoryRecords.withEndTransactionMarker(offset, timestamp, partitionLeaderEpoch, producerId, epoch, marker)
   }
 
   @Test
@@ -3580,7 +3613,7 @@ class LogTest {
 
     val buf = ByteBuffer.allocate(DefaultRecordBatch.sizeInBytes(records.asJava))
     val builder = MemoryRecords.builder(buf, magicValue, codec, TimestampType.CREATE_TIME, offset,
-      System.currentTimeMillis, leaderEpoch)
+      mockTime.milliseconds, leaderEpoch)
     records.foreach(builder.append)
     builder.build()
   }
@@ -3626,8 +3659,7 @@ class LogTest {
     assertEquals(firstAppendInfo.firstOffset, log.firstUnstableOffset)
 
     // now transaction is committed
-    val commitAppendInfo = log.appendAsLeader(endTxnRecords(ControlRecordType.COMMIT, pid, epoch),
-      isFromClient = false, leaderEpoch = 0)
+    val commitAppendInfo = appendEndTxnMarkerAsLeader(log, pid, epoch, ControlRecordType.COMMIT)
 
     // first unstable offset is not updated until the high watermark is advanced
     assertEquals(firstAppendInfo.firstOffset, log.firstUnstableOffset)
@@ -3981,6 +4013,19 @@ class LogTest {
   }
 
   @Test
+  def testEndTxnWithFencedProducerEpoch(): Unit = {
+    val producerId = 1L
+    val epoch = 5.toShort
+    val logConfig = LogTest.createLogConfig(segmentBytes = 1024 * 1024 * 5)
+    val log = createLog(logDir, logConfig)
+    appendEndTxnMarkerAsLeader(log, producerId, epoch, ControlRecordType.ABORT, coordinatorEpoch = 1)
+
+    assertThrows[ProducerFencedException] {
+      appendEndTxnMarkerAsLeader(log, producerId, (epoch - 1).toShort, ControlRecordType.ABORT, coordinatorEpoch = 1)
+    }
+  }
+
+  @Test
   def testLastStableOffsetDoesNotExceedLogStartOffsetMidSegment(): Unit = {
     val logConfig = LogTest.createLogConfig(segmentBytes = 1024 * 1024 * 5)
     val log = createLog(logDir, logConfig)
@@ -4132,16 +4177,14 @@ class LogTest {
     assertEquals(firstAppendInfo.firstOffset, log.firstUnstableOffset)
 
     // now first producer's transaction is aborted
-    val abortAppendInfo = log.appendAsLeader(endTxnRecords(ControlRecordType.ABORT, pid1, epoch),
-      isFromClient = false, leaderEpoch = 0)
+    val abortAppendInfo = appendEndTxnMarkerAsLeader(log, pid1, epoch, ControlRecordType.ABORT)
     log.updateHighWatermark(abortAppendInfo.lastOffset + 1)
 
     // LSO should now point to one less than the first offset of the second transaction
     assertEquals(secondAppendInfo.firstOffset, log.firstUnstableOffset)
 
     // commit the second transaction
-    val commitAppendInfo = log.appendAsLeader(endTxnRecords(ControlRecordType.COMMIT, pid2, epoch),
-      isFromClient = false, leaderEpoch = 0)
+    val commitAppendInfo = appendEndTxnMarkerAsLeader(log, pid2, epoch, ControlRecordType.COMMIT)
     log.updateHighWatermark(commitAppendInfo.lastOffset + 1)
 
     // now there should be no first unstable offset
@@ -4175,9 +4218,8 @@ class LogTest {
     assertEquals(3L, log.logEndOffsetMetadata.segmentBaseOffset)
 
     // now abort the transaction
-    val appendInfo = log.appendAsLeader(endTxnRecords(ControlRecordType.ABORT, pid, epoch),
-      isFromClient = false, leaderEpoch = 0)
-    log.updateHighWatermark(appendInfo.lastOffset + 1)
+    val abortAppendInfo = appendEndTxnMarkerAsLeader(log, pid, epoch, ControlRecordType.ABORT)
+    log.updateHighWatermark(abortAppendInfo.lastOffset + 1)
     assertEquals(None, log.firstUnstableOffset)
 
     // now check that a fetch includes the aborted transaction
@@ -4228,7 +4270,7 @@ class LogTest {
     var sequence = 0
     numRecords: Int => {
       val simpleRecords = (sequence until sequence + numRecords).map { seq =>
-        new SimpleRecord(s"$seq".getBytes)
+        new SimpleRecord(mockTime.milliseconds(), s"$seq".getBytes)
       }
       val records = MemoryRecords.withTransactionalRecords(CompressionType.NONE, producerId,
         producerEpoch, sequence, simpleRecords: _*)
@@ -4242,9 +4284,11 @@ class LogTest {
                                          producerEpoch: Short,
                                          controlType: ControlRecordType,
                                          coordinatorEpoch: Int = 0,
-                                         leaderEpoch: Int = 0): Unit = {
-    val records = endTxnRecords(controlType, producerId, producerEpoch, coordinatorEpoch = coordinatorEpoch)
-    log.appendAsLeader(records, isFromClient = false, leaderEpoch = leaderEpoch)
+                                         leaderEpoch: Int = 0,
+                                         timestamp: Long = mockTime.milliseconds()): LogAppendInfo = {
+    val records = endTxnRecords(controlType, producerId, producerEpoch,
+      coordinatorEpoch = coordinatorEpoch, timestamp = timestamp)
+    log.appendAsLeader(records, origin = AppendOrigin.Coordinator, leaderEpoch = leaderEpoch)
   }
 
   private def appendNonTransactionalAsLeader(log: AbstractLog, numRecords: Int): Unit = {
@@ -4262,7 +4306,7 @@ class LogTest {
     var sequence = 0
     (offset: Long, numRecords: Int) => {
       val builder = MemoryRecords.builder(buffer, RecordBatch.CURRENT_MAGIC_VALUE, CompressionType.NONE, TimestampType.CREATE_TIME,
-        offset, System.currentTimeMillis(), producerId, producerEpoch, sequence, true, leaderEpoch)
+        offset, mockTime.milliseconds(), producerId, producerEpoch, sequence, true, leaderEpoch)
       for (seq <- sequence until sequence + numRecords) {
         val record = new SimpleRecord(s"$seq".getBytes)
         builder.append(record)

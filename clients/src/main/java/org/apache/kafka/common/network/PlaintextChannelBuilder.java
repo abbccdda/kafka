@@ -28,6 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.channels.SelectionKey;
 import java.util.Map;
@@ -56,7 +57,7 @@ public class PlaintextChannelBuilder implements ChannelBuilder {
     public KafkaChannel buildChannel(String id, SelectionKey key, int maxReceiveSize,
                                      MemoryPool memoryPool, ChannelMetadataRegistry metadataRegistry) throws KafkaException {
         try {
-            PlaintextTransportLayer transportLayer = new PlaintextTransportLayer(key);
+            PlaintextTransportLayer transportLayer = buildTransportLayer(key);
             BrokerInterceptor interceptor = ConfluentConfigs.buildBrokerInterceptor(mode, configs);
             Supplier<Authenticator> authenticatorCreator = () -> new PlaintextAuthenticator(configs, transportLayer, listenerName);
             return new KafkaChannel(id, transportLayer, authenticatorCreator, maxReceiveSize,
@@ -65,6 +66,10 @@ public class PlaintextChannelBuilder implements ChannelBuilder {
             log.warn("Failed to create channel due to ", e);
             throw new KafkaException(e);
         }
+    }
+
+    protected PlaintextTransportLayer buildTransportLayer(SelectionKey key) throws IOException {
+        return new PlaintextTransportLayer(key);
     }
 
     @Override

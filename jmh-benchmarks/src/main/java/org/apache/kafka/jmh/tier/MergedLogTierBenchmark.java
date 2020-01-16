@@ -5,6 +5,7 @@
 package org.apache.kafka.jmh.tier;
 
 import kafka.api.ApiVersion$;
+import kafka.log.AppendOrigin;
 import kafka.log.Defaults;
 import kafka.log.Log;
 import kafka.log.LogConfig;
@@ -89,7 +90,8 @@ public class MergedLogTierBenchmark {
 
         while (log.logSegments().size() < NUM_TOTAL_SEGMENTS) {
             final MemoryRecords createRecords = buildRecords(0, timestamp,  1, 0);
-            log.appendAsLeader(createRecords, 0, true, ApiVersion$.MODULE$.latestVersion());
+            log.appendAsLeader(createRecords, 0, new AppendOrigin.Client$(),
+                    ApiVersion$.MODULE$.latestVersion());
             timestamp++;
         }
         // update hwm to allow segments to be deleted
