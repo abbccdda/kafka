@@ -8,6 +8,7 @@ import io.confluent.kafka.multitenant.quota.TenantPartitionAssignor;
 import io.confluent.kafka.multitenant.quota.TestCluster;
 import java.util.Random;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.StreamSupport;
 import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor.Subscription;
 import org.apache.kafka.clients.consumer.internals.ConsumerProtocol;
@@ -27,6 +28,11 @@ import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.NotLeaderForPartitionException;
 import org.apache.kafka.common.message.ControlledShutdownRequestData;
 import org.apache.kafka.common.message.ControlledShutdownResponseData;
+import org.apache.kafka.common.message.CreatePartitionsRequestData;
+import org.apache.kafka.common.message.CreatePartitionsRequestData.CreatePartitionsAssignment;
+import org.apache.kafka.common.message.CreatePartitionsRequestData.CreatePartitionsTopic;
+import org.apache.kafka.common.message.CreatePartitionsResponseData;
+import org.apache.kafka.common.message.CreatePartitionsResponseData.CreatePartitionsTopicResult;
 import org.apache.kafka.common.message.CreateTopicsRequestData;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignment;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignmentCollection;
@@ -47,6 +53,7 @@ import org.apache.kafka.common.message.DescribeGroupsRequestData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData.DescribedGroup;
 import org.apache.kafka.common.message.DescribeGroupsResponseData.DescribedGroupMember;
+import org.apache.kafka.common.message.EndTxnRequestData;
 import org.apache.kafka.common.message.FindCoordinatorRequestData;
 import org.apache.kafka.common.message.HeartbeatRequestData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
@@ -105,7 +112,6 @@ import org.apache.kafka.common.requests.CreateAclsRequest.AclCreation;
 import org.apache.kafka.common.requests.CreateAclsResponse;
 import org.apache.kafka.common.requests.CreateAclsResponse.AclCreationResponse;
 import org.apache.kafka.common.requests.CreatePartitionsRequest;
-import org.apache.kafka.common.requests.CreatePartitionsRequest.PartitionDetails;
 import org.apache.kafka.common.requests.CreatePartitionsResponse;
 import org.apache.kafka.common.requests.CreateTopicsRequest;
 import org.apache.kafka.common.requests.CreateTopicsResponse;
@@ -1927,9 +1933,15 @@ public class MultiTenantRequestContextTest {
   public void testEndTxnRequest() {
     for (short ver = ApiKeys.END_TXN.oldestVersion(); ver <= ApiKeys.END_TXN.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.END_TXN, ver);
-      EndTxnRequest inbound = new EndTxnRequest.Builder("tr", 23L, (short) 15, TransactionResult.COMMIT).build(ver);
+      EndTxnRequest inbound = new EndTxnRequest.Builder(
+              new EndTxnRequestData()
+                      .setTransactionalId("tr")
+                      .setProducerId(23L)
+                      .setProducerEpoch((short) 15)
+                      .setCommitted(true))
+              .build(ver);
       EndTxnRequest intercepted = (EndTxnRequest) parseRequest(context, inbound);
-      assertEquals("tenant_tr", intercepted.transactionalId());
+      assertEquals("tenant_tr", intercepted.data.transactionalId());
       verifyRequestMetrics(ApiKeys.END_TXN);
     }
   }
@@ -2022,18 +2034,35 @@ public class MultiTenantRequestContextTest {
     partitionAssignor.updateClusterMetadata(testCluster.cluster());
     for (short ver = ApiKeys.CREATE_PARTITIONS.oldestVersion(); ver <= ApiKeys.CREATE_PARTITIONS.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_PARTITIONS, ver);
-      Map<String, PartitionDetails> requestTopics = new HashMap<>();
-      requestTopics.put("foo", new PartitionDetails(4));
-      List<List<Integer>> unbalancedAssignment = asList(singletonList(1), singletonList(1));
-      requestTopics.put("bar", new PartitionDetails(4, unbalancedAssignment));
-      requestTopics.put("invalid", new PartitionDetails(4));
-      CreatePartitionsRequest inbound = new CreatePartitionsRequest.Builder(requestTopics, 30000, false).build(ver);
+      List<CreatePartitionsTopic> requestTopics = new ArrayList<>();
+      requestTopics.add(new CreatePartitionsTopic().setName("foo").setCount(4));
+      List<CreatePartitionsAssignment> unbalancedAssignment = asList(
+              new CreatePartitionsAssignment().setBrokerIds(singletonList(1)),
+              new CreatePartitionsAssignment().setBrokerIds(singletonList(1)));
+      requestTopics.add(new CreatePartitionsTopic()
+              .setName("bar")
+              .setCount(4)
+              .setAssignments(unbalancedAssignment));
+      requestTopics.add(new CreatePartitionsTopic().setName("invalid").setCount(4));
+
+      CreatePartitionsRequest inbound =
+              new CreatePartitionsRequest.Builder(new CreatePartitionsRequestData()
+                      .setTopics(requestTopics)
+                      .setTimeoutMs(30000)
+                      .setValidateOnly(false))
+                      .build(ver);
+
       CreatePartitionsRequest request = (CreatePartitionsRequest) parseRequest(context, inbound);
-      assertEquals(mkSet("tenant_foo", "tenant_bar", "tenant_invalid"), request.newPartitions().keySet());
-      assertEquals(2, request.newPartitions().get("tenant_foo").newAssignments().size());
-      assertEquals(2, request.newPartitions().get("tenant_bar").newAssignments().size());
-      assertNotEquals(unbalancedAssignment, request.newPartitions().get("tenant_bar").newAssignments());
-      assertTrue(request.newPartitions().get("tenant_invalid").newAssignments().isEmpty());
+
+      Map<String, List<CreatePartitionsRequestData.CreatePartitionsAssignment>> assignments =
+              request.data().topics().stream().collect(Collectors.toMap(CreatePartitionsTopic::name,
+                      CreatePartitionsTopic::assignments));
+
+      assertEquals(mkSet("tenant_foo", "tenant_bar", "tenant_invalid"), assignments.keySet());
+      assertEquals(2, assignments.get("tenant_foo").size());
+      assertEquals(2, assignments.get("tenant_bar").size());
+      assertNotEquals(unbalancedAssignment, assignments.get("tenant_bar"));
+      assertTrue(assignments.get("tenant_invalid").isEmpty());
       verifyRequestMetrics(ApiKeys.CREATE_PARTITIONS);
     }
   }
@@ -2043,18 +2072,35 @@ public class MultiTenantRequestContextTest {
     partitionAssignor = null;
     for (short ver = ApiKeys.CREATE_PARTITIONS.oldestVersion(); ver <= ApiKeys.CREATE_PARTITIONS.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_PARTITIONS, ver);
-      Map<String, PartitionDetails> requestTopics = new HashMap<>();
-      requestTopics.put("foo", new PartitionDetails(4));
-      List<List<Integer>> unbalancedAssignment = asList(singletonList(1), singletonList(1));
-      requestTopics.put("bar", new PartitionDetails(4, unbalancedAssignment));
-      requestTopics.put("invalid", new PartitionDetails(4));
-      CreatePartitionsRequest inbound = new CreatePartitionsRequest.Builder(requestTopics, 30000, false).build(ver);
+
+      List<CreatePartitionsTopic> requestTopics = new ArrayList<>();
+      requestTopics.add(new CreatePartitionsTopic().setName("foo").setCount(4));
+      List<CreatePartitionsAssignment> unbalancedAssignment = asList(
+              new CreatePartitionsAssignment().setBrokerIds(singletonList(1)),
+              new CreatePartitionsAssignment().setBrokerIds(singletonList(1)));
+      requestTopics.add(new CreatePartitionsTopic()
+              .setName("bar")
+              .setCount(4)
+              .setAssignments(unbalancedAssignment));
+      requestTopics.add(new CreatePartitionsTopic().setName("invalid").setCount(4));
+
+      CreatePartitionsRequest inbound =
+              new CreatePartitionsRequest.Builder(new CreatePartitionsRequestData()
+                      .setTopics(requestTopics)
+                      .setTimeoutMs(30000)
+                      .setValidateOnly(false))
+                      .build(ver);
+
       CreatePartitionsRequest request = (CreatePartitionsRequest) parseRequest(context, inbound);
-      assertEquals(mkSet("tenant_foo", "tenant_bar", "tenant_invalid"), request.newPartitions().keySet());
-      assertNull(request.newPartitions().get("tenant_foo").newAssignments());
-      assertEquals(2, request.newPartitions().get("tenant_bar").newAssignments().size());
-      assertEquals(unbalancedAssignment, request.newPartitions().get("tenant_bar").newAssignments());
-      assertNull(request.newPartitions().get("tenant_invalid").newAssignments());
+      Map<String, List<CreatePartitionsRequestData.CreatePartitionsAssignment>> assignments =
+              request.data().topics().stream().collect(Collectors.toMap(CreatePartitionsTopic::name,
+                      CreatePartitionsTopic::assignments));
+
+      assertEquals(mkSet("tenant_foo", "tenant_bar", "tenant_invalid"), assignments.keySet());
+      assertTrue(assignments.get("tenant_foo").isEmpty());
+      assertEquals(2, assignments.get("tenant_bar").size());
+      assertEquals(unbalancedAssignment, assignments.get("tenant_bar"));
+      assertTrue(assignments.get("tenant_invalid").isEmpty());
       verifyRequestMetrics(ApiKeys.CREATE_PARTITIONS);
     }
   }
@@ -2063,20 +2109,30 @@ public class MultiTenantRequestContextTest {
   public void testCreatePartitionsPolicyFailure() throws Exception {
     for (short ver = ApiKeys.CREATE_PARTITIONS.oldestVersion(); ver <= ApiKeys.CREATE_PARTITIONS.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_PARTITIONS, ver);
-      Map<String, ApiError> partitionErrors = new HashMap<>();
-      partitionErrors.put("tenant_foo", new ApiError(Errors.POLICY_VIOLATION, "Topic tenant_foo is not permitted"));
-      partitionErrors.put("tenant_bar", new ApiError(Errors.NONE, ""));
-      CreatePartitionsResponse outbound = new CreatePartitionsResponse(0, partitionErrors);
-      Struct struct = parseResponse(ApiKeys.CREATE_PARTITIONS, ver, context.buildResponse(outbound));
-      CreatePartitionsResponse intercepted = new CreatePartitionsResponse(struct);
-      assertEquals(mkSet("foo", "bar"), intercepted.errors().keySet());
-      assertEquals(Errors.NONE, intercepted.errors().get("bar").error());
+      CreatePartitionsResponseData responseData =
+              new CreatePartitionsResponseData()
+                      .setResults(asList(
+                              new CreatePartitionsTopicResult()
+                                      .setName("foo")
+                                      .setErrorCode(Errors.POLICY_VIOLATION.code())
+                                      .setErrorMessage("Topic tenant_foo is not permitted"),
+                              new CreatePartitionsTopicResult()
+                                      .setName("bar")
+                                      .setErrorCode(Errors.NONE.code())));
 
-      ApiError apiError = intercepted.errors().get("foo");
-      assertEquals(Errors.POLICY_VIOLATION, apiError.error());
-      if (apiError.message() != null) {
-        assertFalse(apiError.message().contains("tenant_"));
-      }
+      CreatePartitionsResponse outbound = new CreatePartitionsResponse(responseData);
+      Struct struct = parseResponse(ApiKeys.CREATE_PARTITIONS, ver, context.buildResponse(outbound));
+      CreatePartitionsResponse intercepted = new CreatePartitionsResponse(struct, ver);
+
+      Map<String, CreatePartitionsTopicResult> results = intercepted.data().results().stream()
+              .collect(Collectors.toMap(CreatePartitionsTopicResult::name, Function.identity()));
+
+      assertEquals(mkSet("foo", "bar"), results.keySet());
+      assertEquals(Errors.NONE.code(), results.get("bar").errorCode());
+      assertEquals(Errors.POLICY_VIOLATION.code(), results.get("foo").errorCode());
+      String errorMessage = results.get("foo").errorMessage();
+      assertTrue(errorMessage != null);
+      assertFalse(errorMessage.contains("tenant_"));
     }
   }
 

@@ -17,6 +17,8 @@ import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.errors.InvalidRequestException;
+import org.apache.kafka.common.message.CreatePartitionsRequestData;
+import org.apache.kafka.common.message.CreatePartitionsRequestData.CreatePartitionsTopic;
 import org.apache.kafka.common.message.CreateTopicsRequestData;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignment;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignmentCollection;
@@ -52,7 +54,6 @@ import org.apache.kafka.common.requests.AbstractResponse;
 import org.apache.kafka.common.requests.AlterConfigsRequest;
 import org.apache.kafka.common.requests.CreateAclsRequest;
 import org.apache.kafka.common.requests.CreatePartitionsRequest;
-import org.apache.kafka.common.requests.CreatePartitionsRequest.PartitionDetails;
 import org.apache.kafka.common.requests.CreateTopicsRequest;
 import org.apache.kafka.common.requests.CreateTopicsResponse;
 import org.apache.kafka.common.requests.DeleteAclsRequest;
@@ -179,8 +180,8 @@ public class MultiTenantRequestContext extends RequestContext {
           body = transformDeleteAclsRequest((DeleteAclsRequest) body);
         } else if (body instanceof CreateTopicsRequest) {
           body = transformCreateTopicsRequest((CreateTopicsRequest) body, apiVersion);
-        } else if (body instanceof CreatePartitionsRequest && partitionAssignor != null) {
-          body = transformCreatePartitionsRequest((CreatePartitionsRequest) body, apiVersion);
+        } else if (body instanceof CreatePartitionsRequest) {
+          body = transformCreatePartitionsRequest((CreatePartitionsRequest) body);
         } else if (body instanceof ProduceRequest) {
           updatePartitionBytesInMetrics((ProduceRequest) body, requestTimestampMs);
         } else if (body instanceof AlterConfigsRequest) {
@@ -453,35 +454,36 @@ public class MultiTenantRequestContext extends RequestContext {
     return false;
   }
 
-  private AbstractRequest transformCreatePartitionsRequest(
-          CreatePartitionsRequest partitionsRequest, short version) {
-
-    Map<String, PartitionDetails> partitions = partitionsRequest.newPartitions();
-    Map<String, PartitionDetails> transformedPartitions = new HashMap<>();
-    Map<String, Integer> totalPartitions = new HashMap<>();
-    for (Map.Entry<String, PartitionDetails> entry : partitions.entrySet()) {
-      String topic = entry.getKey();
-      PartitionDetails newPartitionInfo = entry.getValue();
-      totalPartitions.put(topic, newPartitionInfo.totalCount());
-      List<List<Integer>> assignment = newPartitionInfo.newAssignments();
+  private AbstractRequest transformCreatePartitionsRequest(CreatePartitionsRequest partitionsRequest) {
+    for (CreatePartitionsTopic create: partitionsRequest.data().topics()) {
+      List<CreatePartitionsRequestData.CreatePartitionsAssignment> assignment = create.assignments();
       if (assignment != null && !assignment.isEmpty()) {
         log.debug("Overriding replica assignments provided in CreatePartitionsRequest");
       }
+      create.setName(tenantContext.addTenantPrefix(create.name()));
     }
 
-    String tenant = tenantContext.principal.tenantMetadata().tenantName;
-    Map<String, List<List<Integer>>> assignments =
-        partitionAssignor.assignPartitionsForExistingTopics(tenant, totalPartitions);
+    if (partitionAssignor != null) {
+      String tenant = tenantContext.principal.tenantMetadata().tenantName;
+      Map<String, Integer> partitionCounts = partitionsRequest
+              .data()
+              .topics()
+              .stream()
+              .collect(Collectors.toMap(CreatePartitionsTopic::name, CreatePartitionsTopic::count));
 
-    for (Map.Entry<String, List<List<Integer>>> entry : assignments.entrySet()) {
-      String topic = entry.getKey();
-      List<List<Integer>> assignment = entry.getValue();
-      int totalCount = partitions.get(topic).totalCount();
-      transformedPartitions.put(entry.getKey(), new PartitionDetails(totalCount, assignment));
+      Map<String, List<List<Integer>>> assignments = partitionAssignor.assignPartitionsForExistingTopics(tenant, partitionCounts);
+      for (CreatePartitionsTopic create: partitionsRequest.data().topics()) {
+          List<CreatePartitionsRequestData.CreatePartitionsAssignment> updated =
+                           assignments
+                          .get(create.name())
+                          .stream()
+                          .map(brokers -> new CreatePartitionsRequestData.CreatePartitionsAssignment().setBrokerIds(brokers))
+                          .collect(Collectors.toList());
+        create.setAssignments(updated);
+      }
     }
 
-    return new CreatePartitionsRequest.Builder(transformedPartitions,
-        partitionsRequest.timeout(), partitionsRequest.validateOnly()).build(version);
+    return partitionsRequest;
   }
 
   private JoinGroupRequest transformJoinGroupRequest(JoinGroupRequest joinGroupRequest) {
