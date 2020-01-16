@@ -903,6 +903,10 @@ public class MultiTenantRequestContextTest {
     outboundProtocolMetadataV1 = ConsumerProtocol.serializeSubscriptionV1(outboundSubscriptionWithoutPrefix).array();
     interceptedProtocolMetadataV1 = ConsumerProtocol.serializeSubscriptionV1(interceptedSubscription).array();
     testDescribeGroupsResponse(outboundGroups, PROTOCOL_TYPE, outboundProtocolMetadataV1, interceptedProtocolMetadataV1);
+
+    // A consumer group, not stable thus no subscriptions
+    byte[] emptyMetadata = new byte[0];
+    testDescribeGroupsResponse(outboundGroups, PROTOCOL_TYPE, emptyMetadata, emptyMetadata);
   }
 
   private void testDescribeGroupsResponse(List<String> outboundGroups, String protocolType,

@@ -525,6 +525,11 @@ public class MultiTenantRequestContext extends RequestContext {
    * versions, and trailing bytes are copied over.
    */
   private byte[] transformSubscription(byte[] metadata, boolean addPrefix) {
+    // Don't do anything if there is not metadata
+    if (metadata.length == 0) {
+      return metadata;
+    }
+
     // Parse the subscription
     ByteBuffer buffer = ByteBuffer.wrap(metadata);
     short ver = ConsumerProtocol.deserializeVersion(buffer);
