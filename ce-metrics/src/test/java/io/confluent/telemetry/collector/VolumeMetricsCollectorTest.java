@@ -28,7 +28,7 @@ public class VolumeMetricsCollectorTest {
         .setDomain("test")
         .setUpdatePeriodMs(100L)
         .setLogDirs(new String[] {System.getProperties().get("java.io.tmpdir").toString()})
-        .setMetricFilter(key -> !key.getName().contains("disk_total_bytes"))
+        .setMetricWhitelistFilter(key -> !key.getName().contains("disk_total_bytes"))
         .build();
 
     Metric metric = Iterables.getOnlyElement(metrics.collect());
@@ -46,7 +46,7 @@ public class VolumeMetricsCollectorTest {
         .setDomain("test")
         .setUpdatePeriodMs(100L)
         .setLogDirs(new String[] {System.getProperties().get("java.io.tmpdir").toString()})
-        .setMetricFilter(key -> !key.getName().contains("disk_usable_bytes"))
+        .setMetricWhitelistFilter(key -> !key.getName().contains("disk_usable_bytes"))
         .build();
 
     Metric metric = Iterables.getOnlyElement(metrics.collect());
@@ -64,7 +64,7 @@ public class VolumeMetricsCollectorTest {
         .setDomain("test")
         .setUpdatePeriodMs(100L)
         .setLogDirs(new String[] {System.getProperties().get("java.io.tmpdir").toString()})
-        .setMetricFilter(key -> !key.getName().contains("disk_usable_bytes"))
+        .setMetricWhitelistFilter(key -> !key.getName().contains("disk_usable_bytes"))
         .build();
 
     // collect twice so that we have a cached set of labels.

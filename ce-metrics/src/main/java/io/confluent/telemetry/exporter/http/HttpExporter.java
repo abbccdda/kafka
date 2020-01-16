@@ -93,7 +93,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
     @Override
     public MetricsCollector collector(
         ConfluentTelemetryConfig config, Context context, String domain) {
-        Predicate<MetricKey> metricFilter = config.getMetricFilter();
+        Predicate<MetricKey> metricWhitelistFilter = config.getMetricWhitelistFilter();
         return new MetricsCollector() {
             @Override
             public Collection<Metric> collect() {
@@ -120,7 +120,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
                 statusToBatchValue.forEach((status, value) -> {
                     Map<String, String> statusLabels = ImmutableMap.<String, String>builder()
                         .putAll(labels).put("status", status).build();
-                    if (!metricFilter.test(new MetricKey(batchName, statusLabels))) {
+                    if (!metricWhitelistFilter.test(new MetricKey(batchName, statusLabels))) {
                         return;
                     }
                     out.add(
@@ -142,7 +142,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
                 statusToItemValue.forEach((status, value) -> {
                     Map<String, String> statusLabels = ImmutableMap.<String, String>builder()
                         .putAll(labels).put("status", status).build();
-                    if (!metricFilter.test(new MetricKey(itemName, statusLabels))) {
+                    if (!metricWhitelistFilter.test(new MetricKey(itemName, statusLabels))) {
                         return;
                     }
                     out.add(
@@ -159,7 +159,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
                 // Timing metric. This is converted to seconds and sent as a Cumulative Double
                 String timingName = MetricsUtils
                     .fullMetricName(domain, GROUP, "send_time_seconds");
-                if (metricFilter.test(new MetricKey(timingName, labels))) {
+                if (metricWhitelistFilter.test(new MetricKey(timingName, labels))) {
                     out.add(
                         context.metricWithSinglePointTimeseries(
                             timingName,

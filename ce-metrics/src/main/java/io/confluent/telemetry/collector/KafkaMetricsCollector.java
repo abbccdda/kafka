@@ -39,7 +39,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
     public static final String KAFKA_METRICS_LIB = "kafka";
     private static final Logger log = LoggerFactory.getLogger(KafkaMetricsCollector.class);
     private final StateLedger ledger;
-    private final Predicate<MetricKey> metricFilter;
+    private final Predicate<MetricKey> metricWhitelistFilter;
     private final Context context;
 
     private final String domain;
@@ -57,8 +57,8 @@ public class KafkaMetricsCollector implements MetricsCollector {
         }
     }
 
-    public KafkaMetricsCollector(Predicate<MetricKey> metricFilter, Context context, String domain, StateLedger ledger, Clock clock) {
-        this.metricFilter = metricFilter;
+    public KafkaMetricsCollector(Predicate<MetricKey> metricWhitelistFilter, Context context, String domain, StateLedger ledger, Clock clock) {
+        this.metricWhitelistFilter = metricWhitelistFilter;
         this.context = context;
         this.domain = domain;
         this.clock = clock;
@@ -76,7 +76,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
             String name = metricKey.getName();
             Map<String, String> labels = metricKey.getLabels();
 
-            if (!metricFilter.test(metricKey)) {
+            if (!metricWhitelistFilter.test(metricKey)) {
                 continue;
             }
 
@@ -232,7 +232,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
      */
     public static Builder newBuilder(ConfluentTelemetryConfig config) {
       return newBuilder()
-          .setMetricFilter(config.getMetricFilter());
+          .setMetricWhitelistFilter(config.getMetricWhitelistFilter());
     }
 
     public static Builder newBuilder() {
@@ -240,7 +240,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
     }
 
     public static class Builder {
-        private Predicate<MetricKey> metricFilter = s -> true;
+        private Predicate<MetricKey> metricWhitelistFilter = s -> true;
         private Context context;
         private String domain;
         private Clock clock = Clock.systemUTC();
@@ -249,8 +249,8 @@ public class KafkaMetricsCollector implements MetricsCollector {
         private Builder() {
         }
 
-        public Builder setMetricFilter(Predicate<MetricKey> metricFilter) {
-            this.metricFilter = Objects.requireNonNull(metricFilter);
+        public Builder setMetricWhitelistFilter(Predicate<MetricKey> metricWhitelistFilter) {
+            this.metricWhitelistFilter = Objects.requireNonNull(metricWhitelistFilter);
             return this;
         }
 
@@ -277,7 +277,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
         public KafkaMetricsCollector build() {
             Objects.requireNonNull(this.domain);
 
-            return new KafkaMetricsCollector(this.metricFilter, this.context, this.domain, this.ledger, this.clock);
+            return new KafkaMetricsCollector(this.metricWhitelistFilter, this.context, this.domain, this.ledger, this.clock);
         }
     }
 

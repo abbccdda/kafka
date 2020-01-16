@@ -188,7 +188,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     /**
      * Get a predicate that filters metrics based on the whitelist configuration.
      */
-    public Predicate<MetricKey> getMetricFilter() {
+    public Predicate<MetricKey> getMetricWhitelistFilter() {
         // Configure the PatternPredicate.
         String regexString = getString(ConfluentTelemetryConfig.WHITELIST_CONFIG).trim();
 

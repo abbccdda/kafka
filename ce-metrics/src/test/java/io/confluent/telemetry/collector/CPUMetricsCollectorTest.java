@@ -30,7 +30,7 @@ public class CPUMetricsCollectorTest {
   @Test
   public void collectFilteredOut() {
     CPUMetricsCollector metrics = CPUMetricsCollector.newBuilder()
-        .setMetricFilter(key -> !key.getName().contains("cpu_usage"))
+        .setMetricWhitelistFilter(key -> !key.getName().contains("cpu_usage"))
         .setDomain("empty")
         .setContext(context)
         .build();

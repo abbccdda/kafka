@@ -2,6 +2,7 @@ package io.confluent.telemetry.collector;
 
 
 import static io.confluent.telemetry.collector.MetricsTestUtils.toMap;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -489,7 +490,7 @@ public class YammerMetricsCollectorTest {
     assertEquals("Should get exactly 2 metrics", 2, result.size());
 
     collector = collectorBuilder
-        .setMetricFilter(key -> !key.getName().contains("test_do_not_include"))
+        .setMetricWhitelistFilter(key -> !key.getName().contains("test_do_not_include"))
         .build();
     result = collector.collect();
     assertEquals("Should get exactly 1 metric", 1, result.size());
@@ -498,5 +499,45 @@ public class YammerMetricsCollectorTest {
     Metric metric = result.get(0);
 
     assertEquals("Name should match", "test-domain/type1/name1", metric.getMetricDescriptor().getName());
+  }
+
+  @Test
+  public void testCollectFilterWithDerivedMetrics() {
+    MetricName name1 = new MetricName("group2", "meterType", "ignore", "scope");
+    MetricName name2 = new MetricName("group2", "histogramType", "type2", "scope");
+
+    metricsRegistry.newMeter(metricName, "meterType", TimeUnit.SECONDS);
+    metricsRegistry.newMeter(name1, "meterType", TimeUnit.SECONDS);
+    metricsRegistry.newHistogram(name2, false);
+
+    YammerMetricsCollector collector = collectorBuilder
+        .build();
+    List<Metric> result = collector.collect();
+
+    assertThat(result).hasSize(7);
+
+    collector = collectorBuilder
+        .setMetricWhitelistFilter(key -> !key.getName().contains("/ignore"))
+        .build();
+    result = collector.collect();
+    assertThat(result).hasSize(5);
+
+    collector = collectorBuilder
+        .setMetricWhitelistFilter(key -> !key.getName().endsWith("/total"))
+        .build();
+    result = collector.collect();
+    assertThat(result).hasSize(5);
+
+    collector = collectorBuilder
+        .setMetricWhitelistFilter(key -> !key.getName().contains("/total/delta"))
+        .build();
+    result = collector.collect();
+    assertThat(result).hasSize(4);
+
+    collector = collectorBuilder
+        .setMetricWhitelistFilter(key -> !key.getName().contains("/time/delta"))
+        .build();
+    result = collector.collect();
+    assertThat(result).hasSize(6);
   }
 }

@@ -319,7 +319,7 @@ public class KafkaMetricsCollectorTest {
         .setContext(context)
         .setDomain("test-domain")
         .setLedger(ledger)
-        .setMetricFilter(metric -> !metric.getName().endsWith("/count"))
+        .setMetricWhitelistFilter(metric -> !metric.getName().endsWith("/count"))
         .build();
 
     List<Metric> result = collector.collect();

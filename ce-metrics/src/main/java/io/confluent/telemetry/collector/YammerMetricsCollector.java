@@ -46,7 +46,7 @@ public class YammerMetricsCollector implements MetricsCollector {
 
     private String domain;
     private MetricsRegistry metricsRegistry;
-    private Predicate<MetricKey> metricFilter;
+    private Predicate<MetricKey> metricWhitelistFilter;
     private Context context;
     private final Clock clock;
     private final LastValueTracker<Long> longDeltas;
@@ -54,10 +54,10 @@ public class YammerMetricsCollector implements MetricsCollector {
 
     private final Map<MetricKey, Instant> metricAdded = new ConcurrentHashMap<>();
 
-    public YammerMetricsCollector(String domain, MetricsRegistry metricsRegistry, Predicate<MetricKey> metricFilter, Context context, LastValueTracker<Long> longDeltas, LastValueTracker<Double> doubleDeltas, Clock clock) {
+    public YammerMetricsCollector(String domain, MetricsRegistry metricsRegistry, Predicate<MetricKey> metricWhitelistFilter, Context context, LastValueTracker<Long> longDeltas, LastValueTracker<Double> doubleDeltas, Clock clock) {
         this.domain = domain;
         this.metricsRegistry = metricsRegistry;
-        this.metricFilter = metricFilter;
+        this.metricWhitelistFilter = metricWhitelistFilter;
         this.context = context;
         this.clock = clock;
         this.longDeltas = longDeltas;
@@ -106,7 +106,7 @@ public class YammerMetricsCollector implements MetricsCollector {
 
             com.yammer.metrics.core.MetricName metricName = entry.getKey();
             com.yammer.metrics.core.Metric metric = entry.getValue();
-            MetricKey metricKey = toMetricKey(entry.getKey());
+            MetricKey metricKey = toMetricKey(metricName);
             String name = metricKey.getName();
             Map<String, String> labels = metricKey.getLabels();
 
@@ -115,7 +115,8 @@ public class YammerMetricsCollector implements MetricsCollector {
             try {
                 log.trace("Processing {}", metricName);
 
-                if (!metricFilter.test(metricKey)) {
+                // Do not process the metric if metricKey does not match whitelist predicate.
+                if (!metricWhitelistFilter.test(metricKey)) {
                     continue;
                 }
 
@@ -123,30 +124,32 @@ public class YammerMetricsCollector implements MetricsCollector {
                     collectGauge(name, labels, (Gauge) metric).map(out::add);
                 } else if (metric instanceof Counter) {
                     out.add(collectCounter(name, labels, (Counter) metric));
-                    out.add(collectDelta(name, labels, ((Counter) metric).count(), metricAddedInstant));
+                    // Derived metric, results in a name like /delta.
+                    collectDelta(name, labels, ((Counter) metric).count(), metricAddedInstant).map(out::add);
                 } else if (metric instanceof Meter) {
                     // Only collect the counters and append "/total" to the end.
                     String meterName = name + "/total";
-                    out.add(collectMeter(meterName, labels, (Meter) metric));
-                    out.add(collectDelta(meterName, labels, ((Meter) metric).count(), metricAddedInstant));
+                    // Derived metric, results in a name like /total.
+                    collectMeter(meterName, labels, (Meter) metric).map(out::add);
+                    // Derived metric, results in a name like /total/delta.
+                    collectDelta(meterName, labels, ((Meter) metric).count(), metricAddedInstant).map(out::add);
                 } else if (metric instanceof Timer) {
                     out.add(collectTimer(name, labels, (Timer) metric));
-                    // Results in a name like /time/delta
+                    // Derived metric, results in a name like /time/delta
                     collectDelta(name + "/time", labels, ((Timer) metric).sum(), metricAddedInstant).map(out::add);
-                    // Results in a name like /total/delta.
-                    out.add(collectDelta(name + "/total", labels, ((Timer) metric).count(), metricAddedInstant));
+                    // Derived metric, results in a name like /total/delta.
+                    collectDelta(name + "/total", labels, ((Timer) metric).count(), metricAddedInstant).map(out::add);
                 } else if (metric instanceof Histogram) {
                     out.add(collectHistogram(name, labels, (Histogram) metric));
-                    // Results in a name like /time/delta
+                    // Derived metric, results in a name like /time/delta
                     collectDelta(name + "/time", labels, ((Histogram) metric).sum(), metricAddedInstant).map(out::add);
-                    // Results in a name like /total/delta.
-                    out.add(collectDelta(name + "/total", labels, ((Histogram) metric).count(), metricAddedInstant));
-
+                    // Derived metric, results in a name like /total/delta.
+                    collectDelta(name + "/total", labels, ((Histogram) metric).count(), metricAddedInstant).map(out::add);
                 } else {
                     log.debug("Unexpected metric type for {}", metricName);
                 }
             } catch (Exception e) {
-                log.warn("Unexpected error in processing Yammer metric {}", metricName, e);
+                log.error("Unexpected error in processing Yammer metric {}", metricName, e);
             }
         }
 
@@ -208,7 +211,14 @@ public class YammerMetricsCollector implements MetricsCollector {
     }
 
 
-    private Metric collectDelta(String metricName, Map<String, String> labels, long value, Instant metricAdded) {
+    private Optional<Metric> collectDelta(String metricName, Map<String, String> labels, long value, Instant metricAdded) {
+        // Delta metrics are derived from original metrics hence re-check whether metricKey matches
+        // whitelist, else ignore.
+        String deltaMetricName = metricName + "/delta";
+        if (!metricWhitelistFilter.test(new MetricKey(deltaMetricName, labels))) {
+            return Optional.empty();
+        }
+
         MetricKey key = new MetricKey(metricName, labels);
 
         Optional<InstantAndValue<Long>> lastValue = longDeltas.getAndSet(key, Instant.now(clock), value);
@@ -223,15 +233,23 @@ public class YammerMetricsCollector implements MetricsCollector {
             .setInt64Value(delta)
             .build();
 
-        return context
-            .metricWithSinglePointTimeseries(metricName + "/delta", Type.GAUGE_INT64, labels, point, MetricsUtils
-                .toTimestamp(start));
+        return Optional.of(context
+            .metricWithSinglePointTimeseries(deltaMetricName, Type.GAUGE_INT64, labels, point, MetricsUtils
+                .toTimestamp(start)));
     }
 
     private Optional<Metric> collectDelta(String metricName, Map<String, String> labels, double value, Instant metricAdded) {
         if (Double.isNaN(value) || Double.isInfinite(value)) {
             return Optional.empty();
         }
+
+        // Delta metrics are derived from original metrics hence re-check whether metricKey is
+        // available in filtered list, else ignore.
+        String deltaMetricName = metricName + "/delta";
+        if (!metricWhitelistFilter.test(new MetricKey(deltaMetricName, labels))) {
+            return Optional.empty();
+        }
+
         MetricKey key = new MetricKey(metricName, labels);
 
         Optional<InstantAndValue<Double>> lastValue = doubleDeltas.getAndSet(key, Instant.now(clock), value);
@@ -248,17 +266,23 @@ public class YammerMetricsCollector implements MetricsCollector {
             .build();
 
         return Optional.of(context
-            .metricWithSinglePointTimeseries(metricName + "/delta", Type.GAUGE_DOUBLE, labels, point, MetricsUtils
+            .metricWithSinglePointTimeseries(deltaMetricName, Type.GAUGE_DOUBLE, labels, point, MetricsUtils
                 .toTimestamp(start)));
     }
 
 
-    private Metric collectMeter(String metricName, Map<String, String> labels, Meter meter) {
+    private Optional<Metric> collectMeter(String metricName, Map<String, String> labels, Meter meter) {
+        // Meter metrics has been derived from original metric by adding "/total" in name hence
+        // re-check if metric is available in filtered list.
+        if (!metricWhitelistFilter.test(new MetricKey(metricName, labels))) {
+            return Optional.empty();
+        }
+
         Point point = Point.newBuilder()
                 .setTimestamp(MetricsUtils.now(clock))
                 .setInt64Value(meter.count())
                 .build();
-        return context.metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.CUMULATIVE_INT64, labels, point);
+        return Optional.of(context.metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.CUMULATIVE_INT64, labels, point));
     }
 
     private Metric collectHistogram(String metricName, Map<String, String> labels, Histogram histogram) {
@@ -325,7 +349,7 @@ public class YammerMetricsCollector implements MetricsCollector {
      */
     public static Builder newBuilder(ConfluentTelemetryConfig config) {
         return newBuilder()
-            .setMetricFilter(config.getMetricFilter());
+            .setMetricWhitelistFilter(config.getMetricWhitelistFilter());
     }
 
     public static Builder newBuilder() {
@@ -335,7 +359,7 @@ public class YammerMetricsCollector implements MetricsCollector {
     public static class Builder {
         private String domain;
         private MetricsRegistry metricsRegistry;
-        private Predicate<MetricKey> metricFilter = s -> true;
+        private Predicate<MetricKey> metricWhitelistFilter = s -> true;
         private Context context;
         private Clock clock = Clock.systemUTC();
         private LastValueTracker<Long> longDeltas = new LastValueTracker<>();
@@ -355,8 +379,8 @@ public class YammerMetricsCollector implements MetricsCollector {
             return this;
         }
 
-        public Builder setMetricFilter(Predicate<MetricKey> metricFilter) {
-            this.metricFilter = metricFilter;
+        public Builder setMetricWhitelistFilter(Predicate<MetricKey> metricWhitelistFilter) {
+            this.metricWhitelistFilter = metricWhitelistFilter;
             return this;
         }
 
@@ -375,7 +399,7 @@ public class YammerMetricsCollector implements MetricsCollector {
             Objects.requireNonNull(this.domain);
             Objects.requireNonNull(this.metricsRegistry);
 
-            return new YammerMetricsCollector(this.domain, this.metricsRegistry, this.metricFilter, this.context, this.longDeltas, this.doubleDeltas, this.clock);
+            return new YammerMetricsCollector(this.domain, this.metricsRegistry, this.metricWhitelistFilter, this.context, this.longDeltas, this.doubleDeltas, this.clock);
         }
 
         public Builder setLongDeltas(LastValueTracker<Long> longDeltas) {

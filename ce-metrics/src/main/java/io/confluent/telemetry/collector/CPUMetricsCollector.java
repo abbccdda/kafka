@@ -27,14 +27,14 @@ public class CPUMetricsCollector implements MetricsCollector {
 
     private final String domain;
     private final Context context;
-    private final Predicate<MetricKey> metricFilter;
+    private final Predicate<MetricKey> metricWhitelistFilter;
     private final Optional<com.sun.management.OperatingSystemMXBean> osBean;
 
     public CPUMetricsCollector(Context ctx, String domain,
-        Predicate<MetricKey> metricFilter) {
+        Predicate<MetricKey> metricWhitelistFilter) {
         this.context = ctx;
         this.domain = domain;
-        this.metricFilter = metricFilter;
+        this.metricWhitelistFilter = metricWhitelistFilter;
 
         OperatingSystemMXBean osBean = ManagementFactory.getOperatingSystemMXBean();
         if (osBean instanceof com.sun.management.OperatingSystemMXBean) {
@@ -50,7 +50,7 @@ public class CPUMetricsCollector implements MetricsCollector {
      */
     public static Builder newBuilder(ConfluentTelemetryConfig config) {
         return newBuilder()
-            .setMetricFilter(config.getMetricFilter());
+            .setMetricWhitelistFilter(config.getMetricWhitelistFilter());
     }
 
     @Override
@@ -68,7 +68,7 @@ public class CPUMetricsCollector implements MetricsCollector {
             labels.put(MetricsCollector.LABEL_LIBRARY, MetricsCollector.LIBRARY_NONE);
         }
 
-        if (!metricFilter.test(new MetricKey(name, labels))) {
+        if (!metricWhitelistFilter.test(new MetricKey(name, labels))) {
             return out;
         }
 
@@ -97,7 +97,7 @@ public class CPUMetricsCollector implements MetricsCollector {
     public static class Builder {
         private String domain;
         private Context context;
-        private Predicate<MetricKey> metricFilter = s -> true;
+        private Predicate<MetricKey> metricWhitelistFilter = s -> true;
 
         private Builder() {
         }
@@ -111,15 +111,15 @@ public class CPUMetricsCollector implements MetricsCollector {
             this.context = context;
             return this;
         }
-        public Builder setMetricFilter(Predicate<MetricKey> metricFilter) {
-            this.metricFilter = metricFilter;
+        public Builder setMetricWhitelistFilter(Predicate<MetricKey> metricWhitelistFilter) {
+            this.metricWhitelistFilter = metricWhitelistFilter;
             return this;
         }
 
         public CPUMetricsCollector build() {
             Objects.requireNonNull(this.context);
             Objects.requireNonNull(this.domain);
-            return new CPUMetricsCollector(context, domain, metricFilter);
+            return new CPUMetricsCollector(context, domain, metricWhitelistFilter);
         }
     }
 }

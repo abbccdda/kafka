@@ -82,7 +82,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
 
     public static final String VOLUME_LABEL = "volume";
     private static final Logger log = LoggerFactory.getLogger(VolumeMetricsCollector.class);
-    private final Predicate<MetricKey> metricFilter;
+    private final Predicate<MetricKey> metricWhitelistFilter;
 
     /**
      * The last update time in monotonic nanoseconds.
@@ -117,7 +117,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
         updatePeriodMs = builder.updatePeriodMs;
         logDirs = builder.logDirs;
         context = builder.context;
-        metricFilter = builder.metricFilter;
+        metricWhitelistFilter = builder.metricWhitelistFilter;
 
         String domain = builder.domain;
         diskTotalBytesName = MetricsUtils.fullMetricName(domain, "volume", "disk_total_bytes");
@@ -146,7 +146,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
 
             Map<String, String> labels = labelsFor(volumeInfo.name());
 
-            if (metricFilter.test(new MetricKey(diskTotalBytesName, labels))) {
+            if (metricWhitelistFilter.test(new MetricKey(diskTotalBytesName, labels))) {
                 out.add(context.metricWithSinglePointTimeseries(
                     diskTotalBytesName,
                     MetricDescriptor.Type.GAUGE_INT64,
@@ -158,7 +158,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
                     ));
             }
 
-            if (metricFilter.test(new MetricKey(diskUsableBytesName, labels))) {
+            if (metricWhitelistFilter.test(new MetricKey(diskUsableBytesName, labels))) {
                 out.add(context.metricWithSinglePointTimeseries(
                     diskUsableBytesName,
                     MetricDescriptor.Type.GAUGE_INT64,
@@ -283,7 +283,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
     public static Builder newBuilder(ConfluentTelemetryConfig config) {
         VolumeMetricsCollectorConfig collectorConfig = config.getVolumeMetricsCollectorConfig();
         return new Builder()
-            .setMetricFilter(config.getMetricFilter())
+            .setMetricWhitelistFilter(config.getMetricWhitelistFilter())
             .setLogDirs(collectorConfig.getBrokerLogVolumes())
             .setUpdatePeriodMs(collectorConfig.getUpdatePeriodMs());
     }
@@ -293,7 +293,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
         private long updatePeriodMs;
         private String[] logDirs;
         private Context context;
-        private Predicate<MetricKey> metricFilter = s -> true;
+        private Predicate<MetricKey> metricWhitelistFilter = s -> true;
 
         private Builder() {
         }
@@ -317,8 +317,8 @@ public class VolumeMetricsCollector implements MetricsCollector {
             this.context = context;
             return this;
         }
-        public Builder setMetricFilter(Predicate<MetricKey> metricFilter) {
-            this.metricFilter = metricFilter;
+        public Builder setMetricWhitelistFilter(Predicate<MetricKey> metricWhitelistFilter) {
+            this.metricWhitelistFilter = metricWhitelistFilter;
             return this;
         }
 
