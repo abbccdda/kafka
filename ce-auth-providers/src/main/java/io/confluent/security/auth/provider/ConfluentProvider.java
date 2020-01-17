@@ -49,6 +49,7 @@ import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.KafkaFuture;
+import org.apache.kafka.common.Reconfigurable;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.config.ConfigException;
@@ -69,7 +70,7 @@ import org.slf4j.LoggerFactory;
 
 public class ConfluentProvider implements AccessRuleProvider, GroupProvider, MetadataProvider,
     org.apache.kafka.server.authorizer.Authorizer, ClusterResourceListener,
-    Auditable, AclMigrationAware {
+    Auditable, AclMigrationAware, Reconfigurable {
   private static final Logger log = LoggerFactory.getLogger(ConfluentProvider.class);
 
   static final ResourceType SECURITY_METADATA = new ResourceType("SecurityMetadata");
@@ -91,6 +92,7 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
 
   private String clusterId;
   private Set<KafkaPrincipal> configuredSuperUsers;
+  private MetadataServer metadataServer;
 
   public ConfluentProvider() {
     this.authScope = Scope.ROOT_SCOPE;
@@ -126,6 +128,28 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
     this.configuredSuperUsers =
         ConfluentAuthorizerConfig.parseUsers((String) configs.get(ConfluentAuthorizerConfig.SUPER_USERS_PROP));
   }
+
+  @Override
+  public Set<String> reconfigurableConfigs() {
+    return (metadataServer instanceof Reconfigurable)
+        ? ((Reconfigurable) metadataServer).reconfigurableConfigs()
+        : Collections.emptySet();
+  }
+
+  @Override
+  public void validateReconfiguration(final Map<String, ?> configs) throws ConfigException {
+    if (metadataServer instanceof Reconfigurable) {
+      ((Reconfigurable) metadataServer).validateReconfiguration(configs);
+    }
+  }
+
+  @Override
+  public void reconfigure(final Map<String, ?> configs) {
+    if (metadataServer instanceof Reconfigurable) {
+      ((Reconfigurable) metadataServer).reconfigure(configs);
+    }
+  }
+
 
   @Override
   public String providerName() {
@@ -191,6 +215,7 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
             injector.putInstance(AuthStore.class, authStore);
             injector.putInstance(AuthenticateCallbackHandler.class, authenticateCallbackHandler);
             metadataServer.registerMetadataProvider(providerName(), injector);
+            ConfluentProvider.this.metadataServer = metadataServer;
           }
 
           Set<String> accessProviders = ConfluentAuthorizerConfig.accessRuleProviders(configs);

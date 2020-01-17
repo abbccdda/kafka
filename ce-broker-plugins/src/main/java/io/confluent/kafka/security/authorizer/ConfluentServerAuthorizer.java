@@ -4,8 +4,6 @@ package io.confluent.kafka.security.authorizer;
 
 import io.confluent.kafka.security.authorizer.acl.AclMapper;
 import io.confluent.kafka.security.authorizer.acl.AclProvider;
-import kafka.server.KafkaConfig;
-import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import io.confluent.security.authorizer.AclMigrationAware;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizeResult;
@@ -15,6 +13,7 @@ import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.Acces
 import io.confluent.security.authorizer.provider.Provider;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -26,12 +25,14 @@ import kafka.security.auth.Operation;
 import kafka.security.auth.Operation$;
 import kafka.security.auth.Resource;
 import kafka.security.authorizer.AuthorizerUtils;
+import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.Reconfigurable;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -52,22 +53,31 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
 
   @Override
   public Set<String> reconfigurableConfigs() {
-    if (auditLogProvider() != null)
-      return auditLogProvider().reconfigurableConfigs();
-    else
-      return Collections.emptySet();
+    Set<String> result = new HashSet<>();
+    for (Provider provider : providersCreated) {
+      if (provider instanceof Reconfigurable) {
+        result.addAll(((Reconfigurable) provider).reconfigurableConfigs());
+      }
+    }
+    return result;
   }
 
   @Override
   public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
-    if (auditLogProvider() != null)
-      auditLogProvider().validateReconfiguration(configs);
+    for (Provider provider : providersCreated) {
+      if (provider instanceof Reconfigurable) {
+        ((Reconfigurable) provider).validateReconfiguration(configs);
+      }
+    }
   }
 
   @Override
   public void reconfigure(Map<String, ?> configs) {
-    if (auditLogProvider() != null)
-      auditLogProvider().reconfigure(configs);
+    for (Provider provider : providersCreated) {
+      if (provider instanceof Reconfigurable) {
+        ((Reconfigurable) provider).reconfigure(configs);
+      }
+    }
   }
 
   // Visibility for tests

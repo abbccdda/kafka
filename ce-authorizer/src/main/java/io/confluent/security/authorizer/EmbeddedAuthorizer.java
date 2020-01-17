@@ -48,7 +48,7 @@ public class EmbeddedAuthorizer implements Authorizer {
 
   private static final Map<Operation, Collection<Operation>> IMPLICIT_ALLOWED_OPS;
 
-  private final Set<Provider> providersCreated;
+  protected final Set<Provider> providersCreated;
   private GroupProvider groupProvider;
   private List<AccessRuleProvider> accessRuleProviders;
   private AuditLogProvider auditLogProvider;
@@ -100,6 +100,8 @@ public class EmbeddedAuthorizer implements Authorizer {
       providersCreated.add(providers.groupProvider);
     if (providers.metadataProvider != null)
       providersCreated.add(providers.metadataProvider);
+    if (providers.auditLogProvider != null)
+      providersCreated.add(providers.auditLogProvider);
 
     configureProviders(providers.accessRuleProviders,
         providers.groupProvider,

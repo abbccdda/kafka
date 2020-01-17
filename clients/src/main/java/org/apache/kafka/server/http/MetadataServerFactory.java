@@ -48,7 +48,7 @@ public final class MetadataServerFactory {
     if (metadataServer instanceof ClusterResourceListener) {
       ((ClusterResourceListener) metadataServer).onUpdate(new ClusterResource(clusterId));
     }
-    metadataServer.configure(metadataServerConfig.serverConfigs());
+    metadataServer.configure(configurations);
     return metadataServer;
   }
 
