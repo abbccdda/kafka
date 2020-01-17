@@ -91,8 +91,10 @@ object TopicCommand extends Logging {
     val rackAwareMode: RackAwareMode = opts.rackAwareMode
 
     replicaPlacement.map(Utils.readFileAsString)
-      .map { jsonString => TopicPlacement.parse(jsonString).toJson }
-      .foreach(configsToAdd.put(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, _))
+      .flatMap { jsonString => TopicPlacement.parse(jsonString).asScala }
+      .foreach { replicaPlacement =>
+        configsToAdd.put(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, replicaPlacement.toJson)
+      }
 
     def hasReplicaAssignment: Boolean = replicaAssignment.isDefined
     def hasPartitions: Boolean = partitions.isDefined

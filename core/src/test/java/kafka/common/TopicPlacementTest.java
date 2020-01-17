@@ -6,6 +6,7 @@ package kafka.common;
 import java.util.Collections;
 import org.apache.kafka.common.config.ConfigException;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import org.junit.Test;
 
@@ -15,30 +16,72 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertEquals;
 
 final public class TopicPlacementTest {
+
+    private TopicPlacement getTopicPlacement(String placementJson) {
+        return TopicPlacement.parse(placementJson).orElseThrow((Supplier<RuntimeException>) () -> {
+            throw new RuntimeException("Invalid topic placement json: " + placementJson);
+        });
+    }
+
     @Test
     public void testAttributeRackMatches() {
         String json = "{\"version\":1,\"replicas\":[{\"count\": 1, \"constraints\":{\"rack\":\"abc\"}}]," +
-            "\"observers\":[{\"count\": 1, \"constraints\":{\"rack\":\"def\"}}]}";
-        TopicPlacement topicPlacement = TopicPlacement.parse(json);
+                "\"observers\":[{\"count\": 1, \"constraints\":{\"rack\":\"def\"}}]}";
+        TopicPlacement topicPlacement = getTopicPlacement(json);
 
         assertTrue(topicPlacement.matchesReplicas(Collections.singletonMap("rack", "abc")));
         assertTrue(topicPlacement.matchesObservers(Collections.singletonMap("rack", "def")));
     }
 
     @Test
-    public void testAttributeRackMatchingEmptyConstraints() {
-        String json = "{\"version\": 1}";
-        TopicPlacement topicPlacement = TopicPlacement.parse(json);
+    public void testAttributeRackMatchingEmptyReplicaConstraints() {
+        String json = "{ \"version\": 1, \"replicas\": [{\"count\": 1}] }";
+        TopicPlacement topicPlacement = getTopicPlacement(json);
 
         assertTrue(topicPlacement.matchesReplicas(Collections.singletonMap("rack", "abc")));
-        assertFalse(topicPlacement.matchesObservers(Collections.singletonMap("rack", "def")));
+        assertTrue(topicPlacement.matchesReplicas(Collections.emptyMap()));
+    }
+
+    @Test
+    public void testAttributeRackMatchingEmptyReplicaAndObserverConstraints() {
+        String json = "{ \"version\": 1, \"replicas\": [{\"count\": 1}], \"observers\": [{\"count\": 1}] }";
+        TopicPlacement topicPlacement = getTopicPlacement(json);
+
+        assertTrue(topicPlacement.matchesReplicas(Collections.singletonMap("rack", "abc")));
+        assertTrue(topicPlacement.matchesReplicas(Collections.emptyMap()));
+        assertTrue(topicPlacement.matchesObservers(Collections.singletonMap("rack", "def")));
+        assertTrue(topicPlacement.matchesObservers(Collections.emptyMap()));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testFailsWithEmptyConstraints() {
+        String json = "{\"version\": 1}";
+        getTopicPlacement(json);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testFailsWithEmptyReplicas() {
+        String input = "{\"version\":1,\"replicas\":null}";
+        getTopicPlacement(input);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testFailsWithOnlyObservers() {
+        String input = "{\"version\":1,\"observers\":[{\"count\": 1, \"constraints\":{\"rack\":\"def\"}}]}";
+        getTopicPlacement(input);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testFailsWithEmptyReplicasAndObservers() {
+        String input = "{\"version\":1,\"replicas\":null,\"observers\":null}";
+        getTopicPlacement(input);
     }
 
     @Test
     public void testAttributeRackDoesNotMatch() {
         String json = "{\"version\":1,\"replicas\":[{\"count\": 1, \"constraints\":{\"rack\":\"abc\"}}]," +
             "\"observers\":[{\"count\": 1, \"constraints\":{\"rack\":\"def\"}}]}";
-        TopicPlacement topicPlacement = TopicPlacement.parse(json);
+        TopicPlacement topicPlacement = getTopicPlacement(json);
 
         assertFalse(topicPlacement.matchesReplicas(Collections.singletonMap("rack", "def")));
         assertFalse(topicPlacement.matchesReplicas(Collections.singletonMap("rack", "not_match")));
@@ -52,13 +95,13 @@ final public class TopicPlacementTest {
     public void testBasicParsingFailures() {
         String missingVersion = "{\"replicas\":[{\"constraints\":{\"rack\":\"abc\"}}]," +
             "\"observers\":[{\"constraints\":{\"rack\":\"def\"}}]}";
-        assertThrows(IllegalArgumentException.class, () -> TopicPlacement.parse(missingVersion));
+        assertThrows(IllegalArgumentException.class, () -> getTopicPlacement(missingVersion));
 
         String unknownFields = "{\"version\": 1, \"unknown\": \"unknown\"}";
-        assertThrows(IllegalArgumentException.class, () -> TopicPlacement.parse(unknownFields));
+        assertThrows(IllegalArgumentException.class, () -> getTopicPlacement(unknownFields));
 
         String unknownVersion = "{\"version\": 2}";
-        assertThrows(IllegalArgumentException.class, () -> TopicPlacement.parse(unknownVersion));
+        assertThrows(IllegalArgumentException.class, () -> getTopicPlacement(unknownVersion));
     }
 
     @Test
@@ -83,7 +126,7 @@ final public class TopicPlacementTest {
                 "\"replicas\": [{\"count\": 2, \"constraints\": {\"rack\": \"east-1\"}}," +
                                "{\"count\": 1, \"constraints\": {\"rack\": \"east-2\"}}]," +
                 "\"observers\": [{\"count\": 1, \"constraints\": {\"rack\": \"west-1\"}}]}";
-        TopicPlacement topicPlacement = TopicPlacement.parse(placementJson);
+        TopicPlacement topicPlacement = getTopicPlacement(placementJson);
         assertTrue(topicPlacement.matchesReplicas(replicaBroker));
         assertTrue(topicPlacement.matchesObservers(observerBroker));
     }
@@ -98,7 +141,7 @@ final public class TopicPlacementTest {
                 "\"replicas\": [{\"count\": 2, \"constraints\": {\"rack\": \"east-1\"}}," +
                 "{\"count\": 1, \"constraints\": {\"rack\": \"east-2\"}}]," +
                 "\"observers\": [{\"count\": 1, \"constraints\": {\"rack\": \"west-1\"}}]}";
-        TopicPlacement topicPlacement = TopicPlacement.parse(placementJson);
+        TopicPlacement topicPlacement = getTopicPlacement(placementJson);
         assertFalse(topicPlacement.matchesReplicas(broker));
         assertFalse(topicPlacement.matchesObservers(broker));
     }
@@ -112,7 +155,7 @@ final public class TopicPlacementTest {
                 "\"replicas\": [{\"count\": 2, \"constraints\": {\"rack\": \"east-1\"}}," +
                 "{\"count\": 1, \"constraints\": {\"rack\": \"east-2\"}}]," +
                 "\"observers\": [{\"count\": 1, \"constraints\": {\"rack\": \"west-1\"}}]}";
-        TopicPlacement topicPlacement = TopicPlacement.parse(placementJson);
+        TopicPlacement topicPlacement = getTopicPlacement(placementJson);
         assertFalse(topicPlacement.matchesReplicas(Collections.emptyMap()));
         assertFalse(topicPlacement.matchesObservers(Collections.emptyMap()));
     }
@@ -128,7 +171,7 @@ final public class TopicPlacementTest {
                 "{%n      \"count\": 1,%n      \"constraints\": {\"rack\": \"rack-2\"}%n    }%n  " +
                 "]%n}";
         String platformIndependentJson = String.format(placementJson);
-        TopicPlacement tp = TopicPlacement.parse(platformIndependentJson);
+        TopicPlacement tp = getTopicPlacement(platformIndependentJson);
         String serializedJson = tp.toJson();
         assertTrue(serializedJson.length() < platformIndependentJson.length());
     }
@@ -138,7 +181,7 @@ final public class TopicPlacementTest {
      */
     @Test
     public void testEmptyStringParsesToEmptyTopicPlacement() {
-        assertEquals(TopicPlacement.empty(), TopicPlacement.parse(""));
+        assertEquals(false, TopicPlacement.parse("").isPresent());
     }
 
     /**
@@ -146,20 +189,16 @@ final public class TopicPlacementTest {
      */
     @Test
     public void testSuccessfulHandlingOfNullProperties() {
-        String input = "{\"version\":1,\"replicas\":null,\"observers\":null}";
-        TopicPlacement placement = TopicPlacement.parse(input);
-        assertTrue(placement.replicas().isEmpty());
-        assertTrue(placement.observers().isEmpty());
 
-        input = "{\"version\":1,\"replicas\":[{\"count\":1,\"constraints\":null}]," +
+        String input = "{\"version\":1,\"replicas\":[{\"count\":1,\"constraints\":null}]," +
             "\"observers\":[{\"count\":1,\"constraints\":null}]}";
-        placement = TopicPlacement.parse(input);
+        TopicPlacement placement = getTopicPlacement(input);
         assertTrue(placement.replicas().stream().allMatch(constraint -> constraint.constraints().isEmpty()));
         assertTrue(placement.observers().stream().allMatch(constraint -> constraint.constraints().isEmpty()));
 
         input = "{\"version\":1,\"replicas\":[{\"count\":1,\"constraints\":{\"rack\":null}}]," +
             "\"observers\":[{\"count\":1,\"constraints\":{\"rack\":null}}]}";
-        placement = TopicPlacement.parse(input);
+        placement = getTopicPlacement(input);
         assertTrue(placement.replicas().stream().allMatch(constraint -> constraint.constraints().isEmpty()));
         assertTrue(placement.observers().stream().allMatch(constraint -> constraint.constraints().isEmpty()));
     }
@@ -170,7 +209,7 @@ final public class TopicPlacementTest {
                 "\"replicas\": [{\"constraints\": {\"rack\": \"east-1\"}}," +
                 "{\"constraints\": {\"rack\": \"east-2\"}}]," +
                 "\"observers\": [{\"constraints\": {\"rack\": \"west-1\"}}]}";
-        TopicPlacement.parse(placementJson);
+        getTopicPlacement(placementJson);
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -179,16 +218,16 @@ final public class TopicPlacementTest {
                 "\"replicas\": [{\"count\": 2, \"constraints\": {\"rack\": \"east-1\"}}," +
                 "{\"count\": 1, \"constraints\": {\"rack\": \"east-2\"}}]," +
                 "\"observers\": [{\"constraints\": {\"rack\": \"west-1\"}}]}";
-        TopicPlacement.parse(placementJson);
+        getTopicPlacement(placementJson);
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testFailsWithStringNull() {
-        TopicPlacement.parse("null");
+        getTopicPlacement("null");
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testFailsWithEmptyJsonObject() {
-        TopicPlacement.parse("{}");
+        getTopicPlacement("{}");
     }
 }

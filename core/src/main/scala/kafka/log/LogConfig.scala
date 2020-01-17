@@ -36,6 +36,7 @@ import org.slf4j.LoggerFactory
 
 import scala.collection.JavaConverters._
 import scala.collection.{Map, mutable}
+import scala.compat.java8.OptionConverters._
 
 object Defaults {
   val SegmentSize = kafka.server.Defaults.LogSegmentBytes
@@ -127,11 +128,8 @@ case class LogConfig(props: java.util.Map[_, _], overriddenConfigs: Set[String] 
   val segmentSpeculativePrefetchEnable = getBoolean(LogConfig.SegmentSpeculativePrefetchEnableProp)
 
   val appendRecordInterceptors = getConfiguredInstances(LogConfig.AppendRecordInterceptorClassesProp, classOf[RecordInterceptor])
-  val topicPlacementConstraints: TopicPlacement = {
-    Option(getString(LogConfig.TopicPlacementConstraintsProp)).map { value =>
-      TopicPlacement.parse(value)
-    }.getOrElse(TopicPlacement.empty())
-  }
+  val topicPlacementConstraints: Option[TopicPlacement] = TopicPlacement.parse(
+    getString(LogConfig.TopicPlacementConstraintsProp)).asScala
 
   // if schema validation is enabled, construct the schema validation interceptor
   val keySchemaValidationEnable = getBoolean(LogConfig.KeySchemaValidationEnableProp)
@@ -469,7 +467,7 @@ object LogConfig {
     if (current.tierEnable && !current.compact && proposed.compact)
       throw new InvalidConfigurationException("Configs cannot be altered to enable compaction if tiering is enabled")
 
-    if (interBrokerProtocolVersion < KAFKA_2_4_IV1 && proposed.topicPlacementConstraints.hasObserverConstraints)
+    if (interBrokerProtocolVersion < KAFKA_2_4_IV1 && proposed.topicPlacementConstraints.exists(_.hasObserverConstraints))
       throw new InvalidConfigurationException("Observer constraints are not allowed with current " +
         s"`inter.broker.protocol.version=$interBrokerProtocolVersion` (must be 2.4 or higher)")
   }

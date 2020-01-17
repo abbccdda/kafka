@@ -13,6 +13,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+
 import org.apache.kafka.common.config.ConfigDef.Validator;
 import org.apache.kafka.common.config.ConfigException;
 
@@ -93,16 +95,11 @@ final public class TopicPlacement {
     /**
      * Determines if a set of attributes matches the replicas constraints.
      *
-     * Returns true if any of the following is true:
-     *
-     * 1. Replicas constraints is empty. If the topic is configured without a replicas
-     *    constraints then assume that there aren't any observers constraints. Hence,
-     *    all of the brokers should be replicas.
-     * 2. At least one of the replicas constraints matches the broker's attributes.
+     * Returns true if at least one of the replica constraints matches the broker's
+     * attributes.
      */
     public boolean matchesReplicas(Map<String, String> attributes) {
-        return replicas.isEmpty() ||
-            replicas
+        return replicas
                 .stream()
                 .anyMatch(constraintCount -> constraintCount.matches(attributes));
     }
@@ -125,12 +122,12 @@ final public class TopicPlacement {
         JSON_SERDE.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
     }
 
-    public static TopicPlacement parse(String value) {
-        if (value.trim().isEmpty()) {
+    public static Optional<TopicPlacement> parse(String value) {
+        if (value == null || value.trim().isEmpty()) {
             // Since we have configure the empty string "" as the default value for
             // ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG we need this
             // to succeed and return the empty value for topic placement
-            return TopicPlacement.empty();
+            return Optional.empty();
         }
 
         try {
@@ -145,8 +142,8 @@ final public class TopicPlacement {
                         "Version " + topicPlacement.version() +
                         " is not supported or the version property was not specified");
             }
-            if (!topicPlacement.observers().isEmpty() && topicPlacement.replicas().isEmpty()) {
-                throw new IllegalArgumentException("Replicas constraints must be specified if observers constraints are specified");
+            if (topicPlacement.replicas().isEmpty()) {
+                throw new IllegalArgumentException("At least one replica constraint must be specified.");
             }
             for (ConstraintCount constraint: topicPlacement.replicas) {
                 if (constraint.count() == 0) {
@@ -159,7 +156,7 @@ final public class TopicPlacement {
                 }
             }
 
-            return topicPlacement;
+            return Optional.of(topicPlacement);
         } catch (IOException e) {
             throw new IllegalArgumentException("Exception while parsing placement configuration", e);
         }
@@ -175,12 +172,6 @@ final public class TopicPlacement {
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    private static final TopicPlacement EMPTY = new TopicPlacement(1, null, null);
-
-    public static TopicPlacement empty() {
-        return EMPTY;
     }
 
     public static final class ConstraintCount {

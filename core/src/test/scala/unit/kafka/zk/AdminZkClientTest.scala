@@ -41,6 +41,7 @@ import org.scalatest.Assertions.intercept
 
 import scala.collection.JavaConverters._
 import scala.collection.{Map, Seq, immutable}
+import scala.compat.java8.OptionConverters._
 
 class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAwareTest {
 
@@ -415,7 +416,7 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
                           |    }
                           |  }]
                           |}""".stripMargin
-    val topicPlacement = TopicPlacement.parse(placementJson)
+    val topicPlacement = TopicPlacement.parse(placementJson).asScala
     val existingAssignment = Map(0 -> ReplicaAssignment(List(0, 1, 5, 6), List(5, 6)))
 
     val brokers = (0 until 10).map { id =>
@@ -430,7 +431,7 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
     adminZkClient.createTopic(topicName, 1, 4, props)
 
     val partitionAssignment = adminZkClient.addPartitions(
-      topicName, existingAssignment, brokers, numPartitions = 3, None, false, Some(topicPlacement))
+      topicName, existingAssignment, brokers, numPartitions = 3, None, false, topicPlacement)
 
     assertEquals(3, partitionAssignment.size)
 
@@ -480,7 +481,7 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
                           |    }
                           |  }]
                           |}""".stripMargin
-    val topicPlacement = TopicPlacement.parse(placementJson)
+    val topicPlacement = TopicPlacement.parse(placementJson).asScala
     val existingAssignment = Map(0 -> ReplicaAssignment(List(0, 1, 5, 6), List(5, 6)))
     val newAssignment = Map(1 -> ReplicaAssignment(List(2, 3, 7, 8), List(7, 8)))
 
@@ -496,7 +497,7 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
     adminZkClient.createTopic(topicName, 1, 4, props)
 
     val partitionAssignment = adminZkClient.addPartitions(
-      topicName, existingAssignment, brokers, numPartitions = 2, Some(newAssignment), false, Some(topicPlacement))
+      topicName, existingAssignment, brokers, numPartitions = 2, Some(newAssignment), false, topicPlacement)
 
     assertEquals(existingAssignment ++ newAssignment, partitionAssignment)
   }
@@ -523,7 +524,7 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
                           |    }
                           |  }]
                           |}""".stripMargin
-    val topicPlacement = TopicPlacement.parse(placementJson)
+    val topicPlacement = TopicPlacement.parse(placementJson).asScala
     val existingAssignment = Map(0 -> ReplicaAssignment(0 to 7, List(6, 7)))
 
     val brokers = (0 until 10).map { id =>
@@ -539,7 +540,7 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
 
     // This should throw as we don't have enough brokers to satisfy replica constraint count
     adminZkClient.addPartitions(
-      topicName, existingAssignment, brokers, numPartitions = 3, None, false, Some(topicPlacement))
+      topicName, existingAssignment, brokers, numPartitions = 3, None, false, topicPlacement)
   }
 
   /**
@@ -565,7 +566,7 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
                           |    }
                           |  }]
                           |}""".stripMargin
-    val topicPlacement = TopicPlacement.parse(placementJson)
+    val topicPlacement = TopicPlacement.parse(placementJson).asScala
     val existingAssignment = Map(0 -> ReplicaAssignment(2 until 10, 4 until 10))
 
     val brokers = (0 until 10).map { id =>
@@ -581,7 +582,7 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
 
     // This should throw as we don't have enough brokers to satisfy replica constraint count
     adminZkClient.addPartitions(
-      topicName, existingAssignment, brokers, numPartitions = 3, None, false, Some(topicPlacement))
+      topicName, existingAssignment, brokers, numPartitions = 3, None, false, topicPlacement)
   }
 
   @Test

@@ -106,6 +106,7 @@ class AdminManager(val config: KafkaConfig,
           configs.setProperty(entry.name, entry.value)
         }
         LogConfig.validate(configs)
+        val logConfig = LogConfig(configs)
 
         if ((topic.numPartitions != NO_NUM_PARTITIONS || topic.replicationFactor != NO_REPLICATION_FACTOR)
             && !topic.assignments().isEmpty) {
@@ -118,26 +119,9 @@ class AdminManager(val config: KafkaConfig,
         val resolvedReplicationFactor = if (topic.replicationFactor == NO_REPLICATION_FACTOR)
           defaultReplicationFactor else topic.replicationFactor
 
-        val replicaPlacementOpt = Option(configs.get(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG))
-          .map(value => TopicPlacement.parse(value.toString))
-        replicaPlacementOpt.foreach { replicaPlacement =>
-          if (replicaPlacement.hasObserverConstraints && !config.isObserverSupportEnabled) {
-            throw new InvalidReplicaAssignmentException(s"Configuration ${ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG}" +
-              s" specifies observer constraints which are only allowed if ${KafkaConfig.InterBrokerProtocolVersionProp}" +
-              s" is 2.4 or higher (currently it is ${config.interBrokerProtocolVersion}).")
-          }
-          if (!topic.assignments().isEmpty) {
-            throw new InvalidRequestException(s"Both assignments and ${ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG} are set. Both cannot be " +
-              "used at the same time.")
-          }
-          if (topic.replicationFactor != NO_REPLICATION_FACTOR) {
-            throw new InvalidRequestException(s"Both replicationFactor and ${ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG} are set. Both cannot be " +
-              "used at the same time.")
-          }
-        }
-
-        val assignments = if (topic.assignments().isEmpty) {
-          Observer.getReplicaAssignment(brokers, replicaPlacementOpt, resolvedNumPartitions, resolvedReplicationFactor)
+        val replicaPlacement: Option[TopicPlacement] = AdminManager.validateAndGetTopicPlacement(config, logConfig, topic)
+        val assignments = if (topic.assignments.isEmpty) {
+          Observer.getReplicaAssignment(brokers, replicaPlacement, resolvedNumPartitions, resolvedReplicationFactor)
         } else {
           val assignments = mutable.Map.empty[Int, ReplicaAssignment]
           // Note: we don't check that replicaAssignment contains unknown brokers - unlike in add-partitions case,
@@ -321,15 +305,14 @@ class AdminManager(val config: KafkaConfig,
           throw new InvalidPartitionsException(s"Topic already has $oldNumPartitions partitions.")
         }
 
-        val topicProps = adminZkClient.fetchEntityConfig(ConfigType.Topic, topic)
-        val topicPlacement = Option(topicProps.getProperty(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG))
-          .map(TopicPlacement.parse)
+        val logConfig = LogConfig(adminZkClient.fetchEntityConfig(ConfigType.Topic, topic))
+        val topicPlacement = logConfig.topicPlacementConstraints
 
         val newPartitionsAssignment = Option(newPartition.newAssignments)
           .map { value =>
             val assignments = value.asScala.map(_.asScala)
 
-            val unknownBrokers = assignments.flatten.toSet -- allBrokerIds
+            val unknownBrokers = assignments.flatten.map(_.toInt).toSet -- allBrokerIds
             if (unknownBrokers.nonEmpty) {
               throw new InvalidReplicaAssignmentException(
                 s"Unknown broker(s) in replica assignment: ${unknownBrokers.mkString(", ")}.")
@@ -388,7 +371,7 @@ class AdminManager(val config: KafkaConfig,
     if (timeout <= 0 || validateOnly || !metadata.exists(_.error.is(Errors.NONE))) {
       val results = metadata.map { createPartitionMetadata =>
         // ignore topics that already have errors
-        if (createPartitionMetadata.error.isSuccess() && !validateOnly) {
+        if (createPartitionMetadata.error.isSuccess && !validateOnly) {
           (createPartitionMetadata.topic, new ApiError(Errors.REQUEST_TIMED_OUT, null))
         } else {
           (createPartitionMetadata.topic, createPartitionMetadata.error)
@@ -794,4 +777,32 @@ class AdminManager(val config: KafkaConfig,
     }.toBuffer
   }
 
+}
+
+object AdminManager {
+
+  /**
+   * Returns a Some(TopicPlacement) or None depending on topic placement constraint are specified or not.
+   */
+  // VisibleForTesting
+  def validateAndGetTopicPlacement(kafkaConfig: KafkaConfig,
+                                   logConfig: LogConfig,
+                                   topic: CreatableTopic): Option[TopicPlacement] = {
+    logConfig.topicPlacementConstraints.map { replicaPlacement =>
+      if (replicaPlacement.hasObserverConstraints && !kafkaConfig.isObserverSupportEnabled) {
+        throw new InvalidReplicaAssignmentException(s"Configuration ${ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG}" +
+          s" specifies observer constraints which are only allowed if ${KafkaConfig.InterBrokerProtocolVersionProp}" +
+          s" is 2.4 or higher (currently it is ${kafkaConfig.interBrokerProtocolVersion}).")
+      }
+      if (!topic.assignments().isEmpty) {
+        throw new InvalidRequestException(s"Both assignments and ${ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG} are set. Both cannot be " +
+          "used at the same time.")
+      }
+      if (topic.replicationFactor != NO_REPLICATION_FACTOR) {
+        throw new InvalidRequestException(s"Both replicationFactor and ${ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG} are set. Both cannot be " +
+          "used at the same time.")
+      }
+      replicaPlacement
+    }
+  }
 }

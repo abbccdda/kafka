@@ -189,9 +189,10 @@ object Observer {
    * used to filter out brokers that satisfy a placement constraint.
    */
   private[cluster] def brokerMatchesPlacementConstraint(broker: BrokerMetadata, constraint: ConstraintCount): Boolean = {
-    broker.rack.exists { rack =>
-      constraint.matches(Map("rack" -> rack).asJava)
-    }
+    val properties = broker.rack.map { rack =>
+      "rack" -> rack
+    }.toMap
+    constraint.matches(properties.asJava)
   }
 
   /**

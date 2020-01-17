@@ -1072,7 +1072,7 @@ class ConfigCommandTest extends ZooKeeperTestHarness with Logging {
     val file = Files.createTempFile("config-command", ".json")
 
     try {
-      val content = """{"version":1,"replicas":[],"observers":[]}"""
+      val content = """{"version":1,"replicas":[{"count":1,"constraints":{"rack":"abc"}}],"observers":[]}"""
       Files.write(file, content.getBytes(StandardCharsets.UTF_8))
 
       val config = new ConfigCommandOptions(

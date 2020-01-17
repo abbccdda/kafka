@@ -13,6 +13,7 @@ import org.junit.Test
 
 import scala.collection.JavaConverters._
 import scala.collection.{Map, Seq, immutable, mutable}
+import scala.compat.java8.OptionConverters._
 
 class ObserverTest {
 
@@ -38,7 +39,7 @@ class ObserverTest {
                                 |    }
                                 |  }]
                                 |}""".stripMargin
-  private val topicWithObserverPlacementConstraint: Option[TopicPlacement] = Some(TopicPlacement.parse(placementJson))
+  private val topicWithObserverPlacementConstraint: Option[TopicPlacement] = TopicPlacement.parse(placementJson).asScala
 
   private val placementJsonWithoutObservers = """{
                                                 | "version": 1,
@@ -63,7 +64,7 @@ class ObserverTest {
                                                 |  ]
                                                 |}""".stripMargin
   private val topicWithoutObserversConstraint: Option[TopicPlacement] =
-    Some(TopicPlacement.parse(placementJsonWithoutObservers))
+    TopicPlacement.parse(placementJsonWithoutObservers).asScala
 
   private val allBrokersAttributes = (0 to 9).map { id =>
     val rack = id match {
@@ -87,7 +88,7 @@ class ObserverTest {
       val replicaConstraints = topicPlacement.replicas().asScala
       assertTrue(Observer.brokerMatchesPlacementConstraint(replicaBroker, replicaConstraints.head))
       assertFalse(Observer.brokerMatchesPlacementConstraint(replicaBroker, replicaConstraints.tail.head))
-      assertTrue(Observer.brokerMatchesPlacementConstraint(observerBroker, topicPlacement.observers().get(0)))
+      assertTrue(Observer.brokerMatchesPlacementConstraint(observerBroker, topicPlacement.observers.get(0)))
     }
   }
 
@@ -99,7 +100,7 @@ class ObserverTest {
     val broker = BrokerMetadata(2, Some("south-1"))
     topicWithObserverPlacementConstraint.foreach { topicPlacement =>
       assertFalse(Observer.brokerMatchesPlacementConstraint(broker, topicPlacement.replicas().get(0)))
-      assertFalse(Observer.brokerMatchesPlacementConstraint(broker, topicPlacement.observers().get(0)))
+      assertFalse(Observer.brokerMatchesPlacementConstraint(broker, topicPlacement.observers.get(0)))
     }
   }
 
@@ -123,10 +124,10 @@ class ObserverTest {
                           |    }
                           |  }]
                           |}""".stripMargin
-    val topicPlacement = TopicPlacement.parse(placementJson)
+    val topicPlacement = TopicPlacement.parse(placementJson).asScala.get
     // Empty constraint should match everything
-    assertTrue(Observer.brokerMatchesPlacementConstraint(broker, topicPlacement.replicas().get(0)))
-    assertTrue(Observer.brokerMatchesPlacementConstraint(broker, topicPlacement.observers().get(0)))
+    assertTrue(Observer.brokerMatchesPlacementConstraint(broker, topicPlacement.replicas.get(0)))
+    assertTrue(Observer.brokerMatchesPlacementConstraint(broker, topicPlacement.observers.get(0)))
   }
 
   /**
@@ -136,8 +137,8 @@ class ObserverTest {
   def testPlacementConstraintPredicateNoBrokerRack(): Unit = {
     val broker = BrokerMetadata(2, None)
     topicWithObserverPlacementConstraint.foreach { topicPlacement =>
-      assertFalse(Observer.brokerMatchesPlacementConstraint(broker, topicPlacement.replicas().get(0)))
-      assertFalse(Observer.brokerMatchesPlacementConstraint(broker, topicPlacement.observers().get(0)))
+      assertFalse(Observer.brokerMatchesPlacementConstraint(broker, topicPlacement.replicas.get(0)))
+      assertFalse(Observer.brokerMatchesPlacementConstraint(broker, topicPlacement.observers.get(0)))
     }
   }
 
@@ -251,18 +252,18 @@ class ObserverTest {
     val west1Brokers = (21 to 30).map(BrokerMetadata(_, Some("west-1")))
     val allBrokers = east1Brokers ++ east2Brokers ++ west1Brokers
 
-    val topicPlacement = TopicPlacement.parse(placementJson)
+    val topicPlacement = TopicPlacement.parse(placementJson).get
     val partitionFunction = Observer.partitionBrokersByConstraint(allBrokers) _
 
     // Check if replicas get partitioned properly
-    val replicasTuple = partitionFunction(topicPlacement.replicas().asScala)
+    val replicasTuple = partitionFunction(topicPlacement.replicas.asScala)
     val replicas = replicasTuple.flatMap { case (_, replica) => replica}
     assertEquals(east1Brokers ++ east2Brokers, replicas)
     val replicaCount = replicasTuple.map { case (count, _) => count}
     assertEquals(List(3,2), replicaCount)
 
     // Check if observers get partitioned correctly
-    val observersTuple = partitionFunction(topicPlacement.observers().asScala)
+    val observersTuple = partitionFunction(topicPlacement.observers.asScala)
     val observers = observersTuple.flatMap { case (_, observer) => observer}
     assertEquals(west1Brokers, observers)
     val observersCount = observersTuple.map { case (count, _) => count}
@@ -302,15 +303,15 @@ class ObserverTest {
     val west1Brokers = (14 to 20).map(BrokerMetadata(_, Some("west-1")))
     val allBrokers = east1Brokers ++ east2Brokers ++ west1Brokers
 
-    val topicPlacement = TopicPlacement.parse(placementJson)
+    val topicPlacement = TopicPlacement.parse(placementJson).get
     val partitionFunction = Observer.partitionBrokersByConstraint(allBrokers) _
 
     // Observers should get partitioned correctly as they have greater number of
     // matching brokers than the count requested.
-    partitionFunction(topicPlacement.observers().asScala)
+    partitionFunction(topicPlacement.observers.asScala)
 
     // Replica should not get partitioned as we don't have enough brokers in "east-2" zone.
-    partitionFunction(topicPlacement.replicas().asScala)
+    partitionFunction(topicPlacement.replicas.asScala)
   }
 
   /**
@@ -329,8 +330,8 @@ class ObserverTest {
   }
 
   /**
-   * Same as [[kafka.cluster.ObserverTest#testRackUnawareNoConstraintReplicaAssignment]] but placement json having no
-   * constraint in it. In this case the behavior should be same.
+   * Same as [[kafka.cluster.ObserverTest#testRackUnawareNoConstraintReplicaAssignment]] but placement json has
+   * replicas with no constraint in it. In this case the behavior should be same.
    */
   @Test
   def testRackUnawareReplicaAssignmentWithPlacementConstraintMissing(): Unit = {
@@ -340,7 +341,10 @@ class ObserverTest {
 
     // We have 10 partitions, replication factor as 3. So we will have 30 assignments
     val assignments = Observer.getReplicaAssignment(
-      brokers, Some(TopicPlacement.parse("""{"version":1}""")), numPartitions, replicationFactor
+      brokers,
+      TopicPlacement.parse("""{"version":1, "replicas":[{"count":3}]}""").asScala,
+      numPartitions,
+      replicationFactor
     )
     validateRackUnawareReplicaAssignment(brokers, assignments)
   }
@@ -439,7 +443,7 @@ class ObserverTest {
                            |  }]
                            |}""".stripMargin
     val partitionAssignment = Observer.getReplicaAssignment(
-      brokers, Some(TopicPlacement.parse(placementJson)), numPartitions = 10,
+      brokers, TopicPlacement.parse(placementJson).asScala, numPartitions = 10,
       replicationFactor = 3)
 
     // Test if replica and observer assignment was done as per placement constraint
@@ -504,7 +508,7 @@ class ObserverTest {
                            |  }]
                            |}""".stripMargin
     val partitionAssignment = Observer.getReplicaAssignment(
-      brokers, Some(TopicPlacement.parse(placementJson)), numPartitions = 15,
+      brokers, TopicPlacement.parse(placementJson).asScala, numPartitions = 15,
       replicationFactor = 3, fixedStartIndex = 2, startPartitionId = 3)
 
     // Confirm that first partition has assignment of (2, 1, 3, 4) and observer have (12, 11, 13)

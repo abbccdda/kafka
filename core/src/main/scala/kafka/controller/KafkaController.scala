@@ -24,6 +24,7 @@ import kafka.api._
 import kafka.common._
 import kafka.controller.KafkaController.{AlterReassignmentsCallback, ElectLeadersCallback, ListReassignmentsCallback}
 import kafka.cluster.Observer
+import kafka.log.LogConfig
 import kafka.metrics.{KafkaMetricsGroup, KafkaTimer}
 import kafka.server._
 import kafka.tier.topic.TierTopicManager
@@ -1765,8 +1766,8 @@ class KafkaController(val config: KafkaConfig,
   private def validateAssignmentAndConstraint(topicPartition: TopicPartition,
                                               assignment: ReplicaAssignment.Assignment): Option[ApiError] = {
     val topicProps = new AdminZkClient(zkClient).fetchEntityConfig(ConfigType.Topic, topicPartition.topic)
-    val placement = Option(topicProps.getProperty(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG))
-      .map(TopicPlacement.parse)
+    val logConfig = LogConfig(topicProps)
+    val placement = logConfig.topicPlacementConstraints
     val liveBrokerAttributes = controllerContext.liveOrShuttingDownBrokers.map { broker =>
       broker.id -> broker.rack.map("rack" -> _).toMap
     }.toMap

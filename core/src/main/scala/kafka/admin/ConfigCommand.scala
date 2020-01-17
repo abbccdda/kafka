@@ -29,9 +29,8 @@ import kafka.utils.{CommandDefaultOptions, CommandLineUtils, Exit, PasswordEncod
 import kafka.utils.Implicits._
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.clients.admin.{Admin, AlterConfigOp, AlterConfigsOptions, ConfigEntry, DescribeConfigsOptions, AdminClient => JAdminClient, Config => JConfig}
-import org.apache.kafka.common.config.{ConfigResource, ConfluentTopicConfig}
 import org.apache.kafka.clients.admin.{Admin, AlterConfigOp, AlterConfigsOptions, ConfigEntry, DescribeClusterOptions, AdminClient => JAdminClient, Config => JConfig, ListTopicsOptions}
+import org.apache.kafka.common.config.ConfluentTopicConfig
 import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.config.types.Password
 import org.apache.kafka.common.errors.InvalidConfigurationException
@@ -42,6 +41,7 @@ import org.apache.kafka.common.utils.{Sanitizer, Time, Utils}
 
 import scala.collection.JavaConverters._
 import scala.collection._
+import scala.compat.java8.OptionConverters._
 
 
 /**
@@ -272,10 +272,10 @@ object ConfigCommand extends Config {
 
     if (opts.options.has(opts.replicaPlacementOpt)) {
       val jsonString = Utils.readFileAsString(opts.options.valueOf(opts.replicaPlacementOpt))
-      props.setProperty(
-        ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG,
-        TopicPlacement.parse(jsonString).toJson
-      )
+      TopicPlacement.parse(jsonString).asScala
+        .foreach { replicaPlacement =>
+          props.setProperty(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, replicaPlacement.toJson)
+        }
     }
 
     props
