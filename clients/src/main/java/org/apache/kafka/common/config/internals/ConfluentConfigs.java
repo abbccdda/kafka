@@ -78,26 +78,10 @@ public class ConfluentConfigs {
     // the following are copied from AbstractKafkaAvroSerDeConfig, we duplicate these const strings here in order
     // to avoid introducing the dependency of schema-registry
     private static final String SCHEMA_REGISTRY_URL = "schema.registry.url";
-    private static final String KEY_SUBJECT_NAME_STRATEGY = "key.subject.name.strategy";
-    private static final String VALUE_SUBJECT_NAME_STRATEGY = "value.subject.name.strategy";
-
     public static final String SCHEMA_REGISTRY_URL_CONFIG = CONFLUENT_PREFIX + SCHEMA_REGISTRY_URL;
     public static final String SCHEMA_REGISTRY_URL_DOC =
         "Comma-separated list of URLs for schema registry instances that can be used to "
             + "look up schemas.";
-
-    // default TopicNameStrategy.class cannot be defined here, but should be in the plugin that can
-    // depend on schema.registry
-    public static final String KEY_SUBJECT_NAME_STRATEGY_CONFIG = CONFLUENT_PREFIX + KEY_SUBJECT_NAME_STRATEGY;
-    public static final String KEY_SUBJECT_NAME_STRATEGY_DOC =
-        "Determines how to construct the subject name under which the key schema is registered "
-            + "with the schema registry. By default, <topic>-key is used as subject.";
-
-
-    public static final String VALUE_SUBJECT_NAME_STRATEGY_CONFIG = CONFLUENT_PREFIX + VALUE_SUBJECT_NAME_STRATEGY;
-    public static final String VALUE_SUBJECT_NAME_STRATEGY_DOC =
-        "Determines how to construct the subject name under which the value schema is registered "
-            + "with the schema registry. By default, <topic>-value is used as subject.";
 
     public static final String MAX_CACHE_SIZE_CONFIG = CONFLUENT_PREFIX + "schema.registry.max.cache.size";
     public static final String MAX_CACHE_SIZE_DOC =

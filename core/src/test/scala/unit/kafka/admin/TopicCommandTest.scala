@@ -132,14 +132,31 @@ class TopicCommandTest extends ZooKeeperTestHarness with Logging with RackAwareT
   }
 
   @Test
+  def testCreateWithSchemaValidationStrategySet(): Unit = {
+    val brokers = List(0)
+    TestUtils.createBrokersInZk(zkClient, brokers)
+
+    val configResource = new ConfigResource(ConfigResource.Type.TOPIC, testTopicName)
+    topicService.createTopic(new TopicCommandOptions(
+      Array("--partitions", "1", "--replication-factor", "1", "--topic", configResource.name(),
+        "--config", "confluent.key.schema.validation=true",
+        "--config", "confluent.value.schema.validation=true",
+        "--config", "confluent.key.subject.name.strategy=io.confluent.kafka.serializers.subject.TopicRecordNameStrategy",
+        "--config", "confluent.value.subject.name.strategy=io.confluent.kafka.serializers.subject.RecordNameStrategy")
+    ))
+
+    val configs = zkClient.getEntityConfigs(ConfigType.Topic, testTopicName)
+    assertEquals("io.confluent.kafka.serializers.subject.TopicRecordNameStrategy",configs.getProperty(LogConfig.KeySchemaValidationStrategyProp));
+    assertEquals("io.confluent.kafka.serializers.subject.RecordNameStrategy",configs.getProperty(LogConfig.ValueSchemaValidationStrategyProp));
+  }
+
+  @Test
   def testCreateWithInvalidBrokerOptions(): Unit = {
     val brokers = List(0)
     TestUtils.createBrokersInZk(zkClient, brokers)
 
     val invalidSchemaValidatorConfigs = Array(
       "confluent.schema.registry.url=bogus",
-      "confluent.key.subject.name.strategy=SomeStrategy",
-      "confluent.value.subject.name.strategy=SomeStrategy",
       "confluent.max.schemas.per.subject=3",
       "confluent.schema.registry.max.cache.size=10000",
       "confluent.schema.registry.max.retries=3",
