@@ -20,11 +20,8 @@ private[delete] class DeletionTaskQueue(ctx: CancellationContext,
                                         time: Time,
                                         replicaManager: ReplicaManager,
                                         retryRateOpt: Option[Meter] = None) extends TierTaskQueue[DeletionTask](ctx, maxTasks, time) {
-  override protected[tasks] def sortTasks(tasks: ListSet[DeletionTask]): ListSet[DeletionTask] = {
-    tasks.toList
-      .sortBy { task => taskPriority(task) }
-      .to[ListSet]
-  }
+  override protected[tasks] def sortTasks(tasks: List[DeletionTask]): List[DeletionTask] =
+    tasks.sortBy(taskPriority)
 
   override protected[tasks] def newTask(topicIdPartition: TopicIdPartition, change: StartChangeMetadata): DeletionTask = {
     val stateMetadata = change match {

@@ -77,7 +77,7 @@ class ArchiverTaskQueueTest {
     addTask(partition_1, 0)
     addTask(partition_2, 0)
 
-    assertEquals(Set(partition_1), archiverTaskQueue.poll().get.map(_.topicIdPartition))
+    assertEquals(Set(partition_1), archiverTaskQueue.poll().get.map(_.topicIdPartition).toSet)
   }
 
   @Test

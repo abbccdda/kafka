@@ -16,7 +16,6 @@ import org.apache.kafka.common.utils.{MockTime, Time}
 import org.junit.Assert._
 import org.junit.{After, Test}
 
-import scala.collection.immutable.ListSet
 import scala.concurrent.{Await, ExecutionContext, Future, blocking}
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.Duration
@@ -39,7 +38,7 @@ class ChangeManagerTest {
   private val maxTasks = 3
 
   private val queue = new TierTaskQueue[MockTask](ctx.subContext(), maxTasks, time) {
-    override protected[tasks] def sortTasks(tasks: ListSet[MockTask]): ListSet[MockTask] = {
+    override protected[tasks] def sortTasks(tasks: List[MockTask]): List[MockTask] = {
       tasks
     }
 
@@ -81,8 +80,8 @@ class ChangeManagerTest {
 
     val task = queue.poll().get
     assertEquals(2, task.size)
-    assertEquals(Set(tp1, tp2), task.map(_.topicIdPartition))
-    assertEquals(List(1, 1), task.toList.map(_.leaderEpoch))
+    assertEquals(List(tp1, tp2), task.map(_.topicIdPartition))
+    assertEquals(List(1, 1), task.map(_.leaderEpoch))
   }
 
   @Test
@@ -94,7 +93,7 @@ class ChangeManagerTest {
     leaderChangeManager.process()
 
     val tasks = queue.poll().get
-    assertEquals(Set(tp0, tp1), tasks.map(_.topicIdPartition))
+    assertEquals(List(tp0, tp1), tasks.map(_.topicIdPartition))
     val tp0Task = tasks.find(_.topicIdPartition == tp0).get
     val tp1Task = tasks.find(_.topicIdPartition == tp1).get
 
@@ -251,7 +250,7 @@ class ChangeManagerTest {
     queue.done(tp1Task)
 
     // Polling from the queue returns tp1Task only
-    assertEquals(Set(tp1), queue.poll().get.map(_.topicIdPartition))
+    assertEquals(List(tp1), queue.poll().get.map(_.topicIdPartition))
 
     // sleep for some time; polling will not return any tasks as tp0 is still ineligible for execution
     time.sleep(200)
@@ -259,7 +258,7 @@ class ChangeManagerTest {
 
     // sleep for more than 5 seconds in total; we should now see the task returned
     time.sleep(4801)
-    assertEquals(Set(tp0), queue.poll().get.map(_.topicIdPartition))
+    assertEquals(List(tp0), queue.poll().get.map(_.topicIdPartition))
 
     assertEquals(2, queue.taskCount)
     assertEquals(None, queue.poll())
@@ -336,14 +335,14 @@ class ChangeManagerTest {
     }
     leaderChangeManager.process()
 
-    val polledTasks = queue.poll().get.toList
+    val polledTasks = queue.poll().get
     assertEquals(maxTasks, polledTasks.size)
 
     // complete couple of tasks and check that a subsequent poll returns them
     queue.done(polledTasks(0))
     queue.done(polledTasks(2))
 
-    assertEquals(Set(polledTasks(0), polledTasks(2)), queue.poll().get)
+    assertEquals(List(polledTasks(0), polledTasks(2)), queue.poll().get)
   }
 
   @Test

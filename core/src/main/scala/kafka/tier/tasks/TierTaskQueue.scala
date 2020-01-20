@@ -117,7 +117,7 @@ abstract class TierTaskQueue[T <: TierTask[T]](ctx: CancellationContext, maxTask
   /**
     * Sort the tasks in the order they should be processed.
     */
-  protected[tasks] def sortTasks(tasks: ListSet[T]): ListSet[T]
+  protected[tasks] def sortTasks(tasks: List[T]): List[T]
 
   /**
     * Create a new task instance.
@@ -159,15 +159,23 @@ abstract class TierTaskQueue[T <: TierTask[T]](ctx: CancellationContext, maxTask
     * we may be able to optimize this in the future. The number of tasks returned is limited by [[maxTasks]].
     * @return Ordered set of tasks if any; None otherwise
     */
-  def poll(): Option[ListSet[T]] = synchronized {
+  def poll(): Option[List[T]] = synchronized {
     val now = Instant.ofEpochMilli(time.hiResClockMs)
     val processingSpace = maxTasks - processing.size
 
+    // NOTE: poll() will be called frequently for active brokers
+    // so care must be taken not to create performance problems when the task set
+    // becomes large
     if (processingSpace > 0) {
       val eligibleTasks = tasks
-        .diff(processing)
-        .filterNot(t => partitionsInError.containsKey(t.topicIdPartition))
-        .filter(_.pausedUntil.forall(now.isAfter))
+        // convert to a list to avoid rebuilding an immutable set
+        // as the eligible task list will already be distinct
+        .toList
+        .filter { task =>
+          !processing(task) &&
+            task.pausedUntil.forall(now.isAfter) &&
+            !partitionsInError.containsKey(task.topicIdPartition)
+        }
 
       if (eligibleTasks.nonEmpty) {
         val sorted = sortTasks(eligibleTasks)

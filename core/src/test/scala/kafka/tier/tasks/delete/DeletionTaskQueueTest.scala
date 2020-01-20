@@ -81,8 +81,8 @@ class DeletionTaskQueueTest {
     task_4.lastProcessedMs = Some(time.hiResClockMs() - 200)
     task_5.lastProcessedMs = Some(time.hiResClockMs() + 200)
 
-    val taskList = ListSet(task_1, task_2, task_3, task_4, task_5)
-    val sortedTasks = deletionTaskQueue.sortTasks(taskList).toList
+    val taskList = List(task_1, task_2, task_3, task_4, task_5)
+    val sortedTasks = deletionTaskQueue.sortTasks(taskList)
     assertEquals(taskList.size, sortedTasks.size)
 
     // States other than `CollectDeletableSegments` are always prioritized first, i.e. task_3, task_4 and task_5
