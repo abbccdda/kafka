@@ -158,7 +158,7 @@ class ClientRequestQuotaManagerTest {
       val throttleTime2 = maybeRecord("UserB", "Client2", millisToPercent(7000))
       time.sleep(Math.max(1000, Math.max(throttleTime1, throttleTime2)))
     }
-    requestQuotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+    requestQuotaManager.maybeAutoTuneQuota(activeTenantsManager, time.milliseconds())
     assertEquals(600, requestQuotaManager.dynamicQuota("UserA", "Client1").bound(), 0)
     assertEquals(600, requestQuotaManager.dynamicQuota("UserB", "Client2").bound(), 0)
 
@@ -185,7 +185,7 @@ class ClientRequestQuotaManagerTest {
       val throttleTime2 = maybeRecord("UserB", "Client2", millisToPercent(5000))
       time.sleep(Math.max(1000, Math.max(throttleTime1, throttleTime2)))
     }
-    requestQuotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants, time.milliseconds())
+    requestQuotaManager.maybeAutoTuneQuota(activeTenantsManager, time.milliseconds())
     assertEquals(700, requestQuotaManager.dynamicQuota("UserA", "Client1").bound(), 1e-8)
     assertEquals(600, requestQuotaManager.dynamicQuota("UserB", "Client2").bound(), 1e-8)
   }
@@ -204,7 +204,7 @@ class ClientRequestQuotaManagerTest {
       val throttleTime2 = maybeRecord("UserB", "Client2", millisToPercent(1000))
       time.sleep(Math.max(1000, Math.max(throttleTime1, throttleTime2)))
     }
-    requestQuotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+    requestQuotaManager.maybeAutoTuneQuota(activeTenantsManager, time.milliseconds())
     // if usage below broker limit, dynamic quota of each tenant is the same as quota config
     assertEquals(requestQuotaManager.quota("UserA", "Client1").bound(), requestQuotaManager.dynamicQuota("UserA", "Client1").bound(), 1e-8)
     assertEquals(requestQuotaManager.quota("UserB", "Client2").bound(), requestQuotaManager.dynamicQuota("UserB", "Client2").bound(), 1e-8)

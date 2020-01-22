@@ -446,11 +446,11 @@ class ClientQuotaManagerTest {
     try {
       maybeRecord(quotaManager, "User1", "Client1", 100)
       activeTenants += metricTags("", "Client1")
-      assertEquals(activeTenants, activeTenantsManager.getActiveTenants((_: Map[String, String]) => Unit))
+      assertEquals(activeTenants, activeTenantsManager.getActiveTenants)
 
       maybeRecord(requestQuotaManager, "User3", "Client3", 100)
       activeTenants += metricTags("", "Client3")
-      assertEquals(activeTenants, activeTenantsManager.getActiveTenants((_: Map[String, String]) => Unit))
+      assertEquals(activeTenants, activeTenantsManager.getActiveTenants)
     } finally {
       quotaManager.shutdown()
       requestQuotaManager.shutdown()
@@ -547,7 +547,7 @@ class ClientQuotaManagerTest {
         val throttleTime2 = maybeRecord(quotaManager, "", "Client2", 300)
         time.sleep(Math.max(1000, Math.max(throttleTime1, throttleTime2)))
       }
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager, time.milliseconds())
       assertEquals(250.0, quotaManager.dynamicQuota("", "Client1").bound(), 0)
       assertEquals(250.0, quotaManager.dynamicQuota("", "Client2").bound(), 0)
     } finally {
@@ -570,7 +570,7 @@ class ClientQuotaManagerTest {
         val throttleTime2 = maybeRecord(quotaManager, "", "Client2", 200)
         time.sleep(Math.max(1000, Math.max(throttleTime1, throttleTime2)))
       }
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager, time.milliseconds())
       assertEquals(300.0, quotaManager.dynamicQuota("", "Client1").bound(), 0)
       assertEquals(250, quotaManager.dynamicQuota("", "Client2").bound(), 0)
     } finally {
@@ -593,7 +593,7 @@ class ClientQuotaManagerTest {
         val throttleTime2 = maybeRecord(quotaManager, "", "Client2", 200)
         time.sleep(Math.max(1000, Math.max(throttleTime1, throttleTime2)))
       }
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager, time.milliseconds())
       assertEquals(quotaManager.quota("", "Client2").bound(), quotaManager.dynamicQuota("", "Client1").bound(), 0)
       assertEquals(quotaManager.quota("", "Client2").bound(), quotaManager.dynamicQuota("", "Client2").bound(), 0)
     } finally {
@@ -615,17 +615,17 @@ class ClientQuotaManagerTest {
         val throttleTimeMs = maybeRecord(quotaManager, "", "Client1", 300)
         time.sleep(Math.max(1000, throttleTimeMs))
       }
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager, time.milliseconds())
       assertEquals(250.0, quotaManager.dynamicQuota("", "Client1").bound(), 0)
 
       // Broker quota limit expands which allows client to use more
       quotaManager.setBrokerQuotaLimit(500)
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager, time.milliseconds())
       assertEquals(500.0, quotaManager.dynamicQuota("", "Client1").bound(), 0)
 
       // Broker quota limit shrinks which allows client to use less
       quotaManager.setBrokerQuotaLimit(250)
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager, time.milliseconds())
       assertEquals(250.0, quotaManager.dynamicQuota("", "Client1").bound(), 0)
     } finally {
       quotaManager.shutdown()
@@ -646,17 +646,17 @@ class ClientQuotaManagerTest {
         val throttleTimeMs = maybeRecord(quotaManager, "", "Client1", 300)
         time.sleep(Math.max(1000, throttleTimeMs))
       }
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager, time.milliseconds())
       assertEquals(250.0, quotaManager.dynamicQuota("", "Client1").bound(), 0)
 
       // Increase original client quota; after auto-tuning, quota can't surpass broker quota limit
       quotaManager.updateQuota(None, Some("Client1"), Some("Client1"), Some(new Quota(300, true)))
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager, time.milliseconds())
       assertEquals(250.0, quotaManager.dynamicQuota("", "Client1").bound(), 0)
 
       // Decrease original client quota; after auto-tuning, quota can't surpass original quota limit
       quotaManager.updateQuota(None, Some("Client1"), Some("Client1"), Some(new Quota(200, true)))
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager, time.milliseconds())
       assertEquals(200.0, quotaManager.dynamicQuota("", "Client1").bound(), 0)
     } finally {
       quotaManager.shutdown()
@@ -679,7 +679,7 @@ class ClientQuotaManagerTest {
         val throttleTimeMs2 = maybeRecord(quotaManager, "", "C2", 400)
         time.sleep(Math.max(1000, Math.max(throttleTimeMs1, throttleTimeMs2)))
       }
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager, time.milliseconds())
       assertEquals(250.0, quotaManager.dynamicQuota("", "C1").bound(), 0)
       assertEquals(300.0, quotaManager.dynamicQuota("", "C2").bound(), 0)
 
@@ -688,7 +688,7 @@ class ClientQuotaManagerTest {
         val throttleTimeMs1 = maybeRecord(quotaManager, "", "C2", 400)
         time.sleep(Math.max(1000, throttleTimeMs1))
       }
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager, time.milliseconds())
       assertEquals(500.0, quotaManager.dynamicQuota("", "C1").bound(), 0)
       assertEquals(500.0, quotaManager.dynamicQuota("", "C2").bound(), 0)
     } finally {
@@ -714,7 +714,7 @@ class ClientQuotaManagerTest {
       }
 
       // First auto-tune: limit of C1 = 300MB/s and limit of C2 = 250MB/s.
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager, time.milliseconds())
       assertEquals(300, quotaManager.dynamicQuota("", "C1").bound(), 0)
       assertEquals(250, quotaManager.dynamicQuota("", "C2").bound(), 0)
 
@@ -725,7 +725,7 @@ class ClientQuotaManagerTest {
 
       // Second auto-tune: limits of C1 = 330MB/s and C2 = 250MB/s
       // Since C2 usage decreases, the limit for C1 increases to 330MB/s.
-      quotaManager.maybeAutoTuneQuota(activeTenantsManager.getActiveTenants(), time.milliseconds())
+      quotaManager.maybeAutoTuneQuota(activeTenantsManager, time.milliseconds())
       assertEquals(330, quotaManager.dynamicQuota("", "C1").bound(), 0)
       assertEquals(250, quotaManager.dynamicQuota("", "C2").bound(), 0)
     } finally {

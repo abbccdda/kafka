@@ -465,7 +465,6 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
       val tenantsManager = activeTenantsManager.getOrElse(throw new IllegalStateException("ActiveTenantsManager not available"))
       tenantsManager.trackActiveTenant(clientSensors.metricTags, timeMs, resetQuotaCallback)
 
-      val activeTenants = tenantsManager.getActiveTenants(resetQuotaCallback)
       val lastCheck = lastBackpressureCheckTimeMs.get()
       // we update broker quota limit even if backpressure is disabled, because we emit broker
       // quota limit as a metric
@@ -473,14 +472,15 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
         if (lastBackpressureCheckTimeMs.compareAndSet(lastCheck, timeMs)) {
           updateBrokerQuotaLimit()
           if (backpressureEnabled) {
-            maybeAutoTuneQuota(activeTenants, timeMs)
+            maybeAutoTuneQuota(tenantsManager, timeMs)
           }
         }
       }
     }
   }
 
-  def maybeAutoTuneQuota(activeTenants: mutable.Set[Map[String, String]], timeMs: Long): Unit = {
+  def maybeAutoTuneQuota(tenantsManager: ActiveTenantsManager, timeMs: Long): Unit = {
+    val activeTenants = tenantsManager.getActiveTenants(resetQuotaCallback)
     var backpressured = false
     var totalUsage = 0.0
     activeTenants.foreach((metricTags: Map[String, String]) => {
