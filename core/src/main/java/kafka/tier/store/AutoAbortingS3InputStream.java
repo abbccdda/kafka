@@ -15,9 +15,10 @@ import java.io.InputStream;
  */
 public class AutoAbortingS3InputStream extends InputStream {
     private final S3ObjectInputStream innerInputStream;
+    private final long autoAbortSize;
     private long bytesRead = 0;
     private long totalBytes;
-    private final long autoAbortSize;
+    private boolean exception = false;
 
     AutoAbortingS3InputStream(S3ObjectInputStream innerInputStream,
                               long autoAbortSize,
@@ -29,23 +30,50 @@ public class AutoAbortingS3InputStream extends InputStream {
 
     @Override
     public int read() throws IOException {
-        int read = innerInputStream.read();
-        bytesRead += read;
-        return read;
+        if (exception)
+            throw new IllegalStateException("An exception has already been encountered reading "
+                    + "this stream");
+
+        try {
+            int read = innerInputStream.read();
+            bytesRead++;
+            return read;
+        } catch (IOException io) {
+            exception = true;
+            throw io;
+        }
     }
 
     @Override
     public int read(byte[] b) throws IOException {
-        int read = innerInputStream.read(b);
-        bytesRead += read;
-        return read;
+        if (exception)
+            throw new IllegalStateException("An exception has already been encountered reading "
+                    + "this stream");
+
+        try {
+            int read = innerInputStream.read(b);
+            bytesRead += read;
+            return read;
+        } catch (IOException io) {
+            exception = true;
+            throw io;
+        }
     }
 
     @Override
     public int read(byte[] b, int off, int len) throws IOException {
-        int read = innerInputStream.read(b, off, len);
-        bytesRead += read;
-        return read;
+        if (exception)
+            throw new IllegalStateException("An exception has already been encountered reading "
+                    + "this stream");
+
+        try {
+            int read = innerInputStream.read(b, off, len);
+            bytesRead += read;
+            return read;
+        } catch (IOException io) {
+            exception = true;
+            throw io;
+        }
     }
 
     private long remainingBytes() {
@@ -60,7 +88,7 @@ public class AutoAbortingS3InputStream extends InputStream {
         // client. InputStreams which are not aborted allow for connection reuse which helps latency
         // and avoids authorization costs from connection setup.
         // https://github.com/apache/hadoop/blob/trunk/hadoop-tools/hadoop-aws/src/main/java/org/apache/hadoop/fs/s3a/S3AInputStream.java#L521
-        boolean shouldAbort = remainingBytes() > autoAbortSize;
+        boolean shouldAbort = exception || remainingBytes() > autoAbortSize;
         if (shouldAbort) {
             innerInputStream.abort();
         } else {
@@ -76,13 +104,31 @@ public class AutoAbortingS3InputStream extends InputStream {
 
     @Override
     public int available() throws IOException {
-        return innerInputStream.available();
+        if (exception)
+            throw new IllegalStateException("An exception has already been encountered reading "
+                    + "this stream");
+
+        try {
+            return innerInputStream.available();
+        } catch (IOException io) {
+            exception = true;
+            throw io;
+        }
     }
 
     @Override
     public long skip(long n) throws IOException {
-        long skipped = innerInputStream.skip(n);
-        bytesRead += skipped;
-        return skipped;
+        if (exception)
+            throw new IllegalStateException("An exception has already been encountered reading "
+                    + "this stream");
+
+        try {
+            long skipped = innerInputStream.skip(n);
+            bytesRead += skipped;
+            return skipped;
+        } catch (IOException io) {
+            exception = true;
+            throw io;
+        }
     }
 }
