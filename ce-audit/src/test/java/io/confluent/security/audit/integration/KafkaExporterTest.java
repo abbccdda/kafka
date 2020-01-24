@@ -12,6 +12,7 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 import io.cloudevents.CloudEvent;
 import io.cloudevents.v03.AttributesImpl;
@@ -27,6 +28,7 @@ import io.confluent.security.audit.AuditLogRouterJsonConfigUtils;
 import io.confluent.security.audit.AuthenticationInfo;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.AbstractMap;
 import java.util.Collections;
 import java.util.HashMap;
@@ -36,9 +38,11 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
+import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.producer.internals.ProducerMetadata;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -47,11 +51,17 @@ import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Category(IntegrationTest.class)
 public class KafkaExporterTest {
+
+  private static final Logger log = LoggerFactory.getLogger(KafkaExporterTest.class);
+
 
   private static final String BROKER_USER = "kafka";
 
@@ -341,5 +351,45 @@ public class KafkaExporterTest {
                 ""))
     );
     logger = logger("testDontCreateTopicsNoTopics", config);
+  }
+
+  @Ignore  // Takes to long. KIP-526 will make TOPIC_EXPIRY_MS configurable
+  @Test
+  public void testMetadataExpiration() throws Throwable {
+    eventLogClusters = new EventLogClusters(eventLogClustersConfig);
+    Map<String, String> config = Utils.mkMap(
+        // make sure the metadata expires
+        Utils.mkEntry(CommonClientConfigs.METADATA_MAX_AGE_CONFIG,
+            String.valueOf(ProducerMetadata.TOPIC_EXPIRY_MS / 2))
+    );
+
+    logger = logger("testMetadataExpiration", config);
+
+    CloudEvent event = sampleEvent();
+
+    assertTrue(logger.ready(event));
+    Thread.sleep(ProducerMetadata.TOPIC_EXPIRY_MS * 3 / 2);
+    // metadata should still be present
+    assertTrue(logger.ready(event));
+  }
+
+  @Test
+  public void testMetadataRefresh() throws Throwable {
+    eventLogClusters = new EventLogClusters(eventLogClustersConfig);
+    Map<String, String> config = Utils.mkMap(
+        // make sure the metadata expires
+        Utils.mkEntry(CommonClientConfigs.METADATA_MAX_AGE_CONFIG, String.valueOf(2))
+    );
+
+    logger = logger("testMetadataExpiration", config);
+    KafkaExporter exporter = (KafkaExporter) logger.eventExporter();
+
+    Instant lastRefresh = exporter.lastMetadataRefresh();
+
+    TestUtils.waitForCondition(() -> lastRefresh.isBefore(exporter.lastMetadataRefresh()),
+        10_000, "Metadata Refreshed");
+
+    // refresh should have happened
+    assertTrue(lastRefresh.isBefore(exporter.lastMetadataRefresh()));
   }
 }

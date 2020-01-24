@@ -6,6 +6,7 @@ package io.confluent.events.exporter.kafka;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -200,7 +201,7 @@ public class TopicManager implements Closeable {
   }
 
   public Set<String> managedTopics() {
-    return topicMap.keySet();
+    return new HashSet<>(topicMap.keySet());
   }
 
   @Override

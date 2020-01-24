@@ -21,18 +21,23 @@ import io.confluent.events.EventLoggerConfig;
 import io.confluent.events.cloudevents.extensions.RouteExtension;
 import io.confluent.events.exporter.Exporter;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.clients.producer.internals.ProducerMetadata;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.InterruptException;
@@ -58,6 +63,8 @@ public class KafkaExporter implements Exporter {
   private Properties producerProperties;
   private String defaultRoute;
   private TopicManager topicManager;
+  private Instant metadataRefreshed;
+  private ScheduledThreadPoolExecutor metadataRefresh;
 
   private EventLoggerConfig eventLogConfig;
   private EventStep<AttributesImpl, ? extends Object, byte[], byte[]> builder;
@@ -94,6 +101,18 @@ public class KafkaExporter implements Exporter {
         .setTimeOutMs(eventLogConfig.getInt(EventLoggerConfig.REQUEST_TIMEOUT_MS_CONFIG))
         .setTopics(eventLogConfig.getTopicSpecs())
         .build();
+
+    // if the event logger is non-blocking, we need to keep the metadata fresh
+    if (!eventLogConfig.getBoolean(EVENT_LOGGER_LOG_BLOCKING_CONFIG)) {
+      metadataRefresh = new ScheduledThreadPoolExecutor(1);
+      // To be safe, update this when it's half done
+      ProducerConfig config = new ProducerConfig(producerProperties);
+      long expiryMs = Math.min(
+          config.getLong(CommonClientConfigs.METADATA_MAX_AGE_CONFIG),
+          ProducerMetadata.TOPIC_EXPIRY_MS) / 2;
+      metadataRefresh.scheduleAtFixedRate(this::ensureTopicsWithMetadata,
+          expiryMs, expiryMs, TimeUnit.MILLISECONDS);
+    }
 
     ensureTopicsWithMetadata();
   }
@@ -201,6 +220,7 @@ public class KafkaExporter implements Exporter {
       // We expect to get TimeoutExceptions here if the topic is not ready
       log.trace("Exception while checking for event log partitions", e);
     }
+    log.debug("Event log topic {} is NOT ready", topic);
     return false;
   }
 
@@ -220,6 +240,9 @@ public class KafkaExporter implements Exporter {
     if (this.producer != null) {
       this.producer.flush();
       this.producer.close(Duration.ofMillis(0));
+    }
+    if (this.metadataRefresh != null) {
+      this.metadataRefresh.shutdown();
     }
   }
 
@@ -258,28 +281,34 @@ public class KafkaExporter implements Exporter {
       } catch (Exception e) {
         log.error("error while creating topics", e);
       }
-
-      // We want to make sure the producer is actually ready to write to these topics
-      // If max.block.ms == 0, this might fail the first time, but should
-      // succeed after a short wait
-      Set<String> topicsWithoutMetadata = topicManager.managedTopics();
-      topicsWithoutMetadata.removeIf(this::metadataReady);
-      long waited = 0;
-      while (!topicsWithoutMetadata.isEmpty() && waited < TOPIC_READY_TIMEOUT_MS) {
-        log.info("Event logger is waiting for metadata for topics: " + topicsWithoutMetadata);
-        try {
-          waited += TOPIC_PARTITION_TIMEOUT_MS;
-          Thread.sleep(TOPIC_PARTITION_TIMEOUT_MS);
-        } catch (InterruptedException ignored) {
-        }
-        topicsWithoutMetadata.removeIf(this::metadataReady);
-      }
-      if (topicsWithoutMetadata.isEmpty()) {
-        log.info("Event logger has metadata for all topics");
-      } else {
-        log.warn("Event logger is missing metadata for topics: " + topicsWithoutMetadata);
-      }
     }
+
+    // We want to make sure the producer is actually ready to write to these topics
+    // If max.block.ms == 0, this might fail the first time, but should
+    // succeed after a short wait
+    Set<String> topicsWithoutMetadata = topicManager.managedTopics();
+    topicsWithoutMetadata.removeIf(this::metadataReady);
+    long waited = 0;
+    while (!topicsWithoutMetadata.isEmpty() && waited < TOPIC_READY_TIMEOUT_MS) {
+      log.info("Event logger is waiting for metadata for topics: " + topicsWithoutMetadata);
+      try {
+        waited += TOPIC_PARTITION_TIMEOUT_MS;
+        Thread.sleep(TOPIC_PARTITION_TIMEOUT_MS);
+      } catch (InterruptedException ignored) {
+      }
+      topicsWithoutMetadata.removeIf(this::metadataReady);
+    }
+    if (topicsWithoutMetadata.isEmpty()) {
+      log.info("Event logger has metadata for all topics");
+    } else {
+      log.warn("Event logger is missing metadata for topics: " + topicsWithoutMetadata);
+    }
+    this.metadataRefreshed = Instant.now();
+  }
+
+  // Visibility for testing
+  public Instant lastMetadataRefresh() {
+    return this.metadataRefreshed;
   }
 
   // The following code is copied from the Cloudevents SDK as the cloudevent producer wraps an older producer interface.

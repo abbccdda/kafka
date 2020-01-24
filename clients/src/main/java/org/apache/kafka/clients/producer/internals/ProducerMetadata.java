@@ -32,7 +32,8 @@ import java.util.Objects;
 import java.util.Set;
 
 public class ProducerMetadata extends Metadata {
-    static final long TOPIC_EXPIRY_MS = 5 * 60 * 1000;
+    private static final long TOPIC_EXPIRY_NEEDS_UPDATE = -1L;
+    public static final long TOPIC_EXPIRY_MS = 5 * 60 * 1000;
 
     /* Topics with expiry time */
     private final Map<String, Long> topics = new HashMap<>();
