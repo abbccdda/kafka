@@ -483,8 +483,12 @@ class ReplicaManager(val config: KafkaConfig,
     logManager.allLogs.map(_.topicPartition).filterNot { topicPartition =>
       allReplicas.contains(topicPartition)
     }.foreach { strayPartition =>
-      warn(s"Deleting stray partition $strayPartition")
-      Partition.deleteLog(strayPartition, logManager, tierReplicaComponents.replicaManagerOpt)
+      if (config.strayPartitionDeletionEnabled) {
+        warn(s"Deleting stray partition $strayPartition")
+        Partition.deleteLog(strayPartition, logManager, tierReplicaComponents.replicaManagerOpt)
+      } else {
+        warn(s"Found stray partition $strayPartition")
+      }
     }
   }
 

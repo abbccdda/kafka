@@ -11,6 +11,7 @@ import kafka.utils.TestUtils
 import org.apache.kafka.clients.admin.NewPartitionReassignment
 import org.apache.kafka.clients.producer.{ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.junit.Assert._
 import org.junit.Test
 
@@ -23,6 +24,10 @@ class StrayPartitionIntegrationTest extends IntegrationTestHarness {
   private val topicPartition = new TopicPartition(topic, 0)
 
   override protected def brokerCount: Int = numBrokers
+
+  locally {
+    serverConfig.setProperty(ConfluentConfigs.STRAY_PARTITION_DELETION_ENABLE_CONFIG, "true")
+  }
 
   @Test
   def testStrayPartitionDeletionOnBrokerStartup(): Unit = {

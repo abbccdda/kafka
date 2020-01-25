@@ -145,6 +145,10 @@ public class ConfluentConfigs {
     public static final String VERIFY_GROUP_SUBSCRIPTION_PREFIX_DOC = "If this is set, the group " +
         "coordinator will verify that the subscriptions are prefixed with the tenant.";
 
+    public static final String STRAY_PARTITION_DELETION_ENABLE_CONFIG = CONFLUENT_PREFIX + "enable.stray.partition.deletion";
+    public static final boolean STRAY_PARTITION_DELETION_ENABLE_DEFAULT = false;
+    public static final String STRAY_PARTITION_DELETION_ENABLE_DOC = "Whether stray partition deletion is enabled";
+
     public enum ClientType {
         PRODUCER("producer", ProducerConfig.configNames()),
         CONSUMER("consumer", ConsumerConfig.configNames()),

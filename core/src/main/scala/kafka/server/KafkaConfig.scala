@@ -1341,6 +1341,9 @@ object KafkaConfig {
       .defineInternal(ConfluentConfigs.VERIFY_GROUP_SUBSCRIPTION_PREFIX, BOOLEAN,
                       ConfluentConfigs.VERIFY_GROUP_SUBSCRIPTION_PREFIX_DEFAULT, HIGH,
                       ConfluentConfigs.VERIFY_GROUP_SUBSCRIPTION_PREFIX_DOC)
+      .defineInternal(ConfluentConfigs.STRAY_PARTITION_DELETION_ENABLE_CONFIG, BOOLEAN,
+                      ConfluentConfigs.STRAY_PARTITION_DELETION_ENABLE_DEFAULT, MEDIUM,
+                      ConfluentConfigs.STRAY_PARTITION_DELETION_ENABLE_DOC)
   }
 
   def configNames() = configDef.names().asScala.toList.sorted
@@ -1677,6 +1680,7 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val applyCreateTopicsPolicyToCreatePartitions =
     getBoolean(ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS)
   val verifyGroupSubscriptionPrefix = getBoolean(ConfluentConfigs.VERIFY_GROUP_SUBSCRIPTION_PREFIX)
+  val strayPartitionDeletionEnabled = getBoolean(ConfluentConfigs.STRAY_PARTITION_DELETION_ENABLE_CONFIG)
 
   /** ********* Fetch Configuration **************/
   val maxIncrementalFetchSessionCacheSlots = getInt(KafkaConfig.MaxIncrementalFetchSessionCacheSlots)

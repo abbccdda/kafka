@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 import java.util.{Optional, Properties, UUID}
 
-import kafka.log.{CleanerConfig, MergedLog, TierLogComponents}
+import kafka.log.{AbstractLog, CleanerConfig, MergedLog, TierLogComponents}
 import kafka.api.Request
 import kafka.log.{Log, LogConfig, LogManager, ProducerStateManager}
 import kafka.cluster.BrokerEndPoint
@@ -42,6 +42,7 @@ import kafka.utils.TestUtils.createBroker
 import kafka.utils.timer.MockTimer
 import kafka.utils.{MockScheduler, MockTime, TestUtils}
 import kafka.zk.KafkaZkClient
+import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
@@ -1503,26 +1504,45 @@ class ReplicaManagerTest {
 
   @Test
   def testDeleteStrayLogs(): Unit = {
-    val name = "foo"
     val props = TestUtils.createBrokerConfig(1, TestUtils.MockZkConnect)
+    props.setProperty(ConfluentConfigs.STRAY_PARTITION_DELETION_ENABLE_CONFIG, "true")
     val config = KafkaConfig.fromProps(props)
+
     val logManager = TestUtils.createLogManager(config.logDirs.map(new File(_)))
     val replicaManager = new ReplicaManager(config, metrics, time, kafkaZkClient, new MockScheduler(time), logManager,
       new AtomicBoolean(false), QuotaFactory.instantiate(config, metrics, time, ""),
       new BrokerTopicStats, new MetadataCache(config.brokerId), new LogDirFailureChannel(config.logDirs.size),
       TierReplicaComponents.EMPTY, Option(this.getClass.getName))
 
-    val validLogs = for (i <- 0 to 5) yield {
-      val topicPartition = new TopicPartition(name, i)
-      val partition = replicaManager.createPartition(topicPartition)
-      partition.createLogIfNotExists(replicaId = 0, isNew = true, isFutureReplica = false,
-        new LazyOffsetCheckpoints(replicaManager.highWatermarkCheckpoints))
-      partition.log.get
-    }
-    for (i <- 6 to 10) logManager.getOrCreateLog(new TopicPartition(name, i), logManager.currentDefaultConfig)
+    val validLogs = createValidLogs(numLogs = 5, replicaManager).toSet
+    createStrayLogs(numLogs = 5, logManager)
 
     replicaManager.deleteStrayLogs()
-    assertEquals(validLogs.toSet, logManager.allLogs.toSet)
+    assertEquals(validLogs, logManager.allLogs.toSet)
+    assertEquals(validLogs.size, replicaManager.partitionCount.value)
+
+    replicaManager.shutdown()
+    logManager.shutdown()
+  }
+
+  @Test
+  def testStrayLogsNotDeletedWhenDisabled(): Unit = {
+    val props = TestUtils.createBrokerConfig(1, TestUtils.MockZkConnect)
+    props.setProperty(ConfluentConfigs.STRAY_PARTITION_DELETION_ENABLE_CONFIG, "false")
+    val config = KafkaConfig.fromProps(props)
+
+    val logManager = TestUtils.createLogManager(config.logDirs.map(new File(_)))
+    val replicaManager = new ReplicaManager(config, metrics, time, kafkaZkClient, new MockScheduler(time), logManager,
+      new AtomicBoolean(false), QuotaFactory.instantiate(config, metrics, time, ""),
+      new BrokerTopicStats, new MetadataCache(config.brokerId), new LogDirFailureChannel(config.logDirs.size),
+      TierReplicaComponents.EMPTY, Option(this.getClass.getName))
+
+    val validLogs = createValidLogs(numLogs = 5, replicaManager).toSet
+    val strayLogs = createStrayLogs(numLogs = 5, logManager).toSet
+
+    // verify that stray logs are not deleted when disabled
+    replicaManager.deleteStrayLogs()
+    assertEquals(validLogs ++ strayLogs, logManager.allLogs.toSet)
     assertEquals(validLogs.size, replicaManager.partitionCount.value)
 
     replicaManager.shutdown()
@@ -1546,6 +1566,7 @@ class ReplicaManagerTest {
 
     // create LogManager and ReplicaManager
     val props = TestUtils.createBrokerConfig(1, TestUtils.MockZkConnect)
+    props.setProperty(ConfluentConfigs.STRAY_PARTITION_DELETION_ENABLE_CONFIG, "true")
     val config = KafkaConfig.fromProps(props)
 
     val logProps = new Properties()
@@ -1586,6 +1607,23 @@ class ReplicaManagerTest {
     replicaManager.deleteStrayLogs()
     assertEquals(validLogs.toSet, logManager.allLogs.toSet)
     assertEquals(validLogs.map(_.topicPartition).toSet, replicaManager.allPartitions.map(_._1).toSet)
+  }
+
+  private def createValidLogs(numLogs: Int, replicaManager: ReplicaManager): Seq[AbstractLog] = {
+    val name = "valid"
+    for (i <- 0 until numLogs) yield {
+      val topicPartition = new TopicPartition(name, i)
+      val partition = replicaManager.createPartition(topicPartition)
+      partition.createLogIfNotExists(replicaId = 0, isNew = true, isFutureReplica = false,
+        new LazyOffsetCheckpoints(replicaManager.highWatermarkCheckpoints))
+      partition.log.get
+    }
+  }
+
+  private def createStrayLogs(numLogs: Int, logManager: LogManager): Seq[AbstractLog] = {
+    val name = "stray"
+    for (i <- 0 until numLogs)
+      yield logManager.getOrCreateLog(new TopicPartition(name, i), logManager.currentDefaultConfig)
   }
 
   private def sendProducerAppend(replicaManager: ReplicaManager,
