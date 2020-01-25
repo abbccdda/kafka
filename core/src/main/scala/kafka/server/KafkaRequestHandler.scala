@@ -23,7 +23,7 @@ import kafka.metrics.KafkaMetricsGroup
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 import java.util.concurrent.atomic.AtomicInteger
 
-import com.yammer.metrics.core.Meter
+import com.yammer.metrics.core.{Histogram, Meter}
 import org.apache.kafka.common.internals.FatalExitError
 import org.apache.kafka.common.requests.RequestLogFilter
 import org.apache.kafka.common.metrics.Metrics
@@ -262,7 +262,7 @@ class BrokerTopicMetrics(name: Option[String]) extends KafkaMetricsGroup {
 
   def fetchMessageConversionsRate: Meter = metricTypeMap.get(BrokerTopicStats.FetchMessageConversionsPerSec).meter()
 
-  def consumerFetchLagTimeMs = newHistogram(BrokerTopicStats.ConsumerFetchLagTimeMs, biased = true, tags)
+  lazy val consumerFetchLagTimeMs: Histogram = newHistogram(BrokerTopicStats.ConsumerFetchLagTimeMs, biased = true, tags)
 
   def segmentReadRate: Option[Meter] =
     if (name.isEmpty) Some(metricTypeMap.get(BrokerTopicStats.SegmentReadsPerSec).meter())
