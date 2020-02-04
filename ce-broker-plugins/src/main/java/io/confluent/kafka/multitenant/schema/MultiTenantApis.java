@@ -362,6 +362,12 @@ public class MultiTenantApis {
           }
           break;
 
+        case PRODUCE:
+          if (field != null && (field.name.equals("error_message") || field.name.equals("batch_index_error_message"))) {
+            return Optional.some(new ErrorMessageSanitizer(type));
+          }
+          break;
+
         default:
           // fall through
       }

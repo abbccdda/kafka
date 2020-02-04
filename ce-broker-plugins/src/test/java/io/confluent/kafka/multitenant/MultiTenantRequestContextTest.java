@@ -159,6 +159,7 @@ import org.apache.kafka.common.requests.OffsetsForLeaderEpochRequest;
 import org.apache.kafka.common.requests.OffsetsForLeaderEpochResponse;
 import org.apache.kafka.common.requests.ProduceRequest;
 import org.apache.kafka.common.requests.ProduceResponse;
+import org.apache.kafka.common.requests.ProduceResponse.RecordError;
 import org.apache.kafka.common.requests.RequestHeader;
 import org.apache.kafka.common.requests.RequestInternals;
 import org.apache.kafka.common.requests.ResponseHeader;
@@ -321,9 +322,11 @@ public class MultiTenantRequestContextTest {
     MultiTenantRequestContext context = newRequestContext(ApiKeys.PRODUCE, ApiKeys.PRODUCE.latestVersion());
     Map<TopicPartition, ProduceResponse.PartitionResponse> partitionResponses = new HashMap<>();
     partitionResponses.put(new TopicPartition("tenant_foo", 0),
-        new ProduceResponse.PartitionResponse(Errors.NOT_LEADER_FOR_PARTITION));
+        new ProduceResponse.PartitionResponse(Errors.INVALID_RECORD));
     partitionResponses.put(new TopicPartition("tenant_bar", 0),
-        new ProduceResponse.PartitionResponse(Errors.NOT_LEADER_FOR_PARTITION));
+        new ProduceResponse.PartitionResponse(Errors.INVALID_RECORD, 5, 10, 1,
+        Collections.singletonList(new RecordError(6, "Compacted topic cannot accept message without key in topic partition tenant_bar-0.")),
+        "Errors found in topic tenant_bar: invalid record"));
 
     ProduceResponse outbound = new ProduceResponse(partitionResponses, 0);
     Struct struct = parseResponse(ApiKeys.PRODUCE, ApiKeys.PRODUCE.latestVersion(), context.buildResponse(outbound));
@@ -331,7 +334,11 @@ public class MultiTenantRequestContextTest {
 
     assertEquals(mkSet(new TopicPartition("foo", 0), new TopicPartition("bar", 0)),
         intercepted.responses().keySet());
-    verifyResponseMetrics(ApiKeys.PRODUCE, Errors.NOT_LEADER_FOR_PARTITION);
+    ProduceResponse.PartitionResponse partitionResponse = intercepted.responses().get(new TopicPartition("bar", 0));
+    assertEquals("Errors found in topic bar: invalid record", partitionResponse.errorMessage);
+    assertEquals("Compacted topic cannot accept message without key in topic partition bar-0.",
+        partitionResponse.recordErrors.get(0).message);
+    verifyResponseMetrics(ApiKeys.PRODUCE, Errors.INVALID_RECORD);
   }
 
   @Test
