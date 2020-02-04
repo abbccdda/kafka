@@ -2,7 +2,7 @@
 
 ##########
 
-FROM gradle:5.1.1-jdk11 as kafka-builder
+FROM openjdk:11-jdk as kafka-builder
 USER root
 
 COPY . /home/gradle
@@ -15,7 +15,7 @@ ENV GRADLE_USER_HOME=/root/gradle-home
 RUN mkdir -p /root/.m2/repository $GRADLE_USER_HOME \
   && cp ./tmp/gradle/gradle.properties $GRADLE_USER_HOME
 
-RUN gradle && ./gradlew clean releaseTarGz -x signArchives --stacktrace -PpackageMetricsReporter=true && ./gradlew install --stacktrace
+RUN ./gradlew clean releaseTarGz -x signArchives --stacktrace -PpackageMetricsReporter=true && ./gradlew install --stacktrace
 
 WORKDIR /build
 RUN tar -xzvf /home/gradle/core/build/distributions/kafka_*-SNAPSHOT.tgz --strip-components 1
