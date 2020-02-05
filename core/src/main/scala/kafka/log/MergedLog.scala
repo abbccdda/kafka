@@ -85,7 +85,7 @@ class MergedLog(private[log] val localLog: Log,
   private val lock = new Object
 
   locally {
-    logStartOffset = math.max(logStartOffset, firstTieredOffset.getOrElse(localLog.localLogStartOffset))
+    updateLogStartOffset(math.max(logStartOffset, firstTieredOffset.getOrElse(localLog.localLogStartOffset)))
     localLog.setMergedLogStartOffsetCbk(() => logStartOffset)
 
     // Log layer uses the checkpointed log start offset to truncate the producer state and leader epoch cache, but the
@@ -203,7 +203,7 @@ class MergedLog(private[log] val localLog: Log,
     if (newLogStartOffset > logStartOffset) {
       info(s"Incrementing merged log start offset to $newLogStartOffset")
       localLog.maybeIncrementLogStartOffset(newLogStartOffset)
-      logStartOffset = newLogStartOffset
+      updateLogStartOffset(newLogStartOffset)
     }
   }
 
@@ -308,7 +308,7 @@ class MergedLog(private[log] val localLog: Log,
 
   override private[log] def truncateTo(targetOffset: Long): Boolean = lock synchronized {
     if (localLog.truncateTo(targetOffset)) {
-      logStartOffset = math.max(logStartOffset, firstTieredOffset.getOrElse(localLog.localLogStartOffset))
+      updateLogStartOffset(math.max(logStartOffset, firstTieredOffset.getOrElse(localLog.localLogStartOffset)))
       true
     } else {
       false
@@ -317,10 +317,12 @@ class MergedLog(private[log] val localLog: Log,
 
   override private[log] def truncateFullyAndStartAt(newOffset: Long): Unit = lock synchronized {
     localLog.truncateFullyAndStartAt(newOffset)
-    if (config.tierEnable)
-      logStartOffset = firstTieredOffset.getOrElse(newOffset)
-    else
-      logStartOffset = newOffset
+    val newLogStartOffset =
+      if (config.tierEnable)
+        firstTieredOffset.getOrElse(newOffset)
+      else
+        newOffset
+    updateLogStartOffset(newLogStartOffset)
   }
 
   override def topicIdPartition: Option[TopicIdPartition] = tierPartitionState.topicIdPartition.asScala
@@ -460,6 +462,11 @@ class MergedLog(private[log] val localLog: Log,
   private[log] def tieredLogSegments(from: Long, to: Long): Iterable[TierLogSegment] = {
     TierUtils.tieredSegments(tieredOffsets(from, to), tierPartitionState, tierLogComponents.objectStoreOpt.asJava)
       .asScala.toIterable
+  }
+
+  private def updateLogStartOffset(offset: Long): Unit = {
+    logStartOffset = offset
+    localLog.maybeUpdateHighWatermarkAndRecoveryPoint(offset)
   }
 
   // Base offset of all tiered segments in the log
