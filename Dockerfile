@@ -76,7 +76,7 @@ COPY --from=go-build /storage-probe /opt/caas/bin
 
 WORKDIR /
 RUN mkdir -p /opt/caas/lib \
-  && curl -o /opt/caas/lib/jmx_prometheus_javaagent-0.1.0.jar -O https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/0.1.0/jmx_prometheus_javaagent-0.1.0.jar \
+  && curl -o /opt/caas/lib/jmx_prometheus_javaagent-0.12.0.jar -O https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/0.12.0/jmx_prometheus_javaagent-0.12.0.jar \
   && mkdir -p /opt/asyncprofiler \
   && curl -L https://github.com/jvm-profiling-tools/async-profiler/releases/download/v1.6/async-profiler-1.6-linux-x64.tar.gz | tar xz -C /opt/asyncprofiler \
   && apt update \
