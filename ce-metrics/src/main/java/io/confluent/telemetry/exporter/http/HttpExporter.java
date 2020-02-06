@@ -4,6 +4,18 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Timestamp;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.nio.ByteBuffer;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.function.Predicate;
+
 import io.confluent.observability.telemetry.client.BufferingAsyncTelemetryHttpClient;
 import io.confluent.observability.telemetry.client.BufferingAsyncTelemetryHttpClientBatchResult;
 import io.confluent.observability.telemetry.client.BufferingAsyncTelemetryHttpClientStats;
@@ -20,16 +32,6 @@ import io.confluent.telemetry.exporter.Exporter;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
 import io.opencensus.proto.metrics.v1.Point;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.function.Predicate;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class HttpExporter implements Exporter, MetricsCollectorProvider {
 
@@ -81,8 +83,8 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
     }
 
     @Override
-    public void export(Collection<Metric> metrics) throws RuntimeException {
-        this.bufferingClient.submit(metrics);
+    public void emit(Metric metric) throws RuntimeException {
+        this.bufferingClient.submit(Collections.singleton(metric));
     }
 
     @Override
@@ -96,9 +98,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
         Predicate<MetricKey> metricWhitelistFilter = config.getMetricWhitelistFilter();
         return new MetricsCollector() {
             @Override
-            public Collection<Metric> collect() {
-                List<Metric> out = new ArrayList<>();
-
+            public void collect(Exporter exporter) {
                 BufferingAsyncTelemetryHttpClientStats stats = bufferingClient.stats();
                 Timestamp now = MetricsUtils.now();
 
@@ -123,7 +123,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
                     if (!metricWhitelistFilter.test(new MetricKey(batchName, statusLabels))) {
                         return;
                     }
-                    out.add(
+                    exporter.emit(
                         context.metricWithSinglePointTimeseries(
                             batchName,
                             Type.CUMULATIVE_INT64,
@@ -145,7 +145,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
                     if (!metricWhitelistFilter.test(new MetricKey(itemName, statusLabels))) {
                         return;
                     }
-                    out.add(
+                    exporter.emit(
                         context.metricWithSinglePointTimeseries(
                             itemName,
                             Type.CUMULATIVE_INT64,
@@ -160,7 +160,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
                 String timingName = MetricsUtils
                     .fullMetricName(domain, GROUP, "send_time_seconds");
                 if (metricWhitelistFilter.test(new MetricKey(timingName, labels))) {
-                    out.add(
+                    exporter.emit(
                         context.metricWithSinglePointTimeseries(
                             timingName,
                             Type.CUMULATIVE_DOUBLE,
@@ -172,7 +172,6 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
                                 .build())
                     );
                 }
-                return out;
             }
         };
     }

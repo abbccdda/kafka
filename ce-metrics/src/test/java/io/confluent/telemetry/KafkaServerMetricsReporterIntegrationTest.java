@@ -119,21 +119,22 @@ public class KafkaServerMetricsReporterIntegrationTest extends MetricReporterClu
                 assertEquals(resourceLabels.get("pkc"), "pkc-bar");
 
                 // Check that we get all kinds of metrics
-                assertTrue(labelExists(m, LABEL_LIBRARY));
+                if (labelExists(m, LABEL_LIBRARY)) {
 
-                String lib = getLabelValueFromFirstTimeSeries(m, LABEL_LIBRARY);
-                assertTrue(libs.contains(lib));
+                    String lib = getLabelValueFromFirstTimeSeries(m, LABEL_LIBRARY);
+                    assertTrue(libs.contains(lib));
 
-                switch (lib) {
-                    case KAFKA_METRICS_LIB:
-                        kafkaMetricsPresent = true;
-                        break;
-                    case YAMMER_METRICS:
-                        yammerMetricsPresent = true;
-                        break;
-                    case LIBRARY_NONE:
-                        cpuVolumeMetricsPresent = true;
-                        break;
+                    switch (lib) {
+                        case KAFKA_METRICS_LIB:
+                            kafkaMetricsPresent = true;
+                            break;
+                        case YAMMER_METRICS:
+                            yammerMetricsPresent = true;
+                            break;
+                        case LIBRARY_NONE:
+                            cpuVolumeMetricsPresent = true;
+                            break;
+                    }
                 }
             }
         }

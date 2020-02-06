@@ -4,16 +4,7 @@ package io.confluent.telemetry.collector;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Verify;
-import io.confluent.telemetry.ConfluentTelemetryConfig;
-import io.confluent.telemetry.Context;
-import io.confluent.telemetry.MetricKey;
-import io.confluent.telemetry.MetricsUtils;
-import io.opencensus.proto.metrics.v1.Metric;
-import io.opencensus.proto.metrics.v1.MetricDescriptor;
-import io.opencensus.proto.metrics.v1.Point;
-import java.time.Instant;
-import java.util.function.Predicate;
-import kafka.server.KafkaConfig;
+
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.slf4j.Logger;
@@ -24,17 +15,26 @@ import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
+
+import io.confluent.telemetry.ConfluentTelemetryConfig;
+import io.confluent.telemetry.Context;
+import io.confluent.telemetry.MetricKey;
+import io.confluent.telemetry.MetricsUtils;
+import io.confluent.telemetry.exporter.Exporter;
+import io.opencensus.proto.metrics.v1.MetricDescriptor;
+import io.opencensus.proto.metrics.v1.Point;
+import kafka.server.KafkaConfig;
 
 public class VolumeMetricsCollector implements MetricsCollector {
 
@@ -138,16 +138,13 @@ public class VolumeMetricsCollector implements MetricsCollector {
     }
 
     @Override
-    public List<Metric> collect() {
-        List<Metric> out = new ArrayList<>();
-
-
+    public void collect(Exporter exporter) {
         for (VolumeInfo volumeInfo : getMetrics().values()) {
 
             Map<String, String> labels = labelsFor(volumeInfo.name());
 
             if (metricWhitelistFilter.test(new MetricKey(diskTotalBytesName, labels))) {
-                out.add(context.metricWithSinglePointTimeseries(
+                exporter.emit(context.metricWithSinglePointTimeseries(
                     diskTotalBytesName,
                     MetricDescriptor.Type.GAUGE_INT64,
                     labels,
@@ -159,7 +156,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
             }
 
             if (metricWhitelistFilter.test(new MetricKey(diskUsableBytesName, labels))) {
-                out.add(context.metricWithSinglePointTimeseries(
+                exporter.emit(context.metricWithSinglePointTimeseries(
                     diskUsableBytesName,
                     MetricDescriptor.Type.GAUGE_INT64,
                     labels,
@@ -169,8 +166,6 @@ public class VolumeMetricsCollector implements MetricsCollector {
                     MetricsUtils.toTimestamp(lastUpdateInstant)));
             }
         }
-
-        return out;
     }
 
     @Override

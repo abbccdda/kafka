@@ -2,15 +2,7 @@ package io.confluent.telemetry.collector;
 
 import com.google.common.base.Strings;
 import com.google.protobuf.Timestamp;
-import io.confluent.telemetry.ConfluentTelemetryConfig;
-import io.confluent.telemetry.Context;
-import io.confluent.telemetry.MetricKey;
-import io.confluent.telemetry.MetricsUtils;
-import io.confluent.telemetry.collector.LastValueTracker.InstantAndValue;
-import io.opencensus.proto.metrics.v1.Metric;
-import io.opencensus.proto.metrics.v1.MetricDescriptor;
-import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
-import io.opencensus.proto.metrics.v1.Point;
+
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.metrics.KafkaMetric;
@@ -24,7 +16,6 @@ import org.slf4j.LoggerFactory;
 import java.lang.reflect.Field;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -34,6 +25,16 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
+
+import io.confluent.telemetry.ConfluentTelemetryConfig;
+import io.confluent.telemetry.Context;
+import io.confluent.telemetry.MetricKey;
+import io.confluent.telemetry.MetricsUtils;
+import io.confluent.telemetry.collector.LastValueTracker.InstantAndValue;
+import io.confluent.telemetry.exporter.Exporter;
+import io.opencensus.proto.metrics.v1.MetricDescriptor;
+import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
+import io.opencensus.proto.metrics.v1.Point;
 
 public class KafkaMetricsCollector implements MetricsCollector {
     public static final String KAFKA_METRICS_LIB = "kafka";
@@ -66,9 +67,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
     }
 
     @Override
-    public List<Metric> collect() {
-        List<Metric> out = new ArrayList<>();
-
+    public void collect(Exporter exporter) {
         for (Map.Entry<MetricName, KafkaMetric> entry : ledger.getMetrics()) {
             MetricName originalMetricName = entry.getKey();
             KafkaMetric metric = entry.getValue();
@@ -141,7 +140,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
                 double value = (Double) entry.getValue().metricValue();
 
                 if (measurable instanceof WindowedCount || measurable instanceof CumulativeSum) {
-                    out.add(context.metricWithSinglePointTimeseries(name,
+                    exporter.emit(context.metricWithSinglePointTimeseries(name,
                             MetricDescriptor.Type.CUMULATIVE_DOUBLE,
                             labels,
                             Point.newBuilder()
@@ -157,10 +156,10 @@ public class KafkaMetricsCollector implements MetricsCollector {
                         .setDoubleValue(instantAndValue.getValue())
                         .build();
                     Timestamp startTimestamp = MetricsUtils.toTimestamp(instantAndValue.getIntervalStart());
-                    out.add(context
+                    exporter.emit(context
                         .metricWithSinglePointTimeseries(deltaName, Type.GAUGE_DOUBLE, labels, point, startTimestamp));
                 } else {
-                    out.add(context.metricWithSinglePointTimeseries(name,
+                    exporter.emit(context.metricWithSinglePointTimeseries(name,
                             MetricDescriptor.Type.GAUGE_DOUBLE,
                             labels,
                             Point.newBuilder()
@@ -173,7 +172,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
                 // Collect the metric only if its value is a double.
                 if (entry.getValue().metricValue() instanceof Double) {
                     double value = (Double) entry.getValue().metricValue();
-                    out.add(context.metricWithSinglePointTimeseries(name,
+                    exporter.emit(context.metricWithSinglePointTimeseries(name,
                             MetricDescriptor.Type.GAUGE_DOUBLE,
                             labels,
                             Point.newBuilder()
@@ -185,8 +184,6 @@ public class KafkaMetricsCollector implements MetricsCollector {
                 }
             }
         }
-
-        return out;
     }
 
     @Override

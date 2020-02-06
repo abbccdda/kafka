@@ -9,11 +9,13 @@ import com.google.common.collect.Iterables;
 import io.confluent.observability.telemetry.ResourceBuilderFacade;
 import io.confluent.observability.telemetry.TelemetryResourceType;
 import io.confluent.telemetry.Context;
+import io.confluent.telemetry.exporter.TestExporter;
 import io.opencensus.proto.metrics.v1.Metric;
 import org.junit.Test;
 
 public class VolumeMetricsCollectorTest {
 
+  private final TestExporter exporter = new TestExporter();
   private final Context context = new Context(
       new ResourceBuilderFacade(TelemetryResourceType.KAFKA)
           .withVersion("mockVersion")
@@ -31,7 +33,8 @@ public class VolumeMetricsCollectorTest {
         .setMetricWhitelistFilter(key -> !key.getName().contains("disk_total_bytes"))
         .build();
 
-    Metric metric = Iterables.getOnlyElement(metrics.collect());
+    metrics.collect(exporter);
+    Metric metric = Iterables.getOnlyElement(exporter.emittedMetrics());
 
     assertEquals(context.getResource(), metric.getResource());
     assertEquals("test/volume/disk_usable_bytes", metric.getMetricDescriptor().getName());
@@ -49,7 +52,8 @@ public class VolumeMetricsCollectorTest {
         .setMetricWhitelistFilter(key -> !key.getName().contains("disk_usable_bytes"))
         .build();
 
-    Metric metric = Iterables.getOnlyElement(metrics.collect());
+    metrics.collect(exporter);
+    Metric metric = Iterables.getOnlyElement(exporter.emittedMetrics());
 
     assertEquals(context.getResource(), metric.getResource());
     assertEquals("test/volume/disk_total_bytes", metric.getMetricDescriptor().getName());
@@ -68,9 +72,10 @@ public class VolumeMetricsCollectorTest {
         .build();
 
     // collect twice so that we have a cached set of labels.
-    metrics.collect();
-
-    Metric metric = Iterables.getOnlyElement(metrics.collect());
+    metrics.collect(exporter);
+    exporter.reset();
+    metrics.collect(exporter);
+    Metric metric = Iterables.getOnlyElement(exporter.emittedMetrics());
 
     assertEquals(context.getResource(), metric.getResource());
     assertEquals("test/volume/disk_total_bytes", metric.getMetricDescriptor().getName());

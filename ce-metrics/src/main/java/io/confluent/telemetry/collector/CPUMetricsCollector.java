@@ -2,24 +2,24 @@
 
 package io.confluent.telemetry.collector;
 
-import io.confluent.telemetry.ConfluentTelemetryConfig;
-import io.confluent.telemetry.Context;
-import io.confluent.telemetry.MetricKey;
-import io.confluent.telemetry.MetricsUtils;
-import io.opencensus.proto.metrics.v1.Metric;
-import io.opencensus.proto.metrics.v1.MetricDescriptor;
-import io.opencensus.proto.metrics.v1.Point;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.lang.management.ManagementFactory;
 import java.lang.management.OperatingSystemMXBean;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Predicate;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import io.confluent.telemetry.ConfluentTelemetryConfig;
+import io.confluent.telemetry.Context;
+import io.confluent.telemetry.MetricKey;
+import io.confluent.telemetry.MetricsUtils;
+import io.confluent.telemetry.exporter.Exporter;
+import io.opencensus.proto.metrics.v1.MetricDescriptor;
+import io.opencensus.proto.metrics.v1.Point;
 
 public class CPUMetricsCollector implements MetricsCollector {
 
@@ -54,11 +54,9 @@ public class CPUMetricsCollector implements MetricsCollector {
     }
 
     @Override
-    public List<Metric> collect() {
-        List<Metric> out = new ArrayList<>();
-
+    public void collect(Exporter exporter) {
         if (!osBean.isPresent()) {
-            return out;
+            return;
         }
 
         String name = MetricsUtils.fullMetricName(this.domain, "cpu", "cpu_usage");
@@ -69,20 +67,18 @@ public class CPUMetricsCollector implements MetricsCollector {
         }
 
         if (!metricWhitelistFilter.test(new MetricKey(name, labels))) {
-            return out;
+            return;
         }
 
         double cpuUtil = osBean.get().getProcessCpuLoad();
 
-        out.add(context.metricWithSinglePointTimeseries(
+        exporter.emit(context.metricWithSinglePointTimeseries(
                 name,
                 MetricDescriptor.Type.GAUGE_DOUBLE,
                 labels,
                 Point.newBuilder()
                         .setTimestamp(MetricsUtils.now())
                         .setDoubleValue(cpuUtil).build()));
-
-        return out;
     }
 
     @Override

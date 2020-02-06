@@ -3,6 +3,7 @@ package io.confluent.telemetry.collector;
 import com.google.common.base.Strings;
 import com.google.protobuf.DoubleValue;
 import com.google.protobuf.Int64Value;
+
 import com.yammer.metrics.core.Counter;
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Histogram;
@@ -11,30 +12,32 @@ import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.core.MetricsRegistry;
 import com.yammer.metrics.core.MetricsRegistryListener;
 import com.yammer.metrics.core.Timer;
-import io.confluent.metrics.YammerMetricsUtils;
-import io.confluent.telemetry.ConfluentTelemetryConfig;
-import io.confluent.telemetry.Context;
-import io.confluent.telemetry.MetricKey;
-import io.confluent.telemetry.MetricsUtils;
-import io.confluent.telemetry.collector.LastValueTracker.InstantAndValue;
-import io.opencensus.proto.metrics.v1.Metric;
-import io.opencensus.proto.metrics.v1.MetricDescriptor;
-import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
-import io.opencensus.proto.metrics.v1.Point;
-import io.opencensus.proto.metrics.v1.SummaryValue;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import io.confluent.metrics.YammerMetricsUtils;
+import io.confluent.telemetry.ConfluentTelemetryConfig;
+import io.confluent.telemetry.Context;
+import io.confluent.telemetry.MetricKey;
+import io.confluent.telemetry.MetricsUtils;
+import io.confluent.telemetry.collector.LastValueTracker.InstantAndValue;
+import io.confluent.telemetry.exporter.Exporter;
+import io.opencensus.proto.metrics.v1.Metric;
+import io.opencensus.proto.metrics.v1.MetricDescriptor;
+import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
+import io.opencensus.proto.metrics.v1.Point;
+import io.opencensus.proto.metrics.v1.SummaryValue;
 
 // Yammer -> Opencensus is based on : https://github.com/census-instrumentation/opencensus-java/blob/master/contrib/dropwizard/src/main/java/io/opencensus/contrib/dropwizard/DropWizardMetrics.java
 public class YammerMetricsCollector implements MetricsCollector {
@@ -98,8 +101,7 @@ public class YammerMetricsCollector implements MetricsCollector {
     }
 
     @Override
-    public List<Metric> collect() {
-        List<Metric> out = new ArrayList<>();
+    public void collect(Exporter exporter) {
         Set<Map.Entry<MetricName, com.yammer.metrics.core.Metric>> metrics = metricsRegistry.allMetrics().entrySet();
 
         for (Map.Entry<com.yammer.metrics.core.MetricName, com.yammer.metrics.core.Metric> entry : metrics) {
@@ -121,30 +123,30 @@ public class YammerMetricsCollector implements MetricsCollector {
                 }
 
                 if (metric instanceof Gauge) {
-                    collectGauge(name, labels, (Gauge) metric).map(out::add);
+                    collectGauge(name, labels, (Gauge) metric).ifPresent(exporter::emit);
                 } else if (metric instanceof Counter) {
-                    out.add(collectCounter(name, labels, (Counter) metric));
+                    exporter.emit(collectCounter(name, labels, (Counter) metric));
                     // Derived metric, results in a name like /delta.
-                    collectDelta(name, labels, ((Counter) metric).count(), metricAddedInstant).map(out::add);
+                    collectDelta(name, labels, ((Counter) metric).count(), metricAddedInstant).ifPresent(exporter::emit);
                 } else if (metric instanceof Meter) {
                     // Only collect the counters and append "/total" to the end.
                     String meterName = name + "/total";
                     // Derived metric, results in a name like /total.
-                    collectMeter(meterName, labels, (Meter) metric).map(out::add);
+                    collectMeter(meterName, labels, (Meter) metric).ifPresent(exporter::emit);
                     // Derived metric, results in a name like /total/delta.
-                    collectDelta(meterName, labels, ((Meter) metric).count(), metricAddedInstant).map(out::add);
+                    collectDelta(meterName, labels, ((Meter) metric).count(), metricAddedInstant).ifPresent(exporter::emit);
                 } else if (metric instanceof Timer) {
-                    out.add(collectTimer(name, labels, (Timer) metric));
+                    exporter.emit(collectTimer(name, labels, (Timer) metric));
                     // Derived metric, results in a name like /time/delta
-                    collectDelta(name + "/time", labels, ((Timer) metric).sum(), metricAddedInstant).map(out::add);
+                    collectDelta(name + "/time", labels, ((Timer) metric).sum(), metricAddedInstant).ifPresent(exporter::emit);
                     // Derived metric, results in a name like /total/delta.
-                    collectDelta(name + "/total", labels, ((Timer) metric).count(), metricAddedInstant).map(out::add);
+                    collectDelta(name + "/total", labels, ((Timer) metric).count(), metricAddedInstant).ifPresent(exporter::emit);
                 } else if (metric instanceof Histogram) {
-                    out.add(collectHistogram(name, labels, (Histogram) metric));
+                    exporter.emit(collectHistogram(name, labels, (Histogram) metric));
                     // Derived metric, results in a name like /time/delta
-                    collectDelta(name + "/time", labels, ((Histogram) metric).sum(), metricAddedInstant).map(out::add);
+                    collectDelta(name + "/time", labels, ((Histogram) metric).sum(), metricAddedInstant).ifPresent(exporter::emit);
                     // Derived metric, results in a name like /total/delta.
-                    collectDelta(name + "/total", labels, ((Histogram) metric).count(), metricAddedInstant).map(out::add);
+                    collectDelta(name + "/total", labels, ((Histogram) metric).count(), metricAddedInstant).ifPresent(exporter::emit);
                 } else {
                     log.debug("Unexpected metric type for {}", metricName);
                 }
@@ -152,8 +154,6 @@ public class YammerMetricsCollector implements MetricsCollector {
                 log.error("Unexpected error in processing Yammer metric {}", metricName, e);
             }
         }
-
-        return out;
     }
 
     private Instant instantAdded(MetricKey metricKey) {

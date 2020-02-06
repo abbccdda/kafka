@@ -20,6 +20,7 @@ import io.confluent.observability.telemetry.ResourceBuilderFacade;
 import io.confluent.observability.telemetry.TelemetryResourceType;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
+import io.confluent.telemetry.exporter.TestExporter;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
 import io.opencensus.proto.metrics.v1.SummaryValue;
@@ -36,6 +37,8 @@ import org.junit.Test;
 import org.mockito.Mockito;
 
 public class YammerMetricsCollectorTest {
+
+  private final TestExporter exporter = new TestExporter();
 
   private YammerMetricsCollector.Builder collectorBuilder;
   private MetricsRegistry metricsRegistry;
@@ -69,7 +72,8 @@ public class YammerMetricsCollectorTest {
         });
 
     YammerMetricsCollector collector = collectorBuilder.build();
-    List<Metric> result = collector.collect();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
 
     assertEquals("Should get exactly 1 metric", 1, result.size());
 
@@ -88,8 +92,8 @@ public class YammerMetricsCollectorTest {
     meter.mark(100L);
 
     YammerMetricsCollector collector = collectorBuilder.build();
-    List<Metric> result = collector.collect();
-
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
 
     assertEquals("Should get exactly 2 metrics", 2, result.size());
 
@@ -117,7 +121,9 @@ public class YammerMetricsCollectorTest {
     meter.mark(150);
     meter.mark(175);
 
-    result = collector.collect();
+    exporter.reset();
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
     deltaMetric = result.stream().filter(m -> m.getMetricDescriptor().getName().contains("/delta")).findFirst().get();
     assertEquals("InstantAndValue should match", 325L, deltaMetric.getTimeseries(0).getPoints(0).getInt64Value());
   }
@@ -129,7 +135,8 @@ public class YammerMetricsCollectorTest {
     histogram.update(95L);
 
     YammerMetricsCollector collector = collectorBuilder.build();
-    List<Metric> result = collector.collect();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
 
     // we get a /time/delta and a /total/delta in addition to the main metric.
 
@@ -200,7 +207,8 @@ public class YammerMetricsCollectorTest {
     timer.update(95L, TimeUnit.SECONDS);
 
     YammerMetricsCollector collector = collectorBuilder.build();
-    List<Metric> result = collector.collect();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
 
     // we get a /time/delta and a /total/delta in addition to the main metric.
 
@@ -281,7 +289,9 @@ public class YammerMetricsCollectorTest {
       }
     });
 
-    assertEquals(1, collector.collect().size());
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
+    assertEquals(1, result.size());
 
     metricsRegistry.removeMetric(name);
 
@@ -289,8 +299,10 @@ public class YammerMetricsCollectorTest {
     Mockito.verify(lastValueTracker).remove(collector.toMetricKey(name));
 
     // verify that the metric was removed and that all that remains is the global count of metrics.
-    List<Metric> collected = collector.collect();
-    assertEquals(Collections.emptyList(), collected);
+    exporter.reset();
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
+    assertEquals(Collections.emptyList(), result);
   }
 
   @Test
@@ -308,9 +320,11 @@ public class YammerMetricsCollectorTest {
     counter.inc(32L);
 
     when(clock.instant()).thenReturn(reference.plusSeconds(60));
-    List<Metric> metrics = collector.collect();
-    assertEquals(2, metrics.size());
-    Metric deltaMetric = metrics.stream().filter(metric -> metric.getMetricDescriptor().getName().endsWith("/delta")).findFirst().get();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
+
+    assertEquals(2, result.size());
+    Metric deltaMetric = result.stream().filter(metric -> metric.getMetricDescriptor().getName().endsWith("/delta")).findFirst().get();
 
     assertEquals(32L, deltaMetric.getTimeseries(0).getPoints(0).getInt64Value());
     assertEquals(61L, deltaMetric.getTimeseries(0).getPoints(0).getTimestamp().getSeconds());
@@ -333,15 +347,18 @@ public class YammerMetricsCollectorTest {
     // increment by 32 and advance time by 60 seconds. Do the initial collection
     counter.inc(32L);
     when(clock.instant()).thenReturn(reference.plusSeconds(60));
-    collector.collect();
+    collector.collect(exporter);
 
     // Increment it again by 5 and advance time by another 60 seconds.
     counter.inc(5);
     when(clock.instant()).thenReturn(reference.plusSeconds(120));
 
-    List<Metric> metrics = collector.collect();
-    assertEquals(2, metrics.size());
-    Metric deltaMetric = metrics.stream()
+    exporter.reset();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
+
+    assertEquals(2, result.size());
+    Metric deltaMetric = result.stream()
         .filter(metric -> metric.getMetricDescriptor().getName().endsWith("/delta")).findFirst()
         .get();
 
@@ -366,9 +383,11 @@ public class YammerMetricsCollectorTest {
     histogram.update(10);
 
     when(clock.instant()).thenReturn(reference.plusSeconds(60));
-    List<Metric> metrics = collector.collect();
-    assertEquals(3, metrics.size()); // three metrics -> summary, time/delta, total/delta
-    Metric deltaMetric = metrics.stream().filter(metric -> metric.getMetricDescriptor().getName().endsWith("/time/delta")).findFirst().get();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
+
+    assertEquals(3, result.size()); // three metrics -> summary, time/delta, total/delta
+    Metric deltaMetric = result.stream().filter(metric -> metric.getMetricDescriptor().getName().endsWith("/time/delta")).findFirst().get();
 
     assertEquals(10d, deltaMetric.getTimeseries(0).getPoints(0).getDoubleValue(), 1e-6);
     assertEquals(61L, deltaMetric.getTimeseries(0).getPoints(0).getTimestamp().getSeconds());
@@ -390,24 +409,25 @@ public class YammerMetricsCollectorTest {
     Histogram histogram = metricsRegistry.newHistogram(name, false);
     histogram.update(10);
     when(clock.instant()).thenReturn(reference.plusSeconds(60));
-    collector.collect();
+    collector.collect(exporter);
 
     // Update it again by 5 and advance time by another 60 seconds.
     histogram.update(5);
     when(clock.instant()).thenReturn(reference.plusSeconds(120));
 
 
-    List<Metric> metrics = collector.collect();
-    assertEquals(3, metrics.size()); // three metrics -> summary, time/delta, total/delta
+    exporter.reset();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
+    assertEquals(3, result.size()); // three metrics -> summary, time/delta, total/delta
 
-
-    Metric countDeltaMetric = metrics.stream().filter(metric -> metric.getMetricDescriptor().getName().endsWith("/total/delta")).findFirst().get();
+    Metric countDeltaMetric = result.stream().filter(metric -> metric.getMetricDescriptor().getName().endsWith("/total/delta")).findFirst().get();
 
     assertEquals(1, countDeltaMetric.getTimeseries(0).getPoints(0).getInt64Value());
     assertEquals(121L, countDeltaMetric.getTimeseries(0).getPoints(0).getTimestamp().getSeconds());
     assertEquals(61L, countDeltaMetric.getTimeseries(0).getStartTimestamp().getSeconds());
 
-    Metric timeDeltaMetric = metrics.stream().filter(metric -> metric.getMetricDescriptor().getName().endsWith("/time/delta")).findFirst().get();
+    Metric timeDeltaMetric = result.stream().filter(metric -> metric.getMetricDescriptor().getName().endsWith("/time/delta")).findFirst().get();
 
     assertEquals(5d, timeDeltaMetric.getTimeseries(0).getPoints(0).getDoubleValue(), 1e-6);
     assertEquals(121L, timeDeltaMetric.getTimeseries(0).getPoints(0).getTimestamp().getSeconds());
@@ -433,9 +453,10 @@ public class YammerMetricsCollectorTest {
     counter2.inc(48L);
 
     when(clock.instant()).thenReturn(reference.plusSeconds(60));
-    List<Metric> metrics = collector.collect();
-    assertEquals(4, metrics.size());
-    Map<MetricKey, List<Metric>> deltaMetrics = metrics.stream().filter(
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
+    assertEquals(4, result.size());
+    Map<MetricKey, List<Metric>> deltaMetrics = result.stream().filter(
         metric -> metric.getMetricDescriptor().getName().equals("test-domain/counter/test/delta"))
         .collect(Collectors.groupingBy(
             (Metric m) -> new MetricKey(m.getMetricDescriptor().getName(),
@@ -483,16 +504,17 @@ public class YammerMetricsCollectorTest {
         });
 
 
-    YammerMetricsCollector collector = collectorBuilder
-        .build();
-    List<Metric> result = collector.collect();
-
+    YammerMetricsCollector collector = collectorBuilder.build();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
     assertEquals("Should get exactly 2 metrics", 2, result.size());
 
+    exporter.reset();
     collector = collectorBuilder
         .setMetricWhitelistFilter(key -> !key.getName().contains("test_do_not_include"))
         .build();
-    result = collector.collect();
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
     assertEquals("Should get exactly 1 metric", 1, result.size());
 
     // Name, Type, value, labels
@@ -510,34 +532,42 @@ public class YammerMetricsCollectorTest {
     metricsRegistry.newMeter(name1, "meterType", TimeUnit.SECONDS);
     metricsRegistry.newHistogram(name2, false);
 
-    YammerMetricsCollector collector = collectorBuilder
-        .build();
-    List<Metric> result = collector.collect();
+    YammerMetricsCollector collector = collectorBuilder.build();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
 
     assertThat(result).hasSize(7);
 
+    exporter.reset();
     collector = collectorBuilder
         .setMetricWhitelistFilter(key -> !key.getName().contains("/ignore"))
         .build();
-    result = collector.collect();
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
     assertThat(result).hasSize(5);
 
+    exporter.reset();
     collector = collectorBuilder
         .setMetricWhitelistFilter(key -> !key.getName().endsWith("/total"))
         .build();
-    result = collector.collect();
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
     assertThat(result).hasSize(5);
 
+    exporter.reset();
     collector = collectorBuilder
         .setMetricWhitelistFilter(key -> !key.getName().contains("/total/delta"))
         .build();
-    result = collector.collect();
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
     assertThat(result).hasSize(4);
 
+    exporter.reset();
     collector = collectorBuilder
         .setMetricWhitelistFilter(key -> !key.getName().contains("/time/delta"))
         .build();
-    result = collector.collect();
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
     assertThat(result).hasSize(6);
   }
 }

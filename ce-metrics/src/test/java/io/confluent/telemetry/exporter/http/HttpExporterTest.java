@@ -1,30 +1,33 @@
 package io.confluent.telemetry.exporter.http;
 
 import com.google.common.collect.ImmutableMap;
-import io.confluent.observability.telemetry.client.BufferingAsyncTelemetryHttpClient;
-import io.confluent.observability.telemetry.client.BufferingAsyncTelemetryHttpClientStats;
-import io.confluent.observability.telemetry.v1.TelemetryReceiverSubmitMetricsRequest;
-import io.confluent.observability.telemetry.v1.TelemetryReceiverSubmitMetricsResponse;
-import io.confluent.telemetry.ConfluentTelemetryConfig;
-import io.confluent.telemetry.Context;
-import io.confluent.observability.telemetry.ResourceBuilderFacade;
-import io.confluent.observability.telemetry.TelemetryResourceType;
-import io.confluent.telemetry.collector.MetricsCollector;
-import io.opencensus.proto.metrics.v1.Metric;
-import io.opencensus.proto.metrics.v1.MetricDescriptor;
-import io.opencensus.proto.resource.v1.Resource;
-import io.reactivex.Observable;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+
 import org.assertj.core.data.Offset;
 import org.junit.Rule;
 import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import io.confluent.observability.telemetry.ResourceBuilderFacade;
+import io.confluent.observability.telemetry.TelemetryResourceType;
+import io.confluent.observability.telemetry.client.BufferingAsyncTelemetryHttpClient;
+import io.confluent.observability.telemetry.client.BufferingAsyncTelemetryHttpClientStats;
+import io.confluent.observability.telemetry.v1.TelemetryReceiverSubmitMetricsRequest;
+import io.confluent.observability.telemetry.v1.TelemetryReceiverSubmitMetricsResponse;
+import io.confluent.telemetry.ConfluentTelemetryConfig;
+import io.confluent.telemetry.Context;
+import io.confluent.telemetry.collector.MetricsCollector;
+import io.confluent.telemetry.exporter.TestExporter;
+import io.opencensus.proto.metrics.v1.Metric;
+import io.opencensus.proto.metrics.v1.MetricDescriptor;
+import io.opencensus.proto.resource.v1.Resource;
+import io.reactivex.Observable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
@@ -52,17 +55,16 @@ public class HttpExporterTest {
     }
 
     @Test
-    public void testExport() {
+    public void testEmit() {
 
         when(bufferingClient.getBatchResults()).thenReturn(Observable.empty());
         HttpExporter exporter = new HttpExporter(bufferingClient);
 
-        List<Metric> metrics = Arrays
-            .asList(Metric.newBuilder().setMetricDescriptor(
-                MetricDescriptor.newBuilder().setName("test").build()).build());
-        exporter.export(metrics);
+        Metric metric = Metric.newBuilder().setMetricDescriptor(
+            MetricDescriptor.newBuilder().setName("test").build()).build();
+        exporter.emit(metric);
 
-        verify(bufferingClient).submit(metrics);
+        verify(bufferingClient).submit(Collections.singleton(metric));
     }
 
     @Test
@@ -84,10 +86,12 @@ public class HttpExporterTest {
         MetricsCollector collector = exporter
             .collector(new ConfluentTelemetryConfig(minimalConfig), context, "io.confluent");
 
-        Collection<Metric> metrics = collector.collect();
-        assertThat(metrics.size()).isEqualTo(6);
+        TestExporter testExporter = new TestExporter();
+        collector.collect(testExporter);
+        List<Metric> result = testExporter.emittedMetrics();
+        assertThat(result.size()).isEqualTo(6);
 
-        Optional<Metric> submissionTimeMetric = metrics.stream()
+        Optional<Metric> submissionTimeMetric = result.stream()
             .filter(metric -> metric.getMetricDescriptor().getName().endsWith("send_time_seconds"))
             .findAny();
         assertThat(submissionTimeMetric.isPresent()).isTrue();

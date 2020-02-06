@@ -2,8 +2,6 @@ package io.confluent.telemetry.reporter;
 
 import com.google.common.collect.ImmutableMap;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
-import io.confluent.telemetry.exporter.file.FileExporter;
-import io.confluent.telemetry.exporter.file.FileExporterConfig;
 import io.confluent.telemetry.exporter.http.HttpExporter;
 import io.confluent.telemetry.exporter.http.HttpExporterConfig;
 import io.confluent.telemetry.exporter.kafka.KafkaExporter;
@@ -88,26 +86,6 @@ public class KafkaServerMetricsReporterTest {
         reporter.configure(configs);
 
         assertThat(reporter.getExporters()).hasAtLeastOneElementOfType(KafkaExporter.class);
-    }
-
-    @Test
-    public void initFileExporterFails() {
-        Map<String, String> configs = ImmutableMap.of(
-            ConfluentTelemetryConfig.EXPORTER_KAFKA_ENABLED_CONFIG, "false",
-            ConfluentTelemetryConfig.EXPORTER_FILE_ENABLED_CONFIG, "true",
-            FileExporterConfig.DESERIALIZER_CONFIG, "not-a-classname");
-        assertThatThrownBy(() -> reporter.configure(configs)).isInstanceOf(ConfigException.class);
-    }
-
-    @Test
-    public void initFileExporterSuccess() {
-        Map<String, String> configs = ImmutableMap.of(
-            ConfluentTelemetryConfig.EXPORTER_KAFKA_ENABLED_CONFIG, "false",
-            ConfluentTelemetryConfig.EXPORTER_FILE_ENABLED_CONFIG, "true",
-            FileExporterConfig.DIR_CONFIG, System.getProperty("java.io.tmpdir"));
-        reporter.configure(configs);
-
-        assertThat(reporter.getExporters()).hasAtLeastOneElementOfType(FileExporter.class);
     }
 
     @Test

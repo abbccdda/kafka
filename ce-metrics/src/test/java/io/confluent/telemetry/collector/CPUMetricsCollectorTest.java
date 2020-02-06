@@ -6,11 +6,14 @@ import com.google.common.collect.Iterables;
 import io.confluent.observability.telemetry.ResourceBuilderFacade;
 import io.confluent.observability.telemetry.TelemetryResourceType;
 import io.confluent.telemetry.Context;
+import io.confluent.telemetry.exporter.TestExporter;
 import io.opencensus.proto.metrics.v1.Metric;
 import java.util.Collections;
 import org.junit.Test;
 
 public class CPUMetricsCollectorTest {
+
+  private final TestExporter exporter = new TestExporter();
 
   private final Context context = new Context(
       new ResourceBuilderFacade(TelemetryResourceType.KAFKA)
@@ -23,7 +26,8 @@ public class CPUMetricsCollectorTest {
   public void collect() {
     CPUMetricsCollector metrics = CPUMetricsCollector.newBuilder().setDomain("test").setContext(context).build();
 
-    Metric metric = Iterables.getOnlyElement(metrics.collect());
+    metrics.collect(exporter);
+    Metric metric = Iterables.getOnlyElement(exporter.emittedMetrics());
     assertEquals("Resource should match", context.getResource(), metric.getResource());
   }
 
@@ -34,6 +38,7 @@ public class CPUMetricsCollectorTest {
         .setDomain("empty")
         .setContext(context)
         .build();
-    assertEquals(Collections.emptyList(), metrics.collect());
+    metrics.collect(exporter);
+    assertEquals(Collections.emptyList(), exporter.emittedMetrics());
   }
 }

@@ -5,7 +5,6 @@ package io.confluent.telemetry;
 import com.google.common.base.Joiner;
 import io.confluent.monitoring.common.TimeBucket;
 import io.confluent.telemetry.collector.VolumeMetricsCollector.VolumeMetricsCollectorConfig;
-import io.confluent.telemetry.exporter.file.FileExporterConfig;
 import io.confluent.telemetry.exporter.http.HttpExporterConfig;
 import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 import java.util.Optional;
@@ -101,11 +100,6 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     public static final String EXPORTER_KAFKA_ENABLED_DOC = "True if the KafkaExporter is enabled.";
     public static final boolean EXPORTER_KAFKA_ENABLED_DEFAULT = true;
 
-    public static final String EXPORTER_FILE_ENABLED_CONFIG = FileExporterConfig.PREFIX + "enabled";
-    public static final String EXPORTER_FILE_ENABLED_DOC = "True if the FileExporter is enabled.";
-    public static final boolean EXPORTER_FILE_ENABLED_DEFAULT = false;
-
-
     public static final String EXPORTER_HTTP_ENABLED_CONFIG = HttpExporterConfig.PREFIX + "enabled";
     public static final String EXPORTER_HTTP_ENABLED_DOC = "True if the HttpExporter is enabled.";
     public static final boolean EXPORTER_HTTP_ENABLED_DEFAULT = false;
@@ -135,12 +129,6 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
                 EXPORTER_KAFKA_ENABLED_DEFAULT,
                 ConfigDef.Importance.LOW,
                 EXPORTER_KAFKA_ENABLED_DOC
-        ).define(
-                EXPORTER_FILE_ENABLED_CONFIG,
-                ConfigDef.Type.BOOLEAN,
-                EXPORTER_FILE_ENABLED_DEFAULT,
-                ConfigDef.Importance.LOW,
-                EXPORTER_FILE_ENABLED_DOC
         ).define(
                 EXPORTER_HTTP_ENABLED_CONFIG,
                 ConfigDef.Type.BOOLEAN,
@@ -212,15 +200,6 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     public Optional<KafkaExporterConfig> createKafkaExporterConfig() {
         return getBoolean(EXPORTER_KAFKA_ENABLED_CONFIG)
             ? Optional.of(new KafkaExporterConfig(this.originals()))
-            : Optional.empty();
-    }
-
-    /**
-     * Create a {@link FileExporterConfig} from these properties if enabled
-     */
-    public Optional<FileExporterConfig> createFileExporterConfig() {
-        return getBoolean(EXPORTER_FILE_ENABLED_CONFIG)
-            ? Optional.of(new FileExporterConfig(this.originals()))
             : Optional.empty();
     }
 

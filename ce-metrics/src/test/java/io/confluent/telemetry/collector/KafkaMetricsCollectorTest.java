@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import io.confluent.observability.telemetry.ResourceBuilderFacade;
 import io.confluent.observability.telemetry.TelemetryResourceType;
 import io.confluent.telemetry.Context;
+import io.confluent.telemetry.exporter.TestExporter;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
 import java.time.Clock;
@@ -30,11 +31,14 @@ import org.mockito.Mockito;
 
 public class KafkaMetricsCollectorTest {
 
+  private final TestExporter exporter = new TestExporter();
+
   private Map<String, String> tags;
   private Map<String, String> labels;
   private Metrics metrics;
   private MetricName metricName;
   private KafkaMetricsCollector.StateLedger ledger;
+
 
   private final Context context = new Context(
       new ResourceBuilderFacade(TelemetryResourceType.KAFKA)
@@ -73,7 +77,8 @@ public class KafkaMetricsCollectorTest {
         .build();
 
 
-    List<Metric> result = collector.collect();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
 
     assertEquals("Should get exactly 3 Kafka measurables since Metrics always includes a count measurable", 3, result.size());
 
@@ -105,7 +110,8 @@ public class KafkaMetricsCollectorTest {
         .setLedger(ledger)
         .build();
 
-    List<Metric> result = collector.collect();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
 
     assertEquals("Should get exactly 3 Kafka measurables since Metrics always includes a count measurable", 3, result.size());
 
@@ -138,7 +144,8 @@ public class KafkaMetricsCollectorTest {
         .setLedger(ledger)
         .build();
 
-    List<Metric> result = collector.collect();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
 
     assertEquals("Should get exactly 2 Kafka measurables since Metrics always includes a count measurable", 2, result.size());
 
@@ -168,7 +175,8 @@ public class KafkaMetricsCollectorTest {
         .setLedger(ledger)
         .build();
 
-    List<Metric> result = collector.collect();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
 
     assertEquals("Should get exactly 2 Kafka measurables since Metrics always includes a count measurable", 2, result.size());
 
@@ -203,14 +211,17 @@ public class KafkaMetricsCollectorTest {
       }
     });
 
-    assertEquals(2, collector.collect().size());
+    collector.collect(exporter);
+    assertEquals(2, exporter.emittedMetrics().size());
 
     metrics.removeMetric(metricName);
     // verify that remove was called on the lastValueTracker
     Mockito.verify(lastValueTracker).remove(ledger.toKey(metricName));
 
     // verify that the metric was removed and that all that remains is the global count of metrics.
-    List<Metric> collected = collector.collect();
+    exporter.reset();
+    collector.collect(exporter);
+    List<Metric> collected = exporter.emittedMetrics();
     assertEquals(1, collected.size()); // metric for count of metrics.
     assertEquals("test-domain/count/count", collected.get(0).getMetricDescriptor().getName());
   }
@@ -244,11 +255,12 @@ public class KafkaMetricsCollectorTest {
     sensor.record();
     when(clock.instant()).thenReturn(reference.plusSeconds(60));
 
-    List<Metric> collected = collector.collect();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
 
-    assertEquals(3, collected.size()); // kafka_metrics_count and two metrics -> total, total/delta
+    assertEquals(3, result.size()); // kafka_metrics_count and two metrics -> total, total/delta
 
-    Metric deltaMetric = collected.stream().filter(metric -> metric.getMetricDescriptor().getName().endsWith("/delta")).findFirst().get();
+    Metric deltaMetric = result.stream().filter(metric -> metric.getMetricDescriptor().getName().endsWith("/delta")).findFirst().get();
 
     assertEquals(2d, deltaMetric.getTimeseries(0).getPoints(0).getDoubleValue(), 1e-6);
     assertEquals(61L, deltaMetric.getTimeseries(0).getPoints(0).getTimestamp().getSeconds());
@@ -283,7 +295,7 @@ public class KafkaMetricsCollectorTest {
     sensor.record();
     when(clock.instant()).thenReturn(reference.plusSeconds(60));
 
-    collector.collect();
+    collector.collect(exporter);
 
     // Update it again by 5 and advance time by another 60 seconds.
     sensor.record();
@@ -293,12 +305,14 @@ public class KafkaMetricsCollectorTest {
     sensor.record();
     when(clock.instant()).thenReturn(reference.plusSeconds(120));
 
-    List<Metric> collected = collector.collect();
+    exporter.reset();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
 
-    assertEquals(3, collected.size()); // kafka_metrics_count and two metrics -> total, total/delta
+    assertEquals(3, result.size()); // kafka_metrics_count and two metrics -> total, total/delta
 
 
-    Metric deltaMetric = collected.stream().filter(metric -> metric.getMetricDescriptor().getName().endsWith("/delta")).findFirst().get();
+    Metric deltaMetric = result.stream().filter(metric -> metric.getMetricDescriptor().getName().endsWith("/delta")).findFirst().get();
 
     assertEquals(5d, deltaMetric.getTimeseries(0).getPoints(0).getDoubleValue(), 1e-6);
     assertEquals(121L, deltaMetric.getTimeseries(0).getPoints(0).getTimestamp().getSeconds());
@@ -322,7 +336,8 @@ public class KafkaMetricsCollectorTest {
         .setMetricWhitelistFilter(metric -> !metric.getName().endsWith("/count"))
         .build();
 
-    List<Metric> result = collector.collect();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
 
     assertEquals("Should get exactly 1 Kafka measurables because we exclued the count measurable", 1, result.size());
 
