@@ -32,6 +32,7 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.TrustManagerFactory;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -303,6 +304,25 @@ public class SslEngineBuilder {
             return true;
         }
         return false;
+    }
+
+    class CloseableSslEngine implements Closeable {
+        private final SSLEngine engine;
+
+        CloseableSslEngine(SSLEngine engine) {
+            this.engine = engine;
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (nettySslEngineBuilder != null) {
+                nettySslEngineBuilder.closeEngine(engine);
+            }
+        }
+    }
+
+    public Closeable sslEngineCloser(SSLEngine engine) {
+        return new CloseableSslEngine(engine);
     }
 
     static class PrivateKeyData {

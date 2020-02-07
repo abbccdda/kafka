@@ -16,9 +16,11 @@
  */
 package org.apache.kafka.common.security.ssl;
 
+import io.netty.handler.ssl.ReferenceCountedOpenSslEngine;
 import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.network.Mode;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.test.TestSslUtils;
 import org.junit.Test;
 
 import javax.net.ssl.SSLEngine;
@@ -28,6 +30,7 @@ import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 public class NettySslFactoryTest extends SslFactoryTest {
     public NettySslFactoryTest(String tlsProtocol) {
@@ -59,5 +62,23 @@ public class NettySslFactoryTest extends SslFactoryTest {
         expected.add("SSLv2Hello");
         assertEquals(expected, Utils.mkSet(engine.getEnabledProtocols()));
         assertEquals(false, engine.getUseClientMode());
+    }
+
+    @Test
+    public void testSslEngineCloser() throws Exception {
+        File trustStoreFile = File.createTempFile("truststore", ".jks");
+        Map<String, Object> serverSslConfig =
+            TestSslUtils.createSslConfig(false, true, Mode.SERVER, trustStoreFile, "server");
+        configureSslBuilderClass(serverSslConfig);
+        SslFactory sslFactory = new SslFactory(Mode.SERVER);
+        sslFactory.configure(serverSslConfig);
+        //host and port are hints
+        SSLEngine engine = sslFactory.createSslEngine("localhost", 0);
+        assertNotNull(engine);
+        assertTrue(engine instanceof ReferenceCountedOpenSslEngine);
+        ReferenceCountedOpenSslEngine opensslEngine = (ReferenceCountedOpenSslEngine) engine;
+        assertEquals(1, opensslEngine.refCnt());
+        sslFactory.createCloseableSslEngine(opensslEngine).close();
+        assertEquals(0, opensslEngine.refCnt());
     }
 }

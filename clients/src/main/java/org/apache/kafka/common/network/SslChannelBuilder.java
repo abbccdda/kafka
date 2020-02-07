@@ -31,6 +31,7 @@ import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.interceptor.BrokerInterceptor;
 import org.slf4j.Logger;
 
+import javax.net.ssl.SSLEngine;
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.InetAddress;
@@ -120,8 +121,9 @@ public class SslChannelBuilder implements ChannelBuilder, ListenerReconfigurable
     protected SslTransportLayer buildTransportLayer(SslFactory sslFactory, String id, SelectionKey key,
                                                     String host, ChannelMetadataRegistry metadataRegistry) throws IOException {
         SocketChannel socketChannel = (SocketChannel) key.channel();
-        return SslTransportLayer.create(id, key, sslFactory.createSslEngine(host, socketChannel.socket().getPort()),
-            metadataRegistry);
+        SSLEngine engine = sslFactory.createSslEngine(host, socketChannel.socket().getPort());
+        return SslTransportLayer.create(id, key, engine,
+            metadataRegistry, sslFactory.createCloseableSslEngine(engine));
     }
 
     /**

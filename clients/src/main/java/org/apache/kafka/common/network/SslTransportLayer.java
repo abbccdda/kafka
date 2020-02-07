@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.network;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.EOFException;
 import java.nio.ByteBuffer;
@@ -76,6 +77,7 @@ public class SslTransportLayer implements TransportLayer {
     private final SelectionKey key;
     private final SocketChannel socketChannel;
     private final ChannelMetadataRegistry metadataRegistry;
+    private final Closeable closeableSslEngine;
     private final Logger log;
 
     private HandshakeStatus handshakeStatus;
@@ -89,19 +91,27 @@ public class SslTransportLayer implements TransportLayer {
     private boolean hasBytesBuffered;
 
     public static SslTransportLayer create(String channelId, SelectionKey key, SSLEngine sslEngine,
-                                           ChannelMetadataRegistry metadataRegistry) throws IOException {
-        return new SslTransportLayer(channelId, key, sslEngine, metadataRegistry);
+                                           ChannelMetadataRegistry metadataRegistry,
+                                           Closeable closeableSslEngine) throws IOException {
+        return new SslTransportLayer(channelId, key, sslEngine, metadataRegistry, closeableSslEngine);
     }
 
     // Prefer `create`, only use this in tests
     SslTransportLayer(String channelId, SelectionKey key, SSLEngine sslEngine,
                       ChannelMetadataRegistry metadataRegistry) {
+        this(channelId, key, sslEngine, metadataRegistry, null);
+    }
+
+    SslTransportLayer(String channelId, SelectionKey key, SSLEngine sslEngine,
+                      ChannelMetadataRegistry metadataRegistry,
+                      Closeable closeableSslEngine) {
         this.channelId = channelId;
         this.key = key;
         this.socketChannel = (SocketChannel) key.channel();
         this.sslEngine = sslEngine;
         this.state = State.NOT_INITALIZED;
         this.metadataRegistry = metadataRegistry;
+        this.closeableSslEngine = closeableSslEngine;
 
         final LogContext logContext = new LogContext(String.format("[SslTransportLayer channelId=%s key=%s] ", channelId, key));
         this.log = logContext.logger(getClass());
@@ -205,6 +215,9 @@ public class SslTransportLayer implements TransportLayer {
             if (fileChannelBuffer != null) {
                 ByteBufferUnmapper.unmap("fileChannelBuffer", fileChannelBuffer);
                 fileChannelBuffer = null;
+            }
+            if (closeableSslEngine != null) {
+                closeableSslEngine.close();
             }
         }
     }

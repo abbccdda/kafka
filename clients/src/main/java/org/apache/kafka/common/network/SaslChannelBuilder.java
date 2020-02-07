@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.network;
 
+import javax.net.ssl.SSLEngine;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.config.SslConfigs;
@@ -245,10 +246,12 @@ public class SaslChannelBuilder implements ChannelBuilder, ListenerReconfigurabl
     protected TransportLayer buildTransportLayer(String id, SelectionKey key, SocketChannel socketChannel,
                                                  ChannelMetadataRegistry metadataRegistry) throws IOException {
         if (this.securityProtocol == SecurityProtocol.SASL_SSL) {
+            SSLEngine sslEngine = sslFactory.createSslEngine(socketChannel.socket().getInetAddress().getHostName(),
+                socketChannel.socket().getPort());
             return SslTransportLayer.create(id, key,
-                sslFactory.createSslEngine(socketChannel.socket().getInetAddress().getHostName(),
-                    socketChannel.socket().getPort()),
-                metadataRegistry);
+                sslEngine,
+                metadataRegistry,
+                sslFactory.createCloseableSslEngine(sslEngine));
         } else {
             return new PlaintextTransportLayer(key);
         }

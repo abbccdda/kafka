@@ -20,6 +20,7 @@ import io.netty.buffer.ByteBufAllocator;
 import io.netty.handler.ssl.ApplicationProtocolConfig;
 import io.netty.handler.ssl.ClientAuth;
 import io.netty.handler.ssl.OpenSsl;
+import io.netty.handler.ssl.ReferenceCountedOpenSslEngine;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.SslProvider;
@@ -71,7 +72,7 @@ public class NettySslEngineBuilder {
             SslContextBuilder builder = SslContextBuilder.
                 forServer(keystorePrivateKeyData.key(), keystorePrivateKeyData.certificateChain()).
                 applicationProtocolConfig(ApplicationProtocolConfig.DISABLED).
-                sslProvider(SslProvider.OPENSSL).
+                sslProvider(SslProvider.OPENSSL_REFCNT).
                 trustManager(truststoreCerts);
             if (ctx.enabledProtocols() != null) {
                 builder.protocols(ctx.enabledProtocols());
@@ -106,5 +107,12 @@ public class NettySslEngineBuilder {
 
     public SSLEngine newEngine(String peerHost, int peerPort) {
         return sslContext.newEngine(ByteBufAllocator.DEFAULT, peerHost, peerPort);
+    }
+
+    public void closeEngine(SSLEngine e) {
+        if (e instanceof ReferenceCountedOpenSslEngine) {
+            ReferenceCountedOpenSslEngine engine = (ReferenceCountedOpenSslEngine) e;
+            engine.release();
+        }
     }
 }

@@ -31,6 +31,7 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLException;
+import java.io.Closeable;
 import java.nio.ByteBuffer;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
@@ -185,6 +186,10 @@ public class SslFactory implements Reconfigurable {
             throw new IllegalStateException("SslFactory has not been configured.");
         }
         return sslEngineBuilder.createSslEngine(mode, peerHost, peerPort, endpointIdentification);
+    }
+
+    public Closeable createCloseableSslEngine(SSLEngine engine) {
+        return sslEngineBuilder.sslEngineCloser(engine);
     }
 
     @Deprecated
