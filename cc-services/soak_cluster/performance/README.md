@@ -102,7 +102,7 @@ A configuration like
 ```json
 {
   "scenario_name": "ExampleTest",
-  "test_definitions": {
+  "test_definitions": [{
     "test_type": "ProgressiveWorkload",
     "test_name": "test-produce",
     "test_parameters": {
@@ -115,7 +115,7 @@ A configuration like
       "throughput_increase_per_step_mbs": 5,
       "message_size_bytes": 1000
     }
-  }
+  }]
 }
 ```
 would result in 3 steps, consisting of the following throughputs (10 MB/s, 15 MB/s, 20 MB/s). Each step would last one minute and there would be one minute of downtime in between each step.
