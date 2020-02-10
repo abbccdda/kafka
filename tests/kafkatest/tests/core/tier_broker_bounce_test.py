@@ -36,7 +36,7 @@ class TierBrokerBounceTest(ProduceConsumeValidateTest, TierSupport):
     # multiple segments are rolled, tiered to S3 and deleted from the local log.
     LOG_SEGMENT_BYTES = 100 * 1024
     MIN_RECORDS_PRODUCED = 10000
-    DELAY_BETWEEN_RESTART_SEC = 30
+    DELAY_BETWEEN_RESTART_SEC = 10
 
     TOPIC_CONFIG = {
         "partitions": 20,
