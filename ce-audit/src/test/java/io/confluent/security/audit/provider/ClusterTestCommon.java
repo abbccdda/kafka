@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.util.AbstractMap;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
@@ -142,13 +143,12 @@ abstract class ClusterTestCommon {
 
           AuditLogEntry entry = value.getData().get();
 
-          for (Predicate<AuditLogEntry> predicate : remainingPredicates) {
+          Iterator<Predicate<AuditLogEntry>> iterator = remainingPredicates.iterator();
+          while (iterator.hasNext()) {
+            Predicate<AuditLogEntry> predicate = iterator.next();
             if (predicate.test(entry)) {
               log.info("CloudEvent matched: " + CloudEventUtils.toJsonString(value));
-              remainingPredicates.remove(predicate);
-              if (remainingPredicates.isEmpty()) {
-                return true;
-              }
+              iterator.remove();
             } else {
               log.debug("CloudEvent didn't match: " + CloudEventUtils.toJsonString(value));
             }
