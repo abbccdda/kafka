@@ -57,9 +57,8 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
                        err_msg="Producer did not produce all messages in reasonable amount of time")
 
         if from_tiered_storage:
-            for partition in range(0, self.PARTITIONS):
-                wait_until(lambda: self.tiering_started(self.topic, partition),
-                        timeout_sec=120, backoff_sec=2, err_msg="archive did not start within timeout")
+            wait_until(lambda: self.tiering_started(self.topic, range(0, self.partitions)),
+                    timeout_sec=120, backoff_sec=2, err_msg="archive did not start within timeout")
 
         self.logger.info("First pass bounce - rolling upgrade")
         for node in self.kafka.nodes:
@@ -91,6 +90,9 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
         self.restart_jmx_tool()
 
     @cluster(num_nodes=6)
+    @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.4.0"], from_kafka_version=[str(LATEST_2_4)], to_message_format_version=[None],
+            compression_types=[["none"]], from_tiered_storage=[False, True], to_tiered_storage=[True], hotset_bytes=[-1, 1])
+    @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.4.0"], from_kafka_version=[str(LATEST_2_4)], to_message_format_version=[None], compression_types=[["none"]])
     @parametrize(from_kafka_version=str(LATEST_2_4), to_message_format_version=None, compression_types=["none"])
     @parametrize(from_kafka_version=str(LATEST_2_4), to_message_format_version=None, compression_types=["zstd"])
     @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.3.0"], from_kafka_version=[str(LATEST_2_3)], to_message_format_version=[None], compression_types=[["none"]], from_tiered_storage=[False], to_tiered_storage=[False, True], hotset_bytes=[-1, 1])

@@ -60,6 +60,7 @@ RUN mkdir -p "/opt/kafka-2.3.1" && chmod a+rw /opt/kafka-2.3.1 && curl -s "$KAFK
 RUN mkdir -p "/opt/kafka-2.4.0" && chmod a+rw /opt/kafka-2.4.0 && curl -s "$KAFKA_MIRROR/kafka_2.12-2.4.0.tgz" | tar xz --strip-components=1 -C "/opt/kafka-2.4.0"
 
 RUN mkdir -p "/opt/confluentplatform-5.3.0" && chmod a+rw /opt/confluentplatform-5.3.0 && curl -s "https://s3-us-west-2.amazonaws.com/confluent-packages-5.3.0/archive/5.3/confluent-5.3.0-2.12.tar.gz" | tar xz --strip-components=1 -C "/opt/confluentplatform-5.3.0"; for i in /opt/confluentplatform-5.3.0/bin/kafka-*; do cp "$i" "$i.sh"; done
+RUN mkdir -p "/opt/confluentplatform-5.4.0" && chmod a+rw /opt/confluentplatform-5.4.0 && curl -s "https://s3-us-west-2.amazonaws.com/confluent-packages-5.4.0/archive/5.4/confluent-5.4.0-2.12.tar.gz" | tar xz --strip-components=1 -C "/opt/confluentplatform-5.4.0"; for i in /opt/confluentplatform-5.4.0/bin/kafka-*; do cp "$i" "$i.sh"; done
 
 # Streams test dependencies
 RUN curl -s "$KAFKA_MIRROR/kafka-streams-0.10.0.1-test.jar" -o /opt/kafka-0.10.0.1/libs/kafka-streams-0.10.0.1-test.jar
