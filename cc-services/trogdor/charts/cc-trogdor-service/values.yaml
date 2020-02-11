@@ -13,7 +13,7 @@ image:
   # CPD: confluent-docker.jfrog.io/confluentinc
   repository: ""
   name: cc-trogdor
-  tag: 0.109.0-2.3.0-SNAPSHOT
+  tag: 0.705.0-5.5.0-ce-SNAPSHOT
   pullPolicy: IfNotPresent
 
 kafkaName: kafka
