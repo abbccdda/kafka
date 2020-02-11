@@ -165,7 +165,7 @@ object ExecutorUtils {
       (reassigningTargetReplicas, true)
     } catch {
       case e: ExecutionException if (e.getCause.isInstanceOf[UnsupportedVersionException]) =>
-        LOG.debug("Kafka cluster does not support the listPartitionReassignments API. Using ZooKeeper...", e.getCause)
+        LOG.info("Kafka cluster does not support the listPartitionReassignments API. Using ZooKeeper...", e.getCause)
         (kafkaZkClient.getPartitionReassignment.toMap, false)
       case t: Throwable =>
         LOG.error("Fetching reassigning replicas through the listPartitionReassignments API failed with an exception", t)
