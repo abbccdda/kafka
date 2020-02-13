@@ -31,7 +31,7 @@ def job = {
 
         if (config.publish && config.isDevJob) {
             stage("Publish to nexus") {
-                def mavenUrl = 'https://nexus.confluent.io/repository/maven-snapshots/'
+                def mavenUrl = 'https://confluent.jfrog.io/confluent/maven-snapshots/'
                 sh "./gradlew -PmavenUrl=${mavenUrl} --no-daemon uploadArchivesAll"
             }
         }
