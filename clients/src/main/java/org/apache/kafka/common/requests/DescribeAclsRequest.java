@@ -47,8 +47,8 @@ public class DescribeAclsRequest extends AbstractRequest {
                 .setPermissionType(entryFilter.permissionType().code())
                 .setPrincipalFilter(entryFilter.principal())
                 .setResourceNameFilter(patternFilter.name())
-                .setResourcePatternType(patternFilter.patternType().code())
-                .setResourceType(patternFilter.resourceType().code());
+                .setPatternTypeFilter(patternFilter.patternType().code())
+                .setResourceTypeFilter(patternFilter.resourceType().code());
         }
 
         @Override
@@ -100,9 +100,9 @@ public class DescribeAclsRequest extends AbstractRequest {
 
     public AclBindingFilter filter() {
         ResourcePatternFilter rpf = new ResourcePatternFilter(
-                ResourceType.fromCode(data.resourceType()),
+                ResourceType.fromCode(data.resourceTypeFilter()),
                 data.resourceNameFilter(),
-                PatternType.fromCode(data.resourcePatternType()));
+                PatternType.fromCode(data.patternTypeFilter()));
         AccessControlEntryFilter acef =  new AccessControlEntryFilter(
                 data.principalFilter(),
                 data.hostFilter(),
@@ -113,16 +113,16 @@ public class DescribeAclsRequest extends AbstractRequest {
 
     private void validate(short version) {
         if (version == 0) {
-            if (data.resourcePatternType() == PatternType.ANY.code()) {
-                data.setResourcePatternType(PatternType.LITERAL.code());
+            if (data.patternTypeFilter() == PatternType.ANY.code()) {
+                data.setPatternTypeFilter(PatternType.LITERAL.code());
             }
-            if (data.resourcePatternType() != PatternType.LITERAL.code()) {
+            if (data.patternTypeFilter() != PatternType.LITERAL.code()) {
                 throw new UnsupportedVersionException("Version 0 only supports literal resource pattern types");
             }
         }
 
-        if (data.resourcePatternType() == PatternType.UNKNOWN.code()
-            || data.resourceType() == ResourceType.UNKNOWN.code()
+        if (data.patternTypeFilter() == PatternType.UNKNOWN.code()
+            || data.resourceTypeFilter() == ResourceType.UNKNOWN.code()
             || data.permissionType() == AclPermissionType.UNKNOWN.code()
             || data.operation() == AclOperation.UNKNOWN.code()) {
             throw new IllegalArgumentException("Filter contain UNKNOWN elements");

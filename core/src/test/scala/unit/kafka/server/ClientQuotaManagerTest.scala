@@ -441,7 +441,7 @@ class ClientQuotaManagerTest {
     val activeTenantsManager = new ActiveTenantsManager(metrics, time, 1)
     val quotaManager = new ClientQuotaManager(config, metrics, Produce, time, "", None, Option(activeTenantsManager))
     val requestQuotaManager = new ClientRequestQuotaManager(config, metrics, time, "", None, Option(activeTenantsManager))
-    var activeTenants = scala.collection.mutable.Set[Map[String, String]]()
+    val activeTenants = scala.collection.mutable.Set[Map[String, String]]()
 
     try {
       maybeRecord(quotaManager, "User1", "Client1", 100)

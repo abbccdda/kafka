@@ -6,10 +6,6 @@ import io.confluent.kafka.multitenant.metrics.PartitionSensors;
 import io.confluent.kafka.multitenant.metrics.TenantMetrics;
 import io.confluent.kafka.multitenant.quota.TenantPartitionAssignor;
 import io.confluent.kafka.multitenant.quota.TestCluster;
-import java.util.Random;
-import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.stream.StreamSupport;
 import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor.Subscription;
 import org.apache.kafka.clients.consumer.internals.ConsumerProtocol;
 import org.apache.kafka.common.IsolationLevel;
@@ -49,6 +45,7 @@ import org.apache.kafka.common.message.DeleteTopicsRequestData;
 import org.apache.kafka.common.message.DeleteTopicsResponseData;
 import org.apache.kafka.common.message.DeleteTopicsResponseData.DeletableTopicResult;
 import org.apache.kafka.common.message.DeleteTopicsResponseData.DeletableTopicResultCollection;
+import org.apache.kafka.common.message.DescribeAclsResponseData;
 import org.apache.kafka.common.message.DescribeGroupsRequestData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData.DescribedGroup;
@@ -78,9 +75,6 @@ import org.apache.kafka.common.message.OffsetDeleteResponseData.OffsetDeleteResp
 import org.apache.kafka.common.message.OffsetDeleteResponseData.OffsetDeleteResponseTopic;
 import org.apache.kafka.common.message.OffsetDeleteResponseData.OffsetDeleteResponseTopicCollection;
 import org.apache.kafka.common.message.SyncGroupRequestData;
-import org.apache.kafka.common.message.TxnOffsetCommitRequestData;
-import org.apache.kafka.common.message.TxnOffsetCommitRequestData.TxnOffsetCommitRequestPartition;
-import org.apache.kafka.common.message.TxnOffsetCommitRequestData.TxnOffsetCommitRequestTopic;
 import org.apache.kafka.common.message.UpdateMetadataRequestData.UpdateMetadataPartitionState;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.MetricConfig;
@@ -200,9 +194,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 import static java.util.Arrays.asList;
 import static java.util.Collections.singletonList;
@@ -612,8 +610,7 @@ public class MultiTenantRequestContextTest {
     for (short ver = ApiKeys.OFFSET_FETCH.oldestVersion(); ver <= ApiKeys.OFFSET_FETCH.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_FETCH, ver);
       String groupId = "group";
-      OffsetFetchRequest inbound = new OffsetFetchRequest.Builder(groupId, asList(new TopicPartition("foo", 0),
-          new TopicPartition("bar", 0))).build(ver);
+      OffsetFetchRequest inbound = new OffsetFetchRequest.Builder(groupId, true, asList(new TopicPartition("foo", 0), new TopicPartition("bar", 0))).build(ver);
       OffsetFetchRequest intercepted = (OffsetFetchRequest) parseRequest(context, inbound);
       assertEquals("tenant_group", intercepted.groupId());
       assertEquals(mkSet(new TopicPartition("tenant_foo", 0), new TopicPartition("tenant_bar", 0)),
@@ -1875,20 +1872,33 @@ public class MultiTenantRequestContextTest {
 
   private void verifyDescribeAclsResponse(AclTestParams params, short version) throws Exception {
     MultiTenantRequestContext context = newRequestContext(ApiKeys.DESCRIBE_ACLS, version);
-    AccessControlEntry ace = new AccessControlEntry(params.tenantPrincipal(), "*", AclOperation.CREATE, AclPermissionType.ALLOW);
-    DescribeAclsResponse outbound = new DescribeAclsResponse(12, ApiError.NONE,
-        AclTestParams.RESOURCE_TYPES.stream().map(resourceType ->
-            new AclBinding(new ResourcePattern(resourceType, params.tenantResourceName(resourceType),
-                params.tenantPatternType(resourceType)), ace)).collect(Collectors.toList()));
+    DescribeAclsResponse outbound = new DescribeAclsResponse(
+            new DescribeAclsResponseData()
+                    .setThrottleTimeMs(12)
+                    .setErrorCode(ApiError.NONE.error().code())
+                    .setErrorMessage(ApiError.NONE.message())
+                    .setResources(
+                            AclTestParams.RESOURCE_TYPES.stream().map(resourceType ->
+                            new DescribeAclsResponseData.DescribeAclsResource()
+                            .setResourceType(resourceType.code())
+                            .setResourceName(params.tenantResourceName(resourceType))
+                            .setPatternType(params.tenantPatternType(resourceType).code())
+                            .setAcls(Collections.singletonList(new DescribeAclsResponseData.AclDescription()
+                                    .setHost("*")
+                                    .setOperation(AclOperation.CREATE.code())
+                                    .setPermissionType(AclPermissionType.ALLOW.code())
+                                    .setPrincipal(params.tenantPrincipal())))).collect(Collectors.toList())));
 
     Struct struct = parseResponse(ApiKeys.DESCRIBE_ACLS, version, context.buildResponse(outbound));
-    DescribeAclsResponse intercepted = new DescribeAclsResponse(struct);
+    DescribeAclsResponse intercepted = new DescribeAclsResponse(struct, version);
     assertEquals(4, intercepted.acls().size());
     intercepted.acls().forEach(acl -> {
-      ResourcePattern pattern = acl.pattern();
+      ResourcePattern pattern =  new ResourcePattern(ResourceType.fromCode(acl.resourceType()), acl.resourceName(), PatternType.fromCode(acl.patternType()));
       assertEquals(params.resourceName(pattern.resourceType()), pattern.name());
       assertEquals(params.patternType, pattern.patternType());
-      assertEquals(params.principal(), acl.entry().principal());
+      acl.acls().forEach(aclDescription -> {
+        assertEquals(params.principal(), aclDescription.principal());
+      });
     });
 
     verifyResponseMetrics(ApiKeys.DESCRIBE_ACLS, Errors.NONE);
@@ -1957,27 +1967,18 @@ public class MultiTenantRequestContextTest {
   public void testTxnOffsetCommitRequest() {
     for (short ver = ApiKeys.TXN_OFFSET_COMMIT.oldestVersion(); ver <= ApiKeys.TXN_OFFSET_COMMIT.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.TXN_OFFSET_COMMIT, ver);
-      List<TxnOffsetCommitRequestTopic> topics = new ArrayList<>();
-      topics.add(new TxnOffsetCommitRequestTopic()
-          .setName("foo")
-          .setPartitions(singletonList(new TxnOffsetCommitRequestPartition()
-              .setPartitionIndex(0)
-              .setCommittedOffset(0)
-              .setCommittedMetadata("")
-              .setCommittedLeaderEpoch(-1))));
-      topics.add(new TxnOffsetCommitRequestTopic()
-          .setName("bar")
-          .setPartitions(singletonList(new TxnOffsetCommitRequestPartition()
-              .setPartitionIndex(0)
-              .setCommittedOffset(0)
-              .setCommittedMetadata("")
-              .setCommittedLeaderEpoch(-1))));
-      TxnOffsetCommitRequest inbound = new TxnOffsetCommitRequest.Builder(new TxnOffsetCommitRequestData()
-          .setTransactionalId("tr")
-          .setGroupId("group")
-          .setProducerId(23L)
-          .setProducerEpoch((short) 15)
-          .setTopics(topics)).build(ver);
+      final Map<TopicPartition, TxnOffsetCommitRequest.CommittedOffset> offsets = new HashMap<>();
+      offsets.put(new TopicPartition("foo", 0),
+          new TxnOffsetCommitRequest.CommittedOffset(0, "", Optional.of(-1)));
+      offsets.put(new TopicPartition("bar", 0),
+          new TxnOffsetCommitRequest.CommittedOffset(0, "", Optional.of(-1)));
+
+      TxnOffsetCommitRequest inbound = new TxnOffsetCommitRequest.Builder(
+              "tr",
+              "group",
+              23L,
+              (short) 15,
+              offsets).build(ver);
       TxnOffsetCommitRequest intercepted = (TxnOffsetCommitRequest) parseRequest(context, inbound);
       assertEquals("tenant_tr", intercepted.data.transactionalId());
       assertEquals("tenant_group", intercepted.data.groupId());

@@ -46,8 +46,6 @@ import org.mockito.Mockito.{doAnswer, doNothing, mock, spy, times, verify, when}
 import org.scalatest.Assertions.assertThrows
 import org.mockito.ArgumentMatchers
 import org.mockito.invocation.InvocationOnMock
-import unit.kafka.cluster.AbstractPartitionTest
-import org.mockito.stubbing.Answer
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer

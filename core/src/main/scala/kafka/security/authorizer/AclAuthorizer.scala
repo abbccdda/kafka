@@ -229,7 +229,7 @@ class AclAuthorizer extends Authorizer with Logging {
         } catch {
           case e: Exception =>
             resourceBindingsBeingDeleted.foreach { case (binding, index) =>
-              deleteExceptions.getOrElseUpdate(binding, apiException(e))
+                deleteExceptions.getOrElseUpdate(binding, apiException(e))
             }
         }
       }
@@ -245,7 +245,7 @@ class AclAuthorizer extends Authorizer with Logging {
     inReadLock(lock) {
       unorderedAcls.flatMap { case (resource, versionedAcls) =>
         versionedAcls.acls.map(acl => new AclBinding(resource, acl.ace))
-          .filter(filter.matches)
+            .filter(filter.matches)
       }.asJava
     }
   }
@@ -428,15 +428,15 @@ class AclAuthorizer extends Authorizer with Logging {
   }
 
   /**
-   * Safely updates the resources ACLs by ensuring reads and writes respect the expected zookeeper version.
-   * Continues to retry until it successfully updates zookeeper.
-   *
-   * Returns a boolean indicating if the content of the ACLs was actually changed.
-   *
-   * @param resource the resource to change ACLs for
-   * @param getNewAcls function to transform existing acls to new ACLs
-   * @return boolean indicating if a change was made
-   */
+    * Safely updates the resources ACLs by ensuring reads and writes respect the expected zookeeper version.
+    * Continues to retry until it successfully updates zookeeper.
+    *
+    * Returns a boolean indicating if the content of the ACLs was actually changed.
+    *
+    * @param resource the resource to change ACLs for
+    * @param getNewAcls function to transform existing acls to new ACLs
+    * @return boolean indicating if a change was made
+    */
   private def updateResourceAcls(resource: ResourcePattern)(getNewAcls: Set[AclEntry] => Set[AclEntry]): Boolean = {
     var currentVersionedAcls =
       if (aclCache.contains(resource))
@@ -506,7 +506,7 @@ class AclAuthorizer extends Authorizer with Logging {
   }
 
   private def updateAclChangedFlag(resource: ResourcePattern): Unit = {
-    zkClient.createAclChangeNotification(resource)
+      zkClient.createAclChangeNotification(resource)
   }
 
   private def backoffTime = {

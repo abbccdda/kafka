@@ -19,33 +19,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.BiFunction;
+import java.util.stream.Stream;
+
 import kafka.admin.AclCommand;
 import kafka.network.RequestChannel.Session;
-import kafka.security.auth.All$;
-import kafka.security.auth.Alter$;
-import kafka.security.auth.AlterConfigs$;
-import kafka.security.auth.Cluster$;
-import kafka.security.auth.ClusterAction$;
-import kafka.security.auth.Create$;
-import kafka.security.auth.Delete$;
-import kafka.security.auth.Describe$;
-import kafka.security.auth.DescribeConfigs$;
-import kafka.security.auth.Group$;
-import kafka.security.auth.IdempotentWrite$;
-import kafka.security.auth.Operation;
-import kafka.security.auth.Operation$;
-import kafka.security.auth.Read$;
-import kafka.security.auth.Resource;
-import kafka.security.auth.ResourceType;
-import kafka.security.auth.Topic$;
-import kafka.security.auth.Write$;
 import kafka.security.authorizer.AclAuthorizer;
 import kafka.security.authorizer.AuthorizerUtils;
 import kafka.server.KafkaConfig$;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.resource.PatternType;
+import org.apache.kafka.common.resource.Resource;
+import org.apache.kafka.common.resource.ResourcePattern;
+import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
+import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.kafka.server.authorizer.Action;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
@@ -62,16 +50,16 @@ import static org.junit.Assert.assertNotNull;
 @Category(IntegrationTest.class)
 public class LdapAuthorizerTest {
 
-  private static final Collection<Operation> TOPIC_OPS = Arrays.asList(
-      Read$.MODULE$, Write$.MODULE$, Delete$.MODULE$, Describe$.MODULE$,
-      AlterConfigs$.MODULE$, DescribeConfigs$.MODULE$);
-  private static final Collection<Operation> CONSUMER_GROUP_OPS = Arrays.asList(
-      Read$.MODULE$, Delete$.MODULE$, Describe$.MODULE$);
-  private static final Collection<Operation> CLUSTER_OPS = Arrays.asList(
-      Create$.MODULE$, ClusterAction$.MODULE$, DescribeConfigs$.MODULE$, AlterConfigs$.MODULE$,
-      IdempotentWrite$.MODULE$, Alter$.MODULE$, Describe$.MODULE$);
-  private static final Resource CLUSTER_RESOURCE =
-      new Resource(Cluster$.MODULE$, Resource.ClusterResourceName(), PatternType.LITERAL);
+  private static final Collection<AclOperation> TOPIC_OPS = Arrays.asList(
+      AclOperation.READ, AclOperation.WRITE, AclOperation.DELETE, AclOperation.DESCRIBE,
+      AclOperation.ALTER_CONFIGS, AclOperation.DESCRIBE_CONFIGS);
+  private static final Collection<AclOperation> CONSUMER_GROUP_OPS = Arrays.asList(
+      AclOperation.READ, AclOperation.DELETE, AclOperation.DESCRIBE);
+  private static final Collection<AclOperation> CLUSTER_OPS = Arrays.asList(
+      AclOperation.CREATE, AclOperation.CLUSTER_ACTION, AclOperation.DESCRIBE_CONFIGS, AclOperation.ALTER_CONFIGS,
+      AclOperation.IDEMPOTENT_WRITE, AclOperation.ALTER, AclOperation.DESCRIBE);
+  private static final ResourcePattern CLUSTER_RESOURCE =
+      new ResourcePattern(ResourceType.CLUSTER, Resource.CLUSTER_NAME, PatternType.LITERAL);
 
   private EmbeddedKafkaCluster kafkaCluster;
   private MiniKdcWithLdapService miniKdcWithLdapService;
@@ -108,18 +96,18 @@ public class LdapAuthorizerTest {
     miniKdcWithLdapService.createGroup("guestGroup", "guest");
     configureLdapAuthorizer();
 
-    Resource topicResource = randomResource(Topic$.MODULE$);
+    ResourcePattern topicResource = randomResource(ResourceType.TOPIC);
     verifyResourceAcls(topicResource, TOPIC_OPS,
         (principal, op) -> addTopicAcl(principal, topicResource, op));
-    Resource consumerGroup = randomResource(Group$.MODULE$);
+    ResourcePattern consumerGroup = randomResource(ResourceType.GROUP);
     verifyResourceAcls(consumerGroup, CONSUMER_GROUP_OPS,
         (principal, op) -> addConsumerGroupAcl(principal, consumerGroup, op));
     verifyResourceAcls(CLUSTER_RESOURCE, CLUSTER_OPS, this::addClusterAcl);
 
-    verifyAllOperationsAcl(Topic$.MODULE$, TOPIC_OPS,
-        (principal, resource) -> addTopicAcl(principal, resource, All$.MODULE$));
-    verifyAllOperationsAcl(Group$.MODULE$, CONSUMER_GROUP_OPS,
-        (principal, resource) -> addConsumerGroupAcl(principal, resource, All$.MODULE$));
+    verifyAllOperationsAcl(ResourceType.TOPIC, TOPIC_OPS,
+        (principal, resource) -> addTopicAcl(principal, resource, AclOperation.ALL));
+    verifyAllOperationsAcl(ResourceType.GROUP, CONSUMER_GROUP_OPS,
+        (principal, resource) -> addConsumerGroupAcl(principal, resource, AclOperation.ALL));
   }
 
   @Test
@@ -129,13 +117,13 @@ public class LdapAuthorizerTest {
     configureLdapAuthorizer();
 
     KafkaPrincipal adminGroupPrincipal = new KafkaPrincipal("Group", "adminGroup");
-    Resource topicResource = randomResource(Topic$.MODULE$);
-    addTopicAcl(adminGroupPrincipal, topicResource, All$.MODULE$);
-    Resource consumerGroup = randomResource(Group$.MODULE$);
-    addConsumerGroupAcl(adminGroupPrincipal, consumerGroup, All$.MODULE$);
-    Resource clusterResource =
-        new Resource(Cluster$.MODULE$, Resource.ClusterResourceName(), PatternType.LITERAL);
-    addClusterAcl(adminGroupPrincipal, All$.MODULE$);
+    ResourcePattern topicResource = randomResource(ResourceType.TOPIC);
+    addTopicAcl(adminGroupPrincipal, topicResource, AclOperation.ALL);
+    ResourcePattern consumerGroup = randomResource(ResourceType.GROUP);
+    addConsumerGroupAcl(adminGroupPrincipal, consumerGroup, AclOperation.ALL);
+    ResourcePattern clusterResource =
+        new ResourcePattern(ResourceType.CLUSTER, Resource.CLUSTER_NAME, PatternType.LITERAL);
+    addClusterAcl(adminGroupPrincipal, AclOperation.ALL);
 
     TOPIC_OPS.forEach(op -> verifyAuthorization("anotherUser", topicResource, op, false));
     CONSUMER_GROUP_OPS.forEach(op -> verifyAuthorization("anotherUser", consumerGroup, op, false));
@@ -148,9 +136,9 @@ public class LdapAuthorizerTest {
     CONSUMER_GROUP_OPS.forEach(op -> verifyAuthorization("anotherUser", consumerGroup, op, true));
     CLUSTER_OPS.forEach(op -> verifyAuthorization("anotherUser", clusterResource, op, true));
 
-    verifyAuthorization("anotherUser", topicResource, Write$.MODULE$, true);
-    deleteTopicAcl(adminGroupPrincipal, topicResource, All$.MODULE$);
-    verifyAuthorization("anotherUser", topicResource, Write$.MODULE$, false);
+    verifyAuthorization("anotherUser", topicResource, AclOperation.WRITE, true);
+    deleteTopicAcl(adminGroupPrincipal, topicResource, AclOperation.ALL);
+    verifyAuthorization("anotherUser", topicResource, AclOperation.WRITE, false);
   }
 
   @Test
@@ -161,22 +149,22 @@ public class LdapAuthorizerTest {
     configureLdapAuthorizer();
 
     KafkaPrincipal adminGroupPrincipal = new KafkaPrincipal("Group", "adminGroup");
-    Resource topicResource = randomResource(Topic$.MODULE$);
-    addTopicAcl(adminGroupPrincipal, topicResource, All$.MODULE$);
+    ResourcePattern topicResource = randomResource(ResourceType.TOPIC);
+    addTopicAcl(adminGroupPrincipal, topicResource, AclOperation.ALL);
 
     TOPIC_OPS.forEach(op -> verifyAuthorization("adminUser", topicResource, op, true));
 
     miniKdcWithLdapService.shutdown();
     TestUtils.waitForCondition(() -> {
       AuthorizableRequestContext requestContext = AuthorizerUtils.sessionToRequestContext(session("adminUser"));
-      Action action = new Action(AclOperation.READ, topicResource.toPattern(), 1, true, true);
+      Action action = new Action(AclOperation.READ, topicResource, 1, true, true);
       return ldapAuthorizer.authorize(requestContext, Collections.singletonList(action)).get(0) == AuthorizationResult.DENIED;
     }, "LDAP failure not detected");
   }
 
-  private void verifyResourceAcls(Resource resource, Collection<Operation> ops,
-      BiFunction<KafkaPrincipal, Operation, Void> addAcl) {
-    for (Operation op : ops) {
+  private void verifyResourceAcls(ResourcePattern resource, Collection<AclOperation> ops,
+      BiFunction<KafkaPrincipal, AclOperation, Void> addAcl) {
+    for (AclOperation op : ops) {
       addAcl.apply(new KafkaPrincipal("Group", "adminGroup"), op);
       verifyAuthorization("adminUser", resource, op, true);
       verifyAuthorization("guestUser", resource, op, false);
@@ -187,12 +175,12 @@ public class LdapAuthorizerTest {
     }
   }
 
-  private void verifyAllOperationsAcl(ResourceType resourceType, Collection<Operation> ops,
-      BiFunction<KafkaPrincipal, Resource, Void> addAcl) {
-    Resource resource = randomResource(resourceType);
+  private void verifyAllOperationsAcl(ResourceType resourceType, Collection<AclOperation> ops,
+      BiFunction<KafkaPrincipal, ResourcePattern, Void> addAcl) {
+    ResourcePattern resource = randomResource(resourceType);
     addAcl.apply(new KafkaPrincipal("Group", "adminGroup"), resource);
     addAcl.apply(new KafkaPrincipal("User", "someUser"), resource);
-    for (Operation op : ops) {
+    for (AclOperation op : ops) {
       verifyAuthorization("adminUser", resource, op, true);
       verifyAuthorization("someUser", resource, op, true);
       verifyAuthorization("guestUser", resource, op, false);
@@ -218,7 +206,7 @@ public class LdapAuthorizerTest {
         String.valueOf(allowIfNoAcl));
     configureLdapAuthorizer();
 
-    Resource topicResource = randomResource(Topic$.MODULE$);
+    ResourcePattern topicResource = randomResource(ResourceType.TOPIC);
     verifyAuthorization("adminUser", topicResource, true);
     verifyAuthorization("guestUser", topicResource, allowIfNoAcl);
     verifyAuthorization("someUser", topicResource, allowIfNoAcl);
@@ -234,7 +222,7 @@ public class LdapAuthorizerTest {
   private void verifyAuthorizer() throws Exception {
     miniKdcWithLdapService.createGroup("adminGroup", "adminUser", "kafkaUser");
     miniKdcWithLdapService.createGroup("guestGroup", "guest");
-    Resource topicResource = randomResource(Topic$.MODULE$);
+    ResourcePattern topicResource = randomResource(ResourceType.TOPIC);
     verifyResourceAcls(topicResource, TOPIC_OPS,
         (principal, op) -> addTopicAcl(principal, topicResource, op));
   }
@@ -262,50 +250,46 @@ public class LdapAuthorizerTest {
     }
   }
 
-  private Resource randomResource(ResourceType resourceType) {
-    return new Resource(resourceType, UUID.randomUUID().toString(), PatternType.LITERAL);
+  private ResourcePattern randomResource(ResourceType resourceType) {
+    return new ResourcePattern(resourceType, UUID.randomUUID().toString(), PatternType.LITERAL);
   }
 
-  private void verifyAuthorization(String user, Resource resource, boolean allowed) {
-    scala.collection.Iterator<Operation> opsIter = Operation$.MODULE$.values().iterator();
-    while (opsIter.hasNext()) {
-      Operation op = opsIter.next();
-      verifyAuthorization(user, resource, op, allowed);
-    }
+  private void verifyAuthorization(String user, ResourcePattern resource, boolean allowed) {
+    Stream.of(AclOperation.values()).forEach(kafkaOperation -> verifyAuthorization(user, resource, kafkaOperation, allowed));
   }
 
-  private void verifyAuthorization(String user, Resource resource, Operation op, boolean allowed) {
+  private void verifyAuthorization(String user, ResourcePattern resource, AclOperation op, boolean allowed) {
     List<AuthorizationResult> expectedResults = Collections.singletonList(allowed ? AuthorizationResult.ALLOWED : AuthorizationResult.DENIED);
     AuthorizableRequestContext requestContext = AuthorizerUtils.sessionToRequestContext(session(user));
-    Action action = new Action(op.toJava(), resource.toPattern(), 1, true, true);
+    Action action = new Action(op, resource, 1, true, true);
     assertEquals("Incorrect authorization result for op " + op,
         expectedResults, ldapAuthorizer.authorize(requestContext, Collections.singletonList(action)));
   }
 
-  private Void addTopicAcl(KafkaPrincipal principal, Resource topic, Operation op) {
+  private Void addTopicAcl(KafkaPrincipal principal, ResourcePattern topic, AclOperation op) {
     AclCommand.main(SecurityTestUtils.addTopicAclArgs(kafkaCluster.zkConnect(),
         principal, topic.name(), op, PatternType.LITERAL));
     SecurityTestUtils.waitForAclUpdate(ldapAuthorizer, principal, topic, op, false);
     return null;
   }
 
-  private Void addConsumerGroupAcl(KafkaPrincipal principal, Resource group, Operation op) {
+  private Void addConsumerGroupAcl(KafkaPrincipal principal, ResourcePattern group, AclOperation op) {
     AclCommand.main(SecurityTestUtils.addConsumerGroupAclArgs(kafkaCluster.zkConnect(),
         principal, group.name(), op, PatternType.LITERAL));
     SecurityTestUtils.waitForAclUpdate(ldapAuthorizer, principal, group, op, false);
     return null;
   }
 
-  private Void addClusterAcl(KafkaPrincipal principal, Operation op) {
+  private Void addClusterAcl(KafkaPrincipal principal, AclOperation op) {
     AclCommand.main(SecurityTestUtils.clusterAclArgs(kafkaCluster.zkConnect(),
-        principal, op.name()));
+        principal, SecurityUtils.operationName(op)));
     SecurityTestUtils.waitForAclUpdate(ldapAuthorizer, principal, CLUSTER_RESOURCE, op, false);
     return null;
   }
 
-  private void deleteTopicAcl(KafkaPrincipal principal, Resource topic, Operation op) {
+  private void deleteTopicAcl(KafkaPrincipal principal, ResourcePattern topic, AclOperation op) {
     AclCommand.main(SecurityTestUtils.deleteTopicAclArgs(kafkaCluster.zkConnect(),
-        principal, topic.name(), op.name()));
+        principal, topic.name(), SecurityUtils.operationName(op)));
     SecurityTestUtils.waitForAclUpdate(ldapAuthorizer, principal, topic, op, true);
   }
 }

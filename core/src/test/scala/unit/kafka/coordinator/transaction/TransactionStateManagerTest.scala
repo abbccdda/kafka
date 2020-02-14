@@ -23,8 +23,7 @@ import java.util.concurrent.locks.ReentrantLock
 import javax.management.ObjectName
 
 import kafka.api.KAFKA_2_4_IV1
-import kafka.log.AbstractLog
-import kafka.log.{AppendOrigin, Log}
+import kafka.log.{AppendOrigin, AbstractLog}
 import kafka.server.{FetchDataInfo, FetchLogEnd, LogOffsetMetadata, ReplicaManager}
 import kafka.utils.{MockScheduler, Pool, TestUtils}
 import kafka.zk.KafkaZkClient

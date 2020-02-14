@@ -32,6 +32,7 @@ import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicRe
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResultCollection;
 import org.apache.kafka.common.message.DescribeGroupsResponseData.DescribedGroup;
 import org.apache.kafka.common.message.DescribeGroupsResponseData.DescribedGroupMember;
+import org.apache.kafka.common.message.DescribeAclsResponseData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
 import org.apache.kafka.common.message.JoinGroupRequestData.JoinGroupRequestProtocol;
 import org.apache.kafka.common.message.JoinGroupRequestData.JoinGroupRequestProtocolCollection;
@@ -654,32 +655,45 @@ public class MultiTenantRequestContext extends RequestContext {
 
   private DescribeAclsResponse filteredDescribeAclsResponse(DescribeAclsResponse response) {
     String tenantPrefix = tenantContext.prefix();
-    List<AclBinding> aclBindings = response.acls().stream()
-        .filter(binding -> {
-          ResourcePattern pattern = binding.pattern();
-          if (describeAclsPatternType == PatternType.LITERAL
-              && pattern.patternType() != PatternType.LITERAL
-              && !pattern.name().equals(tenantPrefix)) {
-            return false;
-          }
-          if (describeAclsPatternType == PatternType.PREFIXED
-              && pattern.patternType() == PatternType.PREFIXED
-              && pattern.name().equals(tenantPrefix)) {
-            return false;
-          }
-          return pattern.name().startsWith(tenantPrefix);
-        })
-        .map(binding -> {
-          ResourcePattern pattern = binding.pattern();
-          if (pattern.name().equals(tenantPrefix)) {
-            ResourcePattern transformedPattern = new ResourcePattern(pattern.resourceType(),
-                tenantPrefix + "*", PatternType.LITERAL);
-            return new AclBinding(transformedPattern, binding.entry());
-          } else {
-            return binding;
-          }
-        }).collect(Collectors.toList());
-    return new DescribeAclsResponse(response.throttleTimeMs(), response.error(), aclBindings);
+    return new DescribeAclsResponse(
+            new DescribeAclsResponseData()
+                    .setThrottleTimeMs(response.throttleTimeMs())
+                    .setErrorCode(response.error().error().code())
+                    .setErrorMessage(response.error().message())
+                    .setResources(
+                            response.acls().stream()
+                                    .filter(binding -> {
+                                      ResourcePattern pattern = new ResourcePattern(
+                                              ResourceType.fromCode(binding.resourceType()),
+                                              binding.resourceName(),
+                                              PatternType.fromCode(binding.patternType()));
+                                      if (describeAclsPatternType == PatternType.LITERAL
+                                              && pattern.patternType() != PatternType.LITERAL
+                                              && !pattern.name().equals(tenantPrefix)) {
+                                        return false;
+                                      }
+                                      if (describeAclsPatternType == PatternType.PREFIXED
+                                              && pattern.patternType() == PatternType.PREFIXED
+                                              && pattern.name().equals(tenantPrefix)) {
+                                        return false;
+                                      }
+                                      return pattern.name().startsWith(tenantPrefix);
+                                    })
+                                    .map(binding -> {
+                                              if (binding.resourceName().equals(tenantPrefix)) {
+                                                return new DescribeAclsResponseData.DescribeAclsResource()
+                                                        .setResourceType(binding.resourceType())
+                                                        .setResourceName(tenantPrefix + "*")
+                                                        .setPatternType(PatternType.LITERAL.code())
+                                                        .setAcls(binding.acls());
+                                              }
+                                              return new DescribeAclsResponseData.DescribeAclsResource()
+                                                      .setResourceType(binding.resourceType())
+                                                      .setResourceName(binding.resourceName())
+                                                      .setPatternType(binding.patternType())
+                                                      .setAcls(binding.acls());
+                                            }
+                                    ).collect(Collectors.toList())));
   }
 
   private DeleteAclsResponse transformDeleteAclsResponse(DeleteAclsResponse response) {

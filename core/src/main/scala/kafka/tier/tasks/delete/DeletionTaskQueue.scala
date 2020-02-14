@@ -12,8 +12,6 @@ import kafka.tier.tasks._
 import kafka.tier.tasks.delete.DeletionTask.{CollectDeletableSegments, DeletedPartitionMetadata, DeleteAsLeaderMetadata}
 import org.apache.kafka.common.utils.Time
 
-import scala.collection.immutable.ListSet
-
 private[delete] class DeletionTaskQueue(ctx: CancellationContext,
                                         maxTasks: Int,
                                         logCleanupIntervalMs: Long,

@@ -95,7 +95,7 @@ public class DescribeAclsResponse extends AbstractResponse {
         }
 
         for (DescribeAclsResource resource : acls()) {
-            if (resource.patternType() == PatternType.UNKNOWN.code() || resource.type() == ResourceType.UNKNOWN.code())
+            if (resource.patternType() == PatternType.UNKNOWN.code() || resource.resourceType() == ResourceType.UNKNOWN.code())
                 throw new IllegalArgumentException("Contain UNKNOWN elements");
             for (AclDescription acl : resource.acls()) {
                 if (acl.operation() == AclOperation.UNKNOWN.code() || acl.permissionType() == AclPermissionType.UNKNOWN.code()) {
@@ -109,8 +109,8 @@ public class DescribeAclsResponse extends AbstractResponse {
         List<AclBinding> acls = new ArrayList<>();
         for (AclDescription acl : resource.acls()) {
             ResourcePattern pattern = new ResourcePattern(
-                    ResourceType.fromCode(resource.type()),
-                    resource.name(),
+                    ResourceType.fromCode(resource.resourceType()),
+                    resource.resourceName(),
                     PatternType.fromCode(resource.patternType()));
             AccessControlEntry entry = new AccessControlEntry(
                     acl.principal(),
@@ -148,9 +148,9 @@ public class DescribeAclsResponse extends AbstractResponse {
                 aclDescriptions.add(ad);
             }
             DescribeAclsResource dar = new DescribeAclsResource()
-                    .setName(key.name())
+                    .setResourceName(key.name())
                     .setPatternType(key.patternType().code())
-                    .setType(key.resourceType().code())
+                    .setResourceType(key.resourceType().code())
                     .setAcls(aclDescriptions);
             resources.add(dar);
         }

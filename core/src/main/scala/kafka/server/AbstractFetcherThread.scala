@@ -37,7 +37,6 @@ import java.util.concurrent.{ExecutionException, Future, TimeUnit}
 import java.util.concurrent.atomic.AtomicLong
 import java.util.function.BiConsumer
 
-import com.yammer.metrics.core.Gauge
 import kafka.log.LogAppendInfo
 import kafka.server.epoch.EpochEntry
 import kafka.tier.domain.TierObjectMetadata

@@ -28,8 +28,7 @@ import javax.management.ObjectName
 import kafka.api._
 import kafka.cluster.Partition
 import kafka.common.OffsetAndMetadata
-import kafka.log.AbstractLog
-import kafka.log.{AppendOrigin, Log, LogAppendInfo}
+import kafka.log.{AppendOrigin, AbstractLog, LogAppendInfo}
 import kafka.server.{FetchDataInfo, FetchLogEnd, HostedPartition, KafkaConfig, LogOffsetMetadata, ReplicaManager}
 import kafka.utils.{KafkaScheduler, MockTime, TestUtils}
 import kafka.zk.KafkaZkClient
@@ -46,7 +45,7 @@ import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.utils.Utils
 import org.easymock.{Capture, EasyMock, IAnswer}
 import org.junit.Assert.{assertEquals, assertFalse, assertNull, assertTrue}
-import org.junit.{Before, Ignore, Test}
+import org.junit.{Before, Test}
 import org.scalatest.Assertions.fail
 
 import scala.collection.JavaConverters._

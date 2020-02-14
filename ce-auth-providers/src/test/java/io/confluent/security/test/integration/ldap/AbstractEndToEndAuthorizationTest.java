@@ -2,9 +2,6 @@
 
 package io.confluent.security.test.integration.ldap;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
 import io.confluent.kafka.security.ldap.authorizer.LdapAuthorizer;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
@@ -15,17 +12,11 @@ import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.minikdc.MiniKdcWithLdapService.LdapSecurityAuthentication;
 import io.confluent.security.minikdc.MiniKdcWithLdapService.LdapSecurityProtocol;
 import io.confluent.security.test.utils.User;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import javax.security.auth.login.Configuration;
 import kafka.admin.AclCommand;
-import kafka.security.auth.ClusterAction$;
 import kafka.server.KafkaConfig$;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.config.types.Password;
 import org.apache.kafka.common.errors.AuthorizationException;
@@ -34,11 +25,22 @@ import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.security.scram.internals.ScramMechanism;
+import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.kafka.test.IntegrationTest;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+
+import javax.security.auth.login.Configuration;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 @Category(IntegrationTest.class)
 public abstract class AbstractEndToEndAuthorizationTest {
@@ -295,7 +297,7 @@ public abstract class AbstractEndToEndAuthorizationTest {
     }
 
     AclCommand.main(SecurityTestUtils.clusterAclArgs(zkConnect,
-        groupPrincipal(ADMIN_GROUP), ClusterAction$.MODULE$.name()));
+        groupPrincipal(ADMIN_GROUP), SecurityUtils.operationName(AclOperation.CLUSTER_ACTION)));
     AclCommand.main(SecurityTestUtils.topicBrokerReadAclArgs(zkConnect,
         groupPrincipal(ADMIN_GROUP)));
     SecurityTestUtils.addLicenseTopicAcl(zkConnect, groupPrincipal(ADMIN_GROUP));
