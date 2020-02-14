@@ -13,7 +13,7 @@ def config = jobConfig {
 def job = {
 
     withCredentials([usernamePassword(
-        credentialsId: 'Jenkins Nexus Account',
+        credentialsId: 'jenkins-artifactory-account',
         usernameVariable: 'ORG_GRADLE_PROJECT_mavenUsername',
         passwordVariable: 'ORG_GRADLE_PROJECT_mavenPassword'
     )]) {
@@ -30,8 +30,8 @@ def job = {
         }
 
         if (config.publish && config.isDevJob) {
-            stage("Publish to nexus") {
-                def mavenUrl = 'https://confluent.jfrog.io/confluent/maven-snapshots/'
+            stage("Publish to Artifactory") {
+                def mavenUrl = 'https://confluent.jfrog.io/confluent/maven-public/'
                 sh "./gradlew -PmavenUrl=${mavenUrl} --no-daemon uploadArchivesAll"
             }
         }

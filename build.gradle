@@ -103,10 +103,10 @@ allprojects {
     mavenCentral()
     mavenLocal()
     maven {
-      name 'confluent-nexus'
+      name 'confluent-artifactory'
       // We do not use mavenUrl property here since that is required to be a writeable repo (i.e. maven-releases)
       // whereas we want to use a virtual repo for fetching dependencies
-      url 'https://confluent.jfrog.io/confluent/maven-snapshots/'
+      url 'https://confluent.jfrog.io/confluent/maven-public/'
       credentials {
         username = mavenUsername
         password = mavenPassword
