@@ -7,6 +7,7 @@ package kafka.tier.state;
 import com.google.flatbuffers.FlatBufferBuilder;
 import kafka.tier.serdes.MaterializationTrackingInfo;
 import kafka.tier.serdes.TierPartitionStateHeader;
+import kafka.utils.CoreUtils;
 
 import java.nio.ByteBuffer;
 import java.util.Objects;
@@ -120,7 +121,7 @@ public class Header {
     public String toString() {
         return "Header(" +
                 "version=" + version() + ", " +
-                "topicId=" + topicId() + ", " +
+                "topicId=" + CoreUtils.uuidToBase64(topicId()) + ", " +
                 "tierEpoch=" + tierEpoch() + ", " +
                 "status=" + status() + ", " +
                 "endOffset=" + endOffset() + ", " +
