@@ -43,6 +43,7 @@ import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.protocol.types.Type._
 import org.apache.kafka.common.protocol.types._
 import org.apache.kafka.common.record._
+import org.apache.kafka.common.requests.OffsetFetchResponse.PartitionData
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.requests.{OffsetCommitRequest, OffsetFetchResponse}
 import org.apache.kafka.common.utils.{Time, Utils}
@@ -125,50 +126,48 @@ class GroupMetadataManager(brokerId: Int,
   }
 
   recreateGauge("NumOffsets",
-    new Gauge[Int] {
-      def value = groupMetadataCache.values.map(group => {
-        group.inLock { group.numOffsets }
-      }).sum
-    })
+    () => groupMetadataCache.values.map { group =>
+      group.inLock { group.numOffsets }
+    }.sum
+  )
 
   recreateGauge("NumGroups",
-    new Gauge[Int] {
-      def value = groupMetadataCache.size
-    })
+    () => groupMetadataCache.size
+  )
 
   recreateGauge("NumGroupsPreparingRebalance",
-    new Gauge[Int] {
-      def value(): Int = groupMetadataCache.values.count(group => {
-        group synchronized { group.is(PreparingRebalance) }
-      })
+    () => groupMetadataCache.values.count { group =>
+      group synchronized {
+        group.is(PreparingRebalance)
+      }
     })
 
   recreateGauge("NumGroupsCompletingRebalance",
-    new Gauge[Int] {
-      def value(): Int = groupMetadataCache.values.count(group => {
-        group synchronized { group.is(CompletingRebalance) }
-      })
+    () => groupMetadataCache.values.count { group =>
+      group synchronized {
+        group.is(CompletingRebalance)
+      }
     })
 
   recreateGauge("NumGroupsStable",
-    new Gauge[Int] {
-      def value(): Int = groupMetadataCache.values.count(group => {
-        group synchronized { group.is(Stable) }
-      })
+    () => groupMetadataCache.values.count { group =>
+      group synchronized {
+        group.is(Stable)
+      }
     })
 
   recreateGauge("NumGroupsDead",
-    new Gauge[Int] {
-      def value(): Int = groupMetadataCache.values.count(group => {
-        group synchronized { group.is(Dead) }
-      })
+    () => groupMetadataCache.values.count { group =>
+      group synchronized {
+        group.is(Dead)
+      }
     })
 
   recreateGauge("NumGroupsEmpty",
-    new Gauge[Int] {
-      def value(): Int = groupMetadataCache.values.count(group => {
-        group synchronized { group.is(Empty) }
-      })
+    () => groupMetadataCache.values.count { group =>
+      group synchronized {
+        group.is(Empty)
+      }
     })
 
   def startup(enableMetadataExpiration: Boolean): Unit = {
@@ -474,12 +473,12 @@ class GroupMetadataManager(brokerId: Int,
    * The most important guarantee that this API provides is that it should never return a stale offset. i.e., it either
    * returns the current offset or it begins to sync the cache from the log (and returns an error code).
    */
-  def getOffsets(groupId: String, topicPartitionsOpt: Option[Seq[TopicPartition]]): Map[TopicPartition, OffsetFetchResponse.PartitionData] = {
+  def getOffsets(groupId: String, requireStable: Boolean, topicPartitionsOpt: Option[Seq[TopicPartition]]): Map[TopicPartition, PartitionData] = {
     trace("Getting offsets of %s for group %s.".format(topicPartitionsOpt.getOrElse("all partitions"), groupId))
     val group = groupMetadataCache.get(groupId)
     if (group == null) {
       topicPartitionsOpt.getOrElse(Seq.empty[TopicPartition]).map { topicPartition =>
-        val partitionData = new OffsetFetchResponse.PartitionData(OffsetFetchResponse.INVALID_OFFSET,
+        val partitionData = new PartitionData(OffsetFetchResponse.INVALID_OFFSET,
           Optional.empty(), "", Errors.NONE)
         topicPartition -> partitionData
       }.toMap
@@ -487,33 +486,29 @@ class GroupMetadataManager(brokerId: Int,
       group.inLock {
         if (group.is(Dead)) {
           topicPartitionsOpt.getOrElse(Seq.empty[TopicPartition]).map { topicPartition =>
-            val partitionData = new OffsetFetchResponse.PartitionData(OffsetFetchResponse.INVALID_OFFSET,
+            val partitionData = new PartitionData(OffsetFetchResponse.INVALID_OFFSET,
               Optional.empty(), "", Errors.NONE)
             topicPartition -> partitionData
           }.toMap
         } else {
-          topicPartitionsOpt match {
-            case None =>
-              // Return offsets for all partitions owned by this consumer group. (this only applies to consumers
-              // that commit offsets to Kafka.)
-              group.allOffsets.map { case (topicPartition, offsetAndMetadata) =>
-                topicPartition -> new OffsetFetchResponse.PartitionData(offsetAndMetadata.offset,
-                  offsetAndMetadata.leaderEpoch, offsetAndMetadata.metadata, Errors.NONE)
-              }
+          val topicPartitions = topicPartitionsOpt.getOrElse(group.allOffsets.keySet)
 
-            case Some(topicPartitions) =>
-              topicPartitions.map { topicPartition =>
-                val partitionData = group.offset(topicPartition) match {
-                  case None =>
-                    new OffsetFetchResponse.PartitionData(OffsetFetchResponse.INVALID_OFFSET,
-                      Optional.empty(), "", Errors.NONE)
-                  case Some(offsetAndMetadata) =>
-                    new OffsetFetchResponse.PartitionData(offsetAndMetadata.offset,
-                      offsetAndMetadata.leaderEpoch, offsetAndMetadata.metadata, Errors.NONE)
-                }
-                topicPartition -> partitionData
-              }.toMap
-          }
+          topicPartitions.map { topicPartition =>
+            if (requireStable && group.hasPendingOffsetCommitsForTopicPartition(topicPartition)) {
+              topicPartition -> new PartitionData(OffsetFetchResponse.INVALID_OFFSET,
+                Optional.empty(), "", Errors.UNSTABLE_OFFSET_COMMIT)
+            } else {
+              val partitionData = group.offset(topicPartition) match {
+                case None =>
+                  new PartitionData(OffsetFetchResponse.INVALID_OFFSET,
+                    Optional.empty(), "", Errors.NONE)
+                case Some(offsetAndMetadata) =>
+                  new PartitionData(offsetAndMetadata.offset,
+                    offsetAndMetadata.leaderEpoch, offsetAndMetadata.metadata, Errors.NONE)
+              }
+              topicPartition -> partitionData
+            }
+          }.toMap
         }
       }
     }
@@ -1252,7 +1247,7 @@ object GroupMetadataManager {
 
     value.set(PROTOCOL_TYPE_KEY, groupMetadata.protocolType.getOrElse(""))
     value.set(GENERATION_KEY, groupMetadata.generationId)
-    value.set(PROTOCOL_KEY, groupMetadata.protocolOrNull)
+    value.set(PROTOCOL_KEY, groupMetadata.protocolName.orNull)
     value.set(LEADER_KEY, groupMetadata.leaderOrNull)
 
     if (version >= 2)
@@ -1272,7 +1267,7 @@ object GroupMetadataManager {
         memberStruct.set(GROUP_INSTANCE_ID_KEY, memberMetadata.groupInstanceId.orNull)
 
       // The group is non-empty, so the current protocol must be defined
-      val protocol = groupMetadata.protocolOrNull
+      val protocol = groupMetadata.protocolName.orNull
       if (protocol == null)
         throw new IllegalStateException("Attempted to write non-empty group metadata with no defined protocol")
 
@@ -1538,7 +1533,7 @@ object GroupMetadataManager {
 
       Json.encodeAsString(Map(
         "protocolType" -> protocolType,
-        "protocol" -> group.protocolOrNull,
+        "protocol" -> group.protocolName.orNull,
         "generationId" -> group.generationId,
         "assignment" -> assignment
       ).asJava)

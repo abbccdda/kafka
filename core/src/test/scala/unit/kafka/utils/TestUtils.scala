@@ -36,7 +36,7 @@ import kafka.api._
 import kafka.cluster.{Broker, EndPoint}
 import kafka.controller.ReplicaAssignment
 import kafka.log._
-import kafka.security.auth.{Acl, Authorizer, Resource}
+import kafka.security.auth.{Acl, Authorizer => LegacyAuthorizer, Resource}
 import kafka.server._
 import kafka.server.checkpoints.OffsetCheckpointFile
 import Implicits._
@@ -1226,7 +1226,8 @@ object TestUtils extends Logging {
         s"but got:${authorizer.acls(filter).asScala.map(_.entry).mkString(newLine + "\t", newLine + "\t", newLine)}", waitTimeMs = JTestUtils.DEFAULT_MAX_WAIT_MS)
   }
 
-  def waitAndVerifyAcls(expected: Set[Acl], authorizer: Authorizer, resource: Resource) = {
+  @deprecated("Use org.apache.kafka.server.authorizer.Authorizer", "Since 2.5")
+  def waitAndVerifyAcls(expected: Set[Acl], authorizer: LegacyAuthorizer, resource: Resource) = {
     val newLine = scala.util.Properties.lineSeparator
 
     waitUntilTrue(() => authorizer.getAcls(resource) == expected,
@@ -1475,7 +1476,7 @@ object TestUtils extends Logging {
     offsetsToCommit.toMap
   }
 
-  def resetToCommittedPositions(consumer: KafkaConsumer[Array[Byte], Array[Byte]]) {
+  def resetToCommittedPositions(consumer: KafkaConsumer[Array[Byte], Array[Byte]]): Unit = {
     val committed = consumer.committed(consumer.assignment).asScala.filter(_._2 != null).mapValues(_.offset)
 
     consumer.assignment.asScala.foreach { topicPartition =>
@@ -1619,7 +1620,7 @@ object TestUtils extends Logging {
 
         brokerIds == replicas
       },
-      s"Expected brokers $brokerIds to be in the ISR for $partition"
+      s"Expected brokers $brokerIds to be the replicas for $partition"
     )
   }
 

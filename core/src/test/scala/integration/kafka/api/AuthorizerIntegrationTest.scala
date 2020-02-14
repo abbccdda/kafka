@@ -20,11 +20,11 @@ import java.util.{Collections, Optional, Properties}
 
 import kafka.admin.ConsumerGroupCommand.{ConsumerGroupCommandOptions, ConsumerGroupService}
 import kafka.log.LogConfig
-import kafka.security.auth.{SimpleAclAuthorizer, Topic, ResourceType => AuthResourceType}
-import kafka.security.authorizer.AuthorizerUtils.WildcardHost
+import kafka.security.authorizer.AclEntry
+import kafka.security.authorizer.AclEntry.WildcardHost
 import kafka.server.{BaseRequestTest, KafkaConfig}
 import kafka.utils.TestUtils
-import org.apache.kafka.clients.admin.{Admin, AdminClient, AdminClientConfig, AlterConfigOp}
+import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, AlterConfigOp}
 import org.apache.kafka.clients.consumer._
 import org.apache.kafka.clients.consumer.internals.NoOpConsumerRebalanceListener
 import org.apache.kafka.clients.producer._
@@ -80,6 +80,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
   val logDir = "logDir"
   val deleteRecordsPartition = new TopicPartition(deleteTopic, part)
   val group = "my-group"
+  val protocolType = "consumer"
+  val protocolName = "consumer-range"
   val clusterResource = new ResourcePattern(CLUSTER, Resource.CLUSTER_NAME, LITERAL)
   val topicResource = new ResourcePattern(TOPIC, topic, LITERAL)
   val groupResource = new ResourcePattern(GROUP, group, LITERAL)
@@ -116,7 +118,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
   consumerConfig.setProperty(ConsumerConfig.GROUP_ID_CONFIG, group)
 
   override def brokerPropertyOverrides(properties: Properties): Unit = {
-    properties.put(KafkaConfig.AuthorizerClassNameProp, classOf[SimpleAclAuthorizer].getName)
+    properties.put(KafkaConfig.AuthorizerClassNameProp, "kafka.security.auth.SimpleAclAuthorizer")
     properties.put(KafkaConfig.BrokerIdProp, brokerId.toString)
     properties.put(KafkaConfig.OffsetsTopicPartitionsProp, "1")
     properties.put(KafkaConfig.OffsetsTopicReplicationFactorProp, "1")
@@ -290,7 +292,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
   }
 
   private def createOffsetFetchRequest = {
-    new requests.OffsetFetchRequest.Builder(group, List(tp).asJava).build()
+    new requests.OffsetFetchRequest.Builder(group, false, List(tp).asJava).build()
   }
 
   private def createFindCoordinatorRequest = {
@@ -325,7 +327,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
   private def createJoinGroupRequest = {
     val protocolSet = new JoinGroupRequestProtocolCollection(
       Collections.singletonList(new JoinGroupRequestData.JoinGroupRequestProtocol()
-        .setName("consumer-range")
+        .setName(protocolName)
         .setMetadata("test".getBytes())
     ).iterator())
 
@@ -335,7 +337,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
         .setSessionTimeoutMs(10000)
         .setMemberId(JoinGroupRequest.UNKNOWN_MEMBER_ID)
         .setGroupInstanceId(null)
-        .setProtocolType("consumer")
+        .setProtocolType(protocolType)
         .setProtocols(protocolSet)
         .setRebalanceTimeoutMs(60000)
     ).build()
@@ -347,6 +349,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
         .setGroupId(group)
         .setGenerationId(1)
         .setMemberId(JoinGroupRequest.UNKNOWN_MEMBER_ID)
+        .setProtocolType(protocolType)
+        .setProtocolName(protocolName)
         .setAssignments(Collections.emptyList())
     ).build()
   }
@@ -1161,7 +1165,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     // note there's only one broker, so no need to lookup the group coordinator
 
     // without describe permission on the topic, we shouldn't be able to fetch offsets
-    val offsetFetchRequest = requests.OffsetFetchRequest.Builder.allTopicPartitions(group).build()
+    val offsetFetchRequest = new requests.OffsetFetchRequest.Builder(group, false, null).build()
     var offsetFetchResponse = connectAndReceive[OffsetFetchResponse](offsetFetchRequest)
     assertEquals(Errors.NONE, offsetFetchResponse.error)
     assertTrue(offsetFetchResponse.responseData.isEmpty)
@@ -1696,11 +1700,11 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     val authorizationErrors = resources.flatMap { resourceType =>
       if (resourceType == TOPIC) {
         if (isAuthorized)
-          Set(Errors.UNKNOWN_TOPIC_OR_PARTITION, Topic.error)
+          Set(Errors.UNKNOWN_TOPIC_OR_PARTITION, AclEntry.authorizationError(ResourceType.TOPIC))
         else
-          Set(Topic.error)
+          Set(AclEntry.authorizationError(ResourceType.TOPIC))
       } else {
-        Set(AuthResourceType.fromJava(resourceType).error)
+        Set(AclEntry.authorizationError(resourceType))
       }
     }
 
@@ -1774,7 +1778,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
   private def createAdminClient(): Admin = {
     val props = new Properties()
     props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList)
-    val adminClient = AdminClient.create(props)
+    val adminClient = Admin.create(props)
     adminClients += adminClient
     adminClient
   }

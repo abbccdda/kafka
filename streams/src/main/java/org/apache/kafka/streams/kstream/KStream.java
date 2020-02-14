@@ -18,6 +18,7 @@ package org.apache.kafka.streams.kstream;
 
 import org.apache.kafka.clients.producer.internals.DefaultPartitioner;
 import org.apache.kafka.common.serialization.Serde;
+import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
@@ -27,6 +28,7 @@ import org.apache.kafka.streams.processor.ProcessorContext;
 import org.apache.kafka.streams.processor.ProcessorSupplier;
 import org.apache.kafka.streams.processor.StreamPartitioner;
 import org.apache.kafka.streams.processor.TopicNameExtractor;
+import org.apache.kafka.streams.state.KeyValueStore;
 
 /**
  * {@code KStream} is an abstraction of a <i>record stream</i> of {@link KeyValue} pairs, i.e., each record is an
@@ -875,6 +877,169 @@ public interface KStream<K, V> {
             final Produced<K, V> produced);
 
     /**
+     * Convert this stream to a {@link KTable}.
+     * <p>
+     * an internal repartitioning topic may need to be created in Kafka if a key changed
+     * This topic will be named "${applicationId}-&lt;name&gt;-repartition", where "applicationId" is user-specified in
+     * {@link StreamsConfig} via parameter {@link StreamsConfig#APPLICATION_ID_CONFIG APPLICATION_ID_CONFIG},
+     * "&lt;name&gt;" is an internally generated name, and "-repartition" is a fixed suffix.
+     * <p>
+     * Note that this is a logical operation and only changes the "interpretation" of the stream, i.e., each record of
+     * it was a "fact/event" and is re-interpreted as update now (cf. {@link KStream} vs {@code KTable}).
+     *
+     * @return a {@link KTable} that contains the same records as this {@code KStream}
+     */
+    KTable<K, V> toTable();
+
+    /**
+     * Convert this stream to a {@link KTable}.
+     * <p>
+     * an internal repartitioning topic may need to be created in Kafka if a key changed
+     * This topic will be named "${applicationId}-&lt;name&gt;-repartition", where "applicationId" is user-specified in
+     * {@link StreamsConfig} via parameter {@link StreamsConfig#APPLICATION_ID_CONFIG APPLICATION_ID_CONFIG},
+     * "&lt;name&gt;" is an internally generated name, and "-repartition" is a fixed suffix.
+     * <p>
+     * Note that this is a logical operation and only changes the "interpretation" of the stream, i.e., each record of
+     * it was a "fact/event" and is re-interpreted as update now (cf. {@link KStream} vs {@code KTable}).
+     *
+     * @param named  a {@link Named} config used to name the processor in the topology
+     * @return a {@link KTable} that contains the same records as this {@code KStream}
+     */
+    KTable<K, V> toTable(final Named named);
+
+    /**
+     * Convert this stream to a {@link KTable}.
+     * <p>
+     * an internal repartitioning topic may need to be created in Kafka if a key changed
+     * This topic will be named "${applicationId}-&lt;name&gt;-repartition", where "applicationId" is user-specified in
+     * {@link StreamsConfig} via parameter {@link StreamsConfig#APPLICATION_ID_CONFIG APPLICATION_ID_CONFIG},
+     * "&lt;name&gt;" is an internally generated name, and "-repartition" is a fixed suffix.
+     * <p>
+     * Note that this is a logical operation and only changes the "interpretation" of the stream, i.e., each record of
+     * it was a "fact/event" and is re-interpreted as update now (cf. {@link KStream} vs {@code KTable}).
+     *
+     * @param materialized an instance of {@link Materialized} used to describe how the state store of the
+     *                            resulting table should be materialized.
+     * @return a {@link KTable} that contains the same records as this {@code KStream}
+     */
+    KTable<K, V> toTable(final Materialized<K, V, KeyValueStore<Bytes, byte[]>> materialized);
+
+    /**
+     * Convert this stream to a {@link KTable}.
+     * <p>
+     * an internal repartitioning topic may need to be created in Kafka if a key changed
+     * This topic will be named "${applicationId}-&lt;name&gt;-repartition", where "applicationId" is user-specified in
+     * {@link StreamsConfig} via parameter {@link StreamsConfig#APPLICATION_ID_CONFIG APPLICATION_ID_CONFIG},
+     * "&lt;name&gt;" is an internally generated name, and "-repartition" is a fixed suffix.
+     * <p>
+     * Note that this is a logical operation and only changes the "interpretation" of the stream, i.e., each record of
+     * it was a "fact/event" and is re-interpreted as update now (cf. {@link KStream} vs {@code KTable}).
+     *
+     * @param named  a {@link Named} config used to name the processor in the topology
+     * @param materialized an instance of {@link Materialized} used to describe how the state store of the
+     *                            resulting table should be materialized.
+     * @return a {@link KTable} that contains the same records as this {@code KStream}
+     */
+    KTable<K, V> toTable(final Named named,
+                         final Materialized<K, V, KeyValueStore<Bytes, byte[]>> materialized);
+
+    /**
+     * Group the records of this {@code KStream} on a new key that is selected using the provided {@link KeyValueMapper}
+     * and default serializers and deserializers.
+     * {@link KGroupedStream} can be further grouped with other streams to form a {@link CogroupedKStream}.
+     * Grouping a stream on the record key is required before an aggregation operator can be applied to the data
+     * (cf. {@link KGroupedStream}).
+     * The {@link KeyValueMapper} selects a new key (which may or may not be of the same type) while preserving the
+     * original values.
+     * If the new record key is {@code null} the record will not be included in the resulting {@link KGroupedStream}
+     * <p>
+     * Because a new key is selected, an internal repartitioning topic may need to be created in Kafka if a
+     * later operator depends on the newly selected key.
+     * This topic will be named "${applicationId}-&lt;name&gt;-repartition", where "applicationId" is user-specified in
+     * {@link StreamsConfig} via parameter {@link StreamsConfig#APPLICATION_ID_CONFIG APPLICATION_ID_CONFIG},
+     * "&lt;name&gt;" is an internally generated name, and "-repartition" is a fixed suffix.
+     * <p>
+     * You can retrieve all generated internal topic names via {@link Topology#describe()}.
+     * <p>
+     * All data of this stream will be redistributed through the repartitioning topic by writing all records to it,
+     * and rereading all records from it, such that the resulting {@link KGroupedStream} is partitioned on the new key.
+     * <p>
+     * This operation is equivalent to calling {@link #selectKey(KeyValueMapper)} followed by {@link #groupByKey()}.
+     * If the key type is changed, it is recommended to use {@link #groupBy(KeyValueMapper, Grouped)} instead.
+     *
+     * @param keySelector a {@link KeyValueMapper} that computes a new key for grouping
+     * @param <KR>        the key type of the result {@link KGroupedStream}
+     * @return a {@link KGroupedStream} that contains the grouped records of the original {@code KStream}
+     */
+    <KR> KGroupedStream<KR, V> groupBy(final KeyValueMapper<? super K, ? super V, KR> keySelector);
+
+    /**
+     * Group the records of this {@code KStream} on a new key that is selected using the provided {@link KeyValueMapper}
+     * and {@link Serde}s as specified by {@link Serialized}.
+     * {@link KGroupedStream} can be further grouped with other streams to form a {@link CogroupedKStream}.
+     * Grouping a stream on the record key is required before an aggregation operator can be applied to the data
+     * (cf. {@link KGroupedStream}).
+     * The {@link KeyValueMapper} selects a new key (which may or may not be of the same type) while preserving the
+     * original values.
+     * If the new record key is {@code null} the record will not be included in the resulting {@link KGroupedStream}.
+     * <p>
+     * Because a new key is selected, an internal repartitioning topic may need to be created in Kafka if a
+     * later operator depends on the newly selected key.
+     * This topic will be as "${applicationId}-&lt;name&gt;-repartition", where "applicationId" is user-specified in
+     * {@link StreamsConfig} via parameter {@link StreamsConfig#APPLICATION_ID_CONFIG APPLICATION_ID_CONFIG},
+     * "&lt;name&gt;" is an internally generated name, and "-repartition" is a fixed suffix.
+     * <p>
+     * You can retrieve all generated internal topic names via {@link Topology#describe()}.
+     * <p>
+     * All data of this stream will be redistributed through the repartitioning topic by writing all records to it,
+     * and rereading all records from it, such that the resulting {@link KGroupedStream} is partitioned on the new key.
+     * <p>
+     * This operation is equivalent to calling {@link #selectKey(KeyValueMapper)} followed by {@link #groupByKey()}.
+     *
+     * @param keySelector a {@link KeyValueMapper} that computes a new key for grouping
+     * @param <KR>        the key type of the result {@link KGroupedStream}
+     * @return a {@link KGroupedStream} that contains the grouped records of the original {@code KStream}
+     *
+     * @deprecated since 2.1. Use {@link org.apache.kafka.streams.kstream.KStream#groupBy(KeyValueMapper, Grouped)} instead
+     */
+    @Deprecated
+    <KR> KGroupedStream<KR, V> groupBy(final KeyValueMapper<? super K, ? super V, KR> keySelector,
+                                       final Serialized<KR, V> serialized);
+
+    /**
+     * Group the records of this {@code KStream} on a new key that is selected using the provided {@link KeyValueMapper}
+     * and {@link Serde}s as specified by {@link Grouped}.
+     * {@link KGroupedStream} can be further grouped with other streams to form a {@link CogroupedKStream}.
+     * Grouping a stream on the record key is required before an aggregation operator can be applied to the data
+     * (cf. {@link KGroupedStream}).
+     * The {@link KeyValueMapper} selects a new key (which may or may not be of the same type) while preserving the
+     * original values.
+     * If the new record key is {@code null} the record will not be included in the resulting {@link KGroupedStream}.
+     * <p>
+     * Because a new key is selected, an internal repartitioning topic may need to be created in Kafka if a later
+     * operator depends on the newly selected key.
+     * This topic will be named "${applicationId}-&lt;name&gt;-repartition", where "applicationId" is user-specified in
+     * {@link StreamsConfig} via parameter {@link StreamsConfig#APPLICATION_ID_CONFIG APPLICATION_ID_CONFIG},
+     * "&lt;name&gt;" is either provided via {@link org.apache.kafka.streams.kstream.Grouped#as(String)} or an
+     * internally generated name.
+     * <p>
+     * You can retrieve all generated internal topic names via {@link Topology#describe()}.
+     * <p>
+     * All data of this stream will be redistributed through the repartitioning topic by writing all records to it,
+     * and rereading all records from it, such that the resulting {@link KGroupedStream} is partitioned on the new key.
+     * <p>
+     * This operation is equivalent to calling {@link #selectKey(KeyValueMapper)} followed by {@link #groupByKey()}.
+     *
+     * @param keySelector a {@link KeyValueMapper} that computes a new key for grouping
+     * @param grouped     the {@link Grouped} instance used to specify {@link org.apache.kafka.common.serialization.Serdes}
+     *                    and part of the name for a repartition topic if repartitioning is required.
+     * @param <KR>        the key type of the result {@link KGroupedStream}
+     * @return a {@link KGroupedStream} that contains the grouped records of the original {@code KStream}
+     */
+    <KR> KGroupedStream<KR, V> groupBy(final KeyValueMapper<? super K, ? super V, KR> keySelector,
+                                       final Grouped<KR, V> grouped);
+
+    /**
      * Group the records by their current key into a {@link KGroupedStream} while preserving the original values
      * and default serializers and deserializers.
      * {@link KGroupedStream} can be further grouped with other streams to form a {@link CogroupedKStream}.
@@ -965,102 +1130,6 @@ public interface KStream<K, V> {
      * @see #groupBy(KeyValueMapper)
      */
     KGroupedStream<K, V> groupByKey(final Grouped<K, V> grouped);
-
-    /**
-     * Group the records of this {@code KStream} on a new key that is selected using the provided {@link KeyValueMapper}
-     * and default serializers and deserializers.
-     * {@link KGroupedStream} can be further grouped with other streams to form a {@link CogroupedKStream}.
-     * Grouping a stream on the record key is required before an aggregation operator can be applied to the data
-     * (cf. {@link KGroupedStream}).
-     * The {@link KeyValueMapper} selects a new key (which may or may not be of the same type) while preserving the
-     * original values.
-     * If the new record key is {@code null} the record will not be included in the resulting {@link KGroupedStream}
-     * <p>
-     * Because a new key is selected, an internal repartitioning topic may need to be created in Kafka if a
-     * later operator depends on the newly selected key.
-     * This topic will be named "${applicationId}-&lt;name&gt;-repartition", where "applicationId" is user-specified in
-     * {@link StreamsConfig} via parameter {@link StreamsConfig#APPLICATION_ID_CONFIG APPLICATION_ID_CONFIG},
-     * "&lt;name&gt;" is an internally generated name, and "-repartition" is a fixed suffix.
-     * <p>
-     * You can retrieve all generated internal topic names via {@link Topology#describe()}.
-     * <p>
-     * All data of this stream will be redistributed through the repartitioning topic by writing all records to it,
-     * and rereading all records from it, such that the resulting {@link KGroupedStream} is partitioned on the new key.
-     * <p>
-     * This operation is equivalent to calling {@link #selectKey(KeyValueMapper)} followed by {@link #groupByKey()}.
-     * If the key type is changed, it is recommended to use {@link #groupBy(KeyValueMapper, Grouped)} instead.
-     *
-     * @param selector a {@link KeyValueMapper} that computes a new key for grouping
-     * @param <KR>     the key type of the result {@link KGroupedStream}
-     * @return a {@link KGroupedStream} that contains the grouped records of the original {@code KStream}
-     */
-    <KR> KGroupedStream<KR, V> groupBy(final KeyValueMapper<? super K, ? super V, KR> selector);
-
-    /**
-     * Group the records of this {@code KStream} on a new key that is selected using the provided {@link KeyValueMapper}
-     * and {@link Serde}s as specified by {@link Serialized}.
-     * {@link KGroupedStream} can be further grouped with other streams to form a {@link CogroupedKStream}.
-     * Grouping a stream on the record key is required before an aggregation operator can be applied to the data
-     * (cf. {@link KGroupedStream}).
-     * The {@link KeyValueMapper} selects a new key (which may or may not be of the same type) while preserving the
-     * original values.
-     * If the new record key is {@code null} the record will not be included in the resulting {@link KGroupedStream}.
-     * <p>
-     * Because a new key is selected, an internal repartitioning topic may need to be created in Kafka if a
-     * later operator depends on the newly selected key.
-     * This topic will be as "${applicationId}-&lt;name&gt;-repartition", where "applicationId" is user-specified in
-     * {@link StreamsConfig} via parameter {@link StreamsConfig#APPLICATION_ID_CONFIG APPLICATION_ID_CONFIG},
-     * "&lt;name&gt;" is an internally generated name, and "-repartition" is a fixed suffix.
-     * <p>
-     * You can retrieve all generated internal topic names via {@link Topology#describe()}.
-     * <p>
-     * All data of this stream will be redistributed through the repartitioning topic by writing all records to it,
-     * and rereading all records from it, such that the resulting {@link KGroupedStream} is partitioned on the new key.
-     * <p>
-     * This operation is equivalent to calling {@link #selectKey(KeyValueMapper)} followed by {@link #groupByKey()}.
-     *
-     * @param selector a {@link KeyValueMapper} that computes a new key for grouping
-     * @param <KR>     the key type of the result {@link KGroupedStream}
-     * @return a {@link KGroupedStream} that contains the grouped records of the original {@code KStream}
-     *
-     * @deprecated since 2.1. Use {@link org.apache.kafka.streams.kstream.KStream#groupBy(KeyValueMapper, Grouped)} instead
-     */
-    @Deprecated
-    <KR> KGroupedStream<KR, V> groupBy(final KeyValueMapper<? super K, ? super V, KR> selector,
-                                       final Serialized<KR, V> serialized);
-
-    /**
-     * Group the records of this {@code KStream} on a new key that is selected using the provided {@link KeyValueMapper}
-     * and {@link Serde}s as specified by {@link Grouped}.
-     * {@link KGroupedStream} can be further grouped with other streams to form a {@link CogroupedKStream}.
-     * Grouping a stream on the record key is required before an aggregation operator can be applied to the data
-     * (cf. {@link KGroupedStream}).
-     * The {@link KeyValueMapper} selects a new key (which may or may not be of the same type) while preserving the
-     * original values.
-     * If the new record key is {@code null} the record will not be included in the resulting {@link KGroupedStream}.
-     * <p>
-     * Because a new key is selected, an internal repartitioning topic may need to be created in Kafka if a later
-     * operator depends on the newly selected key.
-     * This topic will be named "${applicationId}-&lt;name&gt;-repartition", where "applicationId" is user-specified in
-     * {@link StreamsConfig} via parameter {@link StreamsConfig#APPLICATION_ID_CONFIG APPLICATION_ID_CONFIG},
-     * "&lt;name&gt;" is either provided via {@link org.apache.kafka.streams.kstream.Grouped#as(String)} or an
-     * internally generated name.
-     * <p>
-     * You can retrieve all generated internal topic names via {@link Topology#describe()}.
-     * <p>
-     * All data of this stream will be redistributed through the repartitioning topic by writing all records to it,
-     * and rereading all records from it, such that the resulting {@link KGroupedStream} is partitioned on the new key.
-     * <p>
-     * This operation is equivalent to calling {@link #selectKey(KeyValueMapper)} followed by {@link #groupByKey()}.
-     *
-     * @param selector a {@link KeyValueMapper} that computes a new key for grouping
-     * @param grouped  the {@link Grouped} instance used to specify {@link org.apache.kafka.common.serialization.Serdes}
-     *                 and part of the name for a repartition topic if repartitioning is required.
-     * @param <KR>     the key type of the result {@link KGroupedStream}
-     * @return a {@link KGroupedStream} that contains the grouped records of the original {@code KStream}
-     */
-    <KR> KGroupedStream<KR, V> groupBy(final KeyValueMapper<? super K, ? super V, KR> selector,
-                                       final Grouped<KR, V> grouped);
 
     /**
      * Join records of this stream with another {@code KStream}'s records using windowed inner equi join with default
@@ -2133,8 +2202,8 @@ public interface KStream<K, V> {
      * If {@code keyValueMapper} returns {@code null} implying no match exists, no output record will be added to the
      * resulting {@code KStream}.
      *
-     * @param globalKTable   the {@link GlobalKTable} to be joined with this stream
-     * @param keyValueMapper instance of {@link KeyValueMapper} used to map from the (key, value) of this stream
+     * @param globalTable    the {@link GlobalKTable} to be joined with this stream
+     * @param keySelector    instance of {@link KeyValueMapper} used to map from the (key, value) of this stream
      *                       to the key of the {@link GlobalKTable}
      * @param joiner         a {@link ValueJoiner} that computes the join result for a pair of matching records
      * @param <GK>           the key type of {@link GlobalKTable}
@@ -2144,8 +2213,8 @@ public interface KStream<K, V> {
      * {@link ValueJoiner}, one output for each input {@code KStream} record
      * @see #leftJoin(GlobalKTable, KeyValueMapper, ValueJoiner)
      */
-    <GK, GV, RV> KStream<K, RV> join(final GlobalKTable<GK, GV> globalKTable,
-                                     final KeyValueMapper<? super K, ? super V, ? extends GK> keyValueMapper,
+    <GK, GV, RV> KStream<K, RV> join(final GlobalKTable<GK, GV> globalTable,
+                                     final KeyValueMapper<? super K, ? super V, ? extends GK> keySelector,
                                      final ValueJoiner<? super V, ? super GV, ? extends RV> joiner);
 
     /**
@@ -2166,8 +2235,8 @@ public interface KStream<K, V> {
      * If {@code keyValueMapper} returns {@code null} implying no match exists, no output record will be added to the
      * resulting {@code KStream}.
      *
-     * @param globalKTable   the {@link GlobalKTable} to be joined with this stream
-     * @param keyValueMapper instance of {@link KeyValueMapper} used to map from the (key, value) of this stream
+     * @param globalTable    the {@link GlobalKTable} to be joined with this stream
+     * @param keySelector    instance of {@link KeyValueMapper} used to map from the (key, value) of this stream
      *                       to the key of the {@link GlobalKTable}
      * @param joiner         a {@link ValueJoiner} that computes the join result for a pair of matching records
      * @param named          a {@link Named} config used to name the processor in the topology
@@ -2178,8 +2247,8 @@ public interface KStream<K, V> {
      * {@link ValueJoiner}, one output for each input {@code KStream} record
      * @see #leftJoin(GlobalKTable, KeyValueMapper, ValueJoiner)
      */
-    <GK, GV, RV> KStream<K, RV> join(final GlobalKTable<GK, GV> globalKTable,
-                                     final KeyValueMapper<? super K, ? super V, ? extends GK> keyValueMapper,
+    <GK, GV, RV> KStream<K, RV> join(final GlobalKTable<GK, GV> globalTable,
+                                     final KeyValueMapper<? super K, ? super V, ? extends GK> keySelector,
                                      final ValueJoiner<? super V, ? super GV, ? extends RV> joiner,
                                      final Named named);
 
@@ -2205,8 +2274,8 @@ public interface KStream<K, V> {
      * If no {@link GlobalKTable} record was found during lookup, a {@code null} value will be provided to
      * {@link ValueJoiner}.
      *
-     * @param globalKTable   the {@link GlobalKTable} to be joined with this stream
-     * @param keyValueMapper instance of {@link KeyValueMapper} used to map from the (key, value) of this stream
+     * @param globalTable    the {@link GlobalKTable} to be joined with this stream
+     * @param keySelector    instance of {@link KeyValueMapper} used to map from the (key, value) of this stream
      *                       to the key of the {@link GlobalKTable}
      * @param valueJoiner    a {@link ValueJoiner} that computes the join result for a pair of matching records
      * @param <GK>           the key type of {@link GlobalKTable}
@@ -2216,8 +2285,8 @@ public interface KStream<K, V> {
      * {@link ValueJoiner}, one output for each input {@code KStream} record
      * @see #join(GlobalKTable, KeyValueMapper, ValueJoiner)
      */
-    <GK, GV, RV> KStream<K, RV> leftJoin(final GlobalKTable<GK, GV> globalKTable,
-                                         final KeyValueMapper<? super K, ? super V, ? extends GK> keyValueMapper,
+    <GK, GV, RV> KStream<K, RV> leftJoin(final GlobalKTable<GK, GV> globalTable,
+                                         final KeyValueMapper<? super K, ? super V, ? extends GK> keySelector,
                                          final ValueJoiner<? super V, ? super GV, ? extends RV> valueJoiner);
 
     /**
@@ -2242,8 +2311,8 @@ public interface KStream<K, V> {
      * If no {@link GlobalKTable} record was found during lookup, a {@code null} value will be provided to
      * {@link ValueJoiner}.
      *
-     * @param globalKTable   the {@link GlobalKTable} to be joined with this stream
-     * @param keyValueMapper instance of {@link KeyValueMapper} used to map from the (key, value) of this stream
+     * @param globalTable    the {@link GlobalKTable} to be joined with this stream
+     * @param keySelector    instance of {@link KeyValueMapper} used to map from the (key, value) of this stream
      *                       to the key of the {@link GlobalKTable}
      * @param valueJoiner    a {@link ValueJoiner} that computes the join result for a pair of matching records
      * @param named          a {@link Named} config used to name the processor in the topology
@@ -2254,8 +2323,8 @@ public interface KStream<K, V> {
      * {@link ValueJoiner}, one output for each input {@code KStream} record
      * @see #join(GlobalKTable, KeyValueMapper, ValueJoiner)
      */
-    <GK, GV, RV> KStream<K, RV> leftJoin(final GlobalKTable<GK, GV> globalKTable,
-                                         final KeyValueMapper<? super K, ? super V, ? extends GK> keyValueMapper,
+    <GK, GV, RV> KStream<K, RV> leftJoin(final GlobalKTable<GK, GV> globalTable,
+                                         final KeyValueMapper<? super K, ? super V, ? extends GK> keySelector,
                                          final ValueJoiner<? super V, ? super GV, ? extends RV> valueJoiner,
                                          final Named named);
 
