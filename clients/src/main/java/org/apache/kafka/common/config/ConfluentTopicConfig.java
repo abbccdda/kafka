@@ -7,7 +7,6 @@ package org.apache.kafka.common.config;
 /**
  * Keys that can be used to configure a topic for Confluent Platform Kafka. These keys are useful when creating or reconfiguring a
  * topic using the AdminClient.
- *
  */
 // This is a public API, so we should not remove or alter keys without a discussion and a deprecation period.
 public class ConfluentTopicConfig {
@@ -33,11 +32,17 @@ public class ConfluentTopicConfig {
 
     public static final String TIER_SEGMENT_HOTSET_ROLL_MIN_BYTES_CONFIG =
             CONFLUENT_PREFIX + "tier.segment.hotset.roll.min.bytes";
-    public static final String TIER_SEGMENT_HOTSET_ROLL_MIN_BYTES_CONFIG_DOC = "Allows a segment roll to be forced if the active " +
+    public static final String TIER_SEGMENT_HOTSET_ROLL_MIN_BYTES_DOC = "Allows a segment roll to be forced if the active " +
             "segment is larger than `confluent.tier.segment.hotset.roll.min.bytes` and if all records in the segment " +
             "are ready for eviction from the hotset. Rolling the segment ensures that it can be tiered and the segment " +
             "can then be deleted from the hotset. A minimum size is enforced to ensure efficient tiering and " +
             "consumption.";
+
+    public static final String PREFER_TIER_FETCH_MS_CONFIG = CONFLUENT_PREFIX + "prefer.tier.fetch.ms";
+    public static final String PREFER_TIER_FETCH_MS_DOC = "For a topic with tiering enabled, this configuration sets " +
+            "preference for data to be fetched from tiered storage, even if it is available on broker-local storage " +
+            "through the configured hotset retention. Data will be preferentially fetched from tiered storage if present " +
+            "when the configured amount of time has elapsed since data was appended to the log.";
 
     public static final String APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG = CONFLUENT_PREFIX + "append.record.interceptor.classes";
     public static final String APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG_DOC = "A list of classes to use as interceptors. " +

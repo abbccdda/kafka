@@ -2,7 +2,7 @@
  Copyright 2018 Confluent Inc.
  */
 
-package integration.kafka.tier
+package kafka.tier
 
 import kafka.log.{AbortedTxn, Log}
 import kafka.tier.fetcher.{CancellationContext, TierAbortedTxnReader}

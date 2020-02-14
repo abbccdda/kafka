@@ -213,10 +213,13 @@ class MergedLog(private[log] val localLog: Log,
                     minOneMessage: Boolean): AbstractFetchDataInfo = {
     maybeHandleIOException(s"Exception while reading from $topicPartition in dir ${dir.getParent}") {
       val logEndOffset = this.logEndOffset
-      try {
-        readLocal(startOffset, maxLength, isolation, minOneMessage)
-      } catch {
-        case _: OffsetOutOfRangeException => readTier(startOffset, maxLength, minOneMessage, logEndOffset)
+
+      maybePerformPreferredTierRead(startOffset, maxLength, minOneMessage, logEndOffset).getOrElse {
+        try {
+          readLocal(startOffset, maxLength, isolation, minOneMessage)
+        } catch {
+          case _: OffsetOutOfRangeException => readTier(startOffset, maxLength, minOneMessage, logEndOffset)
+        }
       }
     }
   }
@@ -235,11 +238,11 @@ class MergedLog(private[log] val localLog: Log,
       // producer state snapshot. This ensures that no deletion will occur until it is guaranteed that all followers will
       // be able to restore a consistent snapshot on OFFSET_TIERED_EXCEPTION.
       def deletionCanProceed(deletableLogSegments: Seq[LogSegment]): Boolean = {
-        deletableLogSegments.lastOption.flatMap(lastSegment => {
+        deletableLogSegments.lastOption.flatMap { lastSegment =>
           // Check if there is a snapshot file for this segment, which would have been created using the
           // next segments base offset on roll
           producerStateManager.snapshotFileForOffset(lastSegment.readNextOffset)
-        }).isDefined
+        }.isDefined
       }
 
       // Apply hotset retention: do not delete any untiered segments
@@ -405,6 +408,33 @@ class MergedLog(private[log] val localLog: Log,
 
   override def baseOffsetFirstUntierableSegment: Option[Long] = {
     tierableLogSegments.lastOption.flatMap(seg => nextLocalLogSegment(seg).map(_.baseOffset))
+  }
+
+  private def maybePerformPreferredTierRead(startOffset: Long,
+                                            maxLength: Int,
+                                            minOneMessage: Boolean,
+                                            logEndOffset: Long): Option[TierFetchDataInfo] = {
+    def preferTierRead: Boolean = {
+      // Prefer tiered reads if:
+      // 1. Preferential tier fetches are enabled
+      // 2. Requested offset is greater than the log start offset
+      // 3. The offset is present in tiered storage (requested offset is greater than or equal to first tiered offset
+      //    and is less than the first untiered offset)
+      // 4. Required time has elapsed as per the largest timestamp in the segment corresponding to the requested offset
+      config.preferTierFetchMs >= 0 &&
+        startOffset >= logStartOffset &&
+        firstTieredOffset.getOrElse(Long.MaxValue) <= startOffset &&
+        startOffset < tierPartitionState.endOffset &&
+        localLogSegments(startOffset, Long.MaxValue).headOption
+          .exists(_.largestTimestamp < localLog.time.milliseconds - config.preferTierFetchMs)
+    }
+
+    if (preferTierRead) {
+      trace(s"Attempting preferred tier read for $maxLength bytes from offset $startOffset of length $size bytes")
+      Some(readTier(startOffset, maxLength, minOneMessage, logEndOffset))
+    } else {
+      None
+    }
   }
 
   // Attempt to locate "startOffset" in tiered store. If found, returns corresponding metadata about the tiered

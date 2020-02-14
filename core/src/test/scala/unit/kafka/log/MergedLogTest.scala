@@ -53,31 +53,6 @@ class MergedLogTest {
   }
 
   @Test
-  def testReadFromTieredRegion(): Unit = {
-    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = 1)
-    val log = createLogWithOverlap(30, 50, 10, logConfig)
-    val tierPartitionState = log.tierPartitionState
-    val ranges = logRanges(log)
-
-    // reading from overlap should return local data
-    val tierStart = ranges.firstTieredOffset
-    val tierEnd = ranges.firstOverlapOffset.get - 1
-    val offsetsToRead = List(tierStart, tierStart + 1, tierEnd - 1, tierEnd)
-
-    offsetsToRead.foreach { offset =>
-      val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true)
-      result match {
-        case tierResult: TierFetchDataInfo => {
-          val segmentBaseOffset = tierPartitionState.segmentOffsets.floor(offset)
-          assertEquals(segmentBaseOffset, tierResult.fetchMetadata.segmentBaseOffset)
-        }
-        case _ => fail(s"Unexpected $result for read at $offset")
-      }
-    }
-    log.close()
-  }
-
-  @Test
   def testLogSizeMetrics(): Unit = {
     val numTiered = 30
     val numOverlap = 3
@@ -167,6 +142,30 @@ class MergedLogTest {
   }
 
   @Test
+  def testReadFromTieredRegion(): Unit = {
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = 1)
+    val log = createLogWithOverlap(30, 50, 10, logConfig)
+    val tierPartitionState = log.tierPartitionState
+    val ranges = logRanges(log)
+
+    // reading from overlap should return local data
+    val tierStart = ranges.firstTieredOffset
+    val tierEnd = ranges.firstOverlapOffset.get - 1
+    val offsetsToRead = List(tierStart, tierStart + 1, tierEnd - 1, tierEnd)
+
+    offsetsToRead.foreach { offset =>
+      val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true)
+      result match {
+        case tierResult: TierFetchDataInfo =>
+          val segmentBaseOffset = tierPartitionState.segmentOffsets.floor(offset)
+          assertEquals(segmentBaseOffset, tierResult.fetchMetadata.segmentBaseOffset)
+        case _ => fail(s"Unexpected $result for read at $offset")
+      }
+    }
+    log.close()
+  }
+
+  @Test
   def testReadFromOverlap(): Unit = {
     val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = 1)
     val log = createLogWithOverlap(30, 50, 10, logConfig)
@@ -182,6 +181,52 @@ class MergedLogTest {
       result match {
         case localResult: FetchDataInfo => assertEquals(offset, localResult.records.records.iterator.next.offset)
         case _ => fail(s"Unexpected $result")
+      }
+    }
+    log.close()
+  }
+
+  @Test
+  def testReadFromOverlapWithPreferTierFetch(): Unit = {
+    // set `preferTierFetchMs` such that it falls in the middle of the hotset
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = 1,
+      preferTierFetchMs = 55)
+
+    def segmentMaxTimestampCbk(): Long = {
+      val timestamp = mockTime.milliseconds
+      mockTime.sleep(1)
+      timestamp
+    }
+
+    // <---- Tiered Log ----> <---- Hotset ----> <---- Local Log ---->
+    //      30 segments          10 segments          50 segments
+    // 0                   29 30      35       39 40                 89 90
+    //                                ^                                 ^
+    //                                preferTierTime                    currentTime
+    val log = createLogWithOverlap(30, 50, 10, logConfig,
+      segmentMaxTimestampCbk = segmentMaxTimestampCbk)
+    val tierPartitionState = log.tierPartitionState
+    val ranges = logRanges(log)
+
+    // reading from overlap should return local data
+    val overlapStart = ranges.firstOverlapOffset.get
+    val overlapEnd = ranges.lastOverlapOffset.get
+    val offsetsToRead = List(overlapStart, overlapStart + 1, overlapEnd - 1, overlapEnd)
+
+    offsetsToRead.foreach { offset =>
+      val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true)
+      result match {
+        case localResult: FetchDataInfo =>
+          val baseOffset = localResult.fetchOffsetMetadata.segmentBaseOffset
+          val segment = log.localLogSegments(baseOffset, baseOffset + 1).head
+          assertTrue(segment.largestTimestamp >= mockTime.milliseconds - 55)
+          assertEquals(offset, localResult.records.records.iterator.next.offset)
+
+        case tierResult: TierFetchDataInfo =>
+          val segmentBaseOffset = tierPartitionState.segmentOffsets.floor(offset)
+          val segment = tierPartitionState.metadata(segmentBaseOffset).get
+          assertTrue(segment.maxTimestamp < mockTime.milliseconds - 55)
+          assertEquals(segmentBaseOffset, tierResult.fetchMetadata.segmentBaseOffset)
       }
     }
     log.close()
@@ -352,7 +397,8 @@ class MergedLogTest {
       tierLocalHotsetMs = 999,
       retentionMs = Long.MaxValue,
       retentionBytes = Long.MaxValue)
-    val log = createLogWithOverlap(numTieredSegments, numLocalSegments, numOverlap, logConfig, recordTimestamp = mockTime.milliseconds - 1000)
+    val log = createLogWithOverlap(numTieredSegments, numLocalSegments, numOverlap, logConfig,
+      segmentMaxTimestampCbk = () => mockTime.milliseconds - 1000)
     val initialLogStartOffset = log.logStartOffset
 
     // All segments in the overlap region are eligible for hotset retention
@@ -1135,9 +1181,9 @@ class MergedLogTest {
                                    numLocalSegments: Int,
                                    numOverlap: Int,
                                    config: LogConfig,
-                                   recordTimestamp: Long = RecordBatch.NO_TIMESTAMP): MergedLog = {
+                                   segmentMaxTimestampCbk: () => Long = () => RecordBatch.NO_TIMESTAMP): MergedLog = {
     MergedLogTest.createLogWithOverlap(numTieredSegments, numLocalSegments, numOverlap, tierLogComponents, logDir,
-      config, brokerTopicStats, mockTime.scheduler, mockTime, topicIdPartition, recordTimestamp = recordTimestamp)
+      config, brokerTopicStats, mockTime.scheduler, mockTime, topicIdPartition, segmentMaxTimestampCbk = segmentMaxTimestampCbk)
   }
 
   private def metricValue(name: String): Long = {
@@ -1171,7 +1217,7 @@ object MergedLogTest {
                            recoveryPoint: Long = 0L,
                            maxProducerIdExpirationMs: Int = 60 * 60 * 1000,
                            producerIdExpirationCheckIntervalMs: Int = LogManager.ProducerIdExpirationCheckIntervalMs,
-                           recordTimestamp: Long = RecordBatch.NO_TIMESTAMP): MergedLog = {
+                           segmentMaxTimestampCbk: () => Long = () => RecordBatch.NO_TIMESTAMP): MergedLog = {
     val tempConfig = LogTest.createLogConfig(retentionBytes = 1,
       tierEnable = true,
       segmentBytes = logConfig.segmentSize,
@@ -1188,9 +1234,10 @@ object MergedLogTest {
     // create all segments as local initially
     for (segment <- 0 until (numTieredSegments + numLocalSegments + numOverlap - 1)) {
       val currentNumSegments = log.localLogSegments.size
+      val timestamp = segmentMaxTimestampCbk()
       var message = 0
       while (log.localLogSegments.size == currentNumSegments) {
-        log.appendAsLeader(createRecords(segment, message, timestamp = recordTimestamp), leaderEpoch = 0)
+        log.appendAsLeader(createRecords(segment, message, timestamp), leaderEpoch = 0)
         message += 1
       }
     }

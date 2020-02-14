@@ -75,6 +75,7 @@ object Defaults {
   val TierLocalHotsetBytes = kafka.server.Defaults.TierLocalHotsetBytes
   val TierLocalHotsetMs = kafka.server.Defaults.TierLocalHotsetMs
   val TierSegmentHotsetRollMinBytes = kafka.server.Defaults.TierSegmentHotsetRollMinBytes
+  val PreferTierFetchMs = kafka.server.Defaults.PreferTierFetchMs
   val SegmentSpeculativePrefetchEnable = kafka.server.Defaults.SegmentSpeculativePrefetchEnable
 
   /* Use the empty string instead of null. With a default value of null some clients may
@@ -125,6 +126,7 @@ case class LogConfig(props: java.util.Map[_, _], overriddenConfigs: Set[String] 
   val tierLocalHotsetBytes = getLong(LogConfig.TierLocalHotsetBytesProp)
   val tierLocalHotsetMs = getLong(LogConfig.TierLocalHotsetMsProp)
   val tierSegmentHotsetRollMinBytes = getInt(LogConfig.TierSegmentHotsetRollMinBytesProp)
+  val preferTierFetchMs = getLong(LogConfig.PreferTierFetchMsProp)
   val segmentSpeculativePrefetchEnable = getBoolean(LogConfig.SegmentSpeculativePrefetchEnableProp)
 
   val appendRecordInterceptors = getConfiguredInstances(LogConfig.AppendRecordInterceptorClassesProp, classOf[RecordInterceptor])
@@ -192,6 +194,7 @@ object LogConfig {
   val TierLocalHotsetBytesProp = ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_CONFIG
   val TierLocalHotsetMsProp = ConfluentTopicConfig.TIER_LOCAL_HOTSET_MS_CONFIG
   val TierSegmentHotsetRollMinBytesProp = ConfluentTopicConfig.TIER_SEGMENT_HOTSET_ROLL_MIN_BYTES_CONFIG
+  val PreferTierFetchMsProp = ConfluentTopicConfig.PREFER_TIER_FETCH_MS_CONFIG
   val AppendRecordInterceptorClassesProp = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG
   val KeySchemaValidationEnableProp = ConfluentTopicConfig.KEY_SCHEMA_VALIDATION_CONFIG
   val ValueSchemaValidationEnableProp = ConfluentTopicConfig.VALUE_SCHEMA_VALIDATION_CONFIG
@@ -231,9 +234,10 @@ object LogConfig {
   val TierEnableDoc = ConfluentTopicConfig.TIER_ENABLE_DOC
   val TierLocalHotsetBytesDoc = ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_DOC
   val TierLocalHotsetMsDoc = ConfluentTopicConfig.TIER_LOCAL_HOTSET_MS_DOC
+  val TierSegmentHotsetRollMinBytesDoc = ConfluentTopicConfig.TIER_SEGMENT_HOTSET_ROLL_MIN_BYTES_DOC
+  val PreferTierFetchMsDoc = ConfluentTopicConfig.PREFER_TIER_FETCH_MS_DOC
   val AppendRecordInterceptorClassesDoc = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG_DOC
   val TopicPlacementConstraintsDoc = ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_DOC
-  val TierSegmentHotsetRollMinBytesDoc = ConfluentTopicConfig.TIER_SEGMENT_HOTSET_ROLL_MIN_BYTES_CONFIG_DOC
   val SegmentSpeculativePrefetchEnableDoc = ConfluentTopicConfig.SEGMENT_SPECULATIVE_PREFETCH_ENABLE_DOC
 
   val LeaderReplicationThrottledReplicasDoc = "A list of replicas for which log replication should be throttled on " +
@@ -380,7 +384,6 @@ object LogConfig {
         FollowerReplicationThrottledReplicasDoc, FollowerReplicationThrottledReplicasProp)
       .define(MessageDownConversionEnableProp, BOOLEAN, Defaults.MessageDownConversionEnable, LOW,
         MessageDownConversionEnableDoc, KafkaConfig.LogMessageDownConversionEnableProp)
-      .define(TierSegmentHotsetRollMinBytesProp, INT, Defaults.TierSegmentHotsetRollMinBytes, MEDIUM, TierSegmentHotsetRollMinBytesDoc, KafkaConfig.TierSegmentHotsetRollMinBytesProp)
       .defineTopicOnly(
         TopicPlacementConstraintsProp,
         STRING,
@@ -404,6 +407,9 @@ object LogConfig {
       .defineInternal(TierEnableProp, BOOLEAN, Defaults.TierEnable, MEDIUM, TierEnableDoc, KafkaConfig.TierEnableProp)
       .defineInternal(TierLocalHotsetBytesProp, LONG, Defaults.TierLocalHotsetBytes, MEDIUM, TierLocalHotsetBytesDoc, KafkaConfig.TierLocalHotsetBytesProp)
       .defineInternal(TierLocalHotsetMsProp, LONG, Defaults.TierLocalHotsetMs, MEDIUM, TierLocalHotsetMsDoc, KafkaConfig.TierLocalHotsetMsProp)
+      .defineInternal(TierSegmentHotsetRollMinBytesProp, INT, Defaults.TierSegmentHotsetRollMinBytes, MEDIUM,
+        TierSegmentHotsetRollMinBytesDoc, KafkaConfig.TierSegmentHotsetRollMinBytesProp)
+      .defineInternal(PreferTierFetchMsProp, LONG, Defaults.PreferTierFetchMs, LOW, PreferTierFetchMsDoc, KafkaConfig.PreferTierFetchMsProp)
       .defineInternal(AppendRecordInterceptorClassesProp, LIST, Collections.emptyList(), LOW, AppendRecordInterceptorClassesDoc, AppendRecordInterceptorClassesProp)
       .defineInternal(SegmentSpeculativePrefetchEnableProp, BOOLEAN, Defaults.SegmentSpeculativePrefetchEnable, LOW,
         SegmentSpeculativePrefetchEnableDoc, KafkaConfig.SegmentSpeculativePrefetchEnableProp)
@@ -505,6 +511,7 @@ object LogConfig {
     TierLocalHotsetBytesProp -> KafkaConfig.TierLocalHotsetBytesProp,
     TierLocalHotsetMsProp -> KafkaConfig.TierLocalHotsetMsProp,
     TierSegmentHotsetRollMinBytesProp -> KafkaConfig.TierSegmentHotsetRollMinBytesProp,
+    PreferTierFetchMsProp -> KafkaConfig.PreferTierFetchMsProp,
     AppendRecordInterceptorClassesProp -> KafkaConfig.AppendRecordInterceptorClassesProp,
     SegmentSpeculativePrefetchEnableProp -> KafkaConfig.SegmentSpeculativePrefetchEnableProp
   )

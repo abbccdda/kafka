@@ -218,6 +218,7 @@ object Defaults {
   val TierGcsWriteChunkSize = 0
   val TierGcsReadChunkSize = 0
   val TierTopicDeleteCheckIntervalMs = 3L * 60 * 60 * 1000
+  val PreferTierFetchMs = -1L
 
   /** Tiered storage retention configs **/
   val TierLocalHotsetBytes = -1L
@@ -500,6 +501,7 @@ object KafkaConfig {
   val TierFetcherOffsetCacheSizeProp = ConfluentPrefix + "tier.fetcher.offset.cache.size"
   val TierFetcherOffsetCacheExpirationMsProp = ConfluentPrefix + "tier.fetcher.offset.cache.expiration.ms"
   val TierFetcherOffsetCacheExpiryPeriodMsProp = ConfluentPrefix + "tier.fetcher.offset.cache.period.ms"
+  val PreferTierFetchMsProp = ConfluentTopicConfig.PREFER_TIER_FETCH_MS_CONFIG
 
   /** Tiered storage retention configs **/
   val TierLocalHotsetBytesProp = ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_CONFIG
@@ -900,6 +902,7 @@ object KafkaConfig {
   val TierGcsWriteChunkSizeDoc = "The GCS chunk size for write requests between the broker and storage. If null, then the default value from the GCS implementation is used."
   val TierGcsReadChunkSizeDoc = "The GCS chunk size for read requests between the broker and storage. If null, then the default value from the GCS implementation is used."
   val TierTopicDeleteCheckIntervalMsDoc = "Frequency at which tiered objects cleanup is run for deleted topics."
+  val PreferTierFetchMsDoc = ConfluentTopicConfig.PREFER_TIER_FETCH_MS_DOC
 
   /** Tiered storage retention configs **/
   val TierLocalHotsetBytesDoc = ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_DOC
@@ -1218,6 +1221,7 @@ object KafkaConfig {
       .defineInternal(TierGcsReadChunkSizeProp, INT, Defaults.TierGcsReadChunkSize, atLeast(0), LOW, TierGcsReadChunkSizeDoc)
       .define(TierTopicDeleteCheckIntervalMsProp, LONG, Defaults.TierTopicDeleteCheckIntervalMs, atLeast(1), LOW, TierTopicDeleteCheckIntervalMsDoc)
       .defineInternal(TierSegmentHotsetRollMinBytesProp, INT, Defaults.TierSegmentHotsetRollMinBytes, atLeast(1024 * 1024), MEDIUM, TierSegmentHotsetRollMinBytesDoc)
+      .defineInternal(PreferTierFetchMsProp, LONG, Defaults.PreferTierFetchMs, LOW, PreferTierFetchMsDoc)
 
       /** ********* Fetch Configuration **************/
       .define(MaxIncrementalFetchSessionCacheSlots, INT, Defaults.MaxIncrementalFetchSessionCacheSlots, atLeast(0), MEDIUM, MaxIncrementalFetchSessionCacheSlotsDoc)
@@ -1610,6 +1614,7 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierGcsReadChunkSize = getInt(KafkaConfig.TierGcsReadChunkSizeProp)
   val tierTopicDeleteCheckIntervalMs = getLong(KafkaConfig.TierTopicDeleteCheckIntervalMsProp)
   def tierSegmentHotsetRollMinBytes = getInt(KafkaConfig.TierSegmentHotsetRollMinBytesProp)
+  def preferTierFetchMs = getLong(KafkaConfig.PreferTierFetchMsProp)
 
   /** ********* Segment speculative prefetching optimization ***********/
   def segmentSpeculativePrefetchEnable = getBoolean(KafkaConfig.SegmentSpeculativePrefetchEnableProp)

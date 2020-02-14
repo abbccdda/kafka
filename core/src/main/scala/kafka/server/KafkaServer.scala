@@ -99,6 +99,7 @@ object KafkaServer {
     logProps.put(LogConfig.TierLocalHotsetBytesProp, kafkaConfig.tierLocalHotsetBytes: java.lang.Long)
     logProps.put(LogConfig.TierLocalHotsetMsProp, kafkaConfig.tierLocalHotsetMs: java.lang.Long)
     logProps.put(LogConfig.TierSegmentHotsetRollMinBytesProp, kafkaConfig.tierSegmentHotsetRollMinBytes: java.lang.Integer)
+    logProps.put(LogConfig.PreferTierFetchMsProp, kafkaConfig.preferTierFetchMs: java.lang.Long)
     logProps.put(LogConfig.SegmentSpeculativePrefetchEnableProp, kafkaConfig.segmentSpeculativePrefetchEnable: java.lang.Boolean)
 
     // confluent configs needed for topic-level overrides below:

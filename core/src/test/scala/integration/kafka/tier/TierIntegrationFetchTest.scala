@@ -11,7 +11,6 @@ import java.util
 import java.util.concurrent.TimeUnit
 import java.util.function.Consumer
 import java.util.{Properties, UUID}
-import java.util.Random
 import java.util.concurrent.atomic.AtomicBoolean
 
 import javax.management.ObjectName
@@ -32,6 +31,7 @@ import scala.collection.JavaConverters._
 
 class TierIntegrationFetchTest extends IntegrationTestHarness {
   override protected def brokerCount: Int = 1
+
   serverConfig.put(KafkaConfig.TierPartitionStateCommitIntervalProp, "5")
 
   private def configureMock(): Unit = {
@@ -49,8 +49,9 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
 
   private val topic = UUID.randomUUID().toString
   private val partitions: Int = 1
-  private var partitionToLeader: Map[Int, Int] = Map()
-  private def topicPartitions: Seq[TopicPartition] = Range(0,partitions).map(p => new TopicPartition(topic, p))
+
+  private def topicPartitions: Seq[TopicPartition] = Range(0, partitions).map(p => new TopicPartition(topic, p))
+
   val exited = new AtomicBoolean(false)
 
   @Before
@@ -59,14 +60,6 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
       override def execute(statusCode: Int, message: String): Unit = exited.set(true)
     })
     super.setUp()
-    val props = new Properties
-    props.put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true")
-    props.put(TopicConfig.SEGMENT_BYTES_CONFIG, "10000")
-    // Set retention bytes adequately low, to allow us to delete some segments after they have been tiered
-    props.put(ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_CONFIG, "5000")
-    props.put(TopicConfig.RETENTION_BYTES_CONFIG, "-1")
-
-    partitionToLeader = createTopic(topic, partitions, 1, props)
   }
 
   @After
@@ -75,13 +68,52 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
     assertFalse(exited.get())
   }
 
+  @Test
+  def testArchiveAndTierFetch(): Unit = {
+    val props = new Properties
+    props.put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true")
+    props.put(TopicConfig.SEGMENT_BYTES_CONFIG, "10000")
+    // Set retention bytes adequately low, to allow us to delete some segments after they have been tiered
+    props.put(ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_CONFIG, "5000")
+    props.put(TopicConfig.RETENTION_BYTES_CONFIG, "-1")
+    val partitionToLeaderMap = createTopic(topic, partitions, 1, props)
+
+    val nBatches = 100
+    val recordsPerBatch = 100
+    produceRecords(nBatches, recordsPerBatch)
+    waitUntilSegmentsTiered(5, partitionToLeaderMap)
+    simulateRetention(partitionToLeaderMap)
+
+    consumeAndValidateTierFetch(partitionToLeaderMap, nBatches, recordsPerBatch)
+  }
+
+  @Test
+  def testArchiveAndPreferredTierFetch(): Unit = {
+    val props = new Properties
+    props.put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true")
+    props.put(TopicConfig.SEGMENT_BYTES_CONFIG, "10000")
+    props.put(TopicConfig.RETENTION_BYTES_CONFIG, "-1")
+    // Disable hotset retention and set preferred tier fetch to always be enabled
+    props.put(ConfluentTopicConfig.TIER_LOCAL_HOTSET_MS_CONFIG, "-1")
+    props.put(ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_CONFIG, "-1")
+    props.put(ConfluentTopicConfig.PREFER_TIER_FETCH_MS_CONFIG, "0")
+    val partitionToLeaderMap = createTopic(topic, partitions, 1, props)
+
+    val nBatches = 100
+    val recordsPerBatch = 100
+    produceRecords(nBatches, recordsPerBatch)
+    waitUntilSegmentsTiered(5, partitionToLeaderMap)
+
+    consumeAndValidateTierFetch(partitionToLeaderMap, nBatches, recordsPerBatch)
+  }
+
   private def produceRecords(nBatches: Int, recordsPerBatch: Int): Unit = {
     val producer = createProducer()
     try {
       for (b <- 0 until nBatches) {
+        val timestamp = System.currentTimeMillis
         val producerRecords = (0 until recordsPerBatch).map { i =>
           val m = recordsPerBatch * b + i
-          val timestamp = Math.abs(new Random().nextLong())
           new ProducerRecord(topic, null, timestamp,
             "foo".getBytes(StandardCharsets.UTF_8),
             s"$m".getBytes(StandardCharsets.UTF_8))
@@ -93,16 +125,16 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
     }
   }
 
-  private def getLeaderForTopicPartition(leaderTopicPartition: TopicPartition): Int = {
-    partitionToLeader(leaderTopicPartition.partition())
+  private def getLeaderForTopicPartition(topicPartition: TopicPartition, partitionToLeaderMap: Map[Int, Int]): Int = {
+    partitionToLeaderMap(topicPartition.partition)
   }
 
   /**
     * Waits until minNumSegments across all topic partitions are tiered.
     */
-  private def waitUntilSegmentsTiered(minNumSegments: Int): Unit = {
+  private def waitUntilSegmentsTiered(minNumSegments: Int, partitionToLeaderMap: Map[Int, Int]): Unit = {
     topicPartitions.foreach { tp =>
-      val leaderId = getLeaderForTopicPartition(tp)
+      val leaderId = getLeaderForTopicPartition(tp, partitionToLeaderMap)
       val server = serverForId(leaderId)
       val tierPartitionState = server.get.logManager.getLog(tp).get.tierPartitionState
 
@@ -116,23 +148,16 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
   /**
     * Delete old (tiered) segments on all brokers.
     */
-  private def simulateRetention(): Unit = {
+  private def simulateRetention(partitionToLeaderMap: Map[Int, Int]): Unit = {
     topicPartitions.foreach { tp =>
-      val leaderId = getLeaderForTopicPartition(tp)
+      val leaderId = getLeaderForTopicPartition(tp, partitionToLeaderMap)
       val server = serverForId(leaderId)
       val numDeleted = server.get.replicaManager.logManager.getLog(tp).get.deleteOldSegments()
       assertTrue("tiered segments should have been deleted", numDeleted > 0)
     }
   }
 
-  @Test
-  def testArchiveAndFetchSingleTopicPartition(): Unit = {
-    val nBatches = 100
-    val recordsPerBatch = 100
-    produceRecords(nBatches, recordsPerBatch)
-    waitUntilSegmentsTiered(10)
-    simulateRetention()
-
+  private def consumeAndValidateTierFetch(partitionToLeaderMap: Map[Int, Int], nBatches: Int, recordsPerBatch: Int): Unit = {
     val topicPartition = topicPartitions.head
 
     val brokerList = TestUtils.bootstrapServers(servers, listenerName)
@@ -167,8 +192,10 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
       val expectedValues = new util.ArrayList[Int](Range(0, nBatches * recordsPerBatch).asJava)
       assertEquals(expectedValues, valuesRead)
 
-      for ((timestamp, offset) <- timestampsOffsets.asScala) {
-        val expectedOffset = timestampsOffsets.asScala.find {case (recordTimestamp, recordOffset) => recordTimestamp >= timestamp }.get._2
+      for ((timestamp, _) <- timestampsOffsets.asScala) {
+        val expectedOffset = timestampsOffsets.asScala.find { case (recordTimestamp, _) =>
+          recordTimestamp >= timestamp
+        }.get._2
         assertTimestampForOffsetLookupCorrect(topicPartition, consumer, timestamp, expectedOffset)
       }
 

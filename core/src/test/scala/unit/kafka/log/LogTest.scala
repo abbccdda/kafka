@@ -4426,7 +4426,8 @@ object LogTest {
                       tierEnable: Boolean = Defaults.TierEnable,
                       tierLocalHotsetBytes: Long = Defaults.TierLocalHotsetBytes,
                       tierLocalHotsetMs: Long = Defaults.TierLocalHotsetMs,
-                      tierSegmentHotsetRollMinBytes: Int = Defaults.TierSegmentHotsetRollMinBytes): LogConfig = {
+                      tierSegmentHotsetRollMinBytes: Int = Defaults.TierSegmentHotsetRollMinBytes,
+                      preferTierFetchMs: Long = Defaults.PreferTierFetchMs): LogConfig = {
     val logProps = new Properties()
 
     logProps.put(LogConfig.SegmentMsProp, segmentMs: java.lang.Long)
@@ -4445,6 +4446,7 @@ object LogTest {
     logProps.put(LogConfig.TierLocalHotsetMsProp, tierLocalHotsetMs: java.lang.Long)
     logProps.put(LogConfig.AppendRecordInterceptorClassesProp, classOf[MockRecordInterceptor].getName: String)
     logProps.put(LogConfig.TierSegmentHotsetRollMinBytesProp, tierSegmentHotsetRollMinBytes: Integer)
+    logProps.put(LogConfig.PreferTierFetchMsProp, preferTierFetchMs: java.lang.Long)
     LogConfig(logProps)
   }
 
