@@ -231,4 +231,49 @@ class ArchiveTaskIntegrationTest {
     assertEquals(classOf[Upload], maybeUpload_2.state.getClass)
     assertEquals(newFirstSegmentFile, maybeUpload_2.state.asInstanceOf[Upload].uploadableSegment.logSegmentFile)
   }
+
+  @Test
+  def testArchiverExceptionOnPartitionDeletion(): Unit = {
+    val tierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))
+    val ctx = CancellationContext.newContext()
+    val task = new ArchiveTask(ctx, topicIdPartition, BeforeUpload(0), ArchiverMetrics(None, None))
+    val leaderEpoch = 0
+
+    val logConfig = LogTest.createLogConfig(segmentBytes = 1024)
+    val tierPartitionState = createTierPartitionState(topicIdPartition)
+    when(tierPartitionStateFactory.initState(logDir, topicIdPartition.topicPartition, logConfig)).thenReturn(tierPartitionState)
+
+    val tierTopicManager = new MockTierTopicManager()
+    val log = LogTest.createLog(logDir, logConfig, brokerTopicStats, mockTime.scheduler, mockTime, tierLogComponentsOpt = Some(tierLogComponents))
+    val mockReplicaManager = logProvidingReplicaManager(topicIdPartition, log)
+    val pid1 = 1L
+
+    tierTopicManager.becomeArchiver(topicIdPartition, leaderEpoch)
+
+    var lastOffset = 0L
+    for (i <- 0 to 20) {
+      val appendInfo = log.appendAsLeader(
+        TestUtils.records(Seq(new SimpleRecord(mockTime.milliseconds, new Array[Byte](128))),
+          producerId = pid1,
+          producerEpoch = 0,
+          sequence = i),
+        leaderEpoch = 0)
+      lastOffset = appendInfo.lastOffset
+    }
+    log.updateHighWatermark(lastOffset)
+    assertEquals(5, log.localLogSegments.size)
+    assertEquals(4, log.tierableLogSegments.size)
+
+    // Rename the Log to be deleted, which will prevent BeforeUpload from transitioning
+    log.renameDir(Log.logDeleteDirName(topicIdPartition.topicPartition()))
+
+    // Transitioning the task will raise an exception, cancelling the context and not advancing past the BeforeUpload state
+    val maybeBeforeUpload = Await.result(
+      task.transition(mockTime, tierTopicManager, tierObjectStore, mockReplicaManager), transitionWaitTime)
+    assertEquals(classOf[BeforeUpload], maybeBeforeUpload.state.getClass)
+    assert(ctx.isCancelled)
+
+    // Delete the TierPartitionState to assist w/ teardown
+    tierPartitionState.delete()
+  }
 }
