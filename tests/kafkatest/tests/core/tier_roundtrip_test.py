@@ -7,7 +7,7 @@ from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
-from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry
+from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND
 from kafkatest.version import LATEST_0_10_1, LATEST_0_10_2, LATEST_0_11_0, LATEST_1_0, LATEST_1_1, LATEST_2_0, \
     LATEST_2_1, LATEST_2_2, DEV_BRANCH, KafkaVersion
 
@@ -25,7 +25,6 @@ class TierRoundtripTest(ProduceConsumeValidateTest, TierSupport):
       ./tests/docker/ducker-ak up
     """
 
-    TIER_S3_BUCKET = "confluent-tier-system-test"
     # The value of log.segment.bytes and number of records to produce should be set such that
     # multiple segments are rolled, tiered to S3 and deleted from the local log.
     LOG_SEGMENT_BYTES = 100 * 1024
@@ -46,9 +45,6 @@ class TierRoundtripTest(ProduceConsumeValidateTest, TierSupport):
         self.zk = ZookeeperService(test_context, num_nodes=1)
 
         self.kafka = KafkaService(test_context, num_nodes=1, zk=self.zk)
-        self.configure_tiering(self.TIER_S3_BUCKET,
-                               metadata_replication_factor=1,
-                               log_segment_bytes=self.LOG_SEGMENT_BYTES)
 
         self.num_producers = 1
         self.num_consumers = 1
@@ -67,8 +63,12 @@ class TierRoundtripTest(ProduceConsumeValidateTest, TierSupport):
             self.kafka.start_jmx_tool(idx, knode)
 
     @matrix(client_version=[str(DEV_BRANCH), str(LATEST_2_2), str(LATEST_2_1), str(LATEST_2_0), str(LATEST_1_1),
-                            str(LATEST_1_0), str(LATEST_0_11_0), str(LATEST_0_10_2), str(LATEST_0_10_1)])
-    def test_tier_roundtrip(self, client_version):
+                            str(LATEST_1_0), str(LATEST_0_11_0), str(LATEST_0_10_2), str(LATEST_0_10_1)],
+            backend=[S3_BACKEND, GCS_BACKEND])
+    def test_tier_roundtrip(self, client_version, backend):
+
+        self.configure_tiering(backend, metadata_replication_factor=1, log_segment_bytes=self.LOG_SEGMENT_BYTES)
+
         self.topic = "test-topic"
         
         self.kafka.topics = {self.topic: self.TOPIC_CONFIG}

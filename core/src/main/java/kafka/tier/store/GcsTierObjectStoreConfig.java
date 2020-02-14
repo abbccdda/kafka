@@ -6,11 +6,15 @@ package kafka.tier.store;
 
 import kafka.server.KafkaConfig;
 
+import java.util.Optional;
+import scala.compat.java8.OptionConverters;
+
 public class GcsTierObjectStoreConfig extends TierObjectStoreConfig {
     public String gcsBucket;
     public String gcsRegion;
     public Integer gcsWriteChunkSize;
     public Integer gcsReadChunkSize;
+    public Optional<String> gcsCredFilePath;
 
     public GcsTierObjectStoreConfig(String clusterId, KafkaConfig config) {
         super(clusterId, config);
@@ -19,6 +23,7 @@ public class GcsTierObjectStoreConfig extends TierObjectStoreConfig {
         this.gcsRegion = config.tierGcsRegion();
         this.gcsWriteChunkSize = config.tierGcsWriteChunkSize();
         this.gcsReadChunkSize = config.tierGcsReadChunkSize();
+        this.gcsCredFilePath = OptionConverters.toJava(config.tierGcsCredFilePath());
     }
 
     // used for testing
@@ -27,12 +32,14 @@ public class GcsTierObjectStoreConfig extends TierObjectStoreConfig {
                              String bucket,
                              String region,
                              Integer writeChunkSize,
-                             Integer readChunkSize) {
+                             Integer readChunkSize,
+                             String credFilePath) {
         super(clusterId, brokerId);
         this.gcsBucket = bucket;
         this.gcsRegion = region;
         this.gcsWriteChunkSize = writeChunkSize;
         this.gcsReadChunkSize = readChunkSize;
+        this.gcsCredFilePath = Optional.ofNullable(credFilePath);
     }
 
     private void validateConfig(KafkaConfig config) {

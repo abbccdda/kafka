@@ -7,7 +7,7 @@ from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
-from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry
+from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND
 from kafkatest.version import DEV_BRANCH, KafkaVersion
 
 import time
@@ -24,17 +24,17 @@ class TierBrokerBounceTest(ProduceConsumeValidateTest, TierSupport):
     The test sets aggressive tiering parameters so that all of archiving/metadata and fetch path is tested.
 
     When running this test via Docker, the containers must be built such that AWS credentials
-    for `TIER_S3_BUCKET` are available to the broker at runtime:
+    and GCS credentials are available to the broker at runtime:
     $ docker_args="\
       --build-arg aws_access_key_id=$(aws configure get aws_access_key_id) \
       --build-arg aws_secret_access_key=$(aws configure get aws_secret_access_key)" \
+      --build-arg gcs_credentials_file=<PATH_TO_GCS_CREDENTIALS>" \
       ./tests/docker/ducker-ak up
     """
 
-    TIER_S3_BUCKET = "confluent-tier-system-test"
     # The value of log.segment.bytes and number of records to produce should be set such that
     # multiple segments are rolled, tiered to S3 and deleted from the local log.
-    LOG_SEGMENT_BYTES = 100 * 1024
+    LOG_SEGMENT_BYTES = 100 * 1024 # 100 KB segments for more tier object metadata messages
     MIN_RECORDS_PRODUCED = 10000
     DELAY_BETWEEN_RESTART_SEC = 10
 
@@ -54,9 +54,6 @@ class TierBrokerBounceTest(ProduceConsumeValidateTest, TierSupport):
         self.zk = ZookeeperService(test_context, num_nodes=1)
 
         self.kafka = KafkaService(test_context, num_nodes=3, zk=self.zk)
-        self.configure_tiering(self.TIER_S3_BUCKET,
-                               metadata_replication_factor=3,
-                               log_segment_bytes=self.LOG_SEGMENT_BYTES)
 
         self.num_producers = 1
         self.num_consumers = 1
@@ -164,8 +161,11 @@ class TierBrokerBounceTest(ProduceConsumeValidateTest, TierSupport):
             return True
         return False
 
-    @matrix(client_version=[str(DEV_BRANCH)])
-    def test_tier_broker_bounce(self, client_version):
+    @matrix(client_version=[str(DEV_BRANCH)], backend=[S3_BACKEND, GCS_BACKEND])
+    def test_tier_broker_bounce(self, client_version, backend):
+
+        self.configure_tiering(backend, metadata_replication_factor=3, log_segment_bytes=self.LOG_SEGMENT_BYTES)
+
         self.kafka.topics = {self.topic: self.TOPIC_CONFIG}
         self.producer = VerifiableProducer(self.test_context, self.num_producers, self.kafka,
                                            self.topic, throughput=1000, message_validator=is_int,

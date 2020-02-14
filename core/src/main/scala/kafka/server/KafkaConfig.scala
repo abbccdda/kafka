@@ -217,6 +217,7 @@ object Defaults {
   val TierGcsRegion = null
   val TierGcsWriteChunkSize = 0
   val TierGcsReadChunkSize = 0
+  val TierGcsCredFilePath = null
   val TierTopicDeleteCheckIntervalMs = 3L * 60 * 60 * 1000
   val PreferTierFetchMs = -1L
 
@@ -495,6 +496,7 @@ object KafkaConfig {
   val TierGcsRegionProp = ConfluentPrefix + "tier.gcs.region"
   val TierGcsWriteChunkSizeProp = ConfluentPrefix + "tier.gcs.write.chunk.size"
   val TierGcsReadChunkSizeProp = ConfluentPrefix + "tier.gcs.read.chunk.size"
+  val TierGcsCredFilePathProp = ConfluentPrefix + "tier.gcs.cred.file.path"
 
   /** Tiered storage fetcher configs */
   val TierFetcherNumThreadsProp = ConfluentPrefix + "tier.fetcher.num.threads"
@@ -901,6 +903,7 @@ object KafkaConfig {
   val TierGcsRegionDoc = "The GCS region to use for tiered storage."
   val TierGcsWriteChunkSizeDoc = "The GCS chunk size for write requests between the broker and storage. If null, then the default value from the GCS implementation is used."
   val TierGcsReadChunkSizeDoc = "The GCS chunk size for read requests between the broker and storage. If null, then the default value from the GCS implementation is used."
+  val TierGcsCredFilePathDoc = "The path to the credentials file used to create the GCS client. If null, the GCS client will be made using the default service account available."
   val TierTopicDeleteCheckIntervalMsDoc = "Frequency at which tiered objects cleanup is run for deleted topics."
   val PreferTierFetchMsDoc = ConfluentTopicConfig.PREFER_TIER_FETCH_MS_DOC
 
@@ -1219,6 +1222,7 @@ object KafkaConfig {
       .defineInternal(TierGcsRegionProp, STRING, Defaults.TierGcsRegion, HIGH, TierGcsRegionDoc)
       .defineInternal(TierGcsWriteChunkSizeProp, INT, Defaults.TierGcsWriteChunkSize, atLeast(0), LOW, TierGcsWriteChunkSizeDoc)
       .defineInternal(TierGcsReadChunkSizeProp, INT, Defaults.TierGcsReadChunkSize, atLeast(0), LOW, TierGcsReadChunkSizeDoc)
+      .defineInternal(TierGcsCredFilePathProp, STRING, Defaults.TierGcsCredFilePath, LOW, TierGcsCredFilePathDoc)
       .define(TierTopicDeleteCheckIntervalMsProp, LONG, Defaults.TierTopicDeleteCheckIntervalMs, atLeast(1), LOW, TierTopicDeleteCheckIntervalMsDoc)
       .defineInternal(TierSegmentHotsetRollMinBytesProp, INT, Defaults.TierSegmentHotsetRollMinBytes, atLeast(1024 * 1024), MEDIUM, TierSegmentHotsetRollMinBytesDoc)
       .defineInternal(PreferTierFetchMsProp, LONG, Defaults.PreferTierFetchMs, LOW, PreferTierFetchMsDoc)
@@ -1612,6 +1616,7 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierGcsRegion = getString(KafkaConfig.TierGcsRegionProp)
   val tierGcsWriteChunkSize = getInt(KafkaConfig.TierGcsWriteChunkSizeProp)
   val tierGcsReadChunkSize = getInt(KafkaConfig.TierGcsReadChunkSizeProp)
+  val tierGcsCredFilePath = Option(getString(KafkaConfig.TierGcsCredFilePathProp))
   val tierTopicDeleteCheckIntervalMs = getLong(KafkaConfig.TierTopicDeleteCheckIntervalMsProp)
   def tierSegmentHotsetRollMinBytes = getInt(KafkaConfig.TierSegmentHotsetRollMinBytesProp)
   def preferTierFetchMs = getLong(KafkaConfig.PreferTierFetchMsProp)

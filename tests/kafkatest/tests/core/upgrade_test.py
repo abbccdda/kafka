@@ -23,11 +23,11 @@ from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
 from kafkatest.version import LATEST_0_8_2, LATEST_0_9, LATEST_0_10, LATEST_0_10_0, LATEST_0_10_1, LATEST_0_10_2, LATEST_0_11_0, LATEST_1_0, LATEST_1_1, LATEST_2_0, LATEST_2_1, LATEST_2_2, LATEST_2_3, LATEST_2_4, V_0_9_0_0, V_0_11_0_0, DEV_BRANCH, KafkaVersion
-from kafkatest.utils.tiered_storage import tier_set_configs, TierSupport, TieredStorageMetricsRegistry
+from kafkatest.utils.tiered_storage import tier_set_configs, TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND
 from kafkatest.services.kafka import config_property
 
 class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
-    TIER_S3_BUCKET = "confluent-tier-system-test"
+
     PARTITIONS = 3
 
     def __init__(self, test_context):
@@ -95,8 +95,8 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
     @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.4.0"], from_kafka_version=[str(LATEST_2_4)], to_message_format_version=[None], compression_types=[["none"]])
     @parametrize(from_kafka_version=str(LATEST_2_4), to_message_format_version=None, compression_types=["none"])
     @parametrize(from_kafka_version=str(LATEST_2_4), to_message_format_version=None, compression_types=["zstd"])
-    @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.3.0"], from_kafka_version=[str(LATEST_2_3)], to_message_format_version=[None], compression_types=[["none"]], from_tiered_storage=[False], to_tiered_storage=[False, True], hotset_bytes=[-1, 1])
-    @matrix(from_kafka_version=[str(LATEST_2_3)], to_message_format_version=[None], compression_types=[["none"]], from_tiered_storage=[False], to_tiered_storage=[True], hotset_bytes=[-1, 1])
+    @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.3.0"], from_kafka_version=[str(LATEST_2_3)], to_message_format_version=[None], compression_types=[["none"]], from_tiered_storage=[False], to_tiered_storage=[False, True], hotset_bytes=[-1, 1], backend=[S3_BACKEND, GCS_BACKEND])
+    @matrix(from_kafka_version=[str(LATEST_2_3)], to_message_format_version=[None], compression_types=[["none"]], from_tiered_storage=[False], to_tiered_storage=[True], hotset_bytes=[-1, 1], backend=[S3_BACKEND, GCS_BACKEND])
     @parametrize(from_kafka_version=str(LATEST_2_3), to_message_format_version=None, compression_types=["none"])
     @parametrize(from_kafka_version=str(LATEST_2_3), to_message_format_version=None, compression_types=["zstd"])
     @parametrize(from_kafka_version=str(LATEST_2_2), to_message_format_version=None, compression_types=["none"])
@@ -130,7 +130,7 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
     @parametrize(from_kafka_version=str(LATEST_0_8_2), to_message_format_version=None, compression_types=["none"])
     @parametrize(from_kafka_version=str(LATEST_0_8_2), to_message_format_version=None, compression_types=["snappy"])
     def test_upgrade(self, from_kafka_version, to_message_format_version, compression_types,
-            from_tiered_storage=False, to_tiered_storage=False, hotset_bytes=None, security_protocol="PLAINTEXT", dist_version=None, from_kafka_project="kafka"):
+            from_tiered_storage=False, to_tiered_storage=False, hotset_bytes=None, security_protocol="PLAINTEXT", dist_version=None, from_kafka_project="kafka", backend=None):
         """Test upgrade of Kafka broker cluster from various versions to the current version
 
         from_kafka_version is a Kafka version to upgrade from
@@ -165,7 +165,8 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
 
         if from_tiered_storage or to_tiered_storage:
             assert hotset_bytes is not None
-            tier_set_configs(self.kafka, self.TIER_S3_BUCKET, feature = from_tiered_storage, enable = from_tiered_storage,
+            assert backend is not None
+            tier_set_configs(self.kafka, backend, feature = from_tiered_storage, enable = from_tiered_storage,
                     hotset_bytes = hotset_bytes, hotset_ms = -1, metadata_replication_factor=3)
 
         self.kafka.security_protocol = security_protocol

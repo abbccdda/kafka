@@ -2,11 +2,14 @@ from kafkatest.services.kafka import config_property
 
 import sys
 
-def tier_server_props(bucket, feature=True, enable=False, region="us-west-2", backend="S3",
+S3_BACKEND = "S3"
+GCS_BACKEND = "GCS"
+
+def tier_server_props(backend, feature=True, enable=False,
                       metadata_replication_factor=3, hotset_bytes=1, hotset_ms=1,
                       log_segment_bytes=1024000, log_retention_check_interval=5000, log_roll_time = 3000):
     """Helper for building server_prop_overrides in Kafka tests that enable tiering"""
-    return [
+    props = [
         # tiered storage does not support multiple logdirs
         [config_property.LOG_DIRS, "/mnt/kafka/kafka-data-logs-1"],
         [config_property.LOG_SEGMENT_BYTES, log_segment_bytes],
@@ -17,15 +20,27 @@ def tier_server_props(bucket, feature=True, enable=False, region="us-west-2", ba
         [config_property.CONFLUENT_TIER_LOCAL_HOTSET_BYTES, hotset_bytes],
         [config_property.CONFLUENT_TIER_LOCAL_HOTSET_MS, hotset_ms],
         [config_property.CONFLUENT_TIER_METADATA_REPLICATION_FACTOR, metadata_replication_factor],
-        [config_property.CONFLUENT_TIER_BACKEND, backend],
-        [config_property.CONFLUENT_TIER_S3_BUCKET, bucket],
-        [config_property.CONFLUENT_TIER_S3_REGION, region],
     ]
 
-def tier_set_configs(kafka, bucket, feature=True, enable=False, region="us-west-2", backend="S3",
+    if backend == S3_BACKEND:
+        return props + [
+            [config_property.CONFLUENT_TIER_BACKEND, S3_BACKEND],
+            [config_property.CONFLUENT_TIER_S3_BUCKET, "confluent-tier-system-test"],
+            [config_property.CONFLUENT_TIER_S3_REGION, "us-west-2"],
+        ]
+
+    elif backend == GCS_BACKEND:
+        return props + [
+            [config_property.CONFLUENT_TIER_BACKEND, GCS_BACKEND],
+            [config_property.CONFLUENT_TIER_GCS_BUCKET, "confluent-tier-system-test-us-west1"],
+            [config_property.CONFLUENT_TIER_GCS_REGION, "us-west1"],
+            [config_property.CONFLUENT_TIER_GCS_CRED_FILE_PATH, "/vagrant/gcs_credentials.json"],
+        ]
+
+def tier_set_configs(kafka, backend, feature=True, enable=False,
         metadata_replication_factor=3, hotset_bytes=1, hotset_ms=1):
     """Helper for setting tier related configs directly on kafka service. Useful if we want to modify them directly later"""
-    configs = tier_server_props(bucket, feature, enable, region, backend, metadata_replication_factor, hotset_bytes, hotset_ms)
+    configs = tier_server_props(backend, feature, enable, metadata_replication_factor, hotset_bytes, hotset_ms)
     for node in kafka.nodes:
         for config in configs:
             node.config[config[0]] = config[1]
@@ -57,12 +72,12 @@ class TieredStorageMetricsRegistry:
 class TierSupport():
     """Tiered storage helpers. Mix in only with KafkaService-based tests"""
 
-    def configure_tiering(self, bucket, **server_props_kwargs):
+    def configure_tiering(self, backend, **server_props_kwargs):
         self.kafka.jmx_object_names = [TieredStorageMetricsRegistry.ARCHIVER_LAG.mbean,
                                        TieredStorageMetricsRegistry.FETCHER_BYTES_FETCHED.mbean]
         self.kafka.jmx_attributes = [TieredStorageMetricsRegistry.ARCHIVER_LAG.attribute,
                                      TieredStorageMetricsRegistry.FETCHER_BYTES_FETCHED.attribute]
-        self.kafka.server_prop_overides = tier_server_props(bucket, **server_props_kwargs)
+        self.kafka.server_prop_overides = tier_server_props(backend, **server_props_kwargs)
 
     def tiering_completed(self, topic, partitions=[0]):
 	"""Ensure that:

@@ -23,7 +23,7 @@ class GcsTierObjectStoreTest {
     when(storage.writer(any(classOf[BlobInfo]))).thenReturn(mock(classOf[WriteChannel]))
     when(bucket.getLocation).thenReturn("region")
 
-    val config = new GcsTierObjectStoreConfig("cluster", 3, "bucket", "region", 10240, 1024)
+    val config = new GcsTierObjectStoreConfig("cluster", 3, "bucket", "region", 10240, 1024, "path")
     val objectStore = new GcsTierObjectStore(storage, config)
     val metadata = new TierObjectStore.ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0, false)
     val testFile = TestUtils.tempFile()
@@ -41,7 +41,7 @@ class GcsTierObjectStoreTest {
     when(storage.writer(any(classOf[BlobInfo]))).thenReturn(mock(classOf[WriteChannel]))
     when(bucket.getLocation).thenReturn("region")
 
-    val config = new GcsTierObjectStoreConfig("cluster", 3, "bucket", "region", 10240, 1024)
+    val config = new GcsTierObjectStoreConfig("cluster", 3, "bucket", "region", 10240, 1024, "path")
     val objectStore = new GcsTierObjectStore(storage, config)
     val metadata = new TierObjectStore.ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0, true)
     val testFile = TestUtils.tempFile()
@@ -60,7 +60,7 @@ class GcsTierObjectStoreTest {
     when(storage.writer(any(classOf[BlobInfo]))).thenReturn(mock(classOf[WriteChannel]))
     when(bucket.getLocation).thenReturn("region")
 
-    val config = new GcsTierObjectStoreConfig("cluster", 3, "bucket", "region", 10240, 1024)
+    val config = new GcsTierObjectStoreConfig("cluster", 3, "bucket", "region", 10240, 1024, "path")
     val objectStore = new GcsTierObjectStore(storage, config)
     val metadata = new TierObjectStore.ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0, false)
     val testFile = TestUtils.tempFile()

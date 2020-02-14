@@ -20,7 +20,7 @@ from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.transactional_message_copier import TransactionalMessageCopier
 from kafkatest.services.kafka import config_property
 from kafkatest.services.monitor.jmx import JmxMixin
-from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry
+from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND
 from kafkatest.utils import is_int
 
 from ducktape.tests.test import Test
@@ -37,8 +37,6 @@ class TransactionsTest(Test, TierSupport):
     topic contains exactly one committed copy of each message in the input
     topic
     """
-
-    TIER_S3_BUCKET = "confluent-tier-system-test"
 
     def __init__(self, test_context):
         """:type test_context: ducktape.tests.test.TestContext"""
@@ -223,9 +221,14 @@ class TransactionsTest(Test, TierSupport):
     @cluster(num_nodes=9)
     @matrix(failure_mode=["hard_bounce", "clean_bounce"],
             bounce_target=["brokers", "clients"],
-            tier=[True, False],
+            tier=[False],
             check_order=[True, False])
-    def test_transactions(self, failure_mode, bounce_target, check_order, tier):
+    @matrix(failure_mode=["hard_bounce", "clean_bounce"],
+            bounce_target=["brokers", "clients"],
+            tier=[True],
+            check_order=[True, False],
+            backend=[S3_BACKEND, GCS_BACKEND])
+    def test_transactions(self, failure_mode, bounce_target, check_order, tier, backend=None):
         security_protocol = 'PLAINTEXT'
 
         self.kafka = KafkaService(context=self.test_context,
@@ -233,7 +236,8 @@ class TransactionsTest(Test, TierSupport):
                                   zk=self.zk)
 
         if tier:
-            self.configure_tiering(self.TIER_S3_BUCKET)
+            assert backend is not None
+            self.configure_tiering(backend)
 
         self.kafka.security_protocol = security_protocol
         self.kafka.interbroker_security_protocol = security_protocol

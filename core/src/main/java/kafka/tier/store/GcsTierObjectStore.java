@@ -4,6 +4,7 @@
 
 package kafka.tier.store;
 
+import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.ReadChannel;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
@@ -13,12 +14,14 @@ import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
 import com.google.cloud.WriteChannel;
+import com.google.common.collect.Lists;
 import kafka.tier.exceptions.TierObjectStoreFatalException;
 import kafka.tier.exceptions.TierObjectStoreRetriableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
@@ -45,7 +48,7 @@ public class GcsTierObjectStore implements TierObjectStore {
     private final Storage storage;
 
     public GcsTierObjectStore(GcsTierObjectStoreConfig config) {
-        this(storage(), config);
+        this(storage(config), config);
     }
 
     GcsTierObjectStore(Storage storage, GcsTierObjectStoreConfig config) {
@@ -156,8 +159,17 @@ public class GcsTierObjectStore implements TierObjectStore {
         }
     }
 
-    private static Storage storage() {
-        return StorageOptions.getDefaultInstance().getService();
+    private static Storage storage(GcsTierObjectStoreConfig config) {
+        if (config.gcsCredFilePath.isPresent()) {
+            try {
+                GoogleCredentials credentials = GoogleCredentials.fromStream(new FileInputStream(config.gcsCredFilePath.get()))
+                        .createScoped(Lists.newArrayList("https://www.googleapis.com/auth/cloud-platform"));
+                return StorageOptions.newBuilder().setCredentials(credentials).build().getService();
+            } catch (IOException e) {
+                throw new TierObjectStoreFatalException("Error in opening GCS credentials file", e);
+            }
+        } else
+            return StorageOptions.getDefaultInstance().getService();
     }
 
     private void expectBucket(final String bucket, final String expectedRegion)

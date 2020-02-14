@@ -21,7 +21,7 @@ from ducktape.mark.resource import cluster
 
 from kafkatest.tests.end_to_end import EndToEndTest
 from kafkatest.services.kafka import config_property
-from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry
+from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND
 
 import signal
 import time
@@ -102,7 +102,6 @@ class ReplicationTest(EndToEndTest, TierSupport):
         "configs": {"min.insync.replicas": 2}
     }
 
-    TIER_S3_BUCKET = "confluent-tier-system-test"
     TIER_RETENTION_CHECK_INTERVAL = 1000
 
     def __init__(self, test_context):
@@ -121,7 +120,8 @@ class ReplicationTest(EndToEndTest, TierSupport):
     @matrix(failure_mode=["clean_shutdown", "hard_shutdown", "clean_bounce", "hard_bounce"],
             broker_type=["leader"],
             security_protocol=["PLAINTEXT"],
-            tiered_storage=[True])
+            tiered_storage=[True],
+            backend=[S3_BACKEND, GCS_BACKEND])
     @matrix(failure_mode=["clean_shutdown", "hard_shutdown", "clean_bounce", "hard_bounce"],
             broker_type=["leader"],
             security_protocol=["PLAINTEXT", "SASL_SSL"])
@@ -138,7 +138,8 @@ class ReplicationTest(EndToEndTest, TierSupport):
             security_protocol=["PLAINTEXT"], broker_type=["leader"], compression_type=["gzip"])
     def test_replication_with_broker_failure(self, failure_mode, security_protocol, broker_type,
                                              client_sasl_mechanism="GSSAPI", interbroker_sasl_mechanism="GSSAPI",
-                                             compression_type=None, enable_idempotence=False, tiered_storage=False):
+                                             compression_type=None, enable_idempotence=False,
+                                             tiered_storage=False, backend=None):
         """Replication tests.
         These tests verify that replication provides simple durability guarantees by checking that data acked by
         brokers is still available for consumption in the face of various failure scenarios.
@@ -162,9 +163,9 @@ class ReplicationTest(EndToEndTest, TierSupport):
                           interbroker_sasl_mechanism=interbroker_sasl_mechanism)
 
         if tiered_storage:
+            assert backend is not None
             # Use shorter log retention check interval to help ensure hotset retention is invoked before the consumer finishes
-            self.configure_tiering(self.TIER_S3_BUCKET, enable=True,
-                                   log_segment_bytes=102400,
+            self.configure_tiering(backend, enable=True, log_segment_bytes=102400,
                                    log_retention_check_interval=self.TIER_RETENTION_CHECK_INTERVAL)
 
         self.kafka.start()

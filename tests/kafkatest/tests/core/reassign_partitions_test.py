@@ -29,7 +29,7 @@ from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
-from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry
+from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND
 
 
 class ReassignPartitionsTest(ProduceConsumeValidateTest, TierSupport):
@@ -45,8 +45,6 @@ class ReassignPartitionsTest(ProduceConsumeValidateTest, TierSupport):
       --build-arg aws_secret_access_key=$(aws configure get aws_secret_access_key)" \
       ./tests/docker/ducker-ak up
     """
-
-    TIER_S3_BUCKET = "confluent-tier-system-test"
 
     def __init__(self, test_context):
         """:type test_context: ducktape.tests.test.TestContext"""
@@ -156,8 +154,9 @@ class ReassignPartitionsTest(ProduceConsumeValidateTest, TierSupport):
     @matrix(bounce_brokers=[True, False],
             tier_feature=[True, False],
             tier_enable=[True, False],
-            reassign_from_offset_zero=[True, False])
-    def test_reassign_partitions(self, bounce_brokers, tier_feature, tier_enable, reassign_from_offset_zero):
+            reassign_from_offset_zero=[True, False],
+            backend=[S3_BACKEND, GCS_BACKEND])
+    def test_reassign_partitions(self, bounce_brokers, tier_feature, tier_enable, reassign_from_offset_zero, backend):
         """Reassign partitions tests.
         Setup: 1 zk, 4 kafka nodes, 1 topic with partitions=20, replication-factor=3,
         and min.insync.replicas=3
@@ -193,7 +192,8 @@ class ReassignPartitionsTest(ProduceConsumeValidateTest, TierSupport):
 
         if tier_feature:
             # use broker-default log.segment.bytes but override log.roll.ms
-            self.configure_tiering(self.TIER_S3_BUCKET, feature=tier_feature,
+            assert backend is not None
+            self.configure_tiering(backend, feature=tier_feature,
                                    enable=tier_enable, log_segment_bytes=1024*1024*1024)
             if not tier_enable:
                 # do not await tier-related metrics with JmxTool

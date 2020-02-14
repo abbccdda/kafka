@@ -63,6 +63,9 @@ CONFLUENT_TIER_METADATA_REPLICATION_FACTOR = "confluent.tier.metadata.replicatio
 CONFLUENT_TIER_BACKEND = "confluent.tier.backend"
 CONFLUENT_TIER_S3_BUCKET = "confluent.tier.s3.bucket"
 CONFLUENT_TIER_S3_REGION = "confluent.tier.s3.region"
+CONFLUENT_TIER_GCS_BUCKET = "confluent.tier.gcs.bucket"
+CONFLUENT_TIER_GCS_REGION = "confluent.tier.gcs.region"
+CONFLUENT_TIER_GCS_CRED_FILE_PATH = "confluent.tier.gcs.cred.file.path"
 
 """
 From KafkaConfig.scala

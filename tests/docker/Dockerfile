@@ -94,6 +94,11 @@ aws_access_key_id=$aws_access_key_id\n\
 aws_secret_access_key=$aws_secret_access_key\n"\
 > /home/ducker/.aws/credentials
 
+# Set GCP credentials
+# We place credentials in /vagrant/ to work with Vagrant testing
+ARG gcs_credentials_file=
+COPY $gcs_credentials_file /vagrant/gcs_credentials.json
+
 USER ducker
 
 CMD sudo service ssh start && tail -f /dev/null

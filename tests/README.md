@@ -84,10 +84,17 @@ bash tests/docker/ducker-ak up -j 'openjdk:11'; tests/docker/run_tests.sh
 
 Setup for tests with tiered storage support
 -------------------------------------------
-Tests with tiered storage support require an additional step so that brokers have the right access to S3 bucket. This can be done by running the following before running the test:
+Tests with tiered storage support require an additional step so that brokers have the right access to a cloud storage bucket. This can be done by running the following before running the test. It will supply credentials for S3 and GCS to the container.
+
+S3: Copies your AWS credentials into the container. Your AWS credentials need to be set up before doing this step.
+
+GCS: A valid GCS credentials file needs to be copied to the container. Replace `<PATH_TO_GCS_CREDENTIALS>` to the file path of the credentials json file. File path can be relative to the `docker` directory in which the `Dockerfile` is located.
 ```
-docker_args="--build-arg aws_access_key_id=$(aws configure get aws_access_key_id) --build-arg aws_secret_access_key=$(aws configure get aws_secret_access_key)" ./tests/docker/ducker-ak up
+docker_args="--build-arg aws_access_key_id=$(aws configure get aws_access_key_id) \
+--build-arg aws_secret_access_key=$(aws configure get aws_secret_access_key) \
+--build-arg gcs_credentials_file=<PATH_TO_GCS_CREDENTIALS>" ./tests/docker/ducker-ak up
 ```
+
 
 Examining CI run
 ----------------
