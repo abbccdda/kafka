@@ -32,6 +32,7 @@
     <suppress checks="ClassFanOutComplexity"
               files="AbstractResponse.java"/>
 
+
     <suppress checks="MethodLength"
               files="KerberosLogin.java|RequestResponseTest.java|ConnectMetricsRegistry.java|KafkaConsumer.java"/>
 
@@ -62,7 +63,7 @@
               files="(ConsumerCoordinator|Fetcher|Sender|KafkaProducer|BufferPool|ConfigDef|RecordAccumulator|KerberosLogin|AbstractRequest|AbstractResponse|Selector|SslFactory|SslTransportLayer|SaslClientAuthenticator|SaslClientCallbackHandler|SaslServerAuthenticator|AbstractCoordinator).java"/>
 
     <suppress checks="JavaNCSS"
-              files="AbstractRequest.java|AbstractResponse.java|KerberosLogin.java|WorkerSinkTaskTest.java|TransactionManagerTest.java|SenderTest.java|KafkaAdminClient.java"/>
+              files="(AbstractRequest|AbstractResponse|KerberosLogin|WorkerSinkTaskTest|TransactionManagerTest|SenderTest|KafkaAdminClient|ConsumerCoordinatorTest).java"/>
 
     <suppress checks="NPathComplexity"
               files="(BufferPool|Fetcher|MetricName|Node|ConfigDef|RecordBatch|SslFactory|SslTransportLayer|MetadataResponse|KerberosLogin|Selector|Sender|Serdes|TokenInformation|Agent|Values|PluginUtils|MiniTrogdorCluster|TasksRequest|KafkaProducer).java"/>
@@ -73,17 +74,17 @@
               files="Murmur3.java"/>
 
     <suppress checks="(NPathComplexity|ClassFanOutComplexity|CyclomaticComplexity|ClassDataAbstractionCoupling|LocalVariableName|MemberName|ParameterName|MethodLength|JavaNCSS)"
-            files="clients[\\/]src[\\/](generated|generated-test)[\\/].+.java$"/>
+              files="clients[\\/]src[\\/](generated|generated-test)[\\/].+.java$"/>
 
     <suppress checks="NPathComplexity"
-            files="MessageTest.java"/>
+              files="MessageTest.java"/>
 
     <!-- clients tests -->
     <suppress checks="ClassDataAbstractionCoupling"
-              files="(Sender|Fetcher|KafkaConsumer|Metrics|RequestResponse|TransactionManager|KafkaAdminClient|Message)Test.java"/>
+              files="(Sender|Fetcher|KafkaConsumer|Metrics|RequestResponse|TransactionManager|KafkaAdminClient|Message|KafkaProducer)Test.java"/>
 
     <suppress checks="ClassFanOutComplexity"
-              files="(ConsumerCoordinator|KafkaConsumer|RequestResponse|Fetcher|KafkaAdminClient|Message)Test.java"/>
+              files="(ConsumerCoordinator|KafkaConsumer|RequestResponse|Fetcher|KafkaAdminClient|Message|KafkaProducer)Test.java"/>
 
     <suppress checks="ClassFanOutComplexity"
               files="MockAdminClient.java"/>
@@ -266,13 +267,13 @@
 
     <!-- proactive support -->
     <suppress checks=".+"
-        files="support-metrics-client/src/main/generated/.*"/>
+              files="support-metrics-client/src/main/generated/.*"/>
     <suppress checks=".+"
-        files="support-metrics-client/src/test/generated/.*"/>
+              files="support-metrics-client/src/test/generated/.*"/>
     <suppress checks=".+"
-        files="support-metrics-common/src/main/generated/.*"/>
+              files="support-metrics-common/src/main/generated/.*"/>
     <suppress checks=".+"
-        files="support-metrics-common/src/test/generated/.*"/>
+              files="support-metrics-common/src/test/generated/.*"/>
 
     <suppress checks=".+"
               files="ce-serializers/build/generated/.+.java$"/>

@@ -9,12 +9,14 @@ import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
+import kafka.security.authorizer.AclEntry;
+import org.apache.kafka.common.resource.ResourceType;
+import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.utils.SecurityUtils;
+import scala.collection.JavaConversions;
+
 import java.util.Set;
 import java.util.stream.Collectors;
-import kafka.security.auth.Acl;
-import kafka.security.auth.ResourceType;
-import org.apache.kafka.common.security.auth.KafkaPrincipal;
-import scala.collection.JavaConversions;
 
 /**
  * Multi-tenant authorizer that supports:
@@ -72,10 +74,10 @@ public class TenantAclProvider extends AclProvider {
     KafkaPrincipal userPrincipal = sessionPrincipal.getClass() != KafkaPrincipal.class
         ? new KafkaPrincipal(sessionPrincipal.getPrincipalType(), sessionPrincipal.getName())
         : sessionPrincipal;
-    KafkaPrincipal wildcardPrincipal = tenantPrefix.isEmpty() ? Acl.WildCardPrincipal() :
+    KafkaPrincipal wildcardPrincipal = tenantPrefix.isEmpty() ? AclEntry.WildcardPrincipal() :
         new KafkaPrincipal(MultiTenantPrincipal.TENANT_WILDCARD_USER_TYPE, tenantPrefix);
 
-    ResourceType resourceType = AclMapper.kafkaResourceType(resource.resourceType());
+    ResourceType resourceType = SecurityUtils.resourceType(resource.resourceType().name());
     return JavaConversions.setAsJavaSet(matchingAcls(resourceType, resource.name())).stream()
         .map(AclMapper::accessRule)
         .filter(acl -> userAcl(acl, userPrincipal, wildcardPrincipal))

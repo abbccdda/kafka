@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong}
 import java.util.concurrent.locks.Lock
 
-import com.yammer.metrics.core.{Gauge, Meter}
+import com.yammer.metrics.core.Meter
 import kafka.api._
 import kafka.cluster.{BrokerEndPoint, Partition}
 import kafka.common.RecordValidationException
@@ -313,67 +313,26 @@ class ReplicaManager(val config: KafkaConfig,
     }
   }
 
-  val replicaSelectorOpt: Option[ReplicaSelector] = createReplicaSelector()
+  // Visible for testing
+  private[server] val replicaSelectorOpt: Option[ReplicaSelector] = createReplicaSelector()
 
-  val leaderCount = newGauge(
-    "LeaderCount",
-    new Gauge[Int] {
-      def value = leaderPartitionsIterator.size
-    }
-  )
-  val partitionCount = newGauge(
-    "PartitionCount",
-    new Gauge[Int] {
-      def value = allPartitions.size
-    }
-  )
-  val offlineReplicaCount = newGauge(
-    "OfflineReplicaCount",
-    new Gauge[Int] {
-      def value = offlinePartitionCount
-    }
-  )
-  val underReplicatedPartitions = newGauge(
-    "UnderReplicatedPartitions",
-    new Gauge[Int] {
-      def value = underReplicatedPartitionCount
-    }
-  )
-  val underMinIsrPartitionCount = newGauge(
-    "UnderMinIsrPartitionCount",
-    new Gauge[Int] {
-      def value = leaderPartitionsIterator.count(_.isUnderMinIsr)
-    }
-  )
-  val atMinIsrPartitionCount = newGauge(
-    "AtMinIsrPartitionCount",
-    new Gauge[Int] {
-      def value = leaderPartitionsIterator.count(_.isAtMinIsr)
-    }
-  )
-  val reassigningPartitions = newGauge(
-    "ReassigningPartitions",
-    new Gauge[Int] {
-      def value = reassigningPartitionsCount
-    }
-  )
+  newGauge("LeaderCount", () => leaderPartitionsIterator.size)
+  // Visible for testing
+  private[kafka] val partitionCount = newGauge("PartitionCount", () => allPartitions.size)
+  newGauge("OfflineReplicaCount", () => offlinePartitionCount)
+  newGauge("UnderReplicatedPartitions", () => underReplicatedPartitionCount)
+  newGauge("UnderMinIsrPartitionCount", () => leaderPartitionsIterator.count(_.isUnderMinIsr))
+  newGauge("AtMinIsrPartitionCount", () => leaderPartitionsIterator.count(_.isAtMinIsr))
+  newGauge("ReassigningPartitions", () => leaderPartitionsIterator.count(_.isReassigning))
+  newGauge("NotCaughtUpPartitionCount", () => leaderPartitionsIterator.count(_.isNotCaughtUp))
 
-  def reassigningPartitionsCount: Int = leaderPartitionsIterator.count(_.isReassigning)
-
-  val notCaughtUpPartitionCount = newGauge(
-    "NotCaughtUpPartitionCount",
-    new Gauge[Int] {
-      def value(): Int = leaderPartitionsIterator.count(_.isNotCaughtUp)
-    }
-  )
+  def underReplicatedPartitionCount: Int = leaderPartitionsIterator.count(_.isUnderReplicated)
 
   val isrExpandRate: Meter = newMeter("IsrExpandsPerSec", "expands", TimeUnit.SECONDS)
   val isrShrinkRate: Meter = newMeter("IsrShrinksPerSec", "shrinks", TimeUnit.SECONDS)
   val failedIsrUpdatesRate: Meter = newMeter("FailedIsrUpdatesPerSec", "failedUpdates", TimeUnit.SECONDS)
 
-  def underReplicatedPartitionCount: Int = leaderPartitionsIterator.count(_.isUnderReplicated)
-
-  def startHighWatermarkCheckPointThread() = {
+  def startHighWatermarkCheckPointThread(): Unit = {
     if (highWatermarkCheckPointThreadStarted.compareAndSet(false, true))
       scheduler.schedule("highwatermark-checkpoint", checkpointHighWatermarks _, period = config.replicaHighWatermarkCheckpointIntervalMs, unit = TimeUnit.MILLISECONDS)
   }

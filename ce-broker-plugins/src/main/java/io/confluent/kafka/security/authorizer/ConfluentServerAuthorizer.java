@@ -21,10 +21,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
-import kafka.security.auth.Operation;
-import kafka.security.auth.Operation$;
-import kafka.security.auth.Resource;
-import kafka.security.authorizer.AuthorizerUtils;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
 import org.apache.kafka.common.Endpoint;
@@ -231,22 +227,20 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
 
   private boolean authorize(AuthorizableRequestContext requestContext, org.apache.kafka.server.authorizer.Action kafkaAction) {
 
-    Operation operation = Operation$.MODULE$.fromJava(kafkaAction.operation());
-    Resource resource = AuthorizerUtils.convertToResource(kafkaAction.resourcePattern());
-    if (resource.patternType() != PatternType.LITERAL) {
+    if (kafkaAction.resourcePattern().patternType() != PatternType.LITERAL) {
       throw new IllegalArgumentException("Only literal resources are supported, got: "
-          + resource.patternType());
+          + kafkaAction.resourcePattern().patternType());
     }
 
     if (allowBrokerUsersOnInterBrokerListener(requestContext, requestContext.principal())) {
       return true;
     }
 
-    ResourcePattern resourcePattern = new ResourcePattern(AclMapper.resourceType(resource.resourceType()),
-        resource.name(), PatternType.LITERAL);
+    ResourcePattern resourcePattern = new ResourcePattern(AclMapper.resourceType(kafkaAction.resourcePattern().resourceType()),
+        kafkaAction.resourcePattern().name(), PatternType.LITERAL);
     Action action = new Action(scope(),
                                resourcePattern,
-                               AclMapper.operation(operation),
+                               AclMapper.operation(kafkaAction.operation()),
                                kafkaAction.resourceReferenceCount(),
                                kafkaAction.logIfAllowed(),
                                kafkaAction.logIfDenied());

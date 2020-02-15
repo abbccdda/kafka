@@ -7,16 +7,11 @@ import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
-import kafka.security.auth.ResourceType;
 import kafka.security.authorizer.AclAuthorizer;
 import org.apache.kafka.common.Endpoint;
+import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.kafka.server.authorizer.Action;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
@@ -24,6 +19,13 @@ import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.collection.JavaConversions;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 public class AclProvider extends AclAuthorizer implements AccessRuleProvider {
 
@@ -56,7 +58,7 @@ public class AclProvider extends AclAuthorizer implements AccessRuleProvider {
                                      Set<KafkaPrincipal> groupPrincipals,
                                      Scope scope,
                                      ResourcePattern resource) {
-    ResourceType resourceType = AclMapper.kafkaResourceType(resource.resourceType());
+    ResourceType resourceType = SecurityUtils.resourceType(resource.resourceType().name());
     KafkaPrincipal userPrincipal = userPrincipal(sessionPrincipal);
     return JavaConversions.setAsJavaSet(matchingAcls(resourceType, resource.name())).stream()
         .map(AclMapper::accessRule)

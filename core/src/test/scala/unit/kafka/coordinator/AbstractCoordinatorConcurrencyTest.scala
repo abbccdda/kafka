@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.Lock
 
 import kafka.coordinator.AbstractCoordinatorConcurrencyTest._
-import kafka.log.{AppendOrigin, AbstractLog, Log}
+import kafka.log.{AppendOrigin, AbstractLog}
 import kafka.server._
 import kafka.utils._
 import kafka.utils.timer.MockTimer

@@ -18,7 +18,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import kafka.admin.AclCommand;
-import kafka.security.auth.Describe$;
 import kafka.server.KafkaConfig$;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -136,7 +135,7 @@ public class MultiTenantAuthorizerTest {
     try (KafkaConsumer<String, String> consumer = testHarness.createConsumer(user1, consumerGroup, SecurityProtocol.SASL_PLAINTEXT)) {
       assertFalse(checkAuthorized(consumer, topic));
       AclCommand.main(SecurityTestUtils.addTopicAclArgs(testHarness.zkConnect(),
-          user1.prefixedKafkaPrincipal(), user1.withPrefix(topic), Describe$.MODULE$, PatternType.LITERAL));
+          user1.prefixedKafkaPrincipal(), user1.withPrefix(topic), AclOperation.DESCRIBE, PatternType.LITERAL));
       TestUtils.waitForCondition(() -> checkAuthorized(consumer, topic), "ACL not applied within timeout");
     }
   }

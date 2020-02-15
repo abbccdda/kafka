@@ -22,7 +22,7 @@ import java.nio.ByteBuffer
 import java.util.concurrent._
 
 import com.typesafe.scalalogging.Logger
-import com.yammer.metrics.core.{Gauge, Meter}
+import com.yammer.metrics.core.Meter
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.RequestQueueSizePercentiles
 import kafka.utils.{Logging, NotNothing, Pool}
@@ -51,7 +51,7 @@ object RequestChannel extends Logging {
   case object ShutdownRequest extends BaseRequest
 
   case class Session(principal: KafkaPrincipal, clientAddress: InetAddress) {
-    val sanitizedUser = Sanitizer.sanitize(principal.getName)
+    val sanitizedUser: String = Sanitizer.sanitize(principal.getName)
   }
 
   class Metrics {
@@ -113,7 +113,7 @@ object RequestChannel extends Logging {
 
     trace(s"Processor $processor received request: ${requestDesc(true)}")
 
-    def requestThreadTimeNanos = {
+    def requestThreadTimeNanos: Long = {
       if (apiLocalCompleteTimeNanos == -1L) apiLocalCompleteTimeNanos = Time.SYSTEM.nanoseconds
       math.max(apiLocalCompleteTimeNanos - requestDequeueTimeNanos, 0L)
     }
@@ -292,12 +292,10 @@ class RequestChannel(val queueSize: Int, val metricNamePrefix : String, val serv
   private val queueSizeSensor = serverMetrics.sensor(requestQueueSizeMetricName)
   queueSizeSensor.add(RequestQueueSizePercentiles.createPercentiles(serverMetrics, queueSize, metricNamePrefix))
 
-  newGauge(requestQueueSizeMetricName, new Gauge[Int] {
-      def value = requestQueue.size
-  })
+  newGauge(requestQueueSizeMetricName, () => requestQueue.size)
 
-  newGauge(responseQueueSizeMetricName, new Gauge[Int]{
-    def value = processors.values.asScala.foldLeft(0) {(total, processor) =>
+  newGauge(responseQueueSizeMetricName, () => {
+    processors.values.asScala.foldLeft(0) {(total, processor) =>
       total + processor.responseQueueSize
     }
   })
@@ -306,12 +304,8 @@ class RequestChannel(val queueSize: Int, val metricNamePrefix : String, val serv
     if (processors.putIfAbsent(processor.id, processor) != null)
       warn(s"Unexpected processor with processorId ${processor.id}")
 
-    newGauge(responseQueueSizeMetricName,
-      new Gauge[Int] {
-        def value = processor.responseQueueSize
-      },
-      Map(ProcessorMetricTag -> processor.id.toString)
-    )
+    newGauge(responseQueueSizeMetricName, () => processor.responseQueueSize,
+      Map(ProcessorMetricTag -> processor.id.toString))
   }
 
   def removeProcessor(processorId: Int): Unit = {

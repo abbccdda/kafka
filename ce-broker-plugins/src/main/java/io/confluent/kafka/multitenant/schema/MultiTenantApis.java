@@ -4,7 +4,7 @@ package io.confluent.kafka.multitenant.schema;
 
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.utils.Optional;
-import kafka.security.auth.Acl$;
+import kafka.security.authorizer.AclEntry;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.CommonFields;
@@ -338,13 +338,6 @@ public class MultiTenantApis {
           }
           break;
 
-        case DELETE_TOPICS:
-          if (field != null && field.name.equals("name")) {
-            return Optional.some(
-                    new StringTenantTransformer(type, TenantTransform.REMOVE_PREFIX));
-          }
-          break;
-
         case DESCRIBE_GROUPS:
           if ((field != null) && field.name.equals("group_id")) {
             return Optional.some(
@@ -352,13 +345,14 @@ public class MultiTenantApis {
           }
           break;
 
+        case DELETE_TOPICS:
         case OFFSET_COMMIT:
         case OFFSET_FETCH:
         case TXN_OFFSET_COMMIT:
         case OFFSET_DELETE:
           if (field != null && field.name.equals("name")) {
-              return Optional.some(new StringTenantTransformer(type,
-                      TenantTransform.REMOVE_PREFIX));
+              return Optional.some(
+                      new StringTenantTransformer(type, TenantTransform.REMOVE_PREFIX));
           }
           break;
 
@@ -704,7 +698,7 @@ public class MultiTenantApis {
       }
       switch (transform) {
         case ADD_PREFIX:
-          if (kafkaPrincipal.equals(Acl$.MODULE$.WildCardPrincipal())) {
+          if (kafkaPrincipal.equals(AclEntry.WildcardPrincipal())) {
             return MultiTenantPrincipal.TENANT_WILDCARD_USER_TYPE + ":" + ctx.prefix();
           } else {
             String transformed = ctx.addTenantPrefix(kafkaPrincipal.getName());
@@ -720,7 +714,7 @@ public class MultiTenantApis {
             if (!user.equals(ctx.prefix())) {
               throw new IllegalStateException("Wildcard with different tenant not filtered out");
             } else {
-              return Acl$.MODULE$.WildCardPrincipal().toString();
+              return AclEntry.WildcardPrincipalString();
             }
           } else {
             String transformed = ctx.removeTenantPrefix(kafkaPrincipal.getName());
@@ -732,7 +726,8 @@ public class MultiTenantApis {
     }
 
     private static boolean isFilter(TenantTransform transform, ApiKeys apiKey) {
-      return transform == TenantTransform.ADD_PREFIX && apiKey == ApiKeys.DELETE_ACLS;
+      return transform == TenantTransform.ADD_PREFIX &&
+          (apiKey == ApiKeys.DELETE_ACLS || apiKey == ApiKeys.DESCRIBE_ACLS);
     }
   }
 }

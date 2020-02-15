@@ -720,7 +720,7 @@ class ClientRequestQuotaManagerTest {
   }
 
   private def buildRequest(listenerName: ListenerName): RequestChannel.Request = {
-    val builder = new OffsetFetchRequest.Builder("test-group", List(testTopicPartition).asJava)
+    val builder = new OffsetFetchRequest.Builder("test-group", true, List(testTopicPartition).asJava)
     val request = builder.build()
     val buffer = request.serialize(new RequestHeader(builder.apiKey, request.version, testClient, 0))
     val requestChannelMetrics: RequestChannel.Metrics = EasyMock.createNiceMock(classOf[RequestChannel.Metrics])

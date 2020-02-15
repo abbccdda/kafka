@@ -2,8 +2,6 @@
 
 package io.confluent.kafka.test.utils;
 
-import static org.junit.Assert.assertEquals;
-
 import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Metric;
@@ -16,28 +14,32 @@ import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.license.validator.ConfluentLicenseValidator;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
 import io.confluent.license.validator.LicenseConfig;
-import java.io.File;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.stream.Collectors;
-import javax.security.auth.login.Configuration;
 import kafka.admin.AclCommand;
 import kafka.admin.ConfigCommand;
-import kafka.security.auth.Operation;
-import kafka.security.auth.Resource;
 import kafka.server.KafkaServer;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.acl.AccessControlEntryFilter;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
+import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.resource.PatternType;
+import org.apache.kafka.common.resource.ResourcePattern;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.authenticator.CredentialCache;
 import org.apache.kafka.common.security.authenticator.LoginManager;
 import org.apache.kafka.common.security.scram.ScramCredential;
 import org.apache.kafka.common.security.scram.internals.ScramMechanism;
+import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.kafka.test.TestUtils;
+
+import javax.security.auth.login.Configuration;
+import java.io.File;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import static org.junit.Assert.assertEquals;
 
 public class SecurityTestUtils {
 
@@ -143,25 +145,25 @@ public class SecurityTestUtils {
   }
 
   public static String[] addConsumerGroupAclArgs(String zkConnect, KafkaPrincipal principal,
-      String consumerGroup, Operation op, PatternType patternType) {
+      String consumerGroup, AclOperation op, PatternType patternType) {
     return new String[]{
         "--authorizer-properties", "zookeeper.connect=" + zkConnect,
         "--add",
         "--resource-pattern-type=" + patternType.name(),
         "--group=" + consumerGroup,
-        "--operation=" + op.name(),
+        "--operation=" + SecurityUtils.operationName(op),
         "--allow-principal=" + principal
     };
   }
 
   public static String[] addTopicAclArgs(String zkConnect, KafkaPrincipal principal,
-      String topic, Operation op, PatternType patternType) {
+                                         String topic, AclOperation op, PatternType patternType) {
     return new String[]{
         "--authorizer-properties", "zookeeper.connect=" + zkConnect,
         "--add",
         "--resource-pattern-type=" + patternType.name(),
         "--topic=" + topic,
-        "--operation=" + op.name(),
+        "--operation=" + SecurityUtils.operationName(op),
         "--allow-principal=" + principal
     };
   }
@@ -189,16 +191,16 @@ public class SecurityTestUtils {
     AclCommand.main(args);
   }
 
-  public static void waitForAclUpdate(org.apache.kafka.server.authorizer.Authorizer authorizer, KafkaPrincipal principal, Resource resource,
-      Operation op, boolean deleted) {
+  public static void waitForAclUpdate(org.apache.kafka.server.authorizer.Authorizer authorizer, KafkaPrincipal principal, ResourcePattern resourcePattern,
+      AclOperation op, boolean deleted) {
     try {
       org.apache.kafka.test.TestUtils.waitForCondition(() -> {
-        Iterable<AclBinding> acls = authorizer.acls(new AclBindingFilter(resource.toPattern().toFilter(),
+        Iterable<AclBinding> acls = authorizer.acls(new AclBindingFilter(resourcePattern.toFilter(),
             AccessControlEntryFilter.ANY));
         boolean matches = false;
         for (AclBinding acl : acls) {
           AccessControlEntry entry = acl.entry();
-          if (entry.operation().equals(op.toJava()) && entry.principal()
+          if (entry.operation().equals(op) && entry.principal()
               .equals(principal.toString())) {
             matches = true;
             break;

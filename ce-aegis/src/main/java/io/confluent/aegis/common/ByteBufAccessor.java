@@ -18,10 +18,11 @@
 package io.confluent.aegis.common;
 
 import io.netty.buffer.ByteBuf;
-import java.nio.ByteBuffer;
 import org.apache.kafka.common.protocol.Readable;
 import org.apache.kafka.common.protocol.Writable;
 import org.apache.kafka.common.utils.ByteUtils;
+
+import java.nio.ByteBuffer;
 
 public class ByteBufAccessor implements Readable, Writable {
     private final ByteBuf buf;
@@ -43,6 +44,11 @@ public class ByteBufAccessor implements Readable, Writable {
     @Override
     public int readInt() {
         return buf.readInt();
+    }
+
+    @Override
+    public double readDouble() {
+        return buf.readDouble();
     }
 
     @Override
@@ -87,6 +93,11 @@ public class ByteBufAccessor implements Readable, Writable {
     @Override
     public void writeInt(int val) {
         buf.writeInt(val);
+    }
+
+    @Override
+    public void writeDouble(double val) {
+        buf.writeDouble(val);
     }
 
     @Override
