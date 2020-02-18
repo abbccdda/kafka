@@ -50,7 +50,8 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             wait_until(lambda: len(self.kafka.isr_idx_list(self.topic, partition)) == self.replication_factor, timeout_sec=60,
                        backoff_sec=1, err_msg="Replicas did not rejoin the ISR in a reasonable amount of time")
 
-    def perform_upgrade(self, from_kafka_version, to_message_format_version, from_tiered_storage, to_tiered_storage):
+    def perform_upgrade(self, from_kafka_version, to_message_format_version, hotset_bytes,
+            from_tiered_storage, to_tiered_storage, backend):
         if to_tiered_storage:
             wait_until(lambda: self.producer.each_produced_at_least(25000),
                        timeout_sec=120, backoff_sec=1,
@@ -67,6 +68,11 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             node.version = DEV_BRANCH
             node.config[config_property.INTER_BROKER_PROTOCOL_VERSION] = from_kafka_version
             node.config[config_property.MESSAGE_FORMAT_VERSION] = from_kafka_version
+
+            if not from_tiered_storage and to_tiered_storage:
+                tier_set_configs(self.kafka, backend, feature=to_tiered_storage, enable=to_tiered_storage,
+                        hotset_bytes=hotset_bytes, hotset_ms=-1, metadata_replication_factor=3)
+
             self.kafka.start_node(node)
             self.wait_until_rejoin()
 
@@ -79,8 +85,6 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             else:
                 node.config[config_property.MESSAGE_FORMAT_VERSION] = to_message_format_version
 
-            node.config[config_property.CONFLUENT_TIER_FEATURE] = to_tiered_storage
-            node.config[config_property.CONFLUENT_TIER_ENABLE] = to_tiered_storage
             self.kafka.start_node(node)
             self.wait_until_rejoin()
 
@@ -90,13 +94,17 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
         self.restart_jmx_tool()
 
     @cluster(num_nodes=6)
-    @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.4.0"], from_kafka_version=[str(LATEST_2_4)], to_message_format_version=[None],
-            compression_types=[["none"]], from_tiered_storage=[False, True], to_tiered_storage=[True], hotset_bytes=[-1, 1])
+    @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.4.0"], from_kafka_version=[str(LATEST_2_4)], to_message_format_version=[None], compression_types=[["none"]],
+            from_tiered_storage=[False, True], to_tiered_storage=[True], hotset_bytes=[-1, 1], backend=[S3_BACKEND])
+    @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.4.0"], from_kafka_version=[str(LATEST_2_4)], to_message_format_version=[None], compression_types=[["none"]],
+            from_tiered_storage=[False], to_tiered_storage=[True], hotset_bytes=[-1, 1], backend=[GCS_BACKEND])
     @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.4.0"], from_kafka_version=[str(LATEST_2_4)], to_message_format_version=[None], compression_types=[["none"]])
     @parametrize(from_kafka_version=str(LATEST_2_4), to_message_format_version=None, compression_types=["none"])
     @parametrize(from_kafka_version=str(LATEST_2_4), to_message_format_version=None, compression_types=["zstd"])
-    @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.3.0"], from_kafka_version=[str(LATEST_2_3)], to_message_format_version=[None], compression_types=[["none"]], from_tiered_storage=[False], to_tiered_storage=[False, True], hotset_bytes=[-1, 1], backend=[S3_BACKEND, GCS_BACKEND])
-    @matrix(from_kafka_version=[str(LATEST_2_3)], to_message_format_version=[None], compression_types=[["none"]], from_tiered_storage=[False], to_tiered_storage=[True], hotset_bytes=[-1, 1], backend=[S3_BACKEND, GCS_BACKEND])
+    @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.3.0"], from_kafka_version=[str(LATEST_2_3)], to_message_format_version=[None], compression_types=[["none"]],
+            from_tiered_storage=[False], to_tiered_storage=[False, True], hotset_bytes=[-1, 1], backend=[S3_BACKEND, GCS_BACKEND])
+    @matrix(from_kafka_version=[str(LATEST_2_3)], to_message_format_version=[None], compression_types=[["none"]],
+            from_tiered_storage=[False], to_tiered_storage=[True], hotset_bytes=[-1, 1], backend=[S3_BACKEND, GCS_BACKEND])
     @parametrize(from_kafka_version=str(LATEST_2_3), to_message_format_version=None, compression_types=["none"])
     @parametrize(from_kafka_version=str(LATEST_2_3), to_message_format_version=None, compression_types=["zstd"])
     @parametrize(from_kafka_version=str(LATEST_2_2), to_message_format_version=None, compression_types=["none"])
@@ -165,9 +173,8 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
 
         if from_tiered_storage or to_tiered_storage:
             assert hotset_bytes is not None
-            assert backend is not None
-            tier_set_configs(self.kafka, backend, feature = from_tiered_storage, enable = from_tiered_storage,
-                    hotset_bytes = hotset_bytes, hotset_ms = -1, metadata_replication_factor=3)
+            tier_set_configs(self.kafka, backend, feature=from_tiered_storage, enable=from_tiered_storage,
+                             hotset_bytes=hotset_bytes, hotset_ms=-1, metadata_replication_factor=3)
 
         self.kafka.security_protocol = security_protocol
         self.kafka.interbroker_security_protocol = security_protocol
@@ -197,8 +204,10 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
 
         self.run_produce_consume_validate(core_test_action=lambda: self.perform_upgrade(from_kafka_version,
                                                                                         to_message_format_version,
+                                                                                        hotset_bytes,
                                                                                         from_tiered_storage,
-                                                                                        to_tiered_storage))
+                                                                                        to_tiered_storage,
+                                                                                        backend))
 
         cluster_id = self.kafka.cluster_id()
         assert cluster_id is not None

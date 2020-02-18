@@ -14,28 +14,28 @@ def tier_server_props(backend, feature=True, enable=False,
         [config_property.LOG_DIRS, "/mnt/kafka/kafka-data-logs-1"],
         [config_property.LOG_SEGMENT_BYTES, log_segment_bytes],
         [config_property.LOG_ROLL_TIME_MS, log_roll_time],
-        [config_property.LOG_RETENTION_CHECK_INTERVAL_MS, log_retention_check_interval],
-        [config_property.CONFLUENT_TIER_FEATURE, feature],
-        [config_property.CONFLUENT_TIER_ENABLE, enable],
-        [config_property.CONFLUENT_TIER_LOCAL_HOTSET_BYTES, hotset_bytes],
-        [config_property.CONFLUENT_TIER_LOCAL_HOTSET_MS, hotset_ms],
-        [config_property.CONFLUENT_TIER_METADATA_REPLICATION_FACTOR, metadata_replication_factor],
-    ]
+        [config_property.LOG_RETENTION_CHECK_INTERVAL_MS, log_retention_check_interval]]
 
-    if backend == S3_BACKEND:
-        return props + [
-            [config_property.CONFLUENT_TIER_BACKEND, S3_BACKEND],
-            [config_property.CONFLUENT_TIER_S3_BUCKET, "confluent-tier-system-test"],
-            [config_property.CONFLUENT_TIER_S3_REGION, "us-west-2"],
-        ]
+    # avoid setting backend if feature is not enabled, as a given backend may
+    # be an invalid option for a version we are upgrading from
+    if feature:
+        props+=[[config_property.CONFLUENT_TIER_FEATURE, feature],
+                [config_property.CONFLUENT_TIER_ENABLE, enable],
+                [config_property.CONFLUENT_TIER_LOCAL_HOTSET_BYTES, hotset_bytes],
+                [config_property.CONFLUENT_TIER_LOCAL_HOTSET_MS, hotset_ms],
+                [config_property.CONFLUENT_TIER_METADATA_REPLICATION_FACTOR, metadata_replication_factor]]
 
-    elif backend == GCS_BACKEND:
-        return props + [
-            [config_property.CONFLUENT_TIER_BACKEND, GCS_BACKEND],
-            [config_property.CONFLUENT_TIER_GCS_BUCKET, "confluent-tier-system-test-us-west1"],
-            [config_property.CONFLUENT_TIER_GCS_REGION, "us-west1"],
-            [config_property.CONFLUENT_TIER_GCS_CRED_FILE_PATH, "/vagrant/gcs_credentials.json"],
-        ]
+        if backend == S3_BACKEND:
+            props += [[config_property.CONFLUENT_TIER_BACKEND, S3_BACKEND],
+                    [config_property.CONFLUENT_TIER_S3_BUCKET, "confluent-tier-system-test"],
+                    [config_property.CONFLUENT_TIER_S3_REGION, "us-west-2"]]
+
+        elif backend == GCS_BACKEND:
+            props += [[config_property.CONFLUENT_TIER_BACKEND, GCS_BACKEND],
+                    [config_property.CONFLUENT_TIER_GCS_BUCKET, "confluent-tier-system-test-us-west1"],
+                    [config_property.CONFLUENT_TIER_GCS_REGION, "us-west1"],
+                    [config_property.CONFLUENT_TIER_GCS_CRED_FILE_PATH, "/vagrant/gcs_credentials.json"]]
+    return props
 
 def tier_set_configs(kafka, backend, feature=True, enable=False,
         metadata_replication_factor=3, hotset_bytes=1, hotset_ms=1):
