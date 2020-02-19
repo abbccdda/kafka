@@ -249,13 +249,11 @@ public class S3TierObjectStore implements TierObjectStore {
 
     private static class S3TierObjectStoreResponse implements TierObjectStoreResponse {
         private final AutoAbortingS3InputStream inputStream;
-        private final long streamSize;
 
         S3TierObjectStoreResponse(S3ObjectInputStream inputStream,
                                   long autoAbortSize,
                                   long streamSize) {
             this.inputStream = new AutoAbortingS3InputStream(inputStream, autoAbortSize, streamSize);
-            this.streamSize = streamSize;
         }
 
         @Override
@@ -266,11 +264,6 @@ public class S3TierObjectStore implements TierObjectStore {
         @Override
         public InputStream getInputStream() {
             return inputStream;
-        }
-
-        @Override
-        public long getStreamSize() {
-            return streamSize;
         }
     }
 }

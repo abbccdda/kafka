@@ -650,21 +650,14 @@ public class TierFetcherTest {
 
         class MockTierObjectStoreResponse implements TierObjectStoreResponse {
             private final InputStream is;
-            private final long size;
 
-            MockTierObjectStoreResponse(InputStream is, long size) {
+            MockTierObjectStoreResponse(InputStream is) {
                 this.is = is;
-                this.size = size;
             }
 
             @Override
             public InputStream getInputStream() {
                 return is;
-            }
-
-            @Override
-            public long getStreamSize() {
-                return size;
             }
 
             @Override
@@ -709,7 +702,7 @@ public class TierFetcherTest {
             buf.put(buffer.array(), start, byteBufferSize);
             buf.flip();
 
-            return new MockTierObjectStoreResponse(new ByteBufferInputStream(buf), byteBufferSize);
+            return new MockTierObjectStoreResponse(new ByteBufferInputStream(buf));
         }
 
         @Override

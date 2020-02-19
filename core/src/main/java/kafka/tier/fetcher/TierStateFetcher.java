@@ -35,7 +35,6 @@ public class TierStateFetcher {
         this.executorService = Executors.newFixedThreadPool(numThreads);
     }
 
-
     public void close() {
         if (stopped.compareAndSet(false, true)) {
             executorService.shutdownNow();
@@ -72,15 +71,7 @@ public class TierStateFetcher {
         return CompletableFuture.supplyAsync(() -> {
             try (TierObjectStoreResponse response = tierObjectStore.getObject(metadata,
                     TierObjectStore.FileType.PRODUCER_STATE)) {
-                final long objectSize = response.getStreamSize();
-                if (objectSize > Integer.MAX_VALUE) {
-                    throw new IllegalStateException("Tiered producer state snapshot too large");
-                } else {
-                    final ByteBuffer buf = ByteBuffer.allocate((int) objectSize);
-                    Utils.readFully(response.getInputStream(), buf);
-                    buf.flip();
-                    return buf;
-                }
+                return ByteBuffer.wrap(Utils.toArray(response.getInputStream()));
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             } catch (Exception e) {
