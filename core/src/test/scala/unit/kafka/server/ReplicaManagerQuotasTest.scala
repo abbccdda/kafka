@@ -223,7 +223,8 @@ class ReplicaManagerQuotasTest {
     expect(log.read(anyObject(),
       maxLength = geq(1),
       isolation = anyObject(),
-      minOneMessage = anyBoolean())).andReturn(
+      minOneMessage = anyBoolean(),
+      permitPreferredTierRead = anyBoolean())).andReturn(
       FetchDataInfo(
         LogOffsetMetadata(0L, 0L, 0),
         MemoryRecords.withRecords(CompressionType.NONE, record)
@@ -233,7 +234,8 @@ class ReplicaManagerQuotasTest {
     expect(log.read(anyObject(),
       maxLength = EasyMock.eq(0),
       isolation = anyObject(),
-      minOneMessage = anyBoolean())).andReturn(
+      minOneMessage = anyBoolean(),
+      permitPreferredTierRead = anyBoolean())).andReturn(
       FetchDataInfo(
         LogOffsetMetadata(0L, 0L, 0),
         MemoryRecords.EMPTY

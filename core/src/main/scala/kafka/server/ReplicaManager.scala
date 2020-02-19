@@ -1190,6 +1190,8 @@ class ReplicaManager(val config: KafkaConfig,
             preferredReadReplica = preferredReadReplica,
             exception = None)
         } else {
+          val isFromConsumer = !(Request.isValidBrokerId(replicaId) || replicaId == Request.FutureLocalReplicaId)
+
           // Try the read first, this tells us whether we need all of adjustedFetchSize for this partition
           val readInfo: LogReadInfo = partition.readRecords(
             fetchOffset = fetchInfo.fetchOffset,
@@ -1197,7 +1199,8 @@ class ReplicaManager(val config: KafkaConfig,
             maxBytes = adjustedMaxBytes,
             fetchIsolation = fetchIsolation,
             fetchOnlyFromLeader = fetchOnlyFromLeader,
-            minOneMessage = minOneMessage)
+            minOneMessage = minOneMessage,
+            permitPreferredTierRead = isFromConsumer)
 
           // Check if the HW known to the follower is behind the actual HW
           val followerNeedsHwUpdate: Boolean = partition.getReplica(replicaId)

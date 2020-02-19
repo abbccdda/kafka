@@ -138,7 +138,8 @@ class TierDeletedPartitionsCoordinator(scheduler: Scheduler,
           val fetchDataInfo = log.read(currentOffset,
             maxLength = buffer.capacity,
             isolation = FetchHighWatermark,
-            minOneMessage = true) match {
+            minOneMessage = true,
+            permitPreferredTierRead = false) match {
             case localFetchInfo: FetchDataInfo => localFetchInfo
             case _ => throw new IllegalStateException(s"Unexpected tiered segment for tier topic in $tierTopicPartition")
           }

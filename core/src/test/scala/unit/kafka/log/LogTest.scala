@@ -91,7 +91,8 @@ class LogTest {
         startOffset = fetchOffset,
         maxLength = 2048,
         isolation = FetchHighWatermark,
-        minOneMessage = false).asInstanceOf[FetchDataInfo]
+        minOneMessage = false,
+        permitPreferredTierRead = false).asInstanceOf[FetchDataInfo]
       assertEquals(expectedSize, readInfo.records.sizeInBytes)
       assertEquals(expectedOffsets, readInfo.records.records.asScala.map(_.offset))
     }
@@ -172,7 +173,8 @@ class LogTest {
     val readInfo = log.read(startOffset = offset,
       maxLength = Int.MaxValue,
       isolation = isolation,
-      minOneMessage = true)
+      minOneMessage = true,
+      permitPreferredTierRead = false)
       .asInstanceOf[FetchDataInfo]
 
     assertFalse(readInfo.firstEntryIncomplete)
@@ -195,7 +197,8 @@ class LogTest {
     val readInfo = log.read(startOffset = offset,
       maxLength = Int.MaxValue,
       isolation = isolation,
-      minOneMessage = true)
+      minOneMessage = true,
+      permitPreferredTierRead = false)
       .asInstanceOf[FetchDataInfo]
     assertFalse(readInfo.firstEntryIncomplete)
     assertEquals(0, readInfo.records.sizeInBytes)
@@ -4406,7 +4409,7 @@ class LogTest {
                       maxLength: Int,
                       isolation: FetchIsolation = FetchLogEnd,
                       minOneMessage: Boolean = true): FetchDataInfo = {
-    log.read(startOffset, maxLength, isolation, minOneMessage).asInstanceOf[FetchDataInfo]
+    log.read(startOffset, maxLength, isolation, minOneMessage, permitPreferredTierRead = false).asInstanceOf[FetchDataInfo]
   }
 
 }

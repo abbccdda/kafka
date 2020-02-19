@@ -157,7 +157,8 @@ class TransactionStateManagerTest {
     EasyMock.expect(logMock.read(EasyMock.eq(startOffset),
       maxLength = EasyMock.anyInt(),
       isolation = EasyMock.eq(FetchLogEnd),
-      minOneMessage = EasyMock.eq(true))
+      minOneMessage = EasyMock.eq(true),
+      permitPreferredTierRead = EasyMock.eq(false))
     ).andReturn(FetchDataInfo(LogOffsetMetadata(startOffset), fileRecordsMock))
     EasyMock.expect(replicaManager.getLogEndOffset(topicPartition)).andStubReturn(Some(endOffset))
 
@@ -599,7 +600,8 @@ class TransactionStateManagerTest {
     EasyMock.expect(logMock.read(EasyMock.eq(startOffset),
       maxLength = EasyMock.anyInt(),
       isolation = EasyMock.eq(FetchLogEnd),
-      minOneMessage = EasyMock.eq(true))
+      minOneMessage = EasyMock.eq(true),
+      permitPreferredTierRead = EasyMock.eq(false))
     ).andReturn(FetchDataInfo(LogOffsetMetadata(startOffset), MemoryRecords.EMPTY))
     EasyMock.expect(replicaManager.getLogEndOffset(topicPartition)).andStubReturn(Some(endOffset))
 
@@ -732,7 +734,8 @@ class TransactionStateManagerTest {
     EasyMock.expect(logMock.read(EasyMock.eq(startOffset),
       maxLength = EasyMock.anyInt(),
       isolation = EasyMock.eq(FetchLogEnd),
-      minOneMessage = EasyMock.eq(true)))
+      minOneMessage = EasyMock.eq(true),
+      permitPreferredTierRead = EasyMock.eq(false)))
       .andReturn(FetchDataInfo(LogOffsetMetadata(startOffset), fileRecordsMock))
 
     EasyMock.expect(fileRecordsMock.sizeInBytes()).andStubReturn(records.sizeInBytes)

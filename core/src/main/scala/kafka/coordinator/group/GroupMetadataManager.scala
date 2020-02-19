@@ -571,7 +571,8 @@ class GroupMetadataManager(brokerId: Int,
           val fetchDataInfo = log.read(currOffset,
             maxLength = config.loadBufferSize,
             isolation = FetchLogEnd,
-            minOneMessage = true) match {
+            minOneMessage = true,
+            permitPreferredTierRead = false) match {
             case localFetchInfo: FetchDataInfo => localFetchInfo
             case _ => throw new IllegalStateException("Unexpected tiered segment for __consumer_offsets topic")
           }

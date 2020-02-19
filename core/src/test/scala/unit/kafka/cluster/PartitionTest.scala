@@ -343,7 +343,8 @@ class PartitionTest {
           maxBytes = 1024,
           fetchIsolation = FetchLogEnd,
           fetchOnlyFromLeader = true,
-          minOneMessage = false)
+          minOneMessage = false,
+          permitPreferredTierRead = false)
         if (error != Errors.NONE)
           fail(s"Expected readRecords to fail with error $error")
       } catch {
@@ -371,7 +372,8 @@ class PartitionTest {
           maxBytes = 1024,
           fetchIsolation = FetchLogEnd,
           fetchOnlyFromLeader = fetchOnlyFromLeader,
-          minOneMessage = false)
+          minOneMessage = false,
+          permitPreferredTierRead = false)
         if (error != Errors.NONE)
           fail(s"Expected readRecords to fail with error $error")
       } catch {

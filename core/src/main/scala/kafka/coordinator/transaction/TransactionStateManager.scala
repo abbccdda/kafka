@@ -312,7 +312,8 @@ class TransactionStateManager(brokerId: Int,
             val fetchDataInfo = log.read(currOffset,
               maxLength = config.transactionLogLoadBufferSize,
               isolation = FetchLogEnd,
-              minOneMessage = true) match {
+              minOneMessage = true,
+              permitPreferredTierRead = false) match {
               case localFetchInfo: FetchDataInfo => localFetchInfo
               case _ => throw new IllegalStateException("Unexpected tiered segment for __transaction_state topic")
             }

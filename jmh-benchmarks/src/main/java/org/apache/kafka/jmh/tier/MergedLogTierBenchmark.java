@@ -179,7 +179,7 @@ public class MergedLogTierBenchmark {
     @Benchmark
     @OutputTimeUnit(TimeUnit.NANOSECONDS)
     public void readTier() {
-        mergedLog.read(25L, 20, kafka.server.FetchHighWatermark$.MODULE$, true);
+        mergedLog.read(25L, 20, kafka.server.FetchHighWatermark$.MODULE$, true, false);
     }
 
     @Benchmark

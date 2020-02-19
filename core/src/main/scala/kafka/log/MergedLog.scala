@@ -210,11 +210,12 @@ class MergedLog(private[log] val localLog: Log,
   override def read(startOffset: Long,
                     maxLength: Int,
                     isolation: FetchIsolation,
-                    minOneMessage: Boolean): AbstractFetchDataInfo = {
+                    minOneMessage: Boolean,
+                    permitPreferredTierRead: Boolean): AbstractFetchDataInfo = {
     maybeHandleIOException(s"Exception while reading from $topicPartition in dir ${dir.getParent}") {
       val logEndOffset = this.logEndOffset
 
-      maybePerformPreferredTierRead(startOffset, maxLength, minOneMessage, logEndOffset).getOrElse {
+      maybePerformPreferredTierRead(startOffset, maxLength, minOneMessage, logEndOffset, permitPreferredTierRead).getOrElse {
         try {
           readLocal(startOffset, maxLength, isolation, minOneMessage)
         } catch {
@@ -413,15 +414,18 @@ class MergedLog(private[log] val localLog: Log,
   private def maybePerformPreferredTierRead(startOffset: Long,
                                             maxLength: Int,
                                             minOneMessage: Boolean,
-                                            logEndOffset: Long): Option[TierFetchDataInfo] = {
+                                            logEndOffset: Long,
+                                            permitPreferredTierRead: Boolean): Option[TierFetchDataInfo] = {
     def preferTierRead: Boolean = {
       // Prefer tiered reads if:
-      // 1. Preferential tier fetches are enabled
-      // 2. Requested offset is greater than the log start offset
-      // 3. The offset is present in tiered storage (requested offset is greater than or equal to first tiered offset
+      // 1. Preferential tier read is permissible for this fetch
+      // 2. Preferential tier fetches are enabled
+      // 3. Requested offset is greater than the log start offset
+      // 4. The offset is present in tiered storage (requested offset is greater than or equal to first tiered offset
       //    and is less than the first untiered offset)
-      // 4. Required time has elapsed as per the largest timestamp in the segment corresponding to the requested offset
-      config.preferTierFetchMs >= 0 &&
+      // 5. Required time has elapsed as per the largest timestamp in the segment corresponding to the requested offset
+      permitPreferredTierRead &&
+        config.preferTierFetchMs >= 0 &&
         startOffset >= logStartOffset &&
         firstTieredOffset.getOrElse(Long.MaxValue) <= startOffset &&
         startOffset < tierPartitionState.endOffset &&
@@ -956,10 +960,11 @@ sealed trait AbstractLog {
     * @param maxLength The maximum number of bytes to read
     * @param isolation The fetch isolation, which controls the maximum offset we are allowed to read
     * @param minOneMessage If this is true, the first message will be returned even if it exceeds `maxLength` (if one exists)
+    * @param permitPreferredTierRead Whether preferential tier reads are permissible for this fetch.
     * @throws OffsetOutOfRangeException If startOffset is beyond the log end offset or before the log start offset
     * @return The fetch data information including fetch starting offset metadata and messages read.
     */
-  def read(startOffset: Long, maxLength: Int, isolation: FetchIsolation, minOneMessage: Boolean): AbstractFetchDataInfo
+  def read(startOffset: Long, maxLength: Int, isolation: FetchIsolation, minOneMessage: Boolean, permitPreferredTierRead: Boolean): AbstractFetchDataInfo
 
   /**
     * Variant of AbstractLog#read that limits read to local store only.

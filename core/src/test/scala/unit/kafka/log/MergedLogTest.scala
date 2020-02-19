@@ -154,7 +154,7 @@ class MergedLogTest {
     val offsetsToRead = List(tierStart, tierStart + 1, tierEnd - 1, tierEnd)
 
     offsetsToRead.foreach { offset =>
-      val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true)
+      val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true, permitPreferredTierRead = true)
       result match {
         case tierResult: TierFetchDataInfo =>
           val segmentBaseOffset = tierPartitionState.segmentOffsets.floor(offset)
@@ -177,7 +177,7 @@ class MergedLogTest {
     val offsetsToRead = List(overlapStart, overlapStart + 1, overlapEnd - 1, overlapEnd)
 
     offsetsToRead.foreach { offset =>
-      val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true)
+      val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true, permitPreferredTierRead = true)
       result match {
         case localResult: FetchDataInfo => assertEquals(offset, localResult.records.records.iterator.next.offset)
         case _ => fail(s"Unexpected $result")
@@ -214,7 +214,7 @@ class MergedLogTest {
     val offsetsToRead = List(overlapStart, overlapStart + 1, overlapEnd - 1, overlapEnd)
 
     offsetsToRead.foreach { offset =>
-      val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true)
+      val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true, permitPreferredTierRead = true)
       result match {
         case localResult: FetchDataInfo =>
           val baseOffset = localResult.fetchOffsetMetadata.segmentBaseOffset
@@ -233,6 +233,43 @@ class MergedLogTest {
   }
 
   @Test
+  def testReadFromOverlapWithPreferTierNotPermitted(): Unit = {
+    // set `preferTierFetchMs` such that it falls in the middle of the hotset
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = 1,
+      preferTierFetchMs = 55)
+
+    def segmentMaxTimestampCbk(): Long = {
+      val timestamp = mockTime.milliseconds
+      mockTime.sleep(1)
+      timestamp
+    }
+
+    // <---- Tiered Log ----> <---- Hotset ----> <---- Local Log ---->
+    //      30 segments          10 segments          50 segments
+    // 0                   29 30      35       39 40                 89 90
+    //                                ^                                 ^
+    //                                preferTierTime                    currentTime
+    val log = createLogWithOverlap(30, 50, 10, logConfig,
+      segmentMaxTimestampCbk = segmentMaxTimestampCbk)
+    val ranges = logRanges(log)
+
+    // reading from overlap should return local data
+    val overlapStart = ranges.firstOverlapOffset.get
+    val overlapEnd = ranges.lastOverlapOffset.get
+    val offsetsToRead = List(overlapStart, overlapStart + 1, overlapEnd - 1, overlapEnd)
+
+    // Tier fetches must not be performed when `permitPreferredTierRead` is `false`
+    offsetsToRead.foreach { offset =>
+      val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true, permitPreferredTierRead = false)
+      result match {
+        case localResult: FetchDataInfo => assertEquals(offset, localResult.records.records.iterator.next.offset)
+        case _ => fail(s"Unexpected $result")
+      }
+    }
+    log.close()
+  }
+
+  @Test
   def testReadAboveOverlap(): Unit = {
     val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = 1)
     val log = createLogWithOverlap(30, 50, 10, logConfig)
@@ -244,7 +281,7 @@ class MergedLogTest {
     val offsetsToRead = List(localStart, localStart + 1, localEnd - 1, localEnd)
 
     offsetsToRead.foreach { offset =>
-      val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true)
+      val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true, permitPreferredTierRead = true)
       result match {
         case localResult: FetchDataInfo => assertEquals(offset, localResult.records.records.iterator.next.offset)
         case _ => fail(s"Unexpected $result")

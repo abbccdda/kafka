@@ -1152,7 +1152,8 @@ class Partition(val topicPartition: TopicPartition,
                   maxBytes: Int,
                   fetchIsolation: FetchIsolation,
                   fetchOnlyFromLeader: Boolean,
-                  minOneMessage: Boolean): LogReadInfo = inReadLock(leaderIsrUpdateLock) {
+                  minOneMessage: Boolean,
+                  permitPreferredTierRead: Boolean): LogReadInfo = inReadLock(leaderIsrUpdateLock) {
     // decide whether to only fetch from leader
     val localLog = localLogWithEpochOrException(currentLeaderEpoch, fetchOnlyFromLeader)
 
@@ -1162,7 +1163,7 @@ class Partition(val topicPartition: TopicPartition,
     val initialLogStartOffset = localLog.logStartOffset
     val initialLogEndOffset = localLog.logEndOffset
     val initialLastStableOffset = localLog.lastStableOffset
-    val fetchedData = localLog.read(fetchOffset, maxBytes, fetchIsolation, minOneMessage)
+    val fetchedData = localLog.read(fetchOffset, maxBytes, fetchIsolation, minOneMessage, permitPreferredTierRead)
 
     LogReadInfo(
       fetchedData = fetchedData,

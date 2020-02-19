@@ -473,7 +473,7 @@ class LogManagerTest {
   }
 
   private def readLog(log: AbstractLog, offset: Long, maxLength: Int = 1024): FetchDataInfo = {
-    log.read(offset, maxLength, isolation = FetchLogEnd, minOneMessage = true) match {
+    log.read(offset, maxLength, isolation = FetchLogEnd, minOneMessage = true, permitPreferredTierRead = false) match {
       case localResult: FetchDataInfo => localResult
       case unknown => throw new IllegalStateException(s"Unexpected result $unknown")
     }

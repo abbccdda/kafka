@@ -92,7 +92,8 @@ class SimpleFetchTest {
       startOffset = 0,
       maxLength = fetchSize,
       isolation = FetchHighWatermark,
-      minOneMessage = true))
+      minOneMessage = true,
+      permitPreferredTierRead = true))
       .andReturn(FetchDataInfo(
         LogOffsetMetadata(0L, 0L, 0),
         MemoryRecords.withRecords(CompressionType.NONE, recordToHW)
@@ -101,7 +102,8 @@ class SimpleFetchTest {
       startOffset = 0,
       maxLength = fetchSize,
       isolation = FetchLogEnd,
-      minOneMessage = true))
+      minOneMessage = true,
+      permitPreferredTierRead = true))
       .andReturn(FetchDataInfo(
         LogOffsetMetadata(0L, 0L, 0),
         MemoryRecords.withRecords(CompressionType.NONE, recordToLEO)

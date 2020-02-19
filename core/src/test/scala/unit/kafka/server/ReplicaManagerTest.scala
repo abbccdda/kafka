@@ -59,7 +59,7 @@ import org.apache.kafka.common.{IsolationLevel, Node, TopicPartition}
 import org.easymock.EasyMock
 import org.junit.Assert._
 import org.junit.{After, Before, Test}
-import org.mockito.Mockito
+import org.mockito.{ArgumentMatchers, Mockito}
 
 import scala.collection.JavaConverters._
 import scala.collection.{Map, Seq}
@@ -1609,6 +1609,47 @@ class ReplicaManagerTest {
     replicaManager.deleteStrayLogs()
     assertEquals(validLogs.toSet, logManager.allLogs.toSet)
     assertEquals(validLogs.map(_.topicPartition).toSet, replicaManager.allPartitions.map(_._1).toSet)
+  }
+
+  @Test
+  def testPermitPreferredTierRead(): Unit = {
+    val props = TestUtils.createBrokerConfig(1, TestUtils.MockZkConnect)
+    val config = KafkaConfig.fromProps(props)
+    val mockLogMgr = TestUtils.createLogManager(config.logDirs.map(new File(_)))
+    val topicPartition = new TopicPartition(topic, 0)
+    val leaderBrokerId = 0
+    val followerBrokerId = 1
+    val leaderEpoch = 1
+    val aliveBrokerIds = Seq[Integer] (followerBrokerId, leaderBrokerId)
+
+    val rm = new ReplicaManager(config, metrics, time, kafkaZkClient, new MockScheduler(time), mockLogMgr,
+      new AtomicBoolean(false), QuotaFactory.instantiate(config, metrics, time, ""), new BrokerTopicStats,
+      new MetadataCache(config.brokerId), new LogDirFailureChannel(config.logDirs.size), TierReplicaComponents.EMPTY)
+    try {
+      val partition = rm.createPartition(topicPartition)
+      val log = Mockito.mock(classOf[AbstractLog])
+      partition.setLog(log, isFutureLog = false)
+      Mockito.when(log.logEndOffsetMetadata).thenReturn(LogOffsetMetadata(0, 0, 0))
+      Mockito.when(log.maybeIncrementHighWatermark(ArgumentMatchers.any())).thenReturn(None)
+
+      val offsetCheckpoints = new LazyOffsetCheckpoints(rm.highWatermarkCheckpoints)
+      val partitionState = leaderAndIsrPartitionState(topicPartition, leaderEpoch, leaderBrokerId, aliveBrokerIds)
+      partition.makeLeader(controllerId = 0, partitionState, correlationId, offsetCheckpoints)
+
+      val partitionData = new FetchRequest.PartitionData(0L, 0L, 100, Optional.empty())
+
+      // Tier reads should be permitted when a consumer is fetching
+      fetchAsConsumer(rm, topicPartition, partitionData, minBytes = 0, maxBytes = 100)
+      Mockito.verify(log, Mockito.times(1))
+        .read(0L, 100, FetchHighWatermark, minOneMessage = true, permitPreferredTierRead = true)
+
+      // Tier reads should not be permitted when a follower is fetching
+      fetchAsFollower(rm, topicPartition, partitionData, minBytes = 0, maxBytes = 100)
+      Mockito.verify(log, Mockito.times(1))
+        .read(0L, 100, FetchLogEnd, minOneMessage = true, permitPreferredTierRead = false)
+    } finally {
+      rm.shutdown(false)
+    }
   }
 
   private def createValidLogs(numLogs: Int, replicaManager: ReplicaManager): Seq[AbstractLog] = {
