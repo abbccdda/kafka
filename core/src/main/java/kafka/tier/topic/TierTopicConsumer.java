@@ -297,21 +297,22 @@ public class TierTopicConsumer implements Runnable {
 
                 if (entryOpt.isPresent()) {
                     AbstractTierMetadata entry = entryOpt.get();
-                    log.trace("Read {} at offset {} of partition {}", entry, record.offset(), record.partition());
+                    log.trace("Read {} at offset {} of partition {} requiredState {}", entry, record.offset(), record.partition(), requiredState);
                     processEntry(entry, record.partition(), record.offset(), requiredState);
 
                     if (commitPositions)
                         committer.updatePosition(record.partition(), record.offset() + 1);
                 } else {
                     throw new TierMetadataFatalException(
-                            String.format("Fatal Exception message for %s and unknown type: %d cannot be deserialized.",
+                            String.format("Fatal Exception message for %s and unknown type: %d cannot be deserialized (requiredState:%s).",
                                 AbstractTierMetadata.deserializeKey(record.key()).toString(),
-                                AbstractTierMetadata.getTypeId(record.value())));
+                                AbstractTierMetadata.getTypeId(record.value()),
+                                requiredState));
                 }
             } catch (Exception e) {
                 throw new TierMetadataFatalException(
-                        String.format("Unable to process message at offset %d of partition %d",
-                                record.offset(), record.partition()), e);
+                        String.format("Unable to process message at offset %d of partition %d, requiredState %s",
+                                record.offset(), record.partition(), requiredState), e);
             }
         }
     }
@@ -390,7 +391,7 @@ public class TierTopicConsumer implements Runnable {
             }
         } catch (Exception e) {
             throw new TierMetadataFatalException(
-                    String.format("Error processing message %s at offset %d, partition %d", entry, offset, partition), e);
+                    String.format("Error processing message %s at offset %d, partition %d, requiredState %s", entry, offset, partition, requiredState), e);
         }
     }
 
