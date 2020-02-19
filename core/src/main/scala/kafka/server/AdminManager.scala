@@ -106,7 +106,7 @@ class AdminManager(val config: KafkaConfig,
           configs.setProperty(entry.name, entry.value)
         }
         LogConfig.validate(configs)
-        val logConfig = LogConfig(configs)
+        val logConfig = LogConfig.fromProps(KafkaServer.copyKafkaConfigToLog(config), configs)
 
         if ((topic.numPartitions != NO_NUM_PARTITIONS || topic.replicationFactor != NO_REPLICATION_FACTOR)
             && !topic.assignments().isEmpty) {
@@ -170,7 +170,6 @@ class AdminManager(val config: KafkaConfig,
 
         // For responses with DescribeConfigs permission, populate metadata and configs
         includeConfigsAndMetatadata.get(topic.name).foreach { result =>
-          val logConfig = LogConfig.fromProps(KafkaServer.copyKafkaConfigToLog(config), configs)
           val createEntry = createTopicConfigEntry(logConfig, configs, includeSynonyms = false)(_, _)
           val topicConfigs = filterTopicConfigs(logConfig.values.asScala, None).map { case (k, v) =>
             val entry = createEntry(k, v)
