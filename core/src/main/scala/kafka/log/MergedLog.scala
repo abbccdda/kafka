@@ -688,6 +688,14 @@ class MergedLog(private[log] val localLog: Log,
 
   override def lastFlushTime: Long = localLog.lastFlushTime
 
+  override def toString: String = {
+    val logString = new StringBuilder
+    logString.append(s"MergedLog(Log=$localLog")
+    logString.append(s", tierPartitionState=$tierPartitionState")
+    logString.append(")")
+    logString.toString
+  }
+
   override private[log] def delete(): Unit = {
     localLog.delete()
     removeLogMetrics()

@@ -391,6 +391,24 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return metadataForStates(topicIdPartition, currentState, FENCED_STATES);
     }
 
+    public String toString() {
+        if (tieringEnabled)
+            return "FileTierPartitionState("
+                    + "topicIdPartition=" + topicIdPartition
+                    + ", startOffset=" + startOffset()
+                    + ", endOffset=" + endOffset()
+                    + ", committedEndOffset=" + committedEndOffset()
+                    + ", numSegments=" + numSegments()
+                    + ", tierEpoch=" + tierEpoch()
+                    + ", lastMaterializedOffset=" + lastConsumedSrcOffset()
+                    + ")";
+        else
+            return "FileTierPartitionState("
+                    + "topicIdPartition=" + topicIdPartition
+                    + ", tieringEnabled=" + tieringEnabled
+                    + ")";
+    }
+
     public static Optional<Header> readHeader(FileChannel channel) throws IOException {
         Optional<Short> headerSizeOpt = readHeaderSize(channel);
         if (!headerSizeOpt.isPresent())
