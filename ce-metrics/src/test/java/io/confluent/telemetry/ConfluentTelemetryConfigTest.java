@@ -106,4 +106,10 @@ public class ConfluentTelemetryConfigTest {
     assertThat(config.createKafkaExporterConfig()).isEmpty();
   }
 
+  @Test
+  public void testDefaultPublishPeriodIsUsed() {
+    ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
+    assertEquals(ConfluentTelemetryConfig.DEFAULT_COLLECT_INTERVAL,
+            config.getLong(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG));
+  }
 }
