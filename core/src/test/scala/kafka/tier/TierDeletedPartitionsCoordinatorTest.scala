@@ -60,18 +60,18 @@ class TierDeletedPartitionsCoordinatorTest {
 
     deletedPartitionsMap.foreach { case (tierTopicPartitionId, deletedPartitions) =>
       deletedPartitions.foreach { deletedPartition =>
-        deletedPartitionsCoordinator.trackInitiatePartitionDelete(tierTopicPartitionId, deletedPartition)
+        deletedPartitionsCoordinator.trackInitiatePartitionDelete(tierTopicPartitionId, deletedPartition, offset = 10)
       }
     }
     val immigratedPartitions = deletedPartitionsCoordinator.immigratedPartitions
     assertEquals(deletedPartitionsMap, immigratedPartitions.map { case (tierTopicPartitionId, immigratedPartition) =>
-      (tierTopicPartitionId, immigratedPartition.pendingDeletions)
+      (tierTopicPartitionId, immigratedPartition.pendingDeletions.keySet)
     })
 
     // initiate delete for untracked tier topic partition should be a NOOP
-    deletedPartitionsCoordinator.trackInitiatePartitionDelete(tierTopicPartitionId = 1, new TopicIdPartition("foo", UUID.randomUUID, 0))
+    deletedPartitionsCoordinator.trackInitiatePartitionDelete(tierTopicPartitionId = 1, new TopicIdPartition("foo", UUID.randomUUID, 0), offset = 20)
     assertEquals(deletedPartitionsMap, immigratedPartitions.map { case (tierTopicPartitionId, immigratedPartition) =>
-      (tierTopicPartitionId, immigratedPartition.pendingDeletions)
+      (tierTopicPartitionId, immigratedPartition.pendingDeletions.keySet)
     })
   }
 
@@ -80,6 +80,7 @@ class TierDeletedPartitionsCoordinatorTest {
     val foo_1 = new TopicIdPartition("foo-1", UUID.randomUUID, 0)
     val foo_2 = new TopicIdPartition("foo-2", UUID.randomUUID, 2)
     val foo_3 = new TopicIdPartition("foo-3", UUID.randomUUID, 5)
+    var offset = 0L
 
     val deletedPartitionsMap = Map(0 -> Set(foo_1, foo_2),
       3 -> Set(foo_3),
@@ -91,7 +92,8 @@ class TierDeletedPartitionsCoordinatorTest {
 
     deletedPartitionsMap.foreach { case (tierTopicPartitionId, deletedPartitions) =>
       deletedPartitions.foreach { deletedPartition =>
-        deletedPartitionsCoordinator.trackInitiatePartitionDelete(tierTopicPartitionId, deletedPartition)
+        deletedPartitionsCoordinator.trackInitiatePartitionDelete(tierTopicPartitionId, deletedPartition, offset)
+        offset += 1
       }
     }
 
@@ -101,9 +103,9 @@ class TierDeletedPartitionsCoordinatorTest {
 
     // foo-2 should now be the only partition queued for deletion
     val immigratedPartitions = deletedPartitionsCoordinator.immigratedPartitions
-    assertEquals(Set(foo_2), immigratedPartitions(0).pendingDeletions)
-    assertEquals(Set(), immigratedPartitions(3).pendingDeletions)
-    assertEquals(Set(), immigratedPartitions(5).pendingDeletions)
+    assertEquals(Set(foo_2), immigratedPartitions(0).pendingDeletions.keySet)
+    assertEquals(Set(), immigratedPartitions(3).pendingDeletions.keySet)
+    assertEquals(Set(), immigratedPartitions(5).pendingDeletions.keySet)
     assertEquals(3, immigratedPartitions.size)
 
     // emigrate tier topic partition 0
@@ -123,9 +125,12 @@ class TierDeletedPartitionsCoordinatorTest {
     deletedPartitionsCoordinator.handleImmigration(3)
 
     // initiate deletion for foo_1, foo_2 and foo_4
-    deletedPartitionsCoordinator.trackInitiatePartitionDelete(foo_1._1, foo_1._2)
-    deletedPartitionsCoordinator.trackInitiatePartitionDelete(foo_2._1, foo_2._2)
-    deletedPartitionsCoordinator.trackInitiatePartitionDelete(foo_4._1, foo_4._2)
+    deletedPartitionsCoordinator.trackInitiatePartitionDelete(foo_1._1, foo_1._2, offset = 10)
+    deletedPartitionsCoordinator.trackInitiatePartitionDelete(foo_2._1, foo_2._2, offset = 20)
+    deletedPartitionsCoordinator.trackInitiatePartitionDelete(foo_4._1, foo_4._2, offset = 30)
+
+    // duplicate deletion for foo_1
+    deletedPartitionsCoordinator.trackInitiatePartitionDelete(foo_1._1, foo_1._2, offset = 31)
 
     // begin materialization
     deletedPartitionsCoordinator.maybeBeginMaterialization()
@@ -137,21 +142,25 @@ class TierDeletedPartitionsCoordinatorTest {
     assertTrue(immigratedPartitions(foo_4._1).inProgressDeletions.contains(foo_4._2))
     assertEquals(0, immigratedPartitions.values.map(_.pendingDeletions.size).sum)
 
+    // initiating deletion again for partitions being materialized should be a NOOP
+    deletedPartitionsCoordinator.trackInitiatePartitionDelete(foo_1._1, foo_1._2, offset = 32)
+    deletedPartitionsCoordinator.trackInitiatePartitionDelete(foo_2._1, foo_2._2, offset = 34)
+    assertEquals(0, immigratedPartitions.values.map(_.pendingDeletions.size).sum)
+
     verify(tierTopicConsumer, times(1))
       .register(ArgumentMatchers.argThat(new ArgumentMatcher[java.util.Map[TopicIdPartition, TierTopicConsumer.ClientCtx]]() {
         override def matches(argument: java.util.Map[TopicIdPartition, TierTopicConsumer.ClientCtx]): Boolean = {
           argument.keySet.asScala == Set(foo_1._2, foo_2._2, foo_4._2)
         }
       }))
-
     verifyNoMoreInteractions(tierTopicConsumer)
 
     // initiate deletion for foo_3
-    deletedPartitionsCoordinator.trackInitiatePartitionDelete(foo_3._1, foo_3._2)
+    deletedPartitionsCoordinator.trackInitiatePartitionDelete(foo_3._1, foo_3._2, offset = 100)
 
     // calling begin materialization should be a NOOP because we already have a materialization in progress for partition 0
     deletedPartitionsCoordinator.maybeBeginMaterialization()
-    assertEquals(Set(foo_3._2), immigratedPartitions(foo_3._1).pendingDeletions)
+    assertEquals(Set(foo_3._2), immigratedPartitions(foo_3._1).pendingDeletions.keySet)
 
     // complete deletion for foo_1 and foo_2
     deletedPartitionsCoordinator.trackCompletePartitionDelete(foo_1._1, foo_1._2)
@@ -165,8 +174,12 @@ class TierDeletedPartitionsCoordinatorTest {
   @Test
   def testDeletePartition(): Unit = {
     val tierTopicPartition = 1
+
     val deletedPartition_1 = new TopicIdPartition("foo", UUID.randomUUID, 0)
+    val deleteInitiateOffset_1 = 10
+
     val deletedPartition_2 = new TopicIdPartition("bar", UUID.randomUUID, 0)
+    val deleteInitiateOffset_2 = 20
 
     val tieredSegments_1 = for (i <- 0 until 5) yield new TierObjectStore.ObjectMetadata(deletedPartition_1, UUID.randomUUID, 0, i, false)
     tieredObjects += (deletedPartition_1 -> tieredSegments_1.toList)
@@ -175,9 +188,9 @@ class TierDeletedPartitionsCoordinatorTest {
     deletedPartitionsCoordinator.handleImmigration(tierTopicPartition)
 
     // initiate deletion
-    deletedPartitionsCoordinator.trackInitiatePartitionDelete(tierTopicPartition, deletedPartition_1)
-    deletedPartitionsCoordinator.trackInitiatePartitionDelete(tierTopicPartition, deletedPartition_2)
-    assertEquals(Set(deletedPartition_1, deletedPartition_2), deletedPartitionsCoordinator.immigratedPartitions(tierTopicPartition).pendingDeletions)
+    deletedPartitionsCoordinator.trackInitiatePartitionDelete(tierTopicPartition, deletedPartition_1, offset = deleteInitiateOffset_1)
+    deletedPartitionsCoordinator.trackInitiatePartitionDelete(tierTopicPartition, deletedPartition_2, offset = deleteInitiateOffset_2)
+    assertEquals(Set(deletedPartition_1, deletedPartition_2), deletedPartitionsCoordinator.immigratedPartitions(tierTopicPartition).pendingDeletions.keySet)
 
     // begin materialization
     deletedPartitionsCoordinator.maybeBeginMaterialization()
@@ -195,7 +208,7 @@ class TierDeletedPartitionsCoordinatorTest {
     }
 
     // simulate reading of deleteInitiated message for partition 1 ==> signals completion of materialization
-    inProgress_1.process(new TierPartitionDeleteInitiate(deletedPartition_1, 0, UUID.randomUUID), 0)
+    inProgress_1.process(new TierPartitionDeleteInitiate(deletedPartition_1, 0, UUID.randomUUID), offset = deleteInitiateOffset_1)
     assertEquals(MaterializationComplete, inProgress_1.deletionState)
 
     // begin deletion for partition 1
@@ -208,6 +221,58 @@ class TierDeletedPartitionsCoordinatorTest {
     // partition 2 will continue to be tracked as in progress
     assertEquals(Set(deletedPartition_2), inProgressPartitions.keySet)
     assertEquals(List(MaterializingState), inProgressPartitions.values.map(_.currentState))
+  }
+
+  @Test
+  def testDuplicateDeleteInitiate(): Unit = {
+    val tierTopicPartition = 1
+
+    val partition = new TopicIdPartition("foo", UUID.randomUUID, 0)
+    val deleteInitiateOffset_1 = 10
+    val deleteCompleteOffset_1 = 15
+    val deleteInitiateOffset_2 = 20
+
+    val tieredSegments = for (i <- 0 until 5) yield new TierObjectStore.ObjectMetadata(partition, UUID.randomUUID, 0, i, false)
+    tieredObjects += (partition -> tieredSegments.toList)
+
+    // immigrate partition
+    deletedPartitionsCoordinator.handleImmigration(tierTopicPartition)
+
+    // simulate reading the second DeleteInitiate message
+    deletedPartitionsCoordinator.trackInitiatePartitionDelete(tierTopicPartition, partition, offset = deleteInitiateOffset_2)
+
+    // begin materialization
+    deletedPartitionsCoordinator.maybeBeginMaterialization()
+
+    // simulate reading upload initiated messages
+    val inProgressPartitions = deletedPartitionsCoordinator.immigratedPartitions(tierTopicPartition).inProgressDeletions
+    val inProgress = inProgressPartitions(partition)
+    var offset = 0L
+    tieredSegments.foreach { segment =>
+      inProgress.process(new TierSegmentUploadInitiate(segment.topicIdPartition, segment.tierEpoch, segment.objectId,
+        segment.baseOffset, segment.baseOffset + 1, 0, 100, false, false, false), offset)
+      offset += 1
+    }
+
+    reset(tierTopicConsumer)
+
+    // simulate reading of first deleteInitiate message ==> should be a NOOP
+    inProgress.process(new TierPartitionDeleteInitiate(partition, 0, UUID.randomUUID), offset = deleteInitiateOffset_1)
+    assertEquals(MaterializingState, inProgress.deletionState)
+
+    // simulate reading of first deleteComplete message ==> should be a NOOP
+    inProgress.process(new TierPartitionDeleteComplete(partition, UUID.randomUUID), offset = deleteCompleteOffset_1)
+    assertEquals(MaterializingState, inProgress.deletionState)
+
+    verify(tierTopicConsumer, never()).deregister(partition)
+
+    // simulate reading of second deleteInitiate message ==> signals completion of materialization
+    inProgress.process(new TierPartitionDeleteInitiate(partition, 0, UUID.randomUUID), offset = deleteInitiateOffset_2)
+    assertEquals(MaterializationComplete, inProgress.deletionState)
+
+    // simulate reading of subsequent deleteComplete message ==> signals deregistration of partition
+    inProgress.process(new TierPartitionDeleteComplete(partition, UUID.randomUUID), offset = deleteInitiateOffset_2 + 1)
+    verify(tierTopicConsumer, times(1)).deregister(partition)
   }
 
   @Test
@@ -244,7 +309,7 @@ class TierDeletedPartitionsCoordinatorTest {
 
     // validate tracked deleted partitions
     val immigratedPartition = deletedPartitionsCoordinator.immigratedPartitions(tierTopicPartition.partition)
-    assertEquals(List(topicIdPartition_2), immigratedPartition.pendingDeletions.toList)
+    assertEquals(List(topicIdPartition_2), immigratedPartition.pendingDeletions.keySet.toList)
   }
 
   private def initiateSegmentUpload(topicIdPartition: TopicIdPartition,
