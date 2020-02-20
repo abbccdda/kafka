@@ -73,6 +73,36 @@ task installGitHooks(type: Exec) {
     }
 }
 
+// this section must be before the allprojects section where the maven credentials are used
+ext {
+    gradleVersion = "$versions.gradle"
+    minJavaVersion = "8"
+    buildVersionFileName = "kafka-version.properties"
+
+    userMaxForks = project.hasProperty('maxParallelForks') ? maxParallelForks.toInteger() : null
+    userIgnoreFailures = project.hasProperty('ignoreFailures') ? ignoreFailures : false
+
+    userMaxTestRetries = project.hasProperty('maxTestRetries') ? maxTestRetries.toInteger() : 0
+    userMaxTestRetryFailures = project.hasProperty('maxTestRetryFailures') ? maxTestRetryFailures.toInteger() : 0
+
+    skipSigning = project.hasProperty('skipSigning') && skipSigning.toBoolean()
+    shouldSign = !skipSigning && !version.endsWith("SNAPSHOT") && project.gradle.startParameter.taskNames.any { it.contains("upload") }
+
+    mavenUrl = project.hasProperty('mavenUrl') ? project.mavenUrl : ''
+    mavenUsername = project.hasProperty('mavenUsername') ? project.mavenUsername : ''
+    mavenPassword = project.hasProperty('mavenPassword') ? project.mavenPassword : ''
+
+    userShowStandardStreams = project.hasProperty("showStandardStreams") ? showStandardStreams : null
+
+    userTestLoggingEvents = project.hasProperty("testLoggingEvents") ? Arrays.asList(testLoggingEvents.split(",")) : null
+
+    userPackageMetricsReporter = project.hasProperty("packageMetricsReporter") ? packageMetricsReporter : null
+
+    generatedDocsDir = new File("${project.rootDir}/docs/generated")
+
+    commitId = project.hasProperty('commitId') ? commitId : null
+}
+
 allprojects {
   repositories {
     mavenCentral()
@@ -135,35 +165,6 @@ allprojects {
     options.addStringOption('Xdoclint:none', '-quiet')
   }
 
-}
-
-ext {
-  gradleVersion = "$versions.gradle"
-  minJavaVersion = "8"
-  buildVersionFileName = "kafka-version.properties"
-
-  userMaxForks = project.hasProperty('maxParallelForks') ? maxParallelForks.toInteger() : null
-  userIgnoreFailures = project.hasProperty('ignoreFailures') ? ignoreFailures : false
-
-  userMaxTestRetries = project.hasProperty('maxTestRetries') ? maxTestRetries.toInteger() : 0
-  userMaxTestRetryFailures = project.hasProperty('maxTestRetryFailures') ? maxTestRetryFailures.toInteger() : 0
-
-  skipSigning = project.hasProperty('skipSigning') && skipSigning.toBoolean()
-  shouldSign = !skipSigning && !version.endsWith("SNAPSHOT") && project.gradle.startParameter.taskNames.any { it.contains("upload") }
-
-  mavenUrl = project.hasProperty('mavenUrl') ? project.mavenUrl : ''
-  mavenUsername = project.hasProperty('mavenUsername') ? project.mavenUsername : ''
-  mavenPassword = project.hasProperty('mavenPassword') ? project.mavenPassword : ''
-
-  userShowStandardStreams = project.hasProperty("showStandardStreams") ? showStandardStreams : null
-
-  userTestLoggingEvents = project.hasProperty("testLoggingEvents") ? Arrays.asList(testLoggingEvents.split(",")) : null
-
-  userPackageMetricsReporter = project.hasProperty("packageMetricsReporter") ? packageMetricsReporter : null
-
-  generatedDocsDir = new File("${project.rootDir}/docs/generated")
-
-  commitId = project.hasProperty('commitId') ? commitId : null
 }
 
 apply from: file('wrapper.gradle')
