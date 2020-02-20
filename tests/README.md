@@ -82,19 +82,56 @@ bash tests/docker/ducker-ak up -j 'openjdk:11'; tests/docker/run_tests.sh
 
     will attach it to the TopicCommand process running in the docker image.
 
-Setup for tests with tiered storage support
--------------------------------------------
-Tests with tiered storage support require an additional step so that brokers have the right access to a cloud storage bucket. This can be done by running the following before running the test. It will supply credentials for S3 and GCS to the container.
+Tiered Storage Support
+----------------------
+Tests with tiered storage support require an additional step so that brokers have the right access to a cloud storage bucket.
+This can be done by running the following before running the test. It will supply credentials for S3 and GCS to the container.
 
 S3: Copies your AWS credentials into the container. Your AWS credentials need to be set up before doing this step.
 
-GCS: A valid GCS credentials file needs to be copied to the container. Replace `<PATH_TO_GCS_CREDENTIALS>` to the file path of the credentials json file. File path can be relative to the `docker` directory in which the `Dockerfile` is located.
+GCS: A valid GCS credentials file needs to be copied to the container. Replace `<PATH_TO_GCS_CREDENTIALS>` to the file
+path of the credentials json file. File path can be relative to the `docker` directory in which the `Dockerfile` is located.
 ```
 docker_args="--build-arg aws_access_key_id=$(aws configure get aws_access_key_id) \
 --build-arg aws_secret_access_key=$(aws configure get aws_secret_access_key) \
 --build-arg gcs_credentials_file=<PATH_TO_GCS_CREDENTIALS>" ./tests/docker/ducker-ak up
 ```
 
+GCS Bucket and Credentials Management
+-------------------------------------
+
+For GCS, obtaining a credentials file to access a bucket can be done through the Google Cloud Console. Currently, the bucket for the 
+brokers is specifed used is `confluent-tier-system-test-us-west1` in the `us-west1` region. It is a part of the 
+tiered-storage project on GCP. Not everyone has access to the project. If access is needed, reach out to the Kafka Storage
+team for assistance.
+
+Otherwise, one can create a new bucket and new service account credentials through the Google Cloud Console to use. 
+When creating a new bucket, the region of the bucket should be close to the location of the cluster. For example, if using AWS instances
+in `us-west-2`, the GCS bucket should be located in `us-west1`. Then, replace the values in `tiered_storage.py` with the correct new bucket name and new region. 
+
+A new GCP service account requires at least the following set of permissions for the GCS bucket. It is the same permissions as a Storage Object Admin Role but includes
+an additional permission of `storage.buckets.get`. The following permissions are needed:
+* storage.buckets.get
+* storage.objects.create
+* storage.objects.delete
+* storage.objects.get
+* storage.objects.list
+* storage.objects.update
+
+Disabling Tiered Storage Support from Tests
+-------------------------------------------
+
+Enabling tiered storage parameters on system tests can greatly increase the time spent running. If desired, the tests that have 
+tiered storage enabled can be modified to not run the tiered storage configurations. Currently the tests with tiered storage support
+are:
+* ReassignPartitionsTest - `reassign_partitions_test.py`
+* ReplicationTest - `replication_test.py`
+* TestUpgrade - `upgrade_test.py`
+* TierRoundtripTest - `tier_roundtrip_test.py`
+* TierBrokerBounceTest - `tier_broker_bounce_test.py`
+* TransactionsTest - `transactions_test.py`
+
+Modify or remove the matrix of test runs to bypass additional testing of tiered storage parameters.
 
 Examining CI run
 ----------------
