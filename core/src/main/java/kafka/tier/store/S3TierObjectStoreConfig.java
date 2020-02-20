@@ -11,8 +11,9 @@ import java.util.Optional;
 import scala.compat.java8.OptionConverters;
 
 public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
-    public String s3bucket;
+    public String s3Bucket;
     public String s3Region;
+    public String s3Prefix;
     public Optional<String> s3AwsSecretAccessKey;
     public Optional<String> s3AwsAccessKeyId;
     public Optional<String> s3EndpointOverride;
@@ -24,8 +25,9 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
     public S3TierObjectStoreConfig(String clusterId, KafkaConfig config) {
         super(clusterId, config);
         validateConfig(config);
-        this.s3bucket = config.tierS3Bucket();
+        this.s3Bucket = config.tierS3Bucket();
         this.s3Region = config.tierS3Region();
+        this.s3Prefix = config.tierS3Prefix();
         this.s3AwsSecretAccessKey = OptionConverters.toJava(config.tierS3AwsSecretAccessKey()).map(Password::value);
         this.s3AwsAccessKeyId = OptionConverters.toJava(config.tierS3AwsAccessKeyId()).map(Password::value);
         this.s3EndpointOverride = OptionConverters.toJava(config.tierS3EndpointOverride());
@@ -49,7 +51,7 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
                             Integer multipartUploadSize,
                             Integer s3AutoAbortThresholdBytes) {
         super(clusterId, brokerId);
-        this.s3bucket = bucket;
+        this.s3Bucket = bucket;
         this.s3Region = region;
         this.s3AwsSecretAccessKey = Optional.ofNullable(secretAccessKey);
         this.s3AwsAccessKeyId = Optional.ofNullable(accessKeyId);

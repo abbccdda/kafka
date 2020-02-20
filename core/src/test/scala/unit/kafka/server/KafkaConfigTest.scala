@@ -700,6 +700,7 @@ class KafkaConfigTest {
         case KafkaConfig.TierMetadataReplicationFactorProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0", "-2")
         case KafkaConfig.TierS3RegionProp => // ignore string
         case KafkaConfig.TierS3BucketProp => // ignore string
+        case KafkaConfig.TierS3PrefixProp => // ignore string
         case KafkaConfig.TierS3AwsAccessKeyIdProp => // ignore string
         case KafkaConfig.TierS3AwsSecretAccessKeyProp => // ignore string
         case KafkaConfig.TierS3EndpointOverrideProp => // ignore string

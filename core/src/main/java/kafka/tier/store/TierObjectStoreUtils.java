@@ -17,12 +17,14 @@ public class TierObjectStoreUtils {
     /**
      * Returns a String of the key path for the given object metadata and file type.
      *
+     * @param prefix user supplied prefix for object store keys
      * @param objectMetadata The metadata from which to construct the key path
      * @param fileType The file type for the suffix of the path
      * @return
      */
-    public static String keyPath(TierObjectStore.ObjectMetadata objectMetadata, TierObjectStore.FileType fileType) {
-        return LOG_DATA_PREFIX
+    public static String keyPath(String prefix, TierObjectStore.ObjectMetadata objectMetadata, TierObjectStore.FileType fileType) {
+        return prefix
+                + LOG_DATA_PREFIX
                 + "/" + objectMetadata.objectIdAsBase64()
                 + "/" + objectMetadata.topicIdPartition().topicIdAsBase64()
                 + "/" + objectMetadata.topicIdPartition().partition()
@@ -30,6 +32,10 @@ public class TierObjectStoreUtils {
                 + "_" + objectMetadata.tierEpoch()
                 + "_v" + objectMetadata.version()
                 + "." + fileType.suffix();
+    }
+
+    public static String keyPath(TierObjectStore.ObjectMetadata objectMetadata, TierObjectStore.FileType fileType) {
+        return keyPath("", objectMetadata, fileType);
     }
 
     /**

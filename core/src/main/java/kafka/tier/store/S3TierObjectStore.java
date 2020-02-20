@@ -43,6 +43,7 @@ public class S3TierObjectStore implements TierObjectStore {
     private final String clusterId;
     private final int brokerId;
     private final String bucket;
+    private final String prefix;
     private final String sseAlgorithm;
     private final int partUploadSize;
     private final int autoAbortThresholdBytes;
@@ -57,7 +58,8 @@ public class S3TierObjectStore implements TierObjectStore {
         this.clusterId = config.clusterId;
         this.brokerId = config.brokerId;
         this.client = client;
-        this.bucket = config.s3bucket;
+        this.bucket = config.s3Bucket;
+        this.prefix = config.s3Prefix;
         this.sseAlgorithm = config.s3SseAlgorithm;
         this.partUploadSize = config.s3MultipartUploadSize;
         this.autoAbortThresholdBytes = config.s3AutoAbortThresholdBytes;
@@ -69,7 +71,7 @@ public class S3TierObjectStore implements TierObjectStore {
                                              FileType fileType,
                                              Integer byteOffsetStart,
                                              Integer byteOffsetEnd) {
-        final String key = TierObjectStoreUtils.keyPath(objectMetadata, fileType);
+        final String key = keyPath(objectMetadata, fileType);
         final GetObjectRequest request = new GetObjectRequest(bucket, key);
         if (byteOffsetStart != null && byteOffsetEnd != null)
             request.setRange(byteOffsetStart, byteOffsetEnd);
@@ -103,16 +105,16 @@ public class S3TierObjectStore implements TierObjectStore {
 
         try {
             if (segmentData.length() <= partUploadSize)
-                putFile(TierObjectStoreUtils.keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
+                putFile(keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
             else
-                putFileMultipart(TierObjectStoreUtils.keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
+                putFileMultipart(keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
 
-            putFile(TierObjectStoreUtils.keyPath(objectMetadata, FileType.OFFSET_INDEX), metadata, offsetIndexData);
-            putFile(TierObjectStoreUtils.keyPath(objectMetadata, FileType.TIMESTAMP_INDEX), metadata, timestampIndexData);
-            producerStateSnapshotData.ifPresent(file -> putFile(TierObjectStoreUtils.keyPath(objectMetadata, FileType.PRODUCER_STATE), metadata, file));
-            transactionIndexData.ifPresent(abortedTxnsBuf -> putBuf(TierObjectStoreUtils.keyPath(objectMetadata,
+            putFile(keyPath(objectMetadata, FileType.OFFSET_INDEX), metadata, offsetIndexData);
+            putFile(keyPath(objectMetadata, FileType.TIMESTAMP_INDEX), metadata, timestampIndexData);
+            producerStateSnapshotData.ifPresent(file -> putFile(keyPath(objectMetadata, FileType.PRODUCER_STATE), metadata, file));
+            transactionIndexData.ifPresent(abortedTxnsBuf -> putBuf(keyPath(objectMetadata,
                     FileType.TRANSACTION_INDEX), metadata, abortedTxnsBuf));
-            epochState.ifPresent(file -> putFile(TierObjectStoreUtils.keyPath(objectMetadata, FileType.EPOCH_STATE), metadata, file));
+            epochState.ifPresent(file -> putFile(keyPath(objectMetadata, FileType.EPOCH_STATE), metadata, file));
         } catch (AmazonClientException e) {
             throw new TierObjectStoreRetriableException("Failed to upload segment " + objectMetadata, e);
         } catch (Exception e) {
@@ -124,7 +126,7 @@ public class S3TierObjectStore implements TierObjectStore {
     public void deleteSegment(ObjectMetadata objectMetadata) {
         List<DeleteObjectsRequest.KeyVersion> keys = new ArrayList<>();
         for (FileType type : FileType.values())
-            keys.add(new DeleteObjectsRequest.KeyVersion(TierObjectStoreUtils.keyPath(objectMetadata, type)));
+            keys.add(new DeleteObjectsRequest.KeyVersion(keyPath(objectMetadata, type)));
 
         DeleteObjectsRequest request = new DeleteObjectsRequest(bucket).withKeys(keys);
         log.debug("Deleting " + keys);
@@ -140,6 +142,10 @@ public class S3TierObjectStore implements TierObjectStore {
     @Override
     public void close() {
         this.client.shutdown();
+    }
+
+    private String keyPath(TierObjectStore.ObjectMetadata objectMetadata, TierObjectStore.FileType fileType) {
+        return TierObjectStoreUtils.keyPath(prefix, objectMetadata, fileType);
     }
 
     private com.amazonaws.services.s3.model.ObjectMetadata putObjectMetadata(Map<String, String> userMetadata) {
