@@ -162,20 +162,22 @@ public class KafkaTestUtils {
   public static void consumeRecords(KafkaConsumer<String, String> consumer, String topic,
       int first, int count) throws Exception {
     consumer.subscribe(Collections.singleton(topic));
-    consumeRecords(consumer, first, count);
+    consumeRecords(consumer, first, count, count);
   }
 
-  public static void consumeRecords(KafkaConsumer<String, String> consumer, int first, int count) throws Exception {
+  public static void consumeRecords(KafkaConsumer<String, String> consumer, int first, int minCount, int maxCount) throws Exception {
     int received = 0;
     long endTimeMs = System.currentTimeMillis() + 30000;
-    while (received < count && System.currentTimeMillis() < endTimeMs) {
+    while (received < minCount && System.currentTimeMillis() < endTimeMs) {
       ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(1));
       received += records.count();
       for (ConsumerRecord<String, String> record : records) {
         int key = Integer.parseInt(record.key());
-        assertTrue("Unexpected record " + key, key >= first && key < first + count);
+        assertTrue("Unexpected record " + key, key >= first && key < first + minCount);
       }
     }
+    assertTrue("Some messages not consumed: min=" + minCount + ", received=" + received, received >= minCount);
+    assertTrue("Too many messages consumed: max=" + maxCount + ", received=" + received, received <= maxCount);
   }
 
   public static AdminClient createAdminClient(
@@ -261,7 +263,7 @@ public class KafkaTestUtils {
 
     try (KafkaConsumer<String, String> consumer = clientBuilder.buildConsumer(consumerGroup)) {
       subscribeOrAssign.accept(consumer);
-      KafkaTestUtils.consumeRecords(consumer, 0, 10);
+      KafkaTestUtils.consumeRecords(consumer, 0, 10, Integer.MAX_VALUE);
       assertTrue("No authorization exception from unauthorized client", authorized);
     } catch (AuthorizationException e) {
       assertFalse("Authorization exception from authorized client", authorized);
