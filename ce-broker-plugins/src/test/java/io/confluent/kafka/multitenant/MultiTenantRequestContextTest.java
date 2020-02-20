@@ -24,6 +24,8 @@ import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.NotLeaderForPartitionException;
 import org.apache.kafka.common.message.ControlledShutdownRequestData;
 import org.apache.kafka.common.message.ControlledShutdownResponseData;
+import org.apache.kafka.common.message.CreateAclsRequestData;
+import org.apache.kafka.common.message.CreateAclsResponseData;
 import org.apache.kafka.common.message.CreatePartitionsRequestData;
 import org.apache.kafka.common.message.CreatePartitionsRequestData.CreatePartitionsAssignment;
 import org.apache.kafka.common.message.CreatePartitionsRequestData.CreatePartitionsTopic;
@@ -39,6 +41,7 @@ import org.apache.kafka.common.message.CreateTopicsResponseData;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicConfigs;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResult;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResultCollection;
+import org.apache.kafka.common.message.DeleteAclsResponseData;
 import org.apache.kafka.common.message.DeleteGroupsRequestData;
 import org.apache.kafka.common.message.DeleteGroupsResponseData;
 import org.apache.kafka.common.message.DeleteTopicsRequestData;
@@ -102,16 +105,14 @@ import org.apache.kafka.common.requests.ByteBufferChannel;
 import org.apache.kafka.common.requests.ControlledShutdownRequest;
 import org.apache.kafka.common.requests.ControlledShutdownResponse;
 import org.apache.kafka.common.requests.CreateAclsRequest;
-import org.apache.kafka.common.requests.CreateAclsRequest.AclCreation;
+import org.apache.kafka.common.message.CreateAclsRequestData.AclCreation;
 import org.apache.kafka.common.requests.CreateAclsResponse;
-import org.apache.kafka.common.requests.CreateAclsResponse.AclCreationResponse;
 import org.apache.kafka.common.requests.CreatePartitionsRequest;
 import org.apache.kafka.common.requests.CreatePartitionsResponse;
 import org.apache.kafka.common.requests.CreateTopicsRequest;
 import org.apache.kafka.common.requests.CreateTopicsResponse;
 import org.apache.kafka.common.requests.DeleteAclsRequest;
 import org.apache.kafka.common.requests.DeleteAclsResponse;
-import org.apache.kafka.common.requests.DeleteAclsResponse.AclDeletionResult;
 import org.apache.kafka.common.requests.DeleteGroupsRequest;
 import org.apache.kafka.common.requests.DeleteGroupsResponse;
 import org.apache.kafka.common.requests.DeleteRecordsRequest;
@@ -476,15 +477,16 @@ public class MultiTenantRequestContextTest {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.METADATA, ver);
 
       Node node = new Node(1, "localhost", 9092);
+      TopicPartition tp0 = new TopicPartition("topic", 0);
       List<MetadataResponse.TopicMetadata> topicMetadata = new ArrayList<>();
       topicMetadata.add(new MetadataResponse.TopicMetadata(Errors.NONE, "tenant_foo", false,
-          singletonList(new MetadataResponse.PartitionMetadata(Errors.NONE, 0, node,
-              Optional.empty(), singletonList(node), singletonList(node),
-              Collections.<Node>emptyList()))));
+          singletonList(new MetadataResponse.PartitionMetadata(Errors.NONE, tp0, Optional.of(node.id()),
+              Optional.empty(), singletonList(node.id()), singletonList(node.id()),
+              Collections.emptyList()))));
       topicMetadata.add(new MetadataResponse.TopicMetadata(Errors.NONE, "tenant_bar", false,
-          singletonList(new MetadataResponse.PartitionMetadata(Errors.NONE, 0, node,
-              Optional.empty(), singletonList(node), singletonList(node),
-              Collections.<Node>emptyList()))));
+          singletonList(new MetadataResponse.PartitionMetadata(Errors.NONE, tp0, Optional.of(node.id()),
+              Optional.empty(), singletonList(node.id()), singletonList(node.id()),
+              Collections.emptyList()))));
 
       MetadataResponse outbound = MetadataResponse.prepareResponse(0, singletonList(node),
               "231412341", 1, topicMetadata);
@@ -513,27 +515,28 @@ public class MultiTenantRequestContextTest {
       MetadataRequestData data = new MetadataRequestData().setAllowAutoTopicCreation(true)
           .setTopics(ver == 0 ? Collections.emptyList() : null);
       MetadataRequest inbound = new MetadataRequest(data, ver);
+      TopicPartition tp0 = new TopicPartition("topic", 0);
       MetadataRequest interceptedInbound = (MetadataRequest) parseRequest(context, inbound);
       assertTrue(interceptedInbound.isAllTopics());
 
       Node node = new Node(1, "localhost", 9092);
       List<MetadataResponse.TopicMetadata> topicMetadata = new ArrayList<>();
       topicMetadata.add(new MetadataResponse.TopicMetadata(Errors.NONE, "tenant_foo", false,
-          singletonList(new MetadataResponse.PartitionMetadata(Errors.NONE, 0, node,
-              Optional.empty(), singletonList(node), singletonList(node),
-              Collections.<Node>emptyList()))));
+          singletonList(new MetadataResponse.PartitionMetadata(Errors.NONE, tp0, Optional.of(node.id()),
+              Optional.empty(), singletonList(node.id()), singletonList(node.id()),
+              Collections.<Integer>emptyList()))));
       topicMetadata.add(new MetadataResponse.TopicMetadata(Errors.NONE, "othertenant_foo", false,
-          singletonList(new MetadataResponse.PartitionMetadata(Errors.NONE, 0, node,
-              Optional.empty(), singletonList(node), singletonList(node),
-              Collections.<Node>emptyList()))));
+          singletonList(new MetadataResponse.PartitionMetadata(Errors.NONE, tp0, Optional.of(node.id()),
+              Optional.empty(), singletonList(node.id()), singletonList(node.id()),
+              Collections.<Integer>emptyList()))));
       topicMetadata.add(new MetadataResponse.TopicMetadata(Errors.NONE, "tenant_bar", false,
-          singletonList(new MetadataResponse.PartitionMetadata(Errors.NONE, 0, node,
-              Optional.empty(), singletonList(node), singletonList(node),
-              Collections.<Node>emptyList()))));
+          singletonList(new MetadataResponse.PartitionMetadata(Errors.NONE, tp0, Optional.of(node.id()),
+              Optional.empty(), singletonList(node.id()), singletonList(node.id()),
+              Collections.<Integer>emptyList()))));
       topicMetadata.add(new MetadataResponse.TopicMetadata(Errors.NONE, "othertenant_bar", false,
-          singletonList(new MetadataResponse.PartitionMetadata(Errors.NONE, 0, node,
-              Optional.empty(), singletonList(node), singletonList(node),
-              Collections.<Node>emptyList()))));
+          singletonList(new MetadataResponse.PartitionMetadata(Errors.NONE, tp0, Optional.of(node.id()),
+              Optional.empty(), singletonList(node.id()), singletonList(node.id()),
+              Collections.<Integer>emptyList()))));
 
       MetadataResponse outbound = MetadataResponse.prepareResponse(0, singletonList(node), "clusterId", 1, topicMetadata);
       Struct struct = parseResponse(ApiKeys.METADATA, ver, context.buildResponse(outbound));
@@ -1682,32 +1685,38 @@ public class MultiTenantRequestContextTest {
     MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_ACLS, version);
     AccessControlEntry ace =
         new AccessControlEntry(params.principal(), "*", AclOperation.CREATE, AclPermissionType.ALLOW);
-    List<CreateAclsRequest.AclCreation> aclCreations = AclTestParams.RESOURCE_TYPES.stream().map(resourceType ->
-        new CreateAclsRequest.AclCreation(new AclBinding(
-            new ResourcePattern(resourceType, params.resourceName(resourceType), params.patternType), ace)
-        )).collect(Collectors.toList());
 
-    CreateAclsRequest inbound = new CreateAclsRequest.Builder(aclCreations).build(version);
+    List<CreateAclsRequestData.AclCreation> aclCreations = AclTestParams.RESOURCE_TYPES.stream().map(resourceType ->
+            CreateAclsRequest.aclCreation(
+                    new AclBinding(new ResourcePattern(resourceType, params.resourceName(resourceType), params.patternType), ace)
+            )
+    ).collect(Collectors.toList());
+
+    CreateAclsRequest inbound = new CreateAclsRequest.Builder(new CreateAclsRequestData().setCreations(aclCreations)).build(version);
     CreateAclsRequest request = (CreateAclsRequest) parseRequest(context, inbound);
     assertEquals(aclCreations.size(), request.aclCreations().size());
 
     request.aclCreations().forEach(creation -> {
-      assertEquals(params.tenantPrincipal(), creation.acl().entry().principal());
-      ResourcePattern pattern = creation.acl().pattern();
-      assertEquals(params.tenantPatternType(pattern.resourceType()), pattern.patternType());
-      assertEquals(params.tenantResourceName(pattern.resourceType()), pattern.name());
+//      creation.
+      assertEquals(params.tenantPrincipal(), creation.principal());
+      ResourceType receivedResourceType = ResourceType.fromCode(creation.resourcePatternType());
+      assertEquals(params.tenantPatternType(receivedResourceType).code(),
+              creation.resourcePatternType());
+      assertEquals(params.tenantResourceName(receivedResourceType), creation.resourceName());
     });
     assertEquals(AclTestParams.RESOURCE_TYPES,
-        request.aclCreations().stream().map(c -> c.acl().pattern().resourceType()).collect(Collectors.toList()));
+        request.aclCreations().stream().map(c -> ResourceType.fromCode(c.resourceType())).collect(Collectors.toList()));
 
     assertFalse(context.shouldIntercept());
     verifyRequestMetrics(ApiKeys.CREATE_ACLS);
   }
 
   private void verifyInvalidCreateAclsRequest(AclBinding acl, short version) {
-    AclCreation aclCreation = new AclCreation(acl);
+
+    AclCreation aclCreation = CreateAclsRequest.aclCreation(acl);
     CreateAclsRequest inbound = new CreateAclsRequest.Builder(
-        singletonList(aclCreation)).build(version);
+            new CreateAclsRequestData().setCreations(singletonList(aclCreation))
+    ).build(version);
     MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_ACLS, version);
     parseRequest(context, inbound);
     assertTrue(context.shouldIntercept());
@@ -1719,13 +1728,13 @@ public class MultiTenantRequestContextTest {
     for (short ver = ApiKeys.CREATE_ACLS.oldestVersion();
         ver <= ApiKeys.CREATE_ACLS.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_ACLS, ver);
-      List<CreateAclsResponse.AclCreationResponse> aclCreationResponses =
-          singletonList(new AclCreationResponse(ApiError.NONE));
-      CreateAclsResponse outbound = new CreateAclsResponse(23, aclCreationResponses);
+      List<CreateAclsResponseData.AclCreationResult> aclCreationResults =
+              singletonList(new CreateAclsResponseData.AclCreationResult().setErrorCode(ApiError.NONE.error().code()));
+      CreateAclsResponse outbound = new CreateAclsResponse(new CreateAclsResponseData().setResults(aclCreationResults));
       Struct struct = parseResponse(ApiKeys.CREATE_ACLS, ver, context.buildResponse(outbound));
       CreateAclsResponse intercepted = new CreateAclsResponse(struct, ver);
-      assertEquals(ApiError.NONE.error(),
-          intercepted.aclCreationResponses().get(0).error().error());
+      assertEquals(ApiError.NONE.error().code(),
+          intercepted.results().get(0).errorCode());
       verifyResponseMetrics(ApiKeys.CREATE_ACLS, Errors.NONE);
     }
   }
@@ -1784,46 +1793,73 @@ public class MultiTenantRequestContextTest {
     MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_ACLS, version);
     AccessControlEntry ace =
         new AccessControlEntry(params.tenantPrincipal(), "*", AclOperation.ALTER, AclPermissionType.DENY);
-    List<AclDeletionResult> deletionResults0 = asList(
-        new AclDeletionResult(ApiError.NONE, new AclBinding(
-            new ResourcePattern(ResourceType.TOPIC, params.tenantResourceName(ResourceType.TOPIC),
-                params.tenantPatternType(ResourceType.TOPIC)), ace)),
-        new AclDeletionResult(ApiError.NONE, new AclBinding(
-            new ResourcePattern(ResourceType.GROUP, params.tenantResourceName(ResourceType.GROUP),
-                params.tenantPatternType(ResourceType.GROUP)), ace)));
-    List<AclDeletionResult> deletionResults1 = asList(
-        new AclDeletionResult(ApiError.NONE, new AclBinding(
-            new ResourcePattern(ResourceType.TRANSACTIONAL_ID, params.tenantResourceName(ResourceType.TRANSACTIONAL_ID),
-                params.tenantPatternType(ResourceType.TRANSACTIONAL_ID)), ace)),
-        new AclDeletionResult(ApiError.NONE, new AclBinding(
-            new ResourcePattern(ResourceType.CLUSTER, params.tenantResourceName(ResourceType.CLUSTER),
-                params.tenantPatternType(ResourceType.CLUSTER)), ace)));
-    List<DeleteAclsResponse.AclFilterResponse> aclDeletionResponses = asList(
-        new DeleteAclsResponse.AclFilterResponse(ApiError.NONE, deletionResults0),
-        new DeleteAclsResponse.AclFilterResponse(ApiError.NONE, deletionResults1));
-    DeleteAclsResponse outbound = new DeleteAclsResponse(11, aclDeletionResponses);
+    List<DeleteAclsResponseData.DeleteAclsMatchingAcl> deletionMatchingAcls0 = asList(
+            new DeleteAclsResponseData.DeleteAclsMatchingAcl().setErrorCode(ApiError.NONE.error().code())
+                    .setHost("*")
+                    .setPermissionType(AclPermissionType.DENY.code())
+                    .setPrincipal(params.tenantPrincipal())
+                    .setOperation(AclOperation.ALTER.code())
+                    .setPatternType(params.tenantPatternType(ResourceType.TOPIC).code())
+                    .setResourceName(params.tenantResourceName(ResourceType.TOPIC))
+                    .setResourceType(ResourceType.TOPIC.code()),
+            new DeleteAclsResponseData.DeleteAclsMatchingAcl().setErrorCode(ApiError.NONE.error().code())
+                    .setHost("*")
+                    .setPermissionType(AclPermissionType.DENY.code())
+                    .setPrincipal(params.tenantPrincipal())
+                    .setOperation(AclOperation.ALTER.code())
+                    .setPatternType(params.tenantPatternType(ResourceType.GROUP).code())
+                    .setResourceName(params.tenantResourceName(ResourceType.GROUP))
+                    .setResourceType(ResourceType.GROUP.code())
+    );
+
+    List<DeleteAclsResponseData.DeleteAclsMatchingAcl> deletionMatchingAcls1 = asList(
+            new DeleteAclsResponseData.DeleteAclsMatchingAcl().setErrorCode(ApiError.NONE.error().code())
+                    .setHost("*")
+                    .setPermissionType(AclPermissionType.DENY.code())
+                    .setPrincipal(params.tenantPrincipal())
+                    .setOperation(AclOperation.ALTER.code())
+                    .setPatternType(params.tenantPatternType(ResourceType.TRANSACTIONAL_ID).code())
+                    .setResourceName(params.tenantResourceName(ResourceType.TRANSACTIONAL_ID))
+                    .setResourceType(ResourceType.TRANSACTIONAL_ID.code()),
+            new DeleteAclsResponseData.DeleteAclsMatchingAcl().setErrorCode(ApiError.NONE.error().code())
+                    .setHost("*")
+                    .setPermissionType(AclPermissionType.DENY.code())
+                    .setPrincipal(params.tenantPrincipal())
+                    .setOperation(AclOperation.ALTER.code())
+                    .setPatternType(params.tenantPatternType(ResourceType.CLUSTER).code())
+                    .setResourceName(params.tenantResourceName(ResourceType.CLUSTER))
+                    .setResourceType(ResourceType.CLUSTER.code())
+    );
+
+    List<DeleteAclsResponseData.DeleteAclsFilterResult> aclFilterResults = asList(
+      new DeleteAclsResponseData.DeleteAclsFilterResult().setErrorCode(ApiError.NONE.error().code())
+              .setMatchingAcls(deletionMatchingAcls0),
+      new DeleteAclsResponseData.DeleteAclsFilterResult().setErrorCode(ApiError.NONE.error().code())
+              .setMatchingAcls(deletionMatchingAcls1)
+    );
+
+    DeleteAclsResponse outbound = new DeleteAclsResponse(new DeleteAclsResponseData().setFilterResults(aclFilterResults));
     Struct struct = parseResponse(ApiKeys.DELETE_ACLS, version, context.buildResponse(outbound));
     DeleteAclsResponse intercepted = new DeleteAclsResponse(struct, version);
-    List<DeleteAclsResponse.AclFilterResponse> interceptedResponses = intercepted.responses();
-    assertEquals(aclDeletionResponses.size(), interceptedResponses.size());
 
-    interceptedResponses.forEach(acl -> {
-      assertEquals(ApiError.NONE.error(), acl.error().error());
-      acl.deletions().forEach(deletion -> {
-        assertEquals(params.principal(), deletion.acl().entry().principal());
-        ResourcePattern pattern = deletion.acl().pattern();
-        assertEquals(params.patternType, pattern.patternType());
-        assertEquals(params.resourceName(pattern.resourceType()), pattern.name());
+    List<DeleteAclsResponseData.DeleteAclsFilterResult> interceptedFilterResults = intercepted.filterResults();
+    assertEquals(aclFilterResults.size(), interceptedFilterResults.size());
+
+    interceptedFilterResults.forEach(filterResult -> {
+      assertEquals(ApiError.NONE.error().code(), filterResult.errorCode());
+      filterResult.matchingAcls().forEach(matchingAcl -> {
+        assertEquals(params.principal(), matchingAcl.principal());
+        assertEquals(params.patternType.code(), matchingAcl.patternType());
       });
     });
 
-    Iterator<AclDeletionResult> it = interceptedResponses.get(0).deletions().iterator();
-    assertEquals(ResourceType.TOPIC, it.next().acl().pattern().resourceType());
-    assertEquals(ResourceType.GROUP, it.next().acl().pattern().resourceType());
+    Iterator<DeleteAclsResponseData.DeleteAclsMatchingAcl> it = interceptedFilterResults.get(0).matchingAcls().iterator();
+    assertEquals(ResourceType.TOPIC.code(), it.next().resourceType());
+    assertEquals(ResourceType.GROUP.code(), it.next().resourceType());
     assertFalse(it.hasNext());
-    it = interceptedResponses.get(1).deletions().iterator();
-    assertEquals(ResourceType.TRANSACTIONAL_ID, it.next().acl().pattern().resourceType());
-    assertEquals(ResourceType.CLUSTER, it.next().acl().pattern().resourceType());
+    it = interceptedFilterResults.get(1).matchingAcls().iterator();
+    assertEquals(ResourceType.TRANSACTIONAL_ID.code(), it.next().resourceType());
+    assertEquals(ResourceType.CLUSTER.code(), it.next().resourceType());
     assertFalse(it.hasNext());
   }
 

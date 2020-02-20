@@ -19,6 +19,7 @@ package unit.kafka.controller
 
 import kafka.cluster.{Broker, EndPoint}
 import kafka.controller.ReplicaAssignment.Assignment
+import kafka.controller.PartitionAndReplica
 import kafka.controller.{ControllerContext, ReplicaAssignment}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.network.ListenerName
@@ -51,14 +52,12 @@ class ControllerContextTest {
 
     // Simple round-robin replica assignment
     var leaderIndex = 0
-    Seq(tp1, tp2, tp3).foreach {
-      partition =>
-        val replicas = brokers.indices.map { i =>
-          val replica = brokers((i + leaderIndex) % brokers.size)
-          replica
-        }
-        context.updatePartitionFullReplicaAssignment(partition, ReplicaAssignment(replicas, Seq.empty))
-        leaderIndex += 1
+    Seq(tp1, tp2, tp3).foreach { partition =>
+      val replicas = brokers.indices.map { i =>
+        brokers((i + leaderIndex) % brokers.size)
+      }
+      context.updatePartitionFullReplicaAssignment(partition, ReplicaAssignment(replicas, Seq.empty))
+      leaderIndex += 1
     }
   }
 

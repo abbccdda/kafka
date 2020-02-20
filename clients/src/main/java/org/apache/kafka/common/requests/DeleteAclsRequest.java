@@ -17,6 +17,7 @@
 package org.apache.kafka.common.requests;
 
 import java.util.Optional;
+import java.util.Collections;
 import java.util.stream.Collectors;
 import org.apache.kafka.common.acl.AccessControlEntryFilter;
 import org.apache.kafka.common.acl.AclBindingFilter;
@@ -24,16 +25,16 @@ import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.errors.UnsupportedVersionException;
 import org.apache.kafka.common.message.DeleteAclsRequestData;
+import org.apache.kafka.common.message.DeleteAclsRequestData.DeleteAclsFilter;
+import org.apache.kafka.common.message.DeleteAclsResponseData;
+import org.apache.kafka.common.message.DeleteAclsResponseData.DeleteAclsFilterResult;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.types.Struct;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourcePatternFilter;
 import org.apache.kafka.common.resource.ResourceType;
-import org.apache.kafka.common.utils.Utils;
 
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 import static org.apache.kafka.common.protocol.ApiKeys.DELETE_ACLS;
@@ -54,7 +55,6 @@ public class DeleteAclsRequest extends AbstractRequest {
 
         @Override
         public DeleteAclsRequest build(short version) {
-            validate(version);
             return new DeleteAclsRequest(version, data);
         }
 
@@ -65,34 +65,9 @@ public class DeleteAclsRequest extends AbstractRequest {
 
         @Override
         public String toString() {
-            return "(type=DeleteAclsRequest, filters=" + Utils.join(data.filters(), ", ") + ")";
+            return data.toString();
         }
 
-        private void validate(short version) {
-            if (version == 0) {
-                for (DeleteAclsRequestData.DeleteAclsFilter filter : data.filters()) {
-                    PatternType patternType = PatternType.fromCode(filter.patternTypeFilter());
-
-                    // If ANY is specified, we override it to the default of LITERAL
-                    if (patternType == PatternType.ANY)
-                        filter.setPatternTypeFilter(PatternType.LITERAL.code());
-                    else if (patternType != PatternType.LITERAL)
-                        throw new UnsupportedVersionException("Version 0 does not support pattern type " +
-                                patternType + " (only LITERAL and ANY are supported)");
-                }
-            }
-
-            final boolean unknown = data.filters().stream().anyMatch(filter ->
-                    filter.patternTypeFilter() == PatternType.UNKNOWN.code()
-                            || filter.resourceTypeFilter() == ResourceType.UNKNOWN.code()
-                            || filter.operation() == AclOperation.UNKNOWN.code()
-                            || filter.permissionType() == AclPermissionType.UNKNOWN.code()
-            );
-
-            if (unknown) {
-                throw new IllegalArgumentException("Filters contain UNKNOWN elements");
-            }
-        }
     }
 
     private final DeleteAclsRequestData data;
@@ -100,6 +75,35 @@ public class DeleteAclsRequest extends AbstractRequest {
     private DeleteAclsRequest(short version, DeleteAclsRequestData data) {
         super(ApiKeys.DELETE_ACLS, version);
         this.data = data;
+        normalizeAndValidate();
+    }
+
+    private void normalizeAndValidate() {
+        if (version() == 0) {
+            for (DeleteAclsRequestData.DeleteAclsFilter filter : data.filters()) {
+                PatternType patternType = PatternType.fromCode(filter.patternTypeFilter());
+
+                // On older brokers, no pattern types existed except LITERAL (effectively). So even though ANY is not
+                // directly supported on those brokers, we can get the same effect as ANY by setting the pattern type
+                // to LITERAL. Note that the wildcard `*` is considered `LITERAL` for compatibility reasons.
+                if (patternType == PatternType.ANY)
+                    filter.setPatternTypeFilter(PatternType.LITERAL.code());
+                else if (patternType != PatternType.LITERAL)
+                    throw new UnsupportedVersionException("Version 0 does not support pattern type " +
+                            patternType + " (only LITERAL and ANY are supported)");
+            }
+        }
+
+        final boolean unknown = data.filters().stream().anyMatch(filter ->
+                filter.patternTypeFilter() == PatternType.UNKNOWN.code()
+                        || filter.resourceTypeFilter() == ResourceType.UNKNOWN.code()
+                        || filter.operation() == AclOperation.UNKNOWN.code()
+                        || filter.permissionType() == AclPermissionType.UNKNOWN.code()
+        );
+
+        if (unknown) {
+            throw new IllegalArgumentException("Filters contain UNKNOWN elements, filters: " + data.filters());
+        }
     }
 
     public DeleteAclsRequest(Struct struct, short version) {
@@ -123,37 +127,22 @@ public class DeleteAclsRequest extends AbstractRequest {
 
     @Override
     public AbstractResponse getErrorResponse(int throttleTimeMs, Throwable throwable) {
-        List<DeleteAclsResponse.AclFilterResponse> responses = new ArrayList<>();
-        for (int i = 0; i < data.filters().size(); i++) {
-            responses.add(new DeleteAclsResponse.AclFilterResponse(
-                ApiError.fromThrowable(throwable), Collections.emptySet()));
-        }
-        return new DeleteAclsResponse(throttleTimeMs, responses);
+        ApiError apiError = ApiError.fromThrowable(throwable);
+        List<DeleteAclsFilterResult> filterResults = Collections.nCopies(data.filters().size(),
+            new DeleteAclsResponseData.DeleteAclsFilterResult()
+                .setErrorCode(apiError.error().code())
+                .setErrorMessage(apiError.message()));
+        return new DeleteAclsResponse(new DeleteAclsResponseData()
+            .setThrottleTimeMs(throttleTimeMs)
+            .setFilterResults(filterResults));
     }
 
     public static DeleteAclsRequest parse(ByteBuffer buffer, short version) {
         return new DeleteAclsRequest(DELETE_ACLS.parseRequest(version, buffer), version);
     }
 
-    private void validate(short version, List<AclBindingFilter> filters) {
-        if (version == 0) {
-            final boolean unsupported = filters.stream()
-                .map(AclBindingFilter::patternFilter)
-                .map(ResourcePatternFilter::patternType)
-                .anyMatch(patternType -> patternType != PatternType.LITERAL && patternType != PatternType.ANY);
-            if (unsupported) {
-                throw new UnsupportedVersionException("Version 0 only supports literal resource pattern types");
-            }
-        }
-
-        final boolean unknown = filters.stream().anyMatch(AclBindingFilter::isUnknown);
-        if (unknown) {
-            throw new IllegalArgumentException("Filters contain UNKNOWN elements");
-        }
-    }
-
-    public static DeleteAclsRequestData.DeleteAclsFilter deleteAclsFilter(AclBindingFilter filter) {
-        return new DeleteAclsRequestData.DeleteAclsFilter()
+    public static DeleteAclsFilter deleteAclsFilter(AclBindingFilter filter) {
+        return new DeleteAclsFilter()
             .setResourceNameFilter(filter.patternFilter().name())
             .setResourceTypeFilter(filter.patternFilter().resourceType().code())
             .setPatternTypeFilter(filter.patternFilter().patternType().code())
@@ -163,7 +152,7 @@ public class DeleteAclsRequest extends AbstractRequest {
             .setPrincipalFilter(filter.entryFilter().principal());
     }
 
-    private static AclBindingFilter aclBindingFilter(DeleteAclsRequestData.DeleteAclsFilter filter) {
+    private static AclBindingFilter aclBindingFilter(DeleteAclsFilter filter) {
         ResourcePatternFilter patternFilter = new ResourcePatternFilter(
             ResourceType.fromCode(filter.resourceTypeFilter()),
             filter.resourceNameFilter(),

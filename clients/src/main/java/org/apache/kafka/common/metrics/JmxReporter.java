@@ -18,7 +18,9 @@ package org.apache.kafka.common.metrics;
 
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.MetricName;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.utils.Sanitizer;
+import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,17 +38,33 @@ import java.lang.management.ManagementFactory;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Predicate;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 /**
  * Register metrics in JMX as dynamic mbeans based on the metric names
  */
 public class JmxReporter implements MetricsReporter {
 
+    public static final String METRICS_CONFIG_PREFIX = "metrics.jmx.";
+
+    public static final String BLACKLIST_CONFIG = METRICS_CONFIG_PREFIX + "blacklist";
+    public static final String WHITELIST_CONFIG = METRICS_CONFIG_PREFIX + "whitelist";
+
+    public static final Set<String> RECONFIGURABLE_CONFIGS = Utils.mkSet(WHITELIST_CONFIG,
+                                                                          BLACKLIST_CONFIG);
+
+    public static final String DEFAULT_WHITELIST = ".*";
+    public static final String DEFAULT_BLACKLIST = "";
+
     private static final Logger log = LoggerFactory.getLogger(JmxReporter.class);
     private static final Object LOCK = new Object();
     public static final String JMX_IGNORE_TAG = "io-confluent-jmx-ignore";
     private String prefix;
     private final Map<String, KafkaMbean> mbeans = new HashMap<>();
+    private Predicate<String> mbeanPredicate = s -> true;
 
     public JmxReporter() {
         this("");
@@ -60,15 +78,46 @@ public class JmxReporter implements MetricsReporter {
     }
 
     @Override
-    public void configure(Map<String, ?> configs) {}
+    public void configure(Map<String, ?> configs) {
+        reconfigure(configs);
+    }
+
+    @Override
+    public Set<String> reconfigurableConfigs() {
+        return RECONFIGURABLE_CONFIGS;
+    }
+
+    @Override
+    public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
+        compilePredicate(configs);
+    }
+
+    @Override
+    public void reconfigure(Map<String, ?> configs) {
+        synchronized (LOCK) {
+            this.mbeanPredicate = JmxReporter.compilePredicate(configs);
+
+            mbeans.forEach((name, mbean) -> {
+                if (mbeanPredicate.test(name)) {
+                    reregister(mbean);
+                } else {
+                    unregister(mbean);
+                }
+            });
+        }
+    }
 
     @Override
     public void init(List<KafkaMetric> metrics) {
         synchronized (LOCK) {
             for (KafkaMetric metric : metrics)
                 addAttribute(metric);
-            for (KafkaMbean mbean : mbeans.values())
-                reregister(mbean);
+
+            mbeans.forEach((name, mbean) -> {
+                if (mbeanPredicate.test(name)) {
+                    reregister(mbean);
+                }
+            });
         }
     }
 
@@ -79,9 +128,9 @@ public class JmxReporter implements MetricsReporter {
     @Override
     public void metricChange(KafkaMetric metric) {
         synchronized (LOCK) {
-            KafkaMbean mbean = addAttribute(metric);
-            if (mbean != null) {
-                reregister(mbean);
+            String mbeanName = addAttribute(metric);
+            if (mbeanName != null && mbeanPredicate.test(mbeanName)) {
+                reregister(mbeans.get(mbeanName));
             }
         }
     }
@@ -96,7 +145,7 @@ public class JmxReporter implements MetricsReporter {
                 if (mbean.metrics.isEmpty()) {
                     unregister(mbean);
                     mbeans.remove(mBeanName);
-                } else
+                } else if (mbeanPredicate.test(mBeanName))
                     reregister(mbean);
             }
         }
@@ -110,7 +159,7 @@ public class JmxReporter implements MetricsReporter {
         return mbean;
     }
 
-    private KafkaMbean addAttribute(KafkaMetric metric) {
+    private String addAttribute(KafkaMetric metric) {
         try {
             MetricName metricName = metric.metricName();
             if (metricName.tags().containsKey(JMX_IGNORE_TAG)) {
@@ -121,7 +170,7 @@ public class JmxReporter implements MetricsReporter {
                 mbeans.put(mBeanName, new KafkaMbean(mBeanName));
             KafkaMbean mbean = this.mbeans.get(mBeanName);
             mbean.setAttribute(metricName.name(), metric);
-            return mbean;
+            return mBeanName;
         } catch (JMException e) {
             throw new KafkaException("Error creating mbean attribute for metricName :" + metric.metricName(), e);
         }
@@ -250,4 +299,27 @@ public class JmxReporter implements MetricsReporter {
 
     }
 
+    public static Predicate<String> compilePredicate(Map<String, ?> configs) {
+        String whitelist = (String) configs.get(WHITELIST_CONFIG);
+        String blacklist = (String) configs.get(BLACKLIST_CONFIG);
+
+        if (whitelist == null) {
+            whitelist = DEFAULT_WHITELIST;
+        }
+
+        if (blacklist == null) {
+            blacklist = DEFAULT_BLACKLIST;
+        }
+
+        try {
+            Pattern whitelistPattern = Pattern.compile(whitelist);
+            Pattern blacklistPattern = Pattern.compile(blacklist);
+
+            return s -> whitelistPattern.matcher(s).matches()
+                        && !blacklistPattern.matcher(s).matches();
+        } catch (PatternSyntaxException e) {
+            throw new ConfigException("JMX filter for configuration" + METRICS_CONFIG_PREFIX
+                                      + ".(whitelist/blacklist) is not a valid regular expression");
+        }
+    }
 }

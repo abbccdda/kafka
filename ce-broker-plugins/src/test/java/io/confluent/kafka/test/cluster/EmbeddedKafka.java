@@ -182,7 +182,7 @@ public class EmbeddedKafka {
   private KafkaZkClient createZkClient() {
     return KafkaZkClient.apply(zkConnect(), false, DEFAULT_ZK_SESSION_TIMEOUT_MS,
         DEFAULT_ZK_CONNECTION_TIMEOUT_MS, Integer.MAX_VALUE, Time.SYSTEM, "testMetricGroup",
-        "testMetricType", Option.empty());
+        "testMetricType", Option.empty(), Option.empty());
   }
 
   public KafkaServer kafkaServer() {

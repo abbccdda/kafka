@@ -338,6 +338,9 @@ class Log(@volatile var dir: File,
     nextOffsetMetadata = LogOffsetMetadata(nextOffset, activeSegment.baseOffset, activeSegment.size)
 
     leaderEpochCache.foreach(_.truncateFromEnd(nextOffsetMetadata.messageOffset))
+    // unlike AK, we do not update the logStartOffset in Log, as the
+    // mergedLogStartOffset is instead maintained in MergedLog
+    // updateLogStartOffset(math.max(logStartOffset, segments.firstEntry.getValue.baseOffset))
 
     // The earliest leader epoch may not be flushed during a hard failure. Recover it here.
     leaderEpochCache.foreach(_.truncateFromStart(mergedLogStartOffset))
@@ -1336,6 +1339,9 @@ class Log(@volatile var dir: File,
         checkIfMemoryMappedBufferClosed()
         if (newLogStartOffset > mergedLogStartOffset) {
           info(s"Incrementing log start offset to $newLogStartOffset")
+          // unlike AK, we do not update the logStartOffset in Log, as the
+          // mergedLogStartOffset is instead maintained in MergedLog
+          // updateLogStartOffset(newLogStartOffset)
           leaderEpochCache.foreach(_.truncateFromStart(newLogStartOffset))
           producerStateManager.truncateHead(newLogStartOffset)
           maybeIncrementFirstUnstableOffset(newLogStartOffset)
@@ -2233,6 +2239,7 @@ class Log(@volatile var dir: File,
             removeAndDeleteSegments(deletable, asyncDelete = true)
             activeSegment.truncateTo(targetOffset)
             updateLogEndOffset(targetOffset)
+            // updateLogStartOffset(math.min(targetOffset, this.logStartOffset))
             leaderEpochCache.foreach(_.truncateFromEnd(targetOffset))
             loadProducerState(targetOffset, reloadFromCleanShutdown = false)
           }
@@ -2266,6 +2273,7 @@ class Log(@volatile var dir: File,
         producerStateManager.truncate()
         producerStateManager.updateMapEndOffset(newOffset)
         maybeIncrementFirstUnstableOffset(newOffset)
+        // updateLogStartOffset(newOffset)
       }
     }
   }

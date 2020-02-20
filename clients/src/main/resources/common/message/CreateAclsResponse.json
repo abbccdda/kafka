@@ -18,15 +18,14 @@
   "type": "response",
   "name": "CreateAclsResponse",
   // Starting in version 1, on quota violation, brokers send out responses before throttling.
-  //
-  // Version 2 is the first flexible version. Note that this version is not yet in Apache Kafka.
-  // Version 2 adds an optional cluster-id in the request for creating centralized ACLs. (only in Confluent-Server)
+  // Version 2 enables flexible versions.
+  // It also adds an optional cluster-id in the request for creating centralized ACLs. (only in Confluent-Server)
   "validVersions": "0-2",
   "flexibleVersions": "2+",
   "fields": [
     { "name": "ThrottleTimeMs", "type": "int32", "versions": "0+",
       "about": "The duration in milliseconds for which the request was throttled due to a quota violation, or zero if the request did not violate any quota." },
-    { "name": "Results", "type": "[]CreatableAclResult", "versions": "0+",
+    { "name": "Results", "type": "[]AclCreationResult", "versions": "0+",
       "about": "The results for each ACL creation.", "fields": [
       { "name": "ErrorCode", "type": "int16", "versions": "0+",
         "about": "The result error, or zero if there was no error." },

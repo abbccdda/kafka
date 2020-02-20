@@ -27,9 +27,9 @@ import java.util.concurrent.{CompletableFuture, ConcurrentLinkedQueue, Executors
 import java.util.{HashMap, Properties, Random}
 
 import com.yammer.metrics.core.{Gauge, Meter}
-import com.yammer.metrics.{Metrics => YammerMetrics}
 import javax.net.ssl._
 import kafka.cluster.EndPoint
+import kafka.metrics.KafkaYammerMetrics
 import kafka.security.CredentialProvider
 import kafka.server.{KafkaConfig, ThrottledChannel}
 import kafka.utils.Implicits._
@@ -1100,7 +1100,7 @@ class SocketServerTest {
         s"kafka.network:type=RequestMetrics,name=RequestsPerSec,request=Produce,version=$version2" -> 1,
         "kafka.network:type=RequestMetrics,name=ErrorsPerSec,request=Produce,error=NONE" -> 1)
 
-    def requestMetricMeters = YammerMetrics
+    def requestMetricMeters = KafkaYammerMetrics
       .defaultRegistry
       .allMetrics.asScala
       .collect { case (k, metric: Meter) if k.getType == "RequestMetrics" => (k.toString, metric.count) }
@@ -1114,7 +1114,7 @@ class SocketServerTest {
   def testMetricCollectionAfterShutdown(): Unit = {
     server.shutdown()
 
-    val nonZeroMetricNamesAndValues = YammerMetrics
+    val nonZeroMetricNamesAndValues = KafkaYammerMetrics
       .defaultRegistry
       .allMetrics.asScala
       .filter { case (k, _) => k.getName.endsWith("IdlePercent") || k.getName.endsWith("NetworkProcessorAvgIdlePercent") }
@@ -1135,7 +1135,7 @@ class SocketServerTest {
     }
 
     // legacy metrics not tagged
-    val yammerMetricsNames = YammerMetrics.defaultRegistry.allMetrics.asScala
+    val yammerMetricsNames = KafkaYammerMetrics.defaultRegistry.allMetrics.asScala
       .filterKeys(_.getType.equals("Processor"))
       .collect { case (k, _: Gauge[_]) => k }
     assertFalse(yammerMetricsNames.isEmpty)
@@ -1190,7 +1190,7 @@ class SocketServerTest {
       def kafkaMetrics(tag: String, tagValue: String): Set[_] =
         metrics.metrics.keySet.asScala.filter(_.tags.get(tag) == tagValue).toSet
       def yammerMetrics(tag: String, tagValue: String): Set[_] =
-        YammerMetrics.defaultRegistry.allMetrics.asScala.keySet.filter(_.getMBeanName.contains(s"$tag=$tagValue")).toSet
+        KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.keySet.filter(_.getMBeanName.contains(s"$tag=$tagValue")).toSet
 
       dynamicListeners = Seq.empty[EndPoint]
       server.removeListeners(Seq(testEndpoint))
@@ -1749,7 +1749,7 @@ class SocketServerTest {
 
   private def verifyAcceptorBlockedPercent(listenerName: String, expectBlocked: Boolean): Unit = {
     val blockedPercentMetricMBeanName = s"kafka.network:type=Acceptor,name=AcceptorBlockedPercent,listener=$listenerName"
-    val blockedPercentMetrics = YammerMetrics.defaultRegistry.allMetrics.asScala
+    val blockedPercentMetrics = KafkaYammerMetrics.defaultRegistry.allMetrics.asScala
       .filterKeys(_.getMBeanName == blockedPercentMetricMBeanName).values
     assertEquals(1, blockedPercentMetrics.size)
     val blockedPercentMetric = blockedPercentMetrics.head.asInstanceOf[Meter]

@@ -17,6 +17,7 @@ import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.errors.InvalidRequestException;
+import org.apache.kafka.common.message.CreateAclsRequestData;
 import org.apache.kafka.common.message.CreatePartitionsRequestData;
 import org.apache.kafka.common.message.CreatePartitionsRequestData.CreatePartitionsTopic;
 import org.apache.kafka.common.message.CreateTopicsRequestData;
@@ -30,6 +31,7 @@ import org.apache.kafka.common.message.CreateTopicsResponseData;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicConfigs;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResult;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResultCollection;
+import org.apache.kafka.common.message.DeleteAclsResponseData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData.DescribedGroup;
 import org.apache.kafka.common.message.DescribeGroupsResponseData.DescribedGroupMember;
 import org.apache.kafka.common.message.DescribeAclsResponseData;
@@ -53,6 +55,7 @@ import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.requests.AbstractRequest;
 import org.apache.kafka.common.requests.AbstractResponse;
 import org.apache.kafka.common.requests.AlterConfigsRequest;
+import org.apache.kafka.common.requests.ApiError;
 import org.apache.kafka.common.requests.CreateAclsRequest;
 import org.apache.kafka.common.requests.CreatePartitionsRequest;
 import org.apache.kafka.common.requests.CreateTopicsRequest;
@@ -698,19 +701,23 @@ public class MultiTenantRequestContext extends RequestContext {
 
   private DeleteAclsResponse transformDeleteAclsResponse(DeleteAclsResponse response) {
     String tenantPrefix = tenantContext.prefix();
-    List<DeleteAclsResponse.AclFilterResponse> responses = response.responses().stream().map(r -> {
-      List<DeleteAclsResponse.AclDeletionResult> deletions = r.deletions().stream().map(d -> {
-        ResourcePattern pattern = d.acl().pattern();
+
+    List<DeleteAclsResponseData.DeleteAclsFilterResult> filterResults = response.filterResults().stream().map(fr -> {
+      List<DeleteAclsResponseData.DeleteAclsMatchingAcl> matchingAcls = fr.matchingAcls().stream().map(acl -> {
+        AclBinding binding = DeleteAclsResponse.aclBinding(acl);
+        ResourcePattern pattern = binding.pattern();
         if (pattern.name().equals(tenantPrefix)) {
           pattern = new ResourcePattern(pattern.resourceType(),
-              tenantPrefix + "*", PatternType.LITERAL);
+                  tenantPrefix + "*", PatternType.LITERAL);
         }
-        AclBinding acl = new AclBinding(pattern, d.acl().entry());
-        return new DeleteAclsResponse.AclDeletionResult(d.error(), acl);
+        return DeleteAclsResponse.matchingAcl(new AclBinding(pattern, binding.entry()), new ApiError(Errors.forCode(acl.errorCode()), acl.errorMessage()));
       }).collect(Collectors.toList());
-      return new DeleteAclsResponse.AclFilterResponse(r.error(), deletions);
+      return new DeleteAclsResponseData.DeleteAclsFilterResult().setMatchingAcls(matchingAcls).setErrorCode(fr.errorCode()).setErrorMessage(fr.errorMessage());
     }).collect(Collectors.toList());
-    return new DeleteAclsResponse(response.throttleTimeMs(), responses);
+
+    return new DeleteAclsResponse(
+            new DeleteAclsResponseData().setThrottleTimeMs(response.throttleTimeMs()).setFilterResults(filterResults)
+    );
   }
 
   private CreateTopicsResponse filteredCreateTopicsResponse(CreateTopicsResponse response) {
@@ -757,24 +764,23 @@ public class MultiTenantRequestContext extends RequestContext {
    */
   private AbstractRequest transformCreateAclsRequest(CreateAclsRequest request) {
     String prefixedWildcard = tenantContext.prefixedWildcard();
-    List<CreateAclsRequest.AclCreation> aclCreations = request.aclCreations();
-    List<CreateAclsRequest.AclCreation> transformedAcls = aclCreations.stream().map(creation -> {
-      AclBinding acl = creation.acl();
-      AclBinding transformedAcl = acl;
-      ResourcePattern pattern = acl.pattern();
+    List<CreateAclsRequestData.AclCreation> aclCreations = request.aclCreations();
+    List<CreateAclsRequestData.AclCreation> transformedAcls = aclCreations.stream().map(creation -> {
+      AclBinding transformedAcl = CreateAclsRequest.aclBinding(creation);
+      ResourcePattern pattern = transformedAcl.pattern();
       ensureResourceNameNonEmpty(pattern.name());
       ensureSupportedResourceType(pattern.resourceType());
       ensureValidRequestPatternType(pattern.patternType());
-      ensureValidPrincipal(acl.entry().principal());
+      ensureValidPrincipal(transformedAcl.entry().principal());
       if (pattern.patternType() == PatternType.LITERAL
           && prefixedWildcard.equals(pattern.name())) {
         ResourcePattern prefixed = new ResourcePattern(pattern.resourceType(),
             tenantContext.prefix(), PatternType.PREFIXED);
-        transformedAcl = new AclBinding(prefixed, acl.entry());
+        transformedAcl = new AclBinding(prefixed, transformedAcl.entry());
       }
-      return new CreateAclsRequest.AclCreation(transformedAcl);
+      return CreateAclsRequest.aclCreation(transformedAcl);
     }).collect(Collectors.toList());
-    return new CreateAclsRequest.Builder(transformedAcls).build(minAclsRequestVersion(request));
+    return new CreateAclsRequest.Builder(new CreateAclsRequestData().setCreations(transformedAcls)).build(minAclsRequestVersion(request));
   }
 
   private AbstractRequest transformDescribeAclsRequest(DescribeAclsRequest request) {

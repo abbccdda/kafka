@@ -41,7 +41,7 @@ import org.apache.kafka.common.message.JoinGroupRequestData.JoinGroupRequestProt
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.message.LeaveGroupRequestData.MemberIdentity
 import org.apache.kafka.common.message.UpdateMetadataRequestData.{UpdateMetadataBroker, UpdateMetadataEndpoint, UpdateMetadataPartitionState}
-import org.apache.kafka.common.message.{AlterPartitionReassignmentsRequestData, ControlledShutdownRequestData, CreateAclsRequestData, CreatePartitionsRequestData, CreateTopicsRequestData, DeleteGroupsRequestData, DeleteTopicsRequestData, DescribeGroupsRequestData, FindCoordinatorRequestData, HeartbeatRequestData, IncrementalAlterConfigsRequestData, JoinGroupRequestData, ListPartitionReassignmentsRequestData, OffsetCommitRequestData, SyncGroupRequestData}
+import org.apache.kafka.common.message.{AlterPartitionReassignmentsRequestData, ControlledShutdownRequestData, CreateAclsRequestData, CreatePartitionsRequestData, CreateTopicsRequestData, DeleteAclsRequestData, DeleteGroupsRequestData, DeleteTopicsRequestData, DescribeGroupsRequestData, FindCoordinatorRequestData, HeartbeatRequestData, IncrementalAlterConfigsRequestData, JoinGroupRequestData, ListPartitionReassignmentsRequestData, OffsetCommitRequestData, SyncGroupRequestData}
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, RecordBatch, Records, SimpleRecord}
@@ -165,9 +165,9 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     ApiKeys.ADD_OFFSETS_TO_TXN -> ((resp: AddOffsetsToTxnResponse) => resp.error),
     ApiKeys.END_TXN -> ((resp: EndTxnResponse) => resp.error),
     ApiKeys.TXN_OFFSET_COMMIT -> ((resp: TxnOffsetCommitResponse) => resp.errors.get(tp)),
-    ApiKeys.CREATE_ACLS -> ((resp: CreateAclsResponse) => resp.aclCreationResponses.asScala.head.error.error),
+    ApiKeys.CREATE_ACLS -> ((resp: CreateAclsResponse) => Errors.forCode(resp.results.asScala.head.errorCode)),
     ApiKeys.DESCRIBE_ACLS -> ((resp: DescribeAclsResponse) => resp.error.error),
-    ApiKeys.DELETE_ACLS -> ((resp: DeleteAclsResponse) => resp.responses.asScala.head.error.error),
+    ApiKeys.DELETE_ACLS -> ((resp: DeleteAclsResponse) => Errors.forCode(resp.filterResults.asScala.head.errorCode)),
     ApiKeys.ALTER_REPLICA_LOG_DIRS -> ((resp: AlterReplicaLogDirsResponse) => resp.responses.get(tp)),
     ApiKeys.DESCRIBE_LOG_DIRS -> ((resp: DescribeLogDirsResponse) =>
       if (resp.logDirInfos.size() > 0) resp.logDirInfos.asScala.head._2.error else Errors.CLUSTER_AUTHORIZATION_FAILED),
@@ -472,24 +472,29 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
 
   private def describeAclsRequest = new DescribeAclsRequest.Builder(AclBindingFilter.ANY).build()
 
-  private def createAclsRequest: CreateAclsRequest = {
-    new CreateAclsRequest.Builder(
-      new CreateAclsRequestData().setCreations(Collections.singletonList(
-        new CreateAclsRequestData.CreatableAcl()
-          .setResourceType(ResourceType.TOPIC.code)
-          .setResourceName("mytopic")
-          .setResourcePatternType(PatternType.LITERAL.code)
-          .setPrincipal(userPrincipalStr)
-          .setHost("*")
-          .setOperation(AclOperation.WRITE.code)
-          .setPermissionType(AclPermissionType.DENY.code)))
-    ).build()
-  }
+  private def createAclsRequest: CreateAclsRequest = new CreateAclsRequest.Builder(
+    new CreateAclsRequestData().setCreations(Collections.singletonList(
+      new CreateAclsRequestData.AclCreation()
+        .setResourceType(ResourceType.TOPIC.code)
+        .setResourceName("mytopic")
+        .setResourcePatternType(PatternType.LITERAL.code)
+        .setPrincipal(userPrincipalStr)
+        .setHost("*")
+        .setOperation(AclOperation.WRITE.code)
+        .setPermissionType(AclPermissionType.DENY.code)))
+  ).build()
 
-  private def deleteAclsRequest = new DeleteAclsRequest.Builder(
-    Collections.singletonList(new AclBindingFilter(
-      new ResourcePatternFilter(ResourceType.TOPIC, null, LITERAL),
-      new AccessControlEntryFilter(userPrincipalStr, "*", AclOperation.ANY, DENY)))).build()
+  private def deleteAclsRequest: DeleteAclsRequest = new DeleteAclsRequest.Builder(
+    new DeleteAclsRequestData().setFilters(Collections.singletonList(
+      new DeleteAclsRequestData.DeleteAclsFilter()
+        .setResourceTypeFilter(ResourceType.TOPIC.code)
+        .setResourceNameFilter(null)
+        .setPatternTypeFilter(PatternType.LITERAL.code)
+        .setPrincipalFilter(userPrincipalStr)
+        .setHostFilter("*")
+        .setOperation(AclOperation.ANY.code)
+        .setPermissionType(AclPermissionType.DENY.code)))
+  ).build()
 
   private def alterReplicaLogDirsRequest = new AlterReplicaLogDirsRequest.Builder(Collections.singletonMap(tp, logDir)).build()
 

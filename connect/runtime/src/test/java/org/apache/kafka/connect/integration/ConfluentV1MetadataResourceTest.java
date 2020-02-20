@@ -14,6 +14,7 @@ import org.junit.experimental.categories.Category;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.ws.rs.core.Response;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -72,7 +73,9 @@ public class ConfluentV1MetadataResourceTest {
         ConfluentConnectClusterId expectedClusterId =
             new ConfluentConnectClusterId(kafkaClusterId, CONNECT_CLUSTER_ID);
 
-        String rawResponse = connect.executeGet(connect.endpointForResource("v1/metadata/id"));
+
+        Response response = connect.requestGet(connect.endpointForResource("v1/metadata/id"));
+        String rawResponse = response == null ? "empty" : (String) response.getEntity();
         ConfluentConnectClusterId clusterId =
             new ObjectMapper().readValue(rawResponse, ConfluentConnectClusterId.class);
 

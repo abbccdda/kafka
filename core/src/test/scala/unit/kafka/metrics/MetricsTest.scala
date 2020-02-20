@@ -17,10 +17,10 @@
 
 package kafka.metrics
 
+import java.lang.management.ManagementFactory
 import java.util.Properties
 
 import javax.management.ObjectName
-import com.yammer.metrics.Metrics
 import com.yammer.metrics.core.MetricPredicate
 import org.junit.Test
 import org.junit.Assert._
@@ -34,6 +34,7 @@ import scala.collection.JavaConverters._
 import kafka.log.LogConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.metrics.JmxReporter
 
 class MetricsTest extends KafkaServerTestHarness with Logging {
   val numNodes = 2
@@ -41,6 +42,7 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
 
   val overridingProps = new Properties
   overridingProps.put(KafkaConfig.NumPartitionsProp, numParts.toString)
+  overridingProps.put(JmxReporter.BLACKLIST_CONFIG, "kafka.server:type=KafkaServer,name=ClusterId")
 
   def generateConfigs =
     TestUtils.createBrokerConfigs(numNodes, zkConnect).map(KafkaConfig.fromProps(_, overridingProps))
@@ -73,8 +75,29 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
   @Test
   def testClusterIdMetric(): Unit = {
     // Check if clusterId metric exists.
-    val metrics = Metrics.defaultRegistry.allMetrics
+    val metrics = KafkaYammerMetrics.defaultRegistry.allMetrics
     assertEquals(metrics.keySet.asScala.count(_.getMBeanName == "kafka.server:type=KafkaServer,name=ClusterId"), 1)
+  }
+
+  @Test
+  def testJMXFilter(): Unit = {
+    // Check if cluster id metrics is not exposed in JMX
+    assertTrue(ManagementFactory.getPlatformMBeanServer
+                 .isRegistered(new ObjectName("kafka.controller:type=KafkaController,name=ActiveControllerCount")))
+    assertFalse(ManagementFactory.getPlatformMBeanServer
+                  .isRegistered(new ObjectName("kafka.server:type=KafkaServer,name=ClusterId")))
+  }
+
+  @Test
+  def testUpdateJMXFilter(): Unit = {
+    // verify previously exposed metrics are removed and existing matching metrics are added
+    servers.foreach(server => server.kafkaYammerMetrics.reconfigure(
+      Map(JmxReporter.BLACKLIST_CONFIG -> "kafka.controller:type=KafkaController,name=ActiveControllerCount").asJava
+    ))
+    assertFalse(ManagementFactory.getPlatformMBeanServer
+                 .isRegistered(new ObjectName("kafka.controller:type=KafkaController,name=ActiveControllerCount")))
+    assertTrue(ManagementFactory.getPlatformMBeanServer
+                  .isRegistered(new ObjectName("kafka.server:type=KafkaServer,name=ClusterId")))
   }
 
   @Test
@@ -161,13 +184,13 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
       case _: Exception => // GOOD
     }
     // now the metric should kick in
-    assertEquals(1, Metrics.defaultRegistry.allMetrics.keySet.asScala.count(_.getMBeanName.endsWith(s"name=NoKeyCompactedTopicRecordsPerSec")))
+    assertEquals(1, KafkaYammerMetrics.defaultRegistry.allMetrics.keySet.asScala.count(_.getMBeanName.endsWith(s"name=NoKeyCompactedTopicRecordsPerSec")))
     assertTrue(TestUtils.meterCount(s"name=NoKeyCompactedTopicRecordsPerSec") > 0)
   }
 
   @Test
   def testControllerMetrics(): Unit = {
-    val metrics = Metrics.defaultRegistry.allMetrics
+    val metrics = KafkaYammerMetrics.defaultRegistry.allMetrics
 
     assertEquals(metrics.keySet.asScala.count(_.getMBeanName == "kafka.controller:type=KafkaController,name=ActiveControllerCount"), 1)
     assertEquals(metrics.keySet.asScala.count(_.getMBeanName == "kafka.controller:type=KafkaController,name=OfflinePartitionsCount"), 1)
@@ -182,7 +205,7 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
 
   @Test
   def testAggregateRecordMetricsInitialized(): Unit = {
-    val metrics = Metrics.defaultRegistry.allMetrics
+    val metrics = KafkaYammerMetrics.defaultRegistry.allMetrics
 
     // We expect the aggregate metrics to be initialized greedily
     assertEquals(1, metrics.keySet.asScala.count(_.getMBeanName.startsWith("kafka.server:type=BrokerTopicMetrics,name=NoKeyCompactedTopicRecordsPerSec")))
@@ -238,7 +261,7 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
    */
   @Test
   def testSessionExpireListenerMetrics(): Unit = {
-    val metrics = Metrics.defaultRegistry.allMetrics
+    val metrics = KafkaYammerMetrics.defaultRegistry.allMetrics
 
     assertEquals(metrics.keySet.asScala.count(_.getMBeanName == "kafka.server:type=SessionExpireListener,name=SessionState"), 1)
     assertEquals(metrics.keySet.asScala.count(_.getMBeanName == "kafka.server:type=SessionExpireListener,name=ZooKeeperExpiresPerSec"), 1)
@@ -246,12 +269,12 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
   }
 
   private def topicMetrics(topic: Option[String]): Set[String] = {
-    val metricNames = Metrics.defaultRegistry.allMetrics().keySet.asScala.map(_.getMBeanName)
+    val metricNames = KafkaYammerMetrics.defaultRegistry.allMetrics().keySet.asScala.map(_.getMBeanName)
     filterByTopicMetricRegex(metricNames, topic)
   }
 
   private def topicMetricGroups(topic: String): Set[String] = {
-    val metricGroups = Metrics.defaultRegistry.groupedMetrics(MetricPredicate.ALL).keySet.asScala
+    val metricGroups = KafkaYammerMetrics.defaultRegistry.groupedMetrics(MetricPredicate.ALL).keySet.asScala
     filterByTopicMetricRegex(metricGroups, Some(topic))
   }
 

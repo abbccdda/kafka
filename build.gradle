@@ -37,6 +37,7 @@ buildscript {
     classpath "org.owasp:dependency-check-gradle:$versions.owaspDepCheckPlugin"
     classpath "com.diffplug.spotless:spotless-plugin-gradle:$versions.spotlessPlugin"
     classpath "com.github.spotbugs:spotbugs-gradle-plugin:$versions.spotbugsPlugin"
+    classpath "org.gradle:test-retry-gradle-plugin:$versions.testRetryPlugin"
     classpath "com.commercehub.gradle.plugin:gradle-avro-plugin:$versions.avroPlugin"
     classpath "com.google.protobuf:protobuf-gradle-plugin:$versions.protobufPlugin"
     classpath "de.undercouch:gradle-download-task:$versions.downloadTaskPlugin"
@@ -70,32 +71,6 @@ task installGitHooks(type: Exec) {
     doLast {
         logger.info('Git hook installed successfully.')
     }
-}
-
-ext {
-  gradleVersion = "$versions.gradle"
-  minJavaVersion = "8"
-  buildVersionFileName = "kafka-version.properties"
-
-  userMaxForks = project.hasProperty('maxParallelForks') ? maxParallelForks.toInteger() : null
-  userIgnoreFailures = project.hasProperty('ignoreFailures') ? ignoreFailures : false
-
-  skipSigning = project.hasProperty('skipSigning') && skipSigning.toBoolean()
-  shouldSign = !skipSigning && !version.endsWith("SNAPSHOT") && project.gradle.startParameter.taskNames.any { it.contains("upload") }
-
-  mavenUrl = project.hasProperty('mavenUrl') ? project.mavenUrl : ''
-  mavenUsername = project.hasProperty('mavenUsername') ? project.mavenUsername : ''
-  mavenPassword = project.hasProperty('mavenPassword') ? project.mavenPassword : ''
-
-  userShowStandardStreams = project.hasProperty("showStandardStreams") ? showStandardStreams : null
-
-  userTestLoggingEvents = project.hasProperty("testLoggingEvents") ? Arrays.asList(testLoggingEvents.split(",")) : null
-
-  userPackageMetricsReporter = project.hasProperty("packageMetricsReporter") ? packageMetricsReporter : null
-
-  generatedDocsDir = new File("${project.rootDir}/docs/generated")
-
-  commitId = project.hasProperty('commitId') ? commitId : null
 }
 
 allprojects {
@@ -162,6 +137,35 @@ allprojects {
 
 }
 
+ext {
+  gradleVersion = "$versions.gradle"
+  minJavaVersion = "8"
+  buildVersionFileName = "kafka-version.properties"
+
+  userMaxForks = project.hasProperty('maxParallelForks') ? maxParallelForks.toInteger() : null
+  userIgnoreFailures = project.hasProperty('ignoreFailures') ? ignoreFailures : false
+
+  userMaxTestRetries = project.hasProperty('maxTestRetries') ? maxTestRetries.toInteger() : 0
+  userMaxTestRetryFailures = project.hasProperty('maxTestRetryFailures') ? maxTestRetryFailures.toInteger() : 0
+
+  skipSigning = project.hasProperty('skipSigning') && skipSigning.toBoolean()
+  shouldSign = !skipSigning && !version.endsWith("SNAPSHOT") && project.gradle.startParameter.taskNames.any { it.contains("upload") }
+
+  mavenUrl = project.hasProperty('mavenUrl') ? project.mavenUrl : ''
+  mavenUsername = project.hasProperty('mavenUsername') ? project.mavenUsername : ''
+  mavenPassword = project.hasProperty('mavenPassword') ? project.mavenPassword : ''
+
+  userShowStandardStreams = project.hasProperty("showStandardStreams") ? showStandardStreams : null
+
+  userTestLoggingEvents = project.hasProperty("testLoggingEvents") ? Arrays.asList(testLoggingEvents.split(",")) : null
+
+  userPackageMetricsReporter = project.hasProperty("packageMetricsReporter") ? packageMetricsReporter : null
+
+  generatedDocsDir = new File("${project.rootDir}/docs/generated")
+
+  commitId = project.hasProperty('commitId') ? commitId : null
+}
+
 apply from: file('wrapper.gradle')
 
 // The RAT check examines the license headers of files.  Because we have some
@@ -216,6 +220,7 @@ subprojects {
   apply plugin: 'signing'
   apply plugin: 'checkstyle'
   apply plugin: "com.github.spotbugs"
+  apply plugin: 'org.gradle.test-retry'
 
   sourceCompatibility = minJavaVersion
   targetCompatibility = minJavaVersion
@@ -227,8 +232,7 @@ subprojects {
     options.compilerArgs << "-Xlint:-rawtypes"
     options.compilerArgs << "-Xlint:-serial"
     options.compilerArgs << "-Xlint:-try"
-    if (!project.name.equals('support-metrics-client') &&
-        !project.name.equals('support-metrics-common') &&
+    if (!project.name.equals('support-metrics-common') &&
         !project.name.equals('ce-serializers') &&
         !project.name.equals('ce-audit')) {
       // Do not enable -Werror for subprojects with automatically generated code.
@@ -343,6 +347,11 @@ subprojects {
       exceptionFormat = testExceptionFormat
     }
     logTestStdout.rehydrate(delegate, owner, this)()
+
+    retry {
+      maxRetries = userMaxTestRetries
+      maxFailures = userMaxTestRetryFailures
+    }
   }
 
   task integrationTest(type: Test, dependsOn: compileJava) {
@@ -722,7 +731,6 @@ def pkgs = [
     'streams:examples',
     'streams:streams-scala',
     'streams:test-utils',
-    'support-metrics-client',
     'support-metrics-common',
     'tools',
     'ce-serializers',
@@ -1045,8 +1053,6 @@ project(':core') {
     from(project(':streams:test-utils').configurations.runtime) { into("libs/") }
     from(project(':support-metrics-common').jar) { into("libs/") }
     from(project(':support-metrics-common').configurations.runtime) { into("libs/") }
-    from(project(':support-metrics-client').jar) { into("libs/") }
-    from(project(':support-metrics-client').configurations.runtime) { into("libs/") }
     from(project(':streams:examples').jar) { into("libs/") }
     from(project(':streams:examples').configurations.runtime) { into("libs/") }
     // Do not include ce-metrics in the release by default since that is done by the
@@ -1592,89 +1598,6 @@ project(':connect:mirror-client') {
 
   jar {
     dependsOn copyDependantLibs
-  }
-}
-
-project(':support-metrics-client') {
-  archivesBaseName = "support-metrics-client"
-  group = "io.confluent.support"
-
-  dependencies {
-    compile libs.avro
-    compile libs.httpclient
-    compile libs.httpmime
-    compile libs.slf4jlog4j
-    compile project(':clients')
-    // projects that require the KafkaSubmitter have to add the Core dependency explicitly, typically
-    // they only need ConfluentSubmitter
-    compileOnly project(':core')
-    compile project(':support-metrics-common')
-    compile project(':ce-kafka-client-plugins')
-
-    testCompile project(':core')
-    testCompile project(':core').sourceSets.test.output
-    testCompile project(':clients').sourceSets.test.output // for org.apache.kafka.test.IntegrationTest
-    testCompile project(':support-metrics-common').sourceSets.test.output // for io.confluent.support.metrics.common.kafka.EmbeddedKafkaCluster
-    testCompile libs.junit
-    testCompile libs.mockitoCore
-  }
-
-  javadoc {
-    enabled = false
-  }
-
-  sourceSets {
-    main {
-      java {
-        srcDirs = ["src/main/generated/java", "src/main/java"]
-      }
-    }
-    test {
-      java {
-        srcDirs = ["src/main/generated/java", "src/test/generated/java", "src/test/java"]
-      }
-    }
-  }
-
-  tasks.create(name: "generateAvro", type: com.commercehub.gradle.plugin.avro.GenerateAvroJavaTask) {
-    source("src/main/avro/")
-    outputDir = file("src/main/generated/java/")
-  }
-
-  tasks.create(name: "generateTestAvro", type: com.commercehub.gradle.plugin.avro.GenerateAvroJavaTask) {
-    source("src/test/avro/")
-    outputDir = file("src/test/generated/java/")
-  }
-
-  tasks.create(name: "copyDependantLibs", type: Copy) {
-    from (configurations.testRuntime) {
-      include('slf4j-log4j12*')
-      include('log4j*jar')
-    }
-    from (configurations.runtime) {
-    }
-    into "$buildDir/dependant-libs-${versions.scala}"
-    duplicatesStrategy 'exclude'
-  }
-
-  compileJava {
-    dependsOn 'generateAvro'
-  }
-
-  compileTestJava {
-    dependsOn 'generateTestAvro'
-  }
-
-  jar {
-    dependsOn 'copyDependantLibs'
-  }
-
-  checkstyle {
-    configProperties = checkstyleConfigProperties("confluent-import-control.xml")
-  }
-
-  checkstyleTest {
-    configProperties = checkstyleConfigProperties("confluent-import-control.xml")
   }
 }
 
