@@ -7,7 +7,6 @@ package kafka.tier.fetcher;
 import kafka.tier.fetcher.offsetcache.FetchOffsetMetadata;
 import org.apache.kafka.common.record.AbstractLegacyRecordBatch;
 import org.apache.kafka.common.record.DefaultRecordBatch;
-import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.Record;
 import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.utils.Utils;
@@ -49,20 +48,52 @@ public class TierSegmentReader {
      * batch to be parsed and loaded (or ignored) before taking effect.
      */
     public RecordsAndNextBatchMetadata readRecords(CancellationContext cancellationContext,
+                                                   Optional<MemoryTracker.MemoryLease> lease,
                                                    InputStream inputStream,
                                                    int maxBytes,
                                                    long targetOffset,
                                                    int startBytePosition,
                                                    int segmentSize) throws IOException {
+
+        // The memory lease should either contains enough bytes to read a single
+        // record batch, or if that was not determinable, the record batch header. This means for
+        // some requests, we will need to ignore the memory lease when reading the first batch.
+        // Since this is just a single batch and it's lifetime is bound to this function call,
+        // it does not need to be counted towards the memory lease.
         BatchAndReadState firstBatchAndState = readFirstBatch(cancellationContext, inputStream, targetOffset, segmentSize);
-        if (firstBatchAndState == null)
-            return new RecordsAndNextBatchMetadata(MemoryRecords.EMPTY, null);
+        if (firstBatchAndState == null) {
+            lease.ifPresent(MemoryTracker.MemoryLease::release);
+            return new RecordsAndNextBatchMetadata(ReclaimableMemoryRecords.EMPTY, null);
+        }
 
         // insert the first batch, ensuring the buffer size to at least as big as the first
         // batch, even if this exceeds maxBytes
         RecordBatch firstBatch = firstBatchAndState.recordBatch;
         int firstBatchSize = firstBatch.sizeInBytes();
-        int totalRequestBytes = Math.max(firstBatchSize, maxBytes);
+        int totalDesiredBytes = Math.max(firstBatchSize, maxBytes);
+        int totalRequestBytes;
+
+        if (lease.isPresent() && lease.get().leased() < totalDesiredBytes) {
+            // There is a memory lease, but it is insufficient to satisfy the request.
+            // Attempt to extend the lease up to maxBytes, or the first batch size, whichever is
+            // larger.
+            if (lease.get().tryExtendLease(totalDesiredBytes - lease.get().leased())) {
+                // The lease was successfully extended, we can fetch the full totalDesiredBytes
+                // which should always be greater than the size of the first record batch.
+                totalRequestBytes = totalDesiredBytes;
+            } else {
+                // The lease was not successfully extended, set the fetch size to the max of the
+                // memory lease or the first batch size. This maintains the key property that we
+                // never allocate less than the first batch size, which prevents us from doing
+                // the work to retrieve data from S3 and then just throwing it away.
+                totalRequestBytes = (int) Math.max(firstBatchSize, lease.get().leased());
+            }
+        } else {
+            // If there is no memory lease provided, just fetch the full desired bytes, which should
+            // always be greater than the size of the first record batch.
+            totalRequestBytes = totalDesiredBytes;
+        }
+
         ByteBuffer buffer = ByteBuffer.allocate(totalRequestBytes);
         firstBatch.writeTo(buffer);
 
@@ -87,7 +118,8 @@ public class TierSegmentReader {
         }
 
         buffer.flip();
-        return new RecordsAndNextBatchMetadata(new MemoryRecords(buffer), nextOffsetAndBatchMetadata);
+        ReclaimableMemoryRecords reclaimableMemoryRecords = new ReclaimableMemoryRecords(buffer, lease);
+        return new RecordsAndNextBatchMetadata(reclaimableMemoryRecords, nextOffsetAndBatchMetadata);
     }
 
     /**
@@ -310,10 +342,11 @@ public class TierSegmentReader {
     }
 
     public static class RecordsAndNextBatchMetadata {
-        final MemoryRecords records;
+        final ReclaimableMemoryRecords records;
         final NextOffsetAndBatchMetadata nextOffsetAndBatchMetadata;
 
-        public RecordsAndNextBatchMetadata(MemoryRecords records, NextOffsetAndBatchMetadata nextOffsetAndBatchMetadata) {
+        public RecordsAndNextBatchMetadata(ReclaimableMemoryRecords records,
+                                           NextOffsetAndBatchMetadata nextOffsetAndBatchMetadata) {
             this.records = records;
             this.nextOffsetAndBatchMetadata = nextOffsetAndBatchMetadata;
         }

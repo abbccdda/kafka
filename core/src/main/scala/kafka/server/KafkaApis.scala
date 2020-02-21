@@ -40,6 +40,7 @@ import kafka.security.authorizer.{AclEntry, AuthorizerUtils}
 import kafka.server.QuotaFactory.{QuotaManagers, UnboundedQuota}
 import kafka.tier.TierDeletedPartitionsCoordinator
 import kafka.tier.client.TierTopicClient
+import kafka.tier.fetcher.ReclaimableMemoryRecords
 import kafka.utils.{CoreUtils, Logging}
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.clients.admin.{AlterConfigOp, ConfigEntry}
@@ -800,6 +801,8 @@ class KafkaApis(val requestChannel: RequestChannel,
 
       if (logConfig.exists(_.compressionType == ZStdCompressionCodec.name) && versionId < 10) {
         trace(s"Fetching messages is disabled for ZStandard compressed partition $tp. Sending unsupported version response to $clientId.")
+        // If an error response will be returned, release any memory leases associated with the records.
+        partitionData.records.release()
         errorResponse(Errors.UNSUPPORTED_COMPRESSION_TYPE)
       } else {
         // Down-conversion of the fetched records is needed when the stored magic version is
@@ -825,6 +828,8 @@ class KafkaApis(val requestChannel: RequestChannel,
             // For fetch requests from clients, check if down-conversion is disabled for the particular partition
             if (!fetchRequest.isFromFollower && !logConfig.forall(_.messageDownConversionEnable)) {
               trace(s"Conversion to message format ${downConvertMagic.get} is disabled for partition $tp. Sending unsupported version response to $clientId.")
+              // If an error response will be returned, release any memory leases associated with the records.
+              unconvertedRecords.release()
               errorResponse(Errors.UNSUPPORTED_VERSION)
             } else {
               try {
@@ -833,6 +838,7 @@ class KafkaApis(val requestChannel: RequestChannel,
                 // as possible. With KIP-283, we have the ability to lazily down-convert in a chunked manner. The lazy, chunked
                 // down-conversion always guarantees that at least one batch of messages is down-converted and sent out to the
                 // client.
+
                 new FetchResponse.PartitionData[BaseRecords](partitionData.error, partitionData.highWatermark,
                   partitionData.lastStableOffset, partitionData.logStartOffset,
                   partitionData.preferredReadReplica, partitionData.abortedTransactions,
@@ -844,15 +850,18 @@ class KafkaApis(val requestChannel: RequestChannel,
               }
             }
           case None => new FetchResponse.PartitionData[BaseRecords](partitionData.error, partitionData.highWatermark,
-            partitionData.lastStableOffset, partitionData.logStartOffset,
-            partitionData.preferredReadReplica, partitionData.abortedTransactions,
-            unconvertedRecords)
+              partitionData.lastStableOffset, partitionData.logStartOffset,
+              partitionData.preferredReadReplica, partitionData.abortedTransactions,
+              unconvertedRecords)
         }
       }
     }
 
     // the callback for process a fetch response, invoked before throttling
     def processResponseCallback(responsePartitionData: Seq[(TopicPartition, FetchPartitionData)]): Unit = {
+      // Note: Some records in FetchPartitionData may contain records which are of type ReclaimableRecordBatch.
+      //       ReclaimableRecordBatches are tied to a memory limiter. It is important that any time
+      //       ReclaimableRecordBatches are dropped, `release` is called on them.
       val partitions = new util.LinkedHashMap[TopicPartition, FetchResponse.PartitionData[Records]]
       val reassigningPartitions = mutable.Set[TopicPartition]()
       responsePartitionData.foreach { case (tp, data) =>
@@ -879,6 +888,8 @@ class KafkaApis(val requestChannel: RequestChannel,
           if (unconvertedPartitionData.error != Errors.NONE)
             debug(s"Fetch request with correlation id ${request.header.correlationId} from client $clientId " +
               s"on partition $tp failed due to ${unconvertedPartitionData.error.exceptionName}")
+          // Upon downconversion, any memory leases taken by the ReclaimableMemoryRecords will be returned immediately
+          // and the ReclaimableMemoryRecords will be transformed into MemoryRecords.
           convertedData.put(tp, maybeConvertFetchedData(tp, unconvertedPartitionData))
         }
 
@@ -934,14 +945,14 @@ class KafkaApis(val requestChannel: RequestChannel,
           //     response is sent;
           // (2) The throttling time for CPU quota is currently bounded by the quota window size, which defaults to
           //     1 sec. The default consumer session timeout is 10 secs.
-          val responseContainsMemoryRecords: Boolean = partitions
+          val responseContainsReclaimableMemoryRecords: Boolean = partitions
             .values()
             .asScala
-            .exists(_.records.isInstanceOf[MemoryRecords])
+            .exists(_.records.isInstanceOf[ReclaimableMemoryRecords])
 
           // Even if we need to throttle for request quota violation, we should "unrecord" the already recorded value
           // from the fetch quota if we are going to return an empty response.
-          if (!responseContainsMemoryRecords)
+          if (!responseContainsReclaimableMemoryRecords)
             quotas.fetch.unrecordQuotaSensor(request, responseSize, timeMs)
 
           if (bandwidthThrottleTimeMs > requestThrottleTimeMs) {
@@ -950,7 +961,7 @@ class KafkaApis(val requestChannel: RequestChannel,
             quotas.request.throttle(request, requestThrottleTimeMs, sendResponse)
           }
 
-          if (!responseContainsMemoryRecords)
+          if (!responseContainsReclaimableMemoryRecords)
           // If throttling is required, and the response does not contain MemoryRecords, return an empty response.
             unconvertedFetchResponse = fetchContext.getThrottledResponse(maxThrottleTimeMs)
           else
@@ -3078,6 +3089,8 @@ class KafkaApis(val requestChannel: RequestChannel,
   private def sendResponseExemptThrottle(request: RequestChannel.Request,
                                          response: AbstractResponse,
                                          onComplete: Option[Send => Unit] = None): Unit = {
+    // Note: The response object may contain ReclaimableMemoryRecords. ReclaimableMemoryRecords must be released before
+    // dropping so that the memory lease is returned to the memory limiter.
     quotas.request.maybeRecordExempt(request)
     sendResponse(request, Some(response), onComplete)
   }
@@ -3111,6 +3124,9 @@ class KafkaApis(val requestChannel: RequestChannel,
   private def sendResponse(request: RequestChannel.Request,
                            responseOpt: Option[AbstractResponse],
                            onComplete: Option[Send => Unit]): Unit = {
+    // Note: The response object may contain ReclaimableMemoryRecords. ReclaimableMemoryRecords must be closed before
+    // dropping so that the memory lease is returned to the memory limiter.
+
     // Update error metrics for each error code in the response including Errors.NONE
     responseOpt.foreach(response => requestChannel.updateErrorMetrics(request.header.apiKey, response.errorCounts.asScala))
 
@@ -3131,6 +3147,8 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   private def sendResponse(response: RequestChannel.Response): Unit = {
+    // Note: The response object may contain ReclaimableMemoryRecords. ReclaimableMemoryRecords must be released before
+    // dropping so that the memory lease is returned to the memory limiter.
     requestChannel.sendResponse(response)
   }
 

@@ -715,6 +715,7 @@ class KafkaConfigTest {
         case KafkaConfig.TierGcsCredFilePathProp => // ignore string
         case KafkaConfig.TierBackendProp => assertPropertyInvalid(getBaseProperties(), name, "notanimplementation")
         case KafkaConfig.TierFetcherNumThreadsProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0", "-2")
+        case KafkaConfig.TierFetcherMemoryPoolSizeBytesProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1")
         case KafkaConfig.TierLocalHotsetBytesProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1.2", "3.4")
         case KafkaConfig.TierLocalHotsetMsProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1.2", "3.4")
         case KafkaConfig.PreferTierFetchMsProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-0.1", "1.2")

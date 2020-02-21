@@ -45,6 +45,7 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
   serverConfig.put(KafkaConfig.TierMetadataReplicationFactorProp, "1")
   serverConfig.put(KafkaConfig.LogCleanupIntervalMsProp, Int.MaxValue.toString) // disable log cleanup, we will manually trigger retention
   serverConfig.put(KafkaConfig.TierLocalHotsetBytesProp, "0")
+  serverConfig.put(KafkaConfig.TierFetcherMemoryPoolSizeBytesProp, (1024 * 1024).toString)
   configureMock()
 
   private val topic = UUID.randomUUID().toString
@@ -238,6 +239,22 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
       .head
 
     assertEquals("tier archiver shows no partitions in error state", 0, partitionsInErrorCount)
+
+    val memoryTrackerMetrics = mBeanServer
+      .getAttributes(
+        new ObjectName("kafka.server:type=TierFetcherMemoryTracker"), Array("Leased", "PoolSize", "MaxLeaseLagMs"))
+        .asList().asScala
+        .map { attr => attr.getValue.asInstanceOf[Double]}
+        .toList
+
+    assertEquals("expected all leased memory to be returned to the MemoryTracker", memoryTrackerMetrics.head, 0.0, 0.0)
+    assertEquals("expected all leased memory to be returned to the MemoryTracker", memoryTrackerMetrics(1), 1024 * 1024, 0.0)
+    assertEquals("expected no value for oldestLease, since all leases should be reclaimed", memoryTrackerMetrics.last, 0.0, 0.0)
+    for (server <- servers) {
+      val tierFetcher = server.tierFetcherOpt.get
+      val memoryTracker = tierFetcher.memoryTracker()
+      assertEquals(s"expected leased TierFetcher memory for broker ${server.config.brokerId} to be 0", 0, memoryTracker.leased())
+    }
   }
 
   private def assertTimestampForOffsetLookupCorrect(topicPartition: TopicPartition, consumer: KafkaConsumer[String, String], timestamp: Long, expectedOffset: Long) = {

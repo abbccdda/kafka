@@ -91,6 +91,7 @@
       <allow class="kafka.log.TimestampOffset" />
       <allow class="kafka.tier.TierTimestampAndOffset"/>
       <allow class="kafka.tier.tasks.archive.ArchiveTask"/>
+      <allow class="kafka.server.BrokerReconfigurable"/>
     </subpackage>
     <subpackage name="store">
       <allow pkg="com.amazonaws" />

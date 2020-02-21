@@ -66,10 +66,12 @@ public class SegmentFileFetchRequestTest {
             putSegment(tierObjectStore, segment, metadata, Optional.empty());
 
             long targetOffset = 149L;
+
             PendingFetch pendingFetch =
                     new PendingFetch(ctx, tierObjectStore, new FetchOffsetCache(Time.SYSTEM, 10, 1000),
                             Optional.empty(), metadata, key -> { }, targetOffset, 1024, segment.size(),
-                            IsolationLevel.READ_UNCOMMITTED, Collections.emptyList());
+                            IsolationLevel.READ_UNCOMMITTED, new MemoryTracker(mockTime, 0),
+                            Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
 
@@ -108,19 +110,18 @@ public class SegmentFileFetchRequestTest {
                     new TierObjectStore.ObjectMetadata(segmentMetadata(topicIdPartition, segment,
                      false));
             putSegment(tierObjectStore, segment, metadata, Optional.empty());
-
             Long targetOffset = 150L;
             PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
                     new FetchOffsetCache(Time.SYSTEM, 10, 1000), Optional.empty(), metadata,
                     key -> { }, targetOffset, 1024, segment.size(), IsolationLevel.READ_UNCOMMITTED,
-                    Collections.emptyList());
+                    new MemoryTracker(mockTime, 0), Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
 
             Assert.assertFalse("Records should be incomplete",
                     result.records.batches().iterator().hasNext());
 
-            Assert.assertEquals("Should return empty records", result.records, MemoryRecords.EMPTY);
+            Assert.assertEquals("Should return empty records", result.records, ReclaimableMemoryRecords.EMPTY);
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -196,7 +197,7 @@ public class SegmentFileFetchRequestTest {
             PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
                     new FetchOffsetCache(Time.SYSTEM, 10, 1000), Optional.empty(), metadata,
                     key -> { }, targetOffset, 1024, segment.size(), IsolationLevel.READ_COMMITTED,
-                    Collections.emptyList());
+                    new MemoryTracker(mockTime, 0), Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
 
@@ -243,7 +244,7 @@ public class SegmentFileFetchRequestTest {
             PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
                     new FetchOffsetCache(Time.SYSTEM, 10, 1000), Optional.empty(), metadata,
                     key -> { }, targetOffset, 1024, segment.size(), IsolationLevel.READ_COMMITTED,
-                    Collections.emptyList());
+                    new MemoryTracker(mockTime, 0), Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
 
@@ -294,11 +295,10 @@ public class SegmentFileFetchRequestTest {
 
             // set the tier object store to throw when fetching the transaction index
             tierObjectStore.throwExceptionOnTransactionFetch = true;
-
             PendingFetch pendingFetch = new PendingFetch(ctx, tierObjectStore,
                     new FetchOffsetCache(Time.SYSTEM, 10, 1000), Optional.empty(), metadata,
                     key -> { }, 0L, 1024, segment.size(), IsolationLevel.READ_COMMITTED,
-                    Collections.emptyList());
+                    new MemoryTracker(mockTime, 0), Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             TierFetchResult result = pendingFetch.finish().get(topicPartition);
 
@@ -312,11 +312,10 @@ public class SegmentFileFetchRequestTest {
             // returned
             tierObjectStore.throwExceptionOnTransactionFetch = false;
             tierObjectStore.throwExceptionOnSegmentFetch = true;
-
             pendingFetch = new PendingFetch(ctx, tierObjectStore,
                     new FetchOffsetCache(Time.SYSTEM, 10, 1000), Optional.empty(), metadata,
                     key -> { }, 0L, 1024, segment.size(), IsolationLevel.READ_COMMITTED,
-                    Collections.emptyList());
+                    new MemoryTracker(mockTime, 0), Collections.emptyList());
             currentThreadExecutor.execute(pendingFetch);
             result = pendingFetch.finish().get(topicPartition);
 

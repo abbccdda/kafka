@@ -377,12 +377,12 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     val exception = new SegmentDeletedException("segment deleted", new Exception)
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
     when(log.tierPartitionState).thenThrow(exception)
-
-    val beforeUpload = mock(classOf[BeforeUpload])
+    val beforeUpload = BeforeUpload(42)
     val task = new ArchiveTask(ctx, topicIdPartition, beforeUpload, ArchiverMetrics(None, None))
 
-    Await.result(task.transition(time, tierTopicManager, tierObjectStore, replicaManager), 1 second)
-    verify(beforeUpload, times(1)).handleSegmentDeletedException(exception)
+    val result = Await.result(task.transition(time, tierTopicManager, tierObjectStore, replicaManager), 1 second)
+    assertEquals(result.state, beforeUpload)
+    assertEquals(result.retryCount, 1)
   }
 
   private def testExceptionHandlingDuringInitiateUpload(e: Exception): Future[ArchiveTaskState] = {

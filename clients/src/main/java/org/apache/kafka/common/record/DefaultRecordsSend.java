@@ -32,4 +32,9 @@ public class DefaultRecordsSend extends RecordsSend<Records> {
     protected long writeTo(GatheringByteChannel channel, long previouslyWritten, int remaining) throws IOException {
         return records().writeTo(channel, previouslyWritten, remaining);
     }
+
+    @Override
+    public void release() {
+        records().release();
+    }
 }

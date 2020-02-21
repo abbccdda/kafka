@@ -31,4 +31,10 @@ public interface BaseRecords {
      * @return Initialized {@link RecordsSend} object
      */
     RecordsSend toSend(String destination);
+
+    /**
+     * Release signals that the resources backing these Records can be reclaimed. After calling
+     * release, it is expected that these records will no longer be queried or modified.
+     */
+    void release();
 }

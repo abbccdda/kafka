@@ -212,6 +212,8 @@ object Defaults {
   val TierFetcherOffsetCacheExpirationMs = 30 * 60 * 1000
   val TierFetcherOffsetCacheExpiryPeriodMs = 60000
 
+  val TierFetcherMemoryPoolSizeBytes = 0 // disabled by default
+
   val TierObjectFetcherThreads = 1: Integer
   val TierPartitionStateCommitInterval = 15000: Integer
   val TierGcsBucket = null
@@ -505,6 +507,7 @@ object KafkaConfig {
   val TierFetcherOffsetCacheSizeProp = ConfluentPrefix + "tier.fetcher.offset.cache.size"
   val TierFetcherOffsetCacheExpirationMsProp = ConfluentPrefix + "tier.fetcher.offset.cache.expiration.ms"
   val TierFetcherOffsetCacheExpiryPeriodMsProp = ConfluentPrefix + "tier.fetcher.offset.cache.period.ms"
+  val TierFetcherMemoryPoolSizeBytesProp = ConfluentPrefix + "tier.fetcher.memorypool.bytes"
   val PreferTierFetchMsProp = ConfluentTopicConfig.PREFER_TIER_FETCH_MS_CONFIG
 
   /** Tiered storage retention configs **/
@@ -899,6 +902,7 @@ object KafkaConfig {
   val TierFetcherOffsetCacheSizeDoc = "The maximum size of the TierFetcher LRU offset cache. This cache avoids use of the offset index by predicting the next fetch offset and the corresponding byte offset in tiered log segments"
   val TierFetcherOffsetCacheExpirationMsDoc = "Expiration time (ms) for entries in the TierFetcher offset cache. Entries that have not been used for longer than the expiration time will be expired."
   val TierFetcherOffsetCacheExpiryPeriodMsDoc = "Expiration period (ms) for the TierFetcher offset cache. Entries in the offset cache will be checked for expiration every period."
+  val TierFetcherMemoryPoolSizeBytesDoc = "The maximum size of the TierFetcher heap memory pool. This value places an approximate bound on the amount of memory used for fetching data from tiered storage. To disable the memory pool, set to 0."
 
   val TierObjectFetcherThreadsDoc  = "The size of the threadpool use by the tier object fetcher. Currently this option is the concurrency factor for tier state fetches made by the replica fetcher threads."
   val TierPartitionStateCommitIntervalDoc = "The frequency in milliseconds that the TierTopicManager commits updates to TierPartitionState files. Decreasing this interval will reduce batching of updates. Increasing this interval will increase the time taken for tiered log segments from being deleted from local disk. "
@@ -1217,6 +1221,7 @@ object KafkaConfig {
       .defineInternal(TierFetcherOffsetCacheSizeProp, INT, Defaults.TierFetcherOffsetCacheSize, atLeast(1), MEDIUM, TierFetcherOffsetCacheSizeDoc)
       .defineInternal(TierFetcherOffsetCacheExpirationMsProp, INT, Defaults.TierFetcherOffsetCacheExpirationMs, atLeast(1), LOW, TierFetcherOffsetCacheExpirationMsDoc)
       .defineInternal(TierFetcherOffsetCacheExpiryPeriodMsProp, INT, Defaults.TierFetcherOffsetCacheExpiryPeriodMs , atLeast(1), LOW, TierFetcherOffsetCacheExpiryPeriodMsDoc)
+      .defineInternal(TierFetcherMemoryPoolSizeBytesProp, LONG, Defaults.TierFetcherMemoryPoolSizeBytes, atLeast(0), MEDIUM, TierFetcherMemoryPoolSizeBytesDoc)
       .defineInternal(TierObjectFetcherThreadsProp, INT, Defaults.TierObjectFetcherThreads, atLeast(1), MEDIUM, TierObjectFetcherThreadsDoc)
       .defineInternal(TierPartitionStateCommitIntervalProp, INT, Defaults.TierPartitionStateCommitInterval, atLeast(0), MEDIUM, TierPartitionStateCommitIntervalDoc)
       .define(TierLocalHotsetBytesProp, LONG, Defaults.TierLocalHotsetBytes, HIGH, TierLocalHotsetBytesDoc)
@@ -1606,6 +1611,7 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierFetcherOffsetCacheSize = getInt(KafkaConfig.TierFetcherOffsetCacheSizeProp)
   val tierFetcherOffsetCacheExpirationMs = getInt(KafkaConfig.TierFetcherOffsetCacheExpirationMsProp)
   val tierFetcherOffsetCacheExpiryPeriodMs = getInt(KafkaConfig.TierFetcherOffsetCacheExpiryPeriodMsProp)
+  val tierFetcherMemoryPoolSizeBytes = getLong(KafkaConfig.TierFetcherMemoryPoolSizeBytesProp)
 
   val tierObjectFetcherThreads = getInt(KafkaConfig.TierObjectFetcherThreadsProp)
   val tierPartitionStateCommitIntervalMs = getInt(KafkaConfig.TierPartitionStateCommitIntervalProp)

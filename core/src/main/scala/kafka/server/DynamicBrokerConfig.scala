@@ -26,10 +26,11 @@ import kafka.log.{LogCleaner, LogConfig, LogManager}
 import kafka.network.SocketServer
 import kafka.server.DynamicBrokerConfig._
 import kafka.server.QuotaType.{Fetch, Produce, Request}
+import kafka.tier.fetcher.TierFetcher
 import kafka.utils.{CoreUtils, Logging, PasswordEncoder}
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.common.Reconfigurable
-import org.apache.kafka.common.config.{ConfigDef, ConfigException, SslConfigs, AbstractConfig}
+import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, SslConfigs}
 import org.apache.kafka.common.metrics.MetricsReporter
 import org.apache.kafka.common.config.types.Password
 import org.apache.kafka.common.network.{ListenerName, ListenerReconfigurable}
@@ -85,7 +86,8 @@ object DynamicBrokerConfig {
     Set(KafkaConfig.MetricReporterClassesProp) ++
     DynamicListenerConfig.ReconfigurableConfigs ++
     SocketServer.ReconfigurableConfigs ++
-    DynamicBackpressure.ReconfigurableConfigs
+    DynamicBackpressure.ReconfigurableConfigs ++
+    TierFetcher.reconfigurableConfigs
 
   private val ClusterLevelListenerConfigs = Set(KafkaConfig.MaxConnectionsProp)
   private val PerBrokerConfigs = DynamicSecurityConfigs  ++
@@ -250,6 +252,7 @@ class DynamicBrokerConfig(private val kafkaConfig: KafkaConfig) extends Logging 
     addBrokerReconfigurable(new DynamicListenerConfig(kafkaServer))
     addBrokerReconfigurable(kafkaServer.socketServer)
     addBrokerReconfigurable(new DynamicBackpressure(kafkaServer))
+    kafkaServer.tierFetcherOpt.foreach(addBrokerReconfigurable(_))
   }
 
   def addReconfigurable(reconfigurable: Reconfigurable): Unit = CoreUtils.inWriteLock(lock) {

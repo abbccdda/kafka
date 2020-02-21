@@ -48,4 +48,9 @@ public interface Send {
      */
     long size();
 
+    /**
+     * Release signals that the resources backing this Send can be reclaimed. After calling
+     * release, it is expected that the data contained within the send will no longer be accessed.
+     */
+    void release();
 }

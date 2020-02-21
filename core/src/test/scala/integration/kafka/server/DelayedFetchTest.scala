@@ -21,7 +21,7 @@ import java.util.{Collections, Optional}
 
 import kafka.cluster.{Partition, Replica}
 import kafka.log.LogOffsetSnapshot
-import kafka.tier.fetcher.{PendingFetch, TierFetchResult}
+import kafka.tier.fetcher.{PendingFetch, ReclaimableMemoryRecords, TierFetchResult}
 import kafka.utils.{MockTime, TestUtils}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{FencedLeaderEpochException, ReplicaNotAvailableException, UnknownServerException}
@@ -33,6 +33,7 @@ import org.junit.Assert._
 import org.junit.{After, Test}
 
 import scala.collection.JavaConverters._
+import scala.compat.java8.OptionConverters._
 import scala.collection.Seq
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Promise}
@@ -70,6 +71,7 @@ class DelayedFetchTest extends EasyMockSupport {
 
     val pendingFetch : PendingFetch = mock(classOf[PendingFetch])
     EasyMock.expect(pendingFetch.isComplete).andReturn(true)
+    EasyMock.expect(pendingFetch.cancel())
 
     val callbackPromise: Promise[Seq[(TopicPartition, FetchPartitionData)]] = Promise[Seq[(TopicPartition, FetchPartitionData)]]()
     val delayedFetch = new DelayedFetch(
@@ -92,7 +94,7 @@ class DelayedFetchTest extends EasyMockSupport {
 
   /**
     * Test that exceptions returned from the TierFetcher are propagated to the DelayedFetch callback.
-    * It's excepted that both log layer and tier fetcher exceptions will be included in FetchPartitionData,
+    * It's expected that both log layer and tier fetcher exceptions will be included in FetchPartitionData,
     * but log layer exceptions take precedence.
     */
   @Test
@@ -114,6 +116,7 @@ class DelayedFetchTest extends EasyMockSupport {
 
     val pendingFetch : PendingFetch = mock(classOf[PendingFetch])
     EasyMock.expect(pendingFetch.isComplete).andReturn(true)
+    EasyMock.expect(pendingFetch.cancel())
 
     val callbackPromise: Promise[Seq[(TopicPartition, FetchPartitionData)]] = Promise[Seq[(TopicPartition, FetchPartitionData)]]()
     val delayedFetch = new DelayedFetch(
@@ -390,13 +393,14 @@ class DelayedFetchTest extends EasyMockSupport {
 
     val pendingFetch: PendingFetch = mock(classOf[PendingFetch])
     EasyMock.expect(pendingFetch.isComplete).andReturn(true)
+    EasyMock.expect(pendingFetch.cancel())
 
     val callbackPromise: Promise[Seq[(TopicPartition, FetchPartitionData)]] = Promise[Seq[(TopicPartition, FetchPartitionData)]]()
     val delayedFetch = new DelayedFetch(
       delayMs = 500, fetchMetadata = fetchMetadata, replicaManager = replicaManager, replicaQuota, Some(pendingFetch),
       clientMetadata = None, brokerTopicStats, callbackPromise.success
     )
-    val records = TestUtils.singletonRecords(s"message".getBytes, timestamp = mockTime.milliseconds())
+    val records = new ReclaimableMemoryRecords(TestUtils.singletonRecords(s"message".getBytes, timestamp = mockTime.milliseconds()).buffer(), Option.empty.asJava)
 
     // mock consumer fetch delay
     mockTime.sleep(fetchDelta)
@@ -507,7 +511,7 @@ class DelayedFetchTest extends EasyMockSupport {
 
   private def expectGetTierFetchResults(pendingFetch: PendingFetch,
                                         topicPartitionException: Seq[(TopicPartition, Option[Throwable])],
-                                        records: MemoryRecords = MemoryRecords.EMPTY): Unit = {
+                                        records: ReclaimableMemoryRecords = ReclaimableMemoryRecords.EMPTY): Unit = {
     val results = topicPartitionException
       .map { case (topicPartition: TopicPartition, exceptionOpt: Option[Throwable]) =>
         (topicPartition, new TierFetchResult(records, Collections.emptyList(), exceptionOpt.orNull))

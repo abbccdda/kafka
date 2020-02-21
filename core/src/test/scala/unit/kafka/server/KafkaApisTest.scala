@@ -38,6 +38,7 @@ import kafka.log.AppendOrigin
 import kafka.network.RequestChannel
 import kafka.network.RequestChannel.SendResponse
 import kafka.server.QuotaFactory.QuotaManagers
+import kafka.tier.fetcher.ReclaimableMemoryRecords
 import kafka.utils.{MockTime, TestUtils}
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.{IsolationLevel, TopicPartition}
@@ -1140,10 +1141,12 @@ class KafkaApisTest {
   def testTierFetchThrottlingBehavior(): Unit = {
     val topicPartition = new TopicPartition("foo", 0)
     EasyMock.reset(replicaManager, clientQuotaManager, clientRequestQuotaManager, requestChannel, fetchManager)
-    val response1 = throttlingBehavior(topicPartition, 0, MemoryRecords.withRecords(CompressionType.NONE, new SimpleRecord(0, "foo".getBytes(StandardCharsets.UTF_8))), 0)
+    val records1 = new ReclaimableMemoryRecords(MemoryRecords.withRecords(CompressionType.NONE, new SimpleRecord(0, "foo".getBytes(StandardCharsets.UTF_8))).buffer(), Optional.empty())
+    val response1 = throttlingBehavior(topicPartition, 0, records1, 0)
     assertTrue("expected that without throttling, a response is returned", response1.responseData().containsKey(topicPartition))
     EasyMock.reset(replicaManager, clientQuotaManager, clientRequestQuotaManager, requestChannel, fetchManager)
-    val response2 = throttlingBehavior(topicPartition, 0, MemoryRecords.withRecords(CompressionType.NONE, new SimpleRecord(0, "foo".getBytes(StandardCharsets.UTF_8))), 100)
+    val records2 = new ReclaimableMemoryRecords(MemoryRecords.withRecords(CompressionType.NONE, new SimpleRecord(0, "foo".getBytes(StandardCharsets.UTF_8))).buffer(), Optional.empty())
+    val response2 = throttlingBehavior(topicPartition, 0, records2, 100)
     assertTrue("expected that with throttling, a response is still returned", response2.responseData().containsKey(topicPartition))
   }
 

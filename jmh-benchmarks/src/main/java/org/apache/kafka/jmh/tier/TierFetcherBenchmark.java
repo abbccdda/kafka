@@ -179,7 +179,7 @@ public class TierFetcherBenchmark {
         TierFetcherConfig fetcherConfig = new TierFetcherConfig();
         LogContext logContext = new LogContext("tierFetcher");
         // start a new tier fetcher so we use a fresh offset cache for the entire run
-        TierFetcher tierFetcher = new TierFetcher(fetcherConfig, fetchState.tierObjectStore, Mockito.mock(KafkaScheduler.class), metrics, logContext);
+        TierFetcher tierFetcher = new TierFetcher(Time.SYSTEM, fetcherConfig, fetchState.tierObjectStore, Mockito.mock(KafkaScheduler.class), metrics, logContext);
 
         int sizeRead = 0;
         // pick an initial offset that requires an index fetch
