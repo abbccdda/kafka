@@ -14,7 +14,6 @@ import kafka.log.Log
 import kafka.server.LogDirFailureChannel
 import kafka.tier.client.{MockConsumerSupplier, MockProducerSupplier}
 import kafka.tier.domain.{AbstractTierMetadata, TierSegmentUploadComplete, TierSegmentUploadInitiate, TierTopicInitLeader}
-import kafka.tier.exceptions.TierMetadataFatalException
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.state.{FileTierPartitionState, TierPartitionStatus}
 import kafka.tier.topic.TierTopicConsumer.ClientCtx
@@ -28,7 +27,6 @@ import org.junit.{After, Test}
 import org.mockito.ArgumentMatchers
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito._
-import org.scalatest.Assertions.intercept
 
 class TierTopicManagerTest {
   private type ConsumerSupplier = MockConsumerSupplier[Array[Byte], Array[Byte]]
@@ -105,36 +103,6 @@ class TierTopicManagerTest {
 
     assertEquals(AppendResult.ACCEPTED, future_1.get)
     assertEquals(AppendResult.ACCEPTED, future_2.get)
-  }
-
-  @Test
-  def testDuplicateRequestBeforeReady(): Unit = {
-    val topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID, 0)
-    val epoch = 0
-
-    val (tierTopicConsumer, _, tierTopicManager) = setupTierComponents(becomeReady = false)
-    addReplica(topicIdPartition, tierTopicConsumer)
-    assertFalse(tierTopicManager.isReady)
-
-    val objectId = UUID.randomUUID
-    val initLeader = new TierTopicInitLeader(topicIdPartition, epoch, objectId, 0)
-    val oldInitLeaderResult = tierTopicManager.addMetadata(initLeader)
-    val newInitLeaderResult = tierTopicManager.addMetadata(initLeader)
-    val caught = intercept[java.util.concurrent.ExecutionException] {
-      oldInitLeaderResult.get
-    }
-    // Before the TierTopicManager is ready to go, oldInitLeaderResult should get a
-    // TierMetadataFatalException because it was replaced by newInitLeaderResult.
-    assertTrue(caught.getCause.isInstanceOf[TierMetadataFatalException])
-
-    // Now, after the TierTopicManager is ready to go, and the consumer has materialized the events,
-    // newInitLeaderResult should not get a TierMetadataFatalException. Instead, it should complete
-    // with AppendResult.ACCEPTED.
-    val ready = tierTopicManager.tryBecomeReady(true)
-    assertTrue(ready)
-    moveRecordsToAllConsumers()
-    tierTopicConsumer.doWork()
-    assertEquals(AppendResult.ACCEPTED, newInitLeaderResult.get)
   }
 
   @Test
