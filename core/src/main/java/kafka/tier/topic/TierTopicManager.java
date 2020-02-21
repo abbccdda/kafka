@@ -274,7 +274,11 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
 
             synchronized (this) {
                 if (!ready.get()) {
-                    queuedRequests.put(metadata, future);
+                    CompletableFuture<AppendResult> previous = queuedRequests.put(metadata, future);
+                    if (previous != null) {
+                        previous.completeExceptionally(new TierMetadataFatalException(
+                            "A new request is being queued obsoleting existing request for: " + metadata));
+                    }
                     return;
                 }
             }
