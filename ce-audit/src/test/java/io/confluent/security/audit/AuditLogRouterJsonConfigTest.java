@@ -47,6 +47,44 @@ public class AuditLogRouterJsonConfigTest {
   }
 
   @Test
+  public void testValidateIgnoreUnknown() throws IOException {
+    AuditLogRouterJsonConfig.load(
+        "{\n"
+            + "    \"routes\": {\n"
+            + "        \"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1\": {\n"
+            + "            \"authorize\": {\n"
+            + "                \"allowed\": \"\",\n"
+            + "                \"denied\": \"confluent-audit-log-events_ksql\"\n"
+            + "            }\n"
+            + "        }\n"
+            + "    },\n"
+            + "    \"metadata\": {\"future\": 2099},\n"
+            + "    \"destinations\": {\n"
+            + "        \"bootstrap_servers\": [\n"
+            + "            \"localhost:9092\"\n"
+            + "        ],\n"
+            + "        \"future\": 2099,\n"
+            + "        \"topics\": {\n"
+            + "            \"confluent-audit-log-events\": {\n"
+            + "                \"retention_ms\": 7776000000\n"
+            + "            },\n"
+            + "            \"confluent-audit-log-events_ksql\": {\n"
+            + "                \"retention_ms\": 7776000000,\n"
+            + "                \"future\": 2099\n"
+            + "            }\n"
+            + "        }\n"
+            + "    },\n"
+            + "    \"default_topics\": {\n"
+            + "        \"allowed\": \"confluent-audit-log-events\",\n"
+            + "        \"denied\": \"confluent-audit-log-events\"\n"
+            + "    },\n"
+            + "    \"excluded_principals\": [],\n"
+            + "    \"future\": 2099\n"
+            + "}"
+    );
+  }
+
+  @Test
   public void testValidateEmptyConfig() {
     Assert.assertThrows(IllegalArgumentException.class, () ->
         AuditLogRouterJsonConfig.load("{}"));
