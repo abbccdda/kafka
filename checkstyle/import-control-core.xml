@@ -107,6 +107,9 @@
     </subpackage>
     <subpackage name="tools">
       <allow class="kafka.log.Log" />
+      <allow class="joptsimple.OptionParser" />
+      <allow class="joptsimple.OptionSet" />
+      <allow class="joptsimple.OptionSpec" />
     </subpackage>
     <subpackage name="topic">
       <allow class="kafka.zk.AdminZkClient" />

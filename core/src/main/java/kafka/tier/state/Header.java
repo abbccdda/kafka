@@ -67,7 +67,7 @@ public class Header {
         return header.tierEpoch();
     }
 
-    UUID topicId() {
+    public UUID topicId() {
         return new UUID(header.topicId().mostSignificantBits(),
                 header.topicId().leastSignificantBits());
     }
@@ -88,11 +88,11 @@ public class Header {
         return header.endOffset();
     }
 
-    long localMaterializedOffset() {
+    public long localMaterializedOffset() {
         return materializationInfo.localMaterializedOffset();
     }
 
-    long globalMaterializedOffset() {
+    public long globalMaterializedOffset() {
         return materializationInfo.globalMaterializedOffset();
     }
 

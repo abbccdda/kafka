@@ -29,11 +29,11 @@ public class DumpTierPartitionState {
         System.out.println("Reading tier partition state for " + topicPartition);
         for (File file : dir.listFiles()) {
             if (file.isFile() && Log.isTierStateFile(file))
-                dumpTierState(topicPartition, file);
+                dumpTierState(topicPartition, file, false);
         }
     }
 
-    private static void dumpTierState(TopicPartition topicPartition, File file) {
+    public static void dumpTierState(TopicPartition topicPartition, File file, boolean headerOnly) {
         try (FileChannel fileChannel = FileChannel.open(file.toPath(), StandardOpenOption.READ)) {
             System.out.println("Dumping state in file " + file);
             Optional<Header>  headerOpt = FileTierPartitionState.readHeader(fileChannel);
@@ -42,6 +42,9 @@ public class DumpTierPartitionState {
                 return;
             }
             System.out.println(headerOpt.get().toString());
+
+            if (headerOnly)
+                return;
 
             Optional<FileTierPartitionIterator> iteratorOpt = FileTierPartitionState.iterator(topicPartition, fileChannel);
             if (!iteratorOpt.isPresent()) {
