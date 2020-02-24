@@ -8,13 +8,14 @@ import kafka.server.checkpoints.LeaderEpochCheckpointBuffer;
 import kafka.server.epoch.EpochEntry;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
-import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.collection.immutable.List;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
@@ -71,12 +72,30 @@ public class TierStateFetcher {
         return CompletableFuture.supplyAsync(() -> {
             try (TierObjectStoreResponse response = tierObjectStore.getObject(metadata,
                     TierObjectStore.FileType.PRODUCER_STATE)) {
-                return ByteBuffer.wrap(Utils.toArray(response.getInputStream()));
+                return ByteBuffer.wrap(toArray(response.getInputStream()));
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
         }, executorService);
+    }
+
+    /**
+     * Read the input stream from its current position to its limit into a byte array.
+     * This method errs on the side of reduce memory usage rather than avoiding array
+     * copies due to the fact that fetchProducerStateSnapshot is not in the hot path
+     * @param inputStream The inputStream to read from
+     */
+    public static byte[] toArray(InputStream inputStream) throws IOException {
+        try (final ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[1024];
+            int len = inputStream.read(buffer);
+            while (len != -1) {
+                baos.write(buffer, 0, len);
+                len = inputStream.read(buffer);
+            }
+            return baos.toByteArray();
+        }
     }
 }

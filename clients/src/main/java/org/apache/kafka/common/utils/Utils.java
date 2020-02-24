@@ -20,7 +20,6 @@ import org.apache.kafka.common.KafkaException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.DataOutput;
 import java.io.EOFException;
@@ -229,22 +228,6 @@ public final class Utils {
      */
     public static byte[] toArray(ByteBuffer buffer) {
         return toArray(buffer, 0, buffer.remaining());
-    }
-
-    /**
-     * Read the input stream from its current position to its limit into a byte array.
-     * @param inputStream The inputStream to read from
-     */
-    public static byte[] toArray(InputStream inputStream) throws IOException {
-        try (final ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[1024];
-            int len = inputStream.read(buffer);
-            while (len != -1) {
-                baos.write(buffer, 0, len);
-                len = inputStream.read(buffer);
-            }
-            return baos.toByteArray();
-        }
     }
 
     /**
