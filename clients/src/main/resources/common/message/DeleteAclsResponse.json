@@ -20,7 +20,7 @@
   // Version 1 adds the resource pattern type.
   // Starting in version 1, on quota violation, brokers send out responses before throttling.
   // Version 2 enables flexible versions.
-  // It adds an optional cluster-id in the request for deleting centralized ACLs. (only in Confluent-Server)
+  // It also adds an optional cluster-id in the request for deleting centralized ACLs. (only in Confluent-Server)
   "validVersions": "0-2",
   "flexibleVersions": "2+",
   "fields": [

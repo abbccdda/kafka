@@ -1697,12 +1697,11 @@ public class MultiTenantRequestContextTest {
     assertEquals(aclCreations.size(), request.aclCreations().size());
 
     request.aclCreations().forEach(creation -> {
-//      creation.
       assertEquals(params.tenantPrincipal(), creation.principal());
-      ResourceType receivedResourceType = ResourceType.fromCode(creation.resourcePatternType());
-      assertEquals(params.tenantPatternType(receivedResourceType).code(),
+      ResourceType resourceType = ResourceType.fromCode(creation.resourceType());
+      assertEquals(params.tenantPatternType(resourceType).code(),
               creation.resourcePatternType());
-      assertEquals(params.tenantResourceName(receivedResourceType), creation.resourceName());
+      assertEquals(params.tenantResourceName(resourceType), creation.resourceName());
     });
     assertEquals(AclTestParams.RESOURCE_TYPES,
         request.aclCreations().stream().map(c -> ResourceType.fromCode(c.resourceType())).collect(Collectors.toList()));

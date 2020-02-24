@@ -19,7 +19,7 @@
   "name": "DeleteAclsRequest",
   // Version 1 adds the pattern type.
   // Version 2 enables flexible versions.
-  // It adds an optional cluster-id for deleting centralized ACLs. (only in Confluent-Server)
+  // It also adds an optional cluster-id for deleting centralized ACLs. (only in Confluent-Server)
   "validVersions": "0-2",
   "flexibleVersions": "2+",
   "fields": [

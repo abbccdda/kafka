@@ -17,8 +17,6 @@
 
 package org.apache.kafka.common.requests;
 
-import java.util.List;
-import java.util.Optional;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclOperation;
@@ -36,6 +34,8 @@ import org.apache.kafka.common.resource.ResourceType;
 
 import java.nio.ByteBuffer;
 import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
 
 public class CreateAclsRequest extends AbstractRequest {
 

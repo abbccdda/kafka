@@ -19,7 +19,7 @@
   "name": "CreateAclsRequest",
   // Version 1 adds resource pattern type.
   // Version 2 enables flexible versions.
-  // Version 2 adds an optional cluster-id for creating centralized ACLs. (only in Confluent-Server)
+  // It also adds an optional cluster-id for creating centralized ACLs. (only in Confluent-Server)
   "validVersions": "0-2",
   "flexibleVersions": "2+",
   "fields": [
