@@ -17,7 +17,6 @@ import io.confluent.security.authorizer.RequestContext;
 import io.confluent.security.rbac.RbacAccessRule;
 import io.confluent.security.rbac.RoleBinding;
 import org.apache.kafka.common.acl.AccessControlEntry;
-import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.protocol.ApiKeys;
 
 public class AuditLogUtils {
@@ -71,7 +70,8 @@ public class AuditLogUtils {
     } else {
       ApiKeys requestKey = ApiKeys.forId(requestType);
       if (requestKey == ApiKeys.FETCH) {
-        if (AclOperation.CLUSTER_ACTION.equals(action.operation())) {
+        // Ideally, we'd use the mapping in AclMapper, but this doesn't depend on ce-broker-plugins
+        if ("ClusterAction".equals(action.operation().name())) {
           requestName = "FetchFollower";
         } else {
           requestName = "FetchConsumer";

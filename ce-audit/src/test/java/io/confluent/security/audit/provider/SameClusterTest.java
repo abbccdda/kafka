@@ -293,7 +293,7 @@ public class SameClusterTest extends ClusterTestCommon {
             Collections.singletonList(
                 new KafkaPrincipal(KafkaPrincipal.USER_TYPE, LOG_READER_USER))))
         .overrideBrokerConfig(CrnAuthorityConfig.AUTHORITY_NAME_PROP, AUTHORITY_NAME)
-        .withKafkaServers(1);
+        .withKafkaServers(3);
 
     rbacClusters = new RbacClusters(rbacConfig);
 
@@ -303,7 +303,7 @@ public class SameClusterTest extends ClusterTestCommon {
     consumer("event-log");
 
     rbacClusters.clientBuilder(BROKER_USER).buildAdminClient()
-        .createTopics(Collections.singleton(new NewTopic(APP3_TOPIC, 1, (short) 1)));
+        .createTopics(Collections.singleton(new NewTopic(APP3_TOPIC, 1, (short) 3)));
 
     String clusterCrn = ConfluentResourceName.newBuilder()
         .setAuthority(AUTHORITY_NAME)
@@ -313,6 +313,8 @@ public class SameClusterTest extends ClusterTestCommon {
 
     assertTrue(eventsMatchUnordered(consumer, 30000,
         e -> match(e, "User:" + BROKER_USER, clusterCrn, "kafka.LeaderAndIsr",
+            AuthorizeResult.ALLOWED, PolicyType.SUPER_USER),
+        e -> match(e, "User:" + BROKER_USER, clusterCrn, "kafka.FetchFollower",
             AuthorizeResult.ALLOWED, PolicyType.SUPER_USER),
         e -> match(e, "User:" + BROKER_USER, clusterCrn, "kafka.UpdateMetadata",
             AuthorizeResult.ALLOWED, PolicyType.SUPER_USER)
