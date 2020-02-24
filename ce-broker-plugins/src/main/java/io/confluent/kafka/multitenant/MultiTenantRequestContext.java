@@ -31,6 +31,7 @@ import org.apache.kafka.common.message.CreateTopicsResponseData;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicConfigs;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResult;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResultCollection;
+import org.apache.kafka.common.message.DeleteAclsRequestData;
 import org.apache.kafka.common.message.DeleteAclsResponseData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData.DescribedGroup;
 import org.apache.kafka.common.message.DescribeGroupsResponseData.DescribedGroupMember;
@@ -795,8 +796,9 @@ public class MultiTenantRequestContext extends RequestContext {
         .map(this::transformAclFilter)
         .collect(Collectors.toList());
     request.filters().forEach(filter -> ensureValidPrincipal(filter.entryFilter().principal()));
-    return new DeleteAclsRequest.Builder(transformedFilters)
-        .build(minAclsRequestVersion(request));
+    return new DeleteAclsRequest.Builder(new DeleteAclsRequestData().setFilters(transformedFilters.stream()
+            .map(DeleteAclsRequest::deleteAclsFilter).collect(Collectors.toList()))
+    ).build(minAclsRequestVersion(request));
   }
 
   private void ensureResourceNameNonEmpty(String name) {

@@ -1810,7 +1810,7 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
         }
         final CreateAclsRequestData data = new CreateAclsRequestData().setCreations(aclCreations);
         NodeProvider nodeProvider = writerBrokerId == Node.noNode().id() ?
-                new LeastLoadedNodeProvider() : new ConstantNodeIdProvider(writerBrokerId);
+             new LeastLoadedNodeProvider() : new ConstantNodeIdProvider(writerBrokerId);
         runnable.call(new Call("createAcls", calcDeadlineMs(now, options.timeoutMs()),
             nodeProvider) {
 

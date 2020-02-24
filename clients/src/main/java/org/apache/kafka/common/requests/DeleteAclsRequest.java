@@ -48,11 +48,6 @@ public class DeleteAclsRequest extends AbstractRequest {
             this.data = data;
         }
 
-        public Builder(List<AclBindingFilter> filters) {
-            this(new DeleteAclsRequestData().setFilters(filters.stream()
-                    .map(DeleteAclsRequest::deleteAclsFilter).collect(Collectors.toList())));
-        }
-
         @Override
         public DeleteAclsRequest build(short version) {
             return new DeleteAclsRequest(version, data);

@@ -17,6 +17,7 @@
 package org.apache.kafka.common.requests;
 
 import org.apache.kafka.common.Node;
+import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.ElectionType;
 import org.apache.kafka.common.IsolationLevel;
@@ -168,6 +169,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
@@ -882,6 +884,12 @@ public class RequestResponseTest {
             assertEquals(2, partition.replicaIds.size());
             assertEquals(1, partition.observerIds.size());
             assertTrue(partition.replicaIds.containsAll(partition.observerIds));
+            PartitionInfo partitionInfo = MetadataResponse.toPartitionInfo(
+                    partition,
+                    partition.replicaIds.stream()
+                            .collect(Collectors.toMap(id -> id, id -> new Node(id, "", 9092)))
+            );
+            assertEquals(partition.observerIds, Arrays.asList(partitionInfo.observers()).stream().map(Node::id).collect(Collectors.toList()));
         }
 
         MetadataResponse.TopicMetadata topicWithoutObservers =  topicMetadatas.stream()
@@ -892,6 +900,12 @@ public class RequestResponseTest {
             assertEquals(1, partition.replicaIds.size());
             assertTrue(partition.observerIds.isEmpty());
             assertEquals(0, partition.observerIds.size());
+            PartitionInfo partitionInfo = MetadataResponse.toPartitionInfo(
+                    partition,
+                    partition.replicaIds.stream()
+                            .collect(Collectors.toMap(id -> id, id -> new Node(id, "", 9092)))
+            );
+            assertEquals(partition.observerIds, Arrays.asList(partitionInfo.observers()).stream().map(Node::id).collect(Collectors.toList()));
         }
     }
 
@@ -1219,7 +1233,6 @@ public class RequestResponseTest {
     private MetadataResponse createMetadataResponse() {
         Node node = new Node(1, "host1", 1001);
         Node observer = new Node(2, "host2", 1001);
-
         List<Integer> replicas = singletonList(node.id());
         List<Integer> isr = singletonList(node.id());
         List<Integer> offlineReplicas = emptyList();

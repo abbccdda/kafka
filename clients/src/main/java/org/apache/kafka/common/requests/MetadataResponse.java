@@ -148,10 +148,11 @@ public class MetadataResponse extends AbstractResponse {
     }
 
     public static PartitionInfo toPartitionInfo(PartitionMetadata metadata, Map<Integer, Node> nodesById) {
-        return new PartitionInfo(metadata.topic(),
+        return PartitionInfo.of(metadata.topic(),
                 metadata.partition(),
                 metadata.leaderId.map(nodesById::get).orElse(null),
                 convertToNodeArray(metadata.replicaIds, nodesById),
+                convertToNodeArray(metadata.observerIds, nodesById),
                 convertToNodeArray(metadata.inSyncReplicaIds, nodesById),
                 convertToNodeArray(metadata.offlineReplicaIds, nodesById));
     }

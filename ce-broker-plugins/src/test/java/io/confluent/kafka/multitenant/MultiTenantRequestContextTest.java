@@ -41,6 +41,7 @@ import org.apache.kafka.common.message.CreateTopicsResponseData;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicConfigs;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResult;
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResultCollection;
+import org.apache.kafka.common.message.DeleteAclsRequestData;
 import org.apache.kafka.common.message.DeleteAclsResponseData;
 import org.apache.kafka.common.message.DeleteGroupsRequestData;
 import org.apache.kafka.common.message.DeleteGroupsResponseData;
@@ -1683,13 +1684,11 @@ public class MultiTenantRequestContextTest {
 
   private void verifyCreateAclsRequest(AclTestParams params, short version) throws Exception {
     MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_ACLS, version);
-    AccessControlEntry ace =
-        new AccessControlEntry(params.principal(), "*", AclOperation.CREATE, AclPermissionType.ALLOW);
-
     List<CreateAclsRequestData.AclCreation> aclCreations = AclTestParams.RESOURCE_TYPES.stream().map(resourceType ->
-            CreateAclsRequest.aclCreation(
-                    new AclBinding(new ResourcePattern(resourceType, params.resourceName(resourceType), params.patternType), ace)
-            )
+            new AclCreation().setHost("*").setOperation(AclOperation.CREATE.code())
+                    .setPermissionType(AclPermissionType.ALLOW.code()).setPrincipal(params.principal())
+                    .setResourceName(params.resourceName(resourceType))
+                    .setResourceType(resourceType.code()).setResourcePatternType(params.patternType.code())
     ).collect(Collectors.toList());
 
     CreateAclsRequest inbound = new CreateAclsRequest.Builder(new CreateAclsRequestData().setCreations(aclCreations)).build(version);
@@ -1699,6 +1698,7 @@ public class MultiTenantRequestContextTest {
     request.aclCreations().forEach(creation -> {
       assertEquals(params.tenantPrincipal(), creation.principal());
       ResourceType resourceType = ResourceType.fromCode(creation.resourceType());
+      assertEquals(params.tenantPatternType(resourceType).code(), creation.resourcePatternType());
       assertEquals(params.tenantPatternType(resourceType).code(),
               creation.resourcePatternType());
       assertEquals(params.tenantResourceName(resourceType), creation.resourceName());
@@ -1760,7 +1760,9 @@ public class MultiTenantRequestContextTest {
         new AclBindingFilter(new ResourcePatternFilter(resourceType, params.resourceName(resourceType), params.patternType), ace))
         .collect(Collectors.toList());
 
-    DeleteAclsRequest inbound = new DeleteAclsRequest.Builder(aclBindingFilters).build(version);
+    DeleteAclsRequestData reqData = new DeleteAclsRequestData().setFilters(aclBindingFilters.stream()
+        .map(DeleteAclsRequest::deleteAclsFilter).collect(Collectors.toList()));
+    DeleteAclsRequest inbound = new DeleteAclsRequest.Builder(reqData).build(version);
     DeleteAclsRequest request = (DeleteAclsRequest) parseRequest(context, inbound);
     assertEquals(aclBindingFilters.size(), request.filters().size());
 
@@ -1790,8 +1792,6 @@ public class MultiTenantRequestContextTest {
 
   private void verifyDeleteAclsResponse(AclTestParams params, short version) throws Exception {
     MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_ACLS, version);
-    AccessControlEntry ace =
-        new AccessControlEntry(params.tenantPrincipal(), "*", AclOperation.ALTER, AclPermissionType.DENY);
     List<DeleteAclsResponseData.DeleteAclsMatchingAcl> deletionMatchingAcls0 = asList(
             new DeleteAclsResponseData.DeleteAclsMatchingAcl().setErrorCode(ApiError.NONE.error().code())
                     .setHost("*")
@@ -1849,6 +1849,8 @@ public class MultiTenantRequestContextTest {
       filterResult.matchingAcls().forEach(matchingAcl -> {
         assertEquals(params.principal(), matchingAcl.principal());
         assertEquals(params.patternType.code(), matchingAcl.patternType());
+        assertEquals(params.resourceName(ResourceType.fromCode(matchingAcl.resourceType())),
+                matchingAcl.resourceName());
       });
     });
 
