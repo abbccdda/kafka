@@ -3,8 +3,9 @@
  */
 package io.confluent.security.audit;
 
-import static io.confluent.security.audit.AuditLogConfig.AUDIT_PREFIX;
 import static io.confluent.security.audit.AuditLogConfig.toEventLoggerConfig;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_PREFIX;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -32,7 +33,7 @@ public class AuditLogConfigTest {
             ByteArraySerializer.class.getName())
         .put(AUDIT_PREFIX + EventLoggerConfig.EVENT_EXPORTER_CLASS_CONFIG,
             KafkaExporter.class.getName())
-        .put(AuditLogConfig.ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig("foo:9093"))
+        .put(AUDIT_EVENT_ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig("foo:9093"))
         .put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "bar:9093")
         .put(AUDIT_PREFIX + EventLoggerConfig.TOPIC_REPLICAS_CONFIG, "1")
         .build());
@@ -90,7 +91,7 @@ public class AuditLogConfigTest {
             ByteArraySerializer.class.getName())
         .put(AUDIT_PREFIX + EventLoggerConfig.EVENT_EXPORTER_CLASS_CONFIG,
             KafkaExporter.class.getName())
-        .put(AuditLogConfig.ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig("foo:9093"))
+        .put(AUDIT_EVENT_ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig("foo:9093"))
         .put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "bar:9093")
         .put(AUDIT_PREFIX + EventLoggerConfig.TOPIC_REPLICAS_CONFIG, "1")
         .build());
@@ -115,7 +116,7 @@ public class AuditLogConfigTest {
             ByteArraySerializer.class.getName())
         .put(AUDIT_PREFIX + EventLoggerConfig.EVENT_EXPORTER_CLASS_CONFIG,
             KafkaExporter.class.getName())
-        .put(AuditLogConfig.ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig("foo:9093"))
+        .put(AUDIT_EVENT_ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig("foo:9093"))
         .put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "bar:9093")
         .put(AUDIT_PREFIX + EventLoggerConfig.TOPIC_REPLICAS_CONFIG, "1")
         .build());

@@ -5,10 +5,18 @@ package io.confluent.security.audit;
 
 import static io.confluent.events.EventLoggerConfig.CLOUD_EVENT_ENCODING_DOC;
 import static io.confluent.events.EventLoggerConfig.CLOUD_EVENT_STRUCTURED_ENCODING;
-import static io.confluent.events.EventLoggerConfig.EVENT_LOGGER_PREFIX;
 import static io.confluent.events.EventLoggerConfig.KAFKA_EXPORTER_PREFIX;
 import static io.confluent.events.EventLoggerConfig.TOPIC_CONFIG;
 import static org.apache.kafka.clients.admin.AdminClientConfig.METRIC_REPORTER_CLASSES_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_LOGGER_PREFIX;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_PREFIX;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_DOC;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_PREFIX;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_DEFAULT;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_DEFAULT;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_DOC;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.events.EventLoggerConfig;
@@ -38,19 +46,10 @@ public class AuditLogConfig extends AbstractConfig {
 
   protected static final Logger log = LoggerFactory.getLogger(AuditLogConfig.class);
 
-  public static final String AUDIT_PREFIX = "confluent.security.";
-  public static final String AUDIT_EVENT_LOGGER_PREFIX = AUDIT_PREFIX + EVENT_LOGGER_PREFIX;
-  public static final String AUDIT_EVENT_ROUTER_PREFIX = AUDIT_PREFIX + "event.router.";
-
-  public static final String AUDIT_LOGGER_ENABLE_CONFIG = AUDIT_EVENT_LOGGER_PREFIX + "enable";
-  public static final String DEFAULT_AUDIT_LOGGER_ENABLE_CONFIG = "true";
-  public static final String AUDIT_LOGGER_ENABLE_DOC = "Should the event logger be enabled.";
-
   public static final String AUDIT_CLOUD_EVENT_ENCODING_CONFIG =
       AUDIT_PREFIX + EventLoggerConfig.CLOUD_EVENT_ENCODING_CONFIG;
   public static final String DEFAULT_AUDIT_CLOUD_EVENT_ENCODING_CONFIG = CLOUD_EVENT_STRUCTURED_ENCODING;
   public static final String AUDIT_CLOUD_EVENT_ENCODING_DOC = CLOUD_EVENT_ENCODING_DOC;
-
 
   public static final String EVENT_EXPORTER_CLASS_CONFIG =
       AUDIT_PREFIX + EventLoggerConfig.EVENT_EXPORTER_CLASS_CONFIG;
@@ -99,10 +98,7 @@ public class AuditLogConfig extends AbstractConfig {
       .getName();
   private static final int DEFAULT_PRODUCER_MAX_BLOCK_MS_CONFIG = 0;
 
-  // Configuration for the EventTopicRouter
-  public static final String ROUTER_CONFIG = AUDIT_EVENT_ROUTER_PREFIX + "config";
-  public static final String DEFAULT_ROUTER = "";
-  public static final String ROUTER_DOC = "JSON configuration for routing events to topics";
+  // Configuration for the EventTopicRouter is defined in ConfluentConfigs to share with KafkaConfigs
 
   public static final String ROUTER_CACHE_ENTRIES_CONFIG =
       AUDIT_EVENT_ROUTER_PREFIX + "cache.entries";
@@ -116,7 +112,7 @@ public class AuditLogConfig extends AbstractConfig {
         .define(
             AUDIT_LOGGER_ENABLE_CONFIG,
             ConfigDef.Type.BOOLEAN,
-            DEFAULT_AUDIT_LOGGER_ENABLE_CONFIG,
+            AUDIT_LOGGER_ENABLE_DEFAULT,
             ConfigDef.Importance.HIGH,
             AUDIT_LOGGER_ENABLE_DOC
         ).define(
@@ -162,11 +158,11 @@ public class AuditLogConfig extends AbstractConfig {
             ConfigDef.Importance.LOW,
             EventLoggerConfig.TOPIC_ROLL_MS_DOC
         ).define(
-            ROUTER_CONFIG,
+            AUDIT_EVENT_ROUTER_CONFIG,
             ConfigDef.Type.STRING,
-            DEFAULT_ROUTER,
+            AUDIT_EVENT_ROUTER_DEFAULT,
             ConfigDef.Importance.LOW,
-            ROUTER_DOC
+            AUDIT_EVENT_ROUTER_DOC
         ).define(
             ROUTER_CACHE_ENTRIES_CONFIG,
             ConfigDef.Type.INT,
@@ -221,7 +217,7 @@ public class AuditLogConfig extends AbstractConfig {
     SslConfigs.addClientSslSupport(cfg);
     originals.entrySet().stream()
         // Filter out the audit log props as they are parsed later.
-        .filter(e -> !e.getKey().startsWith(AuditLogConfig.AUDIT_PREFIX))
+        .filter(e -> !e.getKey().startsWith(AUDIT_PREFIX))
         // Choose only client props (Admin client has most CommonClientConfigs we care about)
         .filter(e -> cfg.names().contains(e.getKey()) || AdminClientConfig.configNames()
             .contains(e.getKey()))
@@ -234,11 +230,11 @@ public class AuditLogConfig extends AbstractConfig {
 
   public AuditLogRouterJsonConfig routerJsonConfig() throws ConfigException {
     try {
-      String routerConfig = getString(ROUTER_CONFIG);
+      String routerConfig = getString(AUDIT_EVENT_ROUTER_CONFIG);
       if (routerConfig.isEmpty()) {
         return AuditLogRouterJsonConfig.defaultConfig();
       }
-      return AuditLogRouterJsonConfig.load(getString(ROUTER_CONFIG));
+      return AuditLogRouterJsonConfig.load(getString(AUDIT_EVENT_ROUTER_CONFIG));
     } catch (IllegalArgumentException | IOException e) {
       throw new ConfigException("Invalid router config", e);
     }
@@ -270,9 +266,9 @@ public class AuditLogConfig extends AbstractConfig {
 
     // 3. AuditLogConfig defaults
     alc.values().entrySet().stream()
-        .filter(e -> e.getKey().startsWith(AuditLogConfig.AUDIT_EVENT_LOGGER_PREFIX))
+        .filter(e -> e.getKey().startsWith(AUDIT_EVENT_LOGGER_PREFIX))
         .forEach(entry -> {
-          eventLoggerConfig.put(entry.getKey().substring(AuditLogConfig.AUDIT_PREFIX.length()),
+          eventLoggerConfig.put(entry.getKey().substring(AUDIT_PREFIX.length()),
               entry.getValue());
         });
 
@@ -280,9 +276,9 @@ public class AuditLogConfig extends AbstractConfig {
     // This is same method that is used to handle embedded producer/consumer properties.
     // Unwrap the properties and add it to the map that is passed on to the event logger.
     originals.entrySet().stream()
-        .filter(e -> e.getKey().startsWith(AuditLogConfig.AUDIT_EVENT_LOGGER_PREFIX))
+        .filter(e -> e.getKey().startsWith(AUDIT_EVENT_LOGGER_PREFIX))
         .forEach(entry -> {
-          eventLoggerConfig.put(entry.getKey().substring(AuditLogConfig.AUDIT_PREFIX.length()),
+          eventLoggerConfig.put(entry.getKey().substring(AUDIT_PREFIX.length()),
               entry.getValue());
         });
 
@@ -295,7 +291,7 @@ public class AuditLogConfig extends AbstractConfig {
       // we must have bootstrap servers from one of these sources. If this fails, keep logging to file.
       throw new ConfigException(
           "Missing required property " + BOOTSTRAP_SERVERS_CONFIG + ". Either specify " +
-              "bootstrap brokers in either '" + ROUTER_CONFIG + "' or '" + BOOTSTRAP_SERVERS_CONFIG
+              "bootstrap brokers in either '" + AUDIT_EVENT_ROUTER_CONFIG + "' or '" + BOOTSTRAP_SERVERS_CONFIG
               + "' or '" +
               CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG + "'");
     }
@@ -327,7 +323,7 @@ public class AuditLogConfig extends AbstractConfig {
               allTopics.get(spec.name()),
               AUDIT_PREFIX + TOPIC_CONFIG,
               spec,
-              ROUTER_CONFIG);
+              AUDIT_EVENT_ROUTER_CONFIG);
         }
         allTopics.put(spec.name(), spec);
       });

@@ -618,6 +618,13 @@ object KafkaConfig {
   val PasswordEncoderKeyLengthProp =  "password.encoder.key.length"
   val PasswordEncoderIterationsProp =  "password.encoder.iterations"
 
+  /** ********* Confluent Resource Names Configuration *********/
+  val ConfluentResourceNameAuthorityProp = ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
+
+  /** ********* Audit Logs Configuration *********/
+  val AuditLogEnableProp = ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG
+  val AuditLogRouterConfigProp = ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG
+
   /* Documentation */
   /** ********* Zookeeper Configuration ***********/
   val ZkConnectDoc = "Specifies the ZooKeeper connection string in the form <code>hostname:port</code> where host and port are the " +
@@ -1034,6 +1041,12 @@ object KafkaConfig {
   val PasswordEncoderKeyLengthDoc =  "The key length used for encoding dynamically configured passwords."
   val PasswordEncoderIterationsDoc =  "The iteration count used for encoding dynamically configured passwords."
 
+  /** ********* Confluent Resource Names Configuration *********/
+  val ConfluentResourceNameAuthorityDoc = ConfluentConfigs.CRN_AUTHORITY_NAME_DOC
+  /** ********* Audit Logs Configuration *********/
+  val AuditLogEnableDoc = ConfluentConfigs.AUDIT_LOGGER_ENABLE_DOC
+  val AuditLogRouterConfigDoc = ConfluentConfigs.AUDIT_EVENT_ROUTER_DOC
+
   private val configDef = {
     import ConfigDef.Importance._
     import ConfigDef.Range._
@@ -1320,6 +1333,13 @@ object KafkaConfig {
       .define(PasswordEncoderCipherAlgorithmProp, STRING, Defaults.PasswordEncoderCipherAlgorithm, LOW, PasswordEncoderCipherAlgorithmDoc)
       .define(PasswordEncoderKeyLengthProp, INT, Defaults.PasswordEncoderKeyLength, atLeast(8), LOW, PasswordEncoderKeyLengthDoc)
       .define(PasswordEncoderIterationsProp, INT, Defaults.PasswordEncoderIterations, atLeast(1024), LOW, PasswordEncoderIterationsDoc)
+
+      /** ********* Confluent Resource Names Configuration *********/
+      .define(ConfluentResourceNameAuthorityProp, STRING, ConfluentConfigs.CRN_AUTHORITY_NAME_DEFAULT, LOW, ConfluentResourceNameAuthorityDoc)
+
+      /** ********* Audit Logs Configuration *********/
+      .define(AuditLogEnableProp, BOOLEAN, ConfluentConfigs.AUDIT_LOGGER_ENABLE_DEFAULT, HIGH, AuditLogEnableDoc)
+      .define(AuditLogRouterConfigProp, STRING, ConfluentConfigs.AUDIT_EVENT_ROUTER_DEFAULT, LOW, AuditLogRouterConfigDoc)
 
       /** ********* Confluent Configuration ****************/
       .defineInternal(BrokerInterceptorClassProp, CLASS, ConfluentConfigs.BROKER_INTERCEPTOR_CLASS_DEFAULT, LOW)

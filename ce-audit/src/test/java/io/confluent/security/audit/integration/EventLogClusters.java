@@ -3,11 +3,12 @@
  */
 package io.confluent.security.audit.integration;
 
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
+
 import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
-import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.provider.ConfluentAuditLogProvider;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
@@ -111,7 +112,7 @@ public class EventLogClusters {
     serverConfig.setProperty("super.users", "User:" + config.brokerUser);
     serverConfig.setProperty(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "ZK_ACL");
     if (config.routerConfig != null) {
-      serverConfig.put(AuditLogConfig.ROUTER_CONFIG, config.routerConfig);
+      serverConfig.put(AUDIT_EVENT_ROUTER_CONFIG, config.routerConfig);
     }
     serverConfig.put("auto.create.topics.enable", false);
     return serverConfig;

@@ -775,6 +775,13 @@ class KafkaConfigTest {
         // Security config
         case KafkaConfig.securityProviderClassProp =>
 
+        // Confluent Resource Names
+        case KafkaConfig.ConfluentResourceNameAuthorityProp =>
+
+        // Audit Logs
+        case KafkaConfig.AuditLogEnableProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_boolean", "0")
+        case KafkaConfig.AuditLogRouterConfigProp =>
+
         // Password encoder configs
         case KafkaConfig.PasswordEncoderSecretProp =>
         case KafkaConfig.PasswordEncoderOldSecretProp =>

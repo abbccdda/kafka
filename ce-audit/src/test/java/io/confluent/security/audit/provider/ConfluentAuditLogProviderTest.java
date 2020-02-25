@@ -3,13 +3,15 @@
  */
 package io.confluent.security.audit.provider;
 
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 
-import io.confluent.crn.CrnAuthorityConfig;
 import io.confluent.events.EventLogger;
 import io.confluent.events.exporter.LogExporter;
 import io.confluent.events.exporter.kafka.KafkaExporter;
@@ -44,9 +46,9 @@ public class ConfluentAuditLogProviderTest {
           AuditLogConfig.BOOTSTRAP_SERVERS_CONFIG,
           "localhost:9092"),
       Utils.mkEntry(AuditLogConfig.TOPIC_CREATE_CONFIG, "false"),
-      Utils.mkEntry(CrnAuthorityConfig.AUTHORITY_NAME_PROP, "mds.example.com"),
+      Utils.mkEntry(CRN_AUTHORITY_NAME_CONFIG, "mds.example.com"),
       Utils.mkEntry(
-          AuditLogConfig.ROUTER_CONFIG,
+          AUDIT_EVENT_ROUTER_CONFIG,
           AuditLogRouterJsonConfigUtils.defaultConfig("localhost:9092", "", "")));
 
   @Before
@@ -70,7 +72,7 @@ public class ConfluentAuditLogProviderTest {
 
     AuditLogProvider defaultProvider = ConfluentBuiltInProviders
         .loadAuditLogProvider(
-            Collections.singletonMap(AuditLogConfig.AUDIT_LOGGER_ENABLE_CONFIG, "false"));
+            Collections.singletonMap(AUDIT_LOGGER_ENABLE_CONFIG, "false"));
     assertEquals(DefaultAuditLogProvider.class, defaultProvider.getClass());
   }
 

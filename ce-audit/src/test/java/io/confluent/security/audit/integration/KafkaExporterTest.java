@@ -6,7 +6,7 @@ package io.confluent.security.audit.integration;
 
 import static io.confluent.events.EventLoggerConfig.KAFKA_EXPORTER_PREFIX;
 import static io.confluent.events.cloudevents.kafka.Unmarshallers.structuredProto;
-import static io.confluent.security.audit.AuditLogConfig.ROUTER_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
@@ -153,7 +153,7 @@ public class KafkaExporterTest {
         KafkaExporter.class.getCanonicalName());
     config.put(AuditLogConfig.TOPIC_REPLICAS_CONFIG, "1");
 
-    config.put(ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig(
+    config.put(AUDIT_EVENT_ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig(
         eventLogClusters.kafkaCluster.bootstrapServers(),
         AuditLogRouterJsonConfig.DEFAULT_TOPIC,
         AuditLogRouterJsonConfig.DEFAULT_TOPIC));
@@ -274,7 +274,7 @@ public class KafkaExporterTest {
     assertEquals(sentEvent1.getAttributes().getId(), receivedEvent1.getAttributes().getId());
 
     Map<String, String> config = Utils.mkMap(
-        Utils.mkEntry(ROUTER_CONFIG, "{}")
+        Utils.mkEntry(AUDIT_EVENT_ROUTER_CONFIG, "{}")
     );
 
     // Make sure that the previous configuration is still used if a reconfigure() failure happens
@@ -344,7 +344,7 @@ public class KafkaExporterTest {
 
     Map<String, String> config = Utils.mkMap(
         Utils.mkEntry(AuditLogConfig.TOPIC_CREATE_CONFIG, "false"),
-        Utils.mkEntry(ROUTER_CONFIG,
+        Utils.mkEntry(AUDIT_EVENT_ROUTER_CONFIG,
             AuditLogRouterJsonConfigUtils.defaultConfig(
                 eventLogClusters.kafkaCluster.bootstrapServers(),
                 "",

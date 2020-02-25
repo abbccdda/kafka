@@ -189,7 +189,7 @@ abstract class ClusterTestCommon {
       return true;
     } catch (
         ClassCastException e) {
-      return false;
+      throw new RuntimeException(e);
     }
 
   }

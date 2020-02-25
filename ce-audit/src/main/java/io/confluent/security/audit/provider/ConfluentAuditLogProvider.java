@@ -5,8 +5,9 @@
 package io.confluent.security.audit.provider;
 
 import static io.confluent.security.audit.AuditLogConfig.AUDIT_CLOUD_EVENT_ENCODING_CONFIG;
-import static io.confluent.security.audit.AuditLogConfig.ROUTER_CONFIG;
 import static io.confluent.security.audit.AuditLogConfig.toEventLoggerConfig;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG;
 
 import io.cloudevents.CloudEvent;
 import io.confluent.crn.ConfluentServerCrnAuthority;
@@ -25,6 +26,7 @@ import io.confluent.security.authorizer.provider.AuthorizationLogData;
 import io.confluent.security.authorizer.utils.ThreadUtils;
 import java.io.IOException;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
@@ -95,7 +97,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
     AuditLogConfig auditLogConfig = new AuditLogConfig(configs);
 
     // Abort if not enabled.
-    if (!auditLogConfig.getBoolean(AuditLogConfig.AUDIT_LOGGER_ENABLE_CONFIG)) {
+    if (!auditLogConfig.getBoolean(AUDIT_LOGGER_ENABLE_CONFIG)) {
       return;
     }
 
@@ -117,7 +119,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   public Set<String> reconfigurableConfigs() {
     Set<String> configs = new HashSet<>();
     // Only router config needs to be reconfigurable.
-    configs.add(ROUTER_CONFIG);
+    configs.add(AUDIT_EVENT_ROUTER_CONFIG);
     return configs;
   }
 
@@ -125,7 +127,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
     AuditLogConfig config = new AuditLogConfig(configs);
     try {
-      AuditLogRouterJsonConfig.load(config.getString(ROUTER_CONFIG));
+      AuditLogRouterJsonConfig.load(config.getString(AUDIT_EVENT_ROUTER_CONFIG));
     } catch (IllegalArgumentException | IOException e) {
       throw new ConfigException(e.getMessage());
     }
@@ -160,14 +162,20 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   }
 
   @Override
-  public CompletionStage<Void> start(AuthorizerServerInfo serverInfo, Map<String, ?> interBrokerListenerConfigs) {
+  public CompletionStage<Void> start(AuthorizerServerInfo serverInfo,
+      Map<String, ?> interBrokerListenerConfigs) {
     initExecutor = Executors.
         newSingleThreadScheduledExecutor(ThreadUtils.createThreadFactory("audit-init-%d", true));
 
     CompletableFuture<Void> future = new CompletableFuture<>();
     initExecutor.submit(() -> {
       try {
-        updateConfiguredState(toEventLoggerConfig(interBrokerListenerConfigs),
+        // get values for AuditLogConfig settings
+        Map<String, Object> config = new HashMap<>(configuredState.config.values());
+        // and include the client configs to connect to the inter broker listener
+        config.putAll(interBrokerListenerConfigs);
+
+        updateConfiguredState(toEventLoggerConfig(config),
             configuredState.router, configuredState.config);
         this.eventLoggerReady = true;
         future.complete(null);
@@ -194,7 +202,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   @Override
   public boolean providerConfigured(Map<String, ?> configs) {
     AuditLogConfig cfg = new AuditLogConfig(configs);
-    return cfg.getBoolean(AuditLogConfig.AUDIT_LOGGER_ENABLE_CONFIG);
+    return cfg.getBoolean(AUDIT_LOGGER_ENABLE_CONFIG);
   }
 
   @Override
