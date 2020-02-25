@@ -2,7 +2,6 @@
 
 package io.confluent.kafka.test.utils;
 
-import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Metric;
 
@@ -16,6 +15,7 @@ import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
 import io.confluent.license.validator.LicenseConfig;
 import kafka.admin.AclCommand;
 import kafka.admin.ConfigCommand;
+import kafka.metrics.KafkaYammerMetrics;
 import kafka.server.KafkaServer;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.acl.AccessControlEntryFilter;
@@ -214,7 +214,7 @@ public class SecurityTestUtils {
   }
 
   public static void verifyConfluentLicense(EmbeddedKafkaCluster kafkaCluster, LicenseStatus expectedStatus) {
-    Map<String, Metric> metrics = Metrics.defaultRegistry().allMetrics().entrySet().stream()
+    Map<String, Metric> metrics = KafkaYammerMetrics.defaultRegistry().allMetrics().entrySet().stream()
         .filter(e -> e.getKey().getName().equals(ConfluentLicenseValidator.METRIC_NAME))
         .collect(Collectors.toMap(e -> e.getKey().getGroup(), Map.Entry::getValue));
     if (expectedStatus != null) {

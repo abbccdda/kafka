@@ -8,6 +8,7 @@ import com.yammer.metrics.Metrics
 import com.yammer.metrics.core.Gauge
 import kafka.cluster.Partition
 import kafka.log.{AbstractLog, LogSegment}
+import kafka.metrics.KafkaYammerMetrics
 import kafka.server.ReplicaManager
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState
@@ -95,6 +96,6 @@ class TierArchiverTest {
   }
 
   private def metricValue[T](name: String): T = {
-    Metrics.defaultRegistry.allMetrics.asScala.filterKeys(_.getName == name).values.headOption.get.asInstanceOf[Gauge[T]].value()
+    KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.filterKeys(_.getName == name).values.headOption.get.asInstanceOf[Gauge[T]].value()
   }
 }

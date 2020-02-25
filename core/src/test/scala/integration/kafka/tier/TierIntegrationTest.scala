@@ -16,6 +16,7 @@ import com.yammer.metrics.core.Gauge
 import javax.management.MBeanServer
 import kafka.cluster.Partition
 import kafka.log._
+import kafka.metrics.KafkaYammerMetrics
 import kafka.server.{BrokerTopicStats, LogDirFailureChannel, ReplicaManager}
 import kafka.tier.tasks.archive._
 import kafka.tier.client.{MockConsumerSupplier, MockProducerSupplier}
@@ -472,7 +473,7 @@ class TierIntegrationTest {
   }
 
   private def metricValue(name: String): Long = {
-    Metrics.defaultRegistry.allMetrics.asScala.filterKeys(_.getName == name).values.head.asInstanceOf[Gauge[Long]].value()
+    KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.filterKeys(_.getName == name).values.head.asInstanceOf[Gauge[Long]].value()
   }
 
   private def tierPartitionState(partition: TopicPartition): TierPartitionState = {

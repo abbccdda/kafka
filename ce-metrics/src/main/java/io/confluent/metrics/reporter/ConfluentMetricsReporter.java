@@ -5,9 +5,9 @@ package io.confluent.metrics.reporter;
 import com.google.common.base.Function;
 import com.google.common.collect.FluentIterable;
 
-import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.MetricsRegistry;
 
+import kafka.metrics.KafkaYammerMetrics;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -73,7 +73,7 @@ public class ConfluentMetricsReporter
   private static final Logger log = LoggerFactory.getLogger(ConfluentMetricsReporter.class);
 
   //Yammer metric registry
-  private static final MetricsRegistry METRICS_REGISTRY = Metrics.defaultRegistry();
+  private static final MetricsRegistry METRICS_REGISTRY = KafkaYammerMetrics.defaultRegistry();
 
   static {
     log.debug("available");

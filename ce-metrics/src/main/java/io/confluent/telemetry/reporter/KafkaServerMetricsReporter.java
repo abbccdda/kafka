@@ -7,7 +7,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
-import com.yammer.metrics.Metrics;
 import io.confluent.observability.telemetry.ResourceBuilderFacade;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
@@ -25,6 +24,7 @@ import io.opencensus.proto.resource.v1.Resource;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import kafka.metrics.KafkaYammerMetrics;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.metrics.KafkaMetric;
@@ -136,7 +136,7 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
             YammerMetricsCollector.newBuilder(config)
                 .setContext(ctx)
                 .setDomain(DOMAIN)
-                .setMetricsRegistry(Metrics.defaultRegistry())
+                .setMetricsRegistry(KafkaYammerMetrics.defaultRegistry())
                 .build()
         );
 

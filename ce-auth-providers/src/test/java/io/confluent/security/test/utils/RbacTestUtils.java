@@ -5,7 +5,6 @@ package io.confluent.security.test.utils;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Meter;
 import com.yammer.metrics.core.Metric;
@@ -28,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import kafka.metrics.KafkaYammerMetrics;
 import org.apache.kafka.clients.consumer.MockConsumer;
 import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 import org.apache.kafka.common.Cluster;
@@ -122,7 +122,7 @@ public class RbacTestUtils {
   }
 
   private static Set<Metric> metrics(String name, String type) {
-    return Metrics.defaultRegistry().allMetrics().entrySet().stream()
+    return KafkaYammerMetrics.defaultRegistry().allMetrics().entrySet().stream()
         .filter(e -> e.getKey().getName().equals(name) && e.getKey().getType().equals(type))
         .map(Map.Entry::getValue)
         .collect(Collectors.toSet());

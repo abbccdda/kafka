@@ -14,6 +14,7 @@ import java.util.UUID
 import com.yammer.metrics.Metrics
 import com.yammer.metrics.core.Gauge
 import kafka.log.MergedLogTest.LogRanges
+import kafka.metrics.KafkaYammerMetrics
 import kafka.server.{BrokerTopicStats, FetchDataInfo, FetchLogEnd, LogDirFailureChannel, TierFetchDataInfo, TierState}
 import kafka.server.epoch.EpochEntry
 import kafka.tier.{TierTestUtils, TierTimestampAndOffset, TopicIdPartition}
@@ -1224,7 +1225,7 @@ class MergedLogTest {
   }
 
   private def metricValue(name: String): Long = {
-    Metrics.defaultRegistry.allMetrics.asScala.filterKeys(_.getName == name).values.headOption.get.asInstanceOf[Gauge[Long]].value()
+    KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.filterKeys(_.getName == name).values.headOption.get.asInstanceOf[Gauge[Long]].value()
   }
 }
 
