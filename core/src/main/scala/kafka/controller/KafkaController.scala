@@ -110,6 +110,7 @@ class KafkaController(val config: KafkaConfig,
   private val preferredReplicaElectionHandler = new PreferredReplicaElectionHandler(eventManager)
   private val isrChangeNotificationHandler = new IsrChangeNotificationHandler(eventManager)
   private val logDirEventNotificationHandler = new LogDirEventNotificationHandler(eventManager)
+  private val dataBalancer = DataBalancer(config)
 
   @volatile private var activeControllerId = -1
   @volatile private var offlinePartitionCount = 0
@@ -270,6 +271,8 @@ class KafkaController(val config: KafkaConfig,
         period = config.delegationTokenExpiryCheckIntervalMs,
         unit = TimeUnit.MILLISECONDS)
     }
+
+    dataBalancer.startUp()
   }
 
   private def scheduleAutoLeaderRebalanceTask(delay: Long, unit: TimeUnit): Unit = {
@@ -289,6 +292,9 @@ class KafkaController(val config: KafkaConfig,
     zkClient.unregisterZNodeChangeHandler(preferredReplicaElectionHandler.path)
     zkClient.unregisterZNodeChildChangeHandler(logDirEventNotificationHandler.path)
     unregisterBrokerModificationsHandler(brokerModificationsHandlers.keySet)
+
+    // Shutdown databalancer
+    dataBalancer.shutdown()
 
     // shutdown leader rebalance scheduler
     kafkaScheduler.shutdown()
