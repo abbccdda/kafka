@@ -4,25 +4,36 @@
 package io.confluent.security.audit.provider;
 
 import static io.confluent.security.audit.router.AuditLogRouterJsonConfig.TOPIC_PREFIX;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import io.confluent.crn.ConfluentResourceName;
-import io.confluent.crn.CrnAuthorityConfig;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
-import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogRouterJsonConfigUtils;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.test.utils.RbacClusters;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Properties;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.AlterConfigOp;
+import org.apache.kafka.clients.admin.AlterConfigOp.OpType;
+import org.apache.kafka.clients.admin.AlterConfigsResult;
+import org.apache.kafka.clients.admin.Config;
+import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.common.config.ConfigResource.Type;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
@@ -74,7 +85,7 @@ public class SameClusterTest extends ClusterTestCommon {
     rbacConfig = new RbacClusters.Config()
         .users(BROKER_USER, otherUsers)
         // simplify debugging to only have audit log topics on one of the clusters
-        .overrideMetadataBrokerConfig(AuditLogConfig.AUDIT_LOGGER_ENABLE_CONFIG, "false")
+        .overrideMetadataBrokerConfig(ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG, "false")
         .withLdapGroups();
   }
 
@@ -140,8 +151,24 @@ public class SameClusterTest extends ClusterTestCommon {
 
     consumer("event-log");
 
-    rbacClusters.clientBuilder(RESOURCE_OWNER1).buildAdminClient()
+    AdminClient resourceOwnerAdminClient = rbacClusters.clientBuilder(RESOURCE_OWNER1)
+        .buildAdminClient();
+    resourceOwnerAdminClient
         .createTopics(Collections.singleton(new NewTopic(APP3_TOPIC, 1, (short) 1)));
+
+    ConfigResource key = new ConfigResource(Type.BROKER, "0");
+    AdminClient brokerAdminClient = rbacClusters.clientBuilder(BROKER_USER).buildAdminClient();
+    Map<ConfigResource, Config> configs = brokerAdminClient
+        .describeConfigs(Collections.singleton(key)).all().get();
+
+    assertEquals(1, configs.size());
+    Config config = configs.get(key);
+    assertEquals(ConfluentConfigs.CRN_AUTHORITY_NAME_DEFAULT,
+        config.get(CRN_AUTHORITY_NAME_CONFIG).value());
+    assertEquals(ConfluentConfigs.AUDIT_EVENT_ROUTER_DEFAULT,
+        config.get(ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG).value());
+    assertEquals(ConfluentConfigs.AUDIT_LOGGER_ENABLE_DEFAULT,
+        config.get(ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG).value());
 
     String app3TopicCrn = ConfluentResourceName.newBuilder()
         .addElement("kafka", rbacClusters.kafkaClusterId())
@@ -159,6 +186,24 @@ public class SameClusterTest extends ClusterTestCommon {
     assertFalse(eventsMatchUnordered(consumer, 10000,
         e -> "kafka.FetchConsumer".equals(e.getMethodName())
     ));
+
+    AuditLogRouterJsonConfig newConfig = AuditLogRouterJsonConfig.defaultConfig();
+    newConfig.destinations.bootstrapServers =
+        Arrays.asList(rbacClusters.kafkaCluster.bootstrapServers().split(","));
+    String newConfigJson = newConfig.toJsonString();
+
+    ConfigResource cluster = new ConfigResource(Type.BROKER, "");
+    AlterConfigsResult result = brokerAdminClient.incrementalAlterConfigs(
+        Utils.mkMap(Utils.mkEntry(cluster,
+            Collections.singleton(
+                new AlterConfigOp(new ConfigEntry(ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG,
+                    newConfigJson), OpType.SET)))));
+    result.values().get(cluster).get();
+
+    assertEquals(newConfigJson,
+        brokerAdminClient
+            .describeConfigs(Collections.singleton(cluster)).all().get()
+            .get(cluster).get(ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG).value());
   }
 
   @Test
@@ -191,8 +236,7 @@ public class SameClusterTest extends ClusterTestCommon {
     // the metadata it needs to write on the first try, and will send the first
     // message to the fallback log. We don't want that.
 
-    rbacConfig.overrideBrokerConfig(
-        AuditLogConfig.ROUTER_CONFIG, APP3_ROUTER_CONFIG);
+    rbacConfig.overrideBrokerConfig(ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG, APP3_ROUTER_CONFIG);
 
     rbacClusters = new RbacClusters(rbacConfig);
 
@@ -223,8 +267,7 @@ public class SameClusterTest extends ClusterTestCommon {
     // If this succeeds and testFirstMessage does not, there's a problem with the
     // code in KafkaExporter.ensureTopics
 
-    rbacConfig.overrideBrokerConfig(
-        AuditLogConfig.ROUTER_CONFIG, APP3_ROUTER_CONFIG);
+    rbacConfig.overrideBrokerConfig(ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG, APP3_ROUTER_CONFIG);
 
     rbacClusters = new RbacClusters(rbacConfig);
 
@@ -258,8 +301,7 @@ public class SameClusterTest extends ClusterTestCommon {
   @Test
   public void testProduceConsume() throws Throwable {
 
-    rbacConfig.overrideBrokerConfig(
-        AuditLogConfig.ROUTER_CONFIG,
+    rbacConfig.overrideBrokerConfig(ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG,
         AuditLogRouterJsonConfigUtils.defaultConfigProduceConsumeInterbroker(
             null,
             AUTHORITY_NAME,
@@ -267,7 +309,7 @@ public class SameClusterTest extends ClusterTestCommon {
             AuditLogRouterJsonConfig.DEFAULT_TOPIC,
             Collections.singletonList(
                 new KafkaPrincipal(KafkaPrincipal.USER_TYPE, LOG_READER_USER))))
-        .overrideBrokerConfig(CrnAuthorityConfig.AUTHORITY_NAME_PROP, AUTHORITY_NAME);
+        .overrideBrokerConfig(CRN_AUTHORITY_NAME_CONFIG, AUTHORITY_NAME);
 
     rbacClusters = new RbacClusters(rbacConfig);
 
@@ -283,8 +325,7 @@ public class SameClusterTest extends ClusterTestCommon {
   @Test
   public void testInterbroker() throws Throwable {
 
-    rbacConfig.overrideBrokerConfig(
-        AuditLogConfig.ROUTER_CONFIG,
+    rbacConfig.overrideBrokerConfig(ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG,
         AuditLogRouterJsonConfigUtils.defaultConfigProduceConsumeInterbroker(
             null,
             AUTHORITY_NAME,
@@ -292,7 +333,7 @@ public class SameClusterTest extends ClusterTestCommon {
             AuditLogRouterJsonConfig.DEFAULT_TOPIC,
             Collections.singletonList(
                 new KafkaPrincipal(KafkaPrincipal.USER_TYPE, LOG_READER_USER))))
-        .overrideBrokerConfig(CrnAuthorityConfig.AUTHORITY_NAME_PROP, AUTHORITY_NAME)
+        .overrideBrokerConfig(CRN_AUTHORITY_NAME_CONFIG, AUTHORITY_NAME)
         .withKafkaServers(3);
 
     rbacClusters = new RbacClusters(rbacConfig);

@@ -1,7 +1,7 @@
 package org.apache.kafka.jmh.audit;
 
-import static io.confluent.crn.CrnAuthorityConfig.AUTHORITY_NAME_PROP;
-import static io.confluent.security.audit.AuditLogConfig.ROUTER_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
 
 import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.provider.ConfluentAuditLogProvider;
@@ -24,6 +24,7 @@ public class LogAuthorizationBenchmarkDefaults {
   static final int TOPICS = 97;
   static final String[] ACTIONS;
   static final ApiKeys[] API_KEYS;
+
   static {
     ArrayList<String> actions = new ArrayList<>();
     ArrayList<ApiKeys> apiKeys = new ArrayList<>();
@@ -207,8 +208,8 @@ public class LogAuthorizationBenchmarkDefaults {
     try {
       Map<String, Object> configs = new HashMap<>();
       ConfluentAuditLogProvider provider = new ConfluentAuditLogProvider();
-      configs.put(ROUTER_CONFIG, routerConfigJson);
-      configs.put(AUTHORITY_NAME_PROP, "mds.example.com");
+      configs.put(AUDIT_EVENT_ROUTER_CONFIG, routerConfigJson);
+      configs.put(CRN_AUTHORITY_NAME_CONFIG, "mds.example.com");
       configs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
       configs.put(AuditLogConfig.EVENT_EXPORTER_CLASS_CONFIG, CountExporter.class.getName());
       provider.configure(configs);

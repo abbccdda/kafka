@@ -4,6 +4,7 @@ import static java.util.stream.Collectors.joining;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.crn.ConfluentResourceName;
@@ -201,5 +202,10 @@ public class AuditLogRouterJsonConfig {
         AuditLogRouterJsonConfig.DEFAULT_RETENTION_MS));
     config.defaultTopics = new DefaultTopics(DEFAULT_TOPIC, DEFAULT_TOPIC);
     return config;
+  }
+
+  public String toJsonString() throws JsonProcessingException {
+    ObjectMapper mapper = new ObjectMapper();
+    return mapper.writeValueAsString(this);
   }
 }

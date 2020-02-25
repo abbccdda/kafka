@@ -3,6 +3,8 @@
  */
 package io.confluent.crn;
 
+import static io.confluent.crn.CrnAuthorityConfig.CACHE_ENTRIES_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
 import static org.apache.kafka.common.resource.ResourcePattern.WILDCARD_RESOURCE;
 
 import com.google.common.base.CaseFormat;
@@ -327,7 +329,7 @@ public class ConfluentServerCrnAuthority implements CrnAuthority, Configurable {
   @Override
   public void configure(Map<String, ?> configs) {
     CrnAuthorityConfig config = new CrnAuthorityConfig(configs);
-    this.authorityName = config.getString(CrnAuthorityConfig.AUTHORITY_NAME_PROP);
-    this.cacheCapacity = config.getInt(CrnAuthorityConfig.CACHE_ENTRIES_PROP);
+    this.authorityName = config.getString(CRN_AUTHORITY_NAME_CONFIG);
+    this.cacheCapacity = config.getInt(CACHE_ENTRIES_CONFIG);
   }
 }

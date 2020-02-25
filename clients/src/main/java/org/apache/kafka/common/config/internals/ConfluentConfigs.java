@@ -149,6 +149,26 @@ public class ConfluentConfigs {
     public static final boolean STRAY_PARTITION_DELETION_ENABLE_DEFAULT = false;
     public static final String STRAY_PARTITION_DELETION_ENABLE_DOC = "Whether stray partition deletion is enabled";
 
+    public static final String CRN_AUTHORITY_PREFIX = CONFLUENT_PREFIX + "authorizer.authority.";
+    public static final String CRN_AUTHORITY_NAME_CONFIG = CRN_AUTHORITY_PREFIX + "name";
+    public static final String CRN_AUTHORITY_NAME_DEFAULT = "";
+    public static final String CRN_AUTHORITY_NAME_DOC = "The DNS name of the authority that this cluster"
+        + "uses to authorize. This should be a name for the cluster hosting metadata topics.";
+
+    public static final String EVENT_LOGGER_PREFIX = "event.logger.";
+    public static final String AUDIT_PREFIX = "confluent.security.";
+    public static final String AUDIT_EVENT_LOGGER_PREFIX = AUDIT_PREFIX + EVENT_LOGGER_PREFIX;
+    public static final String AUDIT_EVENT_ROUTER_PREFIX = AUDIT_PREFIX + "event.router.";
+
+    public static final String AUDIT_EVENT_ROUTER_CONFIG = AUDIT_EVENT_ROUTER_PREFIX + "config";
+    public static final String AUDIT_EVENT_ROUTER_DEFAULT = "";
+    public static final String AUDIT_EVENT_ROUTER_DOC = "JSON configuration for routing events to topics";
+
+    public static final String AUDIT_LOGGER_ENABLE_CONFIG = AUDIT_EVENT_LOGGER_PREFIX + "enable";
+    public static final String AUDIT_LOGGER_ENABLE_DEFAULT = "true";
+    public static final String AUDIT_LOGGER_ENABLE_DOC = "Whether the event logger is enabled";
+
+
     public enum ClientType {
         PRODUCER("producer", ProducerConfig.configNames()),
         CONSUMER("consumer", ConsumerConfig.configNames()),

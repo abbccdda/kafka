@@ -3,14 +3,14 @@
  */
 package io.confluent.security.audit.provider;
 
-import static io.confluent.security.audit.AuditLogConfig.AUDIT_PREFIX;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_PREFIX;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
 
-import io.confluent.crn.CrnAuthorityConfig;
 import io.confluent.events.EventLoggerConfig;
 import io.confluent.events.exporter.kafka.KafkaExporter;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
-import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogRouterJsonConfigUtils;
 import io.confluent.security.audit.integration.EventLogClusters;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
@@ -46,7 +46,7 @@ public class OtherClusterTest extends ClusterTestCommon {
     rbacConfig = new RbacClusters.Config()
         .users(BROKER_USER, otherUsers)
         .withLdapGroups()
-        .overrideBrokerConfig(CrnAuthorityConfig.AUTHORITY_NAME_PROP, AUTHORITY_NAME);
+        .overrideBrokerConfig(CRN_AUTHORITY_NAME_CONFIG, AUTHORITY_NAME);
 
     Properties props = eventLogClusters.producerProps(LOG_WRITER_USER);
     for (String key : props.stringPropertyNames()) {
@@ -56,7 +56,7 @@ public class OtherClusterTest extends ClusterTestCommon {
     rbacConfig.overrideBrokerConfig(AUDIT_PREFIX + EventLoggerConfig.EVENT_EXPORTER_CLASS_CONFIG,
         KafkaExporter.class.getName());
 
-    rbacConfig.overrideBrokerConfig(AuditLogConfig.ROUTER_CONFIG,
+    rbacConfig.overrideBrokerConfig(AUDIT_EVENT_ROUTER_CONFIG,
         AuditLogRouterJsonConfigUtils.defaultConfigProduceConsumeInterbroker(
             props.getProperty(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG),
             AUTHORITY_NAME,

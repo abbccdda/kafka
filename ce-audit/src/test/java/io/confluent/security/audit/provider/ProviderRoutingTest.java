@@ -4,16 +4,16 @@
 package io.confluent.security.audit.provider;
 
 import static io.confluent.events.EventLoggerConfig.KAFKA_EXPORTER_PREFIX;
-import static io.confluent.security.audit.AuditLogConfig.ROUTER_CONFIG;
 import static io.confluent.security.audit.router.AuditLogRouterJsonConfig.DEFAULT_TOPIC;
 import static io.confluent.security.test.utils.User.scramUser;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import io.cloudevents.CloudEvent;
 import io.cloudevents.v03.AttributesImpl;
-import io.confluent.crn.CrnAuthorityConfig;
 import io.confluent.events.ProtobufEvent;
 import io.confluent.events.cloudevents.extensions.RouteExtension;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
@@ -58,16 +58,16 @@ public class ProviderRoutingTest {
           AuditLogConfig.BOOTSTRAP_SERVERS_CONFIG,
           "localhost:9092"),
       Utils.mkEntry(AuditLogConfig.TOPIC_CREATE_CONFIG, "false"),
-      Utils.mkEntry(CrnAuthorityConfig.AUTHORITY_NAME_PROP, "mds1.example.com"),
+      Utils.mkEntry(CRN_AUTHORITY_NAME_CONFIG, "mds1.example.com"),
       Utils.mkEntry(
-          ROUTER_CONFIG,
+          AUDIT_EVENT_ROUTER_CONFIG,
           AuditLogRouterJsonConfigUtils.defaultConfig("localhost:9092", "", "")));
 
 
   private ConfluentAuditLogProvider providerWithMockExporter(String clusterId,
       Map<String, String> configOverrides) throws Exception {
     ConfluentAuditLogProvider provider = new ConfluentAuditLogProvider();
-    configs.put(ROUTER_CONFIG, json);
+    configs.put(AUDIT_EVENT_ROUTER_CONFIG, json);
     configs.put(AuditLogConfig.EVENT_EXPORTER_CLASS_CONFIG, MockExporter.class.getName());
     configs.putAll(configOverrides);
     provider.configure(configs);
@@ -247,7 +247,7 @@ public class ProviderRoutingTest {
     // we should not audit log produce events to the same topic
     ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA",
         Utils.mkMap(
-            Utils.mkEntry(ROUTER_CONFIG,
+            Utils.mkEntry(AUDIT_EVENT_ROUTER_CONFIG,
                 AuditLogRouterJsonConfigUtils.defaultConfigProduceConsumeInterbroker(
                     "host1:port",
                     "mds1.example.com",
@@ -325,7 +325,7 @@ public class ProviderRoutingTest {
   public void testReconfigure() throws Throwable {
     // Make sure defaults work.
     Map<String, String> config = Utils.mkMap(
-        Utils.mkEntry(ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig(
+        Utils.mkEntry(AUDIT_EVENT_ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig(
             "foo:9092",
             DEFAULT_TOPIC,
             DEFAULT_TOPIC))
@@ -365,7 +365,7 @@ public class ProviderRoutingTest {
     String newDeniedTopic = AuditLogRouterJsonConfig.TOPIC_PREFIX + "__denied_new";
 
     config = Utils.mkMap(
-        Utils.mkEntry(ROUTER_CONFIG,
+        Utils.mkEntry(AUDIT_EVENT_ROUTER_CONFIG,
             AuditLogRouterJsonConfigUtils.defaultConfig(
                 "foo-recongigured:9200",
                 newAllowedTopic,
@@ -423,7 +423,7 @@ public class ProviderRoutingTest {
   public void testReconfigureEmptyTopics() throws Throwable {
     // Make sure defaults work.
     Map<String, String> config = Utils.mkMap(
-        Utils.mkEntry(ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig(
+        Utils.mkEntry(AUDIT_EVENT_ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig(
             "foo:9092",
             DEFAULT_TOPIC,
             DEFAULT_TOPIC))
@@ -460,7 +460,7 @@ public class ProviderRoutingTest {
 
     // Change routes.
     config = Utils.mkMap(
-        Utils.mkEntry(ROUTER_CONFIG,
+        Utils.mkEntry(AUDIT_EVENT_ROUTER_CONFIG,
             AuditLogRouterJsonConfigUtils.defaultConfig(
                 "foo-recongigured:9200",
                 "",

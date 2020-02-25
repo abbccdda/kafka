@@ -3,6 +3,8 @@
  */
 package io.confluent.events;
 
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.EVENT_LOGGER_PREFIX;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 import io.confluent.events.exporter.LogExporter;
@@ -24,9 +26,6 @@ import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 
 public class EventLoggerConfig extends AbstractConfig {
-
-
-  public static final String EVENT_LOGGER_PREFIX = "event.logger.";
 
   // Configuration for event exporters.
   public static final String EVENT_EXPORTER_CLASS_CONFIG = EVENT_LOGGER_PREFIX + "exporter.class";
