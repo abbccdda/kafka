@@ -672,14 +672,14 @@ public class MetadataTest {
     public void testNodeIfOffline() {
         Map<String, Integer> partitionCounts = new HashMap<>();
         partitionCounts.put("topic-1", 1);
-        Integer broker0 = 0;
-        Integer broker1 = 0;
+        Node node0 = new Node(0, "localhost", 9092);
+        Node node1 = new Node(1, "localhost", 9093);
 
         MetadataResponse metadataResponse = TestUtils.metadataUpdateWith("dummy", 2, Collections.emptyMap(), partitionCounts, _tp -> 99,
             (error, partition, leader, leaderEpoch, replicas, observers, isr, offlineReplicas) ->
-                new MetadataResponse.PartitionMetadata(error, partition, Optional.of(broker0), leaderEpoch,
-                    Collections.singletonList(broker0), observers, Collections.emptyList(),
-                    Collections.singletonList(broker0)));
+                new MetadataResponse.PartitionMetadata(error, partition, Optional.of(node0.id()), leaderEpoch,
+                    Collections.singletonList(node0.id()), observers, Collections.emptyList(),
+                    Collections.singletonList(node1.id())));
         metadata.updateWithCurrentRequestVersion(emptyMetadataResponse(), false, 0L);
         metadata.updateWithCurrentRequestVersion(metadataResponse, false, 10L);
 
