@@ -174,6 +174,13 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     }
 
     /**
+     * Get kafka broker rack information.
+     */
+    public Optional<String> getBrokerRack() {
+        return Optional.ofNullable((String) originals().get(KafkaConfig.RackProp()));
+    }
+
+    /**
      * Get a predicate that filters metrics based on the whitelist configuration.
      */
     public Predicate<MetricKey> getMetricWhitelistFilter() {

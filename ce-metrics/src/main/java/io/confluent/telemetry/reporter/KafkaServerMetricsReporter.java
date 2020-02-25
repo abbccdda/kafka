@@ -45,6 +45,9 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
     @VisibleForTesting
     public static final String LABEL_BROKER_ID = "broker.id";
 
+    @VisibleForTesting
+    public static final String LABEL_BROKER_RACK = "broker.rack";
+
     private ConfluentTelemetryConfig config;
     private MetricsCollectorTask collectorTask;
     private KafkaMetricsCollector.StateLedger kafkaMetricsStateLedger = new KafkaMetricsCollector.StateLedger();
@@ -68,7 +71,7 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
             return;
         }
 
-        Resource resource = new ResourceBuilderFacade(KAFKA)
+        ResourceBuilderFacade resourceBuilderFacade = new ResourceBuilderFacade(KAFKA)
             .withVersion(AppInfoParser.getVersion())
             .withId(clusterResource.clusterId())
             .withNamespacedLabel(LABEL_CLUSTER_ID, clusterResource.clusterId())
@@ -80,8 +83,12 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
             .withLabelAliases(ImmutableMap.of(
                 KAFKA.prefixLabel(LABEL_CLUSTER_ID), "cluster_id",
                 KAFKA.prefixLabel(LABEL_BROKER_ID), "broker_id"
-            ))
-            .build();
+            ));
+
+        // Do not add kafka.broker.rack if data is unavailable.
+        config.getBrokerRack().ifPresent(value -> resourceBuilderFacade.withNamespacedLabel(LABEL_BROKER_RACK, value));
+
+        Resource resource = resourceBuilderFacade.build();
 
         Context ctx = new Context(resource, config.getBoolean(ConfluentTelemetryConfig.DEBUG_ENABLED), true);
 
