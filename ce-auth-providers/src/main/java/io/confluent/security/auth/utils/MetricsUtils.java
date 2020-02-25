@@ -2,10 +2,10 @@
 
 package io.confluent.security.auth.utils;
 
-import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Meter;
 import com.yammer.metrics.core.MetricName;
+import com.yammer.metrics.core.MetricsRegistry;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -17,12 +17,28 @@ import org.apache.kafka.common.utils.Utils;
 // Metrics utils to register yammer metrics since we don't have access to the KafkaMetrics instance
 public class MetricsUtils {
 
+  private static final MetricsRegistry METRICS_REGISTRY;
+
+  static {
+    try {
+      // KafkaYammerMetrics is in the runtime classpath, but not the compile classpath so we load
+      // it via reflection. The reason why we cannot add a compile path dependency to the `core`
+      // module is that ce-auth-providers is a library used by MDS and it does not include the
+      // Scala version in its name. To avoid issues during packaging, such modules cannot depend
+      // on modules that contain Scala code (like `core`).
+      Class<?> cls = Class.forName("kafka.metrics.KafkaYammerMetrics");
+      METRICS_REGISTRY = (MetricsRegistry) cls.getMethod("defaultRegistry").invoke(null);
+    } catch (ReflectiveOperationException e) {
+      throw new RuntimeException("Failed to instantiate KafkaYammerMetrics, make sure it's in the classpath", e);
+    }
+  }
+
   public static <T> MetricName newGauge(String group,
       String type,
       String name, Map<String, String> tags,
       Supplier<T> valueSupplier) {
     MetricName metricName = metricName(group, type, name, tags);
-    Metrics.defaultRegistry().newGauge(metricName, new Gauge<T>() {
+    METRICS_REGISTRY.newGauge(metricName, new Gauge<T>() {
       @Override
       public T value() {
         return valueSupplier.get();
@@ -32,11 +48,11 @@ public class MetricsUtils {
   }
 
   public static Meter newMeter(MetricName metricName, String eventType) {
-    return Metrics.defaultRegistry().newMeter(metricName, eventType, TimeUnit.SECONDS);
+    return METRICS_REGISTRY.newMeter(metricName, eventType, TimeUnit.SECONDS);
   }
 
   public static void removeMetrics(Set<MetricName> metricNames) {
-    metricNames.forEach(Metrics.defaultRegistry()::removeMetric);
+    metricNames.forEach(METRICS_REGISTRY::removeMetric);
   }
 
   public static long elapsedSeconds(Time time, long timeMs) {
