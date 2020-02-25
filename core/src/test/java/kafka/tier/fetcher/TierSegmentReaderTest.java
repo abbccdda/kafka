@@ -94,7 +94,8 @@ public class TierSegmentReaderTest {
             // past what the input stream contains.
             final long targetOffset = 100;
             TierSegmentReader.RecordsAndNextBatchMetadata recordsAndMetadata =
-                    reader.readRecords(ctx, faulty, 1024 * 1024, targetOffset, 0, size * 2);
+                    reader.readRecords(ctx, Optional.empty(), faulty, 1024 * 1024, targetOffset, 0,
+                            size * 2);
 
 
             long expectedOffset = 100;
@@ -267,7 +268,8 @@ public class TierSegmentReaderTest {
         combinedBuffer.position(0);
         ByteBufferInputStream is = new ByteBufferInputStream(combinedBuffer);
         CancellationContext cancellationContext = CancellationContext.newContext();
-        MemoryRecords records = reader.readRecords(cancellationContext.subContext(), is, 1000, target, 0, combinedBuffer.limit()).records;
+        MemoryRecords records = reader.readRecords(cancellationContext.subContext(), Optional.empty(),
+                is, 1000, target, 0, combinedBuffer.limit()).records;
 
         Long firstOffset = null;
         Long lastOffset = null;
@@ -292,7 +294,8 @@ public class TierSegmentReaderTest {
         CancellationContext cancellationContext = CancellationContext.newContext();
 
         assertThrows(expectedThrowable,
-                () -> reader.readRecords(cancellationContext.subContext(), is, 1000, target, 0, combinedBuffer.limit()));
+                () -> reader.readRecords(cancellationContext.subContext(), Optional.empty(), is, 1000,
+                        target, 0, combinedBuffer.limit()));
     }
 
     private void testReadSegment(List<MemoryRecords> batches, int maxBytes) throws IOException {
@@ -330,7 +333,8 @@ public class TierSegmentReaderTest {
 
             InputStream stream = toStream(batches);
 
-            TierSegmentReader.RecordsAndNextBatchMetadata result = reader.readRecords(ctx, stream, maxBytes,
+            TierSegmentReader.RecordsAndNextBatchMetadata result = reader.readRecords(ctx,
+                    Optional.empty(), stream, maxBytes,
                     targetOffset, 0, segmentSize);
 
             if (expectedOffsets.isEmpty()) {

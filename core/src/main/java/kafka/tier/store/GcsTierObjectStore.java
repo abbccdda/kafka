@@ -6,7 +6,6 @@ package kafka.tier.store;
 
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.ReadChannel;
-import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Bucket;
@@ -75,11 +74,9 @@ public class GcsTierObjectStore implements TierObjectStore {
         log.debug("Fetching object from gcs://{}/{}, with range of {} to {}", bucket, key, byteOffsetStart, byteOffsetEnd);
 
         try {
-            Blob blob = storage.get(blobId);
             ReadChannel reader = storage.reader(blobId);
             long byteOffsetStartLong = byteOffsetStart == null ? 0 : byteOffsetStart.longValue();
-            long byteOffsetEndLong = byteOffsetEnd == null ? blob.getSize() : byteOffsetEnd.longValue();
-            return new GcsTierObjectStoreResponse(reader, byteOffsetStartLong, byteOffsetEndLong, readChunkSize);
+            return new GcsTierObjectStoreResponse(reader, byteOffsetStartLong, readChunkSize);
         } catch (StorageException e) {
             throw new TierObjectStoreRetriableException("Failed to fetch segment " + objectMetadata, e);
         } catch (Exception e) {
@@ -190,15 +187,12 @@ public class GcsTierObjectStore implements TierObjectStore {
 
     private static class GcsTierObjectStoreResponse implements TierObjectStoreResponse {
         private final InputStream inputStream;
-        private final long objectSize;
-        
-        GcsTierObjectStoreResponse(ReadChannel channel, long startOffset, long endOffset, int chunkSize)
-                throws IOException {
+        GcsTierObjectStoreResponse(ReadChannel channel, long startOffset, int chunkSize) throws IOException {
             if (chunkSize > 0)
                 channel.setChunkSize(chunkSize);
             channel.seek(startOffset);
+
             this.inputStream = Channels.newInputStream(channel);
-            this.objectSize = endOffset - startOffset;
         }
 
         @Override
@@ -209,11 +203,6 @@ public class GcsTierObjectStore implements TierObjectStore {
         @Override
         public InputStream getInputStream() {
             return inputStream;
-        }
-
-        @Override
-        public long getStreamSize() {
-            return objectSize;
         }
     }
 }

@@ -9,6 +9,7 @@ import io.opencensus.proto.metrics.v1.LabelKey;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.resource.v1.Resource;
 import java.util.Map;
+import java.util.Set;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -74,6 +75,7 @@ public class KafkaServerMetricsReporterIntegrationTest extends MetricReporterClu
         long startMs = System.currentTimeMillis();
 
         List<String> brokerIds = servers.stream().map(s -> "" + s.config().brokerId()).collect(Collectors.toList());
+        Set<String> brokerRacks = servers.stream().map(s -> "" + s.config().rack().get()).collect(Collectors.toSet());
         List<String> libs = Arrays.asList(KAFKA_METRICS_LIB, LIBRARY_NONE, YAMMER_METRICS);
 
         boolean kafkaMetricsPresent = false, yammerMetricsPresent = false, cpuVolumeMetricsPresent = false;
@@ -106,6 +108,12 @@ public class KafkaServerMetricsReporterIntegrationTest extends MetricReporterClu
                 assertEquals(
                     servers.get(0).clusterId(),
                     resourceLabels.get("cluster_id")
+                );
+
+                assertTrue(
+                    brokerRacks.contains(
+                        resourceLabels.get(TelemetryResourceType.KAFKA.prefixLabel(KafkaServerMetricsReporter.LABEL_BROKER_RACK))
+                    )
                 );
 
                 assertTrue(

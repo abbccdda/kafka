@@ -143,6 +143,8 @@
       <allow pkg="org.apache.kafka.common.protocol" />
       <allow pkg="org.apache.kafka.common.protocol.types" />
       <allow pkg="org.apache.kafka.common.errors" />
+      <!-- for testing -->
+      <allow class="org.apache.kafka.common.requests.ByteBufferChannel" />
     </subpackage>
 
     <subpackage name="header">

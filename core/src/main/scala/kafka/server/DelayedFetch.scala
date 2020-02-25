@@ -172,7 +172,6 @@ class DelayedFetch(delayMs: Long,
   }
 
   override def onExpiration(): Unit = {
-    tierFetchOpt.foreach(_.cancel())
     if (fetchMetadata.isFromFollower)
       DelayedFetchMetrics.followerExpiredRequestMeter.mark()
     else
@@ -200,21 +199,21 @@ class DelayedFetch(delayMs: Long,
    * Upon completion, read whatever data is available and pass to the complete callback
    */
   override def onComplete(): Unit = {
-    val tierFetchCompleted = tierFetchOpt.exists(_.isComplete)
-    // If the tierFetch is not completed, then it's safe to assume that this request timed out. It should have been
-    // canceled in `onExpiration()`. In order to prevent blocking the expiration thread, we will only retrieve
-    // the results if doing so will not block.
-    val tierFetcherReadResults: Option[util.Map[TopicPartition, TierFetchResult]] = if (tierFetchCompleted) {
-      Some(tierFetchOpt.get.finish())
-    } else None
+    // In order to reclaim memory, ensure that DelayedFetch will wait for the
+    // thread driving the PendingFetch to conclude. After joining on the future, it's known that
+    // the PendingFetch will not attempt to claim any more memory, and ownership of the associated
+    // memory lease has transferred to the DelayedFetch/Response.
+    val tierFetcherReadResults = tierFetchOpt.map {
+      pendingFetch =>
+        pendingFetch.cancel()
+        pendingFetch.finish()
+    }
 
     val logReadResults = collectLogReadResults()
     val unifiedReadResults: Seq[(TopicPartition, LogReadResult)] = logReadResults.map {
       // For data fetched from tiered storage, we combine the tierFetcherReadResults with the TierLogReadResults
       // returned from the Partition/Log layer. This provides us with metadata like leader epoch and high watermark.
       case (tp, tierLogReadResult: TierLogReadResult) => {
-        // We may have not gotten any results back for our tier fetch if we canceled early,
-        // return empty batches in that case.
         val tierFetchResult = tierFetcherReadResults.map(_.get(tp)).getOrElse(TierFetchResult.emptyFetchResult())
         tp -> tierLogReadResult.intoLogReadResult(tierFetchResult, isReadAllowed = !tierFetchResult.isEmpty)
       }

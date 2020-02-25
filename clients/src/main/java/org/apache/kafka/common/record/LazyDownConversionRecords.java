@@ -186,4 +186,9 @@ public class LazyDownConversionRecords implements BaseRecords {
             return allDone();
         }
     }
+
+    @Override
+    public void release() {
+        records.release();
+    }
 }

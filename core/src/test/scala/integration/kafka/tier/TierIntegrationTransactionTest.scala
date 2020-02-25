@@ -213,6 +213,12 @@ class TierIntegrationTransactionTest extends IntegrationTestHarness {
 
     Assert.assertTrue("tier archiver mean rate shows no data uploaded to tiered storage",
       meanArchiveRate > 0)
+
+    for (server <- servers) {
+      val tierFetcher = server.tierFetcherOpt.get
+      val memoryTracker = tierFetcher.memoryTracker()
+      Assert.assertEquals(s"expected leased TierFetcher memory for broker ${server.config.brokerId} to be 0", 0, memoryTracker.leased())
+    }
   }
 }
 

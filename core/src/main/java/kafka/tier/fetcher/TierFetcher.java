@@ -4,18 +4,23 @@
 
 package kafka.tier.fetcher;
 
+import kafka.server.BrokerReconfigurable;
 import kafka.server.DelayedOperationKey;
+import kafka.server.KafkaConfig;
 import kafka.tier.TierTimestampAndOffset;
 import kafka.tier.fetcher.offsetcache.FetchOffsetCache;
 import kafka.tier.store.TierObjectStore;
 import kafka.utils.KafkaScheduler;
 import org.apache.kafka.common.IsolationLevel;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -28,7 +33,7 @@ import java.util.stream.Collectors;
 
 import static scala.compat.java8.JFunction.func;
 
-public class TierFetcher {
+public class TierFetcher implements BrokerReconfigurable {
     private final AtomicBoolean stopped = new AtomicBoolean(false);
     private final CancellationContext cancellationContext;
     private final Logger logger;
@@ -37,8 +42,10 @@ public class TierFetcher {
     public final TierFetcherMetrics tierFetcherMetrics;
     // package private for testing
     final FetchOffsetCache cache;
+    private final MemoryTracker memoryTracker;
 
-    public TierFetcher(TierFetcherConfig tierFetcherConfig,
+    public TierFetcher(Time time,
+                       TierFetcherConfig tierFetcherConfig,
                        TierObjectStore tierObjectStore,
                        KafkaScheduler scheduler,
                        Metrics metrics,
@@ -47,10 +54,9 @@ public class TierFetcher {
         this.tierObjectStore = tierObjectStore;
         this.logger = logContext.logger(TierFetcher.class);
         this.executorService = (ThreadPoolExecutor) (Executors.newFixedThreadPool(tierFetcherConfig.numFetchThreads));
-        this.cache = new FetchOffsetCache(Time.SYSTEM, tierFetcherConfig.offsetCacheSize,
-                tierFetcherConfig.offsetCacheExpirationMs);
+        this.cache = new FetchOffsetCache(time, tierFetcherConfig.offsetCacheSize, tierFetcherConfig.offsetCacheExpirationMs);
         this.tierFetcherMetrics = new TierFetcherMetrics(metrics, executorService, cache);
-
+        this.memoryTracker = new MemoryTracker(time, metrics, tierFetcherConfig.memoryPoolSizeBytes);
         scheduler.schedule("tier-fetcher-clear-fetch-offset-cache",
                 func(() -> {
                     cache.expireEntries();
@@ -61,8 +67,8 @@ public class TierFetcher {
                 TimeUnit.MILLISECONDS);
     }
 
-    TierFetcher(TierObjectStore tierObjectStore, KafkaScheduler scheduler, Metrics metrics) {
-        this(new TierFetcherConfig(), tierObjectStore, scheduler, metrics, new LogContext());
+    TierFetcher(Time time, TierObjectStore tierObjectStore, KafkaScheduler scheduler, Metrics metrics) {
+        this(time, new TierFetcherConfig(), tierObjectStore, scheduler, metrics, new LogContext());
     }
 
     /**
@@ -74,6 +80,8 @@ public class TierFetcher {
         if (stopped.compareAndSet(false, true)) {
             cancellationContext.cancel();
             executorService.shutdownNow();
+            // unblock any pending memory acquisitions
+            memoryTracker.close();
         }
     }
 
@@ -109,6 +117,7 @@ public class TierFetcher {
                                 maxBytes,
                                 firstFetchMetadata.segmentSize(),
                                 isolationLevel,
+                                memoryTracker,
                                 ignoredTopicPartitions);
             } else {
                 throw new IllegalStateException("TierFetcher is shutting down, request was not scheduled");
@@ -146,5 +155,33 @@ public class TierFetcher {
                 fetchCompletionCallback);
         executorService.execute(pending);
         return pending;
+    }
+
+    // visible for testing
+    public MemoryTracker memoryTracker() {
+        return this.memoryTracker;
+    }
+
+    // dynamic configuration
+    public static scala.collection.Set<String> reconfigurableConfigs =
+            scala.collection.JavaConverters.asScalaSet(new HashSet<>(Arrays.asList(KafkaConfig.TierFetcherMemoryPoolSizeBytesProp())));
+    @Override
+    public scala.collection.Set<String> reconfigurableConfigs() {
+        return reconfigurableConfigs;
+    }
+
+    @Override
+    public void validateReconfiguration(KafkaConfig newConfig) {
+        long newMemoryBytesValue = newConfig.tierFetcherMemoryPoolSizeBytes();
+        if (newMemoryBytesValue < 0) {
+            throw new ConfigException(String.format("%s should not be less than 0",
+                    KafkaConfig.TierFetcherMemoryPoolSizeBytesProp()));
+        }
+    }
+
+    @Override
+    public void reconfigure(KafkaConfig oldConfig, KafkaConfig newConfig) {
+        TierFetcherConfig newTierFetcherConfig = new TierFetcherConfig(newConfig);
+        memoryTracker.setPoolSize(newTierFetcherConfig.memoryPoolSizeBytes);
     }
 }

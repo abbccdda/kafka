@@ -3,7 +3,6 @@
 package io.confluent.telemetry;
 
 import com.google.common.base.Joiner;
-import io.confluent.monitoring.common.TimeBucket;
 import io.confluent.telemetry.collector.VolumeMetricsCollector.VolumeMetricsCollectorConfig;
 import io.confluent.telemetry.exporter.http.HttpExporterConfig;
 import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
@@ -19,6 +18,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 public class ConfluentTelemetryConfig extends AbstractConfig {
 
@@ -28,7 +28,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     public static final String PREFIX_METRICS_COLLECTOR = PREFIX + "metrics.collector.";
 
     public static final String COLLECT_INTERVAL_CONFIG = PREFIX_METRICS_COLLECTOR + "interval.ms";
-    public static final Long DEFAULT_COLLECT_INTERVAL = TimeBucket.SIZE;
+    public static final Long DEFAULT_COLLECT_INTERVAL = TimeUnit.MINUTES.toMillis(1);
     public static final String COLLECT_INTERVAL_DOC = "The metrics reporter will collect new metrics "
             + "from the system in intervals defined by this setting. This means that control "
             + "center system health data lags by this duration, or that rebalancer may compute a plan "
@@ -171,6 +171,13 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
 
     public String getBrokerId() {
         return (String) originals().get(KafkaConfig.BrokerIdProp());
+    }
+
+    /**
+     * Get kafka broker rack information.
+     */
+    public Optional<String> getBrokerRack() {
+        return Optional.ofNullable((String) originals().get(KafkaConfig.RackProp()));
     }
 
     /**

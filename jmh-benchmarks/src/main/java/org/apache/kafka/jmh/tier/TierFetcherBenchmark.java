@@ -9,6 +9,8 @@ import kafka.tier.fetcher.TierFetchMetadata;
 import kafka.tier.fetcher.TierFetchResult;
 import kafka.tier.fetcher.TierFetcher;
 import kafka.tier.fetcher.TierFetcherConfig;
+import kafka.tier.store.GcsTierObjectStore;
+import kafka.tier.store.GcsTierObjectStoreConfig;
 import kafka.tier.store.MockInMemoryTierObjectStore;
 import kafka.tier.store.S3TierObjectStore;
 import kafka.tier.store.S3TierObjectStoreConfig;
@@ -62,9 +64,10 @@ import java.util.concurrent.TimeUnit;
 public class TierFetcherBenchmark {
     @Param({"500", "50000", "500000", "1000000", "2000000"})
     public static String approxBatchSize;
-    @Param({"0", "100000", "200000", "300000", "400000", "500000"})
+    @Param({"500000"})
     public static String autoAbortSize;
-    private final static boolean TEST_REAL_S3 = false;
+    @Param({"Mock"})
+    public static String backend;
     private final static int TARGET_SEGMENT_SIZE = 100_000_000;
     private final static int INDEX_INTERVAL_BYTES = 4096;
     private final static int SEGMENT_INDEX_BYTES = 10_000_000;
@@ -113,7 +116,6 @@ public class TierFetcherBenchmark {
             }
 
             finalSegmentSize = segmentFile.length();
-
             logSegment.flush();
             logSegment.offsetIndex().flush();
             logSegment.offsetIndex().trimToValidSize();
@@ -135,19 +137,36 @@ public class TierFetcherBenchmark {
 
     private static TierObjectStore getTierObjectStore() {
         TierObjectStore tierObjectStore;
-        if (TEST_REAL_S3) {
-            Properties props = new Properties();
-            props.put(KafkaConfig.ZkConnectProp(), "IGNORED");
-            props.put(KafkaConfig.TierS3BucketProp(), "");
-            props.put(KafkaConfig.TierS3AwsAccessKeyIdProp(), "");
-            props.put(KafkaConfig.TierS3AwsSecretAccessKeyProp(), "");
-            props.put(KafkaConfig.TierS3RegionProp(), "us-west-2");
-            props.put(KafkaConfig.TierS3AutoAbortThresholdBytesProp(), autoAbortSize);
-            KafkaConfig kafkaConfig = new KafkaConfig(props);
-            S3TierObjectStoreConfig s3TierObjectStoreConfig = new S3TierObjectStoreConfig("mycluster", kafkaConfig);
-            tierObjectStore = new S3TierObjectStore(s3TierObjectStoreConfig);
-        } else {
-            tierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig("mycluster", 0));
+        switch (backend) {
+            case "S3": {
+                Properties props = new Properties();
+                props.put(KafkaConfig.ZkConnectProp(), "IGNORED");
+                props.put(KafkaConfig.TierS3BucketProp(), "tiered-storage-s3-benchmarks-lucas");
+                props.put(KafkaConfig.TierS3AwsAccessKeyIdProp(), "FILLME");
+                props.put(KafkaConfig.TierS3AwsSecretAccessKeyProp(), "FILLME");
+                props.put(KafkaConfig.TierS3RegionProp(), "us-west-2");
+                props.put(KafkaConfig.TierS3AutoAbortThresholdBytesProp(), autoAbortSize);
+                KafkaConfig kafkaConfig = new KafkaConfig(props);
+                S3TierObjectStoreConfig objectStoreConfig = new S3TierObjectStoreConfig("mycluster", kafkaConfig);
+                tierObjectStore = new S3TierObjectStore(objectStoreConfig);
+                break;
+            }
+            case "GCS": {
+                Properties props = new Properties();
+                props.put(KafkaConfig.ZkConnectProp(), "IGNORED");
+                props.put(KafkaConfig.TierGcsCredFilePathProp(), "FILLME");
+                props.put(KafkaConfig.TierGcsBucketProp(), "tier-object-store-test");
+                props.put(KafkaConfig.TierGcsRegionProp(), "us-west2");
+                KafkaConfig kafkaConfig = new KafkaConfig(props);
+                GcsTierObjectStoreConfig objectStoreConfig = new GcsTierObjectStoreConfig("mycluster", kafkaConfig);
+                tierObjectStore = new GcsTierObjectStore(objectStoreConfig);
+                break;
+            }
+            case "Mock":
+                tierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig("mycluster", 0));
+                break;
+            default:
+                throw new IllegalArgumentException("Unsupported backend " + backend);
         }
 
         return tierObjectStore;
@@ -160,7 +179,7 @@ public class TierFetcherBenchmark {
         TierFetcherConfig fetcherConfig = new TierFetcherConfig();
         LogContext logContext = new LogContext("tierFetcher");
         // start a new tier fetcher so we use a fresh offset cache for the entire run
-        TierFetcher tierFetcher = new TierFetcher(fetcherConfig, fetchState.tierObjectStore, Mockito.mock(KafkaScheduler.class), metrics, logContext);
+        TierFetcher tierFetcher = new TierFetcher(Time.SYSTEM, fetcherConfig, fetchState.tierObjectStore, Mockito.mock(KafkaScheduler.class), metrics, logContext);
 
         int sizeRead = 0;
         // pick an initial offset that requires an index fetch
@@ -172,17 +191,22 @@ public class TierFetcherBenchmark {
                     (int) fetchState.finalSegmentSize);
             PendingFetch pending = tierFetcher.buildFetch(Collections.singletonList(fetchMetadata),
                             IsolationLevel.READ_UNCOMMITTED,
-                            ignored -> {
-                            });
+                            ignored -> { });
             pending.run();
 
             Map<TopicPartition, TierFetchResult> fetchResults = pending.finish();
             TierFetchResult fetchResult = fetchResults.get(fetchState.topicIdPartition.topicPartition());
             RecordBatch finalBatch = null;
+
             for (RecordBatch batch: fetchResult.records.batches()) {
                 sizeRead += batch.sizeInBytes();
                 finalBatch = batch;
             }
+
+            if (finalBatch == null)
+                throw new IllegalStateException("Failed to read a full batch. This usually "
+                        + "happens due to a timeout, but it will mostly invalidate the benchmark.");
+
             nextOffset = finalBatch.nextOffset();
         }
 

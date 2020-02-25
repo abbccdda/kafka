@@ -113,6 +113,11 @@ public class MemoryRecords extends AbstractRecords {
     }
 
     @Override
+    public void release() {
+        // noop
+    }
+
+    @Override
     public AbstractIterator<MutableRecordBatch> batchIterator() {
         return new RecordBatchIterator<>(new ByteBufferLogInputStream(buffer.duplicate(), Integer.MAX_VALUE));
     }

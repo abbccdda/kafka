@@ -380,7 +380,7 @@ class TierIntegrationTest {
       val tierSegmentOffsets = tierPartitionState.segmentOffsets
       tierSegmentOffsets.asScala.foreach { offset =>
         val tierObjectMetadata = tierPartitionState.metadata(offset).get
-        assertNotNull(tierObjectStore.getObject(new TierObjectStore.ObjectMetadata(tierObjectMetadata), FileType.SEGMENT, 0, 1000).getStreamSize)
+        assertNotNull(tierObjectStore.getObject(new TierObjectStore.ObjectMetadata(tierObjectMetadata), FileType.SEGMENT, 0, 1000))
       }
     }
   }

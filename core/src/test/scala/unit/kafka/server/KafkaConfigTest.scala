@@ -714,6 +714,7 @@ class KafkaConfigTest {
         case KafkaConfig.TierMetadataReplicationFactorProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0", "-2")
         case KafkaConfig.TierS3RegionProp => // ignore string
         case KafkaConfig.TierS3BucketProp => // ignore string
+        case KafkaConfig.TierS3PrefixProp => // ignore string
         case KafkaConfig.TierS3AwsAccessKeyIdProp => // ignore string
         case KafkaConfig.TierS3AwsSecretAccessKeyProp => // ignore string
         case KafkaConfig.TierS3EndpointOverrideProp => // ignore string
@@ -728,6 +729,7 @@ class KafkaConfigTest {
         case KafkaConfig.TierGcsCredFilePathProp => // ignore string
         case KafkaConfig.TierBackendProp => assertPropertyInvalid(getBaseProperties(), name, "notanimplementation")
         case KafkaConfig.TierFetcherNumThreadsProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0", "-2")
+        case KafkaConfig.TierFetcherMemoryPoolSizeBytesProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1")
         case KafkaConfig.TierLocalHotsetBytesProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1.2", "3.4")
         case KafkaConfig.TierLocalHotsetMsProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1.2", "3.4")
         case KafkaConfig.PreferTierFetchMsProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-0.1", "1.2")

@@ -119,6 +119,13 @@ object RequestChannel extends Logging {
     }
 
     def updateRequestMetrics(networkThreadTimeNanos: Long, responseSendIoTimeNanos: Long, response: Response): Unit = {
+      // The expectation is that all SendResponses, either successful or unsuccessful will be recorded here once completed.
+      // This makes updateRequestMetrics suitable for releasing any memory associated with the send.
+      response match {
+        case r: SendResponse => r.responseSend.release()
+        case _ =>
+      }
+
       val endTimeNanos = Time.SYSTEM.nanoseconds
       // In some corner cases, apiLocalCompleteTimeNanos may not be set when the request completes if the remote
       // processing time is really small. This value is set in KafkaApis from a request handling thread.
@@ -321,6 +328,9 @@ class RequestChannel(val queueSize: Int, val metricNamePrefix : String, val serv
 
   /** Send a response back to the socket server to be sent over the network */
   def sendResponse(response: RequestChannel.Response): Unit = {
+    // Note: The response object may contain ReclaimableMemoryRecords. ReclaimableMemoryRecords must be released before
+    // dropping so that the memory lease is returned to the memory limiter.
+
     if (isTraceEnabled) {
       val requestHeader = response.request.header
       val message = response match {
@@ -343,6 +353,13 @@ class RequestChannel(val queueSize: Int, val metricNamePrefix : String, val serv
     // are closed, so the response is dropped.
     if (processor != null) {
       processor.enqueueResponse(response)
+    } else {
+      // ReclaimableMemoryRecords are transformed into a ByteBufferSend during response generation. Ensure that
+      // if the processor is null, we reclaim the memory leased to the ByteBufferSend.
+      response match {
+        case response: SendResponse =>
+          response.responseSend.release()
+      }
     }
   }
 

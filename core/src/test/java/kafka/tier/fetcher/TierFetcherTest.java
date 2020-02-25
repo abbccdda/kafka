@@ -7,8 +7,11 @@ package kafka.tier.fetcher;
 import kafka.log.LogConfig;
 import kafka.log.LogSegment;
 import kafka.server.DelayedOperation;
+import kafka.server.KafkaConfig;
 import kafka.tier.TierTimestampAndOffset;
 import kafka.tier.TopicIdPartition;
+import kafka.tier.fetcher.offsetcache.FetchOffsetCache;
+import kafka.tier.store.MockInMemoryTierObjectStore;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
 import kafka.utils.KafkaScheduler;
@@ -24,10 +27,12 @@ import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.utils.ByteBufferInputStream;
+import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.test.TestUtils;
+import org.junit.Assert;
 import org.junit.Test;
-import scala.Option;
+import scala.compat.java8.OptionConverters;
 
 import java.io.File;
 import java.io.IOException;
@@ -39,38 +44,89 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.IntStream;
 
 import static junit.framework.TestCase.assertTrue;
 import static org.easymock.EasyMock.createNiceMock;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 
 public class TierFetcherTest {
     private MockTime mockTime = new MockTime();
+
+    private boolean futureReady(long timeoutMs, CompletableFuture<?> future) {
+        try {
+            future.get(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (Exception ignored) {
+            return false;
+        }
+        return true;
+    }
+
+    @Test
+    public void tierFetcherCancellationUnblocksWaitingForMemory() throws InterruptedException, TimeoutException {
+        ByteBuffer combinedBuffer = getMemoryRecordsBuffer();
+        TierObjectStore tierObjectStore = new MockedTierObjectStore(combinedBuffer,
+                ByteBuffer.allocate(0), ByteBuffer.allocate(0));
+        TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
+        TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
+        Metrics metrics = new Metrics();
+        KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
+        TierFetcherConfig tierFetcherConfig = new TierFetcherConfig(1, Integer.MAX_VALUE,
+                Integer.MAX_VALUE,
+                Integer.MAX_VALUE, 1L);
+        TierFetcher tierFetcher = new TierFetcher(mockTime, tierFetcherConfig, tierObjectStore,
+                kafkaScheduler, metrics, new LogContext());
+
+        // first, drain the tierFetcher memory pool so it's negative
+        tierFetcher.memoryTracker().newLease(CancellationContext.newContext(), 1024 * 1024);
+        assertFalse("expected tierfetcher to have less than zero bytes available in pool, further"
+                        + " lease attempts should fail",
+                tierFetcher.memoryTracker().tryLease(100).isPresent());
+
+        // Issue a tier fetch, it will be blocked on allocation from the memory pool
+        int maxBytes = 600;
+        TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicIdPartition.topicPartition(), 0,
+                maxBytes, 1000L, true, tierObjectMetadata,
+                OptionConverters.toScala(Optional.empty()), 0, 1000);
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
+                IsolationLevel.READ_UNCOMMITTED,
+                ignored -> future.complete(true));
+        Thread runThread = new Thread(pending);
+
+        assertFalse("expected fetch to be blocked on memory allocation", futureReady(100, future));
+        pending.cancel();
+        assertTrue("expected canceling the fetch to unblock the memory allocation", futureReady(1000, future));
+        runThread.join();
+    }
+
     @Test
     public void tierFetcherExceptionCausesOnComplete() throws Exception {
-        ByteBuffer offsetIndexBuffer = ByteBuffer.allocate(1);
-        ByteBuffer segmentFileBuffer = ByteBuffer.allocate(1);
-        ByteBuffer timestampFileBuffer = ByteBuffer.allocate(1);
+        ByteBuffer offsetIndexBuffer = ByteBuffer.allocate(0);
+        ByteBuffer segmentFileBuffer = getMemoryRecordsBuffer();
+        ByteBuffer timestampFileBuffer = ByteBuffer.allocate(0);
 
         MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer, offsetIndexBuffer, timestampFileBuffer);
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
         TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
         Metrics metrics = new Metrics();
         KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
-        TierFetcher tierFetcher = new TierFetcher(tierObjectStore, kafkaScheduler, metrics);
+        TierFetcher tierFetcher = new TierFetcher(mockTime, tierObjectStore, kafkaScheduler, metrics);
         try {
             int maxBytes = 600;
             TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicIdPartition.topicPartition(), 0,
                     maxBytes, 1000L, true, tierObjectMetadata,
-                    Option.empty(), 0, 1000);
+                    OptionConverters.toScala(Optional.empty()), 0, 1000);
 
             CompletableFuture<Boolean> f = new CompletableFuture<>();
             tierObjectStore.failNextRequest();
@@ -81,31 +137,36 @@ public class TierFetcherTest {
                     ignored -> f.complete(true));
             assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
 
+            TierFetchResult result =
+                    pending.finish().get(tierObjectMetadata.topicIdPartition().topicPartition());
+            assertEquals("expected returned records to be empty due to exception thrown", ReclaimableMemoryRecords.EMPTY, result.records);
+
             // We fetched no bytes because there was an exception.
             assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0);
             assertEquals(1.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchExceptionTotalMetricName).metricValue(), 0);
         } finally {
             tierFetcher.close();
         }
+        assertEquals("expected zero leased bytes", 0, tierFetcher.memoryTracker().leased());
     }
 
     @Test
     public void tierFetcherFetchCancelled() throws Exception {
-        ByteBuffer offsetIndexBuffer = ByteBuffer.allocate(1);
-        ByteBuffer segmentFileBuffer = ByteBuffer.allocate(1);
-        ByteBuffer timestampFileBuffer = ByteBuffer.allocate(1);
+        ByteBuffer offsetIndexBuffer = ByteBuffer.allocate(0);
+        ByteBuffer segmentFileBuffer = getMemoryRecordsBuffer();
+        ByteBuffer timestampFileBuffer = ByteBuffer.allocate(0);
 
         MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer, offsetIndexBuffer, timestampFileBuffer);
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
         TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
         Metrics metrics = new Metrics();
         KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
-        TierFetcher tierFetcher = new TierFetcher(tierObjectStore, kafkaScheduler, metrics);
+        TierFetcher tierFetcher = new TierFetcher(mockTime, tierObjectStore, kafkaScheduler, metrics);
         try {
             int maxBytes = 600;
-            TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicIdPartition.topicPartition(), 0,
-                    maxBytes, 1000L, true, tierObjectMetadata,
-                    Option.empty(), 0, 1000);
+            TierFetchMetadata fetchMetadata =
+                    new TierFetchMetadata(topicIdPartition.topicPartition(), 0, maxBytes, 1000L,
+                            true, tierObjectMetadata, OptionConverters.toScala(Optional.empty()), 0, 1000);
 
             CompletableFuture<Boolean> f = new CompletableFuture<>();
             assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0);
@@ -115,14 +176,22 @@ public class TierFetcherTest {
                     ignored -> f.complete(true));
             pending.cancel();
             assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
+            Map<TopicPartition, TierFetchResult> results = pending.finish();
+            TierFetchResult result = results.get(topicIdPartition.topicPartition());
 
-            // We fetched no bytes because there was an exception.
-            assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0);
-            assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchExceptionTotalMetricName).metricValue(), 0);
-            assertEquals(1.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchCancellationTotalMetricName).metricValue(), 0);
+            if (result.records.sizeInBytes() > 0) {
+                assertTrue((double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue() > 0);
+            }
+            if (result.exception == null) {
+                assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchExceptionTotalMetricName).metricValue(), 0);
+            }
+            assertEquals("expected 1 cancellation", 1.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchCancellationTotalMetricName).metricValue(), 0);
+            result.records.release();
         } finally {
             tierFetcher.close();
         }
+
+        assertEquals("expected zero leased bytes", 0, tierFetcher.memoryTracker().leased());
     }
 
 
@@ -142,10 +211,10 @@ public class TierFetcherTest {
         return combinedBuffer;
     }
 
-    class MockDelayedFetch extends DelayedOperation {
+    static class MockDelayedFetch extends DelayedOperation {
         PendingFetch fetch;
         MockDelayedFetch(PendingFetch fetch) {
-            super(0, Option.empty());
+            super(0, OptionConverters.toScala(Optional.empty()));
             this.fetch = fetch;
         }
 
@@ -179,11 +248,11 @@ public class TierFetcherTest {
 
         Metrics metrics = new Metrics();
         KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
-        TierFetcher tierFetcher = new TierFetcher(tierObjectStore, kafkaScheduler, metrics);
+        TierFetcher tierFetcher = new TierFetcher(mockTime, tierObjectStore, kafkaScheduler, metrics);
         try {
             TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicIdPartition.topicPartition(), 0,
                     10000, 1000L, true, tierObjectMetadata,
-                    Option.empty(), 0, 1000);
+                    OptionConverters.toScala(Optional.empty()), 0, 1000);
 
             CompletableFuture<Boolean> f = new CompletableFuture<>();
             assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
@@ -207,9 +276,11 @@ public class TierFetcherTest {
                 assertEquals("Offset not expected", record.offset(), lastOffset);
                 lastOffset += 1;
             }
+            fetchResult.records.release();
         } finally {
             tierFetcher.close();
         }
+        assertEquals("expected zero leased bytes", 0, tierFetcher.memoryTracker().leased());
     }
 
     @Test
@@ -255,7 +326,7 @@ public class TierFetcherTest {
             Metrics metrics = new Metrics();
 
             KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
-            TierFetcher tierFetcher = new TierFetcher(tierObjectStore, kafkaScheduler, metrics);
+            TierFetcher tierFetcher = new TierFetcher(mockTime, tierObjectStore, kafkaScheduler, metrics);
             try {
                 int expectedCacheEntries = 0;
                 long fetchOffset = 150L;
@@ -264,7 +335,7 @@ public class TierFetcherTest {
                     TierFetchMetadata fetchMetadata =
                             new TierFetchMetadata(topicIdPartition.topicPartition(), fetchOffset,
                                     1000, 1000L, true,
-                                    tierObjectMetadata, Option.empty(), 0, segmentFileBuffer.limit());
+                                    tierObjectMetadata, OptionConverters.toScala(Optional.empty()), 0, segmentFileBuffer.limit());
                     CompletableFuture<Boolean> f = new CompletableFuture<>();
 
                     PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
@@ -294,12 +365,14 @@ public class TierFetcherTest {
                     final long expected = expectedCacheEntries;
                     TestUtils.waitForCondition(() -> expected == tierFetcher.cache.size(),
                             "cache not updated by timeout");
+                    fetchResult.records.release();
                 }
                 assertEquals(fetchOffset - 1, expectedEndOffset);
                 assertEquals("offset index should have been used exactly once, for the initial fetch", 1, tierObjectStore.offsetIndexReads);
             } finally {
                 tierFetcher.close();
             }
+            assertEquals("expected zero leased bytes", 0, tierFetcher.memoryTracker().leased());
         } finally {
             logSegment.deleteIfExists();
         }
@@ -348,7 +421,7 @@ public class TierFetcherTest {
             Metrics metrics = new Metrics();
 
             KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
-            TierFetcher tierFetcher = new TierFetcher(tierObjectStore, kafkaScheduler, metrics);
+            TierFetcher tierFetcher = new TierFetcher(mockTime, tierObjectStore, kafkaScheduler, metrics);
             try {
                 int expectedCacheEntries = 0;
                 long fetchOffset = 0L;
@@ -356,7 +429,7 @@ public class TierFetcherTest {
                     TierFetchMetadata fetchMetadata =
                             new TierFetchMetadata(topicIdPartition.topicPartition(), fetchOffset,
                                     1000, 1000L, true,
-                                    tierObjectMetadata, Option.empty(), 0, segmentFileBuffer.limit());
+                                    tierObjectMetadata, OptionConverters.toScala(Optional.empty()), 0, segmentFileBuffer.limit());
                     CompletableFuture<Boolean> f = new CompletableFuture<>();
 
                     PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
@@ -386,6 +459,7 @@ public class TierFetcherTest {
                     final long expected = expectedCacheEntries;
                     TestUtils.waitForCondition(() -> expected == tierFetcher.cache.size(),
                             "cache not updated by timeout");
+                    fetchResult.records.release();
                 }
                 assertEquals(fetchOffset - 1, expectedEndOffset);
                 assertEquals(1.0, tierFetcher.cache.hitRatio(), 0.0001);
@@ -393,6 +467,7 @@ public class TierFetcherTest {
             } finally {
                 tierFetcher.close();
             }
+            assertEquals("expected zero leased bytes", 0, tierFetcher.memoryTracker().leased());
         } finally {
             logSegment.deleteIfExists();
         }
@@ -439,11 +514,11 @@ public class TierFetcherTest {
             Metrics metrics = new Metrics();
 
             KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
-            TierFetcher tierFetcher = new TierFetcher(tierObjectStore, kafkaScheduler, metrics);
+            TierFetcher tierFetcher = new TierFetcher(mockTime, tierObjectStore, kafkaScheduler, metrics);
             try {
                 TierFetchMetadata fetchMetadata = new TierFetchMetadata(topicIdPartition.topicPartition(), 100,
                         10000, 1000L, true,
-                        tierObjectMetadata, Option.empty(), 0, 1000);
+                        tierObjectMetadata, OptionConverters.toScala(Optional.empty()), 0, 1000);
                 CompletableFuture<Boolean> f = new CompletableFuture<>();
 
                 assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
@@ -467,10 +542,11 @@ public class TierFetcherTest {
                     assertEquals("Offset not expected", lastOffset, record.offset());
                     lastOffset += 1;
                 }
+                fetchResult.records.release();
             } finally {
                 tierFetcher.close();
             }
-
+            assertEquals("expected zero leased bytes", 0, tierFetcher.memoryTracker().leased());
         } finally {
             logSegment.close();
         }
@@ -517,7 +593,7 @@ public class TierFetcherTest {
             TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
             Metrics metrics = new Metrics();
             KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
-            TierFetcher tierFetcher = new TierFetcher(tierObjectStore, kafkaScheduler, metrics);
+            TierFetcher tierFetcher = new TierFetcher(mockTime, tierObjectStore, kafkaScheduler, metrics);
             try {
                 // test success
                 {
@@ -540,9 +616,7 @@ public class TierFetcherTest {
                     HashMap<TopicPartition, TierTimestampAndOffset> timestamps = new HashMap<>();
                     timestamps.put(topicIdPartition.topicPartition(), new TierTimestampAndOffset(101L,
                             tierObjectMetadata, segmentFileBuffer.limit()));
-                    PendingOffsetForTimestamp pending = tierFetcher.fetchOffsetForTimestamp(timestamps,
-                            ignored -> f.complete(true));
-                    assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchOffsetForTimestampExceptionTotalMetricName).metricValue(), 0);
+                    PendingOffsetForTimestamp pending = tierFetcher.fetchOffsetForTimestamp(timestamps, ignored -> f.complete(true));
                     f.get(2000, TimeUnit.MILLISECONDS);
                     assertNotNull("tier object store through exception, pending result should "
                             + "have been completed exceptionally",
@@ -552,6 +626,7 @@ public class TierFetcherTest {
             } finally {
                 tierFetcher.close();
             }
+            assertEquals("expected zero leased bytes", 0, tierFetcher.memoryTracker().leased());
         } finally {
             logSegment.close();
         }
@@ -591,13 +666,13 @@ public class TierFetcherTest {
             TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
             Metrics metrics = new Metrics();
             KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
-            TierFetcher tierFetcher = new TierFetcher(tierObjectStore, kafkaScheduler, metrics);
+            TierFetcher tierFetcher = new TierFetcher(mockTime, tierObjectStore, kafkaScheduler, metrics);
             try {
                 int maxBytes = 600;
                 TierFetchMetadata fetchMetadata =
                         new TierFetchMetadata(topicIdPartition.topicPartition(), 0,
                         maxBytes, 1000L, true,
-                        tierObjectMetadata, Option.empty(), 0, 1000);
+                        tierObjectMetadata, OptionConverters.toScala(Optional.empty()), 0, 1000);
 
                 CompletableFuture<Boolean> f = new CompletableFuture<>();
                 assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
@@ -622,13 +697,119 @@ public class TierFetcherTest {
                 }
                 assertEquals("When we set maxBytes low, we just read the first 50 records "
                         + "successfully.", 50, lastOffset);
-
+                fetchResult.records.release();
             } finally {
                 tierFetcher.close();
             }
+            assertEquals("expected zero leased bytes", 0, tierFetcher.memoryTracker().leased());
         } finally {
             logSegment.close();
         }
+    }
+
+    /**
+     * If there is an exception thrown from the TierObjectStore, test that the memory lease for the
+     * initial fetch is released.
+     */
+    @Test
+    public void testTierObjectStoreExceptionReleasesLease() {
+        CancellationContext ctx = CancellationContext.newContext();
+        ByteBuffer combinedBuffer = getMemoryRecordsBuffer();
+        MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(combinedBuffer,
+                ByteBuffer.allocate(0), ByteBuffer.allocate(0));
+        FetchOffsetCache fetchOffsetCache = new FetchOffsetCache(mockTime, 0, 0);
+        TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
+        TierObjectStore.ObjectMetadata objectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
+        // MemoryTracker containing a single byte, this implies that we will have a single lease.
+        MemoryTracker memoryTracker = new MemoryTracker(mockTime, 1);
+        PendingFetch pendingFetch = new PendingFetch(ctx,
+                tierObjectStore,
+                fetchOffsetCache,
+                Optional.empty(),
+                objectMetadata,
+                ignored -> { },
+                0,
+                1024,
+                1024,
+                IsolationLevel.READ_UNCOMMITTED,
+                memoryTracker,
+                Collections.emptyList());
+
+        // fail the next request, this should result in all memory released
+        tierObjectStore.failNextRequest();
+        pendingFetch.run();
+        Map<TopicPartition, TierFetchResult> results = pendingFetch.finish();
+        TierFetchResult tierFetchResult = results.get(topicIdPartition.topicPartition());
+        assertNotNull("expected fetch to return an exception", tierFetchResult.exception);
+        assertEquals("expected all memory to be returned to the memory tracker", 0, memoryTracker.leased());
+    }
+
+    /**
+     * Test that when we know the size of the first record batch, a more accurate memory lease is
+     * used (and blocked on).
+     */
+    @Test
+    public void memoryLeaseWithKnownFirstBatchSize() throws InterruptedException {
+        CancellationContext ctx = CancellationContext.newContext();
+        ByteBuffer combinedBuffer = getMemoryRecordsBuffer();
+        MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(combinedBuffer,
+                ByteBuffer.allocate(0), ByteBuffer.allocate(0));
+        FetchOffsetCache fetchOffsetCache = new FetchOffsetCache(mockTime, Integer.MAX_VALUE, Integer.MAX_VALUE);
+
+        TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
+        TierObjectStore.ObjectMetadata objectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
+        int firstBatchSize = 2048;
+        long memoryTrackerCapacity = 1024;
+        // Add an offset cache entry for targetOffset == 1, this is larger than the memory tracker
+        // capacity
+        fetchOffsetCache.put(objectMetadata.objectId(), 1, 0, OptionalInt.of(firstBatchSize));
+        // MemoryTracker containing a single byte, this implies that we will have a lease.
+        MemoryTracker memoryTracker = new MemoryTracker(mockTime, memoryTrackerCapacity);
+        // take out a lease to exhaust the memory tracker
+        MemoryTracker.MemoryLease firstLease = memoryTracker.newLease(ctx, memoryTrackerCapacity * 2);
+        PendingFetch pendingFetch = new PendingFetch(ctx,
+                tierObjectStore,
+                fetchOffsetCache,
+                Optional.empty(),
+                objectMetadata,
+                ignored -> { },
+                1, // targetOffset == 1
+                1024,
+                1024,
+                IsolationLevel.READ_UNCOMMITTED,
+                memoryTracker,
+                Collections.emptyList());
+        Thread running = new Thread(pendingFetch);
+        running.start();
+        assertFalse("expected pending fetch to be blocked on memory allocation", pendingFetch.isComplete());
+        // release the initial lease, this should unblock the pendingfetch
+        firstLease.release();
+        memoryTracker.wakeup();
+        running.join();
+        Map<TopicPartition, TierFetchResult> results = pendingFetch.finish();
+        TierFetchResult tierFetchResult = results.get(topicIdPartition.topicPartition());
+        assertEquals("expected exactly firstBatchSize bytes to be leased", firstBatchSize, memoryTracker.leased());
+        tierFetchResult.records.release();
+        assertEquals("expected releasing the records returns leased memory to the MemoryTracker", 0, memoryTracker.leased());
+    }
+
+    @Test
+    public void testResizeTierFetcherMemoryPoolDynamically() {
+        Map<String, String> cfg = new HashMap<>();
+        cfg.put(KafkaConfig.ZkConnectProp(), "127.0.0.1:0000");
+        cfg.put(KafkaConfig.TierFetcherMemoryPoolSizeBytesProp(), "1024");
+        KafkaConfig oldConfig = new KafkaConfig(cfg);
+        TierFetcherConfig config = new TierFetcherConfig(oldConfig);
+        KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
+        TierFetcher tierFetcher = new TierFetcher(mockTime, config, new MockInMemoryTierObjectStore(null), kafkaScheduler, new Metrics(), new LogContext());
+        Assert.assertTrue("expected TierFetcher memory pool size to be reconfigurable", tierFetcher.reconfigurableConfigs().contains(KafkaConfig.TierFetcherMemoryPoolSizeBytesProp()));
+        Assert.assertEquals("expected TierFetcher memory pool size to match what was set originally", tierFetcher.memoryTracker().poolSize(), 1024);
+
+        cfg.put(KafkaConfig.TierFetcherMemoryPoolSizeBytesProp(), "0");
+        tierFetcher.reconfigure(null, new KafkaConfig(cfg));
+
+        Assert.assertEquals("expected TierFetcher memory pool size to be updated to the new size", tierFetcher.memoryTracker().poolSize(), 0);
+
     }
 
     class MockedTierObjectStore implements TierObjectStore {
@@ -650,21 +831,14 @@ public class TierFetcherTest {
 
         class MockTierObjectStoreResponse implements TierObjectStoreResponse {
             private final InputStream is;
-            private final long size;
 
-            MockTierObjectStoreResponse(InputStream is, long size) {
+            MockTierObjectStoreResponse(InputStream is) {
                 this.is = is;
-                this.size = size;
             }
 
             @Override
             public InputStream getInputStream() {
                 return is;
-            }
-
-            @Override
-            public long getStreamSize() {
-                return size;
             }
 
             @Override
@@ -709,7 +883,7 @@ public class TierFetcherTest {
             buf.put(buffer.array(), start, byteBufferSize);
             buf.flip();
 
-            return new MockTierObjectStoreResponse(new ByteBufferInputStream(buf), byteBufferSize);
+            return new MockTierObjectStoreResponse(new ByteBufferInputStream(buf));
         }
 
         @Override

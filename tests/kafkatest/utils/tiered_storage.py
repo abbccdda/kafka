@@ -1,13 +1,16 @@
 from kafkatest.services.kafka import config_property
 
 import sys
+import uuid
+import time
 
 S3_BACKEND = "S3"
 GCS_BACKEND = "GCS"
 
 def tier_server_props(backend, feature=True, enable=False,
                       metadata_replication_factor=3, hotset_bytes=1, hotset_ms=1,
-                      log_segment_bytes=1024000, log_retention_check_interval=5000, log_roll_time = 3000):
+                      log_segment_bytes=1024000, log_retention_check_interval=5000, log_roll_time=3000,
+                      hotset_roll_min_bytes=None, tier_delete_check_interval=1000):
     """Helper for building server_prop_overrides in Kafka tests that enable tiering"""
     props = [
         # tiered storage does not support multiple logdirs
@@ -16,31 +19,37 @@ def tier_server_props(backend, feature=True, enable=False,
         [config_property.LOG_ROLL_TIME_MS, log_roll_time],
         [config_property.LOG_RETENTION_CHECK_INTERVAL_MS, log_retention_check_interval]]
 
+
     # avoid setting backend if feature is not enabled, as a given backend may
     # be an invalid option for a version we are upgrading from
     if feature:
-        props+=[[config_property.CONFLUENT_TIER_FEATURE, feature],
-                [config_property.CONFLUENT_TIER_ENABLE, enable],
-                [config_property.CONFLUENT_TIER_LOCAL_HOTSET_BYTES, hotset_bytes],
-                [config_property.CONFLUENT_TIER_LOCAL_HOTSET_MS, hotset_ms],
-                [config_property.CONFLUENT_TIER_METADATA_REPLICATION_FACTOR, metadata_replication_factor]]
+        props += [[config_property.CONFLUENT_TIER_TOPIC_DELETE_CHECK_INTERVAL_MS, tier_delete_check_interval]]
+
+        if hotset_roll_min_bytes:
+            props += [[config_property.CONFLUENT_TIER_SEGMENT_ROLL_MIN_BYTES, hotset_roll_min_bytes]]
+
+        props += [[config_property.CONFLUENT_TIER_FEATURE, feature],
+                  [config_property.CONFLUENT_TIER_ENABLE, enable],
+                  [config_property.CONFLUENT_TIER_LOCAL_HOTSET_BYTES, hotset_bytes],
+                  [config_property.CONFLUENT_TIER_LOCAL_HOTSET_MS, hotset_ms],
+                  [config_property.CONFLUENT_TIER_METADATA_REPLICATION_FACTOR, metadata_replication_factor]]
 
         if backend == S3_BACKEND:
             props += [[config_property.CONFLUENT_TIER_BACKEND, S3_BACKEND],
-                    [config_property.CONFLUENT_TIER_S3_BUCKET, "confluent-tier-system-test"],
-                    [config_property.CONFLUENT_TIER_S3_REGION, "us-west-2"]]
+                      [config_property.CONFLUENT_TIER_S3_BUCKET, "confluent-tier-system-test"],
+                      [config_property.CONFLUENT_TIER_S3_PREFIX, "system-test-run-"+str(int(round(time.time() * 1000)))+"-"+str(uuid.uuid4())+"/"],
+                      [config_property.CONFLUENT_TIER_S3_REGION, "us-west-2"]]
 
         elif backend == GCS_BACKEND:
             props += [[config_property.CONFLUENT_TIER_BACKEND, GCS_BACKEND],
-                    [config_property.CONFLUENT_TIER_GCS_BUCKET, "confluent-tier-system-test-us-west1"],
-                    [config_property.CONFLUENT_TIER_GCS_REGION, "us-west1"],
-                    [config_property.CONFLUENT_TIER_GCS_CRED_FILE_PATH, "/vagrant/gcs_credentials.json"]]
+                      [config_property.CONFLUENT_TIER_GCS_BUCKET, "confluent-tier-system-test-us-west1"],
+                      [config_property.CONFLUENT_TIER_GCS_REGION, "us-west1"],
+                      [config_property.CONFLUENT_TIER_GCS_CRED_FILE_PATH, "/vagrant/gcs_credentials.json"]]
     return props
 
-def tier_set_configs(kafka, backend, feature=True, enable=False,
-        metadata_replication_factor=3, hotset_bytes=1, hotset_ms=1):
+def tier_set_configs(kafka, backend, **server_props_kwargs):
     """Helper for setting tier related configs directly on kafka service. Useful if we want to modify them directly later"""
-    configs = tier_server_props(backend, feature, enable, metadata_replication_factor, hotset_bytes, hotset_ms)
+    configs = tier_server_props(backend, **server_props_kwargs)
     for node in kafka.nodes:
         for config in configs:
             node.config[config[0]] = config[1]
@@ -140,3 +149,21 @@ class TierSupport():
             idx = self.kafka.idx(node)
             self.kafka.started[idx-1] = False
             self.kafka.start_jmx_tool(idx, node)
+
+    def list_s3_contents(self, bucket, prefix):
+        node = self.kafka.nodes[0]
+        cmd = "aws s3 ls --recursive confluent-tier-system-test/"+prefix
+        for line in node.account.ssh_capture(cmd, allow_fail=True):
+            yield line.rstrip()
+
+    def deletions_in_progress(self):
+        self.kafka.read_jmx_output_all_nodes()
+        for node in self.kafka.nodes:
+            last_jmx_entry = self.kafka.last_jmx_item(self.kafka.idx(node))
+            if last_jmx_entry.get("kafka.tier:type=TierDeletedPartitionsCoordinator,name=TierNumQueuedPartitionDeletions:Value", sys.maxint) > 0:
+                return True
+
+            if last_jmx_entry.get("kafka.tier:type=TierDeletedPartitionsCoordinator,name=TierNumInProgressPartitionDeletions:Value", sys.maxint) > 0:
+                return True
+
+        return False

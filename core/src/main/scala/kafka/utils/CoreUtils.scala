@@ -24,6 +24,7 @@ import java.util.concurrent.locks.{Lock, ReadWriteLock}
 import java.lang.management._
 import java.util.{Base64, Properties, UUID}
 
+
 import com.typesafe.scalalogging.Logger
 import javax.management._
 
@@ -276,6 +277,12 @@ object CoreUtils {
 
   def uuidToBase64(uuid: UUID): String = {
     Base64.getUrlEncoder.withoutPadding.encodeToString(getBytesFromUuid(uuid))
+  }
+
+  def uuidFromBase64(str: String): UUID = {
+    val bytes = Base64.getUrlDecoder.decode(str)
+    val bb: ByteBuffer = ByteBuffer.wrap(bytes)
+    new UUID(bb.getLong(), bb.getLong())
   }
 
   def getBytesFromUuid(uuid: UUID): Array[Byte] = {

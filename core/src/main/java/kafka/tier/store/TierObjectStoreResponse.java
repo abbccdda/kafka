@@ -8,5 +8,4 @@ import java.io.InputStream;
 
 public interface TierObjectStoreResponse extends AutoCloseable {
     InputStream getInputStream();
-    long getStreamSize();
 }

@@ -2,6 +2,7 @@ package io.confluent.security.audit.router;
 
 import static java.util.stream.Collectors.joining;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -18,6 +19,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import org.apache.kafka.common.utils.Utils;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class AuditLogRouterJsonConfig {
 
   public static final Map<String, AuthorizeResult> ALLOWED_RESULTS =
@@ -28,6 +30,7 @@ public class AuditLogRouterJsonConfig {
   public static final String DEFAULT_TOPIC = TOPIC_PREFIX;
   public static final long DEFAULT_RETENTION_MS = 90L * 24 * 60 * 60 * 1000; // 90 days
 
+  @JsonIgnoreProperties(ignoreUnknown = true)
   public static class DestinationTopic {
 
     @JsonProperty("retention_ms")
@@ -38,6 +41,7 @@ public class AuditLogRouterJsonConfig {
     }
   }
 
+  @JsonIgnoreProperties(ignoreUnknown = true)
   public static class Destinations {
 
     @JsonProperty(value = "bootstrap_servers", required = false)
@@ -68,6 +72,7 @@ public class AuditLogRouterJsonConfig {
     }
   }
 
+  @JsonIgnoreProperties(ignoreUnknown = true)
   public static class Metadata {
 
     @JsonProperty("resource_version")

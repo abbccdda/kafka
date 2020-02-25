@@ -8,13 +8,12 @@ import kafka.log.AbortedTxn;
 import kafka.log.OffsetPosition;
 import kafka.server.DelayedOperationKey;
 import kafka.server.TierFetchOperationKey;
-import kafka.tier.fetcher.offsetcache.FetchOffsetMetadata;
 import kafka.tier.fetcher.offsetcache.FetchOffsetCache;
+import kafka.tier.fetcher.offsetcache.FetchOffsetMetadata;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreResponse;
 import org.apache.kafka.common.IsolationLevel;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.Records;
 import org.slf4j.Logger;
@@ -28,6 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
@@ -50,6 +50,7 @@ public class PendingFetch implements Runnable {
     private final FetchOffsetMetadata fetchOffsetMetadata;
     private final TierSegmentReader reader;
     private final String logPrefix;
+    private final MemoryTracker memoryTracker;
 
     PendingFetch(CancellationContext cancellationContext,
                  TierObjectStore tierObjectStore,
@@ -61,6 +62,7 @@ public class PendingFetch implements Runnable {
                  int maxBytes,
                  int segmentSize,
                  IsolationLevel isolationLevel,
+                 MemoryTracker memoryTracker,
                  List<TopicPartition> ignoredTopicPartitions) {
         this.cancellationContext = cancellationContext;
         this.tierObjectStore = tierObjectStore;
@@ -81,6 +83,7 @@ public class PendingFetch implements Runnable {
             this.fetchOffsetMetadata = new FetchOffsetMetadata(0, OptionalInt.empty());
         else
             this.fetchOffsetMetadata = cache.get(objectMetadata.objectId(), targetOffset);
+        this.memoryTracker = memoryTracker;
     }
 
     /**
@@ -140,7 +143,7 @@ public class PendingFetch implements Runnable {
                 offsetPosition.position());
     }
 
-    private List<AbortedTxn> fetchAbortedTxns(MemoryRecords records) throws Exception {
+    private List<AbortedTxn> fetchAbortedTxns(ReclaimableMemoryRecords records) throws Exception {
         Long startOffset = null;
         long lastOffset = 0; // walk the record batches to find the base offset and last offset of the fetch range
         for (RecordBatch recordBatch : records.batches()) {
@@ -163,36 +166,60 @@ public class PendingFetch implements Runnable {
         }
     }
 
+    private Optional<MemoryTracker.MemoryLease> waitOnMemoryLease() {
+        if (memoryTracker.isDisabled()) {
+            return Optional.empty();
+        }
+        log.debug("{} acquiring memory lease", logPrefix);
+        if (fetchOffsetMetadata != null && fetchOffsetMetadata.recordBatchSize.isPresent()) {
+            int amount = fetchOffsetMetadata.recordBatchSize.getAsInt();
+            return Optional.of(memoryTracker.newLease(cancellationContext, amount));
+        } else {
+            return Optional.of(memoryTracker.newLease(cancellationContext,
+                    Records.HEADER_SIZE_UP_TO_MAGIC));
+        }
+    }
+
     @Override
     public void run() {
         try {
-            log.debug("Starting tiered fetch. requestId={}, objectMetadata={}, targetOffset={}, maxBytes={}, isolationLevel={}.",
+            log.debug("Starting tiered fetch. requestId={}, objectMetadata={}, targetOffset={}, "
+                            + "maxBytes={}, isolationLevel={}.",
                     requestId, objectMetadata, targetOffset, maxBytes, isolationLevel);
 
+            Optional<MemoryTracker.MemoryLease> lease;
             if (!cancellationContext.isCancelled()) {
                 final OffsetPosition offsetPosition = fetchOffsetPosition();
+                lease = waitOnMemoryLease();
                 try (final TierObjectStoreResponse response = fetchSegment(offsetPosition)) {
                     TierSegmentReader.RecordsAndNextBatchMetadata recordsAndNextBatchMetadata = reader.readRecords(cancellationContext,
+                            lease,
                             response.getInputStream(),
                             maxBytes,
                             targetOffset,
                             offsetPosition.position(),
                             segmentSize);
-                    MemoryRecords records = recordsAndNextBatchMetadata.records;
+                    ReclaimableMemoryRecords records = recordsAndNextBatchMetadata.records;
                     updateCache(recordsAndNextBatchMetadata.nextOffsetAndBatchMetadata);
-
                     if (objectMetadata.hasAbortedTxns() && isolationLevel == IsolationLevel.READ_COMMITTED) {
                         final List<AbortedTxn> abortedTxns = fetchAbortedTxns(records);
                         completeFetch(records, abortedTxns, null);
                     } else {
                         completeFetch(records, Collections.emptyList(), null);
                     }
+                } catch (Throwable t) {
+                    // If there is any exception thrown when attempting to fetch, ensure the memory
+                    // lease is relinquished.
+                    lease.ifPresent(MemoryTracker.MemoryLease::release);
+                    throw t;
                 }
             } else {
-                completeFetch(MemoryRecords.EMPTY, Collections.emptyList(), null);
+                completeFetch(ReclaimableMemoryRecords.EMPTY, Collections.emptyList(), null);
             }
+        } catch (CancellationException e) {
+            completeFetch(ReclaimableMemoryRecords.EMPTY, Collections.emptyList(), null);
         } catch (Exception e) {
-            completeFetch(MemoryRecords.EMPTY, Collections.emptyList(), e);
+            completeFetch(ReclaimableMemoryRecords.EMPTY, Collections.emptyList(), e);
         }
     }
 
@@ -213,6 +240,8 @@ public class PendingFetch implements Runnable {
      * for the fetch, or empty records.
      */
     public Map<TopicPartition, TierFetchResult> finish() {
+        // Note: Ensure that if any exception is thrown, the memory lease contained within the
+        // TierFetchResult is relinquished.
         final HashMap<TopicPartition, TierFetchResult> resultMap = new HashMap<>();
         try {
             final TierFetchResult tierFetchResult = transferPromise.get();
@@ -226,7 +255,7 @@ public class PendingFetch implements Runnable {
                     objectMetadata.topicIdPartition().topicPartition(), e);
             tierFetcherMetrics.ifPresent(metrics -> metrics.fetchException().record());
             resultMap.put(objectMetadata.topicIdPartition().topicPartition(),
-                    new TierFetchResult(MemoryRecords.EMPTY, Collections.emptyList(), e.getCause()));
+                    new TierFetchResult(ReclaimableMemoryRecords.EMPTY, Collections.emptyList(), e.getCause()));
         }
 
         for (TopicPartition ignoredTopicPartition : ignoredTopicPartitions) {
@@ -241,13 +270,14 @@ public class PendingFetch implements Runnable {
     public void cancel() {
         cancellationContext.cancel();
         tierFetcherMetrics.ifPresent(metrics -> metrics.fetchCancelled().record());
+        memoryTracker.wakeup();
     }
 
     /**
      * Complete this fetch by making the provided records available through the transferPromise
      * and calling the fetchCompletionCallback.
      */
-    private void completeFetch(MemoryRecords records,
+    private void completeFetch(ReclaimableMemoryRecords records,
                                List<AbortedTxn> abortedTxns,
                                Throwable throwable) {
         if (throwable != null) {

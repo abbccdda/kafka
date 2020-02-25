@@ -25,7 +25,7 @@ import scala.util.Random
   * Represents a task for a particular topic partition. A task can be in one of various states in its state machine.
   */
 abstract class TierTask[T <: TierTask[T]](retryRateOpt: Option[Meter]) extends Logging {
-  @volatile private var retryCount: Int = 0
+  @volatile private[tier] var retryCount: Int = 0
   @volatile private var _pausedUntil: Option[Instant] = None
   @volatile private var _error: Option[Throwable] = None
 

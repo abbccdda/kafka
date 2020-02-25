@@ -43,9 +43,14 @@ final class DeletionTask(override val ctx: CancellationContext,
                           maxRetryBackoffMs: Option[Int])(implicit ec: ExecutionContext): Future[DeletionTask] = {
     val nowMs = time.hiResClockMs()
 
-    val newState = state match {
-      case _ if ctx.isCancelled => Future.successful(state)
-      case s: State => s.transition(topicIdPartition, replicaManager, tierTopicAppender, tierObjectStore, time)
+    val newState = {
+      // This is just a best effort check, we would like to avoid doing any additional work when
+      // we know upfront that the context has been cancelled.
+      if (ctx.isCancelled) {
+        Future.successful(state)
+      } else {
+        state.transition(topicIdPartition, replicaManager, tierTopicAppender, tierObjectStore, time)
+      }
     }
 
     newState.map { result =>

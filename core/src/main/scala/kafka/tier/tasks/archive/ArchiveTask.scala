@@ -124,12 +124,20 @@ final class ArchiveTask(override val ctx: CancellationContext,
                           tierObjectStore: TierObjectStore,
                           replicaManager: ReplicaManager,
                           maxRetryBackoffMs: Option[Int] = None)(implicit ec: ExecutionContext): Future[ArchiveTask] = {
-    val newState = state match {
-      case _ if ctx.isCancelled => Future(state)
-      case s: BeforeLeader => ArchiveTask.establishLeadership(s, topicIdPartition, tierTopicAppender)
-      case s: BeforeUpload => ArchiveTask.maybeInitiateUpload(s, topicIdPartition, time, tierTopicAppender, tierObjectStore, replicaManager)
-      case s: Upload => ArchiveTask.upload(s, topicIdPartition, time, tierObjectStore)
-      case s: AfterUpload => ArchiveTask.finalizeUpload(s, topicIdPartition, time, tierTopicAppender, archiverMetrics.byteRateOpt)
+
+    val newState = {
+      // This is just a best effort check, we would like to avoid doing any additional work when
+      // we know upfront that the context has been cancelled.
+      if (ctx.isCancelled) {
+        Future.successful(state)
+      } else {
+        state match {
+          case s: BeforeLeader => ArchiveTask.establishLeadership(s, topicIdPartition, tierTopicAppender)
+          case s: BeforeUpload => ArchiveTask.maybeInitiateUpload(s, topicIdPartition, time, tierTopicAppender, tierObjectStore, replicaManager)
+          case s: Upload => ArchiveTask.upload(s, topicIdPartition, time, tierObjectStore)
+          case s: AfterUpload => ArchiveTask.finalizeUpload(s, topicIdPartition, time, tierTopicAppender, archiverMetrics.byteRateOpt)
+        }
+      }
     }
 
     newState.map { result =>

@@ -64,7 +64,7 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
         buf.put(blob, start, byteBufferSize);
         buf.flip();
 
-        return new MockInMemoryTierObjectStoreResponse(new ByteArrayInputStream(blob), byteBufferSize);
+        return new MockInMemoryTierObjectStoreResponse(new ByteArrayInputStream(blob));
     }
 
     @Override
@@ -144,21 +144,14 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
 
     private static class MockInMemoryTierObjectStoreResponse implements TierObjectStoreResponse {
         private final InputStream inputStream;
-        private final long objectSize;
 
-        MockInMemoryTierObjectStoreResponse(InputStream inputStream, long objectSize) {
+        MockInMemoryTierObjectStoreResponse(InputStream inputStream) {
             this.inputStream = inputStream;
-            this.objectSize = objectSize;
         }
 
         @Override
         public InputStream getInputStream() {
             return this.inputStream;
-        }
-
-        @Override
-        public long getStreamSize() {
-            return this.objectSize;
         }
 
         @Override

@@ -163,7 +163,8 @@ class TierDeletedPartitionsCoordinator(scheduler: Scheduler,
             for (record <- batch.asScala) {
               AbstractTierMetadata.deserialize(record.key, record.value).asScala.foreach {
                 case partitionDeleteInitiate: TierPartitionDeleteInitiate =>
-                  trackInitiatePartitionDelete(tierTopicPartition.partition, partitionDeleteInitiate.topicIdPartition)
+                  trackInitiatePartitionDelete(tierTopicPartition.partition, partitionDeleteInitiate.topicIdPartition,
+                    record.offset)
 
                 case partitionDeleteComplete: TierPartitionDeleteComplete =>
                   trackCompletePartitionDelete(tierTopicPartition.partition, partitionDeleteComplete.topicIdPartition)
@@ -196,8 +197,9 @@ class TierDeletedPartitionsCoordinator(scheduler: Scheduler,
           val toDelete = pendingDeletions.take(capacity).toList
 
           // move partitions to inProgress state
-          toDelete.foreach { partitionToDelete =>
-            val inProgressDeletion = new InProgressDeletion(tierTopicPartitionId, partitionToDelete, tierTopicConsumer)
+          toDelete.foreach { case (partitionToDelete, deleteInitiateOffset) =>
+            val inProgressDeletion = new InProgressDeletion(tierTopicPartitionId, partitionToDelete,
+              deleteInitiateOffset, tierTopicConsumer)
             partitionState.inProgressDeletions += (partitionToDelete -> inProgressDeletion)
             newDeletions += (partitionToDelete -> inProgressDeletion)
             pendingDeletions.remove(partitionToDelete)
@@ -228,13 +230,19 @@ class TierDeletedPartitionsCoordinator(scheduler: Scheduler,
   }
 
   // visible for testing
-  private[tier] def trackInitiatePartitionDelete(tierTopicPartitionId: Int, deletedPartition: TopicIdPartition): Unit = synchronized {
-    debug(s"Processing InitiateDelete for $deletedPartition")
-    immigratedPartitions.get(tierTopicPartitionId).foreach(_.pendingDeletions += deletedPartition)
+  private[tier] def trackInitiatePartitionDelete(tierTopicPartitionId: Int,
+                                                 deletedPartition: TopicIdPartition,
+                                                 offset: Long): Unit = synchronized {
+    debug(s"Processing InitiateDelete for $deletedPartition at offset $offset")
+    immigratedPartitions.get(tierTopicPartitionId).foreach { tierTopicPartition =>
+      if (!tierTopicPartition.inProgressDeletions.contains(deletedPartition))
+        tierTopicPartition.pendingDeletions += (deletedPartition -> offset)
+    }
   }
 
   // visible for testing
-  private[tier] def trackCompletePartitionDelete(tierTopicPartitionId: Int, deletedPartition: TopicIdPartition): Unit = synchronized {
+  private[tier] def trackCompletePartitionDelete(tierTopicPartitionId: Int,
+                                                 deletedPartition: TopicIdPartition): Unit = synchronized {
     debug(s"Processing CompleteDelete for $deletedPartition")
     immigratedPartitions.get(tierTopicPartitionId).foreach { immigratedTierTopicPartition =>
       immigratedTierTopicPartition.pendingDeletions -= deletedPartition
@@ -264,7 +272,7 @@ class TierDeletedPartitionsCoordinator(scheduler: Scheduler,
 
 private[tier] class ImmigratedTierTopicPartition {
   var lastReadOffset: Option[Long] = None
-  val pendingDeletions: mutable.LinkedHashSet[TopicIdPartition] = mutable.LinkedHashSet()
+  val pendingDeletions: mutable.Map[TopicIdPartition, Long] = mutable.LinkedHashMap()
   val inProgressDeletions: mutable.Map[TopicIdPartition, InProgressDeletion] = mutable.Map()
 }
 
@@ -302,6 +310,7 @@ case object Aborted extends DeletionState
   *
   * @param tierTopicPartitionId Tier topic partition id this partition belongs to
   * @param topicIdPartition Topic id partition being deleted
+  * @param deleteInitiateOffset The offset in the tier topic partition at which we read the PartitionDeleteInitiate message
   * @param tierTopicConsumer TierTopicConsumer instance
   * @param tieredObjects Set of tiered objects. This set is constructed when consuming the tier topic and passed to
   *                      the deletion layer once materialization is complete.
@@ -310,6 +319,7 @@ case object Aborted extends DeletionState
   */
 private class InProgressDeletion(val tierTopicPartitionId: Int,
                                  val topicIdPartition: TopicIdPartition,
+                                 deleteInitiateOffset: Long,
                                  tierTopicConsumer: TierTopicConsumer,
                                  tieredObjects: mutable.Map[UUID, TierObjectStore.ObjectMetadata] = mutable.Map(),
                                  @volatile var status: TierPartitionStatus = TierPartitionStatus.INIT,
@@ -327,10 +337,10 @@ private class InProgressDeletion(val tierTopicPartitionId: Int,
       case segmentDelete: TierSegmentDeleteComplete =>
         tieredObjects -= segmentDelete.objectId
 
-      case _: TierPartitionDeleteInitiate =>
+      case _: TierPartitionDeleteInitiate if offset == deleteInitiateOffset =>
         updateState(MaterializationComplete)
 
-      case _: TierPartitionDeleteComplete =>
+      case _: TierPartitionDeleteComplete if offset > deleteInitiateOffset =>
         if (tieredObjects.nonEmpty)
           warn(s"Found stray tiered objects after delete completion: $tieredObjects")
         tierTopicConsumer.deregister(topicIdPartition)

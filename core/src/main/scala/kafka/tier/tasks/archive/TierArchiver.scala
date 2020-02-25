@@ -97,7 +97,7 @@ final class TierArchiver(config: TierTasksConfig,
    * @return   a list containing lagging partitions along with their lag value
    */
   def partitionLagInfo: List[(TopicPartition, Long)] = {
-    return replicaManager
+    replicaManager
       .leaderPartitionsIterator
       .flatMap(_.log)
       .filter(_.tierPartitionState.isTieringEnabled)

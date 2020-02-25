@@ -102,4 +102,13 @@ public final class LazyDownConversionRecordsSend extends RecordsSend<LazyDownCon
     public TopicPartition topicPartition() {
         return records().topicPartition();
     }
+
+    @Override
+    public void release() {
+        // Here, only the backing records() are released, not records contained within
+        // convertedRecordsWriter or convertedRecordsIterator. This is because the memory lease
+        // associated with the backing records() is not propagated currently to the records in
+        // convertedRecordsWriter or convertedRecordsIterator.
+        records().release();
+    }
 }

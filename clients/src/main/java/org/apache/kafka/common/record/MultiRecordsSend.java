@@ -95,6 +95,8 @@ public class MultiRecordsSend implements Send {
             sendComplete = current.completed();
             if (sendComplete) {
                 updateRecordConversionStats(current);
+                // current is no longer needed, release any resources held by the send.
+                current.release();
                 current = sendQueue.poll();
             }
         } while (!completed() && sendComplete);
@@ -129,5 +131,13 @@ public class MultiRecordsSend implements Send {
             LazyDownConversionRecordsSend lazyRecordsSend = (LazyDownConversionRecordsSend) completedSend;
             recordConversionStats.put(lazyRecordsSend.topicPartition(), lazyRecordsSend.recordConversionStats());
         }
+    }
+
+    @Override
+    public void release() {
+        if (current != null) {
+            current.release();
+        }
+        sendQueue.forEach(Send::release);
     }
 }

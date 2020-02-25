@@ -731,7 +731,10 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
     private static long appendWithSizePrefix(FileChannel channel, ByteBuffer metadataBuffer) throws IOException {
         final long byteOffset = channel.position();
-        final short sizePrefix = (short) metadataBuffer.remaining();
+        final int remaining = metadataBuffer.remaining();
+        final short sizePrefix = (short) remaining;
+        if (sizePrefix != remaining)
+            throw new IllegalStateException(String.format("Unexpected metadataBuffer size: %d", remaining));
         final ByteBuffer sizeBuf = ByteBuffer.allocate(ENTRY_LENGTH_SIZE).order(ByteOrder.LITTLE_ENDIAN);
         sizeBuf.putShort(0, sizePrefix);
         Utils.writeFully(channel, sizeBuf);
@@ -740,7 +743,10 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     private static void writeHeader(FileChannel channel, Header header) throws IOException {
-        short sizePrefix = (short) header.payloadBuffer().remaining();
+        final int remaining = header.payloadBuffer().remaining();
+        final short sizePrefix = (short) remaining;
+        if (sizePrefix != remaining)
+            throw new IllegalStateException(String.format("Unexpected header size: %d", remaining));
         ByteBuffer sizeBuf = ByteBuffer.allocate(Header.HEADER_LENGTH_LENGTH).order(ByteOrder.LITTLE_ENDIAN);
         sizeBuf.putShort(sizePrefix);
         sizeBuf.flip();

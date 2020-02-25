@@ -56,6 +56,11 @@ public class ByteBufferSend implements Send {
     }
 
     @Override
+    public void release() {
+        // noop
+    }
+
+    @Override
     public long writeTo(GatheringByteChannel channel) throws IOException {
         long written = channel.write(buffers);
         if (written < 0)

@@ -61,30 +61,21 @@ class FetchRequestTestUtils {
                                                      Integer byteOffsetStart,
                                                      Integer byteOffsetEnd) throws IOException {
                 FileInputStream inputStream = null;
-                long objectSize = 0;
                 switch (objectFileType) {
                     case OFFSET_INDEX:
                         inputStream = new FileInputStream(offsetIndexFile);
-                        objectSize = offsetIndexFile.length();
                         break;
                     case TIMESTAMP_INDEX:
                         inputStream = new FileInputStream(timestampIndexFile);
-                        objectSize = timestampIndexFile.length();
                         break;
                 }
 
                 InputStream finalInputStream = inputStream;
-                long finalObjectSize = objectSize;
                 return new TierObjectStoreResponse() {
 
                     @Override
                     public InputStream getInputStream() {
                         return finalInputStream;
-                    }
-
-                    @Override
-                    public long getStreamSize() {
-                        return finalObjectSize;
                     }
 
                     @Override

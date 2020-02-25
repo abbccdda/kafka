@@ -175,6 +175,9 @@ public class ReplicaFetcherThreadBenchmark {
                 public RecordsSend toSend(String destination) {
                     return null;
                 }
+
+                @Override
+                public void release() { }
             };
             initialFetched.put(tp, new FetchResponse.PartitionData<>(Errors.NONE, 0, 0, 0,
                     new LinkedList<>(), fetched));

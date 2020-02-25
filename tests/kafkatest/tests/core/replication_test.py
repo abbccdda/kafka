@@ -96,13 +96,13 @@ class ReplicationTest(EndToEndTest, TierSupport):
     indicator that nothing is left to consume.
     """
 
+    TIER_RETENTION_CHECK_INTERVAL = 1000
+    PARTITIONS = 3
     TOPIC_CONFIG = {
-        "partitions": 3,
+        "partitions": PARTITIONS,
         "replication-factor": 3,
         "configs": {"min.insync.replicas": 2}
     }
-
-    TIER_RETENTION_CHECK_INTERVAL = 1000
 
     def __init__(self, test_context):
         """:type test_context: ducktape.tests.test.TestContext"""
@@ -177,13 +177,14 @@ class ReplicationTest(EndToEndTest, TierSupport):
         self.create_consumer(log_level="DEBUG")
 
         if tiered_storage:
-            self.add_log_metrics(self.topic)
+            partitions=range(0, self.PARTITIONS)
+            self.add_log_metrics(self.topic, partitions)
             self.restart_jmx_tool()
             # wait for some records to archive
-            wait_until(lambda: self.tiering_started(self.topic),
+            wait_until(lambda: self.tiering_started(self.topic, partitions=partitions),
                        timeout_sec=30, backoff_sec=2, err_msg="no segments archived within timeout")
             # wait for long enough that for hotset retention will delete local segments
-            time.sleep(2*self.TIER_RETENTION_CHECK_INTERVAL/1000)
+            time.sleep(4*self.TIER_RETENTION_CHECK_INTERVAL/1000)
 
         self.consumer.start()
 

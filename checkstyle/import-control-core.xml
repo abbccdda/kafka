@@ -96,6 +96,7 @@
       <allow class="kafka.log.TimestampOffset" />
       <allow class="kafka.tier.TierTimestampAndOffset"/>
       <allow class="kafka.tier.tasks.archive.ArchiveTask"/>
+      <allow class="kafka.server.BrokerReconfigurable"/>
     </subpackage>
     <subpackage name="store">
       <allow pkg="com.amazonaws" />
@@ -111,6 +112,9 @@
     </subpackage>
     <subpackage name="tools">
       <allow class="kafka.log.Log" />
+      <allow class="joptsimple.OptionParser" />
+      <allow class="joptsimple.OptionSet" />
+      <allow class="joptsimple.OptionSpec" />
     </subpackage>
     <subpackage name="topic">
       <allow class="kafka.zk.AdminZkClient" />

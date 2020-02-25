@@ -18,6 +18,7 @@ import java.util.UUID;
  * <a href="file:core/src/main/resources/serde/mutable/tier_partition_state_header.fbs">tier_partition_state.fbs</a>
  */
 public class Header {
+    // Length (in bytes) of the header section containing the length of the header.
     static final int HEADER_LENGTH_LENGTH = 2;
 
     private final TierPartitionStateHeader header;
@@ -66,7 +67,7 @@ public class Header {
         return header.tierEpoch();
     }
 
-    UUID topicId() {
+    public UUID topicId() {
         return new UUID(header.topicId().mostSignificantBits(),
                 header.topicId().leastSignificantBits());
     }
@@ -87,11 +88,11 @@ public class Header {
         return header.endOffset();
     }
 
-    long localMaterializedOffset() {
+    public long localMaterializedOffset() {
         return materializationInfo.localMaterializedOffset();
     }
 
-    long globalMaterializedOffset() {
+    public long globalMaterializedOffset() {
         return materializationInfo.globalMaterializedOffset();
     }
 
