@@ -1699,8 +1699,6 @@ public class MultiTenantRequestContextTest {
       assertEquals(params.tenantPrincipal(), creation.principal());
       ResourceType resourceType = ResourceType.fromCode(creation.resourceType());
       assertEquals(params.tenantPatternType(resourceType).code(), creation.resourcePatternType());
-      assertEquals(params.tenantPatternType(resourceType).code(),
-              creation.resourcePatternType());
       assertEquals(params.tenantResourceName(resourceType), creation.resourceName());
     });
     assertEquals(AclTestParams.RESOURCE_TYPES,
@@ -1729,7 +1727,9 @@ public class MultiTenantRequestContextTest {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_ACLS, ver);
       List<CreateAclsResponseData.AclCreationResult> aclCreationResults =
               singletonList(new CreateAclsResponseData.AclCreationResult().setErrorCode(ApiError.NONE.error().code()));
-      CreateAclsResponse outbound = new CreateAclsResponse(new CreateAclsResponseData().setResults(aclCreationResults));
+      CreateAclsResponse outbound = new CreateAclsResponse(new CreateAclsResponseData()
+          .setResults(aclCreationResults)
+          .setThrottleTimeMs(23));
       Struct struct = parseResponse(ApiKeys.CREATE_ACLS, ver, context.buildResponse(outbound));
       CreateAclsResponse intercepted = new CreateAclsResponse(struct, ver);
       assertEquals(ApiError.NONE.error().code(),
