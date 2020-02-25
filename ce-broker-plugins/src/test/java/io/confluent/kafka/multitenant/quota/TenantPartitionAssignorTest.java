@@ -714,8 +714,9 @@ public class TenantPartitionAssignorTest {
   }
 
   private List<Integer> leaderCountsByNode() {
-    return testCluster.cluster().nodes().stream()
-        .map(node -> testCluster.cluster().partitionsForNode(node.id()).size())
+    Cluster cluster = testCluster.cluster();
+    return cluster.nodes().stream()
+        .map(node -> cluster.partitionsForNode(node.id()).size())
         .collect(Collectors.toList());
   }
 

@@ -39,7 +39,7 @@ public class TestCluster {
   }
 
   public void addNode(int id, String rack) {
-    nodes.put(id, new Node(id, "", -1, rack));
+    nodes.put(id, new Node(id, "host" + id, 9090, rack));
   }
 
   public boolean rackAware() {
