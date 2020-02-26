@@ -282,7 +282,6 @@ public class SslTransportLayerTest {
         sslServerConfigs = getTrustingConfig(serverCertStores, clientCertStores);
         sslClientConfigs = getTrustingConfig(clientCertStores, serverCertStores);
 
-        SecurityProtocol securityProtocol = SecurityProtocol.SSL;
         server = createEchoServer(SecurityProtocol.SSL);
         InetSocketAddress addr = new InetSocketAddress("localhost", server.port());
 

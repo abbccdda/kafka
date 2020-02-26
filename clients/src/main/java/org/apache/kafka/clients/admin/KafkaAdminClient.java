@@ -718,11 +718,7 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
                 // TimeoutException. In this case, we do not get any more retries - the call has
                 // failed. We increment tries anyway in order to display an accurate log message.
                 tries++;
-                if (log.isDebugEnabled()) {
-                    log.debug("{} aborted at {} after {} attempt(s)", this, now, tries,
-                        new Exception(prettyPrintException(throwable)));
-                }
-                handleFailure(new TimeoutException("Aborted due to timeout."));
+                failWithTimeout(now, throwable);
                 return;
             }
             // If this is an UnsupportedVersionException that we can retry, do so. Note that a
@@ -739,14 +735,10 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
 
             // If the call has timed out, fail.
             if (calcTimeoutMsRemainingAsInt(now, deadlineMs) < 0) {
-                if (log.isDebugEnabled()) {
-                    log.debug("{} timed out at {} after {} attempt(s)", this, now, tries,
-                        new Exception(prettyPrintException(throwable)));
-                }
-                handleFailure(throwable);
+                failWithTimeout(now, throwable);
                 return;
             }
-            // If the exception is not retryable, fail.
+            // If the exception is not retriable, fail.
             if (!(throwable instanceof RetriableException)) {
                 if (log.isDebugEnabled()) {
                     log.debug("{} failed with non-retriable exception after {} attempt(s)", this, tries,
@@ -757,11 +749,7 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
             }
             // If we are out of retries, fail.
             if (tries > maxRetries) {
-                if (log.isDebugEnabled()) {
-                    log.debug("{} failed after {} attempt(s)", this, tries,
-                        new Exception(prettyPrintException(throwable)));
-                }
-                handleFailure(throwable);
+                failWithTimeout(now, throwable);
                 return;
             }
             if (log.isDebugEnabled()) {
@@ -769,6 +757,15 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
                     this, prettyPrintException(throwable), tries);
             }
             runnable.enqueue(this, now);
+        }
+
+        private void failWithTimeout(long now, Throwable cause) {
+            if (log.isDebugEnabled()) {
+                log.debug("{} timed out at {} after {} attempt(s)", this, now, tries,
+                    new Exception(prettyPrintException(cause)));
+            }
+            handleFailure(new TimeoutException(this + " timed out at " + now
+                + " after " + tries + " attempt(s)", cause));
         }
 
         /**
@@ -791,7 +788,7 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
 
         /**
          * Handle a failure. This will only be called if the failure exception was not
-         * retryable, or if we hit a timeout.
+         * retriable, or if we hit a timeout.
          *
          * @param throwable     The exception.
          */
@@ -1123,7 +1120,7 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
                 }
 
                 // Handle the result of the call. This may involve retrying the call, if we got a
-                // retryible exception.
+                // retriable exception.
                 if (response.versionMismatch() != null) {
                     call.fail(now, response.versionMismatch());
                 } else if (response.wasDisconnected()) {
@@ -3952,7 +3949,7 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
                 @Override
                 void handleResponse(AbstractResponse abstractResponse) {
                     ListOffsetResponse response = (ListOffsetResponse) abstractResponse;
-                    Set<TopicPartition> partitionsWithErrors = new HashSet<>();
+                    Map<TopicPartition, OffsetSpec> retryTopicPartitionOffsets = new HashMap<>();
 
                     for (Entry<TopicPartition, PartitionData> result : response.responseData().entrySet()) {
                         TopicPartition tp = result.getKey();
@@ -3960,8 +3957,11 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
 
                         KafkaFutureImpl<ListOffsetsResultInfo> future = futures.get(tp);
                         Errors error = partitionData.error;
-                        if (MetadataOperationContext.shouldRefreshMetadata(error)) {
-                            partitionsWithErrors.add(tp);
+                        OffsetSpec offsetRequestSpec = topicPartitionOffsets.get(tp);
+                        if (offsetRequestSpec == null) {
+                            future.completeExceptionally(new KafkaException("Unexpected topic partition " + tp + " in broker response!"));
+                        } else if (MetadataOperationContext.shouldRefreshMetadata(error)) {
+                            retryTopicPartitionOffsets.put(tp, offsetRequestSpec);
                         } else if (error == Errors.NONE) {
                             future.complete(new ListOffsetsResultInfo(partitionData.offset, partitionData.timestamp, partitionData.leaderEpoch));
                         } else {
@@ -3969,12 +3969,12 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
                         }
                     }
 
-                    if (!partitionsWithErrors.isEmpty()) {
-                        partitionsToQuery.keySet().retainAll(partitionsWithErrors);
-                        Set<String> retryTopics = partitionsWithErrors.stream().map(tp -> tp.topic()).collect(Collectors.toSet());
+                    if (!retryTopicPartitionOffsets.isEmpty()) {
+                        Set<String> retryTopics = retryTopicPartitionOffsets.keySet().stream().map(
+                            TopicPartition::topic).collect(Collectors.toSet());
                         MetadataOperationContext<ListOffsetsResultInfo, ListOffsetsOptions> retryContext =
-                                new MetadataOperationContext<>(retryTopics, context.options(), context.deadline(), futures);
-                        rescheduleMetadataTask(retryContext, () -> Collections.singletonList(this));
+                            new MetadataOperationContext<>(retryTopics, context.options(), context.deadline(), futures);
+                        rescheduleMetadataTask(retryContext, () -> getListOffsetsCalls(retryContext, retryTopicPartitionOffsets, futures));
                     }
                 }
 

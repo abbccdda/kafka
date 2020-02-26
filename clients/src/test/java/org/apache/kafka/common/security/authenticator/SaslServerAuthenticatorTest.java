@@ -34,7 +34,6 @@ import org.apache.kafka.common.requests.AbstractResponse;
 import org.apache.kafka.common.requests.ApiVersionsResponse;
 import org.apache.kafka.common.requests.RequestHeader;
 import org.apache.kafka.common.requests.ResponseHeader;
-import org.apache.kafka.common.security.JaasContext;
 import org.apache.kafka.common.security.plain.PlainLoginModule;
 import org.apache.kafka.common.utils.AppInfoParser;
 import org.apache.kafka.common.utils.Time;
@@ -243,8 +242,6 @@ public class SaslServerAuthenticatorTest {
             boolean isInterBrokerListener) {
         TestJaasConfig jaasConfig = new TestJaasConfig();
         jaasConfig.addEntry("jaasContext", PlainLoginModule.class.getName(), new HashMap<String, Object>());
-        Map<String, JaasContext> jaasContexts = Collections.singletonMap(mechanism,
-                new JaasContext("jaasContext", JaasContext.Type.SERVER, jaasConfig, null));
         Map<String, Subject> subjects = Collections.singletonMap(mechanism, new Subject());
         Map<String, AuthenticateCallbackHandler> callbackHandlers = Collections.singletonMap(
                 mechanism, new SaslServerCallbackHandler());

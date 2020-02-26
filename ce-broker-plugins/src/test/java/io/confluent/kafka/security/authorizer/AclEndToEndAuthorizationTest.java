@@ -52,31 +52,25 @@ public class AclEndToEndAuthorizationTest extends SaslEndToEndAuthorizationTest 
   }
 
   @Override
-  public String kafkaPrincipalType() {
-    return KafkaPrincipal.USER_TYPE;
+  public KafkaPrincipal clientPrincipal() {
+    return new KafkaPrincipal(KafkaPrincipal.USER_TYPE, JaasTestUtils.KafkaScramUser());
   }
 
   @Override
-  public String clientPrincipal() {
-    return JaasTestUtils.KafkaScramUser();
-  }
-
-  @Override
-  public String kafkaPrincipal() {
-    return JaasTestUtils.KafkaScramAdmin();
+  public KafkaPrincipal kafkaPrincipal() {
+    return new KafkaPrincipal(KafkaPrincipal.USER_TYPE, JaasTestUtils.KafkaScramAdmin());
   }
 
   @Override
   public void configureSecurityBeforeServersStart() {
     super.configureSecurityBeforeServersStart();
     zkClient().makeSurePersistentPathExists(ConfigEntityChangeNotificationZNode$.MODULE$.path());
-    createScramCredentials(zkConnect(), kafkaPrincipal(), JaasTestUtils.KafkaScramAdminPassword());
+    createScramCredentials(zkConnect(), kafkaPrincipal().getName(), JaasTestUtils.KafkaScramAdminPassword());
     createScramCredentials(zkConnect(), JaasTestUtils.KafkaScramUser(),
         JaasTestUtils.KafkaScramPassword());
     createScramCredentials(zkConnect(), JaasTestUtils.KafkaScramUser2(),
         JaasTestUtils.KafkaScramPassword2());
-    SecurityTestUtils.addLicenseTopicAcl(zkConnect(),
-        new KafkaPrincipal(kafkaPrincipalType(), kafkaPrincipal()));
+    SecurityTestUtils.addLicenseTopicAcl(zkConnect(), kafkaPrincipal());
   }
 }
 

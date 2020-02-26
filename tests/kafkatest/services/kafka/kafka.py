@@ -241,7 +241,7 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
         return len(self.pids(node)) > 0
 
     def start(self, add_principals="", use_zk_to_create_topic=True):
-        if self.zk_client_secure and not self.zk.client_secure_port:
+        if self.zk_client_secure and not self.zk.zk_client_secure_port:
             raise Exception("Unable to start Kafka: TLS to Zookeeper requested but Zookeeper secure port not enabled")
         self.open_port(self.security_protocol)
         self.interbroker_listener.open = True
@@ -310,8 +310,8 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
 
         #load template configs as dictionary
         config_template = self.render('kafka.properties', node=node, broker_id=self.idx(node),
-                                 security_config=self.security_config, num_nodes=self.num_nodes,
-                                 listener_security_config=self.listener_security_config)
+                                      security_config=self.security_config, num_nodes=self.num_nodes,
+                                      listener_security_config=self.listener_security_config)
 
         configs = dict( l.rstrip().split('=', 1) for l in config_template.split('\n')
                         if not l.startswith("#") and "=" in l )
@@ -475,10 +475,10 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
         use_zk_connection = topic_cfg.get('if-not-exists', False) or use_zk_to_create_topic
 
         cmd = "%(kafka_topics_cmd)s %(connection_string)s --create --topic %(topic)s " % {
-                'kafka_topics_cmd': self._kafka_topics_cmd(node, use_zk_connection),
-                'connection_string': self._connect_setting(node, use_zk_connection),
-                'topic': topic_cfg.get("topic"),
-           }
+            'kafka_topics_cmd': self._kafka_topics_cmd(node, use_zk_connection),
+            'connection_string': self._connect_setting(node, use_zk_connection),
+            'topic': topic_cfg.get("topic"),
+        }
         if 'replica-placement' in topic_cfg:
             cmd += " --partitions %(partitions)d --replica-placement %(replica-placement-json)s" % {
                 'partitions': topic_cfg.get('partitions', 1),
@@ -554,8 +554,8 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
         if node is None:
             node = self.nodes[0]
         self.logger.info("Altering message format version for topic %s with format %s", topic, msg_format_version)
-        cmd = "%s --zookeeper %s --entity-name %s --entity-type topics --alter --add-config message.format.version=%s" % \
-              (self.path.script("kafka-configs.sh", node), self.zk_connect_setting(), topic, msg_format_version)
+        cmd = "%s --zookeeper %s %s --entity-name %s --entity-type topics --alter --add-config message.format.version=%s" % \
+              (self.path.script("kafka-configs.sh", node), self.zk_connect_setting(), self.zk.zkTlsConfigFileOption(), topic, msg_format_version)
         self.logger.info("Running alter message format command...\n%s" % cmd)
         node.account.ssh(cmd)
 
@@ -566,8 +566,8 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
             self.logger.info("Enabling unclean leader election for topic %s", topic)
         else:
             self.logger.info("Disabling unclean leader election for topic %s", topic)
-        cmd = "%s --zookeeper %s --entity-name %s --entity-type topics --alter --add-config unclean.leader.election.enable=%s" % \
-              (self.path.script("kafka-configs.sh", node), self.zk_connect_setting(), topic, str(value).lower())
+        cmd = "%s --zookeeper %s %s --entity-name %s --entity-type topics --alter --add-config unclean.leader.election.enable=%s" % \
+              (self.path.script("kafka-configs.sh", node), self.zk_connect_setting(), self.zk.zkTlsConfigFileOption(), topic, str(value).lower())
         self.logger.info("Running alter unclean leader command...\n%s" % cmd)
         node.account.ssh(cmd)
 
@@ -805,12 +805,12 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
             raise
 
     def check_protocol_errors(self, node):
-	""" Checks for common protocol exceptions due to invalid inter broker protocol handling.
-        While such errors can and should be checked in other ways, checking the logs is a worthwhile failsafe.
-        """
+        """ Checks for common protocol exceptions due to invalid inter broker protocol handling.
+            While such errors can and should be checked in other ways, checking the logs is a worthwhile failsafe.
+            """
         for node in self.nodes:
             exit_code = node.account.ssh("grep -e 'java.lang.IllegalArgumentException: Invalid version' -e SchemaException %s/*"
-                    % KafkaService.OPERATIONAL_LOG_DEBUG_DIR, allow_fail=True)
+                                         % KafkaService.OPERATIONAL_LOG_DEBUG_DIR, allow_fail=True)
             if exit_code != 1:
                 return False
         return True
