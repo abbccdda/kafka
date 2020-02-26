@@ -122,7 +122,7 @@ versions += [
   nettyTcNative: "2.0.26.Final",
   owaspDepCheckPlugin: "5.2.4",
   powermock: "2.0.5",
-  protobuf: "3.8.0",
+  protobuf: "3.11.4",
   protobufPlugin: "0.8.6",
   reflections: "0.9.12",
   rocksDB: "5.18.3",
