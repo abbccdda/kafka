@@ -67,7 +67,6 @@ versions += [
   argparse4j: "0.7.0",
   assertj: "3.13.2",
   avro: "1.9.1",
-  avroPlugin: "0.17.0",
   bc_fips: "1.0.1",
   bcpkix: "1.64",
   bcpkix_fips: "1.0.3",
@@ -163,7 +162,6 @@ libs += [
   apachedsJdbmPartition: "org.apache.directory.server:apacheds-jdbm-partition:$versions.apacheds",
   argparse4j: "net.sourceforge.argparse4j:argparse4j:$versions.argparse4j",
   assertjCore: "org.assertj:assertj-core:$versions.assertj",
-  avro: "org.apache.avro:avro:$versions.avro",
   bc_fips: "org.bouncycastle:bc-fips:$versions.bc_fips",
   bcpkix: "org.bouncycastle:bcpkix-jdk15on:$versions.bcpkix",
   bcpkix_fips: "org.bouncycastle:bcpkix-fips:$versions.bcpkix_fips",
@@ -242,6 +240,5 @@ libs += [
   jfreechart: "jfreechart:jfreechart:$versions.jfreechart",
   mavenArtifact: "org.apache.maven:maven-artifact:$versions.mavenArtifact",
   zstd: "com.github.luben:zstd-jni:$versions.zstd",
-  httpclient: "org.apache.httpcomponents:httpclient:$versions.httpclient",
-  httpmime: "org.apache.httpcomponents:httpmime:$versions.httpclient"
+  httpclient: "org.apache.httpcomponents:httpclient:$versions.httpclient"
 ]

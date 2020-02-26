@@ -18,8 +18,9 @@
 package kafka.log
 
 import java.io.File
+import java.util.concurrent.Semaphore
 
-import org.apache.kafka.common.record.FileRecords
+import org.apache.kafka.common.record.{FileRecords, MemoryRecords}
 import org.apache.kafka.common.utils.Time
 
 object LogUtils {
@@ -37,4 +38,20 @@ object LogUtils {
 
     new LogSegment(ms, idx, timeIdx, txnIndex, offset, indexIntervalBytes, 0, time)
   }
+
+  class SlowAppendAsFollowerLog(log: MergedLog,
+                                tierLogComponents: TierLogComponents,
+                                appendSemaphore: Semaphore) extends MergedLog(
+    localLog = log.localLog,
+    logStartOffset = log.localLogStartOffset,
+    tierPartitionState = log.tierPartitionState,
+    tierLogComponents = tierLogComponents) {
+
+    override def appendAsFollower(records: MemoryRecords): LogAppendInfo = {
+      appendSemaphore.acquire()
+      val appendInfo = super.appendAsFollower(records)
+      appendInfo
+    }
+  }
+
 }

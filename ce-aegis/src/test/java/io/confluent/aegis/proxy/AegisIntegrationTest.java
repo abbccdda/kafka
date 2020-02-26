@@ -103,6 +103,7 @@ public class AegisIntegrationTest {
             build();
         Properties adminClientProps = aegisCluster.createClientProps(0);
         adminClientProps.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 1);
+        adminClientProps.put(AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, 1);
         try (AdminClient client = AdminClient.create(adminClientProps)) {
             try {
                 client.createTopics(Collections.singleton(
@@ -110,7 +111,7 @@ public class AegisIntegrationTest {
                 fail("Expected createTopics to fail because the broker is not running.");
             } catch (ExecutionException e) {
                 log.trace("without brokers, createTopics failed", e);
-                assertTrue(e.getCause().getMessage().contains("Timed out"));
+                assertTrue(e.getCause().getMessage().contains("timed out"));
             }
         }
     }

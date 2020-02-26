@@ -19,7 +19,7 @@ package kafka.cluster
 import java.io.File
 import java.nio.ByteBuffer
 import java.util.{Optional, Properties, UUID}
-import java.util.concurrent.{CountDownLatch, Executors, TimeUnit, TimeoutException}
+import java.util.concurrent.{CountDownLatch, Executors, Semaphore, TimeUnit, TimeoutException}
 import java.util.concurrent.atomic.AtomicBoolean
 
 import com.yammer.metrics.core.Metric
@@ -66,6 +66,7 @@ class PartitionTest {
   val metadataCache: MetadataCache = mock(classOf[MetadataCache])
   val offsetCheckpoints: OffsetCheckpoints = mock(classOf[OffsetCheckpoints])
   val tierReplicaManager = mock(classOf[TierReplicaManager])
+  val tierLogComponents = TierLogComponents.EMPTY
   var partition: Partition = _
 
   @Before
@@ -200,6 +201,59 @@ class PartitionTest {
     thread1.join()
     thread2.join()
     assertEquals(None, partition.futureLog)
+  }
+
+  // Verify that partition.makeFollower() and partition.appendRecordsToFollowerOrFutureReplica() can run concurrently
+  @Test
+  def testMakeFollowerWithWithFollowerAppendRecords(): Unit = {
+    val appendSemaphore = new Semaphore(0)
+
+    partition = new Partition(
+      topicPartition,
+      replicaLagTimeMaxMs = Defaults.ReplicaLagTimeMaxMs,
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      localBrokerId = brokerId,
+      time,
+      stateStore,
+      delayedOperations,
+      metadataCache,
+      logManager,
+      Some(tierReplicaManager)) {
+
+      override def createLog(replicaId: Int, isNew: Boolean, isFutureReplica: Boolean, offsetCheckpoints: OffsetCheckpoints): AbstractLog = {
+        val log = super.createLog(replicaId, isNew, isFutureReplica, offsetCheckpoints)
+        new LogUtils.SlowAppendAsFollowerLog(log.asInstanceOf[MergedLog], tierLogComponents, appendSemaphore)
+      }
+    }
+
+    partition.createLogIfNotExists(brokerId, isNew = true, isFutureReplica = false, offsetCheckpoints)
+
+    val appendThread = new Thread {
+      override def run(): Unit = {
+        val records = createRecords(List(new SimpleRecord("k1".getBytes, "v1".getBytes),
+          new SimpleRecord("k2".getBytes, "v2".getBytes)),
+          baseOffset = 0)
+        partition.appendRecordsToFollowerOrFutureReplica(records, isFuture = false)
+      }
+    }
+    appendThread.start()
+    TestUtils.waitUntilTrue(() => appendSemaphore.hasQueuedThreads, "follower log append is not called.")
+
+    val partitionState = new LeaderAndIsrPartitionState()
+      .setControllerEpoch(0)
+      .setLeader(2)
+      .setLeaderEpoch(1)
+      .setIsr(List[Integer](0, 1, 2, brokerId).asJava)
+      .setZkVersion(1)
+      .setReplicas(List[Integer](0, 1, 2, brokerId).asJava)
+      .setIsNew(false)
+    assertTrue(partition.makeFollower(0, partitionState, 0, offsetCheckpoints))
+
+    appendSemaphore.release()
+    appendThread.join()
+
+    assertEquals(2L, partition.localLogOrException.logEndOffset)
+    assertEquals(2L, partition.leaderReplicaIdOpt.get)
   }
 
   @Test
@@ -1982,6 +2036,7 @@ class PartitionTest {
       log.appendAsLeader(records, leaderEpoch)
     }
   }
+
 }
 
 object PartitionTest {

@@ -42,25 +42,6 @@
   <allow pkg="scala" />
   <allow pkg="javax.crypto" />
 
-  <subpackage name="support">
-    <subpackage name="metrics">
-      <allow pkg="io.confluent.command" />
-      <allow pkg="io.confluent.common.license" />
-      <allow pkg="io.confluent.license" />
-      <allow pkg="io.confluent.serializers" />
-      <allow pkg="io.confluent.support.metrics" />
-      <allow pkg="io.confluent.kafka.security.fips" />
-      <allow pkg="kafka" />
-      <allow pkg="org.apache.avro" />
-      <allow pkg="org.apache.commons.compress" />
-      <allow pkg="org.apache.http" />
-      <allow pkg="org.apache.kafka.clients" />
-      <allow pkg="org.apache.kafka.common" />
-      <allow pkg="org.apache.kafka.connect" />
-      <allow pkg="org.apache.zookeeper" />
-    </subpackage>
-  </subpackage>
-
   <subpackage name="common">
     <allow pkg="org.apache.kafka.common" />
   </subpackage>
