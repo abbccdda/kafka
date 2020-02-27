@@ -16,7 +16,9 @@
  */
 package org.apache.kafka.common.config.internals;
 
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
 import java.util.Set;
@@ -120,6 +122,59 @@ public class ConfluentConfigs {
         + "Invalid values are ignored. This config is ignored if client.quota.callback.class is "
         + "not set, or set to class other than TenantQuotaCallback. In other words, broker"
         + " back-pressure can be enabled for multi-tenant clusters only.";
+
+    // An enum is used over a boolean for balancer mode since it would have more than two modes later.
+    public enum BalancerMode {
+        ENABLED,
+        DISABLED
+    }
+
+    public static final String CONFLUENT_BALANCER_PREFIX = CONFLUENT_PREFIX + "balancer.";
+    public static final String BALANCER_MODE_CONFIG = CONFLUENT_BALANCER_PREFIX + "mode";
+    public static final String BALANCER_MODE_DEFAULT = BalancerMode.ENABLED.toString();
+    public static final String BALANCER_MODE_DOC = "The mode config is used to enable or disable the balancer.";
+
+    public static final String BALANCER_RACK_AWARE_CONFIG = CONFLUENT_BALANCER_PREFIX + "rack.aware";
+    public static final boolean BALANCER_RACK_AWARE_DEFAULT = false;
+    public static final String BALANCER_RACK_AWARE_DOC = "This config controls whether the balancer takes broker racks " +
+            "into account for replica placement decision (no more than one replica per rack).";
+
+    public static final String BALANCER_THROTTLE_CONFIG = CONFLUENT_BALANCER_PREFIX + "throttle.bytes.per.second";
+    public static final Long BALANCER_THROTTLE_DEFAULT = null;
+    public static final String BALANCER_THROTTLE_DOC = "This config specifies the upper bound for bandwidth in bytes to " +
+            "move replicas around for replica reassignment.";
+
+    public static final String BALANCER_REPLICA_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + "max.replicas";
+    public static final Long BALANCER_REPLICA_CAPACITY_DEFAULT = null;
+    public static final String BALANCER_REPLICA_CAPACITY_DOC = "The replica capacity is the maximum number of replicas " +
+            "the balancer will place on a single broker.";
+
+    public static final String BALANCER_DISK_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + "disk.max.bytes";
+    public static final Long BALANCER_DISK_CAPACITY_DEFAULT = null;
+    public static final String BALANCER_DISK_CAPACITY_DOC = "This config specifies the upper bound for disk usage in " +
+            "bytes per broker.";
+
+    public static final String BALANCER_NETWORK_IN_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + "network.in.bytes.per.second";
+    public static final Long BALANCER_NETWORK_IN_CAPACITY_DEFAULT = null;
+    public static final String BALANCER_NETWORK_IN_CAPACITY_DOC = "This config specifies the upper bound for network " +
+            "incoming bytes per broker.";
+
+    public static final String BALANCER_NETWORK_OUT_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + "network.out.bytes.per.second";
+    public static final Long BALANCER_NETWORK_OUT_CAPACITY_DEFAULT = null;
+    public static final String BALANCER_NETWORK_OUT_CAPACITY_DOC = "This config specifies the upper bound for network " +
+            "outgoing bytes per broker.";
+
+    public static final String BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG = CONFLUENT_BALANCER_PREFIX + "exclude.topic.names";
+    public static final List BALANCER_EXCLUDE_TOPIC_NAMES_DEFAULT = Collections.EMPTY_LIST;
+    public static final String BALANCER_EXCLUDE_TOPIC_NAMES_DOC = "This config accepts a list of topic names that " +
+            "will be excluded from rebalancing. For example, 'balancer.exclude.topic.names=[topic1, topic2]' ";
+
+    public static final String BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG = CONFLUENT_BALANCER_PREFIX + "exclude.topic.prefixes";
+    public static final List BALANCER_EXCLUDE_TOPIC_PREFIXES_DEFAULT = Collections.EMPTY_LIST;
+    public static final String BALANCER_EXCLUDE_TOPIC_PREFIXES_DOC = "This config accepts a list of topic prefixes that " +
+            "will be excluded from rebalancing. For example, 'balancer.exclude.topic.prefixes=[prefix1, prefix2]' would " +
+            "exclude topics 'prefix1-suffix1', 'prefix1-suffix2', 'prefix2-suffix3', but not 'abc-prefix1-xyz'" +
+            " and 'def-prefix2'";
 
     public static final String MULTITENANT_LISTENER_NAMES_CONFIG = CONFLUENT_PREFIX + "multitenant.listener.names";
     public static final String MULTITENANT_LISTENER_NAMES_DEFAULT = null;

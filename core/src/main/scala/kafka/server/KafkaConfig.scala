@@ -31,7 +31,7 @@ import kafka.utils.Implicits._
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.Reconfigurable
 import org.apache.kafka.common.config.SecurityConfig
-import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList}
+import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList, ValidString}
 import org.apache.kafka.common.config.internals.{BrokerSecurityConfigs, ConfluentConfigs}
 import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, ConfluentTopicConfig, SaslConfigs, SslClientAuth, SslConfigs, TopicConfig}
 import org.apache.kafka.common.config.types.Password
@@ -1483,6 +1483,37 @@ object KafkaConfig {
                       ConfluentConfigs.MULTITENANT_LISTENER_NAMES_DEFAULT, LOW, ConfluentConfigs.MULTITENANT_LISTENER_NAMES_DOC)
       .defineInternal(ConfluentConfigs.REQUEST_LOG_FILTER_CLASS_CONFIG, CLASS,
         ConfluentConfigs.REQUEST_LOG_FILTER_DEFAULT, LOW, ConfluentConfigs.REQUEST_LOG_FILTER_CLASS_DOC)
+
+      /** *********** Confluent balancer configuration *****************/
+      .defineInternal(ConfluentConfigs.BALANCER_MODE_CONFIG, STRING,
+                      ConfluentConfigs.BALANCER_MODE_DEFAULT,
+                      ValidString.in(ConfluentConfigs.BalancerMode.ENABLED.toString,
+                        ConfluentConfigs.BalancerMode.DISABLED.toString),
+                      HIGH, ConfluentConfigs.BALANCER_MODE_DOC)
+      .defineInternal(ConfluentConfigs.BALANCER_RACK_AWARE_CONFIG, BOOLEAN,
+                      ConfluentConfigs.BALANCER_RACK_AWARE_DEFAULT, MEDIUM,
+                      ConfluentConfigs.BALANCER_RACK_AWARE_DOC)
+      .defineInternal(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, LONG,
+                      ConfluentConfigs.BALANCER_THROTTLE_DEFAULT, HIGH,
+                      ConfluentConfigs.BALANCER_THROTTLE_DOC)
+      .defineInternal(ConfluentConfigs.BALANCER_REPLICA_CAPACITY_CONFIG, LONG,
+                      ConfluentConfigs.BALANCER_REPLICA_CAPACITY_DEFAULT, HIGH,
+                      ConfluentConfigs.BALANCER_REPLICA_CAPACITY_DOC)
+      .defineInternal(ConfluentConfigs.BALANCER_DISK_CAPACITY_CONFIG, LONG,
+                      ConfluentConfigs.BALANCER_DISK_CAPACITY_DEFAULT, HIGH,
+                      ConfluentConfigs.BALANCER_DISK_CAPACITY_DOC)
+      .defineInternal(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG, LONG,
+                      ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DEFAULT, HIGH,
+                      ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DOC)
+      .defineInternal(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG, LONG,
+                      ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DEFAULT, HIGH,
+                      ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DOC)
+      .defineInternal(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG, LIST,
+                      ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_DEFAULT, MEDIUM,
+                      ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_DOC)
+      .defineInternal(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, LIST,
+                      ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_DEFAULT, MEDIUM,
+                      ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_DOC)
 
       .defineInternal(ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS, BOOLEAN,
                       ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS_DEFAULT, HIGH,
