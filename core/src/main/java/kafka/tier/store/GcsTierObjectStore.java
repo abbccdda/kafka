@@ -180,7 +180,7 @@ public class GcsTierObjectStore implements TierObjectStore {
         if (bucketObj == null)
             throw new TierObjectStoreFatalException("Configured bucket " + bucket + " does not exist or could not be found");
         String actualRegion = bucketObj.getLocation();
-        if (!expectedRegion.equals(actualRegion)) {
+        if (!expectedRegion.equalsIgnoreCase(actualRegion)) {
             log.warn("Bucket region {} does not match expected region {}", actualRegion, expectedRegion);
         }
     }

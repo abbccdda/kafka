@@ -21,7 +21,7 @@ class GcsTierObjectStoreTest {
     val bucket = mock(classOf[Bucket])
     when(storage.get(anyString(), any(classOf[Storage.BucketGetOption]))).thenReturn(bucket)
     when(storage.writer(any(classOf[BlobInfo]))).thenReturn(mock(classOf[WriteChannel]))
-    when(bucket.getLocation).thenReturn("region")
+    when(bucket.getLocation).thenReturn("REGION")
 
     val config = new GcsTierObjectStoreConfig("cluster", 3, "bucket", "region", 10240, 1024, "path")
     val objectStore = new GcsTierObjectStore(storage, config)
@@ -39,7 +39,7 @@ class GcsTierObjectStoreTest {
     val bucket = mock(classOf[Bucket])
     when(storage.get(anyString(), any(classOf[Storage.BucketGetOption]))).thenReturn(bucket)
     when(storage.writer(any(classOf[BlobInfo]))).thenReturn(mock(classOf[WriteChannel]))
-    when(bucket.getLocation).thenReturn("region")
+    when(bucket.getLocation).thenReturn("REGION")
 
     val config = new GcsTierObjectStoreConfig("cluster", 3, "bucket", "region", 10240, 1024, "path")
     val objectStore = new GcsTierObjectStore(storage, config)
@@ -58,7 +58,7 @@ class GcsTierObjectStoreTest {
     val bucket = mock(classOf[Bucket])
     when(storage.get(anyString(), any(classOf[Storage.BucketGetOption]))).thenReturn(bucket)
     when(storage.writer(any(classOf[BlobInfo]))).thenReturn(mock(classOf[WriteChannel]))
-    when(bucket.getLocation).thenReturn("region")
+    when(bucket.getLocation).thenReturn("REGION")
 
     val config = new GcsTierObjectStoreConfig("cluster", 3, "bucket", "region", 10240, 1024, "path")
     val objectStore = new GcsTierObjectStore(storage, config)
