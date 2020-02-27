@@ -268,7 +268,9 @@ class TransactionsTest(Test, TierSupport):
             num_messages_to_copy=self.num_seed_messages, use_group_metadata=use_group_metadata)
 
         if tier:
-            partitions = range(0, self.num_output_partitions)
+            # due to the way the transactional copier works, messages will only
+            # be produced to the same partition ids as their source input partitions
+            partitions = range(0, self.num_input_partitions)
             self.add_log_metrics(self.output_topic, partitions)
             self.restart_jmx_tool()
             wait_until(lambda: self.tiering_completed(self.output_topic, partitions=partitions),
