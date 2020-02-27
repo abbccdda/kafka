@@ -27,7 +27,7 @@ import kafka.zk.{ConfigEntityChangeNotificationZNode, DeleteTopicsTopicZNode}
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin._
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.config.{ConfigException, ConfigResource, TopicConfig}
+import org.apache.kafka.common.config.{ConfigException, ConfigResource, ConfluentTopicConfig, TopicConfig}
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.Errors
@@ -641,6 +641,383 @@ class TopicCommandWithAdminClientTest extends KafkaServerTestHarness with Loggin
     } finally {
       restartDeadBrokers()
     }
+  }
+
+  @Test
+  def testDescribeWithInvalidObserverCount(): Unit = {
+    val placementJson1 =
+      """{
+        | "version": 1,
+        |  "replicas": [{
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack1"
+        |      }
+        |    },
+        |    {
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack2"
+        |      }
+        |    }
+        |  ],
+        |  "observers": [{
+        |    "count": 1,
+        |    "constraints": {
+        |      "rack": "rack3"
+        |    }
+        |  }]
+        |}""".stripMargin
+    val placementJson2 =
+      """{
+        | "version": 1,
+        |  "replicas": [{
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack1"
+        |      }
+        |    },
+        |    {
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack2"
+        |      }
+        |    }
+        |  ],
+        |  "observers": [{
+        |    "count": 2,
+        |    "constraints": {
+        |      "rack": "rack3"
+        |    }
+        |  }]
+        |}""".stripMargin
+    val configMap = new java.util.HashMap[String, String]()
+    configMap.put(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, placementJson1)
+
+    adminClient.createTopics(
+      Collections.singletonList(new NewTopic(testTopicName, Optional.of(1: Integer),
+        Optional.empty[java.lang.Short]).configs(configMap))).all().get()
+    waitForTopicCreated(testTopicName)
+    val configUpdate = new Properties()
+    configUpdate.setProperty(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG,
+      placementJson2)
+    TestUtils.incrementalAlterTopicConfigs(adminClient, testTopicName, configUpdate).all().get()
+    val output = TestUtils.grabConsoleOutput(
+      topicService.describeTopic(new TopicCommandOptions(Array(
+        "--invalid-replica-placement-partitions"))))
+    val rows = output.split("\n")
+    assertTrue(rows(0).startsWith(s"\tTopic: $testTopicName"))
+  }
+
+  @Test
+  def testDescribeWithInvalidSyncReplicaCount(): Unit = {
+    val placementJson1 =
+      """{
+        | "version": 1,
+        |  "replicas": [{
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack1"
+        |      }
+        |    },
+        |    {
+        |      "count": 1,
+        |      "constraints": {
+        |        "rack": "rack2"
+        |      }
+        |    }
+        |  ],
+        |  "observers": [{
+        |    "count": 2,
+        |    "constraints": {
+        |      "rack": "rack3"
+        |    }
+        |  }]
+        |}""".stripMargin
+    val placementJson2 =
+      """{
+        | "version": 1,
+        |  "replicas": [{
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack1"
+        |      }
+        |    },
+        |    {
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack2"
+        |      }
+        |    }
+        |  ],
+        |  "observers": [{
+        |    "count": 2,
+        |    "constraints": {
+        |      "rack": "rack3"
+        |    }
+        |  }]
+        |}""".stripMargin
+    val configMap = new java.util.HashMap[String, String]()
+    configMap.put(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, placementJson1)
+
+    adminClient.createTopics(
+      Collections.singletonList(new NewTopic(testTopicName, Optional.of(1: Integer),
+        Optional.empty[java.lang.Short]).configs(configMap))).all().get()
+    waitForTopicCreated(testTopicName)
+    val configUpdate = new Properties()
+    configUpdate.setProperty(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG,
+      placementJson2)
+    TestUtils.incrementalAlterTopicConfigs(adminClient, testTopicName, configUpdate).all().get()
+    val output = TestUtils.grabConsoleOutput(
+      topicService.describeTopic(new TopicCommandOptions(Array(
+        "--invalid-replica-placement-partitions"))))
+    val rows = output.split("\n")
+    assertTrue(rows(0).startsWith(s"\tTopic: $testTopicName"))
+  }
+
+  @Test
+  def testDescribeWithInvalidSyncReplicaRack(): Unit = {
+    val placementJson1 =
+      """{
+        | "version": 1,
+        |  "replicas": [{
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack1"
+        |      }
+        |    },
+        |    {
+        |      "count": 1,
+        |      "constraints": {
+        |        "rack": "rack2"
+        |      }
+        |    }
+        |  ]
+        |}""".stripMargin
+    val placementJson2 =
+      """{
+        | "version": 1,
+        |  "replicas": [{
+        |      "count": 1,
+        |      "constraints": {
+        |        "rack": "rack1"
+        |      }
+        |    },
+        |    {
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack2"
+        |      }
+        |    }
+        |  ]
+        |}""".stripMargin
+    val configMap = new java.util.HashMap[String, String]()
+    configMap.put(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, placementJson1)
+
+    adminClient.createTopics(
+      Collections.singletonList(new NewTopic(testTopicName, Optional.of(1: Integer),
+        Optional.empty[java.lang.Short]).configs(configMap))).all().get()
+    waitForTopicCreated(testTopicName)
+    val configUpdate = new Properties()
+    configUpdate.setProperty(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG,
+      placementJson2)
+    TestUtils.incrementalAlterTopicConfigs(adminClient, testTopicName, configUpdate).all().get()
+    val output = TestUtils.grabConsoleOutput(
+      topicService.describeTopic(new TopicCommandOptions(Array(
+        "--invalid-replica-placement-partitions"))))
+    val rows = output.split("\n")
+    assertTrue(rows(0).startsWith(s"\tTopic: $testTopicName"))
+  }
+
+  @Test
+  def testDescribeWithInvalidObserverRack(): Unit = {
+    val placementJson1 =
+      """{
+        | "version": 1,
+        |  "replicas": [{
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack1"
+        |      }
+        |    }
+        |  ],
+        |  "observers": [{
+        |    "count": 2,
+        |    "constraints": {
+        |      "rack": "rack2"
+        |     }
+        |   },
+        |    {
+        |      "count": 1,
+        |      "constraints": {
+        |        "rack": "rack3"
+        |      }
+        |    }
+        |  ]
+        |}""".stripMargin
+    val placementJson2 =
+      """{
+        | "version": 1,
+        |  "replicas": [{
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack1"
+        |      }
+        |    }
+        |  ],
+        |  "observers": [{
+        |    "count": 1,
+        |    "constraints": {
+        |      "rack": "rack2"
+        |     }
+        |   },
+        |    {
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack3"
+        |      }
+        |    }
+        |  ]
+        |}""".stripMargin
+    val configMap = new java.util.HashMap[String, String]()
+    configMap.put(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, placementJson1)
+
+    adminClient.createTopics(
+      Collections.singletonList(new NewTopic(testTopicName, Optional.of(1: Integer),
+        Optional.empty[java.lang.Short]).configs(configMap))).all().get()
+    waitForTopicCreated(testTopicName)
+    val configUpdate = new Properties()
+    configUpdate.setProperty(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG,
+      placementJson2)
+    TestUtils.incrementalAlterTopicConfigs(adminClient, testTopicName, configUpdate).all().get()
+    val output = TestUtils.grabConsoleOutput(
+      topicService.describeTopic(new TopicCommandOptions(Array(
+        "--invalid-replica-placement-partitions"))))
+    val rows = output.split("\n")
+    assertTrue(rows(0).startsWith(s"\tTopic: $testTopicName"))
+  }
+
+  @Test
+  def testDescribeWithSyncReplicaOffline(): Unit = {
+    val placementJson1 =
+      """{
+        | "version": 1,
+        |  "replicas": [{
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack1"
+        |      }
+        |    },
+        |    {
+        |      "count": 1,
+        |      "constraints": {
+        |        "rack": "rack2"
+        |      }
+        |    }
+        |  ]
+        |}""".stripMargin
+    val configMap = new java.util.HashMap[String, String]()
+    configMap.put(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, placementJson1)
+
+    adminClient.createTopics(
+      Collections.singletonList(new NewTopic(testTopicName, Optional.of(1: Integer),
+        Optional.empty[java.lang.Short]).configs(configMap))).all().get()
+    waitForTopicCreated(testTopicName)
+    try {
+      killBroker(0)
+      val output = TestUtils.grabConsoleOutput(
+        topicService.describeTopic(new TopicCommandOptions(Array(
+          "--invalid-replica-placement-partitions"))))
+      val rows = output.split("\n")
+      assertTrue(rows(0).startsWith(s"\tTopic: $testTopicName"))
+    } finally {
+      restartDeadBrokers()
+    }
+  }
+
+  @Test
+  def testDescribeWithObserverOffline(): Unit = {
+    val placementJson1 =
+      """{
+        | "version": 1,
+        |  "replicas": [{
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack1"
+        |      }
+        |    }
+        |  ],
+        |  "observers": [{
+        |    "count": 2,
+        |    "constraints": {
+        |      "rack": "rack2"
+        |     }
+        |   },
+        |    {
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack3"
+        |      }
+        |    }
+        |  ]
+        |}""".stripMargin
+    val configMap = new java.util.HashMap[String, String]()
+    configMap.put(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, placementJson1)
+
+    adminClient.createTopics(
+      Collections.singletonList(new NewTopic(testTopicName, Optional.of(1: Integer),
+        Optional.empty[java.lang.Short]).configs(configMap))).all().get()
+    waitForTopicCreated(testTopicName)
+    try {
+      killBroker(5)
+      val output = TestUtils.grabConsoleOutput(
+        topicService.describeTopic(new TopicCommandOptions(Array(
+          "--invalid-replica-placement-partitions"))))
+      val rows = output.split("\n")
+      assertTrue(rows(0).startsWith(s"\tTopic: $testTopicName"))
+    } finally {
+      restartDeadBrokers()
+    }
+  }
+
+  @Test
+  def testDescribeWithCorrectlyPlacedPartitions(): Unit = {
+    val placementJson1 =
+      """{
+        | "version": 1,
+        |  "replicas": [{
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack1"
+        |      }
+        |    }
+        |  ],
+        |  "observers": [{
+        |    "count": 2,
+        |    "constraints": {
+        |      "rack": "rack2"
+        |     }
+        |   },
+        |    {
+        |      "count": 2,
+        |      "constraints": {
+        |        "rack": "rack3"
+        |      }
+        |    }
+        |  ]
+        |}""".stripMargin
+    val configMap = new java.util.HashMap[String, String]()
+    configMap.put(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, placementJson1)
+
+    adminClient.createTopics(
+      Collections.singletonList(new NewTopic(testTopicName, Optional.of(1: Integer),
+        Optional.empty[java.lang.Short]).configs(configMap))).all().get()
+    waitForTopicCreated(testTopicName)
+    val output = TestUtils.grabConsoleOutput(
+      topicService.describeTopic(new TopicCommandOptions(Array(
+        "--invalid-replica-placement-partitions"))))
+    val rows = output.split("\n")
+    assertEquals("", rows(0));
   }
 
   @Test

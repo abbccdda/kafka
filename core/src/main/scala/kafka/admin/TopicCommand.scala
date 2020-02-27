@@ -21,6 +21,7 @@ import java.util
 import java.util.{Collections, Properties}
 
 import joptsimple._
+import kafka.cluster.Observer.validateReplicaAssignment
 import kafka.common.{AdminCommandFailedException, TopicPlacement}
 import kafka.controller.ReplicaAssignment
 import kafka.log.LogConfig
@@ -153,6 +154,21 @@ object TopicCommand extends Logging {
       !hasLeader || !liveBrokers.contains(info.leader.id)
     }
 
+    def hasInvalidReplicaPlacementPartitions: Boolean =  {
+      val topicPlacementOption: Option[TopicPlacement] = config.flatMap { configuration =>
+        TopicPlacement.parse(
+          configuration.get(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG).value
+        ).asScala
+      }
+      val assignment = ReplicaAssignment.Assignment(allReplicaIds, observerIds)
+      val allBrokers = info.replicas.asScala
+      val allBrokerProperties = allBrokers.map{ broker =>
+        broker.id -> Option(broker.rack).map("rack" -> _).toMap
+      }.toMap
+      val error = validateReplicaAssignment(topicPlacementOption, assignment, allBrokerProperties)
+      error.exists(_.isFailure)
+    }
+
     def printDescription(): Unit = {
       print("\tTopic: " + topic)
       print("\tPartition: " + info.partition)
@@ -172,7 +188,8 @@ object TopicCommand extends Logging {
       !opts.reportUnavailablePartitions &&
       !opts.reportUnderReplicatedPartitions &&
       !opts.reportUnderMinIsrPartitions &&
-      !opts.reportAtMinIsrPartitions
+      !opts.reportAtMinIsrPartitions &&
+      !opts.reportInvalidReplicaPlacementPartitions
     val describePartitions: Boolean = !opts.reportOverriddenConfigs
 
     private def shouldPrintUnderReplicatedPartitions(partitionDescription: PartitionDescription): Boolean = {
@@ -187,13 +204,17 @@ object TopicCommand extends Logging {
     private def shouldPrintAtMinIsrPartitions(partitionDescription: PartitionDescription): Boolean = {
       opts.reportAtMinIsrPartitions && partitionDescription.isAtMinIsrPartitions
     }
+    private def shouldPrintReportInvalidReplicaPlacementPartitions(partitionDescription: PartitionDescription): Boolean = {
+      opts.reportInvalidReplicaPlacementPartitions && partitionDescription.hasInvalidReplicaPlacementPartitions
+    }
 
     private def shouldPrintTopicPartition(partitionDesc: PartitionDescription): Boolean = {
       describeConfigs ||
         shouldPrintUnderReplicatedPartitions(partitionDesc) ||
         shouldPrintUnavailablePartitions(partitionDesc) ||
         shouldPrintUnderMinIsrPartitions(partitionDesc) ||
-        shouldPrintAtMinIsrPartitions(partitionDesc)
+        shouldPrintAtMinIsrPartitions(partitionDesc) ||
+        shouldPrintReportInvalidReplicaPlacementPartitions(partitionDesc)
     }
 
     def maybePrintPartitionDescription(desc: PartitionDescription): Unit = {
@@ -674,6 +695,8 @@ object TopicCommand extends Logging {
       "if set when describing topics, only show partitions whose isr count is less than the configured minimum. Not supported with the --zookeeper option.")
     private val reportAtMinIsrPartitionsOpt = parser.accepts("at-min-isr-partitions",
       "if set when describing topics, only show partitions whose isr count is equal to the configured minimum. Not supported with the --zookeeper option.")
+    private val reportInvalidReplicaPlacementPartitionsOpt = parser.accepts("invalid-replica-placement-partitions",
+      "if set when describing topics, only show partitions whose placement doesn't adhere to the replica placement constraints. Not supported with the --zookeeper option.")
     private val topicsWithOverridesOpt = parser.accepts("topics-with-overrides",
       "if set when describing topics, only show topics that have overridden configs")
     private val ifExistsOpt = parser.accepts("if-exists",
@@ -693,7 +716,7 @@ object TopicCommand extends Logging {
 
     private val allTopicLevelOpts: Set[OptionSpec[_]] = Set(alterOpt, createOpt, describeOpt, listOpt, deleteOpt)
 
-    private val allReplicationReportOpts: Set[OptionSpec[_]] = Set(reportUnderReplicatedPartitionsOpt, reportUnderMinIsrPartitionsOpt, reportAtMinIsrPartitionsOpt, reportUnavailablePartitionsOpt)
+    private val allReplicationReportOpts: Set[OptionSpec[_]] = Set(reportUnderReplicatedPartitionsOpt, reportUnderMinIsrPartitionsOpt, reportAtMinIsrPartitionsOpt, reportUnavailablePartitionsOpt, reportInvalidReplicaPlacementPartitionsOpt)
 
     def has(builder: OptionSpec[_]): Boolean = options.has(builder)
     def valueAsOption[A](option: OptionSpec[A], defaultValue: Option[A] = None): Option[A] = if (has(option)) Some(options.valueOf(option)) else defaultValue
@@ -721,6 +744,7 @@ object TopicCommand extends Logging {
     def reportUnderReplicatedPartitions: Boolean = has(reportUnderReplicatedPartitionsOpt)
     def reportUnavailablePartitions: Boolean = has(reportUnavailablePartitionsOpt)
     def reportUnderMinIsrPartitions: Boolean = has(reportUnderMinIsrPartitionsOpt)
+    def reportInvalidReplicaPlacementPartitions: Boolean = has(reportInvalidReplicaPlacementPartitionsOpt)
     def reportAtMinIsrPartitions: Boolean = has(reportAtMinIsrPartitionsOpt)
     def reportOverriddenConfigs: Boolean = has(topicsWithOverridesOpt)
     def ifExists: Boolean = has(ifExistsOpt)
@@ -771,6 +795,8 @@ object TopicCommand extends Logging {
       }
       CommandLineUtils.checkInvalidArgs(parser, options, reportUnderReplicatedPartitionsOpt,
         allTopicLevelOpts -- Set(describeOpt) ++ allReplicationReportOpts - reportUnderReplicatedPartitionsOpt + topicsWithOverridesOpt)
+      CommandLineUtils.checkInvalidArgs(parser, options, reportInvalidReplicaPlacementPartitionsOpt,
+        allTopicLevelOpts -- Set(describeOpt) ++ allReplicationReportOpts - reportInvalidReplicaPlacementPartitionsOpt + topicsWithOverridesOpt + zkConnectOpt)
       CommandLineUtils.checkInvalidArgs(parser, options, reportUnderMinIsrPartitionsOpt,
         allTopicLevelOpts -- Set(describeOpt) ++ allReplicationReportOpts - reportUnderMinIsrPartitionsOpt + topicsWithOverridesOpt + zkConnectOpt)
       CommandLineUtils.checkInvalidArgs(parser, options, reportAtMinIsrPartitionsOpt,
