@@ -20,6 +20,7 @@ package kafka.log
 import java.io.File
 import java.util.concurrent.Semaphore
 
+import kafka.api.ApiVersion
 import org.apache.kafka.common.record.{FileRecords, MemoryRecords}
 import org.apache.kafka.common.utils.Time
 
@@ -54,4 +55,18 @@ object LogUtils {
     }
   }
 
+  class SlowAppendAsLeaderLog(log: MergedLog,
+                              tierLogComponents: TierLogComponents,
+                              appendSemaphore: Semaphore) extends MergedLog(
+    localLog = log.localLog,
+    logStartOffset = log.localLogStartOffset,
+    tierPartitionState = log.tierPartitionState,
+    tierLogComponents = tierLogComponents) {
+
+    override def appendAsLeader(records: MemoryRecords, leaderEpoch: Int, origin: AppendOrigin, interBrokerProtocolVersion: ApiVersion): LogAppendInfo = {
+      val appendInfo = super.appendAsLeader(records, leaderEpoch, origin, interBrokerProtocolVersion)
+      appendSemaphore.acquire()
+      appendInfo
+    }
+  }
 }
