@@ -16,9 +16,10 @@
  */
 package kafka.server
 
-import java.util.Optional
+import java.util.{Optional, Properties}
 
 import kafka.utils.TestUtils
+import org.apache.kafka.common.config.TopicConfig
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.requests.{ListOffsetRequest, ListOffsetResponse}
 import org.apache.kafka.common.{IsolationLevel, TopicPartition}
@@ -28,6 +29,33 @@ import org.junit.Test
 import scala.collection.JavaConverters._
 
 class ListOffsetsRequestTest extends BaseRequestTest {
+
+  @Test
+  def testListOffsetsRequestForNonTieredPartition(): Unit = {
+    val topicName: String = "test-topic"
+    val props = new Properties
+    props.put(TopicConfig.SEGMENT_BYTES_CONFIG, "16384")
+    props.put(TopicConfig.RETENTION_BYTES_CONFIG, "-1")
+    val partitionToLeaderMap = createTopic(topicName, 1, 1, props)
+
+    val numMessages = 3000
+    TestUtils.generateAndProduceMessages(servers.toSeq, topicName, numMessages)
+
+    val topicPartition = new TopicPartition(topicName, 0)
+    val leaderId = partitionToLeaderMap(topicPartition.partition())
+    val server = serverForId(leaderId).get
+    val log = server.logManager.getLog(topicPartition).get
+    TestUtils.waitUntilTrue(() =>
+      (log.logEndOffset == numMessages),
+      "Timeout waiting for all records to be produced", 180000)
+
+    makeListOffsetsRequestAndValidateResponse(topicPartition, ListOffsetRequest.LATEST_TIMESTAMP, leaderId, log, 0)
+    // advance the log start offset and run again
+    log.maybeIncrementHighWatermark(LogOffsetMetadata(log.logStartOffset + 100))
+    log.maybeIncrementLogStartOffset(log.logStartOffset + 100)
+    makeListOffsetsRequestAndValidateResponse(topicPartition, ListOffsetRequest.LATEST_TIMESTAMP, leaderId, log, 0)
+    makeListOffsetsRequestAndValidateResponse(topicPartition, ListOffsetRequest.EARLIEST_TIMESTAMP, leaderId, log, 0)
+  }
 
   @Test
   def testListOffsetsErrorCodes(): Unit = {

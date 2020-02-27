@@ -1741,7 +1741,7 @@ class Log(@volatile var dir: File,
 
     for (i <- segments.indices) {
       val (baseOffset, lastModified, _) = segments(i)
-      offsetTimeArray(i) = (math.max(baseOffset, localLogStartOffset), lastModified)
+      offsetTimeArray(i) = (math.max(baseOffset, mergedLogStartOffset), lastModified)
     }
     if (lastSegmentHasSize)
       offsetTimeArray(segments.length) = (logEndOffset, time.milliseconds)

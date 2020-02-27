@@ -8,7 +8,8 @@ from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
 from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND
-from kafkatest.version import LATEST_0_10_1, LATEST_0_10_2, LATEST_0_11_0, LATEST_1_0, LATEST_1_1, LATEST_2_0, \
+from kafkatest.version import LATEST_0_9, LATEST_0_10_0, LATEST_0_10_1, \
+    LATEST_0_10_2, LATEST_0_11_0, LATEST_1_0, LATEST_1_1, LATEST_2_0, \
     LATEST_2_1, LATEST_2_2, LATEST_2_3, LATEST_2_4, DEV_BRANCH, KafkaVersion
 
 
@@ -63,7 +64,8 @@ class TierRoundtripTest(ProduceConsumeValidateTest, TierSupport):
             self.kafka.start_jmx_tool(idx, knode)
 
     @matrix(client_version=[str(DEV_BRANCH), str(LATEST_2_4), str(LATEST_2_3), str(LATEST_2_2), str(LATEST_2_1), str(LATEST_2_0),
-                            str(LATEST_1_1), str(LATEST_1_0), str(LATEST_0_11_0), str(LATEST_0_10_2), str(LATEST_0_10_1)],
+                            str(LATEST_1_1), str(LATEST_1_0), str(LATEST_0_11_0), str(LATEST_0_10_2), str(LATEST_0_10_1),
+                            str(LATEST_0_10_0), str(LATEST_0_9)],
             backend=[S3_BACKEND, GCS_BACKEND])
     def test_tier_roundtrip(self, client_version, backend):
 

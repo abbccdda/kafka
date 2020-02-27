@@ -23,12 +23,16 @@ import java.nio.ByteBuffer
 import java.util.Properties
 
 import kafka.api.IntegrationTestHarness
+import kafka.log.AbstractLog
 import kafka.network.SocketServer
 import kafka.utils.NotNothing
+import org.apache.kafka.common.{IsolationLevel, TopicPartition}
 import org.apache.kafka.common.network.ListenerName
-import org.apache.kafka.common.protocol.ApiKeys
-import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, RequestHeader, ResponseHeader}
+import org.apache.kafka.common.protocol.{ApiKeys, Errors}
+import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, ListOffsetRequest, ListOffsetResponse, RequestHeader, ResponseHeader}
+import org.junit.Assert.{assertFalse, assertTrue}
 
+import scala.collection.JavaConverters._
 import scala.collection.Seq
 import scala.reflect.ClassTag
 
@@ -149,4 +153,24 @@ abstract class BaseRequestTest extends IntegrationTestHarness {
     new RequestHeader(apiKey, apiVersion, clientId, correlationId)
   }
 
+  protected def makeListOffsetsRequestAndValidateResponse(topicPartition: TopicPartition, timestamp: Long,
+                                                          leaderId: Int, log: AbstractLog, version: Short): Unit = {
+    val targetTimes = Map(topicPartition -> new ListOffsetRequest.PartitionData(timestamp, Int.MaxValue)).asJava
+    val request = ListOffsetRequest.Builder
+      .forConsumer(false, IsolationLevel.READ_UNCOMMITTED)
+      .setTargetTimes(targetTimes)
+      .build(version)
+    val response = connectAndReceive[ListOffsetResponse](request, brokerSocketServer(leaderId))
+    assertTrue("Error returned by ListOffsetRequest", response.responseData().get(topicPartition).error == Errors.NONE)
+    val offsets = asScalaBuffer(response.responseData().get(topicPartition).offsets)
+    assertFalse("Offsets in ListOffsetResponse must fall within the range [logStartOffset, logEndOffset]",
+      offsets.exists(_ < log.logStartOffset) || offsets.exists(_ > log.logEndOffset))
+    assertTrue("Expected logStartOffset to be present at ListOffsetResponse", offsets.contains(log.logStartOffset))
+    timestamp match {
+      case ListOffsetRequest.EARLIEST_TIMESTAMP =>
+        assertTrue("Expected a single offset to be returned when querying for EARLIEST_TIMESTAMP", offsets.size == 1)
+      case ListOffsetRequest.LATEST_TIMESTAMP =>
+        assertTrue("Expected log end offset to be returned when querying for LATEST_TIMESTAMP", offsets.head == log.logEndOffset)
+    }
+  }
 }
