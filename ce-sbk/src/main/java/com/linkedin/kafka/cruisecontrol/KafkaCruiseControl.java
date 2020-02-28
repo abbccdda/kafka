@@ -119,7 +119,7 @@ public class KafkaCruiseControl {
     long removalHistoryRetentionTimeMs = config.getLong(KafkaCruiseControlConfig.REMOVAL_HISTORY_RETENTION_TIME_MS_CONFIG);
     _anomalyDetector = new AnomalyDetector(config, _loadMonitor, this, _time, metricRegistry);
     _executor = new Executor(config, _time, metricRegistry, demotionHistoryRetentionTimeMs,
-                             removalHistoryRetentionTimeMs, _anomalyDetector, _loadMonitor);
+                             removalHistoryRetentionTimeMs, _anomalyDetector);
     _goalOptimizer = new GoalOptimizer(config, _loadMonitor, _time, metricRegistry, _executor);
   }
 

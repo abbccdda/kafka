@@ -793,6 +793,72 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     EasyMock.verify(mockLoadMonitor);
   }
 
+  @Test
+  public void testThrottleIsComputedOncePerExecution() throws InterruptedException {
+    // Create a strict mock so that we will throw if we attempt to compute the throttle more than once
+    LoadMonitor mockLoadMonitor = EasyMock.createStrictMock(LoadMonitor.class);
+    mockLoadMonitor.pauseMetricSampling(EasyMock.anyString());
+    EasyMock.expectLastCall();
+    EasyMock.expect(mockLoadMonitor.computeThrottle()).andReturn(5000000L);
+    mockLoadMonitor.resumeMetricSampling(EasyMock.anyString());
+    EasyMock.expectLastCall();
+    EasyMock.replay(mockLoadMonitor);
+
+    KafkaCruiseControlConfig config = new KafkaCruiseControlConfig(getExecutorProperties());
+
+    Map<String, TopicDescription> topicDescriptions = createTopics();
+    int oldReplica = topicDescriptions.get(TP1.topic()).partitions().get(0).leader().id();
+    int newReplica = oldReplica == 0 ? 1 : 0;
+
+    ExecutionProposal proposal =
+            new ExecutionProposal(TP1, 0, new ReplicaPlacementInfo(oldReplica),
+                    Collections.singletonList(new ReplicaPlacementInfo(oldReplica)),
+                    Collections.singletonList(new ReplicaPlacementInfo(newReplica)));
+
+    Time time = new MockTime();
+    MetadataClient metadataClient = new MetadataClient(config,
+            -1L,
+            time);
+
+    AtomicReference<ExecutorNotification> testNotification = new AtomicReference<>();
+    ExecutorNotifier notifier = new ExecutorNotifier() {
+      @Override
+      public void sendNotification(ExecutorNotification notification) {
+        testNotification.set(notification);
+      }
+
+      @Override
+      public void configure(Map<String, ?> configs) {
+
+      }
+    };
+
+    ReplicationThrottleHelper throttleHelper = new ReplicationThrottleHelper(
+            KafkaCruiseControlUtils.createKafkaZkClient(zookeeper().connectionString(), "CruiseControlExecutor",
+                    "Executor", false), AUTO_THROTTLE);
+    Executor executor = new Executor(config, time, new MetricsRegistry(), metadataClient, 86400000L,
+            43200000L, notifier,
+            getMockAnomalyDetector(RANDOM_UUID),
+            KafkaCruiseControlUtils.createAdminClient(KafkaCruiseControlUtils.parseAdminClientConfigs(config)), throttleHelper);
+    executor.setExecutionMode(false);
+    executor.executeProposals(Collections.singletonList(proposal),
+            Collections.emptySet(),
+            null,
+            mockLoadMonitor,
+            null,
+            null,
+            null,
+            null,
+            AUTO_THROTTLE,
+            RANDOM_UUID);
+    waitUntilExecutionFinishes(executor);
+
+    // Execution should have succeeded and the throttle helper value should have been reset to AUTO_THROTTLE
+    assertTrue(testNotification.get().executionSucceeded());
+    assertEquals(AUTO_THROTTLE, throttleHelper.getThrottleRate().longValue());
+    EasyMock.verify(mockLoadMonitor);
+  }
+
   private Map<String, TopicDescription> createTopics() throws InterruptedException {
     AdminClient adminClient = KafkaCruiseControlUtils.createAdminClient(Collections.singletonMap(
                               AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker(0).plaintextAddr()));
@@ -936,7 +1002,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
 
     return new Executor(configs, new SystemTime(), new MetricsRegistry(), null, 86400000L,
         43200000L, null,
-        getMockAnomalyDetector(RANDOM_UUID), null, adminClient);
+        getMockAnomalyDetector(RANDOM_UUID), adminClient, null);
   }
 
   private void waitAndVerifyProposals(KafkaZkClient kafkaZkClient,

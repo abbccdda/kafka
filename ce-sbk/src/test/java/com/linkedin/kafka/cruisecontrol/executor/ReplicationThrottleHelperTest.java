@@ -359,7 +359,8 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
     assertExpectedThrottledRateForBroker(kafkaZkClient, 3, throttleRate1);
     helper.removeAllThrottles();
 
-    // After setting throttles, the state should be reset, so the throttle should be recomputed
+    // Simulate the end of an execution by resetting state, so that the throttle is recomputed
+    helper.resetThrottleAfterExecution();
     helper.setThrottles(Arrays.asList(proposal, proposal2), mockLoadMonitor);
     assertExpectedThrottledRateForBroker(kafkaZkClient, 0, throttleRate2);
     assertExpectedThrottledRateForBroker(kafkaZkClient, 1, throttleRate2);

@@ -644,6 +644,9 @@ public class LoadMonitor {
       try {
         clusterModel(_time.milliseconds(), _defaultModelCompletenessRequirements, new OperationProgress());
         brokerStats = cachedBrokerLoadStats(true);
+        if (brokerStats == null) {
+          throw new IllegalStateException("Cannot compute throttle because broker load stats are unavailable");
+        }
       } catch (NotEnoughValidWindowsException e) {
         throw new IllegalStateException("Cannot compute throttle because there are not enough valid metrics windows");
       }

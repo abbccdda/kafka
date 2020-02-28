@@ -58,6 +58,10 @@ class ReplicationThrottleHelper {
     LOG.info("Set throttle rate {}", this._throttleRate);
   }
 
+  Long getThrottleRate() {
+    return this._throttleRate;
+  }
+
   boolean setThrottleRate(Long throttleRate) {
     if ((_originalThrottleRate == null && throttleRate == null) ||
         (_originalThrottleRate != null && throttleRate != null) && _originalThrottleRate.equals(throttleRate)) {
@@ -85,13 +89,16 @@ class ReplicationThrottleHelper {
       participatingBrokers.forEach(this::setFollowerThrottledRateIfUnset);
       throttledReplicas.forEach(this::setLeaderThrottledReplicas);
       throttledReplicas.forEach(this::setFollowerThrottledReplicas);
-
-      // If AUTO_THROTTLE is configured, reset _throttleRate to allow recomputing next time throttles are set
-      if (this._originalThrottleRate != null && this._originalThrottleRate == AUTO_THROTTLE) {
-        _throttleRate = AUTO_THROTTLE;
-      }
     } else {
       LOG.info("Skipped setting rebalance throttle because it is not enabled");
+    }
+  }
+
+  // Reset back to AUTO_THROTTLE after an execution completes. This allows us to compute a new throttle once at the
+  // beginning of each execution
+  void resetThrottleAfterExecution() {
+    if (this._originalThrottleRate != null && this._originalThrottleRate == AUTO_THROTTLE) {
+      this._throttleRate = AUTO_THROTTLE;
     }
   }
 
