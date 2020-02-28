@@ -395,5 +395,14 @@ public class TierSegmentReader {
             this.nextBatchSize = nextBatchSize;
             this.safeToReadMore = safeToReadMore;
         }
+
+        @Override
+        public String toString() {
+            return "ReadState(" +
+                    "totalBytesRead=" + totalBytesRead + ", " +
+                    "lastBatchStartPosition=" + lastBatchStartPosition + ", " +
+                    "nextBatchSize=" + nextBatchSize + ", " +
+                    "safeToReadMore=" + safeToReadMore + ")";
+        }
     }
 }
