@@ -157,12 +157,12 @@ public class ConfluentConfigs {
     public static final String BALANCER_NETWORK_IN_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + "network.in.max.bytes.per.second";
     public static final Long BALANCER_NETWORK_IN_CAPACITY_DEFAULT = null;
     public static final String BALANCER_NETWORK_IN_CAPACITY_DOC = "This config specifies the upper bound for network " +
-            "incoming bytes per broker.";
+            "incoming bytes per second per broker.";
 
     public static final String BALANCER_NETWORK_OUT_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + "network.out.max.bytes.per.second";
     public static final Long BALANCER_NETWORK_OUT_CAPACITY_DEFAULT = null;
     public static final String BALANCER_NETWORK_OUT_CAPACITY_DOC = "This config specifies the upper bound for network " +
-            "outgoing bytes per broker.";
+            "outgoing bytes per second per broker.";
 
     public static final String BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG = CONFLUENT_BALANCER_PREFIX + "exclude.topic.names";
     public static final List BALANCER_EXCLUDE_TOPIC_NAMES_DEFAULT = Collections.EMPTY_LIST;

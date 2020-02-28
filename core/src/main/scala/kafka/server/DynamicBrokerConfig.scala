@@ -88,7 +88,8 @@ object DynamicBrokerConfig {
     SocketServer.ReconfigurableConfigs ++
     DynamicBackpressure.ReconfigurableConfigs ++
     TierFetcher.reconfigurableConfigs ++
-    Set(KafkaConfig.AuditLogRouterConfigProp)
+    Set(KafkaConfig.AuditLogRouterConfigProp) ++
+    DynamicBalancerConfig.ReconfigurableConfigs
 
   private val ClusterLevelListenerConfigs = Set(KafkaConfig.MaxConnectionsProp)
   private val PerBrokerConfigs = DynamicSecurityConfigs  ++
@@ -254,6 +255,7 @@ class DynamicBrokerConfig(private val kafkaConfig: KafkaConfig) extends Logging 
     addBrokerReconfigurable(new DynamicListenerConfig(kafkaServer))
     addBrokerReconfigurable(kafkaServer.socketServer)
     addBrokerReconfigurable(new DynamicBackpressure(kafkaServer))
+    addBrokerReconfigurable(new DynamicBalancerConfig(kafkaServer))
     kafkaServer.tierFetcherOpt.foreach(addBrokerReconfigurable(_))
   }
 
@@ -958,5 +960,30 @@ class DynamicBackpressure(server: KafkaServer) extends BrokerReconfigurable {
   }
 }
 
+object DynamicBalancerConfig {
+  val ReconfigurableConfigs = Set(
+    ConfluentConfigs.BALANCER_MODE_CONFIG,
+    ConfluentConfigs.BALANCER_THROTTLE_CONFIG,
+    ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG,
+    ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG
+  )
+}
+
+class DynamicBalancerConfig(server: KafkaServer) extends BrokerReconfigurable {
+  override def reconfigurableConfigs: Set[String] = {
+    DynamicBalancerConfig.ReconfigurableConfigs
+  }
+
+  override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
+    val oldThrottleValue = server.config.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG)
+    val newThrotteValue = newConfig.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG)
+    if(oldThrottleValue != newThrotteValue && newThrotteValue < 0) {
+      throw new ConfigException(s"'${ConfluentConfigs.BALANCER_THROTTLE_CONFIG}' should not be less than 0.")
+    }
+  }
+
+  override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
+  }
+}
 
 

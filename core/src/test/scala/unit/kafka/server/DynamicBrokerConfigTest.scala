@@ -25,6 +25,7 @@ import kafka.utils.TestUtils
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.{Endpoint, Reconfigurable}
 import org.apache.kafka.common.acl.{AclBinding, AclBindingFilter}
+import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.config.types.Password
 import org.apache.kafka.common.config.{ConfigException, SslConfigs}
 import org.apache.kafka.server.authorizer._
@@ -195,6 +196,50 @@ class DynamicBrokerConfigTest {
     val listenerMaxConnectionsProp = s"listener.name.external.${KafkaConfig.MaxConnectionsProp}"
     verifyConfigUpdate(listenerMaxConnectionsProp, "10", perBrokerConfig = true, expectFailure = false)
     verifyConfigUpdate(listenerMaxConnectionsProp, "10", perBrokerConfig = false, expectFailure = false)
+  }
+
+  @Test
+  def testBalancerConfigs(): Unit = {
+    verifyConfigUpdate(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "200", perBrokerConfig = false, expectFailure = false)
+    verifyConfigUpdate(ConfluentConfigs.BALANCER_MODE_CONFIG, "ENABLED", perBrokerConfig = false, expectFailure = false)
+    verifyConfigUpdate(ConfluentConfigs.BALANCER_MODE_CONFIG, "PAUSED", perBrokerConfig = false, expectFailure = true)
+    verifyConfigUpdate(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG, "topic1, topic2, topic3",
+      perBrokerConfig = false, expectFailure = false)
+    verifyConfigUpdate(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, "test1, test2",
+      perBrokerConfig = false, expectFailure = false)
+  }
+
+  @Test
+  def testBalancerValidateReconfiguration(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    val oldConfig =  KafkaConfig.fromProps(props)
+    val kafkaServer: KafkaServer = EasyMock.createMock(classOf[kafka.server.KafkaServer])
+    EasyMock.expect(kafkaServer.config).andReturn(oldConfig).anyTimes()
+    EasyMock.replay(kafkaServer)
+
+    props.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "200")
+    val newConfig = KafkaConfig(props)
+    val dynamicBalancerConfig = new DynamicBalancerConfig(kafkaServer)
+    dynamicBalancerConfig.validateReconfiguration(newConfig)
+  }
+
+  @Test
+  def testBalancerValidateReconfigurationFailure(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    val oldConfig =  KafkaConfig.fromProps(props)
+    val kafkaServer: KafkaServer = EasyMock.createMock(classOf[kafka.server.KafkaServer])
+    EasyMock.expect(kafkaServer.config).andReturn(oldConfig).anyTimes()
+    EasyMock.replay(kafkaServer)
+
+    props.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "-200")
+    val newConfig = KafkaConfig(props)
+    val dynamicBalancerConfig = new DynamicBalancerConfig(kafkaServer)
+    try {
+      dynamicBalancerConfig.validateReconfiguration(newConfig)
+      fail("Invalid throttle config did not fail validation")
+    } catch {
+      case e: Exception => // expected exception
+    }
   }
 
   private def verifyConfigUpdate(name: String, value: Object, perBrokerConfig: Boolean, expectFailure: Boolean): Unit = {

@@ -48,6 +48,7 @@ import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, Produce
 import org.apache.kafka.common.{ClusterResource, ClusterResourceListener, Reconfigurable, TopicPartition, TopicPartitionInfo}
 import org.apache.kafka.common.config.{ConfigException, ConfigResource}
 import org.apache.kafka.common.config.SslConfigs._
+import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.config.types.Password
 import org.apache.kafka.common.config.provider.FileConfigProvider
 import org.apache.kafka.common.errors.{AuthenticationException, InvalidRequestException}
@@ -121,6 +122,7 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
       props.put(KafkaConfig.PasswordEncoderSecretProp, "dynamic-config-secret")
       props.put(KafkaConfig.LogRetentionTimeMillisProp, 1680000000.toString)
       props.put(KafkaConfig.LogRetentionTimeHoursProp, 168.toString)
+      props.put(ConfluentConfigs.BALANCER_MODE_CONFIG, "ENABLED")
 
       props ++= sslProperties1
       props ++= securityProps(sslProperties1, KEYSTORE_PROPS, listenerPrefix(SecureInternal))
@@ -537,6 +539,45 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
     assertTrue(log.config.overriddenConfigs.contains(KafkaConfig.MinInSyncReplicasProp))
     assertEquals("2", log.config.originals().get(KafkaConfig.MinInSyncReplicasProp).toString) // Verify topic-level config still survives
   }
+
+  def testBalancerConfigUpdate(): Unit = {
+    val (producerThread, consumerThread) = startProduceConsume(0)
+    val props = new Properties
+    props.put(ConfluentConfigs.BALANCER_MODE_CONFIG, "DISABLED")
+    props.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "50")
+    props.put(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG, "test-topic, some-topic, another_topic")
+    props.put(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, "test, some")
+    reconfigureServers(props, perBrokerConfig = false, (ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "50"))
+    // verify that all broker defaults have been updated
+    servers.foreach { server =>
+      props.asScala.foreach { case (k, v) =>
+        assertEquals(s"Not reconfigured $k", server.config.originals.get(k).toString, v)
+      }
+    }
+    // verify produce/consume works throughout balancer config updates with no retries
+    stopAndVerifyProduceConsume(producerThread, consumerThread)
+  }
+
+  @Test
+  def testBalancerModeInvalidConfigUpdate(): Unit = {
+    val (producerThread, consumerThread) = startProduceConsume(0)
+    val props = new Properties
+    props.put(ConfluentConfigs.BALANCER_MODE_CONFIG, "PAUSED")
+    reconfigureServers(props, perBrokerConfig = false, (ConfluentConfigs.BALANCER_MODE_CONFIG, "PAUSED"), expectFailure = true)
+    // verify produce/consume works throughout balancer config updates with no retries
+    stopAndVerifyProduceConsume(producerThread, consumerThread)
+  }
+
+  @Test
+  def testBalancerThrottleInvalidConfigUpdate(): Unit = {
+    val (producerThread, consumerThread) = startProduceConsume(0)
+    val props = new Properties
+    props.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "-10")
+    reconfigureServers(props, perBrokerConfig = false, (ConfluentConfigs.BALANCER_MODE_CONFIG, "-10"), expectFailure = true)
+    // verify produce/consume works throughout balancer config updates with no retries
+    stopAndVerifyProduceConsume(producerThread, consumerThread)
+  }
+
 
   @Test
   def testDefaultTopicConfig(): Unit = {
