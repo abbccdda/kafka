@@ -13,10 +13,11 @@ public class ConfluentTopicConfig {
     public static final String CONFLUENT_PREFIX = "confluent.";
 
     public static final String TIER_ENABLE_CONFIG = CONFLUENT_PREFIX + "tier.enable";
-    public static final String TIER_ENABLE_DOC = "True if this topic has tiered storage enabled.";
+    public static final String TIER_ENABLE_DOC = "Allow tiering for topic(s). This enables tiering and fetching of data " +
+            "to and from the configured remote storage.";
 
     public static final String TIER_LOCAL_HOTSET_BYTES_CONFIG = CONFLUENT_PREFIX + "tier.local.hotset.bytes";
-    public static final String TIER_LOCAL_HOTSET_BYTES_DOC = "For a topic with tiering enabled, this configuration " +
+    public static final String TIER_LOCAL_HOTSET_BYTES_DOC = "When tiering is enabled, this configuration " +
             "controls the maximum size a partition (which consists of log segments) can grow to on broker-local storage " +
             "before we will discard old log segments to free up space. Log segments retained on broker-local storage is " +
             "referred as the \"hotset\". Segments discarded from local store could continue to exist in tiered storage " +
@@ -25,18 +26,18 @@ public class ConfluentTopicConfig {
             "partitions to compute the topic hotset in bytes.";
 
     public static final String TIER_LOCAL_HOTSET_MS_CONFIG = CONFLUENT_PREFIX + "tier.local.hotset.ms";
-    public static final String TIER_LOCAL_HOTSET_MS_DOC = "For a topic with tiering enabled, this configuration " +
+    public static final String TIER_LOCAL_HOTSET_MS_DOC = "When tiering is enabled, this configuration " +
             "controls the maximum time we will retain a log segment on broker-local storage before we will discard it to " +
             "free up space. Segments discarded from local store could continue to exist in tiered storage and remain " +
             "available for fetches depending on retention configurations. If set to -1, no time limit is applied.";
 
     public static final String TIER_SEGMENT_HOTSET_ROLL_MIN_BYTES_CONFIG =
             CONFLUENT_PREFIX + "tier.segment.hotset.roll.min.bytes";
-    public static final String TIER_SEGMENT_HOTSET_ROLL_MIN_BYTES_DOC = "Allows a segment roll to be forced if the active " +
-            "segment is larger than `confluent.tier.segment.hotset.roll.min.bytes` and if all records in the segment " +
-            "are ready for eviction from the hotset. Rolling the segment ensures that it can be tiered and the segment " +
-            "can then be deleted from the hotset. A minimum size is enforced to ensure efficient tiering and " +
-            "consumption.";
+    public static final String TIER_SEGMENT_HOTSET_ROLL_MIN_BYTES_DOC = "When tiering is enabled, this configuration " +
+            "allows a segment roll to be forced if the active segment is larger than the configured bytes and if all " +
+            "records in the segment are ready for eviction from the hotset. Rolling the segment ensures that it can be " +
+            "tiered and the segment can then be deleted from the hotset. A minimum size is enforced to ensure efficient " +
+            "tiering and consumption.";
 
     public static final String PREFER_TIER_FETCH_MS_CONFIG = CONFLUENT_PREFIX + "prefer.tier.fetch.ms";
     public static final String PREFER_TIER_FETCH_MS_DOC = "For a topic with tiering enabled, this configuration sets " +

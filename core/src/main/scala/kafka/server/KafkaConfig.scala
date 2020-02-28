@@ -982,17 +982,17 @@ object KafkaConfig {
 
   /** ********* Tiered Storage Configurations ***********/
   /** Tiered storage feature configs **/
-  val TierFeatureDoc = "Feature flag that enables the tiered storage feature by enabling components related to tiered storage."
+  val TierFeatureDoc = s"Feature flag that enables components related to tiered storage. This must be enabled before tiering could be enabled by using `$TierEnableProp` property."
 
   /** Tiered storage metadata configs **/
-  val TierMetadataBootstrapServersDoc = "The bootstrap servers for the tier topic cluster. Kafka will default to the local broker if this is not defined."
+  val TierMetadataBootstrapServersDoc = "The bootstrap servers used to read from and write to the tier metadata topic. If this is not configured, the configured inter-broker listener would be used."
   val TierMetadataMaxPollMsDoc = "The maximum delay before invocations of poll of the tier topic."
   val TierMetadataRequestTimeoutMsDoc = "request.timeout.ms passed through to the backing producer. After this timeout the producer will retry the request."
-  val TierEnableDoc = "Enable topic tiering on all topics broker wide."
-  val TierBackendDoc = "Tiered storage backend (S3 only for now)."
+  val TierEnableDoc = ConfluentTopicConfig.TIER_ENABLE_DOC
+  val TierBackendDoc = "Tiered storage backend to use"
   val TierMetadataNamespaceDoc = "Namespace of the tier topic name e.g. namespace mycluster will be translated into _confluent-tier-state-mycluster."
   val TierMetadataNumPartitionsDoc = "The number of partitions for the tier topic (should not change after deployment)."
-  val TierMetadataReplicationFactorDoc = "The replication factor for the Tier Topic (set higher to ensure availability)."
+  val TierMetadataReplicationFactorDoc = "The replication factor for the tier metadata topic (set higher to ensure availability)."
   val TierS3BucketDoc = "The S3 bucket to use for tiered storage."
   val TierS3RegionDoc = "The S3 region to use for tiered storage."
   val TierS3PrefixDoc = "This prefix will be added to tiered storage objects stored in S3."
@@ -1003,7 +1003,7 @@ object KafkaConfig {
   val TierS3EndpointOverrideDoc = "Override picking an S3 endpoint. Normally this is performed automatically by the client."
   val TierS3SignerOverrideDoc = "Set the name of the signature algorithm used for signing S3 requests."
   val TierS3AutoAbortThresholdBytesDoc = "The S3 client closes any connection that performs GetRequests that are not fully read. To promote connection reuse, the broker will read the remainder of a request if there are fewer bytes remaining than <code>confluent.tier.s3.auto.abort.threshold.bytes</code>."
-  val TierFetcherNumThreadsDoc = "The size of the threadpool used by the TierFetcher. Roughly corresponds to # of concurrent fetch requests."
+  val TierFetcherNumThreadsDoc = "The size of the thread pool used by the TierFetcher. Roughly corresponds to number of concurrent fetch requests that can be served from tiered storage."
   val TierFetcherOffsetCacheSizeDoc = "The maximum size of the TierFetcher LRU offset cache. This cache avoids use of the offset index by predicting the next fetch offset and the corresponding byte offset in tiered log segments"
   val TierFetcherOffsetCacheExpirationMsDoc = "Expiration time (ms) for entries in the TierFetcher offset cache. Entries that have not been used for longer than the expiration time will be expired."
   val TierFetcherOffsetCacheExpiryPeriodMsDoc = "Expiration period (ms) for the TierFetcher offset cache. Entries in the offset cache will be checked for expiration every period."
@@ -1024,13 +1024,11 @@ object KafkaConfig {
   val TierLocalHotsetMsDoc = ConfluentTopicConfig.TIER_LOCAL_HOTSET_MS_DOC
 
   /** Tiered storage archiver configs **/
-  val TierArchiverNumThreadsDoc = "The size of the threadpool used for TierArchiver state transitions."
+  val TierArchiverNumThreadsDoc = "The size of the thread pool used for tiering data to remote storage. This thread " +
+    "pool is also used to garbage collect data in tiered storage that has been deleted."
 
   /** Tiered storage segment roll configs **/
-  val TierSegmentHotsetRollMinBytesDoc = "Allows a segment roll to be forced if the active segment is larger than " +
-    "`confluent.tier.segment.hotset.roll.min.bytes` and if all records in the segment are ready for eviction from the " +
-    "hotset. Rolling the segment ensures that it can be tiered and the segment can then be deleted from the hotset. A " +
-    "minimum size is enforced to ensure efficient tiering and consumption."
+  val TierSegmentHotsetRollMinBytesDoc = ConfluentTopicConfig.TIER_SEGMENT_HOTSET_ROLL_MIN_BYTES_DOC
 
   /** ********* Fetch Configuration **************/
   val MaxIncrementalFetchSessionCacheSlotsDoc = "The maximum number of incremental fetch sessions that we will maintain."
@@ -1326,7 +1324,7 @@ object KafkaConfig {
       .define(TierFeatureProp, BOOLEAN, Defaults.TierFeature, MEDIUM, TierFeatureDoc)
       .define(TierEnableProp, BOOLEAN, Defaults.TierEnable, MEDIUM, TierEnableDoc)
       .define(TierBackendProp, STRING, Defaults.TierBackend, in("S3", "GCS", "mock", ""), MEDIUM, TierBackendDoc)
-      .defineInternal(TierMetadataBootstrapServersProp, STRING, Defaults.TierMetadataBootstrapServers, MEDIUM, TierMetadataBootstrapServersDoc)
+      .define(TierMetadataBootstrapServersProp, STRING, Defaults.TierMetadataBootstrapServers, MEDIUM, TierMetadataBootstrapServersDoc)
       .defineInternal(TierMetadataMaxPollMsProp, LONG, Defaults.TierMetadataMaxPollMs, atLeast(1), MEDIUM, TierMetadataMaxPollMsDoc)
       .defineInternal(TierMetadataRequestTimeoutMsProp, INT, Defaults.TierMetadataRequestTimeoutMs, atLeast(1), MEDIUM, TierMetadataRequestTimeoutMsDoc)
       .defineInternal(TierMetadataNamespaceProp, STRING, Defaults.TierMetadataNamespace, MEDIUM, TierMetadataNamespaceDoc)

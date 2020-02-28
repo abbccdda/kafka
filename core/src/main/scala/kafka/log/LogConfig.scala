@@ -399,14 +399,15 @@ object LogConfig {
       .define(ValueSchemaValidationEnableProp, BOOLEAN, false, MEDIUM, ConfluentTopicConfig.VALUE_SCHEMA_VALIDATION_DOC) // we do not have this config at broker-level
       .define(KeySchemaValidationStrategyProp, STRING, null, MEDIUM, ConfluentTopicConfig.KEY_SUBJECT_NAME_STRATEGY_DOC) // we do not have this config at broker-level
       .define(ValueSchemaValidationStrategyProp, STRING, null, MEDIUM, ConfluentTopicConfig.VALUE_SUBJECT_NAME_STRATEGY_DOC) // we do not have this config at broker-level
+      .define(TierEnableProp, BOOLEAN, Defaults.TierEnable, MEDIUM, TierEnableDoc, KafkaConfig.TierEnableProp)
+      .define(TierLocalHotsetBytesProp, LONG, Defaults.TierLocalHotsetBytes, MEDIUM, TierLocalHotsetBytesDoc, KafkaConfig.TierLocalHotsetBytesProp)
+      .define(TierLocalHotsetMsProp, LONG, Defaults.TierLocalHotsetMs, MEDIUM, TierLocalHotsetMsDoc, KafkaConfig.TierLocalHotsetMsProp)
+
       /* --- End Confluent Configurations --- */
 
 
       /* --- Begin Internal Configurations --- */
 
-      .defineInternal(TierEnableProp, BOOLEAN, Defaults.TierEnable, MEDIUM, TierEnableDoc, KafkaConfig.TierEnableProp)
-      .defineInternal(TierLocalHotsetBytesProp, LONG, Defaults.TierLocalHotsetBytes, MEDIUM, TierLocalHotsetBytesDoc, KafkaConfig.TierLocalHotsetBytesProp)
-      .defineInternal(TierLocalHotsetMsProp, LONG, Defaults.TierLocalHotsetMs, MEDIUM, TierLocalHotsetMsDoc, KafkaConfig.TierLocalHotsetMsProp)
       .defineInternal(TierSegmentHotsetRollMinBytesProp, INT, Defaults.TierSegmentHotsetRollMinBytes, MEDIUM,
         TierSegmentHotsetRollMinBytesDoc, KafkaConfig.TierSegmentHotsetRollMinBytesProp)
       .defineInternal(PreferTierFetchMsProp, LONG, Defaults.PreferTierFetchMs, LOW, PreferTierFetchMsDoc, KafkaConfig.PreferTierFetchMsProp)

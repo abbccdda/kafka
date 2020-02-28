@@ -504,7 +504,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           config.tierMetadataBootstrapServers
         else
           metadataCache.getAliveBrokers
-            .map { _.brokerEndPoint(config.interBrokerListenerName).connectionString() }
+            .map(_.brokerEndPoint(config.interBrokerListenerName).connectionString)
             .mkString(",")
       }
     }
