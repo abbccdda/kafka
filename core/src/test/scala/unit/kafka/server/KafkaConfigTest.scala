@@ -831,6 +831,15 @@ class KafkaConfigTest {
         case ConfluentConfigs.RETRIES_WAIT_MS_CONFIG =>
         case ConfluentConfigs.MISSING_ID_QUERY_RANGE_CONFIG =>
         case ConfluentConfigs.MISSING_ID_CACHE_TTL_CONFIG =>
+        case ConfluentConfigs.BALANCER_MODE_CONFIG =>
+        case ConfluentConfigs.BALANCER_RACK_AWARE_CONFIG =>
+        case ConfluentConfigs.BALANCER_THROTTLE_CONFIG =>
+        case ConfluentConfigs.BALANCER_REPLICA_CAPACITY_CONFIG =>
+        case ConfluentConfigs.BALANCER_DISK_CAPACITY_CONFIG =>
+        case ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG =>
+        case ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG =>
+        case ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG =>
+        case ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG =>
 
         case _ => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1")
       }
