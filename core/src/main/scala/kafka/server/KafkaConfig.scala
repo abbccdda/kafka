@@ -214,7 +214,7 @@ object Defaults {
   val TierS3EndpointOverride = null
   val TierS3SignerOverride = null
   val TierS3AutoAbortThresholdBytes = 500000: Integer
-  val TierFetcherNumThreads = 2: Integer
+  val TierFetcherNumThreads = 4: Integer
   val TierFetcherOffsetCacheSize = 200000: Integer
   val TierFetcherOffsetCacheExpirationMs = 30 * 60 * 1000
   val TierFetcherOffsetCacheExpiryPeriodMs = 60000
