@@ -1,8 +1,7 @@
 package kafka.tier.topic
 
 import java.util
-import java.util.{OptionalInt, UUID}
-import java.util.function.Supplier
+import java.util.{Collections, OptionalInt, UUID}
 
 import kafka.tier.{TierTopicManagerCommitter, TopicIdPartition}
 import kafka.tier.client.{MockConsumerSupplier, MockProducerSupplier}
@@ -11,6 +10,7 @@ import kafka.tier.exceptions.TierMetadataDeserializationException
 import kafka.tier.state.TierPartitionStatus
 import kafka.tier.topic.TierTopicConsumer.ClientCtx
 import kafka.utils.TestUtils
+import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.junit.Assert._
@@ -32,13 +32,19 @@ class TierTopicConsumerTest {
   private val logDir = tempDir.getAbsolutePath
   private val logDirs = new util.ArrayList(util.Collections.singleton(logDir))
 
-  private val bootstrapSupplier = new Supplier[String] {
-    override def get: String = "bootstrap-server"
-  }
-
   private val tierTopicNumPartitions = 7.toShort
   private val tierTopicPartitioner = new TierTopicPartitioner(tierTopicNumPartitions)
-  private val tierTopicManagerConfig = new TierTopicManagerConfig(bootstrapSupplier, "", tierTopicNumPartitions, 1.toShort, 3, clusterId, 5L, 30000, 500, logDirs)
+  private val tierTopicManagerConfig = new TierTopicManagerConfig(
+    () => Collections.singletonMap(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "bootstrap"),
+    "",
+    tierTopicNumPartitions,
+    1.toShort,
+    3,
+    clusterId,
+    5L,
+    30000,
+    500,
+    logDirs)
   private val tierTopicName = TierTopic.topicName("")
   private val tierTopicPartitions = TierTopicManager.partitions(tierTopicName, tierTopicNumPartitions)
   private val tierTopic = mock(classOf[InitializedTierTopic])

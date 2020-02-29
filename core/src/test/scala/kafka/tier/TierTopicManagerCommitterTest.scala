@@ -6,12 +6,12 @@ import java.io.FileWriter
 import java.io.IOException
 import java.util
 import java.util.{Collections, UUID}
-import java.util.function.Supplier
 
 import kafka.server.LogDirFailureChannel
 import kafka.tier.state.TierPartitionState
 import kafka.tier.topic.TierTopicManagerConfig
 import kafka.utils.TestUtils
+import org.apache.kafka.clients.CommonClientConfigs
 import org.easymock.EasyMock
 import org.junit.Assert._
 import org.junit.Test
@@ -54,9 +54,7 @@ class TierTopicManagerCommitterTest {
     file.mkdir()
     val numPartitions = 6: Short
     val tierTopicManagerConfig = new TierTopicManagerConfig(
-      new Supplier[String] {
-        override def get(): String = "bootstrap"
-      },
+      () => Collections.singletonMap(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "bootstrap"),
       null,
       numPartitions,
       1,
@@ -87,9 +85,7 @@ class TierTopicManagerCommitterTest {
     file.mkdir()
     val numPartitions = 6: Short
     val tierTopicManagerConfig = new TierTopicManagerConfig(
-      new Supplier[String] {
-        override def get(): String = "bootstrap"
-      },
+      () => Collections.singletonMap(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "bootstrap"),
       null,
       numPartitions,
       1,

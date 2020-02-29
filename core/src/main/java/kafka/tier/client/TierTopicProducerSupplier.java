@@ -8,6 +8,8 @@ import kafka.tier.topic.TierTopicManagerConfig;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
+
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
@@ -39,7 +41,10 @@ public class TierTopicProducerSupplier implements Supplier<Producer<byte[], byte
 
     private static Properties properties(TierTopicManagerConfig config, String clientId) {
         Properties properties = new Properties();
-        properties.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, config.bootstrapServersSupplier.get());
+
+        for (Map.Entry<String, Object> configEntry : config.interBrokerClientConfigs.get().entrySet())
+            properties.put(configEntry.getKey(), configEntry.getValue());
+
         properties.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArraySerializer");
         properties.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArraySerializer");
         properties.put(ProducerConfig.ACKS_CONFIG, "all");

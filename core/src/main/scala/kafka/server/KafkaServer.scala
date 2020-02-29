@@ -22,7 +22,7 @@ import java.net.{InetAddress, SocketTimeoutException}
 import java.util
 import java.util.concurrent._
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
-import java.util.function
+import java.util.{Collections, function}
 import java.util.function.Supplier
 
 import kafka.api.{KAFKA_0_9_0, KAFKA_2_2_IV0, KAFKA_2_4_IV1}
@@ -45,7 +45,7 @@ import kafka.tier.tasks.{TierTasks, TierTasksConfig}
 import kafka.tier.topic.{TierTopicConsumer, TierTopicManager, TierTopicManagerConfig}
 import kafka.utils._
 import kafka.zk.{AdminZkClient, BrokerInfo, KafkaZkClient}
-import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, ManualMetadataUpdater, NetworkClient, NetworkClientUtils}
+import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, CommonClientConfigs, ManualMetadataUpdater, NetworkClient, NetworkClientUtils}
 import org.apache.kafka.common.internals.ClusterResourceListeners
 import org.apache.kafka.common.message.ControlledShutdownRequestData
 import org.apache.kafka.common.metrics.{JmxReporter, Metrics, _}
@@ -316,7 +316,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size)
 
-        val tierTopicManagerConfig = new TierTopicManagerConfig(config, tieredBootstrapServersSupplier, _clusterId)
+        val tierTopicManagerConfig = new TierTopicManagerConfig(config, tieredStorageInterBrokerClientConfigsSupplier, _clusterId)
         if (config.tierFeature) {
           tierObjectStoreOpt = config.tierBackend match {
             case "S3" => Some(new S3TierObjectStore(new S3TierObjectStoreConfig(clusterId, config)))
@@ -370,7 +370,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         /* tiered storage components */
         if (config.tierFeature) {
-          tierTopicManagerOpt = Some(new TierTopicManager(tierTopicManagerConfig, tierTopicConsumerOpt.get, adminZkClientSupplier, tieredBootstrapServersSupplier, metrics))
+          tierTopicManagerOpt = Some(new TierTopicManager(tierTopicManagerConfig, tierTopicConsumerOpt.get, adminZkClientSupplier, metrics))
           tierTopicManagerOpt.get.startup()
 
           tierDeletedPartitionsCoordinatorOpt = Some(new TierDeletedPartitionsCoordinator(kafkaScheduler, replicaManager,
@@ -492,20 +492,21 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   }
 
   private def adminZkClientSupplier: Supplier[AdminZkClient] = {
-    new Supplier[AdminZkClient] {
-      override def get(): AdminZkClient = new AdminZkClient(_zkClient)
-    }
+    () => new AdminZkClient(_zkClient)
   }
 
-  private def tieredBootstrapServersSupplier: Supplier[String] = {
-    new Supplier[String] {
-      override def get: String = {
-        if (config.tierMetadataBootstrapServers != null)
-          config.tierMetadataBootstrapServers
-        else
-          metadataCache.getAliveBrokers
-            .map(_.brokerEndPoint(config.interBrokerListenerName).connectionString)
-            .mkString(",")
+  private def tieredStorageInterBrokerClientConfigsSupplier: Supplier[util.Map[String, Object]] = {
+    () => {
+      if (config.tierMetadataBootstrapServers != null) {
+        Collections.singletonMap(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, config.tierMetadataBootstrapServers)
+      } else {
+        val interBrokerClientConfigsOpt = metadataCache.getAliveBrokers
+          .find(_.id == config.brokerId)
+          .map { broker =>
+            val interBrokerEndPoint = broker.endPoint(config.interBrokerListenerName).toJava
+            ConfluentConfigs.interBrokerClientConfigs(config, interBrokerEndPoint)
+          }
+        interBrokerClientConfigsOpt.getOrElse(Collections.emptyMap[String, Object]())
       }
     }
   }

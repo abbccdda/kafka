@@ -50,7 +50,6 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
     private static final int TOPIC_CREATION_BACKOFF_MS = 5000;
 
     private final TierTopicManagerConfig config;
-    private final Supplier<String> bootstrapServersSupplier;
     private final Supplier<Producer<byte[], byte[]>> producerSupplier;
     private final TierTopic tierTopic;
     private final TierTopicConsumer tierTopicConsumer;
@@ -68,19 +67,15 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
      * @param config tier topic manager configurations
      * @param tierTopicConsumer tier topic consumer instance
      * @param producerSupplier supplier for producer instances
-     * @param bootstrapServersSupplier supplier for bootstrap server
      */
     public TierTopicManager(TierTopicManagerConfig config,
                             TierTopicConsumer tierTopicConsumer,
                             Supplier<Producer<byte[], byte[]>> producerSupplier,
-                            Supplier<AdminZkClient> adminZkClientSupplier,
-                            Supplier<String> bootstrapServersSupplier) {
+                            Supplier<AdminZkClient> adminZkClientSupplier) {
         if (config.logDirs.size() > 1)
             throw new UnsupportedOperationException("Tiered storage does not support multiple log directories");
 
         this.config = config;
-        this.bootstrapServersSupplier = bootstrapServersSupplier;
-
         this.tierTopicConsumer = tierTopicConsumer;
         this.tierTopic = new TierTopic(config.tierNamespace, adminZkClientSupplier);
         this.producerSupplier = producerSupplier;
@@ -95,13 +90,11 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
     public TierTopicManager(TierTopicManagerConfig config,
                             TierTopicConsumer tierTopicConsumer,
                             Supplier<AdminZkClient> adminZkClientSupplier,
-                            Supplier<String> bootstrapServersSupplier,
                             Metrics metrics) {
         this(config,
                 tierTopicConsumer,
                 new TierTopicProducerSupplier(config),
-                adminZkClientSupplier,
-                bootstrapServersSupplier);
+                adminZkClientSupplier);
         setupMetrics(metrics);
     }
 
@@ -192,7 +185,7 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
      */
     public boolean tryBecomeReady(boolean startConsumerThread) {
         // wait until we have a non-empty bootstrap server
-        if (bootstrapServersSupplier.get().isEmpty()) {
+        if (config.interBrokerClientConfigs.get().isEmpty()) {
             log.info("Could not resolve bootstrap server. Will retry.");
             return false;
         }

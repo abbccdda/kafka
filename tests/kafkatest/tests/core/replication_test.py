@@ -117,6 +117,11 @@ class ReplicationTest(EndToEndTest, TierSupport):
             broker_type=["leader"],
             security_protocol=["PLAINTEXT"],
             enable_idempotence=[True])
+    @matrix(failure_mode=["hard_bounce"],
+            broker_type=["leader"],
+            tiered_storage=[True],
+            backend=[S3_BACKEND],
+            security_protocol=["SASL_SSL"])
     @matrix(failure_mode=["clean_shutdown", "hard_shutdown", "clean_bounce", "hard_bounce"],
             broker_type=["leader"],
             security_protocol=["PLAINTEXT"],

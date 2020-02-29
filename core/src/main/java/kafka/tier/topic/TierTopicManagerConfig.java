@@ -5,12 +5,15 @@
 package kafka.tier.topic;
 
 import kafka.server.KafkaConfig;
+import scala.collection.JavaConverters;
+
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 public class TierTopicManagerConfig {
-    public final Supplier<String> bootstrapServersSupplier;
+    public final Supplier<Map<String, Object>> interBrokerClientConfigs;
     public final String tierNamespace;
     public final short configuredNumPartitions;
     public final short configuredReplicationFactor;
@@ -21,7 +24,7 @@ public class TierTopicManagerConfig {
     public final Integer requestTimeoutMs;
     public final List<String> logDirs;
 
-    public TierTopicManagerConfig(Supplier<String> bootstrapServersSupplier,
+    public TierTopicManagerConfig(Supplier<Map<String, Object>> interBrokerClientConfigs,
                                   String tierNamespace,
                                   short configuredNumPartitions,
                                   short configuredReplicationFactor,
@@ -31,7 +34,7 @@ public class TierTopicManagerConfig {
                                   Integer requestTimeoutMs,
                                   Integer commitIntervalMs,
                                   List<String> logDirs) {
-        this.bootstrapServersSupplier = bootstrapServersSupplier;
+        this.interBrokerClientConfigs = interBrokerClientConfigs;
         this.tierNamespace = tierNamespace;
         this.configuredNumPartitions = configuredNumPartitions;
         this.configuredReplicationFactor = configuredReplicationFactor;
@@ -43,8 +46,10 @@ public class TierTopicManagerConfig {
         this.logDirs = logDirs;
     }
 
-    public TierTopicManagerConfig(KafkaConfig config, Supplier<String> bootstrapServersSupplier, String clusterId) {
-        this(bootstrapServersSupplier,
+    public TierTopicManagerConfig(KafkaConfig config,
+                                  Supplier<Map<String, Object>> interBrokerClientConfigs,
+                                  String clusterId) {
+        this(interBrokerClientConfigs,
                 config.tierMetadataNamespace(),
                 config.tierMetadataNumPartitions(),
                 config.tierMetadataReplicationFactor(),
@@ -53,6 +58,6 @@ public class TierTopicManagerConfig {
                 config.tierMetadataMaxPollMs(),
                 config.tierMetadataRequestTimeoutMs(),
                 config.tierPartitionStateCommitIntervalMs(),
-                scala.collection.JavaConversions.seqAsJavaList(config.logDirs()));
+                JavaConverters.seqAsJavaList(config.logDirs()));
     }
 }

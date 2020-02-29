@@ -4,7 +4,6 @@
 
 package kafka.tier.tasks.archive
 
-import com.yammer.metrics.Metrics
 import com.yammer.metrics.core.Gauge
 import kafka.cluster.Partition
 import kafka.log.{AbstractLog, LogSegment}

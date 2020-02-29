@@ -11,7 +11,6 @@ import java.nio.file.Files
 import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, ScheduledFuture, TimeUnit}
 import java.util.UUID
 
-import com.yammer.metrics.Metrics
 import com.yammer.metrics.core.Gauge
 import kafka.log.MergedLogTest.LogRanges
 import kafka.metrics.KafkaYammerMetrics

@@ -11,7 +11,6 @@ import java.util
 import java.util.{Collections, UUID}
 import java.util.function.Supplier
 
-import com.yammer.metrics.Metrics
 import com.yammer.metrics.core.Gauge
 import javax.management.MBeanServer
 import kafka.cluster.Partition
@@ -27,6 +26,7 @@ import kafka.tier.tasks.{TierTasks, TierTasksConfig}
 import kafka.tier.topic.{TierTopic, TierTopicConsumer, TierTopicManager, TierTopicManagerConfig}
 import kafka.utils.{MockTime, TestUtils}
 import kafka.zk.{AdminZkClient, ZooKeeperTestHarness}
+import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record.MemoryRecords.RecordFilter
 import org.apache.kafka.common.record._
@@ -45,13 +45,8 @@ class TierIntegrationTest {
   private val mockTime = new MockTime()
   val logDirs = new util.ArrayList(Collections.singleton(TestUtils.tempDir().getAbsolutePath))
 
-  val bootstrapSupplier = new Supplier[String] {
-    override def get: String = {
-      "bootstrap-server"
-    }
-  }
   val tierTopicManagerConfig = new TierTopicManagerConfig(
-    bootstrapSupplier,
+    () => Collections.singletonMap(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "bootstrap"),
     null,
     1,
     1,
@@ -403,8 +398,7 @@ class TierIntegrationTest {
     tierTopicManager = new TierTopicManager(tierTopicManagerConfig,
       tierTopicConsumer,
       producerSupplier,
-      adminZkClientSupplier,
-      bootstrapSupplier)
+      adminZkClientSupplier)
 
     tierLogComponents = TierLogComponents(Some(tierTopicConsumer), Some(tierObjectStore), new TierPartitionStateFactory(true))
 

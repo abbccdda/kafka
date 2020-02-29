@@ -8,6 +8,8 @@ import kafka.tier.topic.TierTopicManagerConfig;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
@@ -28,12 +30,15 @@ public class TierTopicConsumerSupplier implements Supplier<Consumer<byte[], byte
     @Override
     public Consumer<byte[], byte[]> get() {
         String clientId = clientId(config.clusterId, config.brokerId, instanceId.getAndIncrement(), clientIdSuffix);
-        return new KafkaConsumer<>(properties(config.bootstrapServersSupplier.get(), clientId));
+        return new KafkaConsumer<>(properties(config.interBrokerClientConfigs.get(), clientId));
     }
 
-    private static Properties properties(String bootstrapServers, String clientId) {
+    private static Properties properties(Map<String, Object> interBrokerConfigs, String clientId) {
         Properties properties = new Properties();
-        properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+
+        for (Map.Entry<String, Object> configEntry : interBrokerConfigs.entrySet())
+            properties.put(configEntry.getKey(), configEntry.getValue());
+
         properties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         properties.put(ConsumerConfig.CLIENT_ID_CONFIG, clientId);
         properties.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");

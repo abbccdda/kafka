@@ -10,19 +10,19 @@ import java.time.Duration
 import java.util
 import java.util.concurrent.TimeUnit
 import java.util.function.Consumer
-import java.util.{Properties, UUID}
+import java.util.{Collections, Properties, UUID}
 import java.util.concurrent.atomic.AtomicBoolean
 
 import javax.management.ObjectName
 import kafka.api.IntegrationTestHarness
 import kafka.server.KafkaConfig
 import kafka.utils.TestUtils
-import org.apache.kafka.clients.consumer.{ConsumerConfig, ConsumerRecord, KafkaConsumer}
+import org.apache.kafka.clients.consumer.{ConsumerRecord, KafkaConsumer}
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{ConfluentTopicConfig, TopicConfig}
+import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.utils.Exit
-import org.apache.kafka.common.utils.Exit.Procedure
 import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import org.junit.{Before, Test}
 import org.junit.After
@@ -32,23 +32,22 @@ import scala.collection.JavaConverters._
 class TierIntegrationFetchTest extends IntegrationTestHarness {
   override protected def brokerCount: Int = 1
 
-  serverConfig.put(KafkaConfig.TierPartitionStateCommitIntervalProp, "5")
-
   private def configureMock(): Unit = {
     serverConfig.put(KafkaConfig.TierBackendProp, "mock")
     serverConfig.put(KafkaConfig.TierS3BucketProp, "mybucket")
   }
 
+  serverConfig.put(KafkaConfig.TierPartitionStateCommitIntervalProp, "5")
   serverConfig.put(KafkaConfig.TierEnableProp, "false")
   serverConfig.put(KafkaConfig.TierFeatureProp, "true")
-  serverConfig.put(KafkaConfig.TierMetadataNumPartitionsProp, "1")
+  serverConfig.put(KafkaConfig.TierMetadataNumPartitionsProp, "3")
   serverConfig.put(KafkaConfig.TierMetadataReplicationFactorProp, "1")
   serverConfig.put(KafkaConfig.LogCleanupIntervalMsProp, Int.MaxValue.toString) // disable log cleanup, we will manually trigger retention
   serverConfig.put(KafkaConfig.TierLocalHotsetBytesProp, "0")
   serverConfig.put(KafkaConfig.TierFetcherMemoryPoolSizeBytesProp, (1024 * 1024).toString)
   configureMock()
 
-  private val topic = UUID.randomUUID().toString
+  private val topic = "test_topic"
   private val partitions: Int = 1
 
   private def topicPartitions: Seq[TopicPartition] = Range(0, partitions).map(p => new TopicPartition(topic, p))
@@ -57,9 +56,7 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
 
   @Before
   override def setUp(): Unit = {
-    Exit.setExitProcedure(new Procedure {
-      override def execute(statusCode: Int, message: String): Unit = exited.set(true)
-    })
+    Exit.setExitProcedure((_, _) => exited.set(true))
     super.setUp()
   }
 
@@ -160,76 +157,46 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
 
   private def consumeAndValidateTierFetch(partitionToLeaderMap: Map[Int, Int], nBatches: Int, recordsPerBatch: Int): Unit = {
     val topicPartition = topicPartitions.head
+    val consumer = createConsumer(new StringDeserializer, new StringDeserializer)
+    val partitions = Collections.singletonList(topicPartition)
 
-    val brokerList = TestUtils.bootstrapServers(servers, listenerName)
+    consumer.assign(partitions)
+    consumer.seekToBeginning(partitions)
 
-    val consumerProps = new Properties()
-    consumerProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList)
-    consumerProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer")
-    consumerProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer")
-    consumerProps.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "50000")
-    consumerProps.put(ConsumerConfig.CLIENT_ID_CONFIG, "test-consumer")
-    consumerProps.put(ConsumerConfig.GROUP_ID_CONFIG, "test-group")
+    val valuesRead = new util.ArrayList[Int]()
+    val timestampsOffsets = new util.ArrayList[(Long,Long)]()
+    while (valuesRead.size() != nBatches * recordsPerBatch) {
+      val records = consumer.poll(Duration.ofMillis(1000))
+      records.forEach(new Consumer[ConsumerRecord[String, String]]() {
+        override def accept(r: ConsumerRecord[String, String]): Unit = {
+          valuesRead.add(Integer.parseInt(r.value()))
+          timestampsOffsets.add((r.timestamp(), r.offset()))
+        }
+      })
+    }
+    val expectedValues = new util.ArrayList[Int](Range(0, nBatches * recordsPerBatch).asJava)
+    assertEquals(expectedValues, valuesRead)
 
-    val consumer = new KafkaConsumer[String, String](consumerProps)
-
-    try {
-      val partitions = new util.ArrayList[TopicPartition]()
-      partitions.add(topicPartition)
-      partitions.add(new TopicPartition(topic, 1))
-      consumer.assign(partitions)
-      consumer.seekToBeginning(partitions)
-      val valuesRead = new util.ArrayList[Int]()
-      val timestampsOffsets = new util.ArrayList[(Long,Long)]()
-      while (valuesRead.size() != nBatches * recordsPerBatch) {
-        val records = consumer.poll(Duration.ofMillis(1000))
-        records.forEach(new Consumer[ConsumerRecord[String, String]]() {
-          override def accept(r: ConsumerRecord[String, String]): Unit = {
-            valuesRead.add(Integer.parseInt(r.value()))
-            timestampsOffsets.add((r.timestamp(), r.offset()))
-          }
-        })
-      }
-      val expectedValues = new util.ArrayList[Int](Range(0, nBatches * recordsPerBatch).asJava)
-      assertEquals(expectedValues, valuesRead)
-
-      for ((timestamp, _) <- timestampsOffsets.asScala) {
-        val expectedOffset = timestampsOffsets.asScala.find { case (recordTimestamp, _) =>
-          recordTimestamp >= timestamp
-        }.get._2
-        assertTimestampForOffsetLookupCorrect(topicPartition, consumer, timestamp, expectedOffset)
-      }
-
-      // smallest possible timestamp should return offset of 0
-      assertTimestampForOffsetLookupCorrect(topicPartition, consumer, 0, 0)
-      // largest possible timestamp should not happen, so offset for times should return null
-      assertTimestampForOffsetLookupMissing(topicPartition, consumer, Long.MaxValue)
-    } finally {
-      consumer.close()
+    for ((timestamp, _) <- timestampsOffsets.asScala) {
+      val expectedOffset = timestampsOffsets.asScala.find { case (recordTimestamp, _) =>
+        recordTimestamp >= timestamp
+      }.get._2
+      assertTimestampForOffsetLookupCorrect(topicPartition, consumer, timestamp, expectedOffset)
     }
 
+    // smallest possible timestamp should return offset of 0
+    assertTimestampForOffsetLookupCorrect(topicPartition, consumer, 0, 0)
+    // largest possible timestamp should not happen, so offset for times should return null
+    assertTimestampForOffsetLookupMissing(topicPartition, consumer, Long.MaxValue)
+
     val mBeanServer = ManagementFactory.getPlatformMBeanServer
-
-    val bean = "kafka.server:type=TierFetcher"
-    val attrs = Array("BytesFetchedTotal", "OffsetCacheHitRatio")
-    val List(bytesFetchedTotal, offsetCacheHitRatio) = mBeanServer
-      .getAttributes(new ObjectName(bean), attrs)
-      .asList.asScala
-      .map { attr => attr.getValue.asInstanceOf[Double] }
-      .toList
-
-    assertEquals("offset cache should not have shown misses",1.0, offsetCacheHitRatio, 0.000001)
-
-    assertTrue("tier fetch metric shows no data fetched from tiered storage",
-      bytesFetchedTotal > 100)
-
     val List(meanArchiveRate) = mBeanServer
       .getAttributes(new ObjectName("kafka.tier.tasks.archive:type=TierArchiver,name=BytesPerSec"), Array("MeanRate"))
       .asList.asScala
       .map { attr => attr.getValue.asInstanceOf[Double] }
       .toList
 
-    assertTrue("tier archiver mean rate shows no data uploaded to tiered storage",
+    assertTrue(s"tier archiver mean rate shows no data uploaded to tiered storage: $meanArchiveRate",
       meanArchiveRate > 100)
 
     val partitionsInErrorCount = mBeanServer
@@ -238,7 +205,7 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
       .map { attr => attr.getValue.asInstanceOf[Int] }
       .head
 
-    assertEquals("tier archiver shows no partitions in error state", 0, partitionsInErrorCount)
+    assertEquals("tier archiver shows partitions in error state", 0, partitionsInErrorCount)
 
     val memoryTrackerMetrics = mBeanServer
       .getAttributes(
@@ -246,6 +213,17 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
         .asList().asScala
         .map { attr => attr.getValue.asInstanceOf[Double]}
         .toList
+
+    val bean = "kafka.server:type=TierFetcher"
+    val attrs = Array("BytesFetchedTotal", "OffsetCacheHitRatio")
+    val List(bytesFetchedTotal, offsetCacheHitRatio) = mBeanServer
+      .getAttributes(new ObjectName(bean), attrs)
+      .asList.asScala
+      .map { attr => attr.getValue.asInstanceOf[Double] }
+      .toList
+    assertEquals("offset cache should not have shown misses",1.0, offsetCacheHitRatio, 0.000001)
+    assertTrue(s"tier fetch metric shows no data fetched from tiered storage: $bytesFetchedTotal",
+      bytesFetchedTotal > 100)
 
     assertEquals("expected all leased memory to be returned to the MemoryTracker", memoryTrackerMetrics.head, 0.0, 0.0)
     assertEquals("expected all leased memory to be returned to the MemoryTracker", memoryTrackerMetrics(1), 1024 * 1024, 0.0)

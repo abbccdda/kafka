@@ -6,7 +6,7 @@ package kafka.tier.topic
 
 import java.io.File
 import java.util
-import java.util.UUID
+import java.util.{Collections, UUID}
 import java.util.function.Supplier
 
 import kafka.admin.AdminOperationException
@@ -21,6 +21,7 @@ import kafka.tier.topic.TierTopicConsumer.ClientCtx
 import kafka.tier.{TierReplicaManager, TierTopicManagerCommitter, TopicIdPartition}
 import kafka.utils.TestUtils
 import kafka.zk.AdminZkClient
+import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.errors.{TimeoutException, TopicExistsException}
 import org.apache.kafka.common.utils.Utils
 import org.junit.Assert._
@@ -39,11 +40,18 @@ class TierTopicManagerTest {
   private val logDir = tempDir.getAbsolutePath
   private val logDirs = new util.ArrayList(util.Collections.singleton(logDir))
 
-  private val bootstrapSupplier = new Supplier[String] {
-    override def get: String = "bootstrap-server"
-  }
   private val tierTopicNumPartitions = 7.toShort
-  private val tierTopicManagerConfig = new TierTopicManagerConfig(bootstrapSupplier, "", tierTopicNumPartitions, 1.toShort, 3, clusterId, 5L, 30000, 500, logDirs)
+  private val tierTopicManagerConfig = new TierTopicManagerConfig(
+    () => Collections.singletonMap(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "bootstrap"),
+    "",
+    tierTopicNumPartitions,
+    1.toShort,
+    3,
+    clusterId,
+    5L,
+    30000,
+    500,
+    logDirs)
   private val tierTopicName = TierTopic.topicName("")
   private val tierTopicPartitions = TierTopicManager.partitions(tierTopicName, tierTopicNumPartitions)
 
@@ -244,8 +252,7 @@ class TierTopicManagerTest {
     val tierTopicManager = new TierTopicManager(tierTopicManagerConfig,
       tierTopicConsumer,
       producerSupplier,
-      adminClientSupplier,
-      bootstrapSupplier)
+      adminClientSupplier)
 
     if (becomeReady) {
       val ready = tierTopicManager.tryBecomeReady(false)

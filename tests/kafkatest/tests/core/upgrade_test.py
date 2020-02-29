@@ -129,6 +129,10 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
     @parametrize(from_kafka_version=str(LATEST_0_10_0), to_message_format_version=None, compression_types=["lz4"])
     @cluster(num_nodes=7)
     @parametrize(from_kafka_version=str(LATEST_0_9), to_message_format_version=None, compression_types=["none"], security_protocol="SASL_SSL")
+    @cluster(num_nodes=7)
+    @matrix(from_kafka_version=[str(LATEST_2_3)], to_message_format_version=[None], compression_types=[["none"]],
+            from_tiered_storage=[False], to_tiered_storage=[True], hotset_bytes=[1], backend=[S3_BACKEND],
+            security_protocol=["SASL_SSL"])
     @cluster(num_nodes=6)
     @parametrize(from_kafka_version=str(LATEST_0_9), to_message_format_version=None, compression_types=["snappy"])
     @parametrize(from_kafka_version=str(LATEST_0_9), to_message_format_version=None, compression_types=["lz4"])
