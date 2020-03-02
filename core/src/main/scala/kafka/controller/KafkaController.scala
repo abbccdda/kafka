@@ -1598,14 +1598,21 @@ class KafkaController(val config: KafkaConfig,
 
       zkClient.getPartitionReassignment().foreach { case (tp, targetReplicas) =>
         val targetAssignment = ReplicaAssignment.Assignment(targetReplicas, Seq.empty)
-        validateReplicasForZkReassign(tp, targetAssignment) match {
-          case None =>
-            maybeBuildReassignment(tp, Some(targetAssignment)) match {
-              case Some(context) => partitionsToReassign.put(tp, context)
-              case None => reassignmentResults.put(tp, new ApiError(Errors.NO_REASSIGNMENT_IN_PROGRESS))
-            }
+        validateAssignment(targetAssignment) match {
           case Some(err) =>
             reassignmentResults.put(tp, err)
+          case None =>
+            maybeBuildReassignment(tp, Some(targetAssignment)) match {
+              case Some(reassignment) =>
+                validateReplicasForZkReassign(tp, reassignment) match {
+                  case None =>
+                    partitionsToReassign.put(tp, reassignment)
+                  case Some(err) =>
+                    reassignmentResults.put(tp, err)
+                }
+              case None =>
+                reassignmentResults.put(tp, new ApiError(Errors.NO_REASSIGNMENT_IN_PROGRESS))
+            }
         }
       }
 
@@ -1642,22 +1649,39 @@ class KafkaController(val config: KafkaConfig,
       val partitionsToReassign = mutable.Map.empty[TopicPartition, ReplicaAssignment]
 
       reassignments.foreach { case (tp, targetAssignment) =>
-        val errorMessage = targetAssignment.flatMap(validateReplicas(tp, _))
-        errorMessage match {
+        targetAssignment.flatMap(validateAssignment(_)) match {
+          case Some(err) =>
+            reassignmentResults.put(tp, err)
           case None =>
             maybeBuildReassignment(tp, targetAssignment) match {
-              case Some(reassignment) => reassignment.targetObservers match {
-                case Some(observers) if observers.nonEmpty && !config.isObserverSupportEnabled =>
-                  val errMsg = s"Invalid replica assignment. Observers are not supported and " +
-                    s"observers list in replica assignment is not empty: ${observers.mkString(",")}"
-                  reassignmentResults.put(tp, new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT, errMsg))
-                case _ => partitionsToReassign.put(tp, reassignment)
-              }
+              case Some(reassignment) =>
+                validateReassignment(tp, reassignment) match {
+                  case None =>
+                    reassignment.targetObservers match {
+                      case Some(observers) if observers.nonEmpty && !config.isObserverSupportEnabled =>
+                        val errMsg = s"Invalid replica assignment. Observers are not supported and " +
+                        s"observers list in replica assignment is not empty: ${observers.mkString(",")}"
+                        reassignmentResults.put(tp, new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT, errMsg))
+                      case Some(observers) =>
+                        val offlineObservers = observers.toSet.diff(
+                          controllerContext.liveOrShuttingDownBrokers.map(_.id)
+                        )
+                        if (!offlineObservers.isEmpty) {
+                          info(
+                            s"The observers $offlineObservers are offline. Allowing reassignment because they " +
+                            s"are part of the previous assignment: $reassignment"
+                          )
+                        }
+                        partitionsToReassign.put(tp, reassignment)
+                      case None =>
+                        partitionsToReassign.put(tp, reassignment)
+                    }
+                  case Some(err) =>
+                    reassignmentResults.put(tp, err)
+                }
               case None =>
                 reassignmentResults.put(tp, new ApiError(Errors.NO_REASSIGNMENT_IN_PROGRESS))
             }
-          case Some(err) =>
-            reassignmentResults.put(tp, err)
         }
       }
 
@@ -1672,43 +1696,48 @@ class KafkaController(val config: KafkaConfig,
 
   /*
    * For backward compatibility when validating reassign through ZK, only require that
-   * the brokers are online and meet the constraint when topic placement constraint
-   * has been specified.
+   * the brokers are online and meet the topic placement constraint when topic placement
+   * constraint has been specified.
    *
    * This is slightly different to validating reassignment through the RPC which always
-   * requires that the new replicas are online.
+   * requires that the new sync replicas are online.
    */
-  private def validateReplicasForZkReassign(topicPartition: TopicPartition,
-                                            assignment: ReplicaAssignment.Assignment): Option[ApiError] = {
-    val replicaSet = assignment.replicas.toSet
-    if (assignment.replicas.isEmpty || assignment.replicas.size != replicaSet.size)
-      Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
-        s"Invalid replica list in partition reassignment: ${assignment.replicas}"))
-    else if (assignment.replicas.exists(_ < 0))
-      Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
-        s"Invalid broker id in replica list: ${assignment.replicas}"))
-    else
-      validateAssignmentAndConstraint(topicPartition, assignment)
+  private def validateReplicasForZkReassign(
+    topicPartition: TopicPartition,
+    reassignment: ReplicaAssignment
+  ): Option[ApiError] = {
+    reassignment.targetAssignment.flatMap { assignment =>
+      validateReassignmentAgainstConstraint(topicPartition, reassignment)
+    }
   }
 
-  private def validateReplicas(topicPartition: TopicPartition,
-                               assignment: ReplicaAssignment.Assignment): Option[ApiError] = {
-    val replicaSet = assignment.replicas.toSet
-    if (assignment.replicas.isEmpty || assignment.replicas.size != replicaSet.size)
-      Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
-        s"Invalid replica list in partition reassignment: ${assignment.replicas}"))
-    else if (assignment.replicas.exists(_ < 0))
-      Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
-        s"Invalid broker id in replica list: ${assignment.replicas}"))
-    else {
-      validateNewReplicasAlive(topicPartition, assignment).orElse {
-        validateAssignmentAndConstraint(topicPartition, assignment)
+  private def validateReassignment(
+    topicPartition: TopicPartition,
+    reassignment: ReplicaAssignment
+  ): Option[ApiError] = {
+    reassignment.targetAssignment.flatMap { assignment =>
+      validateExpectedInSyncAlive(topicPartition, assignment).orElse {
+        validateReassignmentAgainstConstraint(topicPartition, reassignment)
       }
     }
   }
 
-  private def validateAssignmentAndConstraint(topicPartition: TopicPartition,
-                                              assignment: ReplicaAssignment.Assignment): Option[ApiError] = {
+  private def validateAssignment(assignment: ReplicaAssignment.Assignment): Option[ApiError] = {
+    val replicas = assignment.replicas
+    val replicaSet = replicas.toSet
+    if (replicas.isEmpty || replicas.size != replicaSet.size) {
+      Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
+        s"Invalid replica list in partition reassignment: $replicas"))
+    } else if (replicas.exists(_ < 0)) {
+      Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
+        s"Invalid broker id in replica list: $replicas"))
+    } else None
+  }
+
+  private def validateReassignmentAgainstConstraint(
+    topicPartition: TopicPartition,
+    reassignment: ReplicaAssignment
+  ): Option[ApiError] = {
     val topicProps = new AdminZkClient(zkClient).fetchEntityConfig(ConfigType.Topic, topicPartition.topic)
     val logConfig = LogConfig(topicProps)
     val placement = logConfig.topicPlacementConstraints
@@ -1716,19 +1745,21 @@ class KafkaController(val config: KafkaConfig,
       broker.id -> broker.rack.map("rack" -> _).toMap
     }.toMap
 
-    Observer.validateReplicaAssignment(placement, assignment, liveBrokerAttributes)
+    Observer.validateReassignment(placement, reassignment, liveBrokerAttributes)
   }
 
-  private def validateNewReplicasAlive(topicPartition: TopicPartition,
-                                       assignment: ReplicaAssignment.Assignment): Option[ApiError] = {
+  private def validateExpectedInSyncAlive(
+    topicPartition: TopicPartition,
+    assignment: ReplicaAssignment.Assignment
+  ): Option[ApiError] = {
     // Ensure that any new replicas are among the live brokers
     val currentAssignment = controllerContext.partitionFullReplicaAssignment(topicPartition)
     val newAssignment = currentAssignment.reassignTo(assignment)
-    val areNewReplicasAlive = newAssignment.addingReplicas.toSet.subsetOf(controllerContext.liveBrokerIds)
-    if (!areNewReplicasAlive)
+    val areAlive = newAssignment.expectedInSyncReplicas.toSet.subsetOf(controllerContext.liveBrokerIds)
+    if (!areAlive)
       Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
         s"Replica assignment has brokers that are not alive. Replica list: " +
-        s"${newAssignment.addingReplicas}, live broker list: ${controllerContext.liveBrokerIds}"))
+        s"${newAssignment.expectedInSyncReplicas}, live broker list: ${controllerContext.liveBrokerIds}"))
     else None
   }
 

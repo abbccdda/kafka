@@ -10,7 +10,6 @@ import kafka.controller.ReplicaAssignment
 import org.apache.kafka.common.errors.InvalidConfigurationException
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.ApiError
-
 import scala.collection.JavaConverters._
 import scala.collection.{Map, Seq, mutable}
 
@@ -216,18 +215,75 @@ object Observer {
     } else {
       topicPlacement.flatMap { placementConstraint =>
         val maybeError = matchesConstraints(
-          "sync replicas", placementConstraint.replicas.asScala, assignment.syncReplicas, liveBrokerAttributes)
-        maybeError.orElse(matchesConstraints(
-          "observers", placementConstraint.observers.asScala, assignment.observers, liveBrokerAttributes))
+          "sync replicas",
+          placementConstraint.replicas.asScala,
+          assignment.syncReplicas,
+          replica => Some(liveBrokerAttributes.getOrElse(replica, Map.empty))
+        )
+        maybeError.orElse(
+          matchesConstraints(
+            "observers",
+            placementConstraint.observers.asScala,
+            assignment.observers,
+            replica => Some(liveBrokerAttributes.getOrElse(replica, Map.empty))
+          )
+        )
       }
     }
   }
 
+  def validateReassignment(
+    topicPlacement: Option[TopicPlacement],
+    reassignment: ReplicaAssignment,
+    liveBrokerAttributes: Map[Int, Map[String, String]]
+  ): Option[ApiError] = {
+    reassignment.targetAssignment.flatMap { assignment =>
+      if (!assignment.replicas.endsWith(assignment.observers)) {
+        Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
+          s"Assignment contains observers (${assignment.observers}) and the replicas' (${assignment.replicas}) " +
+          "suffix doesn't matches observers."))
+      } else {
+        topicPlacement.flatMap { placementConstraint =>
+          val maybeError = matchesConstraints(
+            "sync replicas",
+            placementConstraint.replicas.asScala,
+            assignment.syncReplicas,
+            replica => Some(liveBrokerAttributes.getOrElse(replica, Map.empty))
+          )
+          maybeError.orElse {
+            matchesConstraints(
+              "observers",
+              placementConstraint.observers.asScala,
+              assignment.observers,
+              replica => {
+                val attributes = liveBrokerAttributes.get(replica)
+                // If the observer is in the previous assignment then allow it to be offline
+                if (reassignment.originAssignment.replicas.contains(replica)) {
+                  attributes
+                } else attributes.orElse(Some(Map.empty))
+              }
+            )
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Returns true if the sequence of replicas matches the sequence of placement constraints.
+   *
+   * @param scope context to use when generating error messages
+   * @param constraints sequence of constraints to use to determine if the `replicas` and `brokerAttributes` match
+   * @param replicas sequence to replica ids
+   * @param brokerAttributes function that returns the attributes for a replicas. If the replica should match any
+   *                         constraint then it should return None. If the replica should not match any constraint
+   *                         then it should return Some(Map.empty). Otherwise return Some[Map[String, String]].
+   */
   private[this] def matchesConstraints(
     scope: String,
     constraints: Seq[ConstraintCount],
     replicas: Seq[Int],
-    liveBrokerAttributes: Map[Int, Map[String, String]]
+    brokerAttributes: Int => Option[Map[String, String]]
   ): Option[ApiError] = {
     val constraintSum = constraints.map(_.count).sum
     if (constraintSum != replicas.size) {
@@ -235,18 +291,51 @@ object Observer {
         s"Number of assigned replicas (${replicas.mkString(",")}) doesn't match the $scope constraint counts " +
         s"$constraintSum"))
     } else {
-      constraints.map { constraint =>
-        val matchingReplicas = replicas.filter { replica =>
-          constraint.matches(liveBrokerAttributes.getOrElse(replica, Map.empty).asJava)
+      /* This algorithm assumes that a replicas with brokerAttributes(replicas).isDefined only matches one of the
+       * constraints
+       */
+      val (invalidReplicas, remainingConstraints) = replicas
+        .map(replica => (replica, brokerAttributes(replica)))
+        .sortBy { case (replica, attributes) =>
+          // Make sure that replicas with attributes are first
+          attributes.isEmpty
         }
-        (constraint, matchingReplicas)
-      }.collectFirst {
-        case (constraint, matchingReplicas) if matchingReplicas.size != constraint.count =>
-          new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
-            s"Replicas (${replicas.mkString(",")}) do not match the replica constraint ($constraint). " +
-              s"Expected to match for ${constraint.count} instead the following replicas matched: " +
-              s"${matchingReplicas.mkString(",")}.")
-      }
+        .foldLeft((Seq.empty[Int], constraints)) { (acc, current) =>
+          val (invalidReplicas, constraints) = acc
+          val (replica, attributes) = current
+          // Find the matching constraint and decrease the count
+          var matched = false
+          val updatedConstraints = constraints.flatMap { constraint =>
+            if (!matched && attributes.forall(attributes => constraint.matches(attributes.asJava))) {
+              // attributes matched the constraint or it was None which matches any constraint
+              matched = true
+              if (constraint.count > 1) {
+                Some(TopicPlacement.ConstraintCount.of(constraint.count - 1, constraint.constraints))
+              } else {
+                None
+              }
+            } else {
+              Some(constraint)
+            }
+          }
+
+          if (matched) {
+            (invalidReplicas, updatedConstraints)
+          } else {
+            (replica +: invalidReplicas, updatedConstraints)
+          }
+        }
+
+      if (!invalidReplicas.isEmpty || !remainingConstraints.isEmpty) {
+        Some(
+          new ApiError(
+            Errors.INVALID_REPLICA_ASSIGNMENT,
+            s"Replicas (${invalidReplicas.mkString(",")}) do not match the replica constraints (" +
+            s"${remainingConstraints.mkString(",")}). The following replicas matched: " +
+            s"${replicas.diff(invalidReplicas).mkString(",")}."
+          )
+        )
+      } else None
     }
   }
 }

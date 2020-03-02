@@ -100,7 +100,7 @@ case class ReplicaAssignment (replicas: Seq[Int],
         target.observers ++
         // OOR is original observer replicas
         originAssignment.observers
-      ).distinct // Note that is required that distinct returns the order of the first unique element
+      ).distinct // Note that it is required that distinct returns the order of the first unique element
 
     val addingReplicas = fullReplica.diff(originAssignment.replicas)
     val removingReplicas = fullReplica.diff(target.replicas)
@@ -108,7 +108,7 @@ case class ReplicaAssignment (replicas: Seq[Int],
     val (originalObservers, targetObservers) = if (addingReplicas.isEmpty &&
       removingReplicas.isEmpty &&
       originAssignment.observers.toSet == target.observers.toSet) {
-      /* It is possible that the reassignment simply rearrange the sync replicas and the observer replicas.  In
+      /* It is possible that the reassignment simply rearranges the sync replicas and the observer replicas. In
        * that case, simply ignore the reassignment.
        */
       (target.observers, None)
@@ -130,9 +130,8 @@ case class ReplicaAssignment (replicas: Seq[Int],
   }
 
   /**
-    * Returns the replicas that are expected to be in the ISR for the reassignment to complete. This includes:
-    * 1. New sync replicas
-    * 2. Replicas that were observer and are now sync replicas
+    * Returns the replicas that are expected to be in the ISR for the reassignment to
+    * complete. These are all of the sync replicas in the target assignment.
     */
   def expectedInSyncReplicas: Seq[Int] = {
     targetAssignment.fold(Seq.empty[Int]) { assignment =>

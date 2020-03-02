@@ -498,7 +498,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
   }
 
   @Test
-  def testReassignWithOfflineBrokers(): Unit = {
+  def testReassignWithNewOfflineBrokers(): Unit = {
     TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
       val topic = "observer-topic"
       val partition = 0
@@ -522,6 +522,92 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       ).all()
 
       JTestUtils.assertFutureThrows(future, classOf[InvalidReplicaAssignmentException])
+    }
+  }
+
+  @Test
+  def testFlipReassignWithOfflineObserver(): Unit = {
+    TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
+      val topic = "observer-topic"
+      val partition = 0
+
+      val newTopic = new NewTopic(topic, Optional.of(1: Integer), Optional.empty[java.lang.Short])
+      newTopic.configs(
+        Map(LogConfig.TopicPlacementConstraintsProp -> basicTopicPlacement(BasicConstraint(2, "a"), Some(BasicConstraint(2, "b")))).asJava
+      )
+      client.createTopics(Seq(newTopic).asJava).all().get()
+
+      val topicPartition = new TopicPartition(topic, partition)
+
+      // All sync replicas are in the ISR
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
+      // All observer replicas are not in the ISR
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3, broker4))
+
+      {
+        val observerBConfig = new Properties()
+        observerBConfig.setProperty(
+          LogConfig.TopicPlacementConstraintsProp,
+          basicTopicPlacement(BasicConstraint(2, "b"), Some(BasicConstraint(2, "a")))
+        )
+        TestUtils.alterTopicConfigs(client, topic, observerBConfig)
+      }
+
+      // Shutdown one of the sync replica that is going to be converted to obsever replica
+      servers(broker1).shutdown()
+
+      client.alterPartitionReassignments(
+        Map(topicPartition -> reassignmentEntry(Seq(broker3, broker4, broker1, broker2), Seq(broker1, broker2))).asJava
+      ).all().get()
+
+      waitForAllReassignmentsToComplete(client)
+
+      // Metadata info is eventually consistent wait for update
+      TestUtils.waitForReplicasAssigned(client, topicPartition, Seq(broker3, broker4, broker1, broker2))
+      // All sync replicas are in the ISR
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker3, broker4))
+      // All observer replicas are not in the ISR
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker1, broker2))
+    }
+  }
+
+  @Test
+  def testFlipReassignWithOfflineSync(): Unit = {
+    TestUtils.resource(JAdminClient.create(createConfig(servers).asJava)) { client =>
+      val topic = "observer-topic"
+      val partition = 0
+
+      val newTopic = new NewTopic(topic, Optional.of(1: Integer), Optional.empty[java.lang.Short])
+      newTopic.configs(
+        Map(LogConfig.TopicPlacementConstraintsProp -> basicTopicPlacement(BasicConstraint(2, "a"), Some(BasicConstraint(2, "b")))).asJava
+      )
+      client.createTopics(Seq(newTopic).asJava).all().get()
+
+      val topicPartition = new TopicPartition(topic, partition)
+
+      // All sync replicas are in the ISR
+      TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
+      // All observer replicas are not in the ISR
+      TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3, broker4))
+
+      {
+        val observerBConfig = new Properties()
+        observerBConfig.setProperty(
+          LogConfig.TopicPlacementConstraintsProp,
+          basicTopicPlacement(BasicConstraint(2, "b"), Some(BasicConstraint(2, "a")))
+        )
+        TestUtils.alterTopicConfigs(client, topic, observerBConfig)
+      }
+
+      // Shutdown one of the sync replica that is going to be converted to obsever replica
+      servers(broker3).shutdown()
+
+      val exception = intercept[ExecutionException] {
+        client.alterPartitionReassignments(
+          Map(topicPartition -> reassignmentEntry(Seq(broker3, broker4, broker1, broker2), Seq(broker1, broker2))).asJava
+        ).all().get()
+      }
+      assertEquals(classOf[InvalidReplicaAssignmentException], exception.getCause.getClass)
     }
   }
 

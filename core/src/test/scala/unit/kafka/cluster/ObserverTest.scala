@@ -17,54 +17,87 @@ import scala.compat.java8.OptionConverters._
 
 class ObserverTest {
 
-  private val placementJson = """{
-                                | "version": 1,
-                                |  "replicas": [{
-                                |      "count": 3,
-                                |      "constraints": {
-                                |        "rack": "east-1"
-                                |      }
-                                |    },
-                                |    {
-                                |      "count": 2,
-                                |      "constraints": {
-                                |        "rack": "east-2"
-                                |      }
-                                |    }
-                                |  ],
-                                |  "observers": [{
-                                |    "count": 2,
-                                |    "constraints": {
-                                |      "rack": "west-1"
-                                |    }
-                                |  }]
-                                |}""".stripMargin
-  private val topicWithObserverPlacementConstraint: Option[TopicPlacement] = TopicPlacement.parse(placementJson).asScala
+  private val topicWithObserverPlacementConstraint: Option[TopicPlacement] = {
+    val placementJson = """
+      |{
+      |  "version": 1,
+      |  "replicas": [{
+      |      "count": 3,
+      |      "constraints": {
+      |        "rack": "east-1"
+      |      }
+      |    },
+      |    {
+      |      "count": 2,
+      |      "constraints": {
+      |        "rack": "east-2"
+      |      }
+      |    }
+      |  ],
+      |  "observers": [{
+      |    "count": 2,
+      |    "constraints": {
+      |      "rack": "west-1"
+      |    }
+      |  }]
+      |}""".stripMargin
+    TopicPlacement.parse(placementJson).asScala
+  }
 
-  private val placementJsonWithoutObservers = """{
-                                                | "version": 1,
-                                                |  "replicas": [{
-                                                |      "count": 3,
-                                                |      "constraints": {
-                                                |        "rack": "east-1"
-                                                |      }
-                                                |    },
-                                                |    {
-                                                |      "count": 2,
-                                                |      "constraints": {
-                                                |        "rack": "east-2"
-                                                |      }
-                                                |    },
-                                                |    {
-                                                |      "count": 2,
-                                                |      "constraints": {
-                                                |        "rack": "west-1"
-                                                |      }
-                                                |    }
-                                                |  ]
-                                                |}""".stripMargin
-  private val topicWithoutObserversConstraint: Option[TopicPlacement] =
+  private val topicWithTwoObserverPlacementConstraint: Option[TopicPlacement] = {
+    val placementJson = """
+      |{
+      |  "version": 1,
+      |  "observers": [{
+      |      "count": 3,
+      |      "constraints": {
+      |        "rack": "east-1"
+      |      }
+      |    },
+      |    {
+      |      "count": 2,
+      |      "constraints": {
+      |        "rack": "east-2"
+      |      }
+      |    }
+      |  ],
+      |  "replicas": [{
+      |    "count": 2,
+      |    "constraints": {
+      |      "rack": "west-1"
+      |    }
+      |  }]
+      |}""".stripMargin
+    TopicPlacement.parse(placementJson).asScala
+  }
+
+  private val topicWithoutObserversConstraint: Option[TopicPlacement] = {
+    val placementJsonWithoutObservers = """
+      |{
+      |  "version": 1,
+      |  "replicas": [{
+      |      "count": 3,
+      |      "constraints": {
+      |        "rack": "east-1"
+      |      }
+      |    },
+      |    {
+      |      "count": 2,
+      |      "constraints": {
+      |        "rack": "east-2"
+      |      }
+      |    },
+      |    {
+      |      "count": 2,
+      |      "constraints": {
+      |        "rack": "west-1"
+      |      }
+      |    }
+      |  ]
+      |}""".stripMargin
+
     TopicPlacement.parse(placementJsonWithoutObservers).asScala
+  }
 
   private val allBrokersAttributes = (0 to 9).map { id =>
     val rack = id match {
@@ -691,6 +724,69 @@ class ObserverTest {
       None,
       ReplicaAssignment.Assignment(0 to 5, 0 to 1),
       allBrokersAttributes
+    )
+    assertEquals(Some(Errors.INVALID_REPLICA_ASSIGNMENT), err.map(_.error))
+  }
+
+  @Test
+  def testValidReassignmentAllOfflineObserver(): Unit = {
+    // It is valid if all observers are offline and they were part of the previous assignment
+    val err = Observer.validateReassignment(
+      topicWithTwoObserverPlacementConstraint,
+      ReplicaAssignment.fromAssignment(
+        ReplicaAssignment.Assignment(0 to 6, 5 to 6)
+      ).reassignTo(
+        ReplicaAssignment.Assignment((5 to 6) ++ (0 to 4), 0 to 4)
+      ),
+      allBrokersAttributes -- (0 to 4) // All the observers are offline
+    )
+    assertEquals(None, err.map(_.error))
+  }
+
+  @Test
+  def testValidReassignmentOneOfflineObserver(): Unit = {
+    // It is valid if an observer is offline and it was part of the previous assignment
+    val err = Observer.validateReassignment(
+      topicWithTwoObserverPlacementConstraint,
+      ReplicaAssignment.fromAssignment(
+        ReplicaAssignment.Assignment(0 to 6, 5 to 6)
+      ).reassignTo(
+        ReplicaAssignment.Assignment((5 to 6) ++ (0 to 4), 0 to 4)
+      ),
+      allBrokersAttributes - 0 // A observer is offline
+    )
+    assertEquals(None, err.map(_.error))
+  }
+
+  @Test
+  def testInvalidReassignmentNewOfflineObserver(): Unit = {
+    // It is invalid if an observer is offline and it wasn't part of the previous assignment
+    val err = Observer.validateReassignment(
+      topicWithTwoObserverPlacementConstraint,
+      ReplicaAssignment.fromAssignment(
+        ReplicaAssignment.Assignment(0 to 6, 5 to 6)
+      ).reassignTo(
+        ReplicaAssignment.Assignment(
+          (5 to 6) ++ (0 to 3) ++ Seq(10),
+          (0 to 3) ++ Seq(10)
+        )
+      ),
+      allBrokersAttributes
+    )
+    assertEquals(Some(Errors.INVALID_REPLICA_ASSIGNMENT), err.map(_.error))
+  }
+
+  @Test
+  def testInvalidReassignmentOfflineSync(): Unit = {
+    // It is invalid if a sync replica is offline
+    val err = Observer.validateReassignment(
+      topicWithTwoObserverPlacementConstraint,
+      ReplicaAssignment.fromAssignment(
+        ReplicaAssignment.Assignment(0 to 6, 5 to 6)
+      ).reassignTo(
+        ReplicaAssignment.Assignment((5 to 6) ++ (0 to 4), 0 to 4)
+      ),
+      allBrokersAttributes - 5 // A sync replica is offline
     )
     assertEquals(Some(Errors.INVALID_REPLICA_ASSIGNMENT), err.map(_.error))
   }

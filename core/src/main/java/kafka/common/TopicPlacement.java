@@ -210,6 +210,10 @@ final public class TopicPlacement {
                 ",constraints=" + constraints +
                 ")";
         }
+
+        public static ConstraintCount of(int count, Map<String, String> constraint) {
+            return new ConstraintCount(count, constraint);
+        }
     }
 
     public static final Validator VALIDATOR = new TopicPlacementValidator();
