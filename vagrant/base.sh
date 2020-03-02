@@ -126,6 +126,12 @@ popd
 popd
 popd
 
+# Install awscli for system tests
+apt-get install -y python3-pip
+pip3 install awscli
+
+aws --version
+
 # Install iperf
 apt-get install -y iperf traceroute
 
