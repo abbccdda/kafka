@@ -230,6 +230,11 @@ class TransactionsTest(Test, TierSupport):
             bounce_target=["brokers", "clients"],
             check_order=[True, False],
             use_group_metadata=[True, False],
+            tier=[False])
+    @matrix(failure_mode=["hard_bounce", "clean_bounce"],
+            bounce_target=["brokers", "clients"],
+            check_order=[True, False],
+            use_group_metadata=[True, False],
             tier=[True],
             backend=[S3_BACKEND, GCS_BACKEND])
     def test_transactions(self, failure_mode, bounce_target, check_order, use_group_metadata, tier, backend=None):
