@@ -61,6 +61,10 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             wait_until(lambda: self.tiering_started(self.topic, range(0, self.partitions)),
                     timeout_sec=120, backoff_sec=2, err_msg="archive did not start within timeout")
 
+        if not from_tiered_storage and to_tiered_storage:
+            tier_set_configs(self.kafka, backend, feature=to_tiered_storage, enable=to_tiered_storage,
+                             hotset_bytes=hotset_bytes, hotset_ms=-1, metadata_replication_factor=3)
+
         self.logger.info("First pass bounce - rolling upgrade")
         for node in self.kafka.nodes:
             self.kafka.stop_node(node)
@@ -68,10 +72,6 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             node.version = DEV_BRANCH
             node.config[config_property.INTER_BROKER_PROTOCOL_VERSION] = from_kafka_version
             node.config[config_property.MESSAGE_FORMAT_VERSION] = from_kafka_version
-
-            if not from_tiered_storage and to_tiered_storage:
-                tier_set_configs(self.kafka, backend, feature=to_tiered_storage, enable=to_tiered_storage,
-                        hotset_bytes=hotset_bytes, hotset_ms=-1, metadata_replication_factor=3)
 
             self.kafka.start_node(node)
             self.wait_until_rejoin()

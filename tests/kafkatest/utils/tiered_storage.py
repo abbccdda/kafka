@@ -1,8 +1,6 @@
 from kafkatest.services.kafka import config_property
 
 import sys
-import uuid
-import time
 
 S3_BACKEND = "S3"
 GCS_BACKEND = "GCS"
@@ -10,7 +8,7 @@ GCS_BACKEND = "GCS"
 def tier_server_props(backend, feature=True, enable=False,
                       metadata_replication_factor=3, hotset_bytes=1, hotset_ms=1,
                       log_segment_bytes=1024000, log_retention_check_interval=5000, log_roll_time=3000,
-                      hotset_roll_min_bytes=None, tier_delete_check_interval=1000):
+                      hotset_roll_min_bytes=None, tier_delete_check_interval=1000, tier_bucket_prefix=None):
     """Helper for building server_prop_overrides in Kafka tests that enable tiering"""
     props = [
         # tiered storage does not support multiple logdirs
@@ -37,8 +35,9 @@ def tier_server_props(backend, feature=True, enable=False,
         if backend == S3_BACKEND:
             props += [[config_property.CONFLUENT_TIER_BACKEND, S3_BACKEND],
                       [config_property.CONFLUENT_TIER_S3_BUCKET, "confluent-tier-system-test"],
-                      [config_property.CONFLUENT_TIER_S3_PREFIX, "system-test-run-"+str(int(round(time.time() * 1000)))+"-"+str(uuid.uuid4())+"/"],
                       [config_property.CONFLUENT_TIER_S3_REGION, "us-west-2"]]
+            if tier_bucket_prefix:
+                props += [[config_property.CONFLUENT_TIER_S3_PREFIX, tier_bucket_prefix]]
 
         elif backend == GCS_BACKEND:
             props += [[config_property.CONFLUENT_TIER_BACKEND, GCS_BACKEND],
