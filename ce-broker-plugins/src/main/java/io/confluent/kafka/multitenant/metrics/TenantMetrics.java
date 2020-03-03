@@ -14,10 +14,10 @@ import org.apache.kafka.common.protocol.Errors;
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 
 public class TenantMetrics {
+  public static final String GROUP = "tenant-metrics";
   public static final String TENANT_TAG = "tenant";
   static final String USER_TAG = "user";
   static final String CLIENT_ID_TAG = "client-id";
-  static final String GROUP = "tenant-metrics";
 
   public static class MetricsRequestContext {
 

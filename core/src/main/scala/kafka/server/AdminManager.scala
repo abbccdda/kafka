@@ -46,7 +46,7 @@ import org.apache.kafka.common.requests.CreateTopicsRequest._
 import org.apache.kafka.common.requests.DescribeConfigsResponse.ConfigSource
 import org.apache.kafka.common.requests.{AlterConfigsRequest, ApiError, DescribeConfigsResponse}
 import org.apache.kafka.common.security.auth.KafkaPrincipal
-import org.apache.kafka.server.interceptor.TopicMetadataListener
+import org.apache.kafka.server.interceptor.{Monitorable, TopicMetadataListener}
 import org.apache.kafka.server.policy.{AlterConfigPolicy, CreateTopicPolicy}
 import org.apache.kafka.server.policy.CreateTopicPolicy.RequestMetadata
 
@@ -65,6 +65,9 @@ class AdminManager(val config: KafkaConfig,
 
   private val createTopicPolicy =
     Option(config.getConfiguredInstance(KafkaConfig.CreateTopicPolicyClassNameProp, classOf[CreateTopicPolicy]))
+  createTopicPolicy.collect { case l: Monitorable => l }.foreach { l =>
+    l.registerMetrics(metrics)
+  }
 
   private val alterConfigPolicy =
     Option(config.getConfiguredInstance(KafkaConfig.AlterConfigPolicyClassNameProp, classOf[AlterConfigPolicy]))

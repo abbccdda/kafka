@@ -2,12 +2,18 @@
 package io.confluent.kafka.server.plugins.policy;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 
+import io.confluent.kafka.multitenant.metrics.TenantMetrics;
+import java.util.LinkedHashMap;
+import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.NotControllerException;
 import org.apache.kafka.common.errors.PolicyViolationException;
 import org.apache.kafka.common.internals.Topic;
+import org.apache.kafka.common.metrics.KafkaMetric;
+import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.server.policy.CreateTopicPolicy.RequestMetadata;
 import org.junit.Before;
 import org.junit.Test;
@@ -20,7 +26,7 @@ import java.util.List;
 import java.util.Map;
 
 public class CreateTopicPolicyTest {
-  private static final String TENANT_PREFIX = "xx_";
+  private static final String TENANT = "xx";
   private static final String TOPIC = "xx_test-topic";
   private static final short REPLICATION_FACTOR = 3;
   private static final short MIN_IN_SYNC_REPLICAS = 1;
@@ -49,7 +55,7 @@ public class CreateTopicPolicyTest {
     final int currentPartitions = MAX_PARTITIONS / 2;
     final int requestedPartitions = MAX_PARTITIONS - currentPartitions - 1;
     updateTopicMetadata(Collections.singletonMap(TOPIC, currentPartitions));
-    policy.ensureValidPartitionCount(TENANT_PREFIX, requestedPartitions);
+    policy.ensureValidPartitionCount(TENANT, requestedPartitions);
   }
 
   @Test
@@ -57,7 +63,7 @@ public class CreateTopicPolicyTest {
     final int currentPartitions = MAX_PARTITIONS / 2;
     final int requestedPartitions = MAX_PARTITIONS - currentPartitions;
     updateTopicMetadata(Collections.singletonMap(TOPIC, currentPartitions));
-    policy.ensureValidPartitionCount(TENANT_PREFIX, requestedPartitions);
+    policy.ensureValidPartitionCount(TENANT, requestedPartitions);
   }
 
   @Test
@@ -71,19 +77,19 @@ public class CreateTopicPolicyTest {
     final int currentPartitions = MAX_PARTITIONS / 2;
     final int requestedPartitions = MAX_PARTITIONS - currentPartitions + 1;
     updateTopicMetadata(Collections.singletonMap(TOPIC, currentPartitions));
-    policy.ensureValidPartitionCount(TENANT_PREFIX, requestedPartitions);
+    policy.ensureValidPartitionCount(TENANT, requestedPartitions);
   }
 
   @Test(expected = PolicyViolationException.class)
   public void rejectsCurrentExceedMaxNumberOfPartitions() {
     final int currentPartitions = MAX_PARTITIONS / 2;
     updateTopicMetadata(Collections.singletonMap(TOPIC, currentPartitions));
-    policy.ensureValidPartitionCount(TENANT_PREFIX, MAX_PARTITIONS + 1);
+    policy.ensureValidPartitionCount(TENANT, MAX_PARTITIONS + 1);
   }
 
   @Test(expected = NotControllerException.class)
   public void rejectsWhenTopicMetadataNotSet() {
-    policy.ensureValidPartitionCount(TENANT_PREFIX, 1);
+    policy.ensureValidPartitionCount(TENANT, 1);
   }
 
   @Test
@@ -287,14 +293,69 @@ public class CreateTopicPolicyTest {
     topicPartitions0.put("xyz_foo", 3);
     topicPartitions0.put("xyz_bar", 3);
     topicPartitions0.put(Topic.GROUP_METADATA_TOPIC_NAME, 3);
+    topicPartitions0.put("_confluent_metrics", 3);
     updateTopicMetadata(topicPartitions0);
-    assertEquals(6, policy.numPartitions("xyz_"));
+    assertEquals(6, policy.numPartitions("xyz"));
+
+    // Using tenant prefix does not work, tenant must be used
+    assertEquals(0, policy.numPartitions("xyz_"));
+
+    // Internal topics are ignored
+    assertEquals(0, policy.numPartitions("_"));
+    assertEquals(0, policy.numPartitions(""));
 
     Map<String, Integer> topicPartitions1 = new HashMap<>();
     topicPartitions1.put("xyz_foo", 3);
     topicPartitions1.put(Topic.GROUP_METADATA_TOPIC_NAME, 3);
     updateTopicMetadata(topicPartitions1);
-    assertEquals(3, policy.numPartitions("xyz_"));
+    assertEquals(3, policy.numPartitions("xyz"));
+  }
+
+  @Test
+  public void testNumPartitionMetrics() {
+    Metrics metrics = new Metrics();
+    policy.registerMetrics(metrics);
+
+    Map<String, Integer> topicPartitions0 = new HashMap<>();
+    topicPartitions0.put("abc_foo", 2);
+    topicPartitions0.put("abc_bar", 2);
+    topicPartitions0.put("xyz_foo", 3);
+    topicPartitions0.put("xyz_bar", 3);
+    updateTopicMetadata(topicPartitions0);
+    assertEquals(4, policy.numPartitions("abc"));
+    assertEquals(6, policy.numPartitions("xyz"));
+    assertEquals(Integer.valueOf(4), metricValue(metrics, "abc"));
+    assertEquals(Integer.valueOf(6), metricValue(metrics, "xyz"));
+
+    Map<String, Integer> topicPartitions1 = new HashMap<>();
+    topicPartitions1.put("xyz_foo", 3);
+    updateTopicMetadata(topicPartitions1);
+    assertEquals(0, policy.numPartitions("abc"));
+    assertEquals(3, policy.numPartitions("xyz"));
+    assertEquals(Integer.valueOf(0), metricValue(metrics, "abc"));
+    assertEquals(Integer.valueOf(3), metricValue(metrics, "xyz"));
+
+    Map<String, Integer> topicPartitions2 = new HashMap<>();
+    topicPartitions2.put("xyz_foo", 1);
+    updateTopicMetadata(topicPartitions2);
+    assertEquals(0, policy.numPartitions("abc"));
+    assertEquals(1, policy.numPartitions("xyz"));
+    assertNull(metricValue(metrics, "abc"));
+    assertEquals(Integer.valueOf(1), metricValue(metrics, "xyz"));
+
+    metrics.close();
+  }
+
+  private Integer metricValue(Metrics metrics, String tenant) {
+    Map<String, String> tags = new LinkedHashMap<>();
+    tags.put(TenantMetrics.TENANT_TAG, tenant);
+    MetricName name = metrics.metricName("partitions", TenantMetrics.GROUP, "", tags);
+    KafkaMetric metric = metrics.metric(name);
+    if (metric != null) {
+      return (Integer) metric.metricValue();
+    } else {
+      return null;
+    }
   }
 
   private void updateTopicMetadata(Map<String, Integer> topicToNumPartitions) {
@@ -312,5 +373,4 @@ public class CreateTopicPolicyTest {
     }
     return topicPartitions;
   }
-
 }

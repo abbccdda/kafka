@@ -38,6 +38,8 @@ public class TenantContextTest {
     assertTrue(TenantContext.isTenantPrefixed("confluent_foo"));
     assertFalse(TenantContext.isTenantPrefixed("blah"));
     assertFalse(TenantContext.isTenantPrefixed(null));
+    assertFalse(TenantContext.isTenantPrefixed("__consumer_offsets"));
+    assertFalse(TenantContext.isTenantPrefixed("_confluent_metrics"));
   }
 
   @Test

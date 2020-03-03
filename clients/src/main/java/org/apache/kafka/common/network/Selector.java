@@ -22,7 +22,7 @@ import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.memory.MemoryPool;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.metrics.Sensor;
-import org.apache.kafka.common.metrics.internals.IntGaugeSuite;
+import org.apache.kafka.common.metrics.internals.IntCounterSuite;
 import org.apache.kafka.common.metrics.stats.Avg;
 import org.apache.kafka.common.metrics.stats.CumulativeSum;
 import org.apache.kafka.common.metrics.stats.Max;
@@ -1127,8 +1127,8 @@ public class Selector implements Selectable, AutoCloseable {
         public final Sensor responsesReceived;
         public final Sensor selectTime;
         public final Sensor ioTime;
-        public final IntGaugeSuite<CipherInformation> connectionsByCipher;
-        public final IntGaugeSuite<ClientInformation> connectionsByClient;
+        public final IntCounterSuite<CipherInformation> connectionsByCipher;
+        public final IntCounterSuite<ClientInformation> connectionsByClient;
 
         /* Names of metrics that are not registered through sensors */
         private final List<MetricName> topLevelMetricNames = new ArrayList<>();
@@ -1225,7 +1225,7 @@ public class Selector implements Selectable, AutoCloseable {
             this.ioTime.add(metricName, new Avg());
             this.ioTime.add(createIOThreadRatioMeter(metrics, metricGrpName, metricTags, "io", "doing I/O"));
 
-            this.connectionsByCipher = new IntGaugeSuite<>(log, "sslCiphers", metrics,
+            this.connectionsByCipher = new IntCounterSuite<>(log, "sslCiphers", metrics,
                 cipherInformation -> {
                     Map<String, String> tags = new LinkedHashMap<>();
                     tags.put("cipher", cipherInformation.cipher());
@@ -1234,7 +1234,7 @@ public class Selector implements Selectable, AutoCloseable {
                     return metrics.metricName("connections", metricGrpName, "The number of connections with this SSL cipher and protocol.", tags);
                 }, 100);
 
-            this.connectionsByClient = new IntGaugeSuite<>(log, "clients", metrics,
+            this.connectionsByClient = new IntCounterSuite<>(log, "clients", metrics,
                 clientInformation -> {
                     Map<String, String> tags = new LinkedHashMap<>();
                     tags.put("clientSoftwareName", clientInformation.softwareName());

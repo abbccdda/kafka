@@ -18,7 +18,9 @@ public class TenantContext implements TransformContext {
   protected final int prefixSizeInBytes;
 
   public static boolean isTenantPrefixed(String prefixedName) {
-    return prefixedName != null && prefixedName.contains(DELIMITER);
+    return prefixedName != null
+        && !prefixedName.startsWith(DELIMITER)
+        && prefixedName.contains(DELIMITER);
   }
 
   public static String extractTenantPrefix(String prefixedName) {
