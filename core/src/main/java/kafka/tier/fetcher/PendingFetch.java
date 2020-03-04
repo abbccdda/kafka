@@ -237,9 +237,14 @@ public class PendingFetch implements Runnable {
 
     /**
      * Block on a fetch request finishing (or canceling), returning either complete MemoryRecords
-     * for the fetch, or empty records.
+     * for the fetch, or empty records. This will also cancel any further work from being performed
+     * by the in-progress fetch.
      */
     public Map<TopicPartition, TierFetchResult> finish() {
+        // Cancel the CancellationContext in the event the fetch is not finished as the caller
+        // will be blocked on the transferPromise being completed.
+        cancel();
+
         // Note: Ensure that if any exception is thrown, the memory lease contained within the
         // TierFetchResult is relinquished.
         final HashMap<TopicPartition, TierFetchResult> resultMap = new HashMap<>();
@@ -264,12 +269,18 @@ public class PendingFetch implements Runnable {
         return resultMap;
     }
 
+    public void markFetchExpired() {
+        tierFetcherMetrics.ifPresent(metrics -> metrics.fetchCancelled().record());
+    }
+
     /**
      * Cancel the pending fetch.
      */
     public void cancel() {
         cancellationContext.cancel();
-        tierFetcherMetrics.ifPresent(metrics -> metrics.fetchCancelled().record());
+        // MemoryTracker requests require a CancellationContext as part of the request to
+        // control how long a request for memory will block. By canceling the CancellationContext
+        // and waking up the memory tracker here, a canceled request will not block indefinitely.
         memoryTracker.wakeup();
     }
 

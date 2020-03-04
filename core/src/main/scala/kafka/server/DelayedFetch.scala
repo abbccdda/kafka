@@ -17,7 +17,6 @@
 
 package kafka.server
 
-import java.util
 import java.util.concurrent.TimeUnit
 
 import kafka.metrics.KafkaMetricsGroup
@@ -172,6 +171,7 @@ class DelayedFetch(delayMs: Long,
   }
 
   override def onExpiration(): Unit = {
+    tierFetchOpt.foreach(_.markFetchExpired())
     if (fetchMetadata.isFromFollower)
       DelayedFetchMetrics.followerExpiredRequestMeter.mark()
     else
@@ -203,11 +203,7 @@ class DelayedFetch(delayMs: Long,
     // thread driving the PendingFetch to conclude. After joining on the future, it's known that
     // the PendingFetch will not attempt to claim any more memory, and ownership of the associated
     // memory lease has transferred to the DelayedFetch/Response.
-    val tierFetcherReadResults = tierFetchOpt.map {
-      pendingFetch =>
-        pendingFetch.cancel()
-        pendingFetch.finish()
-    }
+    val tierFetcherReadResults = tierFetchOpt.map(_.finish())
 
     val logReadResults = collectLogReadResults()
     val unifiedReadResults: Seq[(TopicPartition, LogReadResult)] = logReadResults.map {

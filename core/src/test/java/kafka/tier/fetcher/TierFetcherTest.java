@@ -50,7 +50,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.IntStream;
 
@@ -73,7 +72,7 @@ public class TierFetcherTest {
     }
 
     @Test
-    public void tierFetcherCancellationUnblocksWaitingForMemory() throws InterruptedException, TimeoutException {
+    public void tierFetcherCancellationUnblocksWaitingForMemory() throws InterruptedException {
         ByteBuffer combinedBuffer = getMemoryRecordsBuffer();
         TierObjectStore tierObjectStore = new MockedTierObjectStore(combinedBuffer,
                 ByteBuffer.allocate(0), ByteBuffer.allocate(0));
@@ -185,6 +184,7 @@ public class TierFetcherTest {
             if (result.exception == null) {
                 assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchExceptionTotalMetricName).metricValue(), 0);
             }
+            pending.markFetchExpired();
             assertEquals("expected 1 cancellation", 1.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchCancellationTotalMetricName).metricValue(), 0);
             result.records.release();
         } finally {
