@@ -671,7 +671,14 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         if (!objectId.equals(metadata.objectId()))
             throw new IllegalStateException("id mismatch. Expected: " + objectId + " Got: " + metadata.objectId() + " Partition: " + topicIdPartition);
 
+        int oldSize = metadata.payloadSize();
         metadata.mutateState(newState);
+        int newSize = metadata.payloadSize();
+        if (oldSize != newSize) {
+            throw new IllegalStateException(
+                String.format("Size mismatch for objectId %s, expected: %d, got: %d, topicIdPartition: %s.",
+                    metadata.objectId(), oldSize, newSize, topicIdPartition));
+        }
         Utils.writeFully(state.channel, currentState.position + ENTRY_LENGTH_SIZE, metadata.payloadBuffer());
         addSegmentMetadata(metadata, currentState.position);
         dirty = true;

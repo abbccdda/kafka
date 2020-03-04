@@ -144,6 +144,10 @@ public class TierObjectMetadata {
         return metadata.getByteBuffer().duplicate();
     }
 
+    public int payloadSize() {
+        return metadata.getByteBuffer().remaining();
+    }
+
     public int tierEpoch() {
         return metadata.tierEpoch();
     }
