@@ -225,6 +225,12 @@ class ChangeManagerTest {
     val tp1Task = queue.poll().get.head
     assertEquals(tp1Task.topicIdPartition, tp1)
     assertEquals(1, queue.errorPartitionCount())
+
+    // Since tp0Task is in error state, expect queue.errorPartitionsCount() to drop to 0 when the queue
+    // gets a StopChangeMetadata event for this task (via transition from leader -> follower)
+    leaderChangeManager.onBecomeFollower(tp0)
+    leaderChangeManager.process()
+    assertEquals(0, queue.errorPartitionCount())
   }
 
   @Test

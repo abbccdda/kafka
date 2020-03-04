@@ -27,7 +27,9 @@ public interface TierPartitionState {
         // the entry was materialized but was fenced
         FENCED,
         // the entry was materialized
-        ACCEPTED
+        ACCEPTED,
+        // the entry could not be materialized
+        FAILED
     }
 
     /**

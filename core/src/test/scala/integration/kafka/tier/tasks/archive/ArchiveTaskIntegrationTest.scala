@@ -9,7 +9,8 @@ import java.util.UUID
 import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ExecutorService, Executors}
 
 import kafka.log.{AbstractLog, Log, LogTest, TierLogComponents}
-import kafka.server.{BrokerTopicStats, KafkaConfig, ReplicaManager}
+import kafka.server.{BrokerTopicStats, KafkaConfig, LogDirFailureChannel, ReplicaManager}
+import kafka.server.LogDirFailureChannel
 import kafka.tier.TopicIdPartition
 import kafka.tier.domain.{AbstractTierMetadata, TierTopicInitLeader}
 import kafka.tier.fetcher.CancellationContext
@@ -73,8 +74,8 @@ class ArchiveTaskIntegrationTest {
     when(mock(classOf[ReplicaManager]).getLog(topicIdPartition.topicPartition)).thenReturn(Some(abstractLog)).getMock[ReplicaManager]()
   }
 
-  private def createTierPartitionState(topicIdPartition: TopicIdPartition): TierPartitionState = {
-    val tierPartitionState = new FileTierPartitionState(TestUtils.tempDir(), topicIdPartition.topicPartition(), true)
+  private def createTierPartitionState(topicIdPartition: TopicIdPartition, logDirFailureChannel: LogDirFailureChannel): TierPartitionState = {
+    val tierPartitionState = new FileTierPartitionState(TestUtils.tempDir(), logDirFailureChannel, topicIdPartition.topicPartition(), true)
     tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionStates.put(topicIdPartition, tierPartitionState)
     tierPartitionState
@@ -103,13 +104,14 @@ class ArchiveTaskIntegrationTest {
     val leaderEpoch = 0
     val logConfig = LogTest.createLogConfig(segmentBytes = 1024 * 1024 * 5, tierEnable = true)
 
-    val tierPartitionState = createTierPartitionState(topicIdPartition)
-    when(tierPartitionStateFactory.initState(logDir, topicIdPartition.topicPartition, logConfig)).thenReturn(tierPartitionState)
+    val logDirFailureChannel = new LogDirFailureChannel(5)
+    val tierPartitionState = createTierPartitionState(topicIdPartition, logDirFailureChannel)
+    when(tierPartitionStateFactory.initState(logDir, topicIdPartition.topicPartition, logConfig, logDirFailureChannel)).thenReturn(tierPartitionState)
 
     val tierTopicManger = new MockTierTopicManager()
     tierTopicManger.becomeArchiver(topicIdPartition, leaderEpoch)
 
-    val log = LogTest.createLog(logDir, logConfig, brokerTopicStats, mockTime.scheduler, mockTime, tierLogComponentsOpt = Some(tierLogComponents))
+    val log = LogTest.createLog(logDir, logConfig, brokerTopicStats, mockTime.scheduler, mockTime, tierLogComponentsOpt = Some(tierLogComponents), logDirFailureChannel = logDirFailureChannel)
     val mockReplicaManager = logProvidingReplicaManager(topicIdPartition, log)
     val nextState = Await.result(task.transition(mockTime, tierTopicManger, tierObjectStore,
       mockReplicaManager), transitionWaitTime)
@@ -128,10 +130,11 @@ class ArchiveTaskIntegrationTest {
     val leaderEpoch = 0
     val logConfig = LogTest.createLogConfig(segmentBytes = 1024)
 
-    val tierPartitionState = createTierPartitionState(topicIdPartition)
-    when(tierPartitionStateFactory.initState(logDir, topicIdPartition.topicPartition, logConfig)).thenReturn(tierPartitionState)
+    val logDirFailureChannel = new LogDirFailureChannel(5)
+    val tierPartitionState = createTierPartitionState(topicIdPartition, logDirFailureChannel)
+    when(tierPartitionStateFactory.initState(logDir, topicIdPartition.topicPartition, logConfig, logDirFailureChannel)).thenReturn(tierPartitionState)
 
-    val log = LogTest.createLog(logDir, logConfig, brokerTopicStats, mockTime.scheduler, mockTime, tierLogComponentsOpt = Some(tierLogComponents))
+    val log = LogTest.createLog(logDir, logConfig, brokerTopicStats, mockTime.scheduler, mockTime, tierLogComponentsOpt = Some(tierLogComponents), logDirFailureChannel = logDirFailureChannel)
     val mockReplicaManager = logProvidingReplicaManager(topicIdPartition, log)
 
     val tierTopicManager = new MockTierTopicManager()
@@ -183,12 +186,13 @@ class ArchiveTaskIntegrationTest {
     val task = new ArchiveTask(ctx, topicIdPartition, BeforeUpload(0), ArchiverMetrics(None, None))
     val leaderEpoch = 0
 
+    val logDirFailureChannel = new LogDirFailureChannel(5)
     val logConfig = LogTest.createLogConfig(segmentBytes = 1024)
-    val tierPartitionState = createTierPartitionState(topicIdPartition)
-    when(tierPartitionStateFactory.initState(logDir, topicIdPartition.topicPartition, logConfig)).thenReturn(tierPartitionState)
+    val tierPartitionState = createTierPartitionState(topicIdPartition, logDirFailureChannel)
+    when(tierPartitionStateFactory.initState(logDir, topicIdPartition.topicPartition, logConfig, logDirFailureChannel)).thenReturn(tierPartitionState)
 
     val tierTopicManager = new MockTierTopicManager()
-    val log = LogTest.createLog(logDir, logConfig, brokerTopicStats, mockTime.scheduler, mockTime, tierLogComponentsOpt = Some(tierLogComponents))
+    val log = LogTest.createLog(logDir, logConfig, brokerTopicStats, mockTime.scheduler, mockTime, tierLogComponentsOpt = Some(tierLogComponents), logDirFailureChannel = logDirFailureChannel)
     val mockReplicaManager = logProvidingReplicaManager(topicIdPartition, log)
     val pid1 = 1L
 
@@ -239,12 +243,13 @@ class ArchiveTaskIntegrationTest {
     val task = new ArchiveTask(ctx, topicIdPartition, BeforeUpload(0), ArchiverMetrics(None, None))
     val leaderEpoch = 0
 
+    val logDirFailureChannel = new LogDirFailureChannel(5)
     val logConfig = LogTest.createLogConfig(segmentBytes = 1024)
-    val tierPartitionState = createTierPartitionState(topicIdPartition)
-    when(tierPartitionStateFactory.initState(logDir, topicIdPartition.topicPartition, logConfig)).thenReturn(tierPartitionState)
+    val tierPartitionState = createTierPartitionState(topicIdPartition, logDirFailureChannel)
+    when(tierPartitionStateFactory.initState(logDir, topicIdPartition.topicPartition, logConfig, logDirFailureChannel)).thenReturn(tierPartitionState)
 
     val tierTopicManager = new MockTierTopicManager()
-    val log = LogTest.createLog(logDir, logConfig, brokerTopicStats, mockTime.scheduler, mockTime, tierLogComponentsOpt = Some(tierLogComponents))
+    val log = LogTest.createLog(logDir, logConfig, brokerTopicStats, mockTime.scheduler, mockTime, tierLogComponentsOpt = Some(tierLogComponents), logDirFailureChannel = logDirFailureChannel)
     val mockReplicaManager = logProvidingReplicaManager(topicIdPartition, log)
     val pid1 = 1L
 

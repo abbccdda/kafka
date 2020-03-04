@@ -66,7 +66,6 @@ abstract class TierTask[T <: TierTask[T]](retryRateOpt: Option[Meter]) extends L
    * @param t Exception to set task to error state for
    */
   protected[tasks] def cancelAndSetErrorState(tierTask: TierTask[T], t: Throwable): Unit = {
-    error(s"Partition ${topicIdPartition}, task $tierTask moved to error state due to unhandled exception", t)
     _error = Some(t)
     ctx.cancel()
   }
@@ -238,6 +237,7 @@ abstract class TierTaskQueue[T <: TierTask[T]](ctx: CancellationContext, maxTask
       task.ctx.cancel()
       tasks -= task
       processing -= task
+      partitionsInError.remove(topicIdPartition)
     }
   }
 

@@ -18,6 +18,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import kafka.log.Log;
+import kafka.server.LogDirFailureChannel;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.AbstractTierMetadata;
 import kafka.tier.serdes.TierKafkaKey;
@@ -207,7 +208,7 @@ public class TierTopicMaterializationUtils {
             TierKafkaKey tierKey = TierKafkaKey.getRootAsTierKafkaKey(ByteBuffer.wrap(record.key()));
             File path = getStateFolder(id);
             if (!path.exists()) path.mkdirs();
-            FileTierPartitionState state = new FileTierPartitionState(path, new TopicPartition(tierKey.topicName(), tierKey.partition()), true);
+            FileTierPartitionState state = new FileTierPartitionState(path, new LogDirFailureChannel(1), new TopicPartition(tierKey.topicName(), tierKey.partition()), true);
             state.setTopicId(new UUID(tierKey.topicId().mostSignificantBits(),
                     tierKey.topicId().leastSignificantBits()));
             stateMap.put(id, state);

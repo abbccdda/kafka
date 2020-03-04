@@ -6,13 +6,14 @@ package kafka.tier.state
 
 import java.io.{ByteArrayOutputStream, File, PrintStream}
 import java.nio.channels.FileChannel
-import java.nio.file.{Paths, StandardOpenOption}
+import java.nio.file.{Files, Paths, StandardOpenOption}
 import java.nio.{ByteBuffer, ByteOrder}
 import java.util
 import java.util.concurrent.TimeUnit
 import java.util.{Optional, UUID}
 
 import kafka.log.{Log, LogConfig}
+import kafka.server.LogDirFailureChannel
 import kafka.tier.TopicIdPartition
 import kafka.tier.domain.{AbstractTierMetadata, TierSegmentDeleteComplete, TierSegmentDeleteInitiate, TierSegmentUploadComplete, TierSegmentUploadInitiate, TierTopicInitLeader}
 import kafka.tier.state.TierPartitionState.AppendResult
@@ -35,7 +36,8 @@ class TierPartitionStateTest {
   val dir = TestUtils.randomPartitionLogDir(parentDir)
   val tp = Log.parseTopicPartitionName(dir)
   val tpid = new TopicIdPartition(tp.topic, UUID.randomUUID, tp.partition)
-  val state = new FileTierPartitionState(dir, tp, true)
+  val logDirFailureChannel = new LogDirFailureChannel(5)
+  val state = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
   val logConfig = mock(classOf[LogConfig])
 
   @Before
@@ -59,7 +61,7 @@ class TierPartitionStateTest {
     assertEquals(9, state.tierEpoch())
     state.close()
 
-    val reopenedState = factory.initState(dir, tp, logConfig)
+    val reopenedState = factory.initState(dir, tp, logConfig, logDirFailureChannel)
     assertEquals(9, reopenedState.tierEpoch())
     reopenedState.close()
   }
@@ -196,7 +198,7 @@ class TierPartitionStateTest {
     state.close()
 
     // test state with overlap segment is materialized correctly
-    val reopenedState = factory.initState(dir, tp, logConfig)
+    val reopenedState = factory.initState(dir, tp, logConfig, logDirFailureChannel)
     assertEquals(175L, reopenedState.endOffset)
     assertEquals(175L, reopenedState.committedEndOffset)
 
@@ -229,7 +231,8 @@ class TierPartitionStateTest {
     state.append(new TierTopicInitLeader(tpid, epoch + 1, java.util.UUID.randomUUID(), 0), 0)
     state.close()
 
-    val reopenedState = factory.initState(dir, tp, logConfig)
+
+    val reopenedState = factory.initState(dir, tp, logConfig, logDirFailureChannel)
     assertEquals(1, reopenedState.tierEpoch())
     assertEquals(size, reopenedState.totalSize())
     reopenedState.close()
@@ -257,7 +260,7 @@ class TierPartitionStateTest {
     assertEquals(100L, state.endOffset)
     assertEquals(100L, state.committedEndOffset)
 
-    val reopenedState = factory.initState(dir, tp, logConfig)
+    val reopenedState = factory.initState(dir, tp, logConfig, logDirFailureChannel)
     assertEquals(100L, reopenedState.endOffset)
     assertEquals(100L, reopenedState.committedEndOffset)
     reopenedState.close()
@@ -320,7 +323,7 @@ class TierPartitionStateTest {
     state.close()
 
     val upgradedVersion = (initialVersion + 1).toByte
-    val upgradedState = new FileTierPartitionState(dir, tp, true, upgradedVersion)
+    val upgradedState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true, true, upgradedVersion)
     assertEquals(upgradedVersion, upgradedState.version)
     assertEquals(numSegments, upgradedState.numSegments)
     assertEquals(expectedEndOffset, upgradedState.endOffset())
@@ -417,7 +420,7 @@ class TierPartitionStateTest {
     state.close()
 
 
-    val state2 = new FileTierPartitionState(dir, tp, true)
+    val state2 = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
     assertFalse(state2.setTopicId(tpid.topicId))
 
     val afterReloadFenced = state2.fencedSegments()
@@ -459,7 +462,7 @@ class TierPartitionStateTest {
 
     // reopen state and validate state remains the same
     state.close()
-    val reopenedState = new FileTierPartitionState(dir, tp, true)
+    val reopenedState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
     try {
       assertEquals(0, reopenedState.fencedSegments.size)
       assertEquals(numSegments * 2, reopenedState.segmentOffsets.size)
@@ -502,7 +505,7 @@ class TierPartitionStateTest {
 
     // must have the same state after reopening the file
     state.close()
-    val reopenedState = new FileTierPartitionState(dir, tp, true)
+    val reopenedState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
     try {
       assertEquals(numAbortedSegments, reopenedState.fencedSegments.size)
       assertEquals(abortedObjectIds.toSet, reopenedState.fencedSegments.asScala.map(_.objectId).toSet)
@@ -582,7 +585,7 @@ class TierPartitionStateTest {
     assertEquals(completedObjectId, state.metadata(0).get().objectId())
 
     state.close()
-    val reopenedState = new FileTierPartitionState(dir, tp, true)
+    val reopenedState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
     try {
       // check segments are seekable and fencedSegments list is the same after file is reopened
       assertArrayEquals(fencedBefore.toArray, reopenedState.fencedSegments().toArray)
@@ -688,7 +691,7 @@ class TierPartitionStateTest {
     assertEquals(size, state.totalSize)
 
     state.close()
-    val reopenedState = new FileTierPartitionState(dir, tp, true)
+    val reopenedState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
     try {
       assertEquals(size, reopenedState.totalSize)
     } finally {
@@ -737,7 +740,7 @@ class TierPartitionStateTest {
       }
       // Mimic a broker restart verify partition state endOffset and totalSize is same as before restart.
       state.close()
-      val reopenedState = new FileTierPartitionState(dir, tp, true)
+      val reopenedState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
       try {
         // After
         assertEquals("FileTierPartitionState endOffset materialized value", expectedEndOffset, reopenedState.endOffset())
@@ -755,7 +758,7 @@ class TierPartitionStateTest {
       for (i <- 0 until numSegments/2) {
         assertEquals(AppendResult.ACCEPTED, currentState.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(i)), 0))
         maybeIncrementEpochAndValidateTierState(currentState, true, endOffset, numSegments - (i + 1))
-        currentState = new FileTierPartitionState(dir, tp, true)
+        currentState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
       }
       // As a follower (does not increment epoch)
       // Transition each segment to DeleteInitiate and then DeleteComplete and at each step verify state before and after
@@ -763,10 +766,10 @@ class TierPartitionStateTest {
       for (i <- numSegments/2 until numSegments) {
         assertEquals(AppendResult.ACCEPTED, currentState.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(i)), 0))
         maybeIncrementEpochAndValidateTierState(currentState, false, endOffset, numSegments - (i + 1))
-        currentState = new FileTierPartitionState(dir, tp, true)
+        currentState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
         assertEquals(AppendResult.ACCEPTED, currentState.append(new TierSegmentDeleteComplete(tpid, epoch, objectIds(i)), 0))
         maybeIncrementEpochAndValidateTierState(currentState, false, endOffset, numSegments - (i + 1))
-        currentState = new FileTierPartitionState(dir, tp, true)
+        currentState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
       }
     }finally {
       currentState.close()
@@ -811,7 +814,7 @@ class TierPartitionStateTest {
 
     // Broker restarts: reopen state and validate again.
     state.close()
-    val reopenedState = new FileTierPartitionState(dir, tp, true)
+    val reopenedState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
     try {
       assertEquals(reopenedState.toString(), 2, reopenedState.fencedSegments.size)
       assertEquals("FileTierPartitionState endOffset materialized value", endOffset, reopenedState.endOffset())
@@ -836,7 +839,7 @@ class TierPartitionStateTest {
 
     // Broker restart.
     state.close()
-    val restartState = new FileTierPartitionState(dir, tp, true)
+    val restartState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
     assertEquals(100, restartState.lastConsumedSrcOffset)
 
     // Test for the state version.
@@ -846,28 +849,163 @@ class TierPartitionStateTest {
 
   @Test
   def testIllegalTransitions(): Unit = {
-    def assertIllegal(metadata: AbstractTierMetadata): Unit = {
-      assertThrows[IllegalStateException] {
-        state.append(metadata, 0)
+    var stateWithFencingDisabledOpt = None: Option[FileTierPartitionState]
+    try {
+      val tp = Log.parseTopicPartitionName(dir)
+      val tpid = new TopicIdPartition(tp.topic, UUID.randomUUID, tp.partition)
+      stateWithFencingDisabledOpt = Some(FileTierPartitionState.createWithStateUpdateFailureFencingDisabled(dir, logDirFailureChannel, tp, true))
+      stateWithFencingDisabledOpt.get.setTopicId(tpid.topicId)
+      stateWithFencingDisabledOpt.get.beginCatchup()
+      stateWithFencingDisabledOpt.get.onCatchUpComplete()
+
+      def assertIllegal(metadata: AbstractTierMetadata): Unit = {
+        assertThrows[IllegalStateException] {
+          stateWithFencingDisabledOpt.get.append(metadata, 0)
+        }
       }
+
+      assertEquals(AppendResult.ACCEPTED, stateWithFencingDisabledOpt.get.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), 0))
+
+      // 1. first transition must always start from UploadInitiate
+      assertIllegal(new TierSegmentUploadComplete(tpid, 0, UUID.randomUUID))
+      assertIllegal(new TierSegmentDeleteInitiate(tpid, 0, UUID.randomUUID))
+      assertIllegal(new TierSegmentDeleteComplete(tpid, 0, UUID.randomUUID))
+
+      // 2. cannot transition to DeleteComplete unless the previous state is DeleteInitiate
+      val objectId = UUID.randomUUID
+      val deleteComplete = new TierSegmentDeleteComplete(tpid, 0, objectId)
+
+      assertEquals(AppendResult.ACCEPTED, stateWithFencingDisabledOpt.get.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false), 0))
+      assertIllegal(deleteComplete)
+      assertEquals(AppendResult.ACCEPTED, stateWithFencingDisabledOpt.get.append(new TierSegmentUploadComplete(tpid, 0, objectId), 0))
+      assertIllegal(deleteComplete)
+      assertEquals(AppendResult.ACCEPTED, stateWithFencingDisabledOpt.get.append(new TierSegmentDeleteInitiate(tpid, 0, objectId), 0))
+      assertEquals(AppendResult.ACCEPTED, stateWithFencingDisabledOpt.get.append(deleteComplete, 0))
+    } finally {
+      stateWithFencingDisabledOpt.get.close();
     }
-    state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), 0)
+  }
 
-    // 1. first transition must always start from UploadInitiate
-    assertIllegal(new TierSegmentUploadComplete(tpid, 0, UUID.randomUUID))
-    assertIllegal(new TierSegmentDeleteInitiate(tpid, 0, UUID.randomUUID))
-    assertIllegal(new TierSegmentDeleteComplete(tpid, 0, UUID.randomUUID))
-
-    // 2. cannot transition to DeleteComplete unless the previous state is DeleteInitiate
+  @Test
+  def testStateUpdateFailureFencingEnabled() {
     val objectId = UUID.randomUUID
-    val deleteComplete = new TierSegmentDeleteComplete(tpid, 0, objectId)
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, objectId, 0), 0))
 
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false), 0))
-    assertIllegal(deleteComplete)
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId), 0))
-    assertIllegal(deleteComplete)
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, 0, objectId), 0))
-    assertEquals(AppendResult.ACCEPTED, state.append(deleteComplete, 0))
+    // 1. upon first illegal transition, the failure should be fenced
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId), 0))
+    assertEquals(TierPartitionStatus.ERROR, state.status)
+
+    // 2. fenced failure is not unblocked even if a legal transition is tried
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false), 0))
+    assertEquals(TierPartitionStatus.ERROR, state.status)
+  }
+
+  @Test
+  def testStateUpdateFailureFencingFlushMechanism_Regular() {
+    // --- BEFORE FENCING ---
+    val objectId = UUID.randomUUID
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, objectId, 0), 0))
+
+    val channelMutableBeforeFencing = FileChannel.open(FileTierPartitionState.mutableFilePath(state.basePath), StandardOpenOption.READ)
+    assertTrue(channelMutableBeforeFencing.size() > 0)
+    val stateMutableBeforeFencing = ByteBuffer.allocate(10000);
+    channelMutableBeforeFencing.read(stateMutableBeforeFencing, 0)
+    channelMutableBeforeFencing.close
+
+    state.flush
+
+    val channelFlushedBeforeFencing = FileChannel.open(FileTierPartitionState.flushedFilePath(state.basePath), StandardOpenOption.READ)
+    assertTrue(channelFlushedBeforeFencing.size() > 0)
+    val headerFlushedBeforeFencing: Optional[Header] = FileTierPartitionState.readHeader(channelFlushedBeforeFencing)
+    assertTrue(headerFlushedBeforeFencing.isPresent)
+    assertEquals(headerFlushedBeforeFencing.get.status, TierPartitionStatus.ONLINE)
+    val payloadFlushedBeforeFencing = ByteBuffer.allocate(10000);
+    channelFlushedBeforeFencing.read(payloadFlushedBeforeFencing)
+    channelFlushedBeforeFencing.close
+
+    // --- TRIGGER FENCING ---
+
+    // 1. upon first illegal transition, the failure should be fenced
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId), 200))
+    assertEquals(TierPartitionStatus.ERROR, state.status)
+
+    // 2. fenced failure is not unblocked even if a legal transition is tried
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false), 300))
+    assertEquals(TierPartitionStatus.ERROR, state.status)
+
+    state.flush
+
+    // --- AFTER FENCING ---
+
+    // Check that the header of the flushed file contains TierPartitionStatus.ERROR status
+    val channelFlushedAfterFencing = FileChannel.open(FileTierPartitionState.flushedFilePath(state.basePath), StandardOpenOption.READ)
+    assertTrue(channelFlushedAfterFencing.size() > 0)
+    val headerFlushedAfterFencing: Optional[Header] = FileTierPartitionState.readHeader(channelFlushedAfterFencing)
+    assertTrue(headerFlushedAfterFencing.isPresent)
+    assertEquals(headerFlushedAfterFencing.get.status, TierPartitionStatus.ERROR)
+    // Check that the payload of the flushed file before fencing matches byte-by-byte with the
+    // payload of the flushed file after fencing.
+    val payloadFlushedAfterFencing = ByteBuffer.allocate(10000);
+    channelFlushedAfterFencing.read(payloadFlushedAfterFencing)
+    channelFlushedAfterFencing.close
+
+    assertEquals(payloadFlushedBeforeFencing, payloadFlushedAfterFencing)
+
+    // Check that the state of the error file after fencing matches byte-by-byte with the
+    // state of the mutable file upon which fencing happened for the first time.
+    val channelErrorAfterFencing = FileChannel.open(FileTierPartitionState.errorFilePath(state.basePath), StandardOpenOption.READ)
+    assertTrue(channelErrorAfterFencing.size() > 0)
+    val stateErrorAfterFencing = ByteBuffer.allocate(10000);
+    channelErrorAfterFencing.read(stateErrorAfterFencing)
+
+    assertEquals(stateMutableBeforeFencing, stateErrorAfterFencing)
+  }
+
+  @Test
+  def testStateUpdateFailureFencingFlush_DuringAbsentHeader() {
+    // --- BEFORE FENCING ---
+    val objectId = UUID.randomUUID
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, objectId, 0), 0))
+
+    val channelMutableBeforeFencing = FileChannel.open(FileTierPartitionState.mutableFilePath(state.basePath), StandardOpenOption.READ)
+    assertTrue(channelMutableBeforeFencing.size() > 0)
+    val stateMutableBeforeFencing = ByteBuffer.allocate(10000);
+    channelMutableBeforeFencing.read(stateMutableBeforeFencing, 0)
+    channelMutableBeforeFencing.close
+
+    state.flush
+
+    // --- TRIGGER FENCING ---
+
+    // 1. upon first illegal transition, the failure should be fenced
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId), 200))
+    assertEquals(TierPartitionStatus.ERROR, state.status)
+
+    // 2. fenced failure is not unblocked even if a legal transition is tried
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false), 300))
+    assertEquals(TierPartitionStatus.ERROR, state.status)
+
+    // Manaully nuke the file (it should get recreated during flush with header TierPartitionStatus.ERROR)
+    Files.delete(FileTierPartitionState.flushedFilePath(state.basePath))
+
+    state.flush
+
+    // --- AFTER FENCING ---
+
+    // Check that the header of the flushed file contains TierPartitionStatus.ERROR status
+    val channelFlushedAfterFencing = FileChannel.open(FileTierPartitionState.flushedFilePath(state.basePath), StandardOpenOption.READ)
+    assertTrue(channelFlushedAfterFencing.size() > 0)
+    val headerFlushedAfterFencing: Optional[Header] = FileTierPartitionState.readHeader(channelFlushedAfterFencing)
+    assertTrue(headerFlushedAfterFencing.isPresent)
+    assertEquals(
+      headerFlushedAfterFencing.get,
+      new Header(
+        tpid.topicId(),
+        2,
+        -1,
+        TierPartitionStatus.ERROR,
+        -1L,
+        -1L))
   }
 
   @Test
@@ -1112,7 +1250,7 @@ class TierPartitionStateTest {
     channel.close()
 
     // re-open file and check if contents are same as before appending garbage
-    val state = new FileTierPartitionState(baseDir, tp, true)
+    val state = new FileTierPartitionState(baseDir, logDirFailureChannel, tp, true)
     assertEquals(TierPartitionStatus.CATCHUP, state.status)
     assertEquals(0, state.segmentOffsets.size)
     assertEquals(0, state.fencedSegments.size)

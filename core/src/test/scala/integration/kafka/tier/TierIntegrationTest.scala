@@ -10,6 +10,7 @@ import java.nio.ByteBuffer
 import java.util
 import java.util.{Collections, UUID}
 import java.util.function.Supplier
+import java.util.Optional
 
 import com.yammer.metrics.core.Gauge
 import javax.management.MBeanServer
@@ -393,7 +394,8 @@ class TierIntegrationTest {
     tierTopicConsumer = new TierTopicConsumer(tierTopicManagerConfig,
       consumerSupplier,
       consumerSupplier,
-      new TierTopicManagerCommitter(tierTopicManagerConfig, EasyMock.mock(classOf[LogDirFailureChannel])))
+      new TierTopicManagerCommitter(tierTopicManagerConfig, EasyMock.mock(classOf[LogDirFailureChannel])),
+      Optional.empty())
 
     tierTopicManager = new TierTopicManager(tierTopicManagerConfig,
       tierTopicConsumer,

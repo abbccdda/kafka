@@ -17,13 +17,17 @@ import kafka.tier.state.TierPartitionStatus;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.metrics.MetricConfig;
+import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.utils.KafkaThread;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
@@ -40,13 +44,20 @@ public class TierTopicConsumer implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(TierTopicConsumer.class);
 
     private final TierTopicManagerConfig config;
+    private final Optional<Metrics> metrics;
     private final TierTopicListeners resultListeners = new TierTopicListeners();
     private final Map<TopicIdPartition, ClientCtx> immigratingPartitions = new HashMap<>();   // accesses must be synchronized
     private final Map<TopicIdPartition, ClientCtx> onlinePartitions = new HashMap<>();   // accesses must be synchronized
     private final Map<TopicIdPartition, ClientCtx> catchingUpPartitions = new HashMap<>();    // accesses must be synchronized
+    private final Set<TopicIdPartition> errorPartitions = new HashSet<>();    // accesses must be synchronized
+
     private final Thread consumerThread = new KafkaThread("TierTopicConsumer", this, false);
     private final Supplier<Consumer<byte[], byte[]>> primaryConsumerSupplier;
     private final TierTopicManagerCommitter committer;
+    private final MetricName errorPartitionsMetricName = new MetricName("ErrorPartitions",
+        "TierTopicConsumer",
+        "Number of tiered partitions with ERROR materialization state",
+        new HashMap<>());
 
     private volatile Consumer<byte[], byte[]> primaryConsumer;
     private volatile boolean ready = true;
@@ -56,22 +67,27 @@ public class TierTopicConsumer implements Runnable {
     private TierCatchupConsumer catchupConsumer;
 
     public TierTopicConsumer(TierTopicManagerConfig config,
-                             LogDirFailureChannel logDirFailureChannel) {
+                             LogDirFailureChannel logDirFailureChannel,
+                             Metrics metrics) {
         this(config,
                 new TierTopicConsumerSupplier(config, "primary"),
                 new TierTopicConsumerSupplier(config, "catchup"),
-                new TierTopicManagerCommitter(config, logDirFailureChannel));
+                new TierTopicManagerCommitter(config, logDirFailureChannel),
+                Optional.of(metrics));
     }
 
     // used for testing
     public TierTopicConsumer(TierTopicManagerConfig config,
                              Supplier<Consumer<byte[], byte[]>> primaryConsumerSupplier,
                              Supplier<Consumer<byte[], byte[]>> catchupConsumerSupplier,
-                             TierTopicManagerCommitter committer) {
+                             TierTopicManagerCommitter committer,
+                             Optional<Metrics> metrics) {
         this.config = config;
         this.committer = committer;
         this.primaryConsumerSupplier = primaryConsumerSupplier;
         this.catchupConsumer = new TierCatchupConsumer(catchupConsumerSupplier);
+        this.metrics = metrics;
+        setupMetrics();
     }
 
     /**
@@ -109,6 +125,7 @@ public class TierTopicConsumer implements Runnable {
         immigratingPartitions.remove(partition);
         onlinePartitions.remove(partition);
         catchingUpPartitions.remove(partition);
+        errorPartitions.remove(partition);
     }
 
     /**
@@ -185,6 +202,7 @@ public class TierTopicConsumer implements Runnable {
             log.error("Shutdown interrupted", e);
         }
         resultListeners.shutdown();
+        removeMetrics();
     }
 
     public void cleanup() {
@@ -232,6 +250,11 @@ public class TierTopicConsumer implements Runnable {
         return tierTopic;
     }
 
+    private void maybeAddToErrorPartitions(TopicIdPartition partition, ClientCtx clientCtx) {
+        if (clientCtx.status() == TierPartitionStatus.ERROR)
+            errorPartitions.add(partition);
+    }
+
     /**
      * Process any pending immigrations, if they have occurred.
      *
@@ -249,12 +272,15 @@ public class TierTopicConsumer implements Runnable {
                     ClientCtx clientCtx = entry.getValue();
                     TierPartitionStatus status = clientCtx.status();
 
-                    if (status == TierPartitionStatus.INIT || status == TierPartitionStatus.CATCHUP)
+                    if (status == TierPartitionStatus.INIT || status == TierPartitionStatus.CATCHUP) {
                         newCatchupPartitions.put(partition, clientCtx);
-                    else if (status == TierPartitionStatus.ONLINE)
+                    } else if (status == TierPartitionStatus.ONLINE || status == TierPartitionStatus.ERROR) {
                         newOnlinePartitions.put(partition, clientCtx);
-                    else
-                        log.debug("Ignoring immigration of partition {} in state {}", partition, status);
+                        maybeAddToErrorPartitions(partition, clientCtx);
+                    } else {
+                        log.debug("Ignoring immigration of partition {} in state {}", partition,
+                            status);
+                    }
                 }
 
                 catchingUpPartitions.putAll(newCatchupPartitions);
@@ -317,6 +343,22 @@ public class TierTopicConsumer implements Runnable {
         }
     }
 
+    private void setupMetrics() {
+        metrics.ifPresent(m -> {
+            m.addMetric(errorPartitionsMetricName, (MetricConfig config, long now) -> {
+                synchronized (this) {
+                    return errorPartitions.size();
+                }
+            });
+        });
+    }
+
+    private void removeMetrics() {
+        metrics.ifPresent(m -> {
+            m.removeMetric(errorPartitionsMetricName);
+        });
+    }
+
     /**
      * Materialize a tier topic entry into the corresponding tier partition status.
      * @param entry The tier topic entry read from the tier topic.
@@ -355,6 +397,7 @@ public class TierTopicConsumer implements Runnable {
                         if (currentState == requiredState) {
                             TierPartitionState.AppendResult result = clientCtx.process(entry, offset);
                             resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.complete(result));
+                            maybeAddToErrorPartitions(topicIdPartition, clientCtx);
                         } else {
                             // We partition the materialization between the primary and catchup consumer based on the
                             // current state of the tier partition. Primary consumer can materialize metadata for
@@ -413,6 +456,11 @@ public class TierTopicConsumer implements Runnable {
     // visible for testing
     synchronized long numListeners() {
         return resultListeners.numListeners();
+    }
+
+    // visible for testing
+    synchronized Set<TopicIdPartition> errorPartitions() {
+        return new HashSet<>(errorPartitions);
     }
 
     public interface ClientCtx {

@@ -10,7 +10,7 @@ import com.yammer.metrics.core.Meter
 import kafka.log.{AbstractLog, TierLogSegment}
 import kafka.server.ReplicaManager
 import kafka.tier.domain.{AbstractTierMetadata, TierPartitionDeleteComplete, TierSegmentDeleteComplete, TierSegmentDeleteInitiate}
-import kafka.tier.exceptions.{TierArchiverFencedException, TierMetadataRetriableException, TierObjectStoreRetriableException}
+import kafka.tier.exceptions.{TierArchiverFailedException, TierArchiverFencedException, TierMetadataRetriableException, TierObjectStoreRetriableException}
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
@@ -85,11 +85,16 @@ final class DeletionTask(override val ctx: CancellationContext,
         info(s"$topicIdPartition was fenced, stopping deletion process", e)
         ctx.cancel()
         this
+      case e: TierArchiverFailedException =>
+        warn(s"$topicIdPartition failed, stopping deletion process and marking $topicIdPartition to be in error", e)
+        cancelAndSetErrorState(this, e)
+        this
       case _: TaskCompletedException =>
         info(s"Stopping deletion process for $topicIdPartition after task completion")
         ctx.cancel()
         this
       case e: Throwable =>
+        error(s"$topicIdPartition failed due to unhandled exception, stopping deleting process", e)
         cancelAndSetErrorState(this, e)
         this
     }
@@ -445,6 +450,9 @@ object DeletionTask extends Logging {
             case AppendResult.FENCED =>
               info(s"Stopping state machine for ${marker.topicIdPartition()} as attempt to transition was fenced")
               throw new TierArchiverFencedException(marker.topicIdPartition)
+            case AppendResult.FAILED =>
+              warn(s"Stopping state machine for ${marker.topicIdPartition()} as attempt to transition failed")
+              throw new TierArchiverFailedException(marker.topicIdPartition)
             case _ =>
               throw new IllegalStateException(s"Unexpected append result for ${marker.topicIdPartition()}: $appendResult")
           }
