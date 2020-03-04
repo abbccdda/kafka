@@ -25,6 +25,7 @@ import joptsimple.OptionSpec;
 import kafka.log.Log;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierObjectMetadata;
+import kafka.tier.domain.TierObjectMetadata.State;
 import kafka.tier.state.FileTierPartitionIterator;
 import kafka.tier.state.FileTierPartitionState;
 import kafka.tier.state.Header;
@@ -47,7 +48,6 @@ import org.apache.kafka.common.TopicPartition;
  */
 public class TierMetadataValidator {
     private HashMap<TopicIdPartition, TierMetadataValidatorRecord> stateMap = new HashMap<>();
-    public final String metadataStatesDir;
     public final String workDir;
     private final String snapshotDirSuffix = "snapshots";
     public Properties props;
@@ -56,7 +56,6 @@ public class TierMetadataValidator {
         props = new Properties();
         parseArgs(args);
         this.workDir = props.getProperty(TierTopicMaterializationToolConfig.WORKING_DIR);
-        this.metadataStatesDir = props.getProperty(TierTopicMaterializationToolConfig.METADATA_STATES_DIR);
     }
 
     private void parseArgs(String[] args) {
@@ -67,7 +66,7 @@ public class TierMetadataValidator {
                 .withRequiredArg()
                 .describedAs(TierTopicMaterializationToolConfig.WORKING_DIR)
                 .ofType(String.class)
-                .defaultsTo("/tmp/workdir");
+                .defaultsTo("/tmp/workDir");
         OptionSpec<String> metaStatesDirSpec = parser.accepts(TierTopicMaterializationToolConfig.METADATA_STATES_DIR,
                 TierTopicMaterializationToolConfig.METADATA_STATES_DIR_DOC)
                 .withRequiredArg()
@@ -86,47 +85,64 @@ public class TierMetadataValidator {
                 .ofType(Integer.class)
                 .defaultsTo(-1);
         OptionSpec<Boolean> dumpEventsSpec = parser.accepts(TierTopicMaterializationToolConfig.DUMP_EVENTS,
-            TierTopicMaterializationToolConfig.DUMP_EVENTS_DOC)
-            .withRequiredArg()
-            .describedAs(TierTopicMaterializationToolConfig.DUMP_EVENTS_DOC)
-            .ofType(Boolean.class)
-            .defaultsTo(true);
+                TierTopicMaterializationToolConfig.DUMP_EVENTS_DOC)
+                .withRequiredArg()
+                .describedAs(TierTopicMaterializationToolConfig.DUMP_EVENTS_DOC)
+                .ofType(Boolean.class)
+                .defaultsTo(true);
+        OptionSpec<Boolean> snapshotStatesSpec = parser.accepts(TierTopicMaterializationToolConfig.SNAPSHOT_STATES_FILES,
+                TierTopicMaterializationToolConfig.SNAPSHOT_STATES_FILES_DOC)
+                .withRequiredArg()
+                .describedAs(TierTopicMaterializationToolConfig.SNAPSHOT_STATES_FILES_DOC)
+                .ofType(Boolean.class)
+                .defaultsTo(true);
 
         OptionSet options = parser.parse(args);
 
-        if (!options.hasArgument(metaStatesDirSpec)) {
-            System.err.println("Required arg " + TierTopicMaterializationToolConfig.METADATA_STATES_DIR);
+        // Only one of metadata-states-dir and snapshot-states should be opted.
+        if (options.hasArgument(metaStatesDirSpec) ^ options.valueOf(snapshotStatesSpec)) {
+            System.err.println("Only one of " + TierTopicMaterializationToolConfig.METADATA_STATES_DIR
+                + " or " + TierTopicMaterializationToolConfig.SNAPSHOT_STATES_FILES + " should be specified.");
             System.exit(1);
         }
-
-        props.put(TierTopicMaterializationToolConfig.METADATA_STATES_DIR, options.valueOf(metaStatesDirSpec));
+        if (options.hasArgument(metaStatesDirSpec))
+            props.put(TierTopicMaterializationToolConfig.METADATA_STATES_DIR, options.valueOf(metaStatesDirSpec));
         props.put(TierTopicMaterializationToolConfig.WORKING_DIR, options.valueOf(workingDirSpec));
         props.put(TierTopicMaterializationToolConfig.DUMP_METADATA, "true");
         props.put(TierTopicMaterializationToolConfig.BOOTSTRAP_SERVER_CONFIG, options.valueOf(bootStrapServerSpec));
         props.put(TierTopicMaterializationToolConfig.TIER_STATE_TOPIC_PARTITION, options.valueOf(tierSytateTopicPartitionSpec));
         props.put(TierTopicMaterializationToolConfig.DUMP_EVENTS, options.valueOf(dumpEventsSpec));
+        props.put(TierTopicMaterializationToolConfig.SNAPSHOT_STATES_FILES, options.valueOf(snapshotStatesSpec));
 
-        System.out.println("Starting Validation with following args " + props + " " + props.get(TierTopicMaterializationToolConfig.TIER_STATE_TOPIC_PARTITION));
+        System.out.println("Starting Validation with following args " + props);
     }
 
     private void createWorkDir(String dir) {
         File file = new File(dir);
+        File snapshotDir = new File(getSnapshotDir(dir));
+        if (this.props.get(TierTopicMaterializationToolConfig.SNAPSHOT_STATES_FILES).equals(false)) {
+            // We expect workDir and snapshot directory already created with snapshot directory
+            // populated with state files.
+            if (!file.exists() || !snapshotDir.exists()) {
+                System.err.println(dir + " and " + snapshotDir.toPath() + " should exist.");
+                System.exit(1);
+            }
+            return;
+        }
 
         if (!file.exists())
             file.mkdirs();
-
         if (!file.isDirectory() || file.listFiles().length != 0) {
             System.err.println("materialization-path needs to be directory and should be empty");
             System.exit(1);
         }
 
-        File snapshotDir = new File(getSnapshotDir(dir));
-        if (snapshotDir.exists() && (!snapshotDir.isDirectory() || snapshotDir.listFiles().length != 0)) {
-            System.err.println("snapshot path " + snapshotDir.getAbsolutePath() + " exists but is not directory or " +
-                    "is not empty.");
-            System.exit(1);
-        } else {
+        if (!snapshotDir.exists())
             snapshotDir.mkdir();
+        if (!snapshotDir.isDirectory() || snapshotDir.listFiles().length != 0) {
+            System.err.println("snapshot path " + snapshotDir.getAbsolutePath() + " needs to be "
+                + "directory and should be empty");
+            System.exit(1);
         }
     }
 
@@ -143,7 +159,10 @@ public class TierMetadataValidator {
 
         System.out.println("**** Fetching target partition states from folder. \n");
         // Create snapshot of all the state files.
-        snapshotStateFiles(this.metadataStatesDir);
+        if (this.props.get(TierTopicMaterializationToolConfig.SNAPSHOT_STATES_FILES).equals(false))
+            snapshotStateFiles(getSnapshotDir(this.workDir), false);
+        else
+            snapshotStateFiles(props.getProperty(TierTopicMaterializationToolConfig.METADATA_STATES_DIR), true);
 
         // Calculate the maximum offset needed.
         HashMap<TopicIdPartition, Long> offsetMap = new HashMap();
@@ -182,7 +201,7 @@ public class TierMetadataValidator {
         }
     }
 
-    private void snapshotStateFiles(String metadataStatesDir) throws IOException {
+    private void snapshotStateFiles(String metadataStatesDir, boolean populate) throws IOException {
         File mdir = new File(metadataStatesDir);
         if (!mdir.isDirectory()) {
             System.err.println(metadataStatesDir + " is not metadata states directory");
@@ -194,16 +213,20 @@ public class TierMetadataValidator {
                 try {
                     final TopicPartition topicPartition = Log.parseTopicPartitionName(dir);
                     File snapShotFile = getSnapshotFilePath(topicPartition).toFile();
-                    if (!snapShotFile.exists())
-                        snapShotFile.mkdir();
-                    System.out.println("Found TierTopicPartition dir " + dir.toPath());
+                    if (populate) {
+                        if (!snapShotFile.exists())
+                            snapShotFile.mkdir();
+                        System.out.println("Found TierTopicPartition dir " + dir.toPath());
+                    }
 
                     for (File file: dir.listFiles()) {
                         if (file.isFile() && Log.isTierStateFile(file)) {
-                            System.out.println("Taking snapshot of partition states for " + topicPartition);
                             Path ss = Paths.get(snapShotFile.toString(), file.getName());
-                            Files.copy(file.toPath(), ss);
-                            System.out.println("Copied state files " + ss);
+                            if (populate) {
+                                System.out.println("Taking snapshot of partition states for " + topicPartition);
+                                Files.copy(file.toPath(), ss);
+                                System.out.println("Copied state files " + ss);
+                            }
                             TierMetadataValidatorRecord record = new TierMetadataValidatorRecord(
                                     ss, topicPartition);
                             stateMap.put(record.id, record);
@@ -217,9 +240,14 @@ public class TierMetadataValidator {
         }
 
         if (stateMap.isEmpty()) {
-            System.out.println("Can not find any metadata states file in " + this.metadataStatesDir);
+            System.out.println("Can not find any metadata states file in " + metadataStatesDir);
             System.exit(1);
         }
+    }
+
+    private boolean inActiveStates(TierObjectMetadata metadata) {
+        return metadata.state().equals(State.SEGMENT_FENCED) ||
+            metadata.state().equals(State.SEGMENT_DELETE_COMPLETE);
     }
 
     private Boolean compareStates(Path expected, Path actual, TopicPartition id) throws IOException {
@@ -245,7 +273,8 @@ public class TierMetadataValidator {
         Optional<FileTierPartitionIterator> aiteratorOpt = FileTierPartitionState.iterator(id, achannel);
 
         long prevBaseOffset = -1, prevEndOffset = -1;
-        boolean firstValid = true;
+        // Tracks initial states which are fenced or deleted.
+        boolean nonActiveStates = true;
 
         while (eiteratorOpt.get().hasNext()) {
             if (!aiteratorOpt.get().hasNext()) {
@@ -257,8 +286,10 @@ public class TierMetadataValidator {
             TierObjectMetadata actualObject = aiteratorOpt.get().next();
 
             if (expectedObject.equals(actualObject)) {
-                if (firstValid && ((actualObject.state().equals(TierObjectMetadata.State.SEGMENT_FENCED)) ||
-                        (actualObject.state().equals(TierObjectMetadata.State.SEGMENT_DELETE_COMPLETE)))) {
+                // Keep ignoring the FENCED or DELETED SEGMENTS till we find first one with active state - the
+                // one with UPLOAD state. After that only ignore the FENCED one.
+                if ((nonActiveStates && inActiveStates(expectedObject)) ||
+                    actualObject.state().equals(TierObjectMetadata.State.SEGMENT_FENCED)) {
                     // We will ignore the FENCED and DELETED segments, aim is to find the start offset.
                     continue;
                 }
@@ -266,7 +297,7 @@ public class TierMetadataValidator {
                 long start = Math.max(expectedObject.baseOffset(), prevEndOffset + 1);
                 if ((start - prevEndOffset != 1) || (expectedObject.endOffset() <= prevEndOffset)) {
                     // Start offset can be non zero and that needs to be handled.
-                    if (firstValid)
+                    if (nonActiveStates)
                         continue;
                     System.err.println("Metadata offset inconsistency " + prevBaseOffset + " : " + prevEndOffset);
                     System.err.println("Expected : " + expected);
@@ -278,7 +309,7 @@ public class TierMetadataValidator {
             }
             prevBaseOffset = expectedObject.baseOffset();
             prevEndOffset = expectedObject.endOffset();
-            firstValid = false;
+            nonActiveStates = false;
         }
 
         if (eiteratorOpt.get().hasNext() || aiteratorOpt.get().hasNext()) {

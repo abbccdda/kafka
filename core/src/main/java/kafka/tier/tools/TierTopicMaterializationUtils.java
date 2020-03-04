@@ -11,7 +11,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
@@ -50,7 +49,6 @@ public class TierTopicMaterializationUtils {
     private HashMap<TopicIdPartition, Long> offsetMap = null;
     public HashMap<TopicIdPartition, FileTierPartitionState> stateMap = new HashMap<>();
     private UserTierPartition targetTierPartition;
-    private Set<TopicIdPartition> doneConsumption = null;
 
     // Keep dumping output of every 1000th event if configuration do not expe ct dumping of every event.
     // This is super useful for tracking long running jobs.
@@ -67,7 +65,6 @@ public class TierTopicMaterializationUtils {
         this.config = config;
         consumer = new KafkaConsumer(getConsumerProperties(), new ByteArrayDeserializer(), new ByteArrayDeserializer());
         this.targetTierPartition = new UserTierPartition(null, config.userTopicId, config.userPartition);
-        this.doneConsumption = new HashSet<>();
     }
 
     public void setupConsumer(TierTopicMaterializationToolConfig config) {
@@ -105,7 +102,7 @@ public class TierTopicMaterializationUtils {
         TierMessageFormatter writer = new TierMessageFormatter();
         setupConsumer(config);
 
-        System.out.println("Materializing from " + config.startOffset + " till  " + config.endOffset);
+        System.out.println("Event processing from " + config.startOffset + " till  " + config.endOffset);
         try {
             while (config.endOffset == -1 || currentOffset <= config.endOffset) {
                 fetchRecords();
@@ -130,7 +127,7 @@ public class TierTopicMaterializationUtils {
                 if (exitLoop()) {
                     System.out.println("Done reading events for all configured source topic partitions.");
                     break;
-                } 
+                }
             }
         } catch (WakeupException | TimeoutException we) {
             // Output the exception and continue post processing. Most cases where the endOffset is not set this will be
@@ -140,6 +137,8 @@ public class TierTopicMaterializationUtils {
 
         saveMaterializedStates();
         dumpMaterializedState();
+
+        System.out.println("Done event processing.");
     }
 
     private boolean exitLoop() {
@@ -149,10 +148,12 @@ public class TierTopicMaterializationUtils {
     }
 
     private void saveMaterializedStates() throws  IOException {
+        System.out.println("Saving Materialized states for " + stateMap.keySet());
         for (TopicIdPartition id: stateMap.keySet()) {
             System.out.println("Closing state file " + id);
             stateMap.get(id).close();
         }
+        System.out.println("Done saving states.");
     }
 
     /**
@@ -220,6 +221,7 @@ public class TierTopicMaterializationUtils {
         if (!config.dumpRecords && !config.dumpHeader)
             return;
 
+        System.out.println("Dumping materialized records");
         Iterator<TopicIdPartition> it = stateMap.keySet().iterator();
         while (it.hasNext()) {
             TopicIdPartition id = it.next();

@@ -2,6 +2,7 @@ from ducktape.mark import matrix
 from ducktape.utils.util import wait_until
 
 from kafkatest.services.console_consumer import ConsoleConsumer
+from kafkatest.services.tier_metadata_validator import TierMetadataValidator
 from kafkatest.services.kafka import KafkaService
 from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.zookeeper import ZookeeperService
@@ -42,7 +43,7 @@ class TierBrokerBounceTest(ProduceConsumeValidateTest, TierSupport):
         "partitions": 20,
         "replication-factor": 3,
         "configs": {
-            "min.insync.replicas": 1,
+            "min.insync.replicas": 2,
             "confluent.tier.enable": True
         }
     }
@@ -54,6 +55,8 @@ class TierBrokerBounceTest(ProduceConsumeValidateTest, TierSupport):
         self.zk = ZookeeperService(test_context, num_nodes=1)
 
         self.kafka = KafkaService(test_context, num_nodes=3, zk=self.zk)
+
+        self.metadata_validator = TierMetadataValidator(self.test_context, 1, self.kafka, "/mnt/kafka/kafka-data-logs-1/")
 
         self.num_producers = 1
         self.num_consumers = 1
@@ -161,7 +164,7 @@ class TierBrokerBounceTest(ProduceConsumeValidateTest, TierSupport):
             return True
         return False
 
-    @matrix(client_version=[str(DEV_BRANCH)], backend=[S3_BACKEND, GCS_BACKEND])
+    @matrix(client_version=[str(DEV_BRANCH)], backend=[S3_BACKEND])
     def test_tier_broker_bounce(self, client_version, backend):
 
         self.configure_tiering(backend, metadata_replication_factor=3, log_segment_bytes=self.LOG_SEGMENT_BYTES)
@@ -174,7 +177,6 @@ class TierBrokerBounceTest(ProduceConsumeValidateTest, TierSupport):
         self.add_log_metrics(self.topic)
         self.restart_jmx_tool()
         self.producer.start()
-
         for ii in range(self.iterations):
             self.logger.info("Starting iteration count: %d producing initial message", ii+1)
             for jj, node in enumerate(self.kafka.nodes):
@@ -186,11 +188,26 @@ class TierBrokerBounceTest(ProduceConsumeValidateTest, TierSupport):
             self.logger.info("******* End of iteration %d ********", ii+1)
 
         self.producer.stop()
+        time.sleep(10)
+
         # Will consume and validate data. Will assert if validation fails.
         self.consume(client_version)
         self.logger.info("Total produced: {} and total consumed: {}".format(
             len(self.producer.acked), len(self.consumer.messages_consumed[1])))
         log_size, tier_bytes_fetched = self.stats()
 
-        # Make sure that atleast some of the fetch is from tier storage.
+        # Make sure that at-least some of the fetch is from tier storage.
         assert (tier_bytes_fetched > 0)
+
+        # Run metadata materialization validations.
+        # Todo (KSTORAGE-513 add metrics to analyse the result). The metrics will update the validation dash board with
+        # results which may trigger alert if needed. Currently all of these is manual.
+        try:
+            self.metadata_validator.start()
+            self.metadata_validator.wait()
+            self.logger.info("Done running the metadata validations.")
+        except Exception as e:
+            self.logger.error("Error in completing the metadata validation %s", e)
+            assert False
+
+        self.logger.info("Validation of metadata done.")

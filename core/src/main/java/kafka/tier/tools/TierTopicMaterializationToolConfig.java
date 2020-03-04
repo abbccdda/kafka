@@ -55,6 +55,10 @@ public class TierTopicMaterializationToolConfig extends AbstractConfig {
         + " turned to be true. If chosen false it will still dump everty 1000th events for tracking"
         + "long runs.";
 
+    public static final String SNAPSHOT_STATES_FILES = "snapshot-states-files";
+    public static final String SNAPSHOT_STATES_FILES_DOC = "If not set then it's expected that the state files are "
+        + "already saved in the snapshot folder.";
+
     public static final String MATERIALIZE = "materialize";
     public static final String MATERIALIZE_DOC = "if set, then only materialize the events to generate "
         + "state file.";
@@ -119,7 +123,12 @@ public class TierTopicMaterializationToolConfig extends AbstractConfig {
                         Type.BOOLEAN,
                         true,
                         Importance.MEDIUM,
-                        MATERIALIZE_DOC);
+                        MATERIALIZE_DOC)
+                .define(SNAPSHOT_STATES_FILES,
+                        Type.BOOLEAN,
+                        false,
+                        Importance.MEDIUM,
+                        SNAPSHOT_STATES_FILES_DOC);
     }
 
     public final Integer userPartition;
