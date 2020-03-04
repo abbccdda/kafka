@@ -9,7 +9,6 @@ import io.confluent.kafka.multitenant.schema.MultiTenantApis;
 import io.confluent.kafka.multitenant.schema.TenantContext;
 import io.confluent.kafka.multitenant.schema.TransformableType;
 import org.apache.kafka.clients.consumer.internals.ConsumerProtocol;
-import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.config.ConfigResource;
@@ -91,7 +90,6 @@ import org.slf4j.LoggerFactory;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -584,27 +582,8 @@ public class MultiTenantRequestContext extends RequestContext {
   }
 
   private MetadataResponse filteredMetadataResponse(MetadataResponse response) {
-    List<MetadataResponse.TopicMetadata> filteredTopics = new ArrayList<>();
-    for (MetadataResponse.TopicMetadata topicMetadata : response.topicMetadata()) {
-      if (tenantContext.hasTenantPrefix(topicMetadata.topic())) {
-        filteredTopics.add(topicMetadata);
-      }
-    }
-
-    Collection<Node> brokers = response.brokers();
-    List<Node> brokersList;
-    if (brokers instanceof List) {
-      brokersList = (List<Node>) brokers;
-    } else {
-      brokersList = new ArrayList<>(brokers);
-    }
-
-    int controllerId = response.controller() == null ?
-            MetadataResponse.NO_CONTROLLER_ID :
-            response.controller().id();
-
-    return MetadataResponse.prepareResponse(response.throttleTimeMs(), brokersList,
-            response.clusterId(), controllerId, filteredTopics);
+    response.data().topics().removeIf(topic -> !tenantContext.hasTenantPrefix(topic.name()));
+    return response;
   }
 
   private ListGroupsResponse filteredListGroupsResponse(ListGroupsResponse response) {

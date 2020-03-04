@@ -83,6 +83,10 @@ public class MetadataResponse extends AbstractResponse {
         this.hasReliableLeaderEpochs = hasReliableLeaderEpochs;
     }
 
+    public MetadataResponseData data() {
+        return data;
+    }
+
     @Override
     protected Struct toStruct(short version) {
         return data.toStruct(version);

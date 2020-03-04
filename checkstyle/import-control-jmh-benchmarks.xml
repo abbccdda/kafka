@@ -77,4 +77,13 @@
         <allow class="org.apache.kafka.clients.CommonClientConfigs" />
         <allow class="org.apache.kafka.server.authorizer.AuthorizerServerInfo" />
     </subpackage>
+
+    <subpackage name="metadata">
+        <allow pkg="kafka"/>
+        <allow pkg="io.confluent.kafka.multitenant"/>
+    </subpackage>
+
+    <subpackage name="multitenant">
+        <allow pkg="io.confluent.kafka.multitenant"/>
+    </subpackage>
 </import-control>
