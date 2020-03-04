@@ -207,6 +207,22 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
 
     assertEquals("tier archiver shows partitions in error state", 0, partitionsInErrorCount)
 
+    val partitionsInErrorDuringArchivalCount = mBeanServer
+      .getAttributes(new ObjectName("kafka.tier.tasks:type=TierTasks,name=NumPartitionsInErrorDuringArchival"), Array("Value"))
+      .asList.asScala
+      .map { attr => attr.getValue.asInstanceOf[Int] }
+      .head
+
+    assertEquals("tier archiver shows partitions in error state during archival", 0, partitionsInErrorDuringArchivalCount)
+
+    val partitionsInErrorDuringDeletionCount = mBeanServer
+      .getAttributes(new ObjectName("kafka.tier.tasks:type=TierTasks,name=NumPartitionsInErrorDuringDeletion"), Array("Value"))
+      .asList.asScala
+      .map { attr => attr.getValue.asInstanceOf[Int] }
+      .head
+
+    assertEquals("tier deletion process shows partitions in error state during deletion", 0, partitionsInErrorDuringDeletionCount)
+
     val memoryTrackerMetrics = mBeanServer
       .getAttributes(
         new ObjectName("kafka.server:type=TierFetcherMemoryTracker"), Array("Leased", "PoolSize", "MaxLeaseLagMs"))

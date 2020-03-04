@@ -90,8 +90,8 @@ final class DeletionTask(override val ctx: CancellationContext,
         ctx.cancel()
         this
       case e: Throwable =>
-        ctx.cancel()
-        throw e
+        cancelAndSetErrorState(this, e)
+        this
     }
   }
 

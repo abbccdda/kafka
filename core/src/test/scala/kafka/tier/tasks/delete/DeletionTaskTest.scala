@@ -34,6 +34,7 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.concurrent.Await
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Future
 import scala.concurrent.duration._
 
 class DeletionTaskTest {
@@ -325,6 +326,23 @@ class DeletionTaskTest {
 
     assertEquals(classOf[PartitionDeleteComplete], nextState.getClass)
   }
+
+  @Test
+  def testDeleteTaskHandleUnknownExceptionDuringStateTransition(): Unit = {
+    val state = mock(classOf[State])
+    val ftr: Future[State] = Future.failed(new Throwable("test exception"))
+    when(state.transition(topicIdPartition_3, replicaManager, tierTopicManager, tierObjectStore, time)).thenReturn(ftr)
+
+    val task = new DeletionTask(ctx.subContext(), topicIdPartition_3, logCleanupIntervalMs = 5, state)
+    val futureTask = task.transition(time, tierTopicManager, tierObjectStore, replicaManager)
+    val result = Await.ready(futureTask, 1 second)
+    val nextTask = result.value.get.get
+
+    assertEquals(task, nextTask)
+    assertTrue(nextTask.isErrorState)
+    assertTrue(nextTask.ctx.isCancelled)
+  }
+
 
   private def tieredLogSegment(topicIdPartition: TopicIdPartition, baseOffset: Long, endOffset: Long): TierLogSegment = {
     val segment = mock(classOf[TierLogSegment])

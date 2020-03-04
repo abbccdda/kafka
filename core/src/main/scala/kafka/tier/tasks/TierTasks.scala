@@ -77,10 +77,29 @@ class TierTasks(config: TierTasksConfig,
   removeMetric("CyclesPerSec")
   removeMetric("PartitionsInError")
   private val cycleTimeMetric = newMeter("CyclesPerSec", "tier tasks cycles per second", TimeUnit.SECONDS)
+
+  // The below metric is deprecated. You should probably be using
+  // "NumPartitionsInErrorDuringArchival" and/or "NumPartitionsInErrorDuringDeletion".
   newGauge("NumPartitionsInError",
     new Gauge[Int] {
       def value: Int = {
+        tierArchiver.taskQueue.errorPartitionCount() + tierDeletionManager.taskQueue.errorPartitionCount()
+      }
+    },
+    Map[String, String]())
+
+  newGauge("NumPartitionsInErrorDuringArchival",
+    new Gauge[Int] {
+      def value: Int = {
         tierArchiver.taskQueue.errorPartitionCount()
+      }
+    },
+    Map[String, String]())
+
+  newGauge("NumPartitionsInErrorDuringDeletion",
+    new Gauge[Int] {
+      def value: Int = {
+        tierDeletionManager.taskQueue.errorPartitionCount()
       }
     },
     Map[String, String]())
