@@ -23,6 +23,7 @@ import java.util.Map;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.server.http.MetadataServer;
+import org.apache.kafka.server.http.MetadataServerConfig;
 import org.apache.kafka.test.TestUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,7 +58,7 @@ public class FileBasedRbac extends ConfluentProvider {
 
     @Override
     public void configure(Map<String, ?> configs) {
-      String bindingsPath = (String) configs.get(FILENAME_PROP);
+      String bindingsPath = (String) configs.get(MetadataServerConfig.METADATA_SERVER_PREFIX + FILENAME_PROP);
       if (bindingsPath == null)
         throw new ConfigException("RBAC bindings file not specified");
       bindingsFile = new File(bindingsPath);

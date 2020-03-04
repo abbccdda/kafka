@@ -310,6 +310,7 @@ public class SegmentFileFetchRequestTest {
 
             // Test that if an exception is thrown during segment fetch, no transactions are
             // returned
+            ctx = CancellationContext.newContext();
             tierObjectStore.throwExceptionOnTransactionFetch = false;
             tierObjectStore.throwExceptionOnSegmentFetch = true;
             pendingFetch = new PendingFetch(ctx, tierObjectStore,
@@ -324,8 +325,6 @@ public class SegmentFileFetchRequestTest {
             Assert.assertTrue(result.exception instanceof IOException);
             Assert.assertEquals("Expected to find 0 aborted transaction because an exception was "
                     + "thrown", Collections.emptyList(), result.abortedTxns);
-
-
 
         } catch (IOException e) {
             e.printStackTrace();
