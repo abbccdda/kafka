@@ -135,7 +135,7 @@ public class ConfluentConfigs {
     public static final String BALANCER_MODE_DOC = "The mode config is used to enable or disable the balancer.";
 
     public static final String BALANCER_RACK_AWARE_CONFIG = CONFLUENT_BALANCER_PREFIX + "rack.aware";
-    public static final boolean BALANCER_RACK_AWARE_DEFAULT = false;
+    public static final boolean BALANCER_RACK_AWARE_DEFAULT = true;
     public static final String BALANCER_RACK_AWARE_DOC = "This config controls whether the balancer takes broker racks " +
             "into account for replica placement decision (no more than one replica per rack).";
 
