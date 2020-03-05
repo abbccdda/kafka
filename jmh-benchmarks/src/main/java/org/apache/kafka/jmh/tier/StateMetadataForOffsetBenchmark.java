@@ -18,6 +18,7 @@
 package org.apache.kafka.jmh.tier;
 
 import kafka.log.LogConfig;
+import kafka.server.LogDirFailureChannel;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.domain.TierTopicInitLeader;
@@ -76,7 +77,10 @@ public class StateMetadataForOffsetBenchmark {
             if (!new File(BASE_DIR).mkdir())
                 throw new Exception("could not create status directory.");
             factory = new TierPartitionStateFactory(true);
-            state = factory.initState(new File(BASE_DIR), TOPIC_PARTITION.topicPartition(), config);
+            state = factory.initState(new File(BASE_DIR),
+                TOPIC_PARTITION.topicPartition(),
+                config,
+                new LogDirFailureChannel(1));
             state.append(new TierTopicInitLeader(TOPIC_PARTITION, EPOCH,
                     java.util.UUID.randomUUID(), 0), 0);
             for (int i = 0; i < COUNT; i++) {

@@ -15,6 +15,7 @@ import kafka.log.MergedLog;
 import kafka.log.ProducerStateManager;
 import kafka.log.TierLogComponents;
 import kafka.log.TierLogSegment;
+import kafka.server.LogDirFailureChannel;
 import kafka.server.BrokerTopicStats;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierTopicInitLeader;
@@ -81,7 +82,10 @@ public class MergedLogTierBenchmark {
         TierLogComponents tierLogComponents = TierLogComponents.apply(Option.empty(),
                 Option.apply(new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))),
                 new TierPartitionStateFactory(true));
-        state = partitionStateFactory.initState(logDir, topicPartition, logConfig);
+        state = partitionStateFactory.initState(logDir,
+            topicPartition,
+            logConfig,
+            new LogDirFailureChannel(1));
 
         mergedLog = new MergedLog(log, 0, state, tierLogComponents);
         TopicIdPartition topicIdPartition = new TopicIdPartition(topicPartition.topic(),
