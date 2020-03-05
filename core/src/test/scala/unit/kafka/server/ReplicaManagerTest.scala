@@ -24,10 +24,12 @@ import java.util.concurrent.{CountDownLatch, TimeUnit}
 import java.util.{Optional, Properties, UUID}
 
 import kafka.log.{AbstractLog, CleanerConfig, MergedLog, TierLogComponents}
+import kafka.server.HostedPartition.Online
+import com.yammer.metrics.core.Gauge
 import kafka.api.Request
 import kafka.log.{AppendOrigin, Log, LogConfig, LogManager, ProducerStateManager}
 import kafka.cluster.BrokerEndPoint
-import kafka.server.HostedPartition.Online
+import kafka.metrics.KafkaYammerMetrics
 import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.server.epoch.LeaderEpochFileCache
 import kafka.server.checkpoints.LazyOffsetCheckpoints
@@ -89,6 +91,7 @@ class ReplicaManagerTest {
   def tearDown(): Unit = {
     metrics.close()
     brokerTopicStats.close()
+    TestUtils.clearYammerMetrics()
   }
 
   @Test
@@ -284,6 +287,13 @@ class ReplicaManagerTest {
 
   }
 
+  private def readMaxLsoLagMetric: Option[Long] = {
+    KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.collectFirst {
+      case (metricName, gauge: Gauge[_]) if metricName.getName.endsWith("MaxLastStableOffsetLag") =>
+        gauge.value.asInstanceOf[Long]
+    }
+  }
+
   @Test
   def testReadCommittedFetchLimitedAtLSO(): Unit = {
     val timer = new MockTimer
@@ -341,6 +351,7 @@ class ReplicaManagerTest {
       assertTrue(fetchData.records.batches.asScala.isEmpty)
       assertEquals(Some(0), fetchData.lastStableOffset)
       assertEquals(Some(List.empty[AbortedTransaction]), fetchData.abortedTransactions)
+      assertEquals(Some(3), readMaxLsoLagMetric)
 
       // delayed fetch should timeout and return nothing
       consumerFetchResult = fetchAsConsumer(replicaManager, new TopicPartition(topic, 0),
@@ -371,6 +382,7 @@ class ReplicaManagerTest {
       fetchData = consumerFetchResult.assertFired
       assertEquals(Errors.NONE, fetchData.error)
       assertTrue(fetchData.records.batches.asScala.isEmpty)
+      assertEquals(Some(3), readMaxLsoLagMetric)
 
       // fetch as follower to advance the high watermark
       fetchAsFollower(replicaManager, new TopicPartition(topic, 0),
@@ -387,8 +399,10 @@ class ReplicaManagerTest {
       assertEquals(Some(numRecords + 1), fetchData.lastStableOffset)
       assertEquals(Some(List.empty[AbortedTransaction]), fetchData.abortedTransactions)
       assertEquals(numRecords + 1, fetchData.records.batches.asScala.size)
+      assertEquals(Some(0), readMaxLsoLagMetric)
     } finally {
       replicaManager.shutdown(checkpointHW = false)
+      assertEquals(None, readMaxLsoLagMetric)
     }
   }
 

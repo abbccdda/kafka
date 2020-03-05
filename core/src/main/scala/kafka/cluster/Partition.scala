@@ -324,7 +324,7 @@ class Partition(val topicPartition: TopicPartition,
   newGauge("LastStableOffsetLag",
     new Gauge[Long] {
       def value: Long = {
-        log.map(_.lastStableOffsetLag).getOrElse(0)
+        lastStableOffsetLag
       }
     },
     tags
@@ -363,6 +363,10 @@ class Partition(val topicPartition: TopicPartition,
   def isAddingLocalReplica: Boolean = assignmentState.isAddingReplica(localBrokerId)
 
   def isAddingReplica(replicaId: Int): Boolean = assignmentState.isAddingReplica(replicaId)
+
+  def lastStableOffsetLag: Long = {
+    log.map(_.lastStableOffsetLag).getOrElse(0)
+  }
 
   /**
    * Create the future replica if 1) the current replica is not in the given log directory and 2) the future replica
