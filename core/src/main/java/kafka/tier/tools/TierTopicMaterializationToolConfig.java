@@ -63,6 +63,8 @@ public class TierTopicMaterializationToolConfig extends AbstractConfig {
     public static final String MATERIALIZE_DOC = "if set, then only materialize the events to generate "
         + "state file.";
 
+    public static final long UNKNOWN_OFFSET = -2;
+
     static {
         CONFIG = new ConfigDef().define(BOOTSTRAP_SERVER_CONFIG,
                 ConfigDef.Type.STRING,

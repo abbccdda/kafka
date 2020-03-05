@@ -4,6 +4,7 @@
 
 package kafka.tier.tools;
 
+import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -13,6 +14,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
@@ -247,6 +249,23 @@ public class TierTopicMaterializationUtils {
             }
         }
         return null;
+    }
+
+    /**
+     * getStartOffset will return the beginning offset of a given TopicPartition 'tp'.
+     * If unable to fetch the offset due to any reason, the method will return UNKNOWN_OFFSET.
+     * @param tp is TopicPartition
+     * @return beginning offset.
+     */
+    public long getStartOffset(TopicPartition tp) {
+        try {
+            Map<TopicPartition, Long> ret = this.consumer.beginningOffsets(ImmutableList.of(tp));
+            return ret.get(tp);
+        } catch (Exception ex) {
+            // We will return INVALID_OFFSET which most of the caller would use to decide further processing.
+            System.out.println("Not able to fetch startOffset for " + tp + " due to : " + ex);
+            return TierTopicMaterializationToolConfig.UNKNOWN_OFFSET;
+        }
     }
 
     private void seek(String topic, Integer partition, Integer offset) {

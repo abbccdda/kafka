@@ -4,6 +4,7 @@
 
 package kafka.tier.tools;
 
+import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
@@ -15,6 +16,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
@@ -48,6 +50,7 @@ import org.apache.kafka.common.TopicPartition;
  */
 public class TierMetadataValidator {
     private HashMap<TopicIdPartition, TierMetadataValidatorRecord> stateMap = new HashMap<>();
+    public final String metadataStatesDir;
     public final String workDir;
     private final String snapshotDirSuffix = "snapshots";
     public Properties props;
@@ -56,6 +59,7 @@ public class TierMetadataValidator {
         props = new Properties();
         parseArgs(args);
         this.workDir = props.getProperty(TierTopicMaterializationToolConfig.WORKING_DIR);
+        this.metadataStatesDir = props.getProperty(TierTopicMaterializationToolConfig.METADATA_STATES_DIR);
     }
 
     private void parseArgs(String[] args) {
@@ -66,7 +70,7 @@ public class TierMetadataValidator {
                 .withRequiredArg()
                 .describedAs(TierTopicMaterializationToolConfig.WORKING_DIR)
                 .ofType(String.class)
-                .defaultsTo("/tmp/workDir");
+                .defaultsTo("/tmp/workdir");
         OptionSpec<String> metaStatesDirSpec = parser.accepts(TierTopicMaterializationToolConfig.METADATA_STATES_DIR,
                 TierTopicMaterializationToolConfig.METADATA_STATES_DIR_DOC)
                 .withRequiredArg()
@@ -185,14 +189,15 @@ public class TierMetadataValidator {
         utils.run();
 
         System.out.println("**** Calling validator. \n");
-        // Compare the state files.
+        // Validate the state files.
         Iterator<TopicIdPartition> it = utils.stateMap.keySet().iterator();
         while (it.hasNext()) {
             try {
                 TopicIdPartition eid = it.next();
                 Path eFile = utils.getTierStateFile(eid);
                 Path aFile = stateMap.get(eid).snapshot;
-                if (compareStates(eFile, aFile, eid.topicPartition())) {
+                if (validateStates(eFile, aFile, eid.topicPartition(),
+                                    utils.getStartOffset(eid.topicPartition()))) {
                     System.out.println("Metadata states is consistent " + eFile + " Vs " + aFile);
                 }
             } catch (Exception ex) {
@@ -245,82 +250,116 @@ public class TierMetadataValidator {
         }
     }
 
-    private boolean inActiveStates(TierObjectMetadata metadata) {
-        return metadata.state().equals(State.SEGMENT_FENCED) ||
-            metadata.state().equals(State.SEGMENT_DELETE_COMPLETE);
+    /**
+     * maybeActiveState helps in identifying the metadata object 'metadata' to be currently in used
+     * for fetching the records. The 'startOffset' represents the log's starting offset.
+     * There can be scenario when 'startOffset' may not be available -say verifying from recorded states,
+     * the method will find the first metadata state which represents an active mapping.
+     */
+    private boolean mayBeActiveObject(long startOffset, TierObjectMetadata metadata) {
+        List<State> inActiveStateList = ImmutableList.of(State.SEGMENT_FENCED,
+            State.SEGMENT_DELETE_COMPLETE, State.SEGMENT_DELETE_INITIATE, State.SEGMENT_UPLOAD_INITIATE);
+        List<State> nonCommittedList = ImmutableList.of(State.SEGMENT_FENCED);
+        if (startOffset != TierTopicMaterializationToolConfig.UNKNOWN_OFFSET) {
+            return startOffset <= metadata.endOffset() && !nonCommittedList.contains(metadata.state());
+        }
+        return !inActiveStateList.contains(metadata.state());
     }
 
-    private Boolean compareStates(Path expected, Path actual, TopicPartition id) throws IOException {
+    /**
+     * For the given 'expected' and 'actual' metadata states path, the method will validate if they
+     * are same or not. It also checks to see if the states represented by the metadata states
+     * file are valid or not (basically check for any offset range).
+     */
+    public boolean validateStates(Path expected, Path actual, TopicPartition id, long startOffset) throws IOException {
+        FileChannel achannel = FileChannel.open(actual, StandardOpenOption.READ);
         FileChannel echannel = FileChannel.open(expected, StandardOpenOption.READ);
+        FileTierPartitionIterator eiterator = FileTierPartitionState.iterator(id, echannel).get();
+        FileTierPartitionIterator aiterator = FileTierPartitionState.iterator(id, achannel).get();
+
+        if (!comparesStates(actual, expected) || !isValidStates(eiterator, aiterator, startOffset)) {
+            System.out.println("Metadata inconsistencies(" + id + ") " + actual + "Vs " + expected);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Compares the 'actual' state file with 'expected' state file. Initially we do header check and
+     * than we do check if the files are identical at byte level or not.
+     */
+    public boolean comparesStates(Path actual, Path expected) throws IOException {
+        FileChannel echannel = FileChannel.open(actual, StandardOpenOption.READ);
         FileChannel achannel = FileChannel.open(expected, StandardOpenOption.READ);
 
         Header eheader = FileTierPartitionState.readHeader(echannel).get();
         Header aheader = FileTierPartitionState.readHeader(achannel).get();
 
+        // Header comparison report helps in quick debugging, hence doing explicit header check before
+        // doing byte level comparison.
         if (!eheader.equals(aheader)) {
-            System.err.println("Metadata states(header) inconsistency " + expected + " Vs " + actual);
+            System.err
+                .println("Metadata states(header) inconsistency " + eheader + " Vs " + aheader);
             return false;
         }
 
         byte[] f1 = Files.readAllBytes(expected);
         byte[] f2 = Files.readAllBytes(actual);
         if (!Arrays.equals(f1, f2)) {
-            System.out.println("Metadata inconsistency(files do not match) " + expected + " Vs " + actual);
-            return false;
-        }
-
-        Optional<FileTierPartitionIterator> eiteratorOpt = FileTierPartitionState.iterator(id, echannel);
-        Optional<FileTierPartitionIterator> aiteratorOpt = FileTierPartitionState.iterator(id, achannel);
-
-        long prevBaseOffset = -1, prevEndOffset = -1;
-        // Tracks initial states which are fenced or deleted.
-        boolean nonActiveStates = true;
-
-        while (eiteratorOpt.get().hasNext()) {
-            if (!aiteratorOpt.get().hasNext()) {
-                System.out.println("Metadata states inconsistency(more states in " + expected);
-                return false;
-            }
-
-            TierObjectMetadata expectedObject = eiteratorOpt.get().next();
-            TierObjectMetadata actualObject = aiteratorOpt.get().next();
-
-            if (expectedObject.equals(actualObject)) {
-                // Keep ignoring the FENCED or DELETED SEGMENTS till we find first one with active state - the
-                // one with UPLOAD state. After that only ignore the FENCED one.
-                if ((nonActiveStates && inActiveStates(expectedObject)) ||
-                    actualObject.state().equals(TierObjectMetadata.State.SEGMENT_FENCED)) {
-                    // We will ignore the FENCED and DELETED segments, aim is to find the start offset.
-                    continue;
-                }
-
-                long start = Math.max(expectedObject.baseOffset(), prevEndOffset + 1);
-                if ((start - prevEndOffset != 1) || (expectedObject.endOffset() <= prevEndOffset)) {
-                    // Start offset can be non zero and that needs to be handled.
-                    if (nonActiveStates)
-                        continue;
-                    System.err.println("Metadata offset inconsistency " + prevBaseOffset + " : " + prevEndOffset);
-                    System.err.println("Expected : " + expected);
-                    return false;
-                }
-            } else {
-                System.err.println("Metadata states inconsistency " + expected + " Vs " + actual);
-                return false;
-            }
-            prevBaseOffset = expectedObject.baseOffset();
-            prevEndOffset = expectedObject.endOffset();
-            nonActiveStates = false;
-        }
-
-        if (eiteratorOpt.get().hasNext() || aiteratorOpt.get().hasNext()) {
-            System.out.println("Metadata states inconsistency(more states in " + expected);
+            System.out.println(
+                "Metadata inconsistency(files do not match).");
             return false;
         }
 
         return true;
     }
 
-    class TierMetadataValidatorRecord {
+    public boolean isValidStates(Iterator<TierObjectMetadata> eIterator, Iterator<TierObjectMetadata> aIterator,
+                        long firstValidOffset) {
+        long prevEndOffset = -1;
+
+        while (eIterator.hasNext()) {
+            if (!aIterator.hasNext()) {
+                System.err.println("Metadata inconsistency(more states).");
+                return false;
+            }
+
+            TierObjectMetadata expectedObject = eIterator.next();
+            TierObjectMetadata actualObject = aIterator.next();
+            boolean active = mayBeActiveObject(firstValidOffset, actualObject);
+
+            if (actualObject.equals(expectedObject)) {
+                long start = Math.max(expectedObject.baseOffset(), prevEndOffset + 1);
+                if ((start - prevEndOffset != 1) || (actualObject.endOffset() <= prevEndOffset)) {
+                    if (active) {
+                        if (actualObject.state().equals(State.SEGMENT_FENCED))
+                            continue;
+                        System.err.println("Metadata offset inconsistency "
+                            + actualObject.baseOffset() + " : " + actualObject.endOffset());
+                        return false;
+                    } else {
+                        // We found hole in offset range of states mappings. This is possible
+                        // due to various scenario's like - retention before archival, first tiered
+                        // offset etc. None of this is possible for active offsets (offset which is
+                        // active for reading). Since this is inactive offset range, we will ignore.
+                    }
+                }
+            } else {
+                System.err.println("Metadata states inconsistency.");
+                return false;
+            }
+
+            prevEndOffset = expectedObject.endOffset();
+        }
+
+        if (eIterator.hasNext() || aIterator.hasNext()) {
+            System.err.println("Metadata inconsistency(more states).");
+            return false;
+        }
+        return true;
+    }
+
+    private class TierMetadataValidatorRecord {
         public Path snapshot;
         public TopicIdPartition id;
         public Long maxOffset;
