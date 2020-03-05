@@ -32,7 +32,7 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record.{MemoryRecords, SimpleRecord}
 import org.apache.kafka.common.utils.Utils
 import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
-import org.junit.{After, Before, Ignore, Test}
+import org.junit.{After, Before, Test}
 import org.mockito.ArgumentMatchers
 import org.mockito.Mockito.{mock, when}
 
@@ -107,11 +107,7 @@ class PartitionLockTest extends Logging {
    * Verifies concurrent produce and replica fetch log read result update with ISR updates. This
    * can result in delays in processing produce and replica fetch requets since write lock is obtained,
    * but it should complete without any failures.
-   *
-   * See @link{https://confluentinc.atlassian.net/browse/KCORE-1540}
-   * for the background of this test failure.
    */
-  @Ignore
   @Test
   def testAppendReplicaFetchWithUpdateIsr(): Unit = {
     val active = new AtomicBoolean(true)
