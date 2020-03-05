@@ -28,6 +28,7 @@ import org.apache.kafka.common.replica.ClientMetadata
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
 
 import scala.collection._
+import scala.collection.JavaConverters._
 
 case class FetchPartitionStatus(startOffsetMetadata: LogOffsetMetadata, fetchInfo: PartitionData) {
 
@@ -203,27 +204,23 @@ class DelayedFetch(delayMs: Long,
     // thread driving the PendingFetch to conclude. After joining on the future, it's known that
     // the PendingFetch will not attempt to claim any more memory, and ownership of the associated
     // memory lease has transferred to the DelayedFetch/Response.
-    val tierFetcherReadResults = tierFetchOpt.map(_.finish())
+    val tierFetcherReadResults = tierFetchOpt.map(_.finish().asScala)
 
     val logReadResults = collectLogReadResults()
-    val unifiedReadResults: Seq[(TopicPartition, LogReadResult)] = logReadResults.map {
-      // For data fetched from tiered storage, we combine the tierFetcherReadResults with the TierLogReadResults
-      // returned from the Partition/Log layer. This provides us with metadata like leader epoch and high watermark.
-      case (tp, tierLogReadResult: TierLogReadResult) => {
-        val tierFetchResult = tierFetcherReadResults.map(_.get(tp)).getOrElse(TierFetchResult.emptyFetchResult())
-        tp -> tierLogReadResult.intoLogReadResult(tierFetchResult, isReadAllowed = !tierFetchResult.isEmpty)
+    val fetchPartitionData = logReadResults.map { case (tp, logReadResult) =>
+      val result = logReadResult match {
+        // For data fetched from tiered storage, we combine the tierFetcherReadResults with the TierLogReadResults
+        // returned from the Partition/Log layer. This provides us with metadata like leader epoch and high watermark.
+        case tierLogReadResult: TierLogReadResult =>
+          val tierFetchResult = tierFetcherReadResults.flatMap(_.get(tp)).getOrElse(
+            TierFetchResult.emptyFetchResult)
+          tierLogReadResult.intoLogReadResult(tierFetchResult, isReadAllowed = !tierFetchResult.isEmpty)
+        case localLogReadResult: LogReadResult => localLogReadResult
       }
-      // Data returned from local storage does not need to be changed
-      case (tp, localLogReadResult: LogReadResult) => tp -> localLogReadResult
-    }
-
-    val fetchPartitionData = unifiedReadResults.map {
-      case (tp, result) =>
-        FetchLag.maybeRecordConsumerFetchTimeLag(!fetchMetadata.isFromFollower, result, brokerTopicStats)
-
-        tp -> FetchPartitionData(result.error, result.highWatermark, result.leaderLogStartOffset, result.info.records,
-          result.lastStableOffset, result.info.abortedTransactions, result.preferredReadReplica,
-          fetchMetadata.isFromFollower && replicaManager.isAddingReplica(tp, fetchMetadata.replicaId))
+      FetchLag.maybeRecordConsumerFetchTimeLag(!fetchMetadata.isFromFollower, result, brokerTopicStats)
+      tp -> FetchPartitionData(result.error, result.highWatermark, result.leaderLogStartOffset, result.info.records,
+        result.lastStableOffset, result.info.abortedTransactions, result.preferredReadReplica,
+        fetchMetadata.isFromFollower && replicaManager.isAddingReplica(tp, fetchMetadata.replicaId))
     }
 
     responseCallback(fetchPartitionData)

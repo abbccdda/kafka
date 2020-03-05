@@ -7,6 +7,7 @@ import static io.confluent.security.audit.router.AuditLogRouterJsonConfig.TOPIC_
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import io.confluent.crn.ConfluentResourceName;
@@ -200,10 +201,20 @@ public class SameClusterTest extends ClusterTestCommon {
                     newConfigJson), OpType.SET)))));
     result.values().get(cluster).get();
 
-    assertEquals(newConfigJson,
-        brokerAdminClient
-            .describeConfigs(Collections.singleton(cluster)).all().get()
-            .get(cluster).get(ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG).value());
+    // Wait for config change to be applied to broker since this is async
+    TestUtils.waitForCondition(() -> auditEventRouterConfig(brokerAdminClient, cluster) != null,
+        ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG + " not updated");
+
+    ConfigEntry configEntry = auditEventRouterConfig(brokerAdminClient, cluster);
+    assertEquals(newConfigJson, configEntry.value());
+  }
+
+  private ConfigEntry auditEventRouterConfig(AdminClient adminClient, ConfigResource cluster) throws Exception {
+    Map<ConfigResource, Config> describedConfigs = adminClient
+        .describeConfigs(Collections.singleton(cluster)).all().get();
+    Config clusterConfig = describedConfigs.get(cluster);
+    assertNotNull("Cluster config is null", clusterConfig);
+    return clusterConfig.get(ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG);
   }
 
   @Test
