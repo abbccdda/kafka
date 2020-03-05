@@ -741,7 +741,7 @@ object MergedLog {
             logDirFailureChannel: LogDirFailureChannel,
             tierLogComponents: TierLogComponents): MergedLog = {
     val topicPartition = Log.parseTopicPartitionName(dir)
-    val tierPartitionState = initTierPartitionState(dir, topicPartition, tierLogComponents.partitionStateFactory, config)
+    val tierPartitionState = initTierPartitionState(dir, topicPartition, tierLogComponents.partitionStateFactory, config, logDirFailureChannel)
     val producerStateManager = new ProducerStateManager(topicPartition, dir, maxProducerIdExpirationMs)
 
     // On log startup, all truncation must happen above the last tiered offset, if there is one. The lowest truncation
@@ -757,8 +757,9 @@ object MergedLog {
   private def initTierPartitionState(dir: File,
                                      topicPartition: TopicPartition,
                                      tierPartitionStateFactory: TierPartitionStateFactory,
-                                     config: LogConfig): TierPartitionState = {
-    tierPartitionStateFactory.initState(dir, topicPartition, config)
+                                     config: LogConfig,
+                                     logDirFailureChannel: LogDirFailureChannel): TierPartitionState = {
+    tierPartitionStateFactory.initState(dir, topicPartition, config, logDirFailureChannel)
   }
 
   private def firstUntieredOffset(tierPartitionState: TierPartitionState): Long = {

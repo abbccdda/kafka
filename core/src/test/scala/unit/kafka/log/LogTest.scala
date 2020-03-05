@@ -758,11 +758,11 @@ class LogTest {
       val maxProducerIdExpirationMs = 60 * 60 * 1000
       val topicPartition = Log.parseTopicPartitionName(logDir)
       val producerStateManager = new ProducerStateManager(topicPartition, logDir, maxProducerIdExpirationMs)
-
+      val logDirFailureChannel = new LogDirFailureChannel(10)
       // Intercept all segment read calls
       val localLog = new Log(logDir, logConfig, recoveryPoint = recoveryPoint, mockTime.scheduler,
         brokerTopicStats, mockTime, maxProducerIdExpirationMs, LogManager.ProducerIdExpirationCheckIntervalMs,
-        topicPartition, producerStateManager, new LogDirFailureChannel(10)) {
+        topicPartition, producerStateManager, logDirFailureChannel) {
         override def addSegment(segment: LogSegment): LogSegment = {
           val wrapper = new LogSegment(segment.log, segment.lazyOffsetIndex, segment.lazyTimeIndex, segment.txnIndex, segment.baseOffset,
             segment.indexIntervalBytes, segment.rollJitterMs, mockTime) {
@@ -782,7 +782,7 @@ class LogTest {
         }
       }
       val tierLogComponents = TierLogComponents.EMPTY
-      val tierPartitionState = tierLogComponents.partitionStateFactory.initState(logDir, topicPartition, localLog.config)
+      val tierPartitionState = tierLogComponents.partitionStateFactory.initState(logDir, topicPartition, localLog.config, logDirFailureChannel)
       new MergedLog(localLog, logStartOffset = 0, tierPartitionState, tierLogComponents)
     }
 
@@ -4462,7 +4462,8 @@ object LogTest {
                 recoveryPoint: Long = 0L,
                 maxProducerIdExpirationMs: Int = 60 * 60 * 1000,
                 producerIdExpirationCheckIntervalMs: Int = LogManager.ProducerIdExpirationCheckIntervalMs,
-                tierLogComponentsOpt: Option[TierLogComponents] = None): AbstractLog = {
+                tierLogComponentsOpt: Option[TierLogComponents] = None,
+                logDirFailureChannel: LogDirFailureChannel = new LogDirFailureChannel(10)): AbstractLog = {
     Log(dir = dir,
       config = config,
       logStartOffset = logStartOffset,
@@ -4472,7 +4473,7 @@ object LogTest {
       time = time,
       maxProducerIdExpirationMs = maxProducerIdExpirationMs,
       producerIdExpirationCheckIntervalMs = producerIdExpirationCheckIntervalMs,
-      logDirFailureChannel = new LogDirFailureChannel(10),
+      logDirFailureChannel = logDirFailureChannel,
       tierLogComponentsOpt = tierLogComponentsOpt)
   }
 

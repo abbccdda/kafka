@@ -71,6 +71,11 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     assertTrue("Expected establishing leadership to fail", illegal.value.get.isFailure)
 
     when(tierTopicManager.becomeArchiver(topicIdPartition, leaderEpoch))
+      .thenReturn(CompletableFutureUtil.completed(AppendResult.FAILED))
+    val failed = Await.ready(ArchiveTask.establishLeadership(BeforeLeader(0), topicIdPartition, tierTopicManager), 50 millis)
+    assertTrue("Expected establishing leadership to fail", failed.value.get.isFailure)
+
+    when(tierTopicManager.becomeArchiver(topicIdPartition, leaderEpoch))
       .thenReturn(CompletableFutureUtil.completed(AppendResult.FENCED))
     val fenced = Await.ready(ArchiveTask.establishLeadership(BeforeLeader(0), topicIdPartition, tierTopicManager), 50 millis)
     assertTrue("Expected establishing leadership to fail", fenced.value.get.isFailure)
@@ -80,7 +85,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     val unknown = Await.ready(ArchiveTask.establishLeadership(BeforeLeader(0), topicIdPartition, tierTopicManager), 50 millis)
     assertTrue("Expected establishing leadership to fail", unknown.value.get.isFailure)
 
-    verify(tierTopicManager, times(4)).becomeArchiver(topicIdPartition, leaderEpoch)
+    verify(tierTopicManager, times(5)).becomeArchiver(topicIdPartition, leaderEpoch)
   }
 
   @Test
@@ -377,6 +382,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     val exception = new SegmentDeletedException("segment deleted", new Exception)
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
     when(log.tierPartitionState).thenThrow(exception)
+
     val beforeUpload = BeforeUpload(42)
     val task = new ArchiveTask(ctx, topicIdPartition, beforeUpload, ArchiverMetrics(None, None))
 

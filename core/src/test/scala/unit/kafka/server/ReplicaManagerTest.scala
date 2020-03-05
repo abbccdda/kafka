@@ -1764,7 +1764,7 @@ class ReplicaManagerTest {
       logDirFailureChannel = mockLogDirFailureChannel)
 
     val tierLogComponents = TierLogComponents.EMPTY
-    val tierPartitionState = tierLogComponents.partitionStateFactory.initState(logDirs.head, new TopicPartition(topic, topicPartition), mockLog.config)
+    val tierPartitionState = tierLogComponents.partitionStateFactory.initState(logDirs.head, new TopicPartition(topic, topicPartition), mockLog.config, mockLogDirFailureChannel)
 
     val mockMergedLog = new MergedLog(mockLog,
       logStartOffset = 0L,

@@ -7,6 +7,7 @@ package kafka.tier
 import java.util.UUID
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
 
+import kafka.server.LogDirFailureChannel
 import kafka.tier.domain.TierTopicInitLeader
 import kafka.tier.state.FileTierPartitionState
 import kafka.utils.TestUtils
@@ -79,7 +80,7 @@ class TierPartitionStateConcurrencyTest {
     val nThreads = 8
     val epoch = 0
 
-    val state = new FileTierPartitionState(baseDir, tp, true)
+    val state = new FileTierPartitionState(baseDir, new LogDirFailureChannel(5), tp, true)
     state.setTopicId(tpid.topicId)
     state.beginCatchup()
     state.onCatchUpComplete()

@@ -88,13 +88,14 @@ class LogCleanerManagerTest extends Logging {
     val logSegmentSize = TestUtils.singletonRecords("test".getBytes).sizeInBytes * 10
     val logSegmentsCount = 2
     val tpDir = new File(logDir, "A-1")
+    val logDirFailureChannel = new LogDirFailureChannel(10)
 
     // the exception should be caught and the partition that caused it marked as uncleanable
     val localLog = new Log(tpDir, createLowRetentionLogConfig(logSegmentSize, LogConfig.Compact), 0L,
       time.scheduler, new BrokerTopicStats, time, 60 * 60 * 1000, LogManager.ProducerIdExpirationCheckIntervalMs,
-      topicPartition, new ProducerStateManager(tp, tpDir, 60 * 60 * 1000), new LogDirFailureChannel(10))
+      topicPartition, new ProducerStateManager(tp, tpDir, 60 * 60 * 1000), logDirFailureChannel)
     val tierLogComponents = TierLogComponents.EMPTY
-    val tierPartitionState = tierLogComponents.partitionStateFactory.initState(logDir, topicPartition, localLog.config)
+    val tierPartitionState = tierLogComponents.partitionStateFactory.initState(logDir, topicPartition, localLog.config, logDirFailureChannel)
     val log = new MergedLog(localLog, 0L, tierPartitionState, tierLogComponents) {
       // Throw an error in getFirstBatchTimestampForSegments since it is called in grabFilthiestLog()
       override def getFirstBatchTimestampForSegments(segments: Iterable[LogSegment]): Iterable[Long] =

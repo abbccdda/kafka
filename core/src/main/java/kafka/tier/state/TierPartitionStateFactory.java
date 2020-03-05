@@ -5,6 +5,7 @@
 package kafka.tier.state;
 
 import kafka.log.LogConfig;
+import kafka.server.LogDirFailureChannel;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.internals.Topic;
 
@@ -18,9 +19,9 @@ public class TierPartitionStateFactory {
         this.tierFeatureEnabled = tierFeatureEnabled;
     }
 
-    public TierPartitionState initState(File stateDir, TopicPartition topicPartition, LogConfig config) throws IOException {
+    public TierPartitionState initState(File stateDir, TopicPartition topicPartition, LogConfig config, LogDirFailureChannel logDirFailureChannel) throws IOException {
         boolean enableTiering = mayEnableTiering(topicPartition, config);
-        return new FileTierPartitionState(stateDir, topicPartition, enableTiering);
+        return new FileTierPartitionState(stateDir, logDirFailureChannel, topicPartition, enableTiering);
     }
 
     public boolean mayEnableTiering(TopicPartition topicPartition, LogConfig config) {

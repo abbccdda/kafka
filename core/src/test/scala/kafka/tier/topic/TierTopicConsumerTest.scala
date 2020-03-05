@@ -2,6 +2,7 @@ package kafka.tier.topic
 
 import java.util
 import java.util.{Collections, OptionalInt, UUID}
+import java.util.Optional
 
 import kafka.tier.{TierTopicManagerCommitter, TopicIdPartition}
 import kafka.tier.client.{MockConsumerSupplier, MockProducerSupplier}
@@ -60,7 +61,8 @@ class TierTopicConsumerTest {
   private val tierTopicConsumer = new TierTopicConsumer(tierTopicManagerConfig,
     primaryConsumerSupplier,
     catchupConsumerSupplier,
-    tierTopicManagerCommitter)
+    tierTopicManagerCommitter,
+    Optional.empty())
 
   @Before
   def setup(): Unit = {
@@ -97,32 +99,40 @@ class TierTopicConsumerTest {
     val ctx_4 = mock(classOf[ClientCtx])
     when(ctx_4.status()).thenReturn(TierPartitionStatus.CATCHUP)
 
+    val tp_5 = new TopicIdPartition("foo-4", UUID.randomUUID, 0)
+    val ctx_5 = mock(classOf[ClientCtx])
+    when(ctx_5.status()).thenReturn(TierPartitionStatus.ERROR)
+
     // register all partitions
     tierTopicConsumer.register(tp_1, ctx_1)
     tierTopicConsumer.register(tp_2, ctx_2)
     tierTopicConsumer.register(tp_3, ctx_3)
     tierTopicConsumer.register(tp_4, ctx_4)
-    assertEquals(Set(tp_1, tp_2, tp_3, tp_4), tierTopicConsumer.immigratingPartitions.keySet.asScala)
+    tierTopicConsumer.register(tp_5, ctx_5)
+    assertEquals(Set(tp_1, tp_2, tp_3, tp_4, tp_5), tierTopicConsumer.immigratingPartitions.keySet.asScala)
 
     // tp_1 and tp_2 must be online; tp_3 and tp_4 must be in catchup state
     tierTopicConsumer.startConsume(false, tierTopic)
     tierTopicConsumer.doWork()
-    assertEquals(Set(tp_1, tp_2), tierTopicConsumer.onlinePartitions.keySet.asScala)
+    assertEquals(Set(tp_1, tp_2, tp_5), tierTopicConsumer.onlinePartitions.keySet.asScala)
     assertEquals(Set(tp_3, tp_4), tierTopicConsumer.catchingUpPartitions.keySet.asScala)
     assertEquals(Set(), tierTopicConsumer.immigratingPartitions.keySet.asScala)
+    assertEquals(Set(tp_5), tierTopicConsumer.errorPartitions.asScala)
 
     verify(ctx_3, times(1)).beginCatchup()
     verify(ctx_4, times(1)).beginCatchup()
 
-    verify(ctx_1, times(1)).status()
-    verify(ctx_2, times(1)).status()
+    verify(ctx_1, times(2)).status()
+    verify(ctx_2, times(2)).status()
     verify(ctx_3, times(1)).status()
     verify(ctx_4, times(1)).status()
+    verify(ctx_5, times(2)).status()
 
     verifyNoMoreInteractions(ctx_1)
     verifyNoMoreInteractions(ctx_2)
     verifyNoMoreInteractions(ctx_3)
     verifyNoMoreInteractions(ctx_4)
+    verifyNoMoreInteractions(ctx_5)
 
     // verify catchup consumer assignment
     assertEquals(tierTopic.toTierTopicPartitions(Set(tp_3, tp_4).asJava), catchupConsumerSupplier.consumers.get(0).assignment)

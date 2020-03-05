@@ -103,6 +103,7 @@ class LogCleanerTest {
     logProps.put(LogConfig.CleanupPolicyProp, LogConfig.Compact + "," + LogConfig.Delete)
     val topicPartition = Log.parseTopicPartitionName(dir)
     val producerStateManager = new ProducerStateManager(topicPartition, dir)
+    val logDirFailureChannel = new LogDirFailureChannel(10)
     val localLog = new Log(dir,
       config = LogConfig.fromProps(logConfig.originals, logProps),
       recoveryPoint = 0L,
@@ -112,12 +113,12 @@ class LogCleanerTest {
       producerIdExpirationCheckIntervalMs = LogManager.ProducerIdExpirationCheckIntervalMs,
       topicPartition = topicPartition,
       producerStateManager = producerStateManager,
-      logDirFailureChannel = new LogDirFailureChannel(10),
+      logDirFailureChannel = logDirFailureChannel,
       initialUntieredOffset = 0L,
       mergedLogStartOffsetCbk = () => 0L)
 
     val tierLogComponents = TierLogComponents.EMPTY
-    val tierPartitionState = tierLogComponents.partitionStateFactory.initState(dir, topicPartition, localLog.config)
+    val tierPartitionState = tierLogComponents.partitionStateFactory.initState(dir, topicPartition, localLog.config, logDirFailureChannel)
     val log = new MergedLog(localLog, logStartOffset = 0L, tierPartitionState, TierLogComponents.EMPTY) {
       override def replaceSegments(newSegments: Seq[LogSegment], oldSegments: Seq[LogSegment], isRecoveredSwapFile: Boolean = false): Unit = {
         deleteStartLatch.countDown()

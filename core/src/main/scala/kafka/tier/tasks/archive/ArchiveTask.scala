@@ -12,7 +12,7 @@ import kafka.log.{AbstractLog, LogSegment, UploadableSegment}
 import kafka.server.ReplicaManager
 import kafka.tier.TopicIdPartition
 import kafka.tier.domain.{TierSegmentUploadComplete, TierSegmentUploadInitiate}
-import kafka.tier.exceptions.{NotTierablePartitionException, TierArchiverFatalException, TierArchiverFencedException, TierMetadataRetriableException, TierObjectStoreRetriableException}
+import kafka.tier.exceptions.{NotTierablePartitionException, TierArchiverFailedException, TierArchiverFatalException, TierArchiverFencedException, TierMetadataRetriableException, TierObjectStoreRetriableException}
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
@@ -151,6 +151,10 @@ final class ArchiveTask(override val ctx: CancellationContext,
       case e: TierObjectStoreRetriableException =>
         retryTaskLater(maxRetryBackoffMs.getOrElse(Defaults.OBJECT_STORE_EXCEPTION_RETRY_MS), time.hiResClockMs(), e)
         this
+      case e: TierArchiverFailedException =>
+        warn(s"$topicIdPartition failed, stopping archival process and marking $topicIdPartition to be in error", e)
+        cancelAndSetErrorState(this, e)
+        this
       case e: TierArchiverFencedException =>
         info(s"$topicIdPartition was fenced, stopping archival process", e)
         ctx.cancel()
@@ -164,6 +168,7 @@ final class ArchiveTask(override val ctx: CancellationContext,
         retryTaskLater(maxRetryBackoffMs.getOrElse(Defaults.SEGMENT_DELETED_RETRY_MS), time.hiResClockMs(), e)
         this
       case t: Throwable =>
+        error(s"$topicIdPartition failed due to unhandled exception, stopping archival process and marking $topicIdPartition to be in error", t)
         cancelAndSetErrorState(this, t)
         this
     }
@@ -191,6 +196,8 @@ object ArchiveTask extends Logging {
           case AppendResult.ACCEPTED =>
             info(s"established leadership for $topicIdPartition")
             BeforeUpload(state.leaderEpoch)
+          case AppendResult.FAILED =>
+            throw new TierArchiverFailedException(topicIdPartition)
           case AppendResult.NOT_TIERABLE =>
             throw new NotTierablePartitionException(topicIdPartition)
           case AppendResult.FENCED =>
@@ -249,6 +256,8 @@ object ArchiveTask extends Logging {
                 info(s"Completed UploadInitiate(objectId: ${uploadInitiate.messageId}, baseOffset: ${uploadInitiate.baseOffset}," +
                   s" endOffset: ${uploadInitiate.endOffset}]) for $topicIdPartition in ${time.milliseconds - startTime}ms")
                 Upload(state.leaderEpoch, uploadInitiate, segment)
+              case AppendResult.FAILED =>
+                throw new TierArchiverFailedException(topicIdPartition)
               case AppendResult.NOT_TIERABLE =>
                 throw new NotTierablePartitionException(topicIdPartition)
               case AppendResult.FENCED =>
@@ -312,6 +321,8 @@ object ArchiveTask extends Logging {
             s"for $topicIdPartition in ${time.milliseconds - startTime} ms")
           byteRateMetric.foreach(_.mark(state.uploadedSize))
           BeforeUpload(state.leaderEpoch)
+        case AppendResult.FAILED =>
+          throw new TierArchiverFailedException(topicIdPartition)
         case AppendResult.NOT_TIERABLE =>
           throw new NotTierablePartitionException(topicIdPartition)
         case AppendResult.FENCED =>

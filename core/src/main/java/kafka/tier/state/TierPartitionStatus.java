@@ -14,7 +14,9 @@ public enum TierPartitionStatus {
     // TierPartitionState has been initialized and is open for read/write. It is being continuously materialized by the primary consumer.
     ONLINE((byte) 3),
     // Disk is offline. Used for JBOD support.
-    DISK_OFFLINE((byte) 4);
+    DISK_OFFLINE((byte) 4),
+    // TierPartitionState encountered an error during materialization.
+    ERROR((byte) 5);
 
     final byte value;
 
@@ -28,6 +30,10 @@ public enum TierPartitionStatus {
 
     public boolean isOpenForWrite() {
         return this == INIT || this == CATCHUP || this == ONLINE;
+    }
+
+    public boolean hasError() {
+        return this == ERROR;
     }
 
     public static byte toByte(TierPartitionStatus status) {
@@ -45,6 +51,8 @@ public enum TierPartitionStatus {
             return ONLINE;
         else if (value == DISK_OFFLINE.value)
             return DISK_OFFLINE;
+        else if (value == ERROR.value)
+            return ERROR;
         else
             throw new IllegalArgumentException("Unrecognized TierPartitionStatus byte value " + value);
     }

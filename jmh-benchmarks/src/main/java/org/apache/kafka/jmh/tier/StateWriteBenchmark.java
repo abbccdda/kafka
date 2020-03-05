@@ -18,6 +18,7 @@
 package org.apache.kafka.jmh.tier;
 
 import kafka.log.LogConfig;
+import kafka.server.LogDirFailureChannel;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierTopicInitLeader;
 import kafka.tier.state.TierPartitionStateFactory;
@@ -79,7 +80,10 @@ public class StateWriteBenchmark {
         when(config.tierEnable()).thenReturn(true);
 
         TierPartitionStateFactory factory = new TierPartitionStateFactory(true);
-        TierPartitionState state = factory.initState(new File(BASE_DIR), TOPIC_PARTITION.topicPartition(), config);
+        TierPartitionState state = factory.initState(new File(BASE_DIR),
+            TOPIC_PARTITION.topicPartition(),
+            config,
+            new LogDirFailureChannel(1));
         try {
             writeState(state);
         } finally {

@@ -8,6 +8,7 @@ import java.io.File
 import java.util
 import java.util.{Collections, UUID}
 import java.util.function.Supplier
+import java.util.Optional
 
 import kafka.admin.AdminOperationException
 import kafka.log.Log
@@ -229,7 +230,7 @@ class TierTopicManagerTest {
     val dir = new File(logDir + "/" + Log.logDirName(topicIdPartition.topicPartition))
     dir.mkdir()
 
-    val tierPartitionState = new FileTierPartitionState(dir, topicIdPartition.topicPartition, true)
+    val tierPartitionState = new FileTierPartitionState(dir, new LogDirFailureChannel(5), topicIdPartition.topicPartition, true)
     tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionStateFiles :+= tierPartitionState
 
@@ -246,7 +247,8 @@ class TierTopicManagerTest {
     val tierTopicConsumer = new TierTopicConsumer(tierTopicManagerConfig,
       primaryConsumerSupplier,
       catchupConsumerSupplier,
-      new TierTopicManagerCommitter(tierTopicManagerConfig, new LogDirFailureChannel(1)))
+      new TierTopicManagerCommitter(tierTopicManagerConfig, new LogDirFailureChannel(1)),
+      Optional.empty())
 
     val tierReplicaManager = new TierReplicaManager()
     val tierTopicManager = new TierTopicManager(tierTopicManagerConfig,

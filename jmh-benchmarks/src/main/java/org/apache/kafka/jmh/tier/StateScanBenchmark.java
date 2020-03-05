@@ -18,6 +18,7 @@
 package org.apache.kafka.jmh.tier;
 
 import kafka.log.LogConfig;
+import kafka.server.LogDirFailureChannel;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierTopicInitLeader;
 import kafka.tier.state.TierPartitionStateFactory;
@@ -73,7 +74,10 @@ public class StateScanBenchmark {
                 throw new Exception("could not create status directory.");
 
             factory = new TierPartitionStateFactory(true);
-            state = factory.initState(new File(BASE_DIR), TOPIC_PARTITION.topicPartition(), config);
+            state = factory.initState(new File(BASE_DIR),
+                TOPIC_PARTITION.topicPartition(),
+                config,
+                new LogDirFailureChannel(1));
             state.setTopicId(TOPIC_PARTITION.topicId());
             state.append(new TierTopicInitLeader(TOPIC_PARTITION, EPOCH,
                     java.util.UUID.randomUUID(), 0), 0);
