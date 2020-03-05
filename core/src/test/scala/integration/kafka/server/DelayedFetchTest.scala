@@ -69,7 +69,7 @@ class DelayedFetchTest extends EasyMockSupport {
         (topicPartition1, buildFetchPartitionStatus(fetchOffset, LogOffsetMetadata.UnknownOffsetMetadata))
       ))
 
-    val pendingFetch : PendingFetch = mock(classOf[PendingFetch])
+    val pendingFetch: PendingFetch = mock(classOf[PendingFetch])
     EasyMock.expect(pendingFetch.isComplete).andReturn(true)
     EasyMock.expect(pendingFetch.cancel())
 
@@ -114,7 +114,7 @@ class DelayedFetchTest extends EasyMockSupport {
         (topicPartition2, buildFetchPartitionStatus(fetchOffset, LogOffsetMetadata.UnknownOffsetMetadata)))
     )
 
-    val pendingFetch : PendingFetch = mock(classOf[PendingFetch])
+    val pendingFetch: PendingFetch = mock(classOf[PendingFetch])
     EasyMock.expect(pendingFetch.isComplete).andReturn(true)
     EasyMock.expect(pendingFetch.cancel())
 
@@ -432,6 +432,51 @@ class DelayedFetchTest extends EasyMockSupport {
   }
 
 
+  /***
+   * Test that a mixed tier and local fetch correctly handles the case where
+   * during the fetch, the local data is deleted and the log layer reports
+   * the requested offset range as being in tiered storage.
+   */
+  @Test
+  def testLocalSegmentDeletedAfterDelayedFetchCreation(): Unit = {
+    val topicPartition0 = new TopicPartition("topic", 0) // local
+    val topicPartition1 = new TopicPartition("topic", 1) // tier
+
+    val replicaId = 1
+    val fetchOffset = 500L
+    val highWatermark = 50
+    val fetchMetadata = buildMultiPartitionFetchMetadata(
+      replicaId,
+      Seq(
+        (topicPartition0, buildFetchPartitionStatus(fetchOffset, LogOffsetMetadata(0, 0))),
+        (topicPartition1, buildFetchPartitionStatus(fetchOffset, LogOffsetMetadata(0, 0)))
+      ))
+
+    val pendingFetch: PendingFetch = mock(classOf[PendingFetch])
+    EasyMock.expect(pendingFetch.isComplete).andReturn(true)
+    EasyMock.expect(pendingFetch.cancel())
+
+    val callbackPromise: Promise[Seq[(TopicPartition, FetchPartitionData)]] = Promise[Seq[(TopicPartition, FetchPartitionData)]]()
+    val delayedFetch = new DelayedFetch(
+      delayMs = 500, fetchMetadata = fetchMetadata, replicaManager = replicaManager, replicaQuota, Some(pendingFetch),
+      clientMetadata = None, brokerTopicStats, callbackPromise.success
+    )
+    expectGetTierFetchResults(pendingFetch, Seq((topicPartition1, None)))
+    expectReadFromLocalLog(replicaManager, Seq(
+      (topicPartition0, TierFetchDataInfo(null, None), None),
+      (topicPartition1, TierFetchDataInfo(null, None), None)
+    ), highWatermark = highWatermark)
+
+    replayAll()
+    delayedFetch.forceComplete()
+    assertTrue("Expected forceComplete to complete the request", callbackPromise.isCompleted)
+    val results = Await.result(callbackPromise.future, Duration(1, TimeUnit.SECONDS)).toMap
+    assertTrue("Expected both a tiered and non-tiered fetch result", results.size == 2)
+    assertTrue("Expected HWM to be set for both tiered and non-tiered results", results.forall { case (tp, result) => result.highWatermark == highWatermark})
+    assertEquals(results(topicPartition0).records, ReclaimableMemoryRecords.EMPTY)
+    assertEquals(results(topicPartition1).records, ReclaimableMemoryRecords.EMPTY)
+  }
+  
   private def buildMultiPartitionFetchMetadata(replicaId: Int,
                                                fetchPartitionStatus: Seq[(TopicPartition, FetchPartitionStatus)],
                                                isFromFollower: Boolean = true): FetchMetadata = {
