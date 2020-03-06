@@ -16,9 +16,10 @@ import java.util.Collection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.config.SslConfigs;
+import org.apache.kafka.common.security.fips.FipsValidator;
+
 import io.confluent.kafka.security.fips.exceptions.InvalidFipsTlsCipherSuiteException;
 import io.confluent.kafka.security.fips.exceptions.InvalidFipsBrokerProtocolException;
 import io.confluent.kafka.security.fips.exceptions.InvalidFipsTlsVersionException;
@@ -28,8 +29,8 @@ import io.confluent.kafka.security.fips.exceptions.InvalidFipsTlsVersionExceptio
  * One of its primary uses is to validate FIPS requirements.
  *
  */
-public class FipsValidator {
-    private final static Logger log = LoggerFactory.getLogger(FipsValidator.class);
+public class ConfluentFipsValidator implements FipsValidator {
+    private final static Logger log = LoggerFactory.getLogger(ConfluentFipsValidator.class);
 
     private static final Set<String> ALLOWED_CIPHER_SUITES;
     private static final Set<String> ALLOWED_TLS_PROTOCOLS;
@@ -72,6 +73,10 @@ public class FipsValidator {
         ALLOWED_BROKER_PROTOCOLS = Stream.of("SASL_SSL", "SSL").collect(Collectors.toCollection(HashSet::new));
     }
 
+    public boolean fipsEnabled() {
+        return true;
+    }
+
     /**
      * Validate FIPS requirements on cipher suites, TLS protocols versions.
      *
@@ -80,7 +85,7 @@ public class FipsValidator {
      * @throws InvalidFipsCipherSuiteException if cipher suites not FIPS compliant.
      * @throws InvalidFipsTlsVersionException if TLS protocols not FIPS compliant.
      */
-    public static void validateFipsTls(Map<String, ?> configs) {
+    public void validateFipsTls(Map<String, ?> configs) {
         validateFipsTlsCipherSuite(configs);
         validateFipsTlsVersion(configs);
     }
@@ -88,15 +93,15 @@ public class FipsValidator {
     /*
      * Validate broker protocol, make sure broker uses either SSL or SASL_SSL protocol.
      *
-     * @param securityProtocolMap the Map contains map relationship between listener and security protocol.
+     * @param securityProtocolMap the Map contains map relationship between listener name and security protocol.
      *
      * @throws InvalidFipsBrokerProtocolException if broker protocols not FIPS compliant.
      */
-    public static void validateFipsBrokerProtocol(Map<ListenerName, SecurityProtocol> securityProtocolMap) {
+    public void validateFipsBrokerProtocol(Map<String, SecurityProtocol> securityProtocolMap) {
         List<String> violatedBrokerProtocols = new ArrayList<>();
         violatedBrokerProtocols = securityProtocolMap.entrySet().stream()
                 .filter(entry -> !ALLOWED_BROKER_PROTOCOLS.contains(entry.getValue().name))
-                .map(entry -> entry.getKey().value() + ":" + entry.getValue().name)
+                .map(entry -> entry.getKey() + ":" + entry.getValue().name)
                 .collect(Collectors.toList());
 
         if (!violatedBrokerProtocols.isEmpty())  {
@@ -113,7 +118,7 @@ public class FipsValidator {
      *
      * @throws InvalidFipsCipherSuiteException if cipher suites not FIPS compliant.
      */
-    public static void validateFipsTlsCipherSuite(Map<String, ?> configs) {
+    public void validateFipsTlsCipherSuite(Map<String, ?> configs) {
         @SuppressWarnings("unchecked")
         List<String> cipherSuitesList = (List<String>) configs.get(SslConfigs.SSL_CIPHER_SUITES_CONFIG);
         validateFipsTlsCipherSuite(cipherSuitesList);
@@ -126,7 +131,7 @@ public class FipsValidator {
      *
      * @throws InvalidFipsTlsVersionException if TLS protocol not FIPS compliant.
      */
-    public static void validateFipsTlsVersion(Map<String, ?> configs) {
+    public void validateFipsTlsVersion(Map<String, ?> configs) {
         @SuppressWarnings("unchecked")
         List<String> tlsVersionList = (List<String>) configs.get(SslConfigs.SSL_ENABLED_PROTOCOLS_CONFIG);
         validateFipsTlsVersion(tlsVersionList);
@@ -139,7 +144,7 @@ public class FipsValidator {
      *
      * @throws InvalidFipsCipherSuiteException if cipher suites not FIPS compliant.
      */
-    public static void validateFipsTlsCipherSuite(Collection<String> cipherSuites) {
+    public void validateFipsTlsCipherSuite(Collection<String> cipherSuites) {
         List<String> violatedCiphers = new ArrayList<>();
         if (cipherSuites != null && !cipherSuites.isEmpty()) {
             violatedCiphers = cipherSuites.stream()
@@ -160,7 +165,7 @@ public class FipsValidator {
      *
      * @throws InvalidFipsTlsVersionException if TLS protocol not FIPS compliant.
      */
-    public static void validateFipsTlsVersion(Collection<String> tlsVersions) {
+    public void validateFipsTlsVersion(Collection<String> tlsVersions) {
         List<String> violatedTlsVersions = new ArrayList<>();
         if (tlsVersions != null && !tlsVersions.isEmpty()) {
             violatedTlsVersions = tlsVersions.stream()
@@ -172,11 +177,5 @@ public class FipsValidator {
             log.error(exmsg);
             throw new InvalidFipsTlsVersionException(exmsg);
         }
-    }
-
-    /**
-     * Don't let anyone instantiate this.
-     */
-    private FipsValidator() {
     }
 }

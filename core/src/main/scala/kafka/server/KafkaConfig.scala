@@ -688,6 +688,9 @@ object KafkaConfig {
   val AuditLogEnableProp = ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG
   val AuditLogRouterConfigProp = ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG
 
+  /** ********* Enable FIPS Mode Configuration ****************/
+  val EnableFipsProp = ConfluentConfigs.ENABLE_FIPS_CONFIG
+
   /* Documentation */
   /** ********* Zookeeper Configuration ***********/
   val ZkConnectDoc = "Specifies the ZooKeeper connection string in the form <code>hostname:port</code> where host and port are the " +
@@ -1451,6 +1454,9 @@ object KafkaConfig {
       .define(AuditLogEnableProp, BOOLEAN, ConfluentConfigs.AUDIT_LOGGER_ENABLE_DEFAULT, HIGH, AuditLogEnableDoc)
       .define(AuditLogRouterConfigProp, STRING, ConfluentConfigs.AUDIT_EVENT_ROUTER_DEFAULT, LOW, AuditLogRouterConfigDoc)
 
+      /*********** Enable FIPS Mode Configuration ****************/
+      .define(EnableFipsProp, BOOLEAN, ConfluentConfigs.ENABLE_FIPS_DEFAULT, LOW, ConfluentConfigs.ENABLE_FIPS_DOC)
+
       /** ********* Confluent Configuration ****************/
       .defineInternal(BrokerInterceptorClassProp, CLASS, ConfluentConfigs.BROKER_INTERCEPTOR_CLASS_DEFAULT, LOW)
       .defineInternal(AppendRecordInterceptorClassesProp, LIST, Collections.emptyList(), LOW)
@@ -1938,6 +1944,9 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val transactionIdExpirationMs = getInt(KafkaConfig.TransactionalIdExpirationMsProp)
 
   /** ********* Confluent **************/
+  /************* Fips Configuration ***********/
+  val fipsEnabled = getBoolean(KafkaConfig.EnableFipsProp)
+
   val applyCreateTopicsPolicyToCreatePartitions =
     getBoolean(ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS)
   val verifyGroupSubscriptionPrefix = getBoolean(ConfluentConfigs.VERIFY_GROUP_SUBSCRIPTION_PREFIX)

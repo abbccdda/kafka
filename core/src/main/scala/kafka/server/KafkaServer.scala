@@ -58,6 +58,7 @@ import org.apache.kafka.common.security.{JaasContext, JaasUtils}
 import org.apache.kafka.common.utils.{AppInfoParser, LogContext, Time}
 import org.apache.kafka.common.{ClusterResource, Endpoint, Node}
 import org.apache.kafka.common.config.internals.ConfluentConfigs
+import org.apache.kafka.common.security.fips.FipsValidator
 import org.apache.kafka.server.authorizer.Authorizer
 import org.apache.kafka.server.http.{MetadataServer, MetadataServerFactory}
 import org.apache.kafka.server.license.LicenseValidator
@@ -238,6 +239,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
   private var licenseValidator: LicenseValidator = null
 
+  private var fipsValidator: FipsValidator = null
+
   def clusterId: String = _clusterId
 
   // Visible for testing
@@ -266,6 +269,13 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
       val canStartup = isStartingUp.compareAndSet(false, true)
       if (canStartup) {
         brokerState.newState(Starting)
+
+        /* check FIPS */
+        if (config.fipsEnabled) {
+          fipsValidator = ConfluentConfigs.buildFipsValidator()
+          checkFips1402(config)
+        }
+        info(s"FIPS mode enabled: ${config.fipsEnabled}")
 
         /* setup zookeeper */
         initZkClient(time)
@@ -965,5 +975,20 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         error("Failed to generate broker.id due to ", e)
         throw new GenerateBrokerIdException("Failed to generate broker.id", e)
     }
+  }
+
+  /**
+    * Check whether the TLS Cipher algorithms, TLS protocol versions and broker security protocol
+    * meet the FIPS requirement.
+    */
+  private def checkFips1402(brokerConfiguration: KafkaConfig): Unit = {
+    brokerConfiguration.listenerSecurityProtocolMap.foreach { case (listenerName, _) =>
+      fipsValidator.validateFipsTls(brokerConfiguration.valuesWithPrefixOverride(listenerName.configPrefix))
+    }
+
+    val listenerSecurityProtocolMap = brokerConfiguration.listenerSecurityProtocolMap
+      .map { case (listener, protocol) => listener.value() -> protocol }.asJava
+
+    fipsValidator.validateFipsBrokerProtocol(listenerSecurityProtocolMap)
   }
 }

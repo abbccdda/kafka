@@ -814,6 +814,9 @@ class KafkaConfigTest {
         case KafkaConfig.KafkaMetricsReporterClassesProp => // ignore
         case KafkaConfig.KafkaMetricsPollingIntervalSecondsProp => //ignore
 
+        //Enable FIPS mode config
+        case KafkaConfig.EnableFipsProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_boolean", "0")
+
         // Confluent Cloud configs
         case KafkaConfig.BrokerSessionUuidProp => // ignore string
         case KafkaConfig.AppendRecordInterceptorClassesProp => // ignore list

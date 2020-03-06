@@ -4,7 +4,6 @@
 
 package io.confluent.kafka.security.fips;
 
-import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import io.confluent.kafka.security.fips.exceptions.InvalidFipsTlsCipherSuiteException;
 import io.confluent.kafka.security.fips.exceptions.InvalidFipsBrokerProtocolException;
@@ -23,22 +22,22 @@ public class FipsValidatorTest {
         Map<String, Object> config = new HashMap<>();
         config.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG,
                     Arrays.asList("TLS_DHE_DSS_WITH_DES_EDE_CBC_SHA", "TLS_DHE_DSS_WITH_AES_92_CBC_SHA"));
-        FipsValidator.validateFipsTls(config);
+        new ConfluentFipsValidator().validateFipsTlsCipherSuite(config);
     }
 
     @Test(expected = InvalidFipsTlsVersionException.class)
     public void testInvalidFipsTlsVersionsConfigured() throws Exception {
         Map<String, Object> config = new HashMap<>();
         config.put(SslConfigs.SSL_ENABLED_PROTOCOLS_CONFIG, Arrays.asList("TLSv1.0", "SSL3.0"));
-        FipsValidator.validateFipsTls(config);
+        new ConfluentFipsValidator().validateFipsTls(config);
     }
 
     @Test(expected = InvalidFipsBrokerProtocolException.class)
     public void testInvalidFipsBrokerProtocolsConfigured() throws Exception {
-        Map<ListenerName, SecurityProtocol> securityProtocols = new HashMap<>();
-        securityProtocols.put(new ListenerName("External"), SecurityProtocol.SASL_PLAINTEXT);
-        securityProtocols.put(new ListenerName("Internal"), SecurityProtocol.SASL_PLAINTEXT);
-        FipsValidator.validateFipsBrokerProtocol(securityProtocols);
+        Map<String, SecurityProtocol> securityProtocols = new HashMap<>();
+        securityProtocols.put("External", SecurityProtocol.SASL_PLAINTEXT);
+        securityProtocols.put("Internal", SecurityProtocol.SASL_PLAINTEXT);
+        new ConfluentFipsValidator().validateFipsBrokerProtocol(securityProtocols);
     }
 
     @Test
@@ -47,19 +46,19 @@ public class FipsValidatorTest {
         config.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG,
                     Arrays.asList("TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA", "TLS_DHE_DSS_WITH_AES_128_CBC_SHA"));
         config.put(SslConfigs.SSL_ENABLED_PROTOCOLS_CONFIG, Arrays.asList("TLSv1.2"));
-        FipsValidator.validateFipsTls(config);
+        new ConfluentFipsValidator().validateFipsTls(config);
 
         List<String> cipherSuites = Arrays.asList("TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA", "TLS_DHE_DSS_WITH_AES_128_CBC_SHA");
-        FipsValidator.validateFipsTlsCipherSuite(cipherSuites);
+        new ConfluentFipsValidator().validateFipsTlsCipherSuite(cipherSuites);
 
         List<String> tlsVersions = Arrays.asList("TLSv1.2");
-        FipsValidator.validateFipsTlsVersion(tlsVersions);
+        new ConfluentFipsValidator().validateFipsTlsVersion(tlsVersions);
     }
 
     @Test
     public void testValidFipsBrokerProtocolConfigured() throws Exception {
-        Map<ListenerName, SecurityProtocol> securityProtocol = new HashMap<>();
-        securityProtocol.put(new ListenerName("External"), SecurityProtocol.SASL_SSL);
-        FipsValidator.validateFipsBrokerProtocol(securityProtocol);
+        Map<String, SecurityProtocol> securityProtocol = new HashMap<>();
+        securityProtocol.put("External",  SecurityProtocol.SASL_SSL);
+        new ConfluentFipsValidator().validateFipsBrokerProtocol(securityProtocol);
     }
 }

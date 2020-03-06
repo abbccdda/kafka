@@ -41,6 +41,7 @@ import org.apache.kafka.server.interceptor.BrokerInterceptor;
 import org.apache.kafka.server.interceptor.DefaultBrokerInterceptor;
 import org.apache.kafka.server.license.LicenseValidator;
 import org.apache.kafka.server.multitenant.MultiTenantMetadata;
+import org.apache.kafka.common.security.fips.FipsValidator;
 
 public class ConfluentConfigs {
     private static final String CONFLUENT_PREFIX = "confluent.";
@@ -223,6 +224,11 @@ public class ConfluentConfigs {
     public static final String AUDIT_LOGGER_ENABLE_DEFAULT = "true";
     public static final String AUDIT_LOGGER_ENABLE_DOC = "Whether the event logger is enabled";
 
+    public static final String ENABLE_FIPS_CONFIG = "enable.fips";
+    public static final String ENABLE_FIPS_DEFAULT = "false";
+    public static final String ENABLE_FIPS_DOC = "Enable FIPS mode on the server. If FIPS mode is enabled, " +
+            "broker listener security protocols, TLS versions and cipher suites will be validated based on " +
+            "FIPS compliance requirement.";
 
     public enum ClientType {
         PRODUCER("producer", ProducerConfig.configNames()),
@@ -353,6 +359,27 @@ public class ConfluentConfigs {
         updatePrefixedConfigs(srcConfigs, clientConfigs, configPrefix + clientType.type + ".");
         updatePrefixedConfigs(srcConfigs, clientConfigs, configPrefix);
         return clientConfigs;
+    }
+
+    /**
+     * Build the instance of FipsValidator from the service configured for FipsValidator.
+     *
+     * @param config The config contains configuration from CP components.
+     * @return the instance of FipsValidator
+     */
+    public static FipsValidator buildFipsValidator() {
+        FipsValidator fipsValidator = null;
+        ServiceLoader<FipsValidator> validators = ServiceLoader.load(FipsValidator.class);
+        for (FipsValidator validator : validators) {
+            if (validator.fipsEnabled()) {
+                fipsValidator = validator;
+                break;
+            }
+        }
+        if (fipsValidator == null) {
+            throw new IllegalStateException("FIPS validator not found");
+        }
+        return fipsValidator;
     }
 
     /**
