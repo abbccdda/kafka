@@ -540,24 +540,6 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
     assertEquals("2", log.config.originals().get(KafkaConfig.MinInSyncReplicasProp).toString) // Verify topic-level config still survives
   }
 
-  def testBalancerConfigUpdate(): Unit = {
-    val (producerThread, consumerThread) = startProduceConsume(0)
-    val props = new Properties
-    props.put(ConfluentConfigs.BALANCER_MODE_CONFIG, "DISABLED")
-    props.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "50")
-    props.put(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG, "test-topic, some-topic, another_topic")
-    props.put(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, "test, some")
-    reconfigureServers(props, perBrokerConfig = false, (ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "50"))
-    // verify that all broker defaults have been updated
-    servers.foreach { server =>
-      props.asScala.foreach { case (k, v) =>
-        assertEquals(s"Not reconfigured $k", server.config.originals.get(k).toString, v)
-      }
-    }
-    // verify produce/consume works throughout balancer config updates with no retries
-    stopAndVerifyProduceConsume(producerThread, consumerThread)
-  }
-
   @Test
   def testBalancerModeInvalidConfigUpdate(): Unit = {
     val (producerThread, consumerThread) = startProduceConsume(0)
@@ -578,6 +560,22 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
     stopAndVerifyProduceConsume(producerThread, consumerThread)
   }
 
+  @Test
+  def testBalancerConfigUpdate(): Unit = {
+    val (producerThread, consumerThread) = startProduceConsume(0)
+    val props = new Properties
+    props.put(ConfluentConfigs.BALANCER_MODE_CONFIG, "DISABLED")
+    props.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "50")
+    reconfigureServers(props, perBrokerConfig = false, (ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "50"))
+    // verify that all broker defaults have been updated
+    servers.foreach { server =>
+      props.asScala.foreach { case (k, v) =>
+        assertEquals(s"Not reconfigured $k", server.config.originals.get(k).toString, v)
+      }
+    }
+    // verify produce/consume works throughout balancer config updates with no retries
+    stopAndVerifyProduceConsume(producerThread, consumerThread)
+  }
 
   @Test
   def testDefaultTopicConfig(): Unit = {

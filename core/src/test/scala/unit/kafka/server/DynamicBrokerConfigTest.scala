@@ -203,10 +203,6 @@ class DynamicBrokerConfigTest {
     verifyConfigUpdate(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "200", perBrokerConfig = false, expectFailure = false)
     verifyConfigUpdate(ConfluentConfigs.BALANCER_MODE_CONFIG, "ENABLED", perBrokerConfig = false, expectFailure = false)
     verifyConfigUpdate(ConfluentConfigs.BALANCER_MODE_CONFIG, "PAUSED", perBrokerConfig = false, expectFailure = true)
-    verifyConfigUpdate(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG, "topic1, topic2, topic3",
-      perBrokerConfig = false, expectFailure = false)
-    verifyConfigUpdate(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, "test1, test2",
-      perBrokerConfig = false, expectFailure = false)
   }
 
   @Test

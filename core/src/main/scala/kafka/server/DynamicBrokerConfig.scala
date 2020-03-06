@@ -964,8 +964,6 @@ object DynamicBalancerConfig {
   val ReconfigurableConfigs = Set(
     ConfluentConfigs.BALANCER_MODE_CONFIG,
     ConfluentConfigs.BALANCER_THROTTLE_CONFIG,
-    ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG,
-    ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG
   )
 }
 
