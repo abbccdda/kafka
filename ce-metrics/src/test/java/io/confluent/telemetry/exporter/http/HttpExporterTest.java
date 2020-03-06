@@ -2,6 +2,7 @@ package io.confluent.telemetry.exporter.http;
 
 import com.google.common.collect.ImmutableMap;
 
+import io.confluent.shaded.io.reactivex.Observable;
 import org.assertj.core.data.Offset;
 import org.junit.Rule;
 import org.junit.Test;
@@ -14,12 +15,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import io.confluent.observability.telemetry.ResourceBuilderFacade;
-import io.confluent.observability.telemetry.TelemetryResourceType;
-import io.confluent.observability.telemetry.client.BufferingAsyncTelemetryHttpClient;
-import io.confluent.observability.telemetry.client.BufferingAsyncTelemetryHttpClientStats;
-import io.confluent.observability.telemetry.v1.TelemetryReceiverSubmitMetricsRequest;
-import io.confluent.observability.telemetry.v1.TelemetryReceiverSubmitMetricsResponse;
+import io.confluent.telemetry.ResourceBuilderFacade;
+import io.confluent.telemetry.TelemetryResourceType;
+import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClient;
+import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClientStats;
+import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsRequest;
+import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsResponse;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.collector.MetricsCollector;
@@ -27,7 +28,6 @@ import io.confluent.telemetry.exporter.TestExporter;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor;
 import io.opencensus.proto.resource.v1.Resource;
-import io.reactivex.Observable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;

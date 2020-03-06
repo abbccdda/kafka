@@ -2,12 +2,12 @@ package io.confluent.telemetry.exporter.http;
 
 import com.google.common.base.Strings;
 import com.google.common.base.Verify;
-import io.confluent.observability.telemetry.client.BufferingAsyncTelemetryHttpClient;
-import io.confluent.observability.telemetry.client.CompressionAlgorithm;
-import io.confluent.observability.telemetry.client.TelemetryHttpClient;
-import io.confluent.observability.telemetry.client.TelemetryHttpClient.Builder;
-import io.confluent.observability.telemetry.v1.TelemetryReceiverSubmitMetricsRequest;
-import io.confluent.observability.telemetry.v1.TelemetryReceiverSubmitMetricsResponse;
+import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClient;
+import io.confluent.telemetry.client.CompressionAlgorithm;
+import io.confluent.telemetry.client.TelemetryHttpClient;
+import io.confluent.telemetry.client.TelemetryHttpClient.Builder;
+import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsRequest;
+import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsResponse;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.opencensus.proto.metrics.v1.Metric;
 import java.net.URI;

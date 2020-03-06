@@ -10,7 +10,7 @@ import com.google.protobuf.DoubleValue;
 import com.google.protobuf.Int64Value;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Timestamp;
-import io.confluent.observability.telemetry.MetricBuilderFacade;
+import io.confluent.telemetry.MetricBuilderFacade;
 import io.confluent.telemetry.MetricsUtils;
 import io.opencensus.proto.metrics.v1.DistributionValue;
 import io.opencensus.proto.metrics.v1.Metric;

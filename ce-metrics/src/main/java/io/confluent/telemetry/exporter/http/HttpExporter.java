@@ -16,12 +16,12 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
-import io.confluent.observability.telemetry.client.BufferingAsyncTelemetryHttpClient;
-import io.confluent.observability.telemetry.client.BufferingAsyncTelemetryHttpClientBatchResult;
-import io.confluent.observability.telemetry.client.BufferingAsyncTelemetryHttpClientStats;
-import io.confluent.observability.telemetry.client.TelemetryHttpClient;
-import io.confluent.observability.telemetry.v1.TelemetryReceiverSubmitMetricsRequest;
-import io.confluent.observability.telemetry.v1.TelemetryReceiverSubmitMetricsResponse;
+import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClient;
+import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClientBatchResult;
+import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClientStats;
+import io.confluent.telemetry.client.TelemetryHttpClient;
+import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsRequest;
+import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsResponse;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;

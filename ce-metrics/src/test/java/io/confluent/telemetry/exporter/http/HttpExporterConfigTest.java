@@ -1,11 +1,11 @@
 package io.confluent.telemetry.exporter.http;
 
 import com.google.common.collect.ImmutableMap;
-import io.confluent.observability.telemetry.client.BufferingAsyncTelemetryHttpClient.Builder;
-import io.confluent.observability.telemetry.client.CompressionAlgorithm;
-import io.confluent.observability.telemetry.client.TelemetryHttpClient;
-import io.confluent.observability.telemetry.v1.TelemetryReceiverSubmitMetricsRequest;
-import io.confluent.observability.telemetry.v1.TelemetryReceiverSubmitMetricsResponse;
+import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClient.Builder;
+import io.confluent.telemetry.client.CompressionAlgorithm;
+import io.confluent.telemetry.client.TelemetryHttpClient;
+import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsRequest;
+import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsResponse;
 import io.opencensus.proto.metrics.v1.Metric;
 import java.util.Map;
 import org.apache.kafka.common.config.ConfigException;

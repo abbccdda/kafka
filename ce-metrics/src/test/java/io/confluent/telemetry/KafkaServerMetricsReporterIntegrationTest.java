@@ -1,7 +1,6 @@
 package io.confluent.telemetry;
 
 import io.confluent.metrics.reporter.integration.MetricReporterClusterTestHarness;
-import io.confluent.observability.telemetry.TelemetryResourceType;
 import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 import io.confluent.telemetry.reporter.KafkaServerMetricsReporter;
 import io.confluent.telemetry.serde.OpencensusMetricsProto;
@@ -112,7 +111,8 @@ public class KafkaServerMetricsReporterIntegrationTest extends MetricReporterClu
 
                 assertTrue(
                     brokerRacks.contains(
-                        resourceLabels.get(TelemetryResourceType.KAFKA.prefixLabel(KafkaServerMetricsReporter.LABEL_BROKER_RACK))
+                        resourceLabels.get(TelemetryResourceType.KAFKA.prefixLabel(
+                            KafkaServerMetricsReporter.LABEL_BROKER_RACK))
                     )
                 );
 

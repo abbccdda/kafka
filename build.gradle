@@ -2211,23 +2211,11 @@ project(':ce-metrics') {
     relocate('io.opencensus', 'io.confluent.shaded.io.opencensus')
     relocate('io.grpc', 'io.confluent.shaded.io.grpc')
 
-    // Transitive deps of the telemetry-client: asynchttpclient, netty, reactive-streams,
-    // com.typesafe-netty, io.reactivex.rxjava2
-    // note that we exclude slf4j-api, lz4, and zstd-jni from the build. These
-    // are provided at runtime by kafka-clients transitive dependencies.
-    relocate('org.asynchttpclient', 'io.confluent.shaded.org.asynchttpclient')
-    relocate('com.typesafe.netty', 'io.confluent.shaded.com.typesafe.netty')
-    relocate('io.netty', 'io.confluent.shaded.io.netty')
-    relocate('io.reactivex', 'io.confluent.shaded.io.reactivex')
-    relocate('org.reactivestreams', 'io.confluent.shaded.org.reactivestreams')
-    // For Java 9+, {javax,com.sun}.activation are needed by asynchttpclient. See:
-    // https://github.com/AsyncHttpClient/async-http-client/issues/1541
-    relocate('javax.activation', 'io.confluent.shaded.javax.activation')
-    relocate('com.sun.activation', 'io.confluent.shaded.com.sun.activation')
-
     // used by io.confluent.telemetry.serde.ProtoToFlatJson
     relocate('com.fasterxml.jackson', 'io.confluent.shaded.com.fasterxml.jackson')
 
+    // note that we exclude slf4j-api, lz4, and zstd-jni from the build. These
+    // are provided at runtime by kafka-clients transitive dependencies.
     dependencies {
       // don't pull in several items that will be included at runtime by kafka-clients.
       exclude(dependency(libs.zstd))

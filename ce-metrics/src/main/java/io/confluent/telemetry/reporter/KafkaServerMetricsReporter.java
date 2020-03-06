@@ -1,13 +1,13 @@
 package io.confluent.telemetry.reporter;
 
-import static io.confluent.observability.telemetry.TelemetryResourceType.KAFKA;
+import static io.confluent.telemetry.TelemetryResourceType.KAFKA;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
-import io.confluent.observability.telemetry.ResourceBuilderFacade;
+import io.confluent.telemetry.ResourceBuilderFacade;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricsCollectorTask;
