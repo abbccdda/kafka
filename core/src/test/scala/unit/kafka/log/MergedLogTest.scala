@@ -26,7 +26,7 @@ import kafka.utils.{MockTask, MockTime, Scheduler, TestUtils}
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, RecordBatch, SimpleRecord}
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.junit.Assert.{assertEquals, assertTrue, fail}
-import org.junit.{After, Test}
+import org.junit.{After, Before, Test}
 import org.mockito.Mockito._
 
 import scala.collection.JavaConverters._
@@ -45,6 +45,11 @@ class MergedLogTest {
   val topicIdPartition = new TopicIdPartition(topicPartition.topic, UUID.randomUUID, topicPartition.partition)
   val tierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))
   val tierLogComponents = TierLogComponents(Some(tierTopicConsumer), Some(tierObjectStore), new TierPartitionStateFactory(true))
+
+  @Before
+  def setUp(): Unit = {
+    TierTestUtils.initTierTopicOffset()
+  }
 
   @After
   def tearDown() {
@@ -635,7 +640,7 @@ class MergedLogTest {
     tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
-      leaderEpoch, java.util.UUID.randomUUID(), 0), 0)
+      leaderEpoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffset)
     val pid1 = 1L
     var lastOffset = 0L
     for (i <- 0 to 15) {
@@ -730,7 +735,7 @@ class MergedLogTest {
     tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
-      leaderEpoch, java.util.UUID.randomUUID(), 0), 0)
+      leaderEpoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffset)
     val pid1 = 1L
     var lastOffset = 0L
     for (i <- 0 to 20) {
@@ -813,7 +818,7 @@ class MergedLogTest {
     tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
-      leaderEpoch, java.util.UUID.randomUUID(), 0), 0)
+      leaderEpoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffset)
 
     val pid = 137L
     val epoch = 5.toShort
@@ -944,7 +949,7 @@ class MergedLogTest {
     tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
-      epoch, java.util.UUID.randomUUID(), 0), 0)
+      epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffset)
 
     // append metadata for tiered segments
     tieredSegments.foreach { segment =>
@@ -1007,7 +1012,7 @@ class MergedLogTest {
     tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
-      epoch, java.util.UUID.randomUUID(), 0), 0)
+      epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffset)
 
     // append metadata for tiered segments
     tieredSegments.foreach { segment =>
@@ -1190,7 +1195,7 @@ class MergedLogTest {
     tierPartitionState.setTopicId(topicIdPartition.topicId)
     tierPartitionState.onCatchUpComplete()
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
-      epoch, java.util.UUID.randomUUID(), 0), 0)
+      epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffset)
   }
 
   private def logRanges(log: MergedLog): LogRanges = {
@@ -1285,7 +1290,7 @@ object MergedLogTest {
     tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
       epoch,
       java.util.UUID.randomUUID(),
-      0), 0)
+      0), TierTestUtils.nextTierTopicOffset)
 
     // initialize metadata for tiered segments
     val segmentsToTier = log.localLogSegments.take(numTieredSegments + numOverlap)

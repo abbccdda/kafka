@@ -7,6 +7,7 @@ package kafka.tier
 import java.nio.ByteBuffer
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.atomic.AtomicLong
 
 import kafka.log.AbstractLog
 import kafka.server.KafkaServer
@@ -24,6 +25,16 @@ import org.junit.Assert.assertTrue
 import scala.collection.JavaConverters._
 
 object TierTestUtils {
+  private val _tierTopicOffset: AtomicLong = new AtomicLong(-1L)
+
+  def nextTierTopicOffset: Long = {
+    _tierTopicOffset.incrementAndGet()
+  }
+
+  def initTierTopicOffset(): Unit= {
+    _tierTopicOffset.set(-1)
+  }
+
   def ensureTierable(log: AbstractLog, tierEndOffset: Long, topicPartition: TopicPartition, leaderEpoch: Int = 0): Unit = {
     val activeSegment = log.activeSegment
 
@@ -108,12 +119,12 @@ object TierTestUtils {
     val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, tierEpoch, objectId, startOffset, endOffset,
       maxTimestamp, size, hasEpochState, hasAbortedTxnIndex, hasProducerState)
 
-    val result = tierPartitionState.append(uploadInitiate, 0)
+    val result = tierPartitionState.append(uploadInitiate, nextTierTopicOffset)
     if (result != AppendResult.ACCEPTED) {
       result
     } else {
       val uploadComplete = new TierSegmentUploadComplete(uploadInitiate)
-      tierPartitionState.append(uploadComplete, 0)
+      tierPartitionState.append(uploadComplete, nextTierTopicOffset)
     }
   }
 

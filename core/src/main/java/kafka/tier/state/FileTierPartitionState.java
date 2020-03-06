@@ -448,8 +448,17 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 log.debug("Skipping processing for {} from offset {} as file is not open for write",
                         metadata, tierTopicPartitionOffset);
                 return AppendResult.NOT_TIERABLE;
+            } else if (state.consumptionInfo.localMaterializedOffset >= tierTopicPartitionOffset) {
+                // This is a duplicate message with previous offset as the local state
+                // has advanced to a future offset, some reasons why a duplicate event can occur are:
+                // 1. Transitioning from Catchup mode to Online mode, when catchup consumer surpasses before transition.
+                // 2. During recovery, the TierTopicConsumer may start from offset already processed.
+                // However, we are returning Fenced result because we don't want to allow replay
+                // from previous offsets without resetting the existing current_offset
+                log.debug("Received TierTopicPartition offset: {} <= current_offset: {} for {}",
+                    tierTopicPartitionOffset, state.consumptionInfo.localMaterializedOffset, topicIdPartition());
+                return AppendResult.FENCED;
             }
-
             AppendResult result = appendMetadata(metadata, tierTopicPartitionOffset);
             log.debug("Processed append for {} with result {} consumed from offset {}",
                     metadata, result, tierTopicPartitionOffset);
@@ -575,19 +584,6 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         log.info("Status updated to {} for {}", status, topicIdPartition());
     }
 
-    // Caller must synchronize accesses
-    private void updateLocalMaterializedOffset(long offset) {
-        // Ignore this duplicate message of previous as the local state has advanced to a future offset, some reasons
-        // why a duplicate event can occur are:
-        // 1. Transitioning from Catchup mode to Online mode, when catchup consumer surpasses before transition.
-        // 2. During recovery, the TierTopicConsumer may start from offset already processed.
-        if (state.consumptionInfo.localMaterializedOffset >= offset) {
-            log.debug("Ignoring previous TierTopicPartition offset {} for {}", offset, topicIdPartition());
-            return;
-        }
-        state.consumptionInfo.localMaterializedOffset = offset;
-    }
-
     private static List<TierObjectMetadata> metadataForStates(TopicIdPartition topicIdPartition,
                                                               State currentState,
                                                               Set<TierObjectMetadata.State> states) {
@@ -672,7 +668,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         AbstractTierMetadata entry, long tierTopicPartitionOffset) throws IOException {
         try {
             AppendResult result = appendMetadata(entry);
-            updateLocalMaterializedOffset(tierTopicPartitionOffset);
+            state.consumptionInfo.localMaterializedOffset = tierTopicPartitionOffset;
             return result;
         } catch (IOException e) {
             // Handle IOException specially by marking the dir offline, as it indicates a
@@ -765,18 +761,14 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 return AppendResult.ACCEPTED;
             } else if (!currentState.state.canTransitionTo(metadata.state())) {
                 // We have seen this transition before so fence it. This can only happen in couple of scenarios:
-                // 1. We are reprocessing messages after an unclean shutdown.
-                // 2. We are reprocessing messages after catchup -> online transition, as the primary consumer could be
-                //    lagging the catchup consumer before the switch happened.
-                // 3. The producer retried a message that was successfully written but was not
+                // Given that we have a stronger bound on the caller based on the last materialized offset,
+                // we won't run into the reprocessing use-case. However, we can still run into the following scenario:
+                // 1. The producer retried a message that was successfully written but was not
                 //    acked. Retries will be fenced knowing that:
                 //       a) any future completed by the TierTopicManager will have been completed correctly by the
                 //          previous copy of this message.
-                //       b) This fencing will not be problematic to the archiver due to 3(a)
+                //       b) This fencing will not be problematic to the archiver due to 1(a)
                 //          completing the materialization correctly.
-                // We deal with this here for now but in future, we should be able to make this better and assert stronger
-                // guarantees by storing the last materialized offset in the tier partition state file and checking if we
-                // are reprocessing materialized offsets.
                 log.info("Fencing already processed transition for {} with currentState={} ({})", metadata, currentState, topicIdPartition);
                 return AppendResult.FENCED;
             }

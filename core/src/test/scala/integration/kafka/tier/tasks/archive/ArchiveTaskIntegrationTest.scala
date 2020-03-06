@@ -11,7 +11,7 @@ import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ExecutorServi
 import kafka.log.{AbstractLog, Log, LogTest, TierLogComponents}
 import kafka.server.{BrokerTopicStats, KafkaConfig, LogDirFailureChannel, ReplicaManager}
 import kafka.server.LogDirFailureChannel
-import kafka.tier.TopicIdPartition
+import kafka.tier.{TierTestUtils, TopicIdPartition}
 import kafka.tier.domain.{AbstractTierMetadata, TierTopicInitLeader}
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.{FileTierPartitionState, TierPartitionState, TierPartitionStateFactory}
@@ -54,6 +54,7 @@ class ArchiveTaskIntegrationTest {
     config = KafkaConfig.fromProps(props)
     val topicPartition = Log.parseTopicPartitionName(logDir)
     topicIdPartition = new TopicIdPartition(topicPartition.topic, UUID.randomUUID, topicPartition.partition)
+    TierTestUtils.initTierTopicOffset()
   }
 
   @After()
@@ -85,12 +86,12 @@ class ArchiveTaskIntegrationTest {
     override def becomeArchiver(topicPartition: TopicIdPartition, tierEpoch: Int): CompletableFuture[TierPartitionState.AppendResult] = {
       val tierPartitionState = tierPartitionStates.get(topicPartition)
       val becomeLeaderMessage = new TierTopicInitLeader(topicPartition, tierEpoch, UUID.randomUUID(), 0)
-      Future.successful(tierPartitionState.append(becomeLeaderMessage, 0)).toJava.toCompletableFuture
+      Future.successful(tierPartitionState.append(becomeLeaderMessage, TierTestUtils.nextTierTopicOffset)).toJava.toCompletableFuture
     }
 
     override def addMetadata(entry: AbstractTierMetadata): CompletableFuture[TierPartitionState.AppendResult] = {
       val tierPartitionState = tierPartitionStates.get(topicIdPartition)
-      Future.successful(tierPartitionState.append(entry, 0)).toJava.toCompletableFuture
+      Future.successful(tierPartitionState.append(entry, TierTestUtils.nextTierTopicOffset)).toJava.toCompletableFuture
     }
 
     override def isReady: Boolean = true
