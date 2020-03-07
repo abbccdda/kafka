@@ -449,16 +449,24 @@ public class VerifiableConsumer implements Closeable, OffsetCommitCallback, Cons
         }
 
         @Override
-        public String name() { return "offset_for_times_data"; }
+        public String name() {
+            return "offset_for_times_data";
+        }
 
         @JsonProperty
-        public TopicPartition partition() { return this.partition; }
+        public TopicPartition partition() {
+            return this.partition;
+        }
 
         @JsonProperty
-        public long timestamp() { return this.timestamp; }
+        public long timestamp() {
+            return this.timestamp;
+        }
 
         @JsonProperty
-        public long offset() { return this.offset; }
+        public long offset() {
+            return this.offset;
+        }
     }
 
     private static class PartitionData {
