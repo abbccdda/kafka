@@ -3,6 +3,7 @@ from ducktape.utils.util import wait_until
 
 from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.services.kafka import KafkaService
+from kafkatest.services.verifiable_consumer import VerifiableConsumer
 from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
@@ -12,6 +13,22 @@ from kafkatest.version import LATEST_0_9, LATEST_0_10_0, LATEST_0_10_1, \
     LATEST_0_10_2, LATEST_0_11_0, LATEST_1_0, LATEST_1_1, LATEST_2_0, \
     LATEST_2_1, LATEST_2_2, LATEST_2_3, LATEST_2_4, DEV_BRANCH, KafkaVersion
 
+def verify_offset_for_times_data(producer_data, consumer_data):
+    """
+    Verify that the timestamp to offset information extracted by a consumer matches that from a producer. Producers
+    can collect this information while producing a record and consumers collect this information using their API call
+    offsetsForTimes()
+    Input data is expected as nested dictionaries. {<TopicPartition> : {<timestamp> : <offset>}}
+    :param producer_data: timestamp to offset information specific to topic partition(s), provided by a producer
+    :param consumer_data: timestamp to offset information specific to topic partition(s), provided by a consumer
+    """
+    msg = "Mismatch at offsetForTimes verification: "
+    for tp in consumer_data.keys():
+        assert tp in producer_data, (msg + "Consumer read from partition: %s but producer did not write to it" % tp)
+        for ts, off in consumer_data[tp].iteritems():
+            assert ts in producer_data[tp], (msg + "Producer did not produce any record at timestamp: %s for partition: %s " % (ts, tp))
+            assert producer_data[tp][ts] == off, (msg + "Partition %s :: Producer(ts: %s, offset: %s) Consumer(ts: %s, offset: %s)"
+                                                  % (tp, ts, producer_data[tp][ts], ts, off))
 
 class TierRoundtripTest(ProduceConsumeValidateTest, TierSupport):
     """
@@ -49,6 +66,7 @@ class TierRoundtripTest(ProduceConsumeValidateTest, TierSupport):
 
         self.num_producers = 1
         self.num_consumers = 1
+        self.num_verifiable_consumers = 1
 
     def setUp(self):
         self.zk.start()
@@ -87,20 +105,40 @@ class TierRoundtripTest(ProduceConsumeValidateTest, TierSupport):
         self.producer.start()
 
         wait_until(lambda: self.producer.each_produced_at_least(self.MIN_RECORDS_PRODUCED),
-            timeout_sec=120, backoff_sec=1,
+            timeout_sec=180, backoff_sec=1,
             err_msg="Producer did not produce all messages in reasonable amount of time")
-
+        producer_data = self.producer.offset_for_times_data
+        end_offsets = self.producer.last_acked_offsets
         self.producer.stop()
 
         self.add_log_metrics(self.topic)
         self.restart_jmx_tool()
 
         wait_until(lambda: self.tiering_completed(self.topic),
-                   timeout_sec=60, backoff_sec=2, err_msg="archive did not complete within timeout")
+                   timeout_sec=180, backoff_sec=2, err_msg="archive did not complete within timeout")
 
         self.consumer.start()
         self.consumer.wait()
         self.validate()
+
+        if client_version == DEV_BRANCH:
+            self.verifiable_consumer = VerifiableConsumer(self.test_context, self.num_verifiable_consumers, self.kafka, self.topic,
+                                                            group_id = "test_consumer_group", static_membership=False,
+                                                            max_messages=-1, session_timeout_sec=30, enable_autocommit=False,
+                                                            assignment_strategy=None, version=KafkaVersion(client_version),
+                                                            stop_timeout_sec=30, log_level="INFO", jaas_override_variables=None,
+                                                            on_record_consumed=None, reset_policy="earliest", verify_offsets=False,
+                                                            send_offset_for_times_data=True)
+            self.verifiable_consumer.start()
+            def verifiable_consumer_done():
+                for partition in range(self.kafka.topics[self.topic]["partitions"]):
+                    if end_offsets[(self.topic, partition)] > self.verifiable_consumer.current_position((self.topic, partition)):
+                        return False
+                return True
+
+            wait_until(verifiable_consumer_done,
+                       timeout_sec=180, backoff_sec=5, err_msg="VerifiableConsumer did not finish in reasonable amount of time")
+            verify_offset_for_times_data(producer_data, self.verifiable_consumer.offset_for_times_data)
 
         self.kafka.read_jmx_output_all_nodes()
         tier_bytes_fetched = self.kafka.maximum_jmx_value[str(TieredStorageMetricsRegistry.FETCHER_BYTES_FETCHED)]

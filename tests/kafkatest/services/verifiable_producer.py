@@ -92,6 +92,7 @@ class VerifiableProducer(KafkaPathResolverMixin, VerifiableClientMixin, Backgrou
             node.version = version
         self.acked_values = []
         self.acked_values_by_partition = {}
+        self.offset_for_times_data = {}
         self._last_acked_offsets = {}
         self.not_acked_values = []
         self.produced_count = {}
@@ -186,6 +187,12 @@ class VerifiableProducer(KafkaPathResolverMixin, VerifiableClientMixin, Backgrou
                             self.acked_values_by_partition[partition] = []
                         self.acked_values_by_partition[partition].append(value)
 
+                        if "timestamp" in data and data["timestamp"] != -1 and data["timestamp"] is not None:
+                            if partition not in self.offset_for_times_data:
+                                self.offset_for_times_data[partition] = {}
+                            if data["timestamp"] not in self.offset_for_times_data[partition] or \
+                                self.offset_for_times_data[partition][data["timestamp"]] > data["offset"]:
+                                self.offset_for_times_data[partition][data["timestamp"]] = data["offset"]
                         self._last_acked_offsets[partition] = data["offset"]
                         self.produced_count[idx] += 1
 

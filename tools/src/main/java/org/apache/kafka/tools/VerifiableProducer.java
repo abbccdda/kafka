@@ -385,6 +385,11 @@ public class VerifiableProducer implements AutoCloseable {
         public long offset() {
             return recordMetadata.offset();
         }
+
+        @JsonProperty
+        public long timestamp() {
+            return recordMetadata.timestamp();
+        }
     }
 
     private static class FailedSend extends ProducerEvent {

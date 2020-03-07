@@ -36,6 +36,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.clients.consumer.OffsetAndTimestamp;
 import org.apache.kafka.clients.consumer.OffsetCommitCallback;
 import org.apache.kafka.clients.consumer.RangeAssignor;
 import org.apache.kafka.clients.consumer.RoundRobinAssignor;
@@ -96,6 +97,8 @@ public class VerifiableConsumer implements Closeable, OffsetCommitCallback, Cons
     private final boolean verbose;
     private final int maxMessages;
     private int consumedMessages = 0;
+    private final boolean sendOffsetForTimesData;
+    private HashMap<TopicPartition, Long> partitionToLastTimestamp;
 
     private CountDownLatch shutdownLatch = new CountDownLatch(1);
 
@@ -105,7 +108,8 @@ public class VerifiableConsumer implements Closeable, OffsetCommitCallback, Cons
                               int maxMessages,
                               boolean useAutoCommit,
                               boolean useAsyncCommit,
-                              boolean verbose) {
+                              boolean verbose,
+                              boolean sendOffsetForTimesData) {
         this.consumer = consumer;
         this.out = out;
         this.topic = topic;
@@ -113,7 +117,9 @@ public class VerifiableConsumer implements Closeable, OffsetCommitCallback, Cons
         this.useAutoCommit = useAutoCommit;
         this.useAsyncCommit = useAsyncCommit;
         this.verbose = verbose;
+        this.sendOffsetForTimesData = sendOffsetForTimesData;
         addKafkaSerializerModule();
+        this.partitionToLastTimestamp = new HashMap<TopicPartition, Long>();
     }
 
     private void addKafkaSerializerModule() {
@@ -223,6 +229,33 @@ public class VerifiableConsumer implements Closeable, OffsetCommitCallback, Cons
         }
     }
 
+    /**
+     * Given a collection of records polled by a consumer, get timestamp to offset information for each of the partitions
+     * subscribed by the consumer.
+     * Select the highest timestamp from the input collection of records, provided this timestamp has not been processed
+     * already for this partition by an earlier call to this method (dedup timestamps across partition).
+     * Stream the resulting offset-for-timestamp information over the output stream associated with the instance of
+     * VerifiableConsumer.
+     * @param records collection of records polled by a consumer
+     */
+    private void streamOffsetForTimesData(ConsumerRecords<String, String> records) {
+        Map<TopicPartition, Long> partitionToTimeStamp = new HashMap<>();
+        for (TopicPartition tp: consumer.assignment()) {
+            List<ConsumerRecord<String, String>> recordsForCurrentTP = records.records(tp);
+            for (ConsumerRecord<String, String> record : recordsForCurrentTP) {
+                if (!partitionToLastTimestamp.containsKey(tp) || record.timestamp() > partitionToLastTimestamp.get(tp)) {
+                    partitionToTimeStamp.put(tp, record.timestamp());
+                    partitionToLastTimestamp.put(tp, record.timestamp());
+                    break;
+                }
+            }
+        }
+        Map<TopicPartition, OffsetAndTimestamp> partitionToOffsetAndTimestamp = consumer.offsetsForTimes(partitionToTimeStamp);
+        for (Map.Entry<TopicPartition, OffsetAndTimestamp> entry: partitionToOffsetAndTimestamp.entrySet()) {
+            printJson(new OffsetForTimesData(entry.getKey(), entry.getValue().timestamp(), entry.getValue().offset()));
+        }
+    }
+
     public void run() {
         try {
             printJson(new StartupComplete());
@@ -231,7 +264,9 @@ public class VerifiableConsumer implements Closeable, OffsetCommitCallback, Cons
             while (!isFinished()) {
                 ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(Long.MAX_VALUE));
                 Map<TopicPartition, OffsetAndMetadata> offsets = onRecordsReceived(records);
-
+                if (sendOffsetForTimesData) {
+                    streamOffsetForTimesData(records);
+                }
                 if (!useAutoCommit) {
                     if (useAsyncCommit)
                         consumer.commitAsync(offsets, this);
@@ -399,6 +434,31 @@ public class VerifiableConsumer implements Closeable, OffsetCommitCallback, Cons
             return record.offset();
         }
 
+    }
+
+    // Instances of this class are used to send over timestamp to offset information for a topic partition
+    public static class OffsetForTimesData extends ConsumerEvent {
+        private final long timestamp;
+        private final long offset;
+        private final TopicPartition partition;
+
+        public OffsetForTimesData(TopicPartition partition, long timestamp, long offset) {
+            this.partition = partition;
+            this.timestamp = timestamp;
+            this.offset = offset;
+        }
+
+        @Override
+        public String name() { return "offset_for_times_data"; }
+
+        @JsonProperty
+        public TopicPartition partition() { return this.partition; }
+
+        @JsonProperty
+        public long timestamp() { return this.timestamp; }
+
+        @JsonProperty
+        public long offset() { return this.offset; }
     }
 
     private static class PartitionData {
@@ -576,6 +636,14 @@ public class VerifiableConsumer implements Closeable, OffsetCommitCallback, Cons
                 .dest("useAutoCommit")
                 .help("Enable offset auto-commit on consumer");
 
+        parser.addArgument("--send-offset-for-times-data")
+                .action(storeTrue())
+                .type(Boolean.class)
+                .metavar("SEND-OFFSET-FOR-TIMES-DATA")
+                .dest("sendOffsetForTimesData")
+                .help("Consumer sends offsetForTimes() information for all the partitions it has subscribed to. Use when" +
+                        " version = DEV_BRANCH");
+
         parser.addArgument("--reset-policy")
                 .action(store())
                 .required(false)
@@ -606,6 +674,7 @@ public class VerifiableConsumer implements Closeable, OffsetCommitCallback, Cons
         Namespace res = parser.parseArgs(args);
 
         boolean useAutoCommit = res.getBoolean("useAutoCommit");
+        boolean sendOffsetForTimesData = res.getBoolean("sendOffsetForTimesData");
         String configFile = res.getString("consumer.config");
         String brokerHostandPort = null;
 
@@ -656,7 +725,8 @@ public class VerifiableConsumer implements Closeable, OffsetCommitCallback, Cons
                 maxMessages,
                 useAutoCommit,
                 false,
-                verbose);
+                verbose,
+                sendOffsetForTimesData);
     }
 
     public static void main(String[] args) {

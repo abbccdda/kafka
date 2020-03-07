@@ -169,7 +169,7 @@ class VerifiableConsumer(KafkaPathResolverMixin, VerifiableClientMixin, Backgrou
                  static_membership=False, max_messages=-1, session_timeout_sec=30, enable_autocommit=False,
                  assignment_strategy=None,
                  version=DEV_BRANCH, stop_timeout_sec=30, log_level="INFO", jaas_override_variables=None,
-                 on_record_consumed=None, reset_policy="earliest", verify_offsets=True):
+                 on_record_consumed=None, reset_policy="earliest", verify_offsets=True, send_offset_for_times_data = False):
         """
         :param jaas_override_variables: A dict of variables to be used in the jaas.conf template file
         """
@@ -183,12 +183,14 @@ class VerifiableConsumer(KafkaPathResolverMixin, VerifiableClientMixin, Backgrou
         self.max_messages = max_messages
         self.session_timeout_sec = session_timeout_sec
         self.enable_autocommit = enable_autocommit
+        self.send_offset_for_times_data = send_offset_for_times_data
         self.assignment_strategy = assignment_strategy
         self.prop_file = ""
         self.stop_timeout_sec = stop_timeout_sec
         self.on_record_consumed = on_record_consumed
         self.verify_offsets = verify_offsets
 
+        self.offset_for_times_data = {}
         self.event_handlers = {}
         self.global_position = {}
         self.global_committed = {}
@@ -256,6 +258,11 @@ class VerifiableConsumer(KafkaPathResolverMixin, VerifiableClientMixin, Backgrou
                         handler.handle_partitions_revoked(event)
                     elif name == "partitions_assigned":
                         handler.handle_partitions_assigned(event)
+                    elif name == "offset_for_times_data":
+                        tp = TopicPartition(event["partition"]["topic"], event["partition"]["partition"])
+                        if tp not in self.offset_for_times_data:
+                            self.offset_for_times_data[tp] = {}
+                        self.offset_for_times_data[tp][event["timestamp"]] = event["offset"]
                     else:
                         self.logger.debug("%s: ignoring unknown event: %s" % (str(node.account), event))
 
@@ -311,6 +318,9 @@ class VerifiableConsumer(KafkaPathResolverMixin, VerifiableClientMixin, Backgrou
 
         if self.enable_autocommit:
             cmd += " --enable-autocommit "
+
+        if node.version == DEV_BRANCH and self.send_offset_for_times_data:
+            cmd += " --send-offset-for-times-data "
 
         cmd += " --reset-policy %s --group-id %s --topic %s --broker-list %s --session-timeout %s" % \
                (self.reset_policy, self.group_id, self.topic,
