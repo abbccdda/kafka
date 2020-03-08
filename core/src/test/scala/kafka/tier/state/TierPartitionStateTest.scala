@@ -861,8 +861,7 @@ class TierPartitionStateTest {
     assertEquals(100, restartState.lastConsumedSrcOffset)
 
     // Test for the state version.
-    assertEquals(2, state.version())
-
+    assertEquals(3, state.version())
   }
 
   @Test
@@ -1019,7 +1018,7 @@ class TierPartitionStateTest {
       headerFlushedAfterFencing.get,
       new Header(
         tpid.topicId(),
-        2,
+        state.version(),
         -1,
         TierPartitionStatus.ERROR,
         -1L,

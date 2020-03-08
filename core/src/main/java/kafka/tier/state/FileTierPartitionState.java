@@ -94,7 +94,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     // Version 0: Initial version
     // Version 1: `endOffset` added to tier partition state header
     // Version 2: `globalMaterializedOffset` and `localMaterializedOffset` added to tier partition state header
-    private static final byte CURRENT_VERSION = 2;
+    // Version 3: introduced new header status: `TierPartitionStatus.ERROR` as a part of the fencing mechanism
+    private static final byte CURRENT_VERSION = 3;
     private static final int ENTRY_LENGTH_SIZE = 2;
     private static final long FILE_OFFSET = 0;
     private static final Logger log = LoggerFactory.getLogger(FileTierPartitionState.class);
