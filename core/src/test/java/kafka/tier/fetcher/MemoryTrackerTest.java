@@ -147,11 +147,11 @@ public class MemoryTrackerTest {
             MemoryTracker.MemoryLease memoryLease2 = pool.newLease(ctx, 1024);
             memoryLease2.release();
         });
-        Assert.assertFalse("memory acquisition should be blocked", futureDone(fut, 100, TimeUnit.MILLISECONDS));
+        Assert.assertFalse("memory acquisition should be blocked", futureDone(fut, 5, TimeUnit.SECONDS));
 
         // Setting the pool size to 0 should allow
         pool.setPoolSize(0);
-        Assert.assertTrue("expected setting the pool size to 0 would unblock memory acquisition", futureDone(fut, 5, TimeUnit.MILLISECONDS));
+        Assert.assertTrue("expected setting the pool size to 0 would unblock memory acquisition", futureDone(fut, 5, TimeUnit.SECONDS));
     }
 
     @Test
