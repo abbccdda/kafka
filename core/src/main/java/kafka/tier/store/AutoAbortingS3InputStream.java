@@ -36,7 +36,9 @@ public class AutoAbortingS3InputStream extends InputStream {
 
         try {
             int read = innerInputStream.read();
-            bytesRead++;
+            if (read > 0) {
+                ++bytesRead;
+            }
             return read;
         } catch (IOException io) {
             exception = true;
@@ -52,7 +54,9 @@ public class AutoAbortingS3InputStream extends InputStream {
 
         try {
             int read = innerInputStream.read(b);
-            bytesRead += read;
+            if (read > 0) {
+                bytesRead += read;
+            }
             return read;
         } catch (IOException io) {
             exception = true;
@@ -68,7 +72,9 @@ public class AutoAbortingS3InputStream extends InputStream {
 
         try {
             int read = innerInputStream.read(b, off, len);
-            bytesRead += read;
+            if (read > 0) {
+                bytesRead += read;
+            }
             return read;
         } catch (IOException io) {
             exception = true;
@@ -76,7 +82,8 @@ public class AutoAbortingS3InputStream extends InputStream {
         }
     }
 
-    private long remainingBytes() {
+    // Package private for testing
+    long remainingBytes() {
         return totalBytes - bytesRead;
     }
 

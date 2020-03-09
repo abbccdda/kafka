@@ -83,6 +83,68 @@ public class AutoAbortingS3InputStreamTest {
     }
 
     @Test
+    public void readBufferNoBytesRemaininingTest()  throws IOException {
+        S3ObjectInputStream inputStream = createNiceMock(S3ObjectInputStream.class);
+        EasyMock.expect(inputStream.read(EasyMock.anyObject())).andAnswer(new IAnswer<Integer>() {
+            @Override
+            public Integer answer() throws Throwable {
+                return 9;
+            }
+        });
+        EasyMock.expect(inputStream.read(EasyMock.anyObject())).andAnswer(new IAnswer<Integer>() {
+            @Override
+            public Integer answer() throws Throwable {
+                return -1;
+            }
+        });
+
+        // abort expected as remaining exceeds auto abort size
+        inputStream.abort();
+        EasyMock.expectLastCall().andVoid();
+        EasyMock.replay(inputStream);
+
+        AutoAbortingS3InputStream autoAborting = new AutoAbortingS3InputStream(inputStream, 10, 20);
+        int read1 = autoAborting.read(new byte[10]);
+        assertEquals(9, read1);
+        int read2 = autoAborting.read(new byte[10]);
+        assertEquals(-1, read2);
+        assertEquals(11, autoAborting.remainingBytes());
+        autoAborting.close();
+        EasyMock.verify(inputStream);
+    }
+
+    @Test
+    public void readSingleNoBytesRemaininingTest()  throws IOException {
+        S3ObjectInputStream inputStream = createNiceMock(S3ObjectInputStream.class);
+        EasyMock.expect(inputStream.read()).andAnswer(new IAnswer<Integer>() {
+            @Override
+            public Integer answer() throws Throwable {
+                return 17;
+            }
+        });
+        EasyMock.expect(inputStream.read()).andAnswer(new IAnswer<Integer>() {
+            @Override
+            public Integer answer() throws Throwable {
+                return -1;
+            }
+        });
+
+        // abort expected as remaining exceeds auto abort size
+        inputStream.abort();
+        EasyMock.expectLastCall().andVoid();
+        EasyMock.replay(inputStream);
+
+        AutoAbortingS3InputStream autoAborting = new AutoAbortingS3InputStream(inputStream, 10, 20);
+        int read1 = autoAborting.read();
+        assertEquals(17, read1);
+        int read2 = autoAborting.read();
+        assertEquals(-1, read2);
+        assertEquals(19, autoAborting.remainingBytes());
+        autoAborting.close();
+        EasyMock.verify(inputStream);
+    }
+
+    @Test
     public void exceptionOnReadAttemptReread() throws IOException {
         S3ObjectInputStream inputStream = createNiceMock(S3ObjectInputStream.class);
         EasyMock.expect(inputStream.read(EasyMock.anyObject())).andAnswer(new IAnswer<Integer>() {
