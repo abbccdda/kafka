@@ -108,6 +108,16 @@ class AdminManager(val config: KafkaConfig,
         topic.configs.asScala.foreach { entry =>
           configs.setProperty(entry.name, entry.value)
         }
+        if (topic.replicationFactor == NO_REPLICATION_FACTOR &&
+            !configs.containsKey(LogConfig.TopicPlacementConstraintsProp)) {
+          /* Write the default topic placement constraint to the dynamic topic configuration if the client
+           * didn't provide a replica factor.
+           */
+
+          config.topicPlacementConstraints.foreach { topicPlacement =>
+            configs.setProperty(LogConfig.TopicPlacementConstraintsProp, topicPlacement.toJson)
+          }
+        }
         LogConfig.validate(configs)
         val logConfig = LogConfig.fromProps(KafkaServer.copyKafkaConfigToLog(config), configs)
 
@@ -508,7 +518,7 @@ class AdminManager(val config: KafkaConfig,
     adminZkClient.validateTopicConfig(topic, configProps)
     validateConfigPolicy(resource, configEntriesMap, principal)
     if (!validateOnly) {
-      info(s"Updating topic $topic with new configuration $config")
+      info(s"Updating topic $topic with new configuration $configProps")
       adminZkClient.changeTopicConfig(topic, configProps)
     }
 

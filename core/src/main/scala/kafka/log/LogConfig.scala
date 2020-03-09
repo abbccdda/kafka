@@ -78,12 +78,7 @@ object Defaults {
   val PreferTierFetchMs = kafka.server.Defaults.PreferTierFetchMs
   val SegmentSpeculativePrefetchEnable = kafka.server.Defaults.SegmentSpeculativePrefetchEnable
 
-  /* Use the empty string instead of null. With a default value of null some clients may
-   * not handle it correctly when calling DescribeConfig. Some clients may send the string
-   * "null" for a value in AlterConfig. This causes the JSON decoder to return null and
-   * results in a null pointer exception when validating the JSON object.
-   */
-  val TopicPlacementConstraints = ""
+  val TopicPlacementConstraints: String = kafka.server.Defaults.TopicPlacementConstraints
 }
 
 case class LogConfig(props: java.util.Map[_, _], overriddenConfigs: Set[String] = Set.empty)
@@ -282,12 +277,6 @@ object LogConfig {
       this
     }
 
-    override def define(name: String, defType: ConfigDef.Type, defaultValue: Any, importance: ConfigDef.Importance,
-               documentation: String): LogConfigDef = {
-      super.define(name, defType, defaultValue, importance, documentation)
-      this
-    }
-
     def defineInternal(name: String, defType: ConfigDef.Type, defaultValue: Any, importance: ConfigDef.Importance,
                        documentation: String, serverDefaultConfigName: String): LogConfigDef = {
       super.defineInternal(name, defType, defaultValue, importance, documentation)
@@ -384,6 +373,9 @@ object LogConfig {
         FollowerReplicationThrottledReplicasDoc, FollowerReplicationThrottledReplicasProp)
       .define(MessageDownConversionEnableProp, BOOLEAN, Defaults.MessageDownConversionEnable, LOW,
         MessageDownConversionEnableDoc, KafkaConfig.LogMessageDownConversionEnableProp)
+
+      /* --- Begin Confluent Configurations --- */
+
       .defineTopicOnly(
         TopicPlacementConstraintsProp,
         STRING,
@@ -392,13 +384,10 @@ object LogConfig {
         LOW,
         TopicPlacementConstraintsDoc
       )
-
-      /* --- Begin Confluent Configurations --- */
-
-      .define(KeySchemaValidationEnableProp, BOOLEAN, false, MEDIUM, ConfluentTopicConfig.KEY_SCHEMA_VALIDATION_DOC) // we do not have this config at broker-level
-      .define(ValueSchemaValidationEnableProp, BOOLEAN, false, MEDIUM, ConfluentTopicConfig.VALUE_SCHEMA_VALIDATION_DOC) // we do not have this config at broker-level
-      .define(KeySchemaValidationStrategyProp, STRING, null, MEDIUM, ConfluentTopicConfig.KEY_SUBJECT_NAME_STRATEGY_DOC) // we do not have this config at broker-level
-      .define(ValueSchemaValidationStrategyProp, STRING, null, MEDIUM, ConfluentTopicConfig.VALUE_SUBJECT_NAME_STRATEGY_DOC) // we do not have this config at broker-level
+      .defineTopicOnly(KeySchemaValidationEnableProp, BOOLEAN, false, null, MEDIUM, ConfluentTopicConfig.KEY_SCHEMA_VALIDATION_DOC)
+      .defineTopicOnly(ValueSchemaValidationEnableProp, BOOLEAN, false, null, MEDIUM, ConfluentTopicConfig.VALUE_SCHEMA_VALIDATION_DOC)
+      .defineTopicOnly(KeySchemaValidationStrategyProp, STRING, null, null, MEDIUM, ConfluentTopicConfig.KEY_SUBJECT_NAME_STRATEGY_DOC)
+      .defineTopicOnly(ValueSchemaValidationStrategyProp, STRING, null, null, MEDIUM, ConfluentTopicConfig.VALUE_SUBJECT_NAME_STRATEGY_DOC)
       .define(TierEnableProp, BOOLEAN, Defaults.TierEnable, MEDIUM, TierEnableDoc, KafkaConfig.TierEnableProp)
       .define(TierLocalHotsetBytesProp, LONG, Defaults.TierLocalHotsetBytes, MEDIUM, TierLocalHotsetBytesDoc, KafkaConfig.TierLocalHotsetBytesProp)
       .define(TierLocalHotsetMsProp, LONG, Defaults.TierLocalHotsetMs, MEDIUM, TierLocalHotsetMsDoc, KafkaConfig.TierLocalHotsetMsProp)

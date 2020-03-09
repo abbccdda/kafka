@@ -52,7 +52,7 @@ class LogConfigTest {
              LogConfig.KeySchemaValidationStrategyProp |
              LogConfig.ValueSchemaValidationStrategyProp =>
           // These properties are topic only and don't have a server configuraiton.
-          true
+          !LogConfig.serverConfigName(config).isDefined
         case _ =>
           val serverConfigOpt = LogConfig.serverConfigName(config)
           serverConfigOpt.isDefined && (serverConfigOpt.get != null)

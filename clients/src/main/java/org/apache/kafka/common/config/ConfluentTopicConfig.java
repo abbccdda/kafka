@@ -76,7 +76,9 @@ public class ConfluentTopicConfig {
                     + "with the schema registry. By default, TopicNameStrategy is used";
 
     private static final String LINE_SEPARATOR = System.lineSeparator();
-    public static final String TOPIC_PLACEMENT_CONSTRAINTS_CONFIG = CONFLUENT_PREFIX + "placement.constraints";
+
+    public static final String TOPIC_PLACEMENT_CONSTRAINTS_RAW_CONFIG = "placement.constraints";
+    public static final String TOPIC_PLACEMENT_CONSTRAINTS_CONFIG = CONFLUENT_PREFIX + TOPIC_PLACEMENT_CONSTRAINTS_RAW_CONFIG;
     public static final String TOPIC_PLACEMENT_CONSTRAINTS_DOC = "This configuration is a JSON object that controls the set of " +
         "brokers (replicas) which will always be allowed to join the ISR. And the set of brokers (observers) which are not " +
         "allowed to join the ISR. The format of JSON is:" + LINE_SEPARATOR +

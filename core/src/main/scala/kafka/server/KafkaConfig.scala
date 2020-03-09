@@ -22,6 +22,7 @@ import java.util.{Collections, Locale, Properties}
 
 import kafka.api.{ApiVersion, ApiVersionValidator, KAFKA_0_10_0_IV1, KAFKA_2_1_IV0, KAFKA_2_4_IV1}
 import kafka.cluster.EndPoint
+import kafka.common.TopicPlacement
 import kafka.coordinator.group.OffsetConfig
 import kafka.coordinator.transaction.{TransactionLog, TransactionStateManager}
 import kafka.message.{BrokerCompressionCodec, CompressionCodec, ZStdCompressionCodec}
@@ -47,6 +48,7 @@ import org.apache.zookeeper.client.ZKClientConfig
 
 import scala.collection.JavaConverters._
 import scala.collection.{Map, Seq}
+import scala.compat.java8.OptionConverters._
 
 object Defaults {
   /** ********* Zookeeper Configuration ***********/
@@ -241,6 +243,14 @@ object Defaults {
   /** Tiered storage segment roll configs **/
   val TierSegmentHotsetRollMinBytes = 100 * 1024 * 1024
 
+  /* Use the empty string instead of null. With a default value of null some clients
+   * may not handle it correctly when calling DescribeConfig. Some clients may send
+   * the string "null" for a value in AlterConfig. This causes the JSON decoder to
+   * return null and results in a null pointer exception when validating the JSON
+   * object.
+   */
+  val TopicPlacementConstraints: String = ""
+
   /** ********* Fetch Configuration **************/
   val MaxIncrementalFetchSessionCacheSlots = 1000
   val FetchMaxBytes = 55 * 1024 * 1024
@@ -321,6 +331,7 @@ object KafkaConfig {
   private val LogConfigPrefix = "log."
   val ConfluentPrefix = "confluent."
   val ConfluentTierPrefix = ConfluentPrefix + "tier."
+  private[this] val ConfluentLogConfigPrefix = ConfluentPrefix + LogConfigPrefix
 
   def main(args: Array[String]): Unit = {
     System.out.println(configDef.toHtml(DynamicBrokerConfig.dynamicConfigUpdateModes))
@@ -594,6 +605,9 @@ object KafkaConfig {
   val BrokerInterceptorClassProp = ConfluentConfigs.BROKER_INTERCEPTOR_CLASS_CONFIG
 
   val RequestLogFilterClass = ConfluentConfigs.REQUEST_LOG_FILTER_CLASS_CONFIG
+
+  /** ********* Replica Placement Constraints *********/
+  val TopicPlacementConstraintsProp = ConfluentLogConfigPrefix + ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_RAW_CONFIG
 
   /** ********* Fetch Configuration **************/
   val MaxIncrementalFetchSessionCacheSlots = "max.incremental.fetch.session.cache.slots"
@@ -1033,6 +1047,9 @@ object KafkaConfig {
   /** Tiered storage segment roll configs **/
   val TierSegmentHotsetRollMinBytesDoc = ConfluentTopicConfig.TIER_SEGMENT_HOTSET_ROLL_MIN_BYTES_DOC
 
+  /** ********* Replica Placement Constraints *********/
+  val TopicPlacementConstraintsDoc = ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_DOC
+
   /** ********* Fetch Configuration **************/
   val MaxIncrementalFetchSessionCacheSlotsDoc = "The maximum number of incremental fetch sessions that we will maintain."
   val FetchMaxBytesDoc = "The maximum number of bytes we will return for a fetch request. Must be at least 1024."
@@ -1361,6 +1378,16 @@ object KafkaConfig {
       .define(TierTopicDeleteCheckIntervalMsProp, LONG, Defaults.TierTopicDeleteCheckIntervalMs, atLeast(1), LOW, TierTopicDeleteCheckIntervalMsDoc)
       .defineInternal(TierSegmentHotsetRollMinBytesProp, INT, Defaults.TierSegmentHotsetRollMinBytes, atLeast(10 * 1024), MEDIUM, TierSegmentHotsetRollMinBytesDoc)
       .defineInternal(PreferTierFetchMsProp, LONG, Defaults.PreferTierFetchMs, LOW, PreferTierFetchMsDoc)
+
+      /** ********* Replica Placement Constraints **************/
+      .define(
+        TopicPlacementConstraintsProp,
+        STRING,
+        Defaults.TopicPlacementConstraints,
+        TopicPlacement.VALIDATOR,
+        LOW,
+        TopicPlacementConstraintsDoc
+      )
 
       /** ********* Fetch Configuration **************/
       .define(MaxIncrementalFetchSessionCacheSlots, INT, Defaults.MaxIncrementalFetchSessionCacheSlots, atLeast(0), MEDIUM, MaxIncrementalFetchSessionCacheSlotsDoc)
@@ -1883,6 +1910,10 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
 
   /** ********* Interceptor Configuration ***********/
   val appendRecordInterceptors = getConfiguredInstances(KafkaConfig.AppendRecordInterceptorClassesProp, classOf[RecordInterceptor])
+
+  /** ********* Replica Placement Constraints ***********/
+  val topicPlacementConstraints: Option[TopicPlacement] = TopicPlacement.parse(
+    getString(KafkaConfig.TopicPlacementConstraintsProp)).asScala
 
   /** ********* Metric Configuration **************/
   val metricNumSamples = getInt(KafkaConfig.MetricNumSamplesProp)
