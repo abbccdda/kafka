@@ -9,12 +9,17 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.kafka.common.config.ConfigDef.Validator;
 import org.apache.kafka.common.config.ConfigException;
 
@@ -49,7 +54,7 @@ import org.apache.kafka.common.config.ConfigException;
  * }
  */
 
-final public class TopicPlacement {
+public final class TopicPlacement {
     private final int version;
     private final List<ConstraintCount> replicas;
     private final List<ConstraintCount> observers;
@@ -65,6 +70,7 @@ final public class TopicPlacement {
         this.observers = observers == null ? Collections.emptyList() : observers;
     }
 
+    @Override
     public String toString() {
         return "TopicPlacement(" +
             "version=" + version +
@@ -204,6 +210,7 @@ final public class TopicPlacement {
             );
         }
 
+        @Override
         public String toString() {
             return "ConstraintCount(" +
                 "count=" + count +
@@ -213,6 +220,47 @@ final public class TopicPlacement {
 
         public static ConstraintCount of(int count, Map<String, String> constraint) {
             return new ConstraintCount(count, constraint);
+        }
+    }
+
+    public static final class Replica {
+        private final int id;
+        private final Optional<Map<String, String>> attributes;
+
+        private Replica(int id, Optional<Map<String, String>> attributes) {
+            this.id = id;
+            this.attributes = attributes;
+        }
+
+        public int id() {
+            return id;
+        }
+
+        public Optional<Map<String, String>> attributes() {
+            return attributes;
+        }
+
+        @Override
+        public String toString() {
+            return "Replica(" +
+                "id=" + id +
+                ",attributes=" + attributes +
+                ")";
+        }
+
+        /**
+         * Returns a Replica from the id and set of attributes. This type is used to match assignments
+         * against TopicPlacement constraints.
+         *
+         * @param id The id of the replica
+         * @param attributes The attributes for the replica.
+         *                   1. If the value is Optional.empty() then it is expected to match any constraint. This
+         *                      is useful for offline observers since it is safe to allow them to match any constraint.
+         *                   2. If the value is Optiona.of(Map.of()) then it is expected to not match any constraint.
+         *                   3. Otherwise the value is used to match one of the constraints.
+         */
+        public static Replica of(int id, Optional<Map<String, String>> attributes) {
+            return new Replica(id, attributes);
         }
     }
 
@@ -230,5 +278,140 @@ final public class TopicPlacement {
                 throw new ConfigException(name, o, e.getMessage());
             }
         }
+    }
+
+    /**
+     * Returns an error string if the sync and observer replica assignment doesn't match the constraints.
+     * This algorithm assumes that replicas with attributes.isPresent() only match one of the constraints.
+     * See {@link Replica} for a description of the type.
+     *
+     * @param topicPlacement The replica placement constraint to use to validate the assignment.
+     * @param syncReplicas The list sync replicas in the assignment. See {@link Replica}.
+     * @param observers The list observer replicas in the assignment. See {@link Replica}.
+     */
+    public static Optional<String> validateAssignment(
+            TopicPlacement topicPlacement,
+            List<Replica> syncReplicas,
+            List<Replica> observers) {
+        Optional<String> syncMessage = matchesConstraints(topicPlacement.replicas(), syncReplicas)
+            .map(message -> String.format(message, "sync replicas"));
+
+        if (syncMessage.isPresent()) return syncMessage;
+
+        return matchesConstraints(topicPlacement.observers(), observers)
+                    .map(message -> String.format(message, "observers"));
+    }
+
+    /**
+     * Returns an error string if the replicas don't match the constraints. This
+     * algorithm assumes that replicas with attributes.isPresent() only match one
+     * of the constraints.
+     *
+     * @param constraints List of constraints to use to determine if the replicas match.
+     * @param replicas List of replica ids and their attributes. See {@link Replica}.
+     */
+    private static Optional<String> matchesConstraints(
+            List<ConstraintCount> constraints,
+            List<Replica> replicas) {
+
+        final List<Replica> invalidReplicas = new ArrayList<>();
+        List<ConstraintCount> pendingConstraints = new ArrayList<>(constraints);
+
+        /* Sort the replicas to make sure that replicas with attribute of Optional.of(...) are
+         * compared first against the constraints.
+         */
+        final List<Replica> sortedReplicas = new ArrayList<>(replicas);
+        sortedReplicas.sort(Comparator.comparingInt(replica -> {
+            return replica.attributes().isPresent() ? 0 : 1;
+        }));
+
+        for (Replica replica : sortedReplicas) {
+            boolean matched = false;
+            final List<ConstraintCount> currentConstraints = pendingConstraints;
+            pendingConstraints = new ArrayList<>();
+
+            // Find the matching constraint and decrease the count
+            for (ConstraintCount constraint : currentConstraints) {
+                if (matched) {
+                    pendingConstraints.add(constraint);
+                } else {
+                    matched = replica
+                        .attributes()
+                        .map(Stream::of)
+                        .orElse(Stream.empty())
+                        .allMatch(attributes -> constraint.matches(attributes));
+                    if (matched) {
+                        /* Attributes matched the constraint or it was Optional.empty() which
+                         * matches any constraint. Decrease the count if it is greater than 1 else
+                         * remove the constraint.
+                         */
+                        if (constraint.count() > 1) {
+                            pendingConstraints.add(
+                                    ConstraintCount.of(
+                                        constraint.count() - 1,
+                                        constraint.constraints));
+                        }
+                    } else {
+                        pendingConstraints.add(constraint);
+                    }
+                }
+            }
+
+            if (!matched) {
+                invalidReplicas.add(replica);
+            }
+        }
+
+        return generateError(constraints, replicas, invalidReplicas, pendingConstraints);
+    }
+
+    private static Optional<String> generateError(
+            List<ConstraintCount> constraints,
+            List<Replica> replicas,
+            List<Replica> invalidReplicas,
+            List<ConstraintCount> pendingConstraints) {
+
+        Optional<String> message = Optional.empty();
+        if (invalidReplicas.isEmpty() && !pendingConstraints.isEmpty()) {
+            List<Integer> replicaIds = replicas
+                .stream()
+                .map(replica -> replica.id())
+                .collect(Collectors.toList());
+
+            int constraintSum = constraints
+                .stream()
+                .mapToInt(constraint -> constraint.count())
+                .sum();
+            message = Optional.of(
+                String.format(
+                    "Number of assigned replicas (%s) doesn't match the %%s constraint counts %s",
+                    replicaIds,
+                    constraintSum
+                )
+            );
+        } else if (!invalidReplicas.isEmpty() || !pendingConstraints.isEmpty()) {
+            List<Integer> invalidReplicaIds = invalidReplicas
+                .stream()
+                .map(replica -> replica.id())
+                .collect(Collectors.toList());
+
+
+            Set<Integer> matchingReplicaIds = replicas
+                .stream()
+                .map(replica -> replica.id())
+                .collect(Collectors.toSet());
+            matchingReplicaIds.removeAll(new HashSet<>(invalidReplicaIds));
+
+            message = Optional.of(
+                String.format(
+                    "Replicas (%s) do not match the %%s constraints (%s). The following replicas matched: %s.",
+                    invalidReplicaIds,
+                    constraints,
+                    matchingReplicaIds
+                )
+            );
+        }
+
+        return message;
     }
 }

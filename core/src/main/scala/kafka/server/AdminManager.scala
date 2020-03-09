@@ -326,16 +326,15 @@ class AdminManager(val config: KafkaConfig,
                   s"but ${assignments.size} assignments provided.")
 
             assignments.zipWithIndex.map { case (replicas, index) =>
-              val intReplicas = replicas.map(_.toInt)
-              val maybeError = Observer.validateReplicaAssignment(
+              val maybeError = Observer.validateAssignment(
                 topicPlacement,
-                ReplicaAssignment.Assignment(intReplicas, Seq.empty),
+                ReplicaAssignment.Assignment(replicas, Seq.empty),
                 allBrokerProperties
               )
               maybeError.foreach(err => throw err.exception())
-              existingAssignment.size + index -> ReplicaAssignment(intReplicas, Seq.empty)
+              existingAssignment.size + index -> ReplicaAssignment(replicas, Seq.empty)
             }.toMap
-        }
+          }
 
         if (config.applyCreateTopicsPolicyToCreatePartitions) {
           // A special Confluent-specific configuration causes CreateTopicsPolicy to also apply to

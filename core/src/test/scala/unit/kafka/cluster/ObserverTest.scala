@@ -621,7 +621,7 @@ class ObserverTest {
    */
   @Test
   def testValidateReplicasNoPlacementConstraint(): Unit = {
-    Observer.validateReplicaAssignment(None, ReplicaAssignment.Assignment(0 to 6, Seq.empty), allBrokersAttributes)
+    Observer.validateAssignment(None, ReplicaAssignment.Assignment(0 to 6, Seq.empty), allBrokersAttributes)
   }
 
   /**
@@ -629,7 +629,7 @@ class ObserverTest {
    */
   @Test
   def testValidateObserversConstraint(): Unit = {
-    val err = Observer.validateReplicaAssignment(
+    val err = Observer.validateAssignment(
       topicWithObserverPlacementConstraint,
       ReplicaAssignment.Assignment(0 to 3, Seq.empty),
       allBrokersAttributes
@@ -643,7 +643,7 @@ class ObserverTest {
    */
   @Test
   def testValidateReplicasMatchesConstraint(): Unit = {
-    Observer.validateReplicaAssignment(
+    Observer.validateAssignment(
       topicWithoutObserversConstraint,
       ReplicaAssignment.Assignment(0 to 6, Seq.empty),
       allBrokersAttributes
@@ -655,7 +655,7 @@ class ObserverTest {
    */
   @Test
   def testValidateReplicasOverConstraintCount(): Unit = {
-    val err = Observer.validateReplicaAssignment(
+    val err = Observer.validateAssignment(
       topicWithoutObserversConstraint,
       ReplicaAssignment.Assignment(0 to 7, Seq.empty),
       allBrokersAttributes
@@ -668,7 +668,7 @@ class ObserverTest {
    */
   @Test
   def testValidateReplicasUnderConstraintCount(): Unit = {
-    val err = Observer.validateReplicaAssignment(
+    val err = Observer.validateAssignment(
       topicWithoutObserversConstraint,
       ReplicaAssignment.Assignment(0 to 4, Seq.empty),
       allBrokersAttributes
@@ -681,7 +681,7 @@ class ObserverTest {
    */
   @Test
   def testReplicaIndividualConstraintCountNotSatisfied(): Unit = {
-    val err = Observer.validateReplicaAssignment(
+    val err = Observer.validateAssignment(
       topicWithoutObserversConstraint,
       ReplicaAssignment.Assignment(Seq(0, 1, 3, 4, 5, 6, 7), Seq.empty),
       allBrokersAttributes
@@ -691,7 +691,7 @@ class ObserverTest {
 
   @Test
   def testObserverMatchesConstraint(): Unit = {
-    Observer.validateReplicaAssignment(
+    Observer.validateAssignment(
       topicWithObserverPlacementConstraint,
       ReplicaAssignment.Assignment(0 to 6, 5 to 6),
       allBrokersAttributes
@@ -700,7 +700,7 @@ class ObserverTest {
 
   @Test
   def testInvalidObserverCount(): Unit = {
-    val err = Observer.validateReplicaAssignment(
+    val err = Observer.validateAssignment(
       topicWithObserverPlacementConstraint,
       ReplicaAssignment.Assignment(0 to 7, 5 to 7),
       allBrokersAttributes
@@ -710,7 +710,7 @@ class ObserverTest {
 
   @Test
   def testInvalidObserverAttribute(): Unit = {
-    val err = Observer.validateReplicaAssignment(
+    val err = Observer.validateAssignment(
       topicWithObserverPlacementConstraint,
       ReplicaAssignment.Assignment((0 to 5) ++ Seq(9), Seq(5, 9)),
       allBrokersAttributes
@@ -720,10 +720,24 @@ class ObserverTest {
 
   @Test
   def testReplicasHasObserverAsSuffix(): Unit = {
-    val err = Observer.validateReplicaAssignment(
-      None,
+    val err = Observer.validateAssignmentStructure(
       ReplicaAssignment.Assignment(0 to 5, 0 to 1),
-      allBrokersAttributes
+    )
+    assertEquals(Some(Errors.INVALID_REPLICA_ASSIGNMENT), err.map(_.error))
+  }
+
+  @Test
+  def testNoDuplicaReplicas(): Unit = {
+    val err = Observer.validateAssignmentStructure(
+      ReplicaAssignment.Assignment(Seq(1, 2, 1), Seq.empty),
+    )
+    assertEquals(Some(Errors.INVALID_REPLICA_ASSIGNMENT), err.map(_.error))
+  }
+
+  @Test
+  def testNoNegativeReplicaIds(): Unit = {
+    val err = Observer.validateAssignmentStructure(
+      ReplicaAssignment.Assignment(Seq(1, -2), Seq.empty),
     )
     assertEquals(Some(Errors.INVALID_REPLICA_ASSIGNMENT), err.map(_.error))
   }

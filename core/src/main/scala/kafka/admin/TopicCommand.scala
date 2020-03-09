@@ -19,9 +19,9 @@ package kafka.admin
 
 import java.util
 import java.util.{Collections, Properties}
+import java.util.Optional
 
 import joptsimple._
-import kafka.cluster.Observer.validateReplicaAssignment
 import kafka.common.{AdminCommandFailedException, TopicPlacement}
 import kafka.controller.ReplicaAssignment
 import kafka.log.LogConfig
@@ -155,18 +155,31 @@ object TopicCommand extends Logging {
     }
 
     def hasInvalidReplicaPlacementPartitions: Boolean =  {
-      val topicPlacementOption: Option[TopicPlacement] = config.flatMap { configuration =>
+      val topicPlacement = config.flatMap { configuration =>
         TopicPlacement.parse(
           configuration.get(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG).value
         ).asScala
       }
-      val assignment = ReplicaAssignment.Assignment(allReplicaIds, observerIds)
-      val allBrokers = info.replicas.asScala
-      val allBrokerProperties = allBrokers.map{ broker =>
+
+      val syncReplicas = allReplicaIds.diff(observerIds)
+
+      val liveBrokerAttributes = info.replicas.asScala.map { broker =>
         broker.id -> Option(broker.rack).map("rack" -> _).toMap
       }.toMap
-      val error = validateReplicaAssignment(topicPlacementOption, assignment, allBrokerProperties)
-      error.exists(_.isFailure)
+
+      val errorMsg = topicPlacement.flatMap { placementConstraint =>
+        TopicPlacement.validateAssignment(
+          placementConstraint,
+          syncReplicas.map { id =>
+            TopicPlacement.Replica.of(id, Optional.of(liveBrokerAttributes.getOrElse(id, Map.empty).asJava))
+          }.asJava,
+          observerIds.map { id =>
+            TopicPlacement.Replica.of(id, Optional.of(liveBrokerAttributes.getOrElse(id, Map.empty).asJava))
+          }.asJava
+        ).asScala
+      }
+
+      errorMsg.isDefined
     }
 
     def printDescription(): Unit = {
@@ -204,7 +217,7 @@ object TopicCommand extends Logging {
     private def shouldPrintAtMinIsrPartitions(partitionDescription: PartitionDescription): Boolean = {
       opts.reportAtMinIsrPartitions && partitionDescription.isAtMinIsrPartitions
     }
-    private def shouldPrintReportInvalidReplicaPlacementPartitions(partitionDescription: PartitionDescription): Boolean = {
+    private def shouldPrintInvalidReplicaPlacementPartitions(partitionDescription: PartitionDescription): Boolean = {
       opts.reportInvalidReplicaPlacementPartitions && partitionDescription.hasInvalidReplicaPlacementPartitions
     }
 
@@ -214,7 +227,7 @@ object TopicCommand extends Logging {
         shouldPrintUnavailablePartitions(partitionDesc) ||
         shouldPrintUnderMinIsrPartitions(partitionDesc) ||
         shouldPrintAtMinIsrPartitions(partitionDesc) ||
-        shouldPrintReportInvalidReplicaPlacementPartitions(partitionDesc)
+        shouldPrintInvalidReplicaPlacementPartitions(partitionDesc)
     }
 
     def maybePrintPartitionDescription(desc: PartitionDescription): Unit = {

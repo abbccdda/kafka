@@ -570,7 +570,7 @@ class PlaintextAdminIntegrationTest extends BaseAdminIntegrationTest {
       } catch {
         case e: ExecutionException =>
           assertTrue(desc, e.getCause.isInstanceOf[InvalidReplicaAssignmentException])
-          assertEquals(desc, "Duplicate brokers not allowed in replica assignment: 1, 1 for partition id 3.",
+          assertEquals(desc, "Duplicate replicas not allowed in partition assignment: 1, 1.",
             e.getCause.getMessage)
           assertEquals(desc, 3, numPartitions(topic1))
       }

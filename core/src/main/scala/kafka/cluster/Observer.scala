@@ -3,6 +3,7 @@
  */
 package kafka.cluster
 
+import java.util.Optional
 import kafka.admin.{AdminUtils, BrokerMetadata}
 import kafka.common.TopicPlacement
 import kafka.common.TopicPlacement.ConstraintCount
@@ -12,6 +13,7 @@ import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.ApiError
 import scala.collection.JavaConverters._
 import scala.collection.{Map, Seq, mutable}
+import scala.compat.java8.OptionConverters._
 
 object Observer {
   /**
@@ -198,144 +200,82 @@ object Observer {
    * This method validates that one topic partition assignment is valid given an optional topic placement
    * constraint.
    *
-   * Always check that the observers assignment is the suffix of the replicas assignment
-   *
    * If topic placement is given then validate that the assignment matches the constraint. This implementation
    * assumes that topic placement constraints are mutually exclusive.
    */
-  def validateReplicaAssignment(
+  def validateAssignment(
     topicPlacement: Option[TopicPlacement],
     assignment: ReplicaAssignment.Assignment,
     liveBrokerAttributes: Map[Int, Map[String, String]]
   ): Option[ApiError] = {
-    if (!assignment.replicas.endsWith(assignment.observers)) {
-      Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
-        s"Assignment contains observers (${assignment.observers}) and the replicas' (${assignment.replicas}) " +
-        "suffix doesn't matches observers."))
-    } else {
+    validateAssignmentStructure(assignment).orElse(
       topicPlacement.flatMap { placementConstraint =>
-        val maybeError = matchesConstraints(
-          "sync replicas",
-          placementConstraint.replicas.asScala,
-          assignment.syncReplicas,
-          replica => Some(liveBrokerAttributes.getOrElse(replica, Map.empty))
-        )
-        maybeError.orElse(
-          matchesConstraints(
-            "observers",
-            placementConstraint.observers.asScala,
-            assignment.observers,
-            replica => Some(liveBrokerAttributes.getOrElse(replica, Map.empty))
-          )
-        )
+        TopicPlacement.validateAssignment(
+          placementConstraint,
+          assignment.syncReplicas.map { id =>
+            TopicPlacement.Replica.of(id, Optional.of(liveBrokerAttributes.getOrElse(id, Map.empty).asJava))
+          }.asJava,
+          assignment.observers.map { id =>
+            TopicPlacement.Replica.of(id, Optional.of(liveBrokerAttributes.getOrElse(id, Map.empty).asJava))
+          }.asJava
+        ).asScala.map(message => new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT, message))
       }
-    }
+    )
   }
 
+  def validateAssignmentStructure(
+    assignment: ReplicaAssignment.Assignment
+  ): Option[ApiError] = {
+    val replicas = assignment.replicas
+    val replicaSet = replicas.toSet
+    if (replicas.isEmpty || replicas.size != replicaSet.size) {
+      Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
+        s"Duplicate replicas not allowed in partition assignment: ${replicas.mkString(", ")}."))
+    } else if (replicas.exists(_ < 0)) {
+      Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
+        s"Invalid replica id in partition assignment: ${replicas.mkString(", ")}"))
+    } else if (!assignment.replicas.endsWith(assignment.observers)) {
+      val observerMsg = assignment.observers.mkString(", ")
+      Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
+        s"Assignment contains observers ($observerMsg) and the replicas' (${replicas.mkString(", ")}) " +
+        "suffix doesn't match observers."))
+    } else None
+  }
+
+  /**
+   * This method validates that one topic partition reassignment is valid given an optional topic placement
+   * constraint.
+   *
+   * If topic placement is given then validate that the assignment matches the constraints. When the observers
+   * are offline and they were part of the original assignment then this function assumes that those observers
+   * match anyone of the placement constraints.
+   *
+   * This implementation assumes that topic placement constraints are mutually exclusive.
+   */
   def validateReassignment(
     topicPlacement: Option[TopicPlacement],
     reassignment: ReplicaAssignment,
     liveBrokerAttributes: Map[Int, Map[String, String]]
   ): Option[ApiError] = {
     reassignment.targetAssignment.flatMap { assignment =>
-      if (!assignment.replicas.endsWith(assignment.observers)) {
-        Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
-          s"Assignment contains observers (${assignment.observers}) and the replicas' (${assignment.replicas}) " +
-          "suffix doesn't matches observers."))
-      } else {
-        topicPlacement.flatMap { placementConstraint =>
-          val maybeError = matchesConstraints(
-            "sync replicas",
-            placementConstraint.replicas.asScala,
-            assignment.syncReplicas,
-            replica => Some(liveBrokerAttributes.getOrElse(replica, Map.empty))
-          )
-          maybeError.orElse {
-            matchesConstraints(
-              "observers",
-              placementConstraint.observers.asScala,
-              assignment.observers,
-              replica => {
-                val attributes = liveBrokerAttributes.get(replica)
-                // If the observer is in the previous assignment then allow it to be offline
-                if (reassignment.originAssignment.replicas.contains(replica)) {
-                  attributes
-                } else attributes.orElse(Some(Map.empty))
-              }
-            )
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * Returns true if the sequence of replicas matches the sequence of placement constraints.
-   *
-   * @param scope context to use when generating error messages
-   * @param constraints sequence of constraints to use to determine if the `replicas` and `brokerAttributes` match
-   * @param replicas sequence to replica ids
-   * @param brokerAttributes function that returns the attributes for a replicas. If the replica should match any
-   *                         constraint then it should return None. If the replica should not match any constraint
-   *                         then it should return Some(Map.empty). Otherwise return Some[Map[String, String]].
-   */
-  private[this] def matchesConstraints(
-    scope: String,
-    constraints: Seq[ConstraintCount],
-    replicas: Seq[Int],
-    brokerAttributes: Int => Option[Map[String, String]]
-  ): Option[ApiError] = {
-    val constraintSum = constraints.map(_.count).sum
-    if (constraintSum != replicas.size) {
-      Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
-        s"Number of assigned replicas (${replicas.mkString(",")}) doesn't match the $scope constraint counts " +
-        s"$constraintSum"))
-    } else {
-      /* This algorithm assumes that a replicas with brokerAttributes(replicas).isDefined only matches one of the
-       * constraints
-       */
-      val (invalidReplicas, remainingConstraints) = replicas
-        .map(replica => (replica, brokerAttributes(replica)))
-        .sortBy { case (replica, attributes) =>
-          // Make sure that replicas with attributes are first
-          attributes.isEmpty
-        }
-        .foldLeft((Seq.empty[Int], constraints)) { (acc, current) =>
-          val (invalidReplicas, constraints) = acc
-          val (replica, attributes) = current
-          // Find the matching constraint and decrease the count
-          var matched = false
-          val updatedConstraints = constraints.flatMap { constraint =>
-            if (!matched && attributes.forall(attributes => constraint.matches(attributes.asJava))) {
-              // attributes matched the constraint or it was None which matches any constraint
-              matched = true
-              if (constraint.count > 1) {
-                Some(TopicPlacement.ConstraintCount.of(constraint.count - 1, constraint.constraints))
-              } else {
-                None
-              }
-            } else {
-              Some(constraint)
+      topicPlacement.flatMap { placementConstraint =>
+        TopicPlacement.validateAssignment(
+          placementConstraint,
+          assignment.syncReplicas.map { id =>
+            TopicPlacement.Replica.of(id, Optional.of(liveBrokerAttributes.getOrElse(id, Map.empty).asJava))
+          }.asJava,
+          assignment.observers.map { id =>
+            val attributes: Option[Map[String, String]] = {
+              val attributes = liveBrokerAttributes.get(id)
+              if (reassignment.originAssignment.replicas.contains(id)) {
+                attributes
+              } else attributes.orElse(Some(Map.empty))
             }
-          }
 
-          if (matched) {
-            (invalidReplicas, updatedConstraints)
-          } else {
-            (replica +: invalidReplicas, updatedConstraints)
-          }
-        }
-
-      if (!invalidReplicas.isEmpty || !remainingConstraints.isEmpty) {
-        Some(
-          new ApiError(
-            Errors.INVALID_REPLICA_ASSIGNMENT,
-            s"Replicas (${invalidReplicas.mkString(",")}) do not match the replica constraints (" +
-            s"${remainingConstraints.mkString(",")}). The following replicas matched: " +
-            s"${replicas.diff(invalidReplicas).mkString(",")}."
-          )
-        )
-      } else None
+            TopicPlacement.Replica.of(id, attributes.map(_.asJava).asJava)
+          }.asJava
+        ).asScala.map(message => new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT, message))
+      }
     }
   }
 }

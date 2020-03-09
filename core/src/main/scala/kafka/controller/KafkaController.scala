@@ -1598,7 +1598,7 @@ class KafkaController(val config: KafkaConfig,
 
       zkClient.getPartitionReassignment().foreach { case (tp, targetReplicas) =>
         val targetAssignment = ReplicaAssignment.Assignment(targetReplicas, Seq.empty)
-        validateAssignment(targetAssignment) match {
+        Observer.validateAssignmentStructure(targetAssignment) match {
           case Some(err) =>
             reassignmentResults.put(tp, err)
           case None =>
@@ -1649,7 +1649,7 @@ class KafkaController(val config: KafkaConfig,
       val partitionsToReassign = mutable.Map.empty[TopicPartition, ReplicaAssignment]
 
       reassignments.foreach { case (tp, targetAssignment) =>
-        targetAssignment.flatMap(validateAssignment(_)) match {
+        targetAssignment.flatMap(Observer.validateAssignmentStructure(_)) match {
           case Some(err) =>
             reassignmentResults.put(tp, err)
           case None =>
@@ -1720,18 +1720,6 @@ class KafkaController(val config: KafkaConfig,
         validateReassignmentAgainstConstraint(topicPartition, reassignment)
       }
     }
-  }
-
-  private def validateAssignment(assignment: ReplicaAssignment.Assignment): Option[ApiError] = {
-    val replicas = assignment.replicas
-    val replicaSet = replicas.toSet
-    if (replicas.isEmpty || replicas.size != replicaSet.size) {
-      Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
-        s"Invalid replica list in partition reassignment: $replicas"))
-    } else if (replicas.exists(_ < 0)) {
-      Some(new ApiError(Errors.INVALID_REPLICA_ASSIGNMENT,
-        s"Invalid broker id in replica list: $replicas"))
-    } else None
   }
 
   private def validateReassignmentAgainstConstraint(
