@@ -37,7 +37,7 @@ final class ConfluentBrokerPlacementConstraintTest extends ZooKeeperTestHarness 
 
     val rack = Map(
       broker1 -> "a",
-      broker2 -> "b",
+      broker2 -> "b"
     )
     val brokerConfigs = TestUtils.createBrokerConfigs(2, zkConnect, enableControlledShutdown = true)
     servers = brokerConfigs.map { config =>

@@ -721,7 +721,7 @@ class ObserverTest {
   @Test
   def testReplicasHasObserverAsSuffix(): Unit = {
     val err = Observer.validateAssignmentStructure(
-      ReplicaAssignment.Assignment(0 to 5, 0 to 1),
+      ReplicaAssignment.Assignment(0 to 5, 0 to 1)
     )
     assertEquals(Some(Errors.INVALID_REPLICA_ASSIGNMENT), err.map(_.error))
   }
@@ -729,7 +729,7 @@ class ObserverTest {
   @Test
   def testNoDuplicaReplicas(): Unit = {
     val err = Observer.validateAssignmentStructure(
-      ReplicaAssignment.Assignment(Seq(1, 2, 1), Seq.empty),
+      ReplicaAssignment.Assignment(Seq(1, 2, 1), Seq.empty)
     )
     assertEquals(Some(Errors.INVALID_REPLICA_ASSIGNMENT), err.map(_.error))
   }
@@ -737,7 +737,7 @@ class ObserverTest {
   @Test
   def testNoNegativeReplicaIds(): Unit = {
     val err = Observer.validateAssignmentStructure(
-      ReplicaAssignment.Assignment(Seq(1, -2), Seq.empty),
+      ReplicaAssignment.Assignment(Seq(1, -2), Seq.empty)
     )
     assertEquals(Some(Errors.INVALID_REPLICA_ASSIGNMENT), err.map(_.error))
   }
