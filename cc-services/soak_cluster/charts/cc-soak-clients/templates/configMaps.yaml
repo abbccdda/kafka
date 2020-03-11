@@ -32,8 +32,8 @@ data:
   "short_lived_task_reschedule_delay_ms": {{ .Values.shortLivedTaskRescheduleDelayMs }},
   "topics": [
     {
-      "name": "baseline_soak_big_topic_1000p",
-      "partitions_count": 1000,
+      "name": "baseline_soak_big_topic_1600p",
+      "partitions_count": 1600,
       "produce_mbs_throughput": 45,
       "consume_mbs_throughput": 120,
       "long_lived_producer_count": 6,
@@ -85,8 +85,8 @@ data:
   "short_lived_task_reschedule_delay_ms": {{ .Values.shortLivedTaskRescheduleDelayMs }},
   "topics": [
     {
-      "name": "tenant_soak_topic_144p",
-      "partitions_count": 144,
+      "name": "tenant_soak_topic_900p",
+      "partitions_count": 900,
       "produce_mbs_throughput": 30,
       "consume_mbs_throughput": 60,
       "long_lived_producer_count": 6,
