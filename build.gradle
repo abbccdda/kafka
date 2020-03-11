@@ -748,7 +748,8 @@ def pkgs = [
     'ce-metrics',
     'ce-aegis',
     'ce-audit',
-    'ce-resource-names'
+    'ce-resource-names',
+    'ce-sbk'
 ] + connectPkgs
 
 /** Create one task per default Scala version */
@@ -1084,6 +1085,7 @@ project(':core') {
     from(project(':ce-audit').configurations.runtime) { into("libs/") }
     from(project(':ce-resource-names').jar) { into("libs/") }
     from(project(':ce-resource-names').configurations.runtime) { into("libs/") }
+    from(project(':ce-sbk').jar) { into("libs/") }
     exclude('confluent-serializers*')
     exclude('confluent-licensing*')
     exclude('bc*jdk15on*jar')
@@ -2129,6 +2131,50 @@ project(':connect:basic-auth-extension') {
 
   jar {
     dependsOn copyDependantLibs
+  }
+}
+
+project(':ce-sbk') {
+  apply plugin: 'scala'
+  apply plugin: "org.scoverage"
+  archivesBaseName = "ce-sbk_${versions.baseScala}"
+
+  sourceSets {
+    main {
+      scala {
+        srcDirs = ['src/main/scala', 'src/main/java', "${buildDir}/generated/src/main/java"]
+      }
+      java {
+        srcDirs = []
+      }
+    }
+  }
+
+  dependencies {
+    compile project(':clients')
+    compile project(':core')
+    compile libs.math3
+    compile libs.scalaCollectionCompat
+    compile libs.scalaJava8Compat
+    compile libs.scalaLibrary
+    // only needed transitively, but set it explicitly to ensure it has the same version as scala-library
+    compile libs.scalaReflect
+    compile libs.scalaLogging
+    compile libs.slf4jApi
+    compile libs.scalaJava8Compat
+    compile libs.zkclient
+    // ZooKeeperMain depends on commons-cli but declares the dependency as `provided`
+    compile libs.commonsCli
+    compileOnly libs.log4j
+
+    testCompile project(':clients').sourceSets.test.output
+    testCompile project(':core')
+    testCompile project(':core').sourceSets.test.output
+
+    testCompile libs.commonsIo
+    testCompile libs.mockitoCore
+    testCompile libs.easymock
+    testCompile libs.junit
   }
 }
 

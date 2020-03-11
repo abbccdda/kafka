@@ -152,6 +152,64 @@
     <suppress checks="ClassFanOutComplexity"
               files="(WorkerSinkTask|WorkerSourceTask)Test.java"/>
 
+    <!-- Core: Self-Balancing Kafka -->
+    <!-- CruiseControl files are not in the expected package
+	 hierarchy, which ImportControl doesn't seem to be able to handle. -->
+    <suppress checks="ImportControl"
+	      files="com[/\\]linkedin[/\\]cruisecontrol"/>
+    <suppress checks="ImportControl"
+	      files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/>
+    <suppress checks="ImportControl"
+	      files="io[/\\]confluent[/\\]cruisecontrol"/>
+
+    <!-- CruiseControl member field names really like leading
+	 underscores, in direct contradiction of the Kafka coding style. -->
+    <suppress checks="MemberName"
+	      files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/>
+    <suppress checks="MemberName"
+	      files="com[/\\]linkedin[/\\]cruisecontrol"/> 
+    <suppress checks="MemberName"
+	      files="io[/\\]confluent[/\\]cruisecontrol"/> 
+    
+    <!-- CruiseControl static variables are named in a direct
+	 contradiction of Kafka naming conventions> -->
+    <suppress checks="StaticVariableName"
+	      files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/> 
+    <suppress checks="StaticVariableName"
+	      files="com[/\\]linkedin[/\\]cruisecontrol"/>
+
+    <!-- CruiseControl code fails on various aspects of coding
+    complexity measures. -->
+    <suppress checks="ParameterNumber"
+	      files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/>
+    <suppress checks="ParameterNumber"
+	      files="com[/\\]linkedin[/\\]cruisecontrol"/>	      
+
+    <suppress checks="MethodLength"
+             files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/>
+    <suppress checks="MethodLength"
+             files="com[/\\]linkedin[/\\]cruisecontrol"/>
+
+    <suppress checks="NPathComplexity"
+	      files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/>
+    <suppress checks="NPathComplexity"
+	      files="com[/\\]linkedin[/\\]cruisecontrol"/>	      
+
+    <suppress checks="CyclomaticComplexity"
+	      files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/>
+    <suppress checks="CyclomaticComplexity"
+	      files="com[/\\]linkedin[/\\]cruisecontrol"/>	      
+
+    <suppress checks="BooleanExpressionComplexity"
+	      files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/>
+    <suppress checks="BooleanExpressionComplexity"
+	      files="com[/\\]linkedin[/\\]cruisecontrol"/>	      
+
+    <suppress checks="JavaNCSS"
+	      files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/>
+    <suppress checks="JavaNCSS"
+	      files="com[/\\]linkedin[/\\]cruisecontrol"/>	      
+    
     <!-- Streams -->
     <suppress checks="ClassFanOutComplexity"
               files="(TopologyBuilder|KafkaStreams|KStreamImpl|KTableImpl|StreamThread|StreamTask).java"/>
