@@ -164,9 +164,9 @@ public class TierMetadataValidator {
         System.out.println("**** Fetching target partition states from folder. \n");
         // Create snapshot of all the state files.
         if (this.props.get(TierTopicMaterializationToolConfig.SNAPSHOT_STATES_FILES).equals(false))
-            snapshotStateFiles(getSnapshotDir(this.workDir), false);
+            snapshotStateFiles(new File(getSnapshotDir(this.workDir)), false);
         else
-            snapshotStateFiles(props.getProperty(TierTopicMaterializationToolConfig.METADATA_STATES_DIR), true);
+            snapshotStateFiles(new File(props.getProperty(TierTopicMaterializationToolConfig.METADATA_STATES_DIR)), true);
 
         // Calculate the maximum offset needed.
         HashMap<TopicIdPartition, Long> offsetMap = new HashMap();
@@ -206,46 +206,62 @@ public class TierMetadataValidator {
         }
     }
 
-    private void snapshotStateFiles(String metadataStatesDir, boolean populate) throws IOException {
-        File mdir = new File(metadataStatesDir);
-        if (!mdir.isDirectory()) {
-            System.err.println(metadataStatesDir + " is not metadata states directory");
+    /**
+     * Manages the tierState files from the live broker. If 'populate' is set to true than copies the
+     * tierState files in the snapshot folder, maintaining the user topic partition's data directory
+     * naming convention. If 'populate' is not set than it is expected that tierState files are already
+     * populated.
+     * Also, process each states file by reading its header and initializing its properties like
+     * lastLocalOffset etc.
+     * @param tierStateFolder path of snapshot folder if populate is false else path of live data log folder.
+     * @param populate if true than copy live tierState file of user partitions to snapshot folder.
+     * @throws IOException
+     * In case of unhandled exception we will let the exception terminate the application.
+     */
+    private void snapshotStateFiles(File tierStateFolder, boolean populate) throws IOException {
+        if (!tierStateFolder.isDirectory()) {
+            System.err.println(tierStateFolder + " is not metadata states directory");
             System.exit(1);
         }
 
-        for (File dir: mdir.listFiles()) {
+        for (File dir: tierStateFolder.listFiles()) {
             if (dir.isDirectory()) {
-                try {
-                    final TopicPartition topicPartition = Log.parseTopicPartitionName(dir);
-                    File snapShotFile = getSnapshotFilePath(topicPartition).toFile();
-                    if (populate) {
-                        if (!snapShotFile.exists())
-                            snapShotFile.mkdir();
-                        System.out.println("Found TierTopicPartition dir " + dir.toPath());
-                    }
+                TopicPartition topicPartition;
 
-                    for (File file: dir.listFiles()) {
-                        if (file.isFile() && Log.isTierStateFile(file)) {
-                            Path ss = Paths.get(snapShotFile.toString(), file.getName());
-                            if (populate) {
-                                System.out.println("Taking snapshot of partition states for " + topicPartition);
-                                Files.copy(file.toPath(), ss);
-                                System.out.println("Copied state files " + ss);
-                            }
-                            TierMetadataValidatorRecord record = new TierMetadataValidatorRecord(
-                                    ss, topicPartition);
-                            stateMap.put(record.id, record);
-                        }
-                    }
+                try {
+                    topicPartition = Log.parseTopicPartitionName(dir);
                 } catch (KafkaException ex) {
-                    // Ignore directories which are not Topic partition data directory. Rest of the exceptions will be
-                    // still raised. There are cases when these data directories will
+                    // Ignore directories which are not Topic partition data directory.
+                    // Rest of the exceptions will be
+                    // still raised.
+                    continue;
+                }
+
+                File snapShotFile = getSnapshotFilePath(topicPartition).toFile();
+                if (populate) {
+                    if (!snapShotFile.exists())
+                        snapShotFile.mkdir();
+                    System.out.println("Found TierTopicPartition dir " + dir.toPath());
+                }
+
+                for (File file: dir.listFiles()) {
+                    if (file.isFile() && Log.isTierStateFile(file)) {
+                        Path ss = Paths.get(snapShotFile.toString(), file.getName());
+                        if (populate) {
+                            System.out.println("Taking snapshot of partition states for " + topicPartition);
+                            Files.copy(file.toPath(), ss);
+                            System.out.println("Copied state files " + ss);
+                        }
+                        TierMetadataValidatorRecord record = new TierMetadataValidatorRecord(
+                            ss, topicPartition);
+                        stateMap.put(record.id, record);
+                    }
                 }
             }
         }
 
         if (stateMap.isEmpty()) {
-            System.out.println("Can not find any metadata states file in " + metadataStatesDir);
+            System.out.println("Can not find any metadata states file in " + tierStateFolder);
             System.exit(1);
         }
     }
