@@ -73,6 +73,7 @@
     <allow pkg="org.apache.kafka.connect" />
     <allow pkg="org.apache.kafka.server.license" />
     <allow pkg="org.apache.zookeeper" />
+    <allow pkg="org.apache.kafka.test" />
   </subpackage>
 
   <subpackage name="metrics">

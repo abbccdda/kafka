@@ -207,12 +207,12 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
       thread.setDaemon(true);
       return thread;
     });
-    executorService.schedule(() -> {
+    executorService.scheduleAtFixedRate(() -> {
       String error = this.errorMessage;
       if (!isLicenseValid() && error != null) {
         log.error(errorMessage);
       }
-    }, EXPIRY_LOG_INTERVAL_MS, TimeUnit.MILLISECONDS);
+    }, EXPIRY_LOG_INTERVAL_MS, EXPIRY_LOG_INTERVAL_MS, TimeUnit.MILLISECONDS);
   }
 
   private void replacePrefix(AbstractConfig srcConfig, Map<String, Object> dstConfigs, String srcPrefix, String dstPrefix) {

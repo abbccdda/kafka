@@ -25,6 +25,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.test.TestUtils;
 import org.easymock.EasyMock;
 import org.junit.After;
 import org.junit.Before;
@@ -41,6 +42,7 @@ public class ConfluentLicenseValidatorTest {
 
   private final MockTime time = new MockTime();
   private ConfluentLicenseValidator licenseValidator;
+  private int numberOfLicenseValidationCalls;
 
   @Before
   public void setUp() throws Exception {
@@ -54,12 +56,13 @@ public class ConfluentLicenseValidatorTest {
   }
 
   @Test
-  public void testLicense() {
+  public void testLicense() throws Exception  {
     String license = LicenseTestUtils.generateLicense();
     licenseValidator = newConfluentLicenseValidator(license);
     licenseValidator.start("broker1");
     assertTrue("Invalid license", licenseValidator.isLicenseValid());
     LicenseTestUtils.verifyLicenseMetric(ConfluentLicenseValidator.METRIC_GROUP, LicenseStatus.LICENSE_ACTIVE);
+    TestUtils.waitForCondition(() -> numberOfLicenseValidationCalls > 2,  "Periodic license validation is not working.");
   }
 
   @Test(expected = InvalidLicenseException.class)
@@ -129,6 +132,13 @@ public class ConfluentLicenseValidatorTest {
           throw new RuntimeException(e);
         }
       }
+
+      @Override
+      public boolean isLicenseValid() {
+        numberOfLicenseValidationCalls++;
+        return super.isLicenseValid();
+      }
+
     };
     licenseValidator.configure(Collections.singletonMap(LicenseConfig.LICENSE_PROP, license));
     return licenseValidator;
