@@ -62,8 +62,10 @@ public class ConfluentTopicConfig {
     private static final String KEY_SUBJECT_NAME_STRATEGY = "key.subject.name.strategy";
     private static final String VALUE_SUBJECT_NAME_STRATEGY = "value.subject.name.strategy";
 
-    // default TopicNameStrategy.class cannot be defined here, but should be in the plugin that can
-    // depend on schema.registry
+    // default TopicNameStrategy.class cannot be accessed here, but should be in the plugin that can
+    // depend on schema.registry. Using the class name here.
+    public static final String TOPIC_NAME_STRATEGY = "io.confluent.kafka.serializers.subject.TopicNameStrategy";
+
     public static final String KEY_SUBJECT_NAME_STRATEGY_CONFIG = CONFLUENT_PREFIX + KEY_SUBJECT_NAME_STRATEGY;
     public static final String KEY_SUBJECT_NAME_STRATEGY_DOC =
             "Determines how to construct the subject name under which the key schema is registered "

@@ -79,6 +79,7 @@ object Defaults {
   val SegmentSpeculativePrefetchEnable = kafka.server.Defaults.SegmentSpeculativePrefetchEnable
 
   val TopicPlacementConstraints: String = kafka.server.Defaults.TopicPlacementConstraints
+  val TopicNameStrategy: String = ConfluentTopicConfig.TOPIC_NAME_STRATEGY
 }
 
 case class LogConfig(props: java.util.Map[_, _], overriddenConfigs: Set[String] = Set.empty)
@@ -386,8 +387,8 @@ object LogConfig {
       )
       .defineTopicOnly(KeySchemaValidationEnableProp, BOOLEAN, false, null, MEDIUM, ConfluentTopicConfig.KEY_SCHEMA_VALIDATION_DOC)
       .defineTopicOnly(ValueSchemaValidationEnableProp, BOOLEAN, false, null, MEDIUM, ConfluentTopicConfig.VALUE_SCHEMA_VALIDATION_DOC)
-      .defineTopicOnly(KeySchemaValidationStrategyProp, STRING, null, null, MEDIUM, ConfluentTopicConfig.KEY_SUBJECT_NAME_STRATEGY_DOC)
-      .defineTopicOnly(ValueSchemaValidationStrategyProp, STRING, null, null, MEDIUM, ConfluentTopicConfig.VALUE_SUBJECT_NAME_STRATEGY_DOC)
+      .defineTopicOnly(KeySchemaValidationStrategyProp, STRING, Defaults.TopicNameStrategy, null, MEDIUM, ConfluentTopicConfig.KEY_SUBJECT_NAME_STRATEGY_DOC)
+      .defineTopicOnly(ValueSchemaValidationStrategyProp, STRING, Defaults.TopicNameStrategy, null, MEDIUM, ConfluentTopicConfig.VALUE_SUBJECT_NAME_STRATEGY_DOC)
       .define(TierEnableProp, BOOLEAN, Defaults.TierEnable, MEDIUM, TierEnableDoc, KafkaConfig.TierEnableProp)
       .define(TierLocalHotsetBytesProp, LONG, Defaults.TierLocalHotsetBytes, MEDIUM, TierLocalHotsetBytesDoc, KafkaConfig.TierLocalHotsetBytesProp)
       .define(TierLocalHotsetMsProp, LONG, Defaults.TierLocalHotsetMs, MEDIUM, TierLocalHotsetMsDoc, KafkaConfig.TierLocalHotsetMsProp)

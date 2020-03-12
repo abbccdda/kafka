@@ -25,11 +25,13 @@ import org.apache.kafka.common.KafkaException
 import org.apache.kafka.common.config.ConfigDef.Importance.MEDIUM
 import org.apache.kafka.common.config.ConfigDef.Type.INT
 import org.apache.kafka.common.config.internals.ConfluentConfigs
-import org.apache.kafka.common.config.{ConfigException, TopicConfig}
+import org.apache.kafka.common.config.{ConfigException, ConfluentTopicConfig, TopicConfig}
 import org.apache.kafka.common.errors.InvalidConfigurationException
 import org.junit.{Assert, Test}
 import org.junit.Assert._
 import org.scalatest.Assertions._
+
+import scala.collection.JavaConverters._
 
 class LogConfigTest {
 
@@ -114,6 +116,10 @@ class LogConfigTest {
     val p = new Properties()
     val config = LogConfig(p)
     Assert.assertEquals(LogConfig(), config)
+
+    assertEquals(Map.empty, config.values().asScala.filter(_._2 == null))
+    assertEquals(ConfluentTopicConfig.TOPIC_NAME_STRATEGY, config.values().get(LogConfig.ValueSchemaValidationStrategyProp))
+    assertEquals(ConfluentTopicConfig.TOPIC_NAME_STRATEGY, config.values().get(LogConfig.KeySchemaValidationStrategyProp))
   }
 
   @Test
