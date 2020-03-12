@@ -254,7 +254,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         // of the existing flushed file with the status: TierPartitionStatus.ERROR. This is to ensure
         // that error status is persisted across restarts.
         flushHeaderWithStatus(TierPartitionStatus.ERROR);
-        backupState();
+        backupState(errorFilePath(basePath));
     }
 
     // Caller should hold FileTierPartitionState.lock
@@ -308,11 +308,15 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         }
     }
 
-    // Caller should hold FileTierPartitionState.lock
-    private void backupState() throws IOException {
-        Files.copy(mutableFilePath(basePath), tmpFilePath(basePath),
-            StandardCopyOption.REPLACE_EXISTING);
-        Utils.atomicMoveWithFallback(tmpFilePath(basePath), errorFilePath(basePath));
+    private void backupState(Path dstPath) throws IOException {
+        Path srcPath = mutableFilePath(basePath);
+        if (!Files.exists(srcPath))
+            return;
+        Files.copy(srcPath, tmpFilePath(basePath), StandardCopyOption.REPLACE_EXISTING);
+        Utils.atomicMoveWithFallback(tmpFilePath(basePath), dstPath);
+        log.info(
+            "Backed up mutable file from: {} to: {}, topicIdPartition={}",
+            srcPath, dstPath, topicIdPartition);
     }
 
     @Override
@@ -620,6 +624,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             try {
                 scanAndInitialize(channel);
             } catch (StateCorruptedException e) {
+                backupState(errorFilePath(basePath));
                 // Reinitialize file in catchup state when we detect corruption
                 closeHandlers();
                 Files.delete(flushedFilePath);
