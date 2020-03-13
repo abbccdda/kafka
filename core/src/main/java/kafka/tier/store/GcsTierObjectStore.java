@@ -41,6 +41,7 @@ public class GcsTierObjectStore implements TierObjectStore {
     private final String clusterId;
     private final int brokerId;
     private final String bucket;
+    private final String prefix;
     // If write or read chunkSize is 0, then the respective default value of the GCS implementation is used
     private final int writeChunkSize;
     private final int readChunkSize;
@@ -55,6 +56,7 @@ public class GcsTierObjectStore implements TierObjectStore {
         this.brokerId = config.brokerId;
         this.storage = storage;
         this.bucket = config.gcsBucket;
+        this.prefix = config.gcsPrefix;
         this.writeChunkSize = config.gcsWriteChunkSize;
         this.readChunkSize = config.gcsReadChunkSize;
         expectBucket(bucket, config.gcsRegion);
@@ -65,13 +67,13 @@ public class GcsTierObjectStore implements TierObjectStore {
                                              FileType fileType,
                                              Integer byteOffsetStart,
                                              Integer byteOffsetEnd) {
-        final String key = TierObjectStoreUtils.keyPath(objectMetadata, fileType);
+        final String key = keyPath(objectMetadata, fileType);
         final BlobId blobId = BlobId.of(bucket, key);
         if (byteOffsetStart != null && byteOffsetEnd != null && byteOffsetStart > byteOffsetEnd)
             throw new IllegalStateException("Invalid range of byteOffsetStart and byteOffsetEnd");
         if (byteOffsetStart == null && byteOffsetEnd != null)
             throw new IllegalStateException("Cannot specify a byteOffsetEnd without specifying a " + "byteOffsetStart");
-        log.debug("Fetching object from gcs://{}/{}, with range of {} to {}", bucket, key, byteOffsetStart, byteOffsetEnd);
+        log.debug("Fetching object from gs://{}/{}, with range of {} to {}", bucket, key, byteOffsetStart, byteOffsetEnd);
 
         try {
             ReadChannel reader = storage.reader(blobId);
@@ -91,17 +93,16 @@ public class GcsTierObjectStore implements TierObjectStore {
                            Optional<ByteBuffer> transactionIndexData,
                            Optional<File> epochState) {
         Map<String, String> metadata = TierObjectStoreUtils.createSegmentMetadata(objectMetadata, clusterId, brokerId);
-
         try {
-            putFile(TierObjectStoreUtils.keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
-            putFile(TierObjectStoreUtils.keyPath(objectMetadata, FileType.OFFSET_INDEX), metadata, offsetIndexData);
-            putFile(TierObjectStoreUtils.keyPath(objectMetadata, FileType.TIMESTAMP_INDEX), metadata, timestampIndexData);
+            putFile(keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
+            putFile(keyPath(objectMetadata, FileType.OFFSET_INDEX), metadata, offsetIndexData);
+            putFile(keyPath(objectMetadata, FileType.TIMESTAMP_INDEX), metadata, timestampIndexData);
             if (producerStateSnapshotData.isPresent())
-                putFile(TierObjectStoreUtils.keyPath(objectMetadata, FileType.PRODUCER_STATE), metadata, producerStateSnapshotData.get());
+                putFile(keyPath(objectMetadata, FileType.PRODUCER_STATE), metadata, producerStateSnapshotData.get());
             if (transactionIndexData.isPresent())
-                putBuf(TierObjectStoreUtils.keyPath(objectMetadata, FileType.TRANSACTION_INDEX), metadata, transactionIndexData.get());
+                putBuf(keyPath(objectMetadata, FileType.TRANSACTION_INDEX), metadata, transactionIndexData.get());
             if (epochState.isPresent())
-                putFile(TierObjectStoreUtils.keyPath(objectMetadata, FileType.EPOCH_STATE), metadata, epochState.get());
+                putFile(keyPath(objectMetadata, FileType.EPOCH_STATE), metadata, epochState.get());
         } catch (StorageException e) {
             throw new TierObjectStoreRetriableException("Failed to upload segment " + objectMetadata, e);
         } catch (Exception e) {
@@ -113,11 +114,11 @@ public class GcsTierObjectStore implements TierObjectStore {
     public void deleteSegment(ObjectMetadata objectMetadata) {
         List<BlobId> blobIds = new ArrayList<>();
         for (FileType type : FileType.values())
-            blobIds.add(BlobId.of(bucket, TierObjectStoreUtils.keyPath(objectMetadata, type)));
+            blobIds.add(BlobId.of(bucket, keyPath(objectMetadata, type)));
         log.debug("Deleting " + blobIds);
-
         try {
-            storage.delete(blobIds);
+            List<Boolean> result = storage.delete(blobIds);
+            log.debug("Deletion result " + result);
         } catch (StorageException e) {
             throw new TierObjectStoreRetriableException("Failed to delete segment " + objectMetadata, e);
         } catch (Exception e) {
@@ -129,11 +130,11 @@ public class GcsTierObjectStore implements TierObjectStore {
     public void close() {
       // Nothing to do here
     }
-    
+
     private void putFile(String key, Map<String, String> metadata, File file) throws IOException {
         BlobId blobId = BlobId.of(bucket, key);
         BlobInfo blobInfo = BlobInfo.newBuilder(blobId).setMetadata(metadata).build();
-        log.debug("Uploading object to gcs://{}/{}", bucket, key);
+        log.debug("Uploading object to gs://{}/{}", bucket, key);
         try (WriteChannel writer = storage.writer(blobInfo); FileChannel fileChannel = FileChannel.open(file.toPath(), StandardOpenOption.READ)) {
             if (writeChunkSize > 0)
                 writer.setChunkSize(writeChunkSize);
@@ -147,7 +148,7 @@ public class GcsTierObjectStore implements TierObjectStore {
     private void putBuf(String key, Map<String, String> metadata, ByteBuffer buf) throws IOException {
         BlobId blobId = BlobId.of(bucket, key);
         BlobInfo blobInfo = BlobInfo.newBuilder(blobId).setMetadata(metadata).build();
-        log.debug("Uploading object gcs://{}/{}", bucket, key);
+        log.debug("Uploading object gs://{}/{}", bucket, key);
         try (WriteChannel writer = storage.writer(blobInfo)) {
             if (writeChunkSize > 0)
                 writer.setChunkSize(writeChunkSize);
@@ -183,6 +184,10 @@ public class GcsTierObjectStore implements TierObjectStore {
         if (!expectedRegion.equalsIgnoreCase(actualRegion)) {
             log.warn("Bucket region {} does not match expected region {}", actualRegion, expectedRegion);
         }
+    }
+
+    private String keyPath(TierObjectStore.ObjectMetadata objectMetadata, TierObjectStore.FileType fileType) {
+        return TierObjectStoreUtils.keyPath(prefix, objectMetadata, fileType);
     }
 
     private static class GcsTierObjectStoreResponse implements TierObjectStoreResponse {

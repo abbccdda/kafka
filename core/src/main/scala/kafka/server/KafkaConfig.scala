@@ -226,6 +226,7 @@ object Defaults {
   val TierObjectFetcherThreads = 1: Integer
   val TierPartitionStateCommitInterval = 15000: Integer
   val TierGcsBucket = null
+  val TierGcsPrefix = ""
   val TierGcsRegion = null
   val TierGcsWriteChunkSize = 0
   val TierGcsReadChunkSize = 0
@@ -571,6 +572,7 @@ object KafkaConfig {
 
   /** Tiered storage GCS configs **/
   val TierGcsBucketProp = ConfluentPrefix + "tier.gcs.bucket"
+  val TierGcsPrefixProp = ConfluentPrefix + "tier.gcs.prefix"
   val TierGcsRegionProp = ConfluentPrefix + "tier.gcs.region"
   val TierGcsWriteChunkSizeProp = ConfluentPrefix + "tier.gcs.write.chunk.size"
   val TierGcsReadChunkSizeProp = ConfluentPrefix + "tier.gcs.read.chunk.size"
@@ -1029,6 +1031,7 @@ object KafkaConfig {
   val TierObjectFetcherThreadsDoc  = "The size of the threadpool use by the tier object fetcher. Currently this option is the concurrency factor for tier state fetches made by the replica fetcher threads."
   val TierPartitionStateCommitIntervalDoc = "The frequency in milliseconds that the TierTopicManager commits updates to TierPartitionState files. Decreasing this interval will reduce batching of updates. Increasing this interval will increase the time taken for tiered log segments from being deleted from local disk. "
   val TierGcsBucketDoc = "The GCS bucket to use for tiered storage."
+  val TierGcsPrefixDoc = "This prefix will be added to tiered storage objects stored in GCS."
   val TierGcsRegionDoc = "The GCS region to use for tiered storage."
   val TierGcsWriteChunkSizeDoc = "The GCS chunk size for write requests between the broker and storage. If null, then the default value from the GCS implementation is used."
   val TierGcsReadChunkSizeDoc = "The GCS chunk size for read requests between the broker and storage. If null, then the default value from the GCS implementation is used."
@@ -1371,6 +1374,7 @@ object KafkaConfig {
       .define(TierLocalHotsetMsProp, LONG, Defaults.TierLocalHotsetMs, HIGH, TierLocalHotsetMsDoc)
       .define(TierArchiverNumThreadsProp, INT, Defaults.TierArchiverNumThreads, atLeast(1), MEDIUM, TierArchiverNumThreadsDoc)
       .defineInternal(TierGcsBucketProp, STRING, Defaults.TierGcsBucket, HIGH, TierGcsBucketDoc)
+      .defineInternal(TierGcsPrefixProp, STRING, Defaults.TierGcsPrefix, HIGH, TierGcsPrefixDoc)
       .defineInternal(TierGcsRegionProp, STRING, Defaults.TierGcsRegion, HIGH, TierGcsRegionDoc)
       .defineInternal(TierGcsWriteChunkSizeProp, INT, Defaults.TierGcsWriteChunkSize, atLeast(0), LOW, TierGcsWriteChunkSizeDoc)
       .defineInternal(TierGcsReadChunkSizeProp, INT, Defaults.TierGcsReadChunkSize, atLeast(0), LOW, TierGcsReadChunkSizeDoc)
@@ -1898,6 +1902,7 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierArchiverNumThreads = getInt(KafkaConfig.TierArchiverNumThreadsProp)
   val tierGcsBucket = getString(KafkaConfig.TierGcsBucketProp)
   val tierGcsRegion = getString(KafkaConfig.TierGcsRegionProp)
+  val tierGcsPrefix = getString(KafkaConfig.TierGcsPrefixProp)
   val tierGcsWriteChunkSize = getInt(KafkaConfig.TierGcsWriteChunkSizeProp)
   val tierGcsReadChunkSize = getInt(KafkaConfig.TierGcsReadChunkSizeProp)
   val tierGcsCredFilePath = Option(getString(KafkaConfig.TierGcsCredFilePathProp))

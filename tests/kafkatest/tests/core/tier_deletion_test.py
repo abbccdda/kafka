@@ -23,7 +23,7 @@ from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
-from kafkatest.utils.tiered_storage import tier_set_configs, TierSupport, TieredStorageMetricsRegistry, S3_BACKEND
+from kafkatest.utils.tiered_storage import tier_set_configs, TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND
 from kafkatest.services.kafka import config_property
 
 import uuid
@@ -73,7 +73,7 @@ class TestTierTopicDeletion(ProduceConsumeValidateTest, TierSupport):
             self.kafka.start_node(node)
 
     @cluster(num_nodes=6)
-    @matrix(hard_bounce_broker=[False, True], backend=[S3_BACKEND])
+    @matrix(hard_bounce_broker=[False, True], backend=[S3_BACKEND, GCS_BACKEND])
     def test_tier_topic_deletion(self, hard_bounce_broker, backend):
         """
         Test the tier topic deletion pathways by creating a topic with partitions to be archived while bouncing brokers
@@ -118,12 +118,17 @@ class TestTierTopicDeletion(ProduceConsumeValidateTest, TierSupport):
         for node in self.kafka.nodes:
             self.bounce_broker(node, hard_bounce_broker)
 
-        bucket = self.kafka.nodes[0].config[config_property.CONFLUENT_TIER_S3_BUCKET]
-        # we set the timeout to be very large here to ensure S3's ListBucket consistency properties
-        # have suffient time to show object deletion
-        wait_until(lambda: len(list(self.list_s3_contents(bucket, self.TIER_BUCKET_PREFIX))) == 0,
-                timeout_sec=1800, backoff_sec=2, err_msg="deletion has not completed yet " +
-                str(list(self.list_s3_contents(bucket, self.TIER_BUCKET_PREFIX))))
+        if backend == S3_BACKEND:
+            # we set the timeout to be very large here to ensure S3's ListBucket consistency properties
+            # have suffient time to show object deletion
+            wait_until(lambda: len(list(self.list_s3_contents())) == 0,
+                       timeout_sec=1800, backoff_sec=2, err_msg="deletion has not completed yet " +
+                       str(list(self.list_s3_contents())))
+        elif backend == GCS_BACKEND:
+            self.setup_gsutil()
+            wait_until(lambda: list(self.list_gcs_contents()) == ["CommandException: One or more URLs matched no objects."], 
+            timeout_sec=1800, backoff_sec=2, 
+            err_msg="deletion has not completed yet " + str(list(self.list_gcs_contents())))
 
         self.restart_jmx_tool()
         wait_until(lambda: self.deletions_in_progress() == False,

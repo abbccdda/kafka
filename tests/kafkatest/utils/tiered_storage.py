@@ -44,6 +44,9 @@ def tier_server_props(backend, feature=True, enable=False,
                       [config_property.CONFLUENT_TIER_GCS_BUCKET, "confluent-tier-system-test-us-west1"],
                       [config_property.CONFLUENT_TIER_GCS_REGION, "us-west1"],
                       [config_property.CONFLUENT_TIER_GCS_CRED_FILE_PATH, "/vagrant/gcs_credentials.json"]]
+            if tier_bucket_prefix:
+                props += [[config_property.CONFLUENT_TIER_GCS_PREFIX, tier_bucket_prefix]]
+
     return props
 
 def tier_set_configs(kafka, backend, **server_props_kwargs):
@@ -149,9 +152,24 @@ class TierSupport():
             self.kafka.started[idx-1] = False
             self.kafka.start_jmx_tool(idx, node)
 
-    def list_s3_contents(self, bucket, prefix):
+    def list_s3_contents(self):
         node = self.kafka.nodes[0]
-        cmd = "aws s3 ls --recursive confluent-tier-system-test/"+prefix
+        bucket = node.config[config_property.CONFLUENT_TIER_S3_BUCKET]
+        prefix = node.config[config_property.CONFLUENT_TIER_S3_PREFIX]
+        cmd = "aws s3 ls --recursive {}/{}".format(bucket, prefix)
+        for line in node.account.ssh_capture(cmd, allow_fail=True):
+            yield line.rstrip()
+
+    def setup_gsutil(self):
+        for node in self.kafka.nodes:
+            cmd = "gcloud auth activate-service-account --key-file %s" % node.config[config_property.CONFLUENT_TIER_GCS_CRED_FILE_PATH]
+            node.account.ssh_capture(cmd, allow_fail=False)
+
+    def list_gcs_contents(self):
+        node = self.kafka.nodes[0]
+        bucket = node.config[config_property.CONFLUENT_TIER_GCS_BUCKET]
+        prefix = node.config[config_property.CONFLUENT_TIER_GCS_PREFIX]
+        cmd = "gsutil ls -r gs://{}/{}".format(bucket, prefix)
         for line in node.account.ssh_capture(cmd, allow_fail=True):
             yield line.rstrip()
 

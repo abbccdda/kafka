@@ -31,11 +31,17 @@ ENV DEBIAN_FRONTEND noninteractive
 ARG ducker_creator=default
 LABEL ducker.creator=$ducker_creator
 
+
 # Update Linux and install necessary utilities.
 RUN apt update && apt install -y sudo netcat iptables rsync unzip wget curl jq coreutils openssh-server net-tools vim python-pip python-dev libffi-dev libssl-dev cmake pkg-config libfuse-dev iperf traceroute && apt-get -y clean
 RUN python -m pip install -U pip==9.0.3;
 RUN pip install --upgrade cffi virtualenv pyasn1 boto3 pycrypto pywinrm ipaddress enum34 && pip install --upgrade ducktape==0.7.6
 RUN pip install awscli
+
+RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+RUN apt-get install apt-transport-https ca-certificates gnupg -y
+RUN curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key --keyring /usr/share/keyrings/cloud.google.gpg add -
+RUN apt-get update && apt-get install google-cloud-sdk -y
 
 # Set up ssh
 COPY ./ssh-config /root/.ssh/config
@@ -99,6 +105,8 @@ aws_secret_access_key=$aws_secret_access_key\n"\
 # We place credentials in /vagrant/ to work with Vagrant testing
 ARG gcs_credentials_file=
 COPY $gcs_credentials_file /vagrant/gcs_credentials.json
+
+RUN runuser -l ducker -c "gcloud auth activate-service-account --key-file /vagrant/gcs_credentials.json"
 
 USER ducker
 

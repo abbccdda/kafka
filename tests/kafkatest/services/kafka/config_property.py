@@ -70,6 +70,7 @@ CONFLUENT_TIER_S3_PREFIX = "confluent.tier.s3.prefix"
 CONFLUENT_TIER_SEGMENT_ROLL_MIN_BYTES = "confluent.tier.segment.hotset.roll.min.bytes"
 CONFLUENT_TIER_GCS_BUCKET = "confluent.tier.gcs.bucket"
 CONFLUENT_TIER_GCS_REGION = "confluent.tier.gcs.region"
+CONFLUENT_TIER_GCS_PREFIX = "confluent.tier.gcs.prefix"
 CONFLUENT_TIER_GCS_CRED_FILE_PATH = "confluent.tier.gcs.cred.file.path"
 
 """

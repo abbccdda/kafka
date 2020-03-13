@@ -11,6 +11,7 @@ import scala.compat.java8.OptionConverters;
 
 public class GcsTierObjectStoreConfig extends TierObjectStoreConfig {
     public String gcsBucket;
+    public String gcsPrefix;
     public String gcsRegion;
     public Integer gcsWriteChunkSize;
     public Integer gcsReadChunkSize;
@@ -21,6 +22,7 @@ public class GcsTierObjectStoreConfig extends TierObjectStoreConfig {
         validateConfig(config);
         this.gcsBucket = config.tierGcsBucket();
         this.gcsRegion = config.tierGcsRegion();
+        this.gcsPrefix = config.tierGcsPrefix();
         this.gcsWriteChunkSize = config.tierGcsWriteChunkSize();
         this.gcsReadChunkSize = config.tierGcsReadChunkSize();
         this.gcsCredFilePath = OptionConverters.toJava(config.tierGcsCredFilePath());
@@ -30,6 +32,7 @@ public class GcsTierObjectStoreConfig extends TierObjectStoreConfig {
     GcsTierObjectStoreConfig(String clusterId,
                              Integer brokerId,
                              String bucket,
+                             String prefix,
                              String region,
                              Integer writeChunkSize,
                              Integer readChunkSize,
@@ -37,6 +40,7 @@ public class GcsTierObjectStoreConfig extends TierObjectStoreConfig {
         super(clusterId, brokerId);
         this.gcsBucket = bucket;
         this.gcsRegion = region;
+        this.gcsPrefix = prefix;
         this.gcsWriteChunkSize = writeChunkSize;
         this.gcsReadChunkSize = readChunkSize;
         this.gcsCredFilePath = Optional.ofNullable(credFilePath);
