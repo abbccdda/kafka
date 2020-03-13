@@ -347,6 +347,10 @@ class PlaintextAdminIntegrationTest extends BaseAdminIntegrationTest {
       server.config.values.keySet().asScala.filterNot(config =>
         !tierFeature && config.startsWith(KafkaConfig.ConfluentTierPrefix) ||
         config.equals(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG) ||
+        config.equals(ConfluentConfigs.BASIC_AUTH_CREDENTIALS_SOURCE_CONFIG) ||
+        config.equals(ConfluentConfigs.USER_INFO_CONFIG) ||
+        config.equals(ConfluentConfigs.BEARER_AUTH_CREDENTIALS_SOURCE_CONFIG) ||
+        config.equals(ConfluentConfigs.BEARER_AUTH_TOKEN_CONFIG) ||
         config.equals(LogConfig.AppendRecordInterceptorClassesProp)).size
     }
     // Remove Confluent configs that are not defined in KafkaConfig from described configs

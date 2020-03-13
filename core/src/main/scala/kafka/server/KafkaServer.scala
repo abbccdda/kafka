@@ -22,7 +22,7 @@ import java.net.{InetAddress, SocketTimeoutException}
 import java.util
 import java.util.concurrent._
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
-import java.util.{Collections, function}
+import java.util.Collections
 import java.util.function.Supplier
 
 import kafka.api.{KAFKA_0_9_0, KAFKA_2_2_IV0, KAFKA_2_4_IV1}
@@ -112,9 +112,21 @@ object KafkaServer {
     // which should be fine since we do not guarantee any sharing of interceptors anyways
     logProps.put(LogConfig.AppendRecordInterceptorClassesProp, kafkaConfig.getList(KafkaConfig.AppendRecordInterceptorClassesProp))
 
-    logProps.computeIfAbsent(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG, new function.Function[String, Object] {
-      override def apply(t: String): Object = kafkaConfig.getString(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG)
-    })
+    // confluent configs needed for schema validation
+    // only confluent.schema.registy.url is needed to enable the feature. The rest are security related
+    logProps.computeIfAbsent(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG, (_: String) => kafkaConfig.getString(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG))
+    logProps.computeIfAbsent(ConfluentConfigs.BASIC_AUTH_CREDENTIALS_SOURCE_CONFIG, (_: String) => kafkaConfig.getString(ConfluentConfigs.BASIC_AUTH_CREDENTIALS_SOURCE_CONFIG))
+    logProps.computeIfAbsent(ConfluentConfigs.USER_INFO_CONFIG, (_: String) => kafkaConfig.getString(ConfluentConfigs.USER_INFO_CONFIG))
+    logProps.computeIfAbsent(ConfluentConfigs.BEARER_AUTH_CREDENTIALS_SOURCE_CONFIG, (_: String) => kafkaConfig.getString(ConfluentConfigs.BEARER_AUTH_CREDENTIALS_SOURCE_CONFIG))
+    logProps.computeIfAbsent(ConfluentConfigs.BEARER_AUTH_TOKEN_CONFIG, (_: String) => kafkaConfig.getString(ConfluentConfigs.BEARER_AUTH_TOKEN_CONFIG))
+    logProps.computeIfAbsent(ConfluentConfigs.SSL_PROTOCOL_CONFIG, (_: String) => kafkaConfig.getString(ConfluentConfigs.SSL_PROTOCOL_CONFIG))
+    logProps.computeIfAbsent(ConfluentConfigs.SSL_KEYSTORE_TYPE_CONFIG, (_: String) => kafkaConfig.getString(ConfluentConfigs.SSL_KEYSTORE_TYPE_CONFIG))
+    logProps.computeIfAbsent(ConfluentConfigs.SSL_KEYSTORE_LOCATION_CONFIG, (_: String) => kafkaConfig.getString(ConfluentConfigs.SSL_KEYSTORE_LOCATION_CONFIG))
+    logProps.computeIfAbsent(ConfluentConfigs.SSL_KEYSTORE_PASSWORD_CONFIG, (_: String) => kafkaConfig.getString(ConfluentConfigs.SSL_KEYSTORE_PASSWORD_CONFIG))
+    logProps.computeIfAbsent(ConfluentConfigs.SSL_KEY_PASSWORD_CONFIG, (_: String) => kafkaConfig.getString(ConfluentConfigs.SSL_KEY_PASSWORD_CONFIG))
+    logProps.computeIfAbsent(ConfluentConfigs.SSL_TRUSTSTORE_TYPE_CONFIG, (_: String) => kafkaConfig.getString(ConfluentConfigs.SSL_TRUSTSTORE_TYPE_CONFIG))
+    logProps.computeIfAbsent(ConfluentConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, (_: String) => kafkaConfig.getString(ConfluentConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG))
+    logProps.computeIfAbsent(ConfluentConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, (_: String) => kafkaConfig.getString(ConfluentConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG))
 
     logProps
   }

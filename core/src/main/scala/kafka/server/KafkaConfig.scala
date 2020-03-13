@@ -1498,6 +1498,18 @@ object KafkaConfig {
       .defineInternal(ConfluentConfigs.RETRIES_WAIT_MS_CONFIG, INT, ConfluentConfigs.RETRIES_WAIT_MS_DEFAULT, LOW)
       .defineInternal(ConfluentConfigs.MISSING_ID_QUERY_RANGE_CONFIG, INT, ConfluentConfigs.MISSING_ID_QUERY_RANGE_DEFAULT, LOW)
       .defineInternal(ConfluentConfigs.MISSING_ID_CACHE_TTL_CONFIG, LONG, ConfluentConfigs.MISSING_ID_CACHE_TTL_DEFAULT, LOW)
+      .defineInternal(ConfluentConfigs.BASIC_AUTH_CREDENTIALS_SOURCE_CONFIG, STRING, ConfluentConfigs.BASIC_AUTH_CREDENTIALS_SOURCE_DEFAULT, LOW)
+      .defineInternal(ConfluentConfigs.USER_INFO_CONFIG, STRING, ConfluentConfigs.USER_INFO_DEFAULT, LOW)
+      .defineInternal(ConfluentConfigs.BEARER_AUTH_CREDENTIALS_SOURCE_CONFIG, STRING, ConfluentConfigs.BEARER_AUTH_CREDENTIALS_SOURCE_DEFAULT, LOW)
+      .defineInternal(ConfluentConfigs.BEARER_AUTH_TOKEN_CONFIG, STRING, ConfluentConfigs.BEARER_AUTH_TOKEN_DEFAULT, LOW)
+      .defineInternal(ConfluentConfigs.SSL_PROTOCOL_CONFIG, STRING, null, LOW)
+      .defineInternal(ConfluentConfigs.SSL_KEYSTORE_TYPE_CONFIG, STRING, null, LOW)
+      .defineInternal(ConfluentConfigs.SSL_KEYSTORE_LOCATION_CONFIG, STRING, null, LOW)
+      .defineInternal(ConfluentConfigs.SSL_KEYSTORE_PASSWORD_CONFIG, STRING, null, LOW)
+      .defineInternal(ConfluentConfigs.SSL_KEY_PASSWORD_CONFIG, STRING, null, LOW)
+      .defineInternal(ConfluentConfigs.SSL_TRUSTSTORE_TYPE_CONFIG, STRING, null, LOW)
+      .defineInternal(ConfluentConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, STRING, null, LOW)
+      .defineInternal(ConfluentConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, STRING, null, LOW)
 
       .defineInternal(BrokerSessionUuidProp, STRING, null, LOW)
       .defineInternal(ConfluentConfigs.MULTITENANT_METADATA_CLASS_CONFIG, CLASS,

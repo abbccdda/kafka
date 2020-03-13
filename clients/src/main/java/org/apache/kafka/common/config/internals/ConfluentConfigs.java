@@ -109,6 +109,59 @@ public class ConfluentConfigs {
     public static final String MISSING_ID_CACHE_TTL_DOC = "The TTL in seconds for caching missing schema IDs";
     public static final long MISSING_ID_CACHE_TTL_DEFAULT  = 60;
 
+    public static final String BASIC_AUTH_CREDENTIALS_SOURCE_CONFIG = CONFLUENT_PREFIX + "basic.auth.credentials.source";
+    public static final String BASIC_AUTH_CREDENTIALS_SOURCE_DEFAULT = null;
+    public static final String BASIC_AUTH_CREDENTIALS_SOURCE_DOC =
+        "Specify how to pick the credentials for Basic Auth header. "
+            + "The supported values are URL, USER_INFO and SASL_INHERIT";
+
+    public static final String USER_INFO_CONFIG = CONFLUENT_PREFIX + "basic.auth.user.info";
+    public static final String USER_INFO_DEFAULT = null;
+    public static final String USER_INFO_DOC =
+        "Specify the user info for Basic Auth in the form of {username}:{password}";
+
+    public static final String BEARER_AUTH_CREDENTIALS_SOURCE_CONFIG = CONFLUENT_PREFIX + "bearer.auth.credentials.source";
+    public static final String BEARER_AUTH_CREDENTIALS_SOURCE_DEFAULT = null;
+    public static final String BEARER_AUTH_CREDENTIALS_SOURCE_DOC =
+        "Specify how to pick the credentials for Bearer Auth header. ";
+
+    public static final String BEARER_AUTH_TOKEN_CONFIG = CONFLUENT_PREFIX + "bearer.auth.token";
+    public static final String BEARER_AUTH_TOKEN_DEFAULT = null;
+    public static final String BEARER_AUTH_TOKEN_DOC =
+        "Specify the Bearer token to be used for authentication";
+
+    public static final String SSL_PROTOCOL_CONFIG = CONFLUENT_PREFIX + "ssl.protocol";
+    public static final String SSL_PROTOCOL_DOC = "The SSL protocol used to generate the SSLContext. Default "
+        + "setting is TLSv1.2, which is fine for most cases. Allowed values in recent JVMs are TLSv1.2 and TLSv1.3."
+        + " TLS, TLSv1.1, SSL, SSLv2 and SSLv3 may be supported in older JVMs, but their usage is discouraged due to "
+        + "known security vulnerabilities.";
+
+    public static final String SSL_KEYSTORE_TYPE_CONFIG = CONFLUENT_PREFIX + "ssl.keystore.type";
+    public static final String SSL_KEYSTORE_TYPE_DOC = "The file format of the key store file. "
+        + "This is optional for client.";
+
+    public static final String SSL_KEYSTORE_LOCATION_CONFIG = CONFLUENT_PREFIX + "ssl.keystore.location";
+    public static final String SSL_KEYSTORE_LOCATION_DOC = "The location of the key store file. This is optional for "
+        + "client and can be used for two-way authentication for client.";
+
+    public static final String SSL_KEYSTORE_PASSWORD_CONFIG = CONFLUENT_PREFIX + "ssl.keystore.password";
+    public static final String SSL_KEYSTORE_PASSWORD_DOC = "The store password for the key store file. This is "
+        + "optional for client and only needed if ssl.keystore.location is configured. ";
+
+    public static final String SSL_KEY_PASSWORD_CONFIG = CONFLUENT_PREFIX + "ssl.key.password";
+    public static final String SSL_KEY_PASSWORD_DOC = "The password of the private key in the key store file. "
+        + "This is optional for client.";
+
+    public static final String SSL_TRUSTSTORE_TYPE_CONFIG = CONFLUENT_PREFIX + "ssl.truststore.type";
+    public static final String SSL_TRUSTSTORE_TYPE_DOC = "The file format of the trust store file.";
+
+    public static final String SSL_TRUSTSTORE_LOCATION_CONFIG = CONFLUENT_PREFIX + "ssl.truststore.location";
+    public static final String SSL_TRUSTSTORE_LOCATION_DOC = "The location of the trust store file. ";
+
+    public static final String SSL_TRUSTSTORE_PASSWORD_CONFIG = CONFLUENT_PREFIX + "ssl.truststore.password";
+    public static final String SSL_TRUSTSTORE_PASSWORD_DOC = "The password for the trust store file. "
+        + "If a password is not set access to the truststore is still available, but integrity checking is disabled.";
+
     // for configs defined for both per-broker and per-topic, it should be defined in ConfluentTopicConfig instead.
 
     // used to check if the broker is configured for tenant-level quotas (by verifying that

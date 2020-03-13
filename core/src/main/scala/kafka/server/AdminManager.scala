@@ -781,7 +781,13 @@ class AdminManager(val config: KafkaConfig,
       val recordInterceptorCheck = !configName.equals(LogConfig.AppendRecordInterceptorClassesProp)
       // Do not allow schema registry URL since that is a broker-only config
       val schemaRegistryUrlCheck = !configName.equals(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG)
+      // Do not allow schema validation's authentication configs since they are broker-only configs
+      val basicAuthCredentialsSourceCheck = !configName.equals(ConfluentConfigs.BASIC_AUTH_CREDENTIALS_SOURCE_CONFIG)
+      val userInfoCheck = !configName.equals(ConfluentConfigs.USER_INFO_CONFIG)
+      val bearerAuthCredentialsCheck = !configName.equals(ConfluentConfigs.BEARER_AUTH_CREDENTIALS_SOURCE_CONFIG)
+      val bearerAuthTokenCheck = !configName.equals(ConfluentConfigs.BEARER_AUTH_TOKEN_CONFIG)
       /* Always returns true if configNames is None */
+      basicAuthCredentialsSourceCheck && userInfoCheck && bearerAuthCredentialsCheck && bearerAuthTokenCheck &&
       tierFeatureCheck && recordInterceptorCheck && schemaRegistryUrlCheck && configNames.forall(_.contains(configName))
     }.toBuffer
   }
