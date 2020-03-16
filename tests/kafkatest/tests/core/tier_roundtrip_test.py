@@ -13,6 +13,8 @@ from kafkatest.version import LATEST_0_9, LATEST_0_10_0, LATEST_0_10_1, \
     LATEST_0_10_2, LATEST_0_11_0, LATEST_1_0, LATEST_1_1, LATEST_2_0, \
     LATEST_2_1, LATEST_2_2, LATEST_2_3, LATEST_2_4, DEV_BRANCH, KafkaVersion
 
+import time
+
 def verify_offset_for_times_data(producer_data, consumer_data):
     """
     Verify that the timestamp to offset information extracted by a consumer matches that from a producer. Producers
@@ -84,10 +86,23 @@ class TierRoundtripTest(ProduceConsumeValidateTest, TierSupport):
     @matrix(client_version=[str(DEV_BRANCH), str(LATEST_2_4), str(LATEST_2_3), str(LATEST_2_2), str(LATEST_2_1), str(LATEST_2_0),
                             str(LATEST_1_1), str(LATEST_1_0), str(LATEST_0_11_0), str(LATEST_0_10_2), str(LATEST_0_10_1),
                             str(LATEST_0_10_0), str(LATEST_0_9)],
+            prefer_tier_fetch=[False],
             backend=[S3_BACKEND, GCS_BACKEND])
-    def test_tier_roundtrip(self, client_version, backend):
+    @matrix(client_version=[str(DEV_BRANCH), str(LATEST_0_9)],
+            prefer_tier_fetch=[True],
+            backend=[S3_BACKEND])
+    def test_tier_roundtrip(self, client_version, prefer_tier_fetch, backend):
+        if prefer_tier_fetch:
+            hotset_ms = -1
+            hotset_bytes = -1
+            prefer_tier_fetch_ms = 0
+        else:
+            hotset_ms = 1
+            hotset_bytes = 1
+            prefer_tier_fetch_ms = -1
 
-        self.configure_tiering(backend, metadata_replication_factor=1, log_segment_bytes=self.LOG_SEGMENT_BYTES)
+        self.configure_tiering(backend, metadata_replication_factor=1, log_segment_bytes=self.LOG_SEGMENT_BYTES,
+                hotset_ms=hotset_ms, hotset_bytes=hotset_bytes, prefer_tier_fetch_ms=prefer_tier_fetch_ms)
 
         self.topic = "test-topic"
         
@@ -114,8 +129,12 @@ class TierRoundtripTest(ProduceConsumeValidateTest, TierSupport):
         self.add_log_metrics(self.topic)
         self.restart_jmx_tool()
 
-        wait_until(lambda: self.tiering_completed(self.topic),
-                   timeout_sec=180, backoff_sec=2, err_msg="archive did not complete within timeout")
+        if prefer_tier_fetch:
+            wait_until(lambda: self.tiering_completed_prefer_fetch(self.topic, self.LOG_SEGMENT_BYTES),
+                    timeout_sec=60, backoff_sec=2, err_msg="archive did not complete within timeout")
+        else:
+            wait_until(lambda: self.tiering_completed(self.topic),
+                    timeout_sec=60, backoff_sec=2, err_msg="archive did not complete within timeout")
 
         self.consumer.start()
         self.consumer.wait()

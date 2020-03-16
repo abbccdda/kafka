@@ -237,7 +237,14 @@ class TransactionsTest(Test, TierSupport):
             use_group_metadata=[True, False],
             tier=[True],
             backend=[S3_BACKEND, GCS_BACKEND])
-    def test_transactions(self, failure_mode, bounce_target, check_order, use_group_metadata, tier, backend=None):
+    @matrix(failure_mode=["hard_bounce"],
+            bounce_target=["brokers", "clients"],
+            tier=[True],
+            use_group_metadata=[False],
+            prefer_tier_fetch=[True],
+            check_order=[True, False],
+            backend=[S3_BACKEND])
+    def test_transactions(self, failure_mode, bounce_target, check_order, use_group_metadata, tier, prefer_tier_fetch=False, backend=None):
         security_protocol = 'PLAINTEXT'
 
         self.kafka = KafkaService(context=self.test_context,
@@ -246,7 +253,18 @@ class TransactionsTest(Test, TierSupport):
 
         if tier:
             assert backend is not None
-            self.configure_tiering(backend)
+            log_segment_bytes=1024000
+            if prefer_tier_fetch:
+                hotset_ms = -1
+                hotset_bytes = -1
+                prefer_tier_fetch_ms = 1
+            else:
+                hotset_ms = 1
+                hotset_bytes = 1
+                prefer_tier_fetch_ms = -1
+
+            self.configure_tiering(backend, log_segment_bytes=log_segment_bytes, hotset_ms=hotset_ms,
+                    hotset_bytes=hotset_bytes, prefer_tier_fetch_ms=prefer_tier_fetch_ms)
 
         self.kafka.security_protocol = security_protocol
         self.kafka.interbroker_security_protocol = security_protocol
@@ -278,8 +296,13 @@ class TransactionsTest(Test, TierSupport):
             partitions = range(0, self.num_input_partitions)
             self.add_log_metrics(self.output_topic, partitions)
             self.restart_jmx_tool()
-            wait_until(lambda: self.tiering_completed(self.output_topic, partitions=partitions),
-                       timeout_sec=360, backoff_sec=2, err_msg="archive did not complete within timeout")
+            if prefer_tier_fetch:
+                wait_until(lambda: self.tiering_completed_prefer_fetch(self.output_topic, log_segment_bytes, partitions=partitions),
+                        timeout_sec=360, backoff_sec=2, err_msg="archive did not complete within timeout")
+            else:
+                wait_until(lambda: self.tiering_completed(self.output_topic, partitions=partitions),
+                        timeout_sec=360, backoff_sec=2, err_msg="archive did not complete within timeout")
+
         output_messages = self.get_messages_from_topic(self.output_topic, self.num_seed_messages)
 
         concurrently_consumed_message_set = set(concurrently_consumed_messages)

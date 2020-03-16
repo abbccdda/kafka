@@ -8,7 +8,8 @@ GCS_BACKEND = "GCS"
 def tier_server_props(backend, feature=True, enable=False,
                       metadata_replication_factor=3, hotset_bytes=1, hotset_ms=1,
                       log_segment_bytes=1024000, log_retention_check_interval=5000, log_roll_time=3000,
-                      hotset_roll_min_bytes=None, tier_delete_check_interval=1000, tier_bucket_prefix=None):
+                      prefer_tier_fetch_ms=-1, hotset_roll_min_bytes=None,
+                      tier_delete_check_interval=1000, tier_bucket_prefix=None):
     """Helper for building server_prop_overrides in Kafka tests that enable tiering"""
     props = [
         # tiered storage does not support multiple logdirs
@@ -29,6 +30,7 @@ def tier_server_props(backend, feature=True, enable=False,
         props += [[config_property.CONFLUENT_TIER_FEATURE, feature],
                   [config_property.CONFLUENT_TIER_ENABLE, enable],
                   [config_property.CONFLUENT_TIER_LOCAL_HOTSET_BYTES, hotset_bytes],
+                  [config_property.CONFLUENT_PREFER_TIER_FETCH_MS, prefer_tier_fetch_ms],
                   [config_property.CONFLUENT_TIER_LOCAL_HOTSET_MS, hotset_ms],
                   [config_property.CONFLUENT_TIER_METADATA_REPLICATION_FACTOR, metadata_replication_factor]]
 
@@ -89,6 +91,27 @@ class TierSupport():
         self.kafka.jmx_attributes = [TieredStorageMetricsRegistry.ARCHIVER_LAG.attribute,
                                      TieredStorageMetricsRegistry.FETCHER_BYTES_FETCHED.attribute]
         self.kafka.server_prop_overides = tier_server_props(backend, **server_props_kwargs)
+
+    def tiering_completed_prefer_fetch(self, topic, segment_size, partitions=[0]):
+        # check that tiering started first - tiered log size should be non-zero
+        if not self.tiering_started(topic, partitions):
+            return False
+
+        self.kafka.read_jmx_output_all_nodes()
+        for partition in partitions:
+            log_local_size_metric = str(TieredStorageMetricsRegistry.log_local_size(topic, partition))
+            log_tier_size_metric = str(TieredStorageMetricsRegistry.log_tier_size(topic, partition))
+            for node in self.kafka.nodes:
+                last_jmx_entry = self.kafka.last_jmx_item(self.kafka.idx(node))
+                archiver_lag = last_jmx_entry.get(str(TieredStorageMetricsRegistry.ARCHIVER_LAG), -1)
+                local_size = last_jmx_entry.get(log_local_size_metric, -1)
+                tier_size = last_jmx_entry.get(log_tier_size_metric, -1)
+                # we do not delete locally for the prefer tier fetch runs, so the sizes
+                # should match other than the active segment
+                if archiver_lag != 0 or local_size - tier_size > segment_size:
+                    self.logger.debug("Archiving not complete for partition " + str(partition))
+                    return False
+        return True
 
     def tiering_completed(self, topic, partitions=[0]):
 	"""Ensure that:
