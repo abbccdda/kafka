@@ -208,7 +208,7 @@ public class AnomalyDetectorTest {
                                                        EasyMock.eq(true),
                                                        EasyMock.eq(true),
                                                        EasyMock.eq(false),
-                                                       EasyMock.eq(true),
+                                                       EasyMock.eq(false),
                                                        EasyMock.eq(Collections.emptySet()),
                                                        EasyMock.eq(false)))
               .andReturn(null);

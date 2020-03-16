@@ -84,6 +84,8 @@ public class GoalViolations extends KafkaAnomaly {
     if (_violatedGoalsByFixability.get(false) == null) {
       try {
         // Fix the fixable goal violations with rebalance operation.
+        // isTriggeredByGoalViolation is set to false to force the rebalance to use a stricter threshold when actually
+        // throttling than it does when detecting the violation, in order to reduce rebalance churn
         _optimizationResult = new OptimizationResult(_kafkaCruiseControl.rebalance(_selfHealingGoals,
                                                                                    false,
                                                                                    null,
@@ -100,7 +102,7 @@ public class GoalViolations extends KafkaAnomaly {
                                                                                    _excludeRecentlyDemotedBrokers,
                                                                                    _excludeRecentlyRemovedBrokers,
                                                                                    false,
-                                                                                   true,
+                                                                                   false,
                                                                                    Collections.emptySet(),
                                                                                    false),
                                                      null);
