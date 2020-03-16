@@ -80,7 +80,7 @@ RUN mkdir -p /opt/caas/lib \
   && mkdir -p /opt/asyncprofiler \
   && curl -L https://github.com/jvm-profiling-tools/async-profiler/releases/download/v1.6/async-profiler-1.6-linux-x64.tar.gz | tar xz -C /opt/asyncprofiler \
   && apt update \
-  && apt install -y cc-rollingupgrade-ctl=0.5.0 vim-tiny \
+  && apt install -y cc-rollingupgrade-ctl=0.9.0 vim-tiny \
   && apt-get autoremove -y \
   && mkdir -p  "${KAFKA_SECRETS_DIR}" "${KAFKA_LOG4J_DIR}" /opt/caas/config/kafka \
   && ln -s "${KAFKA_CONFIG_DIR}/kafka.properties" /opt/caas/config/kafka/kafka.properties \
