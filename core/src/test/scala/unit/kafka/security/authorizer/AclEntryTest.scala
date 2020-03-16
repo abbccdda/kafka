@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets.UTF_8
 import kafka.utils.Json
 import org.apache.kafka.common.acl.AclOperation.READ
 import org.apache.kafka.common.acl.AclPermissionType.{ALLOW, DENY}
+import org.apache.kafka.common.resource.{PatternType, ResourcePattern, ResourceType}
 import org.apache.kafka.common.security.auth.KafkaPrincipal
 import org.junit.{Assert, Test}
 import org.scalatestplus.junit.JUnitSuite
@@ -29,21 +30,28 @@ import scala.collection.JavaConverters._
 
 class AclEntryTest extends JUnitSuite {
 
+  val resource = new ResourcePattern(ResourceType.TOPIC, "*", PatternType.LITERAL)
+
   val AclJson = "{\"version\": 1, \"acls\": [{\"host\": \"host1\",\"permissionType\": \"Deny\",\"operation\": \"READ\", \"principal\": \"User:alice\"  },  " +
     "{  \"host\":  \"*\" ,  \"permissionType\": \"Allow\",  \"operation\":  \"Read\", \"principal\": \"User:bob\"  },  " +
     "{  \"host\": \"host1\",  \"permissionType\": \"Deny\",  \"operation\":   \"Read\" ,  \"principal\": \"User:bob\"}  ]}"
 
   @Test
   def testAclJsonConversion(): Unit = {
-    val acl1 = AclEntry(new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "alice"), DENY, "host1" , READ)
-    val acl2 = AclEntry(new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "bob"), ALLOW, "*", READ)
-    val acl3 = AclEntry(new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "bob"), DENY, "host1", READ)
+    val acl1 = AclEntry(new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "alice"), DENY, "host1" , READ, resource)
+    val acl2 = AclEntry(new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "bob"), ALLOW, "*", READ, resource)
+    val acl3 = AclEntry(new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "bob"), DENY, "host1", READ, resource)
 
     val acls = Set[AclEntry](acl1, acl2, acl3)
     val jsonAcls = Json.encodeAsBytes(AclEntry.toJsonCompatibleMap(acls).asJava)
 
-    Assert.assertEquals(acls, AclEntry.fromBytes(jsonAcls))
-    Assert.assertEquals(acls, AclEntry.fromBytes(AclJson.getBytes(UTF_8)))
+    Assert.assertEquals(acls, AclEntry.fromBytes(jsonAcls, resource))
+    Assert.assertEquals(acls, AclEntry.fromBytes(AclJson.getBytes(UTF_8), resource))
+
+    // Ensure resource is not used for AclEntry comparisons
+    val resource2 = new ResourcePattern(ResourceType.GROUP, "test", PatternType.PREFIXED)
+    Assert.assertEquals(acls, AclEntry.fromBytes(jsonAcls, resource2))
+    Assert.assertEquals(acls, AclEntry.fromBytes(AclJson.getBytes(UTF_8), resource2))
   }
 
 }

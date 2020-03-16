@@ -18,14 +18,12 @@ import org.apache.kafka.server.authorizer.AuthorizationResult;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.collection.JavaConversions;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
 
 public class AclProvider extends AclAuthorizer implements AccessRuleProvider {
 
@@ -60,10 +58,8 @@ public class AclProvider extends AclAuthorizer implements AccessRuleProvider {
                                      ResourcePattern resource) {
     ResourceType resourceType = SecurityUtils.resourceType(resource.resourceType().name());
     KafkaPrincipal userPrincipal = userPrincipal(sessionPrincipal);
-    return JavaConversions.setAsJavaSet(matchingAcls(resourceType, resource.name())).stream()
-        .map(AclMapper::accessRule)
-        .filter(acl -> userOrGroupAcl(acl, userPrincipal, groupPrincipals))
-        .collect(Collectors.toSet());
+    return matchingAcls(resourceType, resource.name())
+        .filterAndTransform(p -> userOrGroupAcl(p, userPrincipal, groupPrincipals), AclMapper::accessRule);
   }
 
   @Override
@@ -85,10 +81,9 @@ public class AclProvider extends AclAuthorizer implements AccessRuleProvider {
         : sessionPrincipal;
   }
 
-  private boolean userOrGroupAcl(AccessRule rule,
+  private boolean userOrGroupAcl(KafkaPrincipal aclPrincipal,
                                  KafkaPrincipal userPrincipal,
                                  Set<KafkaPrincipal> groupPrincipals) {
-    KafkaPrincipal aclPrincipal = rule.principal();
     return aclPrincipal.equals(userPrincipal) ||
         aclPrincipal.equals(AccessRule.WILDCARD_USER_PRINCIPAL) ||
         groupPrincipals.contains(aclPrincipal) ||

@@ -713,7 +713,8 @@ object ResourceZNode {
   def path(resource: ResourcePattern): String = ZkAclStore(resource.patternType).path(resource.resourceType, resource.name)
 
   def encode(acls: Set[AclEntry]): Array[Byte] = Json.encodeAsBytes(AclEntry.toJsonCompatibleMap(acls).asJava)
-  def decode(bytes: Array[Byte], stat: Stat): VersionedAcls = VersionedAcls(AclEntry.fromBytes(bytes), stat.getVersion)
+  def decode(bytes: Array[Byte], stat: Stat, resource: ResourcePattern): VersionedAcls =
+    VersionedAcls(AclEntry.fromBytes(bytes, resource), stat.getVersion)
 }
 
 object ExtendedAclChangeEvent {

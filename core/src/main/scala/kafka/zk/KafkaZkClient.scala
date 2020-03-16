@@ -1192,7 +1192,7 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
     val getDataRequest = GetDataRequest(ResourceZNode.path(resource))
     val getDataResponse = retryRequestUntilConnected(getDataRequest)
     getDataResponse.resultCode match {
-      case Code.OK => ResourceZNode.decode(getDataResponse.data, getDataResponse.stat)
+      case Code.OK => ResourceZNode.decode(getDataResponse.data, getDataResponse.stat, resource)
       case Code.NONODE => NoAcls
       case _ => throw getDataResponse.resultException.get
     }

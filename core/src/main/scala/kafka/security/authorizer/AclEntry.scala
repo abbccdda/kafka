@@ -18,8 +18,8 @@
 package kafka.security.authorizer
 
 import kafka.utils.Json
-import org.apache.kafka.common.acl.{AccessControlEntry, AclOperation, AclPermissionType}
-import org.apache.kafka.common.acl.AclOperation.{READ, WRITE, CREATE, DESCRIBE, DELETE, ALTER, DESCRIBE_CONFIGS, ALTER_CONFIGS, CLUSTER_ACTION, IDEMPOTENT_WRITE}
+import org.apache.kafka.common.acl.{AccessControlEntry, AclBinding, AclOperation, AclPermissionType}
+import org.apache.kafka.common.acl.AclOperation.{ALTER, ALTER_CONFIGS, CLUSTER_ACTION, CREATE, DELETE, DESCRIBE, DESCRIBE_CONFIGS, IDEMPOTENT_WRITE, READ, WRITE}
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.resource.{ResourcePattern, ResourceType}
 import org.apache.kafka.common.security.auth.KafkaPrincipal
@@ -50,9 +50,10 @@ object AclEntry {
   def apply(principal: KafkaPrincipal,
             permissionType: AclPermissionType,
             host: String,
-            operation: AclOperation): AclEntry = {
+            operation: AclOperation,
+            resourcePattern: ResourcePattern): AclEntry = {
     new AclEntry(new AccessControlEntry(if (principal == null) null else principal.toString,
-      host, operation, permissionType))
+      host, operation, permissionType), resourcePattern)
   }
 
   /**
@@ -75,7 +76,7 @@ object AclEntry {
    *
    * @return set of AclEntry objects from the JSON string
    */
-  def fromBytes(bytes: Array[Byte]): Set[AclEntry] = {
+  def fromBytes(bytes: Array[Byte], resourcePattern: ResourcePattern): Set[AclEntry] = {
     if (bytes == null || bytes.isEmpty)
       return collection.immutable.Set.empty[AclEntry]
 
@@ -87,7 +88,7 @@ object AclEntry {
         val permissionType = SecurityUtils.permissionType(itemJs(PermissionTypeKey).to[String])
         val host = itemJs(HostsKey).to[String]
         val operation = SecurityUtils.operation(itemJs(OperationKey).to[String])
-        AclEntry(principal, permissionType, host, operation)
+        AclEntry(principal, permissionType, host, operation, resourcePattern)
       }.toSet
     }.getOrElse(Set.empty)
   }
@@ -119,13 +120,15 @@ object AclEntry {
   }
 }
 
-class AclEntry(val ace: AccessControlEntry)
+class AclEntry(val ace: AccessControlEntry, resourcePattern: ResourcePattern)
   extends AccessControlEntry(ace.principal, ace.host, ace.operation, ace.permissionType) {
 
   val kafkaPrincipal: KafkaPrincipal = if (principal == null)
     null
   else
     SecurityUtils.parseKafkaPrincipal(principal)
+
+  val aclBinding = new AclBinding(resourcePattern, ace)
 
   def toMap: Map[String, Any] = {
     Map(AclEntry.PrincipalKey -> principal,
@@ -141,6 +144,5 @@ class AclEntry(val ace: AccessControlEntry)
   override def toString: String = {
     "%s has %s permission for operations: %s from hosts: %s".format(principal, permissionType.name, operation, host)
   }
-
 }
 

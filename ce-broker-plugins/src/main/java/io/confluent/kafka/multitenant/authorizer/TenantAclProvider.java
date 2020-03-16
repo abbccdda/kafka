@@ -13,10 +13,8 @@ import kafka.security.authorizer.AclEntry;
 import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.SecurityUtils;
-import scala.collection.JavaConversions;
 
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Multi-tenant authorizer that supports:
@@ -78,10 +76,8 @@ public class TenantAclProvider extends AclProvider {
         new KafkaPrincipal(MultiTenantPrincipal.TENANT_WILDCARD_USER_TYPE, tenantPrefix);
 
     ResourceType resourceType = SecurityUtils.resourceType(resource.resourceType().name());
-    return JavaConversions.setAsJavaSet(matchingAcls(resourceType, resource.name())).stream()
-        .map(AclMapper::accessRule)
-        .filter(acl -> userAcl(acl, userPrincipal, wildcardPrincipal))
-        .collect(Collectors.toSet());
+    return matchingAcls(resourceType, resource.name())
+        .filterAndTransform(p -> userAcl(p, userPrincipal, wildcardPrincipal), AclMapper::accessRule);
   }
 
   @Override
@@ -94,10 +90,9 @@ public class TenantAclProvider extends AclProvider {
     return false;
   }
 
-  private boolean userAcl(AccessRule rule,
+  private boolean userAcl(KafkaPrincipal aclPrincipal,
                           KafkaPrincipal userPrincipal,
                           KafkaPrincipal wildcardPrincipal) {
-    KafkaPrincipal aclPrincipal = rule.principal();
     return aclPrincipal.equals(userPrincipal) || aclPrincipal.equals(wildcardPrincipal);
   }
 }

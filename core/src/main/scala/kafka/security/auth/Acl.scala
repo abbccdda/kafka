@@ -18,7 +18,7 @@
 package kafka.security.auth
 
 import kafka.security.authorizer.AclEntry
-import org.apache.kafka.common.resource.ResourcePattern
+import org.apache.kafka.common.resource.{PatternType, ResourcePattern}
 import org.apache.kafka.common.security.auth.KafkaPrincipal
 
 @deprecated("Use org.apache.kafka.common.acl.AclBinding", "Since 2.5")
@@ -40,7 +40,8 @@ object Acl {
    * @see AclEntry
    */
   def fromBytes(bytes: Array[Byte]): Set[Acl] = {
-    AclEntry.fromBytes(bytes)
+    val dummyResource = new ResourcePattern(Topic.toJava, "*", PatternType.LITERAL)
+    AclEntry.fromBytes(bytes, dummyResource)
       .map(ace => Acl(ace.kafkaPrincipal,
         PermissionType.fromJava(ace.permissionType()),
         ace.host(),
@@ -48,8 +49,9 @@ object Acl {
   }
 
   def toJsonCompatibleMap(acls: Set[Acl]): Map[String, Any] = {
+    val dummyResource = new ResourcePattern(Topic.toJava, "*", PatternType.LITERAL)
     AclEntry.toJsonCompatibleMap(acls.map(acl =>
-      AclEntry(acl.principal, acl.permissionType.toJava, acl.host, acl.operation.toJava)
+      AclEntry(acl.principal, acl.permissionType.toJava, acl.host, acl.operation.toJava, dummyResource)
     ))
   }
 }

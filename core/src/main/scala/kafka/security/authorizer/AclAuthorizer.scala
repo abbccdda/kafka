@@ -22,7 +22,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
 
 import com.typesafe.scalalogging.Logger
 import kafka.api.KAFKA_2_0_IV1
-import kafka.security.authorizer.AclAuthorizer.{ResourceOrdering, VersionedAcls}
+import kafka.security.authorizer.AclAuthorizer.{AclSets, ResourceOrdering, VersionedAcls}
 import kafka.security.authorizer.AclEntry.ResourceSeparator
 import kafka.server.{KafkaConfig, KafkaServer}
 import kafka.utils.CoreUtils.{inReadLock, inWriteLock}
@@ -63,6 +63,23 @@ object AclAuthorizer {
   case class VersionedAcls(acls: Set[AclEntry], zkVersion: Int) {
     def exists: Boolean = zkVersion != ZkVersion.UnknownVersion
   }
+
+  class AclSets(sets: Set[AclEntry]*) {
+    def find(p: AclEntry => Boolean): Option[AclEntry] = sets.flatMap(_.find(p)).headOption
+    def isEmpty: Boolean = !sets.exists(_.nonEmpty)
+    def filterAndTransform[T](predicate: util.function.Predicate[KafkaPrincipal],
+                              transformer: util.function.Function[AclBinding, T]): util.Set[T] = {
+      val aclBindings = new util.HashSet[T]()
+      sets.foreach { set =>
+        set.foreach { acl =>
+          if (predicate.test(acl.kafkaPrincipal))
+            aclBindings.add(transformer.apply(acl.aclBinding))
+        }
+      }
+      aclBindings
+    }
+  }
+
   val NoAcls = VersionedAcls(Set.empty, ZkVersion.UnknownVersion)
   val WildcardHost = "*"
 
@@ -207,7 +224,7 @@ class AclAuthorizer extends Authorizer with Logging {
         aclsToCreate.foreach { case (resource, aclsWithIndex) =>
           try {
             updateResourceAcls(resource) { currentAcls =>
-              val newAcls = aclsWithIndex.map { case (acl, index) => new AclEntry(acl.entry) }
+              val newAcls = aclsWithIndex.map { case (acl, index) => new AclEntry(acl.entry, acl.pattern) }
               currentAcls ++ newAcls
             }
             aclsWithIndex.foreach { case (_, index) => results(index) = AclCreateResult.SUCCESS }
@@ -304,7 +321,7 @@ class AclAuthorizer extends Authorizer with Logging {
     val host = requestContext.clientAddress.getHostAddress
     val operation = action.operation
 
-    def isEmptyAclAndAuthorized(acls: Set[AclBinding]): Boolean = {
+    def isEmptyAclAndAuthorized(acls: AclSets): Boolean = {
       if (acls.isEmpty) {
         // No ACLs found for this resource, permission is determined by value of config allow.everyone.if.no.acl.found
         authorizerLogger.debug(s"No acl found for resource $resource, authorized = $shouldAllowEveryoneIfNoAclIsFound")
@@ -312,12 +329,12 @@ class AclAuthorizer extends Authorizer with Logging {
       } else false
     }
 
-    def denyAclExists(acls: Set[AclBinding]): Boolean = {
+    def denyAclExists(acls: AclSets): Boolean = {
       // Check if there are any Deny ACLs which would forbid this operation.
       matchingAclExists(operation, resource, principal, host, DENY, acls)
     }
 
-    def allowAclExists(acls: Set[AclBinding]): Boolean = {
+    def allowAclExists(acls: AclSets): Boolean = {
       // Check if there are any Allow ACLs which would allow this operation.
       // Allowing read, write, delete, or alter implies allowing describe.
       // See #{org.apache.kafka.common.acl.AclOperation} for more details about ACL inheritance.
@@ -350,24 +367,26 @@ class AclAuthorizer extends Authorizer with Logging {
     } else false
   }
 
-  def matchingAcls(resourceType: ResourceType, resourceName: String): Set[AclBinding] = {
+  def matchingAcls(resourceType: ResourceType, resourceName: String): AclSets = {
     inReadLock(lock) {
       val wildcard = aclCache.get(new ResourcePattern(resourceType, ResourcePattern.WILDCARD_RESOURCE, PatternType.LITERAL))
-        .map(_.acls.map(acl => new AclBinding(new ResourcePattern(resourceType, ResourcePattern.WILDCARD_RESOURCE, PatternType.LITERAL), acl)))
-        .getOrElse(Set.empty[AclBinding])
+        .map(_.acls)
+        .getOrElse(Set.empty)
 
       val literal = aclCache.get(new ResourcePattern(resourceType, resourceName, PatternType.LITERAL))
-        .map(_.acls.map(acl => new AclBinding(new ResourcePattern(resourceType, resourceName, PatternType.LITERAL), acl)))
-        .getOrElse(Set.empty[AclBinding])
+        .map(_.acls)
+        .getOrElse(Set.empty)
 
       val prefixed = aclCache
         .from(new ResourcePattern(resourceType, resourceName, PatternType.PREFIXED))
         .to(new ResourcePattern(resourceType, resourceName.take(1), PatternType.PREFIXED))
         .filterKeys(resource => resourceName.startsWith(resource.name))
-        .flatMap { e => e._2.acls.map(acl => new AclBinding(e._1, acl)) }
+        .values
+        .flatMap { _.acls }
         .toSet
 
-      prefixed ++ wildcard ++ literal
+      new AclSets(prefixed, wildcard, literal)
+
     }
   }
 
@@ -376,8 +395,9 @@ class AclAuthorizer extends Authorizer with Logging {
                                 principal: KafkaPrincipal,
                                 host: String,
                                 permissionType: AclPermissionType,
-                                acls: Set[AclBinding]): Boolean = {
-    acls.map(_.entry).find { acl =>
+                                acls: AclSets): Boolean = {
+    acls.find { aclBinding =>
+      val acl = aclBinding.ace
       acl.permissionType == permissionType &&
         (acl.principal() == principal.toString || acl.principal() == AclEntry.WildcardPrincipal.toString) &&
         (operation == acl.operation || acl.operation == AclOperation.ALL) &&
