@@ -200,7 +200,7 @@ public class ExcludedTopicsTest {
     p.add(params(1, LeaderReplicaDistributionGoal.class, excludeT1, null, unbalanced3(), noDeadBroker, true));
     // Test: With all topics excluded, balance not satisfiable, no dead broker (No exception, No proposal
     // for excluded topics, Not expected to look optimized)
-    p.add(params(2, LeaderReplicaDistributionGoal.class, excludeAllTopics, null, unbalanced3(), noDeadBroker, true));
+    p.add(params(2, LeaderReplicaDistributionGoal.class, excludeAllTopics, null, unbalanced3(), noDeadBroker, false));
     // Test: With no topic excluded, satisfiable cluster, one dead broker (No exception, No proposal
     // for excluded topics, Expected to look optimized)
     p.add(params(3, LeaderReplicaDistributionGoal.class, noExclusion, null, unbalanced3(), deadBroker0, true));

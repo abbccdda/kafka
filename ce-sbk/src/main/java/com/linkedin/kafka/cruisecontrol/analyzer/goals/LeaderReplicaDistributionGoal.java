@@ -171,6 +171,9 @@ public class LeaderReplicaDistributionGoal extends ReplicaDistributionAbstractGo
     }
     int numLeaderReplicas = broker.leaderReplicas().size();
     for (Replica replica : new HashSet<>(broker.leaderReplicas())) {
+      if (shouldExclude(replica, optimizationOptions.excludedTopics())) {
+        continue;
+      }
       Set<Broker> candidateBrokers = clusterModel.partition(replica.topicPartition()).partitionBrokers().stream()
                                                  .filter(b -> b != broker && !b.replica(replica.topicPartition()).isCurrentOffline())
                                                  .collect(Collectors.toSet());
@@ -202,7 +205,8 @@ public class LeaderReplicaDistributionGoal extends ReplicaDistributionAbstractGo
     int numLeaderReplicas = broker.leaderReplicas().size();
     Set<Broker> candidateBrokers =  Collections.singleton(broker);
     for (Replica replica : broker.replicas()) {
-      if (replica.isLeader() || replica.isCurrentOffline()) {
+      if (replica.isLeader() || replica.isCurrentOffline()
+          || shouldExclude(replica, optimizationOptions.excludedTopics())) {
         continue;
       }
       Broker b = maybeApplyBalancingAction(clusterModel,
