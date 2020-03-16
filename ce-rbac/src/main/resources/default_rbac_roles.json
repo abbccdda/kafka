@@ -62,7 +62,7 @@
           },
           {
             "resourceType" : "Connector",
-            "operations" : ["Create", "ReadConfig", "ReadStatus", "Pause", "Resume", "Scale", "Delete"]
+            "operations" : ["Create", "ReadConfig", "ReadStatus", "ReadActiveTopics", "Pause", "Resume", "Scale", "Delete", "ResetActiveTopics"]
           },
           {
             "resourceType" : "Secret",
@@ -94,7 +94,7 @@
           },
           {
             "resourceType" : "Connector",
-            "operations" : ["ReadStatus", "Pause", "Resume", "Scale"]
+            "operations" : ["ReadStatus", "ReadActiveTopics", "Pause", "Resume", "Scale", "ResetActiveTopics"]
           },
           {
             "resourceType" : "ControlCenterBrokerMetrics",
@@ -146,7 +146,7 @@
           },
           {
             "resourceType" : "Connector",
-            "operations" : ["Create", "ReadConfig", "ReadStatus", "Pause", "Resume", "Scale", "Configure", "Delete", "DescribeAccess", "AlterAccess"]
+            "operations" : ["Create", "ReadConfig", "ReadStatus", "ReadActiveTopics", "Pause", "Resume", "Scale", "Configure", "Delete", "ResetActiveTopics", "DescribeAccess", "AlterAccess"]
           },
           {
             "resourceType" : "KsqlCluster",
@@ -182,7 +182,7 @@
           },
           {
             "resourceType" : "Connector",
-            "operations" : ["ReadConfig", "ReadStatus"]
+            "operations" : ["ReadConfig", "ReadStatus", "ReadActiveTopics"]
           }
         ]
       }
@@ -214,7 +214,7 @@
           },
           {
             "resourceType" : "Connector",
-            "operations" : ["ReadStatus", "Configure"]
+            "operations" : ["ReadStatus", "ReadActiveTopics", "Configure", "ResetActiveTopics"]
           },
           {
             "resourceType" : "KsqlCluster",
@@ -250,7 +250,7 @@
           },
           {
             "resourceType" : "Connector",
-            "operations" : ["Create", "ReadStatus", "Pause", "Resume", "Scale"]
+            "operations" : ["Create", "ReadStatus", "ReadActiveTopics", "Pause", "Resume", "Scale", "ResetActiveTopics"]
           },
           {
             "resourceType" : "KsqlCluster",
