@@ -100,4 +100,20 @@ public class TierMetadataValidatorTest {
         eIterator = eList.iterator();
         assertFalse(validator.isValidStates(aIterator, eIterator, 501));
     }
+
+    @Test
+    public void validationPassOnFencedMappingInActiveRange() {
+        TierObjectMetadata obj = eList.get(2);
+        eList.set(2, new TierObjectMetadata(obj.topicIdPartition(), obj.tierEpoch(), obj.objectId(),
+            obj.baseOffset(), obj.endOffset(), obj.maxTimestamp(), obj.size(), State.SEGMENT_FENCED,
+            false, false, false));
+        aList.set(2, new TierObjectMetadata(obj.topicIdPartition(), obj.tierEpoch(), obj.objectId(),
+            obj.baseOffset(), obj.endOffset(), obj.maxTimestamp(), obj.size(), State.SEGMENT_FENCED,
+            false, false, false));
+        aList.add(obj);
+        eList.add(obj);
+        aIterator = aList.iterator();
+        eIterator = eList.iterator();
+        assertTrue(validator.isValidStates(aIterator, eIterator, 0));
+    }
 }

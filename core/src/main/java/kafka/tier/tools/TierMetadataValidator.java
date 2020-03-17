@@ -346,12 +346,13 @@ public class TierMetadataValidator {
 
             if (actualObject.equals(expectedObject)) {
                 long start = Math.max(expectedObject.baseOffset(), prevEndOffset + 1);
+                if (actualObject.state().equals(State.SEGMENT_FENCED))
+                    continue;
                 if ((start - prevEndOffset != 1) || (actualObject.endOffset() <= prevEndOffset)) {
                     if (active) {
-                        if (actualObject.state().equals(State.SEGMENT_FENCED))
-                            continue;
                         System.err.println("Metadata offset inconsistency "
                             + actualObject.baseOffset() + " : " + actualObject.endOffset());
+                        System.out.println(actualObject);
                         return false;
                     } else {
                         // We found hole in offset range of states mappings. This is possible
@@ -361,7 +362,7 @@ public class TierMetadataValidator {
                     }
                 }
             } else {
-                System.err.println("Metadata states inconsistency.");
+                System.err.println("Metadata states inconsistency at " + actualObject);
                 return false;
             }
 
