@@ -56,7 +56,7 @@ public class ConfluentConfigs {
     public static final String MULTITENANT_METADATA_SSL_CERTS_SPEC_DEFAULT = null;
     public static final String MULTITENANT_METADATA_RELOAD_DELAY_MS_CONFIG = "multitenant.metadata"
             + ".reload.delay.ms";
-    public static final Long MULTITENANT_METADATA_RELOAD_DELAY_MS_DEFAULT = TimeUnit.MINUTES.toMillis(10);
+    public static final Long MULTITENANT_METADATA_RELOAD_DELAY_MS_DEFAULT = TimeUnit.MINUTES.toMillis(2);
     public static final String MULTITENANT_METADATA_RELOAD_DELAY_MS_DOC = "Interval (in ms) "
             + "between full reloads of logical cluster metadata. Defaults to 10 minutes.";
     public static final String MULTITENANT_TENANT_DELETE_DELAY_MS_CONFIG = "multitenant.tenant"
