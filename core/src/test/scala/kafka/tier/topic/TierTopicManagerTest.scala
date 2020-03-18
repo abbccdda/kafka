@@ -32,6 +32,8 @@ import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito._
 import org.scalatest.Assertions.intercept
 
+import scala.collection.JavaConverters._
+
 class TierTopicManagerTest {
   private type ConsumerSupplier = MockConsumerSupplier[Array[Byte], Array[Byte]]
   private type ProducerSupplier = MockProducerSupplier[Array[Byte], Array[Byte]]
@@ -225,6 +227,30 @@ class TierTopicManagerTest {
       completeResult.isDone)
     assertEquals(1, tierTopicConsumer.numListeners)
   }
+
+  @Test
+  def testSetErrorPartitionsDuringFencing(): Unit = {
+    val topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID, 0)
+
+    val (tierTopicConsumer, _, tierTopicManager) = setupTierComponents(becomeReady = true)
+    addReplica(topicIdPartition, tierTopicConsumer)
+
+    val objectId = UUID.randomUUID
+    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, 0, objectId, 0, 100, 100, 100, true, false, false)
+
+    val initiateResultFuture = tierTopicManager.addMetadata(uploadInitiate)
+    TestUtils.waitUntilTrue(() => {
+      moveRecordsToAllConsumers()
+      tierTopicConsumer.doWork()
+      initiateResultFuture.isDone
+    }, "Timed out trying to finish TierSegmentUploadInitiate")
+    // TierSegmentUploadInitiate was attempted without TierTopicInitLeader, therefore it should
+    // fence the partition.
+    assertEquals(AppendResult.FAILED, initiateResultFuture.get)
+    assertEquals(1, tierTopicConsumer.errorPartitions().size())
+    assertEquals(Set(topicIdPartition), tierTopicConsumer.errorPartitions().asScala)
+  }
+
 
   private def addReplica(topicIdPartition: TopicIdPartition, tierTopicConsumer: TierTopicConsumer): Unit = {
     val dir = new File(logDir + "/" + Log.logDirName(topicIdPartition.topicPartition))

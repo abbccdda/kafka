@@ -101,6 +101,9 @@ public class TierTopicConsumer implements Runnable {
                 !onlinePartitions.containsKey(partition) &&
                 !catchingUpPartitions.containsKey(partition)) {
             immigratingPartitions.put(partition, clientCtx);
+            if (clientCtx.status() == TierPartitionStatus.ERROR) {
+                errorPartitions.add(partition);
+            }
         } else {
             throw new IllegalStateException("Duplicate registration for " + partition);
         }
@@ -250,11 +253,6 @@ public class TierTopicConsumer implements Runnable {
         return tierTopic;
     }
 
-    private void maybeAddToErrorPartitions(TopicIdPartition partition, ClientCtx clientCtx) {
-        if (clientCtx.status() == TierPartitionStatus.ERROR)
-            errorPartitions.add(partition);
-    }
-
     /**
      * Process any pending immigrations, if they have occurred.
      *
@@ -276,7 +274,6 @@ public class TierTopicConsumer implements Runnable {
                         newCatchupPartitions.put(partition, clientCtx);
                     } else if (status == TierPartitionStatus.ONLINE || status == TierPartitionStatus.ERROR) {
                         newOnlinePartitions.put(partition, clientCtx);
-                        maybeAddToErrorPartitions(partition, clientCtx);
                     } else {
                         log.debug("Ignoring immigration of partition {} in state {}", partition,
                             status);
@@ -395,9 +392,9 @@ public class TierTopicConsumer implements Runnable {
 
                     default:
                         if (currentState == requiredState) {
-                            TierPartitionState.AppendResult result = clientCtx.process(entry, offset);
+                            TierPartitionState.AppendResult result = processEntry(
+                                clientCtx, topicIdPartition, entry, offset);
                             resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.complete(result));
-                            maybeAddToErrorPartitions(topicIdPartition, clientCtx);
                         } else {
                             // We partition the materialization between the primary and catchup consumer based on the
                             // current state of the tier partition. Primary consumer can materialize metadata for
@@ -435,6 +432,19 @@ public class TierTopicConsumer implements Runnable {
         } catch (Exception e) {
             throw new TierMetadataFatalException(
                     String.format("Error processing message %s at offset %d, partition %d, requiredState %s", entry, offset, partition, requiredState), e);
+        }
+    }
+
+    private TierPartitionState.AppendResult processEntry(
+        ClientCtx clientCtx, TopicIdPartition topicIdPartition, AbstractTierMetadata entry, long offset) {
+        try {
+            return clientCtx.process(entry, offset);
+        } finally {
+            if (clientCtx.status() == TierPartitionStatus.ERROR) {
+                synchronized (this) {
+                    errorPartitions.add(topicIdPartition);
+                }
+            }
         }
     }
 
