@@ -124,7 +124,7 @@ private[group] case object Empty extends GroupState {
 }
 
 
-private object GroupMetadata {
+private object GroupMetadata extends Logging {
 
   def loadGroup(groupId: String,
                 initialState: GroupState,
@@ -144,6 +144,8 @@ private object GroupMetadata {
     members.foreach(member => {
       group.add(member, null)
       if (member.isStaticMember) {
+        info(s"Static member $member.groupInstanceId of group $groupId loaded " +
+          s"with member id ${member.memberId} at generation ${group.generationId}.")
         group.addStaticMember(member.groupInstanceId, member.memberId)
       }
     })

@@ -45,6 +45,8 @@ import org.apache.kafka.common.message.DeleteAclsRequestData;
 import org.apache.kafka.common.message.DeleteAclsResponseData;
 import org.apache.kafka.common.message.DeleteGroupsRequestData;
 import org.apache.kafka.common.message.DeleteGroupsResponseData;
+import org.apache.kafka.common.message.DeleteRecordsRequestData;
+import org.apache.kafka.common.message.DeleteRecordsResponseData;
 import org.apache.kafka.common.message.DeleteTopicsRequestData;
 import org.apache.kafka.common.message.DeleteTopicsResponseData;
 import org.apache.kafka.common.message.DeleteTopicsResponseData.DeletableTopicResult;
@@ -614,7 +616,10 @@ public class MultiTenantRequestContextTest {
     for (short ver = ApiKeys.OFFSET_FETCH.oldestVersion(); ver <= ApiKeys.OFFSET_FETCH.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_FETCH, ver);
       String groupId = "group";
-      OffsetFetchRequest inbound = new OffsetFetchRequest.Builder(groupId, true, asList(new TopicPartition("foo", 0), new TopicPartition("bar", 0))).build(ver);
+      OffsetFetchRequest inbound = new OffsetFetchRequest.Builder(groupId, true,
+          asList(new TopicPartition("foo", 0), new TopicPartition("bar", 0)),
+          false)
+          .build(ver);
       OffsetFetchRequest intercepted = (OffsetFetchRequest) parseRequest(context, inbound);
       assertEquals("tenant_group", intercepted.groupId());
       assertEquals(mkSet(new TopicPartition("tenant_foo", 0), new TopicPartition("tenant_bar", 0)),
@@ -2045,13 +2050,32 @@ public class MultiTenantRequestContextTest {
   public void testDeleteRecordsRequest() {
     for (short ver = ApiKeys.DELETE_RECORDS.oldestVersion(); ver <= ApiKeys.DELETE_RECORDS.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_RECORDS, ver);
-      Map<TopicPartition, Long> requestPartitions = new HashMap<>();
-      requestPartitions.put(new TopicPartition("foo", 0), 0L);
-      requestPartitions.put(new TopicPartition("bar", 0), 0L);
-      DeleteRecordsRequest inbound = new DeleteRecordsRequest.Builder(30000, requestPartitions).build(ver);
+
+      DeleteRecordsRequestData.DeleteRecordsTopic foo = new DeleteRecordsRequestData.DeleteRecordsTopic()
+          .setName("foo")
+          .setPartitions(singletonList(new DeleteRecordsRequestData.DeleteRecordsPartition()
+              .setPartitionIndex(0).setOffset(0L)));
+
+      DeleteRecordsRequestData.DeleteRecordsTopic bar = new DeleteRecordsRequestData.DeleteRecordsTopic()
+          .setName("bar")
+          .setPartitions(singletonList(new DeleteRecordsRequestData.DeleteRecordsPartition()
+              .setPartitionIndex(0).setOffset(0L)));
+
+      DeleteRecordsRequestData requestData = new DeleteRecordsRequestData()
+          .setTimeoutMs(30000)
+          .setTopics(asList(foo, bar));
+
+      DeleteRecordsRequest inbound = new DeleteRecordsRequest.Builder(requestData).build(ver);
       DeleteRecordsRequest intercepted = (DeleteRecordsRequest) parseRequest(context, inbound);
-      assertEquals(mkSet(new TopicPartition("tenant_foo", 0), new TopicPartition("tenant_bar", 0)),
-          intercepted.partitionOffsets().keySet());
+
+      Set<TopicPartition> interceptedPartitions = intercepted.data().topics().stream().flatMap(topic ->
+          topic.partitions().stream().map(p -> new TopicPartition(topic.name(), p.partitionIndex())))
+          .collect(Collectors.toSet());
+
+      assertEquals(mkSet(
+          new TopicPartition("tenant_foo", 0),
+          new TopicPartition("tenant_bar", 0)),
+          interceptedPartitions);
       verifyRequestMetrics(ApiKeys.DELETE_RECORDS);
     }
   }
@@ -2060,14 +2084,36 @@ public class MultiTenantRequestContextTest {
   public void testDeleteRecordsResponse() throws IOException {
     for (short ver = ApiKeys.DELETE_RECORDS.oldestVersion(); ver <= ApiKeys.DELETE_RECORDS.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_RECORDS, ver);
-      Map<TopicPartition, DeleteRecordsResponse.PartitionResponse> partitionErrors = new HashMap<>();
-      partitionErrors.put(new TopicPartition("tenant_foo", 0), new DeleteRecordsResponse.PartitionResponse(0L, Errors.NONE));
-      partitionErrors.put(new TopicPartition("tenant_bar", 0), new DeleteRecordsResponse.PartitionResponse(0L, Errors.NONE));
-      DeleteRecordsResponse outbound = new DeleteRecordsResponse(0, partitionErrors);
+
+      DeleteRecordsResponseData.DeleteRecordsTopicResultCollection topics =
+          new DeleteRecordsResponseData.DeleteRecordsTopicResultCollection();
+
+      for (String topic : asList("tenant_foo", "tenant_bar")) {
+        DeleteRecordsResponseData.DeleteRecordsPartitionResultCollection partitions =
+            new DeleteRecordsResponseData.DeleteRecordsPartitionResultCollection();
+        partitions.add(new DeleteRecordsResponseData.DeleteRecordsPartitionResult()
+            .setPartitionIndex(0)
+            .setErrorCode(Errors.NONE.code()));
+        topics.add(new DeleteRecordsResponseData.DeleteRecordsTopicResult()
+            .setName(topic)
+            .setPartitions(partitions));
+      }
+
+      DeleteRecordsResponseData responseData = new DeleteRecordsResponseData()
+          .setThrottleTimeMs(0)
+          .setTopics(topics);
+      DeleteRecordsResponse outbound = new DeleteRecordsResponse(responseData);
+
       Struct struct = parseResponse(ApiKeys.DELETE_RECORDS, ver, context.buildResponse(outbound));
-      DeleteRecordsResponse intercepted = new DeleteRecordsResponse(struct);
-      assertEquals(mkSet(new TopicPartition("foo", 0), new TopicPartition("bar", 0)),
-          intercepted.responses().keySet());
+      DeleteRecordsResponse intercepted = new DeleteRecordsResponse(struct, ver);
+      Set<TopicPartition> interceptedPartitions = intercepted.data().topics().stream().flatMap(topic ->
+          topic.partitions().stream().map(p -> new TopicPartition(topic.name(), p.partitionIndex())))
+          .collect(Collectors.toSet());
+
+      assertEquals(mkSet(
+          new TopicPartition("foo", 0),
+          new TopicPartition("bar", 0)),
+          interceptedPartitions);
       verifyResponseMetrics(ApiKeys.DELETE_RECORDS, Errors.NONE);
     }
   }

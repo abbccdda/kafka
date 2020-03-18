@@ -169,6 +169,7 @@ public class MultiTenantApis {
     public Optional<TransformableType<TenantContext>> maybeAddTransformableType(
         Field field, Type type) {
       switch (api) {
+        case DELETE_RECORDS:
         case METADATA:
           if (field != null && field.name.equals("name")) {
             return Optional.some(
@@ -285,6 +286,7 @@ public class MultiTenantApis {
     public Optional<TransformableType<TenantContext>> maybeAddTransformableType(
         Field field, Type type) {
       switch (api) {
+        case DELETE_RECORDS:
         case METADATA:
           if (field != null && field.name.equals("cluster_id")) {
             // Unlike the usual paths, the cluster id actually needs the tenant prefix

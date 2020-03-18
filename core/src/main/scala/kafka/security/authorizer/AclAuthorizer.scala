@@ -386,7 +386,6 @@ class AclAuthorizer extends Authorizer with Logging {
         .toSet
 
       new AclSets(prefixed, wildcard, literal)
-
     }
   }
 
@@ -396,8 +395,7 @@ class AclAuthorizer extends Authorizer with Logging {
                                 host: String,
                                 permissionType: AclPermissionType,
                                 acls: AclSets): Boolean = {
-    acls.find { aclBinding =>
-      val acl = aclBinding.ace
+    acls.find { acl =>
       acl.permissionType == permissionType &&
         (acl.principal() == principal.toString || acl.principal() == AclEntry.WildcardPrincipal.toString) &&
         (operation == acl.operation || acl.operation == AclOperation.ALL) &&
