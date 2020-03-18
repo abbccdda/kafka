@@ -4,6 +4,9 @@
 
 package kafka.tier.state;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public enum TierPartitionStatus {
     // TierPartitionState has been initialized but it is not yet backed by a file on disk
     CLOSED((byte) 0),
@@ -19,6 +22,17 @@ public enum TierPartitionStatus {
     ERROR((byte) 5);
 
     final byte value;
+
+    private static final Map<Byte, TierPartitionStatus> VALUE_TO_STATUS = new HashMap<>();
+
+    static {
+        for (TierPartitionStatus status : TierPartitionStatus.values()) {
+            TierPartitionStatus oldStatus = VALUE_TO_STATUS.put(status.value, status);
+            if (oldStatus != null)
+                throw new ExceptionInInitializerError(
+                    "value reused for VALUE_TO_STATUS " + oldStatus + " and " + status);
+        }
+    }
 
     TierPartitionStatus(byte value) {
         this.value = value;
@@ -41,19 +55,9 @@ public enum TierPartitionStatus {
     }
 
     public static TierPartitionStatus fromByte(byte value) {
-        if (value == CLOSED.value)
-            return CLOSED;
-        else if (value == INIT.value)
-            return INIT;
-        else if (value == CATCHUP.value)
-            return CATCHUP;
-        else if (value == ONLINE.value)
-            return ONLINE;
-        else if (value == DISK_OFFLINE.value)
-            return DISK_OFFLINE;
-        else if (value == ERROR.value)
-            return ERROR;
-        else
-            throw new IllegalArgumentException("Unrecognized TierPartitionStatus byte value " + value);
+        TierPartitionStatus status = VALUE_TO_STATUS.get(value);
+        if (status == null)
+            throw new IllegalArgumentException("Unknown TierPartitionStatus byte value " + value);
+        return status;
     }
 }
