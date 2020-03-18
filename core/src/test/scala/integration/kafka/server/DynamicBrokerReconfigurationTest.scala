@@ -122,7 +122,7 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
       props.put(KafkaConfig.PasswordEncoderSecretProp, "dynamic-config-secret")
       props.put(KafkaConfig.LogRetentionTimeMillisProp, 1680000000.toString)
       props.put(KafkaConfig.LogRetentionTimeHoursProp, 168.toString)
-      props.put(ConfluentConfigs.BALANCER_MODE_CONFIG, "ENABLED")
+      props.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, true.toString)
 
       props ++= sslProperties1
       props ++= securityProps(sslProperties1, KEYSTORE_PROPS, listenerPrefix(SecureInternal))
@@ -544,8 +544,8 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
   def testBalancerModeInvalidConfigUpdate(): Unit = {
     val (producerThread, consumerThread) = startProduceConsume(0)
     val props = new Properties
-    props.put(ConfluentConfigs.BALANCER_MODE_CONFIG, "PAUSED")
-    reconfigureServers(props, perBrokerConfig = false, (ConfluentConfigs.BALANCER_MODE_CONFIG, "PAUSED"), expectFailure = true)
+    props.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, "PAUSED")
+    reconfigureServers(props, perBrokerConfig = false, (ConfluentConfigs.BALANCER_ENABLE_CONFIG, "PAUSED"), expectFailure = true)
     // verify produce/consume works throughout balancer config updates with no retries
     stopAndVerifyProduceConsume(producerThread, consumerThread)
   }
@@ -555,7 +555,7 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
     val (producerThread, consumerThread) = startProduceConsume(0)
     val props = new Properties
     props.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "-10")
-    reconfigureServers(props, perBrokerConfig = false, (ConfluentConfigs.BALANCER_MODE_CONFIG, "-10"), expectFailure = true)
+    reconfigureServers(props, perBrokerConfig = false, (ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "-10"), expectFailure = true)
     // verify produce/consume works throughout balancer config updates with no retries
     stopAndVerifyProduceConsume(producerThread, consumerThread)
   }
@@ -564,7 +564,7 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
   def testBalancerConfigUpdate(): Unit = {
     val (producerThread, consumerThread) = startProduceConsume(0)
     val props = new Properties
-    props.put(ConfluentConfigs.BALANCER_MODE_CONFIG, "DISABLED")
+    props.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, false.toString)
     props.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "50")
     reconfigureServers(props, perBrokerConfig = false, (ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "50"))
     // verify that all broker defaults have been updated

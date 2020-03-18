@@ -177,16 +177,11 @@ public class ConfluentConfigs {
         + "not set, or set to class other than TenantQuotaCallback. In other words, broker"
         + " back-pressure can be enabled for multi-tenant clusters only.";
 
-    // An enum is used over a boolean for balancer mode since it would have more than two modes later.
-    public enum BalancerMode {
-        ENABLED,
-        DISABLED
-    }
 
     public static final String CONFLUENT_BALANCER_PREFIX = CONFLUENT_PREFIX + "balancer.";
-    public static final String BALANCER_MODE_CONFIG = CONFLUENT_BALANCER_PREFIX + "mode";
-    public static final String BALANCER_MODE_DEFAULT = BalancerMode.ENABLED.toString();
-    public static final String BALANCER_MODE_DOC = "The mode config is used to enable or disable the balancer.";
+    public static final String BALANCER_ENABLE_CONFIG = CONFLUENT_BALANCER_PREFIX + "enable";
+    public static final boolean BALANCER_ENABLE_DEFAULT = true;
+    public static final String BALANCER_ENABLE_DOC = "This config controls whether the balancer is enabled";
 
     public static final String BALANCER_RACK_AWARE_CONFIG = CONFLUENT_BALANCER_PREFIX + "rack.aware";
     public static final boolean BALANCER_RACK_AWARE_DEFAULT = true;

@@ -201,8 +201,8 @@ class DynamicBrokerConfigTest {
   @Test
   def testBalancerConfigs(): Unit = {
     verifyConfigUpdate(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "200", perBrokerConfig = false, expectFailure = false)
-    verifyConfigUpdate(ConfluentConfigs.BALANCER_MODE_CONFIG, "ENABLED", perBrokerConfig = false, expectFailure = false)
-    verifyConfigUpdate(ConfluentConfigs.BALANCER_MODE_CONFIG, "PAUSED", perBrokerConfig = false, expectFailure = true)
+    verifyConfigUpdate(ConfluentConfigs.BALANCER_ENABLE_CONFIG, true.toString, perBrokerConfig = false, expectFailure = false)
+    verifyConfigUpdate(ConfluentConfigs.BALANCER_ENABLE_CONFIG, "PAUSED", perBrokerConfig = false, expectFailure = true)
   }
 
   @Test

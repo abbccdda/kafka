@@ -962,7 +962,7 @@ class DynamicBackpressure(server: KafkaServer) extends BrokerReconfigurable {
 
 object DynamicBalancerConfig {
   val ReconfigurableConfigs = Set(
-    ConfluentConfigs.BALANCER_MODE_CONFIG,
+    ConfluentConfigs.BALANCER_ENABLE_CONFIG,
     ConfluentConfigs.BALANCER_THROTTLE_CONFIG,
   )
 }

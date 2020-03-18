@@ -847,7 +847,7 @@ class KafkaConfigTest {
         case ConfluentConfigs.SSL_TRUSTSTORE_TYPE_CONFIG =>
         case ConfluentConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG =>
         case ConfluentConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG =>
-        case ConfluentConfigs.BALANCER_MODE_CONFIG =>
+        case ConfluentConfigs.BALANCER_ENABLE_CONFIG =>
         case ConfluentConfigs.BALANCER_RACK_AWARE_CONFIG =>
         case ConfluentConfigs.BALANCER_THROTTLE_CONFIG =>
         case ConfluentConfigs.BALANCER_REPLICA_CAPACITY_CONFIG =>
