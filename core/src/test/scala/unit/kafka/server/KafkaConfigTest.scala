@@ -818,6 +818,9 @@ class KafkaConfigTest {
         //Enable FIPS mode config
         case KafkaConfig.EnableFipsProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_boolean", "0")
 
+        //Broker startup registration delay
+        case KafkaConfig.BrokerStartupRegistrationDelayProp => // ignore
+
         // Confluent Cloud configs
         case KafkaConfig.BrokerSessionUuidProp => // ignore string
         case KafkaConfig.AppendRecordInterceptorClassesProp => // ignore list

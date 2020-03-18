@@ -259,6 +259,9 @@ object Defaults {
   /** Segment speculative prefetching optimization **/
   val SegmentSpeculativePrefetchEnable = false
 
+  /** ******** Confluent Broker Registration Delay **/
+  val BrokerStartupRegistrationDelay = 0
+
   /** ********* Quota Configuration ***********/
   val ProducerQuotaBytesPerSecondDefault = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
   val ConsumerQuotaBytesPerSecondDefault = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
@@ -601,6 +604,9 @@ object KafkaConfig {
 
   /** Segment speculative prefetching optimization **/
   val SegmentSpeculativePrefetchEnableProp = ConfluentPrefix + "segment.speculative.prefetch.enable"
+
+  /** ******** Confluent Broker Registration Delay **/
+  val BrokerStartupRegistrationDelayProp = ConfluentPrefix + "broker.registration.delay.ms"
 
   /** ********* Interceptor Configurations ***********/
   val AppendRecordInterceptorClassesProp = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG
@@ -1060,6 +1066,9 @@ object KafkaConfig {
   /** Segment speculative prefetching optimization **/
   val SegmentSpeculativePrefetchEnableDoc = ConfluentTopicConfig.SEGMENT_SPECULATIVE_PREFETCH_ENABLE_DOC
 
+  /** ******** Confluent Broker Registration Delay **/
+  val BrokerStartupRegistrationDelayDoc = "Specifies the amount of time to delay broker ZK registration after startup."
+
   /** ********* Quota Configuration ***********/
   val ProducerQuotaBytesPerSecondDefaultDoc = "DEPRECATED: Used only when dynamic default quotas are not configured for <user>, <client-id> or <user, client-id> in Zookeeper. " +
   "Any producer distinguished by clientId will get throttled if it produces more bytes than this value per-second"
@@ -1399,6 +1408,9 @@ object KafkaConfig {
 
       /** ********* Segment speculative prefetching optimization **************/
       .defineInternal(SegmentSpeculativePrefetchEnableProp, BOOLEAN, Defaults.SegmentSpeculativePrefetchEnable, MEDIUM, SegmentSpeculativePrefetchEnableDoc)
+
+      /** ******** Confluent Broker Registration Delay **/
+      .defineInternal(BrokerStartupRegistrationDelayProp, LONG, Defaults.BrokerStartupRegistrationDelay, LOW, BrokerStartupRegistrationDelayDoc)
 
       /** ********* Kafka Metrics Configuration ***********/
       .define(MetricNumSamplesProp, INT, Defaults.MetricNumSamples, atLeast(1), LOW, MetricNumSamplesDoc)
@@ -1922,6 +1934,9 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
 
   /** ********* Segment speculative prefetching optimization ***********/
   def segmentSpeculativePrefetchEnable = getBoolean(KafkaConfig.SegmentSpeculativePrefetchEnableProp)
+
+  /** ******** Confluent Broker Registration Delay **/
+  def brokerStartupRegistrationDelay = getLong(KafkaConfig.BrokerStartupRegistrationDelayProp)
 
   /** ********* Interceptor Configuration ***********/
   val appendRecordInterceptors = getConfiguredInstances(KafkaConfig.AppendRecordInterceptorClassesProp, classOf[RecordInterceptor])
