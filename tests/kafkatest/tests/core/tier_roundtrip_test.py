@@ -131,10 +131,10 @@ class TierRoundtripTest(ProduceConsumeValidateTest, TierSupport):
 
         if prefer_tier_fetch:
             wait_until(lambda: self.tiering_completed_prefer_fetch(self.topic, self.LOG_SEGMENT_BYTES),
-                    timeout_sec=60, backoff_sec=2, err_msg="archive did not complete within timeout")
+                    timeout_sec=180, backoff_sec=2, err_msg="archive did not complete within timeout")
         else:
             wait_until(lambda: self.tiering_completed(self.topic),
-                    timeout_sec=60, backoff_sec=2, err_msg="archive did not complete within timeout")
+                    timeout_sec=180, backoff_sec=2, err_msg="archive did not complete within timeout")
 
         self.consumer.start()
         self.consumer.wait()
