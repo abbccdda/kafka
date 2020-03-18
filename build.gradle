@@ -2152,7 +2152,8 @@ project(':ce-sbk') {
 
   dependencies {
     compile project(':clients')
-    compile project(':core')
+    compile project(':core')        // Data Balancer Interface
+    compile project(':ce-metrics')  // Confluent Metrics Reporter
     compile libs.math3
     compile libs.scalaCollectionCompat
     compile libs.scalaJava8Compat
