@@ -47,6 +47,7 @@ object TransactionCoordinator {
       config.transactionTopicSegmentBytes,
       config.transactionsLoadBufferSize,
       config.transactionTopicMinISR,
+      config.trainsactionTopicPlacementConstraints.map(_.toJson).getOrElse(""),
       config.transactionAbortTimedOutTransactionCleanupIntervalMs,
       config.transactionRemoveExpiredTransactionalIdCleanupIntervalMs,
       config.requestTimeoutMs)

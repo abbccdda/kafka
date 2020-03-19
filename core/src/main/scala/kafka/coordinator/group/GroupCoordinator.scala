@@ -93,6 +93,8 @@ class GroupCoordinator(val brokerId: Int,
     props.put(LogConfig.CleanupPolicyProp, LogConfig.Compact)
     props.put(LogConfig.SegmentBytesProp, offsetConfig.offsetsTopicSegmentBytes.toString)
     props.put(LogConfig.CompressionTypeProp, ProducerCompressionCodec.name)
+    props.put(LogConfig.TopicPlacementConstraintsProp, offsetConfig.offsetsTopicPlacementConstraints)
+
     props
   }
 
@@ -1246,6 +1248,7 @@ object GroupCoordinator {
     offsetsTopicSegmentBytes = config.offsetsTopicSegmentBytes,
     offsetsTopicReplicationFactor = config.offsetsTopicReplicationFactor,
     offsetsTopicCompressionCodec = config.offsetsTopicCompressionCodec,
+    offsetsTopicPlacementConstraints = config.offsetsTopicPlacementConstraints.map(_.toJson).getOrElse(""),
     offsetCommitTimeoutMs = config.offsetCommitTimeoutMs,
     offsetCommitRequiredAcks = config.offsetCommitRequiredAcks
   )
