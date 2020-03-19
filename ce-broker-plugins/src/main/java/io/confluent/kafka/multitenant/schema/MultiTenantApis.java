@@ -116,6 +116,8 @@ public class MultiTenantApis {
       case TIER_LIST_OFFSET:
       case LIST_PARTITION_REASSIGNMENTS:
       case ALTER_PARTITION_REASSIGNMENTS:
+      case DESCRIBE_CLIENT_QUOTAS:
+      case ALTER_CLIENT_QUOTAS:
         return false;
 
       default:
