@@ -1294,7 +1294,10 @@ class Log(@volatile var dir: File,
     val updatedFirstStableOffset = producerStateManager.firstUnstableOffset match {
       case Some(logOffsetMetadata) if logOffsetMetadata.messageOffsetOnly || logOffsetMetadata.messageOffset < logStartOffset =>
         val offset = math.max(logOffsetMetadata.messageOffset, logStartOffset)
-        val segment = segments.floorEntry(offset).getValue
+        val segment = Option(segments.floorEntry(offset))
+          .getOrElse(throw new IllegalStateException("new log start offset or first unstable offset is not within the local log"))
+          .getValue
+
         Option(segment.translateOffset(offset)) match {
           case Some(position) =>
             Some(LogOffsetMetadata(offset, segment.baseOffset, position.position))

@@ -24,6 +24,8 @@ import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStore, TierObjec
 import kafka.tier.topic.TierTopicConsumer
 import kafka.utils.{MockTask, MockTime, Scheduler, TestUtils}
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, RecordBatch, SimpleRecord}
+import org.apache.kafka.common.record.ControlRecordType
+import org.apache.kafka.common.record.EndTransactionMarker
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.junit.Assert.{assertEquals, assertTrue, fail}
 import org.junit.{After, Before, Test}
@@ -807,6 +809,62 @@ class MergedLogTest {
   }
 
   @Test
+  def testProducerStateAdvanceLogStartOffset(): Unit = {
+    val segmentBytes = 1024
+    // Setup retention to only keep 2 segments total
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = 0)
+    val mergedLog = createMergedLog(logConfig)
+    val tierPartitionState = mergedLog.tierPartitionState
+    val leaderEpoch = 0
+    // establish tier leadership for topicIdPartition
+    tierPartitionState.setTopicId(topicIdPartition.topicId)
+    tierPartitionState.onCatchUpComplete()
+    tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
+      leaderEpoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffset)
+
+    val pid = 137L
+    val epoch = 5.toShort
+    val seq = 0
+    val records_1 = MemoryRecords.withTransactionalRecords(CompressionType.NONE, pid, epoch, seq,
+      new SimpleRecord(mockTime.milliseconds - 1000, "foo".getBytes),
+      new SimpleRecord(mockTime.milliseconds - 1000, "bar".getBytes),
+      new SimpleRecord(mockTime.milliseconds - 1000, "baz".getBytes))
+
+    mergedLog.appendAsLeader(records_1, leaderEpoch = 0)
+    mergedLog.roll()
+    mergedLog.updateHighWatermark(mergedLog.logEndOffset)
+    assertEquals("expected an active producer", 1, mergedLog.producerStateManager.activeProducers.size)
+
+    val result = TierTestUtils.uploadWithMetadata(tierPartitionState,
+      topicIdPartition,
+      leaderEpoch,
+      UUID.randomUUID,
+      0,
+      2,
+      10000,
+      10000,
+      10000,
+      false,
+      true,
+      true)
+    assertEquals(AppendResult.ACCEPTED, result)
+    tierPartitionState.flush()
+
+    assertEquals("no segments should have been deleted from hotset due to LSO",
+      0, mergedLog.deleteOldSegments())
+    val marker = new EndTransactionMarker(ControlRecordType.ABORT, 0)
+    val endTxnRecords = MemoryRecords.withEndTransactionMarker(0, mockTime.milliseconds(), 0, pid, epoch, marker)
+    mergedLog.appendAsLeader(endTxnRecords, origin = AppendOrigin.Coordinator, leaderEpoch = leaderEpoch)
+    mergedLog.updateHighWatermark(mergedLog.logEndOffset)
+
+    assertEquals("one segment should have been deleted from hotset after LSO advance",
+      1, mergedLog.deleteOldSegments())
+    
+    mergedLog.close()
+  }
+
+
+  @Test
   def testRestoreProducerStateFirstUnstableOffset(): Unit = {
     val segmentBytes = 1024
     // Setup retention to only keep 2 segments total
@@ -838,7 +896,7 @@ class MergedLogTest {
       leaderEpoch,
       UUID.randomUUID,
       0,
-      3,
+      2,
       10000,
       10000,
       10000,
@@ -850,7 +908,7 @@ class MergedLogTest {
 
     mergedLog.producerStateManager.takeSnapshot()
     val producerState = mergedLog.producerStateManager.snapshotFileForOffset(3)
-    def readProducerStateFile = {
+    val producerStateBuf = {
       val buf = ByteBuffer.allocate(1000)
       val inputStream = new FileInputStream(producerState.get)
       try {
@@ -861,19 +919,26 @@ class MergedLogTest {
       buf.flip()
       buf
     }
+    assertEquals(0, mergedLog.deleteOldSegments())
+
+    assertEquals(Some(0L), mergedLog.firstUnstableOffset)
+    val marker = new EndTransactionMarker(ControlRecordType.COMMIT, 0)
+    val endTxnRecords = MemoryRecords.withEndTransactionMarker(0, mockTime.milliseconds(), 0, pid, epoch, marker)
+    mergedLog.appendAsLeader(endTxnRecords, origin = AppendOrigin.Coordinator, leaderEpoch = leaderEpoch)
+    mergedLog.updateHighWatermark(mergedLog.logEndOffset)
+
+    assertEquals(None, mergedLog.firstUnstableOffset)
     assertEquals(1, mergedLog.deleteOldSegments())
 
     // restore producer state to restore ongoing transactions
-    mergedLog.onRestoreTierState(tierPartitionState.endOffset(), new TierState(List(), Some(readProducerStateFile)))
+    mergedLog.onRestoreTierState(tierPartitionState.endOffset() + 1, new TierState(List(), Some(producerStateBuf)))
 
     assertEquals("expected an active producer after restore", 1, mergedLog.producerStateManager.activeProducers.size)
-
-    assertEquals("first unstable offset should be the beginning of the local log after recovery",
+    assertEquals("first unstable offset to new local log start due to maybeIncrementFirstUnstableOffset call in recovery",
       3L,
       mergedLog.localLog.firstUnstableOffset.get)
     mergedLog.close()
   }
-
 
   @Test
   def testRestoreStateFromTier(): Unit = {

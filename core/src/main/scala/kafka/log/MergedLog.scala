@@ -246,8 +246,12 @@ class MergedLog(private[log] val localLog: Log,
         }.isDefined
       }
 
-      // Apply hotset retention: do not delete any untiered segments
-      val deletionUpperBoundOffset = tierPartitionState.committedEndOffset + 1
+      // Apply hotset retention: do not delete any untiered segments, and do not
+      // delete any segments that are past the first unstable offset
+      val deletionUpperBoundOffset = localLog.firstUnstableOffset match {
+        case Some(firstUnstableOffset) => Math.min(firstUnstableOffset, tierPartitionState.committedEndOffset + 1)
+        case None => tierPartitionState.committedEndOffset + 1
+      }
       val hotsetDeleted = localLog.deleteOldSegments(Some(deletionUpperBoundOffset), retentionType = HotsetRetention, deletionCanProceed)
 
       if (retentionDeleted > 0)
