@@ -37,6 +37,7 @@ import org.apache.kafka.common.serialization.StringSerializer;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Properties;
@@ -388,7 +389,20 @@ public class VerifiableProducer implements AutoCloseable {
 
         @JsonProperty
         public long timestamp() {
-            return recordMetadata.timestamp();
+            // Older versions of org/apache/kafka/clients/producer/RecordMetadata
+            // class may not have timestamp() method defined. This binary of
+            // VerifiableProducer.java is used for client versions:
+            // 'dev' and '0.8.2.2'(refer to verifiable_client.py:exec_cmd).
+            // The latter did not have its own VerifiableProducer.java binary.
+            // Hence, this binary may end up calling into different
+            // RecordMetadata versions.
+            Method[] methods = recordMetadata.getClass().getMethods();
+            for (Method m: methods) {
+                if (m.getName().equals("timestamp")) {
+                    return recordMetadata.timestamp();
+                }
+            }
+            return super.timestamp();
         }
     }
 
