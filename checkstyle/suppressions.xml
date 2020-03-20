@@ -161,6 +161,8 @@
 	      files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/>
     <suppress checks="ImportControl"
 	      files="io[/\\]confluent[/\\]cruisecontrol"/>
+    <suppress checks="ImportControl"
+	      files="io[/\\]confluent[/\\]databalancer"/>
 
     <!-- CruiseControl member field names really like leading
 	 underscores, in direct contradiction of the Kafka coding style. -->

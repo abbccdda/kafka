@@ -1,11 +1,11 @@
 /**
  * Copyright (C) 2020 Confluent Inc.
- * All Rights Reserved.
  */
 
 package kafka.controller
 
 import kafka.server.KafkaConfig
+import org.slf4j.{Logger, LoggerFactory}
 
 /*
  * The DataBalancer provides cluster balancing services for the cluster controller; it
@@ -24,22 +24,22 @@ trait DataBalancer {
 }
 
 object DataBalancer {
-  def apply(kafkaConfig: KafkaConfig): DataBalancer = new KafkaDataBalancer(kafkaConfig)
-}
-
-// Concrete implementation: the KafkaDataBalancer
-class KafkaDataBalancer(kafkaConfig: KafkaConfig) extends DataBalancer {
-  // TODO: Convert this into a KafkaCruiseControlConfig.
-  private val balancerConfig = kafkaConfig
-
-  override def startUp() : Unit = { }
-
-  override def shutdown() : Unit = { }
-
-}
-
-object KafkaDataBalancer {
-  def apply(kafkaConfig: KafkaConfig) = {
-    new KafkaDataBalancer(kafkaConfig)
+  private val log: Logger = LoggerFactory.getLogger(classOf[DataBalancer])
+  def apply(kafkaConfig: KafkaConfig): Option[DataBalancer] = {
+    log.info("DataBalancer: attempting startup")
+    try {
+      Some(Class.forName("io.confluent.databalancer.KafkaDataBalancer")
+        .getConstructor(classOf[KafkaConfig]).newInstance(kafkaConfig).asInstanceOf[DataBalancer])
+    } catch {
+      case e : ClassNotFoundException => {
+        log.warn("Unable to find data balancer class", e)
+        None
+      }
+      case e: Exception => {
+        log.error(s"Unexpected Exception ", e)
+        None
+      }
+    }
   }
 }
+
