@@ -210,7 +210,7 @@ public class TenantLifecycleManager {
                     new ListTopicsOptions().timeoutMs(LIST_METADATA_TIMEOUT_MS);
             Set<String> topics = adminClient.listTopics(listTopicsOptions).names().get();
             topicsToDelete = topics.stream()
-                    .filter(topic -> deleteInProgressClusters.contains(TenantContext.extractTenant(topic)))
+                    .filter(topic -> TenantContext.isTenantPrefixed(topic) && deleteInProgressClusters.contains(TenantContext.extractTenant(topic)))
                     .collect(Collectors.toList());
             Set<String> clustersWithTopicsToDelete =
                     topicsToDelete.stream().map(topic -> TenantContext.extractTenant(topic)).collect(Collectors.toSet());

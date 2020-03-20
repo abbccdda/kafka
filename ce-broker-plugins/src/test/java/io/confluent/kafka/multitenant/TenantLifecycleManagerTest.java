@@ -13,9 +13,11 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
 import static io.confluent.kafka.multitenant.Utils.LC_META_ABC;
@@ -140,6 +142,37 @@ public class TenantLifecycleManagerTest {
         assertEquals("Expecting tenant to be deactivated",
                 TenantLifecycleManager.State.ACTIVE,
                 lifecycleManagerWithDeleteDelay.tenantLifecycleState.get(active.logicalClusterId()));
+    }
+
+    @Test
+    public void testOnlyDeleteTenantTopics() throws ExecutionException, InterruptedException {
+        // Add an internal topic and a topic from a tenant that will be deleted.
+        // We should only delete the tenant topic, and the internal topic should remain
+
+        String internalTopicName = "_internal-topic";
+
+        TenantContext tc = new TenantContext(new MultiTenantPrincipal("",
+                new TenantMetadata(LC_META_DED.logicalClusterId(), LC_META_DED.logicalClusterId())));
+        List<NewTopic> sampleTopics = new ArrayList<>();
+        sampleTopics.add(new NewTopic(tc.addTenantPrefix("topic"), 3, (short) 1));
+        sampleTopics.add(new NewTopic(internalTopicName, 3, (short) 1));
+        mockAdminClient.createTopics(sampleTopics).all().get();
+
+        // load deleted tenant to state store and trigger delete
+        lifecycleManager.updateTenantState(LC_META_DED);
+        lifecycleManager.deleteTenants();
+
+        // wait for async delete task started by `deleteTenants` to complete
+        lifecycleManager.topicDeletionExecutor().submit(() -> { }).get();
+
+        // trigger deletion again so the deletion will be finalized
+        lifecycleManager.deleteTenants();
+
+        Set<String> topicsRemaining = mockAdminClient.listTopics().names().get();
+
+        // if deletion was successful, _internal-topic is the only one remaining and the tenant topic was deleted
+        assertTrue(internalTopicName + " should still exist after deleting tenant", topicsRemaining.contains(internalTopicName));
+        assertEquals(internalTopicName + " should be the only topic remaining", 1, topicsRemaining.size());
     }
 
     private LogicalClusterMetadata reactivateLogicalCluster(LogicalClusterMetadata lkc) throws IOException {
