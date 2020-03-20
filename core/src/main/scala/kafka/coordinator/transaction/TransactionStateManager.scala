@@ -269,6 +269,7 @@ class TransactionStateManager(brokerId: Int,
     props.put(LogConfig.CleanupPolicyProp, LogConfig.Compact)
     props.put(LogConfig.MinInSyncReplicasProp, config.transactionLogMinInsyncReplicas.toString)
     props.put(LogConfig.SegmentBytesProp, config.transactionLogSegmentBytes.toString)
+    props.put(LogConfig.TopicPlacementConstraintsProp, config.transactionLogPlacementConstraints)
 
     props
   }
@@ -670,6 +671,7 @@ private[transaction] case class TransactionConfig(transactionalIdExpirationMs: I
                                                   transactionLogSegmentBytes: Int = TransactionLog.DefaultSegmentBytes,
                                                   transactionLogLoadBufferSize: Int = TransactionLog.DefaultLoadBufferSize,
                                                   transactionLogMinInsyncReplicas: Int = TransactionLog.DefaultMinInSyncReplicas,
+                                                  transactionLogPlacementConstraints: String = TransactionLog.DefaultPlacementConstraints,
                                                   abortTimedOutTransactionsIntervalMs: Int = TransactionStateManager.DefaultAbortTimedOutTransactionsIntervalMs,
                                                   removeExpiredTransactionalIdsIntervalMs: Int = TransactionStateManager.DefaultRemoveExpiredTransactionalIdsIntervalMs,
                                                   requestTimeoutMs: Int = Defaults.RequestTimeoutMs)

@@ -45,6 +45,7 @@ case class OffsetConfig(maxMetadataSize: Int = OffsetConfig.DefaultMaxMetadataSi
                         offsetsTopicSegmentBytes: Int = OffsetConfig.DefaultOffsetsTopicSegmentBytes,
                         offsetsTopicReplicationFactor: Short = OffsetConfig.DefaultOffsetsTopicReplicationFactor,
                         offsetsTopicCompressionCodec: CompressionCodec = OffsetConfig.DefaultOffsetsTopicCompressionCodec,
+                        offsetsTopicPlacementConstraints: String = OffsetConfig.DefaultOffsetsTopicPlacementConstraints,
                         offsetCommitTimeoutMs: Int = OffsetConfig.DefaultOffsetCommitTimeoutMs,
                         offsetCommitRequiredAcks: Short = OffsetConfig.DefaultOffsetCommitRequiredAcks)
 
@@ -57,6 +58,7 @@ object OffsetConfig {
   val DefaultOffsetsTopicSegmentBytes = 100*1024*1024
   val DefaultOffsetsTopicReplicationFactor = 3.toShort
   val DefaultOffsetsTopicCompressionCodec = NoCompressionCodec
+  val DefaultOffsetsTopicPlacementConstraints = ""
   val DefaultOffsetCommitTimeoutMs = 5000
   val DefaultOffsetCommitRequiredAcks = (-1).toShort
 }

@@ -693,6 +693,7 @@ class KafkaConfigTest {
         case KafkaConfig.OffsetsTopicPartitionsProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0")
         case KafkaConfig.OffsetsTopicSegmentBytesProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0")
         case KafkaConfig.OffsetsTopicCompressionCodecProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1")
+        case KafkaConfig.OffsetsTopicPlacementConstraintsProp =>  // ignore string
         case KafkaConfig.OffsetsRetentionMinutesProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0")
         case KafkaConfig.OffsetsRetentionCheckIntervalMsProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0")
         case KafkaConfig.OffsetCommitTimeoutMsProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0")
@@ -704,6 +705,7 @@ class KafkaConfigTest {
         case KafkaConfig.TransactionsTopicPartitionsProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0", "-2")
         case KafkaConfig.TransactionsTopicSegmentBytesProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0", "-2")
         case KafkaConfig.TransactionsTopicReplicationFactorProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0", "-2")
+        case KafkaConfig.TransactionsTopicPlacementConstraintsProp => // ignore string
 
         // Tiered storage configs
         case KafkaConfig.TierEnableProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_boolean", "0")
@@ -817,6 +819,9 @@ class KafkaConfigTest {
 
         //Enable FIPS mode config
         case KafkaConfig.EnableFipsProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_boolean", "0")
+
+        //Broker startup registration delay
+        case KafkaConfig.BrokerStartupRegistrationDelayProp => // ignore
 
         // Confluent Cloud configs
         case KafkaConfig.BrokerSessionUuidProp => // ignore string

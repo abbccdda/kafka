@@ -272,7 +272,7 @@ class KafkaController(val config: KafkaConfig,
         unit = TimeUnit.MILLISECONDS)
     }
 
-    dataBalancer.startUp()
+    dataBalancer.map { _.startUp }
   }
 
   private def scheduleAutoLeaderRebalanceTask(delay: Long, unit: TimeUnit): Unit = {
@@ -294,7 +294,7 @@ class KafkaController(val config: KafkaConfig,
     unregisterBrokerModificationsHandler(brokerModificationsHandlers.keySet)
 
     // Shutdown databalancer
-    dataBalancer.shutdown()
+    dataBalancer.map { _.shutdown }
 
     // shutdown leader rebalance scheduler
     kafkaScheduler.shutdown()

@@ -259,6 +259,9 @@ object Defaults {
   /** Segment speculative prefetching optimization **/
   val SegmentSpeculativePrefetchEnable = false
 
+  /** ******** Confluent Broker Registration Delay **/
+  val BrokerStartupRegistrationDelay = 0
+
   /** ********* Quota Configuration ***********/
   val ProducerQuotaBytesPerSecondDefault = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
   val ConsumerQuotaBytesPerSecondDefault = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
@@ -527,6 +530,7 @@ object KafkaConfig {
   val OffsetsTopicPartitionsProp = "offsets.topic.num.partitions"
   val OffsetsTopicSegmentBytesProp = "offsets.topic.segment.bytes"
   val OffsetsTopicCompressionCodecProp = "offsets.topic.compression.codec"
+  val OffsetsTopicPlacementConstraintsProp = ConfluentPrefix + "offsets.topic.placement.constraints"
   val OffsetsRetentionMinutesProp = "offsets.retention.minutes"
   val OffsetsRetentionCheckIntervalMsProp = "offsets.retention.check.interval.ms"
   val OffsetCommitTimeoutMsProp = "offsets.commit.timeout.ms"
@@ -539,6 +543,7 @@ object KafkaConfig {
   val TransactionsTopicPartitionsProp = "transaction.state.log.num.partitions"
   val TransactionsTopicSegmentBytesProp = "transaction.state.log.segment.bytes"
   val TransactionsTopicReplicationFactorProp = "transaction.state.log.replication.factor"
+  val TransactionsTopicPlacementConstraintsProp = ConfluentPrefix + "transaction.state.log.placement.constraints"
   val TransactionsAbortTimedOutTransactionCleanupIntervalMsProp = "transaction.abort.timed.out.transaction.cleanup.interval.ms"
   val TransactionsRemoveExpiredTransactionalIdCleanupIntervalMsProp = "transaction.remove.expired.transaction.cleanup.interval.ms"
 
@@ -601,6 +606,9 @@ object KafkaConfig {
 
   /** Segment speculative prefetching optimization **/
   val SegmentSpeculativePrefetchEnableProp = ConfluentPrefix + "segment.speculative.prefetch.enable"
+
+  /** ******** Confluent Broker Registration Delay **/
+  val BrokerStartupRegistrationDelayProp = ConfluentPrefix + "broker.registration.delay.ms"
 
   /** ********* Interceptor Configurations ***********/
   val AppendRecordInterceptorClassesProp = ConfluentTopicConfig.APPEND_RECORD_INTERCEPTOR_CLASSES_CONFIG
@@ -1060,6 +1068,9 @@ object KafkaConfig {
   /** Segment speculative prefetching optimization **/
   val SegmentSpeculativePrefetchEnableDoc = ConfluentTopicConfig.SEGMENT_SPECULATIVE_PREFETCH_ENABLE_DOC
 
+  /** ******** Confluent Broker Registration Delay **/
+  val BrokerStartupRegistrationDelayDoc = "Specifies the amount of time to delay broker ZK registration after startup."
+
   /** ********* Quota Configuration ***********/
   val ProducerQuotaBytesPerSecondDefaultDoc = "DEPRECATED: Used only when dynamic default quotas are not configured for <user>, <client-id> or <user, client-id> in Zookeeper. " +
   "Any producer distinguished by clientId will get throttled if it produces more bytes than this value per-second"
@@ -1325,6 +1336,7 @@ object KafkaConfig {
       .define(OffsetsTopicPartitionsProp, INT, Defaults.OffsetsTopicPartitions, atLeast(1), HIGH, OffsetsTopicPartitionsDoc)
       .define(OffsetsTopicSegmentBytesProp, INT, Defaults.OffsetsTopicSegmentBytes, atLeast(1), HIGH, OffsetsTopicSegmentBytesDoc)
       .define(OffsetsTopicCompressionCodecProp, INT, Defaults.OffsetsTopicCompressionCodec, HIGH, OffsetsTopicCompressionCodecDoc)
+      .define(OffsetsTopicPlacementConstraintsProp, STRING, "", TopicPlacement.VALIDATOR, HIGH, ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_DOC)
       .define(OffsetsRetentionMinutesProp, INT, Defaults.OffsetsRetentionMinutes, atLeast(1), HIGH, OffsetsRetentionMinutesDoc)
       .define(OffsetsRetentionCheckIntervalMsProp, LONG, Defaults.OffsetsRetentionCheckIntervalMs, atLeast(1), HIGH, OffsetsRetentionCheckIntervalMsDoc)
       .define(OffsetCommitTimeoutMsProp, INT, Defaults.OffsetCommitTimeoutMs, atLeast(1), HIGH, OffsetCommitTimeoutMsDoc)
@@ -1340,6 +1352,7 @@ object KafkaConfig {
       .define(TransactionsTopicReplicationFactorProp, SHORT, Defaults.TransactionsTopicReplicationFactor, atLeast(1), HIGH, TransactionsTopicReplicationFactorDoc)
       .define(TransactionsTopicPartitionsProp, INT, Defaults.TransactionsTopicPartitions, atLeast(1), HIGH, TransactionsTopicPartitionsDoc)
       .define(TransactionsTopicSegmentBytesProp, INT, Defaults.TransactionsTopicSegmentBytes, atLeast(1), HIGH, TransactionsTopicSegmentBytesDoc)
+      .define(TransactionsTopicPlacementConstraintsProp, STRING, "", TopicPlacement.VALIDATOR, HIGH, ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_DOC)
       .define(TransactionsAbortTimedOutTransactionCleanupIntervalMsProp, INT, Defaults.TransactionsAbortTimedOutTransactionsCleanupIntervalMS, atLeast(1), LOW, TransactionsAbortTimedOutTransactionsIntervalMsDoc)
       .define(TransactionsRemoveExpiredTransactionalIdCleanupIntervalMsProp, INT, Defaults.TransactionsRemoveExpiredTransactionsCleanupIntervalMS, atLeast(1), LOW, TransactionsRemoveExpiredTransactionsIntervalMsDoc)
 
@@ -1399,6 +1412,9 @@ object KafkaConfig {
 
       /** ********* Segment speculative prefetching optimization **************/
       .defineInternal(SegmentSpeculativePrefetchEnableProp, BOOLEAN, Defaults.SegmentSpeculativePrefetchEnable, MEDIUM, SegmentSpeculativePrefetchEnableDoc)
+
+      /** ******** Confluent Broker Registration Delay **/
+      .defineInternal(BrokerStartupRegistrationDelayProp, LONG, Defaults.BrokerStartupRegistrationDelay, LOW, BrokerStartupRegistrationDelayDoc)
 
       /** ********* Kafka Metrics Configuration ***********/
       .define(MetricNumSamplesProp, INT, Defaults.MetricNumSamples, atLeast(1), LOW, MetricNumSamplesDoc)
@@ -1899,6 +1915,8 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val offsetCommitRequiredAcks = getShort(KafkaConfig.OffsetCommitRequiredAcksProp)
   val offsetsTopicSegmentBytes = getInt(KafkaConfig.OffsetsTopicSegmentBytesProp)
   val offsetsTopicCompressionCodec = Option(getInt(KafkaConfig.OffsetsTopicCompressionCodecProp)).map(value => CompressionCodec.getCompressionCodec(value)).orNull
+  val offsetsTopicPlacementConstraints: Option[TopicPlacement] = TopicPlacement.parse(
+    getString(KafkaConfig.OffsetsTopicPlacementConstraintsProp)).asScala
 
   /** ********* Transaction management configuration ***********/
   val transactionalIdExpirationMs = getInt(KafkaConfig.TransactionalIdExpirationMsProp)
@@ -1908,6 +1926,8 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val transactionTopicReplicationFactor = getShort(KafkaConfig.TransactionsTopicReplicationFactorProp)
   val transactionTopicPartitions = getInt(KafkaConfig.TransactionsTopicPartitionsProp)
   val transactionTopicSegmentBytes = getInt(KafkaConfig.TransactionsTopicSegmentBytesProp)
+  val trainsactionTopicPlacementConstraints: Option[TopicPlacement] = TopicPlacement.parse(
+    getString(KafkaConfig.TransactionsTopicPlacementConstraintsProp)).asScala
   val transactionAbortTimedOutTransactionCleanupIntervalMs = getInt(KafkaConfig.TransactionsAbortTimedOutTransactionCleanupIntervalMsProp)
   val transactionRemoveExpiredTransactionalIdCleanupIntervalMs = getInt(KafkaConfig.TransactionsRemoveExpiredTransactionalIdCleanupIntervalMsProp)
 
@@ -1954,6 +1974,9 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
 
   /** ********* Segment speculative prefetching optimization ***********/
   def segmentSpeculativePrefetchEnable = getBoolean(KafkaConfig.SegmentSpeculativePrefetchEnableProp)
+
+  /** ******** Confluent Broker Registration Delay **/
+  def brokerStartupRegistrationDelay = getLong(KafkaConfig.BrokerStartupRegistrationDelayProp)
 
   /** ********* Interceptor Configuration ***********/
   val appendRecordInterceptors = getConfiguredInstances(KafkaConfig.AppendRecordInterceptorClassesProp, classOf[RecordInterceptor])

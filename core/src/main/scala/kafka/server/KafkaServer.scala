@@ -380,6 +380,17 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         replicaManager = createReplicaManager(isShuttingDown, tierLogComponents)
         replicaManager.startup()
 
+        // This broker registration delay is intended to be temporary and will be removed on completion of
+        // this Jira.
+        // https://confluentinc.atlassian.net/browse/WFLOW-124
+        // The registration delay will prevent a broker from establishing leadership after starting up.
+        // This helps to avoid client unavailability when external load balancers in GCP take a long time
+        // to start routing traffic.
+        if (config.brokerStartupRegistrationDelay > 0) {
+          info(s"Delaying broker startup by ${config.brokerStartupRegistrationDelay}ms")
+          Thread.sleep(config.brokerStartupRegistrationDelay.longValue())
+        }
+
         val brokerInfo = createBrokerInfo
         val brokerEpoch = zkClient.registerBroker(brokerInfo)
 

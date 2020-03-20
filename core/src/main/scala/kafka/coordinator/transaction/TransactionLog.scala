@@ -45,6 +45,7 @@ object TransactionLog {
   val DefaultReplicationFactor: Short = 3.toShort
   val DefaultMinInSyncReplicas: Int = 2
   val DefaultLoadBufferSize: Int = 5 * 1024 * 1024
+  val DefaultPlacementConstraints: String = ""
 
   // enforce always using
   //  1. cleanup policy = compact
