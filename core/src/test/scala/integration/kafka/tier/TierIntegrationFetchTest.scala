@@ -10,7 +10,7 @@ import java.time.Duration
 import java.util
 import java.util.concurrent.TimeUnit
 import java.util.function.Consumer
-import java.util.{Collections, Properties, UUID}
+import java.util.{Collections, Properties}
 import java.util.concurrent.atomic.AtomicBoolean
 
 import javax.management.ObjectName

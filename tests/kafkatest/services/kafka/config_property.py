@@ -34,6 +34,7 @@ LOG_RETENTION_HOURS = "log.retention.hours"
 LOG_SEGMENT_BYTES = "log.segment.bytes"
 LOG_RETENTION_CHECK_INTERVAL_MS = "log.retention.check.interval.ms"
 LOG_RETENTION_MS = "log.retention.ms"
+LOG_DELETION_MAX_SEGMENTS_PER_RUN = "log.deletion.max.segments.per.run"
 LOG_CLEANER_ENABLE = "log.cleaner.enable"
 
 AUTO_CREATE_TOPICS_ENABLE = "auto.create.topics.enable"
@@ -112,6 +113,9 @@ From KafkaConfig.scala
   val LogRetentionTimeHoursProp = "log.retention.hours"
 
   val LogRetentionBytesProp = "log.retention.bytes"
+
+  val LogDeletionMaxSegmentsPerRunProp = "log.deletion.max.segments.per.run"
+
   val LogCleanupIntervalMsProp = "log.retention.check.interval.ms"
   val LogCleanupPolicyProp = "log.cleanup.policy"
   val LogCleanerThreadsProp = "log.cleaner.threads"

@@ -30,6 +30,7 @@ import kafka.tier.topic.TierTopicConsumer
 import kafka.utils._
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.{KafkaException, TopicPartition}
+import org.apache.kafka.common.config.ConfigException
 import org.apache.kafka.common.utils.Time
 import org.apache.kafka.common.errors.{KafkaStorageException, LogDirNotFoundException}
 
@@ -37,7 +38,7 @@ import scala.collection.JavaConverters._
 import scala.collection._
 import scala.collection.mutable.ArrayBuffer
 import scala.util.{Failure, Success, Try}
-
+  
 /**
  * The entry point to the kafka log management subsystem. The log manager is responsible for log creation, retrieval, and cleaning.
  * All read and write operations are delegated to the individual log instances.
@@ -60,13 +61,14 @@ class LogManager(logDirs: Seq[File],
                  val flushStartOffsetCheckpointMs: Long,
                  val tierStateCheckpointMs: Int,
                  val retentionCheckMs: Long,
+                 logDeletionMaxSegmentsPerRun: Int,
                  val maxPidExpirationMs: Int,
                  scheduler: Scheduler,
                  val brokerState: BrokerState,
                  brokerTopicStats: BrokerTopicStats,
                  logDirFailureChannel: LogDirFailureChannel,
                  tierLogComponents: TierLogComponents,
-                 time: Time) extends Logging with KafkaMetricsGroup {
+                 time: Time) extends Logging with KafkaMetricsGroup with BrokerReconfigurable {
 
   import LogManager._
 
@@ -86,6 +88,7 @@ class LogManager(logDirs: Seq[File],
   private var checkpointTierState = true
   @volatile private var _currentDefaultConfig = initialDefaultConfig
   @volatile private var numRecoveryThreadsPerDataDir = recoveryThreadsPerDataDir
+  @volatile private[log] var maxSegmentsDeletedPerRun = logDeletionMaxSegmentsPerRun
 
   // This map contains all partitions whose logs are getting loaded and initialized. If log configuration
   // of these partitions get updated at the same time, the corresponding entry in this map is set to "true",
@@ -96,6 +99,21 @@ class LogManager(logDirs: Seq[File],
 
   def reconfigureDefaultLogConfig(logConfig: LogConfig): Unit = {
     this._currentDefaultConfig = logConfig
+  }
+
+  override def reconfigurableConfigs: Set[String] = {
+    LogManager.ReconfigurableConfigs
+  }
+
+  override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
+    if (newConfig.logDeletionMaxSegmentsPerRun < 0)
+      throw new ConfigException(s"Log deletion max segments per run cannot be less than 0, current value is $maxSegmentsDeletedPerRun")
+  }
+  
+  override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
+    val newMaxSegmentsDeletedPerRun = newConfig.logDeletionMaxSegmentsPerRun
+    info(s"Reconfigure log deletion maximum segments deleted per run from $maxSegmentsDeletedPerRun to $newMaxSegmentsDeletedPerRun")
+    maxSegmentsDeletedPerRun = newMaxSegmentsDeletedPerRun
   }
 
   def currentDefaultConfig: LogConfig = _currentDefaultConfig
@@ -981,19 +999,33 @@ class LogManager(logDirs: Seq[File],
       }
     }
 
-    try {
+    def maybeDeleteOldSegments(deletableLogs: Iterable[(TopicPartition, AbstractLog)]): Unit = {
       deletableLogs.foreach {
         case (topicPartition, log) =>
+          if (maxSegmentsDeletedPerRun > 0 && total >= maxSegmentsDeletedPerRun) {
+            debug(s"Log retention cleanup reached the limit of maximum segments that can be deleted " +
+              s"$maxSegmentsDeletedPerRun, $total files deleted")
+            return
+          }
           debug(s"Garbage collecting '${log.name}'")
-          total += log.deleteOldSegments()
+          total += log.deleteOldSegments(maxSegmentsDeletedPerRun)
 
+          if (maxSegmentsDeletedPerRun > 0 && total >= maxSegmentsDeletedPerRun) {
+            debug(s"Log retention cleanup reached the limit of maximum segments that can be deleted " +
+              s"$maxSegmentsDeletedPerRun, $total files deleted")
+            return
+          }
           val futureLog = futureLogs.get(topicPartition)
           if (futureLog != null) {
             // clean future logs
             debug(s"Garbage collecting future log '${futureLog.name}'")
-            total += futureLog.deleteOldSegments()
+            total += futureLog.deleteOldSegments(maxSegmentsDeletedPerRun - total)
           }
       }
+    }
+
+    try {
+      maybeDeleteOldSegments(deletableLogs)
     } finally {
       if (cleaner != null) {
         cleaner.resumeCleaning(deletableLogs.map(_._1))
@@ -1069,6 +1101,9 @@ object LogManager {
   val LogStartOffsetCheckpointFile = "log-start-offset-checkpoint"
   val ProducerIdExpirationCheckIntervalMs = 10 * 60 * 1000
 
+  val ReconfigurableConfigs = Set(
+    KafkaConfig.LogDeletionMaxSegmentsPerRunProp
+  )
   def apply(config: KafkaConfig,
             initialOfflineDirs: Seq[String],
             zkClient: KafkaZkClient,
@@ -1103,6 +1138,7 @@ object LogManager {
       flushStartOffsetCheckpointMs = config.logFlushStartOffsetCheckpointIntervalMs,
       tierStateCheckpointMs = config.tierPartitionStateCommitIntervalMs,
       retentionCheckMs = config.logCleanupIntervalMs,
+      logDeletionMaxSegmentsPerRun = config.logDeletionMaxSegmentsPerRun,
       maxPidExpirationMs = config.transactionalIdExpirationMs,
       scheduler = kafkaScheduler,
       brokerState = brokerState,

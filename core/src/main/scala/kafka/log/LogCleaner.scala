@@ -170,7 +170,6 @@ class LogCleaner(initialConfig: CleanerConfig,
       throw new ConfigException(s"Log cleaner threads cannot be reduced to less than half the current value $currentThreads")
     if (numThreads > currentThreads * 2)
       throw new ConfigException(s"Log cleaner threads cannot be increased to more than double the current value $currentThreads")
-
   }
 
   /**
@@ -337,16 +336,30 @@ class LogCleaner(initialConfig: CleanerConfig,
             case e: Exception => throw new LogCleaningException(cleanable.log, e.getMessage, e)
           }
       }
+
+      def maybeDeleteOldSegments(deletableLogs: Iterable[(TopicPartition, AbstractLog)]): Unit = {
+        var total = 0
+        deletableLogs.foreach {
+          case (_, log) =>
+            if (total >= config.logDeletionMaxSegmentsPerRun) {
+              debug(s"Log cleanup reached the limit of maximum segments that can be deleted limit " +
+                s"${config.logDeletionMaxSegmentsPerRun}, $total files deleted")
+              return
+            }
+            debug(s"Garbage collecting '${log.name}'")
+            try {
+              val limit = config.logDeletionMaxSegmentsPerRun - total
+              total += log.deleteOldSegments(limit)
+            } catch {
+              case e@(_: ThreadShutdownException | _: ControlThrowable) => throw e
+              case e: Exception => throw new LogCleaningException(log, e.getMessage, e)
+            }
+        }
+      }
+
       val deletable: Iterable[(TopicPartition, AbstractLog)] = cleanerManager.deletableLogs()
       try {
-        deletable.foreach { case (_, log) =>
-          try {
-            log.deleteOldSegments()
-          } catch {
-            case e @ (_: ThreadShutdownException | _: ControlThrowable) => throw e
-            case e: Exception => throw new LogCleaningException(log, e.getMessage, e)
-          }
-        }
+        maybeDeleteOldSegments(deletable)
       } finally  {
         cleanerManager.doneDeleting(deletable.map(_._1))
       }
@@ -415,7 +428,8 @@ object LogCleaner {
     KafkaConfig.LogCleanerIoBufferSizeProp,
     KafkaConfig.MessageMaxBytesProp,
     KafkaConfig.LogCleanerIoMaxBytesPerSecondProp,
-    KafkaConfig.LogCleanerBackoffMsProp
+    KafkaConfig.LogCleanerBackoffMsProp,
+    KafkaConfig.LogDeletionMaxSegmentsPerRunProp
   )
 
   def cleanerConfig(config: KafkaConfig): CleanerConfig = {
@@ -426,7 +440,8 @@ object LogCleaner {
       maxMessageSize = config.messageMaxBytes,
       maxIoBytesPerSecond = config.logCleanerIoMaxBytesPerSecond,
       backOffMs = config.logCleanerBackoffMs,
-      enableCleaner = config.logCleanerEnable)
+      enableCleaner = config.logCleanerEnable,
+      logDeletionMaxSegmentsPerRun = config.logDeletionMaxSegmentsPerRun)
 
   }
 

@@ -1076,6 +1076,7 @@ object TestUtils extends Logging {
                    flushStartOffsetCheckpointMs = 10000L,
                    tierStateCheckpointMs = 1000,
                    retentionCheckMs = 1000L,
+                   logDeletionMaxSegmentsPerRun = Int.MaxValue,
                    maxPidExpirationMs = 60 * 60 * 1000,
                    scheduler = time.scheduler,
                    time = time,

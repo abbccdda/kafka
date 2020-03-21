@@ -20,7 +20,7 @@ package kafka.log
 import java.io._
 import java.util.{Collections, Properties}
 
-import kafka.server.{FetchDataInfo, FetchLogEnd}
+import kafka.server.{FetchDataInfo, FetchLogEnd, KafkaConfig}
 import kafka.server.checkpoints.OffsetCheckpointFile
 import kafka.tier.TopicIdPartition
 import kafka.tier.domain.TierTopicInitLeader
@@ -159,6 +159,44 @@ class LogManagerTest {
     assertEquals("No log should be found.", None, log)
     val logFile = new File(logDir, name + "-0")
     assertTrue(!logFile.exists)
+  }
+
+  @Test
+  def testLogDeletionMaxSegmentsPerRunExpiredSegments(): Unit = {
+    val log = logManager.getOrCreateLog(new TopicPartition(name, 0), logConfig)
+    var offset = 0L
+    for (_ <- 0 until 200) {
+      val set = TestUtils.singletonRecords("test".getBytes(), timestamp = time.milliseconds - maxLogAgeMs - 1)
+      val info = log.appendAsLeader(set, leaderEpoch = 0)
+      offset = info.lastOffset
+    }
+    assertTrue("There should be more than one segment now.", log.numberOfSegments > 1)
+    log.updateHighWatermark(log.logEndOffset)
+    val numSegments = log.numberOfSegments
+
+    def reconfigureMaxSegmentDeletedPerRun(logDeletionMaxSegmentsPerRun: Int): Unit = {
+      def kafkaConfigWithCleanerConfig(logDeletionMaxSegmentsPerRun: Int): KafkaConfig = {
+        val props = TestUtils.createBrokerConfig(0, "localhost:2181")
+        props.put(KafkaConfig.LogDeletionMaxSegmentsPerRunProp, logDeletionMaxSegmentsPerRun.toString)
+        KafkaConfig.fromProps(props)
+      }
+      // Verify cleaning done with logDeletionMaxSegmentsPerRun = 1
+      val oldConfig = kafkaConfigWithCleanerConfig(logManager.maxSegmentsDeletedPerRun)
+      val newConfig = kafkaConfigWithCleanerConfig(logDeletionMaxSegmentsPerRun)
+      logManager.reconfigure(oldConfig, newConfig)
+    }
+
+    // reconfigure it to 0 to disallow any retention based segments to delete in the cleanup run
+    reconfigureMaxSegmentDeletedPerRun(0)
+    log.localLogSegments.foreach(_.log.file.setLastModified(time.milliseconds))
+
+    time.sleep(logManager.InitialTaskDelayMs)
+    time.sleep(logManager.retentionCheckMs + 1)
+    assertEquals("No segment should be deleted.", numSegments, log.numberOfSegments)
+
+    reconfigureMaxSegmentDeletedPerRun(log.numberOfSegments)
+    time.sleep(logManager.retentionCheckMs + 1)
+    assertEquals("Now there should only be only one segment in the index.", 1, log.numberOfSegments)
   }
 
   /**

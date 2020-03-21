@@ -228,6 +228,65 @@ class  LogCleanerParameterizedIntegrationTest(compressionCodec: String) extends 
   }
 
   @Test
+  def cleanerLogDeleteMaxSegmentsPerRunConfigUpdateTest(): Unit = {
+    val logProps  = new Properties()
+    val retentionMs: Integer = 100000
+    logProps.put(LogConfig.RetentionMsProp, retentionMs: Integer)
+    logProps.put(LogConfig.CleanupPolicyProp, "compact,delete")
+
+    def reconfigureMaxSegmentDeletedPerRun(logDeletionMaxSegmentsPerRun: Int): Unit = {
+      val oldConfig = kafkaConfigWithCleanerConfig(cleaner.currentConfig)
+      val newConfig = kafkaConfigWithCleanerConfig(CleanerConfig(numThreads = cleaner.currentConfig.numThreads,
+        dedupeBufferSize = cleaner.currentConfig.dedupeBufferSize,
+        dedupeBufferLoadFactor = cleaner.currentConfig.dedupeBufferLoadFactor,
+        ioBufferSize = cleaner.currentConfig.ioBufferSize,
+        maxMessageSize = cleaner.currentConfig.maxMessageSize,
+        maxIoBytesPerSecond = cleaner.currentConfig.maxIoBytesPerSecond,
+        backOffMs = cleaner.currentConfig.backOffMs,
+        logDeletionMaxSegmentsPerRun = logDeletionMaxSegmentsPerRun
+      ))
+      cleaner.reconfigure(oldConfig, newConfig)
+    }
+
+    def runCleanerAndCheckCompacted(logDeletionMaxSegmentsPerRun: Int): (AbstractLog, Seq[(Int, String, Long)]) = {
+      cleaner = makeCleaner(partitions = topicPartitions.take(1), propertyOverrides = logProps, backOffMs = 100L)
+      reconfigureMaxSegmentDeletedPerRun(logDeletionMaxSegmentsPerRun = logDeletionMaxSegmentsPerRun)
+      val log = cleaner.logs.get(topicPartitions(0))
+
+      val messages = writeDups(numKeys = 100, numDups = 3, log = log, codec = codec)
+      val startSize = log.size
+
+      log.updateHighWatermark(log.logEndOffset)
+      // Set the last modified time to an old value to force deletion of old segments
+      log.localLogSegments.foreach(_.lastModified = time.milliseconds - (2 * retentionMs))
+
+      val firstDirty = log.activeSegment.baseOffset
+      cleaner.startup()
+
+      // should compact the log
+      checkLastCleaned("log", 0, firstDirty)
+      val compactedSize = log.localLogSegments.map(_.size).sum
+      assertTrue(s"log should have been compacted: startSize=$startSize compactedSize=$compactedSize", startSize > compactedSize)
+
+      (log, messages)
+    }
+
+    val (log, _) = runCleanerAndCheckCompacted(0)
+    assertFalse(log.logStartOffset == log.logEndOffset)
+    val endOffset = log.logEndOffset
+
+    // set the logDeletionMaxSegmentsPerRun to log.numberOfSegments so that all retention deletable segments can be deleted
+    // in a single run
+    reconfigureMaxSegmentDeletedPerRun(logDeletionMaxSegmentsPerRun = log.numberOfSegments)
+
+    TestUtils.waitUntilTrue(() => log.logStartOffset == endOffset,
+      "Timed out waiting for deletion of old segments")
+    assertEquals(1, log.numberOfSegments)
+
+    cleaner.shutdown()
+  }
+
+  @Test
   def cleanerConfigUpdateTest(): Unit = {
     val largeMessageKey = 20
     val (largeMessageValue, largeMessageSet) = createLargeSingleMessageSet(largeMessageKey, RecordBatch.CURRENT_MAGIC_VALUE)
@@ -248,18 +307,6 @@ class  LogCleanerParameterizedIntegrationTest(compressionCodec: String) extends 
     cleaner.awaitCleaned(topicPartition, firstDirty, maxWaitMs = 10)
     assertTrue("Should not have cleaned", cleaner.cleanerManager.allCleanerCheckpoints.isEmpty)
 
-    def kafkaConfigWithCleanerConfig(cleanerConfig: CleanerConfig): KafkaConfig = {
-      val props = TestUtils.createBrokerConfig(0, "localhost:2181")
-      props.put(KafkaConfig.LogCleanerThreadsProp, cleanerConfig.numThreads.toString)
-      props.put(KafkaConfig.LogCleanerDedupeBufferSizeProp, cleanerConfig.dedupeBufferSize.toString)
-      props.put(KafkaConfig.LogCleanerDedupeBufferLoadFactorProp, cleanerConfig.dedupeBufferLoadFactor.toString)
-      props.put(KafkaConfig.LogCleanerIoBufferSizeProp, cleanerConfig.ioBufferSize.toString)
-      props.put(KafkaConfig.MessageMaxBytesProp, cleanerConfig.maxMessageSize.toString)
-      props.put(KafkaConfig.LogCleanerBackoffMsProp, cleanerConfig.backOffMs.toString)
-      props.put(KafkaConfig.LogCleanerIoMaxBytesPerSecondProp, cleanerConfig.maxIoBytesPerSecond.toString)
-      KafkaConfig.fromProps(props)
-    }
-
     // Verify cleaning done with larger LogCleanerIoBufferSizeProp
     val oldConfig = kafkaConfigWithCleanerConfig(cleaner.currentConfig)
     val newConfig = kafkaConfigWithCleanerConfig(CleanerConfig(numThreads = 2,
@@ -275,6 +322,19 @@ class  LogCleanerParameterizedIntegrationTest(compressionCodec: String) extends 
     checkLastCleaned("log", 0, firstDirty)
     val compactedSize = log.localLogSegments.map(_.size).sum
     assertTrue(s"log should have been compacted: startSize=$startSize compactedSize=$compactedSize", startSize > compactedSize)
+  }
+
+  private def kafkaConfigWithCleanerConfig(cleanerConfig: CleanerConfig): KafkaConfig = {
+    val props = TestUtils.createBrokerConfig(0, "localhost:2181")
+    props.put(KafkaConfig.LogCleanerThreadsProp, cleanerConfig.numThreads.toString)
+    props.put(KafkaConfig.LogCleanerDedupeBufferSizeProp, cleanerConfig.dedupeBufferSize.toString)
+    props.put(KafkaConfig.LogCleanerDedupeBufferLoadFactorProp, cleanerConfig.dedupeBufferLoadFactor.toString)
+    props.put(KafkaConfig.LogCleanerIoBufferSizeProp, cleanerConfig.ioBufferSize.toString)
+    props.put(KafkaConfig.MessageMaxBytesProp, cleanerConfig.maxMessageSize.toString)
+    props.put(KafkaConfig.LogCleanerBackoffMsProp, cleanerConfig.backOffMs.toString)
+    props.put(KafkaConfig.LogCleanerIoMaxBytesPerSecondProp, cleanerConfig.maxIoBytesPerSecond.toString)
+    props.put(KafkaConfig.LogDeletionMaxSegmentsPerRunProp, cleanerConfig.logDeletionMaxSegmentsPerRun.toString)
+    KafkaConfig.fromProps(props)
   }
 
   private def checkLastCleaned(topic: String, partitionId: Int, firstDirty: Long): Unit = {

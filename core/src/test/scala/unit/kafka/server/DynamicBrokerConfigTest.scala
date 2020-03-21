@@ -199,6 +199,16 @@ class DynamicBrokerConfigTest {
   }
 
   @Test
+  def testLogManagerConfig(): Unit = {
+    verifyConfigUpdate(KafkaConfig.LogDeletionMaxSegmentsPerRunProp, "-1", perBrokerConfig = true, expectFailure = true)
+    verifyConfigUpdate(KafkaConfig.LogDeletionMaxSegmentsPerRunProp, "-1", perBrokerConfig = false, expectFailure = true)
+    verifyConfigUpdate(KafkaConfig.LogDeletionMaxSegmentsPerRunProp, "0", perBrokerConfig = true, expectFailure = false)
+    verifyConfigUpdate(KafkaConfig.LogDeletionMaxSegmentsPerRunProp, "0", perBrokerConfig = false, expectFailure = false)
+    verifyConfigUpdate(KafkaConfig.LogDeletionMaxSegmentsPerRunProp, "100", perBrokerConfig = false, expectFailure = false)
+    verifyConfigUpdate(KafkaConfig.LogDeletionMaxSegmentsPerRunProp, "100", perBrokerConfig = true, expectFailure = false)
+  }
+
+  @Test
   def testBalancerConfigs(): Unit = {
     verifyConfigUpdate(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "200", perBrokerConfig = false, expectFailure = false)
     verifyConfigUpdate(ConfluentConfigs.BALANCER_ENABLE_CONFIG, true.toString, perBrokerConfig = false, expectFailure = false)

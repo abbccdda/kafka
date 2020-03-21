@@ -446,8 +446,7 @@ class MergedLogTest {
     val initialLogStartOffset = log.logStartOffset
 
     // All segments in the overlap region are eligible for hotset retention
-    val numDeleted = log.deleteOldSegments()
-    assertEquals(numOverlap, numDeleted)
+    MergedLogTest.deleteOldLogSegments(log, numOverlap)
     assertEquals(numLocalSegments, log.localLogSegments.size)    // only the non-overlap portion remains
 
     // attempting deletion again is a NOOP
@@ -473,8 +472,7 @@ class MergedLogTest {
     val initialLogStartOffset = log.logStartOffset
 
     // all hotset segments are deleted, and untiered segments are retained
-    val numDeleted = log.deleteOldSegments()
-    assertEquals(numHotsetSegments, numDeleted)
+    MergedLogTest.deleteOldLogSegments(log, numHotsetSegments)
     assertEquals(numUntieredSegments, log.localLogSegments.size)
 
     // attempting deletion again is a NOOP
@@ -499,7 +497,7 @@ class MergedLogTest {
     val initialLogStartOffset = log.logStartOffset
     assertEquals(numLocalSegments + numOverlap, log.localLogSegments.size)
 
-    log.deleteOldSegments()
+    MergedLogTest.deleteOldLogSegments(log, numLocalSegments + numOverlap - (numSegmentsToRetain + 1))
     assertEquals(numSegmentsToRetain + 1, log.localLogSegments.size)
     assertTrue(log.logStartOffset > initialLogStartOffset)
     assertEquals(log.localLogStartOffset, log.logStartOffset)
@@ -1376,7 +1374,7 @@ object MergedLogTest {
     }
 
     val localSegmentsToDelete = segmentsToTier.take(numTieredSegments)
-    log.localLog.deleteOldSegments(Some(localSegmentsToDelete.last.readNextOffset), retentionType = HotsetRetention)
+    log.localLog.deleteOldSegments(Some(localSegmentsToDelete.last.readNextOffset), maxNumSegmentsToDelete = Int.MaxValue, retentionType = HotsetRetention)
 
     // close the log
     log.close()
@@ -1428,4 +1426,16 @@ object MergedLogTest {
                        lastLocalOffset: Long,
                        firstOverlapOffset: Option[Long],
                        lastOverlapOffset: Option[Long])
+
+  private def deleteOldLogSegments(log: MergedLog, expectedNumDeleted: Int): Unit = {
+    val maxNumSegmentsToDeletePerRun = 1
+    var numDeleted = 0
+    for (i <- 1 to expectedNumDeleted) {
+      numDeleted += log.deleteOldSegments(maxNumSegmentsToDeletePerRun)
+      assertEquals(i, numDeleted)
+    }
+    assertEquals(expectedNumDeleted, numDeleted)
+    // attempting deletion again is a NOOP
+    assertEquals(0, log.deleteOldSegments())
+  }
 }

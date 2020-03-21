@@ -225,15 +225,20 @@ class MergedLog(private[log] val localLog: Log,
     }
   }
 
+  // This function should be used for testing only.
   override def deleteOldSegments(): Int = {
+    deleteOldSegments(Int.MaxValue)
+  }
+
+  override def deleteOldSegments(maxNumSegmentsToDelete: Int): Int = {
     // Delete all eligible local segments if tiering is disabled. If tiering is enabled, allow deletion for eligible
     // tiered segments only. Local segments that have not been tiered yet must not be deleted.
     if (!config.tierEnable) {
-      val deleted = localLog.deleteOldSegments(None)
+      val deleted = localLog.deleteOldSegments(None, maxNumSegmentsToDelete)
       maybeIncrementLogStartOffset(localLogStartOffset)
       deleted
     } else {
-      val retentionDeleted = localLog.deleteOldSegments(None)  // apply retention: all segments are eligible for deletion
+      val retentionDeleted = localLog.deleteOldSegments(None, maxNumSegmentsToDelete)  // apply retention: all segments are eligible for deletion
 
       // Prevent hotset retention until the segment with the highest base offset in the set of deletable segments has a
       // producer state snapshot. This ensures that no deletion will occur until it is guaranteed that all followers will
@@ -252,7 +257,7 @@ class MergedLog(private[log] val localLog: Log,
         case Some(firstUnstableOffset) => Math.min(firstUnstableOffset, tierPartitionState.committedEndOffset + 1)
         case None => tierPartitionState.committedEndOffset + 1
       }
-      val hotsetDeleted = localLog.deleteOldSegments(Some(deletionUpperBoundOffset), retentionType = HotsetRetention, deletionCanProceed)
+      val hotsetDeleted = localLog.deleteOldSegments(Some(deletionUpperBoundOffset), maxNumSegmentsToDelete, retentionType = HotsetRetention, deletionCanProceed)
 
       if (retentionDeleted > 0)
         maybeIncrementLogStartOffset(localLogStartOffset)
@@ -1065,6 +1070,13 @@ sealed trait AbstractLog {
     * @return Number of segments deleted.
     */
   def deleteOldSegments(): Int
+
+  /**
+    * Delete old segments in this log, including any tiered segments upto a maximum number of segments.
+    * @param maxNumSegmentsToDelete The maximum number of segments that can be deleted.
+    * @return Number of segments deleted.
+    */
+  def deleteOldSegments(maxNumSegmentsToDelete: Int): Int
 
   /**
     * @return The size of this log in bytes including tiered segments, if any. If the log consists of tiered segments,

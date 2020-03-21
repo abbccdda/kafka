@@ -27,6 +27,7 @@ package kafka.log
  * @param maxIoBytesPerSecond The maximum read and write I/O that all cleaner threads are allowed to do
  * @param backOffMs The amount of time to wait before rechecking if no logs are eligible for cleaning
  * @param enableCleaner Allows completely disabling the log cleaner
+ * @param logDeletionMaxSegmentsPerRun The maximum number of segments that can be deleted in a run.
  * @param hashAlgorithm The hash algorithm to use in key comparison.
  */
 case class CleanerConfig(numThreads: Int = 1,
@@ -37,5 +38,6 @@ case class CleanerConfig(numThreads: Int = 1,
                          maxIoBytesPerSecond: Double = Double.MaxValue,
                          backOffMs: Long = 15 * 1000,
                          enableCleaner: Boolean = true,
+                         logDeletionMaxSegmentsPerRun: Int = Int.MaxValue,
                          hashAlgorithm: String = "MD5") {
 }

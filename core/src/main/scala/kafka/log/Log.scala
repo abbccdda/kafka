@@ -1808,17 +1808,22 @@ class Log(@volatile var dir: File,
    * @param predicate A function that takes in a candidate log segment and the next higher segment
    *                  (if there is one) and returns true iff it is deletable
    * @param tierDeletionCheck An additional predicate for use with tiered storage, which allows or succeeding or failing
-    *                         the entire deletion based on the set of `deletable` segments.
+   *                          the entire deletion based on the set of `deletable` segments.
+   * @param maxNumSegmentsToDelete Maximum number of segments that can be deleted.
    * @return The number of segments deleted
    */
-  private def deleteOldSegments(predicate: (LogSegment, Option[LogSegment]) => Boolean, reason: String, tierDeletionCheck: Seq[LogSegment] => Boolean): Int = {
-    lock synchronized {
-      val deletable = deletableSegments(predicate)
-      if (deletable.nonEmpty && tierDeletionCheck(deletable.toSeq)) {
-        info(s"Found deletable segments with base offsets [${deletable.map(_.baseOffset).mkString(",")}] due to $reason")
-        deleteSegments(deletable)
-      } else {
-        0
+  private def deleteOldSegments(predicate: (LogSegment, Option[LogSegment]) => Boolean, reason: String, tierDeletionCheck: Seq[LogSegment] => Boolean, maxNumSegmentsToDelete: Int): Int = {
+    if (maxNumSegmentsToDelete <= 0) {
+      0
+    } else {
+      lock synchronized {
+        val deletable = deletableSegments(predicate, maxNumSegmentsToDelete)
+        if (deletable.nonEmpty && tierDeletionCheck(deletable.toSeq)) {
+          info(s"Found deletable segments with base offsets [${deletable.map(_.baseOffset).mkString(",")}] due to $reason")
+          deleteSegments(deletable)
+        } else {
+          0
+        }
       }
     }
   }
@@ -1850,15 +1855,16 @@ class Log(@volatile var dir: File,
    *
    * @param predicate A function that takes in a candidate log segment and the next higher segment
    *                  (if there is one) and returns true iff it is deletable
+   * @param maxNumSegmentsToDelete Maximum number of segments that should be deleted.
    * @return the segments ready to be deleted
    */
-  private def deletableSegments(predicate: (LogSegment, Option[LogSegment]) => Boolean): Iterable[LogSegment] = {
-    if (segments.isEmpty) {
+  private def deletableSegments(predicate: (LogSegment, Option[LogSegment]) => Boolean, maxNumSegmentsToDelete: Int): Iterable[LogSegment] = {
+    if (segments.isEmpty || maxNumSegmentsToDelete <= 0) {
       Seq.empty
     } else {
       val deletable = ArrayBuffer.empty[LogSegment]
       var segmentEntry = segments.firstEntry
-      while (segmentEntry != null) {
+      while (segmentEntry != null && deletable.length < maxNumSegmentsToDelete) {
         val segment = segmentEntry.getValue
         val nextSegmentEntry = segments.higherEntry(segmentEntry.getKey)
         val (nextSegment, upperBoundOffset, isLastSegmentAndEmpty) = if (nextSegmentEntry != null)
@@ -1888,21 +1894,27 @@ class Log(@volatile var dir: File,
    * snapshot and leader epoch cache can be truncated.
    *
    * @param deletionUpperBoundOffset Optional upper bound offset. If specified, this is the highest offset up to which deletion is permitted.
+   * @param maxNumSegmentsToDelete Maximum number of segments that can be deleted.
    * @param retentionType Type of retention to apply.
    * @param tierDeletionCheck Optional predicate which takes the set of segments deemed deletable by hotset retention.
     *                         If the predicate returns true, deletion is allowed to proceed.
    * @return number of segments deleted
    */
   def deleteOldSegments(deletionUpperBoundOffset: Option[Long],
+                        maxNumSegmentsToDelete: Int,
                         retentionType: RetentionType = Retention,
                         tierDeletionCheck: Seq[LogSegment] => Boolean = _ => true): Int = {
-    if (config.delete) {
-      deleteRetentionMsBreachedSegments(deletionUpperBoundOffset, retentionType, tierDeletionCheck) +
-        deleteRetentionSizeBreachedSegments(deletionUpperBoundOffset, size, retentionType, tierDeletionCheck) +
-        deleteLogStartOffsetBreachedSegments()
-    } else {
-      deleteLogStartOffsetBreachedSegments()
+    var total = 0
+    if (maxNumSegmentsToDelete > 0) {
+      if (config.delete) {
+        total += deleteRetentionMsBreachedSegments(deletionUpperBoundOffset, retentionType, tierDeletionCheck, maxNumSegmentsToDelete)
+        total += deleteRetentionSizeBreachedSegments(deletionUpperBoundOffset, size, retentionType, tierDeletionCheck, maxNumSegmentsToDelete - total)
+        total += deleteLogStartOffsetBreachedSegments(maxNumSegmentsToDelete - total)
+      } else {
+        total = deleteLogStartOffsetBreachedSegments(maxNumSegmentsToDelete)
+      }
     }
+    total
   }
 
   // Check if deletion is permitted based on the given upper bound offset
@@ -1917,7 +1929,8 @@ class Log(@volatile var dir: File,
 
   private def deleteRetentionMsBreachedSegments(deletionUpperBoundOffsetOpt: Option[Long],
                                                 retentionType: RetentionType,
-                                                tierDeletionCheck: Seq[LogSegment] => Boolean): Int = {
+                                                tierDeletionCheck: Seq[LogSegment] => Boolean,
+                                                maxNumSegmentsToBeDeleted: Int): Int = {
     val retentionMs =
       retentionType match {
         case Retention => config.retentionMs
@@ -1929,13 +1942,14 @@ class Log(@volatile var dir: File,
     deleteOldSegments((segment, nextSegmentOpt) => {
       startMs - segment.largestTimestamp > retentionMs &&
         mayDeleteSegment(segment, nextSegmentOpt, deletionUpperBoundOffsetOpt)
-    }, reason = s"$retentionType time ${retentionMs}ms breach", tierDeletionCheck)
+    }, reason = s"$retentionType time ${retentionMs}ms breach", tierDeletionCheck, maxNumSegmentsToBeDeleted)
   }
 
   private def deleteRetentionSizeBreachedSegments(deletionUpperBoundOffsetOpt: Option[Long],
                                                   size: Long,
                                                   retentionType: RetentionType,
-                                                  tierDeletionCheck: Seq[LogSegment] => Boolean): Int = {
+                                                  tierDeletionCheck: Seq[LogSegment] => Boolean,
+                                                  maxNumSegmentsToDelete: Int): Int = {
     val retentionSize =
       retentionType match {
         case Retention => config.retentionSize
@@ -1953,14 +1967,14 @@ class Log(@volatile var dir: File,
       }
     }
 
-    deleteOldSegments(shouldDelete, reason = s"$retentionType size in bytes $retentionSize breach", tierDeletionCheck)
+    deleteOldSegments(shouldDelete, reason = s"$retentionType size in bytes $retentionSize breach", tierDeletionCheck, maxNumSegmentsToDelete)
   }
 
-  private def deleteLogStartOffsetBreachedSegments(): Int = {
+  private def deleteLogStartOffsetBreachedSegments(maxNumSegmentsToDelete: Int): Int = {
     def shouldDelete(segment: LogSegment, nextSegmentOpt: Option[LogSegment]) =
       nextSegmentOpt.exists(_.baseOffset <= mergedLogStartOffset)
 
-    deleteOldSegments(shouldDelete, reason = s"log start offset $mergedLogStartOffset breach", _ => true)
+    deleteOldSegments(shouldDelete, reason = s"log start offset $mergedLogStartOffset breach", _ => true, maxNumSegmentsToDelete)
   }
 
   def isFuture: Boolean = dir.getName.endsWith(Log.FutureDirSuffix)

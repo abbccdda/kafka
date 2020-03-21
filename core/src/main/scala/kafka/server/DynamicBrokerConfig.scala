@@ -89,7 +89,8 @@ object DynamicBrokerConfig {
     DynamicBackpressure.ReconfigurableConfigs ++
     TierFetcher.reconfigurableConfigs ++
     Set(KafkaConfig.AuditLogRouterConfigProp) ++
-    DynamicBalancerConfig.ReconfigurableConfigs
+    DynamicBalancerConfig.ReconfigurableConfigs ++
+    LogManager.ReconfigurableConfigs
 
   private val ClusterLevelListenerConfigs = Set(KafkaConfig.MaxConnectionsProp)
   private val PerBrokerConfigs = DynamicSecurityConfigs  ++
@@ -253,6 +254,7 @@ class DynamicBrokerConfig(private val kafkaConfig: KafkaConfig) extends Logging 
     addReconfigurable(new DynamicClientQuotaCallback(kafkaConfig.brokerId, kafkaServer))
 
     addBrokerReconfigurable(new DynamicThreadPool(kafkaServer))
+    addBrokerReconfigurable(kafkaServer.logManager)
     if (kafkaServer.logManager.cleaner != null)
       addBrokerReconfigurable(kafkaServer.logManager.cleaner)
     addBrokerReconfigurable(new DynamicLogConfig(kafkaServer.logManager, kafkaServer))
