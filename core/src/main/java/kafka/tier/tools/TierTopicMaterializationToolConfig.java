@@ -63,6 +63,17 @@ public class TierTopicMaterializationToolConfig extends AbstractConfig {
     public static final String MATERIALIZE_DOC = "if set, then only materialize the events to generate "
         + "state file.";
 
+    public static final String TIER_STORAGE_VALIDATION = "validate-tier-storage";
+    public static final String TIER_STORAGE_VALIDATION_DOC =
+            "verifies the object presence in the tier object store in terms of the object ID in the metadata";
+
+    public static final String TIER_STORAGE_OFFSET_VALIDATION = "validate-tier-storage-offset";
+    public static final String TIER_STORAGE_OFFSET_VALIDATION_DOC =
+            "verifies that the offsets mentioned in the metadata is present in the segment file in object store";
+
+    public static final String CLUSTER_ID = "cluster-id";
+    public static final String CLUSTER_ID_DOC = "The zk cluster ID for which the tool will connect";
+
     public static final long UNKNOWN_OFFSET = -2;
 
     static {

@@ -49,7 +49,8 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
                             String signerOverride,
                             String sseAlgorithm,
                             Integer multipartUploadSize,
-                            Integer s3AutoAbortThresholdBytes) {
+                            Integer s3AutoAbortThresholdBytes,
+                            String s3Prefix) {
         super(clusterId, brokerId);
         this.s3Bucket = bucket;
         this.s3Region = region;
@@ -60,6 +61,7 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
         this.s3SseAlgorithm = sseAlgorithm;
         this.s3MultipartUploadSize = multipartUploadSize;
         this.s3AutoAbortThresholdBytes = s3AutoAbortThresholdBytes;
+        this.s3Prefix = s3Prefix;
     }
 
     private void validateConfig(KafkaConfig config) {

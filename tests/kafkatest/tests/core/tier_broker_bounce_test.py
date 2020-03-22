@@ -13,6 +13,7 @@ from kafkatest.version import DEV_BRANCH, KafkaVersion
 
 import time
 
+
 class TierBrokerBounceTest(ProduceConsumeValidateTest, TierSupport):
     """
     This test validates the recovery functionality of tier storage. During producer session, broker is brought down
@@ -55,8 +56,6 @@ class TierBrokerBounceTest(ProduceConsumeValidateTest, TierSupport):
         self.zk = ZookeeperService(test_context, num_nodes=1)
 
         self.kafka = KafkaService(test_context, num_nodes=3, zk=self.zk)
-
-        self.metadata_validator = TierMetadataValidator(self.test_context, 1, self.kafka, "/mnt/kafka/kafka-data-logs-1/")
 
         self.num_producers = 1
         self.num_consumers = 1
@@ -164,8 +163,8 @@ class TierBrokerBounceTest(ProduceConsumeValidateTest, TierSupport):
             return True
         return False
 
-    @matrix(client_version=[str(DEV_BRANCH)], backend=[S3_BACKEND])
-    def test_tier_broker_bounce(self, client_version, backend):
+    @matrix(client_version=[str(DEV_BRANCH)], backend=[S3_BACKEND], offset_scan=[False, True])
+    def test_tier_broker_bounce(self, client_version, backend, offset_scan):
 
         self.configure_tiering(backend, metadata_replication_factor=3, log_segment_bytes=self.LOG_SEGMENT_BYTES)
 
@@ -203,8 +202,14 @@ class TierBrokerBounceTest(ProduceConsumeValidateTest, TierSupport):
         # Todo (KSTORAGE-513 add metrics to analyse the result). The metrics will update the validation dash board with
         # results which may trigger alert if needed. Currently all of these is manual.
         try:
+            # The reason behind creating a local instance of metadata_validator is to capture the
+            # offset_scan flag from the test runner configuration
+            self.metadata_validator = TierMetadataValidator(self.test_context, 1, self.kafka,
+                                                            "/mnt/kafka/kafka-data-logs-1/",
+                                                            offset_scan=offset_scan)
             self.metadata_validator.start()
             self.metadata_validator.wait()
+            # self.logger.debug("Completed metadata validation for partition: %d" % tier_partition)
             self.logger.info("Done running the metadata validations.")
         except Exception as e:
             self.logger.error("Error in completing the metadata validation %s", e)

@@ -36,6 +36,23 @@ public interface TierObjectStore {
         }
     }
 
+    enum Backend {
+        GCS("GCS"),
+        Mock("Mock"),
+        S3("S3"),
+        Test("Test");
+
+        private final String name;
+
+        public String getName() {
+            return name;
+        }
+
+        Backend(String name) {
+            this.name = name;
+        }
+    }
+
     TierObjectStoreResponse getObject(ObjectMetadata objectMetadata,
                                       FileType fileType,
                                       Integer byteOffsetStart,

@@ -116,6 +116,7 @@
       <allow class="joptsimple.OptionSet" />
       <allow class="joptsimple.OptionSpec" />
       <allow class="com.google.common.collect.ImmutableList" />
+      <allow pkg="org.mockito" />
     </subpackage>
     <subpackage name="topic">
       <allow class="kafka.zk.AdminZkClient" />
