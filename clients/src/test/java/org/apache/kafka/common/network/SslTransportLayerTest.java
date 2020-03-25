@@ -40,6 +40,7 @@ import org.junit.runners.Parameterized;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLParameters;
+import javax.net.ssl.SSLServerSocketFactory;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
@@ -52,8 +53,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.List;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -581,6 +582,26 @@ public class SslTransportLayerTest {
 
         checkAuthentiationFailed("2", "TLSv1");
         server.verifyAuthenticationMetrics(1, 2);
+    }
+
+    @Test
+    public void testUnsupportedCipher() throws Exception {
+        String[] cipherSuites = ((SSLServerSocketFactory) SSLServerSocketFactory.getDefault()).getSupportedCipherSuites();
+        if (cipherSuites != null && cipherSuites.length > 1) {
+            sslServerConfigs = serverCertStores.getTrustingConfig(clientCertStores);
+            sslServerConfigs.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG, Collections.singletonList(cipherSuites[0]));
+            sslClientConfigs = clientCertStores.getTrustingConfig(serverCertStores);
+            sslClientConfigs.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG, Collections.singletonList(cipherSuites[1]));
+
+            server = createEchoServer(SecurityProtocol.SSL);
+            createSelector(sslClientConfigs);
+
+            checkAuthentiationFailed("1", "TLSv1.1");
+            server.verifyAuthenticationMetrics(0, 1);
+
+            checkAuthentiationFailed("2", "TLSv1");
+            server.verifyAuthenticationMetrics(0, 2);
+        }
     }
 
     /** Checks connection failed using the specified {@code tlsVersion}. */
