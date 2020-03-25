@@ -24,7 +24,6 @@ import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -615,7 +614,6 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             Files.copy(flushedFilePath, mutableFilePath, StandardCopyOption.REPLACE_EXISTING);
 
             FileChannel channel = getChannelMaybeReinitialize(topicPartition, topicIdPartition, basePath, version);
-
             if (channel == null) {
                 status = TierPartitionStatus.CLOSED;
                 return;
@@ -623,14 +621,25 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
             try {
                 scanAndInitialize(channel);
-            } catch (StateCorruptedException e) {
-                backupState(errorFilePath(basePath));
-                // Reinitialize file in catchup state when we detect corruption
-                closeHandlers();
-                Files.delete(flushedFilePath);
-                maybeOpenChannel();
-                beginCatchup();
-            }
+            } catch (Exception e) {
+                // Found exception while initializing the TierMetadataStates from flushed file. Till we
+                // have solution for gracefully recovery from exception/corruption from state file, we will crash the
+                // broker and expect manual recovery. Not doing so can potentially lead to ignoring
+                // all or part of the tier data during loading of log and causing data loss. By crashing the broker we
+                // are forcing leader election to another replica.
+                try {
+                    backupState(errorFilePath(basePath));
+                    closeHandlers();
+                } catch (Exception exceptionToIgnore) {
+                    log.warn("Failed to backup / close tier partition state for {}", topicIdPartition, exceptionToIgnore);
+                }
+
+                // Send IOException to logDirFailureChannel, which will cause the disk to go offline.
+                IOException ioexp = new IOException("Exception in initializing TierMetadataState for " + topicIdPartition, e);
+                logDirFailureChannel.maybeAddOfflineLogDir(dir().getParent(),
+                        func(() -> "Failed to initialize TierPartitionState for " + dir().getParent()), ioexp);
+                throw new KafkaStorageException(ioexp);
+           }
         }
     }
 

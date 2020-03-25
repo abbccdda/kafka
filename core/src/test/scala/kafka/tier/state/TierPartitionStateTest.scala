@@ -4,7 +4,7 @@
 
 package kafka.tier.state
 
-import java.io.{ByteArrayOutputStream, File, PrintStream}
+import java.io.{ByteArrayOutputStream, File, IOException, PrintStream}
 import java.nio.channels.FileChannel
 import java.nio.file.{Files, Paths, StandardOpenOption}
 import java.nio.{ByteBuffer, ByteOrder}
@@ -21,6 +21,7 @@ import kafka.tier.store.TierObjectStore
 import kafka.tier.tools.DumpTierPartitionState
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.errors.KafkaStorageException
 import org.junit.Assert._
 import org.junit.{After, Before, Test}
 import org.mockito.Mockito.{mock, when}
@@ -138,9 +139,9 @@ class TierPartitionStateTest {
     assertEquals(currentSegments * 2 - 1, state.committedEndOffset())
 
     state.close()
-    checkInvalidFileReset(dir, tp, path)
+    checkInvalidFileKafkaStorageExceptionOnInit(dir, tp, path)
+    checkInvalidFileKafkaStorageExceptionOnEnable(dir, tp, path)
   }
-
 
   @Test
   def segmentGapTest(): Unit = {
@@ -1301,10 +1302,10 @@ class TierPartitionStateTest {
   }
 
   /*
-    Check that tier partition state is reset if the file is read and is invalid.
-    This will cause the tier partition state to be re-materialized from the tier topic.
+    Check that tier partition state throws exception on initializing tierState, if the file is read and is invalid.
+    This will cause the tier partition state to throw KafkaStorageException and also trigger crash of broker.
     */
-  private def checkInvalidFileReset(baseDir: File, tp: TopicPartition, path: String): Unit = {
+  private def checkInvalidFileKafkaStorageExceptionOnInit(baseDir: File, tp: TopicPartition, path: String): Unit = {
     // write some garbage to the end to test truncation
     val channel = FileChannel.open(Paths.get(path), StandardOpenOption.READ, StandardOpenOption.WRITE)
 
@@ -1317,21 +1318,38 @@ class TierPartitionStateTest {
     channel.write(buf)
     channel.close()
 
-    // re-open file and check if contents are same as before appending garbage
-    val state = new FileTierPartitionState(baseDir, logDirFailureChannel, tp, true)
-    assertEquals(TierPartitionStatus.CATCHUP, state.status)
-    assertEquals(0, state.segmentOffsets.size)
-    assertEquals(0, state.fencedSegments.size)
-    assertEquals(-1, state.tierEpoch)
+    val logDirFailureChannelLocal = new LogDirFailureChannel(5)
+    assertThrows[KafkaStorageException] {
+      new FileTierPartitionState(baseDir, logDirFailureChannelLocal, tp, true)
+    }
 
-    // appending metadata to reopened file should be permissible
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffset))
-    val objectId = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 100, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffset))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId), TierTestUtils.nextTierTopicOffset))
+    assertEquals(baseDir.getParent(), logDirFailureChannelLocal.takeNextOfflineLogDir())
+  }
 
-    assertEquals(0, state.tierEpoch)
-    assertEquals(1, state.segmentOffsets.size)
-    state.close()
+  /*
+    Check that tier partition state throws exception on enabling tierStorage, if the file is read and is invalid.
+    This will cause the tier partition state to throw KafkaStorageException and also trigger crash of broker.
+    */
+  private def checkInvalidFileKafkaStorageExceptionOnEnable(baseDir: File, tp: TopicPartition, path: String): Unit = {
+    // write some garbage to the end to test truncation
+    val fp = new FileTierPartitionState(baseDir, logDirFailureChannel, tp, false)
+    val channel = FileChannel.open(Paths.get(path), StandardOpenOption.READ, StandardOpenOption.WRITE)
+
+    // append garbage
+    val buf = ByteBuffer.allocate(9).order(ByteOrder.LITTLE_ENDIAN)
+    buf.putShort(80)
+    buf.putInt(1)
+    buf.flip()
+    channel.position(channel.size())
+    channel.write(buf)
+    channel.close()
+
+    assertThrows[KafkaStorageException] {
+      fp.enableTierConfig()
+    }
+
+    assertEquals(fp.dir().getParent(), logDirFailureChannel.takeNextOfflineLogDir())
+    assertTrue(Files.exists(FileTierPartitionState.errorFilePath(fp.basePath)))
+    assertFalse(fp.status.isOpenForWrite)
   }
 }
