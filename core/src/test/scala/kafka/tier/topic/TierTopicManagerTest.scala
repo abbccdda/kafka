@@ -251,6 +251,81 @@ class TierTopicManagerTest {
     assertEquals(Set(topicIdPartition), tierTopicConsumer.errorPartitions().asScala)
   }
 
+  @Test
+  def testProcessMessagesPostStateFencingDuringOnlineState(): Unit = {
+    val topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID, 0)
+    val leaderEpoch = 0
+
+    val (tierTopicConsumer, _, tierTopicManager) = setupTierComponents(becomeReady = true)
+    addReplica(topicIdPartition, tierTopicConsumer)
+    assertEquals(TierPartitionStatus.INIT, tierPartitionStateFiles(0).status())
+    becomeArchiver(topicIdPartition, leaderEpoch, tierTopicManager, tierTopicConsumer)
+    assertEquals(TierPartitionStatus.CATCHUP, tierPartitionStateFiles(0).status())
+    moveRecordsToAllConsumers()
+    tierTopicConsumer.doWork()
+    assertEquals(TierPartitionStatus.ONLINE, tierPartitionStateFiles(0).status())
+
+    // TierSegmentUploadComplete is attempted without TierSegmentUploadInitiate, therefore it should
+    // fence the partition state.
+    val objectId = UUID.randomUUID
+    val uploadComplete = new TierSegmentUploadComplete(topicIdPartition, 0, objectId)
+    val uploadCompleteFuture = tierTopicManager.addMetadata(uploadComplete)
+    moveRecordsToAllConsumers()
+    tierTopicConsumer.doWork()
+    assertEquals(TierPartitionStatus.ERROR, tierPartitionStateFiles(0).status())
+    assertTrue(uploadCompleteFuture.isDone)
+    assertEquals(AppendResult.FAILED, uploadCompleteFuture.get)
+    assertEquals(1, tierTopicConsumer.errorPartitions().size())
+    assertEquals(Set(topicIdPartition), tierTopicConsumer.errorPartitions().asScala)
+
+    // Now, TierSegmentUploadInitiate is attempted. It still gets processed with
+    // AppendResult.FAILED.
+    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, 0, objectId, 0, 100, 100, 100, true, false, false)
+    val uploadInitiateFuture = tierTopicManager.addMetadata(uploadInitiate)
+    moveRecordsToAllConsumers()
+    tierTopicConsumer.doWork()
+    assertEquals(TierPartitionStatus.ERROR, tierPartitionStateFiles(0).status())
+    assertTrue(uploadInitiateFuture.isDone)
+    assertEquals(AppendResult.FAILED, uploadInitiateFuture.get)
+    assertEquals(1, tierTopicConsumer.errorPartitions().size())
+    assertEquals(Set(topicIdPartition), tierTopicConsumer.errorPartitions().asScala)
+  }
+
+  @Test
+  def testProcessMessagesPostStateFencingDuringCatchup(): Unit = {
+    val topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID, 0)
+    val leaderEpoch = 0
+
+    val (tierTopicConsumer, _, tierTopicManager) = setupTierComponents(becomeReady = true)
+    addReplica(topicIdPartition, tierTopicConsumer)
+    assertEquals(TierPartitionStatus.INIT, tierPartitionStateFiles(0).status())
+    moveRecordsToAllConsumers()
+    tierTopicConsumer.doWork()
+    assertEquals(TierPartitionStatus.CATCHUP, tierPartitionStateFiles(0).status())
+
+    // TierSegmentUploadInitiate is attempted without TierTopicInitLeader. It still gets processed with
+    // AppendResult.FAILED.
+    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, 0, UUID.randomUUID, 0, 100, 100, 100, true, false, false)
+    val uploadInitiateFuture = tierTopicManager.addMetadata(uploadInitiate)
+    TestUtils.waitUntilTrue(() => {
+      moveRecordsToAllConsumers()
+      tierTopicConsumer.doWork()
+      uploadInitiateFuture.isDone
+    }, "Timed out waiting for upload initiate future")
+    assertTrue(uploadInitiateFuture.isDone)
+    assertEquals(TierPartitionStatus.ERROR, tierPartitionStateFiles(0).status())
+    assertEquals(AppendResult.FAILED, uploadInitiateFuture.get)
+    assertEquals(1, tierTopicConsumer.errorPartitions().size())
+    assertEquals(Set(topicIdPartition), tierTopicConsumer.errorPartitions().asScala)
+
+    // Now TierTopicInitLeader is attempted. It still gets processed with
+    // AppendResult.FAILED.
+    val becomeArchiverFuture = tierTopicManager.becomeArchiver(topicIdPartition, leaderEpoch)
+    moveRecordsToAllConsumers()
+    tierTopicConsumer.doWork()
+    assertTrue(becomeArchiverFuture.isDone)
+    assertEquals(AppendResult.FAILED, becomeArchiverFuture.get)
+  }
 
   private def addReplica(topicIdPartition: TopicIdPartition, tierTopicConsumer: TierTopicConsumer): Unit = {
     val dir = new File(logDir + "/" + Log.logDirName(topicIdPartition.topicPartition))

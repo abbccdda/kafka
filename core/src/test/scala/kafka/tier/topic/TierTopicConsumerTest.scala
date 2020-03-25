@@ -115,8 +115,8 @@ class TierTopicConsumerTest {
     // tp_1 and tp_2 must be online; tp_3 and tp_4 must be in catchup state
     tierTopicConsumer.startConsume(false, tierTopic)
     tierTopicConsumer.doWork()
-    assertEquals(Set(tp_1, tp_2, tp_5), tierTopicConsumer.onlinePartitions.keySet.asScala)
-    assertEquals(Set(tp_3, tp_4), tierTopicConsumer.catchingUpPartitions.keySet.asScala)
+    assertEquals(Set(tp_1, tp_2), tierTopicConsumer.primaryConsumerPartitions.keySet.asScala)
+    assertEquals(Set(tp_3, tp_4, tp_5), tierTopicConsumer.catchUpConsumerPartitions.keySet.asScala)
     assertEquals(Set(), tierTopicConsumer.immigratingPartitions.keySet.asScala)
     assertEquals(Set(tp_5), tierTopicConsumer.errorPartitions.asScala)
 
@@ -125,9 +125,9 @@ class TierTopicConsumerTest {
 
     verify(ctx_1, times(2)).status()
     verify(ctx_2, times(2)).status()
-    verify(ctx_3, times(2)).status()
-    verify(ctx_4, times(2)).status()
-    verify(ctx_5, times(2)).status()
+    verify(ctx_3, times(3)).status()
+    verify(ctx_4, times(3)).status()
+    verify(ctx_5, times(3)).status()
 
     verifyNoMoreInteractions(ctx_1)
     verifyNoMoreInteractions(ctx_2)
@@ -136,7 +136,7 @@ class TierTopicConsumerTest {
     verifyNoMoreInteractions(ctx_5)
 
     // verify catchup consumer assignment
-    assertEquals(tierTopic.toTierTopicPartitions(Set(tp_3, tp_4).asJava), catchupConsumerSupplier.consumers.get(0).assignment)
+    assertEquals(tierTopic.toTierTopicPartitions(Set(tp_3, tp_4, tp_5).asJava), catchupConsumerSupplier.consumers.get(0).assignment)
 
     // verify primary consumer assignment
     assertEquals(tierTopicPartitions, primaryConsumerSupplier.consumers.get(0).assignment)
@@ -188,7 +188,7 @@ class TierTopicConsumerTest {
     tierTopicConsumer.doWork()
 
     // partitions must be registered as catching up
-    assertEquals(Set(tp_1, tp_2), tierTopicConsumer.catchingUpPartitions.keySet.asScala)
+    assertEquals(Set(tp_1, tp_2), tierTopicConsumer.catchUpConsumerPartitions.keySet.asScala)
 
     val catchupConsumer = catchupConsumerSupplier.consumers.get(0)
     val assignment = catchupConsumer.assignment.asScala
@@ -199,12 +199,12 @@ class TierTopicConsumerTest {
       catchupConsumer.seek(assignedPartition, 50L)
     }
     tierTopicConsumer.doWork()
-    assertEquals(Set(tp_1, tp_2), tierTopicConsumer.catchingUpPartitions.keySet.asScala)
+    assertEquals(Set(tp_1, tp_2), tierTopicConsumer.catchUpConsumerPartitions.keySet.asScala)
 
     // advance one of the partitions to 100; should continue being in catchup state
     catchupConsumer.seek(assignment.head, 100L)
     tierTopicConsumer.doWork()
-    assertEquals(Set(tp_1, tp_2), tierTopicConsumer.catchingUpPartitions.keySet.asScala)
+    assertEquals(Set(tp_1, tp_2), tierTopicConsumer.catchUpConsumerPartitions.keySet.asScala)
     verify(ctx_1, times(0)).completeCatchup()
     verify(ctx_2, times(0)).completeCatchup()
 
@@ -213,8 +213,8 @@ class TierTopicConsumerTest {
     catchupConsumer.seek(assignment.head, 100L)
     catchupConsumer.seek(assignment.last, 150L)
     tierTopicConsumer.doWork()
-    assertEquals(Set(), tierTopicConsumer.catchingUpPartitions.keySet.asScala)
-    assertEquals(Set(tp_1, tp_2), tierTopicConsumer.onlinePartitions.keySet.asScala)
+    assertEquals(Set(), tierTopicConsumer.catchUpConsumerPartitions.keySet.asScala)
+    assertEquals(Set(tp_1, tp_2), tierTopicConsumer.primaryConsumerPartitions.keySet.asScala)
     verify(ctx_1, times(1)).completeCatchup()
     verify(ctx_2, times(1)).completeCatchup()
   }

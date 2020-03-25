@@ -26,6 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -46,9 +47,42 @@ public class TierTopicConsumer implements Runnable {
     private final TierTopicManagerConfig config;
     private final Optional<Metrics> metrics;
     private final TierTopicListeners resultListeners = new TierTopicListeners();
-    private final Map<TopicIdPartition, ClientCtx> immigratingPartitions = new HashMap<>();   // accesses must be synchronized
-    private final Map<TopicIdPartition, ClientCtx> onlinePartitions = new HashMap<>();   // accesses must be synchronized
-    private final Map<TopicIdPartition, ClientCtx> catchingUpPartitions = new HashMap<>();    // accesses must be synchronized
+
+    /**
+     * Map of {TopicIdPartition -> ClientCtx}, where each ClientCtx status can be any of the available
+     * TierPartitionStatus values. This map contains partitions that have been registered, but are
+     * yet to be moved into either primaryConsumerPartitions or catchUpConsumerPartitions.
+     *
+     * THREAD SAFETY: Access to this attribute must be synchronized.
+     */
+    private final Map<TopicIdPartition, ClientCtx> immigratingPartitions = new HashMap<>();
+
+    /**
+     * Map of {TopicIdPartition -> ClientCtx}, where each ClientCtx status can be one among the
+     * following values: {TierPartitionStatus.ONLINE, TierPartitionStatus.ERROR}.
+     * TierTopic events supplied only by the primary consumer are applied to these partitions.
+     *
+     * THREAD SAFETY: Access to this attribute must be synchronized.
+     */
+    private final Map<TopicIdPartition, ClientCtx> primaryConsumerPartitions = new HashMap<>();
+
+    /**
+     * Map of {TopicIdPartition -> ClientCtx}, where each ClientCtx status can be one among the
+     * following values: {TierPartitionStatus.CATCHUP, TierPartitionStatus.ERROR}.
+     * TierTopic events supplied only by the catchup consumer are applied to these partitions.
+     *
+     * THREAD SAFETY: Access to this attribute must be synchronized.
+     */
+    private final Map<TopicIdPartition, ClientCtx> catchUpConsumerPartitions = new HashMap<>();
+
+    /**
+     * Set of TopicIdPartition, where, each such partition's ClientCtx had reached
+     * TierPartitionStatus.ERROR status at some point. These may have reached an error state, when
+     * processing events via either the primary consumer or catch up consumer. Currently this
+     * attribute is used only for monitoring purposes.
+     *
+     * THREAD SAFETY: Access to this attribute must be synchronized.
+     */
     private final Set<TopicIdPartition> errorPartitions = new HashSet<>();    // accesses must be synchronized
 
     private final Thread consumerThread = new KafkaThread("TierTopicConsumer", this, false);
@@ -98,10 +132,12 @@ public class TierTopicConsumer implements Runnable {
      */
     public synchronized void register(TopicIdPartition partition, ClientCtx clientCtx) {
         if (!immigratingPartitions.containsKey(partition) &&
-                !onlinePartitions.containsKey(partition) &&
-                !catchingUpPartitions.containsKey(partition)) {
+                !primaryConsumerPartitions.containsKey(partition) &&
+                !catchUpConsumerPartitions.containsKey(partition)) {
             immigratingPartitions.put(partition, clientCtx);
             if (clientCtx.status() == TierPartitionStatus.ERROR) {
+                // We add the partition to errorPartitions immediately, as it is useful to surface
+                // error partitions in monitoring as soon as they are registered.
                 errorPartitions.add(partition);
             }
         } else {
@@ -126,8 +162,8 @@ public class TierTopicConsumer implements Runnable {
      */
     public synchronized void deregister(TopicIdPartition partition) {
         immigratingPartitions.remove(partition);
-        onlinePartitions.remove(partition);
-        catchingUpPartitions.remove(partition);
+        primaryConsumerPartitions.remove(partition);
+        catchUpConsumerPartitions.remove(partition);
         errorPartitions.remove(partition);
     }
 
@@ -233,12 +269,16 @@ public class TierTopicConsumer implements Runnable {
     public void doWork() {
         if (catchupConsumer.tryComplete(primaryConsumer)) {
             synchronized (this) {
-                // complete catchup
-                for (ClientCtx ctx : catchingUpPartitions.values())
-                    ctx.completeCatchup();
+                // Complete catchup of ClientCtx, only if did not reach an error status during
+                // catchup. Such error partitions should be already part of errorPartitions by this
+                // point.
+                for (ClientCtx ctx : catchUpConsumerPartitions.values()) {
+                    if (!ctx.status().hasError())
+                        ctx.completeCatchup();
+                }
 
-                onlinePartitions.putAll(catchingUpPartitions);
-                catchingUpPartitions.clear();
+                primaryConsumerPartitions.putAll(catchUpConsumerPartitions);
+                catchUpConsumerPartitions.clear();
             }
         }
 
@@ -256,8 +296,15 @@ public class TierTopicConsumer implements Runnable {
     /**
      * Process any pending immigrations, if they have occurred.
      *
-     * If the catch up consumer is stopped, and partitions have been immigrated, check whether any partitions are in the
-     * INIT state, and if so transition them to CATCHUP and start the catch up consumer.
+     * If the catch up consumer is stopped, and partitions have been immigrated, then do the following:
+     * 1. Check whether any partitions are in the INIT or CATCHUP or ERROR state. If there are any, then register
+     *    these partitions into the catchup consumer's group of partitions. Then, transition only the ones in INIT
+     *    status to CATCHUP, and start the catch up consumer for all such new partitions.
+     * 2. Check whether any partitions are in ONLINE state. If there are any, then register these partitions into
+     *    the primary consumer's group of partitions.
+     *
+     * Note: We don't know the position of the partitions in ERROR status, that is why we simply register
+     * these into the catchup consumer first.
      */
     private void processPendingImmigrations() {
         Map<TopicIdPartition, ClientCtx> newCatchupPartitions = new HashMap<>();
@@ -270,9 +317,11 @@ public class TierTopicConsumer implements Runnable {
                     ClientCtx clientCtx = entry.getValue();
                     TierPartitionStatus status = clientCtx.status();
 
-                    if (status == TierPartitionStatus.INIT || status == TierPartitionStatus.CATCHUP) {
+                    if (status == TierPartitionStatus.INIT ||
+                        status == TierPartitionStatus.CATCHUP ||
+                        status == TierPartitionStatus.ERROR) {
                         newCatchupPartitions.put(partition, clientCtx);
-                    } else if (status == TierPartitionStatus.ONLINE || status == TierPartitionStatus.ERROR) {
+                    } else if (status == TierPartitionStatus.ONLINE) {
                         newOnlinePartitions.put(partition, clientCtx);
                     } else {
                         log.debug("Ignoring immigration of partition {} in state {}", partition,
@@ -280,8 +329,8 @@ public class TierTopicConsumer implements Runnable {
                     }
                 }
 
-                catchingUpPartitions.putAll(newCatchupPartitions);
-                onlinePartitions.putAll(newOnlinePartitions);
+                catchUpConsumerPartitions.putAll(newCatchupPartitions);
+                primaryConsumerPartitions.putAll(newOnlinePartitions);
                 immigratingPartitions.clear();
             }
         }
@@ -292,7 +341,8 @@ public class TierTopicConsumer implements Runnable {
 
     private void beginCatchup(Map<TopicIdPartition, ClientCtx> partitionsToCatchup) {
         for (ClientCtx ctx : partitionsToCatchup.values())
-            ctx.beginCatchup();
+            if (!ctx.status().hasError())
+                ctx.beginCatchup();
 
         Set<TopicPartition> tierTopicPartitions = tierTopic.toTierTopicPartitions(partitionsToCatchup.keySet());
         catchupConsumer.doStart(tierTopicPartitions);
@@ -356,6 +406,10 @@ public class TierTopicConsumer implements Runnable {
         });
     }
 
+    private static boolean checkClientCtxStatus(ClientCtx ctx, TierPartitionStatus status) {
+        return (ctx != null) && EnumSet.of(status, TierPartitionStatus.ERROR).contains(ctx.status());
+    }
+
     /**
      * Materialize a tier topic entry into the corresponding tier partition status.
      * @param entry The tier topic entry read from the tier topic.
@@ -370,14 +424,22 @@ public class TierTopicConsumer implements Runnable {
 
         try {
             TopicIdPartition topicIdPartition = entry.topicIdPartition();
-            ClientCtx clientCtx;
+            ClientCtx clientCtx = null;
+            boolean matchesRequiredState = false;
 
             // Retrieve the client context, if any
             synchronized (this) {
-                if (onlinePartitions.containsKey(topicIdPartition))
-                    clientCtx = onlinePartitions.get(topicIdPartition);
-                else
-                    clientCtx = catchingUpPartitions.get(topicIdPartition);
+                if (primaryConsumerPartitions.containsKey(topicIdPartition)) {
+                    clientCtx = primaryConsumerPartitions.get(topicIdPartition);
+                    matchesRequiredState =
+                        (requiredState == TierPartitionStatus.ONLINE) &&
+                        checkClientCtxStatus(clientCtx, requiredState);
+                } else {
+                    clientCtx = catchUpConsumerPartitions.get(topicIdPartition);
+                    matchesRequiredState =
+                        (requiredState == TierPartitionStatus.CATCHUP) &&
+                        checkClientCtxStatus(clientCtx, requiredState);
+                }
             }
 
             if (clientCtx != null) {
@@ -391,7 +453,7 @@ public class TierTopicConsumer implements Runnable {
                         break;
 
                     default:
-                        if (currentState == requiredState) {
+                        if (matchesRequiredState) {
                             TierPartitionState.AppendResult result = processEntry(
                                 clientCtx, topicIdPartition, entry, offset);
                             resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.complete(result));
@@ -454,13 +516,13 @@ public class TierTopicConsumer implements Runnable {
     }
 
     // visible for testing
-    synchronized Map<TopicIdPartition, ClientCtx> onlinePartitions() {
-        return new HashMap<>(onlinePartitions);
+    synchronized Map<TopicIdPartition, ClientCtx> primaryConsumerPartitions() {
+        return new HashMap<>(primaryConsumerPartitions);
     }
 
     // visible for testing
-    synchronized Map<TopicIdPartition, ClientCtx> catchingUpPartitions() {
-        return new HashMap<>(catchingUpPartitions);
+    synchronized Map<TopicIdPartition, ClientCtx> catchUpConsumerPartitions() {
+        return new HashMap<>(catchUpConsumerPartitions);
     }
 
     // visible for testing
