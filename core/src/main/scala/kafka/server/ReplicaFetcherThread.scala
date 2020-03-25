@@ -207,7 +207,7 @@ class ReplicaFetcherThread(name: String,
   override def onRestoreTierState(topicPartition: TopicPartition, proposedLocalLogStart: Long, tierState: TierState): Unit = {
     val log = replicaMgr.localLogOrException(topicPartition)
     debug(s"Restoring tier state $topicPartition: $tierState")
-    log.onRestoreTierState(proposedLocalLogStart, tierState)
+    log.truncateAndRestoreTierState(proposedLocalLogStart, tierState)
   }
 
   override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): Future[TierState] = {

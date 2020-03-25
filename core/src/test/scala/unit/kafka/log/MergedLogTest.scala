@@ -16,12 +16,13 @@ import kafka.log.MergedLogTest.LogRanges
 import kafka.metrics.KafkaYammerMetrics
 import kafka.server.{BrokerTopicStats, FetchDataInfo, FetchLogEnd, LogDirFailureChannel, TierFetchDataInfo, TierState}
 import kafka.server.epoch.EpochEntry
-import kafka.tier.{TierTestUtils, TierTimestampAndOffset, TopicIdPartition}
+import kafka.tier.{TierTimestampAndOffset, TopicIdPartition}
 import kafka.tier.domain.TierTopicInitLeader
 import kafka.tier.state.{TierPartitionState, TierPartitionStateFactory}
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStore, TierObjectStoreConfig}
 import kafka.tier.topic.TierTopicConsumer
+import kafka.tier.TierTestUtils
 import kafka.utils.{MockTask, MockTime, Scheduler, TestUtils}
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, RecordBatch, SimpleRecord}
 import org.apache.kafka.common.record.ControlRecordType
@@ -525,15 +526,17 @@ class MergedLogTest {
     log.close()
     files.foreach(_.delete())
 
-    val logRecovery = Try(createMergedLog(logConfig))
+    // open log with an advanced log start offset to ensure the base offset for newly
+    // created segments is sufficiently advanced
+    val logRecovery = Try(createMergedLog(logConfig, logStartOffset = 20))
     assertTrue("expected log recovery to succeed", logRecovery.isSuccess)
     val recoveredLog = logRecovery.get
 
     assertEquals("Only 1 local segment expected after recovery", 1, recoveredLog.localLogSegments.size)
     assertTrue("First untiered offset is expected to be greater than merged log start offset ",
       recoveredLog.tieredLogSegments.last.endOffset + 1 > recoveredLog.logStartOffset)
-    assertEquals("baseOffset for first local segment after recovery must be max(firstUntieredOffset, mergedLogStartOffset)",
-      recoveredLog.tieredLogSegments.last.endOffset + 1, recoveredLog.localLogSegments.head.baseOffset)
+    assertEquals("baseOffset for first local segment after recovery must be mergedLogStartOffset",
+      20, recoveredLog.localLogSegments.head.baseOffset)
     assertEquals("endOffset for the mergedLog after deletion and recovery must be equal to the baseOffset of first local segment ",
       recoveredLog.localLogSegments.head.baseOffset, recoveredLog.logEndOffset)
 
@@ -551,6 +554,7 @@ class MergedLogTest {
     val numLocalSegments = 5
     val numOverlap = 5
     val numSegmentsToRetain = 15
+    val numSegmentsToDrop = 3
 
     val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes,
       tierEnable = true,
@@ -559,10 +563,12 @@ class MergedLogTest {
       retentionBytes = segmentBytes * numSegmentsToRetain)
     val log = createLogWithOverlap(numTieredSegments, numLocalSegments, numOverlap, logConfig)
 
+    val predictedBaseOffset = log.localLogSegments.takeRight(numSegmentsToDrop+1).head.baseOffset
+
     // Delete latest 8 segments(All LocalSegment and 3 overlap segments) such that during recovery local segments
     // provides lastOffset to be less than firstUntieredOffset.
     assertEquals(numLocalSegments + numOverlap, log.localLogSegments.size)
-    val files = log.localLogSegments.takeRight(8).map(_.log.file)
+    val files = log.localLogSegments.takeRight(3).map(_.log.file)
     log.close()
     files.foreach(_.delete())
 
@@ -570,15 +576,12 @@ class MergedLogTest {
     assertTrue("expected log recovery to succeed", logRecovery.isSuccess)
     val recoveredLog = logRecovery.get
 
-    assertEquals("Only 1 segment(new rolled) expected, the 2 local segments should be deleted.", 1,
-      recoveredLog.localLogSegments.size)
     assertTrue("First untiered offset is expected to be greater than merged log start offset ",
       recoveredLog.tieredLogSegments.last.endOffset + 1 > recoveredLog.logStartOffset)
-    assertEquals("baseOffset for first local segment after recovery must be max(firstUntieredOffset, " +
-      "mergedLogStartOffset)", recoveredLog.tieredLogSegments.last.endOffset + 1,
-      recoveredLog.activeSegment.baseOffset)
+    assertEquals("mergedLogStartOffset should be 0", 0L, recoveredLog.logStartOffset)
+    assertEquals("baseOffset for first local segment after recovery should be log start offset", predictedBaseOffset, recoveredLog.activeSegment.baseOffset)
     assertEquals("endOffset for the mergedLog after deletion and recovery must be equal to the baseOffset " +
-      "of first local segment ", recoveredLog.localLogSegments.last.baseOffset, recoveredLog.logEndOffset)
+      "of first local segment ", recoveredLog.localLogSegments.last.readNextOffset, recoveredLog.logEndOffset)
 
     recoveredLog.close()
   }
@@ -929,13 +932,17 @@ class MergedLogTest {
     assertEquals(1, mergedLog.deleteOldSegments())
 
     // restore producer state to restore ongoing transactions
-    mergedLog.onRestoreTierState(tierPartitionState.endOffset() + 1, new TierState(List(), Some(producerStateBuf)))
+    mergedLog.truncateAndRestoreTierState(tierPartitionState.endOffset()+1, new TierState(List(), Some(producerStateBuf)))
 
     assertEquals("expected an active producer after restore", 1, mergedLog.producerStateManager.activeProducers.size)
-    assertEquals("first unstable offset to new local log start due to maybeIncrementFirstUnstableOffset call in recovery",
+
+    assertEquals("first unstable offset should be the beginning of the local log after recovery",
       3L,
       mergedLog.localLog.firstUnstableOffset.get)
-    mergedLog.close()
+
+    // open a new log without closing the old one to simulate an unclean close
+    val reopen = createMergedLog(logConfig)
+    assertTrue(reopen.producerStateManager.activeProducers.contains(137))
   }
 
   @Test
@@ -958,7 +965,7 @@ class MergedLogTest {
     // and restore state, and start replicating after that segment
     val leaderOffset = 190
     val metadata = tierPartitionState.metadata(leaderOffset).get()
-    log.onRestoreTierState(metadata.endOffset() + 1, TierState(entries))
+    log.truncateAndRestoreTierState(metadata.endOffset() + 1, TierState(entries))
 
     // check that local log is trimmed to immediately after tiered metadata
     assertEquals(metadata.endOffset() + 1, log.localLog.localLogStartOffset)

@@ -35,6 +35,7 @@ import kafka.metrics.KafkaMetricsGroup
 import kafka.server.checkpoints.LeaderEpochCheckpointFile
 import kafka.server.epoch.LeaderEpochFileCache
 import kafka.server.{AbstractFetchDataInfo, BrokerTopicStats, FetchDataInfo, FetchHighWatermark, FetchIsolation, FetchLogEnd, FetchTxnCommitted, LogDirFailureChannel, LogOffsetMetadata, OffsetAndEpoch}
+import kafka.server.TierState
 import kafka.utils._
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.record._
@@ -48,7 +49,7 @@ import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
-import scala.collection.{Seq, Set, mutable}
+import scala.collection.{mutable, Seq, Set}
 
 object LogAppendInfo {
   val UnknownLogAppendInfo = LogAppendInfo(None, -1, RecordBatch.NO_TIMESTAMP, -1L, RecordBatch.NO_TIMESTAMP, -1L,
@@ -829,9 +830,16 @@ class Log(@volatile var dir: File,
     }
 
     if (logSegments.isEmpty) {
-      // no existing segments, create a new mutable segment beginning at logStartOffset
+      // No log segments were found in recovery.
+      // For the follower case:
+      //   While we could restore at firstUntieredOffset, we need to replicate the full leader's local log,
+      //   and we need to ensure that producer state fully restored if a crash occurred in truncateAndRestoreTierState.
+      //   Therefore we create a new mutable segment beginning at mergedLogStartOffset.
+      // For the leader case:
+      //   This recovery strategy is not safe and we should instead attempt to treat tiered partitions as
+      //   correct after ensuring full materialization. See KSTORAGE-584 for more details.
       addSegment(LogSegment.open(dir = dir,
-        baseOffset = Math.max(mergedLogStartOffset, initialUntieredOffset),
+        baseOffset = mergedLogStartOffset,
         config,
         time = time,
         fileAlreadyExists = false,
@@ -2256,6 +2264,53 @@ class Log(@volatile var dir: File,
           }
           true
         }
+      }
+    }
+  }
+
+  /**
+   *  Delete all data in the log, restore producer and tier state and then initialize the local
+   *  log from the recovery point
+   *
+   *  @param newOffset The new offset to start the local log with
+   */
+  private[log] def truncateAndRestoreTierState(newOffset: Long, tierState: TierState): Unit = {
+    maybeHandleIOException(s"Error while truncating the entire log for $topicPartition in dir ${dir.getParent}") {
+      debug(s"Truncate and start at offset $newOffset")
+      lock synchronized {
+        checkIfMemoryMappedBufferClosed()
+
+        // 1. Clear existing state.
+        //    We first remove all local segments.
+        //    This will ensure that will recover at mergedLogStartOffset
+        //    if truncation and state restoration does not complete.
+        removeAndDeleteSegments(logSegments, asyncDelete = true)
+        leaderEpochCache.foreach(_.clearAndFlush())
+        producerStateManager.truncate()
+
+        // 2. Restore tiered producer state and epoch state
+        producerStateManager.updateMapEndOffset(newOffset)
+        tierState.producerState.foreach { buf =>
+          producerStateManager.reloadFromTieredSnapshot(newOffset, time.milliseconds(), buf, newOffset)
+          producerStateManager.takeSnapshot()
+        }
+        for (entry <- tierState.leaderEpochState)
+          leaderEpochCache.get.assign(entry.epoch, entry.startOffset)
+
+        // 3. Now that we have recovered all state necessary to ensure a crash proof restart
+        //    we can create a segment and set the log and start offset
+        addSegment(LogSegment.open(dir,
+          baseOffset = newOffset,
+          config = config,
+          time = time,
+          fileAlreadyExists = false,
+          initFileSize = initFileSize,
+          preallocate = config.preallocate))
+        updateLogEndOffset(newOffset)
+
+        // 4. Finally set first unstable offset at a minimum of local log start offset.
+        //    We can do so as we do not tier past the last stable offset.
+        maybeIncrementFirstUnstableOffset(localLogStartOffset)
       }
     }
   }

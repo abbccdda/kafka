@@ -340,31 +340,8 @@ class MergedLog(private[log] val localLog: Log,
 
   override def topicIdPartition: Option[TopicIdPartition] = tierPartitionState.topicIdPartition.asScala
 
-  override def onRestoreTierState(proposeLocalLogStart: Long, tierState: TierState): Unit = lock synchronized {
-    info(s"restoring tier state for $topicPartition at proposed offset $proposeLocalLogStart")
-    if (localLog.leaderEpochCache.isEmpty)
-      throw new IllegalStateException("Message format must be upgraded before restoring tier state can be allowed.")
-
-    truncateFullyAndStartAt(proposeLocalLogStart)
-
-    // ProducerStateManager should be fully truncated at this point, making it safe to restore the snapshot
-    tierState.producerState match {
-      case Some(producerStateBuf: ByteBuffer) =>
-        info(s"restoring non-empty producer state snapshot for $topicPartition")
-        localLog.producerStateManager.reloadFromTieredSnapshot(logStartOffset, localLog.time.milliseconds(), producerStateBuf, proposeLocalLogStart)
-      case None =>
-        info(s"restoring empty producer state snapshot for $topicPartition")
-        // If there is no producer state to restore, just update the lastMapOffset to the restored segment end offset + 1
-        localLog.producerStateManager.updateMapEndOffset(proposeLocalLogStart)
-    }
-    // We do not currently archive past the first unstable offset.
-    // Until we do, we can assume that the first unstable offset is equivalent bounded
-    // by the local log start offset after recovery.
-    localLog.maybeIncrementFirstUnstableOffset(localLog.localLogStartOffset)
-
-    localLog.leaderEpochCache.get.clear()
-    for (entry <- tierState.leaderEpochState)
-      localLog.leaderEpochCache.get.assign(entry.epoch, entry.startOffset)
+  override def truncateAndRestoreTierState(proposeLocalLogStart: Long, tierState: TierState): Unit = lock synchronized {
+   localLog.truncateAndRestoreTierState(proposeLocalLogStart, tierState)
   }
 
   override def materializeTierStateUntilOffset(targetOffset: Long): Future[TierObjectMetadata] = {
@@ -1125,7 +1102,7 @@ sealed trait AbstractLog {
     * Restores tier state for this partition fetched from the tier object store.
     * Initializes the local log to proposedLogStart.
     */
-  def onRestoreTierState(proposedLocalLogStart: Long, leaderEpochEntries: TierState): Unit
+  def truncateAndRestoreTierState(proposedLocalLogStart: Long, leaderEpochEntries: TierState): Unit
 
   /**
     * Materialize tier partition state till the provided offset.
