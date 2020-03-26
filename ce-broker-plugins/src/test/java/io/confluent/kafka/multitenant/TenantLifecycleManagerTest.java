@@ -46,7 +46,7 @@ public class TenantLifecycleManagerTest {
     @Before
     public void setUp() throws Exception {
         // Using mock AdminClient for the tests
-        Node node = new Node(1, "localhost", 9092);
+        Node node = new Node(0, "localhost", 9092);
         mockAdminClient = spy(new MockAdminClient(singletonList(node), node));
         DescribeAclsResult emptyAcls = mock(DescribeAclsResult.class);
         doReturn(KafkaFuture.completedFuture(Collections.emptySet())).when(emptyAcls).values();
