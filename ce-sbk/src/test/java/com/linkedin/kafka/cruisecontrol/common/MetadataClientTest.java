@@ -48,6 +48,7 @@ import static org.junit.Assert.assertEquals;
 public class MetadataClientTest {
   private final Node _controllerNode = new Node(0, "host0", 100);
   private final Node _simpleNode = new Node(1, "host1", 100);
+  private final Node _offlineNode = new Node(2, "host2", 100);
   private final List<Node> _nodes = Arrays.asList(_controllerNode, _simpleNode);
   private final String _clusterId = "cluster-1";
   private final int _p0 = 0;
@@ -57,21 +58,22 @@ public class MetadataClientTest {
   private final TopicPartition _t0P1 = new TopicPartition(TOPIC0, _p1);
   private final TopicPartition _t0P2 = new TopicPartition(TOPIC0, _p2);
 
-  // t0p2 has offline replicas
+  // t0p1 has an out-of-sync replica, t0p2 has an offline replica
+  private final TopicPartitionInfo _t0P0TopicPartitionInfo = defaultTopicPartitionInfo(_t0P0);
+  private final TopicPartitionInfo _t0P1TopicPartitionInfo = new TopicPartitionInfo(
+      _t0P1.partition(), _controllerNode, Collections.singletonList(_controllerNode), Arrays.asList(_controllerNode, _simpleNode));
   private final TopicPartitionInfo _t0P2TopicPartitionInfo = new TopicPartitionInfo(
-      _t0P2.partition(), _controllerNode, _nodes, Collections.singletonList(_controllerNode));
+      _t0P2.partition(), _controllerNode, Arrays.asList(_controllerNode, _offlineNode), Collections.singletonList(_controllerNode));
 
   private final TopicDescription _topic0TopicDescription =
       new TopicDescription(TOPIC0, false, Arrays.asList(
-          defaultTopicPartitionInfo(_t0P0),
-          defaultTopicPartitionInfo(_t0P1),
+          _t0P0TopicPartitionInfo,
+          _t0P1TopicPartitionInfo,
           _t0P2TopicPartitionInfo
       ));
-  private final PartitionInfo _t0P0PartitionInfo = partitionInfo(_t0P0, defaultTopicPartitionInfo(_t0P0));
-  private final PartitionInfo _t0P1PartitionInfo = partitionInfo(_t0P1, defaultTopicPartitionInfo(_t0P1));
-  private final PartitionInfo _t0P2PartitionInfo = partitionInfo(_t0P2,
-      new TopicPartitionInfo(_t0P2.partition(), _controllerNode, _nodes,
-          Collections.singletonList(_controllerNode)));
+  private final PartitionInfo _t0P0PartitionInfo = partitionInfo(_t0P0, _t0P0TopicPartitionInfo);
+  private final PartitionInfo _t0P1PartitionInfo = partitionInfo(_t0P1, _t0P1TopicPartitionInfo);
+  private final PartitionInfo _t0P2PartitionInfo = partitionInfo(_t0P2, _t0P2TopicPartitionInfo);
 
   private final KafkaCruiseControlConfig _cruiseControlConfig = new KafkaCruiseControlConfig(
       KafkaCruiseControlUnitTestUtils.getKafkaCruiseControlProperties()
@@ -103,7 +105,7 @@ public class MetadataClientTest {
         tpInfo.isr().toArray(new Node[0]),
         tpInfo.replicas()
               .stream()
-              .filter(r -> !tpInfo.isr().contains(r))
+              .filter(r -> !_nodes.contains(r))
               .toArray(Node[]::new));
   }
 

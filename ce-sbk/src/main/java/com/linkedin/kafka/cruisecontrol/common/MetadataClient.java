@@ -135,6 +135,10 @@ public class MetadataClient {
         internalTopics.add(topicDescription.getKey());
       }
 
+      // Unlike the NetworkClient's metadata, AdminClient does not return offline replicas from the describeConfigs
+      // call. To identify offline replicas, we use the same behavior as the kafka-topics command and mark any replica
+      // that is not on a live broker as offline. This does not handle the case when JBOD is enabled and one disk on an
+      // otherwise healthy broker is offline, but since we currently don't support JBOD with SBK, this is acceptable.
       for (TopicPartitionInfo topicPartitionInfo : topicDescription.getValue().partitions()) {
         PartitionInfo partitionInfo = new PartitionInfo(topicDescription.getKey(),
             topicPartitionInfo.partition(),
@@ -143,7 +147,7 @@ public class MetadataClient {
             topicPartitionInfo.isr().toArray(new Node[0]),
             topicPartitionInfo.replicas()
                               .stream()
-                              .filter(r -> !topicPartitionInfo.isr().contains(r))
+                              .filter(r -> !nodes.contains(r))
                               .toArray(Node[]::new)
             );
         partitionInfos.add(partitionInfo);
