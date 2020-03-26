@@ -1,17 +1,37 @@
----
 version: v1.0
-name: ce-kefka
+name: ce-kafka
 agent:
   machine:
-    type: e1-standard-2
+    type: e1-standard-8
     os_image: ubuntu1804
 blocks:
-  - name: dummy (always successful)
-    dependencies: []
+  - name: "Build, Test, Release"
     task:
+      secrets:
+        - name: semaphore-secrets-global
+        - name: artifactory-docker-helm
+        - name: testbreak-reporting
+        - name: aws_credentials
+        - name: ssh_id_rsa
+        - name: ssh_config
+        - name: gitconfig
+        - name: netrc
+        - name: maven-settings
+        - name: gradle_properties
+      prologue:
+        commands:
+          - sem-version java 8
+          - git config --global url."git@github.com:".insteadOf "https://github.com/"
+          - chmod 400 ~/.ssh/id_rsa
+          - export SEMAPHORE_CACHE_DIR=/home/semaphore
+          - checkout
+          - source /home/semaphore/.testbreak/setup.sh
       jobs:
-        - name: success
+        - name: Setup, build, release
           commands:
-            # can't be just true, as semaphore yaml parser would parse
-            # it as a boolean.
-            - /bin/true
+            - make init-ci
+            - make build
+            - make release-ci
+      epilogue:
+        commands:
+          - source /home/semaphore/.testbreak/after.sh
