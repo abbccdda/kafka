@@ -7,32 +7,44 @@ import (
 	"io"
 	"io/ioutil"
 	"math"
+	"math/rand"
 	"net/http"
 	"time"
 )
 
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
+const (
+	GAUSSIAN_PARTITIONER = "org.apache.kafka.trogdor.workload.partitioner.GaussianPartitioner"
+)
+
 type AdminConf struct {
-	CompressionType                    string `json:"compression.type,omitempty"`
-	Acks                               string `json:"acks,omitempty"`
-	AutoOffsetReset                    string `json:"auto.offset.reset,omitempty"`
-	BatchSize                          int64  `json:"batch.size,omitempty"`
-	EnableIdempotence                  string `json:"enable.idempotence,omitempty"`
-	LingerMs                           int64  `json:"linger.ms,omitempty"`
-	RetentionMs                        int64  `json:"retention.ms,omitempty"`
-	MaxInFlightRequestsPerConnection   uint64 `json:"max.in.flight.requests.per.connection,omitempty"`
-	RetryBackoffMs                     int64  `json:"retry.backoff.ms,omitempty"`
-	SaslJaasConfig                     string `json:"sasl.jaas.config,omitempty"`
-	SecurityProtocol                   string `json:"security.protocol,omitempty"`
-	SslEndpointIdentificationAlgorithm string `json:"ssl.endpoint.identification.algorithm,omitempty"`
-	SaslMechanism                      string `json:"sasl.mechanism,omitempty"`
-	SslProtocol                        string `json:"ssl.protocol,omitempty"`
-	SslKeyPassword                     string `json:"ssl.key.password,omitempty"`
-	SslKeystoreLocation                string `json:"ssl.keystore.location,omitempty"`
-	SslKeystorePassword                string `json:"ssl.keystore.password,omitempty"`
-	SslKeystoreType                    string `json:"ssl.keystore.type,omitempty"`
-	SslTruststoreLocation              string `json:"ssl.truststore.location,omitempty"`
-	SslTruststorePassword              string `json:"ssl.truststore.password,omitempty"`
-	SslTruststoreType                  string `json:"ssl.truststore.type,omitempty"`
+	CompressionType                    string  `json:"compression.type,omitempty"`
+	Acks                               string  `json:"acks,omitempty"`
+	AutoOffsetReset                    string  `json:"auto.offset.reset,omitempty"`
+	BatchSize                          int64   `json:"batch.size,omitempty"`
+	EnableIdempotence                  string  `json:"enable.idempotence,omitempty"`
+	LingerMs                           int64   `json:"linger.ms,omitempty"`
+	RetentionMs                        int64   `json:"retention.ms,omitempty"`
+	MaxInFlightRequestsPerConnection   uint64  `json:"max.in.flight.requests.per.connection,omitempty"`
+	RetryBackoffMs                     int64   `json:"retry.backoff.ms,omitempty"`
+	SaslJaasConfig                     string  `json:"sasl.jaas.config,omitempty"`
+	SecurityProtocol                   string  `json:"security.protocol,omitempty"`
+	SslEndpointIdentificationAlgorithm string  `json:"ssl.endpoint.identification.algorithm,omitempty"`
+	SaslMechanism                      string  `json:"sasl.mechanism,omitempty"`
+	SslProtocol                        string  `json:"ssl.protocol,omitempty"`
+	SslKeyPassword                     string  `json:"ssl.key.password,omitempty"`
+	SslKeystoreLocation                string  `json:"ssl.keystore.location,omitempty"`
+	SslKeystorePassword                string  `json:"ssl.keystore.password,omitempty"`
+	SslKeystoreType                    string  `json:"ssl.keystore.type,omitempty"`
+	SslTruststoreLocation              string  `json:"ssl.truststore.location,omitempty"`
+	SslTruststorePassword              string  `json:"ssl.truststore.password,omitempty"`
+	SslTruststoreType                  string  `json:"ssl.truststore.type,omitempty"`
+	Partitioner                        *string `json:"partitioner.class,omitempty"`
+	GaussianPartitionerMean            *int64  `json:"confluent.gaussian.partitioner.mean,omitempty"`
+	GaussianPartitionerStd             *int64  `json:"confluent.gaussian.partitioner.std,omitempty"`
 }
 
 func (a *AdminConf) ToPartitionSpecConfig() *PartitionsSpecConfig {
@@ -43,21 +55,35 @@ func (a *AdminConf) ToPartitionSpecConfig() *PartitionsSpecConfig {
 	return partitionsSpecConfig
 }
 
+func (a *AdminConf) EnableGaussianPartitioner(partitionCount int) {
+	// Define local vars because references are used later on in the Admin Config.
+	// Pick a radom partition as the mean, and define the std deviation as 20% of
+	// the number of partitions.
+	partitioner := GAUSSIAN_PARTITIONER
+	mean := int64(rand.Intn(partitionCount))
+	std := int64(math.Round(float64(partitionCount) * 0.20))
+
+	a.Partitioner = &partitioner
+	a.GaussianPartitionerMean = &mean
+	a.GaussianPartitionerStd = &std
+}
+
 type producerSpec struct {
-	Class                string                    `json:"class"`
-	StartMs              uint64                    `json:"startMs"`
-	DurationMs           uint64                    `json:"durationMs"`
-	ProducerNode         string                    `json:"producerNode,omitempty"`
-	BootstrapServers     string                    `json:"bootstrapServers"`
-	TargetMessagesPerSec uint64                    `json:"targetMessagesPerSec"`
-	MaxMessages          uint64                    `json:"maxMessages"`
-	KeyGenerator         KeyGeneratorSpec          `json:"keyGenerator"`
-	ValueGenerator       ValueGeneratorSpec        `json:"valueGenerator"`
-	TransactionGenerator *TransactionGeneratorSpec `json:"transactionGenerator,omitempty"`
-	ProducerConf         *AdminConf                `json:"producerConf,omitempty"`
-	CommonClientConf     *AdminConf                `json:"commonClientConf,omitempty"`
-	AdminClientConf      *AdminConf                `json:"adminClientConf,omitempty"`
-	ActiveTopics         map[string]PartitionsSpec `json:"activeTopics"`
+	Class                    string                    `json:"class"`
+	StartMs                  uint64                    `json:"startMs"`
+	DurationMs               uint64                    `json:"durationMs"`
+	ProducerNode             string                    `json:"producerNode,omitempty"`
+	BootstrapServers         string                    `json:"bootstrapServers"`
+	TargetMessagesPerSec     uint64                    `json:"targetMessagesPerSec"`
+	MaxMessages              uint64                    `json:"maxMessages"`
+	KeyGenerator             KeyGeneratorSpec          `json:"keyGenerator"`
+	ValueGenerator           ValueGeneratorSpec        `json:"valueGenerator"`
+	UseConfiguredPartitioner bool                      `json:"useConfiguredPartitioner"`
+	TransactionGenerator     *TransactionGeneratorSpec `json:"transactionGenerator,omitempty"`
+	ProducerConf             *AdminConf                `json:"producerConf,omitempty"`
+	CommonClientConf         *AdminConf                `json:"commonClientConf,omitempty"`
+	AdminClientConf          *AdminConf                `json:"adminClientConf,omitempty"`
+	ActiveTopics             map[string]PartitionsSpec `json:"activeTopics"`
 }
 
 type consumerSpec struct {
@@ -364,6 +390,9 @@ func (r *ScenarioSpec) createAgentTasks(scenarioConfig ScenarioConfig, scenario 
 					KeyGenerator:         scenarioConfig.ProducerTestConfig.ProducerOptions.KeyGenerator,
 					CommonClientConf:     &scenarioConfig.AdminConf,
 					ActiveTopics:         scenarioConfig.ProducerTestConfig.TopicSpec.toMap(),
+				}
+				if scenarioConfig.AdminConf.Partitioner != nil {
+					produceBenchSpecData.UseConfiguredPartitioner = true
 				}
 				if scenarioConfig.ProducerTestConfig.ProducerOptions.TransactionGenerator.Type != "" {
 					produceBenchSpecData.TransactionGenerator = &scenarioConfig.ProducerTestConfig.ProducerOptions.TransactionGenerator

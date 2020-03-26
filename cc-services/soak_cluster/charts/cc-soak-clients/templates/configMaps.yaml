@@ -146,6 +146,83 @@ data:
   ]
 }
 '
+  unbalanced-topics.json: '
+{
+  "long_lived_task_duration_ms": {{ .Values.longLivedTaskMs }},
+  "short_lived_task_duration_ms": {{ .Values.shortLivedTaskMs }},
+  "short_lived_task_reschedule_delay_ms": {{ .Values.shortLivedTaskRescheduleDelayMs }},
+  "topics": [
+    {
+      "name": "unbalanced_soak_topic_1_9p",
+      "partitions_count": 9,
+      "produce_mbs_throughput": 10,
+      "consume_mbs_throughput": 10,
+      "long_lived_producer_count": 2,
+      "short_lived_producer_count": 2,
+      "long_lived_consumer_count": 2,
+      "short_lived_consumer_count": 2,
+      "workload_type": "gaussian",
+      "short_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      },
+      "long_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      }
+    },
+    {
+      "name": "unbalanced_soak_topic_2_9p",
+      "partitions_count": 9,
+      "produce_mbs_throughput": 10,
+      "consume_mbs_throughput": 10,
+      "long_lived_producer_count": 2,
+      "short_lived_producer_count": 2,
+      "long_lived_consumer_count": 2,
+      "short_lived_consumer_count": 2,
+      "workload_type": "gaussian",
+      "short_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      },
+      "long_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      }
+    },
+    {
+      "name": "unbalanced_soak_topic_3_9p",
+      "partitions_count": 9,
+      "produce_mbs_throughput": 5,
+      "consume_mbs_throughput": 5,
+      "long_lived_producer_count": 2,
+      "short_lived_producer_count": 2,
+      "long_lived_consumer_count": 2,
+      "short_lived_consumer_count": 2,
+      "workload_type": "gaussian",
+      "short_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      },
+      "long_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      }
+    },
+    {
+      "name": "unbalanced_soak_topic_4_9p",
+      "partitions_count": 9,
+      "produce_mbs_throughput": 5,
+      "consume_mbs_throughput": 5,
+      "long_lived_producer_count": 2,
+      "short_lived_producer_count": 2,
+      "long_lived_consumer_count": 2,
+      "short_lived_consumer_count": 2,
+      "workload_type": "gaussian",
+      "short_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+      },
+      "long_lived_consumer_record_batch_verifier": {
+        "type": "sequentialOffsets"
+     }
+    }
+  ]
+}
+'
 ---
 apiVersion: v1
 kind: ConfigMap

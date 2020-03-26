@@ -15,6 +15,11 @@ import (
 	"time"
 )
 
+const (
+	UNIFORM_WORKLOAD  = "uniform"
+	GAUSSIAN_WORKLOAD = "gaussian"
+)
+
 type SoakTestConfig struct {
 	Topics                          []TopicConfiguration `json:"topics"`
 	LongLivedTaskDurationMs         uint64               `json:"long_lived_task_duration_ms"`
@@ -52,6 +57,7 @@ type TopicConfiguration struct {
 	ShortLivedConsumeCount                int                             `json:"short_lived_consumer_count"`
 	TransactionsEnabled                   bool                            `json:"transactions_enabled"`
 	IdempotenceEnabled                    bool                            `json:"idempotence_enabled"`
+	WorkloadType                          string                          `json:"workload_type"`
 	ShortLivedRandomConsumerGroup         bool                            `json:"short_lived_random_consumer_group"`
 	ShortLivedConsumerRecordBatchVerifier trogdor.RecordBatchVerifierSpec `json:"short_lived_consumer_record_batch_verifier"`
 	LongLivedRandomConsumerGroup          bool                            `json:"long_lived_random_consumer_group"`
@@ -156,6 +162,11 @@ func createTopicTasks(topicConfig TopicConfiguration, clientNodes []string, exis
 	copier.Copy(&producerAdminConfig, &adminConfig)
 	if topicConfig.IdempotenceEnabled {
 		producerAdminConfig.EnableIdempotence = "true"
+	}
+
+	// Handle the workload type when gaussian is set
+	if strings.ToLower(topicConfig.WorkloadType) == GAUSSIAN_WORKLOAD {
+		producerAdminConfig.EnableGaussianPartitioner(topicConfig.PartitionsCount)
 	}
 
 	longLivedConsumerOptions := consumerOptions(topicConfig.Name,
