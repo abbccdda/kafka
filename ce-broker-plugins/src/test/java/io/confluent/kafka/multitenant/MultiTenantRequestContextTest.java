@@ -1536,7 +1536,7 @@ public class MultiTenantRequestContextTest {
       assertTrue(context.shouldIntercept());
       WriteTxnMarkersResponse response = (WriteTxnMarkersResponse) context.intercept(request, 0);
       Struct struct = parseResponse(ApiKeys.WRITE_TXN_MARKERS, ver, context.buildResponse(response));
-      WriteTxnMarkersResponse outbound = new WriteTxnMarkersResponse(struct);
+      WriteTxnMarkersResponse outbound = new WriteTxnMarkersResponse(struct, ver);
       assertEquals(1, outbound.errors(233L).size());
       assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, outbound.errors(233L).get(partition));
       verifyRequestAndResponseMetrics(ApiKeys.WRITE_TXN_MARKERS, Errors.CLUSTER_AUTHORIZATION_FAILED);

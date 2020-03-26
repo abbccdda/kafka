@@ -210,10 +210,8 @@ public class KafkaStreamsTest {
             anyObject(StateRestoreListener.class),
             anyInt()
         )).andReturn(streamThreadOne).andReturn(streamThreadTwo);
-        EasyMock.expect(StreamThread.getSharedAdminClientId(
-            anyString()
-        )).andReturn("admin").anyTimes();
 
+        EasyMock.expect(StreamThread.eosEnabled(anyObject(StreamsConfig.class))).andReturn(false).anyTimes();
         EasyMock.expect(streamThreadOne.getId()).andReturn(0L).anyTimes();
         EasyMock.expect(streamThreadTwo.getId()).andReturn(1L).anyTimes();
         prepareStreamThread(streamThreadOne, true);
@@ -915,13 +913,14 @@ public class KafkaStreamsTest {
         final StoreBuilder<KeyValueStore<String, String>> globalStoreBuilder = Stores.keyValueStoreBuilder(
             isPersistentStore ? Stores.persistentKeyValueStore(globalStoreName) : Stores.inMemoryKeyValueStore(globalStoreName),
             Serdes.String(), Serdes.String()).withLoggingDisabled();
-        topology.addGlobalStore(globalStoreBuilder,
+        topology.addGlobalStore(
+            globalStoreBuilder,
             "global",
             Serdes.String().deserializer(),
             Serdes.String().deserializer(),
             globalTopicName,
             globalTopicName + "-processor",
-            new MockProcessorSupplier<byte[], byte[]>());
+            new MockProcessorSupplier<>());
         return topology;
     }
 

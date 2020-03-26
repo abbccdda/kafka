@@ -75,6 +75,8 @@ import org.apache.kafka.common.requests.RequestContext;
 import org.apache.kafka.common.requests.RequestHeader;
 import org.apache.kafka.common.requests.RequestInternals;
 import org.apache.kafka.common.requests.ResponseHeader;
+import org.apache.kafka.common.requests.WriteTxnMarkersRequest;
+import org.apache.kafka.common.requests.WriteTxnMarkersResponse;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourcePattern;
 import org.apache.kafka.common.resource.ResourcePatternFilter;
@@ -189,6 +191,8 @@ public class MultiTenantRequestContext extends RequestContext {
           body = transformIncrementalAlterConfigsRequest((IncrementalAlterConfigsRequest) body, apiVersion);
         } else if (body instanceof JoinGroupRequest) {
           body = transformJoinGroupRequest((JoinGroupRequest) body);
+        } else if (body instanceof WriteTxnMarkersRequest) {
+          body = transformWriteTxnMarkersRequest((WriteTxnMarkersRequest) body);
         }
 
       } catch (InvalidRequestException e) {
@@ -269,6 +273,8 @@ public class MultiTenantRequestContext extends RequestContext {
         filteredResponse = transformJoinGroupResponse((JoinGroupResponse) body);
       } else if (body instanceof DescribeGroupsResponse) {
         filteredResponse = transformDescribeGroupsResponse((DescribeGroupsResponse) body);
+      } else if (body instanceof WriteTxnMarkersResponse) {
+        filteredResponse = transformWriteTxnMarkersResponse((WriteTxnMarkersResponse) body);
       }
 
       TransformableType<TenantContext> schema = MultiTenantApis.responseSchema(api, apiVersion);
@@ -761,6 +767,20 @@ public class MultiTenantRequestContext extends RequestContext {
     return new DeleteAclsRequest.Builder(new DeleteAclsRequestData().setFilters(transformedFilters.stream()
             .map(DeleteAclsRequest::deleteAclsFilter).collect(Collectors.toList()))
     ).build(minAclsRequestVersion(request));
+  }
+
+  private WriteTxnMarkersRequest transformWriteTxnMarkersRequest(WriteTxnMarkersRequest request) {
+    request.data.markers().forEach(marker ->
+        marker.topics().forEach(topic -> topic.setName(tenantContext.addTenantPrefix(topic.name())))
+    );
+    return request;
+  }
+
+  private WriteTxnMarkersResponse transformWriteTxnMarkersResponse(WriteTxnMarkersResponse response) {
+    response.data.markers().forEach(marker ->
+      marker.topics().forEach(topic -> topic.setName(tenantContext.removeTenantPrefix(topic.name())))
+    );
+    return response;
   }
 
   private void ensureResourceNameNonEmpty(String name) {

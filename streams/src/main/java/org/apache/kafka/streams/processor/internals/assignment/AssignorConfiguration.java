@@ -18,6 +18,7 @@ package org.apache.kafka.streams.processor.internals.assignment;
 
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor.RebalanceProtocol;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.ConfigException;
@@ -39,12 +40,14 @@ import static org.apache.kafka.streams.processor.internals.assignment.StreamsAss
 public final class AssignorConfiguration {
     private final String logPrefix;
     private final Logger log;
-    private final Integer numStandbyReplicas;
+    private final AssignmentConfigs assignmentConfigs;
     @SuppressWarnings("deprecation")
     private final org.apache.kafka.streams.processor.PartitionGrouper partitionGrouper;
     private final String userEndPoint;
     private final TaskManager taskManager;
     private final StreamsMetadataState streamsMetadataState;
+    private final Admin adminClient;
+    private final int adminClientTimeout;
     private final InternalTopicManager internalTopicManager;
     private final CopartitionedTopicsEnforcer copartitionedTopicsEnforcer;
     private final StreamsConfig streamsConfig;
@@ -58,7 +61,7 @@ public final class AssignorConfiguration {
         final LogContext logContext = new LogContext(logPrefix);
         log = logContext.logger(getClass());
 
-        numStandbyReplicas = streamsConfig.getInt(StreamsConfig.NUM_STANDBY_REPLICAS_CONFIG);
+        assignmentConfigs = new AssignmentConfigs(streamsConfig);
 
         partitionGrouper = streamsConfig.getConfiguredInstance(
             StreamsConfig.PARTITION_GROUPER_CLASS_CONFIG,
@@ -144,9 +147,11 @@ public final class AssignorConfiguration {
                 throw fatalException;
             }
 
-            internalTopicManager = new InternalTopicManager((Admin) o, streamsConfig);
+            adminClient = (Admin) o;
+            internalTopicManager = new InternalTopicManager(adminClient, streamsConfig);
         }
 
+        adminClientTimeout = streamsConfig.getInt(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG);
 
         copartitionedTopicsEnforcer = new CopartitionedTopicsEnforcer(logPrefix);
     }
@@ -241,10 +246,6 @@ public final class AssignorConfiguration {
         return priorVersion;
     }
 
-    public int getNumStandbyReplicas() {
-        return numStandbyReplicas;
-    }
-
     @SuppressWarnings("deprecation")
     public org.apache.kafka.streams.processor.PartitionGrouper getPartitionGrouper() {
         return partitionGrouper;
@@ -254,11 +255,39 @@ public final class AssignorConfiguration {
         return userEndPoint;
     }
 
+    public Admin getAdminClient() {
+        return adminClient;
+    }
+
+    public int getAdminClientTimeout() {
+        return adminClientTimeout;
+    }
+
     public InternalTopicManager getInternalTopicManager() {
         return internalTopicManager;
     }
 
     public CopartitionedTopicsEnforcer getCopartitionedTopicsEnforcer() {
         return copartitionedTopicsEnforcer;
+    }
+
+    public AssignmentConfigs getAssignmentConfigs() {
+        return assignmentConfigs;
+    }
+
+    public static class AssignmentConfigs {
+        public final long acceptableRecoveryLag;
+        public final int balanceFactor;
+        public final int maxWarmupReplicas;
+        public final int numStandbyReplicas;
+        public final long probingRebalanceIntervalMs;
+
+        AssignmentConfigs(final StreamsConfig configs) {
+            acceptableRecoveryLag = configs.getLong(StreamsConfig.ACCEPTABLE_RECOVERY_LAG_CONFIG);
+            balanceFactor = configs.getInt(StreamsConfig.BALANCE_FACTOR_CONFIG);
+            maxWarmupReplicas = configs.getInt(StreamsConfig.MAX_WARMUP_REPLICAS_CONFIG);
+            numStandbyReplicas = configs.getInt(StreamsConfig.NUM_STANDBY_REPLICAS_CONFIG);
+            probingRebalanceIntervalMs = configs.getLong(StreamsConfig.PROBING_REBALANCE_INTERVAL_MS_CONFIG);
+        }
     }
 }
