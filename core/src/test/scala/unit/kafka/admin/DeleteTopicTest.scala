@@ -21,7 +21,6 @@ import java.util.concurrent.ExecutionException
 import java.util.{Collections, Optional, Properties}
 
 import scala.collection.Seq
-
 import kafka.log.AbstractLog
 import kafka.zk.{TopicPartitionZNode, ZooKeeperTestHarness}
 import kafka.utils.TestUtils
@@ -33,7 +32,7 @@ import kafka.common.TopicAlreadyMarkedForDeletionException
 import kafka.controller.{OfflineReplica, PartitionAndReplica, ReplicaAssignment, ReplicaDeletionSuccessful}
 import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, NewPartitionReassignment}
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
+import org.apache.kafka.common.errors.{InvalidReplicaAssignmentException, UnknownTopicOrPartitionException}
 import org.scalatest.Assertions.fail
 
 class DeleteTopicTest extends ZooKeeperTestHarness {
@@ -165,7 +164,9 @@ class DeleteTopicTest extends ZooKeeperTestHarness {
       fail("expected partition reassignment to fail for [test,0]")
     } catch {
       case e: ExecutionException =>
-        assertEquals(classOf[UnknownTopicOrPartitionException], e.getCause.getClass)
+        // Note that Apache Kafka currently throws UnknownTopicOrPartitionException which is only
+        // thrown after retries and a timeout. We should fix the inconsistency (KCORE-271).
+        assertEquals(classOf[InvalidReplicaAssignmentException], e.getCause.getClass)
     }
   }
 
