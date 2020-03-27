@@ -6,7 +6,7 @@ image:
   # CPD: confluent-docker.jfrog.io/confluentinc
   repository: "confluent-docker.jfrog.io/confluentinc"
   name: cc-soak-clients
-  tag: 0.734.0-6.0.0-ce-SNAPSHOT
+  tag: 0.803.0-6.0.0-ce-SNAPSHOT
   pullPolicy: IfNotPresent
 trogdorCoordinatorPort: 9002
 trogdorNamespace: ""  # optional; if you want to explicitly specify the namespace Trogdor is spawned in
