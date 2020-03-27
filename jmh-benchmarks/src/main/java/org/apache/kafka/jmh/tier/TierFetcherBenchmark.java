@@ -123,7 +123,7 @@ public class TierFetcherBenchmark {
             logSegment.timeIndex().trimToValidSize();
 
             tierObjectStore = getTierObjectStore();
-            objectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
+            objectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false, false, false);
             tierObjectStore.putSegment(objectMetadata, segmentFile, offsetIndexFile, timestampIndexFile,
                     Optional.empty(), Optional.empty(), Optional.empty());
         }

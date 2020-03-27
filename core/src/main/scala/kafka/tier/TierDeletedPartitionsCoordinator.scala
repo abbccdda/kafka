@@ -331,7 +331,9 @@ private class InProgressDeletion(val tierTopicPartitionId: Int,
           segmentUpload.objectId,
           segmentUpload.tierEpoch,
           segmentUpload.baseOffset,
-          segmentUpload.hasAbortedTxns)
+          segmentUpload.hasAbortedTxns,
+          segmentUpload.hasProducerState,
+          segmentUpload.hasEpochState)
         tieredObjects += (segmentUpload.objectId -> objectMetadata)
 
       case segmentDelete: TierSegmentDeleteComplete =>

@@ -6,6 +6,7 @@ package kafka.tier.store;
 
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.ReadChannel;
+import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Bucket;
@@ -113,16 +114,54 @@ public class GcsTierObjectStore implements TierObjectStore {
     @Override
     public void deleteSegment(ObjectMetadata objectMetadata) {
         List<BlobId> blobIds = new ArrayList<>();
-        for (FileType type : FileType.values())
-            blobIds.add(BlobId.of(bucket, keyPath(objectMetadata, type)));
+
+        for (FileType type : FileType.values()) {
+            switch (type) {
+                case TRANSACTION_INDEX:
+                    if (objectMetadata.hasAbortedTxns()) {
+                        blobIds.add(BlobId.of(bucket, keyPath(objectMetadata, type)));
+                    }
+                    break;
+                case PRODUCER_STATE:
+                    if (objectMetadata.hasProducerState()) {
+                        blobIds.add(BlobId.of(bucket, keyPath(objectMetadata, type)));
+                    }
+                    break;
+                case EPOCH_STATE:
+                    if (objectMetadata.hasEpochState()) {
+                        blobIds.add(BlobId.of(bucket, keyPath(objectMetadata, type)));
+                    }
+                    break;
+                default:
+                    blobIds.add(BlobId.of(bucket, keyPath(objectMetadata, type)));
+                    break;
+            }
+        }
         log.debug("Deleting " + blobIds);
+
+        List<BlobId> foundBlobIds = new ArrayList<>();
         try {
-            List<Boolean> result = storage.delete(blobIds);
-            log.debug("Deletion result " + result);
+            // success is a list of booleans corresponding to successful deletions of blobIds
+            List<Boolean> success = storage.delete(blobIds);
+            log.debug("Deletion result " + success);
+            // check for failed deletes and verify if those objects are still present
+            for (int blobIndex = 0; blobIndex < success.size(); blobIndex++) {
+                if (!success.get(blobIndex)) {
+                    Blob blob = storage.get(blobIds.get(blobIndex));
+                    if (blob != null) {
+                        log.warn("Found object " + blob.getBlobId() + " that was expected to be deleted of " + objectMetadata);
+                        foundBlobIds.add(blob.getBlobId());
+                    }
+                }
+            }
         } catch (StorageException e) {
             throw new TierObjectStoreRetriableException("Failed to delete segment " + objectMetadata, e);
         } catch (Exception e) {
             throw new TierObjectStoreFatalException("Unknown exception when deleting segment " + objectMetadata, e);
+        }
+
+        if (!foundBlobIds.isEmpty()) {
+            throw new TierObjectStoreRetriableException("Deletion failed and blobs still exist in object storage for blob ids: " + foundBlobIds);
         }
     }
 

@@ -4,6 +4,7 @@
 
 package kafka.tier.store;
 
+import kafka.log.Log;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.exceptions.TierObjectStoreRetriableException;
@@ -81,39 +82,39 @@ public interface TierObjectStore {
     void close();
 
     class ObjectMetadata {
-        private static final int CURRENT_VERSION = 0;
 
-        private final int version;
         private final TopicIdPartition topicIdPartition;
         private final UUID objectId;
         private final int tierEpoch;
         private final long baseOffset;
         private final boolean hasAbortedTxns;
+        private final boolean hasProducerState;
+        private final boolean hasEpochState;
 
         public ObjectMetadata(TopicIdPartition topicIdPartition,
                               UUID objectId,
                               int tierEpoch,
                               long baseOffset,
-                              boolean hasAbortedTxns) {
-            this.version = CURRENT_VERSION;
+                              boolean hasAbortedTxns,
+                              boolean hasProducerState,
+                              boolean hasEpochState) {
             this.topicIdPartition = topicIdPartition;
             this.objectId = objectId;
             this.tierEpoch = tierEpoch;
             this.baseOffset = baseOffset;
             this.hasAbortedTxns = hasAbortedTxns;
+            this.hasProducerState = hasProducerState;
+            this.hasEpochState = hasEpochState;
         }
 
         public ObjectMetadata(TierObjectMetadata metadata) {
-            this.version = metadata.version();
             this.topicIdPartition = metadata.topicIdPartition();
             this.objectId = metadata.objectId();
             this.tierEpoch = metadata.tierEpoch();
             this.baseOffset = metadata.baseOffset();
             this.hasAbortedTxns = metadata.hasAbortedTxns();
-        }
-
-        public int version() {
-            return version;
+            this.hasProducerState = metadata.hasProducerState();
+            this.hasEpochState = metadata.hasEpochState();
         }
 
         public TopicIdPartition topicIdPartition() {
@@ -140,10 +141,23 @@ public interface TierObjectStore {
             return hasAbortedTxns;
         }
 
+        public boolean hasProducerState() {
+            return hasProducerState;
+        }
+
+        public boolean hasEpochState() {
+            return hasEpochState;
+        }
+
+        public ObjectKeyMetadata toKeyMetadata() {
+            return new ObjectKeyMetadata(topicIdPartition, objectId, tierEpoch, baseOffset);
+        }
+
         @Override
         public boolean equals(Object o) {
             if (this == o)
                 return true;
+
             if (o == null || getClass() != o.getClass())
                 return false;
 
@@ -152,12 +166,14 @@ public interface TierObjectStore {
                     baseOffset == that.baseOffset &&
                     Objects.equals(topicIdPartition, that.topicIdPartition) &&
                     Objects.equals(objectId, that.objectId) &&
-                    hasAbortedTxns == that.hasAbortedTxns;
+                    hasAbortedTxns == that.hasAbortedTxns &&
+                    hasProducerState == that.hasProducerState &&
+                    hasEpochState == that.hasEpochState;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(topicIdPartition, objectId, tierEpoch, baseOffset, hasAbortedTxns);
+            return Objects.hash(topicIdPartition, objectId, tierEpoch, baseOffset, hasAbortedTxns, hasProducerState, hasEpochState);
         }
 
         @Override
@@ -166,8 +182,104 @@ public interface TierObjectStore {
                     "topic=" + topicIdPartition +
                     ", objectIdAsBase64=" + objectIdAsBase64() +
                     ", tierEpoch=" + tierEpoch +
-                    ", startOffset=" + baseOffset +
+                    ", baseOffset=" + baseOffset +
                     ", hasAbortedTxns=" + hasAbortedTxns +
+                    ", hasProducerState=" + hasProducerState +
+                    ", hasEpochState=" + hasEpochState +
+                    ')';
+        }
+    }
+
+
+    class ObjectKeyMetadata {
+        private static final int CURRENT_VERSION = 0;
+        // LOG_DATA_PREFIX is where segment, offset index, time index, transaction index, leader
+        // epoch state checkpoint, and producer state snapshot data are stored.
+        private static final String LOG_DATA_PREFIX = "0";
+
+        private final int version;
+        private final TopicIdPartition topicIdPartition;
+        private final UUID objectId;
+        private final int tierEpoch;
+        private final long baseOffset;
+
+        public ObjectKeyMetadata(TopicIdPartition topicIdPartition,
+                                 UUID objectId,
+                                 int tierEpoch,
+                                 long baseOffset) {
+            this.version = CURRENT_VERSION;
+            this.topicIdPartition = topicIdPartition;
+            this.objectId = objectId;
+            this.tierEpoch = tierEpoch;
+            this.baseOffset = baseOffset;
+        }
+
+        public int version() {
+            return version;
+        }
+
+        public TopicIdPartition topicIdPartition() {
+            return topicIdPartition;
+        }
+
+        public UUID objectId() {
+            return objectId;
+        }
+
+        public String objectIdAsBase64() {
+            return CoreUtils.uuidToBase64(objectId());
+        }
+
+        public int tierEpoch() {
+            return tierEpoch;
+        }
+
+        public long baseOffset() {
+            return baseOffset;
+        }
+
+        public String toPath(String keyPrefix,
+                             TierObjectStore.FileType fileType) {
+            return keyPrefix +
+                    LOG_DATA_PREFIX +
+                    "/" + objectIdAsBase64() +
+                    "/" + topicIdPartition().topicIdAsBase64() +
+                    "/" + topicIdPartition().partition() +
+                    "/" + Log.filenamePrefixFromOffset(baseOffset()) +
+                    "_" + tierEpoch() +
+                    "_v" + version() +
+                    "." + fileType.suffix();
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o)
+                return true;
+
+            if (o == null || getClass() != o.getClass())
+                return false;
+
+            ObjectKeyMetadata that = (ObjectKeyMetadata) o;
+            return version == that.version &&
+                    tierEpoch == that.tierEpoch &&
+                    baseOffset == that.baseOffset &&
+                    Objects.equals(topicIdPartition, that.topicIdPartition) &&
+                    Objects.equals(objectId, that.objectId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(version, topicIdPartition, objectId, tierEpoch, baseOffset);
+        }
+
+        @Override
+        public String toString() {
+            return "ObjectMetadata(" +
+                    "version=" + version +
+                    ", topic=" + topicIdPartition +
+                    ", objectIdAsBase64=" + objectIdAsBase64() +
+                    ", tierEpoch=" + tierEpoch +
+                    ", startOffset=" + baseOffset +
                     ')';
         }
     }

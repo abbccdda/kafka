@@ -77,7 +77,7 @@ public class TierFetcherTest {
         TierObjectStore tierObjectStore = new MockedTierObjectStore(combinedBuffer,
                 ByteBuffer.allocate(0), ByteBuffer.allocate(0));
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
-        TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
+        TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false, false, false);
         Metrics metrics = new Metrics();
         KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
         TierFetcherConfig tierFetcherConfig = new TierFetcherConfig(1, Integer.MAX_VALUE,
@@ -117,7 +117,7 @@ public class TierFetcherTest {
 
         MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer, offsetIndexBuffer, timestampFileBuffer);
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
-        TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
+        TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false, false, false);
         Metrics metrics = new Metrics();
         KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
         TierFetcher tierFetcher = new TierFetcher(mockTime, tierObjectStore, kafkaScheduler, metrics);
@@ -157,7 +157,7 @@ public class TierFetcherTest {
 
         MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer, offsetIndexBuffer, timestampFileBuffer);
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
-        TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
+        TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false, false, false);
         Metrics metrics = new Metrics();
         KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
         TierFetcher tierFetcher = new TierFetcher(mockTime, tierObjectStore, kafkaScheduler, metrics);
@@ -244,7 +244,7 @@ public class TierFetcherTest {
         TierObjectStore tierObjectStore = new MockedTierObjectStore(combinedBuffer,
                 ByteBuffer.allocate(0), ByteBuffer.allocate(0));
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
-        TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
+        TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false, false, false);
 
         Metrics metrics = new Metrics();
         KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
@@ -322,7 +322,7 @@ public class TierFetcherTest {
             TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
             UUID objectId = UUID.randomUUID();
             TierObjectStore.ObjectMetadata tierObjectMetadata =
-                    new TierObjectStore.ObjectMetadata(topicIdPartition, objectId, 0, 0, false);
+                    new TierObjectStore.ObjectMetadata(topicIdPartition, objectId, 0, 0, false, false, false);
             Metrics metrics = new Metrics();
 
             KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
@@ -417,7 +417,7 @@ public class TierFetcherTest {
             TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
             UUID objectId = UUID.randomUUID();
             TierObjectStore.ObjectMetadata tierObjectMetadata =
-                    new TierObjectStore.ObjectMetadata(topicIdPartition, objectId, 0, 0, false);
+                    new TierObjectStore.ObjectMetadata(topicIdPartition, objectId, 0, 0, false, false, false);
             Metrics metrics = new Metrics();
 
             KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
@@ -510,7 +510,7 @@ public class TierFetcherTest {
             TierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
                     offsetIndexBuffer, timestampIndexBuffer);
             TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
-            TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
+            TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false, false, false);
             Metrics metrics = new Metrics();
 
             KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
@@ -590,7 +590,7 @@ public class TierFetcherTest {
 
             MockedTierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer, offsetIndexBuffer, timestampIndexBuffer);
             TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
-            TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
+            TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false, false, false);
             Metrics metrics = new Metrics();
             KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
             TierFetcher tierFetcher = new TierFetcher(mockTime, tierObjectStore, kafkaScheduler, metrics);
@@ -663,7 +663,7 @@ public class TierFetcherTest {
                     offsetIndexBuffer, timestampIndexBuffer);
             TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
             TopicPartition topicPartition = topicIdPartition.topicPartition();
-            TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
+            TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false, false, false);
             Metrics metrics = new Metrics();
             KafkaScheduler kafkaScheduler = createNiceMock(KafkaScheduler.class);
             TierFetcher tierFetcher = new TierFetcher(mockTime, tierObjectStore, kafkaScheduler, metrics);
@@ -719,7 +719,7 @@ public class TierFetcherTest {
                 ByteBuffer.allocate(0), ByteBuffer.allocate(0));
         FetchOffsetCache fetchOffsetCache = new FetchOffsetCache(mockTime, 0, 0);
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
-        TierObjectStore.ObjectMetadata objectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
+        TierObjectStore.ObjectMetadata objectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false, false, false);
         // MemoryTracker containing a single byte, this implies that we will have a single lease.
         MemoryTracker memoryTracker = new MemoryTracker(mockTime, 1);
         PendingFetch pendingFetch = new PendingFetch(ctx,
@@ -757,7 +757,7 @@ public class TierFetcherTest {
         FetchOffsetCache fetchOffsetCache = new FetchOffsetCache(mockTime, Integer.MAX_VALUE, Integer.MAX_VALUE);
 
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
-        TierObjectStore.ObjectMetadata objectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false);
+        TierObjectStore.ObjectMetadata objectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false, false, false);
         int firstBatchSize = 2048;
         long memoryTrackerCapacity = 1024;
         // Add an offset cache entry for targetOffset == 1, this is larger than the memory tracker
