@@ -178,7 +178,14 @@ public class ConfluentConfigs {
         + " back-pressure can be enabled for multi-tenant clusters only.";
 
 
+    // Confluent DataBalancer Configs
     public static final String CONFLUENT_BALANCER_PREFIX = CONFLUENT_PREFIX + "balancer.";
+
+    // The class loaded to provide DataBalancer services. Configurable for testing purposes.
+    public static final String BALANCER_CLASS_CONFIG = CONFLUENT_BALANCER_PREFIX + "class";
+    public static final String BALANCER_CLASS_DOC = "The class providing DataBalancer services for the Kafka controller.";
+    public static final String BALANCER_CLASS_DEFAULT = "io.confluent.databalancer.KafkaDataBalancer";
+
     public static final String BALANCER_ENABLE_CONFIG = CONFLUENT_BALANCER_PREFIX + "enable";
     public static final boolean BALANCER_ENABLE_DEFAULT = true;
     public static final String BALANCER_ENABLE_DOC = "This config controls whether the balancer is enabled";

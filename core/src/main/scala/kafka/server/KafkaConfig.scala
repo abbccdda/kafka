@@ -1559,6 +1559,9 @@ object KafkaConfig {
         ConfluentConfigs.REQUEST_LOG_FILTER_DEFAULT, LOW, ConfluentConfigs.REQUEST_LOG_FILTER_CLASS_DOC)
 
       /** *********** Confluent balancer configuration *****************/
+      .defineInternal(ConfluentConfigs.BALANCER_CLASS_CONFIG, STRING,
+                      ConfluentConfigs.BALANCER_CLASS_DEFAULT, LOW,
+                      ConfluentConfigs.BALANCER_CLASS_DOC)
       .defineInternal(ConfluentConfigs.BALANCER_ENABLE_CONFIG, BOOLEAN,
                       ConfluentConfigs.BALANCER_ENABLE_DEFAULT,
                       HIGH, ConfluentConfigs.BALANCER_ENABLE_DOC)

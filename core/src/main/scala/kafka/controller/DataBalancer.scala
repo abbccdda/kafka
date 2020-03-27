@@ -5,6 +5,7 @@
 package kafka.controller
 
 import kafka.server.KafkaConfig
+import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.slf4j.{Logger, LoggerFactory}
 
 /*
@@ -26,20 +27,18 @@ trait DataBalancer {
 object DataBalancer {
   private val log: Logger = LoggerFactory.getLogger(classOf[DataBalancer])
   def apply(kafkaConfig: KafkaConfig): Option[DataBalancer] = {
-    log.info("DataBalancer: attempting startup")
+    val dataBalancerClassName = Option(kafkaConfig.getString(ConfluentConfigs.BALANCER_CLASS_CONFIG))
+      .filter(!_.isEmpty).getOrElse((ConfluentConfigs.BALANCER_CLASS_DEFAULT));
+    log.info(s"DataBalancer: attempting startup with ${dataBalancerClassName}")
     try {
-      Some(Class.forName("io.confluent.databalancer.KafkaDataBalancer")
+      Some(Class.forName(dataBalancerClassName)
         .getConstructor(classOf[KafkaConfig]).newInstance(kafkaConfig).asInstanceOf[DataBalancer])
     } catch {
-      case e : ClassNotFoundException => {
-        log.warn("Unable to find data balancer class", e)
-        None
+        case e: Exception => {
+          log.error(s"Unable to load data balancer class ${dataBalancerClassName}: ", e)
+          None
+        }
       }
-      case e: Exception => {
-        log.error(s"Unexpected Exception ", e)
-        None
-      }
-    }
   }
 }
 
