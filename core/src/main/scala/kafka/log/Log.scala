@@ -221,7 +221,7 @@ case object HotsetRetention extends RetentionType
  * New log segments are created according to a configurable policy that controls the size in bytes or time interval
  * for a given segment.
  *
- * @param dir The directory in which log segments are created.
+ * @param _dir The directory in which log segments are created.
  * @param config The log configuration settings
  * @param recoveryPoint The offset at which to begin recovery--i.e. the first offset which has not been flushed to disk
  * @param scheduler The thread pool scheduler used for background actions
@@ -231,7 +231,7 @@ case object HotsetRetention extends RetentionType
  * @param producerIdExpirationCheckIntervalMs How often to check for producer ids which need to be expired
  */
 @threadsafe
-class Log(@volatile var dir: File,
+class Log(@volatile private var _dir: File,
           @volatile var config: LogConfig,
           @volatile var recoveryPoint: Long,
           scheduler: Scheduler,
@@ -251,49 +251,16 @@ class Log(@volatile var dir: File,
 
   /* A lock that guards all modifications to the log */
   private val lock = new Object
+
   // The memory mapped buffer for index files of this log will be closed with either delete() or closeHandlers()
   // After memory mapped buffer is closed, no disk IO operation should be performed for this log
   @volatile private var isMemoryMappedBufferClosed = false
 
+  // Cache value of parent directory to avoid allocations in hot paths like ReplicaManager.checkpointHighWatermarks
+  @volatile private var _parentDir: String = dir.getParent
+
   /* last time it was flushed */
   private val lastFlushedTime = new AtomicLong(time.milliseconds)
-
-  // InterceptorMetrics instance to log metrics related to interceptor failure
-  private val interceptorStats = new InterceptorStats
-
-  private[log] def setMergedLogStartOffsetCbk(callback: () => Long): Unit = {
-    mergedLogStartOffsetCbk = callback
-  }
-
-  private def mergedLogStartOffset: Long = mergedLogStartOffsetCbk()
-
-  def localLogStartOffset: Long = {
-    val firstOffsetInLocalLog = Option(segments.firstEntry).map(_.getValue.baseOffset).getOrElse(0L)
-    math.max(mergedLogStartOffset, firstOffsetInLocalLog)
-  }
-
-  def initFileSize: Int = {
-    if (config.preallocate)
-      config.segmentSize
-    else
-      0
-  }
-
-  def updateConfig(newConfig: LogConfig): Unit = {
-    val oldConfig = this.config
-    this.config = newConfig
-    val oldRecordVersion = oldConfig.messageFormatVersion.recordVersion
-    val newRecordVersion = newConfig.messageFormatVersion.recordVersion
-    if (newRecordVersion.precedes(oldRecordVersion))
-      warn(s"Record format version has been downgraded from $oldRecordVersion to $newRecordVersion.")
-    if (newRecordVersion.value != oldRecordVersion.value)
-      initializeLeaderEpochCache()
-  }
-
-  private def checkIfMemoryMappedBufferClosed(): Unit = {
-    if (isMemoryMappedBufferClosed)
-      throw new KafkaStorageException(s"The memory mapped buffer for log of $topicPartition is already closed")
-  }
 
   @volatile private var nextOffsetMetadata: LogOffsetMetadata = _
 
@@ -353,6 +320,49 @@ class Log(@volatile var dir: File,
     info(s"Completed load of log with ${segments.size} segments, log start offset " +
       s"(merged: $mergedLogStartOffset, local: $localLogStartOffset) and log end offset $logEndOffset in " +
       s"${time.milliseconds() - startMs} ms")
+  }
+
+  def dir: File = _dir
+
+  def parentDir: String = _parentDir
+
+  def parentDirFile: File = new File(_parentDir)
+
+  // InterceptorMetrics instance to log metrics related to interceptor failure
+  private val interceptorStats = new InterceptorStats
+
+  private[log] def setMergedLogStartOffsetCbk(callback: () => Long): Unit = {
+    mergedLogStartOffsetCbk = callback
+  }
+
+  private def mergedLogStartOffset: Long = mergedLogStartOffsetCbk()
+
+  def localLogStartOffset: Long = {
+    val firstOffsetInLocalLog = Option(segments.firstEntry).map(_.getValue.baseOffset).getOrElse(0L)
+    math.max(mergedLogStartOffset, firstOffsetInLocalLog)
+  }
+
+  def initFileSize: Int = {
+    if (config.preallocate)
+      config.segmentSize
+    else
+      0
+  }
+
+  def updateConfig(newConfig: LogConfig): Unit = {
+    val oldConfig = this.config
+    this.config = newConfig
+    val oldRecordVersion = oldConfig.messageFormatVersion.recordVersion
+    val newRecordVersion = newConfig.messageFormatVersion.recordVersion
+    if (newRecordVersion.precedes(oldRecordVersion))
+      warn(s"Record format version has been downgraded from $oldRecordVersion to $newRecordVersion.")
+    if (newRecordVersion.value != oldRecordVersion.value)
+      initializeLeaderEpochCache()
+  }
+
+  private def checkIfMemoryMappedBufferClosed(): Unit = {
+    if (isMemoryMappedBufferClosed)
+      throw new KafkaStorageException(s"The memory mapped buffer for log of $topicPartition is already closed")
   }
 
   def highWatermark: Long = highWatermarkMetadata.messageOffset
@@ -1009,8 +1019,9 @@ class Log(@volatile var dir: File,
         val renamedDir = new File(dir.getParent, name)
         Utils.atomicMoveWithFallback(dir.toPath, renamedDir.toPath)
         if (renamedDir != dir) {
-          dir = renamedDir
-          logSegments.foreach(_.updateDir(renamedDir))
+          _dir = renamedDir
+          _parentDir = renamedDir.getParent
+          logSegments.foreach(_.updateParentDir(renamedDir))
           producerStateManager.logDir = dir
           // re-initialize leader epoch cache so that LeaderEpochCheckpointFile.checkpoint can correctly reference
           // the checkpoint file in renamed log directory

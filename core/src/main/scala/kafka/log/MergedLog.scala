@@ -549,6 +549,10 @@ class MergedLog(private[log] val localLog: Log,
 
   override def dir: File = localLog.dir
 
+  override def parentDir: String = localLog.parentDir
+
+  override def parentDirFile: File = localLog.parentDirFile
+
   override def config: LogConfig = localLog.config
 
   override def recoveryPoint: Long = localLog.recoveryPoint
@@ -759,6 +763,16 @@ sealed trait AbstractLog {
     * @return The current active directory where log segments are created
     */
   def dir: File
+
+  /**
+   * @return The path to the parent log directory
+   */
+  def parentDir: String
+
+  /**
+   * @return The File representing the parent log directory
+   */
+  def parentDirFile: File
 
   /**
     * @return The current log configurations
@@ -1167,4 +1181,5 @@ sealed trait AbstractLog {
   def producerStateManager: ProducerStateManager
 
   def createUploadableSegment(segment: LogSegment): UploadableSegment
+
 }

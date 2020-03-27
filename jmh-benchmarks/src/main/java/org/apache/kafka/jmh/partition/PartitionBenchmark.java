@@ -170,7 +170,7 @@ public class PartitionBenchmark {
                 ApiVersion$.MODULE$.latestVersion(), 0,
                 Time.SYSTEM, partitionStateStore, delayedOperations,
                 metadataCache, logManager, Option.empty());
-        partition.makeLeader(0, leaderAndIsr, 0, offsetCheckpoints);
+        partition.makeLeader(leaderAndIsr, offsetCheckpoints);
     }
 
     // avoid mocked DelayedOperations to avoid mocked class affecting benchmark results

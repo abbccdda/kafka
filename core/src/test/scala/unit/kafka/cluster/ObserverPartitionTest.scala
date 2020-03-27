@@ -118,12 +118,11 @@ final class ObserverPartitionTest {
     val log = logManager.getOrCreateLog(topicPartition, logConfig)
     seedLogData(log, numRecords = 6, leaderEpoch = 4)
 
-    partition.createLogIfNotExists(brokerId, isNew = false, isFutureReplica = false, offsetCheckpoints)
+    partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints)
 
     assertTrue(
       "Expected become leader transition to succeed",
       partition.makeLeader(
-        controllerId,
         new LeaderAndIsrPartitionState()
           .setTopicName(topicPartition.topic)
           .setPartitionIndex(topicPartition.partition)
@@ -135,7 +134,6 @@ final class ObserverPartitionTest {
           .setReplicas(replicas)
           .setObservers(List(observerId: Integer).asJava)
           .setIsNew(true),
-        0,
         offsetCheckpoints
       )
     )

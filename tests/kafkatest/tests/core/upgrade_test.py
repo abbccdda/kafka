@@ -25,6 +25,7 @@ from kafkatest.utils import is_int
 from kafkatest.version import LATEST_0_8_2, LATEST_0_9, LATEST_0_10, LATEST_0_10_0, LATEST_0_10_1, LATEST_0_10_2, LATEST_0_11_0, LATEST_1_0, LATEST_1_1, LATEST_2_0, LATEST_2_1, LATEST_2_2, LATEST_2_3, LATEST_2_4, V_0_9_0_0, V_0_11_0_0, DEV_BRANCH, KafkaVersion
 from kafkatest.utils.tiered_storage import tier_set_configs, TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND
 from kafkatest.services.kafka import config_property
+from kafkatest.services.kafka.util import java_version, new_jdk_not_supported
 
 class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
 
@@ -182,6 +183,13 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
 
         self.kafka.security_protocol = security_protocol
         self.kafka.interbroker_security_protocol = security_protocol
+
+        jdk_version = java_version(self.kafka.nodes[0])
+
+        if jdk_version > 9 and from_kafka_version in new_jdk_not_supported:
+            self.logger.info("Test ignored! Kafka " + from_kafka_version + " not support jdk " + str(jdk_version))
+            return
+
         self.kafka.start()
 
         if from_tiered_storage:
