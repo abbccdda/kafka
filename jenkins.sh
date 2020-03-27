@@ -20,7 +20,7 @@
 
 # Run validation checks (compilation and static analysis)
 ./gradlew clean compileJava compileScala compileTestJava compileTestScala \
-    spotlessScalaCheck checkstyleMain checkstyleTest spotbugsMain rat \
+    spotlessScalaCheck checkstyleMain checkstyleTest spotbugsMain \
     --profile --no-daemon --continue -PxmlSpotBugsReport=true "$@" \
     || { echo 'Validation steps failed'; exit 1; }
 
