@@ -1326,10 +1326,9 @@ public class KafkaCruiseControl {
    * @param newThrottle The new value to be used for throttling
    * @throws Exception
    */
-  public void updateThrottle(long newThrottle) throws Exception {
+  public void updateThrottle(long newThrottle) {
     if (!_executor.updateThrottle(newThrottle, _loadMonitor)) {
-      // CNKAF-326: Pick a better exception to throw.
-      throw new Exception("Throttle was not updated. This could be either because the set throttle is" +
+      LOG.warn("Throttle was not updated. This could be either because the set throttle is" +
           "the same as the initially configured one or because the throttle in ZooKeeper" +
           "is equal to the requested throttle");
     }

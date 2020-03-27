@@ -19,9 +19,11 @@ import org.slf4j.{Logger, LoggerFactory}
  * for doing data balancing -- analogous to (and co-located with) the controller.
  */
 trait DataBalancer {
-  def startUp() : Unit
+  def startUp(): Unit
 
-  def shutdown() : Unit
+  def shutdown(): Unit
+
+  def updateConfig(newConfig: KafkaConfig): Unit
 }
 
 object DataBalancer {
