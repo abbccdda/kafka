@@ -181,7 +181,7 @@ class TierDeletedPartitionsCoordinatorTest {
     val deletedPartition_2 = new TopicIdPartition("bar", UUID.randomUUID, 0)
     val deleteInitiateOffset_2 = 20
 
-    val tieredSegments_1 = for (i <- 0 until 5) yield new TierObjectStore.ObjectMetadata(deletedPartition_1, UUID.randomUUID, 0, i, false)
+    val tieredSegments_1 = for (i <- 0 until 5) yield new TierObjectStore.ObjectMetadata(deletedPartition_1, UUID.randomUUID, 0, i, false, false, false)
     tieredObjects += (deletedPartition_1 -> tieredSegments_1.toList)
 
     // immigrate partition
@@ -232,7 +232,7 @@ class TierDeletedPartitionsCoordinatorTest {
     val deleteCompleteOffset_1 = 15
     val deleteInitiateOffset_2 = 20
 
-    val tieredSegments = for (i <- 0 until 5) yield new TierObjectStore.ObjectMetadata(partition, UUID.randomUUID, 0, i, false)
+    val tieredSegments = for (i <- 0 until 5) yield new TierObjectStore.ObjectMetadata(partition, UUID.randomUUID, 0, i, false, false, false)
     tieredObjects += (partition -> tieredSegments.toList)
 
     // immigrate partition

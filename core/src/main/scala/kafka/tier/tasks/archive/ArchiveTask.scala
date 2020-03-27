@@ -280,7 +280,9 @@ object ArchiveTask extends Logging {
         uploadInitiate.objectId,
         uploadInitiate.tierEpoch,
         uploadInitiate.baseOffset,
-        uploadableSegment.abortedTxnIndexOpt.isDefined)
+        uploadableSegment.abortedTxnIndexOpt.isDefined,
+        uploadableSegment.producerStateOpt.isDefined,
+        uploadableSegment.leaderEpochStateOpt.isDefined)
 
       blocking {
         val startTime = time.milliseconds

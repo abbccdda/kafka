@@ -10,4 +10,8 @@ public class TierObjectStoreRetriableException extends RetriableException {
   public TierObjectStoreRetriableException(String message, Throwable cause) {
     super(message, cause);
   }
+
+  public TierObjectStoreRetriableException(String message) {
+    super(message);
+  }
 }

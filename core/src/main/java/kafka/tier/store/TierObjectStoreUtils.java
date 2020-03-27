@@ -4,7 +4,6 @@
 
 package kafka.tier.store;
 
-import kafka.log.Log;
 import kafka.server.Defaults;
 import kafka.server.KafkaConfig;
 
@@ -16,9 +15,6 @@ import java.util.Properties;
 import java.util.stream.Collectors;
 
 public class TierObjectStoreUtils {
-    // LOG_DATA_PREFIX is where segment, offset index, time index, transaction index, leader
-    // epoch state checkpoint, and producer state snapshot data are stored.
-    private static final String LOG_DATA_PREFIX = "0";
 
     /**
      * Returns a String of the key path for the given object metadata and file type.
@@ -29,19 +25,7 @@ public class TierObjectStoreUtils {
      * @return
      */
     public static String keyPath(String prefix, TierObjectStore.ObjectMetadata objectMetadata, TierObjectStore.FileType fileType) {
-        return prefix
-                + LOG_DATA_PREFIX
-                + "/" + objectMetadata.objectIdAsBase64()
-                + "/" + objectMetadata.topicIdPartition().topicIdAsBase64()
-                + "/" + objectMetadata.topicIdPartition().partition()
-                + "/" + Log.filenamePrefixFromOffset(objectMetadata.baseOffset())
-                + "_" + objectMetadata.tierEpoch()
-                + "_v" + objectMetadata.version()
-                + "." + fileType.suffix();
-    }
-
-    public static String keyPath(TierObjectStore.ObjectMetadata objectMetadata, TierObjectStore.FileType fileType) {
-        return keyPath("", objectMetadata, fileType);
+        return objectMetadata.toKeyMetadata().toPath(prefix, fileType);
     }
 
     /**
@@ -55,8 +39,8 @@ public class TierObjectStoreUtils {
     public static Map<String, String> createSegmentMetadata(TierObjectStore.ObjectMetadata objectMetadata, String clusterId, int brokerId) {
         Map<String, String> metadata = new HashMap<>();
         // metadata_version refers to the version of the data format in the object
-        metadata.put("metadata_version", Integer.toString(objectMetadata.version()));
-        metadata.put("topic", objectMetadata.topicIdPartition().topic());
+        metadata.put("metadata_version", Integer.toString(objectMetadata.toKeyMetadata().version()));
+        metadata.put("topic", objectMetadata.toKeyMetadata().topicIdPartition().topic());
         metadata.put("cluster_id", clusterId);
         metadata.put("broker_id", Integer.toString(brokerId));
         return metadata;

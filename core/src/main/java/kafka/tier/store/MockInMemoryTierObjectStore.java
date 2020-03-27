@@ -4,8 +4,6 @@
 
 package kafka.tier.store;
 
-import kafka.log.Log;
-
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
@@ -20,7 +18,6 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
     public volatile boolean throwExceptionOnSegmentFetch = false;
     public volatile boolean throwExceptionOnTransactionFetch = false;
 
-    private final static String LOG_DATA_PREFIX = "0/";
     // KEY_TO_BLOB is static so that a mock object store can be shared across brokers
     // We can remove the shared state once we have more substantial system tests that use S3.
     private final static ConcurrentHashMap<String, byte[]> KEY_TO_BLOB = new ConcurrentHashMap<>();
@@ -116,14 +113,7 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
     }
 
     public String keyPath(ObjectMetadata objectMetadata, FileType fileType) {
-        return LOG_DATA_PREFIX
-                + objectMetadata.objectIdAsBase64()
-                + "/" + objectMetadata.topicIdPartition().topicIdAsBase64()
-                + "/" + objectMetadata.topicIdPartition().partition()
-                + "/" + Log.filenamePrefixFromOffset(objectMetadata.baseOffset())
-                + "_" + objectMetadata.tierEpoch()
-                + "_v" + objectMetadata.version()
-                + "." + fileType.suffix();
+        return TierObjectStoreUtils.keyPath("", objectMetadata, fileType);
     }
 
     private void writeFileToArray(String filePath, File file) {
