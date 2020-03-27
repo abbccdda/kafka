@@ -190,6 +190,10 @@ object TopicCommand extends Logging {
       print("\tIsr: " + info.isr.asScala.map(_.id).mkString(","))
       print("\tOffline: " + offlineReplicaIds.mkString(","))
       print(if (observerIds.isEmpty) "" else s"\tObservers: ${observerIds.mkString(",")}")
+      if (reassignment.nonEmpty) {
+        print("\tAdding Replicas: " + reassignment.get.addingReplicas().asScala.mkString(","))
+        print("\tRemoving Replicas: " + reassignment.get.removingReplicas().asScala.mkString(","))
+      }
       print(if (markedForDeletion) "\tMarkedForDeletion: true" else "")
       println()
     }

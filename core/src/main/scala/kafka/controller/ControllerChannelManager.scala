@@ -462,18 +462,21 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
       else 0
 
     leaderAndIsrRequestMap.filterKeys(controllerContext.liveOrShuttingDownBrokerIds.contains).foreach {
-      case (broker, leaderAndIsrRequestInfo) =>
-        val leaderAndIsrPartitionStates = leaderAndIsrRequestInfo.partitionStates
-        val containsAllReplicas = leaderAndIsrRequestInfo.containsAllReplicas
-
-        if (stateChangeLog.isTraceEnabled) {
-          leaderAndIsrPartitionStates.foreach { case (topicPartition, state) =>
-            val typeOfRequest =
-              if (broker == state.leader) "become-leader"
-              else "become-follower"
+      case (broker, leaderAndIsrPartitionInfo) =>
+        val containsAllReplicas = leaderAndIsrPartitionInfo.containsAllReplicas
+        val leaderAndIsrPartitionStates = leaderAndIsrPartitionInfo.partitionStates
+        val numBecomeLeaders = leaderAndIsrPartitionStates.count { case (topicPartition, state) =>
+          val isBecomeLeader = broker == state.leader
+          val typeOfRequest =
+            if (isBecomeLeader) "become-leader"
+            else "become-follower"
+          if (stateChangeLog.isTraceEnabled)
             stateChangeLog.trace(s"Sending $typeOfRequest LeaderAndIsr request $state to broker $broker for partition $topicPartition")
-          }
+
+          isBecomeLeader
         }
+        stateChangeLog.info(s"Sending LeaderAndIsr request to broker $broker with $numBecomeLeaders become-leader " +
+          s"and ${leaderAndIsrPartitionStates.size - numBecomeLeaders} become-follower partitions")
         val leaderIds = leaderAndIsrPartitionStates.map(_._2.leader).toSet
         val leaders = controllerContext.liveOrShuttingDownBrokers.filter(b => leaderIds.contains(b.id)).map {
           _.node(config.interBrokerListenerName)
@@ -505,10 +508,8 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
   }
 
   private def sendUpdateMetadataRequests(controllerEpoch: Int, stateChangeLog: StateChangeLogger): Unit = {
-    updateMetadataRequestPartitionInfoMap.foreach { case (tp, partitionState) =>
-      stateChangeLog.trace(s"Sending UpdateMetadata request $partitionState to brokers $updateMetadataRequestBrokerSet " +
-        s"for partition $tp")
-    }
+    stateChangeLog.info(s"Sending UpdateMetadata request to brokers $updateMetadataRequestBrokerSet " +
+      s"for ${updateMetadataRequestPartitionInfoMap.size} partitions")
 
     val partitionStates = updateMetadataRequestPartitionInfoMap.values.toBuffer
     val updateMetadataRequestVersion: Short =
@@ -560,7 +561,7 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
     updateMetadataRequestPartitionInfoMap.clear()
   }
 
-  private def sendStopReplicaRequests(controllerEpoch: Int): Unit = {
+  private def sendStopReplicaRequests(controllerEpoch: Int, stateChangeLog: StateChangeLogger): Unit = {
     val stopReplicaRequestVersion: Short =
       if (config.interBrokerProtocolVersion >= KAFKA_2_4_IV1) 2
       else if (config.interBrokerProtocolVersion >= KAFKA_2_2_IV0) 1
@@ -582,19 +583,24 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
         brokerEpoch, deletePartitions, partitions)
     }
 
+    val traceEnabled = stateChangeLog.isTraceEnabled
     stopReplicaRequestMap.filterKeys(controllerContext.liveOrShuttingDownBrokerIds.contains).foreach { case (brokerId, replicaInfoList) =>
       val (stopReplicaWithDelete, stopReplicaWithoutDelete) = replicaInfoList.partition(r => r.deletePartition)
       val brokerEpoch = controllerContext.liveBrokerIdAndEpochs(brokerId)
 
       if (stopReplicaWithDelete.nonEmpty) {
-        debug(s"The stop replica request (delete = true) sent to broker $brokerId is ${stopReplicaWithDelete.mkString(",")}")
+        stateChangeLog.info(s"Sending a stop replica request (delete = true) for ${stopReplicaWithDelete.size} replicas to broker $brokerId")
+        if (traceEnabled)
+          stateChangeLog.trace(s"The stop replica request (delete = true) sent to broker $brokerId contains ${stopReplicaWithDelete.map(_.replica).mkString(",")}")
         val stopReplicaRequest = createStopReplicaRequest(brokerEpoch, stopReplicaWithDelete, deletePartitions = true)
         val callback = stopReplicaPartitionDeleteResponseCallback(brokerId) _
         sendRequest(brokerId, stopReplicaRequest, callback)
       }
 
       if (stopReplicaWithoutDelete.nonEmpty) {
-        debug(s"The stop replica request (delete = false) sent to broker $brokerId is ${stopReplicaWithoutDelete.mkString(",")}")
+        stateChangeLog.info(s"Sending a stop replica request (delete = false) for ${stopReplicaWithoutDelete.size} replicas to broker $brokerId")
+        if (traceEnabled)
+          stateChangeLog.trace(s"The stop replica request (delete = false) sent to broker $brokerId contains ${stopReplicaWithoutDelete.map(_.replica).mkString(",")}")
         val stopReplicaRequest = createStopReplicaRequest(brokerEpoch, stopReplicaWithoutDelete, deletePartitions = false)
         sendRequest(brokerId, stopReplicaRequest)
       }
@@ -607,7 +613,7 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
       val stateChangeLog = stateChangeLogger.withControllerEpoch(controllerEpoch)
       sendLeaderAndIsrRequest(controllerEpoch, stateChangeLog)
       sendUpdateMetadataRequests(controllerEpoch, stateChangeLog)
-      sendStopReplicaRequests(controllerEpoch)
+      sendStopReplicaRequests(controllerEpoch, stateChangeLog)
     } catch {
       case e: Throwable =>
         if (leaderAndIsrRequestMap.nonEmpty) {
