@@ -10,19 +10,30 @@ import kafka.controller.DataBalancer;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 
+import java.util.List;
+import java.util.Objects;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
 public class KafkaDataBalancer implements DataBalancer {
     private KafkaConfig kafkaConfig;
     private KafkaCruiseControl cruiseControl = null;
 
-    public KafkaDataBalancer(KafkaConfig kafkaConfig) {
-        this.kafkaConfig = kafkaConfig;
+    private final static String START_ANCHOR = "^";
+    private final static String END_ANCHOR = "$";
+    private final static String WILDCARD_SUFFIX = ".*";
+
+    public KafkaDataBalancer(KafkaConfig config) {
+        Objects.requireNonNull(config, "KafkaConfig must not be null");
+        kafkaConfig = config;
     }
 
     /**
      * Visible for testing. cruiseControl expected to be a mock testing object
      */
     KafkaDataBalancer(KafkaConfig kafkaConfig, KafkaCruiseControl cruiseControl) {
-        this.kafkaConfig = kafkaConfig;
+        this(kafkaConfig);
         this.cruiseControl = cruiseControl;
     }
 
@@ -56,5 +67,23 @@ public class KafkaDataBalancer implements DataBalancer {
         }
         kafkaConfig = newConfig;
     }
-}
 
+    /**
+     * The function forms a regex expression by performing OR operation on the topic names and topic prefixes
+     * considering each of these as string literals.
+     * For example,
+     * confluent.balancer.exclude.topic.names = [topic1, topic2],
+     * confluent.balancer.exclude.topic.prefixes = [prefix1, prefix2]
+     * The regex computed would be = "^\\Qtopic1\\E$|^\\Qtopic2\\E$|^\\Qprefix1\\E.*|^\\Qprefix2\\E.*"
+     * Visible for testing
+     */
+    String generateRegex(KafkaConfig config) {
+        List<String> topicNames = config.getList(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG);
+        List<String> topicPrefixes = config.getList(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG);
+
+        Stream<String> topicNameRegexStream = topicNames.stream().map(topic -> START_ANCHOR + Pattern.quote(topic) + END_ANCHOR);
+        Stream<String> topicPrefixRegexStream = topicPrefixes.stream().map(prefix -> START_ANCHOR + Pattern.quote(prefix) + WILDCARD_SUFFIX);
+
+        return Stream.concat(topicNameRegexStream, topicPrefixRegexStream).collect(Collectors.joining("|"));
+    }
+}
