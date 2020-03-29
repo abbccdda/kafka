@@ -564,6 +564,9 @@ public class LoadMonitorTest {
     props.put("test.nwout.capacity", Double.toString(1024 * 156.0));
     props.put("estimation.info", "testInfo");
     if (isClusterJBOD) {
+      // JBOD monitoring requires the ConfigFileResolver. Keep this for now.
+      props.put(KafkaCruiseControlConfig.BROKER_CAPACITY_CONFIG_RESOLVER_CLASS_CONFIG,
+              BrokerCapacityConfigFileResolver.class);
       String capacityConfigFileJBOD =
           KafkaCruiseControlUnitTestUtils.class.getClassLoader().getResource("testCapacityConfigJBOD.json").getFile();
       props.setProperty(BrokerCapacityConfigFileResolver.CAPACITY_CONFIG_FILE, capacityConfigFileJBOD);

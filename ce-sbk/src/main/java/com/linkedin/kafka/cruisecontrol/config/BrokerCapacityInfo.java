@@ -5,6 +5,8 @@
 package com.linkedin.kafka.cruisecontrol.config;
 
 import com.linkedin.kafka.cruisecontrol.common.Resource;
+
+import java.util.Collections;
 import java.util.Map;
 
 
@@ -29,9 +31,9 @@ public class BrokerCapacityInfo {
                             String estimationInfo,
                             Map<String, Double> diskCapacityByLogDir,
                             short numCpuCores) {
-    _capacity = capacity;
+    _capacity = capacity == null ? Collections.emptyMap() : capacity;
     _estimationInfo = estimationInfo == null ? DEFAULT_ESTIMATION_INFO : estimationInfo;
-    _diskCapacityByLogDir = diskCapacityByLogDir;
+    _diskCapacityByLogDir = diskCapacityByLogDir == null ? Collections.emptyMap() : diskCapacityByLogDir;
     _numCpuCores = numCpuCores;
   }
 
@@ -100,7 +102,7 @@ public class BrokerCapacityInfo {
    * @return The broker capacity for different resource types.
    */
   public Map<Resource, Double> capacity() {
-    return _capacity;
+    return Collections.unmodifiableMap(_capacity);
   }
 
   /**
@@ -121,7 +123,7 @@ public class BrokerCapacityInfo {
    * @return Disk capacity by absolute logDir if specified, {@link #DEFAULT_DISK_CAPACITY_BY_LOGDIR} otherwise.
    */
   public Map<String, Double> diskCapacityByLogDir() {
-    return _diskCapacityByLogDir;
+    return Collections.unmodifiableMap(_diskCapacityByLogDir);
   }
 
   /**

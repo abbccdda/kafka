@@ -186,46 +186,55 @@ public class ConfluentConfigs {
     public static final String BALANCER_CLASS_DOC = "The class providing DataBalancer services for the Kafka controller.";
     public static final String BALANCER_CLASS_DEFAULT = "io.confluent.databalancer.KafkaDataBalancer";
 
-    public static final String BALANCER_ENABLE_CONFIG = CONFLUENT_BALANCER_PREFIX + "enable";
+    public static final String BALANCER_ENABLE_BASE_CONFIG = "enable";
+    public static final String BALANCER_ENABLE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_ENABLE_BASE_CONFIG;
     public static final boolean BALANCER_ENABLE_DEFAULT = true;
     public static final String BALANCER_ENABLE_DOC = "This config controls whether the balancer is enabled";
 
-    public static final String BALANCER_RACK_AWARE_CONFIG = CONFLUENT_BALANCER_PREFIX + "rack.aware";
+    public static final String BALANCER_RACK_AWARE_BASE_CONFIG = "rack.aware";
+    public static final String BALANCER_RACK_AWARE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_RACK_AWARE_BASE_CONFIG;
     public static final boolean BALANCER_RACK_AWARE_DEFAULT = true;
     public static final String BALANCER_RACK_AWARE_DOC = "This config controls whether the balancer takes broker racks " +
             "into account for replica placement decision (no more than one replica per rack).";
 
-    public static final String BALANCER_THROTTLE_CONFIG = CONFLUENT_BALANCER_PREFIX + "throttle.bytes.per.second";
+    public static final String BALANCER_THROTTLE_BASE_CONFIG = "throttle.bytes.per.second";
+    public static final String BALANCER_THROTTLE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_THROTTLE_BASE_CONFIG;
     public static final Long BALANCER_THROTTLE_DEFAULT = null;
     public static final String BALANCER_THROTTLE_DOC = "This config specifies the upper bound for bandwidth in bytes to " +
             "move replicas around for replica reassignment.";
 
-    public static final String BALANCER_REPLICA_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + "max.replicas";
+    public static final String BALANCER_REPLICA_CAPACITY_BASE_CONFIG = "max.replicas";
+    public static final String BALANCER_REPLICA_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_REPLICA_CAPACITY_BASE_CONFIG;
     public static final Long BALANCER_REPLICA_CAPACITY_DEFAULT = null;
     public static final String BALANCER_REPLICA_CAPACITY_DOC = "The replica capacity is the maximum number of replicas " +
             "the balancer will place on a single broker.";
 
-    public static final String BALANCER_DISK_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + "disk.max.bytes";
+    public static final String BALANCER_DISK_CAPACITY_BASE_CONFIG = "disk.max.bytes";
+    public static final String BALANCER_DISK_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_DISK_CAPACITY_BASE_CONFIG;
     public static final Long BALANCER_DISK_CAPACITY_DEFAULT = null;
     public static final String BALANCER_DISK_CAPACITY_DOC = "This config specifies the upper bound for disk usage in " +
             "bytes per broker.";
 
-    public static final String BALANCER_NETWORK_IN_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + "network.in.max.bytes.per.second";
+    public static final String BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG = "network.in.max.bytes.per.second";
+    public static final String BALANCER_NETWORK_IN_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG;
     public static final Long BALANCER_NETWORK_IN_CAPACITY_DEFAULT = null;
     public static final String BALANCER_NETWORK_IN_CAPACITY_DOC = "This config specifies the upper bound for network " +
             "incoming bytes per second per broker.";
 
-    public static final String BALANCER_NETWORK_OUT_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + "network.out.max.bytes.per.second";
+    public static final String BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG = "network.out.max.bytes.per.second";
+    public static final String BALANCER_NETWORK_OUT_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG;
     public static final Long BALANCER_NETWORK_OUT_CAPACITY_DEFAULT = null;
     public static final String BALANCER_NETWORK_OUT_CAPACITY_DOC = "This config specifies the upper bound for network " +
             "outgoing bytes per second per broker.";
 
-    public static final String BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG = CONFLUENT_BALANCER_PREFIX + "exclude.topic.names";
+    public static final String BALANCER_EXCLUDE_TOPIC_NAMES_BASE_CONFIG = "exclude.topic.names";
+    public static final String BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_EXCLUDE_TOPIC_NAMES_BASE_CONFIG;
     public static final List BALANCER_EXCLUDE_TOPIC_NAMES_DEFAULT = Collections.EMPTY_LIST;
     public static final String BALANCER_EXCLUDE_TOPIC_NAMES_DOC = "This config accepts a list of topic names that " +
             "will be excluded from rebalancing. For example, 'balancer.exclude.topic.names=[topic1, topic2]' ";
 
-    public static final String BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG = CONFLUENT_BALANCER_PREFIX + "exclude.topic.prefixes";
+    public static final String BALANCER_EXCLUDE_TOPIC_PREFIXES_BASE_CONFIG = "exclude.topic.prefixes";
+    public static final String BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_EXCLUDE_TOPIC_PREFIXES_BASE_CONFIG;
     public static final List BALANCER_EXCLUDE_TOPIC_PREFIXES_DEFAULT = Collections.EMPTY_LIST;
     public static final String BALANCER_EXCLUDE_TOPIC_PREFIXES_DOC = "This config accepts a list of topic prefixes that " +
             "will be excluded from rebalancing. For example, 'balancer.exclude.topic.prefixes=[prefix1, prefix2]' would " +
