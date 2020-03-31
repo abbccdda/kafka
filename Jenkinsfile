@@ -32,6 +32,9 @@ def retryFlagsString(jobConfig) {
 }
 
 def downstreamBuildFailureOutput = ""
+def publishStep(String mavenUrl) {
+    sh "./gradlew -PmavenUrl=${mavenUrl} --no-daemon uploadArchivesAll"
+}
 def job = {
 
     withCredentials([usernamePassword(
@@ -45,10 +48,13 @@ def job = {
                     "--no-daemon --stacktrace --continue -PxmlSpotBugsReport=true"
         }
 
-        if (config.publish && config.isDevJob) {
+        if (config.publish) {
             stage("Publish to Artifactory") {
-                def mavenUrl = 'https://confluent.jfrog.io/confluent/maven-public/'
-                sh "./gradlew -PmavenUrl=${mavenUrl} --no-daemon uploadArchivesAll"
+                if (config.isDevJob) {
+                    publishStep('https://confluent.jfrog.io/confluent/maven-public/')
+                } else if (config.isPreviewJob) {
+                    publishStep('https://confluent.jfrog.io/confluent/maven-releases-preview/')
+                }
             }
         }
 
