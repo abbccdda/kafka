@@ -37,6 +37,31 @@ class ReplicationQuotaManagerTest {
   }
 
   @Test
+  def shouldSetConfiguredQuotaRate(): Unit = {
+    val quotaManager = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(quotaBytesPerSecond = 111), metrics, LeaderReplication, time)
+    assertEquals(111, quotaManager.upperBound())
+  }
+
+  @Test
+  def shouldThrottleAllReplicasWhenBrokerLevelConfigSet(): Unit = {
+    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(allReplicasThrottled = true), metrics, QuotaType.Fetch, time)
+
+    assertTrue(quota.isThrottled(tp1(1)))
+    assertTrue(quota.isThrottled(tp1(2)))
+    assertTrue(quota.isThrottled(tp1(3)))
+    assertTrue(quota.isThrottled(tp1(4)))
+    assertTrue(quota.isThrottled(tp1(400)))
+
+    quota.markThrottled("topic1", Seq())
+
+    assertTrue(quota.isThrottled(tp1(1)))
+    assertTrue(quota.isThrottled(tp1(2)))
+    assertTrue(quota.isThrottled(tp1(3)))
+    assertTrue(quota.isThrottled(tp1(4)))
+    assertTrue(quota.isThrottled(tp1(400)))
+  }
+
+  @Test
   def shouldThrottleOnlyDefinedReplicas(): Unit = {
     val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(), metrics, QuotaType.Fetch, time)
     quota.markThrottled("topic1", Seq(1, 2, 3))
@@ -113,12 +138,85 @@ class ReplicationQuotaManagerTest {
     val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(), metrics, LeaderReplication, time)
 
     //When
-    quota.markThrottled("MyTopic")
+    quota.markThrottled("MyTopic", Constants.AllReplicas)
 
     //Then
     assertTrue(quota.isThrottled(new TopicPartition("MyTopic", 0)))
     assertFalse(quota.isThrottled(new TopicPartition("MyOtherTopic", 0)))
   }
+
+  @Test
+  def shouldSupportNoneThrottledReplicasAndOverrideBrokerThrottles(): Unit = {
+    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(allReplicasThrottled = true), metrics, LeaderReplication, time)
+
+    //When
+    quota.markThrottled("MyTopic", Constants.NoReplicas)
+
+    //Then
+    assertFalse("Topics that are explicitly unthrottled should not be throttled", quota.isThrottled(new TopicPartition("MyTopic", 0)))
+    assertTrue(quota.isThrottled(new TopicPartition("MyOtherTopic", 0)))
+  }
+
+  @Test
+  def shouldSupportOverrideBrokerThrottleWhenSomeReplicasExplicitlyThrottled(): Unit = {
+    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(allReplicasThrottled = true), metrics, LeaderReplication, time)
+
+    //When
+    val tp0 = new TopicPartition("MyTopic", 0)
+    val tp1 = new TopicPartition("MyTopic", 1)
+    quota.markThrottled("MyTopic", Seq(tp0.partition()))
+
+    //Then
+    assertTrue("Replicas that are explicitly throttled should be throttled", quota.isThrottled(tp0))
+    assertFalse("Replicas that are not explicitly throttled (while others in the same topic are explicitly throttled) should not be throttled", quota.isThrottled(tp1))
+  }
+
+  @Test
+  def shouldSupportBrokerThrottledReplicas(): Unit = {
+    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(), metrics, LeaderReplication, time)
+
+    //When
+    quota.markBrokerThrottled()
+
+    //Then
+    assertTrue("Should have set broker replication throttle",
+      quota.isThrottled(new TopicPartition("MyTopic", 0)))
+    assertTrue("Should have set broker replication throttle",
+      quota.isThrottled(new TopicPartition("MyOtherTopic", 0)))
+
+    //When
+    quota.removeBrokerThrottle(false)
+
+    //Then
+    assertFalse("Should have reset broker replication throttle",
+      quota.isThrottled(new TopicPartition("MyTopic", 0)))
+    assertFalse("Should have reset broker replication throttle",
+      quota.isThrottled(new TopicPartition("MyOtherTopic", 0)))
+  }
+
+  @Test
+  def shouldResetBrokerThrottledReplicas(): Unit = {
+    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(allReplicasThrottled = true), metrics, LeaderReplication, time)
+
+    //When
+    quota.removeBrokerThrottle(false)
+
+    //Then
+    assertFalse("Should have overridden broker replication throttle",
+      quota.isThrottled(new TopicPartition("MyTopic", 0)))
+    assertFalse("Should have overridden broker replication throttle",
+      quota.isThrottled(new TopicPartition("MyOtherTopic", 0)))
+
+    //When
+    quota.removeBrokerThrottle(true)
+
+    //Then
+    assertTrue("Should have reset broker replication throttle",
+      quota.isThrottled(new TopicPartition("MyTopic", 0)))
+    assertTrue("Should have reset broker replication throttle",
+      quota.isThrottled(new TopicPartition("MyOtherTopic", 0)))
+  }
+
 
   private def tp1(id: Int): TopicPartition = new TopicPartition("topic1", id)
 }

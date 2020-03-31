@@ -70,8 +70,8 @@ object QuotaFactory extends Logging {
       new ClientQuotaManager(clientFetchConfig(cfg), metrics, Fetch, time, threadNamePrefix, clientQuotaCallback, activeTenantsManager),
       new ClientQuotaManager(clientProduceConfig(cfg), metrics, Produce, time, threadNamePrefix, clientQuotaCallback, activeTenantsManager),
       new ClientRequestQuotaManager(clientRequestConfig(cfg), metrics, time, threadNamePrefix, clientQuotaCallback, activeTenantsManager),
-      new ReplicationQuotaManager(replicationConfig(cfg), metrics, LeaderReplication, time),
-      new ReplicationQuotaManager(replicationConfig(cfg), metrics, FollowerReplication, time),
+      new ReplicationQuotaManager(replicationConfig(cfg, LeaderReplication), metrics, LeaderReplication, time),
+      new ReplicationQuotaManager(replicationConfig(cfg, FollowerReplication), metrics, FollowerReplication, time),
       new ReplicationQuotaManager(alterLogDirsReplicationConfig(cfg), metrics, AlterLogDirsReplication, time),
       clientQuotaCallback
     )
@@ -107,10 +107,22 @@ object QuotaFactory extends Logging {
     )
   }
 
-  def replicationConfig(cfg: KafkaConfig): ReplicationQuotaManagerConfig = {
+  def replicationConfig(cfg: KafkaConfig, quotaType: QuotaType): ReplicationQuotaManagerConfig = {
+    val throttleRate = quotaType match {
+      case QuotaType.LeaderReplication => cfg.ReplicationLeaderThrottleRate
+      case QuotaType.FollowerReplication => cfg.ReplicationFollowerThrottleRate
+      case _ => ReplicationQuotaManagerConfig.QuotaBytesPerSecondDefault
+    }
+    val replicasAreThrottled = quotaType match {
+      case QuotaType.LeaderReplication => cfg.ReplicationLeaderReplicasAreThrottled
+      case QuotaType.FollowerReplication => cfg.ReplicationFollowerReplicasAreThrottled
+      case _ => false
+    }
     ReplicationQuotaManagerConfig(
+      quotaBytesPerSecond = throttleRate,
       numQuotaSamples = cfg.numReplicationQuotaSamples,
-      quotaWindowSizeSeconds = cfg.replicationQuotaWindowSizeSeconds
+      quotaWindowSizeSeconds = cfg.replicationQuotaWindowSizeSeconds,
+      allReplicasThrottled = replicasAreThrottled
     )
   }
 

@@ -287,6 +287,21 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
   }
 
   @Test
+  def shouldParseNoneReplicationQuotaProperties(): Unit = {
+    val configHandler: TopicConfigHandler = new TopicConfigHandler(EasyMock.createNiceMock(classOf[ReplicaManager]), null, null, null)
+    val props: Properties = new Properties()
+
+    //Given
+    props.put(LeaderReplicationThrottledReplicasProp, "none")
+
+    //When
+    val result = configHandler.parseThrottledPartitions(props, 102, LeaderReplicationThrottledReplicasProp)
+
+    //Then
+    assertEquals(NoReplicas, result)
+  }
+
+  @Test
   def shouldParseReplicationQuotaReset(): Unit = {
     val configHandler: TopicConfigHandler = new TopicConfigHandler(EasyMock.createNiceMock(classOf[ReplicaManager]), null, null, null)
     val props: Properties = new Properties()
@@ -305,6 +320,7 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
   def shouldParseRegardlessOfWhitespaceAroundValues(): Unit = {
     val configHandler: TopicConfigHandler = new TopicConfigHandler(EasyMock.createNiceMock(classOf[ReplicaManager]), null, null, null)
     assertEquals(AllReplicas, parse(configHandler, "* "))
+    assertEquals(NoReplicas, parse(configHandler, "none "))
     assertEquals(Seq(), parse(configHandler, " "))
     assertEquals(Seq(6), parse(configHandler, "6:102"))
     assertEquals(Seq(6), parse(configHandler, "6:102 "))

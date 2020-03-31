@@ -38,12 +38,12 @@ class DynamicConfigTest  extends ZooKeeperTestHarness {
   @Test(expected = classOf[ConfigException])
   def shouldFailLeaderConfigsWithInvalidValues(): Unit = {
     adminZkClient.changeBrokerConfig(Seq(0),
-      propsWith(DynamicConfig.Broker.LeaderReplicationThrottledRateProp, "-100"))
+      propsWith(KafkaConfig.LeaderReplicationThrottledRateProp, "-100"))
   }
 
   @Test(expected = classOf[ConfigException])
   def shouldFailFollowerConfigsWithInvalidValues(): Unit = {
     adminZkClient.changeBrokerConfig(Seq(0),
-      propsWith(DynamicConfig.Broker.FollowerReplicationThrottledRateProp, "-100"))
+      propsWith(KafkaConfig.FollowerReplicationThrottledRateProp, "-100"))
   }
 }

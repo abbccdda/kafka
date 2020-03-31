@@ -99,7 +99,8 @@ class TopicConfigHandler(private val replicaManager: ReplicaManager, kafkaConfig
     ThrottledReplicaListValidator.ensureValidString(prop, configValue)
     configValue match {
       case "" => Seq()
-      case "*" => AllReplicas
+      case ReplicationQuotaManagerConfig.NoThrottledReplicasValue => NoReplicas
+      case ReplicationQuotaManagerConfig.AllThrottledReplicasValue => AllReplicas
       case _ => configValue.trim
         .split(",")
         .map(_.split(":"))
@@ -191,20 +192,50 @@ class BrokerConfigHandler(private val brokerConfig: KafkaConfig,
                           private val quotaManagers: QuotaManagers) extends ConfigHandler with Logging {
 
   def processConfigChanges(brokerId: String, properties: Properties): Unit = {
-    def getOrDefault(prop: String): Long = {
-      if (properties.containsKey(prop))
-        properties.getProperty(prop).toLong
-      else
-        DefaultReplicationThrottledRate
-    }
     if (brokerId == ConfigEntityName.Default)
       brokerConfig.dynamicConfig.updateDefaultConfig(properties)
     else if (brokerConfig.brokerId == brokerId.trim.toInt) {
       brokerConfig.dynamicConfig.updateBrokerConfig(brokerConfig.brokerId, properties)
-      quotaManagers.leader.updateQuota(upperBound(getOrDefault(LeaderReplicationThrottledRateProp)))
-      quotaManagers.follower.updateQuota(upperBound(getOrDefault(FollowerReplicationThrottledRateProp)))
-      quotaManagers.alterLogDirs.updateQuota(upperBound(getOrDefault(ReplicaAlterLogDirsIoMaxBytesPerSecondProp)))
+      updateReplicationConfig(properties)
     }
+  }
+
+  private def updateReplicationConfig(properties: Properties): Unit = {
+    def getProp(prop: String): Option[String] =
+      if (properties.containsKey(prop))
+        Some(properties.getProperty(prop))
+      else
+        None
+
+    def getOrDefaultRate(prop: String, config: ReplicationQuotaManagerConfig): Long =
+      getProp(prop) match {
+        case Some(value) => value.toLong
+        case None => config.quotaBytesPerSecond
+      }
+
+    def setBrokerReplicationThrottledReplicas(config: String, quotaManager: ReplicationQuotaManager): Unit = {
+      val throttledReplicasOpt = getProp(config)
+      throttledReplicasOpt match {
+        case Some(throttledReplicas) =>
+          ReplicationQuotaManagerConfig.throttledReplicasValidator.ensureValid(config, throttledReplicas)
+          if (ReplicationQuotaManagerConfig.allReplicasThrottled(throttledReplicas)) {
+            debug(s"Setting $config=$throttledReplicas for all replicas on broker ${brokerConfig.brokerId}")
+            quotaManager.markBrokerThrottled()
+          } else {
+            debug(s"Setting $config=$throttledReplicas from broker ${brokerConfig.brokerId}")
+            quotaManager.removeBrokerThrottle(resetThrottle = false)
+          }
+        case None =>
+          debug(s"Removing $config from broker ${brokerConfig.brokerId}")
+          quotaManager.removeBrokerThrottle(resetThrottle = true)
+      }
+    }
+    quotaManagers.leader.updateQuota(upperBound(getOrDefaultRate(KafkaConfig.LeaderReplicationThrottledRateProp, quotaManagers.leader.config)))
+    quotaManagers.follower.updateQuota(upperBound(getOrDefaultRate(KafkaConfig.FollowerReplicationThrottledRateProp, quotaManagers.follower.config)))
+    quotaManagers.alterLogDirs.updateQuota(upperBound(getOrDefaultRate(ReplicaAlterLogDirsIoMaxBytesPerSecondProp, quotaManagers.alterLogDirs.config)))
+
+    setBrokerReplicationThrottledReplicas(KafkaConfig.LeaderReplicationThrottledReplicasProp, quotaManagers.leader)
+    setBrokerReplicationThrottledReplicas(KafkaConfig.FollowerReplicationThrottledReplicasProp, quotaManagers.follower)
   }
 }
 
@@ -215,9 +246,10 @@ object ThrottledReplicaListValidator extends Validator {
   override def ensureValid(name: String, value: Any): Unit = {
     def check(proposed: Seq[Any]): Unit = {
       if (!(proposed.forall(_.toString.trim.matches("([0-9]+:[0-9]+)?"))
-        || proposed.headOption.exists(_.toString.trim.equals("*"))))
+        || proposed.headOption.exists(_.toString.trim.equals(ReplicationQuotaManagerConfig.AllThrottledReplicasValue))
+        || proposed.headOption.exists(_.toString.trim.equals(ReplicationQuotaManagerConfig.NoThrottledReplicasValue))))
         throw new ConfigException(name, value,
-          s"$name must be the literal '*' or a list of replicas in the following format: [partitionId]:[brokerId],[partitionId]:[brokerId],...")
+          s"$name must be the literal '*', 'none' or a list of replicas in the following format: [partitionId]:[brokerId],[partitionId]:[brokerId],...")
     }
     value match {
       case scalaSeq: Seq[_] => check(scalaSeq)

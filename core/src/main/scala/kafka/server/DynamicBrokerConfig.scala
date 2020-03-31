@@ -90,7 +90,8 @@ object DynamicBrokerConfig {
     TierFetcher.reconfigurableConfigs ++
     Set(KafkaConfig.AuditLogRouterConfigProp) ++
     DynamicBalancerConfig.ReconfigurableConfigs ++
-    LogManager.ReconfigurableConfigs
+    LogManager.ReconfigurableConfigs ++
+    ReplicationQuotaManagerConfig.ReconfigurableConfigs
 
   private val ClusterLevelListenerConfigs = Set(KafkaConfig.MaxConnectionsProp)
   private val PerBrokerConfigs = DynamicSecurityConfigs  ++

@@ -271,6 +271,10 @@ object Defaults {
   val QuotaWindowSizeSeconds: Int = ClientQuotaManagerConfig.DefaultQuotaWindowSizeSeconds
   val NumReplicationQuotaSamples: Int = ReplicationQuotaManagerConfig.DefaultNumQuotaSamples
   val ReplicationQuotaWindowSizeSeconds: Int = ReplicationQuotaManagerConfig.DefaultQuotaWindowSizeSeconds
+  val LeaderReplicationThrottledRate: Long = ReplicationQuotaManagerConfig.QuotaBytesPerSecondDefault
+  val FollowerReplicationThrottledRate: Long = ReplicationQuotaManagerConfig.QuotaBytesPerSecondDefault
+  val LeaderReplicationThrottledReplicas: String = ReplicationQuotaManagerConfig.NoThrottledReplicasValue
+  val FollowerReplicationThrottledReplicas: String = ReplicationQuotaManagerConfig.NoThrottledReplicasValue
   val NumAlterLogDirsReplicationQuotaSamples: Int = ReplicationQuotaManagerConfig.DefaultNumQuotaSamples
   val AlterLogDirsReplicationQuotaWindowSizeSeconds: Int = ReplicationQuotaManagerConfig.DefaultQuotaWindowSizeSeconds
 
@@ -635,6 +639,10 @@ object KafkaConfig {
   val NumReplicationQuotaSamplesProp = "replication.quota.window.num"
   val NumAlterLogDirsReplicationQuotaSamplesProp = "alter.log.dirs.replication.quota.window.num"
   val QuotaWindowSizeSecondsProp = "quota.window.size.seconds"
+  val LeaderReplicationThrottledRateProp = "leader.replication.throttled.rate"
+  val FollowerReplicationThrottledRateProp = "follower.replication.throttled.rate"
+  val LeaderReplicationThrottledReplicasProp = "leader.replication.throttled.replicas"
+  val FollowerReplicationThrottledReplicasProp = "follower.replication.throttled.replicas"
   val ReplicationQuotaWindowSizeSecondsProp = "replication.quota.window.size.seconds"
   val AlterLogDirsReplicationQuotaWindowSizeSecondsProp = "alter.log.dirs.replication.quota.window.size.seconds"
   val ClientQuotaCallbackClassProp = "client.quota.callback.class"
@@ -1088,6 +1096,16 @@ object KafkaConfig {
   val NumReplicationQuotaSamplesDoc = "The number of samples to retain in memory for replication quotas"
   val NumAlterLogDirsReplicationQuotaSamplesDoc = "The number of samples to retain in memory for alter log dirs replication quotas"
   val QuotaWindowSizeSecondsDoc = "The time span of each sample for client quotas"
+  val LeaderReplicationThrottledRateDoc = "A long representing the upper bound (bytes/sec) on outbound replication traffic for leader replicas " +
+    s"enumerated in the property ${LeaderReplicationThrottledReplicasProp} (for each topic). " +
+    "It is suggested that the limit be kept above 1MB/s for accurate behavior."
+  val FollowerReplicationThrottledRateDoc = s"A long representing the upper bound (bytes/sec) on inbound replication traffic for follower replicas " +
+    s"enumerated in the property ${FollowerReplicationThrottledReplicasProp} (for each topic). " +
+    "It is suggested that the limit be kept above 1MB/s for accurate behavior."
+  val LeaderReplicationThrottledReplicasDoc = "Enables throttling for log replication on leader replicas present on this broker. " +
+    "Valid values are 'none' for no throttling to occur and '*' for all replicas to be throttled."
+  val FollowerReplicationThrottledReplicasDoc = "Enables throttling for log replication on follower replicas present on this broker. " +
+    "Valid values are 'none' for no throttling to occur and '*' for all replicas to be throttled."
   val ReplicationQuotaWindowSizeSecondsDoc = "The time span of each sample for replication quotas"
   val AlterLogDirsReplicationQuotaWindowSizeSecondsDoc = "The time span of each sample for alter log dirs replication quotas"
   val ClientQuotaCallbackClassDoc = "The fully qualified name of a class that implements the ClientQuotaCallback interface, " +
@@ -1444,6 +1462,12 @@ object KafkaConfig {
       .define(NumReplicationQuotaSamplesProp, INT, Defaults.NumReplicationQuotaSamples, atLeast(1), LOW, NumReplicationQuotaSamplesDoc)
       .define(NumAlterLogDirsReplicationQuotaSamplesProp, INT, Defaults.NumAlterLogDirsReplicationQuotaSamples, atLeast(1), LOW, NumAlterLogDirsReplicationQuotaSamplesDoc)
       .define(QuotaWindowSizeSecondsProp, INT, Defaults.QuotaWindowSizeSeconds, atLeast(1), LOW, QuotaWindowSizeSecondsDoc)
+      .define(LeaderReplicationThrottledRateProp, LONG, Defaults.LeaderReplicationThrottledRate, atLeast(1), LOW, LeaderReplicationThrottledRateDoc)
+      .define(FollowerReplicationThrottledRateProp, LONG, Defaults.FollowerReplicationThrottledRate, atLeast(1), LOW, FollowerReplicationThrottledRateDoc)
+      .define(LeaderReplicationThrottledReplicasProp, STRING, Defaults.LeaderReplicationThrottledReplicas,
+        ReplicationQuotaManagerConfig.throttledReplicasValidator, LOW, LeaderReplicationThrottledReplicasDoc)
+      .define(FollowerReplicationThrottledReplicasProp, STRING, Defaults.FollowerReplicationThrottledReplicas,
+        ReplicationQuotaManagerConfig.throttledReplicasValidator, LOW, FollowerReplicationThrottledReplicasDoc)
       .define(ReplicationQuotaWindowSizeSecondsProp, INT, Defaults.ReplicationQuotaWindowSizeSeconds, atLeast(1), LOW, ReplicationQuotaWindowSizeSecondsDoc)
       .define(AlterLogDirsReplicationQuotaWindowSizeSecondsProp, INT, Defaults.AlterLogDirsReplicationQuotaWindowSizeSeconds, atLeast(1), LOW, AlterLogDirsReplicationQuotaWindowSizeSecondsDoc)
       .define(ClientQuotaCallbackClassProp, CLASS, null, LOW, ClientQuotaCallbackClassDoc)
@@ -2045,6 +2069,10 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val numQuotaSamples = getInt(KafkaConfig.NumQuotaSamplesProp)
   val quotaWindowSizeSeconds = getInt(KafkaConfig.QuotaWindowSizeSecondsProp)
   val numReplicationQuotaSamples = getInt(KafkaConfig.NumReplicationQuotaSamplesProp)
+  val ReplicationLeaderThrottleRate: Long = getLong(KafkaConfig.LeaderReplicationThrottledRateProp)
+  val ReplicationFollowerThrottleRate: Long = getLong(KafkaConfig.FollowerReplicationThrottledRateProp)
+  val ReplicationLeaderReplicasAreThrottled: Boolean = ReplicationQuotaManagerConfig.allReplicasThrottled(getString(KafkaConfig.LeaderReplicationThrottledReplicasProp))
+  val ReplicationFollowerReplicasAreThrottled: Boolean = ReplicationQuotaManagerConfig.allReplicasThrottled(getString(KafkaConfig.FollowerReplicationThrottledReplicasProp))
   val replicationQuotaWindowSizeSeconds = getInt(KafkaConfig.ReplicationQuotaWindowSizeSecondsProp)
   val numAlterLogDirsReplicationQuotaSamples = getInt(KafkaConfig.NumAlterLogDirsReplicationQuotaSamplesProp)
   val alterLogDirsReplicationQuotaWindowSizeSeconds = getInt(KafkaConfig.AlterLogDirsReplicationQuotaWindowSizeSecondsProp)

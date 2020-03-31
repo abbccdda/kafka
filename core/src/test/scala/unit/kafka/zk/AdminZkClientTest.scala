@@ -22,9 +22,8 @@ import java.util.Properties
 import kafka.common.TopicPlacement
 import kafka.controller.ReplicaAssignment
 import kafka.log._
-import kafka.server.DynamicConfig.Broker._
 import kafka.server.KafkaConfig._
-import kafka.server.{ConfigType, KafkaConfig, KafkaServer}
+import kafka.server.{ConfigType, KafkaConfig, KafkaServer, ReplicationQuotaManagerConfig}
 import kafka.utils.CoreUtils._
 import kafka.utils.TestUtils._
 import kafka.utils.{Logging, TestUtils}
@@ -588,42 +587,65 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
   @Test
   def shouldPropagateDynamicBrokerConfigs(): Unit = {
     val brokerIds = Seq(0, 1, 2)
-    servers = createBrokerConfigs(3, zkConnect).map(fromProps).map(createServer(_))
+    val staticLeaderLimit = 555
+    val staticFollowerLimit = 444
+    val sampleTp = new TopicPartition("t", 0)
+    servers = createBrokerConfigs(3, zkConnect).map { properties =>
+      properties.setProperty(KafkaConfig.LeaderReplicationThrottledRateProp, staticLeaderLimit.toString)
+      properties.setProperty(KafkaConfig.LeaderReplicationThrottledReplicasProp, ReplicationQuotaManagerConfig.AllThrottledReplicasValue)
+      properties.setProperty(KafkaConfig.FollowerReplicationThrottledRateProp, staticFollowerLimit.toString)
+      properties
+    }.map(fromProps).map(createServer(_))
 
-    def checkConfig(limit: Long): Unit = {
+    def checkConfig(leaderLimit: Long, followerLimit: Long,
+                    leaderThrottleEnabled: Boolean, followerThrottleEnabled: Boolean): Unit = {
       retry(10000) {
         for (server <- servers) {
-          assertEquals("Leader Quota Manager was not updated", limit, server.quotaManagers.leader.upperBound)
-          assertEquals("Follower Quota Manager was not updated", limit, server.quotaManagers.follower.upperBound)
+          assertEquals("Leader Quota Manager was not updated with throttled rate",
+            leaderLimit, server.quotaManagers.leader.upperBound())
+          assertEquals("Leader Quota Manager was not updated with throttled replicas",
+            leaderThrottleEnabled, server.quotaManagers.leader.isThrottled(sampleTp))
+          assertEquals("Follower Quota Manager was not updated with throttled rate",
+            followerLimit, server.quotaManagers.follower.upperBound())
+          assertEquals("Follower Quota Manager was not updated with throttled replicas",
+            followerThrottleEnabled, server.quotaManagers.follower.isThrottled(sampleTp))
         }
       }
     }
+    checkConfig(staticLeaderLimit, staticFollowerLimit, true, false)
 
-    val limit: Long = 1000000
+    val leaderLimit: Long = 1000000
+    val followerLimit: Long = 1000001
 
     // Set the limit & check it is applied to the log
     adminZkClient.changeBrokerConfig(brokerIds, propsWith(
-      (LeaderReplicationThrottledRateProp, limit.toString),
-      (FollowerReplicationThrottledRateProp, limit.toString)))
-    checkConfig(limit)
+      (KafkaConfig.LeaderReplicationThrottledRateProp, leaderLimit.toString),
+      (KafkaConfig.LeaderReplicationThrottledReplicasProp, ReplicationQuotaManagerConfig.AllThrottledReplicasValue),
+      (KafkaConfig.FollowerReplicationThrottledRateProp, followerLimit.toString)))
+    checkConfig(leaderLimit, followerLimit, true, false)
 
     // Now double the config values for the topic and check that it is applied
-    val newLimit = 2 * limit
+    val newLeaderLimit: Long = leaderLimit * 2
+    val newFollowerLimit: Long = followerLimit * 2
     adminZkClient.changeBrokerConfig(brokerIds,  propsWith(
-      (LeaderReplicationThrottledRateProp, newLimit.toString),
-      (FollowerReplicationThrottledRateProp, newLimit.toString)))
-    checkConfig(newLimit)
+      (KafkaConfig.LeaderReplicationThrottledRateProp, newLeaderLimit.toString),
+      (KafkaConfig.LeaderReplicationThrottledReplicasProp, ReplicationQuotaManagerConfig.AllThrottledReplicasValue),
+      (KafkaConfig.FollowerReplicationThrottledRateProp, newFollowerLimit.toString),
+      (KafkaConfig.FollowerReplicationThrottledReplicasProp, ReplicationQuotaManagerConfig.AllThrottledReplicasValue)))
+    checkConfig(newLeaderLimit, newFollowerLimit, true, true)
 
     // Verify that the same config can be read from ZK
     for (brokerId <- brokerIds) {
       val configInZk = adminZkClient.fetchEntityConfig(ConfigType.Broker, brokerId.toString)
-      assertEquals(newLimit, configInZk.getProperty(LeaderReplicationThrottledRateProp).toInt)
-      assertEquals(newLimit, configInZk.getProperty(FollowerReplicationThrottledRateProp).toInt)
+      assertEquals(newLeaderLimit, configInZk.getProperty(KafkaConfig.LeaderReplicationThrottledRateProp).toInt)
+      assertEquals(newFollowerLimit, configInZk.getProperty(KafkaConfig.FollowerReplicationThrottledRateProp).toInt)
+      assertEquals(ReplicationQuotaManagerConfig.AllThrottledReplicasValue, configInZk.getProperty(KafkaConfig.LeaderReplicationThrottledReplicasProp))
+      assertEquals(ReplicationQuotaManagerConfig.AllThrottledReplicasValue, configInZk.getProperty(KafkaConfig.FollowerReplicationThrottledReplicasProp))
     }
 
     //Now delete the config
     adminZkClient.changeBrokerConfig(brokerIds, new Properties)
-    checkConfig(DefaultReplicationThrottledRate)
+    checkConfig(staticLeaderLimit, staticFollowerLimit, true, false)
   }
 
   /**

@@ -10,7 +10,7 @@ import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import kafka.admin.AdminOperationException;
 import kafka.log.LogConfig;
 import kafka.server.ConfigType;
-import kafka.server.DynamicConfig;
+import kafka.server.KafkaConfig;
 import kafka.zk.AdminZkClient;
 import kafka.zk.KafkaZkClient;
 import org.slf4j.Logger;
@@ -29,7 +29,6 @@ import java.util.stream.Stream;
 
 import static com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig.AUTO_THROTTLE;
 import static java.lang.String.valueOf;
-import static kafka.server.DynamicConfig.Broker$.MODULE$;
 import static scala.collection.JavaConversions.asJavaCollection;
 
 /**
@@ -41,8 +40,8 @@ import static scala.collection.JavaConversions.asJavaCollection;
 class ReplicationThrottleHelper {
   private static final Logger LOG = LoggerFactory.getLogger(ReplicationThrottleHelper.class);
 
-  static final String LEADER_THROTTLED_RATE = DynamicConfig.Broker$.MODULE$.LeaderReplicationThrottledRateProp();
-  static final String FOLLOWER_THROTTLED_RATE = DynamicConfig.Broker$.MODULE$.FollowerReplicationThrottledRateProp();
+  static final String LEADER_THROTTLED_RATE = KafkaConfig.LeaderReplicationThrottledRateProp();
+  static final String FOLLOWER_THROTTLED_RATE = KafkaConfig.FollowerReplicationThrottledRateProp();
   static final String LEADER_THROTTLED_REPLICAS = LogConfig.LeaderReplicationThrottledReplicasProp();
   static final String FOLLOWER_THROTTLED_REPLICAS = LogConfig.FollowerReplicationThrottledReplicasProp();
 
@@ -309,16 +308,16 @@ class ReplicationThrottleHelper {
       boolean updatedFollowerRate = false;
 
       if (newThrottle == null) {
-        updatedLeaderRate = configs.remove(MODULE$.LeaderReplicationThrottledRateProp()) != null;
-        updatedFollowerRate = configs.remove(MODULE$.FollowerReplicationThrottledRateProp()) != null;
+        updatedLeaderRate = configs.remove(KafkaConfig.LeaderReplicationThrottledRateProp()) != null;
+        updatedFollowerRate = configs.remove(KafkaConfig.FollowerReplicationThrottledRateProp()) != null;
       } else {
-        if (!configs.getProperty(MODULE$.LeaderReplicationThrottledRateProp(), "").equals(Long.toString(newThrottle))) {
-          configs.setProperty(MODULE$.LeaderReplicationThrottledRateProp(), Long.toString(newThrottle));
+        if (!configs.getProperty(KafkaConfig.LeaderReplicationThrottledRateProp(), "").equals(Long.toString(newThrottle))) {
+          configs.setProperty(KafkaConfig.LeaderReplicationThrottledRateProp(), Long.toString(newThrottle));
           updatedLeaderRate = true;
         }
 
-        if (!configs.getProperty(MODULE$.FollowerReplicationThrottledRateProp(), "").equals(Long.toString(newThrottle))) {
-          configs.setProperty(MODULE$.FollowerReplicationThrottledRateProp(), Long.toString(newThrottle));
+        if (!configs.getProperty(KafkaConfig.FollowerReplicationThrottledRateProp(), "").equals(Long.toString(newThrottle))) {
+          configs.setProperty(KafkaConfig.FollowerReplicationThrottledRateProp(), Long.toString(newThrottle));
           updatedFollowerRate = true;
         }
       }

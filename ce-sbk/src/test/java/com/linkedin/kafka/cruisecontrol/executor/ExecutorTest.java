@@ -30,7 +30,6 @@ import kafka.log.LogConfig;
 import kafka.log.LogConfig$;
 import kafka.server.ConfigType;
 import kafka.server.ConfigType$;
-import kafka.server.DynamicConfig;
 import kafka.server.KafkaConfig;
 import kafka.zk.KafkaZkClient;
 import org.apache.kafka.clients.admin.AdminClient;
@@ -72,7 +71,6 @@ import static com.linkedin.kafka.cruisecontrol.executor.ExecutorNotification.Act
 import static com.linkedin.kafka.cruisecontrol.executor.ExecutorNotification.ActionAgent.CRUISE_CONTROL;
 import static com.linkedin.kafka.cruisecontrol.executor.ExecutorNotification.ActionAgent.UNKNOWN;
 import static java.lang.String.valueOf;
-import static kafka.server.DynamicConfig.Broker$.MODULE$;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertEquals;
@@ -571,8 +569,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                                   String expectedReplicaThrottle) throws AssertionError {
     if (entityType.equals(ConfigType.Broker())) {
       Properties dynamicConfig = kafkaZkClient.getEntityConfigs(ConfigType.Broker(), entityName);
-      String leaderThrottle = dynamicConfig.getProperty(DynamicConfig.Broker$.MODULE$.LeaderReplicationThrottledRateProp());
-      String followerThrottle = dynamicConfig.getProperty(DynamicConfig.Broker$.MODULE$.FollowerReplicationThrottledRateProp());
+      String leaderThrottle = dynamicConfig.getProperty(KafkaConfig.LeaderReplicationThrottledRateProp());
+      String followerThrottle = dynamicConfig.getProperty(KafkaConfig.FollowerReplicationThrottledRateProp());
       assertEquals(expectedLeaderThrottle, leaderThrottle);
       assertEquals(expectedReplicaThrottle, followerThrottle);
     } else {
@@ -738,8 +736,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     String rate = "10000000";
 
     Properties dynamicConfigs = new Properties();
-    dynamicConfigs.put(MODULE$.LeaderReplicationThrottledRateProp(), rate);
-    dynamicConfigs.put(MODULE$.FollowerReplicationThrottledRateProp(), rate);
+    dynamicConfigs.put(KafkaConfig.LeaderReplicationThrottledRateProp(), rate);
+    dynamicConfigs.put(KafkaConfig.FollowerReplicationThrottledRateProp(), rate);
 
     for (Integer broker: _brokers.keySet()) {
       kafkaZkClient.setOrCreateEntityConfigs(ConfigType$.MODULE$.Broker(), String.valueOf(broker), dynamicConfigs);
@@ -759,8 +757,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     // Verify that throttles were removed as part of startup
     for (Integer broker: _brokers.keySet()) {
       Properties dynamicConfig = kafkaZkClient.getEntityConfigs(ConfigType.Broker(), valueOf(broker));
-      assertNull(dynamicConfig.get(DynamicConfig.Broker$.MODULE$.LeaderReplicationThrottledRateProp()));
-      assertNull(dynamicConfig.get(DynamicConfig.Broker$.MODULE$.FollowerReplicationThrottledRateProp()));
+      assertNull(dynamicConfig.get(KafkaConfig.LeaderReplicationThrottledRateProp()));
+      assertNull(dynamicConfig.get(KafkaConfig.FollowerReplicationThrottledRateProp()));
     }
     Properties topicConfig = kafkaZkClient.getEntityConfigs(ConfigType.Topic(), TOPIC0);
     assertNull(topicConfig.get(LogConfig.LeaderReplicationThrottledReplicasProp()));

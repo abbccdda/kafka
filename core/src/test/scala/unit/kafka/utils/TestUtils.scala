@@ -1756,8 +1756,8 @@ object TestUtils extends Logging {
     */
   def throttleAllBrokersReplication(adminClient: Admin, brokerIds: Seq[Int], throttleBytes: Int): Unit = {
     val throttleConfigs = Seq(
-      new AlterConfigOp(new ConfigEntry(DynamicConfig.Broker.LeaderReplicationThrottledRateProp, throttleBytes.toString), AlterConfigOp.OpType.SET),
-      new AlterConfigOp(new ConfigEntry(DynamicConfig.Broker.FollowerReplicationThrottledRateProp, throttleBytes.toString), AlterConfigOp.OpType.SET)
+      new AlterConfigOp(new ConfigEntry(KafkaConfig.LeaderReplicationThrottledRateProp, throttleBytes.toString), AlterConfigOp.OpType.SET),
+      new AlterConfigOp(new ConfigEntry(KafkaConfig.FollowerReplicationThrottledRateProp, throttleBytes.toString), AlterConfigOp.OpType.SET)
     ).asJavaCollection
 
     adminClient.incrementalAlterConfigs(

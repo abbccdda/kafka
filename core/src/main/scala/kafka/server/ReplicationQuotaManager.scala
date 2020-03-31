@@ -16,40 +16,65 @@
   */
 package kafka.server
 
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
 import java.util.concurrent.locks.ReentrantReadWriteLock
 
-import scala.collection.Seq
-
+import scala.collection.{Seq, Set}
 import kafka.server.Constants._
 import kafka.server.ReplicationQuotaManagerConfig._
 import kafka.utils.CoreUtils._
 import kafka.utils.Logging
 import org.apache.kafka.common.metrics._
-
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.config.ConfigDef.ValidString.in
+import org.apache.kafka.common.config.ConfigDef.Validator
 import org.apache.kafka.common.metrics.stats.SimpleRate
 import org.apache.kafka.common.utils.Time
 
 /**
   * Configuration settings for quota management
   *
-  * @param quotaBytesPerSecondDefault The default bytes per second quota allocated to internal replication
+  * @param quotaBytesPerSecond The statically-configured bytes per second quota allocated to internal replication
   * @param numQuotaSamples            The number of samples to retain in memory
   * @param quotaWindowSizeSeconds     The time span of each sample
-  *
+  * @param allReplicasThrottled       true - all replicas on this broker for the specific quota type are throttled
+  *                                   false - replica throttling relies on the topic-level dynamic config
   */
-case class ReplicationQuotaManagerConfig(quotaBytesPerSecondDefault: Long = QuotaBytesPerSecondDefault,
+case class ReplicationQuotaManagerConfig(quotaBytesPerSecond: Long = QuotaBytesPerSecondDefault,
                                          numQuotaSamples: Int = DefaultNumQuotaSamples,
-                                         quotaWindowSizeSeconds: Int = DefaultQuotaWindowSizeSeconds)
+                                         quotaWindowSizeSeconds: Int = DefaultQuotaWindowSizeSeconds,
+                                         allReplicasThrottled: Boolean = false)
 
 object ReplicationQuotaManagerConfig {
-  val QuotaBytesPerSecondDefault = Long.MaxValue
+  /**
+   * The possible values for the
+   * `KafkaConfig.FollowerReplicationThrottledReplicasProp` and `KafkaConfig.LeaderReplicationThrottledReplicasProp` configs
+   */
+  val NoThrottledReplicasValue = "none"
+  val AllThrottledReplicasValue = "*"
+  val QuotaBytesPerSecondDefault: Long = Long.MaxValue
   // Always have 10 whole windows + 1 current window
   val DefaultNumQuotaSamples = 11
   val DefaultQuotaWindowSizeSeconds = 1
   // Purge sensors after 1 hour of inactivity
   val InactiveSensorExpirationTimeSeconds = 3600
+
+  val ReconfigurableConfigs: Set[String] = Set(
+    KafkaConfig.LeaderReplicationThrottledReplicasProp,
+    KafkaConfig.LeaderReplicationThrottledRateProp,
+    KafkaConfig.FollowerReplicationThrottledReplicasProp,
+    KafkaConfig.FollowerReplicationThrottledRateProp
+  )
+
+  def allReplicasThrottled(throttledReplicas: String): Boolean =
+    AllThrottledReplicasValue.equals(throttledReplicas)
+
+  /**
+   * The config validator for the broker-level throttled replicas conifg
+   */
+  def throttledReplicasValidator: Validator =
+    in(ReplicationQuotaManagerConfig.NoThrottledReplicasValue, ReplicationQuotaManagerConfig.AllThrottledReplicasValue)
 }
 
 trait ReplicaQuota {
@@ -60,6 +85,7 @@ trait ReplicaQuota {
 
 object Constants {
   val AllReplicas = Seq[Int](-1)
+  val NoReplicas = Seq[Int](-2)
 }
 
 /**
@@ -76,10 +102,13 @@ class ReplicationQuotaManager(val config: ReplicationQuotaManagerConfig,
                               private val time: Time) extends Logging with ReplicaQuota {
   private val lock = new ReentrantReadWriteLock()
   private val throttledPartitions = new ConcurrentHashMap[String, Seq[Int]]()
-  private var quota: Quota = null
+  private var quota: Quota = _
+  private val allReplicasThrottled = new AtomicBoolean(config.allReplicasThrottled)
   private val sensorAccess = new SensorAccess(lock, metrics)
   private val rateMetricName = metrics.metricName("byte-rate", replicationType.toString,
     s"Tracking byte-rate for ${replicationType}")
+
+  updateQuota(Quota.upperBound(config.quotaBytesPerSecond))
 
   /**
     * Update the quota
@@ -120,10 +149,14 @@ class ReplicationQuotaManager(val config: ReplicationQuotaManagerConfig,
     * @return
     */
   override def isThrottled(topicPartition: TopicPartition): Boolean = {
+    // check topic-specific replica throttles first
     val partitions = throttledPartitions.get(topicPartition.topic)
-    if (partitions != null)
-      (partitions eq AllReplicas) || partitions.contains(topicPartition.partition)
-    else false
+    if (partitions == null || partitions.isEmpty)
+      allReplicasThrottled.get()
+    else if ((partitions eq AllReplicas) || partitions.contains(topicPartition.partition))
+      true
+    else // some replicas are throttled but this one is not or this topic's is exempt from throttling
+      false
   }
 
   /**
@@ -154,13 +187,10 @@ class ReplicationQuotaManager(val config: ReplicationQuotaManagerConfig,
   }
 
   /**
-    * Mark all replicas for this topic as throttled
-    *
-    * @param topic
-    * @return
-    */
-  def markThrottled(topic: String): Unit = {
-    markThrottled(topic, AllReplicas)
+   * Mark all replication replicas on this broker as throttled
+   */
+  def markBrokerThrottled(): Unit = {
+    allReplicasThrottled.set(true)
   }
 
   /**
@@ -174,16 +204,25 @@ class ReplicationQuotaManager(val config: ReplicationQuotaManagerConfig,
   }
 
   /**
+   * Disables broker-level replication throttling
+   * @param resetThrottle - whether to reset the throttle to the statically-set value
+   */
+  def removeBrokerThrottle(resetThrottle: Boolean): Unit = {
+    val throttleEnabled = if (resetThrottle)
+      config.allReplicasThrottled
+    else
+      false
+    allReplicasThrottled.set(throttleEnabled)
+  }
+
+  /**
     * Returns the bound of the configured quota
     *
     * @return
     */
   def upperBound(): Long = {
     inReadLock(lock) {
-      if (quota != null)
-        quota.bound().toLong
-      else
-        Long.MaxValue
+      quota.bound().toLong
     }
   }
 

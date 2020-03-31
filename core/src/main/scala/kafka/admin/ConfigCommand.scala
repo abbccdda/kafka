@@ -76,8 +76,8 @@ object ConfigCommand extends Config {
   // broker configs can still be updated using ZooKeeper at any time. ConfigCommand will be migrated
   // to the new AdminClient later for these configs (KIP-248).
   val BrokerConfigsUpdatableUsingZooKeeperWhileBrokerRunning = Set(
-    DynamicConfig.Broker.LeaderReplicationThrottledRateProp,
-    DynamicConfig.Broker.FollowerReplicationThrottledRateProp,
+    KafkaConfig.LeaderReplicationThrottledRateProp,
+    KafkaConfig.FollowerReplicationThrottledRateProp,
     DynamicConfig.Broker.ReplicaAlterLogDirsIoMaxBytesPerSecondProp)
 
   def main(args: Array[String]): Unit = {
