@@ -1,4 +1,4 @@
-// (Copyright) [2017 - 2017] Confluent, Inc.
+// (Copyright) [2017 - 2020] Confluent, Inc.
 
 package io.confluent.kafka.multitenant;
 
@@ -60,7 +60,7 @@ public class PhysicalClusterMetadataTest {
   // so we will use longer timeout than in other tests
   private static final long TEST_MAX_WAIT_MS = TimeUnit.SECONDS.toMillis(60);
   private static final String SSL_CERTS_DIR = "mnt/sslcerts/";
-  private static final String BROKER_ID = "1";
+  private static final String BROKER_ID = "0";
   private static final String BROKER_UUID = "test-uuid-3";
   private static final URL TEST_SSL_CERTS_AUG = PhysicalClusterMetadataTest.class.getResource("/cert_exp_aug");
   private static final URL TEST_SSL_CERTS_MAY = PhysicalClusterMetadataTest.class.getResource("/cert_exp_may");
@@ -76,9 +76,12 @@ public class PhysicalClusterMetadataTest {
   @Before
   public void setUp() throws Exception {
     lcCache = new PhysicalClusterMetadata();
-    Node node = new Node(1, "localhost", 9092);
+    Node node = new Node(0, "localhost", 9092);
     endpoint = node.host() + ":" + node.port();
-    mockAdminClient = spy(new MockAdminClient(singletonList(node), node));
+    mockAdminClient = spy(new MockAdminClient.Builder()
+        .brokers(singletonList(node))
+        .controller(0)
+        .build());
     sslCertsPath = tempFolder.getRoot().getCanonicalPath() + "/" + SSL_CERTS_DIR + "spec.json";
     String logicalClustersDir = tempFolder.getRoot().getCanonicalPath();
     lcCache.configure(logicalClustersDir, TEST_CACHE_RELOAD_DELAY_MS, mockAdminClient, BROKER_ID, sslCertsPath);

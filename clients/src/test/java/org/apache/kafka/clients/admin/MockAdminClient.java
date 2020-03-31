@@ -538,10 +538,10 @@ public class MockAdminClient extends AdminClient {
                 } catch (NumberFormatException e) {
                     return e;
                 }
-                Map<String, String> map = brokerConfigs.get(brokerId);
-                if (map == null) {
+                if (brokerId >= brokerConfigs.size()) {
                     return new InvalidRequestException("no such broker as " + brokerId);
                 }
+                Map<String, String> map = brokerConfigs.get(brokerId);
                 HashMap<String, String> newMap = new HashMap<>(map);
                 for (AlterConfigOp op : ops) {
                     switch (op.opType()) {
