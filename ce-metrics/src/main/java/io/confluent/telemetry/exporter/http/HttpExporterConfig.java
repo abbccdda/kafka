@@ -15,10 +15,13 @@ import java.time.Duration;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigDef.Validator;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,7 +45,7 @@ public class HttpExporterConfig extends AbstractConfig {
 
     public static final String API_SECRET_KEY = PREFIX + "api.key.secret";
     public static final String API_SECRET_KEY_DOC = "The API secret key used to authenticate with the Confluent Telemetry API";
-
+    public static final Set<String> RECONFIGURABLE_CONFIGS = Utils.mkSet(API_KEY, API_SECRET_KEY);
 
     public static final String BUFFER_MAX_BATCH_DURATION_MS = PREFIX_BUFFER + "batch.duration.max.ms";
     public static final String BUFFER_MAX_BATCH_DURATION_MS_DOC = "The maximum duration (in millis) to buffer items before sending them upstream";
@@ -244,6 +247,15 @@ public class HttpExporterConfig extends AbstractConfig {
         Optional.ofNullable(getInt(BUFFER_MAX_INFLIGHT_SUBMISSIONS)).ifPresent(builder::setMaxInflightSubmissions);
 
         return builder;
+    }
+
+    public static void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
+        String apiKey = (String) configs.get(API_KEY);
+        String apiSecretKey = (String) configs.get(API_SECRET_KEY);
+
+        if (Strings.isNullOrEmpty(apiKey) ^ Strings.isNullOrEmpty(apiSecretKey)) {
+            throw new ConfigException("Must specify both %s and %s", API_KEY, API_SECRET_KEY);
+        }
     }
 
     private static class URIValidator implements Validator {

@@ -19,14 +19,18 @@ import io.confluent.telemetry.collector.VolumeMetricsCollector;
 import io.confluent.telemetry.collector.YammerMetricsCollector;
 import io.confluent.telemetry.exporter.Exporter;
 import io.confluent.telemetry.exporter.http.HttpExporter;
+import io.confluent.telemetry.exporter.http.HttpExporterConfig;
 import io.confluent.telemetry.exporter.kafka.KafkaExporter;
 import io.opencensus.proto.resource.v1.Resource;
+
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import kafka.metrics.KafkaYammerMetrics;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.ClusterResourceListener;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.MetricsReporter;
 import org.apache.kafka.common.utils.AppInfoParser;
@@ -113,6 +117,33 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
         this.kafkaMetricsStateLedger.configure(configs);
 
         this.exporters = initExporters();
+    }
+
+    /* Implementing Reconfigurable interface to make this reporter dynamically reconfigurable. */
+    @Override
+    public void reconfigure(Map<String, ?> configs) {
+        // HttpExporter related reconfigurations.
+        for (Exporter exporter : this.exporters) {
+            if (exporter instanceof HttpExporter) {
+                ((HttpExporter) exporter).reconfigure(new HttpExporterConfig(configs));
+            }
+        }
+    }
+
+    @Override
+    public Set<String> reconfigurableConfigs() {
+        Set<String> reconfigurables = new HashSet<String>();
+
+        // HttpExporterConfig related reconfigurable configs.
+        reconfigurables.addAll(HttpExporterConfig.RECONFIGURABLE_CONFIGS);
+
+        return reconfigurables;
+    }
+
+    @Override
+    public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
+        // Validating HttpExporterConfig related reconfigurable configs.
+        HttpExporterConfig.validateReconfiguration(configs);
     }
 
     private List<MetricsCollector> initCollectors(Context ctx) {

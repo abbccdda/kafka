@@ -175,4 +175,10 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
             }
         };
     }
+
+    public void reconfigure(HttpExporterConfig config) {
+        String apiKey = config.getString(HttpExporterConfig.API_KEY);
+        String apiSecretKey = config.getString(HttpExporterConfig.API_SECRET_KEY);
+        this.bufferingClient.updateCredentials(apiKey, apiSecretKey);
+    }
 }
