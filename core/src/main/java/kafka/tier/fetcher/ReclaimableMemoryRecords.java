@@ -138,10 +138,29 @@ public class ReclaimableMemoryRecords extends MemoryRecords {
     }
 
     @Override
+    public void release() {
+        if (state == State.ACTIVE) {
+            lease.release();
+            state = State.RELEASED;
+        }
+    }
+
+    @Override
+    public String toString() {
+        return "ReclaimableMemoryRecords(records=" + super.toString() + ")";
+    }
+
+    @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        if (!super.equals(o)) return false;
+        if (this == o)
+            return true;
+
+        if (o == null || getClass() != o.getClass())
+            return false;
+
+        if (!super.equals(o))
+            return false;
+
         MemoryRecords self = this;
         MemoryRecords that = (MemoryRecords) o;
         return self.equals(that);
@@ -151,13 +170,5 @@ public class ReclaimableMemoryRecords extends MemoryRecords {
     public int hashCode() {
         MemoryRecords self = this;
         return self.hashCode();
-    }
-
-    @Override
-    public void release() {
-        if (state == State.ACTIVE) {
-            lease.release();
-            state = State.RELEASED;
-        }
     }
 }
