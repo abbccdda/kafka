@@ -18,7 +18,7 @@
  */
 
 def config = jobConfig {
-    cron = '@midnight'
+    cron = '@weekly'
     nodeLabel = 'docker-oraclejdk8-ce-kafka'
     testResultSpecs = ['junit': '**/build/test-results/**/TEST-*.xml']
     slackChannel = '#kafka-warn'
