@@ -60,11 +60,16 @@ object ReplicationQuotaManagerConfig {
   // Purge sensors after 1 hour of inactivity
   val InactiveSensorExpirationTimeSeconds = 3600
 
+  val LeaderReplicationThrottledRateProp = "leader.replication.throttled.rate"
+  val FollowerReplicationThrottledRateProp = "follower.replication.throttled.rate"
+  val LeaderReplicationThrottledReplicasProp = "leader.replication.throttled.replicas"
+  val FollowerReplicationThrottledReplicasProp = "follower.replication.throttled.replicas"
+
   val ReconfigurableConfigs: Set[String] = Set(
-    KafkaConfig.LeaderReplicationThrottledReplicasProp,
-    KafkaConfig.LeaderReplicationThrottledRateProp,
-    KafkaConfig.FollowerReplicationThrottledReplicasProp,
-    KafkaConfig.FollowerReplicationThrottledRateProp
+    LeaderReplicationThrottledReplicasProp,
+    LeaderReplicationThrottledRateProp,
+    FollowerReplicationThrottledReplicasProp,
+    FollowerReplicationThrottledRateProp
   )
 
   def allReplicasThrottled(throttledReplicas: String): Boolean =

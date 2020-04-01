@@ -639,10 +639,10 @@ object KafkaConfig {
   val NumReplicationQuotaSamplesProp = "replication.quota.window.num"
   val NumAlterLogDirsReplicationQuotaSamplesProp = "alter.log.dirs.replication.quota.window.num"
   val QuotaWindowSizeSecondsProp = "quota.window.size.seconds"
-  val LeaderReplicationThrottledRateProp = "leader.replication.throttled.rate"
-  val FollowerReplicationThrottledRateProp = "follower.replication.throttled.rate"
-  val LeaderReplicationThrottledReplicasProp = "leader.replication.throttled.replicas"
-  val FollowerReplicationThrottledReplicasProp = "follower.replication.throttled.replicas"
+  val LeaderReplicationThrottledRateProp = ReplicationQuotaManagerConfig.LeaderReplicationThrottledRateProp
+  val FollowerReplicationThrottledRateProp = ReplicationQuotaManagerConfig.FollowerReplicationThrottledRateProp
+  val LeaderReplicationThrottledReplicasProp = ReplicationQuotaManagerConfig.LeaderReplicationThrottledReplicasProp
+  val FollowerReplicationThrottledReplicasProp = ReplicationQuotaManagerConfig.FollowerReplicationThrottledReplicasProp
   val ReplicationQuotaWindowSizeSecondsProp = "replication.quota.window.size.seconds"
   val AlterLogDirsReplicationQuotaWindowSizeSecondsProp = "alter.log.dirs.replication.quota.window.size.seconds"
   val ClientQuotaCallbackClassProp = "client.quota.callback.class"
