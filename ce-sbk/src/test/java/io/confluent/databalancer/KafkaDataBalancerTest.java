@@ -5,8 +5,26 @@
 package io.confluent.databalancer;
 
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.CpuUsageDistributionGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.DiskCapacityGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.DiskUsageDistributionGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.LeaderBytesInDistributionGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.LeaderReplicaDistributionGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundCapacityGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundUsageDistributionGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundCapacityGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundUsageDistributionGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.RackAwareGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaCapacityGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaDistributionGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.TopicReplicaDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType;
+import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
+import io.confluent.cruisecontrol.analyzer.goals.CrossRackMovementGoal;
+import io.confluent.cruisecontrol.analyzer.goals.SequentialReplicaMovementGoal;
+import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
+import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
 import kafka.controller.DataBalancer;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
@@ -20,7 +38,11 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -171,26 +193,34 @@ public class KafkaDataBalancerTest {
     @Test
     public void testGenerateCruiseControlConfig() {
         // Add required properties
-        String bootstrapServers = ConfluentConfigs.CONFLUENT_BALANCER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
-        brokerProps.put(bootstrapServers, "localhost:9092");
-        brokerProps.put(ConfluentConfigs.CONFLUENT_BALANCER_PREFIX + KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG,
-            "com.linkedin.kafka.cruisecontrol.analyzer.goals.RackAwareGoal," +
-            "com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaCapacityGoal," +
-            "com.linkedin.kafka.cruisecontrol.analyzer.goals.DiskCapacityGoal," +
-            "com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundCapacityGoal," +
-            "com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundCapacityGoal," +
-            "com.linkedin.kafka.cruisecontrol.analyzer.goals.CpuCapacityGoal," +
-            "com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaDistributionGoal," +
-            "com.linkedin.kafka.cruisecontrol.analyzer.goals.PotentialNwOutGoal," +
-            "com.linkedin.kafka.cruisecontrol.analyzer.goals.DiskUsageDistributionGoal," +
-            "com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundUsageDistributionGoal," +
-            "com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundUsageDistributionGoal," +
-            "com.linkedin.kafka.cruisecontrol.analyzer.goals.CpuUsageDistributionGoal," +
-            "com.linkedin.kafka.cruisecontrol.analyzer.goals.TopicReplicaDistributionGoal," +
-            "com.linkedin.kafka.cruisecontrol.analyzer.goals.LeaderReplicaDistributionGoal," +
-            "com.linkedin.kafka.cruisecontrol.analyzer.goals.LeaderBytesInDistributionGoal");
+        final String sampleZkString = "zookeeper-1-internal.pzkc-ldqwz.svc.cluster.local:2181,zookeeper-2-internal.pzkc-ldqwz.svc.cluster.local:2181/testKafkaCluster";
+        String bootstrapServersConfig = ConfluentConfigs.CONFLUENT_BALANCER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
+        String bootstrapServers = "localhost:9092";
 
-        // Add peroperties to test
+        // Goals Config should be this
+        List<String> expectedGoalsConfig = new ArrayList<>(Arrays.asList(
+                CrossRackMovementGoal.class.getName(),
+                SequentialReplicaMovementGoal.class.getName(),
+                RackAwareGoal.class.getName(),
+                ReplicaCapacityGoal.class.getName(),
+                DiskCapacityGoal.class.getName(),
+                NetworkInboundCapacityGoal.class.getName(),
+                NetworkOutboundCapacityGoal.class.getName(),
+                ReplicaDistributionGoal.class.getName(),
+                DiskUsageDistributionGoal.class.getName(),
+                NetworkInboundUsageDistributionGoal.class.getName(),
+                NetworkOutboundUsageDistributionGoal.class.getName(),
+                CpuUsageDistributionGoal.class.getName(),
+                TopicReplicaDistributionGoal.class.getName(),
+                LeaderReplicaDistributionGoal.class.getName(),
+                LeaderBytesInDistributionGoal.class.getName()
+        ));
+        brokerProps.put(bootstrapServersConfig, bootstrapServers);
+        // Not a valid ZK connect URL but to validate what gets copied over.
+        brokerProps.put(KafkaConfig.ZkConnectProp(), sampleZkString);
+
+
+        // Add required properties to test
         String nwInCapacity = ConfluentConfigs.CONFLUENT_BALANCER_PREFIX +
                 KafkaCruiseControlConfig.NETWORK_INBOUND_CAPACITY_THRESHOLD_CONFIG;
         String metricSamplerClass = ConfluentConfigs.CONFLUENT_BALANCER_PREFIX +
@@ -202,15 +232,99 @@ public class KafkaDataBalancerTest {
         brokerProps.put(nonBalancerPropertyKey, "nonBalancerPropertyValue");
 
         KafkaConfig config = new KafkaConfig(brokerProps);
-        KafkaDataBalancer kafkaDataBalancer = new KafkaDataBalancer(config);
-        KafkaCruiseControlConfig ccConfig = kafkaDataBalancer.generateCruiseControlConfig();
+        KafkaCruiseControlConfig ccConfig = KafkaDataBalancer.generateCruiseControlConfig(config);
 
+        assertTrue(ccConfig.getList(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG).contains(bootstrapServers));
+        assertEquals(sampleZkString, ccConfig.getString(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG));
         assertNotNull("balancer n/w input capacity property not present",
                 ccConfig.getDouble(KafkaCruiseControlConfig.NETWORK_INBOUND_CAPACITY_THRESHOLD_CONFIG));
         assertNotNull("balancer metrics sampler class property not present",
                 ccConfig.getClass(KafkaCruiseControlConfig.METRIC_SAMPLER_CLASS_CONFIG));
         assertThrows("nonBalancerPropertyValue present", ConfigException.class,
                 () -> ccConfig.getString(nonBalancerPropertyKey));
+        assertEquals(expectedGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.GOALS_CONFIG));
+        assertEquals(Collections.emptyList(), ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG));
+
+        // Not all properties go into the KafkaCruiseControlConfig. Extract everything for validation.
+        // Expect nothing to be present as no overrides were present in this config
+        Map<String, Object> ccOriginals = ccConfig.originals();
+        assertFalse(ccOriginals.containsKey(ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN));
+        assertFalse(ccOriginals.containsKey(KafkaSampleStore.SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG));
+
+    }
+
+    @Test
+    public void testGeneratedConfigWithOverrides() {
+        // Add required properties
+        final String sampleZkString = "zookeeper-1-internal.pzkc-ldqwz.svc.cluster.local:2181,zookeeper-2-internal.pzkc-ldqwz.svc.cluster.local:2181/testKafkaCluster";
+        String bootstrapServersConfig = ConfluentConfigs.CONFLUENT_BALANCER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
+        String bootstrapServers =  "localhost:9092";
+
+        // Goals Config should be this -- not overridden
+        List<String> expectedGoalsConfig = new ArrayList<>(
+                Arrays.asList(
+                        CrossRackMovementGoal.class.getName(),
+                        SequentialReplicaMovementGoal.class.getName(),
+                        RackAwareGoal.class.getName(),
+                        ReplicaCapacityGoal.class.getName(),
+                        DiskCapacityGoal.class.getName(),
+                        NetworkInboundCapacityGoal.class.getName(),
+                        NetworkOutboundCapacityGoal.class.getName(),
+                        ReplicaDistributionGoal.class.getName(),
+                        DiskUsageDistributionGoal.class.getName(),
+                        NetworkInboundUsageDistributionGoal.class.getName(),
+                        NetworkOutboundUsageDistributionGoal.class.getName(),
+                        CpuUsageDistributionGoal.class.getName(),
+                        TopicReplicaDistributionGoal.class.getName(),
+                        LeaderReplicaDistributionGoal.class.getName(),
+                        LeaderBytesInDistributionGoal.class.getName()
+        ));
+
+        // Test a limited subset of default goals.
+        // N.B. There is a required minimum of default goals (must be a superset of ANOMALY_DETECTION_GOALS),
+        // which explains this set.
+        List<String> testDefaultGoalsConfig = new ArrayList<>(
+                Arrays.asList(
+                        CrossRackMovementGoal.class.getName(),
+                        RackAwareGoal.class.getName(),
+                        ReplicaCapacityGoal.class.getName(),
+                        ReplicaDistributionGoal.class.getName(),
+                        DiskCapacityGoal.class.getName()
+        ));
+
+        // Set Default Goals to this
+        String defaultGoalsOverride = String.join(",", testDefaultGoalsConfig);
+        brokerProps.put(bootstrapServersConfig, bootstrapServers);
+        // Not a valid ZK connect URL but to validate what gets copied over.
+        brokerProps.put(KafkaConfig.ZkConnectProp(), sampleZkString);
+
+        // Add required properties to test
+        String nwInCapacity = ConfluentConfigs.CONFLUENT_BALANCER_PREFIX +
+                KafkaCruiseControlConfig.NETWORK_INBOUND_CAPACITY_THRESHOLD_CONFIG;
+        String  metricsTopicConfig = ConfluentMetricsReporterConfig.TOPIC_CONFIG;
+        String testMetricsTopic = "testMetricsTopic";
+        String metricsRfConfig = ConfluentMetricsReporterConfig.TOPIC_REPLICAS_CONFIG;
+        String testMetricsRfValue = "2";
+
+        brokerProps.put(nwInCapacity, "0.12");
+        brokerProps.put(metricsTopicConfig, testMetricsTopic);
+        brokerProps.put(metricsRfConfig, testMetricsRfValue);
+
+        brokerProps.put(ConfluentConfigs.CONFLUENT_BALANCER_PREFIX + KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG,
+                defaultGoalsOverride);
+
+        KafkaConfig config = new KafkaConfig(brokerProps);
+        KafkaCruiseControlConfig ccConfig = KafkaDataBalancer.generateCruiseControlConfig(config);
+        // Not all properties go into the KafkaCruiseControlConfig. Extract everything for validation.
+        Map<String, Object> ccOriginals = ccConfig.originals();
+
+        assertEquals(testMetricsTopic, ccOriginals.get(ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN));
+        assertEquals(testMetricsRfValue, ccOriginals.get(KafkaSampleStore.SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG));
+
+        assertEquals(expectedGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.GOALS_CONFIG));
+        assertEquals(testDefaultGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG));
+
+
     }
 
     @Test

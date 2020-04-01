@@ -89,6 +89,8 @@ public class KafkaSampleStore implements SampleStore {
   private static final ConsumerRecords<byte[], byte[]> SHUTDOWN_RECORDS = new ConsumerRecords<>(Collections.emptyMap());
   private static final Duration SAMPLE_POLL_TIMEOUT = Duration.ofMillis(1000L);
 
+  private static final String DEFAULT_PARTITION_SAMPLE_STORE_TOPIC = "_confluent_balancer_partition_samples";
+  private static final String DEFAULT_BROKER_SAMPLE_STORE_TOPIC =  "_confluent_balancer_broker_samples";
   protected static final int DEFAULT_NUM_SAMPLE_LOADING_THREADS = 8;
   protected static final int DEFAULT_SAMPLE_STORE_TOPIC_REPLICATION_FACTOR = 3;
   protected static final int DEFAULT_PARTITION_SAMPLE_STORE_TOPIC_PARTITION_COUNT = 32;
@@ -125,8 +127,16 @@ public class KafkaSampleStore implements SampleStore {
   public static final String SKIP_SAMPLE_STORE_TOPIC_RACK_AWARENESS_CHECK_CONFIG = "skip.sample.store.topic.rack.awareness.check";
   @Override
   public void configure(Map<String, ?> config) {
-    _partitionMetricSampleStoreTopic = KafkaCruiseControlUtils.getRequiredConfig(config, PARTITION_METRIC_SAMPLE_STORE_TOPIC_CONFIG);
-    _brokerMetricSampleStoreTopic = KafkaCruiseControlUtils.getRequiredConfig(config, BROKER_METRIC_SAMPLE_STORE_TOPIC_CONFIG);
+    String partitionSampleStoreTopicString = (String) config.get(PARTITION_METRIC_SAMPLE_STORE_TOPIC_CONFIG);
+    _partitionMetricSampleStoreTopic = partitionSampleStoreTopicString == null
+                                       || partitionSampleStoreTopicString.isEmpty()
+                                       ? DEFAULT_PARTITION_SAMPLE_STORE_TOPIC
+                                       : partitionSampleStoreTopicString;
+    String brokerSampleStoreTopicString = (String) config.get(BROKER_METRIC_SAMPLE_STORE_TOPIC_CONFIG);
+    _brokerMetricSampleStoreTopic = brokerSampleStoreTopicString == null
+                                    || brokerSampleStoreTopicString.isEmpty()
+                                    ? DEFAULT_BROKER_SAMPLE_STORE_TOPIC
+                                    : brokerSampleStoreTopicString;
     String metricSampleStoreTopicReplicationFactorString = (String) config.get(SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG);
     _sampleStoreTopicReplicationFactor = metricSampleStoreTopicReplicationFactorString == null
                                          || metricSampleStoreTopicReplicationFactorString.isEmpty()

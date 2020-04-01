@@ -9,6 +9,9 @@ import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType;
 import com.yammer.metrics.Metrics;
+import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
+import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
+import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
 import kafka.controller.DataBalancer;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
@@ -18,16 +21,16 @@ import org.slf4j.LoggerFactory;
 import java.lang.reflect.Method;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
-import java.util.HashMap;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.HashMap;
+import java.util.Map;
 
 public class KafkaDataBalancer implements DataBalancer {
     private static final Logger LOG = LoggerFactory.getLogger(KafkaDataBalancer.class);
@@ -99,7 +102,7 @@ public class KafkaDataBalancer implements DataBalancer {
 
         LOG.info("DataBalancer: Instantiating Cruise Control");
         try {
-            KafkaCruiseControlConfig config = generateCruiseControlConfig();
+            KafkaCruiseControlConfig config = generateCruiseControlConfig(kafkaConfig);
             checkStartupComponentsReady(config, numStopRequests);
             KafkaCruiseControl cruiseControl = new KafkaCruiseControl(config, Metrics.defaultRegistry());
             cruiseControl.startUp();
@@ -112,18 +115,6 @@ public class KafkaDataBalancer implements DataBalancer {
             LOG.warn("Unable to start up CruiseControl", e);
             this.cruiseControl = null;
         }
-    }
-
-    // Visible for testing
-    KafkaCruiseControlConfig generateCruiseControlConfig() {
-        // Extract all confluent.databalancer.X properties from the KafkaConfig
-        Map<String, Object> ccConfigProps = new HashMap<>(
-                kafkaConfig.originalsWithPrefix(ConfluentConfigs.CONFLUENT_BALANCER_PREFIX));
-
-        // Special overrides: zookeeper.connect, etc.
-        ccConfigProps.put("zookeeper.connect", kafkaConfig.get("zookeeper.connect"));
-
-        return new KafkaCruiseControlConfig(ccConfigProps);
     }
 
     /**
@@ -198,5 +189,45 @@ public class KafkaDataBalancer implements DataBalancer {
         Stream<String> topicPrefixRegexStream = topicPrefixes.stream().map(prefix -> START_ANCHOR + Pattern.quote(prefix) + WILDCARD_SUFFIX);
 
         return Stream.concat(topicNameRegexStream, topicPrefixRegexStream).collect(Collectors.joining("|"));
+    }
+
+    /**
+     * Given a KafkaConfig, generate an appropriate KafkaCruiseControlConfig to bring up CruiseControl internally.
+     * Visible for testing
+     */
+    static KafkaCruiseControlConfig generateCruiseControlConfig(KafkaConfig config) {
+        // Extract all confluent.databalancer.X properties from the KafkaConfig, so we
+        // can create a CruiseControlConfig from it.
+        Map<String, Object> ccConfigProps = new java.util.HashMap<>(config.originalsWithPrefix(ConfluentConfigs.CONFLUENT_BALANCER_PREFIX));
+
+        // Special overrides: zookeeper.connect, etc.
+        ccConfigProps.put(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG, config.get(KafkaConfig.ZkConnectProp()));
+
+        // CNKAF-528: Derive bootstrap.servers from the provided KafkaConfig, instead of requiring
+        // users to specify it.
+
+        // Some CruiseControl properties can be interpreted from existing properties,
+        // but those properties aren't defined in KafkaConfig because they're in external modules,
+        // e.g. the MetricsReporter (needed by SBK for getting data about the cluster). These may
+        // be available in the "originals."
+        // Specifically:
+        // Metrics Reporter topic -- needed to read metrics
+        // Metrics Reporter replication factor -- use this for the SampleStore
+        Map<String, Object> kccProps = config.originals();
+
+        // Our metrics reporter sampler pulls from the Metrics Reporter Sampler. Copy that over if needed.
+        String metricsReporterTopic = (String) kccProps.get(ConfluentMetricsReporterConfig.TOPIC_CONFIG);
+        if (metricsReporterTopic != null && metricsReporterTopic.length() > 0) {
+            ccConfigProps.putIfAbsent(ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN, metricsReporterTopic);
+        }
+
+        String metricsReporterReplFactor = (String) kccProps.get(ConfluentMetricsReporterConfig.TOPIC_REPLICAS_CONFIG);
+        // The metrics reporter replication factor is the same RF we should use for the sample store topic.
+        if (metricsReporterReplFactor != null && metricsReporterReplFactor.length() > 0) {
+            ccConfigProps.putIfAbsent(KafkaSampleStore.SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG,
+                    metricsReporterReplFactor);
+        }
+
+        return new KafkaCruiseControlConfig(ccConfigProps);
     }
 }

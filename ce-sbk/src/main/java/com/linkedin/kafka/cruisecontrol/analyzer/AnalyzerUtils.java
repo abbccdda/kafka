@@ -170,7 +170,13 @@ public class AnalyzerUtils {
    * Get the list of default goals sorted by highest to lowest default priority.
    */
   public static List<Goal> getGoalsByPriority(KafkaCruiseControlConfig config) {
-    return config.getConfiguredInstances(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG, Goal.class);
+    // Take default goals if they are specified (these are the "default goals to use for optimization")
+    // If default goals are not specified, use the full set of goals.
+    List<Goal> goalList = config.getConfiguredInstances(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG, Goal.class);
+    if (goalList.isEmpty()) {
+      goalList = config.getConfiguredInstances(KafkaCruiseControlConfig.GOALS_CONFIG, Goal.class);
+    }
+    return goalList;
   }
 
   /**

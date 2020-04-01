@@ -5,7 +5,6 @@
 package com.linkedin.kafka.cruisecontrol.config;
 
 import com.linkedin.cruisecontrol.common.CruiseControlConfigurable;
-import com.linkedin.kafka.cruisecontrol.analyzer.goals.CpuCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.CpuUsageDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.DiskCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.DiskUsageDistributionGoal;
@@ -17,7 +16,6 @@ import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundCapacityGoa
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundUsageDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundUsageDistributionGoal;
-import com.linkedin.kafka.cruisecontrol.analyzer.goals.PotentialNwOutGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.RackAwareGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaDistributionGoal;
@@ -29,15 +27,17 @@ import com.linkedin.kafka.cruisecontrol.executor.strategy.BaseReplicaMovementStr
 import com.linkedin.kafka.cruisecontrol.executor.strategy.PostponeUrpReplicaMovementStrategy;
 import com.linkedin.kafka.cruisecontrol.executor.strategy.PrioritizeLargeReplicaMovementStrategy;
 import com.linkedin.kafka.cruisecontrol.executor.strategy.PrioritizeSmallReplicaMovementStrategy;
-import com.linkedin.kafka.cruisecontrol.monitor.sampling.CruiseControlMetricsReporterSampler;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.DefaultMetricSamplerPartitionAssignor;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
+
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-import java.util.StringJoiner;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
+
+import io.confluent.cruisecontrol.analyzer.goals.CrossRackMovementGoal;
+import io.confluent.cruisecontrol.analyzer.goals.SequentialReplicaMovementGoal;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
@@ -203,6 +203,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
    */
   public static final String METRIC_SAMPLER_CLASS_CONFIG = "metric.sampler.class";
   private static final String METRIC_SAMPLER_CLASS_DOC = "The class name of the metric sampler";
+  private static final String METRIC_SAMPLER_CLASS_DEFAULT = "io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler";
 
   /**
    * <code>metric.sampler.partition.assignor.class</code>
@@ -1168,7 +1169,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
             NUM_CACHED_RECENT_ANOMALY_STATES_DOC)
         .define(METRIC_SAMPLER_CLASS_CONFIG,
                 ConfigDef.Type.CLASS,
-                CruiseControlMetricsReporterSampler.class.getName(),
+                METRIC_SAMPLER_CLASS_DEFAULT,
                 ConfigDef.Importance.HIGH,
                 METRIC_SAMPLER_CLASS_DOC)
         .define(METRIC_SAMPLER_PARTITION_ASSIGNOR_CLASS_CONFIG,
@@ -1387,11 +1388,11 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 DEFAULT_REPLICATION_THROTTLE_DOC)
         .define(REPLICA_MOVEMENT_STRATEGIES_CONFIG,
                 ConfigDef.Type.LIST,
-                new StringJoiner(",")
-                    .add(PostponeUrpReplicaMovementStrategy.class.getName())
-                    .add(PrioritizeLargeReplicaMovementStrategy.class.getName())
-                    .add(PrioritizeSmallReplicaMovementStrategy.class.getName())
-                    .add(BaseReplicaMovementStrategy.class.getName()).toString(),
+                String.join(",",
+                        PostponeUrpReplicaMovementStrategy.class.getName(),
+                        PrioritizeLargeReplicaMovementStrategy.class.getName(),
+                        PrioritizeSmallReplicaMovementStrategy.class.getName(),
+                        BaseReplicaMovementStrategy.class.getName()),
                 ConfigDef.Importance.MEDIUM,
                 REPLICA_MOVEMENT_STRATEGIES_DOC)
         .define(DEFAULT_REPLICA_MOVEMENT_STRATEGIES_CONFIG,
@@ -1407,44 +1408,44 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 EXECUTION_PROGRESS_CHECK_INTERVAL_MS_DOC)
         .define(GOALS_CONFIG,
                 ConfigDef.Type.LIST,
-                new StringJoiner(",")
-                    .add(RackAwareGoal.class.getName())
-                    .add(ReplicaCapacityGoal.class.getName())
-                    .add(DiskCapacityGoal.class.getName())
-                    .add(NetworkInboundCapacityGoal.class.getName())
-                    .add(NetworkOutboundCapacityGoal.class.getName())
-                    .add(CpuCapacityGoal.class.getName())
-                    .add(ReplicaDistributionGoal.class.getName())
-                    .add(PotentialNwOutGoal.class.getName())
-                    .add(DiskUsageDistributionGoal.class.getName())
-                    .add(NetworkInboundUsageDistributionGoal.class.getName())
-                    .add(NetworkOutboundUsageDistributionGoal.class.getName())
-                    .add(CpuUsageDistributionGoal.class.getName())
-                    .add(LeaderReplicaDistributionGoal.class.getName())
-                    .add(LeaderBytesInDistributionGoal.class.getName())
-                    .add(TopicReplicaDistributionGoal.class.getName()).toString(),
+                String.join(",",
+                        CrossRackMovementGoal.class.getName(),
+                        SequentialReplicaMovementGoal.class.getName(),
+                        RackAwareGoal.class.getName(),
+                        ReplicaCapacityGoal.class.getName(),
+                        DiskCapacityGoal.class.getName(),
+                        NetworkInboundCapacityGoal.class.getName(),
+                        NetworkOutboundCapacityGoal.class.getName(),
+                        ReplicaDistributionGoal.class.getName(),
+                        DiskUsageDistributionGoal.class.getName(),
+                        NetworkInboundUsageDistributionGoal.class.getName(),
+                        NetworkOutboundUsageDistributionGoal.class.getName(),
+                        CpuUsageDistributionGoal.class.getName(),
+                        TopicReplicaDistributionGoal.class.getName(),
+                        LeaderReplicaDistributionGoal.class.getName(),
+                        LeaderBytesInDistributionGoal.class.getName()),
                 ConfigDef.Importance.HIGH,
                 GOALS_DOC)
         .define(INTRA_BROKER_GOALS_CONFIG,
                 ConfigDef.Type.LIST,
-                new StringJoiner(",")
-                    .add(IntraBrokerDiskCapacityGoal.class.getName())
-                    .add(IntraBrokerDiskUsageDistributionGoal.class.getName()).toString(),
+                String.join(",",
+                    IntraBrokerDiskCapacityGoal.class.getName(),
+                    IntraBrokerDiskUsageDistributionGoal.class.getName()),
                 ConfigDef.Importance.HIGH,
                 INTRA_BROKER_GOALS_DOC)
         .define(HARD_GOALS_CONFIG,
                 ConfigDef.Type.LIST,
-                new StringJoiner(",")
-                    .add(RackAwareGoal.class.getName())
-                    .add(ReplicaCapacityGoal.class.getName())
-                    .add(DiskCapacityGoal.class.getName())
-                    .add(NetworkInboundCapacityGoal.class.getName())
-                    .add(NetworkOutboundCapacityGoal.class.getName())
-                    .add(CpuCapacityGoal.class.getName()).toString(),
+                String.join(",",
+                    RackAwareGoal.class.getName(),
+                    ReplicaCapacityGoal.class.getName(),
+                    DiskCapacityGoal.class.getName(),
+                    NetworkInboundCapacityGoal.class.getName(),
+                    NetworkOutboundCapacityGoal.class.getName()),
                 ConfigDef.Importance.HIGH,
                 HARD_GOALS_DOC)
         .define(DEFAULT_GOALS_CONFIG,
                 ConfigDef.Type.LIST,
+                Collections.emptyList(),
                 ConfigDef.Importance.HIGH,
                 DEFAULT_GOALS_DOC)
         .define(SELF_HEALING_GOALS_CONFIG,
@@ -1478,10 +1479,10 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 SAMPLING_ALLOW_CPU_CAPACITY_ESTIMATION_DOC)
         .define(ANOMALY_DETECTION_GOALS_CONFIG,
                 ConfigDef.Type.LIST,
-                new StringJoiner(",")
-                    .add(RackAwareGoal.class.getName())
-                    .add(ReplicaCapacityGoal.class.getName())
-                    .add(DiskCapacityGoal.class.getName()).toString(),
+                String.join(",",
+                    RackAwareGoal.class.getName(),
+                    ReplicaCapacityGoal.class.getName(),
+                    DiskCapacityGoal.class.getName()),
                 ConfigDef.Importance.MEDIUM,
                 ANOMALY_DETECTION_GOALS_DOC)
         .define(BROKER_FAILURE_EXCLUDE_RECENTLY_DEMOTED_BROKERS_CONFIG,
@@ -1681,12 +1682,9 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
         throw new ConfigException("Attempt to configure intra-broker goals with case sensitive names.");
       }
     }
-
-    // Ensure that default goals is non-empty.
-    List<String> defaultGoalNames = getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG);
-    if (defaultGoalNames.isEmpty()) {
-      throw new ConfigException("Attempt to configure default goals configuration with an empty list of goals.");
-    }
+    // If default goals is empty, just use the regular goals list.
+    List<String> defaultGoals = getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG);
+    List<String> defaultGoalNames = !defaultGoals.isEmpty() ? defaultGoals : goalNames;
 
     // Ensure that goals used for self-healing are supported goals.
     List<String> selfHealingGoalNames = getList(KafkaCruiseControlConfig.SELF_HEALING_GOALS_CONFIG);
