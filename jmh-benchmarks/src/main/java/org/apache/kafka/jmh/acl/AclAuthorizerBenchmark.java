@@ -17,6 +17,7 @@
 
 package org.apache.kafka.jmh.acl;
 
+import io.confluent.kafka.security.authorizer.acl.AclMapper;
 import kafka.security.authorizer.AclAuthorizer;
 import kafka.security.authorizer.AclAuthorizer.VersionedAcls;
 import kafka.security.authorizer.AclEntry;
@@ -61,6 +62,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @State(Scope.Benchmark)
 @Fork(value = 1)
@@ -157,5 +159,12 @@ public class AclAuthorizerBenchmark {
     @Benchmark
     public void testAuthorizer() throws Exception {
         aclAuthorizer.authorize(context, actions);
+    }
+
+    @Benchmark
+    public void testFilterAndTransform() {
+        AtomicInteger filterOneHundredth = new AtomicInteger(0);
+        aclAuthorizer.matchingAcls(ResourceType.TOPIC, "resource-1")
+                .filterAndTransform(p -> filterOneHundredth.incrementAndGet() % 100 == 0, AclMapper::accessRule);
     }
 }
