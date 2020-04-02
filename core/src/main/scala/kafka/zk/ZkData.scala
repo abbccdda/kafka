@@ -346,7 +346,7 @@ object TopicPartitionStateZNode {
     val leaderAndIsr = leaderIsrAndControllerEpoch.leaderAndIsr
     val controllerEpoch = leaderIsrAndControllerEpoch.controllerEpoch
     Json.encodeAsBytes(Map("version" -> 1, "leader" -> leaderAndIsr.leader, "leader_epoch" -> leaderAndIsr.leaderEpoch,
-      "controller_epoch" -> controllerEpoch, "isr" -> leaderAndIsr.isr.asJava).asJava)
+      "controller_epoch" -> controllerEpoch, "isr" -> leaderAndIsr.isr.asJava, "confluent_is_unclean_leader" -> leaderAndIsr.isUnclean).asJava)
   }
   def decode(bytes: Array[Byte], stat: Stat): Option[LeaderIsrAndControllerEpoch] = {
     Json.parseBytes(bytes).map { js =>
@@ -355,8 +355,9 @@ object TopicPartitionStateZNode {
       val epoch = leaderIsrAndEpochInfo("leader_epoch").to[Int]
       val isr = leaderIsrAndEpochInfo("isr").to[List[Int]]
       val controllerEpoch = leaderIsrAndEpochInfo("controller_epoch").to[Int]
+      val isUncleanOpt = leaderIsrAndEpochInfo.get("confluent_is_unclean_leader").map(_.to[Boolean])
       val zkPathVersion = stat.getVersion
-      LeaderIsrAndControllerEpoch(LeaderAndIsr(leader, epoch, isr, zkPathVersion), controllerEpoch)
+      LeaderIsrAndControllerEpoch(LeaderAndIsr(leader, epoch, isr, zkPathVersion, isUncleanOpt.getOrElse(false)), controllerEpoch)
     }
   }
 }

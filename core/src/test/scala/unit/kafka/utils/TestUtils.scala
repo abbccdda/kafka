@@ -711,8 +711,8 @@ object TestUtils extends Logging {
     val newLeaderIsrAndControllerEpochs = leaderPerPartitionMap.map { case (partition, leader) =>
       val topicPartition = new TopicPartition(topic, partition)
       val newLeaderAndIsr = zkClient.getTopicPartitionState(topicPartition)
-        .map(_.leaderAndIsr.newLeader(leader))
-        .getOrElse(LeaderAndIsr(leader, List(leader)))
+        .map(_.leaderAndIsr.newLeader(leader, isUnclean = false))
+        .getOrElse(LeaderAndIsr(leader, List(leader), isUnclean = false))
       topicPartition -> LeaderIsrAndControllerEpoch(newLeaderAndIsr, controllerEpoch)
     }
     zkClient.setTopicPartitionStatesRaw(newLeaderIsrAndControllerEpochs, ZkVersion.MatchAnyVersion)

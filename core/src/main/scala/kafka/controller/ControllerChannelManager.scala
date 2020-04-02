@@ -395,6 +395,7 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
         .setControllerEpoch(leaderIsrAndControllerEpoch.controllerEpoch)
         .setLeader(leaderAndIsr.leader)
         .setLeaderEpoch(leaderAndIsr.leaderEpoch)
+        .setConfluentIsUncleanLeader(leaderAndIsr.isUnclean)
         .setIsr(leaderAndIsr.isr.map(Integer.valueOf).asJava)
         .setZkVersion(leaderAndIsr.zkVersion)
         .setReplicas(replicaAssignment.replicas.map(Integer.valueOf).asJava)

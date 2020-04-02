@@ -40,7 +40,17 @@ object Election {
         val newLeaderAndIsrOpt = leaderOpt.map { leader =>
           val newIsr = if (isr.contains(leader)) isr.filter(replica => controllerContext.isReplicaOnline(replica, partition))
           else List(leader)
-          leaderAndIsr.newLeaderAndIsr(leader, newIsr)
+
+          // `isUnclean` flag is set when:
+          // 1. The same leader is being re-elected. In this case, we want to retain the `isUnclean` flag as-is, to be
+          //    able to handle the case where an unclean leader was elected and subsequently restarted.
+          // 2. A new leader is being elected which is not in the current ISR set.
+          val isUnclean =
+            if (leaderAndIsr.leader == leader)
+              leaderAndIsr.isUnclean
+            else
+              !isr.contains(leader)
+          leaderAndIsr.newLeaderAndIsr(leader, newIsr, isUnclean)
         }
         ElectionResult(partition, newLeaderAndIsrOpt, liveReplicas)
 
@@ -76,7 +86,7 @@ object Election {
     val liveReplicas = targetReplicas.filter(replica => controllerContext.isReplicaOnline(replica, partition))
     val isr = leaderAndIsr.isr
     val leaderOpt = PartitionLeaderElectionAlgorithms.reassignPartitionLeaderElection(targetReplicas, isr, liveReplicas.toSet)
-    val newLeaderAndIsrOpt = leaderOpt.map(leader => leaderAndIsr.newLeader(leader))
+    val newLeaderAndIsrOpt = leaderOpt.map(leader => leaderAndIsr.newLeader(leader, isUnclean = false))
     ElectionResult(partition, newLeaderAndIsrOpt, targetReplicas)
   }
 
@@ -103,7 +113,7 @@ object Election {
     val liveReplicas = assignment.filter(replica => controllerContext.isReplicaOnline(replica, partition))
     val isr = leaderAndIsr.isr
     val leaderOpt = PartitionLeaderElectionAlgorithms.preferredReplicaPartitionLeaderElection(assignment, isr, liveReplicas.toSet)
-    val newLeaderAndIsrOpt = leaderOpt.map(leader => leaderAndIsr.newLeader(leader))
+    val newLeaderAndIsrOpt = leaderOpt.map(leader => leaderAndIsr.newLeader(leader, isUnclean = false))
     ElectionResult(partition, newLeaderAndIsrOpt, assignment)
   }
 
@@ -134,7 +144,7 @@ object Election {
     val leaderOpt = PartitionLeaderElectionAlgorithms.controlledShutdownPartitionLeaderElection(assignment, isr,
       liveOrShuttingDownReplicas.toSet, shuttingDownBrokerIds)
     val newIsr = isr.filter(replica => !shuttingDownBrokerIds.contains(replica))
-    val newLeaderAndIsrOpt = leaderOpt.map(leader => leaderAndIsr.newLeaderAndIsr(leader, newIsr))
+    val newLeaderAndIsrOpt = leaderOpt.map(leader => leaderAndIsr.newLeaderAndIsr(leader, newIsr, isUnclean = false))
     ElectionResult(partition, newLeaderAndIsrOpt, liveOrShuttingDownReplicas)
   }
 

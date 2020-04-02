@@ -70,6 +70,8 @@
         "about": "The controller epoch." },
       { "name": "Leader", "type": "int32", "versions": "0+", "entityType": "brokerId",
         "about": "The broker ID of the leader." },
+      { "name": "ConfluentIsUncleanLeader", "type": "bool", "versions": "4+", "default": "false", "tag": 10002,
+        "taggedVersions": "4+", "ignorable": true, "about": "Whether the elected leader is unclean." },
       { "name": "LeaderEpoch", "type": "int32", "versions": "0+",
         "about": "The leader epoch." },
       { "name": "Isr", "type": "[]int32", "versions": "0+",

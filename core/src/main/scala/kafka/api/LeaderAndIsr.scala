@@ -23,28 +23,29 @@ object LeaderAndIsr {
   val NoLeader: Int = -1
   val LeaderDuringDelete: Int = -2
 
-  def apply(leader: Int, isr: List[Int]): LeaderAndIsr = LeaderAndIsr(leader, initialLeaderEpoch, isr, initialZKVersion)
+  def apply(leader: Int, isr: List[Int], isUnclean: Boolean): LeaderAndIsr = LeaderAndIsr(leader, initialLeaderEpoch, isr, initialZKVersion, isUnclean)
 
-  def duringDelete(isr: List[Int]): LeaderAndIsr = LeaderAndIsr(LeaderDuringDelete, isr)
+  def duringDelete(isr: List[Int]): LeaderAndIsr = LeaderAndIsr(LeaderDuringDelete, isr, isUnclean = false)
 }
 
 case class LeaderAndIsr(leader: Int,
                         leaderEpoch: Int,
                         isr: List[Int],
-                        zkVersion: Int) {
+                        zkVersion: Int,
+                        isUnclean: Boolean) {
   def withZkVersion(zkVersion: Int) = copy(zkVersion = zkVersion)
 
-  def newLeader(leader: Int) = newLeaderAndIsr(leader, isr)
+  def newLeader(leader: Int, isUnclean: Boolean) = newLeaderAndIsr(leader, isr, isUnclean)
 
-  def newLeaderAndIsr(leader: Int, isr: List[Int]) = LeaderAndIsr(leader, leaderEpoch + 1, isr, zkVersion)
+  def newLeaderAndIsr(leader: Int, isr: List[Int], isUnclean: Boolean) = LeaderAndIsr(leader, leaderEpoch + 1, isr, zkVersion, isUnclean)
 
-  def newEpochAndZkVersion = newLeaderAndIsr(leader, isr)
+  def newEpochAndZkVersion = newLeaderAndIsr(leader, isr, isUnclean)
 
   def leaderOpt: Option[Int] = {
     if (leader == LeaderAndIsr.NoLeader) None else Some(leader)
   }
 
   override def toString: String = {
-    s"LeaderAndIsr(leader=$leader, leaderEpoch=$leaderEpoch, isr=$isr, zkVersion=$zkVersion)"
+    s"LeaderAndIsr(leader=$leader, leaderEpoch=$leaderEpoch, isUncleanLeader=$isUnclean, isr=$isr, zkVersion=$zkVersion)"
   }
 }

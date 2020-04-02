@@ -54,9 +54,9 @@ class ControllerChannelManagerTest {
     val batch = new MockControllerBrokerRequestBatch(context)
 
     val partitions = Map(
-      new TopicPartition("foo", 0) -> LeaderAndIsr(1, List(1, 2)),
-      new TopicPartition("foo", 1) -> LeaderAndIsr(2, List(2, 3)),
-      new TopicPartition("bar", 1) -> LeaderAndIsr(3, List(1, 3))
+      new TopicPartition("foo", 0) -> LeaderAndIsr(1, List(1, 2), isUnclean = false),
+      new TopicPartition("foo", 1) -> LeaderAndIsr(2, List(2, 3), isUnclean = false),
+      new TopicPartition("bar", 1) -> LeaderAndIsr(3, List(1, 3), isUnclean = false)
     )
 
     batch.newBatch()
@@ -105,9 +105,9 @@ class ControllerChannelManagerTest {
     val batch = new MockControllerBrokerRequestBatch(context, config)
 
     val partitions = Map(
-      new TopicPartition("foo", 0) -> LeaderAndIsr(1, List(1, 2)),
-      new TopicPartition("foo", 1) -> LeaderAndIsr(2, List(2, 3)),
-      new TopicPartition("bar", 1) -> LeaderAndIsr(3, List(1, 3))
+      new TopicPartition("foo", 0) -> LeaderAndIsr(1, List(1, 2), isUnclean = false),
+      new TopicPartition("foo", 1) -> LeaderAndIsr(2, List(2, 3), isUnclean = false),
+      new TopicPartition("bar", 1) -> LeaderAndIsr(3, List(1, 3), isUnclean = false)
     )
 
     batch.newBatch()
@@ -155,7 +155,7 @@ class ControllerChannelManagerTest {
     val batch = new MockControllerBrokerRequestBatch(context)
 
     val partition = new TopicPartition("foo", 0)
-    val leaderAndIsr = LeaderAndIsr(1, List(1, 2))
+    val leaderAndIsr = LeaderAndIsr(1, List(1, 2), isUnclean = false)
 
     val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)
     context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
@@ -185,7 +185,7 @@ class ControllerChannelManagerTest {
     val batch = new MockControllerBrokerRequestBatch(context)
 
     val partition = new TopicPartition("foo", 0)
-    val leaderAndIsr = LeaderAndIsr(1, List(1, 2))
+    val leaderAndIsr = LeaderAndIsr(1, List(1, 2), isUnclean = false)
 
     val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)
     context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
@@ -218,7 +218,7 @@ class ControllerChannelManagerTest {
     context.removeLiveBrokers(Set(3))
 
     val partition = new TopicPartition("foo", 0)
-    val leaderAndIsr = LeaderAndIsr(1, List(1, 2))
+    val leaderAndIsr = LeaderAndIsr(1, List(1, 2), isUnclean = false)
 
     val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)
     context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
@@ -265,7 +265,7 @@ class ControllerChannelManagerTest {
     val batch = new MockControllerBrokerRequestBatch(context, config)
 
     val partition = new TopicPartition("foo", 0)
-    val leaderAndIsr = LeaderAndIsr(1, List(1, 2))
+    val leaderAndIsr = LeaderAndIsr(1, List(1, 2), isUnclean = false)
 
     val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)
     context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
@@ -287,9 +287,9 @@ class ControllerChannelManagerTest {
     val batch = new MockControllerBrokerRequestBatch(context)
 
     val partitions = Map(
-      new TopicPartition("foo", 0) -> LeaderAndIsr(1, List(1, 2)),
-      new TopicPartition("foo", 1) -> LeaderAndIsr(2, List(2, 3)),
-      new TopicPartition("bar", 1) -> LeaderAndIsr(3, List(1, 3))
+      new TopicPartition("foo", 0) -> LeaderAndIsr(1, List(1, 2), isUnclean = false),
+      new TopicPartition("foo", 1) -> LeaderAndIsr(2, List(2, 3), isUnclean = false),
+      new TopicPartition("bar", 1) -> LeaderAndIsr(3, List(1, 3), isUnclean = false)
     )
 
     partitions.foreach { case (partition, leaderAndIsr) =>
@@ -360,9 +360,9 @@ class ControllerChannelManagerTest {
     val batch = new MockControllerBrokerRequestBatch(context)
 
     val partitions = Map(
-      new TopicPartition("foo", 0) -> LeaderAndIsr(1, List(1, 2)),
-      new TopicPartition("foo", 1) -> LeaderAndIsr(2, List(2, 3)),
-      new TopicPartition("bar", 1) -> LeaderAndIsr(3, List(1, 3))
+      new TopicPartition("foo", 0) -> LeaderAndIsr(1, List(1, 2), isUnclean = false),
+      new TopicPartition("foo", 1) -> LeaderAndIsr(2, List(2, 3), isUnclean = false),
+      new TopicPartition("bar", 1) -> LeaderAndIsr(3, List(1, 3), isUnclean = false)
     )
 
     partitions.foreach { case (partition, leaderAndIsr) =>

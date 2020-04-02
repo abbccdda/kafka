@@ -348,7 +348,8 @@ class ZkReplicaStateMachine(config: KafkaConfig,
         result.right.toOption.map { leaderAndIsr =>
           val newLeader = if (replicaId == leaderAndIsr.leader) LeaderAndIsr.NoLeader else leaderAndIsr.leader
           val adjustedIsr = if (leaderAndIsr.isr.size == 1) leaderAndIsr.isr else leaderAndIsr.isr.filter(_ != replicaId)
-          partition -> leaderAndIsr.newLeaderAndIsr(newLeader, adjustedIsr)
+          val isUnclean = if (newLeader == LeaderAndIsr.NoLeader) false else leaderAndIsr.isUnclean
+          partition -> leaderAndIsr.newLeaderAndIsr(newLeader, adjustedIsr, isUnclean)
         }
     }
 

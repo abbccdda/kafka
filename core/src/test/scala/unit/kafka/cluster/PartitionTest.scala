@@ -20,7 +20,7 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.util.{Optional, Properties, UUID}
 import java.util.concurrent.{CountDownLatch, Executors, Semaphore, TimeUnit, TimeoutException}
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
 
 import com.yammer.metrics.core.Metric
 import kafka.api.{ApiVersion, LeaderAndIsr}
@@ -42,7 +42,7 @@ import org.apache.kafka.common.record._
 import org.apache.kafka.common.requests.{EpochEndOffset, ListOffsetRequest}
 import org.junit.{After, Before, Test}
 import org.junit.Assert._
-import org.mockito.Mockito.{doAnswer, doNothing, mock, spy, times, verify, when}
+import org.mockito.Mockito.{atLeastOnce, doAnswer, doNothing, mock, spy, times, verify, when}
 import org.scalatest.Assertions.assertThrows
 import org.mockito.ArgumentMatchers
 import org.mockito.invocation.InvocationOnMock
@@ -592,7 +592,7 @@ class PartitionTest {
     mockAliveBrokers(metadataCache, replicas)
 
     when(stateStore.expandIsr(controllerEpoch, new LeaderAndIsr(leader, leaderEpoch,
-      List(leader, follower2, follower1), 1)))
+      List(leader, follower2, follower1), 1, false)))
       .thenReturn(Some(2))
 
     updateFollowerFetchState(follower1, LogOffsetMetadata(0))
@@ -685,7 +685,7 @@ class PartitionTest {
     }
 
     when(stateStore.expandIsr(controllerEpoch, new LeaderAndIsr(leader, leaderEpoch + 2,
-      List(leader, follower2, follower1), 5)))
+      List(leader, follower2, follower1), 5, false)))
       .thenReturn(Some(2))
 
     // Next fetch from replicas, HW is moved up to 5 (ahead of the LEO)
@@ -997,7 +997,7 @@ class PartitionTest {
     // fetch from the follower not in ISR from start offset of the current leader epoch should
     // add this follower to ISR
     when(stateStore.expandIsr(controllerEpoch, new LeaderAndIsr(leader, leaderEpoch + 2,
-      List(leader, follower2, follower1), 1))).thenReturn(Some(2))
+      List(leader, follower2, follower1), 1, false))).thenReturn(Some(2))
     updateFollowerFetchState(follower1, LogOffsetMetadata(currentLeaderEpochStartOffset))
     assertEquals("ISR", Set[Integer](leader, follower1, follower2), partition.inSyncReplicaIds)
   }
@@ -1265,7 +1265,8 @@ class PartitionTest {
       leader = brokerId,
       leaderEpoch = leaderEpoch,
       isr = List(brokerId, remoteBrokerId),
-      zkVersion = 1)
+      zkVersion = 1,
+      isUnclean = false)
     when(stateStore.expandIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(Some(2))
 
     partition.updateFollowerFetchState(remoteBrokerId,
@@ -1317,7 +1318,8 @@ class PartitionTest {
       leader = brokerId,
       leaderEpoch = leaderEpoch,
       isr = List(brokerId, remoteBrokerId),
-      zkVersion = 1)
+      zkVersion = 1,
+      isUnclean = false)
     when(stateStore.expandIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(None)
 
     partition.updateFollowerFetchState(remoteBrokerId,
@@ -1380,7 +1382,8 @@ class PartitionTest {
       leader = brokerId,
       leaderEpoch = leaderEpoch,
       isr = List(brokerId),
-      zkVersion = 1)
+      zkVersion = 1,
+      isUnclean = false)
     when(stateStore.shrinkIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(Some(2))
 
     partition.maybeShrinkIsr()
@@ -1559,7 +1562,8 @@ class PartitionTest {
       leader = brokerId,
       leaderEpoch = leaderEpoch,
       isr = List(brokerId),
-      zkVersion = 1)
+      zkVersion = 1,
+      isUnclean = false)
     when(stateStore.shrinkIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(None)
 
     partition.maybeShrinkIsr()
@@ -1850,7 +1854,7 @@ class PartitionTest {
     assertFalse(partition.isUnderReplicated)
 
     when(stateStore.shrinkIsr(controllerEpoch, LeaderAndIsr(brokerId, leaderEpoch,
-      List(syncReplicaId1, syncReplicaId2), zkVersion)))
+      List(syncReplicaId1, syncReplicaId2), zkVersion, isUnclean = false)))
       .thenReturn(Some(zkVersion + 1))
 
     partition.maybeShrinkIsr()
@@ -1938,7 +1942,7 @@ class PartitionTest {
       expectedZkVersion += 1
 
       when(stateStore.expandIsr(controllerEpoch,
-        LeaderAndIsr(brokerId, leaderEpoch, expectedIsr.toList, expectedZkVersion - 1)))
+        LeaderAndIsr(brokerId, leaderEpoch, expectedIsr.toList, expectedZkVersion - 1, isUnclean = false)))
         .thenReturn(Some(expectedZkVersion))
 
       partition.updateFollowerFetchState(replicaId,
@@ -2031,7 +2035,7 @@ class PartitionTest {
     assertTrue(partition.isUnderReplicated)
 
     when(stateStore.expandIsr(controllerEpoch,
-      LeaderAndIsr(brokerId, leaderEpoch, List(syncReplicaId1, syncReplicaId2), zkVersion)))
+      LeaderAndIsr(brokerId, leaderEpoch, List(syncReplicaId1, syncReplicaId2), zkVersion, isUnclean = false)))
       .thenReturn(Some(zkVersion + 1))
 
     partition.updateFollowerFetchState(syncReplicaId2,
@@ -2045,6 +2049,271 @@ class PartitionTest {
     assertEquals(Set(syncReplicaId1, syncReplicaId2), partition.inSyncReplicaIds)
     assertEquals(Seq(syncReplicaId1, syncReplicaId2, observerId1, observerId2), partition.assignmentState.replicas)
     assertFalse(partition.isUnderReplicated)
+  }
+
+  @Test
+  def testMakeLeaderUpdatesUncleanLeaderState(): Unit = {
+    val controllerId = 0
+    val controllerEpoch = 0
+    val leaderEpoch = 5
+    val replicas = List[Integer](brokerId, brokerId + 1).asJava
+    val isr = List[Integer](brokerId).asJava
+
+    partition.createLogIfNotExists(isNew = true, isFutureReplica = false, offsetCheckpoints)
+
+    // elect as unclean leader
+    val uncleanLeaderAndIsrPartitionState = new LeaderAndIsrPartitionState()
+      .setControllerEpoch(controllerEpoch)
+      .setLeader(brokerId)
+      .setLeaderEpoch(leaderEpoch)
+      .setIsr(isr)
+      .setZkVersion(1)
+      .setReplicas(replicas)
+      .setIsNew(true)
+      .setConfluentIsUncleanLeader(true)
+    partition.makeLeader(uncleanLeaderAndIsrPartitionState, offsetCheckpoints)
+    assertEquals(true, partition.getIsUncleanLeader)
+
+    // elect as clean leader
+    val cleanLeaderAndIsrPartitionState = new LeaderAndIsrPartitionState()
+      .setControllerEpoch(controllerEpoch)
+      .setLeader(brokerId)
+      .setLeaderEpoch(leaderEpoch)
+      .setIsr(isr)
+      .setZkVersion(1)
+      .setReplicas(replicas)
+      .setIsNew(true)
+      .setConfluentIsUncleanLeader(false)
+    partition.makeLeader(cleanLeaderAndIsrPartitionState, offsetCheckpoints)
+    assertEquals(false, partition.getIsUncleanLeader)
+  }
+
+  @Test
+  def testClearUncleanLeaderState(): Unit = {
+    val controllerId = 0
+    val controllerEpoch = 0
+    val leaderEpoch = 5
+    val replicas = List[Integer](brokerId, brokerId + 1).asJava
+    val isr = List(brokerId)
+    val zkVersion = 1
+
+    partition.createLogIfNotExists(isNew = true, isFutureReplica = false, offsetCheckpoints)
+
+    // elect as unclean leader
+    val uncleanLeaderAndIsrPartitionState = new LeaderAndIsrPartitionState()
+      .setControllerEpoch(controllerEpoch)
+      .setLeader(brokerId)
+      .setLeaderEpoch(leaderEpoch)
+      .setIsr(isr.map(int2Integer).asJava)
+      .setZkVersion(zkVersion)
+      .setReplicas(replicas)
+      .setIsNew(true)
+      .setConfluentIsUncleanLeader(true)
+    partition.makeLeader(uncleanLeaderAndIsrPartitionState, offsetCheckpoints)
+    assertEquals(true, partition.getIsUncleanLeader)
+
+    val newLeaderAndIsr = new LeaderAndIsr(brokerId, leaderEpoch, isr, zkVersion, isUnclean = false)
+    when(stateStore.clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr)).thenReturn(Some(zkVersion + 1))
+
+    // clear unclean leader state
+    partition.maybeClearUncleanLeaderState(leaderEpoch)
+    assertEquals(false, partition.getIsUncleanLeader)
+    assertEquals(leaderEpoch, partition.getLeaderEpoch)
+    assertEquals(isr.toSet, partition.inSyncReplicaIds)
+    assertEquals(zkVersion + 1, partition.getZkVersion)
+
+    verify(stateStore, times(1)).clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr)
+  }
+
+  @Test
+  def testClearUncleanLeaderStateWithOldEpochFails(): Unit = {
+    val controllerId = 0
+    val controllerEpoch = 0
+    val leaderEpoch = 5
+    val replicas = List[Integer](brokerId, brokerId + 1).asJava
+    val isr = List(brokerId)
+    val zkVersion = 1
+
+    partition.createLogIfNotExists(isNew = true, isFutureReplica = false, offsetCheckpoints)
+
+    // elect as unclean leader
+    val uncleanLeaderAndIsrPartitionState = new LeaderAndIsrPartitionState()
+      .setControllerEpoch(controllerEpoch)
+      .setLeader(brokerId)
+      .setLeaderEpoch(leaderEpoch)
+      .setIsr(isr.map(int2Integer).asJava)
+      .setZkVersion(zkVersion)
+      .setReplicas(replicas)
+      .setIsNew(true)
+      .setConfluentIsUncleanLeader(true)
+    partition.makeLeader(uncleanLeaderAndIsrPartitionState, offsetCheckpoints)
+    assertEquals(true, partition.getIsUncleanLeader)
+
+    // attempt to clear unclean leader state at older epoch is a NOOP
+    partition.maybeClearUncleanLeaderState(leaderEpoch - 1)
+    assertEquals(true, partition.getIsUncleanLeader)
+    assertEquals(leaderEpoch, partition.getLeaderEpoch)
+    assertEquals(isr.toSet, partition.inSyncReplicaIds)
+    assertEquals(zkVersion, partition.getZkVersion)
+
+    verify(stateStore, times(0)).clearUncleanLeaderState(ArgumentMatchers.any(), ArgumentMatchers.any())
+  }
+
+  @Test
+  def testClearUncleanLeaderStateZkWriteRetry(): Unit = {
+    val controllerEpoch = 0
+    val leaderEpoch = 5
+    val replicas = List[Integer](brokerId, brokerId + 1).asJava
+    val isr = List(brokerId)
+    val zkVersion = 1
+
+    partition.createLogIfNotExists(isNew = true, isFutureReplica = false, offsetCheckpoints)
+
+    // elect as unclean leader
+    val uncleanLeaderAndIsrPartitionState = new LeaderAndIsrPartitionState()
+      .setControllerEpoch(controllerEpoch)
+      .setLeader(brokerId)
+      .setLeaderEpoch(leaderEpoch)
+      .setIsr(isr.map(int2Integer).asJava)
+      .setZkVersion(zkVersion)
+      .setReplicas(replicas)
+      .setIsNew(true)
+      .setConfluentIsUncleanLeader(true)
+    partition.makeLeader(uncleanLeaderAndIsrPartitionState, offsetCheckpoints)
+    assertEquals(true, partition.getIsUncleanLeader)
+
+    // simulate failed ZK writes
+    val newLeaderAndIsr = new LeaderAndIsr(brokerId, leaderEpoch, isr, zkVersion, isUnclean = false)
+    val numInvocations = new AtomicInteger(0)
+    when(stateStore.clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr))
+      .thenAnswer(_ => {
+        numInvocations.incrementAndGet()
+        None
+      })
+
+    val clearStateThread = new Thread(() => partition.maybeClearUncleanLeaderState(leaderEpoch))
+    clearStateThread.start()
+
+    // partition state should remain as-is while ZK writes fail
+    TestUtils.waitUntilTrue(() => numInvocations.get > 1, "Timed out waiting for clearUncleanLeaderState to be called")
+    assertEquals(true, partition.getIsUncleanLeader)
+    assertEquals(zkVersion, partition.getZkVersion)
+    assertTrue(clearStateThread.isAlive)
+    verify(stateStore, atLeastOnce()).clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr)
+
+    // simulate successful ZK write and validate that unclean leader state is cleared and zk version is bumped
+    when(stateStore.clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr)).thenReturn(Some(zkVersion + 2))
+    clearStateThread.join(200)
+    assertEquals(false, partition.getIsUncleanLeader)
+    assertEquals(leaderEpoch, partition.getLeaderEpoch)
+    assertEquals(isr.toSet, partition.inSyncReplicaIds)
+    assertEquals(zkVersion + 2, partition.getZkVersion)
+  }
+
+  @Test
+  def testIsrExpandPreservesUncleanLeaderState(): Unit = {
+    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    seedLogData(log, numRecords = 10, leaderEpoch = 4)
+
+    val controllerId = 0
+    val controllerEpoch = 0
+    val leaderEpoch = 5
+    val remoteBrokerId = brokerId + 1
+    val replicas = List(brokerId, remoteBrokerId)
+    val isr = List[Integer](brokerId).asJava
+
+    doNothing().when(delayedOperations).checkAndCompleteFetch()
+    mockAliveBrokers(metadataCache, replicas)
+
+    partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints)
+    assertTrue(
+      "Expected become leader transition to succeed",
+      partition.makeLeader(
+        new LeaderAndIsrPartitionState()
+          .setControllerEpoch(controllerEpoch)
+          .setLeader(brokerId)
+          .setLeaderEpoch(leaderEpoch)
+          .setIsr(isr)
+          .setZkVersion(1)
+          .setReplicas(replicas.map(Int.box).asJava)
+          .setIsNew(true)
+          .setConfluentIsUncleanLeader(true),
+        offsetCheckpoints)
+    )
+    assertEquals(Set(brokerId), partition.inSyncReplicaIds)
+    assertEquals(true, partition.getIsUncleanLeader)
+
+    val remoteReplica = partition.getReplica(remoteBrokerId).get
+    assertEquals(LogOffsetMetadata.UnknownOffsetMetadata.messageOffset, remoteReplica.logEndOffset)
+    assertEquals(Log.UnknownOffset, remoteReplica.logStartOffset)
+
+    // The next update should bring the follower back into the ISR
+    val updatedLeaderAndIsr = LeaderAndIsr(
+      leader = brokerId,
+      leaderEpoch = leaderEpoch,
+      isr = List(brokerId, remoteBrokerId),
+      zkVersion = 1,
+      isUnclean = true)
+    when(stateStore.expandIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(Some(2))
+
+    partition.updateFollowerFetchState(remoteBrokerId,
+      followerFetchOffsetMetadata = LogOffsetMetadata(10),
+      followerStartOffset = 0L,
+      followerFetchTimeMs = time.milliseconds(),
+      leaderEndOffset = 6L,
+      lastSentHighwatermark = partition.localLogOrException.highWatermark)
+
+    assertEquals(Set(brokerId, remoteBrokerId), partition.inSyncReplicaIds)
+    assertEquals(true, partition.getIsUncleanLeader)
+  }
+
+  @Test
+  def testShrinkIsrPreservesUncleanLeaderState(): Unit = {
+    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    seedLogData(log, numRecords = 10, leaderEpoch = 4)
+
+    val controllerId = 0
+    val controllerEpoch = 0
+    val leaderEpoch = 5
+    val remoteBrokerId = brokerId + 1
+    val replicas = List(brokerId, remoteBrokerId)
+    val isr = List[Integer](brokerId, remoteBrokerId).asJava
+
+    doNothing().when(delayedOperations).checkAndCompleteFetch()
+    mockAliveBrokers(metadataCache, replicas)
+
+    partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints)
+    assertTrue(
+      "Expected become leader transition to succeed",
+      partition.makeLeader(
+        new LeaderAndIsrPartitionState()
+          .setControllerEpoch(controllerEpoch)
+          .setLeader(brokerId)
+          .setLeaderEpoch(leaderEpoch)
+          .setIsr(isr)
+          .setZkVersion(1)
+          .setReplicas(replicas.map(Int.box).asJava)
+          .setIsNew(true)
+          .setConfluentIsUncleanLeader(true),
+        offsetCheckpoints)
+    )
+    assertEquals(Set(brokerId, remoteBrokerId), partition.inSyncReplicaIds)
+    assertEquals(0L, partition.localLogOrException.highWatermark)
+    assertEquals(true, partition.getIsUncleanLeader)
+
+    // If enough time passes without a fetch update, the ISR should shrink
+    time.sleep(partition.replicaLagTimeMaxMs + 1)
+    val updatedLeaderAndIsr = LeaderAndIsr(
+      leader = brokerId,
+      leaderEpoch = leaderEpoch,
+      isr = List(brokerId),
+      zkVersion = 1,
+      isUnclean = true)
+    when(stateStore.shrinkIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(Some(2))
+
+    partition.maybeShrinkIsr()
+    assertEquals(Set(brokerId), partition.inSyncReplicaIds)
+    assertEquals(true, partition.getIsUncleanLeader)
   }
 
   private def seedLogData(log: AbstractLog, numRecords: Int, leaderEpoch: Int): Unit = {

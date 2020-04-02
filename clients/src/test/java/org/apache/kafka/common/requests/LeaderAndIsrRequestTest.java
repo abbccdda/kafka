@@ -201,6 +201,38 @@ public class LeaderAndIsrRequestTest {
         assertTrue(request.containsAllReplicas());
     }
 
+    @Test
+    public void testIsUncleanLeader() {
+        String topicName = "foo";
+        List<LeaderAndIsrPartitionState> partitionStates = asList(
+            new LeaderAndIsrPartitionState()
+                .setTopicName(topicName)
+                .setPartitionIndex(0)
+                .setLeader(1)
+                .setLeaderEpoch(1)
+                .setIsr(asList(1, 2))
+                .setReplicas(asList(0, 1, 2)),
+            new LeaderAndIsrPartitionState()
+                .setTopicName(topicName)
+                .setPartitionIndex(1)
+                .setLeader(1)
+                .setLeaderEpoch(1)
+                .setConfluentIsUncleanLeader(true)
+                .setIsr(asList(1))
+                .setReplicas(asList(0, 1, 2)));
+
+        LeaderAndIsrRequest.Builder builder = new LeaderAndIsrRequest.Builder(LEADER_AND_ISR.latestVersion(), 0, 0, 0,
+                partitionStates, Collections.emptySet(), true);
+
+        LeaderAndIsrRequest request = builder.build();
+        for (LeaderAndIsrPartitionState ps : request.partitionStates()) {
+            if (ps.partitionIndex() == 0)
+                assertFalse(ps.confluentIsUncleanLeader());
+            else if (ps.partitionIndex() == 1)
+                assertTrue(ps.confluentIsUncleanLeader());
+        }
+    }
+
     private <T> Set<T> iterableToSet(Iterable<T> iterable) {
         return StreamSupport.stream(iterable.spliterator(), false).collect(Collectors.toSet());
     }

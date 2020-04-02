@@ -41,7 +41,7 @@ class ReplicationUtilsTest extends ZooKeeperTestHarness {
     super.setUp()
     zkClient.makeSurePersistentPathExists(TopicZNode.path(topic))
     val topicPartition = new TopicPartition(topic, partition)
-    val leaderAndIsr = LeaderAndIsr(leader, leaderEpoch, isr, 1)
+    val leaderAndIsr = LeaderAndIsr(leader, leaderEpoch, isr, 1, isUnclean = false)
     val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)
     zkClient.createTopicPartitionStatesRaw(Map(topicPartition -> leaderIsrAndControllerEpoch), ZkVersion.MatchAnyVersion)
   }
@@ -70,14 +70,14 @@ class ReplicationUtilsTest extends ZooKeeperTestHarness {
     val replicas = List(0, 1)
 
     // regular update
-    val newLeaderAndIsr1 = new LeaderAndIsr(leader, leaderEpoch, replicas, 0)
+    val newLeaderAndIsr1 = new LeaderAndIsr(leader, leaderEpoch, replicas, 0, false)
     val (updateSucceeded1, newZkVersion1) = ReplicationUtils.updateLeaderAndIsr(zkClient,
       new TopicPartition(topic, partition), newLeaderAndIsr1, controllerEpoch)
     assertTrue(updateSucceeded1)
     assertEquals(newZkVersion1, 1)
 
     // mismatched zkVersion with the same data
-    val newLeaderAndIsr2 = new LeaderAndIsr(leader, leaderEpoch, replicas, zkVersion + 1)
+    val newLeaderAndIsr2 = new LeaderAndIsr(leader, leaderEpoch, replicas, zkVersion + 1, false)
     val (updateSucceeded2, newZkVersion2) = ReplicationUtils.updateLeaderAndIsr(zkClient,
       new TopicPartition(topic, partition), newLeaderAndIsr2, controllerEpoch)
     assertTrue(updateSucceeded2)
@@ -85,7 +85,7 @@ class ReplicationUtilsTest extends ZooKeeperTestHarness {
     assertEquals(newZkVersion2, 1)
 
     // mismatched zkVersion and leaderEpoch
-    val newLeaderAndIsr3 = new LeaderAndIsr(leader, leaderEpoch + 1, replicas, zkVersion + 1)
+    val newLeaderAndIsr3 = new LeaderAndIsr(leader, leaderEpoch + 1, replicas, zkVersion + 1, false)
     val (updateSucceeded3, newZkVersion3) = ReplicationUtils.updateLeaderAndIsr(zkClient,
       new TopicPartition(topic, partition), newLeaderAndIsr3, controllerEpoch)
     assertFalse(updateSucceeded3)

@@ -52,6 +52,7 @@ trait PartitionStateStore {
   def fetchTopicConfig(): Properties
   def shrinkIsr(controllerEpoch: Int, leaderAndIsr: LeaderAndIsr): Option[Int]
   def expandIsr(controllerEpoch: Int, leaderAndIsr: LeaderAndIsr): Option[Int]
+  def clearUncleanLeaderState(controllerEpoch: Int, leaderAndIsr: LeaderAndIsr): Option[Int]
 }
 
 class ZkPartitionStateStore(topicPartition: TopicPartition,
@@ -75,6 +76,10 @@ class ZkPartitionStateStore(topicPartition: TopicPartition,
     if (newVersionOpt.isDefined)
       replicaManager.isrExpandRate.mark()
     newVersionOpt
+  }
+
+  override def clearUncleanLeaderState(controllerEpoch: Int, leaderAndIsr: LeaderAndIsr): Option[Int] = {
+    updateIsr(controllerEpoch, leaderAndIsr)
   }
 
   private def updateIsr(controllerEpoch: Int, leaderAndIsr: LeaderAndIsr): Option[Int] = {
@@ -246,6 +251,7 @@ class Partition(val topicPartition: TopicPartition,
   // start offset for 'leaderEpoch' above (leader epoch of the current leader for this partition),
   // defined when this broker is leader for partition
   @volatile private var leaderEpochStartOffsetOpt: Option[Long] = None
+  @volatile private var isUncleanLeader: Boolean = false
   @volatile var leaderReplicaIdOpt: Option[Int] = None
   @volatile var inSyncReplicaIds = Set.empty[Int]
   @volatile var assignmentState: AssignmentState = SimpleAssignmentState(Seq.empty, Set.empty)
@@ -587,6 +593,10 @@ class Partition(val topicPartition: TopicPartition,
 
   def getLeaderEpoch: Int = this.leaderEpoch
 
+  def getIsUncleanLeader: Boolean = this.isUncleanLeader
+
+  def getZkVersion: Int = this.zkVersion
+
   /**
    * Make the local replica the leader by resetting LogEndOffset for remote replicas (there could be old LogEndOffset
    * from the time when this broker was the leader last time) and setting the new leader and ISR.
@@ -622,6 +632,7 @@ class Partition(val topicPartition: TopicPartition,
       //We cache the leader epoch here, persisting it only if it's local (hence having a log dir)
       leaderEpoch = partitionState.leaderEpoch
       leaderEpochStartOffsetOpt = Some(leaderEpochStartOffset)
+      isUncleanLeader = partitionState.confluentIsUncleanLeader
       zkVersion = partitionState.zkVersion
 
       // In the case of successive leader elections in a short time period, a follower may have
@@ -699,6 +710,7 @@ class Partition(val topicPartition: TopicPartition,
 
       leaderEpoch = partitionState.leaderEpoch
       leaderEpochStartOffsetOpt = None
+      isUncleanLeader = partitionState.confluentIsUncleanLeader
       zkVersion = partitionState.zkVersion
 
       if (leaderReplicaIdOpt.contains(newLeaderBrokerId) && leaderEpoch == oldLeaderEpoch) {
@@ -801,6 +813,40 @@ class Partition(val topicPartition: TopicPartition,
       assignmentState = SimpleAssignmentState(assignment, observers)
 
     inSyncReplicaIds = isr
+  }
+
+  /**
+   * Attempt to clear unclean leader state at provided epoch. We will attempt to clear the state only if we are the
+   * leader at the provided epoch. Note that this is a blocking call; if we require clearing unclean leader state then
+   * the call will return only after the relevant state has been cleared from ZK.
+   *
+   * @param leaderEpoch The leader epoch at which unclean leader state needs to be cleared
+   */
+  private[cluster] def maybeClearUncleanLeaderState(leaderEpoch: Int): Unit = {
+    def needClearUncleanLeaderState: Boolean = isLeader && this.leaderEpoch == leaderEpoch && isUncleanLeader
+
+    var done = false
+    while (!done) {
+      done = inWriteLock(leaderIsrUpdateLock) {
+        if (needClearUncleanLeaderState) {
+          try {
+            // Attempt to clear the unclean leader state. This may fail if the ZK version has changed, or if the ZK
+            // session has timed out. If it fails, backoff and retry if we are still the leader at the same leader
+            // epoch. We may have to wait for the next LeaderAndIsrRequest to get an updated ZK version.
+            clearUncleanLeaderState()
+          } catch {
+            case e: Exception =>
+              info(s"Ignoring ZK exception when clearing unclean leader state. Will retry.", e)
+              false
+          }
+        } else {
+          true
+        }
+      }
+
+      if (!done)
+        time.sleep(100)
+    }
   }
 
   /**
@@ -1373,14 +1419,35 @@ class Partition(val topicPartition: TopicPartition,
     }
   }
 
+  /**
+   * Clear the unclean leader state. Accesses to this method must be synchronized.
+   * @return True if we successfully cleared the unclean leader state; false otherwise. Note that this method may
+   *         raise a ZK exception, for example if the ZK session has timed out.
+   */
+  private def clearUncleanLeaderState(): Boolean = {
+    val newLeaderAndIsr = new LeaderAndIsr(localBrokerId, leaderEpoch, inSyncReplicaIds.toList, zkVersion, isUnclean = false)
+    val zkVersionOpt = stateStore.clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr)
+    zkVersionOpt match {
+      case Some(newVersion) =>
+        maybeUpdateIsrAndVersion(inSyncReplicaIds, zkVersionOpt)
+        isUncleanLeader = false
+        info(s"Cleared unclean leader state at epoch $leaderEpoch with ISR $inSyncReplicaIds. " +
+          s"zkVersion updated to $newVersion")
+        true
+
+      case None =>
+        false
+    }
+  }
+
   private def expandIsr(newIsr: Set[Int]): Unit = {
-    val newLeaderAndIsr = new LeaderAndIsr(localBrokerId, leaderEpoch, newIsr.toList, zkVersion)
+    val newLeaderAndIsr = new LeaderAndIsr(localBrokerId, leaderEpoch, newIsr.toList, zkVersion, isUnclean = isUncleanLeader)
     val zkVersionOpt = stateStore.expandIsr(controllerEpoch, newLeaderAndIsr)
     maybeUpdateIsrAndVersion(newIsr, zkVersionOpt)
   }
 
   private[cluster] def shrinkIsr(newIsr: Set[Int]): Unit = {
-    val newLeaderAndIsr = new LeaderAndIsr(localBrokerId, leaderEpoch, newIsr.toList, zkVersion)
+    val newLeaderAndIsr = new LeaderAndIsr(localBrokerId, leaderEpoch, newIsr.toList, zkVersion, isUnclean = isUncleanLeader)
     val zkVersionOpt = stateStore.shrinkIsr(controllerEpoch, newLeaderAndIsr)
     maybeUpdateIsrAndVersion(newIsr, zkVersionOpt)
   }
