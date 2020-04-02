@@ -9,22 +9,32 @@ namespace kafka.tier.serdes;
 // INSTEAD MARK THEM AS DEPRECATED
 // e.g. myfield:byte (id: 9, deprecated)
 
+/*
+ * NOTE: Please bump `FileTierPartitionState#CURRENT_VERSION` when making changes to the schema.
+ *
+ * Version 0: Initial version
+ * Version 1: added `endOffset`
+ * Version 2: added `globalMaterializedOffset` and `localMaterializedOffset`
+ * Version 3: introduced new status `TierPartitionStatus.ERROR` as a part of the fencing mechanism
+ * Version 4: added `globalMaterializedEpoch` and `localMaterializedEpoch`
+ */
+
 table TierPartitionStateHeader {
   version: byte (id: 0);
   topicId: UUID (id: 1);
   tierEpoch: int (id: 2);
   status: byte (id: 3);
 
-  // version 1
-  endOffset: long = -1 (id: 4);
+  endOffset: long = -1 (id: 4);  // added in version 1
 
-  // version 2
-  materializationInfo: MaterializationTrackingInfo (id: 5);
+  materializationInfo: MaterializationTrackingInfo (id: 5);  // added in version 2
 }
 
 table MaterializationTrackingInfo {
     globalMaterializedOffset: long = -1 (id: 0);  // Initialized to offset -1 which means yet to start materialization.
     localMaterializedOffset: long = -1 (id: 1);   // Initialized to offset -1 which means yet to start materialization.
+    globalMaterializedEpoch: int = -1 (id: 2);    // added in version 4
+    localMaterializedEpoch: int = -1 (id: 3);     // added in version 4
 }
 
 root_type TierPartitionStateHeader;

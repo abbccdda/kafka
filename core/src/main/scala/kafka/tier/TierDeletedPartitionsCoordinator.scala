@@ -9,7 +9,7 @@ import kafka.metrics.KafkaMetricsGroup
 import kafka.server.{FetchDataInfo, FetchHighWatermark, ReplicaManager}
 import kafka.tier.domain.{AbstractTierMetadata, TierPartitionDeleteComplete, TierPartitionDeleteInitiate, TierSegmentDeleteComplete, TierSegmentUploadInitiate}
 import kafka.tier.state.TierPartitionState.AppendResult
-import kafka.tier.state.{TierPartitionState, TierPartitionStatus}
+import kafka.tier.state.{OffsetAndEpoch, TierPartitionState, TierPartitionStatus}
 import kafka.tier.store.TierObjectStore
 import kafka.tier.topic.TierTopicConsumer.ClientCtx
 import kafka.tier.topic.{TierTopic, TierTopicConsumer}
@@ -324,7 +324,7 @@ private class InProgressDeletion(val tierTopicPartitionId: Int,
                                  tieredObjects: mutable.Map[UUID, TierObjectStore.ObjectMetadata] = mutable.Map(),
                                  @volatile var status: TierPartitionStatus = TierPartitionStatus.INIT,
                                  private[tier] var currentState: DeletionState = MaterializingState) extends ClientCtx with Logging {
-  override def process(metadata: AbstractTierMetadata, offset: Long): TierPartitionState.AppendResult = synchronized {
+  override def process(metadata: AbstractTierMetadata, offsetAndEpoch: OffsetAndEpoch): TierPartitionState.AppendResult = synchronized {
     metadata match {
       case segmentUpload: TierSegmentUploadInitiate =>
         val objectMetadata = new TierObjectStore.ObjectMetadata(segmentUpload.topicIdPartition,
@@ -339,10 +339,10 @@ private class InProgressDeletion(val tierTopicPartitionId: Int,
       case segmentDelete: TierSegmentDeleteComplete =>
         tieredObjects -= segmentDelete.objectId
 
-      case _: TierPartitionDeleteInitiate if offset == deleteInitiateOffset =>
+      case _: TierPartitionDeleteInitiate if offsetAndEpoch.offset == deleteInitiateOffset =>
         updateState(MaterializationComplete)
 
-      case _: TierPartitionDeleteComplete if offset > deleteInitiateOffset =>
+      case _: TierPartitionDeleteComplete if offsetAndEpoch.offset > deleteInitiateOffset =>
         if (tieredObjects.nonEmpty)
           warn(s"Found stray tiered objects after delete completion: $tieredObjects")
         tierTopicConsumer.deregister(topicIdPartition)

@@ -18,14 +18,14 @@
 package kafka.log
 
 import java.io._
-import java.util.{Collections, Properties}
+import java.util.{Collections, Optional, Properties}
 
 import kafka.server.{FetchDataInfo, FetchLogEnd, KafkaConfig}
 import kafka.server.checkpoints.OffsetCheckpointFile
 import kafka.tier.TopicIdPartition
 import kafka.tier.domain.TierTopicInitLeader
 import kafka.tier.state.TierPartitionState.AppendResult
-import kafka.tier.state.{TierPartitionState, TierPartitionStateFactory}
+import kafka.tier.state.{OffsetAndEpoch, TierPartitionState, TierPartitionStateFactory}
 import kafka.tier.store.TierObjectStore
 import kafka.tier.topic.TierTopicConsumer
 import kafka.utils._
@@ -659,7 +659,7 @@ class LogManagerTest {
       log.tierPartitionState.setTopicId(topicIdPartition.topicId)
 
       // append InitLeader to tier partition state file, so that it actually has some state to flush
-      val result = log.tierPartitionState.append(new TierTopicInitLeader(topicIdPartition, 0, java.util.UUID.randomUUID, 0), 0)
+      val result = log.tierPartitionState.append(new TierTopicInitLeader(topicIdPartition, 0, java.util.UUID.randomUUID, 0), new OffsetAndEpoch(0, Optional.of(0)))
       assertEquals(AppendResult.ACCEPTED, result)
     }
 

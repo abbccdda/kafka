@@ -6,11 +6,12 @@ package kafka.tier
 
 import java.io.File
 import java.nio.ByteBuffer
-import java.util.UUID
+import java.util.{Optional, UUID}
 
 import kafka.log._
 import kafka.server.{BrokerTopicStats, ReplicaManager}
 import kafka.tier.domain._
+import kafka.tier.state.OffsetAndEpoch
 import kafka.tier.store.TierObjectStore
 import kafka.tier.topic.TierTopicConsumer
 import kafka.utils.{MockTime, Scheduler, TestUtils}
@@ -204,11 +205,11 @@ class TierDeletedPartitionsCoordinatorTest {
     val inProgress_1 = inProgressPartitions(deletedPartition_1)
     tieredSegments_1.foreach { segment =>
       inProgress_1.process(new TierSegmentUploadInitiate(segment.topicIdPartition, segment.tierEpoch, segment.objectId,
-        segment.baseOffset, segment.baseOffset + 1, 0, 100, false, false, false), 0)
+        segment.baseOffset, segment.baseOffset + 1, 0, 100, false, false, false), new OffsetAndEpoch(0, Optional.of(0)))
     }
 
     // simulate reading of deleteInitiated message for partition 1 ==> signals completion of materialization
-    inProgress_1.process(new TierPartitionDeleteInitiate(deletedPartition_1, 0, UUID.randomUUID), offset = deleteInitiateOffset_1)
+    inProgress_1.process(new TierPartitionDeleteInitiate(deletedPartition_1, 0, UUID.randomUUID), new OffsetAndEpoch(deleteInitiateOffset_1, Optional.of(0)))
     assertEquals(MaterializationComplete, inProgress_1.deletionState)
 
     // begin deletion for partition 1
@@ -250,28 +251,28 @@ class TierDeletedPartitionsCoordinatorTest {
     var offset = 0L
     tieredSegments.foreach { segment =>
       inProgress.process(new TierSegmentUploadInitiate(segment.topicIdPartition, segment.tierEpoch, segment.objectId,
-        segment.baseOffset, segment.baseOffset + 1, 0, 100, false, false, false), offset)
+        segment.baseOffset, segment.baseOffset + 1, 0, 100, false, false, false), new OffsetAndEpoch(offset, Optional.of(0)))
       offset += 1
     }
 
     reset(tierTopicConsumer)
 
     // simulate reading of first deleteInitiate message ==> should be a NOOP
-    inProgress.process(new TierPartitionDeleteInitiate(partition, 0, UUID.randomUUID), offset = deleteInitiateOffset_1)
+    inProgress.process(new TierPartitionDeleteInitiate(partition, 0, UUID.randomUUID), new OffsetAndEpoch(deleteInitiateOffset_1, Optional.of(0)))
     assertEquals(MaterializingState, inProgress.deletionState)
 
     // simulate reading of first deleteComplete message ==> should be a NOOP
-    inProgress.process(new TierPartitionDeleteComplete(partition, UUID.randomUUID), offset = deleteCompleteOffset_1)
+    inProgress.process(new TierPartitionDeleteComplete(partition, UUID.randomUUID), new OffsetAndEpoch(deleteCompleteOffset_1, Optional.of(0)))
     assertEquals(MaterializingState, inProgress.deletionState)
 
     verify(tierTopicConsumer, never()).deregister(partition)
 
     // simulate reading of second deleteInitiate message ==> signals completion of materialization
-    inProgress.process(new TierPartitionDeleteInitiate(partition, 0, UUID.randomUUID), offset = deleteInitiateOffset_2)
+    inProgress.process(new TierPartitionDeleteInitiate(partition, 0, UUID.randomUUID), new OffsetAndEpoch(deleteInitiateOffset_2, Optional.of(0)))
     assertEquals(MaterializationComplete, inProgress.deletionState)
 
     // simulate reading of subsequent deleteComplete message ==> signals deregistration of partition
-    inProgress.process(new TierPartitionDeleteComplete(partition, UUID.randomUUID), offset = deleteInitiateOffset_2 + 1)
+    inProgress.process(new TierPartitionDeleteComplete(partition, UUID.randomUUID), new OffsetAndEpoch(deleteInitiateOffset_2 + 1, Optional.of(0)))
     verify(tierTopicConsumer, times(1)).deregister(partition)
   }
 

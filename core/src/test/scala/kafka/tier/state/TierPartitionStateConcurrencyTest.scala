@@ -4,12 +4,12 @@
 
 package kafka.tier
 
-import java.util.UUID
+import java.util.{Optional, UUID}
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
 
 import kafka.server.LogDirFailureChannel
 import kafka.tier.domain.TierTopicInitLeader
-import kafka.tier.state.FileTierPartitionState
+import kafka.tier.state.{FileTierPartitionState, OffsetAndEpoch}
 import kafka.utils.TestUtils
 import org.junit.Assert._
 import org.junit.Test
@@ -104,7 +104,7 @@ class TierPartitionStateConcurrencyTest {
         new TierTopicInitLeader(tpid,
           epoch,
           java.util.UUID.randomUUID(),
-          0), 0)
+          0), new OffsetAndEpoch(0, Optional.of(0)))
       var size = 0
       var i = 0
       while (System.currentTimeMillis() < startTime + runLengthMs) {

@@ -4,7 +4,7 @@
 
 package kafka.tier.state
 
-import java.util.UUID
+import java.util.{Optional, UUID}
 
 import com.google.flatbuffers.FlatBufferBuilder
 import kafka.tier.serdes.{MaterializationTrackingInfo, TierPartitionStateHeader}
@@ -38,21 +38,26 @@ class HeaderTest {
 
     // default values are returned for values that were not specified
     assertEquals(-1L, header.endOffset)
-    assertEquals(-1L, header.localMaterializedOffset)
-    assertEquals(-1L, header.globalMaterializedOffset)
+    assertEquals(new OffsetAndEpoch(-1, Optional.empty[Integer]), header.localMaterializedOffsetAndEpoch)
+    assertEquals(new OffsetAndEpoch(-1, Optional.empty[Integer]), header.globalMaterializedOffsetAndEpoch)
   }
 
   @Test
-  def testReadHeaderV2(): Unit = {
+  def testReadHeaderV4(): Unit = {
     val topicId = UUID.randomUUID
-    val version = 2: Byte
+    val version = 4: Byte
     val epoch = 0
     val status = TierPartitionStatus.INIT
     val endOffset = 100
-    val localMaterializedOffset = 50
+    val localMaterializedOffsetAndEpoch = new OffsetAndEpoch(50, Optional.of(5))
+    val globalMaterializedOffset = new OffsetAndEpoch(20, Optional.of(2))
 
     val builder = new FlatBufferBuilder(100).forceDefaults(true)
-    val materializedInfo = MaterializationTrackingInfo.createMaterializationTrackingInfo(builder, -1, localMaterializedOffset)
+    val materializedInfo = MaterializationTrackingInfo.createMaterializationTrackingInfo(builder,
+      globalMaterializedOffset.offset,
+      localMaterializedOffsetAndEpoch.offset,
+      globalMaterializedOffset.epoch.get,
+      localMaterializedOffsetAndEpoch.epoch.get)
     TierPartitionStateHeader.startTierPartitionStateHeader(builder)
     val topicIdOffset = kafka.tier.serdes.UUID.createUUID(builder, topicId.getMostSignificantBits, topicId.getLeastSignificantBits)
     TierPartitionStateHeader.addTopicId(builder, topicIdOffset)
@@ -69,7 +74,7 @@ class HeaderTest {
     assertEquals(topicId, header.topicId)
     assertEquals(epoch, header.tierEpoch)
     assertEquals(status, header.status)
-    assertEquals(localMaterializedOffset, header.localMaterializedOffset)
-    assertEquals(-1L, header.globalMaterializedOffset)
+    assertEquals(localMaterializedOffsetAndEpoch, header.localMaterializedOffsetAndEpoch)
+    assertEquals(globalMaterializedOffset, header.globalMaterializedOffsetAndEpoch)
   }
 }

@@ -17,6 +17,7 @@ import kafka.log.TierLogComponents;
 import kafka.log.TierLogSegment;
 import kafka.server.LogDirFailureChannel;
 import kafka.server.BrokerTopicStats;
+import kafka.tier.TierTestUtils;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierTopicInitLeader;
 import kafka.tier.state.TierPartitionState;
@@ -103,7 +104,7 @@ public class MergedLogTierBenchmark {
 
         // simulate archiving to TierPartitionState
         state.onCatchUpComplete();
-        state.append(new TierTopicInitLeader(topicIdPartition, 0, java.util.UUID.randomUUID(), 0), 0);
+        state.append(new TierTopicInitLeader(topicIdPartition, 0, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch());
 
         Iterator<LogSegment> iterator = log.logSegments().take(NUM_TIERED_SEGMENT).iterator();
         while (iterator.hasNext()) {

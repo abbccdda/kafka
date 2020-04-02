@@ -11,6 +11,7 @@ import kafka.utils.CoreUtils;
 
 import java.nio.ByteBuffer;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -34,15 +35,18 @@ public class Header {
            int tierEpoch,
            TierPartitionStatus status,
            long endOffset,
-           long localMaterializedOffset) {
+           OffsetAndEpoch globalMaterializedOffsetAndEpoch,
+           OffsetAndEpoch localMaterializedOffsetAndEpoch) {
         if (tierEpoch < -1)
             throw new IllegalArgumentException("Illegal tierEpoch " + tierEpoch);
 
         final FlatBufferBuilder builder = new FlatBufferBuilder(100).forceDefaults(true);
         final int materializedInfo = MaterializationTrackingInfo.createMaterializationTrackingInfo(
                 builder,
-                -1,
-                localMaterializedOffset);
+                globalMaterializedOffsetAndEpoch.offset(),
+                localMaterializedOffsetAndEpoch.offset(),
+                globalMaterializedOffsetAndEpoch.epoch().orElse(-1),
+                localMaterializedOffsetAndEpoch.epoch().orElse(-1));
         TierPartitionStateHeader.startTierPartitionStateHeader(builder);
         int topicIdOffset = kafka.tier.serdes.UUID.createUUID(builder,
                 topicId.getMostSignificantBits(),
@@ -88,12 +92,12 @@ public class Header {
         return header.endOffset();
     }
 
-    public long localMaterializedOffset() {
-        return materializationInfo.localMaterializedOffset();
+    public OffsetAndEpoch localMaterializedOffsetAndEpoch() {
+        return materializationInfo.localMaterializedOffsetAndEpoch();
     }
 
-    public long globalMaterializedOffset() {
-        return materializationInfo.globalMaterializedOffset();
+    public OffsetAndEpoch globalMaterializedOffsetAndEpoch() {
+        return materializationInfo.globalMaterializedOffsetAndEpoch();
     }
 
     @Override
@@ -130,8 +134,9 @@ public class Header {
                 ")";
     }
 
-    private static class MaterializationInfo {
-        private final MaterializationTrackingInfo info;
+    static class MaterializationInfo {
+        OffsetAndEpoch globalMaterializedOffsetAndEpoch;
+        OffsetAndEpoch localMaterializedOffsetAndEpoch;
 
         MaterializationInfo(MaterializationTrackingInfo info) {
             if (info == null) {
@@ -141,18 +146,24 @@ public class Header {
                 MaterializationTrackingInfo.startMaterializationTrackingInfo(builder);
                 final int entryId = MaterializationTrackingInfo.endMaterializationTrackingInfo(builder);
                 builder.finish(entryId);
-                this.info = MaterializationTrackingInfo.getRootAsMaterializationTrackingInfo(builder.dataBuffer());
-            } else {
-                this.info = info;
+                info = MaterializationTrackingInfo.getRootAsMaterializationTrackingInfo(builder.dataBuffer());
             }
+
+            globalMaterializedOffsetAndEpoch = toOffsetAndEpoch(info.globalMaterializedOffset(), info.globalMaterializedEpoch());
+            localMaterializedOffsetAndEpoch = toOffsetAndEpoch(info.localMaterializedOffset(), info.localMaterializedEpoch());
         }
 
-        long localMaterializedOffset() {
-            return info.localMaterializedOffset();
+        OffsetAndEpoch globalMaterializedOffsetAndEpoch() {
+            return globalMaterializedOffsetAndEpoch;
         }
 
-        long globalMaterializedOffset() {
-            return info.globalMaterializedOffset();
+        OffsetAndEpoch localMaterializedOffsetAndEpoch() {
+            return localMaterializedOffsetAndEpoch;
+        }
+
+        static OffsetAndEpoch toOffsetAndEpoch(long offset, int epoch) {
+            Optional<Integer> epochOpt = (epoch == -1) ? Optional.empty() : Optional.of(epoch);
+            return new OffsetAndEpoch(offset, epochOpt);
         }
 
         @Override
@@ -164,20 +175,20 @@ public class Header {
                 return false;
 
             MaterializationInfo that = (MaterializationInfo) o;
-            return Objects.equals(localMaterializedOffset(), that.localMaterializedOffset()) &&
-                    Objects.equals(globalMaterializedOffset(), that.globalMaterializedOffset());
+            return Objects.equals(localMaterializedOffsetAndEpoch(), that.localMaterializedOffsetAndEpoch()) &&
+                    Objects.equals(globalMaterializedOffsetAndEpoch(), that.globalMaterializedOffsetAndEpoch());
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(localMaterializedOffset(), globalMaterializedOffset());
+            return Objects.hash(localMaterializedOffsetAndEpoch(), globalMaterializedOffsetAndEpoch());
         }
 
         @Override
         public String toString() {
             return "MaterializationInfo(" +
-                    "localMaterializedOffset=" + localMaterializedOffset() + ", " +
-                    "globalMaterializedOffset=" + globalMaterializedOffset() +
+                    "localMaterializedOffset=" + localMaterializedOffsetAndEpoch() + ", " +
+                    "globalMaterializedOffset=" + globalMaterializedOffsetAndEpoch() +
                     ")";
         }
     }

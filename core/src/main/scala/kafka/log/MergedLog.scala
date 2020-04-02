@@ -5,7 +5,6 @@
 package kafka.log
 
 import java.io.{File, IOException}
-import java.nio.ByteBuffer
 import java.util
 import java.util.UUID
 import java.util.concurrent.Future
@@ -16,8 +15,7 @@ import kafka.metrics.KafkaMetricsGroup
 import kafka.server._
 import kafka.server.epoch.LeaderEpochFileCache
 import kafka.tier.state.{TierPartitionState, TierPartitionStateFactory, TierPartitionStatus, TierUtils}
-import kafka.tier.TierTimestampAndOffset
-import kafka.tier.TopicIdPartition
+import kafka.tier.{TierTimestampAndOffset, TopicIdPartition, state}
 import kafka.tier.domain.{AbstractTierMetadata, TierObjectMetadata}
 import kafka.tier.topic.TierTopicConsumer.ClientCtx
 import kafka.utils.{Logging, Scheduler}
@@ -530,7 +528,9 @@ class MergedLog(private[log] val localLog: Log,
     // We can begin tier partition state materialization if tiering is enabled for the topic and if we have a topic id assigned
     if (!isDeleted && tierPartitionState.isTieringEnabled) {
       val clientCtx = new ClientCtx {
-        override def process(metadata: AbstractTierMetadata, offset: Long): TierPartitionState.AppendResult = tierPartitionState.append(metadata, offset)
+        override def process(metadata: AbstractTierMetadata, offsetAndEpoch: state.OffsetAndEpoch): TierPartitionState.AppendResult = {
+          tierPartitionState.append(metadata, offsetAndEpoch)
+        }
         override def status: TierPartitionStatus = tierPartitionState.status
         override def beginCatchup(): Unit = tierPartitionState.beginCatchup()
         override def completeCatchup(): Unit = tierPartitionState.onCatchUpComplete()

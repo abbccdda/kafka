@@ -17,7 +17,7 @@ import kafka.tier.client.{MockConsumerSupplier, MockProducerSupplier}
 import kafka.tier.domain.{AbstractTierMetadata, TierSegmentUploadComplete, TierSegmentUploadInitiate, TierTopicInitLeader}
 import kafka.tier.exceptions.TierMetadataFatalException
 import kafka.tier.state.TierPartitionState.AppendResult
-import kafka.tier.state.{FileTierPartitionState, TierPartitionStatus}
+import kafka.tier.state.{FileTierPartitionState, OffsetAndEpoch, TierPartitionStatus}
 import kafka.tier.topic.TierTopicConsumer.ClientCtx
 import kafka.tier.{TierReplicaManager, TierTopicManagerCommitter, TopicIdPartition}
 import kafka.utils.TestUtils
@@ -336,7 +336,7 @@ class TierTopicManagerTest {
     tierPartitionStateFiles :+= tierPartitionState
 
     tierTopicConsumer.register(topicIdPartition, new ClientCtx {
-      override def process(metadata: AbstractTierMetadata, offset: Long): AppendResult = tierPartitionState.append(metadata, offset)
+      override def process(metadata: AbstractTierMetadata, offsetAndEpoch: OffsetAndEpoch): AppendResult = tierPartitionState.append(metadata, offsetAndEpoch)
       override def status(): TierPartitionStatus = tierPartitionState.status
       override def beginCatchup(): Unit = tierPartitionState.beginCatchup()
       override def completeCatchup(): Unit = tierPartitionState.onCatchUpComplete()

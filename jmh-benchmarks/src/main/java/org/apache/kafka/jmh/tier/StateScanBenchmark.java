@@ -19,6 +19,7 @@ package org.apache.kafka.jmh.tier;
 
 import kafka.log.LogConfig;
 import kafka.server.LogDirFailureChannel;
+import kafka.tier.TierTestUtils;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierTopicInitLeader;
 import kafka.tier.state.TierPartitionStateFactory;
@@ -80,9 +81,9 @@ public class StateScanBenchmark {
                 new LogDirFailureChannel(1));
             state.setTopicId(TOPIC_PARTITION.topicId());
             state.append(new TierTopicInitLeader(TOPIC_PARTITION, EPOCH,
-                    java.util.UUID.randomUUID(), 0), 0);
+                    java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch());
             state.append(new TierTopicInitLeader(TOPIC_PARTITION, EPOCH,
-                    java.util.UUID.randomUUID(), 0), 0);
+                    java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch());
             for (int i = 0; i < COUNT; i++) {
                 TierUtils.uploadWithMetadata(state,
                         TOPIC_PARTITION,

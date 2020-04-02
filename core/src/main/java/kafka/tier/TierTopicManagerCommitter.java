@@ -5,6 +5,7 @@
 package kafka.tier;
 
 import kafka.server.LogDirFailureChannel;
+import kafka.tier.state.OffsetAndEpoch;
 import kafka.tier.state.TierPartitionState;
 import kafka.tier.topic.TierTopicManagerConfig;
 import org.apache.kafka.common.utils.Utils;
@@ -19,27 +20,29 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import static scala.compat.java8.JFunction.func;
 
 public class TierTopicManagerCommitter {
-    // when bumping the format, writes in the new format should be gated behind an
-    // inter broker protocol version number to allow a rollback to a previous version
-    // until the version number is bumped
-    static final Integer CURRENT_VERSION = 0;
+    // Version 0: Initial version
+    // Version 1: Adds `leader_epoch` for each committed offset
+    public static final VersionInfo CURRENT_VERSION = VersionInfo.VERSION_1;
 
-    private static final String SEPARATOR = " ";
     private static final Logger log = LoggerFactory.getLogger(TierTopicManagerCommitter.class);
+    private static final int NO_EPOCH = -1;
+    private static final String SEPARATOR = " ";
 
     private final TierTopicManagerConfig config;
     private final LogDirFailureChannel logDirFailureChannel;
-    private final ConcurrentHashMap<Integer, Long> positions = new ConcurrentHashMap<>();
+    private final Map<Integer, OffsetAndEpoch> partitionToPosition = new ConcurrentHashMap<>();
 
     /**
      * Instantiate a TierTopicManagerCommitter
@@ -61,20 +64,30 @@ public class TierTopicManagerCommitter {
      * Update position materialized by the TierTopicManager consumer.
      *
      * @param partition Tier Topic partitionId
-     * @param position  Tier Topic Partition position
+     * @param updateTo Tier Topic Partition position and epoch
      */
-    public void updatePosition(Integer partition, Long position) {
-        log.debug("Committer position updated {}:{}", partition, position);
-        positions.put(partition, position);
+    public void updatePosition(int partition, OffsetAndEpoch updateTo) {
+        OffsetAndEpoch current = partitionToPosition.getOrDefault(partition, OffsetAndEpoch.EMPTY);
+
+        if (current.offset() >= updateTo.offset())
+            throw new IllegalStateException("Illegal offset in " + updateTo + " with current position " + current);
+
+        if (current.epoch().isPresent() && updateTo.epoch().isPresent()) {
+            if (current.epoch().get() > updateTo.epoch().get())
+                throw new IllegalStateException("Illegal epoch in " + updateTo + " with current position " + current);
+        }
+
+        partitionToPosition.put(partition, updateTo);
+        log.debug("Committer position updated {}:{}", partition, updateTo);
     }
 
     /**
-     * Return the current position for the given tier topic partition.
+     * Return the current position and epoch for the given tier topic partition.
      * @param partitionId tier topic partition id
-     * @return Position for the given partition; null if no position exists
+     * @return OffsetAndEpoch for the given tier topic partition; null if no position exists
      */
-    public Long positionFor(int partitionId) {
-        return positions.get(partitionId);
+    public OffsetAndEpoch positionFor(int partitionId) {
+        return partitionToPosition.get(partitionId);
     }
 
     /**
@@ -82,7 +95,7 @@ public class TierTopicManagerCommitter {
      */
     public synchronized void flush(Iterator<TierPartitionState> tierPartitionStateIterator) {
         // take a copy of the positions so that we don't commit positions later than what we will flush.
-        HashMap<Integer, Long> flushPositions = new HashMap<>(positions);
+        Map<Integer, OffsetAndEpoch> flushPositions = new HashMap<>(partitionToPosition);
         boolean error = false;
         while (tierPartitionStateIterator.hasNext()) {
             TierPartitionState state = tierPartitionStateIterator.next();
@@ -100,7 +113,7 @@ public class TierTopicManagerCommitter {
         // if any TierPartitionState files failed to flush, it is not safe
         // to write the consumer positions, as that may lead to divergence
         if (!error)
-            writeOffsets(flushPositions);
+            writeOffsets(CURRENT_VERSION, flushPositions);
     }
 
     /**
@@ -109,18 +122,19 @@ public class TierTopicManagerCommitter {
      * @param diskOffsets list of offset mappings read from logdirs
      * @return earliest offset for each partition
      */
-    static Map<Integer, Long> earliestOffsets(List<Map<Integer, Long>> diskOffsets) {
+    static Map<Integer, OffsetAndEpoch> earliestOffsets(List<Map<Integer, OffsetAndEpoch>> diskOffsets) {
         // some positions were missing from one of the offset file
         // reset all of the positions to force full materialization
         if (diskOffsets.stream().map(Map::keySet).collect(Collectors.toSet()).size() != 1)
-            return new HashMap<>();
+            return Collections.emptyMap();
 
-        HashMap<Integer, Long> minimum = new HashMap<>();
-        for (Map<Integer, Long> offsets : diskOffsets) {
+        Map<Integer, OffsetAndEpoch> minimum = new HashMap<>();
+
+        for (Map<Integer, OffsetAndEpoch> offsets : diskOffsets) {
             log.debug("Loading offsets from logdir {}.", diskOffsets);
-            for (Map.Entry<Integer, Long> entry : offsets.entrySet()) {
+            for (Map.Entry<Integer, OffsetAndEpoch> entry : offsets.entrySet()) {
                 minimum.compute(entry.getKey(), (k, v) -> {
-                    if (v == null || entry.getValue() < v) {
+                    if (v == null || entry.getValue().offset() < v.offset()) {
                         return entry.getValue();
                     } else {
                         return v;
@@ -151,78 +165,86 @@ public class TierTopicManagerCommitter {
         }
     }
 
-    static Map<Integer, Long> committed(String logDir, LogDirFailureChannel logDirFailureChannel) {
-        HashMap<Integer, Long> loaded = new HashMap<>();
+    static Map<Integer, OffsetAndEpoch> committed(String logDir, LogDirFailureChannel logDirFailureChannel) {
         try (FileReader fr = new FileReader(commitPath(logDir))) {
             try (BufferedReader br = new BufferedReader(fr)) {
-                String line = br.readLine();
-                if (invalidHeader(line))
-                    return new HashMap<>();
-
-                line = br.readLine();
-                while (line != null) {
-                    String[] values = line.split(SEPARATOR);
-                    if (values.length != 2) {
-                        log.warn("TierTopicManager offsets found in incorrect format '{}'."
-                                    + " Resetting positions.", line);
-                        return new HashMap<>();
-                    } else {
-                        loaded.put(Integer.parseInt(values[0]), Long.parseLong(values[1]));
-                    }
-                    line = br.readLine();
-                }
+                String versionLine = br.readLine();
+                return readPayload(br, readVersion(versionLine));
             }
         } catch (FileNotFoundException fnf) {
-            log.info("TierTopicManager offsets not found. This is expected if this is the first "
-                    + "time starting up with tiered storage.");
-        } catch (NumberFormatException nfe) {
-            log.error("Error parsing TierTopicManager offsets. Ignoring stored positions.", nfe);
-            return new HashMap<>();
+            log.info("TierTopicManager offsets not found. This is expected if this is the first time starting up " +
+                    "with tiered storage.", fnf);
         } catch (IOException ioe) {
             log.error("Error loading TierTopicManager offsets. Setting logdir offline.", ioe);
             logDirFailureChannel.maybeAddOfflineLogDir(logDir,
                     func(() -> "Failed to commit tier offsets to logdir."), ioe);
+        } catch (Exception e) {
+            log.warn("Exception encountered when reading tier checkpoint file. Resetting offsets.", e);
         }
-        return loaded;
+        return Collections.emptyMap();
     }
 
-    private static boolean invalidHeader(String line) {
-        try {
-            Integer version = Integer.parseInt(line);
-            if (version > CURRENT_VERSION || version < 0) {
-                log.error("Committed offsets version {} is unsupported. Current version {}."
-                                + " Returning empty positions.",
-                        version,
-                        CURRENT_VERSION);
-                return true;
+    private static VersionInfo readVersion(String line) {
+        return VersionInfo.toVersionInfo(Integer.parseInt(line));
+    }
+
+    private static Map<Integer, OffsetAndEpoch> readPayload(BufferedReader br, VersionInfo versionInfo) throws IOException {
+        Map<Integer, OffsetAndEpoch> committedPositions = new HashMap<>();
+        String line;
+
+        while ((line = br.readLine()) != null) {
+            String[] values = line.split(SEPARATOR);
+
+            if (values.length == versionInfo.numFields) {
+                int partitionId = Integer.parseInt(values[0]);
+                long offset = Long.parseLong(values[1]);
+                Optional<Integer> epoch = Optional.empty();
+
+                if (versionInfo.version > VersionInfo.VERSION_0.version) {
+                    int deserializedEpoch = Integer.parseInt(values[2]);
+                    if (deserializedEpoch != NO_EPOCH)
+                        epoch = Optional.of(deserializedEpoch);
+                }
+
+                OffsetAndEpoch previousPosition = committedPositions.put(partitionId, new OffsetAndEpoch(offset, epoch));
+                if (previousPosition != null)
+                    throw new IllegalStateException("Found duplicate positions for partition " + partitionId);
+            } else {
+                throw new IllegalStateException("Committed offsets found in incorrect format on line " + line);
             }
-        } catch (NumberFormatException nfe) {
-            log.error("Error parsing committed offset version, line '{}'."
-                         + " Returning empty positions.", line);
-            return true;
         }
-        return false;
+
+        return committedPositions;
     }
 
     private void loadOffsets() {
-        Map<Integer, Long> earliest = earliestOffsets(
+        Map<Integer, OffsetAndEpoch> earliest = earliestOffsets(
                 config.logDirs
                         .stream()
                         .map(logDir -> committed(logDir, logDirFailureChannel))
                         .collect(Collectors.toList()));
-        positions.clear();
-        positions.putAll(earliest);
+        partitionToPosition.clear();
+        partitionToPosition.putAll(earliest);
     }
 
-    private void writeOffsets(Map<Integer, Long> offsets) {
+    // package-private for testing
+    void writeOffsets(VersionInfo versionInfo, Map<Integer, OffsetAndEpoch> offsets) {
         for (String logDir : config.logDirs) {
             try {
                 try (FileWriter fw = new FileWriter(commitTempFilename(logDir))) {
                     try (BufferedWriter bw = new BufferedWriter(fw)) {
-                        bw.write(CURRENT_VERSION.toString());
+                        bw.write(String.valueOf(versionInfo.version));
                         bw.newLine();
-                        for (Map.Entry<Integer, Long> entry : offsets.entrySet()) {
-                            bw.write(entry.getKey() + SEPARATOR + entry.getValue());
+                        for (Map.Entry<Integer, OffsetAndEpoch> entry : offsets.entrySet()) {
+                            int partitionId = entry.getKey();
+                            long offset = entry.getValue().offset();
+                            int epoch = entry.getValue().epoch().orElse(NO_EPOCH);
+
+                            bw.write(partitionId + SEPARATOR + offset);
+
+                            // epoch is written out for version 1 and onwards
+                            if (versionInfo.version > VersionInfo.VERSION_0.version)
+                                bw.write(SEPARATOR + epoch);
                             bw.newLine();
                         }
                     }
@@ -233,6 +255,37 @@ public class TierTopicManagerCommitter {
                 logDirFailureChannel.maybeAddOfflineLogDir(logDir,
                         func(() -> "Failed to commit tier offsets to logdir."), ioe);
             }
+        }
+    }
+
+    // package-private for tests
+    enum VersionInfo {
+        VERSION_0(0, 2),
+        VERSION_1(1, 3);
+
+        private static final Map<Integer, VersionInfo> VERSION_MAP = new HashMap<>();
+
+        final int version;
+        final int numFields;
+
+        static {
+            for (VersionInfo versionInfo : VersionInfo.values()) {
+                VersionInfo oldVersion = VERSION_MAP.put(versionInfo.version, versionInfo);
+                if (oldVersion != null)
+                    throw new ExceptionInInitializerError("Found duplicate version " + versionInfo.version);
+            }
+        }
+
+        VersionInfo(int version, int numFields) {
+            this.version = version;
+            this.numFields = numFields;
+        }
+
+        public static VersionInfo toVersionInfo(int version) {
+            VersionInfo versionInfo = VERSION_MAP.get(version);
+            if (versionInfo == null)
+                throw new IllegalStateException("Unknown version " + version);
+            return versionInfo;
         }
     }
 }

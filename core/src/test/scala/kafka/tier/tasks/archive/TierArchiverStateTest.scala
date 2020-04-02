@@ -213,7 +213,7 @@ class TierArchiverStateTest {
     log.appendAsFollower(TierTestUtils.createRecords(50, topicIdPartition.topicPartition, log.logEndOffset, 0))
 
     // overlaps with one of our segments
-    tierPartitionState.append(new TierTopicInitLeader(topicIdPartition, 0, UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffset)
+    tierPartitionState.append(new TierTopicInitLeader(topicIdPartition, 0, UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     TierTestUtils.uploadWithMetadata(tierPartitionState,
       topicIdPartition,
       0,
@@ -225,7 +225,7 @@ class TierArchiverStateTest {
       1000)
 
     val newTierEpoch = 1
-    tierPartitionState.append(new TierTopicInitLeader(topicIdPartition, newTierEpoch, UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffset)
+    tierPartitionState.append(new TierTopicInitLeader(topicIdPartition, newTierEpoch, UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     log.updateHighWatermark(log.logEndOffset)
 
     val replicaManager = mock(classOf[ReplicaManager])
@@ -233,7 +233,7 @@ class TierArchiverStateTest {
     when(tierTopicManager.addMetadata(any())).thenAnswer(new Answer[CompletableFuture[AppendResult]] {
       override def answer(invocation: InvocationOnMock): CompletableFuture[AppendResult] = {
         val metadata = invocation.getArgument(0).asInstanceOf[AbstractTierMetadata]
-        CompletableFuture.completedFuture(tierPartitionState.append(metadata, TierTestUtils.nextTierTopicOffset))
+        CompletableFuture.completedFuture(tierPartitionState.append(metadata, TierTestUtils.nextTierTopicOffsetAndEpoch()))
       }
     })
 

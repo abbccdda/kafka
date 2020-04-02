@@ -120,11 +120,10 @@ public interface TierPartitionState {
      * When appending a TierObjectMetadata entry, it may append the tier metadata to the tier
      * partition log file.
      * @param tierMetadata AbstractTierMetadata entry to be appended to the tier partition log.
-     * @param tierTopicPartitionOffset offset of the Tier Topic Partition containing the tierMetadata.
+     * @param sourceOffsetAndEpoch Offset and epoch corresponding to this metadata entry
      * @return Returns an AppendResult denoting the result of the append action.
-     * @throws IOException
      */
-    AppendResult append(AbstractTierMetadata tierMetadata, long tierTopicPartitionOffset) throws IOException;
+    AppendResult append(AbstractTierMetadata tierMetadata, OffsetAndEpoch sourceOffsetAndEpoch);
 
     /**
      * Sum the size of all segment spanned by this TierPartitionState.

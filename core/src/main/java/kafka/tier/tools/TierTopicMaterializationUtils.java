@@ -21,6 +21,7 @@ import java.util.Set;
 import java.util.UUID;
 import kafka.log.Log;
 import kafka.server.LogDirFailureChannel;
+import kafka.tier.state.OffsetAndEpoch;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.AbstractTierMetadata;
 import kafka.tier.serdes.TierKafkaKey;
@@ -193,13 +194,13 @@ public class TierTopicMaterializationUtils {
             throws IOException {
         FileTierPartitionState state;
         state = getStateIfRequired(record, id);
-        final Optional<AbstractTierMetadata> entryOpt =
-                AbstractTierMetadata.deserialize(record.key(), record.value());
+        final Optional<AbstractTierMetadata> entryOpt = AbstractTierMetadata.deserialize(record.key(), record.value());
         if (entryOpt.isPresent()) {
+            OffsetAndEpoch offsetAndEpoch = new OffsetAndEpoch(record.offset(), record.leaderEpoch());
             AbstractTierMetadata entry = entryOpt.get();
-            TierPartitionState.AppendResult result = state.append(entry, record.offset());
-            if (!result.equals(TierPartitionState.AppendResult.ACCEPTED))
-                System.out.println(state.append(entry, record.offset()) + " offset " + record.offset());
+            TierPartitionState.AppendResult result = state.append(entry, offsetAndEpoch);
+            if (result != TierPartitionState.AppendResult.ACCEPTED)
+                System.out.println(result + " offset " + record.offset());
         }
     }
 

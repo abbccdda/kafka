@@ -24,6 +24,7 @@ import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -94,7 +95,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     // Version 1: `endOffset` added to tier partition state header
     // Version 2: `globalMaterializedOffset` and `localMaterializedOffset` added to tier partition state header
     // Version 3: introduced new header status: `TierPartitionStatus.ERROR` as a part of the fencing mechanism
-    private static final byte CURRENT_VERSION = 3;
+    // Version 4: `globalMaterializedEpoch` and `localMaterializedEpoch` added to tier partition state header
+    private static final byte CURRENT_VERSION = 4;
     private static final int ENTRY_LENGTH_SIZE = 2;
     private static final long FILE_OFFSET = 0;
     private static final Logger log = LoggerFactory.getLogger(FileTierPartitionState.class);
@@ -131,12 +133,20 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     // package-private for testing
-    static FileTierPartitionState createWithStateUpdateFailureFencingDisabled(File dir, LogDirFailureChannel logDirFailureChannel, TopicPartition topicPartition, boolean tieringEnabled)  throws IOException {
+    static FileTierPartitionState createWithStateUpdateFailureFencingDisabled(File dir,
+                                                                              LogDirFailureChannel logDirFailureChannel,
+                                                                              TopicPartition topicPartition,
+                                                                              boolean tieringEnabled)  throws IOException {
         return new FileTierPartitionState(dir, logDirFailureChannel, topicPartition, tieringEnabled, false, CURRENT_VERSION);
     }
 
     // package-private for testing
-    FileTierPartitionState(File dir,  LogDirFailureChannel logDirFailureChannel, TopicPartition topicPartition, boolean tieringEnabled, boolean stateUpdateFailureFencingEnabled, byte version) throws IOException {
+    FileTierPartitionState(File dir,
+                           LogDirFailureChannel logDirFailureChannel,
+                           TopicPartition topicPartition,
+                           boolean tieringEnabled,
+                           boolean stateUpdateFailureFencingEnabled,
+                           byte version) throws IOException {
         this.topicPartition = topicPartition;
         this.dir = dir;
         this.logDirFailureChannel = logDirFailureChannel;
@@ -234,7 +244,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             state.currentEpoch,
             status,
             state.endOffset,
-            state.consumptionInfo.localMaterializedOffset));
+            state.globalMaterializedOffsetAndEpoch,
+            state.localMaterializedOffsetAndEpoch));
         state.channel.force(true);
 
         // move file contents to the flushed file
@@ -271,7 +282,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             .open(tmpFilePathHandle, StandardOpenOption.READ, StandardOpenOption.WRITE);
         try {
             Optional<Header> existingHeaderOpt = readHeader(channel);
-            Header newHeader = null;
+            Header newHeader;
             if (existingHeaderOpt.isPresent()) {
                 Header existingHeader = existingHeaderOpt.get();
                 newHeader = new Header(
@@ -280,23 +291,19 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                     existingHeader.tierEpoch(),
                     newStatus,
                     existingHeader.endOffset(),
-                    existingHeader.localMaterializedOffset());
-                log.warn(
-                    "Writing new header to tier partition state for {}: {}",
-                    topicIdPartition,
-                    newHeader);
+                    existingHeader.globalMaterializedOffsetAndEpoch(),
+                    existingHeader.localMaterializedOffsetAndEpoch());
+                log.warn("Writing new header to tier partition state for {}: {}", topicIdPartition, newHeader);
             } else {
                 newHeader = new Header(
                     topicIdPartition.topicId(),
                     version,
                     -1,
-                    TierPartitionStatus.ERROR,
+                    newStatus,
                     -1L,
-                    -1L);
-                log.warn(
-                    "Header not found! Writing new header to tier partition state for {}: {}",
-                    topicIdPartition,
-                    newHeader);
+                    OffsetAndEpoch.EMPTY,
+                    OffsetAndEpoch.EMPTY);
+                log.warn("Header not found! Writing new header to tier partition state for {}: {}", topicIdPartition, newHeader);
                 channel.truncate(0);
             }
             writeHeader(channel, newHeader);
@@ -440,32 +447,21 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     @Override
-    public AppendResult append(AbstractTierMetadata metadata, long tierTopicPartitionOffset) throws IOException {
+    public AppendResult append(AbstractTierMetadata metadata, OffsetAndEpoch offsetAndEpoch) {
         synchronized (lock) {
             if (status.hasError()) {
-                log.debug("Skipping processing for {} from offset {} as the current status is failed",
-                    metadata, tierTopicPartitionOffset);
+                log.debug("Skipping processing for {} from offset {} as the current status is failed", metadata, offsetAndEpoch);
                 return AppendResult.FAILED;
             }
 
             if (!status.isOpenForWrite()) {
                 log.debug("Skipping processing for {} from offset {} as file is not open for write",
-                        metadata, tierTopicPartitionOffset);
+                        metadata, offsetAndEpoch);
                 return AppendResult.NOT_TIERABLE;
-            } else if (state.consumptionInfo.localMaterializedOffset >= tierTopicPartitionOffset) {
-                // This is a duplicate message with previous offset as the local state
-                // has advanced to a future offset, some reasons why a duplicate event can occur are:
-                // 1. Transitioning from Catchup mode to Online mode, when catchup consumer surpasses before transition.
-                // 2. During recovery, the TierTopicConsumer may start from offset already processed.
-                // However, we are returning Fenced result because we don't want to allow replay
-                // from previous offsets without resetting the existing current_offset
-                log.debug("Received TierTopicPartition offset: {} <= current_offset: {} for {}",
-                    tierTopicPartitionOffset, state.consumptionInfo.localMaterializedOffset, topicIdPartition());
-                return AppendResult.FENCED;
             }
-            AppendResult result = appendMetadata(metadata, tierTopicPartitionOffset);
-            log.debug("Processed append for {} with result {} consumed from offset {}",
-                    metadata, result, tierTopicPartitionOffset);
+
+            AppendResult result = appendMetadata(metadata, offsetAndEpoch);
+            log.debug("Processed append for {} with result {} consumed from offset {}", metadata, result, offsetAndEpoch);
             return result;
         }
     }
@@ -491,8 +487,12 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     // visible for testing.
-    long lastConsumedSrcOffset() {
-        return state.consumptionInfo.localMaterializedOffset;
+    OffsetAndEpoch lastConsumedSrcOffsetAndEpoch() {
+        return state.localMaterializedOffsetAndEpoch;
+    }
+
+    OffsetAndEpoch lastFlushedSrcOffsetAndEpoch() {
+        return state.globalMaterializedOffsetAndEpoch;
     }
 
     // visible for testing
@@ -514,7 +514,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                     + ", committedEndOffset=" + committedEndOffset()
                     + ", numSegments=" + numSegments()
                     + ", tierEpoch=" + tierEpoch()
-                    + ", lastMaterializedOffset=" + lastConsumedSrcOffset()
+                    + ", lastMaterializedOffset=" + lastConsumedSrcOffsetAndEpoch()
                     + ")";
         else
             return "FileTierPartitionState("
@@ -679,11 +679,16 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     // Caller must hold FileTierPartitionState.lock
-    private AppendResult appendMetadata(
-        AbstractTierMetadata entry, long tierTopicPartitionOffset) throws IOException {
+    private AppendResult appendMetadata(AbstractTierMetadata entry, OffsetAndEpoch offsetAndEpoch) {
         try {
+            if (!mayAppend(offsetAndEpoch)) {
+                log.debug("Ignoring message at offset {} as last materialized offset is {} for {}",
+                        offsetAndEpoch, state.localMaterializedOffsetAndEpoch, topicIdPartition());
+                return AppendResult.FENCED;
+            }
+
             AppendResult result = appendMetadata(entry);
-            state.consumptionInfo.localMaterializedOffset = tierTopicPartitionOffset;
+            state.localMaterializedOffsetAndEpoch = offsetAndEpoch;
             return result;
         } catch (IOException e) {
             // Handle IOException specially by marking the dir offline, as it indicates a
@@ -694,22 +699,48 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             }
             logDirFailureChannel.maybeAddOfflineLogDir(dir().getParent(),
                 func(() -> "Failed to apply event to TierPartitionState for " + dir().getParent()), e);
-            throw new KafkaStorageException(
-                String.format(
-                    "Failed to apply %s, currentEpoch=%d tierTopicPartitionOffset=%d",
-                    entry, state.currentEpoch, tierTopicPartitionOffset),
-                e);
+            throw new KafkaStorageException("Failed to apply " + entry + ", currentEpoch=" + state.currentEpoch +
+                    ", tierTopicPartitionOffsetAndEpoch=" + offsetAndEpoch, e);
         } catch (Exception e) {
             if (stateUpdateFailureFencingEnabled) {
                 status = TierPartitionStatus.ERROR;
                 dirty = true;
-                log.error(
-                    "Failed to apply {}, currentEpoch={} tierTopicPartitionOffset={}",
-                    entry, state.currentEpoch, tierTopicPartitionOffset, e);
+                log.error("Failed to apply {}, currentEpoch={} tierTopicPartitionOffset={}",
+                        entry, state.currentEpoch, offsetAndEpoch, e);
             } else {
                 throw e;
             }
             return AppendResult.FAILED;
+        }
+    }
+
+    private boolean mayAppend(OffsetAndEpoch toAppend) {
+        OffsetAndEpoch current = state.localMaterializedOffsetAndEpoch;
+
+        if (toAppend.offset() > current.offset()) {
+            if (toAppend.epoch().isPresent() && current.epoch().isPresent()) {
+                if (toAppend.epoch().get() >= current.epoch().get())
+                    return true;
+                else
+                    throw new IllegalStateException("Incorrect epoch in " + toAppend + " with current epoch " + current);
+            } else {
+                return true;
+            }
+        } else {
+            // This is a duplicate message with previous offset as the local state
+            // has advanced to a future offset, some reasons why a duplicate event can occur are:
+            // 1. Transitioning from Catchup mode to Online mode, when catchup consumer surpasses before transition.
+            // 2. During recovery, the TierTopicConsumer may start from offset already processed.
+            // However, we are returning Fenced result because we don't want to allow replay
+            // from previous offsets without resetting the existing current_offset
+            if (toAppend.epoch().isPresent() && current.epoch().isPresent()) {
+                if (toAppend.epoch().get() <= current.epoch().get())
+                    return false;
+                else
+                    throw new IllegalStateException("Incorrect epoch in " + toAppend + " with current epoch " + current);
+            } else {
+                return false;
+            }
         }
     }
 
@@ -955,7 +986,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                             version, -1,
                             TierPartitionStatus.INIT,
                             -1L,
-                            -1L));
+                            OffsetAndEpoch.EMPTY,
+                            OffsetAndEpoch.EMPTY));
                 } else {
                     channel.close();
                     return null;
@@ -979,7 +1011,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                             initialHeader.tierEpoch(),
                             initialHeader.status(),
                             initialHeader.endOffset(),
-                            initialHeader.localMaterializedOffset());
+                            initialHeader.globalMaterializedOffsetAndEpoch(),
+                            initialHeader.localMaterializedOffsetAndEpoch());
                     writeHeader(tmpChannel, newHeader);
                     tmpChannel.position(newHeader.size());
                     channel.position(initialHeader.size());
@@ -1035,7 +1068,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         channel.position(channel.size());
         state.committedEndOffset = state.endOffset;
         state.currentEpoch = header.tierEpoch();
-        state.consumptionInfo.localMaterializedOffset = header.localMaterializedOffset();
+        state.globalMaterializedOffsetAndEpoch = header.globalMaterializedOffsetAndEpoch();
+        state.localMaterializedOffsetAndEpoch = header.localMaterializedOffsetAndEpoch();
         status = header.status();
 
         log.info("Opened tier partition state for {} in status {}. topicIdPartition: {} tierEpoch: {} endOffset: {}",
@@ -1092,26 +1126,19 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return StateFileType.ERROR.filePath(basePath);
     }
 
-    /**
-     * Tracks metadata related to the tier topic partition we are consuming from, to materialize this tier partition
-     * state file.
-     */
-    private static class ConsumptionInfo {
-        private volatile long localMaterializedOffset = -1L;  // tracks the last materialized offset
-    }
-
     private static class State {
         private final static State UNINITIALIZED_STATE = new State(null);
 
         private final FileChannel channel;  // the mutable file channel
         private final ConcurrentNavigableMap<Long, UUID> validSegments = new ConcurrentSkipListMap<>();
         private final ConcurrentNavigableMap<UUID, SegmentState> allSegments = new ConcurrentSkipListMap<>();
-        private final ConsumptionInfo consumptionInfo = new ConsumptionInfo();
 
         private volatile long endOffset = -1L;
         private volatile long committedEndOffset = -1L;
         private volatile int currentEpoch = -1;
         private volatile long validSegmentsSize = 0;
+        private volatile OffsetAndEpoch globalMaterializedOffsetAndEpoch = OffsetAndEpoch.EMPTY;
+        private volatile OffsetAndEpoch localMaterializedOffsetAndEpoch = OffsetAndEpoch.EMPTY;
 
         State(FileChannel channel) {
             this.channel = channel;

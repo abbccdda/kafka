@@ -578,7 +578,7 @@ public class TierMetadataValidator implements AutoCloseable {
     private class TierMetadataValidatorRecord {
         public Path snapshot;
         public TopicIdPartition id;
-        public Long maxOffset;
+        public long maxOffset;
 
         public TierMetadataValidatorRecord(Path stateFile, TopicPartition topicPartition) throws IOException {
             FileChannel fileChannel = FileChannel.open(stateFile, StandardOpenOption.READ);
@@ -588,7 +588,7 @@ public class TierMetadataValidator implements AutoCloseable {
             Header header = headerOpt.get();
             this.snapshot = stateFile;
             this.id = new TopicIdPartition(topicPartition.topic(), header.topicId(), topicPartition.partition());
-            this.maxOffset = header.localMaterializedOffset();
+            this.maxOffset = header.localMaterializedOffsetAndEpoch().offset();
         }
     }
 

@@ -5,14 +5,13 @@
 package kafka.tier
 
 import java.nio.ByteBuffer
-import java.util.UUID
+import java.util.{Optional, UUID}
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.atomic.AtomicLong
 
 import kafka.log.AbstractLog
 import kafka.server.KafkaServer
 import kafka.tier.domain.{TierSegmentUploadComplete, TierSegmentUploadInitiate}
-import kafka.tier.state.TierPartitionState
+import kafka.tier.state.{OffsetAndEpoch, TierPartitionState}
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.topic.TierTopicManager
 import kafka.utils.TestUtils
@@ -25,14 +24,16 @@ import org.junit.Assert.assertTrue
 import scala.collection.JavaConverters._
 
 object TierTestUtils {
-  private val _tierTopicOffset: AtomicLong = new AtomicLong(-1L)
+  private var tierTopicOffsetAndEpoch = new OffsetAndEpoch(-1, Optional.empty())
 
-  def nextTierTopicOffset: Long = {
-    _tierTopicOffset.incrementAndGet()
+  def nextTierTopicOffsetAndEpoch(): OffsetAndEpoch = synchronized {
+    val nextOffsetAndEpoch = new OffsetAndEpoch(tierTopicOffsetAndEpoch.offset + 1, tierTopicOffsetAndEpoch.epoch)
+    tierTopicOffsetAndEpoch = nextOffsetAndEpoch
+    tierTopicOffsetAndEpoch
   }
 
-  def initTierTopicOffset(): Unit= {
-    _tierTopicOffset.set(-1)
+  def initTierTopicOffset(): Unit = synchronized {
+    tierTopicOffsetAndEpoch = new OffsetAndEpoch(-1, Optional.empty())
   }
 
   def ensureTierable(log: AbstractLog, tierEndOffset: Long, topicPartition: TopicPartition, leaderEpoch: Int = 0): Unit = {
@@ -119,12 +120,12 @@ object TierTestUtils {
     val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, tierEpoch, objectId, startOffset, endOffset,
       maxTimestamp, size, hasEpochState, hasAbortedTxnIndex, hasProducerState)
 
-    val result = tierPartitionState.append(uploadInitiate, nextTierTopicOffset)
+    val result = tierPartitionState.append(uploadInitiate, nextTierTopicOffsetAndEpoch())
     if (result != AppendResult.ACCEPTED) {
       result
     } else {
       val uploadComplete = new TierSegmentUploadComplete(uploadInitiate)
-      tierPartitionState.append(uploadComplete, nextTierTopicOffset)
+      tierPartitionState.append(uploadComplete, nextTierTopicOffsetAndEpoch())
     }
   }
 

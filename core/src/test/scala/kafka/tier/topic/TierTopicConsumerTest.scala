@@ -8,7 +8,7 @@ import kafka.tier.{TierTopicManagerCommitter, TopicIdPartition}
 import kafka.tier.client.{MockConsumerSupplier, MockProducerSupplier}
 import kafka.tier.domain.AbstractTierMetadata
 import kafka.tier.exceptions.TierMetadataDeserializationException
-import kafka.tier.state.TierPartitionStatus
+import kafka.tier.state.{OffsetAndEpoch, TierPartitionStatus}
 import kafka.tier.topic.TierTopicConsumer.ClientCtx
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.CommonClientConfigs
@@ -145,7 +145,7 @@ class TierTopicConsumerTest {
   @Test
   def testPrimaryConsumerSeeksToLastCommittedOffsetOnStartup(): Unit = {
     val committedOffsetMap = tierTopicPartitions.asScala.map { tierTopicPartition =>
-      tierTopicPartition -> (tierTopicPartition.partition + 100L)
+      tierTopicPartition -> new OffsetAndEpoch(tierTopicPartition.partition + 100L, Optional.of(3))
     }
 
     // setup committer with committed positions
@@ -157,8 +157,8 @@ class TierTopicConsumerTest {
 
     val primaryConsumer = primaryConsumerSupplier.consumers.get(0)
     assertEquals(tierTopicPartitions, primaryConsumer.assignment)
-    committedOffsetMap.foreach { case (tierTopicPartition, offset) =>
-      assertEquals(offset, primaryConsumer.position(tierTopicPartition))
+    committedOffsetMap.foreach { case (tierTopicPartition, offsetAndEpoch) =>
+      assertEquals(offsetAndEpoch.offset, primaryConsumer.position(tierTopicPartition))
     }
   }
 
@@ -174,7 +174,7 @@ class TierTopicConsumerTest {
 
     // setup initial position for primary consumer
     val committedOffsetMap = tierTopicPartitions.asScala.map { tierTopicPartition =>
-      tierTopicPartition -> 100L
+      tierTopicPartition -> new OffsetAndEpoch(100L, Optional.of(5))
     }
     committedOffsetMap.foreach { case (tierTopicPartition, offset) =>
       when(tierTopicManagerCommitter.positionFor(tierTopicPartition.partition)).thenReturn(offset)

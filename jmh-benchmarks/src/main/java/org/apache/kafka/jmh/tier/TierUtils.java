@@ -4,6 +4,7 @@
 
 package org.apache.kafka.jmh.tier;
 
+import kafka.tier.TierTestUtils;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierSegmentUploadComplete;
 import kafka.tier.domain.TierSegmentUploadInitiate;
@@ -35,12 +36,12 @@ public class TierUtils {
                 hasAbortedTxns,
                 hasProducerState);
 
-        TierPartitionState.AppendResult result = tierPartitionState.append(uploadInitiate, 0);
+        TierPartitionState.AppendResult result = tierPartitionState.append(uploadInitiate, TierTestUtils.nextTierTopicOffsetAndEpoch());
         if (result != TierPartitionState.AppendResult.ACCEPTED) {
             return result;
         } else {
             TierSegmentUploadComplete uploadComplete = new TierSegmentUploadComplete(uploadInitiate);
-            return tierPartitionState.append(uploadComplete, 0);
+            return tierPartitionState.append(uploadComplete, TierTestUtils.nextTierTopicOffsetAndEpoch());
         }
     }
 }

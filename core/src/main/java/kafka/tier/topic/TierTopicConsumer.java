@@ -5,6 +5,7 @@
 package kafka.tier.topic;
 
 import kafka.server.LogDirFailureChannel;
+import kafka.tier.state.OffsetAndEpoch;
 import kafka.tier.TierTopicManagerCommitter;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.client.TierTopicConsumerSupplier;
@@ -17,6 +18,7 @@ import kafka.tier.state.TierPartitionStatus;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.metrics.MetricConfig;
@@ -199,10 +201,11 @@ public class TierTopicConsumer implements Runnable {
         primaryConsumer = primaryConsumerSupplier.get();
         primaryConsumer.assign(tierTopicPartitions);
         for (TopicPartition topicPartition : tierTopicPartitions) {
-            Long position = committer.positionFor(topicPartition.partition());
-            if (position != null) {
-                log.info("seeking primary consumer to committed offset {} for partition {}", position, topicPartition);
-                primaryConsumer.seek(topicPartition, position);
+            OffsetAndEpoch offsetAndEpoch = committer.positionFor(topicPartition.partition());
+            if (offsetAndEpoch != null) {
+                log.info("seeking primary consumer to committed offset {} for partition {}", offsetAndEpoch, topicPartition);
+                OffsetAndMetadata offsetAndMetadata = new OffsetAndMetadata(offsetAndEpoch.offset(), offsetAndEpoch.epoch(), "");
+                primaryConsumer.seek(topicPartition, offsetAndMetadata);
             } else {
                 log.info("primary consumer missing committed offset for partition {}. Seeking to beginning", topicPartition);
                 primaryConsumer.seekToBeginning(Collections.singletonList(topicPartition));
@@ -365,16 +368,15 @@ public class TierTopicConsumer implements Runnable {
 
         for (ConsumerRecord<byte[], byte[]> record : records) {
             try {
-                final Optional<AbstractTierMetadata> entryOpt =
-                        AbstractTierMetadata.deserialize(record.key(), record.value());
-
+                Optional<AbstractTierMetadata> entryOpt = AbstractTierMetadata.deserialize(record.key(), record.value());
                 if (entryOpt.isPresent()) {
                     AbstractTierMetadata entry = entryOpt.get();
                     log.trace("Read {} at offset {} of partition {} requiredState {}", entry, record.offset(), record.partition(), requiredState);
-                    processEntry(entry, record.partition(), record.offset(), requiredState);
+                    processEntry(entry, new OffsetAndEpoch(record.offset(), record.leaderEpoch()), requiredState);
 
                     if (commitPositions)
-                        committer.updatePosition(record.partition(), record.offset() + 1);
+                        committer.updatePosition(record.partition(),
+                                new OffsetAndEpoch(record.offset() + 1, record.leaderEpoch()));
                 } else {
                     throw new TierMetadataFatalException(
                             String.format("Fatal Exception message for %s and unknown type: %d cannot be deserialized (requiredState:%s).",
@@ -401,9 +403,7 @@ public class TierTopicConsumer implements Runnable {
     }
 
     private void removeMetrics() {
-        metrics.ifPresent(m -> {
-            m.removeMetric(errorPartitionsMetricName);
-        });
+        metrics.ifPresent(m -> m.removeMetric(errorPartitionsMetricName));
     }
 
     private static boolean checkClientCtxStatus(ClientCtx ctx, TierPartitionStatus status) {
@@ -413,94 +413,87 @@ public class TierTopicConsumer implements Runnable {
     /**
      * Materialize a tier topic entry into the corresponding tier partition status.
      * @param entry The tier topic entry read from the tier topic.
-     * @param partition source partition for this metadata entry
-     * @param offset source offset for this metadata entry
+     * @param offsetAndEpoch source offset and epoch of this metadata entry
      * @param requiredState TierPartitionState must be in this status in order to modify it; otherwise the entry will be ignored.
      */
     private void processEntry(AbstractTierMetadata entry,
-                              int partition,
-                              long offset,
-                              TierPartitionStatus requiredState) throws TierMetadataFatalException {
+                              OffsetAndEpoch offsetAndEpoch,
+                              TierPartitionStatus requiredState) {
+        TopicIdPartition topicIdPartition = entry.topicIdPartition();
+        ClientCtx clientCtx;
+        boolean matchesRequiredState;
 
-        try {
-            TopicIdPartition topicIdPartition = entry.topicIdPartition();
-            ClientCtx clientCtx = null;
-            boolean matchesRequiredState = false;
-
-            // Retrieve the client context, if any
-            synchronized (this) {
-                if (primaryConsumerPartitions.containsKey(topicIdPartition)) {
-                    clientCtx = primaryConsumerPartitions.get(topicIdPartition);
-                    matchesRequiredState =
-                        (requiredState == TierPartitionStatus.ONLINE) &&
-                        checkClientCtxStatus(clientCtx, requiredState);
-                } else {
-                    clientCtx = catchUpConsumerPartitions.get(topicIdPartition);
-                    matchesRequiredState =
-                        (requiredState == TierPartitionStatus.CATCHUP) &&
-                        checkClientCtxStatus(clientCtx, requiredState);
-                }
-            }
-
-            if (clientCtx != null) {
-                TierPartitionStatus currentState = clientCtx.status();
-                switch (currentState) {
-                    case DISK_OFFLINE:
-                        resultListeners
-                                .getAndRemoveTracked(entry)
-                                .ifPresent(c -> c.completeExceptionally(
-                                        new TierMetadataFatalException("Partition " + topicIdPartition + " is offline")));
-                        break;
-
-                    default:
-                        if (matchesRequiredState) {
-                            TierPartitionState.AppendResult result = processEntry(
-                                clientCtx, topicIdPartition, entry, offset);
-                            resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.complete(result));
-                        } else {
-                            // We partition the materialization between the primary and catchup consumer based on the
-                            // current state of the tier partition. Primary consumer can materialize metadata for
-                            // ONLINE partitions; catchup consumer can materialize metadata for CATCHUP partitions.
-                            // If we fall in this case, it means that the current state does not match the consumer
-                            // we are processing this record for. For example,
-                            //
-                            // 1. The primary consumer is processing message for a partition in CATCHUP state. The
-                            //    catchup consumer will eventually read this message and complete the listener.
-                            // 2. The catchup consumer is processing message for a partition in ONLINE state. This
-                            //    message may already have been materialized or not, depending on where the primary
-                            //    consumer is relative to the catchup consumer. In either case, the primary consumer
-                            //    would have or will materialize this message.
-                            // 3. The partition was reassigned back to this broker and is now in INIT state. We will
-                            //    wait for the catchup consumer to be restarted and reconsume this message.
-                            //
-                            // In all cases, we have an implicit guarantee that one of the two consumers will consume
-                            // this message and find the tier partition either in the right state or to be deleted,
-                            // which will trigger materialization and completion of listener.
-                            log.debug("Ignoring metadata {}. currentState: {} requiredState: {}", entry, currentState, requiredState);
-                        }
-                        break;
-                }
+        // Retrieve the client context, if any
+        synchronized (this) {
+            if (primaryConsumerPartitions.containsKey(topicIdPartition)) {
+                clientCtx = primaryConsumerPartitions.get(topicIdPartition);
+                matchesRequiredState =
+                    (requiredState == TierPartitionStatus.ONLINE) &&
+                    checkClientCtxStatus(clientCtx, requiredState);
             } else {
-                // Partition deletion messages do not require a corresponding target for successful completion. For example,
-                // the controller would attempt to initiate deletion of a partition but would not necessarily have the
-                // partition registered for materialization. We complete their materialization successfully. All other
-                // messages require an active target. If there is none, we complete the future exceptionally.
-                if (entry.type() == TierRecordType.PartitionDeleteInitiate || entry.type() == TierRecordType.PartitionDeleteComplete)
-                    resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.complete(TierPartitionState.AppendResult.ACCEPTED));
-                else
-                    resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.completeExceptionally(
-                            new TierMetadataRetriableException("Tier partition state for " + topicIdPartition + " does not exist")));
+                clientCtx = catchUpConsumerPartitions.get(topicIdPartition);
+                matchesRequiredState =
+                    (requiredState == TierPartitionStatus.CATCHUP) &&
+                    checkClientCtxStatus(clientCtx, requiredState);
             }
-        } catch (Exception e) {
-            throw new TierMetadataFatalException(
-                    String.format("Error processing message %s at offset %d, partition %d, requiredState %s", entry, offset, partition, requiredState), e);
+        }
+
+        if (clientCtx != null) {
+            TierPartitionStatus currentState = clientCtx.status();
+            switch (currentState) {
+                case DISK_OFFLINE:
+                    resultListeners
+                            .getAndRemoveTracked(entry)
+                            .ifPresent(c -> c.completeExceptionally(
+                                    new TierMetadataFatalException("Partition " + topicIdPartition + " is offline")));
+                    break;
+
+                default:
+                    if (matchesRequiredState) {
+                        TierPartitionState.AppendResult result = processEntry(clientCtx, topicIdPartition, entry, offsetAndEpoch);
+                        resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.complete(result));
+                    } else {
+                        // We partition the materialization between the primary and catchup consumer based on the
+                        // current state of the tier partition. Primary consumer can materialize metadata for
+                        // ONLINE partitions; catchup consumer can materialize metadata for CATCHUP partitions.
+                        // If we fall in this case, it means that the current state does not match the consumer
+                        // we are processing this record for. For example,
+                        //
+                        // 1. The primary consumer is processing message for a partition in CATCHUP state. The
+                        //    catchup consumer will eventually read this message and complete the listener.
+                        // 2. The catchup consumer is processing message for a partition in ONLINE state. This
+                        //    message may already have been materialized or not, depending on where the primary
+                        //    consumer is relative to the catchup consumer. In either case, the primary consumer
+                        //    would have or will materialize this message.
+                        // 3. The partition was reassigned back to this broker and is now in INIT state. We will
+                        //    wait for the catchup consumer to be restarted and reconsume this message.
+                        //
+                        // In all cases, we have an implicit guarantee that one of the two consumers will consume
+                        // this message and find the tier partition either in the right state or to be deleted,
+                        // which will trigger materialization and completion of listener.
+                        log.debug("Ignoring metadata {}. currentState: {} requiredState: {}", entry, currentState, requiredState);
+                    }
+                    break;
+            }
+        } else {
+            // Partition deletion messages do not require a corresponding target for successful completion. For example,
+            // the controller would attempt to initiate deletion of a partition but would not necessarily have the
+            // partition registered for materialization. We complete their materialization successfully. All other
+            // messages require an active target. If there is none, we complete the future exceptionally.
+            if (entry.type() == TierRecordType.PartitionDeleteInitiate || entry.type() == TierRecordType.PartitionDeleteComplete)
+                resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.complete(TierPartitionState.AppendResult.ACCEPTED));
+            else
+                resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.completeExceptionally(
+                        new TierMetadataRetriableException("Tier partition state for " + topicIdPartition + " does not exist")));
         }
     }
 
-    private TierPartitionState.AppendResult processEntry(
-        ClientCtx clientCtx, TopicIdPartition topicIdPartition, AbstractTierMetadata entry, long offset) {
+    private TierPartitionState.AppendResult processEntry(ClientCtx clientCtx,
+                                                         TopicIdPartition topicIdPartition,
+                                                         AbstractTierMetadata entry,
+                                                         OffsetAndEpoch offsetAndEpoch) {
         try {
-            return clientCtx.process(entry, offset);
+            return clientCtx.process(entry, offsetAndEpoch);
         } finally {
             if (clientCtx.status() == TierPartitionStatus.ERROR) {
                 synchronized (this) {
@@ -539,10 +532,10 @@ public class TierTopicConsumer implements Runnable {
         /**
          * Process metadata for this context.
          * @param metadata Metadata to process
-         * @param tierTopicPartitionOffset  Metadata's offset in TierTopicPartition
+         * @param sourceOffsetAndEpoch Offset and epoch corresponding to metadata to process
          * @return Result of processing
          */
-        TierPartitionState.AppendResult process(AbstractTierMetadata metadata, long tierTopicPartitionOffset);
+        TierPartitionState.AppendResult process(AbstractTierMetadata metadata, OffsetAndEpoch sourceOffsetAndEpoch);
 
         /**
          * Retrieve status of tiered partition.
