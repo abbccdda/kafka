@@ -43,6 +43,7 @@ public class KafkaDataBalancer implements DataBalancer {
 
     static {
         STARTUP_COMPONENTS.add("io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler");
+        STARTUP_COMPONENTS.add("com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore");
     }
 
     private static final String START_ANCHOR = "^";
@@ -147,6 +148,7 @@ public class KafkaDataBalancer implements DataBalancer {
                 cruiseControl.shutdown();
             } finally {
                 cruiseControl = null;
+                LOG.info("DataBalancer: Cruise Control shutdown completed.");
             }
         }
     }
