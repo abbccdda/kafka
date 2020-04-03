@@ -90,7 +90,7 @@ class KafkaPathResolverMixin(object):
     @property
     def path(self):
         if not hasattr(self, "_path"):
-            if hasattr(self, "project"):
+            if hasattr(self, "project") and self.project == "confluentplatform":
                 project = self.project
             else:
                 project = "kafka"
