@@ -47,7 +47,7 @@ import org.scalatest.Assertions.assertThrows
 import org.mockito.ArgumentMatchers
 import org.mockito.invocation.InvocationOnMock
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable.ListBuffer
 
 class PartitionTest {
@@ -1608,7 +1608,7 @@ class PartitionTest {
     )
 
     def getMetric(metric: String): Option[Metric] = {
-      KafkaYammerMetrics.defaultRegistry().allMetrics().asScala.filterKeys { metricName =>
+      KafkaYammerMetrics.defaultRegistry().allMetrics().asScala.filter { case (metricName, _) =>
         metricName.getName == metric && metricName.getType == "Partition"
       }.headOption.map(_._2)
     }

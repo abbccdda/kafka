@@ -401,7 +401,7 @@ class TopicDeletionManager(config: KafkaConfig,
    * removed from their caches.
    */
   private def onTopicDeletion(topics: Set[String]): Unit = {
-    val unseenTopicsForDeletion = topics -- controllerContext.topicsWithDeletionStarted
+    val unseenTopicsForDeletion = topics.diff(controllerContext.topicsWithDeletionStarted)
     if (unseenTopicsForDeletion.nonEmpty) {
       val unseenPartitionsForDeletion = unseenTopicsForDeletion.flatMap(controllerContext.partitionsForTopic)
       partitionStateMachine.handleStateChanges(unseenPartitionsForDeletion.toSeq, OfflinePartition)
@@ -439,7 +439,7 @@ class TopicDeletionManager(config: KafkaConfig,
       }
 
       val successfullyDeletedReplicas = controllerContext.replicasInState(topic, ReplicaDeletionSuccessful)
-      val replicasForDeletionRetry = aliveReplicas -- successfullyDeletedReplicas
+      val replicasForDeletionRetry = aliveReplicas.diff(successfullyDeletedReplicas)
 
       allDeadReplicas ++= deadReplicas
       allReplicasForDeletionRetry ++= replicasForDeletionRetry

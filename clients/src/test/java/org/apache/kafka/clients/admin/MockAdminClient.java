@@ -473,13 +473,12 @@ public class MockAdminClient extends AdminClient {
     synchronized private Config getResourceDescription(ConfigResource resource) {
         switch (resource.type()) {
             case BROKER: {
-                Map<String, String> map =
-                    brokerConfigs.get(Integer.valueOf(resource.name()));
-                if (map == null) {
+                int brokerId = Integer.valueOf(resource.name());
+                if (brokerId >= brokerConfigs.size()) {
                     throw new InvalidRequestException("Broker " + resource.name() +
                         " not found.");
                 }
-                return toConfigObject(map);
+                return toConfigObject(brokerConfigs.get(brokerId));
             }
             case TOPIC: {
                 TopicMetadata topicMetadata = allTopics.get(resource.name());
@@ -541,8 +540,7 @@ public class MockAdminClient extends AdminClient {
                 if (brokerId >= brokerConfigs.size()) {
                     return new InvalidRequestException("no such broker as " + brokerId);
                 }
-                Map<String, String> map = brokerConfigs.get(brokerId);
-                HashMap<String, String> newMap = new HashMap<>(map);
+                HashMap<String, String> newMap = new HashMap<>(brokerConfigs.get(brokerId));
                 for (AlterConfigOp op : ops) {
                     switch (op.opType()) {
                         case SET:

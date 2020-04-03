@@ -33,7 +33,7 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal
 import org.apache.kafka.common.utils.{Sanitizer, Time}
 import org.apache.kafka.server.quota.{ClientQuotaCallback, ClientQuotaEntity, ClientQuotaType}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable
 
 /**
@@ -166,7 +166,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
                          threadNamePrefix: String,
                          clientQuotaCallback: Option[ClientQuotaCallback] = None,
                          activeTenantsManager: Option[ActiveTenantsManager] = None) extends Logging {
-  private val staticConfigClientIdQuota = Quota.upperBound(config.quotaBytesPerSecondDefault)
+  private val staticConfigClientIdQuota = Quota.upperBound(config.quotaBytesPerSecondDefault.toDouble)
   private val clientQuotaType = quotaTypeToClientQuotaType(quotaType)
   @volatile private var quotaTypesEnabled = clientQuotaCallback match {
     case Some(_) => QuotaTypes.CustomQuotas
@@ -186,7 +186,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
 
   private var brokerQuotaLimit: Double = Long.MaxValue
 
-  private val delayQueueSensor = metrics.sensor(quotaType + "-delayQueue")
+  private val delayQueueSensor = metrics.sensor(quotaType.toString + "-delayQueue")
   delayQueueSensor.add(metrics.metricName("queue-size",
     quotaType.toString,
     "Tracks the size of the delay queue"), new CumulativeSum())
@@ -672,8 +672,8 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
       }
     } else {
       val quotaMetricName = clientRateMetricName(Map.empty)
-      allMetrics.asScala.filterKeys(n => n.name == quotaMetricName.name && n.group == quotaMetricName.group).foreach {
-        case (metricName, metric) =>
+      allMetrics.asScala.foreach { case (metricName, metric) =>
+        if (metricName.name == quotaMetricName.name && metricName.group == quotaMetricName.group) {
           val metricTags = metricName.tags
           Option(quotaLimit(metricTags)).foreach { newQuota =>
             if (newQuota != metric.config.quota.bound) {
@@ -681,6 +681,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
               metric.config(getQuotaMetricConfig(newQuota))
             }
           }
+        }
       }
     }
   }

@@ -63,7 +63,7 @@ import org.junit.Assert._
 import org.junit.{After, Before, Test}
 import org.mockito.{ArgumentMatchers, Mockito}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.{Map, Seq}
 
 class ReplicaManagerTest {

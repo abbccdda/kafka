@@ -356,6 +356,15 @@ public class StreamThreadTest {
             "task-closed-rate", defaultGroupName, descriptionIsNotVerified, defaultTags)));
         assertNotNull(metrics.metrics().get(metrics.metricName(
             "task-closed-total", defaultGroupName, descriptionIsNotVerified, defaultTags)));
+        assertNotNull(metrics.metrics().get(metrics.metricName(
+            "process-ratio", defaultGroupName, descriptionIsNotVerified, defaultTags)));
+        assertNotNull(metrics.metrics().get(metrics.metricName(
+            "punctuate-ratio", defaultGroupName, descriptionIsNotVerified, defaultTags)));
+        assertNotNull(metrics.metrics().get(metrics.metricName(
+            "commit-ratio", defaultGroupName, descriptionIsNotVerified, defaultTags)));
+        assertNotNull(metrics.metrics().get(metrics.metricName(
+            "poll-ratio", defaultGroupName, descriptionIsNotVerified, defaultTags)));
+
         if (builtInMetricsVersion.equals(StreamsConfig.METRICS_0100_TO_24)) {
             assertNotNull(metrics.metrics().get(metrics.metricName(
                 "skipped-records-rate", defaultGroupName, descriptionIsNotVerified, defaultTags)));
@@ -372,10 +381,6 @@ public class StreamThreadTest {
         final Map<String, String> taskTags =
             mkMap(mkEntry("task-id", "all"), mkEntry(getThreadTagKey(builtInMetricsVersion), thread.getName()));
         if (builtInMetricsVersion.equals(StreamsConfig.METRICS_0100_TO_24)) {
-            assertNotNull(metrics.metrics().get(metrics.metricName(
-                "commit-latency-avg", taskGroupName, descriptionIsNotVerified, taskTags)));
-            assertNotNull(metrics.metrics().get(metrics.metricName(
-                "commit-latency-max", taskGroupName, descriptionIsNotVerified, taskTags)));
             assertNotNull(metrics.metrics().get(metrics.metricName(
                 "commit-rate", taskGroupName, descriptionIsNotVerified, taskTags)));
         } else {

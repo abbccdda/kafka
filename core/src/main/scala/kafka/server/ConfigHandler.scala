@@ -33,7 +33,7 @@ import org.apache.kafka.common.metrics.Quota
 import org.apache.kafka.common.metrics.Quota._
 import org.apache.kafka.common.utils.Sanitizer
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.Seq
 import scala.util.Try
 
@@ -133,13 +133,13 @@ class QuotaConfigHandler(private val quotaManagers: QuotaManagers) {
     val clientId = sanitizedClientId.map(Sanitizer.desanitize)
     val producerQuota =
       if (config.containsKey(DynamicConfig.Client.ProducerByteRateOverrideProp))
-        Some(new Quota(config.getProperty(DynamicConfig.Client.ProducerByteRateOverrideProp).toLong, true))
+        Some(new Quota(config.getProperty(DynamicConfig.Client.ProducerByteRateOverrideProp).toLong.toDouble, true))
       else
         None
     quotaManagers.produce.updateQuota(sanitizedUser, clientId, sanitizedClientId, producerQuota)
     val consumerQuota =
       if (config.containsKey(DynamicConfig.Client.ConsumerByteRateOverrideProp))
-        Some(new Quota(config.getProperty(DynamicConfig.Client.ConsumerByteRateOverrideProp).toLong, true))
+        Some(new Quota(config.getProperty(DynamicConfig.Client.ConsumerByteRateOverrideProp).toLong.toDouble, true))
       else
         None
     quotaManagers.fetch.updateQuota(sanitizedUser, clientId, sanitizedClientId, consumerQuota)
@@ -230,9 +230,9 @@ class BrokerConfigHandler(private val brokerConfig: KafkaConfig,
           quotaManager.removeBrokerThrottle(resetThrottle = true)
       }
     }
-    quotaManagers.leader.updateQuota(upperBound(getOrDefaultRate(KafkaConfig.LeaderReplicationThrottledRateProp, quotaManagers.leader.config)))
-    quotaManagers.follower.updateQuota(upperBound(getOrDefaultRate(KafkaConfig.FollowerReplicationThrottledRateProp, quotaManagers.follower.config)))
-    quotaManagers.alterLogDirs.updateQuota(upperBound(getOrDefaultRate(ReplicaAlterLogDirsIoMaxBytesPerSecondProp, quotaManagers.alterLogDirs.config)))
+    quotaManagers.leader.updateQuota(upperBound(getOrDefaultRate(KafkaConfig.LeaderReplicationThrottledRateProp, quotaManagers.leader.config).toDouble))
+    quotaManagers.follower.updateQuota(upperBound(getOrDefaultRate(KafkaConfig.FollowerReplicationThrottledRateProp, quotaManagers.follower.config).toDouble))
+    quotaManagers.alterLogDirs.updateQuota(upperBound(getOrDefaultRate(ReplicaAlterLogDirsIoMaxBytesPerSecondProp, quotaManagers.alterLogDirs.config).toDouble))
 
     setBrokerReplicationThrottledReplicas(KafkaConfig.LeaderReplicationThrottledReplicasProp, quotaManagers.leader)
     setBrokerReplicationThrottledReplicas(KafkaConfig.FollowerReplicationThrottledReplicasProp, quotaManagers.follower)

@@ -34,7 +34,7 @@ import org.apache.kafka.server.interceptor.RecordInterceptor
 import org.apache.kafka.server.interceptor.RecordInterceptor.RecordInterceptorResponse
 
 import scala.collection.{Seq, mutable}
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable.ArrayBuffer
 
 /**

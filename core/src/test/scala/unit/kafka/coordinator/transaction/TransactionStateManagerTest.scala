@@ -20,8 +20,8 @@ import java.lang.management.ManagementFactory
 import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.locks.ReentrantLock
-import javax.management.ObjectName
 
+import javax.management.ObjectName
 import kafka.log.{AppendOrigin, AbstractLog}
 import kafka.server.{FetchDataInfo, FetchLogEnd, LogOffsetMetadata, ReplicaManager}
 import kafka.utils.{MockScheduler, Pool, TestUtils}
@@ -39,7 +39,7 @@ import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import org.junit.{After, Before, Test}
 import org.scalatest.Assertions.fail
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.{Map, mutable}
 
 class TransactionStateManagerTest {

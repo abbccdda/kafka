@@ -44,7 +44,7 @@ import org.apache.kafka.common.requests.EpochEndOffset._
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.utils.Time
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.{Map, Seq}
 import scala.compat.java8.OptionConverters._
 
@@ -799,13 +799,10 @@ class Partition(val topicPartition: TopicPartition,
                              addingReplicas: Seq[Int],
                              removingReplicas: Seq[Int],
                              observers: Set[Int]): Unit = {
-    val replicaSet = assignment.toSet
-    val removedReplicas = remoteReplicasMap.keys -- replicaSet
-
+    remoteReplicasMap.clear()
     assignment
       .filter(_ != localBrokerId)
       .foreach(id => remoteReplicasMap.getAndMaybePut(id, new Replica(id, topicPartition)))
-    removedReplicas.foreach(remoteReplicasMap.remove)
 
     if (addingReplicas.nonEmpty || removingReplicas.nonEmpty)
       assignmentState = OngoingReassignmentState(addingReplicas, removingReplicas, assignment, observers)

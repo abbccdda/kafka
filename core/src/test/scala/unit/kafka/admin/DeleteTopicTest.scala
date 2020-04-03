@@ -40,7 +40,9 @@ class DeleteTopicTest extends ZooKeeperTestHarness {
   var servers: Seq[KafkaServer] = Seq()
 
   val expectedReplicaAssignment = Map(0 -> List(0, 1, 2))
-  val expectedReplicaFullAssignment = expectedReplicaAssignment.mapValues(ReplicaAssignment(_, Seq.empty)).toMap
+  val expectedReplicaFullAssignment = expectedReplicaAssignment.map { case (k, v) =>
+    k -> ReplicaAssignment(v, List())
+  }
 
   @After
   override def tearDown(): Unit = {

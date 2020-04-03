@@ -37,7 +37,7 @@ import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.{LogContext, Time}
 import org.apache.kafka.common.{KafkaException, Node, Reconfigurable, TopicPartition}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable.{HashMap, ListBuffer}
 import scala.collection.{Seq, Set, mutable}
 
@@ -462,8 +462,8 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
       else if (config.interBrokerProtocolVersion >= KAFKA_1_0_IV0) 1
       else 0
 
-    leaderAndIsrRequestMap.filterKeys(controllerContext.liveOrShuttingDownBrokerIds.contains).foreach {
-      case (broker, leaderAndIsrPartitionInfo) =>
+    leaderAndIsrRequestMap.foreach { case (broker, leaderAndIsrPartitionInfo) =>
+      if (controllerContext.liveOrShuttingDownBrokerIds.contains(broker)) {
         val containsAllReplicas = leaderAndIsrPartitionInfo.containsAllReplicas
         val leaderAndIsrPartitionStates = leaderAndIsrPartitionInfo.partitionStates
         val numBecomeLeaders = leaderAndIsrPartitionStates.count { case (topicPartition, state) =>
@@ -504,6 +504,7 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
           val leaderAndIsrResponse = r.asInstanceOf[LeaderAndIsrResponse]
           sendEvent(LeaderAndIsrResponseReceived(leaderAndIsrResponse, broker))
         })
+      }
     }
     leaderAndIsrRequestMap.clear()
   }
@@ -585,25 +586,27 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
     }
 
     val traceEnabled = stateChangeLog.isTraceEnabled
-    stopReplicaRequestMap.filterKeys(controllerContext.liveOrShuttingDownBrokerIds.contains).foreach { case (brokerId, replicaInfoList) =>
-      val (stopReplicaWithDelete, stopReplicaWithoutDelete) = replicaInfoList.partition(r => r.deletePartition)
-      val brokerEpoch = controllerContext.liveBrokerIdAndEpochs(brokerId)
+    stopReplicaRequestMap.foreach { case (brokerId, replicaInfoList) =>
+      if (controllerContext.liveOrShuttingDownBrokerIds.contains(brokerId)) {
+        val (stopReplicaWithDelete, stopReplicaWithoutDelete) = replicaInfoList.partition(r => r.deletePartition)
+        val brokerEpoch = controllerContext.liveBrokerIdAndEpochs(brokerId)
 
-      if (stopReplicaWithDelete.nonEmpty) {
-        stateChangeLog.info(s"Sending a stop replica request (delete = true) for ${stopReplicaWithDelete.size} replicas to broker $brokerId")
-        if (traceEnabled)
-          stateChangeLog.trace(s"The stop replica request (delete = true) sent to broker $brokerId contains ${stopReplicaWithDelete.map(_.replica).mkString(",")}")
-        val stopReplicaRequest = createStopReplicaRequest(brokerEpoch, stopReplicaWithDelete, deletePartitions = true)
-        val callback = stopReplicaPartitionDeleteResponseCallback(brokerId) _
-        sendRequest(brokerId, stopReplicaRequest, callback)
-      }
+        if (stopReplicaWithDelete.nonEmpty) {
+          stateChangeLog.info(s"Sending a stop replica request (delete = true) for ${stopReplicaWithDelete.size} replicas to broker $brokerId")
+          if (traceEnabled)
+            stateChangeLog.trace(s"The stop replica request (delete = true) sent to broker $brokerId contains ${stopReplicaWithDelete.map(_.replica).mkString(",")}")
+          val stopReplicaRequest = createStopReplicaRequest(brokerEpoch, stopReplicaWithDelete, deletePartitions = true)
+          val callback = stopReplicaPartitionDeleteResponseCallback(brokerId) _
+          sendRequest(brokerId, stopReplicaRequest, callback)
+        }
 
-      if (stopReplicaWithoutDelete.nonEmpty) {
-        stateChangeLog.info(s"Sending a stop replica request (delete = false) for ${stopReplicaWithoutDelete.size} replicas to broker $brokerId")
-        if (traceEnabled)
-          stateChangeLog.trace(s"The stop replica request (delete = false) sent to broker $brokerId contains ${stopReplicaWithoutDelete.map(_.replica).mkString(",")}")
-        val stopReplicaRequest = createStopReplicaRequest(brokerEpoch, stopReplicaWithoutDelete, deletePartitions = false)
-        sendRequest(brokerId, stopReplicaRequest)
+        if (stopReplicaWithoutDelete.nonEmpty) {
+          stateChangeLog.info(s"Sending a stop replica request (delete = false) for ${stopReplicaWithoutDelete.size} replicas to broker $brokerId")
+          if (traceEnabled)
+            stateChangeLog.trace(s"The stop replica request (delete = false) sent to broker $brokerId contains ${stopReplicaWithoutDelete.map(_.replica).mkString(",")}")
+          val stopReplicaRequest = createStopReplicaRequest(brokerEpoch, stopReplicaWithoutDelete, deletePartitions = false)
+          sendRequest(brokerId, stopReplicaRequest)
+        }
       }
     }
     stopReplicaRequestMap.clear()

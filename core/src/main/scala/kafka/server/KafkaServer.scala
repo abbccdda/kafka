@@ -65,7 +65,7 @@ import org.apache.kafka.server.license.LicenseValidator
 import org.apache.kafka.server.multitenant.MultiTenantMetadata
 import org.apache.zookeeper.client.ZKClientConfig
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.{Map, Seq, mutable}
 
 object KafkaServer {
@@ -437,9 +437,13 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         authorizer.foreach(_.configure(config.originals))
         val authorizerFutures: Map[Endpoint, CompletableFuture[Void]] = authorizer match {
           case Some(authZ) =>
-            authZ.start(brokerInfo.broker.toServerInfo(clusterId, config, metadataServer)).asScala.mapValues(_.toCompletableFuture).toMap
+            authZ.start(brokerInfo.broker.toServerInfo(clusterId, config, metadataServer)).asScala.map { case (ep, cs) =>
+              ep -> cs.toCompletableFuture
+            }
           case None =>
-            brokerInfo.broker.endPoints.map { ep => ep.toJava -> CompletableFuture.completedFuture[Void](null) }.toMap
+            brokerInfo.broker.endPoints.map { ep =>
+              ep.toJava -> CompletableFuture.completedFuture[Void](null)
+            }.toMap
         }
 
         val fetchManager = new FetchManager(Time.SYSTEM,
@@ -931,7 +935,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
     }
 
     if (brokerMetadataSet.size > 1) {
-      val builder = StringBuilder.newBuilder
+      val builder = new StringBuilder
 
       for ((logDir, brokerMetadata) <- brokerMetadataMap)
         builder ++= s"- $logDir -> $brokerMetadata\n"

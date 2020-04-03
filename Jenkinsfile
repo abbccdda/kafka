@@ -57,7 +57,6 @@ def job = {
                 }
             }
         }
-
     }
 
     stage("Run Tests and build cp-downstream-builds") {

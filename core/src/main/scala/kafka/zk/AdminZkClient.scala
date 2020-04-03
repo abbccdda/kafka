@@ -101,9 +101,8 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     zkClient.setOrCreateEntityConfigs(ConfigType.Topic, topic, config)
 
     // create the partition assignment
-    writeTopicPartitionAssignment(
-      topic, partitionReplicaAssignment, isUpdate = false, createTopicId = createTopicId
-    )
+    writeTopicPartitionAssignment(topic, partitionReplicaAssignment, isUpdate = false,
+      createTopicId = createTopicId)
   }
 
   /**

@@ -47,7 +47,7 @@ import org.apache.kafka.common.{InvalidRecordException, KafkaException, TopicPar
 import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
 import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 import scala.collection.{mutable, Seq, Set}
 
@@ -569,8 +569,8 @@ class Log(@volatile private var _dir: File,
       Files.deleteIfExists(Log.transactionIndexFile(dir, offset, suffix).toPath)
     }
 
-    var swapFiles = Set[File]()
-    var cleanFiles = Set[File]()
+    val swapFiles = mutable.Set[File]()
+    val cleanFiles = mutable.Set[File]()
     var minCleanedFileOffset = Long.MaxValue
 
     for (file <- dir.listFiles if file.isFile) {
@@ -804,7 +804,7 @@ class Log(@volatile private var _dir: File,
     // if we have the clean shutdown marker, skip recovery
     if (!hasCleanShutdownFile) {
       // okay we need to actually recover this log
-      val unflushed = logSegments(this.recoveryPoint, Long.MaxValue).toIterator
+      val unflushed = logSegments(this.recoveryPoint, Long.MaxValue).iterator
       var truncated = false
 
       while (unflushed.hasNext && !truncated) {

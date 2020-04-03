@@ -38,7 +38,7 @@ import org.junit.Assert._
 import org.junit.{After, Test}
 import org.scalatest.Assertions.intercept
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.{Map, Seq, immutable}
 import scala.compat.java8.OptionConverters._
 

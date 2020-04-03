@@ -38,8 +38,6 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
         self.topic = "test_topic"
         self.partitions = 3
         self.replication_factor = 3
-        self.zk = ZookeeperService(self.test_context, num_nodes=1)
-        self.zk.start()
 
         # Producer and consumer
         self.producer_throughput = 1000
@@ -66,6 +64,13 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             tier_set_configs(self.kafka, backend, feature=to_tiered_storage, enable=to_tiered_storage,
                              hotset_bytes=hotset_bytes, hotset_ms=-1, metadata_replication_factor=3)
 
+        self.logger.info("Upgrade ZooKeeper from %s to %s" % (str(self.zk.nodes[0].version), str(DEV_BRANCH)))
+        self.zk.set_version(DEV_BRANCH)
+        self.zk.restart_cluster()
+        # Confirm we have a successful ZoKeeper upgrade by describing the topic.
+        # Not trying to detect a problem here leads to failure in the ensuing Kafka roll, which would be a less
+        # intuitive failure than seeing a problem here, so detect ZooKeeper upgrade problems before involving Kafka.
+        self.zk.describe(self.topic)
         self.logger.info("First pass bounce - rolling upgrade")
         for node in self.kafka.nodes:
             self.kafka.stop_node(node)
@@ -165,7 +170,7 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             Optionally enable tiered storage in this pass if to_tiered_storage is set.
         - Finally, validate that every message acked by the producer was consumed by the consumer
         """
-
+        self.zk = ZookeeperService(self.test_context, num_nodes=1, version=KafkaVersion(from_kafka_version))
         self.kafka = KafkaService(self.test_context, num_nodes=3, zk=self.zk,
                                   version=KafkaVersion(from_kafka_version),
                                   project=from_kafka_project,
@@ -190,6 +195,7 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             self.logger.info("Test ignored! Kafka " + from_kafka_version + " not support jdk " + str(jdk_version))
             return
 
+        self.zk.start()
         self.kafka.start()
 
         if from_tiered_storage:

@@ -68,7 +68,7 @@ import org.apache.zookeeper.data.ACL
 import org.junit.Assert._
 import org.scalatest.Assertions.fail
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 import scala.collection.{Map, Seq, mutable}
 import scala.compat.java8.OptionConverters._
@@ -1146,7 +1146,6 @@ object TestUtils extends Logging {
       }
       checkpoints.forall(checkpointsPerLogDir => !checkpointsPerLogDir.contains(tp))
     }), "Cleaner offset for deleted partition should have been removed")
-    import scala.collection.JavaConverters._
     waitUntilTrue(() => servers.forall(server =>
       server.config.logDirs.forall { logDir =>
         topicPartitions.forall { tp =>
@@ -1482,7 +1481,7 @@ object TestUtils extends Logging {
   }
 
   def resetToCommittedPositions(consumer: KafkaConsumer[Array[Byte], Array[Byte]]): Unit = {
-    val committed = consumer.committed(consumer.assignment).asScala.filter(_._2 != null).mapValues(_.offset)
+    val committed = consumer.committed(consumer.assignment).asScala.filter(_._2 != null).map { case (k, v) => k -> v.offset }
 
     consumer.assignment.asScala.foreach { topicPartition =>
       if (committed.contains(topicPartition))
@@ -1490,21 +1489,6 @@ object TestUtils extends Logging {
       else
         consumer.seekToBeginning(Collections.singletonList(topicPartition))
     }
-  }
-
-  def alterConfigs(servers: Seq[KafkaServer], adminClient: Admin, props: Properties,
-                   perBrokerConfig: Boolean): AlterConfigsResult = {
-    val configEntries = props.asScala.map { case (k, v) => new ConfigEntry(k, v) }.toList.asJava
-    val newConfig = new Config(configEntries)
-    val configs = if (perBrokerConfig) {
-      servers.map { server =>
-        val resource = new ConfigResource(ConfigResource.Type.BROKER, server.config.brokerId.toString)
-        (resource, newConfig)
-      }.toMap.asJava
-    } else {
-      Map(new ConfigResource(ConfigResource.Type.BROKER, "") -> newConfig).asJava
-    }
-    adminClient.alterConfigs(configs)
   }
 
   def incrementalAlterConfigs(servers: Seq[KafkaServer], adminClient: Admin, props: Properties,
@@ -1521,17 +1505,11 @@ object TestUtils extends Logging {
     adminClient.incrementalAlterConfigs(configs)
   }
 
-  def alterTopicConfigs(adminClient: Admin, topic: String, topicConfigs: Properties): AlterConfigsResult = {
-    val configEntries = topicConfigs.asScala.map { case (k, v) => new ConfigEntry(k, v) }.toList.asJava
-    val newConfig = new Config(configEntries)
-    val configs = Map(new ConfigResource(ConfigResource.Type.TOPIC, topic) -> newConfig).asJava
-    adminClient.alterConfigs(configs)
-  }
-
-  def incrementalAlterTopicConfigs(adminClient: Admin, topic: String, topicConfigs: Properties): AlterConfigsResult = {
+  def incrementalAlterTopicConfigs(adminClient: Admin, topic: String, topicConfigs: Properties,
+                                   opType: OpType = OpType.SET): AlterConfigsResult = {
     val alterConfigOps: util.Collection[AlterConfigOp] = topicConfigs.asScala.map { case (k, v) =>
       val configEntry = new ConfigEntry(k, v)
-      new AlterConfigOp(configEntry, OpType.SET)
+      new AlterConfigOp(configEntry, opType)
     }.toList.asJava
     val configs = Map(new ConfigResource(ConfigResource.Type.TOPIC, topic) -> alterConfigOps).asJava
     adminClient.incrementalAlterConfigs(configs)
@@ -1696,7 +1674,7 @@ object TestUtils extends Logging {
 
   def meterCount(metricName: String): Long = {
     KafkaYammerMetrics.defaultRegistry.allMetrics.asScala
-      .filterKeys(_.getMBeanName.endsWith(metricName))
+      .filter { case (k, _) => k.getMBeanName.endsWith(metricName) }
       .values
       .headOption
       .getOrElse(fail(s"Unable to find metric $metricName"))

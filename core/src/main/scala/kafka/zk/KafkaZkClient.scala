@@ -635,7 +635,7 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
    * @return the replica assignment for each partition from the given topics.
    */
   def getReplicaAssignmentForTopics(topics: Set[String]): Map[TopicPartition, Seq[Int]] = {
-    getFullReplicaAssignmentForTopics(topics).mapValues(_.replicas).toMap
+    getFullReplicaAssignmentForTopics(topics).map { case (k, v) => k -> v.replicas }
   }
 
   /**

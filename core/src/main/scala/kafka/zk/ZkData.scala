@@ -43,7 +43,7 @@ import org.apache.zookeeper.ZooDefs
 import org.apache.zookeeper.data.{ACL, Stat}
 
 import scala.beans.BeanProperty
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.immutable
 import scala.collection.{Map, Seq, mutable}
@@ -486,7 +486,7 @@ object ReassignPartitionsZNode {
   }
 
   def decode(bytes: Array[Byte]): Either[JsonProcessingException, collection.Map[TopicPartition, Seq[Int]]] =
-    Json.parseBytesAs[LegacyPartitionAssignment](bytes).right.map { partitionAssignment =>
+    Json.parseBytesAs[LegacyPartitionAssignment](bytes).map { partitionAssignment =>
       partitionAssignment.partitions.asScala.iterator.map { replicaAssignment =>
         new TopicPartition(replicaAssignment.topic, replicaAssignment.partition) -> replicaAssignment.replicas.asScala
       }.toMap
@@ -669,7 +669,7 @@ case object LiteralAclChangeStore extends ZkAclChangeStore {
     if (resource.patternType != PatternType.LITERAL)
       throw new IllegalArgumentException("Only literal resource patterns can be encoded")
 
-    val legacyName = resource.resourceType + AclEntry.ResourceSeparator + resource.name
+    val legacyName = resource.resourceType.toString + AclEntry.ResourceSeparator + resource.name
     legacyName.getBytes(UTF_8)
   }
 

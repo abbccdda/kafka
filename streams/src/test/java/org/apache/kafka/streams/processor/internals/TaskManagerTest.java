@@ -16,10 +16,6 @@
  */
 package org.apache.kafka.streams.processor.internals;
 
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.DeleteRecordsResult;
 import org.apache.kafka.clients.admin.DeletedRecords;
@@ -39,6 +35,7 @@ import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.Measurable;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.utils.MockTime;
+import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.errors.LockException;
 import org.apache.kafka.streams.errors.StreamsException;
@@ -62,15 +59,19 @@ import org.junit.runner.RunWith;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
@@ -146,6 +147,7 @@ public class TaskManagerTest {
     private Admin adminClient;
 
     private TaskManager taskManager;
+    private final Time time = new MockTime();
 
     @Rule
     public final TemporaryFolder testFolder = new TemporaryFolder();
@@ -456,6 +458,32 @@ public class TaskManagerTest {
         assertThat(task01.state(), is(Task.State.RUNNING));
         assertThat(taskManager.activeTaskMap(), Matchers.anEmptyMap());
         assertThat(taskManager.standbyTaskMap(), is(singletonMap(taskId01, task01)));
+    }
+
+    @Test
+    public void shouldReInitializeThreadProducerOnHandleLostAllIfEosBetaEnabled() {
+        activeTaskCreator.reInitializeThreadProducer();
+        expectLastCall();
+        replay(activeTaskCreator);
+
+        final StreamsMetricsImpl streamsMetrics = new StreamsMetricsImpl(new Metrics(), "clientId", StreamsConfig.METRICS_LATEST);
+        taskManager = new TaskManager(
+            changeLogReader,
+            UUID.randomUUID(),
+            "taskManagerTest",
+            streamsMetrics,
+            activeTaskCreator,
+            standbyTaskCreator,
+            topologyBuilder,
+            adminClient,
+            stateDirectory,
+            StreamThread.ProcessingMode.EXACTLY_ONCE_BETA
+        );
+        taskManager.setMainConsumer(consumer);
+
+        taskManager.handleLostAll();
+
+        verify(activeTaskCreator);
     }
 
     @Test
@@ -1846,11 +1874,11 @@ public class TaskManagerTest {
         );
 
         // check that we should be processing at most max num records
-        assertThat(taskManager.process(3, 0L), is(6));
+        assertThat(taskManager.process(3, time), is(6));
 
         // check that if there's no records proccssible, we would stop early
-        assertThat(taskManager.process(3, 0L), is(5));
-        assertThat(taskManager.process(3, 0L), is(0));
+        assertThat(taskManager.process(3, time), is(5));
+        assertThat(taskManager.process(3, time), is(0));
     }
 
     @Test
@@ -1876,7 +1904,7 @@ public class TaskManagerTest {
         final TopicPartition partition = taskId00Partitions.iterator().next();
         task00.addRecords(partition, singletonList(getConsumerRecord(partition, 0L)));
 
-        assertThrows(TaskMigratedException.class, () -> taskManager.process(1, 0L));
+        assertThrows(TaskMigratedException.class, () -> taskManager.process(1, time));
     }
 
     @Test
@@ -1902,7 +1930,7 @@ public class TaskManagerTest {
         final TopicPartition partition = taskId00Partitions.iterator().next();
         task00.addRecords(partition, singletonList(getConsumerRecord(partition, 0L)));
 
-        final RuntimeException exception = assertThrows(RuntimeException.class, () -> taskManager.process(1, 0L));
+        final RuntimeException exception = assertThrows(RuntimeException.class, () -> taskManager.process(1, time));
         assertThat(exception.getMessage(), is("oops"));
     }
 

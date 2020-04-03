@@ -128,7 +128,7 @@ class ObserverCompatibilityTest extends ZooKeeperTestHarness {
       configUpdate.setProperty(LogConfig.TopicPlacementConstraintsProp,
         basicTopicPlacement(BasicConstraint(1, "a"), Some(BasicConstraint(1, "b"))))
 
-      val alterConfigFuture = TestUtils.alterTopicConfigs(client, topic, configUpdate).all()
+      val alterConfigFuture = ConfluentObserverTest.alterTopicConfigs(client, topic, configUpdate).all()
       JTestUtils.assertFutureError(alterConfigFuture, classOf[InvalidConfigurationException])
 
       val incrementalAlterConfigFuture = TestUtils.incrementalAlterTopicConfigs(client, topic, configUpdate).all()

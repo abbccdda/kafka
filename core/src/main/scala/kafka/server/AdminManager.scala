@@ -53,7 +53,7 @@ import org.apache.kafka.server.policy.CreateTopicPolicy.RequestMetadata
 import org.apache.kafka.common.utils.Sanitizer
 
 import scala.collection.{Map, mutable, _}
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class AdminManager(val config: KafkaConfig,
                    val metrics: Metrics,
@@ -589,8 +589,9 @@ class AdminManager(val config: KafkaConfig,
     configs.map { case (resource, alterConfigOps) =>
       try {
         // throw InvalidRequestException if any duplicate keys
-        val duplicateKeys = alterConfigOps.groupBy(config => config.configEntry().name())
-          .mapValues(_.size).filter(_._2 > 1).keys.toSet
+        val duplicateKeys = alterConfigOps.groupBy(config => config.configEntry.name).filter { case (_, v) =>
+          v.size > 1
+        }.keySet
         if (duplicateKeys.nonEmpty)
           throw new InvalidRequestException(s"Error due to duplicate config keys : ${duplicateKeys.mkString(",")}")
         val nullUpdates = alterConfigOps
@@ -864,7 +865,7 @@ class AdminManager(val config: KafkaConfig,
   }
 
   def handleDescribeClientQuotas(userComponent: Option[ClientQuotaFilterComponent],
-                                 clientIdComponent: Option[ClientQuotaFilterComponent], strict: Boolean) = {
+    clientIdComponent: Option[ClientQuotaFilterComponent], strict: Boolean): Map[ClientQuotaEntity, Map[String, Double]] = {
 
     def toOption(opt: java.util.Optional[String]): Option[String] =
       if (opt == null)

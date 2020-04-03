@@ -35,7 +35,7 @@ import org.junit.Assert._
 import org.junit.{After, Before, Test}
 import org.scalatest.Assertions.intercept
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Seq, mutable}
 import scala.util.Random
@@ -207,11 +207,7 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
 
     val updatedAssignment = assignment - new TopicPartition(topic1, 2)
 
-    zkClient.setTopicAssignment(
-      topic1,
-      None,
-      updatedAssignment
-    )
+    zkClient.setTopicAssignment(topic1, None, updatedAssignment)
     assertEquals(updatedAssignment.size, zkClient.getTopicPartitionCount(topic1).get)
 
     // add second topic
@@ -866,10 +862,11 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
   val initialLeaderIsrAndControllerEpochs: Map[TopicPartition, LeaderIsrAndControllerEpoch] =
     leaderIsrAndControllerEpochs(0, 0)
 
-  val initialLeaderIsrs: Map[TopicPartition, LeaderAndIsr] = initialLeaderIsrAndControllerEpochs.mapValues(_.leaderAndIsr).toMap
+  val initialLeaderIsrs: Map[TopicPartition, LeaderAndIsr] =
+    initialLeaderIsrAndControllerEpochs.map { case (k, v) => k -> v.leaderAndIsr }
 
   private def leaderIsrs(state: Int, zkVersion: Int): Map[TopicPartition, LeaderAndIsr] =
-    leaderIsrAndControllerEpochs(state, zkVersion).mapValues(_.leaderAndIsr).toMap
+    leaderIsrAndControllerEpochs(state, zkVersion).map { case (k, v) => k -> v.leaderAndIsr }
 
   private def checkUpdateLeaderAndIsrResult(
                   expectedSuccessfulPartitions: Map[TopicPartition, LeaderAndIsr],

@@ -27,6 +27,7 @@ import org.junit.runners.Parameterized
 import org.junit.runners.Parameterized.Parameters
 
 import scala.collection._
+import scala.jdk.CollectionConverters._
 
 /**
   * This is an integration test that tests the fully integrated log cleaner
@@ -98,8 +99,6 @@ class LogCleanerLagIntegrationTest(compressionCodecName: String) extends Abstrac
   }
 
   private def readFromLog(log: AbstractLog): Iterable[(Int, Int)] = {
-    import JavaConverters._
-
     for (segment <- log.localLogSegments; record <- segment.log.records.asScala) yield {
       val key = TestUtils.readString(record.key).toInt
       val value = TestUtils.readString(record.value).toInt

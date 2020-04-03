@@ -11,7 +11,9 @@ import kafka.utils.TestUtils
 import kafka.zk.ReassignPartitionsZNode
 import kafka.zk.ZkVersion
 import kafka.zk.ZooKeeperTestHarness
-import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, NewPartitionReassignment, NewTopic, AdminClient => JAdminClient}
+import org.apache.kafka.clients.admin.AlterConfigOp.OpType
+import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, AlterConfigsResult, Config, ConfigEntry, NewPartitionReassignment, NewTopic, AdminClient => JAdminClient}
+import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.errors.InvalidReplicaAssignmentException
 import org.apache.kafka.common.errors.InvalidRequestException
 import org.apache.kafka.common.network.ListenerName
@@ -22,6 +24,7 @@ import org.junit.{After, Before, Test}
 import org.scalatest.Assertions.intercept
 
 import scala.collection.JavaConverters._
+import scala.collection.Map
 import scala.compat.java8.OptionConverters._
 
 final class ConfluentObserverTest extends ZooKeeperTestHarness {
@@ -190,7 +193,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
           LogConfig.TopicPlacementConstraintsProp,
           basicTopicPlacement(BasicConstraint(2, "a"), Some(BasicConstraint(1, "c")))
         )
-        TestUtils.alterTopicConfigs(client, topic, observerCConfig)
+        TestUtils.incrementalAlterTopicConfigs(client, topic, observerCConfig)
       }
 
       client.alterPartitionReassignments(
@@ -229,7 +232,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
         observerBConfig.setProperty(
           LogConfig.TopicPlacementConstraintsProp, basicTopicPlacement(BasicConstraint(2, "a"), Some(BasicConstraint(1, "b")))
         )
-        TestUtils.alterTopicConfigs(client, topic, observerBConfig)
+        TestUtils.incrementalAlterTopicConfigs(client, topic, observerBConfig)
       }
 
       client.alterPartitionReassignments(
@@ -272,7 +275,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
         observerBConfig.setProperty(
           LogConfig.TopicPlacementConstraintsProp, basicTopicPlacement(BasicConstraint(2, "b"), Some(BasicConstraint(2, "a")))
         )
-        TestUtils.alterTopicConfigs(client, topic, observerBConfig)
+        TestUtils.incrementalAlterTopicConfigs(client, topic, observerBConfig)
       }
 
       client.alterPartitionReassignments(
@@ -309,7 +312,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       // All observer replicas are not in the ISR
       TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3))
 
-      TestUtils.alterTopicConfigs(client, topic, new Properties())
+      deleteTopicPlacementConstraints(client, topic)
 
       client.alterPartitionReassignments(
         Map(topicPartition -> reassignmentEntry(Seq(broker1, broker2, broker3), Seq.empty)).asJava
@@ -343,7 +346,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       // All observer replicas are not in the ISR
       TestUtils.waitForBrokersOutOfIsr(client, Set(topicPartition), Set(broker3))
 
-      TestUtils.alterTopicConfigs(client, topic, new Properties())
+      deleteTopicPlacementConstraints(client, topic)
 
       client.alterPartitionReassignments(
         Map(topicPartition -> reassignmentEntry(Seq(broker1, broker2), Seq.empty)).asJava
@@ -356,6 +359,12 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       // All sync replicas are in the ISR
       TestUtils.waitForBrokersInIsr(client, topicPartition, Set(broker1, broker2))
     }
+  }
+
+  private def deleteTopicPlacementConstraints(client: JAdminClient, topic: String): Unit = {
+    val deleteTopicPlacementConstraintsProps = new Properties()
+    deleteTopicPlacementConstraintsProps.setProperty(LogConfig.TopicPlacementConstraintsProp, "")
+    TestUtils.incrementalAlterTopicConfigs(client, topic, deleteTopicPlacementConstraintsProps, OpType.DELETE)
   }
 
   @Test
@@ -378,7 +387,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
           LogConfig.TopicPlacementConstraintsProp,
           basicTopicPlacement(BasicConstraint(2, "a"), Some(BasicConstraint(1, "b")))
         )
-        TestUtils.alterTopicConfigs(client, topic, observerBConfig)
+        TestUtils.incrementalAlterTopicConfigs(client, topic, observerBConfig)
       }
 
       client.alterPartitionReassignments(
@@ -550,7 +559,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
           LogConfig.TopicPlacementConstraintsProp,
           basicTopicPlacement(BasicConstraint(2, "b"), Some(BasicConstraint(2, "a")))
         )
-        TestUtils.alterTopicConfigs(client, topic, observerBConfig)
+        TestUtils.incrementalAlterTopicConfigs(client, topic, observerBConfig)
       }
 
       // Shutdown one of the sync replica that is going to be converted to obsever replica
@@ -596,7 +605,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
           LogConfig.TopicPlacementConstraintsProp,
           basicTopicPlacement(BasicConstraint(2, "b"), Some(BasicConstraint(2, "a")))
         )
-        TestUtils.alterTopicConfigs(client, topic, observerBConfig)
+        TestUtils.incrementalAlterTopicConfigs(client, topic, observerBConfig)
       }
 
       // Shutdown one of the sync replica that is going to be converted to obsever replica
@@ -655,7 +664,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
       val configUpdate = new Properties()
       configUpdate.setProperty(LogConfig.TopicPlacementConstraintsProp, "invalid json")
 
-      val alterConfigFuture = TestUtils.alterTopicConfigs(client, topic, configUpdate).all()
+      val alterConfigFuture = alterTopicConfigs(client, topic, configUpdate).all()
       JTestUtils.assertFutureError(alterConfigFuture, classOf[InvalidRequestException])
 
       val incrementalAlterConfigFuture = TestUtils.incrementalAlterTopicConfigs(client, topic, configUpdate).all()
@@ -678,6 +687,13 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
 
 object ConfluentObserverTest {
   case class BasicConstraint(count: Int, rack: String)
+
+  private[server] def alterTopicConfigs(adminClient: Admin, topic: String, topicConfigs: Properties): AlterConfigsResult = {
+    val configEntries = topicConfigs.asScala.map { case (k, v) => new ConfigEntry(k, v) }.toList.asJava
+    val newConfig = new Config(configEntries)
+    val configs = Map(new ConfigResource(ConfigResource.Type.TOPIC, topic) -> newConfig).asJava
+    adminClient.alterConfigs(configs)
+  }
 
   def createConfig(servers: Seq[KafkaServer]): Map[String, Object] = {
     Map(

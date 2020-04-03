@@ -84,7 +84,7 @@ class PartitionStateMachineTest {
 
   @Test
   def testNewPartitionToOnlinePartitionTransition(): Unit = {
-    controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
+    controllerContext.setLiveBrokers(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(partition, ReplicaAssignment(Seq(brokerId), Seq.empty))
     controllerContext.putPartitionState(partition, NewPartition)
     val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(LeaderAndIsr(brokerId, List(brokerId), isUnclean = false), controllerEpoch)
@@ -106,7 +106,7 @@ class PartitionStateMachineTest {
 
   @Test
   def testNewPartitionToOnlinePartitionTransitionZooKeeperClientExceptionFromCreateStates(): Unit = {
-    controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
+    controllerContext.setLiveBrokers(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(partition, ReplicaAssignment(Seq(brokerId), Seq.empty))
     controllerContext.putPartitionState(partition, NewPartition)
     val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(LeaderAndIsr(brokerId, List(brokerId), isUnclean = false), controllerEpoch)
@@ -126,7 +126,7 @@ class PartitionStateMachineTest {
 
   @Test
   def testNewPartitionToOnlinePartitionTransitionErrorCodeFromCreateStates(): Unit = {
-    controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
+    controllerContext.setLiveBrokers(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(partition, ReplicaAssignment(Seq(brokerId), Seq.empty))
     controllerContext.putPartitionState(partition, NewPartition)
     val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(LeaderAndIsr(brokerId, List(brokerId), isUnclean = false), controllerEpoch)
@@ -160,7 +160,7 @@ class PartitionStateMachineTest {
 
   @Test
   def testOnlinePartitionToOnlineTransition(): Unit = {
-    controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
+    controllerContext.setLiveBrokers(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(partition, ReplicaAssignment(Seq(brokerId), Seq.empty))
     controllerContext.putPartitionState(partition, OnlinePartition)
     val leaderAndIsr = LeaderAndIsr(brokerId, List(brokerId), isUnclean = false)
@@ -190,7 +190,7 @@ class PartitionStateMachineTest {
   @Test
   def testOnlinePartitionToOnlineTransitionForControlledShutdown(): Unit = {
     val otherBrokerId = brokerId + 1
-    controllerContext.setLiveBrokerAndEpochs(Map(
+    controllerContext.setLiveBrokers(Map(
       TestUtils.createBrokerAndEpoch(brokerId, "host", 0),
       TestUtils.createBrokerAndEpoch(otherBrokerId, "host", 0)))
     controllerContext.shuttingDownBrokerIds.add(brokerId)
@@ -249,7 +249,7 @@ class PartitionStateMachineTest {
 
   @Test
   def testOfflinePartitionToOnlinePartitionTransition(): Unit = {
-    controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
+    controllerContext.setLiveBrokers(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(partition, ReplicaAssignment(Seq(brokerId), Seq.empty))
     controllerContext.putPartitionState(partition, OfflinePartition)
     val leaderAndIsr = LeaderAndIsr(LeaderAndIsr.NoLeader, List(brokerId), isUnclean = false)
@@ -320,7 +320,7 @@ class PartitionStateMachineTest {
      * elected.
      */
     val leaderBrokerId = brokerId + 1
-    controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
+    controllerContext.setLiveBrokers(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(
       partition,
       ReplicaAssignment(Seq(leaderBrokerId, brokerId), Seq.empty)
@@ -386,7 +386,7 @@ class PartitionStateMachineTest {
      * Ending scenario: Leader: Y, Isr: [Y], Replicas: [X, Y], LiveBrokers: [Y]; Y is unclean leader
      */
     val leaderBrokerId = brokerId + 1
-    controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
+    controllerContext.setLiveBrokers(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(
       partition,
       ReplicaAssignment(Seq(leaderBrokerId, brokerId), Seq.empty)
@@ -452,7 +452,7 @@ class PartitionStateMachineTest {
      * Ending scenario: Leader: Y, Isr: [Y], Replicas: [X, Y], LiveBrokers: [Y]
      */
     val leaderBrokerId = brokerId + 1
-    controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
+    controllerContext.setLiveBrokers(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(
       partition,
       ReplicaAssignment(Seq(leaderBrokerId, brokerId), Seq.empty)
@@ -521,7 +521,7 @@ class PartitionStateMachineTest {
      * they are able to elect a leader from within ISR.
      */
     val leaderBrokerId = brokerId + 1
-    controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
+    controllerContext.setLiveBrokers(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(
       partition,
       ReplicaAssignment(Seq(leaderBrokerId, brokerId), Seq.empty)
@@ -585,7 +585,7 @@ class PartitionStateMachineTest {
   def testBrokerBounceAfterUncleanElection(): Unit = {
     // leaderBrokerId is elected as an unclean leader and is the only broker in the ISR
     val leaderBrokerId = brokerId + 1
-    controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(leaderBrokerId, "host", 0)))
+    controllerContext.setLiveBrokers(Map(TestUtils.createBrokerAndEpoch(leaderBrokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(
       partition,
       ReplicaAssignment(Seq(leaderBrokerId, brokerId), Seq.empty)
@@ -597,12 +597,12 @@ class PartitionStateMachineTest {
     controllerContext.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
 
     // leaderBrokerId goes down => partition goes to offline state
-    controllerContext.setLiveBrokerAndEpochs(Map.empty)
+    controllerContext.setLiveBrokers(Map.empty)
     partitionStateMachine.handleStateChanges(partitions, OfflinePartition)
 
     // leaderBrokerId comes back up => we will go through the online partition state change. We expect that the
     // `LeaderAndIsrRequest` contains `isUnclean` flag set to `true`.
-    controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(leaderBrokerId, "host", 0)))
+    controllerContext.setLiveBrokers(Map(TestUtils.createBrokerAndEpoch(leaderBrokerId, "host", 0)))
     EasyMock.reset(mockZkClient, mockControllerBrokerRequestBatch)
     EasyMock.expect(mockControllerBrokerRequestBatch.newBatch())
     EasyMock
@@ -651,7 +651,7 @@ class PartitionStateMachineTest {
 
   @Test
   def testOfflinePartitionToOnlinePartitionTransitionZooKeeperClientExceptionFromStateLookup(): Unit = {
-    controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
+    controllerContext.setLiveBrokers(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
     controllerContext.updatePartitionFullReplicaAssignment(partition, ReplicaAssignment(Seq(brokerId), Seq.empty))
     controllerContext.putPartitionState(partition, OfflinePartition)
     val leaderAndIsr = LeaderAndIsr(LeaderAndIsr.NoLeader, List(brokerId), isUnclean = false)
@@ -676,8 +676,8 @@ class PartitionStateMachineTest {
 
   @Test
   def testOfflinePartitionToOnlinePartitionTransitionErrorCodeFromStateLookup(): Unit = {
-    controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
-    controllerContext.updatePartitionFullReplicaAssignment( partition, ReplicaAssignment(Seq(brokerId), Seq.empty))
+    controllerContext.setLiveBrokers(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
+    controllerContext.updatePartitionFullReplicaAssignment(partition, ReplicaAssignment(Seq(brokerId), Seq.empty))
     controllerContext.putPartitionState(partition, OfflinePartition)
     val leaderAndIsr = LeaderAndIsr(LeaderAndIsr.NoLeader, List(brokerId), isUnclean = false)
     val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)
@@ -738,7 +738,7 @@ class PartitionStateMachineTest {
         partition -> leaderAndIsr.newLeaderAndIsr(brokerId, List(brokerId), isUnclean = false)
       }.toMap
       EasyMock.expect(mockZkClient.updateLeaderAndIsr(updatedLeaderAndIsr, controllerEpoch, controllerContext.epochZkVersion))
-        .andReturn(UpdateLeaderAndIsrResult(updatedLeaderAndIsr.mapValues(Right(_)).toMap, Seq.empty))
+        .andReturn(UpdateLeaderAndIsrResult(updatedLeaderAndIsr.map { case (k, v) => k -> Right(v) }, Seq.empty))
     }
     prepareMockToUpdateLeaderAndIsr()
   }
@@ -749,7 +749,7 @@ class PartitionStateMachineTest {
     */
   @Test
   def testUpdatingOfflinePartitionsCount(): Unit = {
-    controllerContext.setLiveBrokerAndEpochs(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
+    controllerContext.setLiveBrokers(Map(TestUtils.createBrokerAndEpoch(brokerId, "host", 0)))
 
     val partitionIds = Seq(0, 1, 2, 3)
     val topic = "test"

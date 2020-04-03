@@ -42,10 +42,9 @@ import org.apache.kafka.common.security.scram.internals.{ScramCredentialUtils, S
 import org.apache.kafka.common.utils.{Sanitizer, Time, Utils}
 import org.apache.zookeeper.client.ZKClientConfig
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection._
 import scala.compat.java8.OptionConverters._
-
 
 /**
  * This script can be used to change configs for topics/clients/users/brokers dynamically

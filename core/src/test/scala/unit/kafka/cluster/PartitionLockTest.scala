@@ -36,7 +36,7 @@ import org.junit.{After, Before, Test}
 import org.mockito.ArgumentMatchers
 import org.mockito.Mockito.{mock, when}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 /**
  * Verifies that slow appends to log don't block request threads processing replica fetch requests.

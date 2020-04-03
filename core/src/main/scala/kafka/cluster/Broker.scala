@@ -28,7 +28,7 @@ import org.apache.kafka.server.authorizer.AuthorizerServerInfo
 import org.apache.kafka.server.http.{MetadataServer, MetadataServerFactory}
 
 import scala.collection.Seq
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 object Broker {
   private[cluster] case class ServerInfo(clusterResource: ClusterResource,
