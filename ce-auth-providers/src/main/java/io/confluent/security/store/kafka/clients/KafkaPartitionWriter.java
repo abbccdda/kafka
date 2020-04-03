@@ -116,11 +116,11 @@ public class KafkaPartitionWriter<K, V> {
   }
 
   public void writeStatus(int generationId, K statusKey, V statusValue, MetadataStoreStatus status) {
-    log.debug("writeStatus generation {} status {}", generationId, statusValue);
     synchronized (this) {
       if (this.generationId != generationId)
         return;
     }
+    log.debug("writeStatus generation {} status {}", generationId, statusValue);
     ProducerRecord<K, V> record = new ProducerRecord<>(topicPartition.topic(),
         topicPartition.partition(), statusKey, statusValue);
     try {

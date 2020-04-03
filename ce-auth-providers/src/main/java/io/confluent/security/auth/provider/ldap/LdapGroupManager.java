@@ -231,6 +231,8 @@ public class LdapGroupManager {
   }
 
   public Set<String> groups(String userPrincipal) {
+    if (!alive.get())
+      throw new IllegalStateException("LDAP Group manager is not active");
     if (failed())
       throw new ProviderFailedException("LDAP Group provider has failed");
     return userGroupCache.getOrDefault(userPrincipal, Collections.emptySet());

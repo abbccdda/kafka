@@ -197,17 +197,25 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     try {
       log.info("Stopping writer {}", generationId == null ? "" : "with generation " + generationId);
       ready = false;
-      externalAuthStores.values().forEach(store -> store.stop(generationId));
-      partitionWriters.values().forEach(KafkaPartitionWriter::stop);
 
+      // Shutdown sequence:
+      // 1) Shutdown the executor that creates partition writers and external stores first to ensure
+      //    that start up operations are aborted.
+      // 2) Stop external stores that generate records
+      // 3) Stop all partition writers
+      // 4) Stop write executors used by partition writers
       if (mgmtExecutor != null)
         mgmtExecutor.shutdownNow();
-      if (writeExecutor != null)
-        writeExecutor.shutdownNow();
       if (mgmtExecutor != null) {
         if (!mgmtExecutor.awaitTermination(config.refreshTimeout.toMillis(), TimeUnit.MILLISECONDS))
           throw new TimeoutException("Timed out waiting for start up to be terminated");
       }
+
+      externalAuthStores.values().forEach(store -> store.stop(generationId));
+      partitionWriters.values().forEach(KafkaPartitionWriter::stop);
+
+      if (writeExecutor != null)
+        writeExecutor.shutdownNow();
       if (writeExecutor != null) {
         if (!writeExecutor.awaitTermination(config.refreshTimeout.toMillis(), TimeUnit.MILLISECONDS))
           throw new TimeoutException("Timed out waiting for start up to be terminated");
@@ -687,9 +695,6 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
       log.error("Failed to write external status to auth topic, writer resigning", e);
       rebalanceListener.onWriterResigned(generationId);
     }
-    StatusValue statusValue = new StatusValue(status, generationId, config.brokerId, errorMessage);
-    partitionWriters.forEach((partition, writer) ->
-        writer.writeStatus(generationId, new StatusKey(partition), statusValue, status));
   }
 
   private void createPartitionWriters() throws Throwable {

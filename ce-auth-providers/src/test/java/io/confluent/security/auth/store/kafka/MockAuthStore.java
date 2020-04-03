@@ -95,7 +95,7 @@ public class MockAuthStore extends KafkaAuthStore {
   private final AtomicInteger coordinatorGeneration = new AtomicInteger();
   final AtomicInteger assignCount = new AtomicInteger();
   final AtomicInteger revokeCount = new AtomicInteger();
-  volatile Supplier<Map<String, Set<String>>> ldapGroups;
+  volatile MockLdapStore ldapStore = new MockLdapStore(Collections::emptyMap);
   volatile MockProducer<AuthKey, AuthValue> producer;
   volatile MockConsumer<AuthKey, AuthValue> consumer;
   private volatile MockNodeManager nodeManager;
@@ -122,7 +122,6 @@ public class MockAuthStore extends KafkaAuthStore {
     for (int i = 0; i < numAuthTopicPartitions; i++)
       this.consumedOffsets.put(i, -1L);
     this.executor = Executors.newSingleThreadScheduledExecutor();
-    this.ldapGroups = Collections::emptyMap;
   }
 
   public void configureDelays(long produceDelayMs, long consumeDelayMs) {
@@ -200,21 +199,7 @@ public class MockAuthStore extends KafkaAuthStore {
         return new LdapStore(authCache, this, time) {
           @Override
           protected LdapGroupManager createLdapGroupManager(ExternalStoreListener<UserKey, UserValue> listener) {
-            return new LdapGroupManager(new LdapConfig(configs), time, listener) {
-              @Override
-              protected void searchAndProcessResults() throws NamingException, IOException {
-                if (configs.get("ldap." + Context.PROVIDER_URL).equals(MOCK_LDAP_URL)) {
-                  ldapGroups.get().forEach((k, v) -> {
-                    KafkaPrincipal user = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, k);
-                    Set<KafkaPrincipal> groups = v.stream()
-                        .map(name -> new KafkaPrincipal("Group", name))
-                        .collect(Collectors.toSet());
-                    listener.update(new UserKey(user), new UserValue(groups));
-                  });
-                } else
-                  super.searchAndProcessResults();
-              }
-            };
+            return ldapStore.createLdapGroupManager(configs, time, listener);
           }
         };
       }
@@ -356,6 +341,33 @@ public class MockAuthStore extends KafkaAuthStore {
     store.configure(configs);
     store.startReader();
     return store;
+  }
+
+  static class MockLdapStore {
+    volatile Supplier<Map<String, Set<String>>> ldapGroups;
+    MockLdapStore(Supplier<Map<String, Set<String>>> ldapGroups) {
+      this.ldapGroups = ldapGroups;
+    }
+
+    LdapGroupManager createLdapGroupManager(Map<String, ?> configs,
+                                            Time time,
+                                            ExternalStoreListener<UserKey, UserValue> listener) {
+      return new LdapGroupManager(new LdapConfig(configs), time, listener) {
+        @Override
+        protected void searchAndProcessResults() throws NamingException, IOException {
+          if (configs.get("ldap." + Context.PROVIDER_URL).equals(MOCK_LDAP_URL)) {
+            ldapGroups.get().forEach((k, v) -> {
+              KafkaPrincipal user = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, k);
+              Set<KafkaPrincipal> groups = v.stream()
+                  .map(name -> new KafkaPrincipal("Group", name))
+                  .collect(Collectors.toSet());
+              listener.update(new UserKey(user), new UserValue(groups));
+            });
+          } else
+            super.searchAndProcessResults();
+        }
+      };
+    }
   }
 
   private class MockNodeManager extends MetadataNodeManager {

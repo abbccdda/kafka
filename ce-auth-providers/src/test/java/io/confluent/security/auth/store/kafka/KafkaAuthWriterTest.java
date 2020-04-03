@@ -11,12 +11,17 @@ import static org.junit.Assert.assertTrue;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.security.auth.provider.ldap.LdapConfig;
+import io.confluent.security.auth.provider.ldap.LdapGroupManager;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.auth.store.data.AuthEntryType;
 import io.confluent.security.auth.store.data.AuthKey;
 import io.confluent.security.auth.store.data.AuthValue;
 import io.confluent.security.auth.store.data.RoleBindingKey;
 import io.confluent.security.auth.store.data.RoleBindingValue;
+import io.confluent.security.auth.store.data.UserKey;
+import io.confluent.security.auth.store.data.UserValue;
+import io.confluent.security.auth.store.external.ExternalStoreListener;
+import io.confluent.security.auth.store.kafka.MockAuthStore.MockLdapStore;
 import io.confluent.security.authorizer.acl.AclRule;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.PermissionType;
@@ -31,6 +36,7 @@ import io.confluent.security.store.MetadataStoreStatus;
 import io.confluent.security.store.NotMasterWriterException;
 import io.confluent.security.test.utils.RbacTestUtils;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -458,7 +464,7 @@ public class KafkaAuthWriterTest {
     createAuthStoreWithProduceFailure(new AuthenticationException("Test exception"), 1, AuthEntryType.STATUS);
     Supplier<Map<String, Set<String>>> ldapGroupSupplier =
         () -> Collections.singletonMap("user1", Collections.singleton("group1"));
-    startAuthStore(authStore, ldapGroupSupplier, 10000);
+    startAuthStore(authStore, new MockLdapStore(ldapGroupSupplier), 10000);
     TestUtils.waitForCondition(() -> authStore.assignCount.get() == 2, "Writer not assigned");
     TestUtils.waitForCondition(() -> authStore.masterWriterUrl("http") != null, "Writer not started");
     TestUtils.waitForCondition(() -> authStore.writer().ready(), "Writer not ready");
@@ -470,7 +476,7 @@ public class KafkaAuthWriterTest {
     createAuthStoreWithProduceFailure(new KafkaException("Test exception"), 1, AuthEntryType.USER);
     Supplier<Map<String, Set<String>>> ldapGroupSupplier =
         () -> Collections.singletonMap("user1", Collections.singleton("group1"));
-    startAuthStore(authStore, ldapGroupSupplier, 10000);
+    startAuthStore(authStore, new MockLdapStore(ldapGroupSupplier), 10000);
     TestUtils.waitForCondition(() -> authStore.assignCount.get() == 2, "Writer not assigned");
     TestUtils.waitForCondition(() -> authStore.masterWriterUrl("http") != null, "Writer not started");
     TestUtils.waitForCondition(() -> authStore.writer().ready(), "Writer not ready");
@@ -482,7 +488,7 @@ public class KafkaAuthWriterTest {
     createAuthStoreWithProduceFailure(new KafkaException("Test exception"), 3, AuthEntryType.USER);
     Supplier<Map<String, Set<String>>> ldapGroupSupplier =
         () -> Collections.singletonMap("user1", Collections.singleton("group1"));
-    startAuthStore(authStore, ldapGroupSupplier, 10);
+    startAuthStore(authStore, new MockLdapStore(ldapGroupSupplier), 10);
     TestUtils.waitForCondition(() -> authStore.writer().ready(), "Writer not ready");
 
     TestUtils.waitForCondition(() -> authStore.assignCount.get() == 2, "Writer not assigned");
@@ -512,7 +518,7 @@ public class KafkaAuthWriterTest {
     createAuthStoreWithProduceFailure(new KafkaException("Test exception"), failureIndex, AuthEntryType.STATUS);
     Supplier<Map<String, Set<String>>> ldapGroupSupplier =
         () -> Collections.singletonMap("user1", Collections.singleton("group1"));
-    startAuthStore(authStore, ldapGroupSupplier, 10000);
+    startAuthStore(authStore, new MockLdapStore(ldapGroupSupplier), 10000);
     TestUtils.waitForCondition(() -> authStore.assignCount.get() == 1, "Writer not assigned");
     TestUtils.waitForCondition(() -> authStore.writer().ready(), "Writer not ready");
 
@@ -534,10 +540,42 @@ public class KafkaAuthWriterTest {
         throw new RuntimeException("Search failed");
       }
     };
-    startAuthStore(authStore, ldapGroupSupplier, 10000);
+    startAuthStore(authStore, new MockLdapStore(ldapGroupSupplier), 10000);
     TestUtils.waitForCondition(() -> authStore.assignCount.get() == 1, "Writer not assigned");
     TestUtils.waitForCondition(() -> authStore.masterWriterUrl("http") != null, "Writer not started");
     TestUtils.waitForCondition(() -> authStore.writer().ready(), "Writer not ready");
+  }
+
+  @Test
+  public void testStopWriterAbortsLdapStoreStartup() throws Exception {
+    authStore.close();
+    authStore = new MockAuthStore(rbacRoles, time, rootScope, numPartitions, storeNodeId);
+    List<LdapGroupManager> groupManagers = new ArrayList<>();
+    Semaphore semaphore = new Semaphore(0);
+    MockLdapStore mockLdapStore = new MockLdapStore(Collections::emptyMap) {
+      @Override
+      LdapGroupManager createLdapGroupManager(Map<String, ?> configs, Time time,
+          ExternalStoreListener<UserKey, UserValue> listener) {
+        try {
+          semaphore.acquire();
+        } catch (InterruptedException e) {
+          // ignore
+        }
+        LdapGroupManager groupManager = super.createLdapGroupManager(configs, time, listener);
+        groupManagers.add(groupManager);
+        return groupManager;
+      }
+    };
+    startAuthStore(authStore, mockLdapStore, 10000);
+    TestUtils.waitForCondition(semaphore::hasQueuedThreads, "Group manager not created during startup");
+    authWriter.stopWriter(1);
+    assertFalse("Start up not aborted", semaphore.hasQueuedThreads());
+    assertEquals(1, groupManagers.size());
+    assertThrows(IllegalStateException.class, () -> groupManagers.get(0).groups("testuser"));
+    semaphore.release();
+    authWriter.startWriter(2);
+    TestUtils.waitForCondition(() -> groupManagers.size() >= 2, "New group manager not created during startup");
+    assertEquals(2, groupManagers.size());
   }
 
   @Test
@@ -676,14 +714,14 @@ public class KafkaAuthWriterTest {
   }
 
   private void startAuthStore(MockAuthStore authStore,
-                              Supplier<Map<String, Set<String>>> ldapGroupSupplier,
+                              MockLdapStore mockLdapStore,
                               int ldapRefreshIntervalMs) throws Exception {
     Map<String, Object> configs = new HashMap<>();
     configs.put("confluent.metadata.bootstrap.servers", "localhost:9092,localhost:9093");
-    if (ldapGroupSupplier != null) {
+    if (mockLdapStore != null) {
       configs.put("ldap." + Context.PROVIDER_URL, MockAuthStore.MOCK_LDAP_URL);
       configs.put(LdapConfig.REFRESH_INTERVAL_MS_PROP, String.valueOf(ldapRefreshIntervalMs));
-      authStore.ldapGroups = ldapGroupSupplier;
+      authStore.ldapStore = mockLdapStore;
     }
     authStore.configure(configs);
     authStore.startReader();

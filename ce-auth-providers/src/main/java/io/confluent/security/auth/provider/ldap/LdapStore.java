@@ -33,12 +33,13 @@ public class LdapStore implements ExternalStore {
 
   @Override
   public void start(int generationId) {
-    listener.generationId = generationId;
-    if (ldapGroupManager == null) {
-      ldapGroupManager = createLdapGroupManager(listener);
-      listener.start();
-      ldapGroupManager.start();
+    if (ldapGroupManager != null) {
+      throw new IllegalStateException("LDAP group manager for generation " + listener.generationId + " is still active");
     }
+    listener.generationId = generationId;
+    ldapGroupManager = createLdapGroupManager(listener);
+    listener.start();
+    ldapGroupManager.start();
   }
 
   @Override
