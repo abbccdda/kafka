@@ -41,8 +41,9 @@ import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData.{Alter
 import org.apache.kafka.common.message.JoinGroupRequestData.JoinGroupRequestProtocolCollection
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.message.LeaveGroupRequestData.MemberIdentity
+import org.apache.kafka.common.message.StartRebalanceRequestData.BrokerId
 import org.apache.kafka.common.message.UpdateMetadataRequestData.{UpdateMetadataBroker, UpdateMetadataEndpoint, UpdateMetadataPartitionState}
-import org.apache.kafka.common.message.{AlterPartitionReassignmentsRequestData, ControlledShutdownRequestData, CreateAclsRequestData, CreatePartitionsRequestData, CreateTopicsRequestData, DeleteAclsRequestData, DeleteGroupsRequestData, DeleteRecordsRequestData, DeleteTopicsRequestData, DescribeGroupsRequestData, DescribeLogDirsRequestData, FindCoordinatorRequestData, HeartbeatRequestData, IncrementalAlterConfigsRequestData, JoinGroupRequestData, ListPartitionReassignmentsRequestData, OffsetCommitRequestData, SyncGroupRequestData}
+import org.apache.kafka.common.message.{AlterPartitionReassignmentsRequestData, ControlledShutdownRequestData, CreateAclsRequestData, CreatePartitionsRequestData, CreateTopicsRequestData, DeleteAclsRequestData, DeleteGroupsRequestData, DeleteRecordsRequestData, DeleteTopicsRequestData, DescribeGroupsRequestData, DescribeLogDirsRequestData, FindCoordinatorRequestData, HeartbeatRequestData, IncrementalAlterConfigsRequestData, JoinGroupRequestData, ListPartitionReassignmentsRequestData, OffsetCommitRequestData, StartRebalanceRequestData, SyncGroupRequestData}
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, RecordBatch, Records, SimpleRecord}
@@ -212,8 +213,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
           .errorCode()
       )
     }),
-    ApiKeys.REPLICA_STATUS -> ((resp: ReplicaStatusResponse) => Errors.forCode(resp.data().errorCode()))
-  )
+    ApiKeys.REPLICA_STATUS -> ((resp: ReplicaStatusResponse) => Errors.forCode(resp.data().errorCode())),
+    ApiKeys.START_REBALANCE -> ((resp: StartRebalanceResponse) => Errors.forCode(resp.data.errorCode())))
 
   val requestKeysToAcls = Map[ApiKeys, Map[ResourcePattern, Set[AccessControlEntry]]](
     ApiKeys.METADATA -> topicDescribeAcl,
@@ -256,7 +257,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     ApiKeys.ALTER_PARTITION_REASSIGNMENTS -> clusterAlterAcl,
     ApiKeys.LIST_PARTITION_REASSIGNMENTS -> clusterDescribeAcl,
     ApiKeys.OFFSET_DELETE -> groupReadAcl,
-    ApiKeys.REPLICA_STATUS -> topicDescribeAcl
+    ApiKeys.REPLICA_STATUS -> topicDescribeAcl,
+    ApiKeys.START_REBALANCE -> clusterAlterAcl
   )
 
   @Before
@@ -564,6 +566,9 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     )
   ).build()
 
+  private def startRebalanceRequest = new StartRebalanceRequest.Builder(
+    Set(new BrokerId()).asJava).build()
+
   private def replicaStatusRequest = new ReplicaStatusRequest.Builder(Collections.singleton(tp)).build()
 
   @Test
@@ -600,6 +605,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
       ApiKeys.INCREMENTAL_ALTER_CONFIGS -> incrementalAlterConfigsRequest,
       ApiKeys.ALTER_PARTITION_REASSIGNMENTS -> alterPartitionReassignmentsRequest,
       ApiKeys.LIST_PARTITION_REASSIGNMENTS -> listPartitionReassignmentsRequest,
+      ApiKeys.START_REBALANCE -> startRebalanceRequest,
 
       // Inter-broker APIs use an invalid broker epoch, so does not affect the test case
       ApiKeys.UPDATE_METADATA -> createUpdateMetadataRequest,

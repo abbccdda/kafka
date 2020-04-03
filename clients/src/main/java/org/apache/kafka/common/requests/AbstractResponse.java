@@ -186,6 +186,8 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
                 return new DescribeClientQuotasResponse(struct, version);
             case ALTER_CLIENT_QUOTAS:
                 return new AlterClientQuotasResponse(struct, version);
+            case START_REBALANCE:
+                return new StartRebalanceResponse(struct, version);
             default:
                 throw new AssertionError(String.format("ApiKey %s is not currently handled in `parseResponse`, the " +
                         "code should be updated to do so.", apiKey));

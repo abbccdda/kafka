@@ -93,6 +93,8 @@ import org.apache.kafka.common.message.SaslAuthenticateRequestData;
 import org.apache.kafka.common.message.SaslAuthenticateResponseData;
 import org.apache.kafka.common.message.SaslHandshakeRequestData;
 import org.apache.kafka.common.message.SaslHandshakeResponseData;
+import org.apache.kafka.common.message.StartRebalanceRequestData;
+import org.apache.kafka.common.message.StartRebalanceResponseData;
 import org.apache.kafka.common.message.StopReplicaRequestData;
 import org.apache.kafka.common.message.StopReplicaResponseData;
 import org.apache.kafka.common.message.SyncGroupRequestData;
@@ -228,6 +230,7 @@ public enum ApiKeys {
     /* ----- Begin Confluent APIs: API ids increment sequentially from 10000 ----- */
 
     REPLICA_STATUS(10000, "ReplicaStatus", ReplicaStatusRequestData.SCHEMAS, ReplicaStatusResponseData.SCHEMAS),
+    START_REBALANCE(10001, "StartRebalance", StartRebalanceRequestData.SCHEMAS, StartRebalanceResponseData.SCHEMAS),
 
     // The following APIs are deprecated and will be removed in a future release
     CONFLUENT_LEADER_AND_ISR(32766, "ConfluentLeaderAndIsr", true, ConfluentLeaderAndIsrRequestData.SCHEMAS,

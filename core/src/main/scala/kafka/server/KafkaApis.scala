@@ -52,7 +52,7 @@ import org.apache.kafka.common.errors._
 import org.apache.kafka.common.internals.FatalExitError
 import org.apache.kafka.common.internals.Topic.{GROUP_METADATA_TOPIC_NAME, TIER_TOPIC_NAME, TRANSACTION_STATE_TOPIC_NAME, isInternal}
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
-import org.apache.kafka.common.message.{AlterPartitionReassignmentsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListPartitionReassignmentsResponseData, MetadataResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, RenewDelegationTokenResponseData, ReplicaStatusResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StopReplicaResponseData, SyncGroupResponseData, TierListOffsetResponseData, UpdateMetadataResponseData}
+import org.apache.kafka.common.message.{AlterPartitionReassignmentsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListPartitionReassignmentsResponseData, MetadataResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, RenewDelegationTokenResponseData, ReplicaStatusResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StartRebalanceResponseData, StopReplicaResponseData, SyncGroupResponseData, TierListOffsetResponseData, UpdateMetadataResponseData}
 import org.apache.kafka.common.message.CreateTopicsResponseData.{CreatableTopicResult, CreatableTopicResultCollection}
 import org.apache.kafka.common.message.DeleteGroupsResponseData.{DeletableGroupResult, DeletableGroupResultCollection}
 import org.apache.kafka.common.message.AlterPartitionReassignmentsResponseData.{ReassignablePartitionResponse, ReassignableTopicResponse}
@@ -192,6 +192,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.DESCRIBE_CLIENT_QUOTAS => handleDescribeClientQuotasRequest(request)
         case ApiKeys.ALTER_CLIENT_QUOTAS => handleAlterClientQuotasRequest(request)
         case ApiKeys.REPLICA_STATUS => handleReplicaStatusRequest(request)
+        case ApiKeys.START_REBALANCE => handleStartRebalanceRequest(request)
         case _ if request.header.apiKey.isInternal => handleInternalRequest(request)
       }
     } catch {
@@ -2619,6 +2620,19 @@ class KafkaApis(val requestChannel: RequestChannel,
     }.toMap
 
     controller.alterPartitionReassignments(reassignments, sendResponseCallback)
+  }
+
+  def handleStartRebalanceRequest(request: RequestChannel.Request): Unit = {
+    authorizeClusterOperation(request, ALTER)
+    val startRebalanceRequest = request.body[StartRebalanceRequest]
+
+    sendResponseMaybeThrottle(request, throttleTimeMs =>
+      new StartRebalanceResponse(
+        new StartRebalanceResponseData()
+          .setThrottleTimeMs(throttleTimeMs)
+          .setErrorCode(Errors.UNSUPPORTED_VERSION.code()).setErrorMessage(Errors.UNSUPPORTED_VERSION.message())
+      )
+    )
   }
 
   def handleListPartitionReassignmentsRequest(request: RequestChannel.Request): Unit = {

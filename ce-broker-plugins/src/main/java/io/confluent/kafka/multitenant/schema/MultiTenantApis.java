@@ -118,6 +118,7 @@ public class MultiTenantApis {
       case ALTER_PARTITION_REASSIGNMENTS:
       case DESCRIBE_CLIENT_QUOTAS:
       case ALTER_CLIENT_QUOTAS:
+      case START_REBALANCE:
         return false;
 
       default:
