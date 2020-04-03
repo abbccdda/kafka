@@ -57,9 +57,11 @@ class TransactionMarkerRequestCompletionHandler(brokerId: Int,
             txnMarkerChannelManager.removeMarkersForTxnId(transactionalId)
 
           case Left(unexpectedError) =>
+            txnStateManager.stateErrorSensor.record()
             throw new IllegalStateException(s"Unhandled error $unexpectedError when fetching current transaction state")
 
           case Right(None) =>
+            txnStateManager.stateErrorSensor.record()
             throw new IllegalStateException(s"The coordinator still owns the transaction partition for $transactionalId, but there is " +
               s"no metadata in the cache; this is not expected")
 
@@ -94,8 +96,10 @@ class TransactionMarkerRequestCompletionHandler(brokerId: Int,
         val txnMarker = txnIdAndMarker.txnMarkerEntry
         val errors = writeTxnMarkerResponse.errors(txnMarker.producerId)
 
-        if (errors == null)
+        if (errors == null) {
+          txnStateManager.stateErrorSensor.record()
           throw new IllegalStateException(s"WriteTxnMarkerResponse does not contain expected error map for producer id ${txnMarker.producerId}")
+        }
 
         txnStateManager.getTransactionState(transactionalId) match {
           case Left(Errors.NOT_COORDINATOR) =>
@@ -110,9 +114,11 @@ class TransactionMarkerRequestCompletionHandler(brokerId: Int,
             txnMarkerChannelManager.removeMarkersForTxnId(transactionalId)
 
           case Left(unexpectedError) =>
+            txnStateManager.stateErrorSensor.record()
             throw new IllegalStateException(s"Unhandled error $unexpectedError when fetching current transaction state")
 
           case Right(None) =>
+            txnStateManager.stateErrorSensor.record()
             throw new IllegalStateException(s"The coordinator still owns the transaction partition for $transactionalId, but there is " +
               s"no metadata in the cache; this is not expected")
 
@@ -140,6 +146,7 @@ class TransactionMarkerRequestCompletionHandler(brokerId: Int,
                          Errors.RECORD_LIST_TOO_LARGE |
                          Errors.INVALID_REQUIRED_ACKS => // these are all unexpected and fatal errors
 
+                      txnStateManager.stateErrorSensor.record()
                       throw new IllegalStateException(s"Received fatal error ${error.exceptionName} while sending txn marker for $transactionalId")
 
                     case Errors.UNKNOWN_TOPIC_OR_PARTITION |
@@ -173,6 +180,7 @@ class TransactionMarkerRequestCompletionHandler(brokerId: Int,
                       txnMetadata.removePartition(topicPartition)
 
                     case other =>
+                      txnStateManager.stateErrorSensor.record()
                       throw new IllegalStateException(s"Unexpected error ${other.exceptionName} while sending txn marker for $transactionalId")
                   }
                 }

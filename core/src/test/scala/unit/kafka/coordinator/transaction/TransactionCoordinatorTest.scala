@@ -18,6 +18,8 @@ package kafka.coordinator.transaction
 
 import kafka.utils.MockScheduler
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.metrics.Metrics
+import org.apache.kafka.common.metrics.stats.Meter
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.record.RecordBatch
 import org.apache.kafka.common.requests.TransactionResult
@@ -48,6 +50,7 @@ class TransactionCoordinatorTest {
 
   private val partitions = mutable.Set[TopicPartition](new TopicPartition("topic1", 0))
   private val scheduler = new MockScheduler(time)
+  private val metrics = new Metrics(time)
 
   val coordinator = new TransactionCoordinator(brokerId,
     new TransactionConfig(),
@@ -57,7 +60,6 @@ class TransactionCoordinatorTest {
     transactionMarkerChannelManager,
     time,
     new LogContext)
-
   var result: InitProducerIdResult = _
   var error: Errors = Errors.NONE
 
@@ -879,6 +881,49 @@ class TransactionCoordinatorTest {
     assertEquals(InitProducerIdResult(RecordBatch.NO_PRODUCER_ID, RecordBatch.NO_PRODUCER_EPOCH, Errors.CONCURRENT_TRANSACTIONS), result)
 
     EasyMock.verify(transactionManager)
+  }
+
+  @Test
+  def testTransactionTimeoutMetric(): Unit = {
+    val sensor = metrics.sensor(TransactionStateManager.TimeoutSensor)
+    val timeoutRateMetricName = metrics.metricName("transaction-timeout-rate", TransactionStateManager.MetricsGroup,
+      "The rate at which transactions are timed out by the coordinator")
+    val timeoutCountMetricName = metrics.metricName("transaction-timeout-count", TransactionStateManager.MetricsGroup,
+      "The total count of transactions timed out by the coordinator")
+    sensor.add(new Meter(timeoutRateMetricName, timeoutCountMetricName))
+    EasyMock.expect(transactionManager.transactionTimeoutSensor).andReturn(sensor)
+
+    val now = time.milliseconds()
+    val txnMetadata = new TransactionMetadata(transactionalId, producerId, producerId, producerEpoch,
+      RecordBatch.NO_PRODUCER_EPOCH, txnTimeoutMs, Ongoing, partitions, now, now)
+
+    EasyMock.expect(transactionManager.timedOutTransactions())
+      .andReturn(List(TransactionalIdAndProducerIdEpoch(transactionalId, producerId, producerEpoch)))
+    EasyMock.expect(transactionManager.getTransactionState(EasyMock.eq(transactionalId)))
+      .andReturn(Right(Some(CoordinatorEpochAndTxnMetadata(coordinatorEpoch, txnMetadata))))
+      .times(2)
+
+    val completedTxnMetadata = new TransactionMetadata(transactionalId, producerId, producerId, (producerEpoch + 1).toShort,
+      RecordBatch.NO_PRODUCER_EPOCH, txnTimeoutMs, PrepareAbort, partitions, now, now)
+    EasyMock.expect(transactionManager.getTransactionState(EasyMock.eq(transactionalId)))
+      .andReturn(Right(Some(CoordinatorEpochAndTxnMetadata(coordinatorEpoch, completedTxnMetadata))))
+      .once
+
+    EasyMock.expect(transactionManager.appendTransactionToLog(EasyMock.eq(transactionalId),
+      EasyMock.eq(coordinatorEpoch),
+      EasyMock.anyObject(),
+      EasyMock.capture(capturedErrorsCallback),
+      EasyMock.anyObject())
+    ).andAnswer(() => capturedErrorsCallback.getValue.apply(Errors.NONE)).once()
+
+    EasyMock.replay(transactionManager, transactionMarkerChannelManager)
+
+    coordinator.startup(false)
+    time.sleep(TransactionStateManager.DefaultAbortTimedOutTransactionsIntervalMs)
+    scheduler.tick()
+
+    assertEquals(1.0, metrics.metric(timeoutCountMetricName).metricValue().asInstanceOf[Double], 0)
+    assertTrue(metrics.metric(timeoutCountMetricName).metricValue().asInstanceOf[Double] > 0)
   }
 
   private def validateRespondsWithConcurrentTransactionsOnInitPidWhenInPrepareState(state: TransactionState) = {

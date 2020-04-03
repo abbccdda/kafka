@@ -29,8 +29,8 @@ import kafka.utils.CoreUtils.{inReadLock, inWriteLock}
 import kafka.utils.{Logging, Pool, Scheduler}
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.internals.Topic
-import org.apache.kafka.common.metrics.Metrics
-import org.apache.kafka.common.metrics.stats.{Avg, Max}
+import org.apache.kafka.common.metrics.stats.{Avg, Max, Meter}
+import org.apache.kafka.common.metrics.{Gauge, MetricConfig, Metrics}
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.record.{FileRecords, MemoryRecords, SimpleRecord}
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
@@ -48,6 +48,12 @@ object TransactionStateManager {
   val DefaultTransactionalIdExpirationMs: Int = TimeUnit.DAYS.toMillis(7).toInt
   val DefaultAbortTimedOutTransactionsIntervalMs: Int = TimeUnit.SECONDS.toMillis(10).toInt
   val DefaultRemoveExpiredTransactionalIdsIntervalMs: Int = TimeUnit.HOURS.toMillis(1).toInt
+
+  // Metrics constants
+  val MetricsGroup = "transaction-coordinator-metrics"
+  val LoadTimeSensor = "TransactionsPartitionLoadTime"
+  val TimeoutSensor = "TransactionTimeouts"
+  val StateErrorSensor = "TransactionStateErrors"
 }
 
 /**
@@ -95,14 +101,49 @@ class TransactionStateManager(brokerId: Int,
   private val transactionTopicPartitionCount = getTransactionTopicPartitionCount
 
   /** setup metrics*/
-  private val partitionLoadSensor = metrics.sensor("PartitionLoadTime")
+  private val partitionLoadSensor = metrics.sensor(TransactionStateManager.LoadTimeSensor)
 
   partitionLoadSensor.add(metrics.metricName("partition-load-time-max",
-    "transaction-coordinator-metrics",
+    TransactionStateManager.MetricsGroup,
     "The max time it took to load the partitions in the last 30sec"), new Max())
   partitionLoadSensor.add(metrics.metricName("partition-load-time-avg",
-    "transaction-coordinator-metrics",
+    TransactionStateManager.MetricsGroup,
     "The avg time it took to load the partitions in the last 30sec"), new Avg())
+
+  private val maxOpenTxnTimeMetricName = metrics.metricName("active-transaction-total-time-max", TransactionStateManager.MetricsGroup,
+    "The max time a currently-open transaction has been open")
+  metrics.addMetric(maxOpenTxnTimeMetricName, new Gauge[Long] {
+    override def value(config: MetricConfig, now: Long): Long = {
+      inReadLock(stateLock) {
+        val startTimestamps = transactionMetadataCache.flatMap { case (_, entry) =>
+          entry.metadataPerTransactionalId.filter { case (_, txnMetadata) =>
+            txnMetadata.state match {
+              case Ongoing | PrepareAbort | PrepareCommit | PrepareEpochFence => true
+              case _ => false
+            }
+          }.map { case (_, txnMetadata) =>
+            txnMetadata.txnStartTimestamp
+          }
+        }
+
+        if (startTimestamps.isEmpty) 0L else Math.max(0L, now - startTimestamps.min)
+      }
+    }
+  })
+
+  private[transaction] val transactionTimeoutSensor = metrics.sensor(TransactionStateManager.TimeoutSensor)
+  private val timeoutRateMetricName = metrics.metricName("transaction-timeout-rate", TransactionStateManager.MetricsGroup,
+    "The rate at which transactions are timed out by the coordinator")
+  private val timeoutCountMetricName = metrics.metricName("transaction-timeout-count", TransactionStateManager.MetricsGroup,
+    "The total count of transactions timed out by the coordinator")
+  transactionTimeoutSensor.add(new Meter(timeoutRateMetricName, timeoutCountMetricName))
+
+  private[transaction] val stateErrorSensor = metrics.sensor(TransactionStateManager.StateErrorSensor)
+  private val stateErrorRateMetricName = metrics.metricName("transaction-state-error-rate", TransactionStateManager.MetricsGroup,
+    "The rate at which state errors occur within the transaction coordinator")
+  private val stateErrorCountMetricName = metrics.metricName("transaction-state-error-count", TransactionStateManager.MetricsGroup,
+    "The total count of state errors that have occurred within the transaction coordinator")
+  stateErrorSensor.add(new Meter(stateErrorRateMetricName, stateErrorCountMetricName))
 
   // visible for testing only
   private[transaction] def addLoadingPartition(partitionId: Int, coordinatorEpoch: Int): Unit = {
@@ -647,6 +688,10 @@ class TransactionStateManager(brokerId: Int,
     shuttingDown.set(true)
     loadingPartitions.clear()
     transactionMetadataCache.clear()
+    metrics.removeMetric(maxOpenTxnTimeMetricName)
+    metrics.removeSensor(TransactionStateManager.LoadTimeSensor)
+    metrics.removeSensor(TransactionStateManager.TimeoutSensor)
+    metrics.removeSensor(TransactionStateManager.StateErrorSensor)
 
     info("Shutdown complete")
   }

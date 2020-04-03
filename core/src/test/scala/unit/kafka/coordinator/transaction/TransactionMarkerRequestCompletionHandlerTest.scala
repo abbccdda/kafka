@@ -16,11 +16,15 @@
  */
 package kafka.coordinator.transaction
 
+import java.lang.management.ManagementFactory
 import java.{lang, util}
 import java.util.Arrays.asList
 
+import javax.management.ObjectName
 import org.apache.kafka.clients.ClientResponse
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.metrics.{JmxReporter, Metrics, Sensor}
+import org.apache.kafka.common.metrics.stats.Meter
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.record.RecordBatch
 import org.apache.kafka.common.requests.{RequestHeader, TransactionResult, WriteTxnMarkersRequest, WriteTxnMarkersResponse}
@@ -55,6 +59,12 @@ class TransactionMarkerRequestCompletionHandlerTest {
 
   private val handler = new TransactionMarkerRequestCompletionHandler(brokerId, txnStateManager, markerChannelManager, txnIdAndMarkers)
 
+  private val metrics = new Metrics()
+  val stateErrorRateMetricName = metrics.metricName("transaction-state-error-rate", TransactionStateManager.MetricsGroup,
+    "The rate at which state errors occur within the transaction coordinator")
+  val stateErrorCountMetricName = metrics.metricName("transaction-state-error-count", TransactionStateManager.MetricsGroup,
+    "The total count of state errors that have occurred within the transaction coordinator")
+
   private def mockCache(): Unit = {
     EasyMock.expect(txnStateManager.partitionFor(transactionalId))
       .andReturn(txnTopicPartition)
@@ -81,6 +91,8 @@ class TransactionMarkerRequestCompletionHandlerTest {
 
   @Test
   def shouldThrowIllegalStateExceptionIfErrorCodeNotAvailableForPid(): Unit = {
+    EasyMock.expect(txnStateManager.stateErrorSensor).andReturn(setupStateErrorSensor())
+
     mockCache()
     EasyMock.replay(markerChannelManager)
 
@@ -93,6 +105,9 @@ class TransactionMarkerRequestCompletionHandlerTest {
     } catch {
       case _: IllegalStateException => // ok
     }
+
+    assertEquals(1.0, metrics.metric(stateErrorCountMetricName).metricValue().asInstanceOf[Double], 0.0)
+    assertTrue(metrics.metric(stateErrorRateMetricName).metricValue().asInstanceOf[Double] > 0)
   }
 
   @Test
@@ -218,6 +233,14 @@ class TransactionMarkerRequestCompletionHandlerTest {
   }
 
   private def verifyThrowIllegalStateExceptionOnError(error: Errors) = {
+    EasyMock.expect(txnStateManager.stateErrorSensor).andReturn(setupStateErrorSensor())
+
+    val server = ManagementFactory.getPlatformMBeanServer
+    val mBeanName = "kafka.server:type=transaction-coordinator-metrics"
+    def getStateErrorCount(): Double = {
+      server.getAttribute(new ObjectName(mBeanName), "transaction-state-error-count").asInstanceOf[Double]
+    }
+
     mockCache()
 
     val response = new WriteTxnMarkersResponse(createProducerIdErrorMap(error))
@@ -228,6 +251,9 @@ class TransactionMarkerRequestCompletionHandlerTest {
     } catch {
       case _: IllegalStateException => // ok
     }
+
+    assertEquals(1.0, metrics.metric(stateErrorCountMetricName).metricValue().asInstanceOf[Double], 0.0)
+    assertTrue(metrics.metric(stateErrorRateMetricName).metricValue().asInstanceOf[Double] > 0)
   }
 
   private def verifyCompleteDelayedOperationOnError(error: Errors): Unit = {
@@ -268,5 +294,14 @@ class TransactionMarkerRequestCompletionHandlerTest {
     errorsMap.put(topicPartition, errors)
     pidMap.put(producerId, errorsMap)
     pidMap
+  }
+
+  private def setupStateErrorSensor(): Sensor = {
+    val reporter = new JmxReporter("kafka.server")
+    metrics.addReporter(reporter)
+
+    val sensor = metrics.sensor("TransactionStateErrors")
+    sensor.add(new Meter(stateErrorRateMetricName, stateErrorCountMetricName))
+    sensor
   }
 }

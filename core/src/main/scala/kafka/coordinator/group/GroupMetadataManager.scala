@@ -89,7 +89,7 @@ class GroupMetadataManager(brokerId: Int,
   private val openGroupsForProducer = mutable.HashMap[Long, mutable.Set[String]]()
 
   /* setup metrics*/
-  val partitionLoadSensor = metrics.sensor("PartitionLoadTime")
+  val partitionLoadSensor = metrics.sensor("GroupPartitionLoadTime")
 
   partitionLoadSensor.add(metrics.metricName("partition-load-time-max",
     "group-coordinator-metrics",
