@@ -338,7 +338,7 @@ public class KafkaDataBalancerTest {
             KafkaCruiseControlConfig ccConfig = mock(KafkaCruiseControlConfig.class);
 
             KafkaDataBalancer dataBalancer = new KafkaDataBalancer(config);
-            dataBalancer.checkStartupComponentsReady(ccConfig, 0);
+            dataBalancer.checkStartupComponentsReady(ccConfig);
             assertTrue(MockDatabalancerStartupComponent.checkupMethodCalled);
         } finally {
             // Restore components
@@ -364,7 +364,7 @@ public class KafkaDataBalancerTest {
             AtomicBoolean abortCalled = new AtomicBoolean(false);
             Thread testThread = new Thread(() -> {
                 try {
-                    dataBalancer.checkStartupComponentsReady(ccConfig, 0);
+                    dataBalancer.checkStartupComponentsReady(ccConfig);
                 } catch (InvocationTargetException e) {
                     if (e.getTargetException() instanceof StartupCheckInterruptedException) {
                         abortCalled.set(true);
