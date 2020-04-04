@@ -83,6 +83,8 @@ abstract class ShutdownableThread(val name: String, val isInterruptible: Boolean
       trace("shutdownInitiated latch count reached zero. Shutdown called.")
   }
 
+  def heartbeat(): Unit = {}
+
   /**
    * This method is repeatedly invoked until the thread shuts down or this method throws an exception
    */
@@ -92,8 +94,10 @@ abstract class ShutdownableThread(val name: String, val isInterruptible: Boolean
     isStarted = true
     info("Starting")
     try {
-      while (isRunning)
+      while (isRunning) {
+        heartbeat()
         doWork()
+      }
     } catch {
       case e: FatalExitError =>
         shutdownInitiated.countDown()

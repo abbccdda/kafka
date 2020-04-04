@@ -69,6 +69,24 @@ class TieredStorageMetric:
 class TieredStorageMetricsRegistry:
     ARCHIVER_LAG = TieredStorageMetric("kafka.tier.tasks.archive:type=TierArchiver,name=TotalLag", "Value")
     FETCHER_BYTES_FETCHED = TieredStorageMetric("kafka.server:type=TierFetcher", "BytesFetchedTotal")
+    ARCHIVER_PARTITIONS_IN_ERROR = TieredStorageMetric("kafka.tier.tasks:type=TierTasks,name=NumPartitionsInError", "Value")
+    TIER_TASKS_HEARTBEAT = TieredStorageMetric("kafka.tier.tasks:type=TierTasks,name=HeartbeatMs", "Value")
+    TIER_TOPIC_MANAGER_HEARTBEAT = TieredStorageMetric("kafka.server:type=TierTopicConsumer", "HeartbeatMs")
+    DELETED_PARTITIONS_COORDINATOR_HEARTBEAT = TieredStorageMetric("kafka.tier:type=TierDeletedPartitionsCoordinator,name=HeartbeatMs", "Value")
+
+    ALL_MBEANS = [ARCHIVER_LAG.mbean,
+            FETCHER_BYTES_FETCHED.mbean,
+            ARCHIVER_PARTITIONS_IN_ERROR.mbean,
+            TIER_TOPIC_MANAGER_HEARTBEAT.mbean,
+            TIER_TASKS_HEARTBEAT.mbean,
+            DELETED_PARTITIONS_COORDINATOR_HEARTBEAT.mbean]
+
+    ALL_ATTRIBUTES = [ARCHIVER_LAG.attribute,
+            FETCHER_BYTES_FETCHED.attribute,
+            ARCHIVER_PARTITIONS_IN_ERROR.attribute,
+            TIER_TOPIC_MANAGER_HEARTBEAT.attribute,
+            TIER_TASKS_HEARTBEAT.attribute,
+            DELETED_PARTITIONS_COORDINATOR_HEARTBEAT.attribute]
 
     @staticmethod
     def log_tier_size(topic, partition):
@@ -85,12 +103,10 @@ class TieredStorageMetricsRegistry:
 class TierSupport():
     """Tiered storage helpers. Mix in only with KafkaService-based tests"""
 
-    def configure_tiering(self, backend, **server_props_kwargs):
-        self.kafka.jmx_object_names = [TieredStorageMetricsRegistry.ARCHIVER_LAG.mbean,
-                                       TieredStorageMetricsRegistry.FETCHER_BYTES_FETCHED.mbean]
-        self.kafka.jmx_attributes = [TieredStorageMetricsRegistry.ARCHIVER_LAG.attribute,
-                                     TieredStorageMetricsRegistry.FETCHER_BYTES_FETCHED.attribute]
-        self.kafka.server_prop_overides = tier_server_props(backend, **server_props_kwargs)
+    def configure_tiering(self, bucket, **server_props_kwargs):
+        self.kafka.jmx_object_names = TieredStorageMetricsRegistry.ALL_MBEANS
+        self.kafka.jmx_attributes = TieredStorageMetricsRegistry.ALL_ATTRIBUTES
+        self.kafka.server_prop_overides = tier_server_props(bucket, **server_props_kwargs)
 
     def tiering_completed_prefer_fetch(self, topic, segment_size, partitions=[0]):
         # check that tiering started first - tiered log size should be non-zero
@@ -111,6 +127,29 @@ class TierSupport():
                 if archiver_lag != 0 or local_size - tier_size > segment_size:
                     self.logger.debug("Archiving not complete for partition " + str(partition))
                     return False
+        return True
+
+    def check_heartbeat(self, last_jmx_entry, metric, cutoff_ms):
+        heartbeat = last_jmx_entry.get(str(metric), -1)
+        if heartbeat == -1 or heartbeat > cutoff_ms:
+            self.logger.debug(str(metric) + " greater than cutoff " + str(cutoff_ms))
+            return False
+        return True
+
+    def check_cluster_state(self):
+        self.kafka.read_jmx_output_all_nodes()
+        for node_stats in self.kafka.jmx_stats:
+            last_jmx_entry = sorted(node_stats.items(), key=lambda kv: kv[0])[-1][1]
+
+            if not (self.check_heartbeat(last_jmx_entry, TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_HEARTBEAT, 2000)
+                    and self.check_heartbeat(last_jmx_entry, TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_HEARTBEAT, 90000)):
+                return False
+
+            partitions_in_error = last_jmx_entry.get(str(TieredStorageMetricsRegistry.ARCHIVER_PARTITIONS_IN_ERROR), -1)
+            if partitions_in_error != 0:
+                self.logger.debug("Archiver " + str(partitions_in_error) + " partitions in error")
+                return False
+
         return True
 
     def tiering_completed(self, topic, partitions=[0]):

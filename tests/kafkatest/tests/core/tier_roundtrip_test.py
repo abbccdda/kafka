@@ -173,3 +173,4 @@ class TierRoundtripTest(ProduceConsumeValidateTest, TierSupport):
         print("fetched local log", bytes_fetched_from_local_log, "seg bytes", self.LOG_SEGMENT_BYTES)
 
         assert bytes_fetched_from_local_log <= self.LOG_SEGMENT_BYTES
+        assert self.check_cluster_state()

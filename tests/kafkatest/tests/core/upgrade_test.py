@@ -91,7 +91,8 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
 
     def add_tiered_storage_metrics(self):
         self.add_log_metrics(self.topic, partitions=range(0, self.PARTITIONS))
-        self.kafka.jmx_object_names += [TieredStorageMetricsRegistry.ARCHIVER_LAG.mbean]
+        self.kafka.jmx_object_names += TieredStorageMetricsRegistry.ALL_MBEANS
+        self.kafka.jmx_attributes += TieredStorageMetricsRegistry.ALL_ATTRIBUTES
         self.restart_jmx_tool()
 
     @cluster(num_nodes=6)
@@ -236,4 +237,4 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             self.restart_jmx_tool()
             wait_until(lambda: self.tiering_started(self.topic, partitions=partitions),
                     timeout_sec=120, backoff_sec=2, err_msg="no evidence of archival within timeout")
-
+            assert self.check_cluster_state()

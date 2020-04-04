@@ -403,7 +403,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         /* tiered storage components */
         if (config.tierFeature) {
-          tierTopicManagerOpt = Some(new TierTopicManager(tierTopicManagerConfig, tierTopicConsumerOpt.get, adminZkClientSupplier, metrics))
+          tierTopicManagerOpt = Some(new TierTopicManager(tierTopicManagerConfig, tierTopicConsumerOpt.get, adminZkClientSupplier))
           tierTopicManagerOpt.get.startup()
 
           tierDeletedPartitionsCoordinatorOpt = Some(new TierDeletedPartitionsCoordinator(kafkaScheduler, replicaManager,

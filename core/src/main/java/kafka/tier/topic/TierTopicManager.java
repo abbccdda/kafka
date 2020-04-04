@@ -14,17 +14,13 @@ import kafka.tier.state.TierPartitionState.AppendResult;
 import kafka.zk.AdminZkClient;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.RetriableException;
-import org.apache.kafka.common.metrics.MetricConfig;
-import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.utils.KafkaThread;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -32,7 +28,6 @@ import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -53,7 +48,6 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
     private final Supplier<Producer<byte[], byte[]>> producerSupplier;
     private final TierTopic tierTopic;
     private final TierTopicConsumer tierTopicConsumer;
-    private final AtomicLong heartbeat = new AtomicLong(System.currentTimeMillis());
     private final AtomicBoolean ready = new AtomicBoolean(false);
     private final AtomicBoolean shutdown = new AtomicBoolean(false);
     private final ReentrantReadWriteLock sendLock = new ReentrantReadWriteLock();
@@ -85,17 +79,14 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
      * Primary public constructor for TierTopicManager.
      * @param config TierTopicManagerConfig containing tiering configuration.
      * @param tierTopicConsumer tier topic consumer instance
-     * @param metrics Kafka metrics to track TierTopicManager metrics
      */
     public TierTopicManager(TierTopicManagerConfig config,
                             TierTopicConsumer tierTopicConsumer,
-                            Supplier<AdminZkClient> adminZkClientSupplier,
-                            Metrics metrics) {
+                            Supplier<AdminZkClient> adminZkClientSupplier) {
         this(config,
                 tierTopicConsumer,
                 new TierTopicProducerSupplier(config),
                 adminZkClientSupplier);
-        setupMetrics(metrics);
     }
 
     public void startup() {
@@ -308,18 +299,7 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
         }
     }
 
-    /**
-     * Setup metrics for the tier topic manager.
-     */
-    private void setupMetrics(Metrics metrics) {
-        metrics.addMetric(new MetricName("HeartbeatMs",
-                        "TierTopicManager",
-                        "Time since last heartbeat in milliseconds.",
-                        new HashMap<>()),
-                (MetricConfig config, long now) -> now - heartbeat.get());
-    }
-
-    /**
+    /*
      * Determine whether tiering is retriable or whether hard exit should occur
      *
      * @param e The exception

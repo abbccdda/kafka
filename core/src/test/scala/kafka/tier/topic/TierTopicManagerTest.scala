@@ -94,6 +94,7 @@ class TierTopicManagerTest {
     when(clientCtx_1.status).thenReturn(TierPartitionStatus.ONLINE)
     when(clientCtx_1.process(ArgumentMatchers.eq(initLeader_1), any())).thenReturn(AppendResult.ACCEPTED)
     tierTopicConsumer.register(topicIdPartition_1, clientCtx_1)
+    assertEquals(1, tierTopicConsumer.immigratingPartitions.size())
 
     val topicIdPartition_2 = new TopicIdPartition("foo_2", UUID.randomUUID, 0)
     val initLeader_2 = new TierTopicInitLeader(topicIdPartition_2, epoch, UUID.randomUUID, 0)
@@ -101,9 +102,9 @@ class TierTopicManagerTest {
     when(clientCtx_2.status).thenReturn(TierPartitionStatus.ONLINE)
     when(clientCtx_2.process(ArgumentMatchers.eq(initLeader_2), any())).thenReturn(AppendResult.ACCEPTED)
     tierTopicConsumer.register(topicIdPartition_2, clientCtx_2)
+    assertEquals(2, tierTopicConsumer.immigratingPartitions().size())
 
     val future_1 = tierTopicManager.addMetadata(initLeader_1)
-
     val future_2 = tierTopicManager.addMetadata(initLeader_2)
 
     assertTrue(tierTopicManager.tryBecomeReady(false))
@@ -116,6 +117,8 @@ class TierTopicManagerTest {
 
     assertEquals(AppendResult.ACCEPTED, future_1.get)
     assertEquals(AppendResult.ACCEPTED, future_2.get)
+
+    assertEquals(2, tierTopicConsumer.primaryConsumerPartitions().size())
   }
 
   @Test

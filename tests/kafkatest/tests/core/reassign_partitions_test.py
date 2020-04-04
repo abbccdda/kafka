@@ -221,3 +221,4 @@ class ReassignPartitionsTest(ProduceConsumeValidateTest, TierSupport):
             tier_bytes_fetched = self.kafka.maximum_jmx_value[str(TieredStorageMetricsRegistry.FETCHER_BYTES_FETCHED)]
             self.logger.info("Bytes fetched from S3 {}".format(tier_bytes_fetched))
             self.logger.info("Producer acked {}".format(self.producer.acked))
+            assert self.check_cluster_state()
