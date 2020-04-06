@@ -175,7 +175,7 @@ public class KafkaDataBalancer implements DataBalancer {
      * The regex computed would be = "^\\Qtopic1\\E$|^\\Qtopic2\\E$|^\\Qprefix1\\E.*|^\\Qprefix2\\E.*"
      * Visible for testing
      */
-    String generateRegex(KafkaConfig config) {
+    static String generateCcTopicExclusionRegex(KafkaConfig config) {
         List<String> topicNames = config.getList(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG);
         List<String> topicPrefixes = config.getList(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG);
 
@@ -221,6 +221,10 @@ public class KafkaDataBalancer implements DataBalancer {
             ccConfigProps.putIfAbsent(KafkaSampleStore.SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG,
                     metricsReporterReplFactor);
         }
+
+
+        ccConfigProps.put(KafkaCruiseControlConfig.TOPICS_EXCLUDED_FROM_PARTITION_MOVEMENT_CONFIG,
+                KafkaDataBalancer.generateCcTopicExclusionRegex(config));
 
         return new KafkaCruiseControlConfig(ccConfigProps);
     }
