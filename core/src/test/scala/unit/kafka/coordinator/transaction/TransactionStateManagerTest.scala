@@ -62,7 +62,9 @@ class TransactionStateManagerTest {
     .anyTimes()
 
   EasyMock.replay(zkClient)
-  val metrics = new Metrics()
+  val metrics = new Metrics(time)
+  val reporter: JmxReporter = new JmxReporter("kafka.server")
+  metrics.addReporter(reporter)
 
   val txnConfig = TransactionConfig()
   val transactionManager: TransactionStateManager = new TransactionStateManager(0, zkClient, scheduler,
@@ -89,6 +91,7 @@ class TransactionStateManagerTest {
   def tearDown(): Unit = {
     EasyMock.reset(zkClient, replicaManager)
     transactionManager.shutdown()
+    reporter.close()
   }
 
   @Test
@@ -776,8 +779,6 @@ class TransactionStateManagerTest {
   def testPartitionLoadMetric(): Unit = {
     val server = ManagementFactory.getPlatformMBeanServer
     val mBeanName = "kafka.server:type=transaction-coordinator-metrics"
-    val reporter = new JmxReporter("kafka.server")
-    metrics.addReporter(reporter)
 
     def partitionLoadTime(attribute: String): Double = {
       server.getAttribute(new ObjectName(mBeanName), attribute).asInstanceOf[Double]
@@ -803,5 +804,87 @@ class TransactionStateManagerTest {
 
     assertTrue(partitionLoadTime("partition-load-time-max") >= 0)
     assertTrue(partitionLoadTime( "partition-load-time-avg") >= 0)
+  }
+
+  @Test
+  def testTransactionTimeoutMetricCreation(): Unit = {
+    // This test checks that the metric is created correctly. Transaction timeout happens in the TransactionCoordinator,
+    // so testing that the timeout is recorded is done in TransactionCoordinatorTest
+    val server = ManagementFactory.getPlatformMBeanServer
+    val mBeanName = "kafka.server:type=transaction-coordinator-metrics"
+
+    def getExpiredTransactionCount(): Double = {
+      server.getAttribute(new ObjectName(mBeanName), "transaction-timeout-count").asInstanceOf[Double]
+    }
+
+    assertTrue(server.isRegistered(new ObjectName(mBeanName)))
+    assertEquals(0.0, getExpiredTransactionCount(), 0)
+    assertTrue(reporter.containsMbean(mBeanName))
+  }
+
+  @Test
+  def testStateErrorMetricCreation(): Unit = {
+    // This test checks that the metric is created correctly. State errors are marked in the TransactionMarkerRequestCompletionHandler,
+    // so testing that the error is recorded is done in TransactionCoordinatorTest
+    val server = ManagementFactory.getPlatformMBeanServer
+    val mBeanName = "kafka.server:type=transaction-coordinator-metrics"
+
+    def getStateErrorCount(): Double = {
+      server.getAttribute(new ObjectName(mBeanName), "transaction-state-error-count").asInstanceOf[Double]
+    }
+
+    assertTrue(server.isRegistered(new ObjectName(mBeanName)))
+    assertEquals(0.0, getStateErrorCount(), 0)
+    assertTrue(reporter.containsMbean(mBeanName))
+  }
+
+  @Test
+  def testTotalTransactionTimeMetric(): Unit = {
+    val server = ManagementFactory.getPlatformMBeanServer
+    val mBeanName = "kafka.server:type=transaction-coordinator-metrics"
+
+    def getMaxTotalTime(mBean: String): Long = {
+      server.getAttribute(new ObjectName(mBean), "active-transaction-total-time-max").asInstanceOf[Long]
+    }
+
+    assertTrue(server.isRegistered(new ObjectName(mBeanName)))
+    assertEquals(0, getMaxTotalTime(mBeanName))
+    assertTrue(reporter.containsMbean(mBeanName))
+
+    txnMetadata1.state = Ongoing
+    txnMetadata1.addPartitions(Set[TopicPartition](new TopicPartition("topic1", 1),
+      new TopicPartition("topic1", 1)))
+
+    txnMetadata2.state = Ongoing
+    txnMetadata2.addPartitions(Set[TopicPartition](new TopicPartition("topic2", 1),
+      new TopicPartition("topic2", 2)))
+
+    txnRecords += new SimpleRecord(txnMessageKeyBytes1, TransactionLog.valueToBytes(txnMetadata1.prepareNoTransit()))
+    txnRecords += new SimpleRecord(txnMessageKeyBytes2, TransactionLog.valueToBytes(txnMetadata2.prepareNoTransit()))
+
+    val startOffset = 15L
+    val records = MemoryRecords.withRecords(startOffset, CompressionType.NONE, txnRecords.toArray: _*)
+
+    // Populate the cache and validate that the correct metrics exist
+    prepareTxnLog(topicPartition, startOffset, records)
+    transactionManager.loadTransactionsForTxnTopicPartition(partitionId, 0, (_, _, _, _) => ())
+    scheduler.tick()
+
+    time.sleep(1000)
+
+    // Both transactions are open, so value should be non-zero
+    assertTrue(getMaxTotalTime(mBeanName) >= 0)
+
+    // Complete one transaction, the value should still be non-zero
+    val cachedTxnMetadata1 = transactionManager.transactionMetadataCache(0).metadataPerTransactionalId.get(transactionalId1)
+    cachedTxnMetadata1.completeTransitionTo(cachedTxnMetadata1.prepareAbortOrCommit(PrepareCommit, time.milliseconds()))
+    cachedTxnMetadata1.completeTransitionTo(cachedTxnMetadata1.prepareComplete(time.milliseconds()))
+    assertTrue(getMaxTotalTime(mBeanName) >= 0)
+
+    // Complete the other transaction, the value should now be zero
+    val cachedTxnMetadata2 = transactionManager.transactionMetadataCache(0).metadataPerTransactionalId.get(transactionalId2)
+    cachedTxnMetadata2.completeTransitionTo(cachedTxnMetadata2.prepareAbortOrCommit(PrepareCommit, time.milliseconds()))
+    cachedTxnMetadata2.completeTransitionTo(cachedTxnMetadata2.prepareComplete(time.milliseconds()))
+    assertEquals(0, getMaxTotalTime(mBeanName))
   }
 }

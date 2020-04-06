@@ -29,7 +29,7 @@ import org.junit.After
 
 import scala.collection.JavaConverters._
 
-class TierIntegrationFetchTest extends IntegrationTestHarness {
+class TierIntegrationSmokeTest extends IntegrationTestHarness {
   override protected def brokerCount: Int = 1
 
   private def configureMock(): Unit = {
@@ -190,22 +190,6 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
     assertTimestampForOffsetLookupMissing(topicPartition, consumer, Long.MaxValue)
 
     val mBeanServer = ManagementFactory.getPlatformMBeanServer
-    val List(meanArchiveRate) = mBeanServer
-      .getAttributes(new ObjectName("kafka.tier.tasks.archive:type=TierArchiver,name=BytesPerSec"), Array("MeanRate"))
-      .asList.asScala
-      .map { attr => attr.getValue.asInstanceOf[Double] }
-      .toList
-
-    assertTrue(s"tier archiver mean rate shows no data uploaded to tiered storage: $meanArchiveRate",
-      meanArchiveRate > 100)
-
-    val partitionsInErrorCount = mBeanServer
-      .getAttributes(new ObjectName("kafka.tier.tasks:type=TierTasks,name=NumPartitionsInError"), Array("Value"))
-      .asList.asScala
-      .map { attr => attr.getValue.asInstanceOf[Int] }
-      .head
-
-    assertEquals("tier archiver shows partitions in error state", 0, partitionsInErrorCount)
 
     val partitionsInErrorDuringArchivalCount = mBeanServer
       .getAttributes(new ObjectName("kafka.tier.tasks:type=TierTasks,name=NumPartitionsInErrorDuringArchival"), Array("Value"))
@@ -237,6 +221,51 @@ class TierIntegrationFetchTest extends IntegrationTestHarness {
       .asList.asScala
       .map { attr => attr.getValue.asInstanceOf[Double] }
       .toList
+
+    assertEquals("offset cache should not have shown misses", 1.0, offsetCacheHitRatio, 0.000001)
+
+    val List(heartbeat) = mBeanServer
+      .getAttributes(new ObjectName("kafka.server:type=TierTopicConsumer"), Array("HeartbeatMs"))
+      .asList.asScala
+      .map { attr => attr.getValue.asInstanceOf[Double] }
+      .toList
+
+    assertTrue("tier topic consumer heartbeat is alive", heartbeat < 2000)
+
+    val List(tierTasksHeartbeat) = mBeanServer
+      .getAttributes(new ObjectName("kafka.tier.tasks:type=TierTasks,name=HeartbeatMs"), Array("Value"))
+      .asList.asScala
+      .map { attr => attr.getValue.asInstanceOf[Long] }
+      .toList
+    assertTrue("tier tasks heartbeat is alive", tierTasksHeartbeat < 10000)
+
+    assertTrue("tier fetch metric shows no data fetched from tiered storage",
+      bytesFetchedTotal > 100)
+
+    val List(meanArchiveRate) = mBeanServer
+      .getAttributes(new ObjectName("kafka.tier.tasks.archive:type=TierArchiver,name=BytesPerSec"), Array("MeanRate"))
+      .asList.asScala
+      .map { attr => attr.getValue.asInstanceOf[Double] }
+      .toList
+
+    assertTrue("tier archiver mean rate shows no data uploaded to tiered storage", meanArchiveRate > 100)
+
+    val partitionsStatusCounts = mBeanServer
+      .getAttributes(new ObjectName("kafka.server:type=TierTopicConsumer"),
+        Array("ImmigratingPartitions", "CatchupConsumerPartitions", "PrimaryConsumerPartitions", "NumListeners", "MaxListeningMs"))
+      .asList.asScala
+      .map { attr => attr.getValue.asInstanceOf[Double] }
+
+    assertEquals("tier topic manager fully immigrated the partition and metric works", List(0.0, 0.0, 1.0, 0.0, 0.0), partitionsStatusCounts)
+
+    val partitionsInErrorCount = mBeanServer
+      .getAttributes(new ObjectName("kafka.tier.tasks:type=TierTasks,name=NumPartitionsInError"), Array("Value"))
+      .asList.asScala
+      .map { attr => attr.getValue.asInstanceOf[Int] }
+      .head
+
+    assertEquals("tier archiver shows no partitions in error state", 0, partitionsInErrorCount)
+
     assertEquals("offset cache should not have shown misses",1.0, offsetCacheHitRatio, 0.000001)
     assertTrue(s"tier fetch metric shows no data fetched from tiered storage: $bytesFetchedTotal",
       bytesFetchedTotal > 100)

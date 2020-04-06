@@ -3,6 +3,7 @@ package kafka.tier
 import java.nio.ByteBuffer
 import java.util.UUID
 import java.util.concurrent.{ScheduledFuture, TimeUnit}
+import java.util.concurrent.atomic.AtomicLong
 
 import com.yammer.metrics.core.Gauge
 import kafka.metrics.KafkaMetricsGroup
@@ -41,6 +42,7 @@ class TierDeletedPartitionsCoordinator(scheduler: Scheduler,
                                        tierDeletedPartitionsIntervalMs: Long,
                                        tierNamespace: String,
                                        time: Time) extends Logging with KafkaMetricsGroup {
+  private val lastHeartbeatMs = new AtomicLong(System.currentTimeMillis())
   private val tierTopicName = TierTopic.topicName(tierNamespace)
   private var listener: DeletedPartitionsChangeListener = _
   private var coordinatorTask: ScheduledFuture[_] = _
@@ -60,8 +62,15 @@ class TierDeletedPartitionsCoordinator(scheduler: Scheduler,
     }
   })
 
+  newGauge("HeartbeatMs", new Gauge[Long] {
+    override def value(): Long = synchronized {
+      System.currentTimeMillis() - lastHeartbeatMs.get()
+    }
+  })
+
   def startup(): Unit = {
-    coordinatorTask = scheduler.schedule("tier-deleted-partition-task", () => doWork, delay = 100,
+    heartbeat()
+    coordinatorTask = scheduler.schedule("tier-deleted-partition-task", () => doWork(), delay = 100,
       period = Math.min(60 * 1000, tierDeletedPartitionsIntervalMs), unit = TimeUnit.MILLISECONDS)
   }
 
@@ -86,14 +95,20 @@ class TierDeletedPartitionsCoordinator(scheduler: Scheduler,
     def removeMetrics(): Unit = {
       removeMetric("TierNumInProgressPartitionDeletions")
       removeMetric("TierNumQueuedPartitionDeletions")
+      removeMetric("HeartbeatMs")
     }
 
     coordinatorTask.cancel(false)
     removeMetrics()
   }
 
+  private def heartbeat(): Unit = {
+    lastHeartbeatMs.set(System.currentTimeMillis())
+  }
+
   private def doWork(): Unit = {
     try {
+      heartbeat()
       val now = time.hiResClockMs()
       if (lastDeletedPartitionCheckMs == 0L || now - lastDeletedPartitionCheckMs >= tierDeletedPartitionsIntervalMs) {
         findDeletedPartitions()

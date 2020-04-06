@@ -173,7 +173,7 @@ private[transaction] class TransactionMetadata(val transactionalId: String,
                                                var producerEpoch: Short,
                                                var lastProducerEpoch: Short,
                                                var txnTimeoutMs: Int,
-                                               var state: TransactionState,
+                                               @volatile var state: TransactionState,
                                                val topicPartitions: mutable.Set[TopicPartition],
                                                @volatile var txnStartTimestamp: Long = -1,
                                                @volatile var txnLastUpdateTimestamp: Long) extends Logging {
@@ -181,7 +181,7 @@ private[transaction] class TransactionMetadata(val transactionalId: String,
   // pending state is used to indicate the state that this transaction is going to
   // transit to, and for blocking future attempts to transit it again if it is not legal;
   // initialized as the same as the current state
-  var pendingState: Option[TransactionState] = None
+  @volatile var pendingState: Option[TransactionState] = None
 
   private[transaction] val lock = new ReentrantLock
 
@@ -316,7 +316,7 @@ private[transaction] class TransactionMetadata(val transactionalId: String,
                                   updateTimestamp: Long): TxnTransitMetadata = {
     if (pendingState.isDefined)
       throw new IllegalStateException(s"Preparing transaction state transition to $newState " +
-        s"while it already a pending state ${pendingState.get}")
+        s"while it already has pending state ${pendingState.get}")
 
     if (newProducerId < 0)
       throw new IllegalArgumentException(s"Illegal new producer id $newProducerId")

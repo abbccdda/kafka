@@ -18,6 +18,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Class to track outstanding requests and signal back to the TierTopicManager
@@ -39,7 +40,7 @@ class TierTopicListeners {
 
         if (entries != null) {
             CompletableFuture<TierPartitionState.AppendResult> future =
-                    entries.remove(new MaterializationKey(metadata.type(), metadata.messageId()));
+                    entries.remove(new MaterializationKey(metadata.type(), metadata.messageId(), -1L));
 
             if (entries.size() == 0)
                 results.remove(metadata.topicIdPartition());
@@ -63,11 +64,24 @@ class TierTopicListeners {
         Map<MaterializationKey, CompletableFuture<TierPartitionState.AppendResult>> entries =
                 results.get(metadata.topicIdPartition());
 
-        MaterializationKey key = new MaterializationKey(metadata.type(), metadata.messageId());
-        CompletableFuture previous = entries.put(key, future);
+        MaterializationKey key = new MaterializationKey(metadata.type(), metadata.messageId(), System.nanoTime());
+        CompletableFuture<TierPartitionState.AppendResult> previous = entries.put(key, future);
         if (previous != null)
             previous.completeExceptionally(new TierMetadataFatalException(
                     "A new index entry is being tracked " + key + " obsoleting this request."));
+    }
+
+    /**
+     * @return Return the time the oldest listener has been listening for metadata materialization.
+     */
+    synchronized Optional<Long> maxListenerTimeNanos() {
+        return results.values()
+                .stream()
+                .map(m -> m.keySet().stream().map(MaterializationKey::startTimeNs).min(Long::compareTo))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .min(Long::compare)
+                .map(t -> System.nanoTime() - t);
     }
 
     /**
@@ -101,9 +115,17 @@ class TierTopicListeners {
     private static class MaterializationKey {
         TierRecordType type;
         UUID messageId;
-        MaterializationKey(TierRecordType type, UUID messageId) {
+        // startTimeNs is included for metrics purposes, and is
+        // not used in hash and equality checks
+        long startTimeNs;
+        MaterializationKey(TierRecordType type, UUID messageId, long startTimeNs) {
             this.type = type;
             this.messageId = messageId;
+            this.startTimeNs = startTimeNs;
+        }
+
+        public long startTimeNs() {
+            return startTimeNs;
         }
 
         @Override
@@ -125,8 +147,9 @@ class TierTopicListeners {
 
         @Override
         public String toString() {
+            long ageMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTimeNs);
             return "MaterializationKey: type(" + type + ") uuid(" + messageId + ") uuidAsBase64("
-                    + CoreUtils.uuidToBase64(messageId) + ")";
+                    + CoreUtils.uuidToBase64(messageId) + ") ageMs(" + ageMs + ")";
         }
     }
 }

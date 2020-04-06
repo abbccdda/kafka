@@ -329,3 +329,4 @@ class TransactionsTest(Test, TierSupport):
             self.kafka.read_jmx_output_all_nodes()
             tier_bytes_fetched = self.kafka.maximum_jmx_value[str(TieredStorageMetricsRegistry.FETCHER_BYTES_FETCHED)]
             assert tier_bytes_fetched > 0
+            assert self.check_cluster_state()

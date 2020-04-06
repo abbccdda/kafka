@@ -36,6 +36,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 /**
@@ -90,10 +92,37 @@ public class TierTopicConsumer implements Runnable {
     private final Thread consumerThread = new KafkaThread("TierTopicConsumer", this, false);
     private final Supplier<Consumer<byte[], byte[]>> primaryConsumerSupplier;
     private final TierTopicManagerCommitter committer;
+    private final AtomicLong lastHeartbeatMs = new AtomicLong(System.currentTimeMillis());
+    private final MetricName heartbeatMetricName = new MetricName("HeartbeatMs",
+            "TierTopicConsumer",
+            "Time since last heartbeat in milliseconds.",
+            new HashMap<>());
+    private final MetricName immigrationMetricName = new MetricName("ImmigratingPartitions",
+            "TierTopicConsumer",
+            "Number of tiered partitions that are pending for materialization",
+            new HashMap<>());
+    private final MetricName catchupConsumerMetricName = new MetricName("CatchupConsumerPartitions",
+            "TierTopicConsumer",
+            "Number of tiered partitions being consumed by the catch up "
+                    + "consumer (either CATCHUP or ERROR status)",
+            new HashMap<>());
+    private final MetricName primaryConsumerPartitionsMetricName = new MetricName("PrimaryConsumerPartitions",
+            "TierTopicConsumer",
+            "Number of tiered partitions being consumed by the primary "
+                    + "consumer (either ONLINE or ERROR status)",
+            new HashMap<>());
     private final MetricName errorPartitionsMetricName = new MetricName("ErrorPartitions",
-        "TierTopicConsumer",
-        "Number of tiered partitions with ERROR materialization state",
-        new HashMap<>());
+            "TierTopicConsumer",
+            "Number of tiered partitions with ERROR materialization state",
+            new HashMap<>());
+    private final MetricName numListenersMetricName = new MetricName("NumListeners",
+            "TierTopicConsumer",
+            "Number of metadata listeners awaiting materialization.",
+            new HashMap<>());
+    private final MetricName maxListeningMsMetricName = new MetricName("MaxListeningMs",
+            "TierTopicConsumer",
+            "The time that the oldest metadata listener has been waiting in milliseconds.",
+            new HashMap<>());
 
     private volatile Consumer<byte[], byte[]> primaryConsumer;
     private volatile boolean ready = true;
@@ -270,6 +299,7 @@ public class TierTopicConsumer implements Runnable {
 
     // visible for testing
     public void doWork() {
+        lastHeartbeatMs.set(System.currentTimeMillis());
         if (catchupConsumer.tryComplete(primaryConsumer)) {
             synchronized (this) {
                 // Complete catchup of ClientCtx, only if did not reach an error status during
@@ -392,20 +422,6 @@ public class TierTopicConsumer implements Runnable {
         }
     }
 
-    private void setupMetrics() {
-        metrics.ifPresent(m -> {
-            m.addMetric(errorPartitionsMetricName, (MetricConfig config, long now) -> {
-                synchronized (this) {
-                    return errorPartitions.size();
-                }
-            });
-        });
-    }
-
-    private void removeMetrics() {
-        metrics.ifPresent(m -> m.removeMetric(errorPartitionsMetricName));
-    }
-
     private static boolean checkClientCtxStatus(ClientCtx ctx, TierPartitionStatus status) {
         return (ctx != null) && EnumSet.of(status, TierPartitionStatus.ERROR).contains(ctx.status());
     }
@@ -503,6 +519,54 @@ public class TierTopicConsumer implements Runnable {
         }
     }
 
+    /**
+     * Setup metrics for the tier topic manager.
+     */
+    private void setupMetrics() {
+        metrics.ifPresent(m -> {
+            m.addMetric(heartbeatMetricName,
+                    (MetricConfig config, long nowMs) -> nowMs - lastHeartbeatMs.get());
+            m.addMetric(immigrationMetricName, (MetricConfig config, long now) -> {
+                synchronized (this) {
+                    return immigratingPartitions.size();
+                }
+            });
+            m.addMetric(catchupConsumerMetricName, (MetricConfig config, long now) -> {
+                synchronized (this) {
+                    return catchUpConsumerPartitions.size();
+                }
+            });
+            m.addMetric(primaryConsumerPartitionsMetricName, (MetricConfig config, long now) -> {
+                synchronized (this) {
+                    return primaryConsumerPartitions.size();
+                }
+            });
+            m.addMetric(errorPartitionsMetricName, (MetricConfig config, long now) -> {
+                synchronized (this) {
+                    return errorPartitions.size();
+                }
+            });
+            m.addMetric(numListenersMetricName, (MetricConfig config, long now) -> numListeners());
+            m.addMetric(maxListeningMsMetricName,
+                    (MetricConfig config, long now) -> TimeUnit.NANOSECONDS.toMillis(maxListenerTimeNanos()));
+        });
+    }
+
+    /**
+     * Setup metrics for the tier topic manager.
+     */
+    private void removeMetrics() {
+        metrics.ifPresent(m -> {
+            m.removeMetric(heartbeatMetricName);
+            m.removeMetric(immigrationMetricName);
+            m.removeMetric(catchupConsumerMetricName);
+            m.removeMetric(primaryConsumerPartitionsMetricName);
+            m.removeMetric(errorPartitionsMetricName);
+            m.removeMetric(numListenersMetricName);
+            m.removeMetric(maxListeningMsMetricName);
+        });
+    }
+
     // visible for testing
     synchronized Map<TopicIdPartition, ClientCtx> immigratingPartitions() {
         return new HashMap<>(immigratingPartitions);
@@ -519,13 +583,18 @@ public class TierTopicConsumer implements Runnable {
     }
 
     // visible for testing
+    synchronized Set<TopicIdPartition> errorPartitions() {
+        return new HashSet<>(errorPartitions);
+    }
+
+    // visible for testing
     synchronized long numListeners() {
         return resultListeners.numListeners();
     }
 
     // visible for testing
-    synchronized Set<TopicIdPartition> errorPartitions() {
-        return new HashSet<>(errorPartitions);
+    synchronized long maxListenerTimeNanos() {
+        return resultListeners.maxListenerTimeNanos().orElse(0L);
     }
 
     public interface ClientCtx {

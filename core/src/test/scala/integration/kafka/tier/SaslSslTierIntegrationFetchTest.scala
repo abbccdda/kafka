@@ -11,7 +11,7 @@ import kafka.utils.JaasTestUtils
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.junit.{After, Before}
 
-class SaslSslTierIntegrationFetchTest extends TierIntegrationFetchTest with SaslSetup {
+class SaslSslTierIntegrationFetchTest extends TierIntegrationSmokeTest with SaslSetup {
   override protected def securityProtocol = SecurityProtocol.SASL_SSL
   private val kafkaClientSaslMechanism = "PLAIN"
   private val kafkaServerSaslMechanisms = List("PLAIN")

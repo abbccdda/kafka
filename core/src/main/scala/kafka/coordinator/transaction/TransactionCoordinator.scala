@@ -518,6 +518,7 @@ class TransactionCoordinator(brokerId: Int,
   private def onEndTransactionComplete(txnIdAndPidEpoch: TransactionalIdAndProducerIdEpoch)(error: Errors): Unit = {
     error match {
       case Errors.NONE =>
+        txnManager.transactionTimeoutSensor.record()
         info("Completed rollback of ongoing transaction for transactionalId " +
           s"${txnIdAndPidEpoch.transactionalId} due to timeout")
 

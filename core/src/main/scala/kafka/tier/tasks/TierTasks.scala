@@ -16,7 +16,8 @@ import kafka.tier.tasks.archive.{ArchiverTaskQueue, TierArchiver}
 import kafka.tier.tasks.delete.TierDeletionManager
 import kafka.tier.{TierDeletedPartitionsCoordinator, TierReplicaManager}
 import kafka.tier.topic.TierTopicAppender
-import kafka.utils.{Logging, ShutdownableThread}
+import kafka.utils.Logging
+import kafka.utils.HeartbeatingShutdownableThread
 import org.apache.kafka.common.utils.{KafkaThread, Time}
 
 import scala.concurrent.duration._
@@ -44,7 +45,7 @@ class TierTasks(config: TierTasksConfig,
                 tierDeletedPartitionsCoordinator: TierDeletedPartitionsCoordinator,
                 tierTopicAppender: TierTopicAppender,
                 tierObjectStore: TierObjectStore,
-                time: Time = Time.SYSTEM) extends ShutdownableThread(name = "tier-tasks") with KafkaMetricsGroup with Logging {
+                time: Time = Time.SYSTEM) extends HeartbeatingShutdownableThread(name = "tier-tasks") with KafkaMetricsGroup with Logging {
   override protected def loggerName: String = classOf[TierTasks].getName
 
   private var lastLagPrintTimeMs = time.milliseconds()
@@ -74,10 +75,18 @@ class TierTasks(config: TierTasksConfig,
     Seq(tierArchiver.taskQueue, tierDeletionManager.taskQueue),
     time)
 
+
+  removeMetric("HeartbeatMs")
+  newGauge("HeartbeatMs", new Gauge[Long] {
+    override def value(): Long = synchronized {
+      System.currentTimeMillis() - lastHeartbeatMs()
+    }
+  })
+
   removeMetric("CyclesPerSec")
-  removeMetric("PartitionsInError")
   private val cycleTimeMetric = newMeter("CyclesPerSec", "tier tasks cycles per second", TimeUnit.SECONDS)
 
+  removeMetric("NumPartitionsInError")
   // The below metric is deprecated. You should probably be using
   // "NumPartitionsInErrorDuringArchival" and/or "NumPartitionsInErrorDuringDeletion".
   newGauge("NumPartitionsInError",
@@ -88,6 +97,7 @@ class TierTasks(config: TierTasksConfig,
     },
     Map[String, String]())
 
+  removeMetric("NumPartitionsInErrorDuringArchival")
   newGauge("NumPartitionsInErrorDuringArchival",
     new Gauge[Int] {
       def value: Int = {
@@ -96,6 +106,7 @@ class TierTasks(config: TierTasksConfig,
     },
     Map[String, String]())
 
+  removeMetric("NumPartitionsInErrorDuringDeletion")
   newGauge("NumPartitionsInErrorDuringDeletion",
     new Gauge[Int] {
       def value: Int = {

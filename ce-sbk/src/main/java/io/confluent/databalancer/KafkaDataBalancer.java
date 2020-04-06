@@ -76,8 +76,8 @@ public class KafkaDataBalancer implements DataBalancer {
     @Override
     public synchronized void startUp()  {
         LOG.info("DataBalancer: Scheduling Cruise Control Startup");
-        int numStopRequests = abortStartupCheck.availablePermits();
-        ccRunner.submit(() -> startCruiseControl(numStopRequests));
+        abortStartupCheck.drainPermits();
+        ccRunner.submit(this::startCruiseControl);
     }
 
     @Override
@@ -90,7 +90,7 @@ public class KafkaDataBalancer implements DataBalancer {
         ccRunner.submit(this::stopCruiseControl);
     }
 
-    private void startCruiseControl(int numStopRequests) {
+    private void startCruiseControl() {
         if (cruiseControl != null) {
             LOG.warn("CruiseControl already running when startUp requested.");
             return;
@@ -104,7 +104,7 @@ public class KafkaDataBalancer implements DataBalancer {
         LOG.info("DataBalancer: Instantiating Cruise Control");
         try {
             KafkaCruiseControlConfig config = generateCruiseControlConfig(kafkaConfig);
-            checkStartupComponentsReady(config, numStopRequests);
+            checkStartupComponentsReady(config);
             KafkaCruiseControl cruiseControl = new KafkaCruiseControl(config, Metrics.defaultRegistry());
             cruiseControl.startUp();
             this.cruiseControl = cruiseControl;
@@ -122,15 +122,7 @@ public class KafkaDataBalancer implements DataBalancer {
      * Check if all components needed for successful startup are ready.
      */
     // Visible for testing
-    void checkStartupComponentsReady(KafkaCruiseControlConfig config, int numStopRequests) throws Exception {
-        synchronized (this) {
-            if (abortStartupCheck.availablePermits() > numStopRequests) {
-                // A stop request arrived since start was called. Do nothing
-                return;
-            }
-            // else drain the permits, so that a future stop request can abort a hanged startup check
-            abortStartupCheck.drainPermits();
-        }
+    void checkStartupComponentsReady(KafkaCruiseControlConfig config) throws Exception {
         for (String startupComponent : STARTUP_COMPONENTS) {
             // Get the method object to validate
             Class<?> startupComponentClass = Class.forName(startupComponent);
