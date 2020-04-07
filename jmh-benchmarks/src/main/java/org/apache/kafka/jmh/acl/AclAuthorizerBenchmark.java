@@ -162,9 +162,10 @@ public class AclAuthorizerBenchmark {
     }
 
     @Benchmark
-    public void testFilterAndTransform() {
+    public void testFindAndTransform() {
         AtomicInteger filterOneHundredth = new AtomicInteger(0);
         aclAuthorizer.matchingAcls(ResourceType.TOPIC, "resource-1")
-                .filterAndTransform(p -> filterOneHundredth.incrementAndGet() % 100 == 0, AclMapper::accessRule);
+            .find(p -> filterOneHundredth.incrementAndGet() % 100 == 0)
+            .map(acl -> AclMapper.accessRule(acl));
     }
 }

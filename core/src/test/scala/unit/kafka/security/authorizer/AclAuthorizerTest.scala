@@ -65,8 +65,8 @@ class AclAuthorizerTest extends ZooKeeperTestHarness {
   private val clusterResource = new ResourcePattern(CLUSTER, CLUSTER_NAME, LITERAL)
   private val wildcardPrincipal = JSecurityUtils.parseKafkaPrincipal(WildcardPrincipalString)
 
-  private val aclAuthorizer = new AclAuthorizer
-  private val aclAuthorizer2 = new AclAuthorizer
+  private val aclAuthorizer = createAclAuthorizer
+  private val aclAuthorizer2 = createAclAuthorizer
   private var resource: ResourcePattern = _
   private val superUsers = "User:superuser1; User:superuser2"
   private val username = "alice"
@@ -255,6 +255,28 @@ class AclAuthorizerTest extends ZooKeeperTestHarness {
   }
 
   @Test
+  def testNoWildcardMatchForSuperUser(): Unit = {
+    val props = TestUtils.createBrokerConfig(1, zkConnect)
+    props.put(AclAuthorizer.SuperUsersProp, "User:*")
+
+    val cfg = KafkaConfig.fromProps(props)
+    val testAuthorizer = createAclAuthorizer
+    try {
+      testAuthorizer.configure(cfg.originals)
+
+      // User:* is a valid principal. Verify that User:* can be a super user
+      val requestContext1 = newRequestContext(new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "*"), InetAddress.getByName("192.0.4.4"))
+      assertTrue(authorize(testAuthorizer, requestContext1, READ, resource))
+
+      // Verify that other users are not granted access due to User:* being a super user
+      val requestContext2 = newRequestContext(new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "test"), InetAddress.getByName("192.0.4.4"))
+      assertFalse(authorize(testAuthorizer, requestContext2, READ, resource))
+    } finally  {
+      testAuthorizer.close()
+    }
+  }
+
+  @Test
   def testWildCardAcls(): Unit = {
     assertFalse("when acls = [], authorizer should fail close.", authorize(aclAuthorizer, requestContext, READ, resource))
 
@@ -289,11 +311,55 @@ class AclAuthorizerTest extends ZooKeeperTestHarness {
     props.put(AclAuthorizer.AllowEveryoneIfNoAclIsFoundProp, "true")
 
     val cfg = KafkaConfig.fromProps(props)
-    val testAuthorizer = new AclAuthorizer
+    val testAuthorizer = createAclAuthorizer
     try {
       testAuthorizer.configure(cfg.originals)
       assertTrue("when acls = null or [],  authorizer should allow op with allow.everyone = true.",
         authorize(testAuthorizer, requestContext, READ, resource))
+
+      val sensitiveTopic = new ResourcePattern(ResourceType.TOPIC, "sensitiveTopic", PatternType.LITERAL)
+      val generalTopic = new ResourcePattern(ResourceType.TOPIC, "generalTopic", PatternType.LITERAL)
+      val prefixedTopic = resource
+      val adminPrincipal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "admin")
+      val ace = new AccessControlEntry(adminPrincipal.toString, "*", AclOperation.READ, AclPermissionType.ALLOW)
+      addAcls(testAuthorizer, Set(ace), sensitiveTopic)
+      addAcls(testAuthorizer, Set(ace), prefixedResource)
+
+      val clientAddress = InetAddress.getByName("127.0.0.1")
+      val adminContext = newRequestContext(adminPrincipal, clientAddress, ApiKeys.FETCH)
+      val aliceContext = newRequestContext(principal, clientAddress, ApiKeys.FETCH)
+
+      // Verify that `admin` can access topics with literal and prefixed with ACLs as well as topic with no ACLs
+      assertTrue(authorize(testAuthorizer, adminContext, AclOperation.READ, sensitiveTopic))
+      assertTrue(authorize(testAuthorizer, adminContext, AclOperation.READ, prefixedTopic))
+      assertTrue(authorize(testAuthorizer, adminContext, AclOperation.READ, generalTopic))
+
+      // Verify that `alice` can only access topic with no ACLs
+      assertFalse(authorize(testAuthorizer, aliceContext, AclOperation.READ, sensitiveTopic))
+      assertFalse(authorize(testAuthorizer, aliceContext, AclOperation.READ, prefixedTopic))
+      assertTrue(authorize(testAuthorizer, aliceContext, AclOperation.READ, generalTopic))
+
+      // Add wildcard ACL for READ and verify that READ as well as WRITE is permitted on any topic only with ACLs
+      addAcls(testAuthorizer, Set(ace), wildCardResource)
+      assertTrue(authorize(testAuthorizer, adminContext, AclOperation.READ, sensitiveTopic))
+      assertTrue(authorize(testAuthorizer, adminContext, AclOperation.READ, prefixedTopic))
+      assertTrue(authorize(testAuthorizer, adminContext, AclOperation.READ, generalTopic))
+      assertFalse(authorize(testAuthorizer, aliceContext, AclOperation.READ, sensitiveTopic))
+      assertFalse(authorize(testAuthorizer, aliceContext, AclOperation.READ, prefixedTopic))
+      assertFalse(authorize(testAuthorizer, aliceContext, AclOperation.READ, generalTopic))
+
+      assertFalse(authorize(testAuthorizer, adminContext, AclOperation.WRITE, sensitiveTopic))
+      assertFalse(authorize(testAuthorizer, adminContext, AclOperation.WRITE, prefixedTopic))
+      assertFalse(authorize(testAuthorizer, adminContext, AclOperation.WRITE, generalTopic))
+      assertFalse(authorize(testAuthorizer, aliceContext, AclOperation.WRITE, sensitiveTopic))
+      assertFalse(authorize(testAuthorizer, aliceContext, AclOperation.WRITE, prefixedTopic))
+      assertFalse(authorize(testAuthorizer, aliceContext, AclOperation.WRITE, generalTopic))
+
+      val writeAce = new AccessControlEntry(adminPrincipal.toString, "*", AclOperation.WRITE, AclPermissionType.ALLOW)
+      addAcls(testAuthorizer, Set(writeAce), generalTopic)
+      assertTrue(authorize(testAuthorizer, adminContext, AclOperation.WRITE, generalTopic))
+      assertFalse(authorize(testAuthorizer, aliceContext, AclOperation.WRITE, generalTopic))
+
     } finally {
       testAuthorizer.close()
     }
@@ -364,7 +430,7 @@ class AclAuthorizerTest extends ZooKeeperTestHarness {
     addAcls(aclAuthorizer, acls1, resource1)
 
     zkClient.deleteAclChangeNotifications
-    val authorizer = new AclAuthorizer
+    val authorizer = createAclAuthorizer
     try {
       authorizer.configure(config.originals)
 
@@ -958,7 +1024,7 @@ class AclAuthorizerTest extends ZooKeeperTestHarness {
     acls
   }
 
-  private def newRequestContext(principal: KafkaPrincipal, clientAddress: InetAddress, apiKey: ApiKeys = ApiKeys.PRODUCE): RequestContext = {
+  def newRequestContext(principal: KafkaPrincipal, clientAddress: InetAddress, apiKey: ApiKeys = ApiKeys.PRODUCE): RequestContext = {
     val securityProtocol = SecurityProtocol.SASL_PLAINTEXT
     val header = new RequestHeader(apiKey, 2, "", 1) //ApiKeys apiKey, short version, String clientId, int correlation
     new RequestContext(header, "", clientAddress, principal, ListenerName.forSecurityProtocol(securityProtocol),
@@ -1028,5 +1094,9 @@ class AclAuthorizerTest extends ZooKeeperTestHarness {
       }
       file.getAbsolutePath
     } finally writer.close()
+  }
+
+  def createAclAuthorizer: AclAuthorizer = {
+    new AclAuthorizer
   }
 }

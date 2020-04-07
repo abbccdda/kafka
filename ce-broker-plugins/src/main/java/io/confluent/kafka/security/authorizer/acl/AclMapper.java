@@ -8,8 +8,8 @@ import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
+import kafka.security.authorizer.AclEntry;
 import org.apache.kafka.common.acl.AccessControlEntry;
-import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.utils.SecurityUtils;
@@ -25,6 +25,7 @@ public class AclMapper {
 
   private static final Map<org.apache.kafka.common.resource.ResourceType, ResourceType> RESOURCE_TYPES;
   private static final Map<AclOperation, Operation> OPERATIONS;
+  private static final Map<Operation, AclOperation> ACL_OPERATIONS;
   private static final Map<AclPermissionType, io.confluent.security.authorizer.PermissionType> PERMISSION_TYPES;
 
   static {
@@ -36,9 +37,11 @@ public class AclMapper {
     });
 
     OPERATIONS = new HashMap<>();
+    ACL_OPERATIONS = new HashMap<>();
     Stream.of(AclOperation.values()).forEach(kafkaOperation -> {
       Operation operation = new Operation(SecurityUtils.toPascalCase(kafkaOperation.name()));
       OPERATIONS.put(kafkaOperation, operation);
+      ACL_OPERATIONS.put(operation, kafkaOperation);
     });
 
     PERMISSION_TYPES = new HashMap<>();
@@ -57,6 +60,10 @@ public class AclMapper {
     return mapValueOrFail(OPERATIONS, operation);
   }
 
+  public static AclOperation aclOperation(Operation operation) {
+    return mapValueOrFail(ACL_OPERATIONS, operation);
+  }
+
   public static io.confluent.security.authorizer.PermissionType permissionType(AclPermissionType permissionType) {
     return mapValueOrFail(PERMISSION_TYPES, permissionType);
   }
@@ -69,14 +76,14 @@ public class AclMapper {
       return value;
   }
 
-  public static AccessRule accessRule(AclBinding aclBinding) {
-    AccessControlEntry ace = aclBinding.entry();
-    return new AclAccessRule(ResourcePattern.from(aclBinding.pattern()),
-        SecurityUtils.parseKafkaPrincipal(ace.principal()),
+  public static AccessRule accessRule(AclEntry aclEntry) {
+    AccessControlEntry ace = aclEntry.ace();
+    return new AclAccessRule(ResourcePattern.from(aclEntry.aclBinding().pattern()),
+        aclEntry.kafkaPrincipal(),
         permissionType(ace.permissionType()),
         ace.host(),
         operation(ace.operation()),
         ace.permissionType() == AclPermissionType.ALLOW ? PolicyType.ALLOW_ACL : PolicyType.DENY_ACL,
-        aclBinding);
+        aclEntry.aclBinding());
   }
 }

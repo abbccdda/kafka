@@ -393,7 +393,7 @@ public class ConfluentServerAuthorizerTest {
     // Verify deny logs
     rbacClusters.produceConsume(DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, false);
     verifyAuditLogEntry(DEVELOPER1, APP1_TOPIC, "Describe",
-        AuthorizeResult.DENIED, PolicyType.DENY_ON_NO_RULE);
+        AuthorizeResult.DENIED, PolicyType.NO_MATCHING_RULE);
 
     // Verify ZK-based ACL logs
     addAcls(KafkaPrincipal.USER_TYPE, DEVELOPER1, APP1_TOPIC, APP1_CONSUMER_GROUP, PatternType.LITERAL);

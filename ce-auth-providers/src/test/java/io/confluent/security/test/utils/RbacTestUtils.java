@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Meter;
 import com.yammer.metrics.core.Metric;
+import io.confluent.security.auth.metadata.AuthCache;
 import io.confluent.security.auth.store.cache.DefaultAuthCache;
 import io.confluent.security.auth.store.data.AclBindingKey;
 import io.confluent.security.auth.store.data.AclBindingValue;
@@ -16,10 +17,16 @@ import io.confluent.security.auth.store.data.RoleBindingValue;
 import io.confluent.security.auth.store.data.UserKey;
 import io.confluent.security.auth.store.data.UserValue;
 import io.confluent.security.auth.store.kafka.KafkaAuthStore;
+import io.confluent.security.authorizer.Action;
+import io.confluent.security.authorizer.Operation;
+import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.acl.AclRule;
+import io.confluent.security.authorizer.provider.AccessRuleProvider;
+import io.confluent.security.authorizer.provider.AuthorizeRule;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -147,5 +154,82 @@ public class RbacTestUtils {
       Set<Metric> metrics = metrics("active-writer-count", "KafkaAuthStore");
       return metrics.stream().mapToLong(RbacTestUtils::metricValue).sum() == 1;
     }, "Writer not elected within timeout");
+  }
+
+  public static void verifyPermissions(AccessRuleProvider provider,
+                                       KafkaPrincipal userPrincipal,
+                                       Set<KafkaPrincipal> groupPrincipals,
+                                       Scope scope,
+                                       ResourcePattern resource,
+                                       String... expectedOps) {
+    verifyPermissions(new ProviderRuleMatcher(provider), userPrincipal, groupPrincipals, scope, resource, expectedOps);
+  }
+
+  public static void verifyPermissions(AuthCache authCache,
+                                       KafkaPrincipal userPrincipal,
+                                       Set<KafkaPrincipal> groupPrincipals,
+                                       Scope scope,
+                                       ResourcePattern resource,
+                                       String... expectedOps) {
+    verifyPermissions(new AuthCacheRuleMatcher(authCache), userPrincipal, groupPrincipals, scope, resource, expectedOps);
+  }
+
+  private static void verifyPermissions(RuleMatcher ruleMatcher,
+                                        KafkaPrincipal userPrincipal,
+                                        Set<KafkaPrincipal> groupPrincipals,
+                                        Scope scope,
+                                        ResourcePattern resource,
+                                        String... expectedOps) {
+    List<String> allOps = Arrays.asList("Create", "Delete", "Read", "Write", "Describe", "DescribeConfigs", "AlterConfigs");
+    Set<String> allowedOps = Utils.mkSet(expectedOps);
+
+    for (String op: allOps) {
+      Action action = new Action(scope, resource, new Operation(op));
+      AuthorizeRule rule = ruleMatcher.findRule(userPrincipal, groupPrincipals, action);
+      assertFalse("Deny rule not expected for " + op, rule.deny());
+      Operation operation = new Operation(op);
+      if (allowedOps.contains("All") ||
+          allowedOps.stream().anyMatch(allowedOp -> new Operation(allowedOp).matches(operation, PermissionType.ALLOW))) {
+        assertTrue("Expected allow for " + op, rule.allowRule().isPresent());
+        assertTrue("Unexpected rule for " + op, allowedOps.contains(rule.allowRule().get().operation().name()));
+      } else
+        assertFalse("Unexpected allow for " + op, rule.allowRule().isPresent());
+    }
+  }
+
+  private interface RuleMatcher {
+    AuthorizeRule findRule(KafkaPrincipal userPrincipal,
+                           Set<KafkaPrincipal> groupPrincipals,
+                           Action action);
+  }
+
+  private static final class ProviderRuleMatcher implements  RuleMatcher {
+
+    private final AccessRuleProvider provider;
+    ProviderRuleMatcher(AccessRuleProvider provider) {
+      this.provider = provider;
+    }
+
+    @Override
+    public AuthorizeRule findRule(KafkaPrincipal userPrincipal,
+                                  Set<KafkaPrincipal> groupPrincipals,
+                                  Action action) {
+      return provider.findRule(userPrincipal, groupPrincipals, "", action);
+    }
+  }
+
+  private static final class AuthCacheRuleMatcher implements  RuleMatcher {
+
+    private final AuthCache authCache;
+    AuthCacheRuleMatcher(AuthCache authCache) {
+      this.authCache = authCache;
+    }
+
+    @Override
+    public AuthorizeRule findRule(KafkaPrincipal userPrincipal,
+                                  Set<KafkaPrincipal> groupPrincipals,
+                                  Action action) {
+      return authCache.findRule(userPrincipal, groupPrincipals, "", action);
+    }
   }
 }

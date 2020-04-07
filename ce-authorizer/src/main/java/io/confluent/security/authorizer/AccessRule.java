@@ -2,7 +2,10 @@
 
 package io.confluent.security.authorizer;
 
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 
 /**
@@ -62,6 +65,14 @@ public abstract class AccessRule implements AuthorizePolicy {
     return policyType;
   }
 
+  public boolean matches(Set<KafkaPrincipal> matchingPrincipals,
+                         String host,
+                         Operation requestedOperation,
+                         PermissionType permissionType) {
+    return matches(this.principal, this.host, this.operation, this.permissionType,
+        matchingPrincipals, host, requestedOperation, permissionType);
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -89,5 +100,33 @@ public abstract class AccessRule implements AuthorizePolicy {
   public String toString() {
     return String.format("%s has %s permission for operation %s on %s from host %s (source: %s)",
         principal, permissionType, operation, resourcePattern, host, policyType);
+  }
+
+  public static Set<KafkaPrincipal> matchingPrincipals(KafkaPrincipal userPrincipal,
+                                                       Collection<KafkaPrincipal> groupPrincipals,
+                                                       KafkaPrincipal wildcardUserPrincipal,
+                                                       KafkaPrincipal wildcardGroupPrincipal) {
+    HashSet<KafkaPrincipal> principals = new HashSet<>(groupPrincipals.size() + 4);
+    principals.addAll(groupPrincipals);
+    principals.add(userPrincipal);
+    if (wildcardUserPrincipal != null)
+      principals.add(wildcardUserPrincipal);
+    if (wildcardGroupPrincipal != null && !groupPrincipals.isEmpty())
+      principals.add(wildcardGroupPrincipal);
+    return principals;
+  }
+
+  public static boolean matches(KafkaPrincipal rulePrincipal,
+                                String ruleHost,
+                                Operation ruleOperation,
+                                PermissionType rulePermissionType,
+                                Set<KafkaPrincipal> matchingPrincipals,
+                                String host,
+                                Operation requestedOperation,
+                                PermissionType permissionType) {
+    return rulePermissionType == permissionType &&
+        matchingPrincipals.contains(rulePrincipal) &&
+        ruleOperation.matches(requestedOperation, permissionType) &&
+        (ruleHost.equals(AccessRule.ALL_HOSTS) || ruleHost.equals(host));
   }
 }

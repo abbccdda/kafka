@@ -9,14 +9,12 @@ import io.confluent.security.auth.metadata.AuthWriter;
 import io.confluent.security.auth.provider.ldap.LdapAuthenticateCallbackHandler;
 import io.confluent.security.auth.provider.ldap.LdapConfig;
 import io.confluent.security.auth.store.kafka.KafkaAuthStore;
-import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.AclMigrationAware;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.Authorizer;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.EmbeddedAuthorizer;
 import io.confluent.security.authorizer.Operation;
-import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
@@ -24,6 +22,7 @@ import io.confluent.security.authorizer.provider.AuditLogProvider;
 import io.confluent.security.authorizer.provider.Auditable;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import io.confluent.security.authorizer.provider.GroupProvider;
+import io.confluent.security.authorizer.provider.AuthorizeRule;
 import io.confluent.security.authorizer.provider.MetadataProvider;
 import io.confluent.security.store.NotMasterWriterException;
 import io.confluent.security.store.kafka.KafkaStoreConfig;
@@ -250,22 +249,11 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
   }
 
   @Override
-  public Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
-                                     Set<KafkaPrincipal> groupPrincipals,
-                                     Scope scope,
-                                     ResourcePattern resource) {
-    Set<AccessRule> rbacRules = authCache.rbacRules(scope,
-        resource,
-        userPrincipal(sessionPrincipal),
-        groupPrincipals);
-
-    Set<AccessRule> aclRules = authCache.aclRules(scope,
-        resource,
-        userPrincipal(sessionPrincipal),
-        groupPrincipals);
-
-    rbacRules.addAll(aclRules);
-    return rbacRules;
+  public AuthorizeRule findRule(KafkaPrincipal sessionPrincipal,
+                                Set<KafkaPrincipal> groupPrincipals,
+                                String host,
+                                Action action) {
+    return authCache.findRule(userPrincipal(sessionPrincipal), groupPrincipals, host, action);
   }
 
   @Override

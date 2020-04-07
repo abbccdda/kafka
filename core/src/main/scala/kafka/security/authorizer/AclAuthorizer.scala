@@ -65,17 +65,6 @@ object AclAuthorizer {
   class AclSeqs(classes: Seq[AclEntry]*) {
     def find(p: AclEntry => Boolean): Option[AclEntry] = classes.flatMap(_.find(p)).headOption
     def isEmpty: Boolean = !classes.exists(_.nonEmpty)
-    def filterAndTransform[T](predicate: util.function.Predicate[KafkaPrincipal],
-                              transformer: util.function.Function[AclBinding, T]): util.Set[T] = {
-      val aclBindings = new util.HashSet[T]()
-      classes.foreach { set =>
-        set.foreach { acl =>
-          if (predicate.test(acl.kafkaPrincipal))
-            aclBindings.add(transformer.apply(acl.aclBinding))
-        }
-      }
-      aclBindings
-    }
   }
 
   val NoAcls = VersionedAcls(Set.empty, ZkVersion.UnknownVersion)

@@ -3,8 +3,10 @@
 package io.confluent.security.auth.metadata;
 
 import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.provider.AuthorizeRule;
 import io.confluent.security.rbac.RbacRoles;
 import io.confluent.security.rbac.RoleBinding;
 import io.confluent.security.rbac.RoleBindingFilter;
@@ -30,21 +32,6 @@ public interface AuthCache {
    * @return Set of group principals of the user, which may be empty
    */
   Set<KafkaPrincipal> groups(KafkaPrincipal userPrincipal);
-
-  /**
-   * Returns the RBAC rules corresponding to the provided principals that match
-   * the specified resource.
-   *
-   * @param resourceScope Scope of the resource
-   * @param resource Resource pattern to match
-   * @param userPrincipal User principal
-   * @param groupPrincipals Set of group principals of the user
-   * @return Set of access rules that match the principals and resource
-   */
-  Set<AccessRule> rbacRules(Scope resourceScope,
-                            ResourcePattern resource,
-                            KafkaPrincipal userPrincipal,
-                            Collection<KafkaPrincipal> groupPrincipals);
 
 
   /**
@@ -115,22 +102,6 @@ public interface AuthCache {
    */
   RbacRoles rbacRoles();
 
-
-  /**
-   * Returns the ACL rules corresponding to the provided principal that match
-   * the specified resource.
-   *
-   * @param resourceScope Scope of the resource
-   * @param resource Resource pattern to match
-   * @param userPrincipal User principal
-   * @param groupPrincipals Set of group principals of the user
-   * @return Set of access rules that match the principals and resource
-   */
-  Set<AccessRule> aclRules(Scope resourceScope,
-                           ResourcePattern resource,
-                           KafkaPrincipal userPrincipal,
-                           Collection<KafkaPrincipal> groupPrincipals);
-
   /**
    * Returns the ACL rules for all resources of given scope
    *
@@ -150,4 +121,18 @@ public interface AuthCache {
   Collection<AclBinding> aclBindings(Scope scope,
                                      AclBindingFilter aclBindingFilter,
                                      Predicate<ResourcePattern> resourceAccess);
+
+  /**
+   * Returns RBAC or ACL rule that matches the specified action.
+   *
+   * @param userPrincipal User principal
+   * @param groupPrincipals Set of group principals of the user
+   * @param host Client IP address
+   * @param action Action to match including resource pattern and operation
+   * @return Access rule that matches the principals and action
+   */
+  AuthorizeRule findRule(KafkaPrincipal userPrincipal,
+                         Set<KafkaPrincipal> groupPrincipals,
+                         String host,
+                         Action action);
 }

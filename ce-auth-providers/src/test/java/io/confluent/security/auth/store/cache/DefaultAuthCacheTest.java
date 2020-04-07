@@ -33,7 +33,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import org.apache.kafka.common.acl.AccessControlEntryFilter;
 import org.apache.kafka.common.acl.AclBinding;
@@ -313,7 +312,7 @@ public class DefaultAuthCacheTest {
     Scope clusterC = new Scope.Builder("org2").withKafkaCluster("clusterC").build();
     RbacTestUtils.updateRoleBinding(authCache, alice, "Writer", clusterC, Collections.singleton(topicA));
     try {
-      authCache.rbacRules(clusterC, topicA, alice, emptyGroups);
+      RbacTestUtils.verifyPermissions(authCache, alice, emptyGroups, clusterC, topicA);
       fail("Exception not thrown for unknown cluster");
     } catch (InvalidScopeException e) {
       // Expected exception
@@ -375,33 +374,33 @@ public class DefaultAuthCacheTest {
     ResourcePattern topicA = new ResourcePattern("Topic", "topicA", PatternType.LITERAL);
     AclRule readRule = new AclRule(alice, PermissionType.ALLOW, "", new Operation("Read"));
     RbacTestUtils.updateAclBinding(authCache, topicA, clusterA, Collections.singleton(readRule));
-    verifyAclPermissions(clusterA, alice, topicA, "Read");
+    verifyPermissions(clusterA, alice, topicA, "Read");
 
     Scope clusterB = new Scope.Builder("org1").withKafkaCluster("clusterB").build();
     AclRule alterRule = new AclRule(alice, PermissionType.ALLOW, "", new Operation("Alter"));
     RbacTestUtils.updateAclBinding(authCache, clusterResource, clusterB, Collections.singleton(alterRule));
-    verifyAclPermissions(clusterB, alice, clusterResource, "Alter");
-    verifyAclPermissions(clusterA, alice, clusterResource);
-    verifyAclPermissions(clusterA, alice, topicA, "Read");
+    verifyPermissions(clusterB, alice, clusterResource, "Alter");
+    verifyPermissions(clusterA, alice, clusterResource);
+    verifyPermissions(clusterA, alice, topicA, "Read");
 
     Scope clusterC = new Scope.Builder("org2").withKafkaCluster("clusterC").build();
     RbacTestUtils.updateAclBinding(authCache, topicA, clusterC, Collections.singleton(alterRule));
     try {
-      authCache.aclRules(clusterC, topicA, alice, emptyGroups);
+      RbacTestUtils.verifyPermissions(authCache, alice, emptyGroups, clusterC, topicA);
       fail("Exception not thrown for unknown cluster");
     } catch (InvalidScopeException e) {
       // Expected exception
     }
 
-    verifyAclPermissions(clusterB, alice, clusterResource, "Alter");
-    verifyAclPermissions(clusterA, alice, clusterResource);
-    verifyAclPermissions(clusterA, alice, topicA, "Read");
+    verifyPermissions(clusterB, alice, clusterResource, "Alter");
+    verifyPermissions(clusterA, alice, clusterResource);
+    verifyPermissions(clusterA, alice, topicA, "Read");
 
     RbacTestUtils.deleteAclBinding(authCache, topicA, clusterA);
-    assertTrue(authCache.aclRules(clusterA, topicA, alice, emptyGroups).isEmpty());
+    verifyPermissions(clusterA, alice, topicA);
 
     RbacTestUtils.deleteAclBinding(authCache, clusterResource, clusterB);
-    assertTrue(authCache.aclRules(clusterB, clusterResource, alice, emptyGroups).isEmpty());
+    verifyPermissions(clusterB, alice, clusterResource);
   }
 
   @Test
@@ -501,21 +500,6 @@ public class DefaultAuthCacheTest {
                                  KafkaPrincipal principal,
                                  ResourcePattern resource,
                                  String... expectedOps) {
-    Set<String> actualOps = authCache.rbacRules(scope, resource, principal, Collections.emptySet())
-        .stream()
-        .filter(r -> r.principal().equals(principal))
-        .map(r -> r.operation().name()).collect(Collectors.toSet());
-    assertEquals(Utils.mkSet(expectedOps), actualOps);
-  }
-
-  private void verifyAclPermissions(Scope scope,
-                                    KafkaPrincipal principal,
-                                    ResourcePattern resource,
-                                    String... expectedOps) {
-    Set<String> actualOps = authCache.aclRules(scope, resource, principal, Collections.emptySet())
-        .stream()
-        .filter(r -> r.principal().equals(principal))
-        .map(r -> r.operation().name()).collect(Collectors.toSet());
-    assertEquals(Utils.mkSet(expectedOps), actualOps);
+    RbacTestUtils.verifyPermissions(authCache, principal, Collections.emptySet(), scope, resource, expectedOps);
   }
 }

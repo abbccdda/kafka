@@ -2,8 +2,7 @@
 
 package io.confluent.security.authorizer.provider;
 
-import io.confluent.security.authorizer.AccessRule;
-import io.confluent.security.authorizer.ResourcePattern;
+import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.Scope;
 import java.util.Set;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -26,19 +25,21 @@ public interface AccessRuleProvider extends Provider {
   boolean isSuperUser(KafkaPrincipal principal, Scope scope);
 
   /**
-   * Returns the set of access rules for the user and group principals that match the provided
-   * resource.
+   * Returns the first matching access rule for the user and group principals that match the provided
+   * resource. If a DENY rule is found for the user or group, the DENY rule is returned. Otherwise
+   * one of the matching ALLOW rules is returned.
    *
    * @param sessionPrincipal User principal from the Session
    * @param groupPrincipals List of group principals of the user, which may be empty
-   * @param scope Scope of resource
-   * @param resource Resource being accessed
-   * @return Set of matching rules
+   * @param host Client IP address
+   * @param action Action being authorized
+   * @return Matching rule that includes any deny or allow rule and a boolean that indicates if
+   *         there are no rules match the resource.
    */
-  Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
-                              Set<KafkaPrincipal> groupPrincipals,
-                              Scope scope,
-                              ResourcePattern resource);
+  AuthorizeRule findRule(KafkaPrincipal sessionPrincipal,
+                         Set<KafkaPrincipal> groupPrincipals,
+                         String host,
+                         Action action);
 
   /**
    * Returns true if this provider supports DENY rules. If false, this provider's rules are

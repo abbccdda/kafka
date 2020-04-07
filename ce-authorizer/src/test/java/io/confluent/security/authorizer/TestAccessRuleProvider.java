@@ -6,6 +6,7 @@ import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import io.confluent.security.authorizer.provider.AuditLogProvider;
 import io.confluent.security.authorizer.provider.Auditable;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
+import io.confluent.security.authorizer.provider.AuthorizeRule;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -13,7 +14,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.stream.Collectors;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 
@@ -46,18 +46,22 @@ public class TestAccessRuleProvider implements AccessRuleProvider, Auditable {
   }
 
   @Override
-  public Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
-                                     Set<KafkaPrincipal> groupPrincipals,
-                                     Scope scope,
-                                     ResourcePattern resource) {
-
-    validate(scope);
-    Set<KafkaPrincipal> principals = new HashSet<>(groupPrincipals.size() + 1);
-    principals.add(sessionPrincipal);
-    principals.addAll(groupPrincipals);
-    return accessRules.getOrDefault(resource, Collections.emptySet()).stream()
-        .filter(rule -> principals.contains(rule.principal()))
-        .collect(Collectors.toSet());
+  public AuthorizeRule findRule(KafkaPrincipal sessionPrincipal,
+                                Set<KafkaPrincipal> groupPrincipals,
+                                String host,
+                                Action action) {
+    validate(action.scope());
+    Set<AccessRule> rules = accessRules.getOrDefault(action.resourcePattern(), Collections.emptySet());
+    Operation op = action.operation();
+    Set<KafkaPrincipal> principals = AccessRule.matchingPrincipals(sessionPrincipal, groupPrincipals,
+        AccessRule.WILDCARD_USER_PRINCIPAL, AccessRule.WILDCARD_GROUP_PRINCIPAL);
+    AuthorizeRule authorizeRule = new AuthorizeRule();
+    rules.stream().filter(rule -> rule.matches(principals, host, op, PermissionType.DENY))
+        .findAny().ifPresent(authorizeRule::addRuleIfNotExist);
+    rules.stream().filter(rule -> rule.matches(principals, host, op, PermissionType.ALLOW))
+        .findAny().ifPresent(authorizeRule::addRuleIfNotExist);
+    authorizeRule.noResourceAcls(rules.isEmpty());
+    return authorizeRule;
   }
 
   @Override

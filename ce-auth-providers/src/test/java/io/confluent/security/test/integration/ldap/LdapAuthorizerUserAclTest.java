@@ -25,6 +25,7 @@ import io.confluent.security.minikdc.MiniKdcWithLdapService;
 import io.confluent.security.test.utils.LdapTestUtils;
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.server.authorizer.Authorizer;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 
@@ -64,7 +65,7 @@ public class LdapAuthorizerUserAclTest extends ConfluentServerAuthorizerTest {
   // broker configs, so make sure LDAP configs are added.
   private class TestLdapAuthorizer extends LdapAuthorizer {
 
-    volatile AuthorizerServerInfo serverInfo;
+    private final AuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL);
     @Override
     public void configure(Map<String, ?> configs) {
       Map<String, Object> authorizerConfigs = new HashMap<>();
@@ -72,13 +73,11 @@ public class LdapAuthorizerUserAclTest extends ConfluentServerAuthorizerTest {
       authorizerConfigs.putAll(LdapTestUtils.ldapAuthorizerConfigs(miniKdcWithLdapService, 10));
       authorizerConfigs.putAll(miniKdcWithLdapService.ldapClientConfigs());
       super.configure(authorizerConfigs);
-      if (serverInfo != null)
-        configureServerInfo(serverInfo);
+      configureServerInfo(serverInfo);
     }
 
     @Override
     public void configureServerInfo(AuthorizerServerInfo serverInfo) {
-      this.serverInfo = serverInfo;
       super.configureServerInfo(serverInfo);
     }
   }

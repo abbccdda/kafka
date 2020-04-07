@@ -2,12 +2,11 @@
 
 package io.confluent.security.auth.provider.rbac;
 
-import io.confluent.security.authorizer.AccessRule;
-import io.confluent.security.authorizer.ResourcePattern;
+import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
+import io.confluent.security.authorizer.provider.AuthorizeRule;
 import java.io.IOException;
-import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -24,11 +23,11 @@ public class SuperUserProvider implements AccessRuleProvider {
   }
 
   @Override
-  public Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
-                                     Set<KafkaPrincipal> groupPrincipals,
-                                     Scope scope,
-                                     ResourcePattern resource) {
-    return Collections.emptySet();
+  public AuthorizeRule findRule(KafkaPrincipal sessionPrincipal,
+                                Set<KafkaPrincipal> groupPrincipals,
+                                String host,
+                                Action action) {
+    return new AuthorizeRule();
   }
 
   @Override

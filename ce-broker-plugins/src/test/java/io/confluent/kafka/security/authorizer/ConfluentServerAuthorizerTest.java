@@ -20,13 +20,11 @@ package io.confluent.kafka.security.authorizer;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import kafka.security.authorizer.AclAuthorizer;
 import kafka.security.authorizer.AclAuthorizerTest;
-import kafka.server.KafkaConfig$;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
@@ -40,30 +38,9 @@ import org.apache.kafka.server.authorizer.Authorizer;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 
 // Note: This test is useful during the early stages of development to ensure consistency
-// with Apache Kafka SimpleAclAuthorizer. It can be removed once the code is stable if it
+// with Apache Kafka AclAuthorizer. It can be removed once the code is stable if it
 // becomes hard to maintain.
 public class ConfluentServerAuthorizerTest extends AclAuthorizerTest {
-
-  @Override
-  public void setUp() {
-    super.setUp();
-
-    Authorizer authorizer = createAuthorizer();
-    Authorizer authorizer2 = createAuthorizer();
-    String superUsers = initialize(authorizer, authorizer2);
-
-    try {
-      Map<String, Object> authorizerConfigs = authorizerConfigs();
-      authorizerConfigs.put(AclAuthorizer.SuperUsersProp(), superUsers);
-      authorizer.configure(authorizerConfigs);
-      authorizer2.configure(authorizerConfigs);
-      AuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL);
-      ((ConfluentServerAuthorizer) authorizer).configureServerInfo(serverInfo);
-      ((ConfluentServerAuthorizer) authorizer2).configureServerInfo(serverInfo);
-    } catch (Exception e) {
-      throw new RuntimeException("Confluent authorizer set up failed", e);
-    }
-  }
 
   @Override
   public void tearDown() {
@@ -71,34 +48,13 @@ public class ConfluentServerAuthorizerTest extends AclAuthorizerTest {
     KafkaTestUtils.verifyThreadCleanup();
   }
 
+  @Override
+  public AclAuthorizer createAclAuthorizer() {
+    return aclAuthorizer(createAuthorizer());
+  }
+
   protected Authorizer createAuthorizer() {
     return new TestAuthorizer();
-  }
-
-  protected Map<String, Object> authorizerConfigs() {
-    Map<String, Object> authorizerConfigs = new HashMap<>();
-    authorizerConfigs.put(KafkaConfig$.MODULE$.ZkConnectProp(), zkConnect());
-    return authorizerConfigs;
-  }
-
-  private String initialize(Authorizer authorizer, Authorizer authorizer2) {
-    try {
-      String superUsers = KafkaTestUtils.fieldValue(this, AclAuthorizerTest.class, "superUsers");
-      AclAuthorizer aclAuthorizer = KafkaTestUtils.fieldValue(this,
-          AclAuthorizerTest.class, "aclAuthorizer");
-      aclAuthorizer.close();
-      AclAuthorizer aclAuthorizer2 = KafkaTestUtils.fieldValue(this,
-          AclAuthorizerTest.class, "aclAuthorizer2");
-      aclAuthorizer2.close();
-      KafkaTestUtils.setFinalField(this, AclAuthorizerTest.class,
-          "aclAuthorizer", aclAuthorizer(authorizer));
-      KafkaTestUtils.setFinalField(this, AclAuthorizerTest.class,
-          "aclAuthorizer2", aclAuthorizer(authorizer2));
-
-      return superUsers;
-    } catch (Exception e) {
-      throw new RuntimeException("Could not initialize test", e);
-    }
   }
 
   protected AclAuthorizer aclAuthorizer(Authorizer authorizer) {
@@ -150,19 +106,12 @@ public class ConfluentServerAuthorizerTest extends AclAuthorizerTest {
 
   private static class TestAuthorizer extends ConfluentServerAuthorizer {
 
-    volatile AuthorizerServerInfo serverInfo;
+    private final AuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL);
 
     @Override
     public void configure(Map<String, ?> configs) {
       super.configure(configs);
-      if (serverInfo != null)
-        configureServerInfo(serverInfo);
-    }
-
-    @Override
-    public void configureServerInfo(AuthorizerServerInfo serverInfo) {
-      this.serverInfo = serverInfo;
-      super.configureServerInfo(serverInfo);
+      configureServerInfo(serverInfo);
     }
   }
 }

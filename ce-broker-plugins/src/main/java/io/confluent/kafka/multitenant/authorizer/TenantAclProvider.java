@@ -3,16 +3,12 @@
 package io.confluent.kafka.multitenant.authorizer;
 
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
-import io.confluent.kafka.security.authorizer.acl.AclMapper;
 import io.confluent.kafka.security.authorizer.acl.AclProvider;
-import io.confluent.security.authorizer.AccessRule;
-import io.confluent.security.authorizer.ResourcePattern;
-import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
+import io.confluent.security.authorizer.provider.AuthorizeRule;
 import kafka.security.authorizer.AclEntry;
-import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
-import org.apache.kafka.common.utils.SecurityUtils;
 
 import java.util.Set;
 
@@ -60,24 +56,19 @@ public class TenantAclProvider extends AclProvider {
   }
 
   @Override
-  public Set<AccessRule> accessRules(KafkaPrincipal sessionPrincipal,
-                                     Set<KafkaPrincipal> groupPrincipals,
-                                     Scope scope,
-                                     ResourcePattern resource) {
+  public AuthorizeRule findRule(KafkaPrincipal sessionPrincipal,
+                                Set<KafkaPrincipal> groupPrincipals,
+                                String host,
+                                Action action) {
     if (!groupPrincipals.isEmpty())
       throw new UnsupportedOperationException("Groups are not supported for TenantAclProvider");
 
     String tenantPrefix = sessionPrincipal instanceof MultiTenantPrincipal
         ? ((MultiTenantPrincipal) sessionPrincipal).tenantMetadata().tenantPrefix() : "";
-    KafkaPrincipal userPrincipal = sessionPrincipal.getClass() != KafkaPrincipal.class
-        ? new KafkaPrincipal(sessionPrincipal.getPrincipalType(), sessionPrincipal.getName())
-        : sessionPrincipal;
     KafkaPrincipal wildcardPrincipal = tenantPrefix.isEmpty() ? AclEntry.WildcardPrincipal() :
         new KafkaPrincipal(MultiTenantPrincipal.TENANT_WILDCARD_USER_TYPE, tenantPrefix);
 
-    ResourceType resourceType = SecurityUtils.resourceType(resource.resourceType().name());
-    return matchingAcls(resourceType, resource.name())
-        .filterAndTransform(p -> userAcl(p, userPrincipal, wildcardPrincipal), AclMapper::accessRule);
+    return super.findRule(sessionPrincipal, groupPrincipals, wildcardPrincipal, null, host, action);
   }
 
   @Override
@@ -88,11 +79,5 @@ public class TenantAclProvider extends AclProvider {
   @Override
   public boolean usesMetadataFromThisKafkaCluster() {
     return false;
-  }
-
-  private boolean userAcl(KafkaPrincipal aclPrincipal,
-                          KafkaPrincipal userPrincipal,
-                          KafkaPrincipal wildcardPrincipal) {
-    return aclPrincipal.equals(userPrincipal) || aclPrincipal.equals(wildcardPrincipal);
   }
 }

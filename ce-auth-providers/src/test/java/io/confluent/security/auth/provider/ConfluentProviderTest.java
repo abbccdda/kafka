@@ -31,6 +31,7 @@ import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.acl.AclRule;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.rbac.RbacRoles;
+import io.confluent.security.test.utils.RbacTestUtils;
 import java.net.URL;
 import java.util.Arrays;
 import java.util.Collection;
@@ -41,7 +42,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.CreateAclsOptions;
 import org.apache.kafka.clients.admin.CreateAclsResult;
@@ -61,7 +61,6 @@ import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
-import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.apache.kafka.server.http.MetadataServerConfig;
 import org.junit.After;
@@ -96,8 +95,8 @@ public class ConfluentProviderTest {
 
     updateRoleBinding(alice, "SystemAdmin", clusterA, null);
     assertFalse(rbacProvider.isSuperUser(alice, clusterA));
-    verifyRules(accessRules(alice, groups, clusterResource), "All");
-    verifyRules(accessRules(alice, groups, topic), "All");
+    verifyRules(alice, groups, clusterA, clusterResource, "All");
+    verifyRules(alice, groups, clusterA, topic, "All");
 
     // Delete non-existing role
     deleteRoleBinding(alice, "SystemAdmin", clusterB);
@@ -116,8 +115,8 @@ public class ConfluentProviderTest {
     updateRoleBinding(admin, "SystemAdmin", clusterA, Collections.emptySet());
     assertFalse(rbacProvider.isSuperUser(alice, clusterA));
     assertFalse(rbacProvider.isSuperUser(admin, clusterA));
-    verifyRules(accessRules(alice, groups, clusterResource), "All");
-    verifyRules(accessRules(alice, groups, topic), "All");
+    verifyRules(alice, groups, clusterA, clusterResource, "All");
+    verifyRules(alice, groups, clusterA, topic, "All");
 
     deleteRoleBinding(admin, "SystemAdmin", clusterA);
     assertFalse(rbacProvider.isSuperUser(alice, clusterA));
@@ -165,26 +164,22 @@ public class ConfluentProviderTest {
     Set<KafkaPrincipal> groups = Collections.emptySet();
 
     updateRoleBinding(alice, "ClusterAdmin", clusterA, Collections.emptySet());
-    verifyRules(accessRules(alice, groups, clusterResource),
-        "AlterConfigs", "DescribeConfigs");
-    verifyRules(accessRules(alice, groups, topic));
+    verifyRules(alice, groups, clusterA, clusterResource, "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterA, topic);
 
     updateRoleBinding(alice, "Operator", clusterA, Collections.emptySet());
-    verifyRules(accessRules(alice, groups, clusterResource),
-        "AlterConfigs", "DescribeConfigs");
-    verifyRules(accessRules(alice, groups, topic), "DescribeConfigs", "AlterConfigs");
+    verifyRules(alice, groups, clusterA, clusterResource, "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterA, topic, "DescribeConfigs", "AlterConfigs");
     updateRoleBinding(alice, "Operator", clusterA, Collections.singleton(topic));
-    verifyRules(accessRules(alice, groups, topic),
-        "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterA, topic, "AlterConfigs", "DescribeConfigs");
 
     deleteRoleBinding(alice, "ClusterAdmin", clusterA);
-    verifyRules(accessRules(alice, groups, clusterResource));
-    verifyRules(accessRules(alice, groups, topic),
-        "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterA, clusterResource);
+    verifyRules(alice, groups, clusterA, topic, "AlterConfigs", "DescribeConfigs");
 
     deleteRoleBinding(alice, "Operator", clusterA);
-    verifyRules(accessRules(alice, groups, clusterResource));
-    verifyRules(accessRules(alice, groups, topic));
+    verifyRules(alice, groups, clusterA, clusterResource);
+    verifyRules(alice, groups, clusterA, topic);
   }
 
   @Test
@@ -194,39 +189,31 @@ public class ConfluentProviderTest {
     Set<KafkaPrincipal> groups = Collections.singleton(admin);
 
     updateRoleBinding(admin, "ClusterAdmin", clusterA, Collections.emptySet());
-    verifyRules(accessRules(alice, groups, clusterResource),
-        "AlterConfigs", "DescribeConfigs");
-    verifyRules(accessRules(alice, groups, topic));
-    verifyRules(accessRules(alice, Collections.emptySet(), clusterResource));
+    verifyRules(alice, groups, clusterA, clusterResource, "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterA, topic);
+    verifyRules(alice, Collections.emptySet(), clusterA, clusterResource);
 
     updateRoleBinding(admin, "Operator", clusterA, Collections.emptySet());
-    verifyRules(accessRules(alice, groups, clusterResource),
-        "AlterConfigs", "DescribeConfigs");
-    verifyRules(accessRules(alice, groups, topic), "DescribeConfigs", "AlterConfigs");
+    verifyRules(alice, groups, clusterA, clusterResource, "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterA, topic, "DescribeConfigs", "AlterConfigs");
     updateRoleBinding(admin, "Operator", clusterA, Collections.singleton(topic));
-    verifyRules(accessRules(alice, groups, topic),
-        "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterA, topic, "AlterConfigs", "DescribeConfigs");
 
     updateRoleBinding(alice, "Operator", clusterA, Collections.emptySet());
-    verifyRules(accessRules(alice, groups, clusterResource),
-        "AlterConfigs", "DescribeConfigs");
-    verifyRules(accessRules(alice, groups, topic),
-        "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterA, clusterResource, "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterA, topic, "AlterConfigs", "DescribeConfigs");
 
     deleteRoleBinding(alice, "Operator", clusterA);
-    verifyRules(accessRules(alice, groups, clusterResource),
-        "AlterConfigs", "DescribeConfigs");
-    verifyRules(accessRules(alice, groups, topic),
-        "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterA, clusterResource, "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterA, topic, "AlterConfigs", "DescribeConfigs");
 
     deleteRoleBinding(admin, "ClusterAdmin", clusterA);
-    verifyRules(accessRules(alice, groups, clusterResource));
-    verifyRules(accessRules(alice, groups, topic),
-        "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterA, clusterResource);
+    verifyRules(alice, groups, clusterA, topic, "AlterConfigs", "DescribeConfigs");
 
     deleteRoleBinding(admin, "Operator", clusterA);
-    verifyRules(accessRules(alice, groups, clusterResource));
-    verifyRules(accessRules(alice, groups, topic));
+    verifyRules(alice, groups, clusterA, clusterResource);
+    verifyRules(alice, groups, clusterA, topic);
   }
 
   @Test
@@ -286,23 +273,23 @@ public class ConfluentProviderTest {
         Collections.emptySet() : Collections.singleton(roleResource);
 
     updateRoleBinding(alice, "Reader", clusterA, resources);
-    verifyRules(accessRules(alice, emptyGroups, clusterResource));
-    verifyRules(accessRules(alice, emptyGroups, topic), "Read", "Describe");
+    verifyRules(alice, emptyGroups, clusterA, clusterResource);
+    verifyRules(alice, emptyGroups, clusterA, topic, "Read", "Describe");
 
     updateRoleBinding(admin, "Writer", clusterA, resources);
-    verifyRules(accessRules(alice, groups, topic), "Read", "Describe", "Write");
+    verifyRules(alice, groups, clusterA, topic, "Read", "Describe", "Write");
 
     updateRoleBinding(alice, "Writer", clusterA, resources);
-    verifyRules(accessRules(alice, groups, topic), "Read", "Describe", "Write");
+    verifyRules(alice, groups, clusterA, topic, "Read", "Describe", "Write");
 
     deleteRoleBinding(admin, "Writer", clusterA);
-    verifyRules(accessRules(alice, groups, topic), "Read", "Describe", "Write");
+    verifyRules(alice, groups, clusterA, topic, "Read", "Describe", "Write");
 
     deleteRoleBinding(alice, "Reader", clusterA);
-    verifyRules(accessRules(alice, groups, topic), "Describe", "Write");
+    verifyRules(alice, groups, clusterA, topic, "Describe", "Write");
 
     deleteRoleBinding(alice, "Writer", clusterA);
-    verifyRules(accessRules(alice, groups, topic));
+    verifyRules(alice, groups, clusterA, topic);
   }
 
   @Test
@@ -311,12 +298,12 @@ public class ConfluentProviderTest {
     Set<KafkaPrincipal> groups = Collections.emptySet();
 
     updateRoleBinding(alice, "Operator", clusterA, Collections.singleton(topic));
-    verifyRules(accessRules(alice, groups, topic), "AlterConfigs", "DescribeConfigs");
-    verifyRules(accessRules(alice, groups, clusterResource));
+    verifyRules(alice, groups, clusterA, topic, "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterA, clusterResource);
 
     updateRoleBinding(alice, "ClusterAdmin", clusterB, Collections.emptySet());
-    verifyRules(accessRules(alice, groups, clusterResource));
-    verifyRules(accessRules(alice, groups, topic), "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterA, clusterResource);
+    verifyRules(alice, groups, clusterA, topic, "AlterConfigs", "DescribeConfigs");
 
   }
 
@@ -328,18 +315,19 @@ public class ConfluentProviderTest {
     Set<KafkaPrincipal> groups = Collections.emptySet();
 
     updateRoleBinding(alice, "Operator", clusterA, Collections.singleton(topic));
-    verifyRules(rbacProvider.accessRules(alice, groups, clusterA, topic), "AlterConfigs", "DescribeConfigs");
-    verifyRules(rbacProvider.accessRules(alice, groups, clusterA, clusterResource));
+    verifyRules(alice, groups, clusterA, topic, "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterA, clusterResource);
 
     updateRoleBinding(alice, "ClusterAdmin", clusterB, Collections.emptySet());
-    verifyRules(rbacProvider.accessRules(alice, groups, clusterA, clusterResource));
-    verifyRules(rbacProvider.accessRules(alice, groups, clusterA, topic), "AlterConfigs", "DescribeConfigs");
-    verifyRules(rbacProvider.accessRules(alice, groups, clusterB, clusterResource), "AlterConfigs", "DescribeConfigs");
-    verifyRules(rbacProvider.accessRules(alice, groups, clusterB, topic));
+    verifyRules(alice, groups, clusterA, clusterResource);
+    verifyRules(alice, groups, clusterA, topic, "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterB, clusterResource, "AlterConfigs", "DescribeConfigs");
+    verifyRules(alice, groups, clusterB, topic);
 
     try {
       Scope anotherScope = new Scope.Builder("anotherOrg").withKafkaCluster("clusterA").build();
-      rbacProvider.accessRules(alice, groups, anotherScope, clusterResource);
+      Action action = new Action(anotherScope, clusterResource, new Operation("Describe"));
+      rbacProvider.findRule(alice, groups, "", action);
       fail("Did not fail with invalid scope");
     } catch (InvalidScopeException e) {
       // Expected exception
@@ -464,15 +452,12 @@ public class ConfluentProviderTest {
     authCache.remove(key);
   }
 
-  private Set<AccessRule> accessRules(KafkaPrincipal userPrincipal,
-                                      Set<KafkaPrincipal> groupPrincipals,
-                                      ResourcePattern resource) {
-    return rbacProvider.accessRules(userPrincipal, groupPrincipals, clusterA, resource);
-  }
-
-  private void verifyRules(Set<AccessRule> rules, String... expectedOps) {
-    Set<String> actualOps = rules.stream().map(r -> r.operation().name()).collect(Collectors.toSet());
-    assertEquals(Utils.mkSet(expectedOps), actualOps);
+  private void verifyRules(KafkaPrincipal userPrincipal,
+                           Set<KafkaPrincipal> groupPrincipals,
+                           Scope scope,
+                           ResourcePattern resource,
+                           String... expectedOps) {
+    RbacTestUtils.verifyPermissions(rbacProvider, userPrincipal, groupPrincipals, scope, resource, expectedOps);
   }
 
   private void verifyAccess(EmbeddedAuthorizer authorizer, KafkaPrincipal principal,
@@ -516,19 +501,19 @@ public class ConfluentProviderTest {
     List<AclRule> accessRules = new LinkedList<>();
     accessRules.add(new AclRule(alice, PermissionType.ALLOW, "", new Operation("Read")));
     updateAclBinding(clusterA, resourcePattern, accessRules);
-    verifyRules(accessRules(alice, emptyGroups, clusterResource));
-    verifyRules(accessRules(alice, emptyGroups, topic), "Read");
+    verifyRules(alice, emptyGroups, clusterA, clusterResource);
+    verifyRules(alice, emptyGroups, clusterA, topic, "Read");
 
     accessRules.add(new AclRule(admin, PermissionType.ALLOW, "", new Operation("Write")));
     updateAclBinding(clusterA, resourcePattern, accessRules);
-    verifyRules(accessRules(alice, groups, topic),  "Write", "Read");
+    verifyRules(alice, groups, clusterA, topic,  "Write", "Read");
 
     accessRules.add(new AclRule(alice, PermissionType.ALLOW, "", new Operation("Write")));
     updateAclBinding(clusterA, resourcePattern, accessRules);
-    verifyRules(accessRules(alice, emptyGroups, topic), "Write", "Read");
+    verifyRules(alice, emptyGroups, clusterA, topic, "Write", "Read");
 
     deleteAclBinding(clusterA, resourcePattern);
-    verifyRules(accessRules(alice, groups, topic));
+    verifyRules(alice, groups, clusterA, topic);
   }
 
   private void updateAclBinding(Scope scope,
@@ -580,24 +565,24 @@ public class ConfluentProviderTest {
     AclRule aliceReadRule = new AclRule(alice, PermissionType.ALLOW, "", new Operation("Read"));
     AclBinding aclBinding = new AclBinding(ResourcePattern.to(resourcePattern), aliceReadRule.toAccessControlEntry());
     aclClient.createCentralizedAcls(Collections.singletonList(aclBinding), new CreateAclsOptions(), "clusterA", 0);
-    verifyRules(accessRules(alice, emptyGroups, clusterResource));
-    verifyRules(accessRules(alice, emptyGroups, topic), "Read");
+    verifyRules(alice, emptyGroups, clusterA, clusterResource);
+    verifyRules(alice, emptyGroups, clusterA, topic, "Read");
 
     AclRule adminWriteReadRule = new AclRule(admin, PermissionType.ALLOW, "", new Operation("Write"));
     aclBinding = new AclBinding(ResourcePattern.to(resourcePattern), adminWriteReadRule.toAccessControlEntry());
     aclClient.createCentralizedAcls(Collections.singletonList(aclBinding), new CreateAclsOptions(), "clusterA", 0);
-    verifyRules(accessRules(alice, groups, topic),  "Write");
+    verifyRules(alice, groups, clusterA, topic,  "Write");
 
     AclRule aliceWriteRule = new AclRule(alice, PermissionType.ALLOW, "", new Operation("Write"));
     aclBinding = new AclBinding(ResourcePattern.to(resourcePattern), aliceWriteRule.toAccessControlEntry());
 
     aclClient.createCentralizedAcls(Collections.singletonList(aclBinding), new CreateAclsOptions(), "clusterA", 0);
-    verifyRules(accessRules(alice, emptyGroups, topic), "Write");
+    verifyRules(alice, emptyGroups, clusterA, topic, "Write");
 
     AclBindingFilter deleteFilter = new AclBindingFilter(ResourcePattern.to(resourcePattern).toFilter(),
         AccessControlEntryFilter.ANY);
     aclClient.deleteCentralizedAcls(Collections.singleton(deleteFilter), new DeleteAclsOptions(), "clusterA", 0);
-    verifyRules(accessRules(alice, groups, topic));
+    verifyRules(alice, groups, clusterA, topic);
   }
 
   private class TestMdsAdminClient extends MockAdminClient implements ConfluentAdmin {

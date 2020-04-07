@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.AclAccessRule;
+import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
@@ -16,6 +17,7 @@ import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
+import io.confluent.security.authorizer.provider.AuthorizeRule;
 import java.net.InetAddress;
 import java.util.Arrays;
 import java.util.Collection;
@@ -261,18 +263,21 @@ public class MockConfluentServerAuthorizerTest {
     }
 
     @Override
-    public Set<AccessRule> accessRules(KafkaPrincipal principal,
-        Set<KafkaPrincipal> groupPrincipals, Scope scope, ResourcePattern resource) {
+    public AuthorizeRule findRule(KafkaPrincipal principal,
+                                  Set<KafkaPrincipal> groupPrincipals,
+                                  String host,
+                                  Action action) {
+      ResourcePattern resource = action.resourcePattern();
+      AuthorizeRule authorizeRule = new AuthorizeRule();
       if (resource.name().startsWith("allowed")) {
         AccessRule rule = new AclAccessRule(resource, principal, PermissionType.ALLOW, "*",
             Operation.ALL, PolicyType.ALLOW_ACL,
             new AclBinding(ResourcePattern.to(resource),
                 new AccessControlEntry(principal.getName(),
                     "*", AclOperation.ALL, AclPermissionType.ALLOW)));
-        return Collections.singleton(rule);
-      } else {
-        return Collections.emptySet();
+        authorizeRule.addRuleIfNotExist(rule);
       }
+      return authorizeRule;
     }
 
     @Override
