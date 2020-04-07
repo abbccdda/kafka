@@ -121,15 +121,10 @@ public class YammerMetricsCollector implements MetricsCollector {
             try {
                 log.trace("Processing {}", metricName);
 
-                // Do not process the metric if metricKey does not match whitelist predicate.
-                if (!metricWhitelistFilter.test(metricKey)) {
-                    continue;
-                }
-
                 if (metric instanceof Gauge) {
                     collectGauge(name, labels, (Gauge) metric).ifPresent(exporter::emit);
                 } else if (metric instanceof Counter) {
-                    exporter.emit(collectCounter(name, labels, (Counter) metric));
+                    collectCounter(name, labels, (Counter) metric).ifPresent(exporter::emit);
                     // Derived metric, results in a name like /delta.
                     collectDelta(name, labels, ((Counter) metric).count(), metricAddedInstant).ifPresent(exporter::emit);
                 } else if (metric instanceof Meter) {
@@ -140,13 +135,13 @@ public class YammerMetricsCollector implements MetricsCollector {
                     // Derived metric, results in a name like /total/delta.
                     collectDelta(meterName, labels, ((Meter) metric).count(), metricAddedInstant).ifPresent(exporter::emit);
                 } else if (metric instanceof Timer) {
-                    exporter.emit(collectTimer(name, labels, (Timer) metric));
+                    collectTimer(name, labels, (Timer) metric).ifPresent(exporter::emit);
                     // Derived metric, results in a name like /time/delta
                     collectDelta(name + "/time", labels, ((Timer) metric).sum(), metricAddedInstant).ifPresent(exporter::emit);
                     // Derived metric, results in a name like /total/delta.
                     collectDelta(name + "/total", labels, ((Timer) metric).count(), metricAddedInstant).ifPresent(exporter::emit);
                 } else if (metric instanceof Histogram) {
-                    exporter.emit(collectHistogram(name, labels, (Histogram) metric));
+                    collectHistogram(name, labels, (Histogram) metric).ifPresent(exporter::emit);
                     // Derived metric, results in a name like /time/delta
                     collectDelta(name + "/time", labels, ((Histogram) metric).sum(), metricAddedInstant).ifPresent(exporter::emit);
                     // Derived metric, results in a name like /total/delta.
@@ -178,6 +173,9 @@ public class YammerMetricsCollector implements MetricsCollector {
     }
 
     private Optional<Metric> collectGauge(String metricName, Map<String, String> labels, com.yammer.metrics.core.Gauge gauge) {
+        if (!isWhitelist(new MetricKey(metricName, labels))) {
+            return Optional.empty();
+        }
 
         // Figure out which gauge instance and call the right method to get value
         Object value = gauge.value();
@@ -206,20 +204,22 @@ public class YammerMetricsCollector implements MetricsCollector {
 
     }
 
-    private Metric collectCounter(String metricName, Map<String, String> labels, Counter counter) {
+    private Optional<Metric> collectCounter(String metricName, Map<String, String> labels, Counter counter) {
+        if (!isWhitelist(new MetricKey(metricName, labels))) {
+            return Optional.empty();
+        }
+
         Point point = Point.newBuilder()
                 .setTimestamp(MetricsUtils.now(clock))
                 .setInt64Value(counter.count())
                 .build();
-        return context.metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.CUMULATIVE_INT64, labels, point);
+        return Optional.of(context.metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.CUMULATIVE_INT64, labels, point));
     }
 
 
     private Optional<Metric> collectDelta(String metricName, Map<String, String> labels, long value, Instant metricAdded) {
-        // Delta metrics are derived from original metrics hence re-check whether metricKey matches
-        // whitelist, else ignore.
         String deltaMetricName = metricName + "/delta";
-        if (!metricWhitelistFilter.test(new MetricKey(deltaMetricName, labels))) {
+        if (!isWhitelist(new MetricKey(deltaMetricName, labels))) {
             return Optional.empty();
         }
 
@@ -247,10 +247,8 @@ public class YammerMetricsCollector implements MetricsCollector {
             return Optional.empty();
         }
 
-        // Delta metrics are derived from original metrics hence re-check whether metricKey is
-        // available in filtered list, else ignore.
         String deltaMetricName = metricName + "/delta";
-        if (!metricWhitelistFilter.test(new MetricKey(deltaMetricName, labels))) {
+        if (!isWhitelist(new MetricKey(deltaMetricName, labels))) {
             return Optional.empty();
         }
 
@@ -276,9 +274,7 @@ public class YammerMetricsCollector implements MetricsCollector {
 
 
     private Optional<Metric> collectMeter(String metricName, Map<String, String> labels, Meter meter) {
-        // Meter metrics has been derived from original metric by adding "/total" in name hence
-        // re-check if metric is available in filtered list.
-        if (!metricWhitelistFilter.test(new MetricKey(metricName, labels))) {
+        if (!isWhitelist(new MetricKey(metricName, labels))) {
             return Optional.empty();
         }
 
@@ -289,14 +285,22 @@ public class YammerMetricsCollector implements MetricsCollector {
         return Optional.of(context.metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.CUMULATIVE_INT64, labels, point));
     }
 
-    private Metric collectHistogram(String metricName, Map<String, String> labels, Histogram histogram) {
-        return collectSnapshotAndCount(
-                metricName, labels, DEFAULT_UNIT, histogram.getSnapshot(), histogram.count());
+    private Optional<Metric> collectHistogram(String metricName, Map<String, String> labels, Histogram histogram) {
+        if (!isWhitelist(new MetricKey(metricName, labels))) {
+            return Optional.empty();
+        }
+
+        return Optional.of(collectSnapshotAndCount(
+                metricName, labels, DEFAULT_UNIT, histogram.getSnapshot(), histogram.count()));
     }
 
-    private Metric collectTimer(String metricName, Map<String, String> labels, Timer timer) {
-        return collectSnapshotAndCount(
-                metricName, labels, NS_UNIT, timer.getSnapshot(), timer.count());
+    private Optional<Metric> collectTimer(String metricName, Map<String, String> labels, Timer timer) {
+        if (!isWhitelist(new MetricKey(metricName, labels))) {
+            return Optional.empty();
+        }
+
+        return Optional.of(collectSnapshotAndCount(
+                metricName, labels, NS_UNIT, timer.getSnapshot(), timer.count()));
     }
 
     private Metric collectSnapshotAndCount(
@@ -346,6 +350,11 @@ public class YammerMetricsCollector implements MetricsCollector {
 
         return context
             .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.SUMMARY, labels, point);
+    }
+
+    private boolean isWhitelist(MetricKey metricKey) {
+        // Do not process the metric if metricKey does not match whitelist predicate.
+        return metricWhitelistFilter.test(metricKey);
     }
 
     public static Builder newBuilder() {

@@ -394,4 +394,72 @@ public class KafkaMetricsCollectorTest {
     result = exporter.emittedMetrics();
     assertThat(result).hasSize(3);  // name1, name2, count
   }
+
+  @Test
+  public void testCollectFilterWithDerivedMetrics() {
+    MetricName name1 = metrics.metricName("nonMeasurable", "group1", tags);
+    MetricName name2 = metrics.metricName("windowed", "group1", tags);
+    MetricName name3 = metrics.metricName("cumulative", "group1", tags);
+
+    metrics.addMetric(name1, (Gauge<Double>) (config, now) -> 99d);
+
+    Sensor sensor = metrics.sensor("test");
+    sensor.add(name2, new WindowedCount());
+    sensor.add(name3, new CumulativeSum());
+
+    ledger = new KafkaMetricsCollector.StateLedger();
+    metrics.addReporter(ledger);
+
+    KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
+        .setContext(context)
+        .setDomain("test-domain")
+        .setLedger(ledger)
+        .build();
+
+
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
+
+    // no-filter shall result in all 6 data metrics.
+    assertThat(result).hasSize(6);
+
+    exporter.reset();
+    collector = KafkaMetricsCollector.newBuilder()
+        .setContext(context)
+        .setDomain("test-domain")
+        .setLedger(ledger)
+        .setMetricWhitelistFilter(metric -> !metric.getName().endsWith("/count"))
+        .build();
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
+
+    // Drop metrics for Count type (Measurable metric but other that Windowed or Cumulative).
+    assertThat(result).hasSize(5);
+
+    exporter.reset();
+    collector = KafkaMetricsCollector.newBuilder()
+        .setContext(context)
+        .setDomain("test-domain")
+        .setLedger(ledger)
+        .setMetricWhitelistFilter(metric -> !metric.getName().endsWith("/non_measurable"))
+        .build();
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
+
+    // Drop non-measurable metric.
+    assertThat(result).hasSize(5);
+
+    exporter.reset();
+    collector = KafkaMetricsCollector.newBuilder()
+        .setContext(context)
+        .setDomain("test-domain")
+        .setLedger(ledger)
+        .setMetricWhitelistFilter(metric -> !metric.getName().endsWith("/delta"))
+        .build();
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
+
+    // Drop all delta derived metrics.
+    assertThat(result).hasSize(4);
+  }
 }

@@ -3,6 +3,7 @@ package io.confluent.telemetry.collector;
 import com.google.common.base.Strings;
 import com.google.protobuf.Timestamp;
 
+import io.opencensus.proto.metrics.v1.Metric;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.metrics.KafkaMetric;
@@ -79,10 +80,6 @@ public class KafkaMetricsCollector implements MetricsCollector {
             String name = metricKey.getName();
             Map<String, String> labels = metricKey.getLabels();
 
-            if (!metricWhitelistFilter.test(metricKey)) {
-                continue;
-            }
-
             /** All metrics implement the MetricValueProvider interface. They are divided into 2 base types:
              * 1. Gauge and
              * 2. Measurable
@@ -144,50 +141,53 @@ public class KafkaMetricsCollector implements MetricsCollector {
                 double value = (Double) entry.getValue().metricValue();
 
                 if (measurable instanceof WindowedCount || measurable instanceof CumulativeSum) {
-                    exporter.emit(context.metricWithSinglePointTimeseries(name,
-                            MetricDescriptor.Type.CUMULATIVE_DOUBLE,
-                            labels,
-                            Point.newBuilder()
-                                    .setTimestamp(MetricsUtils.now(clock))
-                                    .setDoubleValue(value).build()));
-                    String deltaName = name + "/delta";
-
-                    // calculate a getAndSet, and add to out if non-empty
-                    InstantAndValue<Double> instantAndValue = ledger.delta(originalMetricName, Instant.now(clock), value);
-
-                    Point point = Point.newBuilder()
-                        .setTimestamp(MetricsUtils.now(clock))
-                        .setDoubleValue(instantAndValue.getValue())
-                        .build();
-                    Timestamp startTimestamp = MetricsUtils.toTimestamp(instantAndValue.getIntervalStart());
-                    exporter.emit(context
-                        .metricWithSinglePointTimeseries(deltaName, Type.GAUGE_DOUBLE, labels, point, startTimestamp));
+                    collectMetric(name, labels, Type.CUMULATIVE_DOUBLE, value).ifPresent(exporter::emit);
+                    collectDelta(originalMetricName, name, labels, value).ifPresent(exporter::emit);
                 } else {
-                    exporter.emit(context.metricWithSinglePointTimeseries(name,
-                            MetricDescriptor.Type.GAUGE_DOUBLE,
-                            labels,
-                            Point.newBuilder()
-                                    .setTimestamp(MetricsUtils.now(clock))
-                                    .setDoubleValue(value).build()));
+                    collectMetric(name, labels, Type.GAUGE_DOUBLE, value).ifPresent(exporter::emit);
                 }
-
             } else {
                 // It is non-measurable Gauge metric.
                 // Collect the metric only if its value is a double.
                 if (entry.getValue().metricValue() instanceof Double) {
                     double value = (Double) entry.getValue().metricValue();
-                    exporter.emit(context.metricWithSinglePointTimeseries(name,
-                            MetricDescriptor.Type.GAUGE_DOUBLE,
-                            labels,
-                            Point.newBuilder()
-                                    .setTimestamp(MetricsUtils.now(clock))
-                                    .setDoubleValue(value).build()));
+                    collectMetric(name, labels, Type.GAUGE_DOUBLE, value).ifPresent(exporter::emit);
                 } else {
                     // skip non-measurable metrics
                     log.debug("Skipping non-measurable gauge metric {}", originalMetricName.name());
                 }
             }
         }
+    }
+
+    private Optional<Metric> collectDelta(MetricName originalMetricName, String metricName, Map<String, String> labels, Double value) {
+        String deltaName = metricName + "/delta";
+        if (!metricWhitelistFilter.test(new MetricKey(deltaName, labels))) {
+            return Optional.empty();
+        }
+
+        // calculate a getAndSet, and add to out if non-empty
+        InstantAndValue<Double> instantAndValue = ledger.delta(originalMetricName, Instant.now(clock), value);
+
+        Point point = Point.newBuilder()
+            .setTimestamp(MetricsUtils.now(clock))
+            .setDoubleValue(instantAndValue.getValue())
+            .build();
+        Timestamp startTimestamp = MetricsUtils
+            .toTimestamp(instantAndValue.getIntervalStart());
+        return Optional.of(context.metricWithSinglePointTimeseries(deltaName, Type.GAUGE_DOUBLE, labels, point,
+                startTimestamp));
+    }
+
+    private Optional<Metric> collectMetric(String metricName, Map<String, String> labels, MetricDescriptor.Type type, Double value) {
+        if (!metricWhitelistFilter.test(new MetricKey(metricName, labels))) {
+            return Optional.empty();
+        }
+
+        return Optional.of(context.metricWithSinglePointTimeseries(metricName, type, labels,
+            Point.newBuilder()
+                .setTimestamp(MetricsUtils.now(clock))
+                .setDoubleValue(value).build()));
     }
 
     @Override
