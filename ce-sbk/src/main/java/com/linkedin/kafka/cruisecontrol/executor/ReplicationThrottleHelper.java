@@ -13,17 +13,23 @@ import kafka.server.ConfigType;
 import kafka.server.KafkaConfig;
 import kafka.zk.AdminZkClient;
 import kafka.zk.KafkaZkClient;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.Config;
+import org.apache.kafka.clients.admin.ConfigEntry;
+import org.apache.kafka.common.config.ConfigResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -47,12 +53,14 @@ class ReplicationThrottleHelper {
 
   private final KafkaZkClient _kafkaZkClient;
   private final AdminZkClient _adminZkClient;
+  private Admin _adminClient;
   private Long _throttleRate;
   private final Long _originalThrottleRate;
 
-  ReplicationThrottleHelper(KafkaZkClient kafkaZkClient, Long throttleRate) {
+  ReplicationThrottleHelper(KafkaZkClient kafkaZkClient, Admin adminClient, Long throttleRate) {
     this._kafkaZkClient = kafkaZkClient;
     this._adminZkClient = new AdminZkClient(kafkaZkClient);
+    this._adminClient = adminClient;
     this._throttleRate = throttleRate;
     this._originalThrottleRate = throttleRate;
     LOG.info("Set throttle rate {}", this._throttleRate);
@@ -73,7 +81,8 @@ class ReplicationThrottleHelper {
     return true;
   }
 
-  void setThrottles(List<ExecutionProposal> replicaMovementProposals, LoadMonitor loadMonitor) {
+  void setThrottles(List<ExecutionProposal> replicaMovementProposals, LoadMonitor loadMonitor)
+      throws InterruptedException {
     if (throttlingEnabled()) {
 
       // Compute the throttle from the current load. Because this method is only called during proposal execution,
@@ -82,15 +91,58 @@ class ReplicationThrottleHelper {
         this._throttleRate = loadMonitor.computeThrottle();
       }
       Set<Integer> participatingBrokers = getParticipatingBrokers(replicaMovementProposals);
-      Map<String, Set<String>> throttledReplicas = getThrottledReplicasByTopic(replicaMovementProposals);
-      LOG.info("Setting a rebalance throttle of {} bytes/sec to {} brokers and {} topics",
-              _throttleRate, Utils.join(participatingBrokers, ", "), Utils.join(throttledReplicas.keySet(), ", "));
+      Set<Integer> brokersWithStaticThrottles = getBrokersWithStaticThrottles(participatingBrokers);
+      Map<String, Set<String>> throttledReplicas = getThrottledReplicasByTopic(replicaMovementProposals,
+          brokersWithStaticThrottles);
+      LOG.info("Setting a rebalance throttle of {} bytes/sec to {} brokers and {} topics. " +
+              "Brokers {} already have static throttles set",
+          _throttleRate,
+          Utils.join(participatingBrokers, ", "),
+          Utils.join(throttledReplicas.keySet(), ", "),
+          Utils.join(brokersWithStaticThrottles, ", "));
+
       participatingBrokers.forEach(this::setLeaderThrottledRateIfUnset);
       participatingBrokers.forEach(this::setFollowerThrottledRateIfUnset);
       throttledReplicas.forEach(this::setLeaderThrottledReplicas);
       throttledReplicas.forEach(this::setFollowerThrottledReplicas);
     } else {
       LOG.info("Skipped setting rebalance throttle because it is not enabled");
+    }
+  }
+
+  /**
+   * @param participatingBrokers - the brokers to check for static throttles
+   * @return - a set of broker IDs whose static replication throttle for all replicas is enabled
+   */
+  private Set<Integer> getBrokersWithStaticThrottles(Set<Integer> participatingBrokers) throws InterruptedException {
+    // filter only the brokers who have both leader and follower throttling enabled
+    Predicate<Map.Entry<ConfigResource, Config>> staticThrottleFilter =
+        configResourceConfigEntry -> {
+      ConfigEntry leaderConfig =
+          configResourceConfigEntry.getValue().get(
+              LogConfig.LeaderReplicationThrottledReplicasProp());
+      ConfigEntry followerConfig =
+          configResourceConfigEntry.getValue().get(
+              LogConfig.FollowerReplicationThrottledReplicasProp());
+      return (leaderConfig != null && leaderConfig.value().equals("*"))
+          && (followerConfig != null && followerConfig.value().equals("*"));
+    };
+
+    List<ConfigResource> configResources = participatingBrokers.stream()
+        .map(brokerId -> new ConfigResource(ConfigResource.Type.BROKER, brokerId.toString()))
+        .collect(Collectors.toList());
+
+    try {
+      Map<ConfigResource, Config> configs = _adminClient.describeConfigs(configResources).all().get();
+
+      return configs.entrySet().stream().filter(staticThrottleFilter)
+          .map(entry -> Integer.parseInt(entry.getKey().name()))
+          .collect(Collectors.toSet());
+    } catch (InterruptedException ie) {
+      throw ie;
+    } catch (Exception e) {
+      LOG.error("Caught Exception while describing static throttle configs", e);
+      return Collections.emptySet();
     }
   }
 
@@ -155,7 +207,7 @@ class ReplicationThrottleHelper {
       LOG.info("Removing replica movement throttles from brokers in the cluster: {}", brokersToRemoveThrottlesFrom);
       brokersToRemoveThrottlesFrom.forEach(this::removeThrottledRateFromBroker);
 
-      Map<String, Set<String>> throttledReplicas = getThrottledReplicasByTopic(completedProposals);
+      Map<String, Set<String>> throttledReplicas = getThrottledReplicasByTopic(completedProposals, Collections.emptySet());
       throttledReplicas.forEach(this::removeThrottledReplicasFromTopic);
     }
   }
@@ -173,18 +225,37 @@ class ReplicationThrottleHelper {
     return participatingBrokers;
   }
 
-  private Map<String, Set<String>> getThrottledReplicasByTopic(List<ExecutionProposal> replicaMovementProposals) {
+  /**
+   * Builds up the throttled.replicas config per topic.
+   * It skips partitions if all replicas have static replication throttling enabled
+   *
+   * @param brokerWithStaticThrottles - the broker IDs which have replication throttling
+   *                                  enabled for all replicas
+   * @return A map of topics to sets of replica pairs
+   */
+  private Map<String, Set<String>> getThrottledReplicasByTopic(List<ExecutionProposal> replicaMovementProposals,
+                                                               Set<Integer> brokerWithStaticThrottles) {
     Map<String, Set<String>> throttledReplicasByTopic = new HashMap<>();
     for (ExecutionProposal proposal : replicaMovementProposals) {
       String topic = proposal.topic();
       int partitionId = proposal.partitionId();
-      Stream<Integer> brokers = Stream.concat(
+      List<Integer> brokers = Stream.concat(
         proposal.oldReplicas().stream().map(ReplicaPlacementInfo::brokerId),
-        proposal.replicasToAdd().stream().map(ReplicaPlacementInfo::brokerId));
+        proposal.replicasToAdd().stream().map(ReplicaPlacementInfo::brokerId)
+      ).collect(Collectors.toList());
+
+      if (brokerWithStaticThrottles.containsAll(brokers)) {
+        // skip setting a throttle as all brokers have it enabled anyway
+        continue;
+      }
+      // if all brokers don't have static throttles, we want
+      // to set all brokers' throttle, otherwise it would override the static setting
+      // and unthrottle the ones we haven't set it for
       Set<String> throttledReplicas = throttledReplicasByTopic
         .computeIfAbsent(topic, x -> new TreeSet<>());
       brokers.forEach(brokerId -> throttledReplicas.add(partitionId + ":" + brokerId));
     }
+
     return throttledReplicasByTopic;
   }
 

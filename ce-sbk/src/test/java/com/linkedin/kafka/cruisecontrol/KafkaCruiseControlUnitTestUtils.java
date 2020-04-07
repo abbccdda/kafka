@@ -12,17 +12,24 @@ import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.NoopSampler;
 import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.Config;
+import org.apache.kafka.clients.admin.ConfigEntry;
+import org.apache.kafka.clients.admin.DescribeConfigsResult;
 import org.apache.kafka.clients.admin.DescribeTopicsOptions;
 import org.apache.kafka.clients.admin.DescribeTopicsResult;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.common.KafkaFuture;
+import org.apache.kafka.common.config.ConfigResource;
 import org.easymock.EasyMock;
 
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 
 /**
@@ -54,6 +61,36 @@ public class KafkaCruiseControlUnitTestUtils {
         .describeTopics(EasyMock.<Collection<String>>anyObject()))
         .andReturn(mockDescribeTopicsResult);
     EasyMock.replay(mockDescribeTopicsResult, mockKafkaFuture);
+  }
+
+  /**
+   * Mock describing broker configs
+   */
+  public static void mockDescribeConfigs(AdminClient mockAdminClient, Collection<ConfigResource> expectedResourcesToDescribe,
+                                         Map<String, List<ConfigEntry>> entries)
+      throws InterruptedException, ExecutionException {
+    DescribeConfigsResult mockDescribeConfigsResult = EasyMock.mock(DescribeConfigsResult.class);
+    KafkaFuture mockKafkaFuture = EasyMock.mock(KafkaFuture.class);
+
+    Map<ConfigResource, Config> returnConfig = new HashMap<>();
+    for (Map.Entry<String, List<ConfigEntry>> entry : entries.entrySet()) {
+      returnConfig.put(
+          new ConfigResource(ConfigResource.Type.BROKER, entry.getKey()),
+          new Config(entry.getValue())
+      );
+    }
+    EasyMock.expect(mockKafkaFuture.get())
+        .andReturn(returnConfig).times(1, 3);
+    EasyMock.expect(mockDescribeConfigsResult.all()).andReturn(mockKafkaFuture).times(1, 3);
+
+    EasyMock.expect(mockAdminClient.describeConfigs(expectedResourcesToDescribe)).andReturn(mockDescribeConfigsResult).times(1, 3);
+    EasyMock.replay(mockDescribeConfigsResult, mockKafkaFuture);
+  }
+
+  public static Collection<ConfigResource> configResourcesForBrokers(List<Integer> brokers) {
+    return brokers.stream()
+        .map(brokerId -> new ConfigResource(ConfigResource.Type.BROKER, brokerId.toString()))
+        .collect(Collectors.toList());
   }
 
   public static Properties getKafkaCruiseControlProperties() {

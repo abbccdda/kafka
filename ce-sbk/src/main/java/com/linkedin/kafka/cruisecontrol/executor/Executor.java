@@ -205,7 +205,7 @@ public class Executor {
                                                          EXECUTION_HISTORY_SCANNER_PERIOD_SECONDS,
                                                          TimeUnit.SECONDS);
     _throttleHelper = throttleHelper != null ? throttleHelper :
-            new ReplicationThrottleHelper(_kafkaZkClient,
+            new ReplicationThrottleHelper(_kafkaZkClient, _adminClient,
         config.getLong(KafkaCruiseControlConfig.DEFAULT_REPLICATION_THROTTLE_CONFIG));
   }
 
@@ -864,7 +864,7 @@ public class Executor {
       }
     }
 
-    private void interBrokerMoveReplicas() {
+    private void interBrokerMoveReplicas() throws InterruptedException {
       synchronized (_throttleHelper) {
         _throttleHelper.setThrottleRate(_replicationThrottle);
       }

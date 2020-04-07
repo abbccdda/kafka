@@ -27,6 +27,7 @@ import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.DeleteTopicsResult;
 import org.apache.kafka.clients.admin.DescribeLogDirsResult;
 import org.apache.kafka.clients.admin.DescribeReplicaLogDirsResult;
+import org.apache.kafka.clients.admin.KafkaAdminClient;
 import org.apache.kafka.clients.admin.ListPartitionReassignmentsResult;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.admin.PartitionReassignment;
@@ -54,6 +55,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -61,6 +63,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils.configResourcesForBrokers;
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC0;
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC1;
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC2;
@@ -794,7 +797,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   }
 
   @Test
-  public void testThrottleIsComputedOncePerExecution() throws InterruptedException {
+  public void testThrottleIsComputedOncePerExecution() throws InterruptedException, ExecutionException {
     // Create a strict mock so that we will throw if we attempt to compute the throttle more than once
     LoadMonitor mockLoadMonitor = EasyMock.createStrictMock(LoadMonitor.class);
     mockLoadMonitor.pauseMetricSampling(EasyMock.anyString());
@@ -832,10 +835,14 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
 
       }
     };
-
+    KafkaAdminClient adminClient = EasyMock.mock(KafkaAdminClient.class);
+    List<Integer> expectedThrottledBrokers = Arrays.asList(0, 1);
+    KafkaCruiseControlUnitTestUtils.mockDescribeConfigs(adminClient,
+            configResourcesForBrokers(expectedThrottledBrokers), Collections.emptyMap());
+    EasyMock.replay(adminClient);
     ReplicationThrottleHelper throttleHelper = new ReplicationThrottleHelper(
             KafkaCruiseControlUtils.createKafkaZkClient(zookeeper().connectionString(), "CruiseControlExecutor",
-                    "Executor", false), AUTO_THROTTLE);
+                    "Executor", false), adminClient, AUTO_THROTTLE);
     Executor executor = new Executor(config, time, new MetricsRegistry(), metadataClient, 86400000L,
             43200000L, notifier,
             getMockAnomalyDetector(RANDOM_UUID),
