@@ -7,7 +7,6 @@ import io.confluent.telemetry.exporter.http.HttpExporterConfig;
 import io.confluent.telemetry.exporter.kafka.KafkaExporter;
 import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 import java.util.Map;
-import java.util.regex.PatternSyntaxException;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.config.ConfigException;
@@ -39,9 +38,8 @@ public class KafkaServerMetricsReporterTest {
             ConfluentTelemetryConfig.EXPORTER_KAFKA_ENABLED_CONFIG, "false",
             ConfluentTelemetryConfig.WHITELIST_CONFIG, "(.",
             KafkaConfig.BrokerIdProp(), "1");
-        reporter.configure(configs);
-        assertThatThrownBy(() -> reporter.onUpdate(new ClusterResource("clusterid")))
-            .isInstanceOf(PatternSyntaxException.class);
+        assertThatThrownBy(() -> reporter.configure(configs))
+            .isInstanceOf(ConfigException.class);
     }
 
     @Test

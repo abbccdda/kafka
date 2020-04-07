@@ -570,4 +570,48 @@ public class YammerMetricsCollectorTest {
     result = exporter.emittedMetrics();
     assertThat(result).hasSize(6);
   }
+
+  @Test
+  public void testCollectFilterDynamicWhitelist() {
+    metricsRegistry.newGauge(metricName,
+        new Gauge<Integer>() {
+          @Override
+          public Integer value() {
+            return 100;
+          }
+        });
+
+    metricsRegistry.newGauge(
+        new MetricName("group2", "gauge", "testDoNotInclude", "scope"),
+        new Gauge<Integer>() {
+          @Override
+          public Integer value() {
+            return 999;
+          }
+        });
+
+    // start with everything
+    exporter.reset();
+    YammerMetricsCollector collector = collectorBuilder
+        .setMetricWhitelistFilter(key -> true)
+        .setContext(context)
+        .build();
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
+    assertThat(result).hasSize(2);
+
+    // reconfigure to exclude
+    exporter.reset();
+    collector.reconfigureWhitelist(key -> !key.getName().contains("test_do_not_include"));
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
+    assertThat(result).hasSize(1);
+
+    // reconfigure back to everything
+    exporter.reset();
+    collector.reconfigureWhitelist(key -> true);
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
+    assertThat(result).hasSize(2);
+  }
 }

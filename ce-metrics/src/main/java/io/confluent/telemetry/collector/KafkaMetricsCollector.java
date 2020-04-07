@@ -26,7 +26,6 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
 
-import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsUtils;
@@ -40,7 +39,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
     public static final String KAFKA_METRICS_LIB = "kafka";
     private static final Logger log = LoggerFactory.getLogger(KafkaMetricsCollector.class);
     private final StateLedger ledger;
-    private final Predicate<MetricKey> metricWhitelistFilter;
+    private volatile Predicate<MetricKey> metricWhitelistFilter;
     private final Context context;
 
     private final String domain;
@@ -64,6 +63,11 @@ public class KafkaMetricsCollector implements MetricsCollector {
         this.domain = domain;
         this.clock = clock;
         this.ledger = ledger;
+    }
+
+    @Override
+    public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
+        this.metricWhitelistFilter = whitelistPredicate;
     }
 
     @Override
@@ -224,14 +228,6 @@ public class KafkaMetricsCollector implements MetricsCollector {
         return new MetricKey(name, labels);
     }
 
-    /**
-     * Create a new Builder using values from the {@link ConfluentTelemetryConfig}.
-     */
-    public static Builder newBuilder(ConfluentTelemetryConfig config) {
-      return newBuilder()
-          .setMetricWhitelistFilter(config.getMetricWhitelistFilter());
-    }
-
     public static Builder newBuilder() {
         return new Builder();
     }
@@ -260,7 +256,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
             this.domain = domain;
             return this;
         }
-        
+
         public Builder setClock(Clock clock) {
             this.clock = Objects.requireNonNull(clock);
             return this;

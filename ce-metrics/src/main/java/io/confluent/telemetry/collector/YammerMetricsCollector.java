@@ -27,7 +27,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
 
 import io.confluent.metrics.YammerMetricsUtils;
-import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsUtils;
@@ -49,7 +48,7 @@ public class YammerMetricsCollector implements MetricsCollector {
 
     private String domain;
     private MetricsRegistry metricsRegistry;
-    private Predicate<MetricKey> metricWhitelistFilter;
+    private volatile Predicate<MetricKey> metricWhitelistFilter;
     private Context context;
     private final Clock clock;
     private final LastValueTracker<Long> longDeltas;
@@ -67,6 +66,11 @@ public class YammerMetricsCollector implements MetricsCollector {
         this.doubleDeltas = doubleDeltas;
 
         this.setupMetricListener();
+    }
+
+    @Override
+    public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
+        this.metricWhitelistFilter = whitelistPredicate;
     }
 
     private void setupMetricListener() {
@@ -342,14 +346,6 @@ public class YammerMetricsCollector implements MetricsCollector {
 
         return context
             .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.SUMMARY, labels, point);
-    }
-
-    /**
-     * Create a new Builder using values from the {@link ConfluentTelemetryConfig}.
-     */
-    public static Builder newBuilder(ConfluentTelemetryConfig config) {
-        return newBuilder()
-            .setMetricWhitelistFilter(config.getMetricWhitelistFilter());
     }
 
     public static Builder newBuilder() {

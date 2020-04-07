@@ -84,7 +84,7 @@ public class HttpExporterTest {
 
         Context context = new Context(resource, false, false);
         MetricsCollector collector = exporter
-            .collector(new ConfluentTelemetryConfig(minimalConfig), context, "io.confluent");
+            .collector(key -> true, context, "io.confluent");
 
         TestExporter testExporter = new TestExporter();
         collector.collect(testExporter);

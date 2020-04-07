@@ -1,6 +1,7 @@
 package io.confluent.telemetry.collector;
 
 import static io.confluent.telemetry.collector.MetricsTestUtils.toMap;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -82,4 +83,27 @@ public class VolumeMetricsCollectorTest {
     assertTrue(toMap(metric.getMetricDescriptor(), metric.getTimeseries(0)).containsKey("volume"));
   }
 
+  @Test
+  public void collectFilterDynamicWhitelist() {
+    VolumeMetricsCollector metrics = VolumeMetricsCollector.newBuilder()
+        .setContext(context)
+        .setDomain("test")
+        .setUpdatePeriodMs(100L)
+        .setLogDirs(new String[] {System.getProperties().get("java.io.tmpdir").toString()})
+        .setMetricWhitelistFilter(key -> true)
+        .build();
+
+    metrics.collect(exporter);
+    assertThat(exporter.emittedMetrics()).hasSize(2); // disk_total_bytes, disk_usable_bytes
+
+    exporter.reset();
+    metrics.reconfigureWhitelist(key -> key.getName().endsWith("/disk_total_bytes"));
+    metrics.collect(exporter);
+    assertThat(exporter.emittedMetrics()).hasSize(1); // disk_total_bytes
+
+    exporter.reset();
+    metrics.reconfigureWhitelist(key -> true);
+    metrics.collect(exporter);
+    assertThat(exporter.emittedMetrics()).hasSize(2); // disk_total_bytes, disk_usable_bytes
+  }
 }

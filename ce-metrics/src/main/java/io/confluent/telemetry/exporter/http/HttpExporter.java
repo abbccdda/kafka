@@ -22,7 +22,6 @@ import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClientStats;
 import io.confluent.telemetry.client.TelemetryHttpClient;
 import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsRequest;
 import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsResponse;
-import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsUtils;
@@ -94,9 +93,11 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
 
     @Override
     public MetricsCollector collector(
-        ConfluentTelemetryConfig config, Context context, String domain) {
-        Predicate<MetricKey> metricWhitelistFilter = config.getMetricWhitelistFilter();
+        Predicate<MetricKey> whitelistPredicate, Context context, String domain) {
         return new MetricsCollector() {
+
+            private volatile Predicate<MetricKey> metricWhitelistFilter = whitelistPredicate;
+
             @Override
             public void collect(Exporter exporter) {
                 BufferingAsyncTelemetryHttpClientStats stats = bufferingClient.stats();
@@ -172,6 +173,11 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
                                 .build())
                     );
                 }
+            }
+
+            @Override
+            public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
+                this.metricWhitelistFilter = whitelistPredicate;
             }
         };
     }
