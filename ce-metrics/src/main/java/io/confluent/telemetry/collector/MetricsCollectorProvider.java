@@ -1,7 +1,9 @@
 package io.confluent.telemetry.collector;
 
-import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
+import io.confluent.telemetry.MetricKey;
+
+import java.util.function.Predicate;
 
 /**
  * If an Exporter implements this interface, then we will also capture the metrics from this
@@ -9,5 +11,5 @@ import io.confluent.telemetry.Context;
  */
 public interface MetricsCollectorProvider {
 
-    MetricsCollector collector(ConfluentTelemetryConfig config, Context context, String domain);
+    MetricsCollector collector(Predicate<MetricKey> metricsWhitelistFilter, Context context, String domain);
 }

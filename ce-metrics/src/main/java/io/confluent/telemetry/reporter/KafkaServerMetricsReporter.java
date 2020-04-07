@@ -10,6 +10,7 @@ import com.google.common.collect.ImmutableSet.Builder;
 import io.confluent.telemetry.ResourceBuilderFacade;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
+import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsCollectorTask;
 import io.confluent.telemetry.collector.CPUMetricsCollector;
 import io.confluent.telemetry.collector.KafkaMetricsCollector;
@@ -23,10 +24,14 @@ import io.confluent.telemetry.exporter.http.HttpExporterConfig;
 import io.confluent.telemetry.exporter.kafka.KafkaExporter;
 import io.opencensus.proto.resource.v1.Resource;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
+
 import kafka.metrics.KafkaYammerMetrics;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.ClusterResourceListener;
@@ -34,6 +39,7 @@ import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.MetricsReporter;
 import org.apache.kafka.common.utils.AppInfoParser;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,7 +58,9 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
     @VisibleForTesting
     public static final String LABEL_BROKER_RACK = "broker.rack";
 
+    private ConfluentTelemetryConfig originalConfig;
     private ConfluentTelemetryConfig config;
+
     private MetricsCollectorTask collectorTask;
     private KafkaMetricsCollector.StateLedger kafkaMetricsStateLedger = new KafkaMetricsCollector.StateLedger();
     private Set<Exporter> exporters;
@@ -60,7 +68,7 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
     private List<MetricsCollector> collectors;
 
     @Override
-    public void onUpdate(ClusterResource clusterResource) {
+    public synchronized void onUpdate(ClusterResource clusterResource) {
         // prevent this reporter from starting up on clients
         //   note: this is not a completely fail-safe check, it is still possible
         //   for a degenerate client configs to contain broker id configs
@@ -94,16 +102,18 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
 
         Resource resource = resourceBuilderFacade.build();
 
+        Predicate<MetricKey> whitelistPredicate = this.config.buildMetricWhitelistFilter();
         Context ctx = new Context(resource, config.getBoolean(ConfluentTelemetryConfig.DEBUG_ENABLED), true);
 
 
-        this.collectors = this.initCollectors(ctx);
+        this.collectors = this.initCollectors(ctx, whitelistPredicate);
 
         this.collectorTask = new MetricsCollectorTask(
             ctx,
             exporters,
             collectors,
-            config.getLong(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG));
+            config.getLong(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG),
+            whitelistPredicate);
 
         this.collectorTask.start();
     }
@@ -112,8 +122,9 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
      * Configure this class with the given key-value pairs
      */
     @Override
-    public void configure(Map<String, ?> configs) {
-        this.config = new ConfluentTelemetryConfig(configs);
+    public synchronized void configure(Map<String, ?> configs) {
+        this.originalConfig = new ConfluentTelemetryConfig(configs);
+        this.config = originalConfig;
         this.kafkaMetricsStateLedger.configure(configs);
 
         this.exporters = initExporters();
@@ -121,7 +132,23 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
 
     /* Implementing Reconfigurable interface to make this reporter dynamically reconfigurable. */
     @Override
-    public void reconfigure(Map<String, ?> configs) {
+    public synchronized void reconfigure(Map<String, ?> configs) {
+
+        // start with original configs from properties file
+        Map<String, Object> newConfig = new HashMap<>(this.originalConfig.originals());
+
+        // put all filtered configs (avoid applying configs that are not dynamic)
+        // TODO: remove once this is fixed https://confluentinc.atlassian.net/browse/CPKAFKA-4828
+        newConfig.putAll(onlyReconfigurables(configs));
+
+        this.config = new ConfluentTelemetryConfig(newConfig);
+
+        Predicate<MetricKey> whitelistPredicate = this.config.buildMetricWhitelistFilter();
+        for (MetricsCollector collector : collectors) {
+            collector.reconfigureWhitelist(whitelistPredicate);
+        }
+        this.collectorTask.reconfigureWhitelist(whitelistPredicate);
+
         // HttpExporter related reconfigurations.
         for (Exporter exporter : this.exporters) {
             if (exporter instanceof HttpExporter) {
@@ -132,7 +159,7 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
 
     @Override
     public Set<String> reconfigurableConfigs() {
-        Set<String> reconfigurables = new HashSet<String>();
+        Set<String> reconfigurables = new HashSet<String>(ConfluentTelemetryConfig.RECONFIGURABLES);
 
         // HttpExporterConfig related reconfigurable configs.
         reconfigurables.addAll(HttpExporterConfig.RECONFIGURABLE_CONFIGS);
@@ -142,24 +169,28 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
 
     @Override
     public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
+        ConfluentTelemetryConfig.validateReconfiguration(configs);
         // Validating HttpExporterConfig related reconfigurable configs.
         HttpExporterConfig.validateReconfiguration(configs);
     }
 
-    private List<MetricsCollector> initCollectors(Context ctx) {
+    private List<MetricsCollector> initCollectors(Context ctx, Predicate<MetricKey> whitelistPredicate) {
         ImmutableList.Builder<MetricsCollector> collectors = ImmutableList.builder();
+
         collectors.add(
-            KafkaMetricsCollector.newBuilder(config)
+            KafkaMetricsCollector.newBuilder()
                 .setContext(ctx)
                 .setDomain(DOMAIN)
                 .setLedger(kafkaMetricsStateLedger)
+                .setMetricWhitelistFilter(whitelistPredicate)
                 .build()
         );
 
         collectors.add(
-            CPUMetricsCollector.newBuilder(config)
+            CPUMetricsCollector.newBuilder()
                 .setDomain(DOMAIN)
                 .setContext(ctx)
+                .setMetricWhitelistFilter(whitelistPredicate)
                 .build()
         );
 
@@ -167,20 +198,22 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
             VolumeMetricsCollector.newBuilder(config)
                 .setContext(ctx)
                 .setDomain(DOMAIN)
+                .setMetricWhitelistFilter(whitelistPredicate)
                 .build()
         );
 
         collectors.add(
-            YammerMetricsCollector.newBuilder(config)
+            YammerMetricsCollector.newBuilder()
                 .setContext(ctx)
                 .setDomain(DOMAIN)
                 .setMetricsRegistry(KafkaYammerMetrics.defaultRegistry())
+                .setMetricWhitelistFilter(whitelistPredicate)
                 .build()
         );
 
         for (Exporter exporter : this.exporters) {
             if (exporter instanceof MetricsCollectorProvider) {
-                collectors.add(((MetricsCollectorProvider) exporter).collector(config, ctx, DOMAIN));
+                collectors.add(((MetricsCollectorProvider) exporter).collector(whitelistPredicate, ctx, DOMAIN));
             }
         }
 
@@ -256,4 +289,9 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
         this.kafkaMetricsStateLedger.metricRemoval(metric);
     }
 
+    private Map<String, ?> onlyReconfigurables(Map<String, ?> originals) {
+       return reconfigurableConfigs().stream()
+            .filter(c -> originals.containsKey(c))
+            .collect(Collectors.toMap(c -> c, c -> originals.get(c)));
+    }
 }

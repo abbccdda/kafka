@@ -9,12 +9,14 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
 
 import io.confluent.telemetry.collector.MetricsCollector;
 import io.confluent.telemetry.exporter.Exporter;
@@ -22,7 +24,7 @@ import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
 import io.opencensus.proto.metrics.v1.Point;
 
-public class MetricsCollectorTask {
+public class MetricsCollectorTask implements MetricsCollector {
 
     private static final Logger log = LoggerFactory.getLogger(MetricsCollectorTask.class);
 
@@ -32,8 +34,12 @@ public class MetricsCollectorTask {
     private final Collection<MetricsCollector> collectors;
     private final long collectIntervalMs;
     private final ConcurrentMap<MetricsCollector, AtomicLong> metricsCollected = new ConcurrentHashMap<>();
+    private volatile Predicate<MetricKey> whitelistPredicate;
 
-    public MetricsCollectorTask(Context ctx, Set<Exporter> exporters, Collection<MetricsCollector> collectors, long collectIntervalMs) {
+    public MetricsCollectorTask(
+        Context ctx, Set<Exporter> exporters, Collection<MetricsCollector> collectors,
+        long collectIntervalMs, Predicate<MetricKey> whitelistPredicate
+    ) {
         Verify.verify(collectIntervalMs > 0, "collection interval cannot be less than 1");
 
         this.exporters = Objects.requireNonNull(exporters);
@@ -42,6 +48,7 @@ public class MetricsCollectorTask {
         this.collectors = Objects.requireNonNull(collectors);
         this.context = Objects.requireNonNull(ctx);
         this.collectIntervalMs = collectIntervalMs;
+        this.whitelistPredicate = whitelistPredicate;
 
         executor.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
         executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
@@ -89,7 +96,7 @@ public class MetricsCollectorTask {
             collector.collect(exporter);
             long metricCount = collectedMetricsCount.getAndSet(0);
             log.trace("Collected {} metrics from {}", metricCount, collector);
-            exporter.emit(buildMetricsCollectedMetric(collector, metricCount));
+            buildMetricsCollectedMetric(collector, metricCount).ifPresent(m -> exporter.emit(m));
         } catch (Throwable t) {
             log.error("Error while collecting metrics for {}", collector, t);
         }
@@ -103,18 +110,35 @@ public class MetricsCollectorTask {
      * Builds a Metric for the total number of metrics that have been collected (including the
      * additionalMetrics) for the collector.
      */
-    private Metric buildMetricsCollectedMetric(MetricsCollector collector, long metricCount) {
+    private Optional<Metric> buildMetricsCollectedMetric(MetricsCollector collector, long metricCount) {
+        String metricName = "io.confluent.telemetry/metrics_collector_task/metrics_collected_total/delta";
         String collectorName = collector.getClass().getSimpleName();
         Map<String, String> labels = new HashMap<>();
         labels.put(MetricsCollector.LABEL_COLLECTOR, collectorName);
         if (context.isDebugEnabled()) {
             labels.put(MetricsCollector.LABEL_LIBRARY, MetricsCollector.LIBRARY_NONE);
         }
-        return context.metricWithSinglePointTimeseries(
-            "io.confluent.telemetry/metrics_collector_task/metrics_collected_total/delta",
-            Type.CUMULATIVE_INT64,
-            labels,
-            Point.newBuilder().setTimestamp(MetricsUtils.now()).setInt64Value(metricCount).build()
-        );
+
+        if (whitelistPredicate.test(new MetricKey(metricName, labels))) {
+            return Optional.of(
+                context.metricWithSinglePointTimeseries(
+                    metricName,
+                    Type.CUMULATIVE_INT64,
+                    labels,
+                    Point.newBuilder().setTimestamp(MetricsUtils.now()).setInt64Value(metricCount).build()
+                )
+            );
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    public void collect(Exporter exporter) {
+        // noop
+    }
+
+    @Override
+    public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
+        this.whitelistPredicate = whitelistPredicate;
     }
 }

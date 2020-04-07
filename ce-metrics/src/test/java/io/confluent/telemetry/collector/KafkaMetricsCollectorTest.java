@@ -2,6 +2,7 @@ package io.confluent.telemetry.collector;
 
 
 import static io.confluent.telemetry.collector.MetricsTestUtils.toMap;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -17,6 +18,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.metrics.Gauge;
 import org.apache.kafka.common.metrics.Measurable;
@@ -347,5 +349,117 @@ public class KafkaMetricsCollectorTest {
     assertEquals("Types should match", Type.GAUGE_DOUBLE, counter.getMetricDescriptor().getType());
     assertEquals("Labels should match", labels, toMap(counter.getMetricDescriptor(), counter.getTimeseries(0)));
     assertEquals("Value should match", 100L, counter.getTimeseries(0).getPoints(0).getDoubleValue(), 1e-9);
+  }
+
+  @Test
+  public void testCollectFilterDynamicWhitelist() {
+    metrics.addMetric(metricName, new Measurable() {
+      public double measure(MetricConfig config, long now) {
+        return 100.0;
+      }
+    });
+    metrics.addMetric(metrics.metricName("name2", "group2", tags), new Measurable() {
+      public double measure(MetricConfig config, long now) {
+        return 100.0;
+      }
+    });
+    ledger = new KafkaMetricsCollector.StateLedger();
+    metrics.addReporter(ledger);
+    KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
+        .setContext(context)
+        .setDomain("test-domain")
+        .setLedger(ledger)
+        .setMetricWhitelistFilter(key -> true)
+        .build();
+
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
+    assertThat(result).hasSize(3);  // name1, name2, count
+
+    exporter.reset();
+    collector.reconfigureWhitelist(key -> key.getName().endsWith("/count"));
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
+    assertThat(result).hasSize(1);  // count
+
+    exporter.reset();
+    collector.reconfigureWhitelist(key -> key.getName().contains("name"));
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
+    assertThat(result).hasSize(2);  // name1, name2
+
+    exporter.reset();
+    collector.reconfigureWhitelist(key -> true);
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
+    assertThat(result).hasSize(3);  // name1, name2, count
+  }
+
+  @Test
+  public void testCollectFilterWithDerivedMetrics() {
+    MetricName name1 = metrics.metricName("nonMeasurable", "group1", tags);
+    MetricName name2 = metrics.metricName("windowed", "group1", tags);
+    MetricName name3 = metrics.metricName("cumulative", "group1", tags);
+
+    metrics.addMetric(name1, (Gauge<Double>) (config, now) -> 99d);
+
+    Sensor sensor = metrics.sensor("test");
+    sensor.add(name2, new WindowedCount());
+    sensor.add(name3, new CumulativeSum());
+
+    ledger = new KafkaMetricsCollector.StateLedger();
+    metrics.addReporter(ledger);
+
+    KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
+        .setContext(context)
+        .setDomain("test-domain")
+        .setLedger(ledger)
+        .build();
+
+
+    collector.collect(exporter);
+    List<Metric> result = exporter.emittedMetrics();
+
+    // no-filter shall result in all 6 data metrics.
+    assertThat(result).hasSize(6);
+
+    exporter.reset();
+    collector = KafkaMetricsCollector.newBuilder()
+        .setContext(context)
+        .setDomain("test-domain")
+        .setLedger(ledger)
+        .setMetricWhitelistFilter(metric -> !metric.getName().endsWith("/count"))
+        .build();
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
+
+    // Drop metrics for Count type (Measurable metric but other that Windowed or Cumulative).
+    assertThat(result).hasSize(5);
+
+    exporter.reset();
+    collector = KafkaMetricsCollector.newBuilder()
+        .setContext(context)
+        .setDomain("test-domain")
+        .setLedger(ledger)
+        .setMetricWhitelistFilter(metric -> !metric.getName().endsWith("/non_measurable"))
+        .build();
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
+
+    // Drop non-measurable metric.
+    assertThat(result).hasSize(5);
+
+    exporter.reset();
+    collector = KafkaMetricsCollector.newBuilder()
+        .setContext(context)
+        .setDomain("test-domain")
+        .setLedger(ledger)
+        .setMetricWhitelistFilter(metric -> !metric.getName().endsWith("/delta"))
+        .build();
+    collector.collect(exporter);
+    result = exporter.emittedMetrics();
+
+    // Drop all delta derived metrics.
+    assertThat(result).hasSize(4);
   }
 }

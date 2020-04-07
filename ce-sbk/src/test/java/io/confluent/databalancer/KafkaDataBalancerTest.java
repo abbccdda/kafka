@@ -123,8 +123,7 @@ public class KafkaDataBalancerTest {
     @Test
     public void testGenerateRegexNoTopicsOrPrefixes() {
         // test without TOPIC_PREFIXES or TOPIC_NAMES set
-        KafkaDataBalancer kafkaDataBalancer = new KafkaDataBalancer(initConfig);
-        String regex = kafkaDataBalancer.generateRegex(initConfig);
+        String regex = KafkaDataBalancer.generateCcTopicExclusionRegex(initConfig);
         assertEquals("Unexpected regex generated", "", regex);
     }
 
@@ -135,8 +134,7 @@ public class KafkaDataBalancerTest {
         brokerProps.put(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG, topicName);
 
         KafkaConfig config = new KafkaConfig(brokerProps);
-        KafkaDataBalancer kafkaDataBalancer = new KafkaDataBalancer(config);
-        String regex = kafkaDataBalancer.generateRegex(config);
+        String regex = KafkaDataBalancer.generateCcTopicExclusionRegex(config);
 
         assertEquals("Unexpected regex generated", "^\\Qtopic1\\E$", regex);
         assertTrue("Expected exact topic name to match", topicName.matches(regex));
@@ -152,8 +150,7 @@ public class KafkaDataBalancerTest {
         brokerProps.put(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, topicPrefix);
 
         KafkaConfig config = new KafkaConfig(brokerProps);
-        KafkaDataBalancer kafkaDataBalancer = new KafkaDataBalancer(config);
-        String regex = kafkaDataBalancer.generateRegex(config);
+        String regex = KafkaDataBalancer.generateCcTopicExclusionRegex(config);
 
         assertEquals("Unexpected regex generated", "^\\Qprefix1\\E.*", regex);
         assertTrue("Expected exact topic prefix to match", topicPrefix.matches(regex));
@@ -169,8 +166,7 @@ public class KafkaDataBalancerTest {
         brokerProps.put(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, topicPrefixes);
 
         KafkaConfig config = new KafkaConfig(brokerProps);
-        KafkaDataBalancer kafkaDataBalancer = new KafkaDataBalancer(config);
-        String regex = kafkaDataBalancer.generateRegex(config);
+        String regex = KafkaDataBalancer.generateCcTopicExclusionRegex(config);
 
         // topic names/prefixes are wrapped in \\Q \\E as a result of Pattern.quote to ignore metacharacters present in the topic
         assertEquals("Unexpected regex generated", "^\\Qtopic1\\E$|^\\Qtop.c2\\E$|^\\Qtest-topic\\E$|" +
@@ -323,8 +319,41 @@ public class KafkaDataBalancerTest {
 
         assertEquals(expectedGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.GOALS_CONFIG));
         assertEquals(testDefaultGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG));
+    }
 
+    @Test
+    public void testGenerateCruiseControlExclusionConfig() {
+        // Add required properties
+        final String sampleZkString = "zookeeper-1-internal.pzkc-ldqwz.svc.cluster.local:2181,zookeeper-2-internal.pzkc-ldqwz.svc.cluster.local:2181/testKafkaCluster";
+        String bootstrapServersConfig = ConfluentConfigs.CONFLUENT_BALANCER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
+        String bootstrapServers =  "localhost:9092";
 
+        brokerProps.put(bootstrapServersConfig, bootstrapServers);
+
+        // Set topic exclusions (same as above tests)
+        String topicNames = "topic1, top.c2, test-topic";
+        String topicPrefixes = "prefix1, pref*x2";
+        brokerProps.put(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG, topicNames);
+        brokerProps.put(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, topicPrefixes);
+
+        KafkaConfig config = new KafkaConfig(brokerProps);
+        KafkaCruiseControlConfig ccConfig = KafkaDataBalancer.generateCruiseControlConfig(config);
+
+        // Validate that the CruiseControl regex behaves as we would expect
+        String configRegex = ccConfig.getString(KafkaCruiseControlConfig.TOPICS_EXCLUDED_FROM_PARTITION_MOVEMENT_CONFIG);
+
+        assertTrue("Expected exact topic name to match", "topic1".matches(configRegex));
+        assertTrue("Expected exact topic name to match", "test-topic".matches(configRegex));
+        assertTrue("Expected exact topic name with metadata characters to match", "top.c2".matches(configRegex));
+        assertTrue("Expected prefix to match topic name", "prefix1-xyz".matches(configRegex));
+        assertTrue("Expected prefix to match exact topic name", "prefix1".matches(configRegex));
+
+        assertFalse("Expected partial topic name not to match", "topic1-name".matches(configRegex));
+        assertFalse("Expected topicPrefix value present in middle of topic name not to match", "abc-prefix1-xyz".matches(configRegex));
+        assertFalse("Expected topicPrefix value as suffix not to match", "abc-prefix1".matches(configRegex));
+        assertFalse("Expected topicName value as suffix in topic name not to match", "abc-topic1".matches(configRegex));
+        assertFalse("Expected topicName with regex metacharacters to be treated as a literal", "topic2".matches(configRegex));
+        assertFalse("Expected topicPrefix with regex metacharacters to be treated as a literal", "prefix2".matches(configRegex));
     }
 
     @Test

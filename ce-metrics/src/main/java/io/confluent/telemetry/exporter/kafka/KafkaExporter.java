@@ -18,9 +18,11 @@ import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
 
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
+import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsUtils;
 import io.confluent.telemetry.collector.MetricsCollector;
 import io.confluent.telemetry.collector.MetricsCollectorProvider;
@@ -160,8 +162,9 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
     }
 
     @Override
-    public MetricsCollector collector(ConfluentTelemetryConfig config, Context context, String domain) {
+    public MetricsCollector collector(Predicate<MetricKey> whitelistPredicate, Context context, String domain) {
         return new MetricsCollector() {
+            private volatile Predicate<MetricKey> metricsWhitelistFilter = whitelistPredicate;
             long lastDroppedEventCount = 0;
             @Override
             public void collect(Exporter exporter) {
@@ -169,12 +172,23 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
                 long droppedDelta = droppedTotal - lastDroppedEventCount;
                 lastDroppedEventCount = droppedTotal;
 
-                exporter.emit(context.metricWithSinglePointTimeseries(
-                    "io.confluent.telemetry/exporter/kafka/dropped/delta",
-                    Type.CUMULATIVE_INT64,
-                    Collections.emptyMap(),
-                    Point.newBuilder().setTimestamp(MetricsUtils.now()).setInt64Value(droppedDelta).build()
-                ));
+                String metricName = "io.confluent.telemetry/exporter/kafka/dropped/delta";
+                Map<String, String> metricLabels = Collections.emptyMap();
+                if (metricsWhitelistFilter.test(new MetricKey(metricName, metricLabels))) {
+                    exporter.emit(
+                        context.metricWithSinglePointTimeseries(
+                            metricName,
+                            Type.CUMULATIVE_INT64,
+                            metricLabels,
+                            Point.newBuilder().setTimestamp(MetricsUtils.now()).setInt64Value(droppedDelta).build()
+                        )
+                    );
+                }
+            }
+
+            @Override
+            public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
+                this.metricsWhitelistFilter = whitelistPredicate;
             }
         };
     }

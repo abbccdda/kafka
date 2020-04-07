@@ -21,7 +21,7 @@ public class ConfluentTelemetryConfigTest {
   public void metricFilterDefaults() {
     ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
 
-    Predicate<MetricKey> filter = config.getMetricWhitelistFilter();
+    Predicate<MetricKey> filter = config.buildMetricWhitelistFilter();
 
     assertTrue(filter.test(new MetricKey("foobar/bytes_in_per_sec/total", Collections.emptyMap())));
     assertFalse(filter.test(new MetricKey("foobar/bytes_in_per_asdfsec/total",
@@ -34,7 +34,7 @@ public class ConfluentTelemetryConfigTest {
 
     ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
 
-    Predicate<MetricKey> filter = config.getMetricWhitelistFilter();
+    Predicate<MetricKey> filter = config.buildMetricWhitelistFilter();
 
     assertFalse(filter.test(new MetricKey("foobar/bytes_in_per_sec/total", Collections.emptyMap())));
     assertTrue(filter.test(new MetricKey("foobar/only_match_me/total",
@@ -47,7 +47,7 @@ public class ConfluentTelemetryConfigTest {
 
     ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
 
-    Predicate<MetricKey> filter = config.getMetricWhitelistFilter();
+    Predicate<MetricKey> filter = config.buildMetricWhitelistFilter();
 
     assertEquals(ConfluentTelemetryConfig.ALWAYS_TRUE, filter);
   }
@@ -58,7 +58,7 @@ public class ConfluentTelemetryConfigTest {
 
     ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
 
-    Predicate<MetricKey> filter = config.getMetricWhitelistFilter();
+    Predicate<MetricKey> filter = config.buildMetricWhitelistFilter();
 
     // Below metric shall not be included as its not matching the given regex. Hence use `Matches`
     // method of `Pattern` class instead of `Find` method. Always check for complete string match

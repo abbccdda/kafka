@@ -82,7 +82,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
 
     public static final String VOLUME_LABEL = "volume";
     private static final Logger log = LoggerFactory.getLogger(VolumeMetricsCollector.class);
-    private final Predicate<MetricKey> metricWhitelistFilter;
+    private volatile Predicate<MetricKey> metricWhitelistFilter;
 
     /**
      * The last update time in monotonic nanoseconds.
@@ -122,6 +122,11 @@ public class VolumeMetricsCollector implements MetricsCollector {
         String domain = builder.domain;
         diskTotalBytesName = MetricsUtils.fullMetricName(domain, "volume", "disk_total_bytes");
         diskUsableBytesName = MetricsUtils.fullMetricName(domain, "volume", "disk_usable_bytes");
+    }
+
+    @Override
+    public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
+        this.metricWhitelistFilter = whitelistPredicate;
     }
 
     private synchronized Map<String, String> labelsFor(String volumeName) {
@@ -278,7 +283,6 @@ public class VolumeMetricsCollector implements MetricsCollector {
     public static Builder newBuilder(ConfluentTelemetryConfig config) {
         VolumeMetricsCollectorConfig collectorConfig = config.getVolumeMetricsCollectorConfig();
         return new Builder()
-            .setMetricWhitelistFilter(config.getMetricWhitelistFilter())
             .setLogDirs(collectorConfig.getBrokerLogVolumes())
             .setUpdatePeriodMs(collectorConfig.getUpdatePeriodMs());
     }

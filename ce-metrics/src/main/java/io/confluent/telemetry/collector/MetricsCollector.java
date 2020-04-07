@@ -1,7 +1,10 @@
 package io.confluent.telemetry.collector;
 
 
+import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.exporter.Exporter;
+
+import java.util.function.Predicate;
 
 // A collector is responsible for scraping a source of metrics and converting them to the canonical format
 // For eg: we will have collectors for system metrics, kafka metrics, yammer metrics, opencensus metric ....
@@ -28,4 +31,10 @@ public interface MetricsCollector {
     String LABEL_ORIGINAL = "metric_name_original";
 
     void collect(Exporter exporter);
+
+    /**
+     * Reconfigure the metrics whitelist predicate.
+     * @param whitelistPredicate whitelist predicate to switch to
+     */
+    void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate);
 }

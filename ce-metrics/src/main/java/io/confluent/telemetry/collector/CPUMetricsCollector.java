@@ -13,7 +13,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Predicate;
 
-import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsUtils;
@@ -27,7 +26,7 @@ public class CPUMetricsCollector implements MetricsCollector {
 
     private final String domain;
     private final Context context;
-    private final Predicate<MetricKey> metricWhitelistFilter;
+    private volatile Predicate<MetricKey> metricWhitelistFilter;
     private final Optional<com.sun.management.OperatingSystemMXBean> osBean;
 
     public CPUMetricsCollector(Context ctx, String domain,
@@ -45,12 +44,9 @@ public class CPUMetricsCollector implements MetricsCollector {
         }
     }
 
-    /**
-     * Create a new Builder using values from the {@link ConfluentTelemetryConfig}.
-     */
-    public static Builder newBuilder(ConfluentTelemetryConfig config) {
-        return newBuilder()
-            .setMetricWhitelistFilter(config.getMetricWhitelistFilter());
+    @Override
+    public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
+        this.metricWhitelistFilter = whitelistPredicate;
     }
 
     @Override

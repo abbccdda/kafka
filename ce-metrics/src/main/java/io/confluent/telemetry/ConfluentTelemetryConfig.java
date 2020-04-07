@@ -7,11 +7,16 @@ import io.confluent.telemetry.collector.VolumeMetricsCollector.VolumeMetricsColl
 import io.confluent.telemetry.exporter.http.HttpExporterConfig;
 import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
+
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
+import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.utils.Utils;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -21,6 +26,8 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public class ConfluentTelemetryConfig extends AbstractConfig {
+
+    public static final Set<String> RECONFIGURABLES = Utils.mkSet(ConfluentTelemetryConfig.WHITELIST_CONFIG);
 
     public static final String PREFIX = "confluent.telemetry.";
     public static final String PREFIX_LABELS = PREFIX + "labels.";
@@ -109,12 +116,28 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
                 COLLECT_INTERVAL_CONFIG,
                 ConfigDef.Type.LONG,
                 DEFAULT_COLLECT_INTERVAL,
+                ConfigDef.Range.atLeast(1),
                 ConfigDef.Importance.LOW,
                 COLLECT_INTERVAL_DOC
         ).define(
                 WHITELIST_CONFIG,
                 ConfigDef.Type.STRING,
                 DEFAULT_WHITELIST,
+                new ConfigDef.Validator() {
+                    @Override
+                    public void ensureValid(String name, Object value) {
+                        String regexString = value.toString();
+                        try {
+                            Pattern.compile(regexString);
+                        } catch (PatternSyntaxException e) {
+                            throw new ConfigException(
+                                "Metrics filter for configuration "
+                                + name
+                                + " is not a valid regular expression"
+                            );
+                        }
+                    }
+                },
                 ConfigDef.Importance.LOW,
                 WHITELIST_DOC
         ).define(
@@ -151,7 +174,11 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     private final VolumeMetricsCollectorConfig volumeMetricsCollectorConfig;
 
     public ConfluentTelemetryConfig(Map<String, ?> originals) {
-        super(CONFIG, DEPRECATION_TRANSLATER.translate(originals));
+        this(originals, true);
+    }
+
+    public ConfluentTelemetryConfig(Map<String, ?> originals, boolean doLog) {
+        super(CONFIG, DEPRECATION_TRANSLATER.translate(originals), doLog);
         this.volumeMetricsCollectorConfig = new VolumeMetricsCollectorConfig(originals);
     }
 
@@ -180,12 +207,17 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         return Optional.ofNullable((String) originals().get(KafkaConfig.RackProp()));
     }
 
-    /**
-     * Get a predicate that filters metrics based on the whitelist configuration.
-     */
-    public Predicate<MetricKey> getMetricWhitelistFilter() {
+    public String getMetricsWhitelistRegex() {
+        return getString(ConfluentTelemetryConfig.WHITELIST_CONFIG);
+    }
+
+    public Predicate<MetricKey> buildMetricWhitelistFilter() {
+        return buildMetricWhitelistFilter(getMetricsWhitelistRegex());
+    }
+
+    private static Predicate<MetricKey> buildMetricWhitelistFilter(String regexString) {
         // Configure the PatternPredicate.
-        String regexString = getString(ConfluentTelemetryConfig.WHITELIST_CONFIG).trim();
+        regexString = regexString.trim();
 
         if (regexString.isEmpty()) {
             return ALWAYS_TRUE;
@@ -221,5 +253,10 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
 
     public VolumeMetricsCollectorConfig getVolumeMetricsCollectorConfig() {
         return volumeMetricsCollectorConfig;
+    }
+
+    public static void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
+        // validation should be handled by ConfigDef Validators
+        new ConfluentTelemetryConfig(configs, false);
     }
 }
