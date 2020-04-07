@@ -10,10 +10,14 @@ import com.linkedin.kafka.cruisecontrol.common.TestConstants;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+
+import org.apache.kafka.test.IntegrationTest;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
+@Category(IntegrationTest.class)
 @RunWith(Parameterized.class)
 public class RandomClusterExpDistNewBrokerTest extends RandomClusterTest {
 

@@ -60,6 +60,11 @@ import static org.junit.Assert.assertTrue;
 public class RandomClusterTest {
   private static final Logger LOG = LoggerFactory.getLogger(RandomClusterTest.class);
 
+  private static final int NEW_BROKER_TEST_COUNT = 4;
+  private static final int NEW_REPLICA_TEST_COUNT = 4;
+  private static final int NEW_TOPIC_TEST_COUNT = 4;
+  private static final int INCREASED_REPLICATION_TEST_COUNT = 4;
+
   /**
    * Populate parameters for the {@link OptimizationVerifier}. All brokers are alive.
    *
@@ -101,9 +106,10 @@ public class RandomClusterTest {
 
     Map<ClusterProperty, Number> modifiedProperties;
     // Test: Increase Broker Count
-    for (int i = 1; i <= 6; i++) {
+    int idx = 1;
+    for (; idx <= NEW_BROKER_TEST_COUNT; idx++) {
       modifiedProperties = new HashMap<>();
-      modifiedProperties.put(ClusterProperty.NUM_BROKERS, 20 + i * 20);
+      modifiedProperties.put(ClusterProperty.NUM_BROKERS, 20 + idx * 20);
       p.add(params(modifiedProperties, goalNameByPriority, distribution, balancingConstraint, verifications));
       p.add(params(modifiedProperties, kafkaAssignerGoals, distribution, balancingConstraint, kafkaAssignerVerifications));
     }
@@ -113,25 +119,25 @@ public class RandomClusterTest {
     balancingConstraint = new BalancingConstraint(new KafkaCruiseControlConfig(props));
     balancingConstraint.setResourceBalancePercentage(TestConstants.LOW_BALANCE_PERCENTAGE);
     balancingConstraint.setCapacityThreshold(TestConstants.MEDIUM_CAPACITY_THRESHOLD);
-    for (int i = 7; i <= 12; i++) {
+    for (; idx <= 2 * NEW_REPLICA_TEST_COUNT; idx++) {
       modifiedProperties = new HashMap<>();
-      modifiedProperties.put(ClusterProperty.NUM_REPLICAS, 50001 + (i - 7) * 5001);
+      modifiedProperties.put(ClusterProperty.NUM_REPLICAS, 50001 + (idx - 5) * 5001);
       p.add(params(modifiedProperties, goalNameByPriority, distribution, balancingConstraint, verifications));
       p.add(params(modifiedProperties, kafkaAssignerGoals, distribution, balancingConstraint, kafkaAssignerVerifications));
     }
     // Test: Increase Topic Count
-    for (int i = 13; i <= 18; i++) {
+    for (; idx <= 3 * NEW_TOPIC_TEST_COUNT; idx++) {
       modifiedProperties = new HashMap<>();
-      modifiedProperties.put(ClusterProperty.NUM_TOPICS, 3000 + (i - 13) * 1000);
+      modifiedProperties.put(ClusterProperty.NUM_TOPICS, 3000 + (idx - 9) * 1000);
       p.add(params(modifiedProperties, goalNameByPriority, distribution, balancingConstraint, verifications));
       p.add(params(modifiedProperties, kafkaAssignerGoals, distribution, balancingConstraint, kafkaAssignerVerifications));
     }
     // Test: Increase Replication Count
-    for (int i = 19; i <= 24; i++) {
+    for (; idx <= 4 * INCREASED_REPLICATION_TEST_COUNT; idx++) {
       modifiedProperties = new HashMap<>();
-      modifiedProperties.put(ClusterProperty.NUM_REPLICAS, 50000 - (50000 % (i - 16)));
-      modifiedProperties.put(ClusterProperty.MIN_REPLICATION, i - 16);
-      modifiedProperties.put(ClusterProperty.MAX_REPLICATION, i - 16);
+      modifiedProperties.put(ClusterProperty.NUM_REPLICAS, 50000 - (50000 % (idx - 10)));
+      modifiedProperties.put(ClusterProperty.MIN_REPLICATION, idx - 10);
+      modifiedProperties.put(ClusterProperty.MAX_REPLICATION, idx - 10);
       p.add(params(modifiedProperties, goalNameByPriority, distribution, balancingConstraint, verifications));
       p.add(params(modifiedProperties, kafkaAssignerGoals, distribution, balancingConstraint, kafkaAssignerVerifications));
     }
