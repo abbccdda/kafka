@@ -207,12 +207,11 @@ public class Partition implements Serializable {
   }
 
   /**
-   * @return the set of racks that contains replicas of the partition.
+   * Returns a boolean indicating if replica of this partition are on rack
+   * passed in as argument.
    */
-  public Set<Rack> partitionRacks() {
-    Set<Rack> partitionRacks = new HashSet<>();
-    _replicas.forEach(r -> partitionRacks.add(r.broker().rack()));
-    return partitionRacks;
+  public boolean containsRack(Rack rack) {
+    return _replicas.stream().anyMatch(r -> r.broker().rack().equals(rack));
   }
 
   /**

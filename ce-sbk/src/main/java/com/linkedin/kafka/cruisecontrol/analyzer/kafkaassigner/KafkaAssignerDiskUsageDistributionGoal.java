@@ -458,7 +458,7 @@ public class KafkaAssignerDiskUsageDistributionGoal implements Goal {
   private boolean possibleToMove(Replica replica, Broker destinationBroker, ClusterModel clusterModel) {
     TopicPartition tp = replica.topicPartition();
 
-    boolean case1 = !clusterModel.partition(tp).partitionRacks().contains(destinationBroker.rack());
+    boolean case1 = !clusterModel.partition(tp).containsRack(destinationBroker.rack());
     boolean case2 = replica.broker().rack() == destinationBroker.rack() && destinationBroker.replica(tp) == null;
 
     return case1 || case2;
@@ -477,8 +477,8 @@ public class KafkaAssignerDiskUsageDistributionGoal implements Goal {
    */
   boolean canSwap(Replica r1, Replica r2, ClusterModel clusterModel) {
     boolean inSameRack = r1.broker().rack() == r2.broker().rack() && r1.broker() != r2.broker();
-    boolean rackAware = !clusterModel.partition(r1.topicPartition()).partitionRacks().contains(r2.broker().rack())
-        && !clusterModel.partition(r2.topicPartition()).partitionRacks().contains(r1.broker().rack());
+    boolean rackAware = !clusterModel.partition(r1.topicPartition()).containsRack(r2.broker().rack())
+        && !clusterModel.partition(r2.topicPartition()).containsRack(r1.broker().rack());
     boolean sameRole = r1.isLeader() == r2.isLeader();
     return (inSameRack || rackAware) && sameRole;
   }
