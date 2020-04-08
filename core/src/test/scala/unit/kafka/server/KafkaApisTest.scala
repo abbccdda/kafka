@@ -91,7 +91,7 @@ class KafkaApisTest {
   private val clientRequestQuotaManager: ClientRequestQuotaManager = EasyMock.createNiceMock(classOf[ClientRequestQuotaManager])
   private val replicaQuotaManager: ReplicationQuotaManager = EasyMock.createNiceMock(classOf[ReplicationQuotaManager])
   private val quotas = QuotaManagers(clientQuotaManager, clientQuotaManager, clientRequestQuotaManager,
-    replicaQuotaManager, replicaQuotaManager, replicaQuotaManager, None)
+    replicaQuotaManager, replicaQuotaManager, replicaQuotaManager, replicaQuotaManager, None)
   private val fetchManager: FetchManager = EasyMock.createNiceMock(classOf[FetchManager])
   private val brokerTopicStats = new BrokerTopicStats
   private val clusterId = "clusterId"

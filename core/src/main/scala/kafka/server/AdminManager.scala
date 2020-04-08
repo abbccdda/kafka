@@ -178,13 +178,13 @@ class AdminManager(val config: KafkaConfig,
               javaAssignments, javaConfigs))
 
             if (!validateOnly)
-              adminZkClient.createTopicWithAssignment(topic.name, configs, assignments, createTopicId)
+              adminZkClient.createTopicWithAssignment(topic.name, configs, assignments, createTopicId, None)
 
           case None =>
             if (validateOnly)
               adminZkClient.validateTopicCreate(topic.name, assignments, configs)
             else
-              adminZkClient.createTopicWithAssignment(topic.name, configs, assignments, createTopicId)
+              adminZkClient.createTopicWithAssignment(topic.name, configs, assignments, createTopicId, None)
         }
 
         // For responses with DescribeConfigs permission, populate metadata and configs
@@ -302,7 +302,8 @@ class AdminManager(val config: KafkaConfig,
     val metadata = newPartitions.map { newPartition =>
       val topic = newPartition.name
       try {
-        val existingAssignment = zkClient.getFullReplicaAssignmentForTopics(immutable.Set(topic)).map {
+        val topicInfo = zkClient.getReplicaAssignmentAndTopicIdForTopics(immutable.Set(topic)).head
+        val existingAssignment = topicInfo.assignment.map {
           case (topicPartition, assignment) =>
             if (assignment.isBeingReassigned) {
               // We prevent adding partitions while topic reassignment is in progress, to protect from a race condition
@@ -371,7 +372,7 @@ class AdminManager(val config: KafkaConfig,
         }
 
         val updatedReplicaAssignment = adminZkClient.addPartitions(topic, existingAssignment, allBrokers,
-          newPartition.count, newPartitionsAssignment, validateOnly = validateOnly)
+          newPartition.count, newPartitionsAssignment, validateOnly = validateOnly, clusterLink = topicInfo.clusterLink)
         CreatePartitionsMetadata(topic, updatedReplicaAssignment.keySet, ApiError.NONE)
       } catch {
         case e: AdminOperationException =>

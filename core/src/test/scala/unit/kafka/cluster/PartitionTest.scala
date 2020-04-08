@@ -592,7 +592,7 @@ class PartitionTest {
     mockAliveBrokers(metadataCache, replicas)
 
     when(stateStore.expandIsr(controllerEpoch, new LeaderAndIsr(leader, leaderEpoch,
-      List(leader, follower2, follower1), 1, false)))
+      List(leader, follower2, follower1), 1, false, None)))
       .thenReturn(Some(2))
 
     updateFollowerFetchState(follower1, LogOffsetMetadata(0))
@@ -685,7 +685,7 @@ class PartitionTest {
     }
 
     when(stateStore.expandIsr(controllerEpoch, new LeaderAndIsr(leader, leaderEpoch + 2,
-      List(leader, follower2, follower1), 5, false)))
+      List(leader, follower2, follower1), 5, false, None)))
       .thenReturn(Some(2))
 
     // Next fetch from replicas, HW is moved up to 5 (ahead of the LEO)
@@ -997,7 +997,7 @@ class PartitionTest {
     // fetch from the follower not in ISR from start offset of the current leader epoch should
     // add this follower to ISR
     when(stateStore.expandIsr(controllerEpoch, new LeaderAndIsr(leader, leaderEpoch + 2,
-      List(leader, follower2, follower1), 1, false))).thenReturn(Some(2))
+      List(leader, follower2, follower1), 1, false, None))).thenReturn(Some(2))
     updateFollowerFetchState(follower1, LogOffsetMetadata(currentLeaderEpochStartOffset))
     assertEquals("ISR", Set[Integer](leader, follower1, follower2), partition.inSyncReplicaIds)
   }
@@ -1266,7 +1266,8 @@ class PartitionTest {
       leaderEpoch = leaderEpoch,
       isr = List(brokerId, remoteBrokerId),
       zkVersion = 1,
-      isUnclean = false)
+      isUnclean = false,
+      None)
     when(stateStore.expandIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(Some(2))
 
     partition.updateFollowerFetchState(remoteBrokerId,
@@ -1319,7 +1320,8 @@ class PartitionTest {
       leaderEpoch = leaderEpoch,
       isr = List(brokerId, remoteBrokerId),
       zkVersion = 1,
-      isUnclean = false)
+      isUnclean = false,
+      None)
     when(stateStore.expandIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(None)
 
     partition.updateFollowerFetchState(remoteBrokerId,
@@ -1383,7 +1385,8 @@ class PartitionTest {
       leaderEpoch = leaderEpoch,
       isr = List(brokerId),
       zkVersion = 1,
-      isUnclean = false)
+      isUnclean = false,
+      None)
     when(stateStore.shrinkIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(Some(2))
 
     partition.maybeShrinkIsr()
@@ -1563,7 +1566,8 @@ class PartitionTest {
       leaderEpoch = leaderEpoch,
       isr = List(brokerId),
       zkVersion = 1,
-      isUnclean = false)
+      isUnclean = false,
+      None)
     when(stateStore.shrinkIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(None)
 
     partition.maybeShrinkIsr()
@@ -1656,7 +1660,7 @@ class PartitionTest {
     val removing = Seq(1, 2)
 
     // Test with ongoing reassignment
-    partition.updateAssignmentAndIsr(replicas, isr, adding, removing, Set.empty)
+    partition.updateAssignmentAndIsr(replicas, isr, adding, removing, Set.empty, None)
 
     assertTrue("The assignmentState is not OngoingReassignmentState",
       partition.assignmentState.isInstanceOf[OngoingReassignmentState])
@@ -1669,7 +1673,7 @@ class PartitionTest {
     // Test with simple assignment
     val replicas2 = Seq(0, 3, 4, 5)
     val isr2 = Set(0, 3, 4, 5)
-    partition.updateAssignmentAndIsr(replicas2, isr2, Seq.empty, Seq.empty, Set.empty)
+    partition.updateAssignmentAndIsr(replicas2, isr2, Seq.empty, Seq.empty, Set.empty, None)
 
     assertTrue("The assignmentState is not SimpleAssignmentState",
       partition.assignmentState.isInstanceOf[SimpleAssignmentState])
@@ -1854,7 +1858,7 @@ class PartitionTest {
     assertFalse(partition.isUnderReplicated)
 
     when(stateStore.shrinkIsr(controllerEpoch, LeaderAndIsr(brokerId, leaderEpoch,
-      List(syncReplicaId1, syncReplicaId2), zkVersion, isUnclean = false)))
+      List(syncReplicaId1, syncReplicaId2), zkVersion, isUnclean = false, None)))
       .thenReturn(Some(zkVersion + 1))
 
     partition.maybeShrinkIsr()
@@ -1942,7 +1946,7 @@ class PartitionTest {
       expectedZkVersion += 1
 
       when(stateStore.expandIsr(controllerEpoch,
-        LeaderAndIsr(brokerId, leaderEpoch, expectedIsr.toList, expectedZkVersion - 1, isUnclean = false)))
+        LeaderAndIsr(brokerId, leaderEpoch, expectedIsr.toList, expectedZkVersion - 1, isUnclean = false, None)))
         .thenReturn(Some(expectedZkVersion))
 
       partition.updateFollowerFetchState(replicaId,
@@ -2035,7 +2039,7 @@ class PartitionTest {
     assertTrue(partition.isUnderReplicated)
 
     when(stateStore.expandIsr(controllerEpoch,
-      LeaderAndIsr(brokerId, leaderEpoch, List(syncReplicaId1, syncReplicaId2), zkVersion, isUnclean = false)))
+      LeaderAndIsr(brokerId, leaderEpoch, List(syncReplicaId1, syncReplicaId2), zkVersion, isUnclean = false, None)))
       .thenReturn(Some(zkVersion + 1))
 
     partition.updateFollowerFetchState(syncReplicaId2,
@@ -2112,7 +2116,7 @@ class PartitionTest {
     partition.makeLeader(uncleanLeaderAndIsrPartitionState, offsetCheckpoints)
     assertEquals(true, partition.getIsUncleanLeader)
 
-    val newLeaderAndIsr = new LeaderAndIsr(brokerId, leaderEpoch, isr, zkVersion, isUnclean = false)
+    val newLeaderAndIsr = new LeaderAndIsr(brokerId, leaderEpoch, isr, zkVersion, isUnclean = false, None)
     when(stateStore.clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr)).thenReturn(Some(zkVersion + 1))
 
     // clear unclean leader state
@@ -2183,7 +2187,7 @@ class PartitionTest {
     assertEquals(true, partition.getIsUncleanLeader)
 
     // simulate failed ZK writes
-    val newLeaderAndIsr = new LeaderAndIsr(brokerId, leaderEpoch, isr, zkVersion, isUnclean = false)
+    val newLeaderAndIsr = new LeaderAndIsr(brokerId, leaderEpoch, isr, zkVersion, isUnclean = false, None)
     val numInvocations = new AtomicInteger(0)
     when(stateStore.clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr))
       .thenAnswer(_ => {
@@ -2253,7 +2257,8 @@ class PartitionTest {
       leaderEpoch = leaderEpoch,
       isr = List(brokerId, remoteBrokerId),
       zkVersion = 1,
-      isUnclean = true)
+      isUnclean = true,
+      linkedLeaderEpoch = None)
     when(stateStore.expandIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(Some(2))
 
     partition.updateFollowerFetchState(remoteBrokerId,
@@ -2308,7 +2313,8 @@ class PartitionTest {
       leaderEpoch = leaderEpoch,
       isr = List(brokerId),
       zkVersion = 1,
-      isUnclean = true)
+      isUnclean = true,
+      linkedLeaderEpoch = None)
     when(stateStore.shrinkIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(Some(2))
 
     partition.maybeShrinkIsr()

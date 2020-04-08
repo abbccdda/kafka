@@ -17,6 +17,7 @@
 
 package kafka.server
 
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.util
 import java.util.Optional
@@ -214,10 +215,10 @@ abstract class AbstractFetcherThread(name: String,
   }
 
   // deal with partitions with errors, potentially due to leadership changes
-  private def handlePartitionsWithErrors(partitions: Iterable[TopicPartition], methodName: String): Unit = {
+  protected def handlePartitionsWithErrors(partitions: Map[TopicPartition, Errors], methodName: String): Unit = {
     if (partitions.nonEmpty) {
       debug(s"Handling errors in $methodName for partitions $partitions")
-      delayPartitions(partitions, fetchBackOffMs)
+      delayPartitions(partitions.keySet, fetchBackOffMs)
     }
   }
 
@@ -323,7 +324,7 @@ abstract class AbstractFetcherThread(name: String,
   private def maybeTruncateToEpochEndOffsets(fetchedEpochs: Map[TopicPartition, EpochEndOffset],
                                              latestEpochsForPartitions: Map[TopicPartition, EpochData]): ResultWithPartitions[Map[TopicPartition, OffsetTruncationState]] = {
     val fetchOffsets = mutable.HashMap.empty[TopicPartition, OffsetTruncationState]
-    val partitionsWithError = mutable.HashSet.empty[TopicPartition]
+    val partitionsWithError = mutable.HashMap.empty[TopicPartition, Errors]
 
     fetchedEpochs.foreach { case (tp, leaderEpochOffset) =>
       leaderEpochOffset.error match {
@@ -337,11 +338,11 @@ abstract class AbstractFetcherThread(name: String,
             p =>
               if (p.currentLeaderEpoch.isPresent) Some(p.currentLeaderEpoch.get())
               else None
-          })) partitionsWithError += tp
+          })) partitionsWithError += tp -> Errors.FENCED_LEADER_EPOCH
 
         case error =>
           info(s"Retrying leaderEpoch request for partition $tp as the leader reported an error: $error")
-          partitionsWithError += tp
+          partitionsWithError += tp -> error
       }
     }
 
@@ -405,7 +406,7 @@ abstract class AbstractFetcherThread(name: String,
    * remove the partition if the partition state is NOT updated. Otherwise, keep the partition active.
    * @return true if the epoch in this thread is updated. otherwise, false
    */
-  private def onPartitionFenced(tp: TopicPartition, requestEpoch: Option[Int]): Boolean = inLock(partitionMapLock) {
+  protected def onPartitionFenced(tp: TopicPartition, requestEpoch: Option[Int]): Boolean = inLock(partitionMapLock) {
     Option(partitionStates.stateValue(tp)).exists { currentFetchState =>
       val currentLeaderEpoch = currentFetchState.currentLeaderEpoch
       if (requestEpoch.contains(currentLeaderEpoch)) {
@@ -420,7 +421,7 @@ abstract class AbstractFetcherThread(name: String,
     }
   }
 
-  private def onOffsetTiered(topicPartition: TopicPartition, requestEpoch: Option[Int]): Boolean = {
+  protected def onOffsetTiered(topicPartition: TopicPartition, requestEpoch: Option[Int]): Boolean = {
     try {
       Option(partitionStates.stateValue(topicPartition)).foreach { currentFetchState =>
         val leaderStartOffset = fetchEarliestLocalOffsetFromLeader(topicPartition, currentFetchState.currentLeaderEpoch)
@@ -446,9 +447,16 @@ abstract class AbstractFetcherThread(name: String,
     }
   }
 
+  private def exceptionToError(t: Throwable): Errors = {
+    if (!t.isInstanceOf[IOException])
+      Errors.forException(t)
+    else
+      Errors.NETWORK_EXCEPTION
+  }
+
   private def processFetchRequest(sessionPartitions: util.Map[TopicPartition, FetchRequest.PartitionData],
                                   fetchRequest: FetchRequest.Builder): Unit = {
-    val partitionsWithError = mutable.Set[TopicPartition]()
+    val partitionsWithError = mutable.Map[TopicPartition, Errors]()
     var responseData: Map[TopicPartition, FetchData] = Map.empty
 
     try {
@@ -459,7 +467,7 @@ abstract class AbstractFetcherThread(name: String,
         if (isRunning) {
           warn(s"Error in response for fetch request $fetchRequest", t)
           inLock(partitionMapLock) {
-            partitionsWithError ++= partitionStates.partitionSet.asScala
+            partitionStates.partitionSet.asScala.foreach(tp => partitionsWithError += tp -> exceptionToError(t))
             // there is an error occurred while fetching partitions, sleep a while
             // note that `ReplicaFetcherThread.handlePartitionsWithError` will also introduce the same delay for every
             // partition with error effectively doubling the delay. It would be good to improve this.
@@ -510,7 +518,7 @@ abstract class AbstractFetcherThread(name: String,
                       //    can cause this), we simply continue and should get fixed in the subsequent fetches
                       error(s"Found invalid messages during fetch for partition $topicPartition " +
                         s"offset ${currentFetchState.fetchOffset}", ime)
-                      partitionsWithError += topicPartition
+                      partitionsWithError += topicPartition -> Errors.INVALID_RECORD
                     case e: KafkaStorageException =>
                       error(s"Error while processing data for partition $topicPartition " +
                         s"at offset ${currentFetchState.fetchOffset}", e)
@@ -523,30 +531,31 @@ abstract class AbstractFetcherThread(name: String,
                   }
                 case Errors.OFFSET_OUT_OF_RANGE =>
                   if (handleOutOfRangeError(topicPartition, currentFetchState, requestEpoch))
-                    partitionsWithError += topicPartition
+                    partitionsWithError += topicPartition -> partitionData.error
 
                 case Errors.UNKNOWN_LEADER_EPOCH =>
                   debug(s"Remote broker has a smaller leader epoch for partition $topicPartition than " +
                     s"this replica's current leader epoch of ${currentFetchState.currentLeaderEpoch}.")
-                  partitionsWithError += topicPartition
+                  partitionsWithError += topicPartition -> partitionData.error
 
                 case Errors.FENCED_LEADER_EPOCH =>
-                  if (onPartitionFenced(topicPartition, requestEpoch)) partitionsWithError += topicPartition
+                  if (onPartitionFenced(topicPartition, requestEpoch))
+                    partitionsWithError += topicPartition -> partitionData.error
 
                 case Errors.OFFSET_TIERED =>
                   debug(s"Handling OFFSET_TIERED exception for partition $topicPartition")
                   if (!onOffsetTiered(topicPartition, requestEpoch))
-                    partitionsWithError += topicPartition
+                    partitionsWithError += topicPartition -> partitionData.error
 
                 case Errors.NOT_LEADER_FOR_PARTITION =>
                   debug(s"Remote broker is not the leader for partition $topicPartition, which could indicate " +
                     "that the partition is being moved")
-                  partitionsWithError += topicPartition
+                  partitionsWithError += topicPartition -> partitionData.error
 
                 case _ =>
                   error(s"Error for partition $topicPartition at offset ${currentFetchState.fetchOffset}",
                     partitionData.error.exception)
-                  partitionsWithError += topicPartition
+                  partitionsWithError += topicPartition -> partitionData.error
               }
             }
           }
@@ -845,7 +854,7 @@ abstract class AbstractFetcherThread(name: String,
 object AbstractFetcherThread {
 
   case class ReplicaFetch(partitionData: util.Map[TopicPartition, FetchRequest.PartitionData], fetchRequest: FetchRequest.Builder)
-  case class ResultWithPartitions[R](result: R, partitionsWithError: Set[TopicPartition])
+  case class ResultWithPartitions[R](result: R, partitionsWithError: Map[TopicPartition, Errors])
 
 }
 

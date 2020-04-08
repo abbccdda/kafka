@@ -167,6 +167,8 @@ case class ReplicaAssignment (replicas: Seq[Int],
     s"targetObservers=${targetObservers.map(_.mkString(","))})"
 }
 
+private[controller] case class ClusterLinkName(name: String)
+
 class ControllerContext {
   val stats = new ControllerStats
   var offlinePartitionCount = 0
@@ -178,6 +180,7 @@ class ControllerContext {
 
   val allTopics = mutable.Set.empty[String]
   var topicIds = mutable.Map.empty[String, UUID]
+  val linkedTopics = mutable.Map.empty[String, ClusterLinkName]
   val partitionAssignments = mutable.Map.empty[String, mutable.Map[Int, ReplicaAssignment]]
   val partitionLeadershipInfo = mutable.Map.empty[TopicPartition, LeaderIsrAndControllerEpoch]
   val partitionsBeingReassigned = mutable.Set.empty[TopicPartition]
@@ -393,6 +396,7 @@ class ControllerContext {
   def removeTopic(topic: String): Unit = {
     allTopics -= topic
     topicIds.remove(topic)
+    linkedTopics.remove(topic)
     partitionAssignments.remove(topic)
     partitionLeadershipInfo.foreach { case (topicPartition, _) =>
       if (topicPartition.topic == topic)

@@ -192,7 +192,7 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
     )
 
     // create a topic assignment
-    zkClient.createTopicAssignment(topic1, None, assignment)
+    zkClient.createTopicAssignment(topic1, None, assignment, None)
 
     assertTrue(zkClient.topicExists(topic1))
 
@@ -207,7 +207,7 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
 
     val updatedAssignment = assignment - new TopicPartition(topic1, 2)
 
-    zkClient.setTopicAssignment(topic1, None, updatedAssignment)
+    zkClient.setTopicAssignment(topic1, None, updatedAssignment, None)
     assertEquals(updatedAssignment.size, zkClient.getTopicPartitionCount(topic1).get)
 
     // add second topic
@@ -216,7 +216,7 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
       new TopicPartition(topic2, 1) -> ReplicaAssignment(Seq(0, 1), Seq.empty)
     )
 
-    zkClient.createTopicAssignment(topic2, None, secondAssignment)
+    zkClient.createTopicAssignment(topic2, None, secondAssignment, None)
 
     assertEquals(Set(topic1, topic2), zkClient.getAllTopicsInCluster())
   }
@@ -233,7 +233,7 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
     // not interfere with the previous registered watcher
     assertTrue(zkClient.getAllTopicsInCluster(false).isEmpty)
 
-    zkClient.createTopicAssignment(topic1, None, Map.empty)
+    zkClient.createTopicAssignment(topic1, None, Map.empty, None)
 
     assertTrue("Failed to receive watch notification",
       latch.await(5, TimeUnit.SECONDS))
@@ -249,7 +249,7 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
     // Listing all the topics and don't register the watch
     assertTrue(zkClient.getAllTopicsInCluster(false).isEmpty)
 
-    zkClient.createTopicAssignment(topic1, None, Map.empty)
+    zkClient.createTopicAssignment(topic1, None, Map.empty, None)
 
     assertFalse("Received watch notification",
       latch.await(100, TimeUnit.MILLISECONDS))
@@ -853,10 +853,10 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
   private def leaderIsrAndControllerEpochs(state: Int, zkVersion: Int): Map[TopicPartition, LeaderIsrAndControllerEpoch] =
     Map(
       topicPartition10 -> LeaderIsrAndControllerEpoch(
-        LeaderAndIsr(leader = 1, leaderEpoch = state, isr = List(2 + state, 3 + state), zkVersion = zkVersion, isUnclean = false),
+        LeaderAndIsr(leader = 1, leaderEpoch = state, isr = List(2 + state, 3 + state), zkVersion = zkVersion, isUnclean = false, None),
         controllerEpoch = 4),
       topicPartition11 -> LeaderIsrAndControllerEpoch(
-        LeaderAndIsr(leader = 0, leaderEpoch = state + 1, isr = List(1 + state, 2 + state), zkVersion = zkVersion, isUnclean = false),
+        LeaderAndIsr(leader = 0, leaderEpoch = state + 1, isr = List(1 + state, 2 + state), zkVersion = zkVersion, isUnclean = false, None),
         controllerEpoch = 4))
 
   val initialLeaderIsrAndControllerEpochs: Map[TopicPartition, LeaderIsrAndControllerEpoch] =
@@ -895,12 +895,13 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
     zkClient.createTopicAssignment(
       topicPartition.topic,
       None,
-      Map(topicPartition -> ReplicaAssignment(Seq.empty, Seq.empty))
+      Map(topicPartition -> ReplicaAssignment(Seq.empty, Seq.empty)),
+      None
     )
 
     val expectedAssignment = ReplicaAssignment(Seq(1,2,3), Seq(1), Seq(3), Seq.empty, Some(Seq.empty))
     val response = zkClient.setTopicAssignmentRaw(topicPartition.topic, None,
-      Map(topicPartition -> expectedAssignment), controllerEpochZkVersion)
+      Map(topicPartition -> expectedAssignment), None, controllerEpochZkVersion)
     assertEquals(Code.OK, response.resultCode)
 
     val topicPartitionAssignments = zkClient.getPartitionAssignmentForTopics(Set(topicPartition.topic()))
@@ -947,9 +948,9 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
 
     // Trigger successful, to be retried and failed partitions in same call
     val mixedState = Map(
-      topicPartition10 -> LeaderAndIsr(leader = 1, leaderEpoch = 2, isr = List(4, 5), zkVersion = 1, isUnclean = false),
-      topicPartition11 -> LeaderAndIsr(leader = 0, leaderEpoch = 2, isr = List(3, 4), zkVersion = 0, isUnclean = false),
-      topicPartition20 -> LeaderAndIsr(leader = 0, leaderEpoch = 2, isr = List(3, 4), zkVersion = 0, isUnclean = false))
+      topicPartition10 -> LeaderAndIsr(leader = 1, leaderEpoch = 2, isr = List(4, 5), zkVersion = 1, isUnclean = false, None),
+      topicPartition11 -> LeaderAndIsr(leader = 0, leaderEpoch = 2, isr = List(3, 4), zkVersion = 0, isUnclean = false, None),
+      topicPartition20 -> LeaderAndIsr(leader = 0, leaderEpoch = 2, isr = List(3, 4), zkVersion = 0, isUnclean = false, None))
 
     checkUpdateLeaderAndIsrResult(
       leaderIsrs(state = 2, zkVersion = 2).filter { case (tp, _) => tp == topicPartition10 },

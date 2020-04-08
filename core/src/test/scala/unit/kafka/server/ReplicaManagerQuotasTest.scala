@@ -254,7 +254,7 @@ class ReplicaManagerQuotasTest {
     replicaManager = new ReplicaManager(configs.head, metrics, time, zkClient, scheduler, logManager,
       new AtomicBoolean(false), QuotaFactory.instantiate(configs.head, metrics, time, ""),
       new BrokerTopicStats, new MetadataCache(configs.head.brokerId), new LogDirFailureChannel(configs.head.logDirs.size),
-      TierReplicaComponents.EMPTY)
+      TierReplicaComponents.EMPTY, null)
 
     //create the two replicas
     for ((p, _) <- fetchInfo) {
@@ -268,7 +268,8 @@ class ReplicaManagerQuotasTest {
         isr = if (bothReplicasInSync) Set(leaderBrokerId, configs.last.brokerId) else Set(leaderBrokerId),
         addingReplicas = Seq.empty,
         removingReplicas = Seq.empty,
-        observers = Set.empty
+        observers = Set.empty,
+        clusterLink = None
       )
     }
   }

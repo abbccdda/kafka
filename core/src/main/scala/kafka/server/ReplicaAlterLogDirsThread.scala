@@ -233,7 +233,7 @@ class ReplicaAlterLogDirsThread(name: String,
 
   private def buildFetchForPartition(tp: TopicPartition, fetchState: PartitionFetchState): ResultWithPartitions[Option[ReplicaFetch]] = {
     val requestMap = new util.LinkedHashMap[TopicPartition, FetchRequest.PartitionData]
-    val partitionsWithError = mutable.Set[TopicPartition]()
+    val partitionsWithError = mutable.Map[TopicPartition, Errors]()
 
     try {
       val logStartOffset = replicaMgr.futureLocalLogOrException(tp).logStartOffset
@@ -242,7 +242,7 @@ class ReplicaAlterLogDirsThread(name: String,
     } catch {
       case e: KafkaStorageException =>
         debug(s"Failed to build fetch for $tp", e)
-        partitionsWithError += tp
+        partitionsWithError += tp -> Errors.KAFKA_STORAGE_ERROR
     }
 
     val fetchRequestOpt = if (requestMap.isEmpty) {
@@ -260,13 +260,13 @@ class ReplicaAlterLogDirsThread(name: String,
   def buildFetch(partitionMap: Map[TopicPartition, PartitionFetchState]): ResultWithPartitions[Option[ReplicaFetch]] = {
     // Only include replica in the fetch request if it is not throttled.
     if (quota.isQuotaExceeded) {
-      ResultWithPartitions(None, Set.empty)
+      ResultWithPartitions(None, Map.empty)
     } else {
       selectPartitionToFetch(partitionMap) match {
         case Some((tp, fetchState)) =>
           buildFetchForPartition(tp, fetchState)
         case None =>
-          ResultWithPartitions(None, Set.empty)
+          ResultWithPartitions(None, Map.empty)
       }
     }
   }

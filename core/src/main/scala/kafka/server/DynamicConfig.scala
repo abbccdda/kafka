@@ -37,6 +37,7 @@ object DynamicConfig {
   object Broker {
     //Properties
     val ReplicaAlterLogDirsIoMaxBytesPerSecondProp = "replica.alter.log.dirs.io.max.bytes.per.second"
+    val ClusterLinkIoMaxBytesPerSecondProp = "confluent.cluster.link.io.max.bytes.per.second"
 
     //Defaults
     val DefaultAlterLogDirsIoThrottledRate = ReplicationQuotaManagerConfig.QuotaBytesPerSecondDefault

@@ -167,19 +167,19 @@ class TierTopicManagerTest {
     doThrow(new TimeoutException("timeout when creating topic"))
         .doThrow(new AdminOperationException("admin operation exception"))
         .doNothing()
-        .when(adminZkClient).createTopic(any(), any(), any(), any(), any(), any())
+        .when(adminZkClient).createTopic(any(), any(), any(), any(), any(), any(), any())
 
     tierTopicManager.tryBecomeReady(false)
     assertFalse(tierTopicManager.isReady)
-    verify(adminZkClient, times(1)).createTopic(any(), any(), any(), any(), any(), any())
+    verify(adminZkClient, times(1)).createTopic(any(), any(), any(), any(), any(), any(), any())
 
     tierTopicManager.tryBecomeReady(false)
     assertFalse(tierTopicManager.isReady)
-    verify(adminZkClient, times(2)).createTopic(any(), any(), any(), any(), any(), any())
+    verify(adminZkClient, times(2)).createTopic(any(), any(), any(), any(), any(), any(), any())
 
     tierTopicManager.tryBecomeReady(false)
     assertTrue(tierTopicManager.isReady)
-    verify(adminZkClient, times(3)).createTopic(any(), any(), any(), any(), any(), any())
+    verify(adminZkClient, times(3)).createTopic(any(), any(), any(), any(), any(), any(), any())
     assertEquals(tierTopicNumPartitions, tierTopicConsumer.tierTopic.numPartitions.getAsInt)
   }
 
@@ -190,7 +190,7 @@ class TierTopicManagerTest {
     val (tierTopicConsumer, _, tierTopicManager) = setupTierComponents(becomeReady = false)
     assertFalse(tierTopicManager.isReady)
 
-    when(adminZkClient.createTopic(any(), any(), any(), any(), any(), any())).thenThrow(new TopicExistsException("topic exists"))
+    when(adminZkClient.createTopic(any(), any(), any(), any(), any(), any(), any())).thenThrow(new TopicExistsException("topic exists"))
     when(adminZkClient.numPartitions(Set(tierTopicName))).thenReturn(Map(tierTopicName -> existingPartitions))
 
     tierTopicManager.tryBecomeReady(false)

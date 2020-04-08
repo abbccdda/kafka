@@ -43,6 +43,7 @@ import org.junit.rules.TemporaryFolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Option;
+import scala.Option$;
 
 /**
  * Runs an in-memory, "embedded" instance of a Kafka broker, which listens at `127.0.0.1:9092` by
@@ -175,7 +176,7 @@ public class EmbeddedKafka {
     try (KafkaZkClient kafkaZkClient = createZkClient()) {
       AdminZkClient adminZkClient = new AdminZkClient(kafkaZkClient);
       adminZkClient.createTopic(topic, partitions, replication, topicConfig,
-              RackAwareMode.Enforced$.MODULE$, kafkaServer().config().tierFeature());
+              RackAwareMode.Enforced$.MODULE$, kafkaServer().config().tierFeature(), Option$.MODULE$.empty());
     }
   }
 

@@ -29,6 +29,7 @@ import org.apache.kafka.clients.{ApiVersions, ClientResponse, ManualMetadataUpda
 import org.apache.kafka.common.{Node, Reconfigurable}
 import org.apache.kafka.common.requests.AbstractRequest.Builder
 
+import scala.collection._
 import scala.jdk.CollectionConverters._
 
 trait BlockingSend {
@@ -40,63 +41,74 @@ trait BlockingSend {
   def close(): Unit
 }
 
+object ReplicaFetcherBlockingSend {
+  def apply(sourceBroker: BrokerEndPoint,
+            brokerConfig: KafkaConfig,
+            metrics: Metrics,
+            time: Time,
+            fetcherId: Int,
+            clientId: String,
+            logContext: LogContext): ReplicaFetcherBlockingSend = {
+    val socketTimeout: Int = brokerConfig.replicaSocketTimeoutMs
+
+    val (networkClient, reconfigurableChannelBuilder) = {
+      val channelBuilder = ChannelBuilders.clientChannelBuilder(
+        brokerConfig.interBrokerSecurityProtocol,
+        JaasContext.Type.SERVER,
+        brokerConfig,
+        brokerConfig.interBrokerListenerName,
+        brokerConfig.saslMechanismInterBrokerProtocol,
+        time,
+        brokerConfig.saslInterBrokerHandshakeRequestEnable,
+        logContext
+      )
+      val reconfigurableChannelBuilder = channelBuilder match {
+        case reconfigurable: Reconfigurable =>
+          brokerConfig.addReconfigurable(reconfigurable)
+          Some(reconfigurable)
+        case _ => None
+      }
+      val selector = new Selector(
+        NetworkReceive.UNLIMITED,
+        brokerConfig.connectionsMaxIdleMs,
+        metrics,
+        time,
+        "replica-fetcher",
+        Map("broker-id" -> sourceBroker.id.toString, "fetcher-id" -> fetcherId.toString).asJava,
+        false,
+        channelBuilder,
+        logContext
+      )
+      val networkClient = new NetworkClient(
+        selector,
+        new ManualMetadataUpdater(),
+        clientId,
+        1,
+        0,
+        0,
+        Selectable.USE_DEFAULT_BUFFER_SIZE,
+        brokerConfig.replicaSocketReceiveBufferBytes,
+        brokerConfig.requestTimeoutMs,
+        ClientDnsLookup.DEFAULT,
+        time,
+        false,
+        new ApiVersions,
+        logContext
+      )
+      (networkClient, reconfigurableChannelBuilder)
+    }
+    new ReplicaFetcherBlockingSend(sourceBroker, brokerConfig, socketTimeout, time, networkClient, reconfigurableChannelBuilder)
+  }
+}
+
 class ReplicaFetcherBlockingSend(sourceBroker: BrokerEndPoint,
                                  brokerConfig: KafkaConfig,
-                                 metrics: Metrics,
+                                 socketTimeout: Int,
                                  time: Time,
-                                 fetcherId: Int,
-                                 clientId: String,
-                                 logContext: LogContext) extends BlockingSend {
+                                 networkClient: KafkaClient,
+                                 reconfigurableChannelBuilder: Option[Reconfigurable]) extends BlockingSend {
 
-  private val sourceNode = new Node(sourceBroker.id, sourceBroker.host, sourceBroker.port)
-  private val socketTimeout: Int = brokerConfig.replicaSocketTimeoutMs
-
-  private val (networkClient, reconfigurableChannelBuilder) = {
-    val channelBuilder = ChannelBuilders.clientChannelBuilder(
-      brokerConfig.interBrokerSecurityProtocol,
-      JaasContext.Type.SERVER,
-      brokerConfig,
-      brokerConfig.interBrokerListenerName,
-      brokerConfig.saslMechanismInterBrokerProtocol,
-      time,
-      brokerConfig.saslInterBrokerHandshakeRequestEnable,
-      logContext
-    )
-    val reconfigurableChannelBuilder = channelBuilder match {
-      case reconfigurable: Reconfigurable =>
-        brokerConfig.addReconfigurable(reconfigurable)
-        Some(reconfigurable)
-      case _ => None
-    }
-    val selector = new Selector(
-      NetworkReceive.UNLIMITED,
-      brokerConfig.connectionsMaxIdleMs,
-      metrics,
-      time,
-      "replica-fetcher",
-      Map("broker-id" -> sourceBroker.id.toString, "fetcher-id" -> fetcherId.toString).asJava,
-      false,
-      channelBuilder,
-      logContext
-    )
-    val networkClient = new NetworkClient(
-      selector,
-      new ManualMetadataUpdater(),
-      clientId,
-      1,
-      0,
-      0,
-      Selectable.USE_DEFAULT_BUFFER_SIZE,
-      brokerConfig.replicaSocketReceiveBufferBytes,
-      brokerConfig.requestTimeoutMs,
-      ClientDnsLookup.DEFAULT,
-      time,
-      false,
-      new ApiVersions,
-      logContext
-    )
-    (networkClient, reconfigurableChannelBuilder)
-  }
+  val sourceNode = new Node(sourceBroker.id, sourceBroker.host, sourceBroker.port)
 
   override def sendRequest(requestBuilder: Builder[_ <: AbstractRequest]): ClientResponse = {
     try {
@@ -120,7 +132,7 @@ class ReplicaFetcherBlockingSend(sourceBroker: BrokerEndPoint,
     networkClient.initiateClose()
   }
 
-  def close(): Unit = {
+  override def close(): Unit = {
     networkClient.close()
   }
 }

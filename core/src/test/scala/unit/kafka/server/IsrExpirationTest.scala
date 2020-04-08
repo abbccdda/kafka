@@ -76,7 +76,7 @@ class IsrExpirationTest {
     replicaManager = new ReplicaManager(
       configs.head, metrics, time, null, null, logManager, new AtomicBoolean(false),
       QuotaFactory.instantiate(configs.head, metrics, time, ""), new BrokerTopicStats, metadataCache,
-      new LogDirFailureChannel(configs.head.logDirs.size), TierReplicaComponents.EMPTY)
+      new LogDirFailureChannel(configs.head.logDirs.size), TierReplicaComponents.EMPTY, null)
   }
 
   @After
@@ -238,7 +238,8 @@ class IsrExpirationTest {
       isr = configs.map(_.brokerId).toSet,
       addingReplicas = Seq.empty,
       removingReplicas = Seq.empty,
-      observers = Set.empty
+      observers = Set.empty,
+      clusterLink = None
     )
 
     // set lastCaughtUpTime to current time

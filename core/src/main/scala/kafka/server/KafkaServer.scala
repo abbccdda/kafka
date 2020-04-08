@@ -376,6 +376,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         socketServer = new SocketServer(config, metrics, time, credentialProvider)
         socketServer.startup(startupProcessors = false)
 
+        adminManager = new AdminManager(config, metrics, metadataCache, zkClient)
+
         /* start replica manager */
         replicaManager = createReplicaManager(isShuttingDown, tierLogComponents)
         replicaManager.startup()
@@ -417,8 +419,6 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         /* start kafka controller */
         kafkaController = new KafkaController(config, zkClient, time, metrics, brokerInfo, brokerEpoch, tokenManager, tierTopicManagerOpt, threadNamePrefix)
         kafkaController.startup()
-
-        adminManager = new AdminManager(config, metrics, metadataCache, zkClient)
 
         /* start group coordinator */
         // Hardcode Time.SYSTEM for now as some Streams tests fail otherwise, it would be good to fix the underlying issue
@@ -557,7 +557,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   protected def createReplicaManager(isShuttingDown: AtomicBoolean, tierLogComponents: TierLogComponents): ReplicaManager = {
     val tierReplicaComponents = TierReplicaComponents(tierReplicaManagerOpt, tierFetcherOpt, tierStateFetcherOpt, tierLogComponents)
     new ReplicaManager(config, metrics, time, zkClient, kafkaScheduler, logManager, isShuttingDown, quotaManagers,
-      brokerTopicStats, metadataCache, logDirFailureChannel, tierReplicaComponents)
+      brokerTopicStats, metadataCache, logDirFailureChannel, tierReplicaComponents, adminManager)
   }
 
   private def initZkClient(time: Time): Unit = {

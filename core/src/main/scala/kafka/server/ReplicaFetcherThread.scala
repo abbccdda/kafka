@@ -33,6 +33,7 @@ import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.tier.store.TierObjectStore
 import org.apache.kafka.clients.FetchSessionHandler
+import org.apache.kafka.clients.FetchSessionHandler.FetchRequestData
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.KafkaStorageException
 import org.apache.kafka.common.message.TierListOffsetRequestData
@@ -45,8 +46,8 @@ import org.apache.kafka.common.requests.TierListOffsetRequest.OffsetType
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.utils.{LogContext, Time}
 
-import scala.jdk.CollectionConverters._
 import scala.collection.{mutable, Map}
+import scala.jdk.CollectionConverters._
 
 class ReplicaFetcherThread(name: String,
                            fetcherId: Int,
@@ -58,7 +59,8 @@ class ReplicaFetcherThread(name: String,
                            time: Time,
                            quota: ReplicaQuota,
                            tierStateFetcher: Option[TierStateFetcher],
-                           leaderEndpointBlockingSend: Option[BlockingSend] = None)
+                           leaderEndpointBlockingSend: Option[BlockingSend] = None,
+                           logContextOpt: Option[LogContext] = None)
   extends AbstractFetcherThread(name = name,
                                 clientId = name,
                                 sourceBroker = sourceBroker,
@@ -69,12 +71,12 @@ class ReplicaFetcherThread(name: String,
                                 replicaMgr.brokerTopicStats) {
 
   private val replicaId = brokerConfig.brokerId
-  private val logContext = new LogContext(s"[ReplicaFetcher replicaId=$replicaId, leaderId=${sourceBroker.id}, " +
-    s"fetcherId=$fetcherId] ")
+  private val logContext = logContextOpt.getOrElse(
+    new LogContext(s"[ReplicaFetcher replicaId=$replicaId, leaderId=${sourceBroker.id}, fetcherId=$fetcherId] "))
   this.logIdent = logContext.logPrefix
 
   private val leaderEndpoint = leaderEndpointBlockingSend.getOrElse(
-    new ReplicaFetcherBlockingSend(sourceBroker, brokerConfig, metrics, time, fetcherId,
+    ReplicaFetcherBlockingSend(sourceBroker, brokerConfig, metrics, time, fetcherId,
       s"broker-$replicaId-fetcher-$fetcherId", logContext))
 
   // Visible for testing
@@ -109,9 +111,28 @@ class ReplicaFetcherThread(name: String,
   private val maxWait = brokerConfig.replicaFetchWaitMaxMs
   private val minBytes = brokerConfig.replicaFetchMinBytes
   private val maxBytes = brokerConfig.replicaFetchResponseMaxBytes
-  private val fetchSize = brokerConfig.replicaFetchMaxBytes
-  private val brokerSupportsLeaderEpochRequest = brokerConfig.interBrokerProtocolVersion >= KAFKA_0_11_0_IV2
+  private def brokerSupportsLeaderEpochRequest = brokerConfig.interBrokerProtocolVersion >= KAFKA_0_11_0_IV2
+  protected val fetchSize = brokerConfig.replicaFetchMaxBytes
+
+
   val fetchSessionHandler = new FetchSessionHandler(logContext, sourceBroker.id)
+
+  protected def fetchRequestBuilder(fetchData: FetchRequestData): FetchRequest.Builder = {
+    FetchRequest.Builder.forReplica(fetchRequestVersion, replicaId, maxWait, minBytes, fetchData.toSend)
+      .setMaxBytes(maxBytes)
+      .toForget(fetchData.toForget)
+      .metadata(fetchData.metadata)
+  }
+
+  protected def offsetsForLeaderEpochRequestBuilder(partitions: Map[TopicPartition, EpochData]): OffsetsForLeaderEpochRequest.Builder = {
+    OffsetsForLeaderEpochRequest.Builder
+      .forFollower(offsetForLeaderEpochRequestVersion, partitions.asJava, replicaId)
+  }
+
+  protected def listOffsetRequestBuilder(partitionTimestamps: Map[TopicPartition, ListOffsetRequest.PartitionData]): ListOffsetRequest.Builder = {
+    ListOffsetRequest.Builder.forReplica(listOffsetRequestVersion, replicaId)
+      .setTargetTimes(partitionTimestamps.asJava)
+  }
 
   override protected def latestEpoch(topicPartition: TopicPartition): Option[Int] = {
     replicaMgr.localLogOrException(topicPartition).latestEpoch
@@ -312,8 +333,7 @@ class ReplicaFetcherThread(name: String,
     val requestPartitionData = new ListOffsetRequest.PartitionData(earliestOrLatest,
       Optional.of[Integer](currentLeaderEpoch))
     val requestPartitions = Map(topicPartition -> requestPartitionData)
-    val requestBuilder = ListOffsetRequest.Builder.forReplica(listOffsetRequestVersion, replicaId)
-      .setTargetTimes(requestPartitions.asJava)
+    val requestBuilder = listOffsetRequestBuilder(requestPartitions)
 
     val clientResponse = leaderEndpoint.sendRequest(requestBuilder)
     val response = clientResponse.responseBody.asInstanceOf[ListOffsetResponse]
@@ -330,7 +350,7 @@ class ReplicaFetcherThread(name: String,
   }
 
   override def buildFetch(partitionMap: Map[TopicPartition, PartitionFetchState]): ResultWithPartitions[Option[ReplicaFetch]] = {
-    val partitionsWithError = mutable.Set[TopicPartition]()
+    val partitionsWithError = mutable.Map[TopicPartition, Errors]()
 
     val builder = fetchSessionHandler.newBuilder(partitionMap.size, false)
     partitionMap.foreach { case (topicPartition, fetchState) =>
@@ -344,7 +364,7 @@ class ReplicaFetcherThread(name: String,
           case _: KafkaStorageException =>
             // The replica has already been marked offline due to log directory failure and the original failure should have already been logged.
             // This partition should be removed from ReplicaFetcherThread soon by ReplicaManager.handleLogDirFailure()
-            partitionsWithError += topicPartition
+            partitionsWithError += topicPartition -> Errors.KAFKA_STORAGE_ERROR
         }
       }
     }
@@ -353,12 +373,7 @@ class ReplicaFetcherThread(name: String,
     val fetchRequestOpt = if (fetchData.sessionPartitions.isEmpty && fetchData.toForget.isEmpty) {
       None
     } else {
-      val requestBuilder = FetchRequest.Builder
-        .forReplica(fetchRequestVersion, replicaId, maxWait, minBytes, fetchData.toSend)
-        .setMaxBytes(maxBytes)
-        .toForget(fetchData.toForget)
-        .metadata(fetchData.metadata)
-      Some(ReplicaFetch(fetchData.sessionPartitions(), requestBuilder))
+      Some(ReplicaFetch(fetchData.sessionPartitions(), fetchRequestBuilder(fetchData)))
     }
 
     ResultWithPartitions(fetchRequestOpt, partitionsWithError)
@@ -396,7 +411,7 @@ class ReplicaFetcherThread(name: String,
       return Map.empty
     }
 
-    val epochRequest = OffsetsForLeaderEpochRequest.Builder.forFollower(offsetForLeaderEpochRequestVersion, partitions.asJava, brokerConfig.brokerId)
+    val epochRequest = offsetsForLeaderEpochRequestBuilder(partitions)
     debug(s"Sending offset for leader epoch request $epochRequest")
 
     try {

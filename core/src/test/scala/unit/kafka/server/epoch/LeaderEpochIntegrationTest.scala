@@ -226,7 +226,7 @@ class LeaderEpochIntegrationTest extends ZooKeeperTestHarness with Logging {
 
   private def sender(from: KafkaServer, to: KafkaServer): BlockingSend = {
     val endPoint = from.metadataCache.getAliveBrokers.find(_.id == to.config.brokerId).get.brokerEndPoint(from.config.interBrokerListenerName)
-    new ReplicaFetcherBlockingSend(endPoint, from.config, new Metrics(), new SystemTime(), 42, "TestFetcher", new LogContext())
+    ReplicaFetcherBlockingSend(endPoint, from.config, new Metrics(), new SystemTime(), 42, "TestFetcher", new LogContext())
   }
 
   private def waitForEpochChangeTo(topic: String, partition: Int, epoch: Int): Unit = {

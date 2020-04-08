@@ -267,6 +267,7 @@ public class ReplicaFetcherThreadBenchmark {
                         }
                     },
                     Option.empty(),
+                    Option.empty(),
                     Option.empty());
 
             pool = partitions;

@@ -23,7 +23,7 @@ object LeaderAndIsr {
   val NoLeader: Int = -1
   val LeaderDuringDelete: Int = -2
 
-  def apply(leader: Int, isr: List[Int], isUnclean: Boolean): LeaderAndIsr = LeaderAndIsr(leader, initialLeaderEpoch, isr, initialZKVersion, isUnclean)
+  def apply(leader: Int, isr: List[Int], isUnclean: Boolean): LeaderAndIsr = LeaderAndIsr(leader, initialLeaderEpoch, isr, initialZKVersion, isUnclean, None)
 
   def duringDelete(isr: List[Int]): LeaderAndIsr = LeaderAndIsr(LeaderDuringDelete, isr, isUnclean = false)
 }
@@ -32,12 +32,13 @@ case class LeaderAndIsr(leader: Int,
                         leaderEpoch: Int,
                         isr: List[Int],
                         zkVersion: Int,
-                        isUnclean: Boolean) {
+                        isUnclean: Boolean,
+                        linkedLeaderEpoch: Option[Int]) {
   def withZkVersion(zkVersion: Int) = copy(zkVersion = zkVersion)
 
   def newLeader(leader: Int, isUnclean: Boolean) = newLeaderAndIsr(leader, isr, isUnclean)
 
-  def newLeaderAndIsr(leader: Int, isr: List[Int], isUnclean: Boolean) = LeaderAndIsr(leader, leaderEpoch + 1, isr, zkVersion, isUnclean)
+  def newLeaderAndIsr(leader: Int, isr: List[Int], isUnclean: Boolean) = LeaderAndIsr(leader, nextEpoch, isr, zkVersion, isUnclean, linkedLeaderEpoch)
 
   def newEpochAndZkVersion = newLeaderAndIsr(leader, isr, isUnclean)
 
@@ -45,7 +46,10 @@ case class LeaderAndIsr(leader: Int,
     if (leader == LeaderAndIsr.NoLeader) None else Some(leader)
   }
 
+  private def nextEpoch = Math.max(leaderEpoch + 1, linkedLeaderEpoch.getOrElse(-1))
+
   override def toString: String = {
-    s"LeaderAndIsr(leader=$leader, leaderEpoch=$leaderEpoch, isUncleanLeader=$isUnclean, isr=$isr, zkVersion=$zkVersion)"
+    val linkedEpoch = linkedLeaderEpoch.map(epoch => s" linkedLeaderEpoch=$epoch,").getOrElse("")
+    s"LeaderAndIsr(leader=$leader, leaderEpoch=$leaderEpoch,$linkedEpoch isUncleanLeader=$isUnclean, isr=$isr, zkVersion=$zkVersion)"
   }
 }

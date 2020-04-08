@@ -1361,7 +1361,7 @@ class AbstractFetcherThreadTest {
         }
       }
       val fetchRequest = FetchRequest.Builder.forReplica(ApiKeys.FETCH.latestVersion, replicaId, 0, 1, fetchData.asJava)
-      ResultWithPartitions(Some(ReplicaFetch(fetchData.asJava, fetchRequest)), Set.empty)
+      ResultWithPartitions(Some(ReplicaFetch(fetchData.asJava, fetchRequest)), Map.empty)
     }
 
     override def latestEpoch(topicPartition: TopicPartition): Option[Int] = {

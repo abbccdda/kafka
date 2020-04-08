@@ -93,7 +93,7 @@ public class MultiTenantMetadataRequestBenchmark {
     private ReplicationQuotaManager replicaQuotaManager = Mockito.mock(ReplicationQuotaManager.class);
     private QuotaFactory.QuotaManagers quotaManagers = new QuotaFactory.QuotaManagers(clientQuotaManager,
         clientQuotaManager, clientRequestQuotaManager, replicaQuotaManager, replicaQuotaManager,
-        replicaQuotaManager, Option.empty());
+        replicaQuotaManager, replicaQuotaManager, Option.empty());
     private FetchManager fetchManager = Mockito.mock(FetchManager.class);
     private BrokerTopicStats brokerTopicStats = new BrokerTopicStats();
     private TenantMetrics tenantMetrics = new TenantMetrics();

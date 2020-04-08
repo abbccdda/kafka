@@ -23,6 +23,7 @@ import kafka.cluster.{BrokerEndPoint, Partition}
 import kafka.log.{AbstractLog, LogManager}
 import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.server.epoch.util.ReplicaFetcherMockBlockingSend
+import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.metrics.Metrics
@@ -31,7 +32,7 @@ import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, Records, SimpleRecord}
 import org.apache.kafka.common.requests.EpochEndOffset._
 import org.apache.kafka.common.requests.{EpochEndOffset, FetchResponse, OffsetsForLeaderEpochRequest}
-import org.apache.kafka.common.utils.SystemTime
+import org.apache.kafka.common.utils.{LogContext, SystemTime, Time}
 import org.easymock.EasyMock._
 import org.easymock.{Capture, CaptureType}
 import org.junit.Assert._
@@ -46,8 +47,8 @@ class ReplicaFetcherThreadTest {
   private val t1p1 = new TopicPartition("topic1", 1)
   private val t2p1 = new TopicPartition("topic2", 1)
 
-  private val brokerEndPoint = new BrokerEndPoint(0, "localhost", 1000)
-  private val failedPartitions = new FailedPartitions
+  protected val brokerEndPoint = new BrokerEndPoint(0, "localhost", 1000)
+  protected val failedPartitions = new FailedPartitions
 
   private def offsetAndEpoch(fetchOffset: Long, leaderEpoch: Int = 1): OffsetAndEpoch = {
     OffsetAndEpoch(offset = fetchOffset, leaderEpoch = leaderEpoch)
@@ -58,6 +59,33 @@ class ReplicaFetcherThreadTest {
     TestUtils.clearYammerMetrics()
   }
 
+  // Overridden by tests that validate sub-classes of ReplicaFetcherThread
+  protected def createReplicaFetcherThread(name: String,
+                           fetcherId: Int,
+                           sourceBroker: BrokerEndPoint,
+                           brokerConfig: KafkaConfig,
+                           failedPartitions: FailedPartitions,
+                           replicaMgr: ReplicaManager,
+                           metrics: Metrics,
+                           time: Time,
+                           quota: ReplicaQuota,
+                           tierStateFetcher: Option[TierStateFetcher],
+                           leaderEndpointBlockingSend: Option[BlockingSend] = None,
+                           logContextOpt: Option[LogContext] = None): ReplicaFetcherThread = {
+    new ReplicaFetcherThread(name,
+      fetcherId,
+      sourceBroker,
+      brokerConfig,
+      failedPartitions,
+      replicaMgr,
+      metrics,
+      time,
+      quota,
+      tierStateFetcher,
+      leaderEndpointBlockingSend,
+      logContextOpt)
+  }
+
   @Test
   def shouldSendLatestRequestVersionsByDefault(): Unit = {
     val props = TestUtils.createBrokerConfig(1, "localhost:1234")
@@ -65,7 +93,7 @@ class ReplicaFetcherThreadTest {
     val replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
     expect(replicaManager.brokerTopicStats).andReturn(mock(classOf[BrokerTopicStats]))
     replay(replicaManager)
-    val thread = new ReplicaFetcherThread(
+    val thread = createReplicaFetcherThread(
       name = "bob",
       fetcherId = 0,
       sourceBroker = brokerEndPoint,
@@ -122,7 +150,7 @@ class ReplicaFetcherThreadTest {
     //Create the fetcher thread
     val mockNetwork = new ReplicaFetcherMockBlockingSend(offsets, brokerEndPoint, new SystemTime())
 
-    val thread = new ReplicaFetcherThread("bob", 0, brokerEndPoint, config, failedPartitions, replicaManager, new Metrics(), new SystemTime(), quota, None, Some(mockNetwork))
+    val thread = createReplicaFetcherThread("bob", 0, brokerEndPoint, config, failedPartitions, replicaManager, new Metrics(), new SystemTime(), quota, None, Some(mockNetwork))
 
     // topic 1 supports epoch, t2 doesn't
     thread.addPartitions(Map(
@@ -193,7 +221,7 @@ class ReplicaFetcherThreadTest {
     expect(replicaManager.brokerTopicStats).andReturn(mock(classOf[BrokerTopicStats]))
     replay(mockBlockingSend, replicaManager)
 
-    val thread = new ReplicaFetcherThread(
+    val thread = createReplicaFetcherThread(
       name = "bob",
       fetcherId = 0,
       sourceBroker = brokerEndPoint,
@@ -253,7 +281,7 @@ class ReplicaFetcherThreadTest {
 
     //Create the fetcher thread
     val mockNetwork = new ReplicaFetcherMockBlockingSend(offsets, brokerEndPoint, new SystemTime())
-    val thread = new ReplicaFetcherThread("bob", 0, brokerEndPoint, config, failedPartitions, replicaManager,
+    val thread = createReplicaFetcherThread("bob", 0, brokerEndPoint, config, failedPartitions, replicaManager,
       new Metrics, new SystemTime, UnboundedQuota, None, Some(mockNetwork))
     thread.addPartitions(Map(t1p0 -> offsetAndEpoch(0L), t1p1 -> offsetAndEpoch(0L)))
 
@@ -315,7 +343,7 @@ class ReplicaFetcherThreadTest {
 
     //Create the thread
     val mockNetwork = new ReplicaFetcherMockBlockingSend(offsetsReply, brokerEndPoint, new SystemTime())
-    val thread = new ReplicaFetcherThread("bob", 0, brokerEndPoint, configs.head, failedPartitions, replicaManager,
+    val thread = createReplicaFetcherThread("bob", 0, brokerEndPoint, configs.head, failedPartitions, replicaManager,
       new Metrics(), new SystemTime(), quota, None, Some(mockNetwork))
     thread.addPartitions(Map(t1p0 -> offsetAndEpoch(0L), t2p1 -> offsetAndEpoch(0L)))
 
@@ -368,7 +396,7 @@ class ReplicaFetcherThreadTest {
 
     //Create the thread
     val mockNetwork = new ReplicaFetcherMockBlockingSend(offsetsReply, brokerEndPoint, new SystemTime())
-    val thread = new ReplicaFetcherThread("bob", 0, brokerEndPoint, configs.head, failedPartitions,
+    val thread = createReplicaFetcherThread("bob", 0, brokerEndPoint, configs.head, failedPartitions,
       replicaManager, new Metrics(), new SystemTime(), quota, None, Some(mockNetwork))
     thread.addPartitions(Map(t1p0 -> offsetAndEpoch(0L), t2p1 -> offsetAndEpoch(0L)))
 
@@ -424,7 +452,7 @@ class ReplicaFetcherThreadTest {
 
     // Create the fetcher thread
     val mockNetwork = new ReplicaFetcherMockBlockingSend(offsets, brokerEndPoint, new SystemTime())
-    val thread = new ReplicaFetcherThread("bob", 0, brokerEndPoint, config, failedPartitions, replicaManager, new Metrics(), new SystemTime(), quota, None, Some(mockNetwork))
+    val thread = createReplicaFetcherThread("bob", 0, brokerEndPoint, config, failedPartitions, replicaManager, new Metrics(), new SystemTime(), quota, None, Some(mockNetwork))
     thread.addPartitions(Map(t1p0 -> offsetAndEpoch(0L), t1p1 -> offsetAndEpoch(0L)))
 
     // Loop 1 -- both topic partitions will need to fetch another leader epoch
@@ -499,7 +527,7 @@ class ReplicaFetcherThreadTest {
 
     // Create the fetcher thread
     val mockNetwork = new ReplicaFetcherMockBlockingSend(offsets, brokerEndPoint, new SystemTime())
-    val thread = new ReplicaFetcherThread("bob", 0, brokerEndPoint, config, failedPartitions, replicaManager, new Metrics(), new SystemTime(), quota, None, Some(mockNetwork))
+    val thread = createReplicaFetcherThread("bob", 0, brokerEndPoint, config, failedPartitions, replicaManager, new Metrics(), new SystemTime(), quota, None, Some(mockNetwork))
     thread.addPartitions(Map(t1p0 -> offsetAndEpoch(0L), t1p1 -> offsetAndEpoch(0L)))
 
     // Loop 1 -- both topic partitions will truncate to leader offset even though they don't know
@@ -555,7 +583,7 @@ class ReplicaFetcherThreadTest {
 
     //Create the thread
     val mockNetwork = new ReplicaFetcherMockBlockingSend(offsetsReply, brokerEndPoint, new SystemTime())
-    val thread = new ReplicaFetcherThread("bob", 0, brokerEndPoint, configs.head, failedPartitions, replicaManager, new Metrics(), new SystemTime(), quota, None, Some(mockNetwork))
+    val thread = createReplicaFetcherThread("bob", 0, brokerEndPoint, configs.head, failedPartitions, replicaManager, new Metrics(), new SystemTime(), quota, None, Some(mockNetwork))
     thread.addPartitions(Map(t1p0 -> offsetAndEpoch(initialFetchOffset)))
 
     //Run it
@@ -608,7 +636,7 @@ class ReplicaFetcherThreadTest {
 
     //Create the thread
     val mockNetwork = new ReplicaFetcherMockBlockingSend(offsetsReply, brokerEndPoint, new SystemTime())
-    val thread = new ReplicaFetcherThread("bob", 0, brokerEndPoint, configs.head, failedPartitions, replicaManager, new Metrics(), new SystemTime(), quota, None, Some(mockNetwork))
+    val thread = createReplicaFetcherThread("bob", 0, brokerEndPoint, configs.head, failedPartitions, replicaManager, new Metrics(), new SystemTime(), quota, None, Some(mockNetwork))
     thread.addPartitions(Map(t1p0 -> offsetAndEpoch(0L), t1p1 -> offsetAndEpoch(0L)))
 
     //Run thread 3 times
@@ -662,7 +690,7 @@ class ReplicaFetcherThreadTest {
 
     //Create the fetcher thread
     val mockNetwork = new ReplicaFetcherMockBlockingSend(offsetsReply, brokerEndPoint, new SystemTime())
-    val thread = new ReplicaFetcherThread("bob", 0, brokerEndPoint, config, failedPartitions, replicaManager, new Metrics(), new SystemTime(), quota, None, Some(mockNetwork))
+    val thread = createReplicaFetcherThread("bob", 0, brokerEndPoint, config, failedPartitions, replicaManager, new Metrics(), new SystemTime(), quota, None, Some(mockNetwork))
 
     //When
     thread.addPartitions(Map(t1p0 -> offsetAndEpoch(0L), t1p1 -> offsetAndEpoch(0L)))
@@ -714,7 +742,7 @@ class ReplicaFetcherThreadTest {
 
     //Create the fetcher thread
     val mockNetwork = new ReplicaFetcherMockBlockingSend(offsetsReply, brokerEndPoint, new SystemTime())
-    val thread = new ReplicaFetcherThread("bob", 0, brokerEndPoint, config, failedPartitions, replicaManager, new Metrics(),
+    val thread = createReplicaFetcherThread("bob", 0, brokerEndPoint, config, failedPartitions, replicaManager, new Metrics(),
       new SystemTime(), quota, None, Some(mockNetwork))
 
     //When
@@ -745,7 +773,7 @@ class ReplicaFetcherThreadTest {
     expect(replicaManager.brokerTopicStats).andReturn(mock(classOf[BrokerTopicStats]))
     replay(mockBlockingSend, replicaManager)
 
-    val thread = new ReplicaFetcherThread(
+    val thread = createReplicaFetcherThread(
       name = "bob",
       fetcherId = 0,
       sourceBroker = brokerEndPoint,
@@ -799,7 +827,7 @@ class ReplicaFetcherThreadTest {
     val replicaQuota: ReplicaQuota = createNiceMock(classOf[ReplicaQuota])
     replay(mockBlockingSend, replicaManager, partition, log, replicaQuota)
 
-    val thread = new ReplicaFetcherThread(
+    val thread = createReplicaFetcherThread(
       name = "bob",
       fetcherId = 0,
       sourceBroker = brokerEndPoint,

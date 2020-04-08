@@ -32,6 +32,7 @@ object QuotaType  {
   case object LeaderReplication extends QuotaType
   case object FollowerReplication extends QuotaType
   case object AlterLogDirsReplication extends QuotaType
+  case object ClusterLinkReplication extends QuotaType
 }
 sealed trait QuotaType
 
@@ -49,6 +50,7 @@ object QuotaFactory extends Logging {
                            leader: ReplicationQuotaManager,
                            follower: ReplicationQuotaManager,
                            alterLogDirs: ReplicationQuotaManager,
+                           clusterLink: ReplicationQuotaManager,
                            clientQuotaCallback: Option[ClientQuotaCallback]) {
     def shutdown(): Unit = {
       fetch.shutdown
@@ -73,6 +75,7 @@ object QuotaFactory extends Logging {
       new ReplicationQuotaManager(replicationConfig(cfg, LeaderReplication), metrics, LeaderReplication, time),
       new ReplicationQuotaManager(replicationConfig(cfg, FollowerReplication), metrics, FollowerReplication, time),
       new ReplicationQuotaManager(alterLogDirsReplicationConfig(cfg), metrics, AlterLogDirsReplication, time),
+      new ReplicationQuotaManager(alterLogDirsReplicationConfig(cfg), metrics, ClusterLinkReplication, time),
       clientQuotaCallback
     )
   }
@@ -130,6 +133,13 @@ object QuotaFactory extends Logging {
     ReplicationQuotaManagerConfig(
       numQuotaSamples = cfg.numAlterLogDirsReplicationQuotaSamples,
       quotaWindowSizeSeconds = cfg.alterLogDirsReplicationQuotaWindowSizeSeconds
+    )
+  }
+
+  def clusterLinkReplicationConfig(cfg: KafkaConfig): ReplicationQuotaManagerConfig = {
+    ReplicationQuotaManagerConfig(
+      numQuotaSamples = cfg.numClusterLinkReplicationQuotaSamples,
+      quotaWindowSizeSeconds = cfg.clusterLinkReplicationQuotaWindowSizeSeconds
     )
   }
 

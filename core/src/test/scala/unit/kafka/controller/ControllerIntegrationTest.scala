@@ -284,7 +284,7 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
       tp1 -> ReplicaAssignment(Seq(0), Seq.empty)
     )
     TestUtils.createTopic(zkClient, tp0.topic, partitionReplicaAssignment = assignment, servers = servers)
-    zkClient.setTopicAssignment(tp0.topic, None, expandedAssignment, firstControllerEpochZkVersion)
+    zkClient.setTopicAssignment(tp0.topic, None, expandedAssignment, None, firstControllerEpochZkVersion)
     waitForPartitionState(tp1, firstControllerEpoch, 0, LeaderAndIsr.initialLeaderEpoch,
       "failed to get expected partition state upon topic partition expansion")
     TestUtils.waitUntilMetadataIsPropagated(servers, tp1.topic, tp1.partition)
@@ -305,7 +305,7 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
     TestUtils.createTopic(zkClient, tp0.topic, partitionReplicaAssignment = assignment, servers = servers)
     servers(otherBrokerId).shutdown()
     servers(otherBrokerId).awaitShutdown()
-    zkClient.setTopicAssignment(tp0.topic, None, expandedAssignment, firstControllerEpochZkVersion)
+    zkClient.setTopicAssignment(tp0.topic, None, expandedAssignment, None, firstControllerEpochZkVersion)
     waitForPartitionState(tp1, firstControllerEpoch, controllerId, LeaderAndIsr.initialLeaderEpoch,
       "failed to get expected partition state upon topic partition expansion")
     TestUtils.waitUntilMetadataIsPropagated(Seq(servers(controllerId)), tp1.topic, tp1.partition)

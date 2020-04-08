@@ -40,6 +40,7 @@ import org.easymock.EasyMock;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import scala.Option$;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -66,7 +67,7 @@ public class LoadMonitorTaskRunnerTest extends CCKafkaIntegrationTestHarness {
                                                                               false);
     AdminZkClient adminZkClient = new AdminZkClient(kafkaZkClient);
     for (int i = 0; i < NUM_TOPICS; i++) {
-      adminZkClient.createTopic("topic-" + i, NUM_PARTITIONS, 1, new Properties(), RackAwareMode.Safe$.MODULE$, false);
+      adminZkClient.createTopic("topic-" + i, NUM_PARTITIONS, 1, new Properties(), RackAwareMode.Safe$.MODULE$, false, Option$.MODULE$.empty());
     }
     KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
   }

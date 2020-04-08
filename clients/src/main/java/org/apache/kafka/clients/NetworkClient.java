@@ -227,22 +227,22 @@ public class NetworkClient implements KafkaClient {
              logContext);
     }
 
-    private NetworkClient(MetadataUpdater metadataUpdater,
-                          Metadata metadata,
-                          Selectable selector,
-                          String clientId,
-                          int maxInFlightRequestsPerConnection,
-                          long reconnectBackoffMs,
-                          long reconnectBackoffMax,
-                          int socketSendBuffer,
-                          int socketReceiveBuffer,
-                          int defaultRequestTimeoutMs,
-                          ClientDnsLookup clientDnsLookup,
-                          Time time,
-                          boolean discoverBrokerVersions,
-                          ApiVersions apiVersions,
-                          Sensor throttleTimeSensor,
-                          LogContext logContext) {
+    public NetworkClient(MetadataUpdater metadataUpdater,
+                         Metadata metadata,
+                         Selectable selector,
+                         String clientId,
+                         int maxInFlightRequestsPerConnection,
+                         long reconnectBackoffMs,
+                         long reconnectBackoffMax,
+                         int socketSendBuffer,
+                         int socketReceiveBuffer,
+                         int defaultRequestTimeoutMs,
+                         ClientDnsLookup clientDnsLookup,
+                         Time time,
+                         boolean discoverBrokerVersions,
+                         ApiVersions apiVersions,
+                         Sensor throttleTimeSensor,
+                         LogContext logContext) {
         /* It would be better if we could pass `DefaultMetadataUpdater` from the public constructor, but it's not
          * possible because `DefaultMetadataUpdater` is an inner class and it can only be instantiated after the
          * super constructor is invoked.

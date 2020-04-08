@@ -136,6 +136,7 @@ public class HighwatermarkCheckpointBench {
                 metadataCache,
                 this.failureChannel,
                 TierReplicaComponents.EMPTY(),
+                null, // AdminManager only required for cluster linking
                 Option.empty());
         replicaManager.startup();
 

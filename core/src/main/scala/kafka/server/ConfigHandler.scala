@@ -233,6 +233,7 @@ class BrokerConfigHandler(private val brokerConfig: KafkaConfig,
     quotaManagers.leader.updateQuota(upperBound(getOrDefaultRate(KafkaConfig.LeaderReplicationThrottledRateProp, quotaManagers.leader.config).toDouble))
     quotaManagers.follower.updateQuota(upperBound(getOrDefaultRate(KafkaConfig.FollowerReplicationThrottledRateProp, quotaManagers.follower.config).toDouble))
     quotaManagers.alterLogDirs.updateQuota(upperBound(getOrDefaultRate(ReplicaAlterLogDirsIoMaxBytesPerSecondProp, quotaManagers.alterLogDirs.config).toDouble))
+    quotaManagers.clusterLink.updateQuota(upperBound(getOrDefaultRate(ClusterLinkIoMaxBytesPerSecondProp, quotaManagers.clusterLink.config).toDouble))
 
     setBrokerReplicationThrottledReplicas(KafkaConfig.LeaderReplicationThrottledReplicasProp, quotaManagers.leader)
     setBrokerReplicationThrottledReplicas(KafkaConfig.FollowerReplicationThrottledReplicasProp, quotaManagers.follower)

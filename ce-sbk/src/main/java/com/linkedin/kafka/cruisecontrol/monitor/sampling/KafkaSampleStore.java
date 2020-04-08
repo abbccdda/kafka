@@ -57,6 +57,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.collection.JavaConversions;
 import scala.collection.JavaConverters;
+import scala.Option$;
 
 import static com.linkedin.kafka.cruisecontrol.monitor.MonitorUtils.ensureTopicNotUnderPartitionReassignment;
 
@@ -351,7 +352,7 @@ public class KafkaSampleStore implements SampleStore {
       JavaConversions.asJavaIterable(kafkaZkClient.getFullReplicaAssignmentForTopics(topics))
           .forEach(e -> existingAssignment.put(e._1.partition(), e._2));
       adminZkClient.addPartitions(topic, existingAssignment, adminZkClient.getBrokerMetadatas(RackAwareMode.Safe$.MODULE$, null),
-                                  partitionCount, null, false, null);
+                                  partitionCount, null, false, null, Option$.MODULE$.empty());
       LOG.info("Kafka topic " + topic + " now has " + partitionCount + " partitions.");
     }
   }
@@ -368,7 +369,7 @@ public class KafkaSampleStore implements SampleStore {
     props.setProperty(LogConfig.RetentionMsProp(), Long.toString(retentionMs));
     props.setProperty(LogConfig.CleanupPolicyProp(), DEFAULT_CLEANUP_POLICY);
     if (!allTopics.contains(topic)) {
-      adminZkClient.createTopic(topic, partitionCount, replicationFactor, props, RackAwareMode.Safe$.MODULE$, false);
+      adminZkClient.createTopic(topic, partitionCount, replicationFactor, props, RackAwareMode.Safe$.MODULE$, false, Option$.MODULE$.empty());
     } else {
       try {
         adminZkClient.changeTopicConfig(topic, props);

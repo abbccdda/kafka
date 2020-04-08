@@ -362,6 +362,10 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
         s"$updateMetadataRequestPartitionInfoMap might be lost ")
   }
 
+  def nonEmpty: Boolean = {
+    leaderAndIsrRequestMap.nonEmpty || stopReplicaRequestMap.nonEmpty || updateMetadataRequestBrokerSet.nonEmpty
+  }
+
   def setContainsAllReplicas(brokerIds: Set[Int]): Unit = {
     brokerIds.foreach { brokerId =>
       val currentInfoOpt = leaderAndIsrRequestMap.get(brokerId)
@@ -389,6 +393,7 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
         LeaderAndIsrRequestInfo(containsAllReplicas = false, mutable.Map.empty)).partitionStates
       val alreadyNew = result.get(topicPartition).exists(_.isNew)
       val leaderAndIsr = leaderIsrAndControllerEpoch.leaderAndIsr
+      val clusterLink = controllerContext.linkedTopics.get(topicPartition.topic)
       result.put(topicPartition, new LeaderAndIsrPartitionState()
         .setTopicName(topicPartition.topic)
         .setPartitionIndex(topicPartition.partition)
@@ -396,6 +401,7 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
         .setLeader(leaderAndIsr.leader)
         .setLeaderEpoch(leaderAndIsr.leaderEpoch)
         .setConfluentIsUncleanLeader(leaderAndIsr.isUnclean)
+        .setClusterLink(clusterLink.map(_.name).orNull)
         .setIsr(leaderAndIsr.isr.map(Integer.valueOf).asJava)
         .setZkVersion(leaderAndIsr.zkVersion)
         .setReplicas(replicaAssignment.replicas.map(Integer.valueOf).asJava)

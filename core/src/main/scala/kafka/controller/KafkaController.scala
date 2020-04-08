@@ -745,12 +745,13 @@ class KafkaController(val config: KafkaConfig,
     val replicaAssignmentsAndTopicIds = zkClient.getReplicaAssignmentAndTopicIdForTopics(controllerContext.allTopics.toSet)
     processTopicIds(replicaAssignmentsAndTopicIds)
 
-    replicaAssignmentsAndTopicIds.foreach { case TopicIdReplicaAssignment(_, _, assignments) =>
+    replicaAssignmentsAndTopicIds.foreach { case TopicIdReplicaAssignment(topic, _, assignments, clusterLink) =>
       assignments.foreach { case (topicPartition, replicaAssignment) =>
         controllerContext.updatePartitionFullReplicaAssignment(topicPartition, replicaAssignment)
         if (replicaAssignment.isBeingReassigned)
           controllerContext.partitionsBeingReassigned.add(topicPartition)
       }
+      clusterLink.foreach { linkName => controllerContext.linkedTopics += topic -> ClusterLinkName(linkName) }
     }
 
     controllerContext.partitionLeadershipInfo.clear()
@@ -812,11 +813,20 @@ class KafkaController(val config: KafkaConfig,
     (topicsToBeDeleted, topicsIneligibleForDeletion)
   }
 
-  private def updateLeaderAndIsrCache(partitions: Seq[TopicPartition] = controllerContext.allPartitions.toSeq): Unit = {
+  private def updateLeaderAndIsrCache(updatedPartitions: Seq[TopicPartition] = Seq.empty): Unit = {
+    val partitions = if (updatedPartitions.nonEmpty) updatedPartitions else controllerContext.allPartitions.toSeq
     val leaderIsrAndControllerEpochs = zkClient.getTopicPartitionStates(partitions)
+    val linkedLeaderChanges = mutable.Set[TopicPartition]()
     leaderIsrAndControllerEpochs.foreach { case (partition, leaderIsrAndControllerEpoch) =>
+      val oldLinkedEpoch = controllerContext.partitionLeadershipInfo.get(partition)
+        .flatMap(_.leaderAndIsr.linkedLeaderEpoch)
+      val newLinkedEpoch = leaderIsrAndControllerEpoch.leaderAndIsr.linkedLeaderEpoch
+      if (oldLinkedEpoch != newLinkedEpoch)
+        linkedLeaderChanges += partition
       controllerContext.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
     }
+    if (updatedPartitions.nonEmpty && linkedLeaderChanges.nonEmpty)
+      updateLeaderEpochAndSendRequest(linkedLeaderChanges.toSeq)
   }
 
   private def isReassignmentComplete(partition: TopicPartition, assignment: ReplicaAssignment): Boolean = {
@@ -881,6 +891,7 @@ class KafkaController(val config: KafkaConfig,
       topicPartition.topic,
       controllerContext.topicIds.get(topicPartition.topic),
       topicAssignment,
+      controllerContext.linkedTopics.get(topicPartition.topic).map(_.name),
       controllerContext.epochZkVersion
     )
     setDataResponse.resultCode match {
@@ -1060,7 +1071,8 @@ class KafkaController(val config: KafkaConfig,
               val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, epoch)
               controllerContext.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
               finalLeaderIsrAndControllerEpoch = Some(leaderIsrAndControllerEpoch)
-              info(s"Updated leader epoch for partition $partition to ${leaderAndIsr.leaderEpoch}")
+              info(s"Updated leader epoch for partition $partition to ${leaderAndIsr.leaderEpoch}" +
+                leaderAndIsr.linkedLeaderEpoch.map(e => s" linkedEpoch=$e").getOrElse(""))
               true
             case Some(Left(e)) => throw e
             case None => false
@@ -1467,16 +1479,17 @@ class KafkaController(val config: KafkaConfig,
     deletedTopics.foreach(controllerContext.removeTopic)
     processTopicIds(addedPartitionReplicaAssignment)
 
-    addedPartitionReplicaAssignment.foreach { case TopicIdReplicaAssignment(_, _, newAssignments) =>
+    addedPartitionReplicaAssignment.foreach { case TopicIdReplicaAssignment(topic, _, newAssignments, clusterLink) =>
       newAssignments.foreach { case (topicPartition, newReplicaAssignment) =>
         controllerContext.updatePartitionFullReplicaAssignment(topicPartition, newReplicaAssignment)
       }
+      clusterLink.foreach { linkName => controllerContext.linkedTopics += topic -> ClusterLinkName(linkName) }
     }
     info(s"New topics: [$newTopics], deleted topics: [$deletedTopics], new partition replica assignment " +
       s"[$addedPartitionReplicaAssignment]")
     if (addedPartitionReplicaAssignment.nonEmpty) {
       val partitionAssignments = addedPartitionReplicaAssignment
-        .map { case TopicIdReplicaAssignment(_, _, partitionsReplicas) => partitionsReplicas.keySet }
+        .map { case TopicIdReplicaAssignment(_, _, partitionsReplicas, _) => partitionsReplicas.keySet }
         .reduce((s1, s2) => s1.union(s2))
       onNewPartitionCreation(partitionAssignments)
     }
@@ -1519,11 +1532,13 @@ class KafkaController(val config: KafkaConfig,
       zkClient.setTopicAssignment(topic,
         controllerContext.topicIds.get(topic),
         existingPartitionReplicaAssignment,
+        controllerContext.linkedTopics.get(topic).map(_.name),
         controllerContext.epochZkVersion)
     }
 
     if (!isActive) return
-    val partitionReplicaAssignment = zkClient.getFullReplicaAssignmentForTopics(immutable.Set(topic))
+    val topicInfo = zkClient.getReplicaAssignmentAndTopicIdForTopics(immutable.Set(topic))
+    val partitionReplicaAssignment = topicInfo.flatMap(_.assignment).toMap
     val partitionsToBeAdded = partitionReplicaAssignment.filter { case (topicPartition, _) =>
       controllerContext.partitionReplicaAssignment(topicPartition).isEmpty
     }
@@ -1538,18 +1553,35 @@ class KafkaController(val config: KafkaConfig,
         // This can happen if existing partition replica assignment are restored to prevent increasing partition count during topic deletion
         info("Ignoring partition change during topic deletion as no new partitions are added")
       }
-    } else if (partitionsToBeAdded.nonEmpty) {
-      info(s"New partitions to be added $partitionsToBeAdded")
-      partitionsToBeAdded.foreach { case (topicPartition, assignedReplicas) =>
-        val assignment = if (assignedReplicas.isBeingReassigned) {
-          error(s"The assignment $assignedReplicas for new partition $topicPartition is being reassigned")
-          ReplicaAssignment(assignedReplicas.replicas, assignedReplicas.observers)
-        } else {
-          assignedReplicas
+    } else {
+      if (partitionsToBeAdded.nonEmpty) {
+        info(s"New partitions to be added $partitionsToBeAdded")
+        partitionsToBeAdded.foreach { case (topicPartition, assignedReplicas) =>
+          val assignment = if (assignedReplicas.isBeingReassigned) {
+            error(s"The assignment $assignedReplicas for new partition $topicPartition is being reassigned")
+            ReplicaAssignment(assignedReplicas.replicas, assignedReplicas.observers)
+          } else {
+            assignedReplicas
+          }
+          controllerContext.updatePartitionFullReplicaAssignment(topicPartition, assignment)
         }
-        controllerContext.updatePartitionFullReplicaAssignment(topicPartition, assignment)
+        onNewPartitionCreation(partitionsToBeAdded.keySet)
       }
-      onNewPartitionCreation(partitionsToBeAdded.keySet)
+      val oldLink = controllerContext.linkedTopics.get(topic).map(_.name)
+      val newLink = topicInfo.flatMap(_.clusterLink).headOption
+      if (oldLink != newLink) {
+        newLink match {
+          case Some(linkName) =>
+            // The API does not allow link change and we never expect to get here, unless link was
+            // manually updated in ZK. Since we cannot verify this in the case of controller failover,
+            // we rely on the API disallowing this case rather than the controller preventing it here.
+            error(s"Cluster link change for topic $topic from $oldLink to $linkName is not supported")
+          case None =>
+            debug(s"Removing cluster link $oldLink for topic $topic")
+            controllerContext.linkedTopics.remove(topic)
+            updateLeaderEpochAndSendRequest(partitionReplicaAssignment.keySet.toSeq)
+        }
+      }
     }
   }
 
@@ -1820,6 +1852,32 @@ class KafkaController(val config: KafkaConfig,
       // delete the notifications
       zkClient.deleteIsrChangeNotifications(sequenceNumbers, controllerContext.epochZkVersion)
     }
+  }
+
+  private def updateLeaderEpochAndSendRequest(partitions: Seq[TopicPartition]): Unit = {
+    val stateChangeLog = stateChangeLogger.withControllerEpoch(controllerContext.epoch)
+    debug(s"Processing linked leader epoch change for partition $partitions")
+    brokerRequestBatch.newBatch()
+    partitions.foreach { partition =>
+      updateLeaderEpoch(partition) match {
+        case Some(updatedLeaderIsrAndControllerEpoch) =>
+          try {
+            val assignment = controllerContext.partitionFullReplicaAssignment(partition)
+            brokerRequestBatch.addLeaderAndIsrRequestForBrokers(assignment.replicas, partition,
+              updatedLeaderIsrAndControllerEpoch, assignment, isNew = false)
+          } catch {
+            case e: IllegalStateException =>
+              handleIllegalState(e)
+          }
+          stateChangeLog.trace(s"Sending LeaderAndIsr request $updatedLeaderIsrAndControllerEpoch for " +
+            s"partition $partition with new leader epoch since linked leader epoch was updated.")
+
+        case None =>
+          stateChangeLog.error(s"Failed to update LeaderAndIsr for partition $partition after linked leader epoch update.")
+      }
+    }
+    if (brokerRequestBatch.nonEmpty)
+      brokerRequestBatch.sendRequestsToBrokers(controllerContext.epoch)
   }
 
   def electLeaders(
@@ -2124,6 +2182,7 @@ case class LeaderIsrAndControllerEpoch(leaderAndIsr: LeaderAndIsr, controllerEpo
     leaderAndIsrInfo.append("(Leader:" + leaderAndIsr.leader)
     leaderAndIsrInfo.append(",ISR:" + leaderAndIsr.isr.mkString(","))
     leaderAndIsrInfo.append(",LeaderEpoch:" + leaderAndIsr.leaderEpoch)
+    leaderAndIsr.linkedLeaderEpoch.foreach { epoch => leaderAndIsrInfo.append(",LinkedLeaderEpoch:" + epoch) }
     leaderAndIsrInfo.append(",ControllerEpoch:" + controllerEpoch + ")")
     leaderAndIsrInfo.toString()
   }

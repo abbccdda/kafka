@@ -66,7 +66,7 @@ class HighwatermarkPersistenceTest {
     // create replica manager
     val replicaManager = new ReplicaManager(configs.head, metrics, time, zkClient, scheduler,
       logManagers.head, new AtomicBoolean(false), QuotaFactory.instantiate(configs.head, metrics, time, ""),
-      new BrokerTopicStats, new MetadataCache(configs.head.brokerId), logDirFailureChannels.head, TierReplicaComponents.EMPTY)
+      new BrokerTopicStats, new MetadataCache(configs.head.brokerId), logDirFailureChannels.head, TierReplicaComponents.EMPTY, null)
     replicaManager.startup()
     try {
       replicaManager.checkpointHighWatermarks()
@@ -83,7 +83,8 @@ class HighwatermarkPersistenceTest {
         isr = Set(configs.head.brokerId),
         addingReplicas = Seq.empty,
         removingReplicas = Seq.empty,
-        observers = Set.empty
+        observers = Set.empty,
+        clusterLink = None
       )
 
       replicaManager.checkpointHighWatermarks()
@@ -117,7 +118,7 @@ class HighwatermarkPersistenceTest {
     // create replica manager
     val replicaManager = new ReplicaManager(configs.head, metrics, time, zkClient,
       scheduler, logManagers.head, new AtomicBoolean(false), QuotaFactory.instantiate(configs.head, metrics, time, ""),
-      new BrokerTopicStats, new MetadataCache(configs.head.brokerId), logDirFailureChannels.head, TierReplicaComponents.EMPTY)
+      new BrokerTopicStats, new MetadataCache(configs.head.brokerId), logDirFailureChannels.head, TierReplicaComponents.EMPTY, null)
     replicaManager.startup()
     try {
       replicaManager.checkpointHighWatermarks()

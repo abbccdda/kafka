@@ -34,6 +34,7 @@ import kafka.server.{FetchMetadata => SFetchMetadata}
 import kafka.server.HostedPartition.Online
 import kafka.server.QuotaFactory.QuotaManagers
 import kafka.server.checkpoints.{LazyOffsetCheckpoints, OffsetCheckpointFile, OffsetCheckpoints}
+import kafka.server.link.ClusterLinkReplicaManager
 import kafka.tier.{TierReplicaManager, TierTimestampAndOffset}
 import kafka.tier.fetcher.{TierFetchResult, TierFetcher, TierStateFetcher}
 import kafka.utils._
@@ -246,6 +247,7 @@ class ReplicaManager(val config: KafkaConfig,
                      val delayedElectLeaderPurgatory: DelayedOperationPurgatory[DelayedElectLeader],
                      val delayedListOffsetsPurgatory: DelayedOperationPurgatory[DelayedListOffsets],
                      val tierReplicaComponents: TierReplicaComponents,
+                     val adminManager: AdminManager,
                      threadNamePrefix: Option[String]) extends Logging with KafkaMetricsGroup {
 
   def this(config: KafkaConfig,
@@ -260,6 +262,7 @@ class ReplicaManager(val config: KafkaConfig,
            metadataCache: MetadataCache,
            logDirFailureChannel: LogDirFailureChannel,
            tierReplicaComponents: TierReplicaComponents,
+           adminManager: AdminManager,
            threadNamePrefix: Option[String] = None) = {
     this(config, metrics, time, zkClient, scheduler, logManager, isShuttingDown,
       quotaManagers, brokerTopicStats, metadataCache, logDirFailureChannel,
@@ -277,6 +280,7 @@ class ReplicaManager(val config: KafkaConfig,
       DelayedOperationPurgatory[DelayedListOffsets](
         purgatoryName = "ListOffsets", brokerId = config.brokerId),
       tierReplicaComponents,
+      adminManager,
       threadNamePrefix)
   }
 
@@ -289,6 +293,7 @@ class ReplicaManager(val config: KafkaConfig,
   private val replicaStateChangeLock = new Object
   val replicaFetcherManager = createReplicaFetcherManager(metrics, time, threadNamePrefix, quotaManagers.follower)
   val replicaAlterLogDirsManager = createReplicaAlterLogDirsManager(quotaManagers.alterLogDirs, brokerTopicStats)
+  val clusterLinkManager = createClusterLinkManager(metrics, time, threadNamePrefix)
   private val highWatermarkCheckPointThreadStarted = new AtomicBoolean(false)
   @volatile var highWatermarkCheckpoints: Map[String, OffsetCheckpointFile] = logManager.liveLogDirs.map(dir =>
     (dir.getAbsolutePath, new OffsetCheckpointFile(new File(dir, ReplicaManager.HighWatermarkFilename), logDirFailureChannel))).toMap
@@ -482,6 +487,7 @@ class ReplicaManager(val config: KafkaConfig,
         controllerEpoch = stopReplicaRequest.controllerEpoch
         // First stop fetchers for all partitions, then stop the corresponding replicas
         replicaFetcherManager.removeFetcherForPartitions(partitions)
+        clusterLinkManager.removeLinkedFetcherAndMetadataForPartitions(partitions)
         replicaAlterLogDirsManager.removeFetcherForPartitions(partitions)
 
         stateChangeLogger.info(s"Handling stop replica (delete=${stopReplicaRequest.deletePartitions()}) for ${partitions.size} partitions")
@@ -1614,8 +1620,7 @@ class ReplicaManager(val config: KafkaConfig,
         }
         replicaAlterLogDirsManager.addFetcherForPartitions(futureReplicasAndInitialOffset)
 
-        replicaFetcherManager.shutdownIdleFetcherThreads()
-        replicaAlterLogDirsManager.shutdownIdleFetcherThreads()
+        shutdownIdleFetcherThreads()
         onLeadershipChange(partitionsBecomeLeader, partitionsBecomeFollower)
         val responsePartitions = responseMap.iterator.map { case (tp, error) =>
           new LeaderAndIsrPartitionError()
@@ -1661,10 +1666,12 @@ class ReplicaManager(val config: KafkaConfig,
     }
 
     val partitionsToMakeLeaders = mutable.Set[Partition]()
+    val linkedPartitionsToMakeLeaders = mutable.Set[Partition]()
 
     try {
       // First stop fetchers for all the partitions
       replicaFetcherManager.removeFetcherForPartitions(partitionStates.keySet.map(_.topicPartition))
+      clusterLinkManager.removeLinkedFetcherForPartitions(partitionStates)
       stateChangeLogger.info(s"Stopped fetchers as part of LeaderAndIsr request correlationId $correlationId from " +
         s"controller $controllerId epoch $controllerEpoch as part of the become-leader transition for " +
         s"${partitionStates.size} partitions")
@@ -1678,6 +1685,8 @@ class ReplicaManager(val config: KafkaConfig,
               s"partition as leader with correlation id $correlationId from controller $controllerId epoch $controllerEpoch for " +
               s"partition ${partition.topicPartition} (last update controller epoch ${partitionState.controllerEpoch}) " +
               s"since it is already the leader for the partition.")
+          if (partition.isLinkDestination)
+            linkedPartitionsToMakeLeaders += partition
         } catch {
           case e: KafkaStorageException =>
             stateChangeLogger.error(s"Skipped the become-leader state change with " +
@@ -1705,6 +1714,8 @@ class ReplicaManager(val config: KafkaConfig,
         stateChangeLogger.trace(s"Completed LeaderAndIsr request correlationId $correlationId from controller $controllerId " +
           s"epoch $controllerEpoch for the become-leader transition for partition ${partition.topicPartition}")
       }
+
+    clusterLinkManager.addLinkedFetcherForPartitions(linkedPartitionsToMakeLeaders)
 
     partitionsToMakeLeaders
   }
@@ -1785,6 +1796,7 @@ class ReplicaManager(val config: KafkaConfig,
       }
 
       replicaFetcherManager.removeFetcherForPartitions(partitionsToMakeFollower.map(_.topicPartition))
+      clusterLinkManager.removeLinkedFetcherAndMetadataForPartitions(partitionsToMakeFollower.map(_.topicPartition))
       stateChangeLogger.info(s"Stopped fetchers as part of become-follower request from controller $controllerId " +
         s"epoch $controllerEpoch with correlation id $correlationId for ${partitionsToMakeFollower.size} partitions")
 
@@ -1951,6 +1963,7 @@ class ReplicaManager(val config: KafkaConfig,
       }.toSet
 
       replicaFetcherManager.removeFetcherForPartitions(newOfflinePartitions)
+      clusterLinkManager.removeLinkedFetcherAndMetadataForPartitions(newOfflinePartitions)
       replicaAlterLogDirsManager.removeFetcherForPartitions(newOfflinePartitions ++ partitionsWithOfflineFutureReplica.map(_.topicPartition))
 
       partitionsWithOfflineFutureReplica.foreach(partition => partition.removeFutureLocalReplica(deleteFromLogDir = false))
@@ -1990,6 +2003,7 @@ class ReplicaManager(val config: KafkaConfig,
     if (logDirFailureHandler != null)
       logDirFailureHandler.shutdown()
     replicaFetcherManager.shutdown()
+    clusterLinkManager.shutdown()
     replicaAlterLogDirsManager.shutdown()
     delayedFetchPurgatory.shutdown()
     delayedProducePurgatory.shutdown()
@@ -2008,6 +2022,10 @@ class ReplicaManager(val config: KafkaConfig,
 
   protected def createReplicaAlterLogDirsManager(quotaManager: ReplicationQuotaManager, brokerTopicStats: BrokerTopicStats) = {
     new ReplicaAlterLogDirsManager(config, this, quotaManager, brokerTopicStats)
+  }
+
+  protected def createClusterLinkManager(metrics: Metrics, time: Time, threadNamePrefix: Option[String]): ClusterLinkReplicaManager = {
+    new ClusterLinkReplicaManager(config, this, quotaManagers.clusterLink, metrics, time, threadNamePrefix, tierReplicaComponents.stateFetcherOpt)
   }
 
   protected def createReplicaSelector(): Option[ReplicaSelector] = {
@@ -2078,6 +2096,12 @@ class ReplicaManager(val config: KafkaConfig,
     }
 
     controller.electLeaders(partitions, electionType, electionCallback)
+  }
+
+  def shutdownIdleFetcherThreads(): Unit = {
+    replicaFetcherManager.shutdownIdleFetcherThreads()
+    replicaAlterLogDirsManager.shutdownIdleFetcherThreads()
+    clusterLinkManager.shutdownIdleFetcherThreads()
   }
 }
 

@@ -240,11 +240,14 @@ object TopicsZNode {
 }
 
 object TopicZNode {
-  case class TopicIdReplicaAssignment(topic: String, topicId: Option[UUID], assignment: Map[TopicPartition, ReplicaAssignment])
+  case class TopicIdReplicaAssignment(topic: String,
+                                      topicId: Option[UUID],
+                                      assignment: Map[TopicPartition, ReplicaAssignment],
+                                      clusterLink: Option[String])
 
   def path(topic: String) = s"${TopicsZNode.path}/$topic"
 
-  def encode(topicId: Option[UUID], assignment: collection.Map[TopicPartition, ReplicaAssignment]): Array[Byte] = {
+  def encode(topicId: Option[UUID], assignment: collection.Map[TopicPartition, ReplicaAssignment], clusterLink: Option[String]): Array[Byte] = {
     val replicaAssignmentJson = mutable.Map[String, util.List[Int]]()
     val addingReplicasAssignmentJson = mutable.Map[String, util.List[Int]]()
     val removingReplicasAssignmentJson = mutable.Map[String, util.List[Int]]()
@@ -266,27 +269,18 @@ object TopicZNode {
       }
     }
 
-    val topicAssignment = if (topicId.isDefined)
-      Map(
-        "version" -> 2,
-        "partitions" -> replicaAssignmentJson.asJava,
-        "adding_replicas" -> addingReplicasAssignmentJson.asJava,
-        "removing_replicas" -> removingReplicasAssignmentJson.asJava,
-        "observers" -> observersAssignment.asJava,
-        "target_observers" -> targetObserversAssignment.asJava,
-        "confluent_topic_id" -> topicId.get.toString
-      ).asJava
-    else
-      Map(
-        "version" -> 2,
-        "partitions" -> replicaAssignmentJson.asJava,
-        "adding_replicas" -> addingReplicasAssignmentJson.asJava,
-        "removing_replicas" -> removingReplicasAssignmentJson.asJava,
-        "observers" -> observersAssignment.asJava,
-        "target_observers" -> targetObserversAssignment.asJava
-      ).asJava
+    val topicAssignment =  mutable.Map(
+      "version" -> 2,
+      "partitions" -> replicaAssignmentJson.asJava,
+      "adding_replicas" -> addingReplicasAssignmentJson.asJava,
+      "removing_replicas" -> removingReplicasAssignmentJson.asJava,
+      "observers" -> observersAssignment.asJava,
+      "target_observers" -> targetObserversAssignment.asJava
+    )
+    topicId.foreach(id => topicAssignment += "confluent_topic_id" -> id.toString)
+    clusterLink.foreach(linkName => topicAssignment += "confluent_cluster_link" -> linkName)
 
-    Json.encodeAsBytes(topicAssignment)
+    Json.encodeAsBytes(topicAssignment.asJava)
   }
 
   def decode(topic: String, bytes: Array[Byte]): TopicIdReplicaAssignment = {
@@ -311,6 +305,7 @@ object TopicZNode {
     Json.parseBytes(bytes).map { js =>
       val assignmentJson = js.asJsonObject
       val topicId = assignmentJson.get("confluent_topic_id").map(_.to[String]).map(UUID.fromString)
+      val clusterLink = assignmentJson.get("confluent_cluster_link").map(_.to[String])
       val addingReplicasJsonOpt = assignmentJson.get("adding_replicas").map(_.asJsonObject)
       val removingReplicasJsonOpt = assignmentJson.get("removing_replicas").map(_.asJsonObject)
       val observersJson = assignmentJson.get("observers").map(_.asJsonObject)
@@ -328,8 +323,8 @@ object TopicZNode {
         }.toMap
       }.getOrElse(immutable.Map.empty[TopicPartition, ReplicaAssignment])
 
-      TopicIdReplicaAssignment(topic, topicId, partitions)
-    }.getOrElse(TopicIdReplicaAssignment(topic, None, Map.empty[TopicPartition, ReplicaAssignment]))
+      TopicIdReplicaAssignment(topic, topicId, partitions, clusterLink)
+    }.getOrElse(TopicIdReplicaAssignment(topic, None, Map.empty[TopicPartition, ReplicaAssignment], None))
   }
 }
 
@@ -345,8 +340,10 @@ object TopicPartitionStateZNode {
   def encode(leaderIsrAndControllerEpoch: LeaderIsrAndControllerEpoch): Array[Byte] = {
     val leaderAndIsr = leaderIsrAndControllerEpoch.leaderAndIsr
     val controllerEpoch = leaderIsrAndControllerEpoch.controllerEpoch
-    Json.encodeAsBytes(Map("version" -> 1, "leader" -> leaderAndIsr.leader, "leader_epoch" -> leaderAndIsr.leaderEpoch,
-      "controller_epoch" -> controllerEpoch, "isr" -> leaderAndIsr.isr.asJava, "confluent_is_unclean_leader" -> leaderAndIsr.isUnclean).asJava)
+    val partitionState = mutable.Map("version" -> 1, "leader" -> leaderAndIsr.leader, "leader_epoch" -> leaderAndIsr.leaderEpoch,
+      "controller_epoch" -> controllerEpoch, "isr" -> leaderAndIsr.isr.asJava, "confluent_is_unclean_leader" -> leaderAndIsr.isUnclean)
+    leaderAndIsr.linkedLeaderEpoch.foreach(epoch => partitionState += "confluent_linked_leader_epoch" -> epoch)
+    Json.encodeAsBytes(partitionState.asJava)
   }
   def decode(bytes: Array[Byte], stat: Stat): Option[LeaderIsrAndControllerEpoch] = {
     Json.parseBytes(bytes).map { js =>
@@ -356,8 +353,9 @@ object TopicPartitionStateZNode {
       val isr = leaderIsrAndEpochInfo("isr").to[List[Int]]
       val controllerEpoch = leaderIsrAndEpochInfo("controller_epoch").to[Int]
       val isUncleanOpt = leaderIsrAndEpochInfo.get("confluent_is_unclean_leader").map(_.to[Boolean])
+      val linkedLeaderEpoch = leaderIsrAndEpochInfo.get("confluent_linked_leader_epoch").map(_.to[Int])
       val zkPathVersion = stat.getVersion
-      LeaderIsrAndControllerEpoch(LeaderAndIsr(leader, epoch, isr, zkPathVersion, isUncleanOpt.getOrElse(false)), controllerEpoch)
+      LeaderIsrAndControllerEpoch(LeaderAndIsr(leader, epoch, isr, zkPathVersion, isUncleanOpt.getOrElse(false), linkedLeaderEpoch), controllerEpoch)
     }
   }
 }

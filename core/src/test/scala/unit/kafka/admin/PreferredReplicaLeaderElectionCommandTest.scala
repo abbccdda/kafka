@@ -75,7 +75,8 @@ class PreferredReplicaLeaderElectionCommandTest extends ZooKeeperTestHarness wit
       zkClient.createTopicAssignment(
         tp.topic,
         None,
-        Map(tp -> ReplicaAssignment(assignment, Seq.empty))
+        Map(tp -> ReplicaAssignment(assignment, Seq.empty)),
+        None
       )
     }
     // wait until replica log is created on every broker

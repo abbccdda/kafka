@@ -277,6 +277,9 @@ object Defaults {
   val FollowerReplicationThrottledReplicas: String = ReplicationQuotaManagerConfig.NoThrottledReplicasValue
   val NumAlterLogDirsReplicationQuotaSamples: Int = ReplicationQuotaManagerConfig.DefaultNumQuotaSamples
   val AlterLogDirsReplicationQuotaWindowSizeSeconds: Int = ReplicationQuotaManagerConfig.DefaultQuotaWindowSizeSeconds
+  val NumClusterLinkReplicationQuotaSamples: Int = ReplicationQuotaManagerConfig.DefaultNumQuotaSamples
+  val ClusterLinkReplicationQuotaWindowSizeSeconds: Int = ReplicationQuotaManagerConfig.DefaultQuotaWindowSizeSeconds
+
 
   /** ********* Transaction Configuration ***********/
   val TransactionalIdExpirationMsDefault = 604800000
@@ -1529,6 +1532,11 @@ object KafkaConfig {
       .define(PasswordEncoderKeyLengthProp, INT, Defaults.PasswordEncoderKeyLength, atLeast(8), LOW, PasswordEncoderKeyLengthDoc)
       .define(PasswordEncoderIterationsProp, INT, Defaults.PasswordEncoderIterations, atLeast(1024), LOW, PasswordEncoderIterationsDoc)
 
+      /** ********* Confluent Cluster Link Configs *********/
+      .define(ConfluentConfigs.NUM_CLUSTER_LINK_REPLICATION_QUOTAS_SAMPLES_PROP, INT, Defaults.NumClusterLinkReplicationQuotaSamples, atLeast(1), LOW, ConfluentConfigs.NUM_CLUSTER_LINK_REPLICATION_QUOTAS_SAMPLES_DOC)
+      .define(ConfluentConfigs.CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_PROP, INT, Defaults.ClusterLinkReplicationQuotaWindowSizeSeconds, atLeast(1), LOW, ConfluentConfigs.CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_DOC)
+
+
       /** ********* Confluent Resource Names Configuration *********/
       .define(ConfluentResourceNameAuthorityProp, STRING, ConfluentConfigs.CRN_AUTHORITY_NAME_DEFAULT, LOW, ConfluentResourceNameAuthorityDoc)
 
@@ -2076,6 +2084,8 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val replicationQuotaWindowSizeSeconds = getInt(KafkaConfig.ReplicationQuotaWindowSizeSecondsProp)
   val numAlterLogDirsReplicationQuotaSamples = getInt(KafkaConfig.NumAlterLogDirsReplicationQuotaSamplesProp)
   val alterLogDirsReplicationQuotaWindowSizeSeconds = getInt(KafkaConfig.AlterLogDirsReplicationQuotaWindowSizeSecondsProp)
+  val numClusterLinkReplicationQuotaSamples = getInt(ConfluentConfigs.NUM_CLUSTER_LINK_REPLICATION_QUOTAS_SAMPLES_PROP)
+  val clusterLinkReplicationQuotaWindowSizeSeconds = getInt(ConfluentConfigs.CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_PROP)
 
   def newRequestLogFilter(): RequestLogFilter = {
     val filter = Option(getConfiguredInstance(KafkaConfig.RequestLogFilterClass, classOf[RequestLogFilter]))
