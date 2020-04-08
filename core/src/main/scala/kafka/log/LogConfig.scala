@@ -466,7 +466,9 @@ object LogConfig {
       throw new InvalidConfigurationException("Configs cannot be altered to disable tiering")
 
     if (current.tierEnable && !current.compact && proposed.compact)
-      throw new InvalidConfigurationException("Configs cannot be altered to enable compaction if tiering is enabled")
+      throw new InvalidConfigurationException(s"Altering topic configuration from `${TopicConfig.CLEANUP_POLICY_DELETE}` " +
+        s"to `${TopicConfig.CLEANUP_POLICY_COMPACT}` is not supported. Please create a new topic with " +
+        s"`${TopicConfig.CLEANUP_POLICY_COMPACT}` policy specified instead.")
 
     if (interBrokerProtocolVersion < KAFKA_2_4_IV1 && proposed.topicPlacementConstraints.exists(_.hasObserverConstraints))
       throw new InvalidConfigurationException("Observer constraints are not allowed with current " +
