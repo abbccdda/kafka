@@ -66,20 +66,22 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
     private Set<Exporter> exporters;
 
     private List<MetricsCollector> collectors;
+    private boolean started = false;
 
     @Override
     public synchronized void onUpdate(ClusterResource clusterResource) {
+        if (started) {
+            return;
+        }
+
         // prevent this reporter from starting up on clients
         //   note: this is not a completely fail-safe check, it is still possible
         //   for a degenerate client configs to contain broker id configs
         if (config.getBrokerId() == null || clusterResource.clusterId() == null) {
             log.warn("{} only supports Kafka brokers, metrics collection will not be started", KafkaServerMetricsReporter.class);
-            return;
-        }
 
-        if (this.collectorTask != null) {
-            log.warn("onUpdate called multiple times for {}", KafkaServerMetricsReporter.class);
-            // Exit early so we don't start a second collector task
+            // set started to prevent warning messages on every client metadata update
+            started = true;
             return;
         }
 
@@ -116,6 +118,7 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
             whitelistPredicate);
 
         this.collectorTask.start();
+        started = true;
     }
 
     /**
