@@ -63,7 +63,8 @@ class FileTierPartitionStateTest {
     assertEquals(9, state.tierEpoch())
     state.close()
 
-    val reopenedState = factory.initState(dir, tp, logConfig, logDirFailureChannel)
+    val reopenedState = factory.initState(dir, tp, logConfig, logDirFailureChannel).asInstanceOf[FileTierPartitionState]
+    assertFalse(reopenedState.dirty())
     assertEquals(9, reopenedState.tierEpoch())
     reopenedState.close()
   }
@@ -477,8 +478,8 @@ class FileTierPartitionStateTest {
     // close state and reopen to allow scanning to check in progress uploads
     state.close()
 
-
     val state2 = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
+    assertFalse(state2.dirty())
     assertFalse(state2.setTopicId(tpid.topicId))
 
     val afterReloadFenced = state2.fencedSegments()
@@ -521,6 +522,7 @@ class FileTierPartitionStateTest {
     // reopen state and validate state remains the same
     state.close()
     val reopenedState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
+    assertFalse(reopenedState.dirty())
     try {
       assertEquals(0, reopenedState.fencedSegments.size)
       assertEquals(numSegments * 2, reopenedState.segmentOffsets.size)
@@ -615,6 +617,7 @@ class FileTierPartitionStateTest {
     // must have the same state after reopening the file
     state.close()
     val reopenedState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
+    assertFalse(reopenedState.dirty())
     try {
       assertEquals(numAbortedSegments, reopenedState.fencedSegments.size)
       assertEquals(abortedObjectIds.toSet, reopenedState.fencedSegments.asScala.map(_.objectId).toSet)
@@ -694,6 +697,7 @@ class FileTierPartitionStateTest {
 
     state.close()
     val reopenedState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
+    assertFalse(reopenedState.dirty())
     try {
       // check segments are seekable and fencedSegments list is the same after file is reopened
       assertArrayEquals(fencedBefore.toArray, reopenedState.fencedSegments().toArray)
@@ -800,6 +804,7 @@ class FileTierPartitionStateTest {
 
     state.close()
     val reopenedState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
+    assertFalse(reopenedState.dirty())
     try {
       assertEquals(size, reopenedState.totalSize)
     } finally {
@@ -849,6 +854,7 @@ class FileTierPartitionStateTest {
       // Mimic a broker restart verify partition state endOffset and totalSize is same as before restart.
       state.close()
       val reopenedState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
+      assertFalse(reopenedState.dirty())
       try {
         // After
         assertEquals("FileTierPartitionState endOffset materialized value", expectedEndOffset, reopenedState.endOffset())
@@ -923,6 +929,7 @@ class FileTierPartitionStateTest {
     // Broker restarts: reopen state and validate again.
     state.close()
     val reopenedState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
+    assertFalse(reopenedState.dirty())
     try {
       assertEquals(reopenedState.toString(), 2, reopenedState.fencedSegments.size)
       assertEquals("FileTierPartitionState endOffset materialized value", endOffset, reopenedState.endOffset())
