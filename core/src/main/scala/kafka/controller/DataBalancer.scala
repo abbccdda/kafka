@@ -36,11 +36,15 @@ object DataBalancer {
       Some(Class.forName(dataBalancerClassName)
         .getConstructor(classOf[KafkaConfig]).newInstance(kafkaConfig).asInstanceOf[DataBalancer])
     } catch {
-        case e: Exception => {
-          log.error(s"Unable to load data balancer class ${dataBalancerClassName}: ", e)
-          None
-        }
+      case e: ClassNotFoundException => {
+        log.warn(s"Unable to load data balancer class $dataBalancerClassName")
+        None
       }
+      case e: Exception => {
+        log.error(s"Data balancer class load of ${dataBalancerClassName} failed: ", e)
+        None
+      }
+    }
   }
 }
 
