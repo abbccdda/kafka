@@ -195,10 +195,19 @@ public class KafkaDataBalancer implements DataBalancer {
         Map<String, Object> ccConfigProps = new java.util.HashMap<>(config.originalsWithPrefix(ConfluentConfigs.CONFLUENT_BALANCER_PREFIX));
 
         // Special overrides: zookeeper.connect, etc.
-        ccConfigProps.put(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG, config.get(KafkaConfig.ZkConnectProp()));
+        ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG, config.get(KafkaConfig.ZkConnectProp()));
 
         // CNKAF-528: Derive bootstrap.servers from the provided KafkaConfig, instead of requiring
         // users to specify it.
+        String bootstrapServers = config.listeners().toStream()
+                .find(ep -> ep.listenerName().equals(config.interBrokerListenerName()))
+                .map(ep -> ep.connectionString())
+                .getOrElse(() -> "");
+
+        if (!bootstrapServers.equals("")) {
+            ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        }
+        LOG.debug("DataBalancer: BOOTSTRAP_SERVERS determined to be {}", ccConfigProps.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG));
 
         // Some CruiseControl properties can be interpreted from existing properties,
         // but those properties aren't defined in KafkaConfig because they're in external modules,

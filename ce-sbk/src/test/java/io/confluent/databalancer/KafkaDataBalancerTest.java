@@ -190,8 +190,6 @@ public class KafkaDataBalancerTest {
     public void testGenerateCruiseControlConfig() {
         // Add required properties
         final String sampleZkString = "zookeeper-1-internal.pzkc-ldqwz.svc.cluster.local:2181,zookeeper-2-internal.pzkc-ldqwz.svc.cluster.local:2181/testKafkaCluster";
-        String bootstrapServersConfig = ConfluentConfigs.CONFLUENT_BALANCER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
-        String bootstrapServers = "localhost:9092";
 
         // Goals Config should be this
         List<String> expectedGoalsConfig = new ArrayList<>(Arrays.asList(
@@ -211,7 +209,6 @@ public class KafkaDataBalancerTest {
                 LeaderReplicaDistributionGoal.class.getName(),
                 LeaderBytesInDistributionGoal.class.getName()
         ));
-        brokerProps.put(bootstrapServersConfig, bootstrapServers);
         // Not a valid ZK connect URL but to validate what gets copied over.
         brokerProps.put(KafkaConfig.ZkConnectProp(), sampleZkString);
 
@@ -228,9 +225,12 @@ public class KafkaDataBalancerTest {
         brokerProps.put(nonBalancerPropertyKey, "nonBalancerPropertyValue");
 
         KafkaConfig config = new KafkaConfig(brokerProps);
+        // We expect only one listener in a bare-bones config.
+        assertTrue(config.listeners().length() == 1);
+        String expectedBootstrapServers = config.listeners().head().connectionString();
         KafkaCruiseControlConfig ccConfig = KafkaDataBalancer.generateCruiseControlConfig(config);
 
-        assertTrue(ccConfig.getList(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG).contains(bootstrapServers));
+        assertTrue(ccConfig.getList(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG).contains(expectedBootstrapServers));
         assertEquals(sampleZkString, ccConfig.getString(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG));
         assertNotNull("balancer n/w input capacity property not present",
                 ccConfig.getDouble(KafkaCruiseControlConfig.NETWORK_INBOUND_CAPACITY_THRESHOLD_CONFIG));
@@ -253,8 +253,6 @@ public class KafkaDataBalancerTest {
     public void testGeneratedConfigWithOverrides() {
         // Add required properties
         final String sampleZkString = "zookeeper-1-internal.pzkc-ldqwz.svc.cluster.local:2181,zookeeper-2-internal.pzkc-ldqwz.svc.cluster.local:2181/testKafkaCluster";
-        String bootstrapServersConfig = ConfluentConfigs.CONFLUENT_BALANCER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
-        String bootstrapServers =  "localhost:9092";
 
         // Goals Config should be this -- not overridden
         List<String> expectedGoalsConfig = new ArrayList<>(
@@ -290,7 +288,6 @@ public class KafkaDataBalancerTest {
 
         // Set Default Goals to this
         String defaultGoalsOverride = String.join(",", testDefaultGoalsConfig);
-        brokerProps.put(bootstrapServersConfig, bootstrapServers);
         // Not a valid ZK connect URL but to validate what gets copied over.
         brokerProps.put(KafkaConfig.ZkConnectProp(), sampleZkString);
 
