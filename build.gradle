@@ -2184,7 +2184,9 @@ project(':ce-sbk') {
     compile libs.scalaLogging
     compileOnly libs.slf4jApi
     compileOnly libs.scalaJava8Compat
-    compile libs.zkclient
+    compile(libs.zkclient) {
+      exclude module: 'zookeeper'
+    }
     // ZooKeeperMain depends on commons-cli but declares the dependency as `provided`
     compile libs.commonsCli
     compileOnly libs.log4j
