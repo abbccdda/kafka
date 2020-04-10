@@ -5,6 +5,7 @@
 package kafka.tier.client;
 
 import kafka.tier.topic.TierTopicManagerConfig;
+import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -39,7 +40,8 @@ public class TierTopicProducerSupplier implements Supplier<Producer<byte[], byte
                 instanceId;
     }
 
-    private static Properties properties(TierTopicManagerConfig config, String clientId) {
+    // visible for testing
+    static Properties properties(TierTopicManagerConfig config, String clientId) {
         Properties properties = new Properties();
 
         for (Map.Entry<String, Object> configEntry : config.interBrokerClientConfigs.get().entrySet())
@@ -54,6 +56,9 @@ public class TierTopicProducerSupplier implements Supplier<Producer<byte[], byte
         properties.put(ProducerConfig.CLIENT_ID_CONFIG, clientId);
         properties.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, config.requestTimeoutMs);
         properties.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 1);
+
+        // Explicitly remove the metrics reporter configuration, as it is not expected to be configured for tier topic clients
+        properties.remove(CommonClientConfigs.METRIC_REPORTER_CLASSES_CONFIG);
         return properties;
     }
 }

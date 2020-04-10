@@ -59,15 +59,13 @@
     <allow pkg="kafka.tier.store" />
     <allow pkg="kafka.tier.topic" />
     <allow pkg="kafka.tier.fetcher" />
+    <allow pkg="org.apache.kafka.clients" />
     <allow class="kafka.server.TierFetchDataInfo" />
     <allow class="kafka.server.TierLogReadResult" />
     <allow class="kafka.server.DelayedFetch" />
     <allow class="kafka.server.FetchDataInfo" />
     <allow class="kafka.server.LogReadResult"/>
-    <allow class="kafka.log.AbortedTxn"/>
-    <allow pkg="org.apache.kafka.clients.admin" />
-    <allow pkg="org.apache.kafka.clients.consumer" />
-    <allow pkg="org.apache.kafka.clients.producer" />
+    <allow class="kafka.log.AbortedTxn" />
     <allow class="kafka.server.KafkaConfig" />
     <allow class="kafka.server.Defaults"/>
     <allow class="kafka.log.Log" />

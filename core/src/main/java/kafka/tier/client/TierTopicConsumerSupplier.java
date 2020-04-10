@@ -5,6 +5,7 @@
 package kafka.tier.client;
 
 import kafka.tier.topic.TierTopicManagerConfig;
+import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -30,13 +31,14 @@ public class TierTopicConsumerSupplier implements Supplier<Consumer<byte[], byte
     @Override
     public Consumer<byte[], byte[]> get() {
         String clientId = clientId(config.clusterId, config.brokerId, instanceId.getAndIncrement(), clientIdSuffix);
-        return new KafkaConsumer<>(properties(config.interBrokerClientConfigs.get(), clientId));
+        return new KafkaConsumer<>(properties(config, clientId));
     }
 
-    private static Properties properties(Map<String, Object> interBrokerConfigs, String clientId) {
+    // visible for testing
+    static Properties properties(TierTopicManagerConfig config, String clientId) {
         Properties properties = new Properties();
 
-        for (Map.Entry<String, Object> configEntry : interBrokerConfigs.entrySet())
+        for (Map.Entry<String, Object> configEntry : config.interBrokerClientConfigs.get().entrySet())
             properties.put(configEntry.getKey(), configEntry.getValue());
 
         properties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
@@ -44,6 +46,9 @@ public class TierTopicConsumerSupplier implements Supplier<Consumer<byte[], byte
         properties.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
         properties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArrayDeserializer");
         properties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArrayDeserializer");
+
+        // Explicitly remove the metrics reporter configuration, as it is not expected to be configured for tier topic clients
+        properties.remove(CommonClientConfigs.METRIC_REPORTER_CLASSES_CONFIG);
         return properties;
     }
 
