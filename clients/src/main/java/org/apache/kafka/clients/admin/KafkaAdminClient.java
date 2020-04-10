@@ -128,6 +128,8 @@ import org.apache.kafka.common.message.RenewDelegationTokenRequestData;
 import org.apache.kafka.common.message.ReplicaStatusResponseData.ReplicaStatusPartitionResponse;
 import org.apache.kafka.common.message.ReplicaStatusResponseData.ReplicaStatusReplicaResponse;
 import org.apache.kafka.common.message.ReplicaStatusResponseData.ReplicaStatusTopicResponse;
+import org.apache.kafka.common.message.StartRebalanceRequestData.BrokerId;
+import org.apache.kafka.common.message.StartRebalanceResponseData.DrainBrokerResponse;
 import org.apache.kafka.common.metrics.JmxReporter;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
@@ -210,6 +212,8 @@ import org.apache.kafka.common.requests.RenewDelegationTokenRequest;
 import org.apache.kafka.common.requests.RenewDelegationTokenResponse;
 import org.apache.kafka.common.requests.ReplicaStatusRequest;
 import org.apache.kafka.common.requests.ReplicaStatusResponse;
+import org.apache.kafka.common.requests.StartRebalanceRequest;
+import org.apache.kafka.common.requests.StartRebalanceResponse;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.token.delegation.DelegationToken;
 import org.apache.kafka.common.security.token.delegation.TokenInformation;
@@ -4111,6 +4115,107 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
             }, now);
 
         return new AlterClientQuotasResult(Collections.unmodifiableMap(futures));
+    }
+
+    private boolean brokerIdIsUnrepresentable(Integer brokerId) {
+        return brokerId < 0;
+    }
+
+    @Confluent
+    @Override
+    public DrainBrokersResult drainBrokers(List<Integer> brokersToDrain, DrainBrokersOptions options) {
+        final Map<Integer, KafkaFutureImpl<Void>> drainBrokerFutures = new HashMap<>(brokersToDrain.size());
+        final Map<Integer, KafkaFutureImpl<Void>> invalidDrainBrokerFutures = new HashMap<>();
+        for (Integer brokerToDrain: brokersToDrain) {
+            if (brokerToDrain == null) {
+                continue;
+            }
+            if (brokerIdIsUnrepresentable(brokerToDrain)) {
+                KafkaFutureImpl<Void> future = new KafkaFutureImpl<>();
+                future.completeExceptionally(new InvalidRequestException("The given broker id '" +
+                        brokerToDrain + "' is invalid and cannot be represented in a request"));
+                invalidDrainBrokerFutures.put(brokerToDrain, future);
+            } else if (drainBrokerFutures.containsKey(brokerToDrain)) {
+                KafkaFutureImpl<Void> future = new KafkaFutureImpl<>();
+                future.completeExceptionally(new InvalidRequestException("The given broker id '" +
+                        brokerToDrain + "' is duplicate and cannot be represented in a request"));
+                invalidDrainBrokerFutures.put(brokerToDrain, future);
+            } else {
+                drainBrokerFutures.put(brokerToDrain, new KafkaFutureImpl<>());
+            }
+        }
+
+        if (!invalidDrainBrokerFutures.isEmpty()) {
+            for (Map.Entry<Integer, KafkaFutureImpl<Void>> drainBrokerFuture : drainBrokerFutures.entrySet()) {
+                KafkaFutureImpl<Void> future = drainBrokerFuture.getValue();
+                future.completeExceptionally(new InvalidRequestException("The request contains " +
+                        "some invalid or duplicate broker ids"));
+                invalidDrainBrokerFutures.putIfAbsent(drainBrokerFuture.getKey(), future);
+            }
+            return new DrainBrokersResult(new HashMap<>(invalidDrainBrokerFutures));
+        }
+
+        final long now = time.milliseconds();
+        Call call = new Call("drainBrokers", calcDeadlineMs(now, options.timeoutMs),
+                new ControllerNodeProvider()) {
+
+            @Override
+            StartRebalanceRequest.Builder createRequest(int timeoutMs) {
+                Set<BrokerId> brokerIds = brokersToDrain.stream().map(brokerId -> new BrokerId().setBrokerId(brokerId)).
+                        collect(Collectors.toSet());
+                return new StartRebalanceRequest.Builder(brokerIds);
+            }
+
+            @Override
+            void handleResponse(AbstractResponse abstractResponse) {
+                StartRebalanceResponse response = (StartRebalanceResponse) abstractResponse;
+                // Check for top level error.
+                Errors topLevelError = Errors.forCode(response.data().errorCode());
+                switch (topLevelError) {
+                    case NONE:
+                        break;
+                    case NOT_CONTROLLER:
+                        handleNotControllerError(topLevelError);
+                        break;
+                    default:
+                        completeAllExceptionally(drainBrokerFutures.values(), topLevelError.exception());
+                        return;
+                }
+
+                // Handle server responses for brokers.
+                for (DrainBrokerResponse drainBrokerResponse : response.data().brokersToDrain()) {
+                    KafkaFutureImpl<Void> future = drainBrokerFutures.get(drainBrokerResponse.brokerId());
+                    if (future == null) {
+                        log.warn("Server response mentioned unknown broker id {}", drainBrokerResponse.brokerId());
+                    } else {
+                        Errors error = Errors.forCode(drainBrokerResponse.errorCode());
+                        if (error == Errors.NONE) {
+                            future.complete(null);
+                        } else {
+                            future.completeExceptionally(error.exception());
+                        }
+                    }
+                }
+
+                // The server should send back a response for every brokerId. But do a sanity check anyway.
+                for (Map.Entry<Integer, KafkaFutureImpl<Void>> entry : drainBrokerFutures.entrySet()) {
+                    KafkaFutureImpl<Void> future = entry.getValue();
+                    if (!future.isDone()) {
+                        future.completeExceptionally(new ApiException("The server response did not contain a " +
+                                "reference to broker " + entry.getKey()));
+                    }
+                }
+            }
+
+            @Override
+            void handleFailure(Throwable throwable) {
+                completeAllExceptionally(drainBrokerFutures.values(), throwable);
+            }
+        };
+
+        runnable.call(call, now);
+
+        return new DrainBrokersResult(new HashMap<>(drainBrokerFutures));
     }
 
     /**

@@ -47,6 +47,8 @@ import org.apache.kafka.clients.admin.CreateAclsOptions;
 import org.apache.kafka.clients.admin.CreateAclsResult;
 import org.apache.kafka.clients.admin.DeleteAclsOptions;
 import org.apache.kafka.clients.admin.DeleteAclsResult;
+import org.apache.kafka.clients.admin.DrainBrokersOptions;
+import org.apache.kafka.clients.admin.DrainBrokersResult;
 import org.apache.kafka.clients.admin.MockAdminClient;
 import org.apache.kafka.clients.admin.ReplicaStatusOptions;
 import org.apache.kafka.clients.admin.ReplicaStatusResult;
@@ -619,6 +621,11 @@ public class ConfluentProviderTest {
         deleteAclBinding(scope, resourcePattern);
       }
       return null; // result is not used in the tests
+    }
+
+    @Override
+    public DrainBrokersResult drainBrokers(List<Integer> brokersToDrain, DrainBrokersOptions options) {
+      throw new UnsupportedOperationException();
     }
 
     public Collection<AclBinding> describeAcls(final Scope scope, final AclBindingFilter filter) {
