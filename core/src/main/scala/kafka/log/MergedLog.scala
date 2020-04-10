@@ -328,12 +328,7 @@ class MergedLog(private[log] val localLog: Log,
 
   override private[log] def truncateFullyAndStartAt(newOffset: Long): Unit = lock synchronized {
     localLog.truncateFullyAndStartAt(newOffset)
-    val newLogStartOffset =
-      if (config.tierEnable)
-        firstTieredOffset.getOrElse(newOffset)
-      else
-        newOffset
-    updateLogStartOffset(newLogStartOffset)
+    updateLogStartOffset(newOffset)
   }
 
   override def topicIdPartition: Option[TopicIdPartition] = tierPartitionState.topicIdPartition.asScala
@@ -1052,6 +1047,9 @@ sealed trait AbstractLog {
     * Truncate local portion of the log fully and start the local log at the specified offset. We are never required to
     * truncate the tiered portion of the log itself but only the local portion. Log state like leader epoch cache and
     * producer state snapshot are truncated as well.
+    *
+    * This should only be called when the global log is fully truncated.
+    *
     * @param newOffset The new offset to start the log with
     */
   private[log] def truncateFullyAndStartAt(newOffset: Long): Unit

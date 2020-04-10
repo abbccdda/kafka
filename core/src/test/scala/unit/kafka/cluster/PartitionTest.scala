@@ -29,7 +29,9 @@ import kafka.log.{Defaults => _, _}
 import kafka.metrics.KafkaYammerMetrics
 import kafka.server._
 import kafka.server.checkpoints.OffsetCheckpoints
-import kafka.tier.TierReplicaManager
+import kafka.tier.{TierReplicaManager, TierTestUtils, TopicIdPartition}
+import kafka.tier.domain.TierTopicInitLeader
+import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.utils._
 import org.apache.kafka.common.IsolationLevel
 import org.apache.kafka.common.TopicPartition
@@ -745,6 +747,63 @@ class PartitionTest {
     }
 
     partition
+  }
+
+  @Test
+  def testAppendRecordsAsFollowerOverlappingLogStartOffsetAndTieringEnabled(): Unit = {
+    // 0. Ensure tiering is enabled in the topic config
+    val tieringEnabledProps = createLogProperties(Map(LogConfig.TierEnableProp -> "true"))
+    when(stateStore.fetchTopicConfig()).thenReturn(tieringEnabledProps)
+
+    // 1. Create log and enable tiering
+    partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints)
+    val log = partition.localLogOrException
+    log.tierPartitionState.enableTierConfig()
+    val tpid = new TopicIdPartition(topicPartition.topic(), UUID.randomUUID(), topicPartition.partition())
+    assertTrue(log.tierPartitionState.setTopicId(tpid.topicId()))
+    assertTrue(log.tierPartitionState.isTieringEnabled())
+
+    // 2. Mark a segment to have been uploaded with uploadStartOffset = 50 and uploadEndOffset = 58
+    assertTrue(!log.tierPartitionState.startOffset().isPresent())
+    val leaderEpoch = 1000
+    val uploadStartOffset: Long = 50
+    val uploadEndOffset = 58
+    assertEquals(AppendResult.ACCEPTED,
+      log.tierPartitionState.append(new TierTopicInitLeader(tpid, leaderEpoch, UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED,
+      TierTestUtils.uploadWithMetadata(
+        log.tierPartitionState,
+        tpid,
+        leaderEpoch,
+        UUID.randomUUID(),
+        uploadStartOffset,
+        uploadEndOffset))
+    assertTrue(log.tierPartitionState.startOffset().isPresent)
+    assertEquals(uploadStartOffset, log.tierPartitionState.startOffset().get())
+
+    // 3. Truncate upto offset 59 (= uploadEndOffset + 1).
+    // Ensure this call is not influenced by the first tiered offset that was set above.
+    val initialLogStartOffset = uploadEndOffset + 1
+    partition.truncateFullyAndStartAt(initialLogStartOffset, isFuture = false)
+    assertEquals(s"Log end offset after truncate fully and start at $initialLogStartOffset:",
+      initialLogStartOffset, log.logEndOffset)
+    assertEquals(s"Log start offset after truncate fully and start at $initialLogStartOffset:",
+      initialLogStartOffset, log.logStartOffset)
+
+    // 4. Append a list of record with offsets: 58, 59, 60.
+    // This should result in UnexpectedAppendOffsetException getting caught.
+    // Subsequently, logStartOffset and logEndOffset should be reset suitably and the records
+    // should get appended successfully.
+    partition.appendRecordsToFollowerOrFutureReplica(
+      createRecords(
+        List(
+          new SimpleRecord("k1".getBytes, "v1".getBytes),
+          new SimpleRecord("k2".getBytes, "v2".getBytes),
+          new SimpleRecord("k2".getBytes, "v2".getBytes)
+        ), baseOffset = 58
+      ), isFuture = false)
+    assertEquals(s"Log start offset should change after successful append", 58, log.logStartOffset)
+    assertEquals(s"Log end offset should change after successful append", 61, log.logEndOffset)
   }
 
   @Test

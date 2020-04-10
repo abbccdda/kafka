@@ -1260,6 +1260,27 @@ class MergedLogTest {
     verifyZeroInteractions(tierTopicConsumer)
   }
 
+  @Test
+  def testFullTruncationLogicIsTieringAgnostic(): Unit = {
+    val numTiered = 30
+    val numOverlap = 3
+    val numLocal = 15 // includes active segment
+
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = 1)
+    val log = createLogWithOverlap(numTiered, numLocal, numOverlap, logConfig)
+
+    val newOffset = 10
+    assertTrue(log.tierPartitionState.startOffset.isPresent)
+    assertEquals(0.asInstanceOf[Long], log.tierPartitionState.startOffset.get)
+    log.truncateFullyAndStartAt(newOffset)
+
+    assertEquals(newOffset, log.firstOffsetMetadata().messageOffset);
+    assertEquals(newOffset, log.recoveryPoint)
+    assertEquals(newOffset, log.logEndOffset)
+    assertEquals(newOffset, log.logStartOffset)
+    assertTrue(log.producerStateManager.isEmpty)
+  }
+
   private def initializeTierPartitionState(tierPartitionState: TierPartitionState, epoch: Int): Unit = {
     // append an init message
     tierPartitionState.setTopicId(topicIdPartition.topicId)
