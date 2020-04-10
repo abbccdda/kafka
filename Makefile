@@ -60,6 +60,9 @@ show-docker-all:
 	@echo ========================
 	@echo "Docker info for trogdor"
 	@make VERSION=$(VERSION) -C cc-services/trogdor show-docker
+	@echo ========================
+	@echo "Docker info for tier-validator-services"
+	@make VERSION=$(VERSION) -C cc-services/tier_validator show-docker
 
 .PHONY: build-docker-cc-kafka-init
 build-docker-cc-kafka-init:
@@ -73,11 +76,13 @@ push-docker-cc-kafka-init:
 build-docker-cc-services:
 	make VERSION=$(VERSION) BASE_IMAGE=$(IMAGE_REPO)/$(IMAGE_NAME) BASE_VERSION=$(IMAGE_VERSION) -C cc-services/soak_cluster build-docker
 	make VERSION=$(VERSION) BASE_IMAGE=$(IMAGE_REPO)/$(IMAGE_NAME) BASE_VERSION=$(IMAGE_VERSION) -C cc-services/trogdor build-docker
+	make VERSION=$(VERSION) BASE_IMAGE=$(IMAGE_REPO)/$(IMAGE_NAME) BASE_VERSION=$(IMAGE_VERSION) -C cc-services/tier_validator build-docker
 
 .PHONY: push-docker-cc-services
 push-docker-cc-services:
 	make VERSION=$(VERSION) BASE_IMAGE=$(IMAGE_REPO)/$(IMAGE_NAME) BASE_VERSION=$(IMAGE_VERSION) -C cc-services/soak_cluster push-docker
 	make VERSION=$(VERSION) BASE_IMAGE=$(IMAGE_REPO)/$(IMAGE_NAME) BASE_VERSION=$(IMAGE_VERSION) -C cc-services/trogdor push-docker
+	make VERSION=$(VERSION) BASE_IMAGE=$(IMAGE_REPO)/$(IMAGE_NAME) BASE_VERSION=$(IMAGE_VERSION) -C cc-services/tier_validator push-docker
 
 GRADLE_TEMP = ./tmp/gradle/
 .PHONY: copy-gradle-properties

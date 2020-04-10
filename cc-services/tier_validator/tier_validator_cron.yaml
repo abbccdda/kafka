@@ -1,0 +1,44 @@
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: tier-validator-cron
+  labels:
+    app: tier-validator-cron
+spec:
+  schedule: "0 0 * * *"
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: tier-validator-cron
+        spec:
+          containers:
+            - name: tier-validator-cron
+              # The repository for the docker image. This is different across cloud providers and environments.
+              # Azure Devel: cclouddevel.azurecr.io/confluentinc
+              # AWS Devel: 037803949979.dkr.ecr.us-west-2.amazonaws.com/confluentinc
+              # GCP Devel: us.gcr.io/cc-devel
+              # CPD: confluent-docker.jfrog.io/confluentinc
+              # CONFIG VALUE REQUIRED
+              image: 037803949979.dkr.ecr.us-west-2.amazonaws.com/confluentinc/cc-tier-validator:v0.750.0-6.0.0-ce-SNAPSHOT-204-gc18dfc6712-2
+              imagePullPolicy: Always
+              args:
+                - /bin/bash
+                - -c
+                - /mnt/tier_validator/scripts/tier_validator_cron_runner.sh
+              env:
+                - name: CAAS_POD_ID
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                # CONFIG VALUE REQUIRED
+                - name: TIER_S3_BUCKET
+                  value: cloud-cpdev-devel-tiered-us-west-2
+          restartPolicy: OnFailure
