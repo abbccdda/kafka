@@ -30,6 +30,9 @@ import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.DescribeLogDirsResult;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
+
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
@@ -300,6 +303,27 @@ public class KafkaCruiseControlUtils {
     }
 
     return adminClientConfigs;
+  }
+
+  public static Map<String, Object> filterAdminClientConfigs(Map<String, ?> configs) {
+    Map<String, Object> adminClientConfig = new HashMap<>(configs);
+    Set<String> validAdminClientProps = AdminClientConfig.configNames();
+    adminClientConfig.keySet().retainAll(validAdminClientProps);
+    return adminClientConfig;
+  }
+
+  public static Map<String, Object> filterConsumerConfigs(Map<String, ?> configs) {
+    Map<String, Object> consumerConfig = new HashMap<>(configs);
+    Set<String> validConsumerProps = ConsumerConfig.configNames();
+    consumerConfig.keySet().retainAll(validConsumerProps);
+    return consumerConfig;
+  }
+
+  public static Map<String, Object> filterProducerConfigs(Map<String, ?> configs) {
+    Map<String, Object> producerConfig = new HashMap<>(configs);
+    Set<String> validProducerProps = ProducerConfig.configNames();
+    producerConfig.keySet().retainAll(validProducerProps);
+    return producerConfig;
   }
 
   private static void setPasswordConfigIfExists(KafkaCruiseControlConfig configs, Map<String, Object> props, String name) {

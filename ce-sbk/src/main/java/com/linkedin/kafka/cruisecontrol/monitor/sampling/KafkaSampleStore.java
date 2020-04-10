@@ -151,7 +151,7 @@ public class KafkaSampleStore implements SampleStore {
 
   protected KafkaProducer<byte[], byte[]> createProducer(Map<String, ?> config) {
     Properties producerProps = new Properties();
-    producerProps.putAll(config);
+    producerProps.putAll(KafkaCruiseControlUtils.filterProducerConfigs(config));
     String bootstrapServers = config.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG).toString();
     // Trim the brackets in List's String representation.
     if (bootstrapServers.length() > 2) {
@@ -174,7 +174,7 @@ public class KafkaSampleStore implements SampleStore {
 
   protected static KafkaConsumer<byte[], byte[]> createConsumer(Map<String, ?> config) {
     Properties consumerProps = new Properties();
-    consumerProps.putAll(config);
+    consumerProps.putAll(KafkaCruiseControlUtils.filterConsumerConfigs(config));
     long randomToken = RANDOM.nextLong();
     String bootstrapServers = config.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG).toString();
     // Trim the brackets in List's String representation.
@@ -288,7 +288,7 @@ public class KafkaSampleStore implements SampleStore {
         "EnsureTopicCreated",
         zkSecurityEnabled);
     AdminZkClient adminZkClient = new AdminZkClient(kafkaZkClient);
-    AdminClient adminClient = KafkaCruiseControlUtils.createAdminClient((Map<String, Object>) config);
+    AdminClient adminClient = KafkaCruiseControlUtils.createAdminClient(KafkaCruiseControlUtils.filterAdminClientConfigs(config));
     try {
       long partitionSampleWindowMs = (Long) config.get(KafkaCruiseControlConfig.PARTITION_METRICS_WINDOW_MS_CONFIG);
       long brokerSampleWindowMs = (Long) config.get(KafkaCruiseControlConfig.BROKER_METRICS_WINDOW_MS_CONFIG);
