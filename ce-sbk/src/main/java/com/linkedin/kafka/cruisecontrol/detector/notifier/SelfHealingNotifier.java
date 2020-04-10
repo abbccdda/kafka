@@ -218,7 +218,7 @@ public class SelfHealingNotifier implements AnomalyNotifier {
              _selfHealingEnabled.get(anomalyType) ? String.format("start time %s", toDateString(selfHealingStartTime)) : "is disabled");
 
     if (autoFixTriggered) {
-      LOG.warn("Self-healing has been triggered.");
+      LOG.info("Self-healing has been triggered.");
     }
   }
 
