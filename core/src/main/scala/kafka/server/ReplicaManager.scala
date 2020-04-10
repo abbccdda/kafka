@@ -1891,9 +1891,9 @@ class ReplicaManager(val config: KafkaConfig,
                 readResult
             }
           case readResult: TierLogReadResult =>
-            val reason = s"Attempt to fetch tiered data by follower $followerId from $localBrokerId at offset " +
-              s"${readResult.info.fetchMetadata.fetchStartOffset}}"
-            warn(reason)
+            val reason = s"Lagging follower $followerId fetched from the tiered portion of the log at offset " +
+              s"${readResult.info.fetchMetadata.fetchStartOffset} for partition $topicPartition"
+            info(reason)
             LogReadResult(info = FetchDataInfo(LogOffsetMetadata.UnknownOffsetMetadata, MemoryRecords.EMPTY),
               highWatermark = -1L,
               leaderLogStartOffset = -1L,

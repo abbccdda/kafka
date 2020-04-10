@@ -367,11 +367,13 @@ abstract class AbstractFetcherThread(name: String,
                                                   currentFetchState: PartitionFetchState,
                                                   tierState: MaterializingTierMetadata): Unit = {
     try {
-      // We've found a tiered segment and tier state that aligns with the start of the
-      // leader's log. Next we will start a fetch of the tier state from object storage.
+      // We've found a tiered segment and tier state that aligns with the start of the leader's log. Next we will start
+      // a fetch of the tier state from object storage.
       val tierObjectMetadata = tierState.completionStatus.get
       val completionStatus = fetchTierState(topicPartition, tierObjectMetadata)
-      partitionStates.update(topicPartition, currentFetchState.copy(state = FetchingTierState(completionStatus, tierObjectMetadata, currentFetchState.state)))
+      info(s"Restoring tiered state corresponding to $tierObjectMetadata for partition $topicPartition")
+      partitionStates.update(topicPartition,
+        currentFetchState.copy(state = FetchingTierState(completionStatus, tierObjectMetadata, currentFetchState.state)))
     } catch {
       case ee: ExecutionException =>
         error("Exception completing tier materialization. Retrying initial fetch.", ee.getCause)
@@ -388,8 +390,9 @@ abstract class AbstractFetcherThread(name: String,
     // and producer state, and truncate the local log aligned to the end of the restored state.
     try {
       val proposedLocalLogStart = tierState.tierObjectMetadata.endOffset + 1
-      debug(s"Restoring tier state ${tierState.tierObjectMetadata}")
       onRestoreTierState(topicPartition, proposedLocalLogStart, tierState.completionStatus.get())
+      info(s"Tier state ${tierState.tierObjectMetadata} restored. Resuming replicating leader's local log " +
+        s"from $proposedLocalLogStart.")
       partitionStates.update(topicPartition,
         PartitionFetchState(proposedLocalLogStart, currentFetchState.lag, currentFetchState.currentLeaderEpoch,
           currentFetchState.delay, Fetching))
@@ -426,7 +429,10 @@ abstract class AbstractFetcherThread(name: String,
       Option(partitionStates.stateValue(topicPartition)).foreach { currentFetchState =>
         val leaderStartOffset = fetchEarliestLocalOffsetFromLeader(topicPartition, currentFetchState.currentLeaderEpoch)
         val completionStatus = materializeTierStateUntilOffset(topicPartition, leaderStartOffset - 1)
-        partitionStates.updateAndMoveToEnd(topicPartition, currentFetchState.copy(state = MaterializingTierMetadata(completionStatus, currentFetchState.state)))
+        info(s"Processed OFFSET_TIERED exception for $topicPartition. Waiting until tier partition state is " +
+          s"materialized until ${leaderStartOffset - 1}")
+        partitionStates.updateAndMoveToEnd(topicPartition,
+          currentFetchState.copy(state = MaterializingTierMetadata(completionStatus, currentFetchState.state)))
       }
       true
     } catch {

@@ -1107,6 +1107,9 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                         new IllegalStateException("Duplicate materialization listener registration for " + topicIdPartition));
 
             materializationListener = new ReplicationMaterializationListener(log, topicIdPartition, targetOffset);
+            log.info("Registered materialization listener {}. targetOffset: {}, currentEndOffset: {}, currentCommittedEndOffset: {}.",
+                    materializationListener, targetOffset, endOffset, committedEndOffset);
+
             Future<TierObjectMetadata> promise = materializationListener.promise();
 
             if (status.isOpen()) {
@@ -1311,7 +1314,7 @@ class ReplicationMaterializationListener {
 
     synchronized void complete(TierObjectMetadata lastFlushedSegment) {
         if (!promise.isDone()) {
-            log.info("Completing {} successfully. lastFlushedSegment: {}", this, lastFlushedSegment);
+            log.info("Completing {} successfully. lastFlushedSegment: {}.", this, lastFlushedSegment);
             promise.complete(lastFlushedSegment);
         }
     }
