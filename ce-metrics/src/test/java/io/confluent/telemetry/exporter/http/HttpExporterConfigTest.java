@@ -4,8 +4,8 @@ import com.google.common.collect.ImmutableMap;
 import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClient.Builder;
 import io.confluent.telemetry.client.CompressionAlgorithm;
 import io.confluent.telemetry.client.TelemetryHttpClient;
-import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsRequest;
-import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsResponse;
+import io.opencensus.proto.agent.metrics.v1.ExportMetricsServiceRequest;
+import io.opencensus.proto.agent.metrics.v1.ExportMetricsServiceResponse;
 import io.opencensus.proto.metrics.v1.Metric;
 import java.util.Map;
 import org.apache.kafka.common.config.ConfigException;
@@ -83,7 +83,7 @@ public class HttpExporterConfigTest {
     @Test
     public void testGetClientBuilderDefaults() {
         HttpExporterConfig config = new HttpExporterConfig(minimalConfig);
-        TelemetryHttpClient.Builder<TelemetryReceiverSubmitMetricsResponse> builder = config
+        TelemetryHttpClient.Builder<ExportMetricsServiceResponse> builder = config
             .getClientBuilder();
         assertThat(builder).isNotNull();
     }
@@ -91,7 +91,7 @@ public class HttpExporterConfigTest {
     @Test
     public void testGetBufferingBuilderDefaults() {
         HttpExporterConfig config = new HttpExporterConfig(minimalConfig);
-        Builder<Metric, TelemetryReceiverSubmitMetricsRequest, TelemetryReceiverSubmitMetricsResponse> builder = config
+        Builder<Metric, ExportMetricsServiceRequest, ExportMetricsServiceResponse> builder = config
             .getBufferingAsyncClientBuilder();
         assertThat(builder).isNotNull();
     }

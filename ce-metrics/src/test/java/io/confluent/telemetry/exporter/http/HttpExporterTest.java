@@ -19,8 +19,8 @@ import io.confluent.telemetry.ResourceBuilderFacade;
 import io.confluent.telemetry.TelemetryResourceType;
 import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClient;
 import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClientStats;
-import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsRequest;
-import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsResponse;
+import io.opencensus.proto.agent.metrics.v1.ExportMetricsServiceRequest;
+import io.opencensus.proto.agent.metrics.v1.ExportMetricsServiceResponse;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.collector.MetricsCollector;
@@ -36,7 +36,7 @@ import static org.mockito.Mockito.when;
 public class HttpExporterTest {
 
     @Mock
-    BufferingAsyncTelemetryHttpClient<Metric, TelemetryReceiverSubmitMetricsRequest, TelemetryReceiverSubmitMetricsResponse> bufferingClient;
+    BufferingAsyncTelemetryHttpClient<Metric, ExportMetricsServiceRequest, ExportMetricsServiceResponse> bufferingClient;
 
     @Rule
     public MockitoRule mockitoRule = MockitoJUnit.rule();

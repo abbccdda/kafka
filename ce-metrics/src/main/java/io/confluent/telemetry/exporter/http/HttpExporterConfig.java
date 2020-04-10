@@ -6,8 +6,8 @@ import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClient;
 import io.confluent.telemetry.client.CompressionAlgorithm;
 import io.confluent.telemetry.client.TelemetryHttpClient;
 import io.confluent.telemetry.client.TelemetryHttpClient.Builder;
-import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsRequest;
-import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsResponse;
+import io.opencensus.proto.agent.metrics.v1.ExportMetricsServiceRequest;
+import io.opencensus.proto.agent.metrics.v1.ExportMetricsServiceResponse;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.opencensus.proto.metrics.v1.Metric;
 import java.net.URI;
@@ -209,8 +209,8 @@ public class HttpExporterConfig extends AbstractConfig {
         }
     }
 
-    public TelemetryHttpClient.Builder<TelemetryReceiverSubmitMetricsResponse> getClientBuilder() {
-        TelemetryHttpClient.Builder<TelemetryReceiverSubmitMetricsResponse> builder = new Builder<>();
+    public TelemetryHttpClient.Builder<ExportMetricsServiceResponse> getClientBuilder() {
+        TelemetryHttpClient.Builder<ExportMetricsServiceResponse> builder = new Builder<>();
 
         String apiKey = getString(API_KEY);
         String apiSecretKey = getString(API_SECRET_KEY);
@@ -238,8 +238,8 @@ public class HttpExporterConfig extends AbstractConfig {
         return builder;
     }
 
-    public BufferingAsyncTelemetryHttpClient.Builder<Metric, TelemetryReceiverSubmitMetricsRequest, TelemetryReceiverSubmitMetricsResponse> getBufferingAsyncClientBuilder() {
-        BufferingAsyncTelemetryHttpClient.Builder<Metric, TelemetryReceiverSubmitMetricsRequest, TelemetryReceiverSubmitMetricsResponse>  builder = BufferingAsyncTelemetryHttpClient.newBuilder();
+    public BufferingAsyncTelemetryHttpClient.Builder<Metric, ExportMetricsServiceRequest, ExportMetricsServiceResponse> getBufferingAsyncClientBuilder() {
+        BufferingAsyncTelemetryHttpClient.Builder<Metric, ExportMetricsServiceRequest, ExportMetricsServiceResponse>  builder = BufferingAsyncTelemetryHttpClient.newBuilder();
 
         Optional.ofNullable(getLong(BUFFER_MAX_BATCH_DURATION_MS)).map(Duration::ofMillis).ifPresent(builder::setMaxBatchDuration);
         Optional.ofNullable(getInt(BUFFER_MAX_BATCH_SIZE)).ifPresent(builder::setMaxBatchSize);

@@ -20,8 +20,8 @@ import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClient;
 import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClientBatchResult;
 import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClientStats;
 import io.confluent.telemetry.client.TelemetryHttpClient;
-import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsRequest;
-import io.confluent.telemetry.v1.TelemetryReceiverSubmitMetricsResponse;
+import io.opencensus.proto.agent.metrics.v1.ExportMetricsServiceRequest;
+import io.opencensus.proto.agent.metrics.v1.ExportMetricsServiceResponse;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsUtils;
@@ -37,17 +37,17 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
     private static final Logger log = LoggerFactory.getLogger(HttpExporter.class);
     public static final String GROUP = "http_exporter";
     private static final Double SECONDS_PER_MILLISECOND = 1e-3;
-    private static final Function<Collection<Metric>, TelemetryReceiverSubmitMetricsRequest> REQUEST_CONVERTER =
-        metrics -> TelemetryReceiverSubmitMetricsRequest.newBuilder().addAllMetrics(metrics)
+    private static final Function<Collection<Metric>, ExportMetricsServiceRequest> REQUEST_CONVERTER =
+        metrics -> ExportMetricsServiceRequest.newBuilder().addAllMetrics(metrics)
             .build();
-    private static final Function<ByteBuffer, TelemetryReceiverSubmitMetricsResponse> RESPONSE_DESERIALIZER = bytes -> {
+    private static final Function<ByteBuffer, ExportMetricsServiceResponse> RESPONSE_DESERIALIZER = bytes -> {
         try {
-            return TelemetryReceiverSubmitMetricsResponse.parseFrom(bytes);
+            return ExportMetricsServiceResponse.parseFrom(bytes);
         } catch (InvalidProtocolBufferException e) {
             throw new RuntimeException(e);
         }
     };
-    private final BufferingAsyncTelemetryHttpClient<Metric, TelemetryReceiverSubmitMetricsRequest, TelemetryReceiverSubmitMetricsResponse> bufferingClient;
+    private final BufferingAsyncTelemetryHttpClient<Metric, ExportMetricsServiceRequest, ExportMetricsServiceResponse> bufferingClient;
 
     public HttpExporter(HttpExporterConfig config) {
 
@@ -63,14 +63,14 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
     }
 
     public HttpExporter(
-        BufferingAsyncTelemetryHttpClient<Metric, TelemetryReceiverSubmitMetricsRequest, TelemetryReceiverSubmitMetricsResponse> bufferingClient) {
+        BufferingAsyncTelemetryHttpClient<Metric, ExportMetricsServiceRequest, ExportMetricsServiceResponse> bufferingClient) {
         this.bufferingClient = bufferingClient;
         // subscribe to batch results.
         this.bufferingClient.getBatchResults().doOnNext(this::trackMetricResponses);
     }
 
     private void trackMetricResponses(
-        BufferingAsyncTelemetryHttpClientBatchResult<Metric, TelemetryReceiverSubmitMetricsResponse> batchResult) {
+        BufferingAsyncTelemetryHttpClientBatchResult<Metric, ExportMetricsServiceResponse> batchResult) {
         if (!batchResult.isSuccess()) {
             log.error("Confluent Telemetry Metrics Failure", batchResult.getThrowable());
         }
