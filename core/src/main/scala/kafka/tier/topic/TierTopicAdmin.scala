@@ -47,8 +47,7 @@ object TierTopicAdmin extends Logging {
     }
   }
 
-  // visible for tests
-  private[topic] def topicConfig: Properties = {
+  def topicConfig: Properties = {
     val properties = new Properties()
     properties.put(TopicConfig.CLEANUP_POLICY_CONFIG, TopicConfig.CLEANUP_POLICY_DELETE)
     properties.put(TopicConfig.RETENTION_MS_CONFIG, "-1")

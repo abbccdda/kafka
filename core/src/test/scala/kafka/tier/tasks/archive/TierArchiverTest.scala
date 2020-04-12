@@ -11,6 +11,7 @@ import kafka.metrics.KafkaYammerMetrics
 import kafka.server.ReplicaManager
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState
+import kafka.tier.state.TierPartitionStatus
 import kafka.tier.store.TierObjectStore
 import kafka.tier.tasks.TierTasksConfig
 import kafka.tier.topic.TierTopicManager
@@ -33,16 +34,25 @@ class TierArchiverTest {
     val partition1 = new TopicPartition("mytopic-1", 0)
     val partition2 = new TopicPartition("mytopic-2", 0)
     val partition3 = new TopicPartition("mytopic-3", 0)
+    val partition4 = new TopicPartition("mytopic-4", 0)
+    val partition5 = new TopicPartition("mytopic-5", 0)
+    val partition6 = new TopicPartition("mytopic-6", 0)
 
-    // Map of TopicPartition -> PerSegmentSize
+    // Map of TopicPartition -> (PerSegmentSize, TierPartitionStatus)
     val topicIdPartitionsMap = Map(
-      partition1 -> 20,
-      partition2 -> 10,
-      partition3 -> 30
+      partition1 -> (20, TierPartitionStatus.ONLINE),
+      partition2 -> (10, TierPartitionStatus.ONLINE),
+      partition3 -> (30, TierPartitionStatus.ONLINE),
+      partition4 -> (20, TierPartitionStatus.ERROR),
+      partition5 -> (10, TierPartitionStatus.ERROR),
+      partition6 -> (30, TierPartitionStatus.ERROR),
     )
 
     val partitions =
-      topicIdPartitionsMap.map { case (topicPartition, segmentSize) =>
+      topicIdPartitionsMap.map { case (topicPartition, partitionInfo) =>
+        val segmentSize = partitionInfo._1
+        val status = partitionInfo._2
+
         val segment = mock(classOf[LogSegment])
         when(segment.size).thenReturn(segmentSize)
 
@@ -55,6 +65,7 @@ class TierArchiverTest {
 
         val tierPartitionState = mock(classOf[TierPartitionState])
         when(tierPartitionState.isTieringEnabled).thenReturn(true)
+        when(tierPartitionState.status).thenReturn(status)
         when(log.tierPartitionState).thenReturn(tierPartitionState)
 
         val partition = mock(classOf[Partition])
@@ -82,16 +93,21 @@ class TierArchiverTest {
       time)
 
     val laggingPartitions = archiver.partitionLagInfo
-    assertEquals(3, laggingPartitions.size)
-    assertEquals((partition3, 120), laggingPartitions(0))
-    assertEquals((partition1, 80), laggingPartitions(1))
-    assertEquals((partition2, 40), laggingPartitions(2))
+    assertEquals(6, laggingPartitions.size)
+    println(laggingPartitions)
+    assertEquals((partition6, TierPartitionStatus.ERROR, 120), laggingPartitions(0))
+    assertEquals((partition3, TierPartitionStatus.ONLINE, 120), laggingPartitions(1))
+    assertEquals((partition1, TierPartitionStatus.ONLINE, 80), laggingPartitions(2))
+    assertEquals((partition4, TierPartitionStatus.ERROR, 80), laggingPartitions(3))
+    assertEquals((partition5, TierPartitionStatus.ERROR, 40), laggingPartitions(4))
+    assertEquals((partition2, TierPartitionStatus.ONLINE, 40), laggingPartitions(5))
 
     archiver.logPartitionLagInfo()
     // Expect the total lag to match that of: num_logs x num_segments_per_log x per_segment_size
-    assertEquals(240L, metricValue[Long]("TotalLag"))
+    assertEquals(480L, metricValue[Long]("TotalLag"))
+    assertEquals(240L, metricValue[Long]("TotalLagWithoutErrorPartitions"))
     assertEquals(120, metricValue[Long]("PartitionLagMaxValue"))
-    assertEquals(3, metricValue[Int]("LaggingPartitionsCount"))
+    assertEquals(6, metricValue[Int]("LaggingPartitionsCount"))
   }
 
   private def metricValue[T](name: String): T = {

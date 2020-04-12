@@ -83,8 +83,8 @@ class TestTierTopicDeletion(ProduceConsumeValidateTest, TierSupport):
 
         self.kafka = KafkaService(self.test_context, num_nodes=3, zk=self.zk,
                                   jmx_attributes=["Value"],
-                                  jmx_object_names=["kafka.tier:type=TierDeletedPartitionsCoordinator,name=TierNumInProgressPartitionDeletions",
-                                      "kafka.tier:type=TierDeletedPartitionsCoordinator,name=TierNumQueuedPartitionDeletions"])
+                                  jmx_object_names=[TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_INPROGRESS_DELETIONS.mbean,
+                                      TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_QUEUED_DELETIONS.mbean])
         tier_set_configs(self.kafka, backend, feature=True, enable=False,
                     hotset_bytes=0, hotset_ms=0, metadata_replication_factor=3,
                     log_retention_check_interval=500, log_roll_time=500,
@@ -118,18 +118,4 @@ class TestTierTopicDeletion(ProduceConsumeValidateTest, TierSupport):
         for node in self.kafka.nodes:
             self.bounce_broker(node, hard_bounce_broker)
 
-        if backend == S3_BACKEND:
-            # we set the timeout to be very large here to ensure S3's ListBucket consistency properties
-            # have suffient time to show object deletion
-            wait_until(lambda: len(list(self.list_s3_contents())) == 0,
-                       timeout_sec=1800, backoff_sec=2, err_msg="deletion has not completed yet " +
-                       str(list(self.list_s3_contents())))
-        elif backend == GCS_BACKEND:
-            self.setup_gsutil()
-            wait_until(lambda: list(self.list_gcs_contents()) == ["CommandException: One or more URLs matched no objects."], 
-            timeout_sec=1800, backoff_sec=2, 
-            err_msg="deletion has not completed yet " + str(list(self.list_gcs_contents())))
-
-        self.restart_jmx_tool()
-        wait_until(lambda: self.deletions_in_progress() == False,
-                timeout_sec=720, backoff_sec=2, err_msg="deletions still in progress according to jmx metrics")
+        self.object_deletions_completed(backend)

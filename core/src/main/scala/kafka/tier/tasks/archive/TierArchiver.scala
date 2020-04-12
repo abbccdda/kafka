@@ -11,6 +11,7 @@ import kafka.log.AbstractLog
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.ReplicaManager
 import kafka.tier.fetcher.CancellationContext
+import kafka.tier.state.TierPartitionStatus
 import kafka.tier.store.TierObjectStore
 import kafka.tier.tasks.{TierTaskWorkingSet, TierTasksConfig}
 import kafka.tier.topic.TierTopicAppender
@@ -50,11 +51,18 @@ final class TierArchiver(config: TierTasksConfig,
   removeMetric("RetriesPerSec")
   private val retryRate = newMeter("RetriesPerSec", "number of retries per second", TimeUnit.SECONDS)
 
-  // Sum of lag of all partitions
+  // Sum of lag of all partitions (including fenced partitions)
   @volatile private var totalLagValue = 0L
   removeMetric("TotalLag")
   newGauge("TotalLag", new Gauge[Long] {
     def value(): Long = totalLagValue
+  })
+
+  // Sum of lag of all partitions (excluding error partitions)
+  @volatile private var totalLagValueWithoutErrorPartitions = 0L
+  removeMetric("TotalLagWithoutErrorPartitions")
+  newGauge("TotalLagWithoutErrorPartitions", new Gauge[Long] {
+    def value(): Long = totalLagValueWithoutErrorPartitions
   })
 
   // Lag value (in bytes) of the partition with the highest lag
@@ -91,25 +99,29 @@ final class TierArchiver(config: TierTasksConfig,
   }
 
   /**
-   * Returns archiver lag information for lagging partitions with their lag. Method is kept visible
-   * for testing.
+   * Returns archiver lag and status information for lagging partitions.
+   * Method is kept visible for testing.
    *
-   * @return   a list containing lagging partitions along with their lag value
+   * @return   a list containing lagging partitions along with their lag value and status
    */
-  def partitionLagInfo: List[(TopicPartition, Long)] = {
+  def partitionLagInfo: List[(TopicPartition, TierPartitionStatus, Long)] = {
     replicaManager
       .leaderPartitionsIterator
       .flatMap(_.log)
       .filter(_.tierPartitionState.isTieringEnabled)
-      .map(log => (log.topicPartition, sizeOfTierableSegments(log)))
-      .filter { case (_, size) => size > 0 }
+      .map(log => (log.topicPartition, log.tierPartitionState.status(), sizeOfTierableSegments(log)))
+      .filter { case (_, _, size) => size > 0 }
       .toList
-      .sortBy { case (_, size) => 0 - size }
+      .sortBy { case (_, _, size) => 0 - size }
   }
 
   def logPartitionLagInfo(): Unit = {
     val laggingPartitions = partitionLagInfo
-    totalLagValue = laggingPartitions.map(_._2).sum
+    totalLagValue = partitionLagInfo.map(_._3).sum
+    totalLagValueWithoutErrorPartitions = laggingPartitions
+      .filter { case (_, status, _) => !status.hasError()}
+      .map(_._3)
+      .sum
     info(s"Sum of TierArchiver lag of all partitions: $totalLagValue")
     laggingPartitionsCount = laggingPartitions.size
     val topLaggingPartitions = laggingPartitions.take(TOP_LAGGING_PARTITIONS_COUNT)
@@ -118,7 +130,7 @@ final class TierArchiver(config: TierTasksConfig,
           s"$laggingPartitionsCount partitions seen with lag > 0. Partitions with most" +
             s" TierArchiver lag in descending order of lag (TopicPartition, LagInBytes):" +
             s" $topLaggingPartitions")
-      partitionLagMaxValue = topLaggingPartitions(0)._2
+      partitionLagMaxValue = topLaggingPartitions(0)._3
     }
   }
 

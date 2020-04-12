@@ -76,18 +76,19 @@ public class TierTopic implements InitializedTierTopic {
         this.partitioner = new TierTopicPartitioner(numPartitions);
     }
 
-    static Set<TopicPartition> toTierTopicPartitions(Collection<TopicIdPartition> tieredPartitions,
-                                                     String topicName,
-                                                     TierTopicPartitioner partitioner) {
+    public static Set<TopicPartition> toTierTopicPartitions(
+        Collection<TopicIdPartition> tieredPartitions,
+        String topicName,
+        TierTopicPartitioner partitioner) {
         return tieredPartitions
-                .stream()
-                .map(tieredPartition -> toTierTopicPartition(tieredPartition, topicName, partitioner))
-                .collect(Collectors.toSet());
+            .stream()
+            .map(tieredPartition -> toTierTopicPartition(tieredPartition, topicName, partitioner))
+            .collect(Collectors.toSet());
     }
 
-    static TopicPartition toTierTopicPartition(TopicIdPartition tieredPartition,
-                                               String topicName,
-                                               TierTopicPartitioner partitioner) {
+    public static TopicPartition toTierTopicPartition(TopicIdPartition tieredPartition,
+        String topicName,
+        TierTopicPartitioner partitioner) {
         return new TopicPartition(topicName, partitioner.partitionId(tieredPartition));
     }
 }
