@@ -76,13 +76,6 @@ class TierRoundtripTest(ProduceConsumeValidateTest, TierSupport):
     def min_cluster_size(self):
         return super(TierRoundtripTest, self).min_cluster_size() + self.num_producers + self.num_consumers
 
-    def restart_jmx_tool(self):
-        for knode in self.kafka.nodes:
-            knode.account.kill_java_processes(self.kafka.jmx_class_name(), clean_shutdown=False, allow_fail=True)
-            idx = self.kafka.idx(knode)
-            self.kafka.started[idx-1] = False
-            self.kafka.start_jmx_tool(idx, knode)
-
     @matrix(client_version=[str(DEV_BRANCH), str(LATEST_2_4), str(LATEST_2_3), str(LATEST_2_2), str(LATEST_2_1), str(LATEST_2_0),
                             str(LATEST_1_1), str(LATEST_1_0), str(LATEST_0_11_0), str(LATEST_0_10_2), str(LATEST_0_10_1),
                             str(LATEST_0_10_0), str(LATEST_0_9)],
