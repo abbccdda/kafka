@@ -110,6 +110,9 @@ message MetricsMessage {
   string groupId = 11;
   // System-level metrics
   SystemMetrics systemMetrics = 12;
+
+  string version = 13;
+  string commitId = 14;
 }
 
 message SystemMetrics {

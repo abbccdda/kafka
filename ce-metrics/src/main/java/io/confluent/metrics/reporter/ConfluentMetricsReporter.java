@@ -25,6 +25,7 @@ import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.record.TimestampType;
+import org.apache.kafka.common.utils.AppInfoParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -353,7 +354,6 @@ public class ConfluentMetricsReporter
         }
 
         log.debug("Begin publishing metrics");
-
         Iterable<MetricsMessage> metricsMessages = genMetricsMessage();
 
         synchronized (producer) {
@@ -409,6 +409,8 @@ public class ConfluentMetricsReporter
       builder.setGroupId(groupId);
       builder.setClusterId(clusterId == null ? "" : clusterId);
       builder.setTimestamp(timestamp);
+      builder.setVersion(AppInfoParser.getVersion());
+      builder.setCommitId(AppInfoParser.getCommitId());
       return builder;
     }
 
