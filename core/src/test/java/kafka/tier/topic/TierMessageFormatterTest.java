@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.UUID;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.AbstractTierMetadata;
+import kafka.tier.domain.TierPartitionFence;
 import kafka.tier.domain.TierPartitionDeleteInitiate;
 import kafka.tier.domain.TierRecordType;
 import kafka.tier.domain.TierSegmentDeleteComplete;
@@ -156,6 +157,33 @@ public class TierMessageFormatterTest {
         String expected = String.format("(%d, %d, %s): %s\n(%d, %d, %s): %s\n",
                 topicIdPartition.partition(), initRecord.offset(), Instant.ofEpochMilli(initRecord.timestamp()), segUploadInit.toString(),
                 topicIdPartition.partition(), completeRecord.offset(), Instant.ofEpochMilli(completeRecord.timestamp()), segUploadComplete.toString());
+        assertEquals(expected, baos.toString());
+    }
+
+    @Test
+    public void formatTierPartitionFenceTest() {
+        UUID topicId = UUID.randomUUID();
+        TopicIdPartition topicIdPartition = new TopicIdPartition("foo", topicId, 0);
+        UUID messageId = UUID.randomUUID();
+        AbstractTierMetadata partitionFence = new TierPartitionFence(topicIdPartition, messageId);
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        PrintStream ps = new PrintStream(baos);
+        ConsumerRecord<byte[], byte[]> record = new ConsumerRecord<>(
+            "foo",
+            topicIdPartition.partition(),
+            0,
+            System.currentTimeMillis(),
+            TimestampType.LOG_APPEND_TIME,
+            ConsumerRecord.NULL_CHECKSUM,
+            ConsumerRecord.NULL_SIZE,
+            ConsumerRecord.NULL_SIZE,
+            partitionFence.serializeKey(),
+            partitionFence.serializeValue());
+        formatter.writeTo(record, ps);
+
+        String expected = String.format("(%d, %d, %s): %s\n",
+            topicIdPartition.partition(), record.offset(), Instant.ofEpochMilli(record.timestamp()), partitionFence.toString());
         assertEquals(expected, baos.toString());
     }
 

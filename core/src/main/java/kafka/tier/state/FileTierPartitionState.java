@@ -10,12 +10,14 @@ import kafka.server.LogDirFailureChannel;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.AbstractTierMetadata;
 import kafka.tier.domain.AbstractTierSegmentMetadata;
+import kafka.tier.domain.TierPartitionFence;
 import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.domain.TierSegmentDeleteComplete;
 import kafka.tier.domain.TierSegmentDeleteInitiate;
 import kafka.tier.domain.TierSegmentUploadComplete;
 import kafka.tier.domain.TierSegmentUploadInitiate;
 import kafka.tier.domain.TierTopicInitLeader;
+import kafka.tier.exceptions.TierPartitionFencedException;
 import kafka.tier.exceptions.TierPartitionStateIllegalListenerException;
 import kafka.tier.serdes.TierPartitionStateHeader;
 import org.apache.kafka.common.TopicPartition;
@@ -855,6 +857,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             switch (entry.type()) {
                 case InitLeader:
                     return handleInitLeader((TierTopicInitLeader) entry);
+                case PartitionFence:
+                    return handlePartitionFence((TierPartitionFence) entry);
 
                 case SegmentUploadInitiate:
                 case SegmentUploadComplete:
@@ -891,6 +895,16 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 return readValidObjectMetadata(topicIdPartition, position(entry.getValue()), targetOffset);
             else
                 return Optional.empty();
+        }
+
+        private AppendResult handlePartitionFence(TierPartitionFence partitionFence) {
+            // The intention behind raising a custom exception here, is to treat the TierPartitionFence
+            // event as a request to fence the topicIdPartition as well as fence this particular
+            // event too (i.e. do not materialize this event). By doing it this way, we also get to
+            // reuse the existing logic for state fencing, where, exceptions are caught and the state
+            // is fenced *without* forwarding localMaterializedOffsetAndEpoch.
+            throw new TierPartitionFencedException(
+                String.format("topicIdPartition=%s fenced by PartitionFence event=%s", topicIdPartition, partitionFence));
         }
 
         private AppendResult handleInitLeader(TierTopicInitLeader initLeader) throws IOException {

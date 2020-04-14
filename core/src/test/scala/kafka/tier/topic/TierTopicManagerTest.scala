@@ -14,7 +14,7 @@ import kafka.admin.AdminOperationException
 import kafka.log.Log
 import kafka.server.LogDirFailureChannel
 import kafka.tier.client.{MockConsumerSupplier, MockProducerSupplier}
-import kafka.tier.domain.{AbstractTierMetadata, TierSegmentUploadComplete, TierSegmentUploadInitiate, TierTopicInitLeader}
+import kafka.tier.domain.{AbstractTierMetadata, TierPartitionFence, TierSegmentUploadComplete, TierSegmentUploadInitiate, TierTopicInitLeader}
 import kafka.tier.exceptions.TierMetadataFatalException
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.state.{FileTierPartitionState, OffsetAndEpoch, TierPartitionStatus}
@@ -232,6 +232,74 @@ class TierTopicManagerTest {
   }
 
   @Test
+  def testFencingViaPartitionFenceEventOnEmptyTierPartitionState(): Unit = {
+    val topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID, 0)
+    val partitionFence = new TierPartitionFence(topicIdPartition, UUID.randomUUID)
+
+    val (tierTopicConsumer, _, tierTopicManager) = setupTierComponents(becomeReady = true)
+    addReplica(topicIdPartition, tierTopicConsumer)
+    val partitionFenceFuture = tierTopicManager.addMetadata(partitionFence)
+    TestUtils.waitUntilTrue(() => {
+      moveRecordsToAllConsumers()
+      tierTopicConsumer.doWork()
+      partitionFenceFuture.isDone
+    }, "Timed out trying to finish TierPartitionFence")
+
+    // Check that the TierPartitionFence even has fenced the partition.
+    assertEquals(AppendResult.FAILED, partitionFenceFuture.get)
+    assertEquals(TierPartitionStatus.ERROR, tierPartitionStateFiles(0).status())
+    assertEquals(1, tierTopicConsumer.errorPartitions().size())
+    assertEquals(Set(topicIdPartition), tierTopicConsumer.errorPartitions().asScala)
+  }
+
+  @Test
+  def testFencingViaPartitionFenceEventOnNonEmptyTierPartitionState(): Unit = {
+    val topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID, 0)
+    val partitionFence = new TierPartitionFence(topicIdPartition, UUID.randomUUID)
+    val leaderEpoch = 31
+    val (tierTopicConsumer, _, tierTopicManager) = setupTierComponents(becomeReady = true)
+    addReplica(topicIdPartition, tierTopicConsumer)
+
+    // Check that a valid InitLeader event gets accepted.
+    becomeArchiver(topicIdPartition, leaderEpoch, tierTopicManager, tierTopicConsumer)
+    assertEquals(leaderEpoch, tierPartitionStateFiles(0).tierEpoch())
+
+    // Check that a valid SegmentUploadInitiate event gets accepted.
+    val uploadInitiate = new TierSegmentUploadInitiate(
+      topicIdPartition, leaderEpoch, UUID.randomUUID, 0, 100,
+      100, 100, true, false, false)
+    val uploadInitiateFuture = tierTopicManager.addMetadata(uploadInitiate)
+    moveRecordsToAllConsumers()
+    tierTopicConsumer.doWork()
+    assertTrue(uploadInitiateFuture.isDone)
+    assertEquals(AppendResult.ACCEPTED, uploadInitiateFuture.get)
+    assertEquals(0, tierTopicConsumer.errorPartitions().size())
+    assertEquals(TierPartitionStatus.ONLINE, tierPartitionStateFiles(0).status())
+
+    // Check that a valid SegmentUploadComplete event gets accepted.
+    val uploadCompleteFuture = tierTopicManager.addMetadata(new TierSegmentUploadComplete(uploadInitiate))
+    moveRecordsToAllConsumers()
+    tierTopicConsumer.doWork()
+    assertTrue(uploadCompleteFuture.isDone)
+    assertEquals(AppendResult.ACCEPTED, uploadCompleteFuture.get)
+    assertEquals(
+      uploadInitiate.objectId(),
+      tierPartitionStateFiles(0).metadata(100).get().objectId())
+    assertEquals(0, tierTopicConsumer.errorPartitions().size())
+    assertEquals(TierPartitionStatus.ONLINE, tierPartitionStateFiles(0).status())
+
+    // Check that the PartitionFence event has fenced the partition.
+    val partitionFenceFuture = tierTopicManager.addMetadata(partitionFence)
+    moveRecordsToAllConsumers()
+    tierTopicConsumer.doWork()
+    assertTrue(partitionFenceFuture.isDone)
+    assertEquals(AppendResult.FAILED, partitionFenceFuture.get)
+    assertEquals(TierPartitionStatus.ERROR, tierPartitionStateFiles(0).status())
+    assertEquals(1, tierTopicConsumer.errorPartitions().size())
+    assertEquals(Set(topicIdPartition), tierTopicConsumer.errorPartitions().asScala)
+  }
+
+  @Test
   def testSetErrorPartitionsDuringFencing(): Unit = {
     val topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID, 0)
 
@@ -250,6 +318,7 @@ class TierTopicManagerTest {
     // TierSegmentUploadInitiate was attempted without TierTopicInitLeader, therefore it should
     // fence the partition.
     assertEquals(AppendResult.FAILED, initiateResultFuture.get)
+    assertEquals(TierPartitionStatus.ERROR, tierPartitionStateFiles(0).status())
     assertEquals(1, tierTopicConsumer.errorPartitions().size())
     assertEquals(Set(topicIdPartition), tierTopicConsumer.errorPartitions().asScala)
   }
