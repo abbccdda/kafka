@@ -2201,6 +2201,8 @@ project(':ce-sbk') {
     testCompile libs.mockitoCore
     testCompile libs.easymock
     testCompile libs.junit
+
+    testRuntime libs.slf4jlog4j
   }
 
   tasks.create(name: "copyDependantLibs", type: Copy) {
