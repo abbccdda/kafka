@@ -205,7 +205,8 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                               ["confluent.authorizer.access.rule.providers", "ZK_ACL,FILE_RBAC"],
                               ["confluent.license.topic.replication.factor", "3"],
                               ["ldap.java.naming.provider.url", self.minildap.ldap_url],
-                              ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH]
+                              ["confluent.metadata.server.test.metadata.rbac.file", SecurityConfig.ROLES_PATH],
+                              ["confluent.security.event.logger.enable", "false"]
                           ])
         self.kafka.start_concurrently()
 
