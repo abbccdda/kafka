@@ -16,13 +16,12 @@ import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundCapacityGoa
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundUsageDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundUsageDistributionGoal;
-import com.linkedin.kafka.cruisecontrol.analyzer.goals.RackAwareGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.TopicReplicaDistributionGoal;
+import com.linkedin.kafka.cruisecontrol.detector.KafkaMetricAnomalyFinder;
+import com.linkedin.kafka.cruisecontrol.detector.notifier.SelfHealingNotifier;
 import com.linkedin.kafka.cruisecontrol.executor.ExecutorNoopNotifier;
-import com.linkedin.kafka.cruisecontrol.detector.NoopMetricAnomalyFinder;
-import com.linkedin.kafka.cruisecontrol.detector.notifier.NoopNotifier;
 import com.linkedin.kafka.cruisecontrol.executor.strategy.BaseReplicaMovementStrategy;
 import com.linkedin.kafka.cruisecontrol.executor.strategy.PostponeUrpReplicaMovementStrategy;
 import com.linkedin.kafka.cruisecontrol.executor.strategy.PrioritizeLargeReplicaMovementStrategy;
@@ -30,6 +29,7 @@ import com.linkedin.kafka.cruisecontrol.executor.strategy.PrioritizeSmallReplica
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.DefaultMetricSamplerPartitionAssignor;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -52,12 +52,6 @@ import static org.apache.kafka.common.config.ConfigDef.Range.between;
  * The configuration class of Kafka Cruise Control.
  */
 public class KafkaCruiseControlConfig extends AbstractConfig {
-  private static final String DEFAULT_FAILED_BROKERS_ZK_PATH = "/CruiseControlBrokerList";
-  // We have to define this so we don't need to move every package to scala src folder.
-  private static final String DEFAULT_ANOMALY_NOTIFIER_CLASS = NoopNotifier.class.getName();
-  // We have to define this to support the use of network clients with different Kafka client versions.
-  private static final String DEFAULT_EXECUTOR_NOTIFIER_CLASS = ExecutorNoopNotifier.class.getName();
-  private static final String DEFAULT_METRIC_ANOMALY_FINDER_CLASS = NoopMetricAnomalyFinder.class.getName();
 
   private static final ConfigDef CONFIG;
 
@@ -72,6 +66,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
    */
   public static final String METADATA_MAX_AGE_CONFIG = CommonClientConfigs.METADATA_MAX_AGE_CONFIG;
   private static final String METADATA_MAX_AGE_DOC = CommonClientConfigs.METADATA_MAX_AGE_DOC;
+  public static final Integer DEFAULT_METADATA_MAX_AGE_MS = 180 * 1000;
 
   /**
    * <code>client.id</code>
@@ -110,6 +105,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String PARTITION_METRICS_WINDOW_MS_CONFIG = "partition.metrics.window.ms";
   private static final String PARTITION_METRICS_WINDOW_MS_DOC = "The size of the window in milliseconds to aggregate "
       + "the Kafka partition metrics.";
+  public static final Long DEFAULT_PARTITION_METRICS_MS = 300L * 1000; // 5 min
 
   /**
    * <code>num.partition.metrics.windows</code>
@@ -117,6 +113,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String NUM_PARTITION_METRICS_WINDOWS_CONFIG = "num.partition.metrics.windows";
   private static final String NUM_PARTITION_METRICS_WINDOWS_DOC = "The total number of windows to keep for partition "
       + "metric samples";
+  public static final Integer DEFAULT_NUM_PARTITION_METRICS_WINDOWS = 6;
 
   /**
    * <code>min.samples.per.partition.metrics.window</code>
@@ -124,6 +121,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String MIN_SAMPLES_PER_PARTITION_METRICS_WINDOW_CONFIG = "min.samples.per.partition.metrics.window";
   private static final String MIN_SAMPLES_PER_PARTITION_METRICS_WINDOW_DOC = "The minimum number of "
       + "PartitionMetricSamples needed to make a partition metrics window valid without extrapolation.";
+  public static final Integer DEFAULT_MIN_SAMPLES_PER_PARTITION_METRICS_WINDOW = 1;
 
   /**
    * <code>max.allowed.extrapolations.per.partition</code>
@@ -150,6 +148,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String BROKER_METRICS_WINDOW_MS_CONFIG = "broker.metrics.window.ms";
   private static final String BROKER_METRICS_WINDOW_MS_DOC = "The size of the window in milliseconds to aggregate the"
       + " Kafka broker metrics.";
+  public static final Long DEFAULT_BROKER_METRICS_WINDOW_MS = 300L * 1000;
 
   /**
    * <code>num.broker.metrics.windows</code>
@@ -157,6 +156,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String NUM_BROKER_METRICS_WINDOWS_CONFIG = "num.broker.metrics.windows";
   private static final String NUM_BROKER_METRICS_WINDOWS_DOC = "The total number of windows to keep for broker metric"
       + " samples";
+  public static final Integer DEFAULT_NUM_BROKER_METRICS_WINDOWS = 20;
 
   /**
    * <code>min.samples.per.broker.metrics.window</code>
@@ -164,6 +164,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String MIN_SAMPLES_PER_BROKER_METRICS_WINDOW_CONFIG = "min.samples.per.broker.metrics.window";
   private static final String MIN_SAMPLES_PER_BROKER_METRICS_WINDOW_DOC = "The minimum number of BrokerMetricSamples "
       + "needed to make a broker metrics window valid without extrapolation.";
+  public static final Integer DEFAULT_MIN_SAMPLES_PER_BROKER_METRICS_WINDOW = 1;
 
   /**
    * <code>max.allowed.extrapolations.per.broker</code>
@@ -217,6 +218,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
    */
   public static final String METRIC_SAMPLING_INTERVAL_MS_CONFIG = "metric.sampling.interval.ms";
   private static final String METRIC_SAMPLING_INTERVAL_MS_DOC = "The interval of metric sampling.";
+  public static final Long DEFAULT_METRIC_SAMPLING_INTERVAL_MS = 180L * 1000;
 
   /**
    * <code>broker.capacity.config.resolver.class</code>
@@ -235,6 +237,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
       "Kafka cluster are dynamically changing. The load monitor will exclude some of the topics that does not have " +
       "sufficient metric samples. This configuration defines the minimum required percentage of the partitions that " +
       "must be included in the load model.";
+  public static final Double DEFAULT_MIN_VALID_PARTITION_RATIO = 0.95;
 
   /**
    * <code>leader.network.inbound.weight.for.cpu.util</code>
@@ -351,6 +354,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
       + " of distribution goals used for detecting and fixing anomalies. For example, 2.50 means the threshold for each "
       + "distribution goal (i.e. Replica Distribution, Leader Replica Distribution, Resource Distribution, and Topic Replica "
       + "Distribution Goals) will be 2.50x of the value used in manual goal optimization requests (e.g. rebalance).";
+  public static final Double DEFAULT_GOAL_VIOLATION_DISTRIBUTION_THRESHOLD_MULTIPLIER = 1.25;
 
   /**
    * <code>cpu.capacity.threshold</code>
@@ -359,6 +363,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   private static final String CPU_CAPACITY_THRESHOLD_DOC = "The maximum percentage of the total broker.cpu.capacity " +
       "that is allowed to be used on a broker. The analyzer will enforce a hard goal that the cpu utilization " +
       "of a broker cannot be higher than (broker.cpu.capacity * cpu.capacity.threshold).";
+  public static final Double DEFAULT_CPU_CAPACITY_THRESHOLD = 1.0;
 
   /**
    * <code>cpu.capacity.threshold</code>
@@ -367,6 +372,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   private static final String DISK_CAPACITY_THRESHOLD_DOC = "The maximum percentage of the total broker.disk.capacity " +
       "that is allowed to be used on a broker. The analyzer will enforce a hard goal that the disk usage " +
       "of a broker cannot be higher than (broker.disk.capacity * disk.capacity.threshold).";
+  public static final Double DEFAULT_DISK_CAPACITY_THRESHOLD = 0.8;
 
   /**
    * <code>network.inbound.capacity.threshold</code>
@@ -376,6 +382,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
       "broker.network.inbound.capacity that is allowed to be used on a broker. The analyzer will enforce a hard goal " +
       "that the disk usage of a broker cannot be higher than " +
       "(broker.network.inbound.capacity * network.inbound.capacity.threshold).";
+  public static final Double DEFAULT_NETWORK_INBOUND_CAPACITY_THRESHOLD = 0.8;
 
   /**
    * <code>network.outbound.capacity.threshold</code>
@@ -385,6 +392,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
       "broker.network.outbound.capacity that is allowed to be used on a broker. The analyzer will enforce a hard goal " +
       "that the disk usage of a broker cannot be higher than " +
       "(broker.network.outbound.capacity * network.outbound.capacity.threshold).";
+  public static final Double DEFAULT_NETWORK_OUTBOUND_CAPACITY_THRESHOLD = 0.8;
 
   /**
    * <code>cpu.low.utilization.threshold</code>
@@ -393,6 +401,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   private static final String CPU_LOW_UTILIZATION_THRESHOLD_DOC = "The threshold for Kafka Cruise Control to define " +
       "the utilization of CPU is low enough that rebalance is not worthwhile. The cluster will only be in a low " +
       "utilization state when all the brokers are below the low utilization threshold. The threshold is in percentage.";
+  public static final Double DEFAULT_CPU_LOW_UTILIZATION_THRESHOLD = 0.2;
 
   /**
    * <code>disk.low.utilization.threshold</code>
@@ -401,6 +410,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   private static final String DISK_LOW_UTILIZATION_THRESHOLD_DOC = "The threshold for Kafka Cruise Control to define " +
       "the utilization of DISK is low enough that rebalance is not worthwhile. The cluster will only be in a low " +
       "utilization state when all the brokers are below the low utilization threshold. The threshold is in percentage.";
+  public static final Double DEFAULT_DISK_LOW_UTILIZATION_THRESHOLD = 0.2;
 
   /**
    * <code>network.inbound.low.utilization.threshold</code>
@@ -409,6 +419,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   private static final String NETWORK_INBOUND_LOW_UTILIZATION_THRESHOLD_DOC = "The threshold for Kafka Cruise Control to define " +
       "the utilization of network inbound rate is low enough that rebalance is not worthwhile. The cluster will only be in a low " +
       "utilization state when all the brokers are below the low utilization threshold. The threshold is in percentage.";
+  public static final Double DEFAULT_NETWORK_INBOUND_LOW_UTILIZATION_THRESHOLD = 0.2;
 
   /**
    * <code>network.outbound.low.utilization.threshold</code>
@@ -417,6 +428,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   private static final String NETWORK_OUTBOUND_LOW_UTILIZATION_THRESHOLD_DOC = "The threshold for Kafka Cruise Control to define " +
       "the utilization of network outbound rate is low enough that rebalance is not worthwhile. The cluster will only be in a low " +
       "utilization state when all the brokers are below the low utilization threshold. The threshold is in percentage.";
+  public static final Double DEFAULT_NETWORK_OUTBOUND_LOW_UTILIZATION_THRESHOLD = 0.2;
 
   /**
    * <code>metric.anomaly.finder.class</code>
@@ -424,6 +436,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String METRIC_ANOMALY_FINDER_CLASSES_CONFIG = "metric.anomaly.finder.class";
   private static final String METRIC_ANOMALY_FINDER_CLASSES_DOC = "A list of metric anomaly finder classes to find "
                                                                     + "the current state to identify metric anomalies.";
+  private static final String DEFAULT_METRIC_ANOMALY_FINDER_CLASS = KafkaMetricAnomalyFinder.class.getName();
 
   /**
    * <code>proposal.expiration.ms</code>
@@ -433,6 +446,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
       + "among all the optimization proposal candidates it recently computed. This configuration defines when will the"
       + "cached proposal be invalidated and needs a recomputation. If proposal.expiration.ms is set to 0, Cruise Control"
       + "will continuously compute the proposal candidates.";
+  public static final Integer DEFAULT_PROPOSAL_EXPIRATION_MS = 60 * 1000;
 
   /**
    * <code>max.replicas.per.broker</code>
@@ -527,6 +541,21 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String GOALS_CONFIG = "goals";
   private static final String GOALS_DOC = "A list of case insensitive goals in the order of priority. The high "
       + "priority goals will be executed first.";
+  public static final List<String> DEFAULT_GOALS_LIST = Arrays.asList(
+          CrossRackMovementGoal.class.getName(),
+          SequentialReplicaMovementGoal.class.getName(),
+          ReplicaCapacityGoal.class.getName(),
+          DiskCapacityGoal.class.getName(),
+          NetworkInboundCapacityGoal.class.getName(),
+          NetworkOutboundCapacityGoal.class.getName(),
+          ReplicaDistributionGoal.class.getName(),
+          DiskUsageDistributionGoal.class.getName(),
+          NetworkInboundUsageDistributionGoal.class.getName(),
+          NetworkOutboundUsageDistributionGoal.class.getName(),
+          CpuUsageDistributionGoal.class.getName(),
+          TopicReplicaDistributionGoal.class.getName(),
+          LeaderReplicaDistributionGoal.class.getName(),
+          LeaderBytesInDistributionGoal.class.getName());
 
   /**
    * <code>intra.broker.goals</code>
@@ -542,6 +571,14 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String HARD_GOALS_CONFIG = "hard.goals";
   private static final String HARD_GOALS_DOC = "A list of case insensitive hard goals. Hard goals will be enforced to execute "
       + "if Cruise Control runs in non-kafka-assigner mode and skip_hard_goal_check parameter is not set in request.";
+  public static final List<String> DEFAULT_HARD_GOALS_LIST = Arrays.asList(
+          CrossRackMovementGoal.class.getName(),
+          SequentialReplicaMovementGoal.class.getName(),
+          ReplicaCapacityGoal.class.getName(),
+          DiskCapacityGoal.class.getName(),
+          NetworkInboundCapacityGoal.class.getName(),
+          NetworkOutboundCapacityGoal.class.getName());
+
 
   /**
    * <code>default.goals</code>
@@ -564,6 +601,8 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String ANOMALY_NOTIFIER_CLASS_CONFIG = "anomaly.notifier.class";
   private static final String ANOMALY_NOTIFIER_CLASS_DOC = "The notifier class to trigger an alert when an "
       + "anomaly is violated. The anomaly could be either a goal violation, broker failure, or metric anomaly.";
+  // We have to define this so we don't need to move every package to scala src folder.
+  private static final String DEFAULT_ANOMALY_NOTIFIER_CLASS = SelfHealingNotifier.class.getName();
 
   /*
    * <code>executor.notifier.class</code>
@@ -572,6 +611,8 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   private static final String EXECUTOR_NOTIFIER_CLASS_DOC = "The executor notifier class to trigger an alert when an "
                                                             + "execution finishes or is stopped (by a user or "
                                                             + "by Cruise Control).";
+  // We have to define this to support the use of network clients with different Kafka client versions.
+  private static final String DEFAULT_EXECUTOR_NOTIFIER_CLASS = ExecutorNoopNotifier.class.getName();
 
   /**
    * <code>anomaly.detection.interval.ms</code>
@@ -579,6 +620,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String ANOMALY_DETECTION_INTERVAL_MS_CONFIG = "anomaly.detection.interval.ms";
   private static final String ANOMALY_DETECTION_INTERVAL_MS_DOC = "The interval in millisecond that the detectors will "
       + "run to detect the anomalies.";
+  public static final Integer DEFAULT_ANOMALY_DETECTION_INTERVAL_MS = 10 * 1000;
 
   /**
    * <code>anomaly.detection.allow.capacity.estimation</code>
@@ -600,6 +642,16 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String ANOMALY_DETECTION_GOALS_CONFIG = "anomaly.detection.goals";
   private static final String ANOMALY_DETECTION_GOALS_DOC = "The goals that anomaly detector should detect if they are"
       + "violated.";
+  private static final List<String> DEFAULT_ANOMALY_DETECTION_GOALS_LIST = Arrays.asList(
+          CrossRackMovementGoal.class.getName(),
+          SequentialReplicaMovementGoal.class.getName(),
+          ReplicaCapacityGoal.class.getName(),
+          DiskCapacityGoal.class.getName(),
+          NetworkInboundCapacityGoal.class.getName(),
+          NetworkOutboundCapacityGoal.class.getName(),
+          ReplicaDistributionGoal.class.getName(),
+          DiskUsageDistributionGoal.class.getName());
+
 
   /**
    * <code>broker.failure.exclude.recently.demoted.brokers</code>
@@ -635,6 +687,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String FAILED_BROKERS_ZK_PATH_CONFIG = "failed.brokers.zk.path";
   private static final String FAILED_BROKERS_ZK_PATH_DOC = "The zk path to store the failed broker list. This is to "
       + "persist the broker failure time in case Cruise Control failed and restarted when some brokers are down.";
+  public static final String DEFAULT_FAILED_BROKERS_ZK_PATH = "/DataBalancerBrokerList";
 
   /**
    * <code>use.linear.regression.model</code>
@@ -933,6 +986,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   private static final String WRITE_THROUGHPUT_MULTIPLIER_DOC = "The factor that write throughput is multiplied by when computing" +
           " network usage. GCP counts communication with the storage volumes and replication of the written data against" +
           " the overall network usage";
+  public static final Double DEFAULT_WRITE_THROUGHPUT_MULTIPLIER = 1.0;
 
   /**
    * <code>read.throughput.multiplier</code>
@@ -940,6 +994,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String READ_THROUGHPUT_MULTIPLIER_CONFIG = "read.throughput.multiplier";
   private static final String READ_THROUGHPUT_MULTIPLIER_DOC = "The factor that read throughput is multiplied by when computing" +
           " network usage. GCP counts communication with the storage volumes against the overall network usage";
+  public static final Double DEFAULT_READ_THROUGHPUT_MULTIPLIER = 1.0;
 
   /**
    * <code>calculated.throttle.ratio</code>
@@ -999,7 +1054,11 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 CommonClientConfigs.RECEIVE_BUFFER_DOC)
         .define(RECONNECT_BACKOFF_MS_CONFIG, ConfigDef.Type.LONG, 50L, atLeast(0L), ConfigDef.Importance.LOW,
                 CommonClientConfigs.RECONNECT_BACKOFF_MS_DOC)
-        .define(METADATA_MAX_AGE_CONFIG, ConfigDef.Type.INT, 55 * 1000, atLeast(0), ConfigDef.Importance.LOW,
+        .define(METADATA_MAX_AGE_CONFIG,
+                ConfigDef.Type.INT,
+                DEFAULT_METADATA_MAX_AGE_MS,
+                atLeast(0),
+                ConfigDef.Importance.LOW,
                 METADATA_MAX_AGE_DOC)
         .define(CONNECTIONS_MAX_IDLE_MS_CONFIG,
                 ConfigDef.Type.LONG,
@@ -1014,19 +1073,19 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 REQUEST_TIMEOUT_MS_DOC)
         .define(PARTITION_METRICS_WINDOW_MS_CONFIG,
                 ConfigDef.Type.LONG,
-                60 * 60 * 1000,
+                DEFAULT_PARTITION_METRICS_MS,
                 atLeast(1),
                 ConfigDef.Importance.HIGH,
                 PARTITION_METRICS_WINDOW_MS_DOC)
         .define(NUM_PARTITION_METRICS_WINDOWS_CONFIG,
                 ConfigDef.Type.INT,
-                5,
+                DEFAULT_NUM_PARTITION_METRICS_WINDOWS,
                 atLeast(1),
                 ConfigDef.Importance.HIGH,
                 NUM_PARTITION_METRICS_WINDOWS_DOC)
         .define(MIN_SAMPLES_PER_PARTITION_METRICS_WINDOW_CONFIG,
                 ConfigDef.Type.INT,
-                3,
+                DEFAULT_MIN_SAMPLES_PER_PARTITION_METRICS_WINDOW,
                 atLeast(1),
                 ConfigDef.Importance.HIGH,
                 MIN_SAMPLES_PER_PARTITION_METRICS_WINDOW_DOC)
@@ -1044,7 +1103,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 PARTITION_METRIC_SAMPLE_AGGREGATOR_COMPLETENESS_CACHE_SIZE_DOC)
         .define(BROKER_METRICS_WINDOW_MS_CONFIG,
                 ConfigDef.Type.LONG,
-                60 * 60 * 1000,
+                DEFAULT_BROKER_METRICS_WINDOW_MS,
                 atLeast(1),
                 ConfigDef.Importance.HIGH,
                 BROKER_METRICS_WINDOW_MS_DOC)
@@ -1129,13 +1188,13 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 MAX_ACTIVE_USER_TASKS_DOC)
         .define(NUM_BROKER_METRICS_WINDOWS_CONFIG,
                 ConfigDef.Type.INT,
-                5,
+                DEFAULT_NUM_BROKER_METRICS_WINDOWS,
                 atLeast(1),
                 ConfigDef.Importance.HIGH,
                 NUM_BROKER_METRICS_WINDOWS_DOC)
         .define(MIN_SAMPLES_PER_BROKER_METRICS_WINDOW_CONFIG,
                 ConfigDef.Type.INT,
-                3,
+                DEFAULT_MIN_SAMPLES_PER_BROKER_METRICS_WINDOW,
                 atLeast(1),
                 ConfigDef.Importance.HIGH,
                 MIN_SAMPLES_PER_BROKER_METRICS_WINDOW_DOC)
@@ -1179,7 +1238,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 METRIC_SAMPLER_PARTITION_ASSIGNOR_CLASS_DOC)
         .define(METRIC_SAMPLING_INTERVAL_MS_CONFIG,
                 ConfigDef.Type.LONG,
-                60 * 1000,
+                DEFAULT_METRIC_SAMPLING_INTERVAL_MS,
                 atLeast(0),
                 ConfigDef.Importance.HIGH,
                 METRIC_SAMPLING_INTERVAL_MS_DOC)
@@ -1202,7 +1261,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 GOAL_BALANCEDNESS_STRICTNESS_WEIGHT_DOC)
         .define(MIN_VALID_PARTITION_RATIO_CONFIG,
                 ConfigDef.Type.DOUBLE,
-                0.995,
+                DEFAULT_MIN_VALID_PARTITION_RATIO,
                 between(0, 1),
                 ConfigDef.Importance.HIGH, MIN_VALID_PARTITION_RATIO_DOC)
         .define(LEADER_NETWORK_INBOUND_WEIGHT_FOR_CPU_UTIL_CONFIG,
@@ -1284,54 +1343,54 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 TOPIC_REPLICA_COUNT_BALANCE_THRESHOLD_DOC)
         .define(GOAL_VIOLATION_DISTRIBUTION_THRESHOLD_MULTIPLIER_CONFIG,
                 ConfigDef.Type.DOUBLE,
-                1.00,
+                DEFAULT_GOAL_VIOLATION_DISTRIBUTION_THRESHOLD_MULTIPLIER,
                 atLeast(1),
                 ConfigDef.Importance.MEDIUM, GOAL_VIOLATION_DISTRIBUTION_THRESHOLD_MULTIPLIER_DOC)
         .define(CPU_CAPACITY_THRESHOLD_CONFIG,
                 ConfigDef.Type.DOUBLE,
-                0.8,
+                DEFAULT_CPU_CAPACITY_THRESHOLD,
                 between(0, 1),
                 ConfigDef.Importance.HIGH,
                 CPU_CAPACITY_THRESHOLD_DOC)
         .define(DISK_CAPACITY_THRESHOLD_CONFIG,
                 ConfigDef.Type.DOUBLE,
-                0.8,
+                DEFAULT_DISK_CAPACITY_THRESHOLD,
                 between(0, 1),
                 ConfigDef.Importance.HIGH,
                 DISK_CAPACITY_THRESHOLD_DOC)
         .define(NETWORK_INBOUND_CAPACITY_THRESHOLD_CONFIG,
                 ConfigDef.Type.DOUBLE,
-                0.8,
+                DEFAULT_NETWORK_INBOUND_CAPACITY_THRESHOLD,
                 between(0, 1),
                 ConfigDef.Importance.HIGH,
                 NETWORK_INBOUND_CAPACITY_THRESHOLD_DOC)
         .define(NETWORK_OUTBOUND_CAPACITY_THRESHOLD_CONFIG,
                 ConfigDef.Type.DOUBLE,
-                0.8,
+                DEFAULT_NETWORK_OUTBOUND_CAPACITY_THRESHOLD,
                 between(0, 1),
                 ConfigDef.Importance.HIGH,
                 NETWORK_OUTBOUND_CAPACITY_THRESHOLD_DOC)
         .define(CPU_LOW_UTILIZATION_THRESHOLD_CONFIG,
                 ConfigDef.Type.DOUBLE,
-                0.0,
+                DEFAULT_CPU_LOW_UTILIZATION_THRESHOLD,
                 between(0, 1),
                 ConfigDef.Importance.MEDIUM,
                 CPU_LOW_UTILIZATION_THRESHOLD_DOC)
         .define(DISK_LOW_UTILIZATION_THRESHOLD_CONFIG,
                 ConfigDef.Type.DOUBLE,
-                0.0,
+                DEFAULT_DISK_LOW_UTILIZATION_THRESHOLD,
                 between(0, 1),
                 ConfigDef.Importance.MEDIUM,
                 DISK_LOW_UTILIZATION_THRESHOLD_DOC)
         .define(NETWORK_INBOUND_LOW_UTILIZATION_THRESHOLD_CONFIG,
                 ConfigDef.Type.DOUBLE,
-                0.0,
+                DEFAULT_NETWORK_INBOUND_LOW_UTILIZATION_THRESHOLD,
                 between(0, 1),
                 ConfigDef.Importance.MEDIUM,
                 NETWORK_INBOUND_LOW_UTILIZATION_THRESHOLD_DOC)
         .define(NETWORK_OUTBOUND_LOW_UTILIZATION_THRESHOLD_CONFIG,
                 ConfigDef.Type.DOUBLE,
-                0.0,
+                DEFAULT_NETWORK_OUTBOUND_LOW_UTILIZATION_THRESHOLD,
                 between(0, 1),
                 ConfigDef.Importance.MEDIUM,
                 NETWORK_OUTBOUND_LOW_UTILIZATION_THRESHOLD_DOC)
@@ -1341,7 +1400,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 ConfigDef.Importance.MEDIUM, METRIC_ANOMALY_FINDER_CLASSES_DOC)
         .define(PROPOSAL_EXPIRATION_MS_CONFIG,
                 ConfigDef.Type.LONG,
-                900000,
+                DEFAULT_PROPOSAL_EXPIRATION_MS,
                 atLeast(0),
                 ConfigDef.Importance.MEDIUM,
                 PROPOSAL_EXPIRATION_MS_DOC)
@@ -1408,22 +1467,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 EXECUTION_PROGRESS_CHECK_INTERVAL_MS_DOC)
         .define(GOALS_CONFIG,
                 ConfigDef.Type.LIST,
-                String.join(",",
-                        CrossRackMovementGoal.class.getName(),
-                        SequentialReplicaMovementGoal.class.getName(),
-                        RackAwareGoal.class.getName(),
-                        ReplicaCapacityGoal.class.getName(),
-                        DiskCapacityGoal.class.getName(),
-                        NetworkInboundCapacityGoal.class.getName(),
-                        NetworkOutboundCapacityGoal.class.getName(),
-                        ReplicaDistributionGoal.class.getName(),
-                        DiskUsageDistributionGoal.class.getName(),
-                        NetworkInboundUsageDistributionGoal.class.getName(),
-                        NetworkOutboundUsageDistributionGoal.class.getName(),
-                        CpuUsageDistributionGoal.class.getName(),
-                        TopicReplicaDistributionGoal.class.getName(),
-                        LeaderReplicaDistributionGoal.class.getName(),
-                        LeaderBytesInDistributionGoal.class.getName()),
+                String.join(",", DEFAULT_GOALS_LIST),
                 ConfigDef.Importance.HIGH,
                 GOALS_DOC)
         .define(INTRA_BROKER_GOALS_CONFIG,
@@ -1435,12 +1479,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 INTRA_BROKER_GOALS_DOC)
         .define(HARD_GOALS_CONFIG,
                 ConfigDef.Type.LIST,
-                String.join(",",
-                    RackAwareGoal.class.getName(),
-                    ReplicaCapacityGoal.class.getName(),
-                    DiskCapacityGoal.class.getName(),
-                    NetworkInboundCapacityGoal.class.getName(),
-                    NetworkOutboundCapacityGoal.class.getName()),
+                String.join(",", DEFAULT_HARD_GOALS_LIST),
                 ConfigDef.Importance.HIGH,
                 HARD_GOALS_DOC)
         .define(DEFAULT_GOALS_CONFIG,
@@ -1464,7 +1503,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 EXECUTOR_NOTIFIER_CLASS_DOC)
         .define(ANOMALY_DETECTION_INTERVAL_MS_CONFIG,
                 ConfigDef.Type.LONG,
-                300000L,
+                DEFAULT_ANOMALY_DETECTION_INTERVAL_MS,
                 ConfigDef.Importance.LOW,
                 ANOMALY_DETECTION_INTERVAL_MS_DOC)
         .define(ANOMALY_DETECTION_ALLOW_CAPACITY_ESTIMATION_CONFIG,
@@ -1479,10 +1518,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 SAMPLING_ALLOW_CPU_CAPACITY_ESTIMATION_DOC)
         .define(ANOMALY_DETECTION_GOALS_CONFIG,
                 ConfigDef.Type.LIST,
-                String.join(",",
-                    RackAwareGoal.class.getName(),
-                    ReplicaCapacityGoal.class.getName(),
-                    DiskCapacityGoal.class.getName()),
+                String.join(",", DEFAULT_ANOMALY_DETECTION_GOALS_LIST),
                 ConfigDef.Importance.MEDIUM,
                 ANOMALY_DETECTION_GOALS_DOC)
         .define(BROKER_FAILURE_EXCLUDE_RECENTLY_DEMOTED_BROKERS_CONFIG,
@@ -1551,12 +1587,12 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 MAX_VOLUME_THROUGHPUT_MB_DOC)
         .define(WRITE_THROUGHPUT_MULTIPLIER_CONFIG,
                 ConfigDef.Type.DOUBLE,
-                1.0,
+                DEFAULT_WRITE_THROUGHPUT_MULTIPLIER,
                 ConfigDef.Importance.MEDIUM,
                 WRITE_THROUGHPUT_MULTIPLIER_DOC)
         .define(READ_THROUGHPUT_MULTIPLIER_CONFIG,
                 ConfigDef.Type.DOUBLE,
-                1.0,
+                DEFAULT_READ_THROUGHPUT_MULTIPLIER,
                 ConfigDef.Importance.MEDIUM,
                 READ_THROUGHPUT_MULTIPLIER_DOC)
         .define(CALCULATED_THROTTLE_RATIO_CONFIG,

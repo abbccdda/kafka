@@ -68,6 +68,14 @@ public class CaseInsensitiveGoalConfigTest {
         + "com.linkedin.kafka.cruisecontrol.analyzer.goals.CpuUsageDistributionGoal,"
         + "com.linkedin.kafka.cruisecontrol.analyzer.goals.LeaderBytesInDistributionGoal,"
         + "com.linkedin.kafka.cruisecontrol.analyzer.goals.TopicReplicaDistributionGoal");
+    caseInsensitiveGoalProps.setProperty(
+            KafkaCruiseControlConfig.ANOMALY_DETECTION_GOALS_CONFIG,
+            "com.linkedin.kafka.cruisecontrol.analyzer.goals.RackAwareGoal,"
+                    + "com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaCapacityGoal,"
+                    + "com.linkedin.kafka.cruisecontrol.analyzer.goals.DiskCapacityGoal,"
+                    + "com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaDistributionGoal");
+
+
 
     Object[] withCaseInsensitiveGoalParams = {caseInsensitiveGoalProps, null};
     params.add(withCaseInsensitiveGoalParams);

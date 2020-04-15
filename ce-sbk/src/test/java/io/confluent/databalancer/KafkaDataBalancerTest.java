@@ -14,7 +14,6 @@ import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundCapacityGoa
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundUsageDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundUsageDistributionGoal;
-import com.linkedin.kafka.cruisecontrol.analyzer.goals.RackAwareGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.TopicReplicaDistributionGoal;
@@ -195,7 +194,6 @@ public class KafkaDataBalancerTest {
         List<String> expectedGoalsConfig = new ArrayList<>(Arrays.asList(
                 CrossRackMovementGoal.class.getName(),
                 SequentialReplicaMovementGoal.class.getName(),
-                RackAwareGoal.class.getName(),
                 ReplicaCapacityGoal.class.getName(),
                 DiskCapacityGoal.class.getName(),
                 NetworkInboundCapacityGoal.class.getName(),
@@ -259,7 +257,6 @@ public class KafkaDataBalancerTest {
                 Arrays.asList(
                         CrossRackMovementGoal.class.getName(),
                         SequentialReplicaMovementGoal.class.getName(),
-                        RackAwareGoal.class.getName(),
                         ReplicaCapacityGoal.class.getName(),
                         DiskCapacityGoal.class.getName(),
                         NetworkInboundCapacityGoal.class.getName(),
@@ -275,19 +272,28 @@ public class KafkaDataBalancerTest {
         ));
 
         // Test a limited subset of default goals.
-        // N.B. There is a required minimum of default goals (must be a superset of ANOMALY_DETECTION_GOALS),
-        // which explains this set.
         List<String> testDefaultGoalsConfig = new ArrayList<>(
                 Arrays.asList(
                         CrossRackMovementGoal.class.getName(),
-                        RackAwareGoal.class.getName(),
                         ReplicaCapacityGoal.class.getName(),
                         ReplicaDistributionGoal.class.getName(),
                         DiskCapacityGoal.class.getName()
         ));
 
+        // Anomaly Goals must be a subset of self-healing goals (or default goals if no self-healing goals set).
+        // Commit ta that requirement.
+        List<String> testAnomalyGoalsConfig = new ArrayList<>(
+                Arrays.asList(
+                        ReplicaCapacityGoal.class.getName(),
+                        ReplicaDistributionGoal.class.getName(),
+                        DiskCapacityGoal.class.getName()
+                ));
+
+
         // Set Default Goals to this
         String defaultGoalsOverride = String.join(",", testDefaultGoalsConfig);
+        String anomalyGoalsOverride = String.join(",", testAnomalyGoalsConfig);
+
         // Not a valid ZK connect URL but to validate what gets copied over.
         brokerProps.put(KafkaConfig.ZkConnectProp(), sampleZkString);
 
@@ -305,6 +311,8 @@ public class KafkaDataBalancerTest {
 
         brokerProps.put(ConfluentConfigs.CONFLUENT_BALANCER_PREFIX + KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG,
                 defaultGoalsOverride);
+        brokerProps.put(ConfluentConfigs.CONFLUENT_BALANCER_PREFIX + KafkaCruiseControlConfig.ANOMALY_DETECTION_GOALS_CONFIG,
+                anomalyGoalsOverride);
 
         KafkaConfig config = new KafkaConfig(brokerProps);
         KafkaCruiseControlConfig ccConfig = KafkaDataBalancer.generateCruiseControlConfig(config);
@@ -316,6 +324,7 @@ public class KafkaDataBalancerTest {
 
         assertEquals(expectedGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.GOALS_CONFIG));
         assertEquals(testDefaultGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG));
+        assertEquals(testAnomalyGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.ANOMALY_DETECTION_GOALS_CONFIG));
     }
 
     @Test

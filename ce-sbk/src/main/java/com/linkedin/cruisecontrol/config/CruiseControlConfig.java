@@ -6,6 +6,7 @@ package com.linkedin.cruisecontrol.config;
 
 import com.linkedin.cruisecontrol.common.config.AbstractConfig;
 import com.linkedin.cruisecontrol.common.config.ConfigDef;
+
 import java.util.Map;
 
 import static com.linkedin.cruisecontrol.common.config.ConfigDef.Range.atLeast;
