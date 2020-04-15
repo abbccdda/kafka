@@ -1,11 +1,14 @@
 from kafkatest.services.kafka import config_property
 
+import os
 from ducktape.utils.util import wait_until
 
 import sys
 
 S3_BACKEND = "S3"
 GCS_BACKEND = "GCS"
+
+TIER_DATA_LOG_DIR = "/mnt/kafka/kafka-data-logs-1"
 
 def tier_server_props(backend, feature=True, enable=False,
                       metadata_replication_factor=3, metadata_num_partitions=50, hotset_bytes=1, hotset_ms=1,
@@ -15,7 +18,7 @@ def tier_server_props(backend, feature=True, enable=False,
     """Helper for building server_prop_overrides in Kafka tests that enable tiering"""
     props = [
         # tiered storage does not support multiple logdirs
-        [config_property.LOG_DIRS, "/mnt/kafka/kafka-data-logs-1"],
+        [config_property.LOG_DIRS, TIER_DATA_LOG_DIR],
         [config_property.LOG_SEGMENT_BYTES, log_segment_bytes],
         [config_property.LOG_ROLL_TIME_MS, log_roll_time],
         [config_property.LOG_RETENTION_CHECK_INTERVAL_MS, log_retention_check_interval]]
@@ -229,6 +232,20 @@ class TierSupport():
             if tier_size <= 0:
                 return False
 
+        return True
+
+    def tiering_triggered_local_deletion(self, topic, partitions=[0]):
+        log_segment_to_be_searched = "00000000000000000000.log"
+        # tiered storage does not support multiple logdirs
+        data_dir_list = [os.path.join(TIER_DATA_LOG_DIR, "%s-%d" % (topic, partition)) for partition in partitions]
+        for knode in self.kafka.nodes:
+            for logdir in data_dir_list:
+                output = knode.account.ssh_capture("find %s -type f -name '%s' | wc -l" %
+                                                   (logdir, log_segment_to_be_searched), callback=int)
+                for length in output:
+                    if length > 0:
+                        self.logger.debug("Deletion not started for directory: %s" % logdir)
+                        return False
         return True
 
     def add_log_metrics(self, topic, partitions=[0]):

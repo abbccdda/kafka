@@ -188,8 +188,8 @@ class ReplicationTest(EndToEndTest, TierSupport):
             # wait for some records to archive
             wait_until(lambda: self.tiering_started(self.topic, partitions=partitions),
                        timeout_sec=30, backoff_sec=2, err_msg="no segments archived within timeout")
-            # wait for long enough that for hotset retention will delete local segments
-            time.sleep(4*self.TIER_RETENTION_CHECK_INTERVAL/1000)
+            wait_until(lambda: self.tiering_triggered_local_deletion(self.topic, partitions=partitions),
+                       timeout_sec=30, backoff_sec=2, err_msg="no local segments got deleted within timeout")
 
         self.consumer.start()
 
