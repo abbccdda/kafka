@@ -140,7 +140,6 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
     tierTopicPartitions.forEach(tp => verificationConsumer.seekToBeginning(Collections.singletonList(tp)))
     val records = verificationConsumer.poll(config.pollDuration)
     assertEquals(1, records.count)
-    assertTrue(records.iterator().hasNext)
     val record = records.iterator().next()
     val eventOpt: Optional[AbstractTierMetadata]
       = AbstractTierMetadata.deserialize(record.key(), record.value());
