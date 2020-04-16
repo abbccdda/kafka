@@ -728,6 +728,9 @@ object KafkaConfig {
   val AuditLogEnableProp = ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG
   val AuditLogRouterConfigProp = ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG
 
+  /** ********* Cluster Registry Configuration *********/
+  val ClusterRegistryConfigProp = ConfluentConfigs.CLUSTER_REGISTRY_CONFIG;
+
   /** ********* Enable FIPS Mode Configuration ****************/
   val EnableFipsProp = ConfluentConfigs.ENABLE_FIPS_CONFIG
 
@@ -1543,6 +1546,9 @@ object KafkaConfig {
       /** ********* Audit Logs Configuration *********/
       .define(AuditLogEnableProp, BOOLEAN, ConfluentConfigs.AUDIT_LOGGER_ENABLE_DEFAULT, HIGH, AuditLogEnableDoc)
       .define(AuditLogRouterConfigProp, STRING, ConfluentConfigs.AUDIT_EVENT_ROUTER_DEFAULT, LOW, AuditLogRouterConfigDoc)
+
+      /** ********* Cluster Registry Configuration *********/
+      .define(ClusterRegistryConfigProp, STRING, ConfluentConfigs.CLUSTER_REGISTRY_CONFIG_DEFAULT, LOW, ConfluentConfigs.CLUSTER_REGISTRY_CONFIG_DOC)
 
       /*********** Enable FIPS Mode Configuration ****************/
       .define(EnableFipsProp, BOOLEAN, ConfluentConfigs.ENABLE_FIPS_DEFAULT, LOW, ConfluentConfigs.ENABLE_FIPS_DOC)

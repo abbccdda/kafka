@@ -89,6 +89,7 @@ object DynamicBrokerConfig {
     DynamicBackpressure.ReconfigurableConfigs ++
     TierFetcher.reconfigurableConfigs ++
     Set(KafkaConfig.AuditLogRouterConfigProp) ++
+    Set(KafkaConfig.ClusterRegistryConfigProp) ++
     DynamicBalancerConfig.ReconfigurableConfigs ++
     LogManager.ReconfigurableConfigs ++
     ReplicationQuotaManagerConfig.ReconfigurableConfigs

@@ -288,6 +288,10 @@ public class ConfluentConfigs {
     public static final String AUDIT_LOGGER_ENABLE_DEFAULT = "true";
     public static final String AUDIT_LOGGER_ENABLE_DOC = "Whether the event logger is enabled";
 
+    public static final String CLUSTER_REGISTRY_CONFIG = "confluent.metadata.server.cluster.registry.clusters";
+    public static final String CLUSTER_REGISTRY_CONFIG_DEFAULT = "[]";
+    public static final String CLUSTER_REGISTRY_CONFIG_DOC = "JSON defining the clusters in the Cluster Registry.";
+
     public static final String ENABLE_FIPS_CONFIG = "enable.fips";
     public static final String ENABLE_FIPS_DEFAULT = "false";
     public static final String ENABLE_FIPS_DOC = "Enable FIPS mode on the server. If FIPS mode is enabled, " +

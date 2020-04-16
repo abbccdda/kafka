@@ -799,6 +799,9 @@ class KafkaConfigTest {
         case KafkaConfig.AuditLogEnableProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_boolean", "0")
         case KafkaConfig.AuditLogRouterConfigProp =>
 
+        // Cluster Registry
+        case KafkaConfig.ClusterRegistryConfigProp =>
+
         // Password encoder configs
         case KafkaConfig.PasswordEncoderSecretProp =>
         case KafkaConfig.PasswordEncoderOldSecretProp =>
