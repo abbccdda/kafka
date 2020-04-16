@@ -381,7 +381,7 @@ class AclAuthorizer extends Authorizer with Logging {
                                 acls: AclSeqs): Boolean = {
     acls.find { acl =>
       acl.permissionType == permissionType &&
-        (acl.principal() == principal.toString || acl.principal() == AclEntry.WildcardPrincipal.toString) &&
+        (acl.kafkaPrincipal == principal || acl.kafkaPrincipal == AclEntry.WildcardPrincipal) &&
         (operation == acl.operation || acl.operation == AclOperation.ALL) &&
         (acl.host == host || acl.host == AclEntry.WildcardHost)
     }.exists { acl =>
