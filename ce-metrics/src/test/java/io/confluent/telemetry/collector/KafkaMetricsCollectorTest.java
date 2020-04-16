@@ -161,13 +161,11 @@ public class KafkaMetricsCollectorTest {
 
   @Test
   public void testNonMeasurable() {
-    metrics.addMetric(metricName, new Gauge<Double>() {
+    metrics.addMetric(metrics.metricName("float", "group1", tags), (Gauge<Float>) (config, now) -> 99f);
+    metrics.addMetric(metrics.metricName("double", "group1", tags), (Gauge<Double>) (config, now) -> 99d);
+    metrics.addMetric(metrics.metricName("int", "group1", tags), (Gauge<Integer>) (config, now) -> 100);
+    metrics.addMetric(metrics.metricName("long", "group1", tags), (Gauge<Long>) (config, now) -> 100L);
 
-      @Override
-      public Double value(MetricConfig config, long now) {
-        return 99d;
-      }
-    });
     ledger = new KafkaMetricsCollector.StateLedger();
     metrics.addReporter(ledger);
 
@@ -180,14 +178,26 @@ public class KafkaMetricsCollectorTest {
     collector.collect(exporter);
     List<Metric> result = exporter.emittedMetrics();
 
-    assertEquals("Should get exactly 2 Kafka measurables since Metrics always includes a count measurable", 2, result.size());
+    assertEquals("Should get exactly 5 Kafka measurables since Metrics always includes a count measurable", 5, result.size());
 
-    Metric counter = result.stream().filter(metric -> metric.getMetricDescriptor().getName().equals("test-domain/group1/name1")).findFirst().get();
 
-    assertEquals("Resource should match", context.getResource(), counter.getResource());
-    assertEquals("Types should match", Type.GAUGE_DOUBLE, counter.getMetricDescriptor().getType());
-    assertEquals("Labels should match", labels, toMap(counter.getMetricDescriptor(), counter.getTimeseries(0)));
-    assertEquals("Value should match", 99d, counter.getTimeseries(0).getPoints(0).getDoubleValue(), 1e-9);
+    result.stream().filter(metric -> metric.getMetricDescriptor().getName().matches("test-domain/group1/(float|double)")).forEach(
+        doubleGauge -> {
+          assertEquals("Resource should match", context.getResource(), doubleGauge.getResource());
+          assertEquals("Labels should match", labels,
+                       toMap(doubleGauge.getMetricDescriptor(), doubleGauge.getTimeseries(0)));
+          assertEquals("Types should match", Type.GAUGE_DOUBLE, doubleGauge.getMetricDescriptor().getType());
+          assertEquals("Value should match", 99d, doubleGauge.getTimeseries(0).getPoints(0).getDoubleValue(), 1e-9);
+        });
+
+    result.stream().filter(metric -> metric.getMetricDescriptor().getName().matches("test-domain/group1/(int|long)")).forEach(
+        intGauge -> {
+          assertEquals("Resource should match", context.getResource(), intGauge.getResource());
+          assertEquals("Labels should match", labels,
+                       toMap(intGauge.getMetricDescriptor(), intGauge.getTimeseries(0)));
+          assertEquals("Types should match", Type.GAUGE_INT64, intGauge.getMetricDescriptor().getType());
+          assertEquals("Value should match", 100, intGauge.getTimeseries(0).getPoints(0).getInt64Value());
+        });
   }
 
   @Test

@@ -84,10 +84,10 @@ public class KafkaMetricsCollector implements MetricsCollector {
              * 1. Gauge and
              * 2. Measurable
              *
-             * Gauges can have any value but we only collect metrics with double values
+             * Gauges can have any value but we only collect metrics with number values
              * (TODO: How do we want to deal with string values)
              * KafkaExporter -> Opencensus
-             * Gauge (with double values) -> GAUGE_DOUBLE
+             * Gauge (with number values) -> GAUGE_DOUBLE / GAUGE_INT64
              * Gauge (with string) -> UNDEFINED dropped
              *
              * Measurables are divided into simple types with single values (Avg, Count, Min, Max, Rate, SimpleRate, Sum, Total)
@@ -148,10 +148,16 @@ public class KafkaMetricsCollector implements MetricsCollector {
                 }
             } else {
                 // It is non-measurable Gauge metric.
-                // Collect the metric only if its value is a double.
-                if (entry.getValue().metricValue() instanceof Double) {
-                    double value = (Double) entry.getValue().metricValue();
-                    collectMetric(name, labels, Type.GAUGE_DOUBLE, value).ifPresent(exporter::emit);
+                // Collect the metric only if its value is a number.
+                if (entry.getValue().metricValue() instanceof Number) {
+                    Number value = (Number) entry.getValue().metricValue();
+                    if (value instanceof Integer || value instanceof Long) {
+                        // map integer types to GAUGE_INT64
+                        collectMetric(name, labels, Type.GAUGE_INT64, value.longValue()).ifPresent(exporter::emit);
+                    } else {
+                        // map any other number type to GAUGE_DOUBLE
+                        collectMetric(name, labels, Type.GAUGE_DOUBLE, value.doubleValue()).ifPresent(exporter::emit);
+                    }
                 } else {
                     // skip non-measurable metrics
                     log.debug("Skipping non-measurable gauge metric {}", originalMetricName.name());
@@ -179,7 +185,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
                 startTimestamp));
     }
 
-    private Optional<Metric> collectMetric(String metricName, Map<String, String> labels, MetricDescriptor.Type type, Double value) {
+    private Optional<Metric> collectMetric(String metricName, Map<String, String> labels, MetricDescriptor.Type type, double value) {
         if (!metricWhitelistFilter.test(new MetricKey(metricName, labels))) {
             return Optional.empty();
         }
@@ -188,6 +194,17 @@ public class KafkaMetricsCollector implements MetricsCollector {
             Point.newBuilder()
                 .setTimestamp(MetricsUtils.now(clock))
                 .setDoubleValue(value).build()));
+    }
+
+    private Optional<Metric> collectMetric(String metricName, Map<String, String> labels, MetricDescriptor.Type type, long value) {
+        if (!metricWhitelistFilter.test(new MetricKey(metricName, labels))) {
+            return Optional.empty();
+        }
+
+        return Optional.of(context.metricWithSinglePointTimeseries(metricName, type, labels,
+            Point.newBuilder()
+                .setTimestamp(MetricsUtils.now(clock))
+                .setInt64Value(value).build()));
     }
 
     @Override
