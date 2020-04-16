@@ -1,18 +1,15 @@
 /**
  * Copyright (C) 2020 Confluent Inc.
  */
-
 package io.confluent.databalancer;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
-import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType;
-import com.yammer.metrics.Metrics;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
+import com.yammer.metrics.Metrics;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
-import kafka.controller.DataBalancer;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.slf4j.Logger;
@@ -21,19 +18,16 @@ import org.slf4j.LoggerFactory;
 import java.lang.reflect.Method;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Objects;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.ThreadFactory;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import java.util.HashMap;
-import java.util.Map;
 
-public class KafkaDataBalancer implements DataBalancer {
-    private static final Logger LOG = LoggerFactory.getLogger(KafkaDataBalancer.class);
+public class ConfluentDataBalanceEngine implements DataBalanceEngine {
+    private static final Logger LOG = LoggerFactory.getLogger(ConfluentDataBalanceEngine.class);
 
     // A list of classes that need to be checked to make sure that conditions are met for
     // successful startup.
@@ -50,70 +44,81 @@ public class KafkaDataBalancer implements DataBalancer {
     private static final String END_ANCHOR = "$";
     private static final String WILDCARD_SUFFIX = ".*";
 
-    private KafkaConfig kafkaConfig;
+    // ccRunner is used to control all access to the underlying CruiseControl object;
+    // access is serialized through here (in particular for startup/shutdown).
     private ExecutorService ccRunner;
     private KafkaCruiseControl cruiseControl;
     private Semaphore abortStartupCheck  = new Semaphore(0);
 
-    public KafkaDataBalancer(KafkaConfig kafkaConfig) {
-        Objects.requireNonNull(kafkaConfig, "KafkaConfig must not be null");
-        this.kafkaConfig = kafkaConfig;
-
-        ThreadFactory threadFactory = new ThreadFactoryBuilder()
-                .setNameFormat("CruiseControl-StartStop-%d")
-                .build();
-        ccRunner = Executors.newSingleThreadExecutor(threadFactory);
+    public ConfluentDataBalanceEngine() {
+        this(null,
+             Executors.newSingleThreadExecutor(
+                 new ThreadFactoryBuilder()
+                     .setNameFormat("DataBalanceEngine-%d")
+                     .build()));
     }
 
-    /**
-     * Visible for testing. cruiseControl expected to be a mock testing object
-     */
-    KafkaDataBalancer(KafkaConfig kafkaConfig, KafkaCruiseControl cruiseControl) {
-        this(kafkaConfig);
-        this.cruiseControl = cruiseControl;
+    // Visible for testing
+    ConfluentDataBalanceEngine(KafkaCruiseControl cc, ExecutorService executor) {
+        ccRunner = executor;
+        cruiseControl = cc;
     }
 
     @Override
-    public synchronized void startUp()  {
-        LOG.info("DataBalancer: Scheduling Cruise Control Startup");
+    public synchronized void startUp(KafkaConfig kafkaConfig)  {
+        LOG.info("DataBalancer: Scheduling DataBalanceEngine Startup");
         abortStartupCheck.drainPermits();
-        ccRunner.submit(this::startCruiseControl);
+        ccRunner.submit(() -> startCruiseControl(kafkaConfig));
     }
 
     @Override
     public synchronized void shutdown() {
-        LOG.info("DataBalancer: Scheduling Cruise Control Shutdown");
+        LOG.info("DataBalancer: Scheduling DataBalanceEngine Shutdown");
 
         // If startup is in progress, abort it
         abortStartupCheck.release();
 
-        ccRunner.submit(this::stopCruiseControl);
+        ccRunner.submit(this::stopCruiseControl, null);
     }
 
-    private void startCruiseControl() {
+    @Override
+    public void updateThrottle(Long newThrottle) {
+        LOG.info("DataBalancer: Scheduling DataBalanceEngine throttle update");
+        ccRunner.submit(() -> updateThrottleHelper(newThrottle));
+    }
+
+    private void updateThrottleHelper(Long newThrottle) {
         if (cruiseControl != null) {
-            LOG.warn("CruiseControl already running when startUp requested.");
+            LOG.info("Updating balancer throttle to {}", newThrottle);
+            cruiseControl.updateThrottle(newThrottle);
+        }
+    }
+
+    /**
+     * Launch CruiseControl. Expected to run in a thread-safe context such as a SingleThreadExecutor.
+     * This should be appropriately serialized with shutdown requests.
+     *
+     * @param kafkaConfig -- the broker configuration, from which the CruiseControl config will be derived
+     */
+    private void startCruiseControl(KafkaConfig kafkaConfig) {
+        if (cruiseControl != null) {
+            LOG.warn("DataBalanceEngine already running when startUp requested.");
             return;
         }
 
-        if (!kafkaConfig.getBoolean(ConfluentConfigs.BALANCER_ENABLE_CONFIG)) {
-            LOG.info("DataBalancer: Skipping Cruise Control Startup as its not enabled.");
-            return;
-        }
-
-        LOG.info("DataBalancer: Instantiating Cruise Control");
+        LOG.info("DataBalancer: Instantiating DataBalanceEngine");
         try {
             KafkaCruiseControlConfig config = generateCruiseControlConfig(kafkaConfig);
             checkStartupComponentsReady(config);
             KafkaCruiseControl cruiseControl = new KafkaCruiseControl(config, Metrics.defaultRegistry());
             cruiseControl.startUp();
             this.cruiseControl = cruiseControl;
-            LOG.info("DataBalancer: Cruise Control started");
+            LOG.info("DataBalancer: DataBalanceEngine started");
         } catch (StartupCheckInterruptedException e) {
-            LOG.warn("CruiseControl startup aborted by shutdown.", e);
+            LOG.warn("DataBalanceEngine startup aborted by shutdown.", e);
             this.cruiseControl = null;
         } catch (Exception e) {
-            LOG.warn("Unable to start up CruiseControl", e);
+            LOG.warn("Unable to start up DataBalanceEngine", e);
             this.cruiseControl = null;
         }
     }
@@ -132,39 +137,23 @@ public class KafkaDataBalancer implements DataBalancer {
         }
     }
 
+    /**
+     * Shutdown the running CruiseControl services. Expected to run in a thread-safe context such as a SingleThread
+     * Executor. (In particular avoid conflict with startup requests.)
+     */
     // Visible for testing
     void stopCruiseControl() {
         if (cruiseControl != null) {
-            LOG.info("DataBalancer: Starting Cruise Control Shutdown");
+            LOG.info("DataBalancer: Starting DataBalanceEngine Shutdown");
             try {
                 cruiseControl.shutdown();
             } finally {
                 cruiseControl = null;
-                LOG.info("DataBalancer: Cruise Control shutdown completed.");
+                LOG.info("DataBalancer: DataBalanceEngine shutdown completed.");
             }
         }
     }
 
-    /**
-     * Updates the internal cruiseControl configuration based on dynamic property updates in the broker's KafkaConfig
-     */
-    @Override
-    public synchronized void updateConfig(KafkaConfig newConfig) {
-        if (cruiseControl == null) {
-            // cruise control isn't currently running, updated config values will be loaded in once cruise control starts.
-            // at this point the singleton kafkaConfig object has already been updated, if cruise control starts at any point
-            // after updateConfig has been called, it will read from the updated kafkaConfig
-            kafkaConfig = newConfig;
-            return;
-        }
-        if (kafkaConfig.getBoolean(ConfluentConfigs.BALANCER_ENABLE_CONFIG) != newConfig.getBoolean(ConfluentConfigs.BALANCER_ENABLE_CONFIG)) {
-            cruiseControl.setSelfHealingFor(AnomalyType.GOAL_VIOLATION, newConfig.getBoolean(ConfluentConfigs.BALANCER_ENABLE_CONFIG));
-        }
-        if (kafkaConfig.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG) != newConfig.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG)) {
-            cruiseControl.updateThrottle(newConfig.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG));
-        }
-        kafkaConfig = newConfig;
-    }
 
     /**
      * The function forms a regex expression by performing OR operation on the topic names and topic prefixes
@@ -197,7 +186,7 @@ public class KafkaDataBalancer implements DataBalancer {
         // Special overrides: zookeeper.connect, etc.
         ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG, config.get(KafkaConfig.ZkConnectProp()));
 
-        // CNKAF-528: Derive bootstrap.servers from the provided KafkaConfig, instead of requiring
+        // Derive bootstrap.servers from the provided KafkaConfig, instead of requiring
         // users to specify it.
         String bootstrapServers = config.listeners().toStream()
                 .find(ep -> ep.listenerName().equals(config.interBrokerListenerName()))
@@ -207,7 +196,8 @@ public class KafkaDataBalancer implements DataBalancer {
         if (!bootstrapServers.equals("")) {
             ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         }
-        LOG.debug("DataBalancer: BOOTSTRAP_SERVERS determined to be {}", ccConfigProps.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG));
+        LOG.info("DataBalancer: BOOTSTRAP_SERVERS determined to be {}", ccConfigProps.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG));
+
 
         // Some CruiseControl properties can be interpreted from existing properties,
         // but those properties aren't defined in KafkaConfig because they're in external modules,
@@ -231,10 +221,10 @@ public class KafkaDataBalancer implements DataBalancer {
                     metricsReporterReplFactor);
         }
 
-
         ccConfigProps.put(KafkaCruiseControlConfig.TOPICS_EXCLUDED_FROM_PARTITION_MOVEMENT_CONFIG,
-                KafkaDataBalancer.generateCcTopicExclusionRegex(config));
+                generateCcTopicExclusionRegex(config));
 
         return new KafkaCruiseControlConfig(ccConfigProps);
     }
+
 }

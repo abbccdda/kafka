@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2020 Confluent Inc.
+ * Copyright (C) 2020 Confluent, Inc.
  */
 
 package io.confluent.databalancer;
@@ -18,13 +18,11 @@ import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.TopicReplicaDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
-import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
 import io.confluent.cruisecontrol.analyzer.goals.CrossRackMovementGoal;
 import io.confluent.cruisecontrol.analyzer.goals.SequentialReplicaMovementGoal;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
-import kafka.controller.DataBalancer;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
 import kafka.utils.TestUtils$;
@@ -43,7 +41,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.Assert.assertEquals;
@@ -51,20 +54,32 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.internal.verification.VerificationModeFactory.times;
 
-public class KafkaDataBalancerTest {
+public class ConfluentDataBalanceEngineTest  {
     private Properties brokerProps;
     private KafkaConfig initConfig;
     private KafkaConfig updatedConfig;
 
-    private DataBalancer dataBalancer;
 
     @Mock
     private KafkaCruiseControl mockCruiseControl;
+
+    // Kind of a mock to replace the SingleThreadExecutorService with something that just runs in the current
+    // thread, guaranteeing completion. (Only usable with the CruiseControl mock, above.)
+    private static ExecutorService currentThreadExecutorService() {
+        ThreadPoolExecutor.CallerRunsPolicy callerRunsPolicy = new ThreadPoolExecutor.CallerRunsPolicy();
+        return new ThreadPoolExecutor(0, 1, 0L, TimeUnit.SECONDS, new SynchronousQueue<Runnable>(), callerRunsPolicy) {
+            @Override
+            public void execute(Runnable command) {
+                callerRunsPolicy.rejectedExecution(command, this);
+            }
+        };
+    }
 
     @Before
     public void setUp() {
@@ -72,57 +87,19 @@ public class KafkaDataBalancerTest {
         brokerProps.put(KafkaConfig$.MODULE$.ZkConnectProp(), TestUtils$.MODULE$.MockZkConnect());
         brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, true);
         brokerProps.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, 200L);
-        //brokerProps.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+
         initConfig = new KafkaConfig(brokerProps);
         MockitoAnnotations.initMocks(this);
     }
 
-    @Test
-    public void testUpdateConfigBalancerEnable() {
-        brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, false);
-        updatedConfig = new KafkaConfig(brokerProps);
-        dataBalancer = new KafkaDataBalancer(initConfig, mockCruiseControl);
-
-        dataBalancer.updateConfig(updatedConfig);
-        verify(mockCruiseControl).setSelfHealingFor(AnomalyType.GOAL_VIOLATION, false);
-        
-        dataBalancer.updateConfig(initConfig);
-        verify(mockCruiseControl).setSelfHealingFor(AnomalyType.GOAL_VIOLATION, true);
-
-        dataBalancer.updateConfig(initConfig);
-        verifyNoMoreInteractions(mockCruiseControl);
+    private ConfluentDataBalanceEngine getTestDataBalanceEngine() {
+        return new ConfluentDataBalanceEngine(mockCruiseControl, currentThreadExecutorService());
     }
 
-    @Test
-    public void testUpdateConfigBalancerThrottle() {
-        brokerProps.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, 100L);
-        updatedConfig = new KafkaConfig(brokerProps);
-        dataBalancer = new KafkaDataBalancer(initConfig, mockCruiseControl);
-
-        dataBalancer.updateConfig(updatedConfig);
-        verify(mockCruiseControl).updateThrottle(100L);
-
-        dataBalancer.updateConfig(initConfig);
-        verify(mockCruiseControl).updateThrottle(200L);
-
-        dataBalancer.updateConfig(initConfig);
-        verifyNoMoreInteractions(mockCruiseControl);
-    }
-
-    @Test
-    public void testUpdateConfigNoPropsUpdated() {
-        updatedConfig = new KafkaConfig(brokerProps);
-        dataBalancer = new KafkaDataBalancer(initConfig, mockCruiseControl);
-
-        // expect nothing to be updated
-        dataBalancer.updateConfig(updatedConfig);
-        verifyNoInteractions(mockCruiseControl);
-    }
-    
     @Test
     public void testGenerateRegexNoTopicsOrPrefixes() {
         // test without TOPIC_PREFIXES or TOPIC_NAMES set
-        String regex = KafkaDataBalancer.generateCcTopicExclusionRegex(initConfig);
+        String regex = ConfluentDataBalanceEngine.generateCcTopicExclusionRegex(initConfig);
         assertEquals("Unexpected regex generated", "", regex);
     }
 
@@ -133,7 +110,7 @@ public class KafkaDataBalancerTest {
         brokerProps.put(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG, topicName);
 
         KafkaConfig config = new KafkaConfig(brokerProps);
-        String regex = KafkaDataBalancer.generateCcTopicExclusionRegex(config);
+        String regex = ConfluentDataBalanceEngine.generateCcTopicExclusionRegex(config);
 
         assertEquals("Unexpected regex generated", "^\\Qtopic1\\E$", regex);
         assertTrue("Expected exact topic name to match", topicName.matches(regex));
@@ -149,7 +126,7 @@ public class KafkaDataBalancerTest {
         brokerProps.put(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, topicPrefix);
 
         KafkaConfig config = new KafkaConfig(brokerProps);
-        String regex = KafkaDataBalancer.generateCcTopicExclusionRegex(config);
+        String regex = ConfluentDataBalanceEngine.generateCcTopicExclusionRegex(config);
 
         assertEquals("Unexpected regex generated", "^\\Qprefix1\\E.*", regex);
         assertTrue("Expected exact topic prefix to match", topicPrefix.matches(regex));
@@ -165,7 +142,7 @@ public class KafkaDataBalancerTest {
         brokerProps.put(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, topicPrefixes);
 
         KafkaConfig config = new KafkaConfig(brokerProps);
-        String regex = KafkaDataBalancer.generateCcTopicExclusionRegex(config);
+        String regex = ConfluentDataBalanceEngine.generateCcTopicExclusionRegex(config);
 
         // topic names/prefixes are wrapped in \\Q \\E as a result of Pattern.quote to ignore metacharacters present in the topic
         assertEquals("Unexpected regex generated", "^\\Qtopic1\\E$|^\\Qtop.c2\\E$|^\\Qtest-topic\\E$|" +
@@ -210,7 +187,6 @@ public class KafkaDataBalancerTest {
         // Not a valid ZK connect URL but to validate what gets copied over.
         brokerProps.put(KafkaConfig.ZkConnectProp(), sampleZkString);
 
-
         // Add required properties to test
         String nwInCapacity = ConfluentConfigs.CONFLUENT_BALANCER_PREFIX +
                 KafkaCruiseControlConfig.NETWORK_INBOUND_CAPACITY_THRESHOLD_CONFIG;
@@ -226,7 +202,7 @@ public class KafkaDataBalancerTest {
         // We expect only one listener in a bare-bones config.
         assertTrue(config.listeners().length() == 1);
         String expectedBootstrapServers = config.listeners().head().connectionString();
-        KafkaCruiseControlConfig ccConfig = KafkaDataBalancer.generateCruiseControlConfig(config);
+        KafkaCruiseControlConfig ccConfig = ConfluentDataBalanceEngine.generateCruiseControlConfig(config);
 
         assertTrue(ccConfig.getList(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG).contains(expectedBootstrapServers));
         assertEquals(sampleZkString, ccConfig.getString(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG));
@@ -269,7 +245,7 @@ public class KafkaDataBalancerTest {
                         TopicReplicaDistributionGoal.class.getName(),
                         LeaderReplicaDistributionGoal.class.getName(),
                         LeaderBytesInDistributionGoal.class.getName()
-        ));
+                ));
 
         // Test a limited subset of default goals.
         List<String> testDefaultGoalsConfig = new ArrayList<>(
@@ -278,7 +254,7 @@ public class KafkaDataBalancerTest {
                         ReplicaCapacityGoal.class.getName(),
                         ReplicaDistributionGoal.class.getName(),
                         DiskCapacityGoal.class.getName()
-        ));
+                ));
 
         // Anomaly Goals must be a subset of self-healing goals (or default goals if no self-healing goals set).
         // Commit ta that requirement.
@@ -288,7 +264,6 @@ public class KafkaDataBalancerTest {
                         ReplicaDistributionGoal.class.getName(),
                         DiskCapacityGoal.class.getName()
                 ));
-
 
         // Set Default Goals to this
         String defaultGoalsOverride = String.join(",", testDefaultGoalsConfig);
@@ -315,7 +290,7 @@ public class KafkaDataBalancerTest {
                 anomalyGoalsOverride);
 
         KafkaConfig config = new KafkaConfig(brokerProps);
-        KafkaCruiseControlConfig ccConfig = KafkaDataBalancer.generateCruiseControlConfig(config);
+        KafkaCruiseControlConfig ccConfig = ConfluentDataBalanceEngine.generateCruiseControlConfig(config);
         // Not all properties go into the KafkaCruiseControlConfig. Extract everything for validation.
         Map<String, Object> ccOriginals = ccConfig.originals();
 
@@ -324,8 +299,8 @@ public class KafkaDataBalancerTest {
 
         assertEquals(expectedGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.GOALS_CONFIG));
         assertEquals(testDefaultGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG));
-        assertEquals(testAnomalyGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.ANOMALY_DETECTION_GOALS_CONFIG));
     }
+
 
     @Test
     public void testGenerateCruiseControlExclusionConfig() {
@@ -342,8 +317,10 @@ public class KafkaDataBalancerTest {
         brokerProps.put(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG, topicNames);
         brokerProps.put(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, topicPrefixes);
 
+
         KafkaConfig config = new KafkaConfig(brokerProps);
-        KafkaCruiseControlConfig ccConfig = KafkaDataBalancer.generateCruiseControlConfig(config);
+        KafkaCruiseControlConfig ccConfig = ConfluentDataBalanceEngine.generateCruiseControlConfig(config);
+
 
         // Validate that the CruiseControl regex behaves as we would expect
         String configRegex = ccConfig.getString(KafkaCruiseControlConfig.TOPICS_EXCLUDED_FROM_PARTITION_MOVEMENT_CONFIG);
@@ -364,37 +341,37 @@ public class KafkaDataBalancerTest {
 
     @Test
     public void testStartupComponentsReadySuccessful() throws Exception {
-        List<String> startupComponents = KafkaDataBalancer.STARTUP_COMPONENTS;
+        List<String> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
         try {
-            KafkaDataBalancer.STARTUP_COMPONENTS.clear();
-            KafkaDataBalancer.STARTUP_COMPONENTS.add(MockDatabalancerStartupComponent.class.getName());
+            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
+            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.add(ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.class.getName());
 
             KafkaConfig config = mock(KafkaConfig.class);
             KafkaCruiseControlConfig ccConfig = mock(KafkaCruiseControlConfig.class);
 
-            KafkaDataBalancer dataBalancer = new KafkaDataBalancer(config);
-            dataBalancer.checkStartupComponentsReady(ccConfig);
-            assertTrue(MockDatabalancerStartupComponent.checkupMethodCalled);
+            ConfluentDataBalanceEngine cc = getTestDataBalanceEngine();
+            cc.checkStartupComponentsReady(ccConfig);
+            assertTrue(ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.checkupMethodCalled);
         } finally {
             // Restore components
-            KafkaDataBalancer.STARTUP_COMPONENTS.clear();
-            KafkaDataBalancer.STARTUP_COMPONENTS.addAll(startupComponents);
-            MockDatabalancerStartupComponent.checkupMethodCalled = false;
+            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
+            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.addAll(startupComponents);
+            ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.checkupMethodCalled = false;
         }
     }
 
     @Test
     public void testStartupComponentsReadyAbort() throws Exception {
-        List<String> startupComponents = KafkaDataBalancer.STARTUP_COMPONENTS;
+        List<String> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
         try {
-            KafkaDataBalancer.STARTUP_COMPONENTS.clear();
-            KafkaDataBalancer.STARTUP_COMPONENTS.add(MockDatabalancerStartupComponent.class.getName());
+            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
+            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.add(ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.class.getName());
 
             KafkaConfig config = mock(KafkaConfig.class);
             KafkaCruiseControlConfig ccConfig = mock(KafkaCruiseControlConfig.class);
 
-            MockDatabalancerStartupComponent.block = true;
-            KafkaDataBalancer dataBalancer = new KafkaDataBalancer(config);
+            ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.block = true;
+            ConfluentDataBalanceEngine dataBalancer = getTestDataBalanceEngine();
 
             AtomicBoolean abortCalled = new AtomicBoolean(false);
             Thread testThread = new Thread(() -> {
@@ -411,37 +388,20 @@ public class KafkaDataBalancerTest {
             testThread.start();
 
             // Wait until checkStartupCondition method is called.
-            MockDatabalancerStartupComponent.TEST_SYNC_SEMAPHORE.acquire();
+            ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.TEST_SYNC_SEMAPHORE.acquire();
             // This should unblock MockDatabalancerStartupComponent
             dataBalancer.shutdown();
             testThread.join();
 
-            assertTrue(MockDatabalancerStartupComponent.checkupMethodCalled);
+            assertTrue(ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.checkupMethodCalled);
             assertTrue(abortCalled.get());
         } finally {
             // Restore components
-            KafkaDataBalancer.STARTUP_COMPONENTS.clear();
-            KafkaDataBalancer.STARTUP_COMPONENTS.addAll(startupComponents);
-            MockDatabalancerStartupComponent.checkupMethodCalled = false;
-            MockDatabalancerStartupComponent.block = false;
+            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
+            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.addAll(startupComponents);
+            ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.checkupMethodCalled = false;
+            ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.block = false;
         }
-    }
-
-    @Test
-    public void testStopCruiseControlNotInitialized() {
-        KafkaConfig config = mock(KafkaConfig.class);
-        KafkaDataBalancer dataBalancer = new KafkaDataBalancer(config);
-        dataBalancer.stopCruiseControl(); // should be a no-op
-    }
-
-    @Test
-    public void testStopCruiseControl() {
-        KafkaConfig config = mock(KafkaConfig.class);
-        KafkaCruiseControl cc = mock(KafkaCruiseControl.class);
-
-        KafkaDataBalancer dataBalancer = new KafkaDataBalancer(config, cc);
-        dataBalancer.stopCruiseControl();
-        verify(cc).shutdown();  // Shutdown should have been called
     }
 
     private static class MockDatabalancerStartupComponent {
@@ -462,4 +422,52 @@ public class KafkaDataBalancerTest {
             }
         }
     }
+
+    @Test
+    public void testStopCruiseControlNotInitialized() {
+        // Don't use the regular getTestDataBalanceEngine as that has a defined CruiseControl, which we don't want.
+        ConfluentDataBalanceEngine dbe = new ConfluentDataBalanceEngine(null, currentThreadExecutorService());
+        dbe.stopCruiseControl(); // should be a no-op
+        verify(mockCruiseControl, never()).shutdown();
+    }
+
+    @Test
+    public void testStopCruiseControlAfterShutdownd() {
+        ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        dbe.stopCruiseControl(); // This shuts down the mock
+        verify(mockCruiseControl, times(1)).shutdown();
+        dbe.stopCruiseControl();
+        // Shutdown should not be called again
+        verify(mockCruiseControl, times(1)).shutdown();
+    }
+
+    @Test
+    public void testStopCruiseControl() {
+        ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        dbe.stopCruiseControl();
+        verify(mockCruiseControl).shutdown();  // Shutdown should have been called
+    }
+
+    @Test
+    public void testShutdown() throws  InterruptedException, ExecutionException {
+        ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        dbe.shutdown();
+        verify(mockCruiseControl).shutdown();  // Shutdown should have been called
+    }
+
+    @Test
+    public void testUpdateThrottleWhileRunning() throws  InterruptedException, ExecutionException {
+        ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        dbe.updateThrottle(100L);
+        verify(mockCruiseControl).updateThrottle(100L);
+    }
+
+    @Test
+    public void testUpdateThrottleWhileStopped() throws  InterruptedException, ExecutionException {
+        ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        dbe.stopCruiseControl();
+        dbe.updateThrottle(100L);
+        verify(mockCruiseControl, never()).updateThrottle(anyLong());
+    }
 }
+

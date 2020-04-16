@@ -31,7 +31,7 @@ import javax.management.ObjectName
 import com.yammer.metrics.core.MetricName
 import kafka.admin.ConfigCommand
 import kafka.api.{KafkaSasl, SaslSetup}
-import kafka.controller.{ControllerBrokerStateInfo, ControllerChannelManager, DataBalancer}
+import kafka.controller.{ControllerBrokerStateInfo, ControllerChannelManager, DataBalanceManager}
 import kafka.log.LogConfig
 import kafka.message.ProducerCompressionCodec
 import kafka.metrics.KafkaYammerMetrics
@@ -1884,7 +1884,7 @@ class TestMetricsReporter extends MetricsReporter with Reconfigurable with Close
   }
 }
 
-class TestDataBalancer extends DataBalancer {
+class TestDataBalancer extends DataBalanceManager {
 
   var selfHealingConfig = true;
   var throttleConfig: Long = 0;

@@ -18,7 +18,7 @@ import org.slf4j.{Logger, LoggerFactory}
  * be long-lived (lifetime of the broker) even as the node gains and loses responsibility
  * for doing data balancing -- analogous to (and co-located with) the controller.
  */
-trait DataBalancer {
+trait DataBalanceManager {
   def startUp(): Unit
 
   def shutdown(): Unit
@@ -26,15 +26,15 @@ trait DataBalancer {
   def updateConfig(newConfig: KafkaConfig): Unit
 }
 
-object DataBalancer {
-  private val log: Logger = LoggerFactory.getLogger(classOf[DataBalancer])
-  def apply(kafkaConfig: KafkaConfig): Option[DataBalancer] = {
+object DataBalanceManager {
+  private val log: Logger = LoggerFactory.getLogger(classOf[DataBalanceManager])
+  def apply(kafkaConfig: KafkaConfig): Option[DataBalanceManager] = {
     val dataBalancerClassName = Option(kafkaConfig.getString(ConfluentConfigs.BALANCER_CLASS_CONFIG))
       .filter(!_.isEmpty).getOrElse((ConfluentConfigs.BALANCER_CLASS_DEFAULT));
     log.info(s"DataBalancer: attempting startup with ${dataBalancerClassName}")
     try {
       Some(Class.forName(dataBalancerClassName)
-        .getConstructor(classOf[KafkaConfig]).newInstance(kafkaConfig).asInstanceOf[DataBalancer])
+        .getConstructor(classOf[KafkaConfig]).newInstance(kafkaConfig).asInstanceOf[DataBalanceManager])
     } catch {
       case e: ClassNotFoundException => {
         log.warn(s"Unable to load data balancer class $dataBalancerClassName")

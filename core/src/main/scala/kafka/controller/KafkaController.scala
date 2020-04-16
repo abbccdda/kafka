@@ -111,7 +111,7 @@ class KafkaController(val config: KafkaConfig,
   private val isrChangeNotificationHandler = new IsrChangeNotificationHandler(eventManager)
   private val logDirEventNotificationHandler = new LogDirEventNotificationHandler(eventManager)
   // Visible for testing
-  var dataBalancer = DataBalancer(config)
+  var dataBalancer = DataBalanceManager(config)
 
   @volatile private var activeControllerId = -1
   @volatile private var offlinePartitionCount = 0

@@ -184,7 +184,7 @@ public class ConfluentConfigs {
     // The class loaded to provide DataBalancer services. Configurable for testing purposes.
     public static final String BALANCER_CLASS_CONFIG = CONFLUENT_BALANCER_PREFIX + "class";
     public static final String BALANCER_CLASS_DOC = "The class providing DataBalancer services for the Kafka controller.";
-    public static final String BALANCER_CLASS_DEFAULT = "io.confluent.databalancer.KafkaDataBalancer";
+    public static final String BALANCER_CLASS_DEFAULT = "io.confluent.databalancer.KafkaDataBalanceManager";
 
     public static final String BALANCER_ENABLE_BASE_CONFIG = "enable";
     public static final String BALANCER_ENABLE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_ENABLE_BASE_CONFIG;
