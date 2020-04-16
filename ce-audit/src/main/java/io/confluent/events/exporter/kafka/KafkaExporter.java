@@ -32,8 +32,8 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -58,6 +58,7 @@ public class KafkaExporter implements Exporter {
   private static final long TOPIC_PARTITION_TIMEOUT_MS = 1_000L;
 
   private KafkaProducer<String, byte[]> producer;
+  private volatile boolean isClosing = false;
 
   private boolean createTopic;
   private Properties producerProperties;
@@ -154,7 +155,7 @@ public class KafkaExporter implements Exporter {
       }
 
       // producer may already be closed if we are shutting down
-      if (!Thread.currentThread().isInterrupted()) {
+      if (!Thread.currentThread().isInterrupted() && !this.isClosing) {
         log.trace("Generated event log message : {}", event);
         this.producer.send(
             marshal(event, builder, topicName, null),
@@ -174,8 +175,12 @@ public class KafkaExporter implements Exporter {
               }
             }
         );
-
+      } else {
+        log.warn(
+            "Failed to produce event log message because audit logger is closing. Message: {}",
+            CloudEventUtils.toJsonString(event));
       }
+
     } catch (InterruptException e) {
       // broker is shutting shutdown, interrupt flag is taken care of by InterruptException constructor
     } catch (Throwable t) {
@@ -237,12 +242,13 @@ public class KafkaExporter implements Exporter {
 
   @Override
   public void close() throws Exception {
+    isClosing = true;
+    if (this.metadataRefresh != null) {
+      this.metadataRefresh.shutdown();
+    }
     if (this.producer != null) {
       this.producer.flush();
       this.producer.close(Duration.ofMillis(0));
-    }
-    if (this.metadataRefresh != null) {
-      this.metadataRefresh.shutdown();
     }
   }
 

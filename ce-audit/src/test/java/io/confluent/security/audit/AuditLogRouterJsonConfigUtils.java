@@ -79,6 +79,18 @@ public class AuditLogRouterJsonConfigUtils {
             Utils.mkEntry(AuditLogCategoryResultRouter.DESCRIBE_CATEGORY,
                 Utils.mkMap(Utils.mkEntry("allowed", AuditLogRouter.SUPPRESSED),
                     Utils.mkEntry("denied", defaultTopicDenied)))));
+    // don't produce/consume log on audit log topics
+    config.routes.put("crn://" + crnAuthority + "/kafka=*/topic=" + AuditLogRouterJsonConfig.TOPIC_PREFIX + "*",
+        Utils.mkMap(Utils.mkEntry(AuditLogCategoryResultRouter.PRODUCE_CATEGORY,
+            Utils.mkMap(Utils.mkEntry("allowed", AuditLogRouter.SUPPRESSED),
+                Utils.mkEntry("denied", AuditLogRouter.SUPPRESSED))),
+            Utils.mkEntry(AuditLogCategoryResultRouter.CONSUME_CATEGORY,
+                Utils.mkMap(Utils.mkEntry("allowed", AuditLogRouter.SUPPRESSED),
+                    Utils.mkEntry("denied", AuditLogRouter.SUPPRESSED))),
+            Utils.mkEntry(AuditLogCategoryResultRouter.DESCRIBE_CATEGORY,
+                Utils.mkMap(Utils.mkEntry("allowed", AuditLogRouter.SUPPRESSED),
+                    Utils.mkEntry("denied", AuditLogRouter.SUPPRESSED)))));
+    // don't produce/consume on internal topics
     config.routes.put("crn://" + crnAuthority + "/kafka=*/topic=_*",
         Utils.mkMap(Utils.mkEntry(AuditLogCategoryResultRouter.PRODUCE_CATEGORY,
             Utils.mkMap(Utils.mkEntry("allowed", AuditLogRouter.SUPPRESSED),

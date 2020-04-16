@@ -3,7 +3,9 @@
  */
 package io.confluent.security.audit.provider;
 
+import static io.confluent.events.EventLoggerConfig.KAFKA_EXPORTER_PREFIX;
 import static io.confluent.security.audit.router.AuditLogRouterJsonConfig.TOPIC_PREFIX;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_PREFIX;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -32,6 +34,7 @@ import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.config.ConfigResource.Type;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
@@ -87,6 +90,15 @@ public class SameClusterTest extends ClusterTestCommon {
         .users(BROKER_USER, otherUsers)
         // simplify debugging to only have audit log topics on one of the clusters
         .overrideMetadataBrokerConfig(ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG, "false")
+        // Because the broker is already shut down by the test by the time the audit log producer's
+        // close gets called, the flush in that close waits until the delivery timeout. Make that
+        // not take 120 seconds...
+        .overrideBrokerConfig(
+            AUDIT_PREFIX + KAFKA_EXPORTER_PREFIX + ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG,
+            "9000")
+        .overrideBrokerConfig(
+            AUDIT_PREFIX + KAFKA_EXPORTER_PREFIX + ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG,
+            "10000")
         .withLdapGroups();
   }
 
@@ -209,105 +221,14 @@ public class SameClusterTest extends ClusterTestCommon {
     assertEquals(newConfigJson, configEntry.value());
   }
 
-  private ConfigEntry auditEventRouterConfig(AdminClient adminClient, ConfigResource cluster) throws Exception {
+  private ConfigEntry auditEventRouterConfig(AdminClient adminClient, ConfigResource cluster)
+      throws Exception {
     Map<ConfigResource, Config> describedConfigs = adminClient
         .describeConfigs(Collections.singleton(cluster)).all().get();
     Config clusterConfig = describedConfigs.get(cluster);
     assertNotNull("Cluster config is null", clusterConfig);
     return clusterConfig.get(ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG);
   }
-
-  @Test
-  public void testSuperuser() throws Throwable {
-    rbacClusters = new RbacClusters(rbacConfig);
-
-    initializeClusters();
-    TestUtils.waitForCondition(() -> auditLoggerReady(), "auditLoggerReady");
-
-    consumer("event-log");
-
-    rbacClusters.clientBuilder(BROKER_USER).buildAdminClient()
-        .createTopics(Collections.singleton(new NewTopic(APP3_TOPIC, 1, (short) 1)));
-
-    String app3TopicCrn = ConfluentResourceName.newBuilder()
-        .addElement("kafka", rbacClusters.kafkaClusterId())
-        .addElement("topic", APP3_TOPIC)
-        .build()
-        .toString();
-
-    assertTrue(eventsMatchUnordered(consumer, 30000,
-        e -> match(e, "User:" + BROKER_USER, app3TopicCrn, "kafka.CreateTopics",
-            AuthorizeResult.ALLOWED, AuthorizePolicy.PolicyType.SUPER_USER)
-    ));
-  }
-
-  @Test
-  public void testFirstMessage() throws Throwable {
-    // Because of max.block.ms = 0, it's possible that the producer won't have
-    // the metadata it needs to write on the first try, and will send the first
-    // message to the fallback log. We don't want that.
-
-    rbacConfig.overrideBrokerConfig(ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG, APP3_ROUTER_CONFIG);
-
-    rbacClusters = new RbacClusters(rbacConfig);
-
-    initializeClusters();
-    TestUtils.waitForCondition(() -> auditLoggerReady(), "auditLoggerReady");
-
-    consumer("event-log", TOPIC_PREFIX + "-app3");
-
-    rbacClusters.clientBuilder(BROKER_USER).buildAdminClient()
-        .createTopics(Collections.singleton(new NewTopic(APP3_TOPIC, 1, (short) 1)));
-
-    String app3TopicCrn = ConfluentResourceName.newBuilder()
-        .addElement("kafka", rbacClusters.kafkaClusterId())
-        .addElement("topic", APP3_TOPIC)
-        .build()
-        .toString();
-
-    rbacClusters.produceConsume(BROKER_USER, APP3_TOPIC, APP1_CONSUMER_GROUP, true);
-
-    assertTrue(eventsMatchUnordered(consumer, 30000,
-        e -> match(e, "User:" + BROKER_USER, app3TopicCrn, "kafka.Produce",
-            AuthorizeResult.ALLOWED, AuthorizePolicy.PolicyType.SUPER_USER)
-    ));
-  }
-
-  @Test
-  public void testSecondMessage() throws Throwable {
-    // If this succeeds and testFirstMessage does not, there's a problem with the
-    // code in KafkaExporter.ensureTopics
-
-    rbacConfig.overrideBrokerConfig(ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG, APP3_ROUTER_CONFIG);
-
-    rbacClusters = new RbacClusters(rbacConfig);
-
-    initializeClusters();
-    TestUtils.waitForCondition(() -> auditLoggerReady(), "auditLoggerReady");
-
-    consumer("event-log", TOPIC_PREFIX + "-app3");
-
-    rbacClusters.clientBuilder(BROKER_USER).buildAdminClient()
-        .createTopics(Collections.singleton(new NewTopic(APP3_TOPIC, 1, (short) 1)));
-
-    String app3TopicCrn = ConfluentResourceName.newBuilder()
-        .addElement("kafka", rbacClusters.kafkaClusterId())
-        .addElement("topic", APP3_TOPIC)
-        .build()
-        .toString();
-
-    // first message causes the producer to get the partitions
-    rbacClusters.produceConsume(BROKER_USER, APP3_TOPIC, APP1_CONSUMER_GROUP, true);
-    Thread.sleep(1000);
-    // second message actually makes it through
-    rbacClusters.produceConsume(BROKER_USER, APP3_TOPIC, APP1_CONSUMER_GROUP, true);
-
-    assertTrue(eventsMatchUnordered(consumer, 30000,
-        e -> match(e, "User:" + BROKER_USER, app3TopicCrn, "kafka.Produce",
-            AuthorizeResult.ALLOWED, AuthorizePolicy.PolicyType.SUPER_USER)
-    ));
-  }
-
 
   @Test
   public void testProduceConsume() throws Throwable {
@@ -357,6 +278,13 @@ public class SameClusterTest extends ClusterTestCommon {
     rbacClusters.clientBuilder(BROKER_USER).buildAdminClient()
         .createTopics(Collections.singleton(new NewTopic(APP3_TOPIC, 1, (short) 3)));
 
+    String app3TopicCrn = ConfluentResourceName.newBuilder()
+        .setAuthority(AUTHORITY_NAME)
+        .addElement("kafka", rbacClusters.kafkaClusterId())
+        .addElement("topic", APP3_TOPIC)
+        .build()
+        .toString();
+
     String clusterCrn = ConfluentResourceName.newBuilder()
         .setAuthority(AUTHORITY_NAME)
         .addElement("kafka", rbacClusters.kafkaClusterId())
@@ -364,6 +292,8 @@ public class SameClusterTest extends ClusterTestCommon {
         .toString();
 
     assertTrue(eventsMatchUnordered(consumer, 30000,
+        e -> match(e, "User:" + BROKER_USER, app3TopicCrn, "kafka.CreateTopics",
+            AuthorizeResult.ALLOWED, PolicyType.SUPER_USER),
         e -> match(e, "User:" + BROKER_USER, clusterCrn, "kafka.LeaderAndIsr",
             AuthorizeResult.ALLOWED, PolicyType.SUPER_USER),
         e -> match(e, "User:" + BROKER_USER, clusterCrn, "kafka.FetchFollower",
