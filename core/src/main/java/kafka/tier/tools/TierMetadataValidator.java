@@ -139,7 +139,8 @@ public class TierMetadataValidator implements AutoCloseable {
                 .ofType(Boolean.class)
                 .defaultsTo(true);
 
-        TierCloudBackendUtils.augmentParserWithS3BackendOpts(parser);
+        TierCloudBackendUtils.augmentParserWithValidatorOpts(parser);
+        TierCloudBackendUtils.augmentParserWithTierBackendOpts(parser);
 
         OptionSet options = parser.parse(args);
 
@@ -157,7 +158,8 @@ public class TierMetadataValidator implements AutoCloseable {
         props.put(TierTopicMaterializationToolConfig.DUMP_EVENTS, options.valueOf(dumpEventsSpec));
         props.put(TierTopicMaterializationToolConfig.SNAPSHOT_STATES_FILES, options.valueOf(snapshotStatesSpec));
 
-        TierCloudBackendUtils.addS3BackendProps(options, props);
+        TierCloudBackendUtils.addValidatorProps(options, props);
+        TierCloudBackendUtils.addTierBackendProps(options, props);
 
         System.out.println("Starting Validation with following args " + props);
     }
