@@ -202,7 +202,7 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
     // We expect all throttles to be cleaned up
     throttleHelper.clearThrottles(Collections.singletonList(task), Collections.emptyList());
 
-    Arrays.asList(0, 1, 2, 3).forEach((i) -> assertExpectedThrottledRateForBroker(kafkaZkClient, i, null));
+    Arrays.asList(0, 1, 2, 3).forEach(i -> assertExpectedThrottledRateForBroker(kafkaZkClient, i, null));
     assertExpectedThrottledReplicas(kafkaZkClient, TOPIC0, null);
   }
 
@@ -250,7 +250,7 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
     // We expect all throttles to be cleaned up
     throttleHelper.clearThrottles(Collections.singletonList(task), Collections.emptyList());
 
-    Arrays.asList(0, 1, 2, 3).forEach((i) -> assertExpectedThrottledRateForBroker(kafkaZkClient, i, null));
+    Arrays.asList(0, 1, 2, 3).forEach(i -> assertExpectedThrottledRateForBroker(kafkaZkClient, i, null));
     assertExpectedThrottledReplicas(kafkaZkClient, TOPIC0, null);
   }
 
@@ -302,7 +302,7 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
     // We expect all throttles to be cleaned up
     throttleHelper.clearThrottles(Collections.singletonList(task), Collections.emptyList());
 
-    Arrays.asList(0, 1, 2, 3).forEach((i) -> assertExpectedThrottledRateForBroker(kafkaZkClient, i, null));
+    Arrays.asList(0, 1, 2, 3).forEach(i -> assertExpectedThrottledRateForBroker(kafkaZkClient, i, null));
     assertExpectedThrottledReplicas(kafkaZkClient, TOPIC0, null);
   }
 

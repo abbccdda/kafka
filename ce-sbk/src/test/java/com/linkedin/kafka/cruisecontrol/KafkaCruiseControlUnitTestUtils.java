@@ -70,7 +70,7 @@ public class KafkaCruiseControlUnitTestUtils {
                                          Map<String, List<ConfigEntry>> entries)
       throws InterruptedException, ExecutionException {
     DescribeConfigsResult mockDescribeConfigsResult = EasyMock.mock(DescribeConfigsResult.class);
-    KafkaFuture mockKafkaFuture = EasyMock.mock(KafkaFuture.class);
+    KafkaFuture<Map<ConfigResource, Config>> mockKafkaFuture = EasyMock.mock(KafkaFuture.class);
 
     Map<ConfigResource, Config> returnConfig = new HashMap<>();
     for (Map.Entry<String, List<ConfigEntry>> entry : entries.entrySet()) {
