@@ -17,6 +17,7 @@
 package org.apache.kafka.clients.admin;
 
 import org.apache.kafka.clients.admin.DescribeReplicaLogDirsResult.ReplicaLogDirInfo;
+import org.apache.kafka.common.Confluent;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.Metric;
 import org.apache.kafka.common.MetricName;
@@ -40,18 +41,19 @@ import org.apache.kafka.common.internals.KafkaFutureImpl;
 import org.apache.kafka.common.requests.DescribeLogDirsResponse;
 import org.apache.kafka.common.quota.ClientQuotaAlteration;
 import org.apache.kafka.common.quota.ClientQuotaFilter;
+import org.apache.kafka.common.requests.NewClusterLink;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-public class MockAdminClient extends AdminClient {
+public class MockAdminClient extends AdminClient implements ConfluentAdmin {
     public static final String DEFAULT_CLUSTER_ID = "I4ZmrWqfT2e-upky_4fdPA";
 
     public static final List<String> DEFAULT_LOG_DIRS =
@@ -750,6 +752,48 @@ public class MockAdminClient extends AdminClient {
 
     @Override
     public AlterClientQuotasResult alterClientQuotas(Collection<ClientQuotaAlteration> entries, AlterClientQuotasOptions options) {
+        throw new UnsupportedOperationException("Not implement yet");
+    }
+
+    @Confluent
+    @Override
+    public ReplicaStatusResult replicaStatus(Set<TopicPartition> partitions, ReplicaStatusOptions options) {
+        throw new UnsupportedOperationException("Not implement yet");
+    }
+
+    @Confluent
+    @Override
+    public CreateAclsResult createCentralizedAcls(Collection<AclBinding> acls, CreateAclsOptions options, String clusterId, int writerBrokerId) {
+        throw new UnsupportedOperationException("Not implement yet");
+    }
+
+    @Confluent
+    @Override
+    public DeleteAclsResult deleteCentralizedAcls(Collection<AclBindingFilter> filters, DeleteAclsOptions options, String clusterId, int writerBrokerId) {
+        throw new UnsupportedOperationException("Not implement yet");
+    }
+
+    @Confluent
+    @Override
+    public DrainBrokersResult drainBrokers(List<Integer> brokersToDrain, DrainBrokersOptions options) {
+        throw new UnsupportedOperationException("Not implement yet");
+    }
+
+    @Confluent
+    @Override
+    public CreateClusterLinksResult createClusterLinks(Collection<NewClusterLink> clusterLinks, CreateClusterLinksOptions options) {
+        throw new UnsupportedOperationException("Not implement yet");
+    }
+
+    @Confluent
+    @Override
+    public ListClusterLinksResult listClusterLinks(ListClusterLinksOptions options) {
+        throw new UnsupportedOperationException("Not implement yet");
+    }
+
+    @Confluent
+    @Override
+    public DeleteClusterLinksResult deleteClusterLinks(Collection<String> linkNames, DeleteClusterLinksOptions options) {
         throw new UnsupportedOperationException("Not implement yet");
     }
 

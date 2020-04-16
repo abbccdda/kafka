@@ -1,0 +1,28 @@
+//
+// Copyright 2020 Confluent Inc.
+//
+
+{
+  "apiKey": 10003,
+  "type": "response",
+  "name": "ListClusterLinksResponse",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    { "name": "ThrottleTimeMs", "type": "int32", "versions": "0+",
+      "about": "The duration in milliseconds for which the request was throttled due to a quota violation, or zero if the request did not violate any quota." },
+    { "name": "ErrorCode", "type": "int16", "versions": "0+",
+      "about": "The error code, or `0` if the link listing succeeded." },
+    { "name": "ErrorMessage", "type": "string", "versions": "0+", "nullableVersions": "0+",
+      "about": "The error message, or `null` if the link listing succeeded." },
+    { "name": "Entries", "type": "[]EntryData", "versions": "0+", "nullableVersions": "0+",
+      "about": "The cluster link listing results.", "fields": [
+      { "name": "LinkName", "type": "string", "versions": "0+",
+        "about": "The name assigned to the cluster link." },
+      { "name": "LinkId", "type": "uuid", "versions": "0+",
+        "about": "The ID associated with the cluster link." },
+      { "name": "ClusterId", "type": "string", "versions": "0+", "nullableVersions": "0+",
+        "about": "The required cluster ID for the cluster, or null if ignored." }
+    ]}
+  ]
+}

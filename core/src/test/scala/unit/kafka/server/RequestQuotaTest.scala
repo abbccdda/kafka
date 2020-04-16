@@ -562,6 +562,15 @@ class RequestQuotaTest extends BaseRequestTest {
             Set(new BrokerId()).asJava
           )
 
+        case ApiKeys.CREATE_CLUSTER_LINKS =>
+          new CreateClusterLinksRequest.Builder(List.empty.asJava, false, false, 1000);
+
+        case ApiKeys.LIST_CLUSTER_LINKS =>
+          new ListClusterLinksRequest.Builder();
+
+        case ApiKeys.DELETE_CLUSTER_LINKS =>
+          new DeleteClusterLinksRequest.Builder(List.empty.asJava, false, false);
+
         case _ =>
           maybeBuildInternalRequest(apiKey)
     }

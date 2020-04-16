@@ -254,6 +254,12 @@ public abstract class AbstractRequest implements AbstractRequestResponse {
         switch (apiKey) {
             case REPLICA_STATUS:
                 return new ReplicaStatusRequest(struct, apiVersion);
+            case CREATE_CLUSTER_LINKS:
+                return new CreateClusterLinksRequest(struct, apiVersion);
+            case LIST_CLUSTER_LINKS:
+                return new ListClusterLinksRequest(struct, apiVersion);
+            case DELETE_CLUSTER_LINKS:
+                return new DeleteClusterLinksRequest(struct, apiVersion);
             case TIER_LIST_OFFSET:
                 return new TierListOffsetRequest(struct, apiVersion);
             case CONFLUENT_LEADER_AND_ISR:

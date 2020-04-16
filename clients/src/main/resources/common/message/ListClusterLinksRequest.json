@@ -1,0 +1,14 @@
+//
+// Copyright 2020 Confluent Inc.
+//
+
+{
+  "apiKey": 10003,
+  "type": "request",
+  "name": "ListClusterLinksRequest",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    // Empty.
+  ]
+}

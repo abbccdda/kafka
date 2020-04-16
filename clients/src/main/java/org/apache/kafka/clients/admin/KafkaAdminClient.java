@@ -153,8 +153,11 @@ import org.apache.kafka.common.requests.AlterPartitionReassignmentsResponse;
 import org.apache.kafka.common.requests.AlterReplicaLogDirsRequest;
 import org.apache.kafka.common.requests.AlterReplicaLogDirsResponse;
 import org.apache.kafka.common.requests.ApiError;
+import org.apache.kafka.common.requests.ClusterLinkListing;
 import org.apache.kafka.common.requests.CreateAclsRequest;
 import org.apache.kafka.common.requests.CreateAclsResponse;
+import org.apache.kafka.common.requests.CreateClusterLinksRequest;
+import org.apache.kafka.common.requests.CreateClusterLinksResponse;
 import org.apache.kafka.common.requests.CreateDelegationTokenRequest;
 import org.apache.kafka.common.requests.CreateDelegationTokenResponse;
 import org.apache.kafka.common.requests.CreatePartitionsRequest;
@@ -163,6 +166,8 @@ import org.apache.kafka.common.requests.CreateTopicsRequest;
 import org.apache.kafka.common.requests.CreateTopicsResponse;
 import org.apache.kafka.common.requests.DeleteAclsRequest;
 import org.apache.kafka.common.requests.DeleteAclsResponse;
+import org.apache.kafka.common.requests.DeleteClusterLinksRequest;
+import org.apache.kafka.common.requests.DeleteClusterLinksResponse;
 import org.apache.kafka.common.requests.DeleteGroupsRequest;
 import org.apache.kafka.common.requests.DeleteGroupsResponse;
 import org.apache.kafka.common.requests.DeleteRecordsRequest;
@@ -193,6 +198,8 @@ import org.apache.kafka.common.requests.IncrementalAlterConfigsResponse;
 import org.apache.kafka.common.requests.JoinGroupRequest;
 import org.apache.kafka.common.requests.LeaveGroupRequest;
 import org.apache.kafka.common.requests.LeaveGroupResponse;
+import org.apache.kafka.common.requests.ListClusterLinksRequest;
+import org.apache.kafka.common.requests.ListClusterLinksResponse;
 import org.apache.kafka.common.requests.ListGroupsRequest;
 import org.apache.kafka.common.requests.ListGroupsResponse;
 import org.apache.kafka.common.requests.ListOffsetRequest;
@@ -202,6 +209,7 @@ import org.apache.kafka.common.requests.ListPartitionReassignmentsRequest;
 import org.apache.kafka.common.requests.ListPartitionReassignmentsResponse;
 import org.apache.kafka.common.requests.MetadataRequest;
 import org.apache.kafka.common.requests.MetadataResponse;
+import org.apache.kafka.common.requests.NewClusterLink;
 import org.apache.kafka.common.requests.OffsetCommitRequest;
 import org.apache.kafka.common.requests.OffsetCommitResponse;
 import org.apache.kafka.common.requests.OffsetDeleteRequest;
@@ -4216,6 +4224,108 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
         runnable.call(call, now);
 
         return new DrainBrokersResult(new HashMap<>(drainBrokerFutures));
+    }
+
+    @Confluent
+    @Override
+    public CreateClusterLinksResult createClusterLinks(Collection<NewClusterLink> clusterLinks, CreateClusterLinksOptions options) {
+        Map<String, KafkaFutureImpl<Void>> results = new HashMap<>(clusterLinks.size());
+        for (NewClusterLink clusterLink : clusterLinks) {
+            results.put(clusterLink.linkName(), new KafkaFutureImpl<>());
+        }
+
+        final long now = time.milliseconds();
+        runnable.call(new Call("createClusterLinks", calcDeadlineMs(now, options.timeoutMs()),
+                               new ControllerNodeProvider()) {
+
+                @Override
+                CreateClusterLinksRequest.Builder createRequest(int timeoutMs) {
+                    return new CreateClusterLinksRequest.Builder(clusterLinks, options.validateOnly(), options.validateLink(), timeoutMs);
+                }
+
+                @Override
+                void handleResponse(AbstractResponse abstractResponse) {
+                    CreateClusterLinksResponse response = (CreateClusterLinksResponse) abstractResponse;
+                    if (response.errorCounts().getOrDefault(Errors.NOT_CONTROLLER, 0) > 0) {
+                      handleNotControllerError(Errors.NOT_CONTROLLER);
+                    }
+                    response.complete(results);
+                }
+
+                @Override
+                void handleFailure(Throwable throwable) {
+                    completeAllExceptionally(results.values(), throwable);
+                }
+            }, now);
+
+        return new CreateClusterLinksResult(Collections.unmodifiableMap(results));
+    }
+
+    @Confluent
+    @Override
+    public ListClusterLinksResult listClusterLinks(ListClusterLinksOptions options) {
+        KafkaFutureImpl<Collection<ClusterLinkListing>> result = new KafkaFutureImpl<>();
+
+        final long now = time.milliseconds();
+        runnable.call(new Call("listClusterLinks", calcDeadlineMs(now, options.timeoutMs()),
+                               new ControllerNodeProvider()) {
+
+                @Override
+                ListClusterLinksRequest.Builder createRequest(int timeoutMs) {
+                    return new ListClusterLinksRequest.Builder();
+                }
+
+                @Override
+                void handleResponse(AbstractResponse abstractResponse) {
+                    ListClusterLinksResponse response = (ListClusterLinksResponse) abstractResponse;
+                    if (response.errorCounts().getOrDefault(Errors.NOT_CONTROLLER, 0) > 0) {
+                        handleNotControllerError(Errors.NOT_CONTROLLER);
+                    }
+                    response.complete(result);
+                }
+
+                @Override
+                void handleFailure(Throwable throwable) {
+                    result.completeExceptionally(throwable);
+                }
+            }, now);
+
+        return new ListClusterLinksResult(result);
+    }
+
+    @Confluent
+    @Override
+    public DeleteClusterLinksResult deleteClusterLinks(Collection<String> linkNames, DeleteClusterLinksOptions options) {
+        Map<String, KafkaFutureImpl<Void>> results = new HashMap<>(linkNames.size());
+        for (String linkName : linkNames) {
+            results.put(linkName, new KafkaFutureImpl<>());
+        }
+
+        final long now = time.milliseconds();
+        runnable.call(new Call("deleteClusterLinks", calcDeadlineMs(now, options.timeoutMs()),
+                new ControllerNodeProvider()) {
+
+                @Override
+                DeleteClusterLinksRequest.Builder createRequest(int timeoutMs) {
+                    return new DeleteClusterLinksRequest.Builder(linkNames, options.validateOnly(), options.force());
+                }
+
+                @Override
+                void handleResponse(AbstractResponse abstractResponse) {
+                    DeleteClusterLinksResponse response = (DeleteClusterLinksResponse) abstractResponse;
+                    if (response.errorCounts().getOrDefault(Errors.NOT_CONTROLLER, 0) > 0) {
+                      handleNotControllerError(Errors.NOT_CONTROLLER);
+                    }
+                    response.complete(results);
+                }
+
+                @Override
+                void handleFailure(Throwable throwable) {
+                    completeAllExceptionally(results.values(), throwable);
+                }
+            }, now);
+
+        return new DeleteClusterLinksResult(Collections.unmodifiableMap(results));
     }
 
     /**

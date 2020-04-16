@@ -20,8 +20,10 @@ import org.apache.kafka.common.InvalidRecordException;
 import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.errors.BrokerNotAvailableException;
 import org.apache.kafka.common.errors.ClusterAuthorizationException;
+import org.apache.kafka.common.errors.ClusterLinkExistsException;
+import org.apache.kafka.common.errors.ClusterLinkInUseException;
+import org.apache.kafka.common.errors.ClusterLinkNotFoundException;
 import org.apache.kafka.common.errors.ConcurrentTransactionsException;
-import org.apache.kafka.common.errors.GroupSubscribedToTopicException;
 import org.apache.kafka.common.errors.ControllerMovedException;
 import org.apache.kafka.common.errors.CoordinatorLoadInProgressException;
 import org.apache.kafka.common.errors.CoordinatorNotAvailableException;
@@ -32,13 +34,16 @@ import org.apache.kafka.common.errors.DelegationTokenDisabledException;
 import org.apache.kafka.common.errors.DelegationTokenExpiredException;
 import org.apache.kafka.common.errors.DelegationTokenNotFoundException;
 import org.apache.kafka.common.errors.DelegationTokenOwnerMismatchException;
+import org.apache.kafka.common.errors.ElectionNotNeededException;
+import org.apache.kafka.common.errors.EligibleLeadersNotAvailableException;
 import org.apache.kafka.common.errors.FencedLeaderEpochException;
-import org.apache.kafka.common.errors.ListenerNotFoundException;
+import org.apache.kafka.common.errors.FencedInstanceIdException;
 import org.apache.kafka.common.errors.FetchSessionIdNotFoundException;
 import org.apache.kafka.common.errors.GroupAuthorizationException;
 import org.apache.kafka.common.errors.GroupIdNotFoundException;
 import org.apache.kafka.common.errors.GroupMaxSizeReachedException;
 import org.apache.kafka.common.errors.GroupNotEmptyException;
+import org.apache.kafka.common.errors.GroupSubscribedToTopicException;
 import org.apache.kafka.common.errors.IllegalGenerationException;
 import org.apache.kafka.common.errors.IllegalSaslStateException;
 import org.apache.kafka.common.errors.InconsistentGroupProtocolException;
@@ -61,11 +66,9 @@ import org.apache.kafka.common.errors.InvalidTxnStateException;
 import org.apache.kafka.common.errors.InvalidTxnTimeoutException;
 import org.apache.kafka.common.errors.KafkaStorageException;
 import org.apache.kafka.common.errors.LeaderNotAvailableException;
+import org.apache.kafka.common.errors.ListenerNotFoundException;
 import org.apache.kafka.common.errors.LogDirNotFoundException;
-import org.apache.kafka.common.errors.FencedInstanceIdException;
 import org.apache.kafka.common.errors.MemberIdRequiredException;
-import org.apache.kafka.common.errors.ElectionNotNeededException;
-import org.apache.kafka.common.errors.EligibleLeadersNotAvailableException;
 import org.apache.kafka.common.errors.NetworkException;
 import org.apache.kafka.common.errors.NoReassignmentInProgressException;
 import org.apache.kafka.common.errors.NotControllerException;
@@ -327,7 +330,16 @@ public enum Errors {
     GROUP_SUBSCRIBED_TO_TOPIC(86, "Deleting offsets of a topic is forbidden while the consumer group is actively subscribed to it.",
         GroupSubscribedToTopicException::new),
     INVALID_RECORD(87, "This record has failed the validation on broker and hence be rejected.", InvalidRecordException::new),
-    UNSTABLE_OFFSET_COMMIT(88, "There are unstable offsets that need to be cleared.", UnstableOffsetCommitException::new);
+    UNSTABLE_OFFSET_COMMIT(88, "There are unstable offsets that need to be cleared.", UnstableOffsetCommitException::new),
+
+    /* ----- Begin Confluent errors: error codes must be incremented sequentially starting at 10000 ----- */
+
+    CLUSTER_LINK_NOT_FOUND(10000, "The specified cluster link was not found.",
+            ClusterLinkNotFoundException::new),
+    CLUSTER_LINK_EXISTS(10001, "A cluster link with the specified link name already exists.",
+            ClusterLinkExistsException::new),
+    CLUSTER_LINK_IN_USE(10002, "The specified cluster link is still in use.",
+            ClusterLinkInUseException::new);
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);
 

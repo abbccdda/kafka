@@ -1,0 +1,24 @@
+//
+// Copyright 2020 Confluent Inc.
+//
+
+{
+  "apiKey": 10004,
+  "type": "response",
+  "name": "DeleteClusterLinksResponse",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    { "name": "ThrottleTimeMs", "type": "int32", "versions": "0+",
+      "about": "The duration in milliseconds for which the request was throttled due to a quota violation, or zero if the request did not violate any quota." },
+    { "name": "Entries", "type": "[]EntryData", "versions": "0+",
+      "about": "The cluster link deletion results.", "fields": [
+      { "name": "ErrorCode", "type": "int16", "versions": "0+",
+        "about": "The error code, or `0` if the link deletion succeeded." },
+      { "name": "ErrorMessage", "type": "string", "versions": "0+", "nullableVersions": "0+",
+        "about": "The error message, or `null` if the link deletion succeeded." },
+      { "name": "LinkName", "type": "string", "versions": "0+",
+        "about": "The name that was assigned to the cluster link." }
+    ]}
+  ]
+}

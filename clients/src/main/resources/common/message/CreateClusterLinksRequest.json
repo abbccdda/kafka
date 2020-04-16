@@ -1,0 +1,33 @@
+//
+// Copyright 2020 Confluent Inc.
+//
+
+{
+  "apiKey": 10002,
+  "type": "request",
+  "name": "CreateClusterLinksRequest",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    { "name": "Entries", "type": "[]EntryData", "versions": "0+",
+      "about": "The cluster link entries to create.", "fields": [
+      { "name": "LinkName", "type": "string", "versions": "0+",
+        "about": "The name assigned to the cluster link." },
+      { "name": "ClusterId", "type": "string", "versions": "0+", "nullableVersions": "0+", "default": "null",
+        "about": "The ID of the cluster link, or null if it should not be validated." },
+      { "name": "Configs", "type": "[]ConfigData", "versions": "0+",
+        "about": "The initial configuration values.", "fields": [
+        { "name": "Key", "type": "string", "versions": "0+",
+          "about": "The configuration key." },
+        { "name": "Value", "type": "string", "versions": "0+",
+          "about": "The configuration value." }
+      ]}
+    ]},
+    { "name": "ValidateOnly", "type": "bool", "versions": "0+",
+      "about": "Whether to validate that the cluster links can be created, but not actually create them." },
+    { "name": "ValidateLink", "type": "bool", "versions": "0+",
+      "about": "Whether to validate the links to the clusters before creation." },
+    { "name": "TimeoutMs", "type": "int32", "versions": "0+",
+      "about": "The time, in milliseconds, to allow for request completion." }
+  ]
+}

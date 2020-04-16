@@ -193,6 +193,9 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.ALTER_CLIENT_QUOTAS => handleAlterClientQuotasRequest(request)
         case ApiKeys.REPLICA_STATUS => handleReplicaStatusRequest(request)
         case ApiKeys.START_REBALANCE => handleStartRebalanceRequest(request)
+        case ApiKeys.CREATE_CLUSTER_LINKS => handleCreateClusterLinksRequest(request)
+        case ApiKeys.LIST_CLUSTER_LINKS => handleListClusterLinksRequest(request)
+        case ApiKeys.DELETE_CLUSTER_LINKS => handleDeleteClusterLinksRequest(request)
         case _ if request.header.apiKey.isInternal => handleInternalRequest(request)
       }
     } catch {
@@ -3061,6 +3064,56 @@ class KafkaApis(val requestChannel: RequestChannel,
     } else {
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         alterClientQuotasRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
+    }
+  }
+
+  def handleCreateClusterLinksRequest(request: RequestChannel.Request): Unit = {
+    val createClusterLinksRequest = request.body[CreateClusterLinksRequest]
+
+    if (!controller.isActive) {
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        createClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.NOT_CONTROLLER.exception))
+
+    } else if (!authorize(request, CREATE, CLUSTER, CLUSTER_NAME)) {
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        createClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
+
+    } else {
+      // Pending implementation.
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        createClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.UNSUPPORTED_VERSION.exception))
+    }
+  }
+
+  def handleListClusterLinksRequest(request: RequestChannel.Request): Unit = {
+    val listClusterLinksRequest = request.body[ListClusterLinksRequest]
+
+    if (!authorize(request, DESCRIBE_CONFIGS, CLUSTER, CLUSTER_NAME)) {
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        listClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
+
+    } else {
+      // Pending implementation.
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        listClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.UNSUPPORTED_VERSION.exception))
+    }
+  }
+
+  def handleDeleteClusterLinksRequest(request: RequestChannel.Request): Unit = {
+    val deleteClusterLinksRequest = request.body[DeleteClusterLinksRequest]
+
+    if (!controller.isActive) {
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        deleteClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.NOT_CONTROLLER.exception))
+
+    } else if (!authorize(request, DELETE, CLUSTER, CLUSTER_NAME)) {
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        deleteClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
+
+    } else {
+      // Pending implementation.
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        deleteClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.UNSUPPORTED_VERSION.exception))
     }
   }
 

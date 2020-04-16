@@ -119,6 +119,9 @@ public class MultiTenantApis {
       case DESCRIBE_CLIENT_QUOTAS:
       case ALTER_CLIENT_QUOTAS:
       case START_REBALANCE:
+      case CREATE_CLUSTER_LINKS:
+      case LIST_CLUSTER_LINKS:
+      case DELETE_CLUSTER_LINKS:
         return false;
 
       default:

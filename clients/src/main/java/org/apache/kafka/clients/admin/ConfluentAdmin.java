@@ -4,13 +4,14 @@
 package org.apache.kafka.clients.admin;
 
 import java.util.Collection;
-import org.apache.kafka.common.TopicPartition;
-
 import java.util.List;
 import java.util.Set;
+
+import org.apache.kafka.common.Confluent;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
-import org.apache.kafka.common.Confluent;
+import org.apache.kafka.common.requests.NewClusterLink;
 
 /**
  * This interface contains admin client methods that:
@@ -128,4 +129,72 @@ public interface ConfluentAdmin extends Admin {
      */
     @Confluent
     DrainBrokersResult drainBrokers(List<Integer> brokersToDrain, DrainBrokersOptions options);
+
+    /**
+     * Creates links to remote clusters with the specified configurations for performing inter-cluster
+     * communications. Once established, the cluster links can referenced by their link names for issuing
+     * requests.
+     * <o>
+     * The following exceptions can be anticipated when calling {@code get()} on the futures obtained from
+     * the returned {@code createClusterLinksResult}:
+     * <ul>
+     *   <li>{@link org.apache.kafka.common.errors.InvalidClusterLinkException}
+     *   If the cluster link name is illegal.</li>
+     *   <li>{@link org.apache.kafka.common.errors.ClusterAuthorizationException}
+     *   If the authenticated user didn't have {@code CREATE} access to the cluster.</li>
+     *   <li>{@link org.apache.kafka.common.errors.ClusterLinkExistsException}
+     *   If a cluster link already exists for the provided link name.</li>
+     *   <li>{@link org.apache.kafka.common.errors.TimeoutException}
+     *   If the request timed out before the controller could create the cluster link.</li>
+     * </ul>
+     *
+     * @param clusterLinks The cluster links to create.
+     * @param options The options to use when creating the cluster links.
+     * @return The CreateClusterLinksResult.
+     */
+    @Confluent
+    CreateClusterLinksResult createClusterLinks(Collection<NewClusterLink> clusterLinks, CreateClusterLinksOptions options);
+
+    /**
+     * Lists the cluster links.
+     * <p>
+     * The following exceptions can be anticipated when calling {@code get()} on the futures obtained from
+     * the returned {@code listClusterLinksResult}:
+     * <ul>
+     *   <li>{@link org.apache.kafka.common.errors.ClusterAuthorizationException}
+     *   If the authenticated user didn't have {@code DESCRIBE_CONFIGS} access to the cluster.</li>
+     *   <li>{@link org.apache.kafka.common.errors.TimeoutException}
+     *   If the request timed out before the controller could list the cluster links.</li>
+     * </ul>
+     *
+     * @param options The options to use when listing the cluster links.
+     * @return The ListClusterLinksResult.
+     */
+    @Confluent
+    ListClusterLinksResult listClusterLinks(ListClusterLinksOptions options);
+
+    /**
+     * Deletes established links to remote clusters with the provided link names.
+     * <p>
+     * Deleting a cluster link does not affect the cluster link's data in any way.
+     * <p>
+     * The following exceptions can be anticipated when calling {@code get()} on the futures obtained from
+     * the returned {@code deleteClusterLinksResult}:
+     * <ul>
+     *   <li>{@link org.apache.kafka.common.errors.InvalidClusterLinkException}
+     *   If the cluster link name is illegal.</li>
+     *   <li>{@link org.apache.kafka.common.errors.ClusterAuthorizationException}
+     *   If the authenticated user didn't have {@code DELETE} access to the cluster.</li>
+     *   <li>{@link org.apache.kafka.common.errors.ClusterLinkNotFoundException}
+     *   If the cluster link to delete doesn't exist.</li>
+     *   <li>{@link org.apache.kafka.common.errors.TimeoutException}
+     *   If the request timed out before the controller could delete the cluster link.</li>
+     * </ul>
+     *
+     * @param linkNames The names of the cluster links to delete.
+     * @param options The options to use when deleting the cluster links.
+     * @return The DeleteClusterLinksResult.
+     */
+    @Confluent
+    DeleteClusterLinksResult deleteClusterLinks(Collection<String> linkNames, DeleteClusterLinksOptions options);
 }

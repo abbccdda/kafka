@@ -1,0 +1,19 @@
+//
+// Copyright 2020 Confluent Inc.
+//
+
+{
+  "apiKey": 10004,
+  "type": "request",
+  "name": "DeleteClusterLinksRequest",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    { "name": "LinkNames", "type": "[]string", "versions": "0+",
+      "about": "The names of the cluster links to delete." },
+    { "name": "ValidateOnly", "type": "bool", "versions": "0+",
+      "about": "Whether to validate that the cluster links can be created, but not actually create them." },
+    { "name": "Force", "type": "bool", "versions": "0+",
+      "about": "Whether to force deletion of the cluster link even if it's in use." }
+  ]
+}

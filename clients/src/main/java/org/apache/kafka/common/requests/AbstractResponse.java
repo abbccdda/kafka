@@ -170,12 +170,6 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
                 return new ElectLeadersResponse(struct, version);
             case INCREMENTAL_ALTER_CONFIGS:
                 return new IncrementalAlterConfigsResponse(struct, version);
-            case REPLICA_STATUS:
-                return new ReplicaStatusResponse(struct, version);
-            case TIER_LIST_OFFSET:
-                return new TierListOffsetResponse(struct, version);
-            case CONFLUENT_LEADER_AND_ISR:
-                return new LeaderAndIsrResponse(struct, version, true);
             case ALTER_PARTITION_REASSIGNMENTS:
                 return new AlterPartitionReassignmentsResponse(struct, version);
             case LIST_PARTITION_REASSIGNMENTS:
@@ -188,6 +182,25 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
                 return new AlterClientQuotasResponse(struct, version);
             case START_REBALANCE:
                 return new StartRebalanceResponse(struct, version);
+            default:
+                return maybeParseInternalResponse(apiKey, struct, version);
+        }
+    }
+
+    public static AbstractResponse maybeParseInternalResponse(ApiKeys apiKey, Struct struct, short version) {
+        switch (apiKey) {
+            case REPLICA_STATUS:
+                return new ReplicaStatusResponse(struct, version);
+            case CREATE_CLUSTER_LINKS:
+                return new CreateClusterLinksResponse(struct, version);
+            case LIST_CLUSTER_LINKS:
+                return new ListClusterLinksResponse(struct, version);
+            case DELETE_CLUSTER_LINKS:
+                return new DeleteClusterLinksResponse(struct, version);
+            case TIER_LIST_OFFSET:
+                return new TierListOffsetResponse(struct, version);
+            case CONFLUENT_LEADER_AND_ISR:
+                return new LeaderAndIsrResponse(struct, version, true);
             default:
                 throw new AssertionError(String.format("ApiKey %s is not currently handled in `parseResponse`, the " +
                         "code should be updated to do so.", apiKey));

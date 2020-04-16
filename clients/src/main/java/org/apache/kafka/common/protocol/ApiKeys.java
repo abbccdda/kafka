@@ -29,6 +29,8 @@ import org.apache.kafka.common.message.ControlledShutdownRequestData;
 import org.apache.kafka.common.message.ControlledShutdownResponseData;
 import org.apache.kafka.common.message.CreateAclsRequestData;
 import org.apache.kafka.common.message.CreateAclsResponseData;
+import org.apache.kafka.common.message.CreateClusterLinksRequestData;
+import org.apache.kafka.common.message.CreateClusterLinksResponseData;
 import org.apache.kafka.common.message.CreateDelegationTokenRequestData;
 import org.apache.kafka.common.message.CreateDelegationTokenResponseData;
 import org.apache.kafka.common.message.CreatePartitionsRequestData;
@@ -37,6 +39,8 @@ import org.apache.kafka.common.message.CreateTopicsRequestData;
 import org.apache.kafka.common.message.CreateTopicsResponseData;
 import org.apache.kafka.common.message.DeleteAclsRequestData;
 import org.apache.kafka.common.message.DeleteAclsResponseData;
+import org.apache.kafka.common.message.DeleteClusterLinksRequestData;
+import org.apache.kafka.common.message.DeleteClusterLinksResponseData;
 import org.apache.kafka.common.message.DeleteGroupsRequestData;
 import org.apache.kafka.common.message.DeleteGroupsResponseData;
 import org.apache.kafka.common.message.DeleteRecordsRequestData;
@@ -73,6 +77,8 @@ import org.apache.kafka.common.message.LeaderAndIsrRequestData;
 import org.apache.kafka.common.message.LeaderAndIsrResponseData;
 import org.apache.kafka.common.message.LeaveGroupRequestData;
 import org.apache.kafka.common.message.LeaveGroupResponseData;
+import org.apache.kafka.common.message.ListClusterLinksRequestData;
+import org.apache.kafka.common.message.ListClusterLinksResponseData;
 import org.apache.kafka.common.message.ListGroupsRequestData;
 import org.apache.kafka.common.message.ListGroupsResponseData;
 import org.apache.kafka.common.message.ListPartitionReassignmentsRequestData;
@@ -231,6 +237,9 @@ public enum ApiKeys {
 
     REPLICA_STATUS(10000, "ReplicaStatus", ReplicaStatusRequestData.SCHEMAS, ReplicaStatusResponseData.SCHEMAS),
     START_REBALANCE(10001, "StartRebalance", StartRebalanceRequestData.SCHEMAS, StartRebalanceResponseData.SCHEMAS),
+    CREATE_CLUSTER_LINKS(10002, "CreateClusterLinks", CreateClusterLinksRequestData.SCHEMAS, CreateClusterLinksResponseData.SCHEMAS),
+    LIST_CLUSTER_LINKS(10003, "ListClusterLinks", ListClusterLinksRequestData.SCHEMAS, ListClusterLinksResponseData.SCHEMAS),
+    DELETE_CLUSTER_LINKS(10004, "DeleteClusterLinks", DeleteClusterLinksRequestData.SCHEMAS, DeleteClusterLinksResponseData.SCHEMAS),
 
     // The following APIs are deprecated and will be removed in a future release
     CONFLUENT_LEADER_AND_ISR(32766, "ConfluentLeaderAndIsr", true, ConfluentLeaderAndIsrRequestData.SCHEMAS,

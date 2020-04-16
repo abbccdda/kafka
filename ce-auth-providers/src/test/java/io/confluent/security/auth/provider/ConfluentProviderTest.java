@@ -45,10 +45,16 @@ import java.util.Set;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.CreateAclsOptions;
 import org.apache.kafka.clients.admin.CreateAclsResult;
+import org.apache.kafka.clients.admin.CreateClusterLinksOptions;
+import org.apache.kafka.clients.admin.CreateClusterLinksResult;
 import org.apache.kafka.clients.admin.DeleteAclsOptions;
 import org.apache.kafka.clients.admin.DeleteAclsResult;
+import org.apache.kafka.clients.admin.DeleteClusterLinksOptions;
+import org.apache.kafka.clients.admin.DeleteClusterLinksResult;
 import org.apache.kafka.clients.admin.DrainBrokersOptions;
 import org.apache.kafka.clients.admin.DrainBrokersResult;
+import org.apache.kafka.clients.admin.ListClusterLinksOptions;
+import org.apache.kafka.clients.admin.ListClusterLinksResult;
 import org.apache.kafka.clients.admin.MockAdminClient;
 import org.apache.kafka.clients.admin.ReplicaStatusOptions;
 import org.apache.kafka.clients.admin.ReplicaStatusResult;
@@ -61,6 +67,7 @@ import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.resource.PatternType;
+import org.apache.kafka.common.requests.NewClusterLink;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
@@ -631,6 +638,20 @@ public class ConfluentProviderTest {
     public Collection<AclBinding> describeAcls(final Scope scope, final AclBindingFilter filter) {
       return authCache.aclBindings(clusterA, filter, r -> true);
     }
+
+    @Override
+    public CreateClusterLinksResult createClusterLinks(Collection<NewClusterLink> clusterLinks, CreateClusterLinksOptions options) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public ListClusterLinksResult listClusterLinks(ListClusterLinksOptions options) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public DeleteClusterLinksResult deleteClusterLinks(Collection<String> linkNames, DeleteClusterLinksOptions options) {
+        throw new UnsupportedOperationException();
+    }
   }
 }
-

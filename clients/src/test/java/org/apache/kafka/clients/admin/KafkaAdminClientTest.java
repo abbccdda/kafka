@@ -43,6 +43,8 @@ import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.errors.ClusterAuthorizationException;
+import org.apache.kafka.common.errors.ClusterLinkExistsException;
+import org.apache.kafka.common.errors.ClusterLinkNotFoundException;
 import org.apache.kafka.common.errors.FencedInstanceIdException;
 import org.apache.kafka.common.errors.GroupAuthorizationException;
 import org.apache.kafka.common.errors.GroupSubscribedToTopicException;
@@ -108,11 +110,14 @@ import org.apache.kafka.common.quota.ClientQuotaFilterComponent;
 import org.apache.kafka.common.requests.AlterClientQuotasResponse;
 import org.apache.kafka.common.requests.AlterPartitionReassignmentsResponse;
 import org.apache.kafka.common.requests.ApiError;
+import org.apache.kafka.common.requests.ClusterLinkListing;
 import org.apache.kafka.common.requests.CreateAclsResponse;
+import org.apache.kafka.common.requests.CreateClusterLinksResponse;
 import org.apache.kafka.common.requests.CreatePartitionsResponse;
 import org.apache.kafka.common.requests.CreateTopicsRequest;
 import org.apache.kafka.common.requests.CreateTopicsResponse;
 import org.apache.kafka.common.requests.DeleteAclsResponse;
+import org.apache.kafka.common.requests.DeleteClusterLinksResponse;
 import org.apache.kafka.common.requests.DeleteGroupsResponse;
 import org.apache.kafka.common.requests.DeleteRecordsResponse;
 import org.apache.kafka.common.requests.DeleteTopicsRequest;
@@ -125,12 +130,14 @@ import org.apache.kafka.common.requests.ElectLeadersResponse;
 import org.apache.kafka.common.requests.FindCoordinatorResponse;
 import org.apache.kafka.common.requests.IncrementalAlterConfigsResponse;
 import org.apache.kafka.common.requests.LeaveGroupResponse;
+import org.apache.kafka.common.requests.ListClusterLinksResponse;
 import org.apache.kafka.common.requests.ListGroupsResponse;
 import org.apache.kafka.common.requests.ListOffsetResponse;
 import org.apache.kafka.common.requests.ListOffsetResponse.PartitionData;
 import org.apache.kafka.common.requests.ListPartitionReassignmentsResponse;
 import org.apache.kafka.common.requests.MetadataRequest;
 import org.apache.kafka.common.requests.MetadataResponse;
+import org.apache.kafka.common.requests.NewClusterLink;
 import org.apache.kafka.common.requests.OffsetCommitResponse;
 import org.apache.kafka.common.requests.OffsetDeleteResponse;
 import org.apache.kafka.common.requests.OffsetFetchResponse;
@@ -164,6 +171,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
@@ -3495,6 +3503,261 @@ public class KafkaAdminClientTest {
             ListOffsetsResult result = env.adminClient().listOffsets(partitions);
 
             TestUtils.assertFutureError(result.all(), TopicAuthorizationException.class);
+        }
+    }
+
+    @Test
+    public void testCreateClusterLinks() throws Exception {
+        Node node0 = new Node(0, "localhost", 8121);
+        final Cluster cluster = new Cluster("mockClusterId", singletonList(node0), Collections.emptyList(),
+                Collections.<String>emptySet(), Collections.<String>emptySet(), node0);
+
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+
+            Map<String, String> configs = new HashMap<String, String>();
+            configs.put("link.test", "TODO");
+
+            List<NewClusterLink> newClusterLinks = new ArrayList<>();
+            newClusterLinks.add(new NewClusterLink("cluster-1", "cluster-id-1", Collections.emptyMap()));
+            newClusterLinks.add(new NewClusterLink("cluster-2a", "cluster-id-2", Collections.emptyMap()));
+            newClusterLinks.add(new NewClusterLink("cluster-2b", "cluster-id-2", configs));
+            newClusterLinks.add(new NewClusterLink("cluster-3", null, Collections.emptyMap()));
+            newClusterLinks.add(new NewClusterLink("cluster+4", "cluster-id-4", Collections.emptyMap()));
+
+            Map<String, ApiError> responseData = new HashMap<>(newClusterLinks.size());
+            for (NewClusterLink newClusterLink : newClusterLinks) {
+                responseData.put(newClusterLink.linkName(), ApiError.NONE);
+            }
+
+            env.kafkaClient().prepareResponse(new CreateClusterLinksResponse(responseData, 0));
+
+            CreateClusterLinksResult result = env.adminClient().createClusterLinks(newClusterLinks, new CreateClusterLinksOptions());
+            assertEquals(newClusterLinks.size(), result.result().size());
+            for (NewClusterLink newClusterLink : newClusterLinks) {
+                KafkaFuture<Void> future = result.result().get(newClusterLink.linkName());
+                assertTrue(future != null);
+                future.get();
+            }
+        }
+    }
+
+    @Test
+    public void testCreateClusterLinksRetriableErrors() throws Exception {
+        Node node0 = new Node(0, "localhost", 8121);
+        final Cluster cluster = new Cluster("mockClusterId", singletonList(node0), Collections.emptyList(),
+                Collections.<String>emptySet(), Collections.<String>emptySet(), node0);
+
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+
+            String linkName = "cluster";
+
+            env.kafkaClient().prepareResponse(new CreateClusterLinksResponse(singletonList(linkName), 0, Errors.NOT_CONTROLLER.exception()));
+
+            env.kafkaClient().prepareResponse(MetadataResponse.prepareResponse(
+                cluster.nodes(),
+                cluster.clusterResource().clusterId(),
+                cluster.controller().id(),
+                Collections.emptyList()));
+
+            List<NewClusterLink> newClusterLinks = new ArrayList<>();
+            newClusterLinks.add(new NewClusterLink(linkName, "cluster-id", Collections.emptyMap()));
+
+            Map<String, ApiError> responseData = new HashMap<>(1);
+            responseData.put(linkName, ApiError.NONE);
+
+            env.kafkaClient().prepareResponse(new CreateClusterLinksResponse(responseData, 0));
+
+            CreateClusterLinksResult result = env.adminClient().createClusterLinks(newClusterLinks, new CreateClusterLinksOptions());
+            assertEquals(1, result.result().size());
+            KafkaFuture<Void> future = result.result().get(linkName);
+            assertTrue(future != null);
+            future.get();
+        }
+    }
+
+    @Test
+    public void testCreateClusterLinksNonRetriableErrors() throws Exception {
+        Node node0 = new Node(0, "localhost", 8121);
+        final Cluster cluster = new Cluster("mockClusterId", singletonList(node0), Collections.emptyList(),
+                Collections.<String>emptySet(), Collections.<String>emptySet(), node0);
+
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+
+            String linkNameExists = "cluster-exists";
+            String linkNameAuthorizationFailed = "cluster-authorization-failed";
+
+            List<NewClusterLink> newClusterLinks = new ArrayList<>(2);
+            newClusterLinks.add(new NewClusterLink(linkNameExists, null, Collections.emptyMap()));
+            newClusterLinks.add(new NewClusterLink(linkNameAuthorizationFailed, null, Collections.emptyMap()));
+
+            Map<String, ApiError> responseData = new HashMap<>(2);
+            responseData.put(linkNameExists, new ApiError(Errors.CLUSTER_LINK_EXISTS, ""));
+            responseData.put(linkNameAuthorizationFailed, new ApiError(Errors.CLUSTER_AUTHORIZATION_FAILED, ""));
+
+            env.kafkaClient().prepareResponse(new CreateClusterLinksResponse(responseData, 0));
+
+            CreateClusterLinksResult result = env.adminClient().createClusterLinks(newClusterLinks, new CreateClusterLinksOptions());
+            assertEquals(newClusterLinks.size(), result.result().size());
+            TestUtils.assertFutureError(result.result().get(linkNameExists), ClusterLinkExistsException.class);
+            TestUtils.assertFutureError(result.result().get(linkNameAuthorizationFailed), ClusterAuthorizationException.class);
+        }
+    }
+
+    @Test
+    public void testListClusterLinks() throws Exception {
+        Node node0 = new Node(0, "localhost", 8121);
+        final Cluster cluster = new Cluster("mockClusterId", singletonList(node0), Collections.emptyList(),
+                Collections.<String>emptySet(), Collections.<String>emptySet(), node0);
+
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+
+            List<ClusterLinkListing> responseData = new ArrayList<>();
+            responseData.add(new ClusterLinkListing("cluster-1", UUID.randomUUID(), "cluster-id-1"));
+            responseData.add(new ClusterLinkListing("cluster-2a", UUID.randomUUID(), "cluster-id-2"));
+            responseData.add(new ClusterLinkListing("cluster-2b", UUID.randomUUID(), "cluster-id-2"));
+            responseData.add(new ClusterLinkListing("cluster-3", UUID.randomUUID(), null));
+            responseData.add(new ClusterLinkListing("cluster+4", UUID.randomUUID(), "cluster-id-4"));
+
+            env.kafkaClient().prepareResponse(new ListClusterLinksResponse(responseData, 0));
+
+            ListClusterLinksResult result = env.adminClient().listClusterLinks(new ListClusterLinksOptions());
+            Collection<ClusterLinkListing> resultData = result.result().get();
+            assertEquals(responseData, resultData);
+        }
+    }
+
+    @Test
+    public void testListClusterLinksRetriableErrors() throws Exception {
+        Node node0 = new Node(0, "localhost", 8121);
+        final Cluster cluster = new Cluster("mockClusterId", singletonList(node0), Collections.emptyList(),
+                Collections.<String>emptySet(), Collections.<String>emptySet(), node0);
+
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+
+            env.kafkaClient().prepareResponse(new ListClusterLinksResponse(0, Errors.NOT_CONTROLLER.exception()));
+
+            env.kafkaClient().prepareResponse(MetadataResponse.prepareResponse(
+                cluster.nodes(),
+                cluster.clusterResource().clusterId(),
+                cluster.controller().id(),
+                Collections.emptyList()));
+
+            List<ClusterLinkListing> responseData = singletonList(new ClusterLinkListing("cluster-1", UUID.randomUUID(), "cluster-id-1"));
+
+            env.kafkaClient().prepareResponse(new ListClusterLinksResponse(responseData, 0));
+
+            ListClusterLinksResult result = env.adminClient().listClusterLinks(new ListClusterLinksOptions());
+            Collection<ClusterLinkListing> resultData = result.result().get();
+            assertEquals(responseData, resultData);
+        }
+    }
+
+    @Test
+    public void testListClusterLinksNonRetriableErrors() throws Exception {
+        Node node0 = new Node(0, "localhost", 8121);
+        final Cluster cluster = new Cluster("mockClusterId", singletonList(node0), Collections.emptyList(),
+                Collections.<String>emptySet(), Collections.<String>emptySet(), node0);
+
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+
+            env.kafkaClient().prepareResponse(new ListClusterLinksResponse(0, Errors.CLUSTER_AUTHORIZATION_FAILED.exception()));
+
+            ListClusterLinksResult result = env.adminClient().listClusterLinks(new ListClusterLinksOptions());
+            TestUtils.assertFutureError(result.result(), ClusterAuthorizationException.class);
+        }
+    }
+
+    @Test
+    public void testDeleteClusterLinks() throws Exception {
+        Node node0 = new Node(0, "localhost", 8121);
+        final Cluster cluster = new Cluster("mockClusterId", singletonList(node0), Collections.emptyList(),
+                Collections.<String>emptySet(), Collections.<String>emptySet(), node0);
+
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+
+            List<String> linkNames = Arrays.asList("cluster-1", "cluster+2");
+
+            Map<String, ApiError> responseData = new HashMap<>(linkNames.size());
+            for (String linkName : linkNames) {
+                responseData.put(linkName, ApiError.NONE);
+            }
+
+            env.kafkaClient().prepareResponse(new DeleteClusterLinksResponse(responseData, 0));
+
+            DeleteClusterLinksResult result = env.adminClient().deleteClusterLinks(linkNames, new DeleteClusterLinksOptions());
+            assertEquals(linkNames.size(), result.result().size());
+            for (String linkName : linkNames) {
+                KafkaFuture<Void> future = result.result().get(linkName);
+                assertTrue(future != null);
+                future.get();
+            }
+        }
+    }
+
+    @Test
+    public void testDeleteClusterLinksRetriableErrors() throws Exception {
+        Node node0 = new Node(0, "localhost", 8121);
+        final Cluster cluster = new Cluster("mockClusterId", singletonList(node0), Collections.emptyList(),
+                Collections.<String>emptySet(), Collections.<String>emptySet(), node0);
+
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+
+            String linkName = "cluster";
+
+            env.kafkaClient().prepareResponse(new DeleteClusterLinksResponse(singletonList(linkName), 0, Errors.NOT_CONTROLLER.exception()));
+
+            env.kafkaClient().prepareResponse(MetadataResponse.prepareResponse(
+                cluster.nodes(),
+                cluster.clusterResource().clusterId(),
+                cluster.controller().id(),
+                Collections.emptyList()));
+
+            Map<String, ApiError> responseData = new HashMap<>(1);
+            responseData.put(linkName, ApiError.NONE);
+
+            env.kafkaClient().prepareResponse(new DeleteClusterLinksResponse(responseData, 0));
+
+            DeleteClusterLinksResult result =
+                    env.adminClient().deleteClusterLinks(singletonList(linkName), new DeleteClusterLinksOptions());
+            assertEquals(1, result.result().size());
+            KafkaFuture<Void> future = result.result().get(linkName);
+            assertTrue(future != null);
+            future.get();
+        }
+    }
+
+    @Test
+    public void testDeleteClusterLinksNonRetriableErrors() throws Exception {
+        Node node0 = new Node(0, "localhost", 8121);
+        final Cluster cluster = new Cluster("mockClusterId", singletonList(node0), Collections.emptyList(),
+                Collections.<String>emptySet(), Collections.<String>emptySet(), node0);
+
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+
+            String linkNameNotFound = "cluster-not-found";
+            String linkNameAuthorizationFailed = "cluster-authorization-failed";
+
+            List<String> linkNames = Arrays.asList(linkNameNotFound, linkNameAuthorizationFailed);
+
+            Map<String, ApiError> responseData = new HashMap<>(2);
+            responseData.put(linkNameNotFound, new ApiError(Errors.CLUSTER_LINK_NOT_FOUND, ""));
+            responseData.put(linkNameAuthorizationFailed, new ApiError(Errors.CLUSTER_AUTHORIZATION_FAILED, ""));
+
+            env.kafkaClient().prepareResponse(new DeleteClusterLinksResponse(responseData, 0));
+
+            DeleteClusterLinksResult result = env.adminClient().deleteClusterLinks(linkNames, new DeleteClusterLinksOptions());
+            assertEquals(linkNames.size(), result.result().size());
+            TestUtils.assertFutureError(result.result().get(linkNameNotFound), ClusterLinkNotFoundException.class);
+            TestUtils.assertFutureError(result.result().get(linkNameAuthorizationFailed), ClusterAuthorizationException.class);
         }
     }
 
