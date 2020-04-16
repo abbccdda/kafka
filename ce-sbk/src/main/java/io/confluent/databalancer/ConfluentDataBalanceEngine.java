@@ -133,12 +133,15 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     // Visible for testing
     void checkStartupComponentsReady(KafkaCruiseControlConfig config) throws Exception {
         for (String startupComponent : STARTUP_COMPONENTS) {
+            LOG.info("DataBalancer: Checking startup component {}", startupComponent);
             // Get the method object to validate
             Class<?> startupComponentClass = Class.forName(startupComponent);
             Method method = startupComponentClass.getMethod(
                     CHECK_STARTUP_CONDITION_METHOD_NAME, KafkaCruiseControlConfig.class, Semaphore.class);
             method.invoke(null, config, abortStartupCheck);
+            LOG.info("DataBalancer: Startup component {} ready to proceed", startupComponent);
         }
+        LOG.info("DataBalancer: Startup checking succeeded, proceeding to full validation.");
     }
 
     /**

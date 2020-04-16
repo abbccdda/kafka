@@ -146,7 +146,7 @@ public class KafkaSampleStore implements SampleStore {
     _producer = createProducer(config);
     _loadingProgress = -1.0;
 
-    ensureTopicsCreated(config, _consumers.get(0));
+    checkTopicPropertiesMaybeCreate(config, _consumers.get(0));
   }
 
   protected KafkaProducer<byte[], byte[]> createProducer(Map<String, ?> config) {
@@ -267,20 +267,20 @@ public class KafkaSampleStore implements SampleStore {
   /**
    * A wrapper around {@code #ensureTopicsCreated} method that catches all errors and returns
    * a boolean indicating if the sample store topics exist (or can be successfully created).
+   * Visible for testing
    */
-  private static boolean checkTopicsCreated(Map<String, ?> config, KafkaConsumer<byte[], byte[]> consumer) {
+  static boolean checkTopicsCreated(Map<String, ?> config, KafkaConsumer<byte[], byte[]> consumer) {
     try {
-      ensureTopicsCreated(config, consumer);
+      return checkTopicPropertiesMaybeCreate(config, consumer);
     } catch (Exception ex) {
       LOG.error("Error when checking for sample store topics: {}", ex.getMessage());
       LOG.debug("Error: ", ex);
       return false;
     }
-    return true;
   }
 
   @SuppressWarnings("unchecked")
-  private static void ensureTopicsCreated(Map<String, ?> config, KafkaConsumer<byte[], byte[]> consumer) {
+  private static boolean checkTopicPropertiesMaybeCreate(Map<String, ?> config, KafkaConsumer<byte[], byte[]> consumer) {
     String connectString = (String) config.get(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG);
     boolean zkSecurityEnabled = (Boolean) config.get(KafkaCruiseControlConfig.ZOOKEEPER_SECURITY_ENABLED_CONFIG);
     KafkaZkClient kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(connectString,
@@ -313,12 +313,13 @@ public class KafkaSampleStore implements SampleStore {
       }
 
       Map<String, List<PartitionInfo>> topics = consumer.listTopics();
-      ensureTopicCreated(kafkaZkClient, adminZkClient, adminClient, topics.keySet(),
-              getPartitionMetricSampleStoreTopic(config), partitionSampleRetentionMs,
-              replicationFactor, getPartitionSampleStoreTopicPartitionCount(config));
-      ensureTopicCreated(kafkaZkClient, adminZkClient, adminClient, topics.keySet(),
-              getBrokerMetricSampleStoreTopic(config), brokerSampleRetentionMs,
-              replicationFactor, getBrokerSampleStoreTopicPartitionCount(config));
+      return ensureTopicCreated(kafkaZkClient, adminZkClient, adminClient, topics.keySet(),
+                    getPartitionMetricSampleStoreTopic(config), partitionSampleRetentionMs,
+                    replicationFactor, getPartitionSampleStoreTopicPartitionCount(config))
+              &
+              ensureTopicCreated(kafkaZkClient, adminZkClient, adminClient, topics.keySet(),
+                      getBrokerMetricSampleStoreTopic(config), brokerSampleRetentionMs,
+                      replicationFactor, getBrokerSampleStoreTopicPartitionCount(config));
     } finally {
       KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
       KafkaCruiseControlUtils.closeAdminClientWithTimeout(adminClient);
@@ -351,13 +352,29 @@ public class KafkaSampleStore implements SampleStore {
               JavaConverters.asScalaBufferConverter(Collections.singletonList(topic)).asScala().toSeq());
       JavaConversions.asJavaIterable(kafkaZkClient.getFullReplicaAssignmentForTopics(topics))
           .forEach(e -> existingAssignment.put(e._1.partition(), e._2));
+      LOG.info("DataBalancer: Adjusting sample store topic {} partition count to {}", topic, partitionCount);
       adminZkClient.addPartitions(topic, existingAssignment, adminZkClient.getBrokerMetadatas(RackAwareMode.Safe$.MODULE$, null),
                                   partitionCount, null, false, null, Option$.MODULE$.empty());
       LOG.info("Kafka topic " + topic + " now has " + partitionCount + " partitions.");
     }
   }
 
-  private static void ensureTopicCreated(KafkaZkClient kafkaZkClient,
+  /**
+   * Check that topic "topic" exists and has the correct configuration. If the topic does not exist, it
+   * will be created. Return value indicates if the topic did exist (but NOT that the topic configuration
+   * has been updated to match the desired configuration).
+   *
+   * @param kafkaZkClient -- KafkaZK Client to use for topic create/update operations
+   * @param adminZkClient -- AdminZK client to use for topic create/update operations
+   * @param adminClient -- for topic describe operations
+   * @param allTopics -- List of topics known to the system
+   * @param topic -- topic whose existence and configuration is under question
+   * @param retentionMs -- desired retention period for the topic
+   * @param replicationFactor -- desired replication factor for the topic
+   * @param partitionCount -- desired partition count for the topic
+   * @return true if the topic exists and false if the topic had to be created.
+   */
+  private static boolean ensureTopicCreated(KafkaZkClient kafkaZkClient,
                                          AdminZkClient adminZkClient,
                                          AdminClient adminClient,
                                          Set<String> allTopics,
@@ -369,9 +386,12 @@ public class KafkaSampleStore implements SampleStore {
     props.setProperty(LogConfig.RetentionMsProp(), Long.toString(retentionMs));
     props.setProperty(LogConfig.CleanupPolicyProp(), DEFAULT_CLEANUP_POLICY);
     if (!allTopics.contains(topic)) {
+      LOG.info("DataBalancer: Creating sample store topic {} ", topic);
       adminZkClient.createTopic(topic, partitionCount, replicationFactor, props, RackAwareMode.Safe$.MODULE$, false, Option$.MODULE$.empty());
+      return false;
     } else {
       try {
+        LOG.info("DataBalancer: Adjusting sample store topic {} configuration", topic);
         adminZkClient.changeTopicConfig(topic, props);
         TopicDescription topicDescription;
         try {
@@ -383,6 +403,7 @@ public class KafkaSampleStore implements SampleStore {
       }  catch (RuntimeException re) {
         LOG.error("Skip updating configuration of topic " +  topic + " due to exception.", re);
       }
+      return true;
     }
   }
 
