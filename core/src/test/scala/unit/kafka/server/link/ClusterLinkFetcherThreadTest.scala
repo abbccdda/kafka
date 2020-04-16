@@ -41,7 +41,7 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
       name,
       fetcherId = 0,
       brokerConfig,
-      new ClusterLinkConfig(clusterLinkConfigs),
+      clusterLinkConfig,
       new ClusterLinkMetadata(brokerConfig, clusterLinkName, 100, 60000),
       fetcherManager,
       brokerEndPoint,
@@ -55,10 +55,10 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
       if (leaderEndpointBlockingSend.isDefined) leaderEndpointBlockingSend.get else mock(classOf[BlockingSend]))
   }
 
-  private def clusterLinkConfigs : Properties = {
+  private def clusterLinkConfig : ClusterLinkConfig = {
     val props = new Properties
     props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, s"${brokerEndPoint.host}:${brokerEndPoint.port}")
-    props
+    new ClusterLinkConfig(props)
   }
 
   /*
@@ -77,6 +77,6 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
       new Metrics,
       new SystemTime,
       tierStateFetcher = None)
-    clusterLinkReplicaManager.addClusterLink(clusterLinkName, clusterLinkConfigs)
+    clusterLinkReplicaManager.addClusterLink(clusterLinkName, clusterLinkConfig)
   }
 }

@@ -22,6 +22,7 @@ import java.util.{Collections, Properties}
 import kafka.api.{IntegrationTestHarness, KafkaSasl, SaslSetup}
 import kafka.controller.ReplicaAssignment
 import kafka.server.{KafkaConfig, KafkaServer}
+import kafka.server.link.ClusterLinkConfig
 import kafka.utils.Implicits._
 import kafka.utils.{JaasTestUtils, Logging, TestUtils}
 import kafka.zk.ConfigEntityChangeNotificationZNode
@@ -328,7 +329,7 @@ class ClusterLinkTestHarness extends IntegrationTestHarness with SaslSetup {
   }
 
   def addClusterLink(server: KafkaServer, linkName: String): Unit = {
-    server.replicaManager.clusterLinkManager.addClusterLink(linkName, clusterLinks(linkName))
+    server.replicaManager.clusterLinkManager.addClusterLink(linkName, new ClusterLinkConfig(clusterLinks(linkName)))
   }
 
   def linkTopic(topic: String, numPartitions: Int, linkName: String): Unit = {
@@ -405,6 +406,3 @@ class ClusterLinkTestHarness extends IntegrationTestHarness with SaslSetup {
     epoch
   }
 }
-
-
-

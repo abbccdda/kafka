@@ -29,7 +29,6 @@ class ClusterLinkReplicaManagerTest {
   private val replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
   private var clusterLinkReplicaManager: ClusterLinkReplicaManager = _
 
-
   @Before
   def setUp(): Unit = {
     clusterLinkReplicaManager = new ClusterLinkReplicaManager(
@@ -41,8 +40,7 @@ class ClusterLinkReplicaManagerTest {
       tierStateFetcher = None)
   }
 
-
-    @After
+  @After
   def tearDown(): Unit = {
     metrics.close()
   }
@@ -51,26 +49,30 @@ class ClusterLinkReplicaManagerTest {
   def testClusterLinks(): Unit = {
     val linkName = "testLink"
     val topic = "testTopic"
-    val tp = new TopicPartition(topic, 0)
-    val partition: Partition = createNiceMock(classOf[Partition])
+    val tp0 = new TopicPartition(topic, 0)
+    val partition0: Partition = createNiceMock(classOf[Partition])
     assertEquals(None, clusterLinkReplicaManager.fetcherManager(linkName))
+    assertEquals(None, clusterLinkReplicaManager.clientManager(linkName))
 
-    setupMock(partition, tp, None)
-    clusterLinkReplicaManager.addLinkedFetcherForPartitions(Set(partition))
+    setupMock(partition0, tp0, None)
+    clusterLinkReplicaManager.addPartitions(Set(partition0))
 
-    setupMock(partition, tp, Some(linkName))
+    setupMock(partition0, tp0, Some(linkName))
     intercept[InvalidClusterLinkException] {
-      clusterLinkReplicaManager.addLinkedFetcherForPartitions(Set(partition))
+      clusterLinkReplicaManager.addPartitions(Set(partition0))
     }
 
-    setupMock(partition, tp, Some(linkName))
-    clusterLinkReplicaManager.addClusterLink(linkName, clusterLinkProps(linkName))
+    setupMock(partition0, tp0, Some(linkName))
+    clusterLinkReplicaManager.addClusterLink(linkName, clusterLinkConfig(linkName))
     assertNotEquals(None, clusterLinkReplicaManager.fetcherManager(linkName))
+    assertNotEquals(None, clusterLinkReplicaManager.clientManager(linkName))
     val fetcherManager = clusterLinkReplicaManager.fetcherManager(linkName).get
+    val clientManager = clusterLinkReplicaManager.clientManager(linkName).get
 
-    clusterLinkReplicaManager.addLinkedFetcherForPartitions(Set(partition))
+    clusterLinkReplicaManager.addPartitions(Set(partition0))
     assertTrue("Topic not added to metadata",
       fetcherManager.metadata.retainTopic(topic, isInternal = false, time.milliseconds))
+    assertTrue("Topic not added to client manager", clientManager.getTopics.contains(topic))
 
     intercept[IllegalStateException] {
       clusterLinkReplicaManager.removeClusterLink(linkName)
@@ -79,35 +81,45 @@ class ClusterLinkReplicaManagerTest {
     val partitionState: LeaderAndIsrPartitionState = mock(classOf[LeaderAndIsrPartitionState])
     expect(partitionState.clusterLink()).andReturn(linkName).anyTimes()
     replay(partitionState)
-    clusterLinkReplicaManager.removeLinkedFetcherForPartitions(Map(partition -> partitionState))
+    clusterLinkReplicaManager.removePartitions(Map(partition0 -> partitionState))
     assertTrue("Topic removed from metadata",
       fetcherManager.metadata.retainTopic(topic, isInternal = false, time.milliseconds))
+    assertFalse("Topic not removed from client manager", clientManager.getTopics.contains(topic))
 
     reset(partitionState)
     expect(partitionState.clusterLink()).andReturn(null).anyTimes()
     replay(partitionState)
-    clusterLinkReplicaManager.removeLinkedFetcherForPartitions(Map(partition -> partitionState))
+    clusterLinkReplicaManager.removePartitions(Map(partition0 -> partitionState))
     assertFalse("Topic not removed from metadata",
       fetcherManager.metadata.retainTopic(topic, isInternal = false, time.milliseconds))
+    assertFalse("Topic should not be in client manager", clientManager.getTopics.contains(topic))
 
-    clusterLinkReplicaManager.addLinkedFetcherForPartitions(Set(partition))
+    val tp1 = new TopicPartition(topic, 1)
+    val partition1: Partition = createNiceMock(classOf[Partition])
+    setupMock(partition1, tp1, Some(linkName))
+
+    clusterLinkReplicaManager.addPartitions(Set(partition1))
     assertTrue("Topic not added to metadata",
       fetcherManager.metadata.retainTopic(topic, isInternal = false, time.milliseconds))
+    assertFalse("Topic should not be added to client manager", clientManager.getTopics.contains(topic))
 
-    clusterLinkReplicaManager.removeLinkedFetcherAndMetadataForPartitions(Set(tp))
+    clusterLinkReplicaManager.removePartitionsAndMetadata(Set(tp1))
     assertFalse("Topic not removed from metadata",
       fetcherManager.metadata.retainTopic(topic, isInternal = false, time.milliseconds))
+    assertFalse("Topic should not be in to client manager", clientManager.getTopics.contains(topic))
 
-    assertTrue("Unexpected Fetcher manager", clusterLinkReplicaManager.fetcherManager(linkName).get == fetcherManager)
+    assertTrue("Unexpected fetcher manager", clusterLinkReplicaManager.fetcherManager(linkName).get == fetcherManager)
+    assertTrue("Unexpected client manager", clusterLinkReplicaManager.clientManager(linkName).get == clientManager)
 
     clusterLinkReplicaManager.removeClusterLink(linkName)
     assertEquals(None, clusterLinkReplicaManager.fetcherManager(linkName))
+    assertEquals(None, clusterLinkReplicaManager.clientManager(linkName))
   }
 
-  private def clusterLinkProps(linkName: String): Properties = {
+  private def clusterLinkConfig(linkName: String): ClusterLinkConfig = {
     val props = new Properties
     props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:1234")
-    props
+    new ClusterLinkConfig(props)
   }
 
   private def setupMock(partition: Partition, tp: TopicPartition, linkName: Option[String]): Unit = {

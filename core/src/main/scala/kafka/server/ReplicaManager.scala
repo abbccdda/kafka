@@ -487,7 +487,7 @@ class ReplicaManager(val config: KafkaConfig,
         controllerEpoch = stopReplicaRequest.controllerEpoch
         // First stop fetchers for all partitions, then stop the corresponding replicas
         replicaFetcherManager.removeFetcherForPartitions(partitions)
-        clusterLinkManager.removeLinkedFetcherAndMetadataForPartitions(partitions)
+        clusterLinkManager.removePartitionsAndMetadata(partitions)
         replicaAlterLogDirsManager.removeFetcherForPartitions(partitions)
 
         stateChangeLogger.info(s"Handling stop replica (delete=${stopReplicaRequest.deletePartitions()}) for ${partitions.size} partitions")
@@ -1671,7 +1671,7 @@ class ReplicaManager(val config: KafkaConfig,
     try {
       // First stop fetchers for all the partitions
       replicaFetcherManager.removeFetcherForPartitions(partitionStates.keySet.map(_.topicPartition))
-      clusterLinkManager.removeLinkedFetcherForPartitions(partitionStates)
+      clusterLinkManager.removePartitions(partitionStates)
       stateChangeLogger.info(s"Stopped fetchers as part of LeaderAndIsr request correlationId $correlationId from " +
         s"controller $controllerId epoch $controllerEpoch as part of the become-leader transition for " +
         s"${partitionStates.size} partitions")
@@ -1715,7 +1715,7 @@ class ReplicaManager(val config: KafkaConfig,
           s"epoch $controllerEpoch for the become-leader transition for partition ${partition.topicPartition}")
       }
 
-    clusterLinkManager.addLinkedFetcherForPartitions(linkedPartitionsToMakeLeaders)
+    clusterLinkManager.addPartitions(linkedPartitionsToMakeLeaders)
 
     partitionsToMakeLeaders
   }
@@ -1796,7 +1796,7 @@ class ReplicaManager(val config: KafkaConfig,
       }
 
       replicaFetcherManager.removeFetcherForPartitions(partitionsToMakeFollower.map(_.topicPartition))
-      clusterLinkManager.removeLinkedFetcherAndMetadataForPartitions(partitionsToMakeFollower.map(_.topicPartition))
+      clusterLinkManager.removePartitionsAndMetadata(partitionsToMakeFollower.map(_.topicPartition))
       stateChangeLogger.info(s"Stopped fetchers as part of become-follower request from controller $controllerId " +
         s"epoch $controllerEpoch with correlation id $correlationId for ${partitionsToMakeFollower.size} partitions")
 
@@ -1963,7 +1963,7 @@ class ReplicaManager(val config: KafkaConfig,
       }.toSet
 
       replicaFetcherManager.removeFetcherForPartitions(newOfflinePartitions)
-      clusterLinkManager.removeLinkedFetcherAndMetadataForPartitions(newOfflinePartitions)
+      clusterLinkManager.removePartitionsAndMetadata(newOfflinePartitions)
       replicaAlterLogDirsManager.removeFetcherForPartitions(newOfflinePartitions ++ partitionsWithOfflineFutureReplica.map(_.topicPartition))
 
       partitionsWithOfflineFutureReplica.foreach(partition => partition.removeFutureLocalReplica(deleteFromLogDir = false))

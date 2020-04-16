@@ -48,15 +48,15 @@ class ClusterLinkFetcherManager(linkName: String,
     numFetchers = initialConfig.numClusterLinkFetchers) with MetadataListener with Reconfigurable {
 
   private[link] val metadata = new ClusterLinkMetadata(brokerConfig,
-                                                         linkName,
-                                                         initialConfig.metadataRefreshBackoffMs,
-                                                         initialConfig.metadataMaxAgeMs)
+                                                       linkName,
+                                                       initialConfig.metadataRefreshBackoffMs,
+                                                       initialConfig.metadataMaxAgeMs)
   private val linkedPartitions = mutable.Map[TopicPartition, PartitionAndState]()
   private val unassignedPartitions = mutable.Set[TopicPartition]()
   private[link] val metadataRefreshThread = new ClusterLinkMetadataThread(initialConfig, metadata, metrics, time)
   @volatile private var clusterLinkConfig = initialConfig
 
-  def start(): Unit = {
+  def startup(): Unit = {
     info(s"starting fetcher manager for cluster link $linkName")
     metadataRefreshThread.addListener(this)
 
