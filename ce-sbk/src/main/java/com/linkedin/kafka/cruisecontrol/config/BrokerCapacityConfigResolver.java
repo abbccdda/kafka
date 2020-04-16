@@ -31,4 +31,9 @@ public interface BrokerCapacityConfigResolver extends CruiseControlConfigurable,
    * @return The capacity of each resource for the broker
    */
   BrokerCapacityInfo capacityForBroker(String rack, String host, int brokerId);
+
+  /**
+   * Update the disk capacity for a broker based on rack, host and broker id. The unit for diskCapacity is MB.
+   */
+  default void updateDiskCapacityForBroker(String rack, String host, int brokerId, double diskCapacity) { }
 }

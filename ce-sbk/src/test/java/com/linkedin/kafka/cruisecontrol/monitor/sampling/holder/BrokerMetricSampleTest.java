@@ -22,7 +22,8 @@ public class BrokerMetricSampleTest {
   @Test
   public void testSerdeWithLatestSerdeVersion() throws UnknownVersionException {
     MetricDef brokerMetricDef = KafkaMetricDef.brokerMetricDef();
-    BrokerMetricSample sample = new BrokerMetricSample("host", 0, BrokerMetricSample.LATEST_SUPPORTED_VERSION);
+    String host = "host";
+    BrokerMetricSample sample = new BrokerMetricSample(host, 0, BrokerMetricSample.LATEST_SUPPORTED_VERSION);
     double value = 1.0;
     for (MetricInfo metricInfo : brokerMetricDef.all()) {
       sample.record(metricInfo, value);
@@ -30,10 +31,11 @@ public class BrokerMetricSampleTest {
     }
     sample.close((long) value);
     byte[] bytes = sample.toBytes();
-    assertEquals(461, bytes.length);
+    int expectedLength = BrokerMetricSample.PARTITION_METRIC_SAMPLE_SIZE + host.length();
+    assertEquals(expectedLength, bytes.length);
     BrokerMetricSample deserializedSample = BrokerMetricSample.fromBytes(bytes);
 
-    assertEquals("host", deserializedSample.entity().host());
+    assertEquals(host, deserializedSample.entity().host());
     assertEquals(0, deserializedSample.entity().brokerId());
     assertEquals(BrokerMetricSample.LATEST_SUPPORTED_VERSION, deserializedSample.deserializationVersion());
 
@@ -53,35 +55,47 @@ public class BrokerMetricSampleTest {
   }
 
   @Test
-  public void testSerdeWithOldSerdeVersion() throws UnknownVersionException {
-    MetricDef brokerMetricDef = KafkaMetricDef.brokerMetricDef();
-    BrokerMetricSample sample = new BrokerMetricSample("host", 0, BrokerMetricSample.MIN_SUPPORTED_VERSION);
-    double value = 1.0;
-    for (MetricInfo metricInfo : brokerMetricDef.all()) {
-      sample.record(metricInfo, value);
-      value += 1;
-    }
-    sample.close((long) value);
-    byte[] bytes = sample.toBytes();
-    assertEquals(461, bytes.length);
-    BrokerMetricSample deserializedSample = BrokerMetricSample.fromBytes(bytes);
-
-    assertEquals("host", deserializedSample.entity().host());
-    assertEquals(0, deserializedSample.entity().brokerId());
-    assertEquals(BrokerMetricSample.MIN_SUPPORTED_VERSION, deserializedSample.deserializationVersion());
-
-    // Disk usage is not one of the broker raw metric type so we add 1.
-    int expectedNumRecords = RawMetricType.brokerMetricTypesDiffForVersion(BrokerMetricSample.MIN_SUPPORTED_VERSION).size() + 1;
-    assertEquals(expectedNumRecords, deserializedSample.allMetricValues().size());
-
-    value = 1.0;
-    for (MetricInfo metricInfo : brokerMetricDef.all()) {
-      assertEquals(value, deserializedSample.metricValue(metricInfo.id()), 0.0);
-      value += 1;
-      if (value > expectedNumRecords) {
-        break;
+  public void testSerdeWithOldSerdeVersions() throws UnknownVersionException {
+    for (byte deserializationVersion = BrokerMetricSample.MIN_SUPPORTED_VERSION;
+         deserializationVersion < BrokerMetricSample.LATEST_SUPPORTED_VERSION;
+         deserializationVersion++) {
+      MetricDef brokerMetricDef = KafkaMetricDef.brokerMetricDef();
+      String host = "host";
+      BrokerMetricSample sample = new BrokerMetricSample(host, 0, deserializationVersion);
+      double value = 1.0;
+      for (MetricInfo metricInfo : brokerMetricDef.all()) {
+        sample.record(metricInfo, value);
+        value += 1;
       }
-    } assertNotEquals(value, deserializedSample.sampleTime(), 0.0);
+      sample.close((long) value);
+      byte[] bytes = sample.toBytes();
+      int expectedLength = BrokerMetricSample.PARTITION_METRIC_SAMPLE_SIZE + host.length();
+      assertEquals(expectedLength, bytes.length);
+      BrokerMetricSample deserializedSample = BrokerMetricSample.fromBytes(bytes);
+
+      assertEquals(host, deserializedSample.entity().host());
+      assertEquals(0, deserializedSample.entity().brokerId());
+      assertEquals(deserializationVersion, deserializedSample.deserializationVersion());
+
+      // Disk usage is not one of the broker raw metric type so we add 1.
+      int expectedNumRecords = 1;
+      byte curDeserializationVersion = deserializationVersion;
+      expectedNumRecords += RawMetricType.brokerMetricTypesDiffByVersion().entrySet().stream()
+              .filter(entry -> entry.getKey() <= curDeserializationVersion)
+              .mapToInt(entry -> entry.getValue().size()).sum();
+
+      assertEquals(expectedNumRecords, deserializedSample.allMetricValues().size());
+
+      value = 1.0;
+      for (MetricInfo metricInfo : brokerMetricDef.all()) {
+        assertEquals(value, deserializedSample.metricValue(metricInfo.id()), 0.0);
+        value += 1;
+        if (value > expectedNumRecords) {
+          break;
+        }
+      }
+      assertNotEquals(value, deserializedSample.sampleTime(), 0.0);
+    }
   }
 
   @Test

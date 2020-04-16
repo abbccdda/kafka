@@ -61,6 +61,7 @@ public class KafkaCruiseControlUtils {
   public static final String DATE_FORMAT2 = "dd/MM/yyyy HH:mm:ss";
   public static final String TIME_ZONE = "UTC";
   public static final int SEC_TO_MS = 1000;
+  public static final int BYTES_IN_MB = 1024 * 1024;
   private static final int MIN_TO_MS = SEC_TO_MS * 60;
   private static final int HOUR_TO_MS = MIN_TO_MS * 60;
   private static final int DAY_TO_MS = HOUR_TO_MS * 24;

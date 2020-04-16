@@ -33,6 +33,7 @@ import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -119,7 +120,7 @@ public class ConfluentMetricsReporterSampler implements MetricSampler {
         long pollerCount = 0L;
         while (metricConsumer.assignment().isEmpty()) {
             pollerCount++;
-            metricConsumer.poll(ASSIGNMENT_POLL_TIMEOUT);
+            metricConsumer.poll(Duration.ofMillis(ASSIGNMENT_POLL_TIMEOUT));
             // Log a warning for an empty assignment on the interval to avoid spamming the log
             if ((pollerCount % ASSIGNMENT_LOGGING_INTERVAL) == 0) {
                 LOG.warn("metricConsumer Assignment is empty .. Did you copy the cruise-control-metrics-reporter.jar to Kafka libs ?");
@@ -152,10 +153,9 @@ public class ConfluentMetricsReporterSampler implements MetricSampler {
         LOG.debug("Starting consuming from metrics reporter topic partitions {}", metricConsumer.assignment());
         metricConsumer.resume(metricConsumer.paused());
         int totalMetricsAdded = 0;
-        long maxTimeStamp = -1L;
         long deadline = System.currentTimeMillis() + (endTimeMs - startTimeMs) / 2;
         do {
-            ConsumerRecords<byte[], byte[]> records = metricConsumer.poll(METRICS_POLL_TIMEOUT);
+            ConsumerRecords<byte[], byte[]> records = metricConsumer.poll(Duration.ofMillis(METRICS_POLL_TIMEOUT));
             for (ConsumerRecord<byte[], byte[]> record : records) {
                 if (record == null) {
                     // This means we cannot parse the metrics. It might happen when a newer type of metrics has been added and
@@ -167,7 +167,6 @@ public class ConfluentMetricsReporterSampler implements MetricSampler {
                 for (CruiseControlMetric metric : metrics) {
                     if (startTimeMs <= metric.time() && metric.time() < endTimeMs) {
                         metricsProcessor.addMetric(metric);
-                        maxTimeStamp = Math.max(maxTimeStamp, metric.time());
                         totalMetricsAdded++;
                     } else if (metric.time() >= endTimeMs) {
                         TopicPartition tp = new TopicPartition(record.topic(), record.partition());
@@ -307,7 +306,25 @@ public class ConfluentMetricsReporterSampler implements MetricSampler {
             }
         }
 
+        // Handle disk size as a special case since it's not handled by CC MetricsUtils
+        CruiseControlMetric cruiseControlVolumeMetrics = convertVolumeMetrics(metricsMessage);
+        this.addIfNotNull(metricList, cruiseControlVolumeMetrics);
+
         return metricList;
+    }
+
+    private CruiseControlMetric convertVolumeMetrics(ConfluentMetric.MetricsMessage metricsMessage) {
+        List<ConfluentMetric.VolumeMetrics> volumes = metricsMessage.getSystemMetrics().getVolumesList();
+        if (!volumes.isEmpty()) {
+            if (volumes.size() > 1) {
+                throw new IllegalStateException("Dynamic disk size estimation not supported for multiple volumes");
+            }
+            double diskTotalBytes = (double) volumes.get(0).getTotalBytes();
+            return new BrokerMetric(RawMetricType.BROKER_DISK_CAPACITY, metricsMessage.getTimestamp(),
+                    metricsMessage.getBrokerId(), diskTotalBytes);
+        } else {
+            return null;
+        }
     }
 
     private void addIfNotNull(List<CruiseControlMetric> metricList, CruiseControlMetric metric) {

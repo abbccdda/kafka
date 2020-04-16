@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Properties;
 
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricFetcherManager.BROKER_CAPACITY_CONFIG_RESOLVER_OBJECT_CONFIG;
+import static org.junit.Assert.assertThrows;
 
 public class ConfluentMetricsReporterSamplerTest {
 
@@ -41,6 +42,31 @@ public class ConfluentMetricsReporterSamplerTest {
         sampler.configure(new KafkaCruiseControlConfig(props).mergedConfigValues());
     }
 
+    @Test
+    public void testMetricsSamplerNoJBODSupport() {
+        ProtoSerde<ConfluentMetric.MetricsMessage> serde =
+                new ProtoSerde<>(ConfluentMetric.MetricsMessage.getDefaultInstance());
+
+        // Build metrics message
+        long time = Time.SYSTEM.milliseconds();
+
+        ConfluentMetric.MetricsMessage.Builder metricsMessageBuilder = ConfluentMetric.MetricsMessage.newBuilder();
+        metricsMessageBuilder.setMetricType(ConfluentMetric.MetricType.BROKER);
+        metricsMessageBuilder.setBrokerId(0);
+        metricsMessageBuilder.setClientId("client");
+        metricsMessageBuilder.setGroupId("kafka.server");
+        metricsMessageBuilder.setClusterId("");
+        metricsMessageBuilder.setTimestamp(time);
+
+
+        ConfluentMetric.SystemMetrics systemMetrics = buildSystemMetrics(2);
+        metricsMessageBuilder.setSystemMetrics(systemMetrics);
+
+        byte[] metricsMessage = serde.serialize(metricsMessageBuilder.build());
+
+        ConfluentMetricsReporterSampler sampler = new ConfluentMetricsReporterSampler();
+        assertThrows(IllegalStateException.class, () -> sampler.convertMetricRecord(metricsMessage));
+    }
     @Test
     public void testMetricsSampler() {
         ProtoSerde<ConfluentMetric.MetricsMessage> serde =
@@ -130,9 +156,29 @@ public class ConfluentMetricsReporterSamplerTest {
         histogramBuilder.setSize(10);
         metricsMessageBuilder.addYammerHistogram(histogramBuilder.build());
 
+        metricsMessageBuilder.addYammerTimer(buildYammerTimer(yammerNameBuilder.build()));
+
+        ConfluentMetric.SystemMetrics systemMetrics = buildSystemMetrics(1);
+        metricsMessageBuilder.setSystemMetrics(systemMetrics);
+
+        byte[] metricsMessage = serde.serialize(metricsMessageBuilder.build());
+
+        ConfluentMetricsReporterSampler sampler = new ConfluentMetricsReporterSampler();
+        List<CruiseControlMetric> metricList = sampler.convertMetricRecord(metricsMessage);
+
+        // There should be 11 total metrics
+        Assert.assertEquals(11, metricList.size());
+        for (CruiseControlMetric metric : metricList) {
+            Assert.assertEquals(50.0, metric.value(), 0.00);
+            Assert.assertEquals(time, metric.time());
+            Assert.assertEquals(0, metric.brokerId());
+        }
+    }
+
+    private ConfluentMetric.YammerTimer buildYammerTimer(ConfluentMetric.YammerMetricName metricName) {
         // Timer should add 3 metrics
         ConfluentMetric.YammerTimer.Builder timerBuilder = ConfluentMetric.YammerTimer.newBuilder();
-        timerBuilder.setMetricName(yammerNameBuilder.build());
+        timerBuilder.setMetricName(metricName);
         timerBuilder.setCount(10);
         timerBuilder.setDeltaCount(2);
         timerBuilder.setMax(50.0);
@@ -151,19 +197,22 @@ public class ConfluentMetricsReporterSamplerTest {
         timerBuilder.setFiveMinuteRate(50.0);
         timerBuilder.setFifteenMinuteRate(50.0);
         timerBuilder.setMeanRate(50.0);
-        metricsMessageBuilder.addYammerTimer(timerBuilder.build());
+        return timerBuilder.build();
+    }
 
-        byte[] metricsMessage = serde.serialize(metricsMessageBuilder.build());
+    private ConfluentMetric.VolumeMetrics buildVolumeMetric() {
+        ConfluentMetric.VolumeMetrics.Builder volumeMetricsBuilder = ConfluentMetric.VolumeMetrics.newBuilder();
+        volumeMetricsBuilder.setName("testVolume");
+        volumeMetricsBuilder.setUsableBytes(20L);
+        volumeMetricsBuilder.setTotalBytes(50L);
+        return volumeMetricsBuilder.build();
 
-        ConfluentMetricsReporterSampler sampler = new ConfluentMetricsReporterSampler();
-        List<CruiseControlMetric> metricList = sampler.convertMetricRecord(metricsMessage);
-
-        // There should be 10 total metrics
-        Assert.assertEquals(10, metricList.size());
-        for (CruiseControlMetric metric : metricList) {
-            Assert.assertEquals(50.0, metric.value(), 0.00);
-            Assert.assertEquals(time, metric.time());
-            Assert.assertEquals(0, metric.brokerId());
+    }
+    private ConfluentMetric.SystemMetrics buildSystemMetrics(int numVolumes) {
+        ConfluentMetric.SystemMetrics.Builder systemMetricsBuilder = ConfluentMetric.SystemMetrics.newBuilder();
+        for (int i = 0; i < numVolumes; i++) {
+            systemMetricsBuilder.addVolumes(buildVolumeMetric());
         }
+        return systemMetricsBuilder.build();
     }
 }

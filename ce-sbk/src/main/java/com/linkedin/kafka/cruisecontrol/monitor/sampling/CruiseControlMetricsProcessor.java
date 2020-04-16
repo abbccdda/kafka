@@ -4,10 +4,12 @@
 
 package com.linkedin.kafka.cruisecontrol.monitor.sampling;
 
+import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityConfigResolver;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityInfo;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.exception.UnknownVersionException;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.CruiseControlMetric;
+import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.BrokerLoad;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.BrokerMetricSample;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.PartitionMetricSample;
@@ -80,6 +82,22 @@ public class CruiseControlMetricsProcessor {
   }
 
   /**
+   * Update the cached disk capacity by broker id.
+   * @param cluster Kafka cluster.
+   */
+  private void updateDiskCapacityByBroker(Cluster cluster) {
+    for (Map.Entry<Integer, BrokerLoad> entry : _brokerLoad.entrySet()) {
+      Integer brokerId = entry.getKey();
+      BrokerLoad brokerLoad = entry.getValue();
+      Node node = cluster.nodeById(brokerId);
+      if (brokerLoad.brokerMetricAvailable(RawMetricType.BROKER_DISK_CAPACITY)) {
+        double brokerDiskCapacityInMiB = brokerLoad.brokerMetric(RawMetricType.BROKER_DISK_CAPACITY) / KafkaCruiseControlUtils.BYTES_IN_MB;
+        _brokerCapacityConfigResolver.updateDiskCapacityForBroker(getRackHandleNull(node), node.host(), brokerId, brokerDiskCapacityInMiB);
+      }
+    }
+  }
+
+  /**
    * Package private for unit tests.
    */
   Map<Integer, Short> cachedNumCoresByBroker() {
@@ -99,6 +117,7 @@ public class CruiseControlMetricsProcessor {
                                 Set<TopicPartition> partitionsDotNotHandled,
                                 MetricSampler.SamplingMode samplingMode) {
     updateCachedNumCoresByBroker(cluster);
+    updateDiskCapacityByBroker(cluster);
     // Theoretically we should not move forward at all if a broker reported a different all topic bytes in from all
     // its resident replicas. However, it is not clear how often this would happen yet. At this point we still
     // continue process the other brokers. Later on if in practice all topic bytes in and the aggregation value is

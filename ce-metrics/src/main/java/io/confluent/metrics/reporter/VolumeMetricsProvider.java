@@ -25,7 +25,7 @@ public class VolumeMetricsProvider {
 
   private static final Logger log = LoggerFactory.getLogger(VolumeMetricsProvider.class);
 
-  static class VolumeInfo {
+  public static class VolumeInfo {
 
     private final String name;
     private final long usableBytes;

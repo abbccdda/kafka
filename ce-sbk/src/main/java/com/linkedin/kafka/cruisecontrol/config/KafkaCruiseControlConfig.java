@@ -1244,7 +1244,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 METRIC_SAMPLING_INTERVAL_MS_DOC)
         .define(BROKER_CAPACITY_CONFIG_RESOLVER_CLASS_CONFIG,
                 ConfigDef.Type.CLASS,
-                BrokerCapacityFromConfigResolver.class.getName(),
+                BrokerCapacityResolver.class.getName(),
                 ConfigDef.Importance.MEDIUM,
                 BROKER_CAPACITY_CONFIG_RESOLVER_CLASS_DOC)
         .define(GOAL_BALANCEDNESS_PRIORITY_WEIGHT_CONFIG,

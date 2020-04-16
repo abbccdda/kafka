@@ -5,17 +5,21 @@ package io.confluent.databalancer;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
+import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
 import com.yammer.metrics.Metrics;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
 import kafka.server.KafkaConfig;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.collection.JavaConverters;
 
 import java.lang.reflect.Method;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -181,10 +185,18 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     static KafkaCruiseControlConfig generateCruiseControlConfig(KafkaConfig config) {
         // Extract all confluent.databalancer.X properties from the KafkaConfig, so we
         // can create a CruiseControlConfig from it.
-        Map<String, Object> ccConfigProps = new java.util.HashMap<>(config.originalsWithPrefix(ConfluentConfigs.CONFLUENT_BALANCER_PREFIX));
+        Map<String, Object> ccConfigProps = new HashMap<>(config.originalsWithPrefix(ConfluentConfigs.CONFLUENT_BALANCER_PREFIX));
 
         // Special overrides: zookeeper.connect, etc.
         ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG, config.get(KafkaConfig.ZkConnectProp()));
+        List<String> logDirs = JavaConverters.seqAsJavaList(config.logDirs());
+        if (logDirs == null || logDirs.size() == 0) {
+            throw new ConfigException("Broker configured with null or empty log directory");
+        }
+        if (logDirs.size() > 1) {
+            throw new ConfigException("SBK configured with multiple log directories");
+        }
+        ccConfigProps.put(BrokerCapacityResolver.LOG_DIRS_CONFIG, logDirs.get(0));
 
         // Derive bootstrap.servers from the provided KafkaConfig, instead of requiring
         // users to specify it.

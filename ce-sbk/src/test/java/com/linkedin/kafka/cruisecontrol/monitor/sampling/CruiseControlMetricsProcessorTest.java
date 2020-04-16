@@ -157,6 +157,30 @@ public class CruiseControlMetricsProcessorTest {
   }
 
   @Test
+  public void testDiskCapacityUpdated() {
+    Set<CruiseControlMetric> metrics = getCruiseControlMetrics();
+    Cluster cluster = getCluster();
+    double broker0DiskCapacityBytes = 10d * 1024 * 1024 * 1024; // 10 GB in units of MB
+    double broker0DiskCapacityMegaBytes = broker0DiskCapacityBytes / BYTES_IN_MB;
+    metrics.add(new BrokerMetric(RawMetricType.BROKER_DISK_CAPACITY, _time.milliseconds(), BROKER_ID_0, broker0DiskCapacityBytes));
+
+    BrokerCapacityConfigResolver brokerCapacityConfigResolver = EasyMock.mock(BrokerCapacityConfigResolver.class);
+    EasyMock.expect(brokerCapacityConfigResolver.capacityForBroker(EasyMock.anyString(), EasyMock.anyString(), EasyMock.anyInt()))
+            .andReturn(new BrokerCapacityInfo(Collections.emptyMap(), Collections.emptyMap(), MOCK_NUM_CPU_CORES)).anyTimes();
+    // expect updateDiskCapacity to be called with capacity converted to megabytes
+    brokerCapacityConfigResolver.updateDiskCapacityForBroker(EasyMock.anyString(), EasyMock.anyString(),
+            EasyMock.eq(BROKER_ID_0), EasyMock.eq(broker0DiskCapacityMegaBytes));
+    EasyMock.expectLastCall();
+    EasyMock.replay(brokerCapacityConfigResolver);
+
+    CruiseControlMetricsProcessor processor = new CruiseControlMetricsProcessor(brokerCapacityConfigResolver, false);
+    for (CruiseControlMetric cruiseControlMetric : metrics) {
+      processor.addMetric(cruiseControlMetric);
+    }
+    processor.process(cluster, TEST_PARTITIONS, MetricSampler.SamplingMode.ALL);
+  }
+
+  @Test
   public void testBasic() {
     CruiseControlMetricsProcessor processor = new CruiseControlMetricsProcessor(mockBrokerCapacityConfigResolver(), false);
     Set<CruiseControlMetric> metrics = getCruiseControlMetrics();
