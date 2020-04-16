@@ -16,11 +16,9 @@
  */
 package kafka.coordinator.transaction
 
-import java.lang.management.ManagementFactory
 import java.{lang, util}
 import java.util.Arrays.asList
 
-import javax.management.ObjectName
 import org.apache.kafka.clients.ClientResponse
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.metrics.{JmxReporter, Metrics, Sensor}
@@ -234,13 +232,6 @@ class TransactionMarkerRequestCompletionHandlerTest {
 
   private def verifyThrowIllegalStateExceptionOnError(error: Errors) = {
     EasyMock.expect(txnStateManager.stateErrorSensor).andReturn(setupStateErrorSensor())
-
-    val server = ManagementFactory.getPlatformMBeanServer
-    val mBeanName = "kafka.server:type=transaction-coordinator-metrics"
-    def getStateErrorCount(): Double = {
-      server.getAttribute(new ObjectName(mBeanName), "transaction-state-error-count").asInstanceOf[Double]
-    }
-
     mockCache()
 
     val response = new WriteTxnMarkersResponse(createProducerIdErrorMap(error))

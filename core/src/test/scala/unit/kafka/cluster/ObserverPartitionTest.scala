@@ -100,7 +100,6 @@ final class ObserverPartitionTest {
 
   @Test
   def testHighWatermarkIncreasesWithoutObserverFetch(): Unit = {
-    val controllerId = 0
     val controllerEpoch = 0
     val leaderEpoch = 5
     val followerId = brokerId + 1

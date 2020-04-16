@@ -2116,7 +2116,6 @@ class PartitionTest {
 
   @Test
   def testMakeLeaderUpdatesUncleanLeaderState(): Unit = {
-    val controllerId = 0
     val controllerEpoch = 0
     val leaderEpoch = 5
     val replicas = List[Integer](brokerId, brokerId + 1).asJava
@@ -2153,7 +2152,6 @@ class PartitionTest {
 
   @Test
   def testClearUncleanLeaderState(): Unit = {
-    val controllerId = 0
     val controllerEpoch = 0
     val leaderEpoch = 5
     val replicas = List[Integer](brokerId, brokerId + 1).asJava
@@ -2190,7 +2188,6 @@ class PartitionTest {
 
   @Test
   def testClearUncleanLeaderStateWithOldEpochFails(): Unit = {
-    val controllerId = 0
     val controllerEpoch = 0
     val leaderEpoch = 5
     val replicas = List[Integer](brokerId, brokerId + 1).asJava
@@ -2278,7 +2275,6 @@ class PartitionTest {
     val log = logManager.getOrCreateLog(topicPartition, logConfig)
     seedLogData(log, numRecords = 10, leaderEpoch = 4)
 
-    val controllerId = 0
     val controllerEpoch = 0
     val leaderEpoch = 5
     val remoteBrokerId = brokerId + 1
@@ -2336,7 +2332,6 @@ class PartitionTest {
     val log = logManager.getOrCreateLog(topicPartition, logConfig)
     seedLogData(log, numRecords = 10, leaderEpoch = 4)
 
-    val controllerId = 0
     val controllerEpoch = 0
     val leaderEpoch = 5
     val remoteBrokerId = brokerId + 1

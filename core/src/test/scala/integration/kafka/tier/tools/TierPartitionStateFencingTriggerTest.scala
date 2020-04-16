@@ -27,7 +27,6 @@ import org.apache.kafka.common.errors.TopicExistsException
 import org.apache.kafka.common.utils.Utils
 import org.junit.{After, Test}
 import org.junit.Assert._
-import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito._
 import java.io.File
 import java.util.Collections
@@ -166,4 +165,3 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
     tierTopicConsumer.shutdown()
   }
 }
- 

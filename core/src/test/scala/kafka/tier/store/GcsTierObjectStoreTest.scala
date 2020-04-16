@@ -3,7 +3,7 @@ package kafka.tier.store
 import java.io.File
 import java.nio.ByteBuffer
 import java.util
-import java.util.{ArrayList, Optional, UUID}
+import java.util.{Optional, UUID}
 
 import com.google.cloud.storage.{Blob, BlobId, BlobInfo, Bucket, Storage}
 import com.google.cloud.WriteChannel

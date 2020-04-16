@@ -568,7 +568,7 @@ class DelayedFetchTest extends EasyMockSupport {
 
   private def expectReadFromLocalLog(replicaManager: ReplicaManager,
                                      fetchDataInfos: Seq[(TopicPartition, AbstractFetchDataInfo, Option[Throwable])],
-                                     highWatermark: Long = 0): Unit = {
+                                     highWatermark: Long): Unit = {
     val readResults = fetchDataInfos.map {
       case (tp, tierFetchDataInfo: TierFetchDataInfo, exceptionOpt: Option[Throwable]) =>
         (tp, TierLogReadResult(info = tierFetchDataInfo, highWatermark, 0, 0, 0, mockTime.milliseconds(), 0, None, None, exceptionOpt))

@@ -674,11 +674,6 @@ class ClientRequestQuotaManagerTest {
     assertMetricValue(metricName, "backpressure-metrics", Map.empty, expectedValueOpt, delta)
   }
 
-  private def brokerRequestLimit: Double = {
-    val metric = metrics.metric(BrokerBackpressureMetrics.nonExemptRequestCapacityMetricName(metrics))
-    metric.metricValue.asInstanceOf[Double]
-  }
-
   private def assertIoThreadUsageMetricValue(metricName: String, expectedValueOpt: Option[Double], delta: Double): Unit = {
     assertMetricValue(metricName,
                       ThreadUsageMetrics.MetricGroup,

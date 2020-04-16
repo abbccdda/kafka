@@ -23,7 +23,7 @@ import java.util.{Collections, HashMap, List}
 import kafka.admin.ReassignPartitionsCommand._
 import kafka.server.{KafkaConfig, KafkaServer}
 import kafka.utils.TestUtils
-import kafka.utils.TestUtils.{createBrokerConfig, createServer, createTopic}
+import kafka.utils.TestUtils.createTopic
 import kafka.zk.{KafkaZkClient, ZooKeeperTestHarness}
 import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, AlterConfigOp, ConfigEntry, DescribeLogDirsResult, NewTopic}
 import org.apache.kafka.clients.producer.ProducerRecord
