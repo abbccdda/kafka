@@ -6,6 +6,7 @@ package kafka.server.link
 
 import java.util.Properties
 
+import kafka.utils.Implicits._
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin.ConfluentAdmin
 import org.easymock.EasyMock.createNiceMock
@@ -87,7 +88,7 @@ class ClusterLinkClientManagerTest {
 
   private def newConfig(configs: Map[String, String]): ClusterLinkConfig = {
     val props = new Properties()
-    props.putAll(configs.asJava)
+    props ++= configs
     new ClusterLinkConfig(props)
   }
 
