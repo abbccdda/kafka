@@ -324,6 +324,13 @@ class ReplicaManager(val config: KafkaConfig,
   newGauge("LeaderCount", () => leaderPartitionsIterator.size)
   // Visible for testing
   private[kafka] val partitionCount = newGauge("PartitionCount", () => allPartitions.size)
+  /**
+   * ThrottledReplicasRate track the number of times any given replica was throttled as part of a fetch request.
+   * Leader - the fetch response returned no data (throttled) for that replica
+   * Follower - the fetch request did not include that replica (throttled)
+   */
+  private[kafka] val throttledLeaderReplicasRate = newMeter("ThrottledLeaderReplicasPerSec", "replicationThrottle", TimeUnit.SECONDS)
+  private[kafka] val throttledFollowerReplicasRate = newMeter("ThrottledFollowerReplicasPerSec", "replicationThrottle", TimeUnit.SECONDS)
   newGauge("OfflineReplicaCount", () => offlinePartitionCount)
   newGauge("UnderReplicatedPartitions", () => underReplicatedPartitionCount)
   newGauge("UnderMinIsrPartitionCount", () => leaderPartitionsIterator.count(_.isUnderMinIsr))
@@ -1250,6 +1257,7 @@ class ReplicaManager(val config: KafkaConfig,
 
           val fetchDataInfo = if (shouldLeaderThrottle(quota, tp, replicaId)) {
             // If the partition is being throttled, simply return an empty set.
+            markLeaderReplicaThrottle()
             FetchDataInfo(fetchOffsetMetadata, MemoryRecords.EMPTY)
           } else if (!hardMaxBytesLimit && firstEntryIncomplete) {
             // For FetchRequest version 3, we replace incomplete message sets with an empty one as consumers can make
@@ -1947,6 +1955,14 @@ class ReplicaManager(val config: KafkaConfig,
     Partition.removeMetrics(tp)
   }
 
+  def markFollowerReplicaThrottle(): Unit = synchronized {
+    throttledFollowerReplicasRate.mark()
+  }
+
+  def markLeaderReplicaThrottle(): Unit = synchronized {
+    throttledLeaderReplicasRate.mark()
+  }
+
   // logDir should be an absolute path
   // sendZkNotification is needed for unit test
   def handleLogDirFailure(dir: String, sendZkNotification: Boolean = true): Unit = {
@@ -1994,6 +2010,8 @@ class ReplicaManager(val config: KafkaConfig,
     removeMetric("AtMinIsrPartitionCount")
     removeMetric("NotCaughtUpPartitionCount")
     removeMetric("MaxLastStableOffsetLag")
+    removeMetric("ThrottledLeaderReplicasPerSec")
+    removeMetric("ThrottledFollowerReplicasPerSec")
   }
 
   // High watermark do not need to be checkpointed only when under unit tests
