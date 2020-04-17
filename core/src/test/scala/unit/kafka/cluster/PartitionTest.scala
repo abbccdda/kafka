@@ -123,7 +123,7 @@ class PartitionTest {
   def testMakeLeaderUpdatesEpochCache(): Unit = {
     val leaderEpoch = 8
 
-    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
     log.appendAsLeader(MemoryRecords.withRecords(0L, CompressionType.NONE, 0,
       new SimpleRecord("k1".getBytes, "v1".getBytes),
       new SimpleRecord("k2".getBytes, "v2".getBytes)
@@ -149,7 +149,7 @@ class PartitionTest {
 
     val logConfig = LogConfig(createLogProperties(Map(
       LogConfig.MessageFormatVersionProp -> kafka.api.KAFKA_0_10_2_IV0.shortVersion)))
-    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
     log.appendAsLeader(TestUtils.records(List(
       new SimpleRecord("k1".getBytes, "v1".getBytes),
       new SimpleRecord("k2".getBytes, "v2".getBytes)),
@@ -707,7 +707,7 @@ class PartitionTest {
 
   private def setupPartitionWithMocks(leaderEpoch: Int,
                                       isLeader: Boolean,
-                                      log: AbstractLog = logManager.getOrCreateLog(topicPartition, logConfig),
+                                      log: AbstractLog = logManager.getOrCreateLog(topicPartition, () => logConfig),
                                       topicIdOpt: Option[UUID] = None): Partition = {
     partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints)
 
@@ -1077,7 +1077,7 @@ class PartitionTest {
     val logConfig = LogConfig(new Properties)
 
     val topicPartitions = (0 until 5).map { i => new TopicPartition("test-topic", i) }
-    val logs = topicPartitions.map { tp => logManager.getOrCreateLog(tp, logConfig) }
+    val logs = topicPartitions.map { tp => logManager.getOrCreateLog(tp, () => logConfig) }
     val partitions = ListBuffer.empty[Partition]
 
     logs.foreach { log =>
@@ -1215,7 +1215,7 @@ class PartitionTest {
 
   @Test
   def testUpdateFollowerFetchState(): Unit = {
-    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
     seedLogData(log, numRecords = 6, leaderEpoch = 4)
 
     val controllerEpoch = 0
@@ -1276,7 +1276,7 @@ class PartitionTest {
 
   @Test
   def testIsrExpansion(): Unit = {
-    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
     seedLogData(log, numRecords = 10, leaderEpoch = 4)
 
     val controllerEpoch = 0
@@ -1343,7 +1343,7 @@ class PartitionTest {
 
   @Test
   def testIsrNotExpandedIfUpdateFails(): Unit = {
-    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
     seedLogData(log, numRecords = 10, leaderEpoch = 4)
 
     val controllerEpoch = 0
@@ -1398,7 +1398,7 @@ class PartitionTest {
 
   @Test
   def testMaybeShrinkIsr(): Unit = {
-    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
     seedLogData(log, numRecords = 10, leaderEpoch = 4)
 
     val controllerEpoch = 0
@@ -1455,7 +1455,7 @@ class PartitionTest {
 
   @Test
   def testShouldNotShrinkIsrIfPreviousFetchIsCaughtUp(): Unit = {
-    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
     seedLogData(log, numRecords = 10, leaderEpoch = 4)
 
     val controllerEpoch = 0
@@ -1527,7 +1527,7 @@ class PartitionTest {
 
   @Test
   def testShouldNotShrinkIsrIfFollowerCaughtUpToLogEnd(): Unit = {
-    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
     seedLogData(log, numRecords = 10, leaderEpoch = 4)
 
     val controllerEpoch = 0
@@ -1584,7 +1584,7 @@ class PartitionTest {
 
   @Test
   def testIsrNotShrunkIfUpdateFails(): Unit = {
-    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
     seedLogData(log, numRecords = 10, leaderEpoch = 4)
 
     val controllerEpoch = 0
@@ -1636,7 +1636,7 @@ class PartitionTest {
 
   @Test
   def testUseCheckpointToInitializeHighWatermark(): Unit = {
-    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
     seedLogData(log, numRecords = 6, leaderEpoch = 5)
 
     when(offsetCheckpoints.fetch(logDir1.getAbsolutePath, topicPartition))
@@ -1846,7 +1846,7 @@ class PartitionTest {
   @Test
   def testMakeLeaderWithTopicId(): Unit = {
     var leaderEpoch = 7
-    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
     val tierPartitionState = log.tierPartitionState
     val topicId = UUID.randomUUID
 
@@ -1876,7 +1876,7 @@ class PartitionTest {
   @Test
   def testMakeFollowerWithTopicId(): Unit = {
     val leaderEpoch = 7
-    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
     val tierPartitionState = log.tierPartitionState
     val topicId = UUID.randomUUID
 
@@ -1931,7 +1931,7 @@ class PartitionTest {
   @Test
   def testShouldNotRemoveObserverFromIsrIfThatCausesUnderMinIsr(): Unit = {
     val logConfig = LogConfig(createLogProperties(Map(LogConfig.MinInSyncReplicasProp -> "2")))
-    logManager.getOrCreateLog(topicPartition, logConfig)
+    logManager.getOrCreateLog(topicPartition, () => logConfig)
 
     val zkVersion = 23934
     val controllerEpoch = 137
@@ -2272,7 +2272,7 @@ class PartitionTest {
 
   @Test
   def testIsrExpandPreservesUncleanLeaderState(): Unit = {
-    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
     seedLogData(log, numRecords = 10, leaderEpoch = 4)
 
     val controllerEpoch = 0
@@ -2329,7 +2329,7 @@ class PartitionTest {
 
   @Test
   def testShrinkIsrPreservesUncleanLeaderState(): Unit = {
-    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
     seedLogData(log, numRecords = 10, leaderEpoch = 4)
 
     val controllerEpoch = 0

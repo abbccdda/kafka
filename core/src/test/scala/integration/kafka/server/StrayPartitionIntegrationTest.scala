@@ -42,8 +42,8 @@ class StrayPartitionIntegrationTest extends IntegrationTestHarness {
     // create stray partitions on each broker
     servers.foreach { server =>
       val logManager = server.logManager
-      logManager.getOrCreateLog(new TopicPartition(strayTopic_1, Random.nextInt(10)), logManager.initialDefaultConfig)
-      logManager.getOrCreateLog(new TopicPartition(strayTopic_2, Random.nextInt(10)), logManager.initialDefaultConfig)
+      logManager.getOrCreateLog(new TopicPartition(strayTopic_1, Random.nextInt(10)), () => logManager.initialDefaultConfig)
+      logManager.getOrCreateLog(new TopicPartition(strayTopic_2, Random.nextInt(10)), () => logManager.initialDefaultConfig)
     }
 
     // restart broker and assert that stray partitions are deleted
@@ -75,8 +75,8 @@ class StrayPartitionIntegrationTest extends IntegrationTestHarness {
     // create stray partitions on each broker
     servers.foreach { server =>
       val logManager = server.logManager
-      logManager.getOrCreateLog(new TopicPartition(strayTopic_1, Random.nextInt(10)), logManager.initialDefaultConfig)
-      logManager.getOrCreateLog(new TopicPartition(strayTopic_2, Random.nextInt(10)), logManager.initialDefaultConfig)
+      logManager.getOrCreateLog(new TopicPartition(strayTopic_1, Random.nextInt(10)), () => logManager.initialDefaultConfig)
+      logManager.getOrCreateLog(new TopicPartition(strayTopic_2, Random.nextInt(10)), () => logManager.initialDefaultConfig)
     }
 
     // failover the controller
