@@ -164,7 +164,7 @@ public class RecordBatchIterationBenchmark {
                 new AppendOrigin.Client$(),
                 ApiVersion.latestVersion(),
                 JavaConverters.iterableAsScalaIterable(new ArrayList<RecordInterceptor>()),
-                interceptorStats, brokerTopicStats);
+                interceptorStats, brokerTopicStats, bufferSupplier);
     }
 
     @Benchmark

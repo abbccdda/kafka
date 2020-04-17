@@ -21,7 +21,7 @@ import kafka.tier.topic.TierTopicConsumer.ClientCtx
 import kafka.utils.{Logging, Scheduler}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{KafkaStorageException, OffsetOutOfRangeException}
-import org.apache.kafka.common.record.MemoryRecords
+import org.apache.kafka.common.record.{BufferSupplier, MemoryRecords}
 import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.requests.ListOffsetRequest
 import org.apache.kafka.common.utils.{Time, Utils}
@@ -628,8 +628,9 @@ class MergedLog(private[log] val localLog: Log,
   override def appendAsLeader(records: MemoryRecords,
                               leaderEpoch: Int,
                               origin: AppendOrigin = AppendOrigin.Client,
-                              interBrokerProtocolVersion: ApiVersion): LogAppendInfo = {
-    localLog.appendAsLeader(records, leaderEpoch, origin, interBrokerProtocolVersion)
+                              interBrokerProtocolVersion: ApiVersion,
+                              bufferSupplier: BufferSupplier): LogAppendInfo = {
+    localLog.appendAsLeader(records, leaderEpoch, origin, interBrokerProtocolVersion, bufferSupplier)
   }
 
   // Get the segment following the given local segment
@@ -914,7 +915,8 @@ sealed trait AbstractLog {
     */
   def appendAsLeader(records: MemoryRecords, leaderEpoch: Int,
                      origin: AppendOrigin = AppendOrigin.Client,
-                     interBrokerProtocolVersion: ApiVersion = ApiVersion.latestVersion): LogAppendInfo
+                     interBrokerProtocolVersion: ApiVersion = ApiVersion.latestVersion,
+                     bufferSupplier: BufferSupplier = BufferSupplier.NO_CACHING): LogAppendInfo
 
   /**
     * Append this message set to the active segment of the log without assigning offsets or Partition Leader Epochs

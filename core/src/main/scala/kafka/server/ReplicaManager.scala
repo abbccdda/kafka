@@ -616,11 +616,12 @@ class ReplicaManager(val config: KafkaConfig,
                     entriesPerPartition: Map[TopicPartition, MemoryRecords],
                     responseCallback: Map[TopicPartition, PartitionResponse] => Unit,
                     delayedProduceLock: Option[Lock] = None,
-                    recordConversionStatsCallback: Map[TopicPartition, RecordConversionStats] => Unit = _ => ()): Unit = {
+                    recordConversionStatsCallback: Map[TopicPartition, RecordConversionStats] => Unit = _ => (),
+                    bufferSupplier: BufferSupplier = BufferSupplier.NO_CACHING): Unit = {
     if (isValidRequiredAcks(requiredAcks)) {
       val sTime = time.milliseconds
       val localProduceResults = appendToLocalLog(internalTopicsAllowed = internalTopicsAllowed,
-        origin, entriesPerPartition, requiredAcks)
+        origin, entriesPerPartition, requiredAcks, bufferSupplier)
       debug("Produce to local log in %d ms".format(time.milliseconds - sTime))
 
       val produceStatus = localProduceResults.map { case (topicPartition, result) =>
@@ -899,7 +900,8 @@ class ReplicaManager(val config: KafkaConfig,
   private def appendToLocalLog(internalTopicsAllowed: Boolean,
                                origin: AppendOrigin,
                                entriesPerPartition: Map[TopicPartition, MemoryRecords],
-                               requiredAcks: Short): Map[TopicPartition, LogAppendResult] = {
+                               requiredAcks: Short,
+                               bufferSupplier: BufferSupplier): Map[TopicPartition, LogAppendResult] = {
 
     def processFailedRecord(topicPartition: TopicPartition, t: Throwable) = {
       val logStartOffset = getPartition(topicPartition) match {
@@ -926,7 +928,7 @@ class ReplicaManager(val config: KafkaConfig,
       } else {
         try {
           val partition = getPartitionOrException(topicPartition, expectLeader = true)
-          val info = partition.appendRecordsToLeader(records, origin, requiredAcks)
+          val info = partition.appendRecordsToLeader(records, origin, requiredAcks, bufferSupplier)
           val numAppendedMessages = info.numMessages
 
           // update stats for successfully appended bytes and messages as bytesInRate and messageInRate

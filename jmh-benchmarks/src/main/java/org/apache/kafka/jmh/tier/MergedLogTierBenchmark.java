@@ -26,6 +26,7 @@ import kafka.tier.store.MockInMemoryTierObjectStore;
 import kafka.tier.store.TierObjectStoreConfig;
 import kafka.utils.KafkaScheduler;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.record.BufferSupplier;
 import org.apache.kafka.common.record.CompressionType;
 import org.apache.kafka.common.record.FileRecords;
 import org.apache.kafka.common.record.MemoryRecords;
@@ -63,10 +64,11 @@ import java.util.concurrent.TimeUnit;
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
 public class MergedLogTierBenchmark {
-    private TopicPartition topicPartition = new TopicPartition(UUID.randomUUID().toString(), 1);
-    private File logDir = new File(System.getProperty("java.io.tmpdir"), topicPartition.toString());
-    private BrokerTopicStats brokerTopicStats = new BrokerTopicStats();
-    private KafkaScheduler scheduler = new KafkaScheduler(0, "fake-prefix", false);
+    private final TopicPartition topicPartition = new TopicPartition(UUID.randomUUID().toString(), 1);
+    private final File logDir = new File(System.getProperty("java.io.tmpdir"), topicPartition.toString());
+    private final BrokerTopicStats brokerTopicStats = new BrokerTopicStats();
+    private final KafkaScheduler scheduler = new KafkaScheduler(0, "fake-prefix", false);
+    private final BufferSupplier bufferSupplier = BufferSupplier.create();
     private TierPartitionState state;
     private MergedLog mergedLog;
     private static final int NUM_TOTAL_SEGMENTS = 100;
@@ -96,7 +98,7 @@ public class MergedLogTierBenchmark {
         while (log.logSegments().size() < NUM_TOTAL_SEGMENTS) {
             final MemoryRecords createRecords = buildRecords(0, timestamp,  1, 0);
             log.appendAsLeader(createRecords, 0, new AppendOrigin.Client$(),
-                    ApiVersion$.MODULE$.latestVersion());
+                    ApiVersion$.MODULE$.latestVersion(), bufferSupplier);
             timestamp++;
         }
         // update hwm to allow segments to be deleted

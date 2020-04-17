@@ -229,7 +229,8 @@ class GroupMetadataManager(brokerId: Int,
 
   def storeGroup(group: GroupMetadata,
                  groupAssignment: Map[String, Array[Byte]],
-                 responseCallback: Errors => Unit): Unit = {
+                 responseCallback: Errors => Unit,
+                 bufferSupplier: BufferSupplier = BufferSupplier.NO_CACHING): Unit = {
     getMagic(partitionFor(group.groupId)) match {
       case Some(magicValue) =>
         // We always use CREATE_TIME, like the producer. The conversion to LOG_APPEND_TIME (if necessary) happens automatically.
@@ -299,7 +300,7 @@ class GroupMetadataManager(brokerId: Int,
 
           responseCallback(responseError)
         }
-        appendForGroup(group, groupMetadataRecords, putCacheCallback)
+        appendForGroup(group, groupMetadataRecords, bufferSupplier, putCacheCallback)
 
       case None =>
         responseCallback(Errors.NOT_COORDINATOR)
@@ -309,6 +310,7 @@ class GroupMetadataManager(brokerId: Int,
 
   private def appendForGroup(group: GroupMetadata,
                              records: Map[TopicPartition, MemoryRecords],
+                             bufferSupplier: BufferSupplier,
                              callback: Map[TopicPartition, PartitionResponse] => Unit): Unit = {
     // call replica manager to append the group message
     replicaManager.appendRecords(
@@ -318,7 +320,8 @@ class GroupMetadataManager(brokerId: Int,
       origin = AppendOrigin.Coordinator,
       entriesPerPartition = records,
       delayedProduceLock = Some(group.lock),
-      responseCallback = callback)
+      responseCallback = callback,
+      bufferSupplier = bufferSupplier)
   }
 
   /**
@@ -329,7 +332,8 @@ class GroupMetadataManager(brokerId: Int,
                    offsetMetadata: immutable.Map[TopicPartition, OffsetAndMetadata],
                    responseCallback: immutable.Map[TopicPartition, Errors] => Unit,
                    producerId: Long = RecordBatch.NO_PRODUCER_ID,
-                   producerEpoch: Short = RecordBatch.NO_PRODUCER_EPOCH): Unit = {
+                   producerEpoch: Short = RecordBatch.NO_PRODUCER_EPOCH,
+                   bufferSupplier: BufferSupplier = BufferSupplier.NO_CACHING): Unit = {
     // first filter out partitions with offset metadata size exceeding limit
     val filteredOffsetMetadata = offsetMetadata.filter { case (_, offsetAndMetadata) =>
       validateOffsetMetadataLength(offsetAndMetadata.metadata)
@@ -457,7 +461,7 @@ class GroupMetadataManager(brokerId: Int,
             }
           }
 
-          appendForGroup(group, entries, putCacheCallback)
+          appendForGroup(group, entries, bufferSupplier, putCacheCallback)
 
         case None =>
           val commitStatus = offsetMetadata.map { case (topicPartition, _) =>
@@ -774,9 +778,8 @@ class GroupMetadataManager(brokerId: Int,
   // visible for testing
   private[group] def cleanupGroupMetadata(): Unit = {
     val currentTimestamp = time.milliseconds()
-    val numOffsetsRemoved = cleanupGroupMetadata(groupMetadataCache.values, group => {
-      group.removeExpiredOffsets(currentTimestamp, config.offsetsRetentionMs)
-    })
+    val numOffsetsRemoved = cleanupGroupMetadata(groupMetadataCache.values, BufferSupplier.NO_CACHING,
+      _.removeExpiredOffsets(currentTimestamp, config.offsetsRetentionMs))
     offsetExpiredSensor.record(numOffsetsRemoved)
     info(s"Removed $numOffsetsRemoved expired offsets in ${time.milliseconds() - currentTimestamp} milliseconds.")
   }
@@ -788,7 +791,8 @@ class GroupMetadataManager(brokerId: Int,
     *                 a group lock is held, therefore there is no need for the caller to also obtain a group lock.
     * @return The cumulative number of offsets removed
     */
-  def cleanupGroupMetadata(groups: Iterable[GroupMetadata], selector: GroupMetadata => Map[TopicPartition, OffsetAndMetadata]): Int = {
+  def cleanupGroupMetadata(groups: Iterable[GroupMetadata], bufferSupplier: BufferSupplier,
+                           selector: GroupMetadata => Map[TopicPartition, OffsetAndMetadata]): Int = {
     var offsetsRemoved = 0
 
     groups.foreach { group =>
@@ -835,7 +839,8 @@ class GroupMetadataManager(brokerId: Int,
                 // do not need to require acks since even if the tombstone is lost,
                 // it will be appended again in the next purge cycle
                 val records = MemoryRecords.withRecords(magicValue, 0L, compressionType, timestampType, tombstones.toArray: _*)
-                partition.appendRecordsToLeader(records, origin = AppendOrigin.Coordinator, requiredAcks = 0)
+                partition.appendRecordsToLeader(records, origin = AppendOrigin.Coordinator, requiredAcks = 0,
+                  bufferSupplier = bufferSupplier)
 
                 offsetsRemoved += removedOffsets.size
                 trace(s"Successfully appended ${tombstones.size} tombstones to $appendPartition for expired/deleted " +

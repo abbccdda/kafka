@@ -129,7 +129,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   /**
    * Top-level method that handles all requests and multiplexes to the right api
    */
-  def handle(request: RequestChannel.Request): Unit = {
+  def handle(request: RequestChannel.Request, bufferSupplier: BufferSupplier): Unit = {
     try {
       trace(s"Handling request:${request.requestDesc(true)} from connection ${request.context.connectionId};" +
         s"securityProtocol:${request.context.securityProtocol},principal:${request.context.principal}")
@@ -141,21 +141,21 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
 
       request.header.apiKey match {
-        case ApiKeys.PRODUCE => handleProduceRequest(request)
+        case ApiKeys.PRODUCE => handleProduceRequest(request, bufferSupplier)
         case ApiKeys.FETCH => handleFetchRequest(request)
         case ApiKeys.LIST_OFFSETS => handleListOffsetRequest(request)
         case ApiKeys.METADATA => handleTopicMetadataRequest(request)
         case ApiKeys.LEADER_AND_ISR => handleLeaderAndIsrRequest(request)
         case ApiKeys.STOP_REPLICA => handleStopReplicaRequest(request)
-        case ApiKeys.UPDATE_METADATA => handleUpdateMetadataRequest(request)
+        case ApiKeys.UPDATE_METADATA => handleUpdateMetadataRequest(request, bufferSupplier)
         case ApiKeys.CONTROLLED_SHUTDOWN => handleControlledShutdownRequest(request)
-        case ApiKeys.OFFSET_COMMIT => handleOffsetCommitRequest(request)
+        case ApiKeys.OFFSET_COMMIT => handleOffsetCommitRequest(request, bufferSupplier)
         case ApiKeys.OFFSET_FETCH => handleOffsetFetchRequest(request)
         case ApiKeys.FIND_COORDINATOR => handleFindCoordinatorRequest(request)
         case ApiKeys.JOIN_GROUP => handleJoinGroupRequest(request)
         case ApiKeys.HEARTBEAT => handleHeartbeatRequest(request)
         case ApiKeys.LEAVE_GROUP => handleLeaveGroupRequest(request)
-        case ApiKeys.SYNC_GROUP => handleSyncGroupRequest(request)
+        case ApiKeys.SYNC_GROUP => handleSyncGroupRequest(request, bufferSupplier)
         case ApiKeys.DESCRIBE_GROUPS => handleDescribeGroupRequest(request)
         case ApiKeys.LIST_GROUPS => handleListGroupsRequest(request)
         case ApiKeys.SASL_HANDSHAKE => handleSaslHandshakeRequest(request)
@@ -163,13 +163,13 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.CREATE_TOPICS => handleCreateTopicsRequest(request)
         case ApiKeys.DELETE_TOPICS => handleDeleteTopicsRequest(request)
         case ApiKeys.DELETE_RECORDS => handleDeleteRecordsRequest(request)
-        case ApiKeys.INIT_PRODUCER_ID => handleInitProducerIdRequest(request)
+        case ApiKeys.INIT_PRODUCER_ID => handleInitProducerIdRequest(request, bufferSupplier)
         case ApiKeys.OFFSET_FOR_LEADER_EPOCH => handleOffsetForLeaderEpochRequest(request)
-        case ApiKeys.ADD_PARTITIONS_TO_TXN => handleAddPartitionToTxnRequest(request)
-        case ApiKeys.ADD_OFFSETS_TO_TXN => handleAddOffsetsToTxnRequest(request)
-        case ApiKeys.END_TXN => handleEndTxnRequest(request)
-        case ApiKeys.WRITE_TXN_MARKERS => handleWriteTxnMarkersRequest(request)
-        case ApiKeys.TXN_OFFSET_COMMIT => handleTxnOffsetCommitRequest(request)
+        case ApiKeys.ADD_PARTITIONS_TO_TXN => handleAddPartitionToTxnRequest(request, bufferSupplier)
+        case ApiKeys.ADD_OFFSETS_TO_TXN => handleAddOffsetsToTxnRequest(request, bufferSupplier)
+        case ApiKeys.END_TXN => handleEndTxnRequest(request, bufferSupplier)
+        case ApiKeys.WRITE_TXN_MARKERS => handleWriteTxnMarkersRequest(request, bufferSupplier)
+        case ApiKeys.TXN_OFFSET_COMMIT => handleTxnOffsetCommitRequest(request, bufferSupplier)
         case ApiKeys.DESCRIBE_ACLS => handleDescribeAcls(request)
         case ApiKeys.CREATE_ACLS => handleCreateAcls(request)
         case ApiKeys.DELETE_ACLS => handleDeleteAcls(request)
@@ -183,12 +183,12 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.RENEW_DELEGATION_TOKEN => handleRenewTokenRequest(request)
         case ApiKeys.EXPIRE_DELEGATION_TOKEN => handleExpireTokenRequest(request)
         case ApiKeys.DESCRIBE_DELEGATION_TOKEN => handleDescribeTokensRequest(request)
-        case ApiKeys.DELETE_GROUPS => handleDeleteGroupsRequest(request)
+        case ApiKeys.DELETE_GROUPS => handleDeleteGroupsRequest(request, bufferSupplier)
         case ApiKeys.ELECT_LEADERS => handleElectReplicaLeader(request)
         case ApiKeys.INCREMENTAL_ALTER_CONFIGS => handleIncrementalAlterConfigsRequest(request)
         case ApiKeys.ALTER_PARTITION_REASSIGNMENTS => handleAlterPartitionReassignmentsRequest(request)
         case ApiKeys.LIST_PARTITION_REASSIGNMENTS => handleListPartitionReassignmentsRequest(request)
-        case ApiKeys.OFFSET_DELETE => handleOffsetDeleteRequest(request)
+        case ApiKeys.OFFSET_DELETE => handleOffsetDeleteRequest(request, bufferSupplier)
         case ApiKeys.DESCRIBE_CLIENT_QUOTAS => handleDescribeClientQuotasRequest(request)
         case ApiKeys.ALTER_CLIENT_QUOTAS => handleAlterClientQuotasRequest(request)
         case ApiKeys.REPLICA_STATUS => handleReplicaStatusRequest(request)
@@ -397,7 +397,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     CoreUtils.swallow(replicaManager.shutdownIdleFetcherThreads(), this)
   }
 
-  def handleUpdateMetadataRequest(request: RequestChannel.Request): Unit = {
+  def handleUpdateMetadataRequest(request: RequestChannel.Request, bufferSupplier: BufferSupplier): Unit = {
     val correlationId = request.header.correlationId
     val updateMetadataRequest = request.body[UpdateMetadataRequest]
 
@@ -418,7 +418,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       adminManager.metadataUpdated(allPartitions, updatedPartitions)
 
       if (deletedPartitions.nonEmpty)
-        groupCoordinator.handleDeletedPartitions(deletedPartitions)
+        groupCoordinator.handleDeletedPartitions(deletedPartitions, bufferSupplier)
 
       if (adminManager.hasDelayedTopicOperations) {
         updateMetadataRequest.partitionStates.asScala.foreach { partitionState =>
@@ -464,7 +464,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   /**
    * Handle an offset commit request
    */
-  def handleOffsetCommitRequest(request: RequestChannel.Request): Unit = {
+  def handleOffsetCommitRequest(request: RequestChannel.Request, bufferSupplier: BufferSupplier): Unit = {
     val header = request.header
     val offsetCommitRequest = request.body[OffsetCommitRequest]
 
@@ -591,7 +591,8 @@ class KafkaApis(val requestChannel: RequestChannel,
           Option(offsetCommitRequest.data.groupInstanceId),
           offsetCommitRequest.data.generationId,
           partitionData,
-          sendResponseCallback)
+          sendResponseCallback,
+          bufferSupplier)
       }
     }
   }
@@ -599,7 +600,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   /**
    * Handle a produce request
    */
-  def handleProduceRequest(request: RequestChannel.Request): Unit = {
+  def handleProduceRequest(request: RequestChannel.Request, bufferSupplier: BufferSupplier): Unit = {
     val produceRequest = request.body[ProduceRequest]
     val numBytesAppended = request.header.toStruct.sizeOf + request.sizeOfBodyInBytes
 
@@ -708,13 +709,13 @@ class KafkaApis(val requestChannel: RequestChannel,
     else {
       val internalTopicsAllowed = request.header.clientId == AdminUtils.AdminClientId || TierTopicClient.isTierTopicClient(request.header.clientId)
 
-      // call the replica manager to append messages to the replicas
       replicaManager.appendRecords(
         timeout = produceRequest.timeout.toLong,
         requiredAcks = produceRequest.acks,
         internalTopicsAllowed = internalTopicsAllowed,
         origin = AppendOrigin.Client,
         entriesPerPartition = authorizedRequestInfo,
+        bufferSupplier = bufferSupplier,
         responseCallback = sendResponseCallback,
         recordConversionStatsCallback = processingStatsCallback)
 
@@ -1644,7 +1645,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
-  def handleSyncGroupRequest(request: RequestChannel.Request): Unit = {
+  def handleSyncGroupRequest(request: RequestChannel.Request, bufferSupplier: BufferSupplier): Unit = {
     val syncGroupRequest = request.body[SyncGroupRequest]
 
     def sendResponseCallback(syncGroupResult: SyncGroupResult): Unit = {
@@ -1683,12 +1684,13 @@ class KafkaApis(val requestChannel: RequestChannel,
         Option(syncGroupRequest.data.protocolName),
         Option(syncGroupRequest.data.groupInstanceId),
         assignmentMap.result,
-        sendResponseCallback
+        sendResponseCallback,
+        bufferSupplier
       )
     }
   }
 
-  def handleDeleteGroupsRequest(request: RequestChannel.Request): Unit = {
+  def handleDeleteGroupsRequest(request: RequestChannel.Request, bufferSupplier: BufferSupplier): Unit = {
     val deleteGroupsRequest = request.body[DeleteGroupsRequest]
     val groups = deleteGroupsRequest.data.groupsNames.asScala.toSet
 
@@ -1696,7 +1698,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       authorize(request, DELETE, GROUP, group)
     }
 
-    val groupDeletionResult = groupCoordinator.handleDeleteGroups(authorizedGroups) ++
+    val groupDeletionResult = groupCoordinator.handleDeleteGroups(authorizedGroups, bufferSupplier) ++
       unauthorizedGroups.map(_ -> Errors.GROUP_AUTHORIZATION_FAILED)
 
     sendResponseMaybeThrottle(request, requestThrottleMs => {
@@ -2085,7 +2087,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
-  def handleInitProducerIdRequest(request: RequestChannel.Request): Unit = {
+  def handleInitProducerIdRequest(request: RequestChannel.Request, bufferSupplier: BufferSupplier): Unit = {
     val initProducerIdRequest = request.body[InitProducerIdRequest]
     val transactionalId = initProducerIdRequest.data.transactionalId
 
@@ -2121,12 +2123,12 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     producerIdAndEpoch match {
       case Right(producerIdAndEpoch) => txnCoordinator.handleInitProducerId(transactionalId, initProducerIdRequest.data.transactionTimeoutMs,
-        producerIdAndEpoch, sendResponseCallback)
+        producerIdAndEpoch, sendResponseCallback, bufferSupplier)
       case Left(error) => sendErrorResponseMaybeThrottle(request, error.exception)
     }
   }
 
-  def handleEndTxnRequest(request: RequestChannel.Request): Unit = {
+  def handleEndTxnRequest(request: RequestChannel.Request, bufferSupplier: BufferSupplier): Unit = {
     ensureInterBrokerVersion(KAFKA_0_11_0_IV0)
     val endTxnRequest = request.body[EndTxnRequest]
     val transactionalId = endTxnRequest.data.transactionalId
@@ -2149,7 +2151,8 @@ class KafkaApis(val requestChannel: RequestChannel,
         endTxnRequest.data.producerId,
         endTxnRequest.data.producerEpoch,
         endTxnRequest.result(),
-        sendResponseCallback)
+        sendResponseCallback,
+        bufferSupplier)
     } else
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         new EndTxnResponse(new EndTxnResponseData()
@@ -2158,7 +2161,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       )
   }
 
-  def handleWriteTxnMarkersRequest(request: RequestChannel.Request): Unit = {
+  def handleWriteTxnMarkersRequest(request: RequestChannel.Request, bufferSupplier: BufferSupplier): Unit = {
     ensureInterBrokerVersion(KAFKA_0_11_0_IV0)
     authorizeClusterOperation(request, CLUSTER_ACTION)
     val writeTxnMarkersRequest = request.body[WriteTxnMarkersRequest]
@@ -2253,6 +2256,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           internalTopicsAllowed = true,
           origin = AppendOrigin.Coordinator,
           entriesPerPartition = controlRecords,
+          bufferSupplier = bufferSupplier,
           responseCallback = maybeSendResponseCallback(producerId, marker.transactionResult))
       }
     }
@@ -2268,7 +2272,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       throw new UnsupportedVersionException(s"inter.broker.protocol.version: ${config.interBrokerProtocolVersion.version} is less than the required version: ${version.version}")
   }
 
-  def handleAddPartitionToTxnRequest(request: RequestChannel.Request): Unit = {
+  def handleAddPartitionToTxnRequest(request: RequestChannel.Request, bufferSupplier: BufferSupplier): Unit = {
     ensureInterBrokerVersion(KAFKA_0_11_0_IV0)
     val addPartitionsToTxnRequest = request.body[AddPartitionsToTxnRequest]
     val transactionalId = addPartitionsToTxnRequest.transactionalId
@@ -2316,12 +2320,13 @@ class KafkaApis(val requestChannel: RequestChannel,
           addPartitionsToTxnRequest.producerId,
           addPartitionsToTxnRequest.producerEpoch,
           authorizedPartitions,
-          sendResponseCallback)
+          sendResponseCallback,
+          bufferSupplier)
       }
     }
   }
 
-  def handleAddOffsetsToTxnRequest(request: RequestChannel.Request): Unit = {
+  def handleAddOffsetsToTxnRequest(request: RequestChannel.Request, bufferSupplier: BufferSupplier): Unit = {
     ensureInterBrokerVersion(KAFKA_0_11_0_IV0)
     val addOffsetsToTxnRequest = request.body[AddOffsetsToTxnRequest]
     val transactionalId = addOffsetsToTxnRequest.transactionalId
@@ -2349,11 +2354,12 @@ class KafkaApis(val requestChannel: RequestChannel,
         addOffsetsToTxnRequest.producerId,
         addOffsetsToTxnRequest.producerEpoch,
         Set(offsetTopicPartition),
-        sendResponseCallback)
+        sendResponseCallback,
+        bufferSupplier)
     }
   }
 
-  def handleTxnOffsetCommitRequest(request: RequestChannel.Request): Unit = {
+  def handleTxnOffsetCommitRequest(request: RequestChannel.Request, bufferSupplier: BufferSupplier): Unit = {
     ensureInterBrokerVersion(KAFKA_0_11_0_IV0)
     val header = request.header
     val txnOffsetCommitRequest = request.body[TxnOffsetCommitRequest]
@@ -2417,7 +2423,8 @@ class KafkaApis(val requestChannel: RequestChannel,
           Option(txnOffsetCommitRequest.data.groupInstanceId),
           txnOffsetCommitRequest.data.generationId,
           offsetMetadata,
-          sendResponseCallback)
+          sendResponseCallback,
+          bufferSupplier)
       }
     }
   }
@@ -2626,7 +2633,6 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   def handleStartRebalanceRequest(request: RequestChannel.Request): Unit = {
     authorizeClusterOperation(request, ALTER)
-    val startRebalanceRequest = request.body[StartRebalanceRequest]
 
     sendResponseMaybeThrottle(request, throttleTimeMs =>
       new StartRebalanceResponse(
@@ -2980,7 +2986,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
-  def handleOffsetDeleteRequest(request: RequestChannel.Request): Unit = {
+  def handleOffsetDeleteRequest(request: RequestChannel.Request, bufferSupplier: BufferSupplier): Unit = {
     val offsetDeleteRequest = request.body[OffsetDeleteRequest]
     val groupId = offsetDeleteRequest.data.groupId
 
@@ -3004,7 +3010,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
 
       val (groupError, authorizedTopicPartitionsErrors) = groupCoordinator.handleDeleteOffsets(
-        groupId, topicPartitions)
+        groupId, topicPartitions, bufferSupplier)
 
       topicPartitionErrors ++= authorizedTopicPartitionsErrors
 
