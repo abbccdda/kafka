@@ -380,6 +380,18 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
   }
 
   /**
+   * Deletes the entity znode path for the given config.
+   *
+   * @param rootEntityType the entity type
+   * @param sanitizedEntityName the sanitized entity name
+   * @param expectedControllerEpochZkVersion the expected controller epoch ZK version
+   */
+  def deleteEntityConfig(rootEntityType: String, sanitizedEntityName: String, expectedControllerEpochZkVersion: Int = ZkVersion.MatchAnyVersion): Unit = {
+    val deleteRequest = DeleteRequest(ConfigEntityZNode.path(rootEntityType, sanitizedEntityName), expectedControllerEpochZkVersion)
+    retryRequestUntilConnected(deleteRequest, expectedControllerEpochZkVersion)
+  }
+
+  /**
    * Returns all the entities for a given entityType
    * @param entityType entity type
    * @return List of all entity names
@@ -1471,6 +1483,52 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
   def deleteDelegationToken(delegationTokenId: String): Boolean = {
     deleteRecursive(DelegationTokenInfoZNode.path(delegationTokenId))
   }
+
+  /**
+   * Creates a cluster link.
+   *
+   * @param linkName the cluster link's name
+   * @param linkId the UUID associated with the cluster link
+   * @param clusterId the linked cluster's expected ID
+   */
+  def createClusterLink(linkName: String, linkId: UUID, clusterId: Option[String]) =
+    createRecursive(ClusterLinkZNode.path(linkName), ClusterLinkZNode.encode(linkId, clusterId))
+
+  /**
+   * Gets cluster link data for a set of link names.
+   *
+   * @param linkNames set of cluster link names
+   * @return a map of link names with data
+   */
+  def getClusterLinks(linkNames: Set[String]): Map[String, ClusterLinkData] = {
+    val getDataRequests = linkNames.map(ln => GetDataRequest(ClusterLinkZNode.path(ln), ctx = Some(ln))).toSeq
+    val getDataResponses = retryRequestsUntilConnected(getDataRequests)
+    getDataResponses.flatMap { getDataResponse =>
+      val linkName = getDataResponse.ctx.get.asInstanceOf[String]
+      getDataResponse.resultCode match {
+        case Code.OK => ClusterLinkZNode.decode(linkName, getDataResponse.data).map(linkName -> _)
+        case Code.NONODE => None
+        case _ => throw getDataResponse.resultException.get
+      }
+    }.toMap
+  }
+
+  /**
+   * Tests whether a cluster link exists.
+   *
+   * @param linkName the cluster link's name
+   * @return a cluster link listing
+   */
+  def clusterLinkExists(linkName: String): Boolean =
+    pathExists(ClusterLinkZNode.path(linkName))
+
+  /**
+    * Deletes a cluster link.
+    *
+    * @param linkName the link name to delete
+    */
+  def deleteClusterLink(linkName: String): Unit =
+    deletePath(ClusterLinkZNode.path(linkName))
 
   /**
    * This registers a ZNodeChangeHandler and attempts to register a watcher with an ExistsRequest, which allows data

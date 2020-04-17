@@ -12,6 +12,7 @@ import kafka.server.{KafkaConfig, ReplicaManager}
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.errors.InvalidClusterLinkException
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.utils.MockTime

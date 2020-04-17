@@ -11,7 +11,7 @@ import org.apache.kafka.common.requests.ClusterLinkListing;
 import java.util.Collection;
 
 /**
- * The result of {@link ConfluentAdmin#listClusterLinks(ListClusterLinkOptions)}.
+ * The result of {@link ConfluentAdmin#listClusterLinks(ListClusterLinksOptions)}.
  *
  * The API of this class is evolving, see {@link Admin} for details.
  */

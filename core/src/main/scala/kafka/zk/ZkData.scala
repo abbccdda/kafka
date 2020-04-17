@@ -788,6 +788,31 @@ object DelegationTokenInfoZNode {
   def decode(bytes: Array[Byte]): Option[TokenInformation] = DelegationTokenManager.fromBytes(bytes)
 }
 
+object ClusterLinksZNode {
+  def path = "/cluster_links"
+}
+
+case class ClusterLinkData(linkName: String, linkId: UUID, clusterId: Option[String])
+
+object ClusterLinkZNode {
+  def path(linkName: String) = s"${ClusterLinksZNode.path}/$linkName"
+
+  def encode(linkId: UUID, clusterId: Option[String]): Array[Byte] = {
+    val config = mutable.Map.empty[String, String]
+    config += "link_id" -> linkId.toString
+    clusterId.foreach(cid => config += "cluster_id" -> cid)
+    Json.encodeAsBytes(config.asJava)
+  }
+
+  def decode(linkName: String, bytes: Array[Byte]): Option[ClusterLinkData] = {
+    Json.parseBytes(bytes).map(_.asJsonObject).map { json =>
+      val linkId = UUID.fromString(json("link_id").to[String])
+      val clusterId = json.get("cluster_id").map(_.to[String])
+      ClusterLinkData(linkName, linkId, clusterId)
+    }
+  }
+}
+
 object ZkData {
 
   // Important: it is necessary to add any new top level Zookeeper path to the Seq
@@ -801,7 +826,8 @@ object ZkData {
     ProducerIdBlockZNode.path,
     LogDirEventNotificationZNode.path,
     DelegationTokenAuthZNode.path,
-    ExtendedAclZNode.path) ++ ZkAclStore.securePaths
+    ExtendedAclZNode.path,
+    ClusterLinksZNode.path) ++ ZkAclStore.securePaths
 
   // These are persistent ZK paths that should exist on kafka broker startup.
   val PersistentZkPaths = Seq(
@@ -819,6 +845,7 @@ object ZkData {
   val SensitiveRootPaths = Seq(
     ConfigEntityTypeZNode.path(ConfigType.User),
     ConfigEntityTypeZNode.path(ConfigType.Broker),
+    ConfigEntityTypeZNode.path(ConfigType.ClusterLink),
     DelegationTokensZNode.path
   )
 

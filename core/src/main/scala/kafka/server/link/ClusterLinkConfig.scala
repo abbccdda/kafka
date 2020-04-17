@@ -11,6 +11,7 @@ import kafka.server.{Defaults, KafkaConfig}
 import kafka.server.link.ClusterLinkConfigDefaults._
 import org.apache.kafka.clients.{ClientDnsLookup, CommonClientConfigs}
 import org.apache.kafka.clients.CommonClientConfigs._
+import org.apache.kafka.common.config.ConfigDef.ConfigKey
 import org.apache.kafka.common.config.ConfigDef.Importance.{HIGH, LOW, MEDIUM}
 import org.apache.kafka.common.config.ConfigDef.Range.atLeast
 import org.apache.kafka.common.config.ConfigDef.Type.{INT, LIST, LONG, STRING}
@@ -84,6 +85,8 @@ object ClusterLinkConfig {
     .withClientSaslSupport()
 
   def configNames: Seq[String] = configDef.names.asScala.toSeq.sorted
+
+  def configKeys: Map[String, ConfigKey] = configDef.configKeys.asScala.toMap
 
   def validate(props: Properties): Unit = {}
 

@@ -484,7 +484,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         dynamicConfigHandlers = Map[String, ConfigHandler](ConfigType.Topic -> new TopicConfigHandler(replicaManager, config, quotaManagers, kafkaController),
                                                            ConfigType.Client -> new ClientIdConfigHandler(quotaManagers),
                                                            ConfigType.User -> new UserConfigHandler(quotaManagers, credentialProvider),
-                                                           ConfigType.Broker -> new BrokerConfigHandler(config, quotaManagers))
+                                                           ConfigType.Broker -> new BrokerConfigHandler(config, quotaManagers),
+                                                           ConfigType.ClusterLink -> new ClusterLinkConfigHandler())
 
         // Create the config manager. start listening to notifications
         dynamicConfigManager = new DynamicConfigManager(zkClient, dynamicConfigHandlers)

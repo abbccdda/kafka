@@ -7,13 +7,46 @@ import java.util.Properties
 
 import kafka.log.LogConfig
 import org.apache.kafka.clients.admin.{Config, ConfigEntry}
-import org.apache.kafka.common.errors.InvalidConfigurationException
+import org.apache.kafka.common.errors.{InvalidClusterLinkException, InvalidConfigurationException}
 import org.junit.Test
 import org.junit.Assert._
+import org.scalatest.Assertions.intercept
 
 import scala.collection.JavaConverters._
 
 class ClusterLinkUtilsTest {
+
+  @Test
+  def testValidLinkNames(): Unit = {
+    def assertValid(linkName: String): Unit = {
+      ClusterLinkUtils.validateLinkName(linkName)
+    }
+
+    assertValid("ABCXYZ.abcxyz-0123456789_")
+    assertValid("...")
+    assertValid("_.-")
+    assertValid("0123456789" * 20)
+  }
+
+  @Test
+  def testInvalidLinkNames(): Unit = {
+    def assertInvalid(linkName: String): Unit = {
+      intercept[InvalidClusterLinkException] {
+        ClusterLinkUtils.validateLinkName(linkName)
+      }
+    }
+
+    assertInvalid(null)
+    assertInvalid("")
+    assertInvalid(".")
+    assertInvalid("..")
+    assertInvalid("test/link")
+    assertInvalid("test:link")
+    assertInvalid("test\\link")
+    assertInvalid("test\nlink")
+    assertInvalid("test\tlink")
+    assertInvalid("0123456789" * 30)
+  }
 
   @Test
   def testInitMirrorProps(): Unit = {
@@ -119,4 +152,5 @@ class ClusterLinkUtilsTest {
     }
     props
   }
+
 }

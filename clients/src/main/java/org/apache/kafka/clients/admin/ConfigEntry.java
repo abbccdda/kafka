@@ -188,6 +188,7 @@ public class ConfigEntry {
      * Source of configuration entries.
      */
     public enum ConfigSource {
+        DYNAMIC_CLUSTER_LINK_CONFIG,    // dynamic cluster link config that is configured for a specific link name
         DYNAMIC_TOPIC_CONFIG,           // dynamic topic config that is configured for a specific topic
         DYNAMIC_BROKER_LOGGER_CONFIG,   // dynamic broker logger config that is configured for a specific broker
         DYNAMIC_BROKER_CONFIG,          // dynamic broker config that is configured for a specific broker

@@ -13,6 +13,7 @@ import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.errors.InvalidClusterLinkException
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.utils.{LogContext, SystemTime, Time}
 import org.easymock.EasyMock.{anyObject, expect, mock, replay}

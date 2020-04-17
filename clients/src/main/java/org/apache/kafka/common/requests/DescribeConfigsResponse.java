@@ -180,7 +180,8 @@ public class DescribeConfigsResponse extends AbstractResponse {
         DYNAMIC_DEFAULT_BROKER_CONFIG((byte) 3),
         STATIC_BROKER_CONFIG((byte) 4),
         DEFAULT_CONFIG((byte) 5),
-        DYNAMIC_BROKER_LOGGER_CONFIG((byte) 6);
+        DYNAMIC_BROKER_LOGGER_CONFIG((byte) 6),
+        CLUSTER_LINK_CONFIG((byte) 100);
 
         final byte id;
         private static final ConfigSource[] VALUES = values();
@@ -192,7 +193,9 @@ public class DescribeConfigsResponse extends AbstractResponse {
         public static ConfigSource forId(byte id) {
             if (id < 0)
                 throw new IllegalArgumentException("id should be positive, id: " + id);
-            if (id >= VALUES.length)
+            if (id == CLUSTER_LINK_CONFIG.id)
+                return CLUSTER_LINK_CONFIG;
+            if (id > DYNAMIC_BROKER_LOGGER_CONFIG.id)
                 return UNKNOWN_CONFIG;
             return VALUES[id];
         }
@@ -261,6 +264,9 @@ public class DescribeConfigsResponse extends AbstractResponse {
                                 break;
                             case TOPIC:
                                 configSource = ConfigSource.TOPIC_CONFIG;
+                                break;
+                            case CLUSTER_LINK:
+                                configSource = ConfigSource.CLUSTER_LINK_CONFIG;
                                 break;
                             default:
                                 configSource = ConfigSource.UNKNOWN_CONFIG;

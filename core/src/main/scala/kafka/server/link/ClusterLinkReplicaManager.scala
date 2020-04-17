@@ -11,6 +11,7 @@ import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.Logging
 import org.apache.kafka.clients.admin.{Admin, ConfluentAdmin}
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.errors.InvalidClusterLinkException
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.utils.Time
