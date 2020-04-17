@@ -70,7 +70,7 @@ public class MultiTenantRequestContextBenchmark {
         RequestHeader header = new RequestHeader(ApiKeys.METADATA, ApiKeys.METADATA.latestVersion(), "clientId", 23);
         MultiTenantRequestContext context = new MultiTenantRequestContext(header, "1", null, principal,
             ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), SecurityProtocol.PLAINTEXT, ClientInformation.EMPTY,
-            new SystemTime(), metrics, tenantMetrics, null);
+            new SystemTime(), metrics, tenantMetrics, null, (short) 1, 1);
 
         // to set MultiTenantRequestContext.isMetadataFetchForAllTopics flag
         MetadataRequest metadataRequest = MetadataRequest.Builder.allTopics().build();

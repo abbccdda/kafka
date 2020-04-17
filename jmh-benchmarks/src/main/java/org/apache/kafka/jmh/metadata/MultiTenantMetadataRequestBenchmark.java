@@ -199,7 +199,7 @@ public class MultiTenantMetadataRequestBenchmark {
 
         RequestContext context = new MultiTenantRequestContext(header, "1", null, principal,
             ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), SecurityProtocol.PLAINTEXT, ClientInformation.EMPTY,
-            new SystemTime(), metrics, tenantMetrics, null);
+            new SystemTime(), metrics, tenantMetrics, null, (short) 1, 1);
         return new RequestChannel.Request(1, context, 0, MemoryPool.NONE, buffer, requestChannelMetrics);
     }
 

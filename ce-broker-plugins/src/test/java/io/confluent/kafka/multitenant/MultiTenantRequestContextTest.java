@@ -1,4 +1,4 @@
-// (Copyright) [2017 - 2017] Confluent, Inc.
+// (Copyright) [2017 - 2020] Confluent, Inc.
 package io.confluent.kafka.multitenant;
 
 import io.confluent.kafka.multitenant.metrics.ApiSensorBuilder;
@@ -34,6 +34,7 @@ import org.apache.kafka.common.message.CreatePartitionsResponseData.CreatePartit
 import org.apache.kafka.common.message.CreateTopicsRequestData;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignment;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableReplicaAssignmentCollection;
+import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopicCollection;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfig;
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreateableTopicConfigCollection;
@@ -225,6 +226,8 @@ import static org.junit.Assert.assertTrue;
 public class MultiTenantRequestContextTest {
 
   private final static Locale LOCALE = Locale.ENGLISH;
+  private final static short DEFAULT_REPLICATION_FACTOR = 2;
+  private final static int DEFAULT_NUM_PARTITIONS = 3;
   private MultiTenantPrincipal principal = new MultiTenantPrincipal("user",
       new TenantMetadata("tenant", "tenant_cluster_id"));
   private ListenerName listenerName = new ListenerName("listener");
@@ -1168,6 +1171,13 @@ public class MultiTenantRequestContextTest {
 
       requestTopics.add(creatableTopic("invalid", 3, (short) 5));
 
+      // Creating topics with default partitions/replication factor are only supported in
+      // CreateTopicRequest version 4+.
+      if (ver >= 4) {
+        requestTopics.add(creatableTopic("default", CreateTopicsRequest.NO_NUM_PARTITIONS,
+              CreateTopicsRequest.NO_REPLICATION_FACTOR));
+      }
+
       CreateTopicsRequest inbound = new CreateTopicsRequest.Builder(
               new CreateTopicsRequestData()
                       .setTopics(requestTopics)
@@ -1177,8 +1187,12 @@ public class MultiTenantRequestContextTest {
 
       CreateTopicsRequest intercepted = (CreateTopicsRequest) parseRequest(context, inbound);
 
-      assertEquals(mkSet("tenant_foo", "tenant_bar", "tenant_invalid"),
-              intercepted.data().topics().stream().map(t -> t.name()).collect(Collectors.toSet()));
+      Set<String> expectedTopics = mkSet("tenant_foo", "tenant_bar", "tenant_invalid");
+      if (ver >= 4) {
+        expectedTopics.add("tenant_default");
+      }
+      assertEquals(expectedTopics, intercepted.data().topics().stream().map(CreatableTopic::name)
+              .collect(Collectors.toSet()));
 
       assertEquals(4, intercepted.data().topics().find("tenant_foo").assignments().size());
       // Configs should be transformed by removing non-updateable configs, except for min.insync.replicas
@@ -1198,6 +1212,13 @@ public class MultiTenantRequestContextTest {
       assertTrue(intercepted.data().topics().find("tenant_invalid").assignments().isEmpty());
       assertEquals(3, intercepted.data().topics().find("tenant_invalid").numPartitions());
       assertEquals(5, intercepted.data().topics().find("tenant_invalid").replicationFactor());
+
+      if (ver >= 4) {
+        assertEquals(DEFAULT_NUM_PARTITIONS,
+                intercepted.data().topics().find("tenant_default").assignments().size());
+        assertEquals(DEFAULT_REPLICATION_FACTOR,
+                intercepted.data().topics().find("tenant_default").assignments().find(0).brokerIds().size());
+      }
 
       verifyRequestMetrics(ApiKeys.CREATE_TOPICS);
     }
@@ -1228,6 +1249,17 @@ public class MultiTenantRequestContextTest {
               .setAssignments(unbalancedAssignments)
               .setReplicationFactor((short) 5));
 
+      requestTopics.add(creatableTopic("foo", 3, (short) 5, testConfigs()));
+
+      requestTopics.add(creatableTopic("invalid", 3, (short) 5));
+
+      // Creating topics with default partitions/replication factor are only supported in
+      // CreateTopicRequest version 4+.
+      if (ver >= 4) {
+        requestTopics.add(creatableTopic("default", CreateTopicsRequest.NO_NUM_PARTITIONS,
+              CreateTopicsRequest.NO_REPLICATION_FACTOR));
+      }
+
       CreateTopicsRequest inbound = new CreateTopicsRequest.Builder(
               new CreateTopicsRequestData()
                       .setTopics(requestTopics)
@@ -1235,14 +1267,14 @@ public class MultiTenantRequestContextTest {
                       .setValidateOnly(false))
               .build(ver);
 
-      requestTopics.add(creatableTopic("foo", 3, (short) 5, testConfigs()));
-
-      requestTopics.add(creatableTopic("invalid", 3, (short) 5));
-
       CreateTopicsRequest intercepted = (CreateTopicsRequest) parseRequest(context, inbound);
 
-      assertEquals(mkSet("tenant_foo", "tenant_bar", "tenant_invalid"),
-              intercepted.data().topics().stream().map(t -> t.name()).collect(Collectors.toSet()));
+      Set<String> expectedTopics = mkSet("tenant_foo", "tenant_bar", "tenant_invalid");
+      if (ver >= 4) {
+        expectedTopics.add("tenant_default");
+      }
+      assertEquals(expectedTopics, intercepted.data().topics().stream().map(CreatableTopic::name)
+          .collect(Collectors.toSet()));
 
       assertEquals(4, intercepted.data().topics().find("tenant_foo").numPartitions());
       assertEquals(1, intercepted.data().topics().find("tenant_foo").replicationFactor());
@@ -1259,6 +1291,14 @@ public class MultiTenantRequestContextTest {
       assertTrue(intercepted.data().topics().find("tenant_invalid").assignments().isEmpty());
       assertEquals(3, intercepted.data().topics().find("tenant_invalid").numPartitions());
       assertEquals(5, intercepted.data().topics().find("tenant_invalid").replicationFactor());
+
+      if (ver >= 4) {
+        assertTrue(intercepted.data().topics().find("tenant_default").assignments().isEmpty());
+        assertEquals(CreateTopicsRequest.NO_NUM_PARTITIONS,
+              intercepted.data().topics().find("tenant_default").numPartitions());
+        assertEquals(CreateTopicsRequest.NO_REPLICATION_FACTOR,
+              intercepted.data().topics().find("tenant_default").replicationFactor());
+      }
 
       verifyRequestMetrics(ApiKeys.CREATE_TOPICS);
     }
@@ -2541,7 +2581,8 @@ public class MultiTenantRequestContextTest {
   private MultiTenantRequestContext newRequestContext(ApiKeys api, short version) {
     RequestHeader header = new RequestHeader(api, version, "clientId", 23);
     return new MultiTenantRequestContext(header, "1", null, principal, listenerName,
-        securityProtocol, ClientInformation.EMPTY, time, metrics, tenantMetrics, partitionAssignor);
+        securityProtocol, ClientInformation.EMPTY, time, metrics, tenantMetrics, partitionAssignor,
+        DEFAULT_REPLICATION_FACTOR, DEFAULT_NUM_PARTITIONS);
   }
 
   private ByteBuffer toByteBuffer(AbstractRequest request) {
