@@ -72,9 +72,7 @@ public class OtherClusterTest extends ClusterTestCommon {
   @After
   public void tearDown() {
     try {
-      if (consumer != null) {
-        consumer.close();
-      }
+      closeConsumers();
       if (rbacClusters != null) {
         rbacClusters.shutdown();
       }
@@ -91,7 +89,8 @@ public class OtherClusterTest extends ClusterTestCommon {
     Properties consumerProperties = eventLogClusters
         .consumerProps(LOG_READER_USER, consumerGroup);
 
-    consumer = new KafkaConsumer<>(consumerProperties);
+    KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consumerProperties);
+    consumers.add(consumer);
 
     consumer.subscribe(Collections.singleton(topic));
     return consumer;
@@ -102,8 +101,8 @@ public class OtherClusterTest extends ClusterTestCommon {
 
     initializeClusters();
     TestUtils.waitForCondition(() -> auditLoggerReady(), "auditLoggerReady");
-    consumer("event-log");
+    KafkaConsumer<byte[], byte[]> consumer = consumer("event-log");
 
-    produceConsume();
+    produceConsume(consumer);
   }
 }

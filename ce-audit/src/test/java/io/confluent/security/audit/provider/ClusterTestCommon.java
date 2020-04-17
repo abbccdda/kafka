@@ -27,6 +27,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
@@ -67,7 +68,7 @@ abstract class ClusterTestCommon {
   RbacClusters.Config rbacConfig;
   RbacClusters rbacClusters;
   String clusterId;
-  KafkaConsumer<byte[], byte[]> consumer;
+  Set<KafkaConsumer<byte[], byte[]>> consumers = new HashSet<>();
 
 
   static boolean match(AuditLogEntry entry,
@@ -224,7 +225,17 @@ abstract class ClusterTestCommon {
     return consumer(consumerGroup, AuditLogRouterJsonConfig.DEFAULT_TOPIC);
   }
 
-  void produceConsume() throws Throwable {
+  void closeConsumers() {
+    for (KafkaConsumer<byte[], byte[]> consumer: consumers) {
+      try {
+        consumer.close();
+      } catch (Exception e) {
+        log.error("Shutting down", e);
+      }
+    }
+  }
+
+  void produceConsume(KafkaConsumer<byte[], byte[]> consumer) throws Throwable {
 
     String clusterCrn = ConfluentResourceName.newBuilder()
         .setAuthority(AUTHORITY_NAME)

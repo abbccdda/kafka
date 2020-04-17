@@ -5,6 +5,7 @@ package io.confluent.security.audit.provider;
 
 import static io.confluent.events.EventLoggerConfig.KAFKA_EXPORTER_PREFIX;
 import static io.confluent.security.audit.router.AuditLogRouterJsonConfig.DEFAULT_TOPIC;
+import static io.confluent.security.audit.router.AuditLogRouterJsonConfig.TOPIC_PREFIX;
 import static io.confluent.security.test.utils.User.scramUser;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
@@ -333,33 +334,7 @@ public class ProviderRoutingTest {
     ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA", config);
     Scope clusterScope = Scope.kafkaClusterScope("63REM3VWREiYtMuVxZeplA");
 
-    KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "eventLogReader");
-    ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"), "testTopic",
-        PatternType.LITERAL);
-
-    RequestContext requestContext = new MockRequestContext(
-        new RequestHeader(ApiKeys.CREATE_TOPICS, (short) 1, "", 1), "",
-        InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
-        SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
-    Action create = new Action(clusterScope, topic.resourceType(), topic.name(),
-        new Operation("CreateTopics"));
-    AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
-        principal);
-
-    provider
-        .logAuthorization(
-            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
-                policy));
-    MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
-
-    assertEquals(1, ma.events.size());
-
-    CloudEvent<AttributesImpl, AuditLogEntry> event = ma.events.get(0);
-    assertTrue(event.getExtensions().containsKey(RouteExtension.Format.IN_MEMORY_KEY));
-    RouteExtension re = (RouteExtension) event.getExtensions()
-        .get(RouteExtension.Format.IN_MEMORY_KEY);
-    assertEquals(DEFAULT_TOPIC, re.getRoute());
-
+    checkTestMessage(provider, clusterScope, AuthorizeResult.ALLOWED, DEFAULT_TOPIC);
     // Change routes.
     String newAllowedTopic = AuditLogRouterJsonConfig.TOPIC_PREFIX + "__allowed_new";
     String newDeniedTopic = AuditLogRouterJsonConfig.TOPIC_PREFIX + "__denied_new";
@@ -376,46 +351,18 @@ public class ProviderRoutingTest {
     );
     provider.reconfigure(config);
 
-    principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "eventLogReader");
-    topic = new ResourcePattern(new ResourceType("Topic"), "testTopic", PatternType.LITERAL);
+    // Make sure the events are routed to the new topics.
+    checkTestMessage(provider, clusterScope, AuthorizeResult.ALLOWED, newAllowedTopic);
+    checkTestMessage(provider, clusterScope, AuthorizeResult.DENIED, newDeniedTopic);
 
-    requestContext = new MockRequestContext(
-        new RequestHeader(ApiKeys.CREATE_TOPICS, (short) 1, "", 1), "",
-        InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
-        SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
-    create = new Action(clusterScope, topic.resourceType(), topic.name(),
-        new Operation("CreateTopics"));
-    policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER, principal);
+    // Configure this with an empty config, which resets to the defaults
+    config = Utils.mkMap();
+    provider.reconfigure(config);
 
-    ma = (MockExporter) provider.getEventLogger().eventExporter();
-    ma.events.clear();
-    provider
-        .logAuthorization(
-            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
-                policy));
+    // Make sure the events are routed to the new topics.
+    checkTestMessage(provider, clusterScope, AuthorizeResult.ALLOWED, DEFAULT_TOPIC);
+    checkTestMessage(provider, clusterScope, AuthorizeResult.DENIED, DEFAULT_TOPIC);
 
-    assertEquals(1, ma.events.size());
-
-    event = ma.events.get(0);
-    assertTrue(event.getExtensions().containsKey(RouteExtension.Format.IN_MEMORY_KEY));
-
-    // Make sure the event is routed to the new topic.
-    re = (RouteExtension) event.getExtensions().get(RouteExtension.Format.IN_MEMORY_KEY);
-    assertEquals(newAllowedTopic, re.getRoute());
-
-    ma.events.clear();
-    provider.logAuthorization(
-        new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.DENIED,
-            policy));
-
-    assertEquals(1, ma.events.size());
-
-    event = ma.events.get(0);
-    assertTrue(event.getExtensions().containsKey(RouteExtension.Format.IN_MEMORY_KEY));
-
-    // Make sure the event is routed to the new topic.
-    re = (RouteExtension) event.getExtensions().get(RouteExtension.Format.IN_MEMORY_KEY);
-    assertEquals(newDeniedTopic, re.getRoute());
     provider.close();
   }
 
@@ -425,38 +372,14 @@ public class ProviderRoutingTest {
     Map<String, String> config = Utils.mkMap(
         Utils.mkEntry(AUDIT_EVENT_ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig(
             "foo:9092",
-            DEFAULT_TOPIC,
-            DEFAULT_TOPIC))
+            TOPIC_PREFIX + "_allowed",
+            TOPIC_PREFIX + "_denied"))
     );
     ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA", config);
     Scope clusterScope = Scope.kafkaClusterScope("63REM3VWREiYtMuVxZeplA");
 
-    KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "eventLogReader");
-    ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"), "testTopic",
-        PatternType.LITERAL);
-
-    RequestContext requestContext = new MockRequestContext(
-        new RequestHeader(ApiKeys.CREATE_TOPICS, (short) 1, "", 1), "",
-        InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
-        SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
-    Action create = new Action(clusterScope, topic.resourceType(), topic.name(),
-        new Operation("CreateTopics"));
-    AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
-        principal);
-
-    provider
-        .logAuthorization(
-            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
-                policy));
-    MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
-
-    assertEquals(1, ma.events.size());
-
-    CloudEvent<?, AuditLogEntry> event = ma.events.get(0);
-    assertTrue(event.getExtensions().containsKey(RouteExtension.Format.IN_MEMORY_KEY));
-    RouteExtension re = (RouteExtension) event.getExtensions()
-        .get(RouteExtension.Format.IN_MEMORY_KEY);
-    assertEquals(DEFAULT_TOPIC, re.getRoute());
+    checkTestMessage(provider, clusterScope, AuthorizeResult.ALLOWED, TOPIC_PREFIX + "_allowed");
+    checkTestMessage(provider, clusterScope, AuthorizeResult.DENIED, TOPIC_PREFIX + "_denied");
 
     // Change routes.
     config = Utils.mkMap(
@@ -471,36 +394,72 @@ public class ProviderRoutingTest {
     );
     provider.reconfigure(config);
 
-    principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "eventLogReader");
-    topic = new ResourcePattern(new ResourceType("Topic"), "testTopic", PatternType.LITERAL);
+    // reconfigured to send messages nowhere
+    checkTestMessage(provider, clusterScope, AuthorizeResult.ALLOWED, "");
+    checkTestMessage(provider, clusterScope, AuthorizeResult.DENIED, "");
 
-    requestContext = new MockRequestContext(
+    provider.close();
+  }
+
+  @Test
+  public void testReconfigureEmpty() throws Throwable {
+    // Make sure defaults work.
+    Map<String, String> config = Utils.mkMap(
+        Utils.mkEntry(AUDIT_EVENT_ROUTER_CONFIG, AuditLogRouterJsonConfigUtils.defaultConfig(
+            "foo:9092",
+            TOPIC_PREFIX + "_allowed",
+            TOPIC_PREFIX + "_denied"))
+    );
+    ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA", config);
+    Scope clusterScope = Scope.kafkaClusterScope("63REM3VWREiYtMuVxZeplA");
+
+    checkTestMessage(provider, clusterScope, AuthorizeResult.ALLOWED, TOPIC_PREFIX + "_allowed");
+
+    // This sets the routes to the default! Which is different from the originally-configured value
+    config = Utils.mkMap(
+        Utils.mkEntry(AUDIT_EVENT_ROUTER_CONFIG, "")
+    );
+    provider.reconfigure(config);
+
+    checkTestMessage(provider, clusterScope, AuthorizeResult.ALLOWED, DEFAULT_TOPIC);
+
+    provider.close();
+  }
+
+  public void checkTestMessage(ConfluentAuditLogProvider provider, Scope clusterScope, AuthorizeResult result, String expectedTopic) {
+    KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "eventLogReader");
+    ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"), "testTopic",
+        PatternType.LITERAL);
+
+    RequestContext requestContext = new MockRequestContext(
         new RequestHeader(ApiKeys.CREATE_TOPICS, (short) 1, "", 1), "",
         InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
         SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
-    create = new Action(clusterScope, topic.resourceType(), topic.name(),
+    Action create = new Action(clusterScope, topic.resourceType(), topic.name(),
         new Operation("CreateTopics"));
-    policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER, principal);
+    AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
+        principal);
 
-    ma = (MockExporter) provider.getEventLogger().eventExporter();
+    MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
     ma.events.clear();
     provider
         .logAuthorization(
-            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+            new AuthorizationLogData(clusterScope, requestContext, create, result,
                 policy));
 
-    // Make sure the event is not routed
-    assertEquals(0, ma.events.size());
+    if (expectedTopic != null && !expectedTopic.isEmpty()) {
+      assertEquals(1, ma.events.size());
 
-    ma.events.clear();
-    provider.logAuthorization(
-        new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.DENIED,
-            policy));
-    // Make sure the event is not routed
-    assertEquals(0, ma.events.size());
-
+      CloudEvent<?, AuditLogEntry> event = ma.events.get(0);
+      assertTrue(event.getExtensions().containsKey(RouteExtension.Format.IN_MEMORY_KEY));
+      RouteExtension re = (RouteExtension) event.getExtensions()
+          .get(RouteExtension.Format.IN_MEMORY_KEY);
+      assertEquals(expectedTopic, re.getRoute());
+    } else {
+      // Make sure the event is not routed
+      assertEquals(0, ma.events.size());
+    }
   }
-
 
   private class MockRequestContext implements RequestContext {
 

@@ -32,8 +32,8 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -141,7 +141,7 @@ public class KafkaExporter implements Exporter {
                 log.info("all topics created successfully");
               }
             } else {
-              throw new RuntimeException("Topic " + topicName + "not found on cluster ["
+              throw new RuntimeException("Topic " + topicName + " not found on cluster ["
                   + this.eventLogConfig.getString(BOOTSTRAP_SERVERS_CONFIG) + "]");
             }
           } catch (Exception e) {
@@ -249,6 +249,9 @@ public class KafkaExporter implements Exporter {
     if (this.producer != null) {
       this.producer.flush();
       this.producer.close(Duration.ofMillis(0));
+    }
+    if (this.topicManager != null) {
+      this.topicManager.close();
     }
   }
 

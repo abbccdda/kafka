@@ -127,31 +127,36 @@ public class TopicManager implements Closeable {
     }
   }
 
+  private void updateTopicExistsWithDescribedTopics() {
+    DescribeTopicsResult describeResult = adminClient.describeTopics(topicMap.keySet(),
+        new DescribeTopicsOptions().timeoutMs(timeOutMs));
+    for (Map.Entry<String, KafkaFuture<TopicDescription>> entry : describeResult.values()
+        .entrySet()) {
+      try {
+        TopicDescription description = entry.getValue().get(timeOutMs, TimeUnit.MILLISECONDS);
+        topicExists.put(description.name(), true);
+        log.debug("Event log topic {} ready with {} partitions", entry.getKey(),
+            description.partitions().size());
+      } catch (ExecutionException | TimeoutException e) {
+        if (e.getCause() instanceof UnknownTopicOrPartitionException) {
+          topicExists.put(entry.getKey(), false);
+        } else {
+          // something bad happened
+          log.error("error while describing topics", e);
+        }
+      } catch (InterruptedException e) {
+        log.warn("interrupted while describing event log topic {}", entry.getKey(), e);
+      }
+    }
+  }
+
   public boolean reconcile() {
     try {
-
       // Verify that the topics are not already there.
       // It is possible that this AdminClient has permission to DescribeTopics, but not CreateTopics.
       // If something else has created topics that we don't have permission to create, we'd like this
       // reconcile job to notice that and update topicExists
-      DescribeTopicsResult describeResult = adminClient.describeTopics(topicMap.keySet(),
-          new DescribeTopicsOptions().timeoutMs(timeOutMs));
-      for (Map.Entry<String, KafkaFuture<TopicDescription>> entry : describeResult.values()
-          .entrySet()) {
-        try {
-          TopicDescription description = entry.getValue().get(timeOutMs, TimeUnit.MILLISECONDS);
-          topicExists.put(description.name(), true);
-          log.debug("Event log topic {} ready with {} partitions", entry.getKey(),
-              description.partitions().size());
-        } catch (ExecutionException | TimeoutException e) {
-          if (e.getCause() instanceof UnknownTopicOrPartitionException) {
-            topicExists.put(entry.getKey(), false);
-          } else {
-            // something bad happened
-            log.error("error while describing topics", e);
-          }
-        }
-      }
+      updateTopicExistsWithDescribedTopics();
 
       Set<String> missing = topicExists.entrySet().stream()
           .filter(e -> !e.getValue())
@@ -177,10 +182,13 @@ public class TopicManager implements Closeable {
             topicExists.put(entry.getKey(), true);
           } else {
             // Ignore if the topic already exists, otherwise this is a problem
-            log.error("error while creating topics", e);
+            log.error("error while creating topic " + entry.getKey(), e);
           }
         }
       }
+
+      // Make sure that topicExists is up to date
+      updateTopicExistsWithDescribedTopics();
     } catch (InterruptedException e) {
       log.warn("Event log topic initialization interrupted");
     }
