@@ -188,7 +188,7 @@ public class ConfluentConfigs {
 
     public static final String BALANCER_ENABLE_BASE_CONFIG = "enable";
     public static final String BALANCER_ENABLE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_ENABLE_BASE_CONFIG;
-    public static final boolean BALANCER_ENABLE_DEFAULT = true;
+    public static final boolean BALANCER_ENABLE_DEFAULT = false;
     public static final String BALANCER_ENABLE_DOC = "This config controls whether the balancer is enabled";
 
     public static final String BALANCER_RACK_AWARE_BASE_CONFIG = "rack.aware";
@@ -231,13 +231,13 @@ public class ConfluentConfigs {
     public static final String BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_EXCLUDE_TOPIC_NAMES_BASE_CONFIG;
     public static final List BALANCER_EXCLUDE_TOPIC_NAMES_DEFAULT = Collections.EMPTY_LIST;
     public static final String BALANCER_EXCLUDE_TOPIC_NAMES_DOC = "This config accepts a list of topic names that " +
-            "will be excluded from rebalancing. For example, 'balancer.exclude.topic.names=[topic1, topic2]' ";
+            "will be excluded from rebalancing. For example, 'confluent.balancer.exclude.topic.names=[topic1, topic2]' ";
 
     public static final String BALANCER_EXCLUDE_TOPIC_PREFIXES_BASE_CONFIG = "exclude.topic.prefixes";
     public static final String BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_EXCLUDE_TOPIC_PREFIXES_BASE_CONFIG;
     public static final List BALANCER_EXCLUDE_TOPIC_PREFIXES_DEFAULT = Collections.EMPTY_LIST;
     public static final String BALANCER_EXCLUDE_TOPIC_PREFIXES_DOC = "This config accepts a list of topic prefixes that " +
-            "will be excluded from rebalancing. For example, 'balancer.exclude.topic.prefixes=[prefix1, prefix2]' would " +
+            "will be excluded from rebalancing. For example, 'confluent.balancer.exclude.topic.prefixes=[prefix1, prefix2]' would " +
             "exclude topics 'prefix1-suffix1', 'prefix1-suffix2', 'prefix2-suffix3', but not 'abc-prefix1-xyz'" +
             " and 'def-prefix2'";
 
