@@ -29,6 +29,7 @@ import kafka.metrics.KafkaMetricsGroup
 import kafka.security.authorizer.AclAuthorizer.{NoAcls, VersionedAcls}
 import kafka.security.authorizer.AclEntry
 import kafka.server.ConfigType
+import kafka.server.link.ClusterLinkTopicState
 import kafka.utils.Logging
 import kafka.zk.TopicZNode.TopicIdReplicaAssignment
 import kafka.zookeeper._
@@ -522,13 +523,14 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
    * @param topic the topic whose assignment is being set.
    * @param topicId Optional topic ID if the topic has one
    * @param assignment the partition to replica mapping to set for the given topic
+   * @param clusterLink optional cluster link topic state
    * @param expectedControllerEpochZkVersion expected controller epoch zkVersion.
    * @return SetDataResponse
    */
   def setTopicAssignmentRaw(topic: String,
                             topicId: Option[UUID],
                             assignment: collection.Map[TopicPartition, ReplicaAssignment],
-                            clusterLink: Option[String],
+                            clusterLink: Option[ClusterLinkTopicState],
                             expectedControllerEpochZkVersion: Int): SetDataResponse = {
     val setDataRequest = SetDataRequest(TopicZNode.path(topic), TopicZNode.encode(topicId, assignment, clusterLink), ZkVersion.MatchAnyVersion)
     retryRequestUntilConnected(setDataRequest, expectedControllerEpochZkVersion)
@@ -539,14 +541,14 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
    * @param topic the topic whose assignment is being set
    * @param topicId optional topic ID if one exists for the topic
    * @param assignment the partition to replica mapping to set for the given topic
-   * @param clusterLink optional cluster link id if the topic is being mirrored
+   * @param clusterLink optional cluster link topic state
    * @param expectedControllerEpochZkVersion expected controller epoch zkVersion.
    * @throws KeeperException if there is an error while setting assignment
    */
   def setTopicAssignment(topic: String,
                          topicId: Option[UUID],
                          assignment: Map[TopicPartition, ReplicaAssignment],
-                         clusterLink: Option[String],
+                         clusterLink: Option[ClusterLinkTopicState],
                          expectedControllerEpochZkVersion: Int = ZkVersion.MatchAnyVersion) = {
     val setDataResponse = setTopicAssignmentRaw(topic, topicId, assignment, clusterLink, expectedControllerEpochZkVersion)
     setDataResponse.maybeThrow
@@ -557,13 +559,13 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
    * @param topic the topic whose assignment is being set.
    * @param topicId optional topic ID if one exists for the topic
    * @param assignment the partition to replica mapping to set for the given topic
-   * @param clusterLink optional cluster link id if the topic is being mirrored
+   * @param clusterLink optional cluster link topic state
    * @throws KeeperException if there is an error while creating assignment
    */
   def createTopicAssignment(topic: String,
                             topicId: Option[UUID],
                             assignment: Map[TopicPartition, ReplicaAssignment],
-                            clusterLink: Option[String]) = {
+                            clusterLink: Option[ClusterLinkTopicState]) = {
     createRecursive(TopicZNode.path(topic), TopicZNode.encode(topicId, assignment, clusterLink))
   }
 
@@ -646,11 +648,11 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
   }
 
   /**
-    * Gets the cluster link for the given topics.
-    * @param topics the topics we wish to retrieve the cluster link for
-    * @return the cluster links
+    * Gets the cluster link state for the given topics.
+    * @param topics the topics we wish to retrieve the cluster link state for
+    * @return the cluster link states
     */
-  def getClusterLinkForTopics(topics: Set[String]): Map[String, String] = {
+  def getClusterLinkForTopics(topics: Set[String]): Map[String, ClusterLinkTopicState] = {
     val getDataRequests = topics.map(topic => GetDataRequest(TopicZNode.path(topic), ctx = Some(topic)))
     val getDataResponses = retryRequestsUntilConnected(getDataRequests.toSeq)
     getDataResponses.map { getDataResponse =>

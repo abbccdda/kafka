@@ -751,7 +751,7 @@ class KafkaController(val config: KafkaConfig,
         if (replicaAssignment.isBeingReassigned)
           controllerContext.partitionsBeingReassigned.add(topicPartition)
       }
-      clusterLink.foreach { linkName => controllerContext.linkedTopics += topic -> ClusterLinkName(linkName) }
+      clusterLink.foreach { cl => controllerContext.linkedTopics += topic -> cl }
     }
 
     controllerContext.partitionLeadershipInfo.clear()
@@ -891,7 +891,7 @@ class KafkaController(val config: KafkaConfig,
       topicPartition.topic,
       controllerContext.topicIds.get(topicPartition.topic),
       topicAssignment,
-      controllerContext.linkedTopics.get(topicPartition.topic).map(_.name),
+      controllerContext.linkedTopics.get(topicPartition.topic),
       controllerContext.epochZkVersion
     )
     setDataResponse.resultCode match {
@@ -1483,7 +1483,7 @@ class KafkaController(val config: KafkaConfig,
       newAssignments.foreach { case (topicPartition, newReplicaAssignment) =>
         controllerContext.updatePartitionFullReplicaAssignment(topicPartition, newReplicaAssignment)
       }
-      clusterLink.foreach { linkName => controllerContext.linkedTopics += topic -> ClusterLinkName(linkName) }
+      clusterLink.foreach { cl => controllerContext.linkedTopics += topic -> cl }
     }
     info(s"New topics: [$newTopics], deleted topics: [$deletedTopics], new partition replica assignment " +
       s"[$addedPartitionReplicaAssignment]")
@@ -1532,7 +1532,7 @@ class KafkaController(val config: KafkaConfig,
       zkClient.setTopicAssignment(topic,
         controllerContext.topicIds.get(topic),
         existingPartitionReplicaAssignment,
-        controllerContext.linkedTopics.get(topic).map(_.name),
+        controllerContext.linkedTopics.get(topic),
         controllerContext.epochZkVersion)
     }
 
@@ -1567,8 +1567,8 @@ class KafkaController(val config: KafkaConfig,
         }
         onNewPartitionCreation(partitionsToBeAdded.keySet)
       }
-      val oldLink = controllerContext.linkedTopics.get(topic).map(_.name)
-      val newLink = topicInfo.flatMap(_.clusterLink).headOption
+      val oldLink = controllerContext.linkedTopics.get(topic).flatMap(_.activeLinkName)
+      val newLink = topicInfo.headOption.flatMap(_.clusterLink).flatMap(_.activeLinkName)
       if (oldLink != newLink) {
         newLink match {
           case Some(linkName) =>

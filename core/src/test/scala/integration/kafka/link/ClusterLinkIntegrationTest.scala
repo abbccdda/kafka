@@ -22,7 +22,7 @@ import java.util.{Collections, Properties}
 import kafka.api.{IntegrationTestHarness, KafkaSasl, SaslSetup}
 import kafka.controller.ReplicaAssignment
 import kafka.server.{KafkaConfig, KafkaServer}
-import kafka.server.link.ClusterLinkConfig
+import kafka.server.link.{ClusterLinkConfig, ClusterLinkTopicState}
 import kafka.utils.Implicits._
 import kafka.utils.{JaasTestUtils, Logging, TestUtils}
 import kafka.zk.ConfigEntityChangeNotificationZNode
@@ -336,12 +336,14 @@ class ClusterLinkTestHarness extends IntegrationTestHarness with SaslSetup {
     val assignment = (0 until numPartitions).map { i =>
       i -> ReplicaAssignment(Seq(i % 2, (i + 1) % 2), Seq.empty)
     }.toMap
+
+    val mirror = new ClusterLinkTopicState.Mirror(linkName)
     adminZkClient.createTopicWithAssignment(topic,
       config = new Properties(),
       assignment,
-      clusterLink = Some(linkName))
+      clusterLink = Some(mirror))
 
-    assertEquals(Map(topic -> linkName), zkClient.getClusterLinkForTopics(Set(topic)))
+    assertEquals(Map(topic -> mirror), zkClient.getClusterLinkForTopics(Set(topic)))
   }
 
   def unlinkTopic(topic: String, linkName: String): Unit = {

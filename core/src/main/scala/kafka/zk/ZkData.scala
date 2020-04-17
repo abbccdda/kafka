@@ -30,6 +30,7 @@ import kafka.controller.{IsrChangeNotificationHandler, LeaderIsrAndControllerEpo
 import kafka.security.authorizer.AclAuthorizer.VersionedAcls
 import kafka.security.authorizer.AclEntry
 import kafka.server.{ConfigType, DelegationTokenManager}
+import kafka.server.link.ClusterLinkTopicState
 import kafka.utils.Json
 import kafka.utils.json.JsonObject
 import org.apache.kafka.common.{KafkaException, TopicPartition}
@@ -243,11 +244,13 @@ object TopicZNode {
   case class TopicIdReplicaAssignment(topic: String,
                                       topicId: Option[UUID],
                                       assignment: Map[TopicPartition, ReplicaAssignment],
-                                      clusterLink: Option[String])
+                                      clusterLink: Option[ClusterLinkTopicState])
 
   def path(topic: String) = s"${TopicsZNode.path}/$topic"
 
-  def encode(topicId: Option[UUID], assignment: collection.Map[TopicPartition, ReplicaAssignment], clusterLink: Option[String]): Array[Byte] = {
+  def encode(topicId: Option[UUID],
+             assignment: collection.Map[TopicPartition, ReplicaAssignment],
+             clusterLink: Option[ClusterLinkTopicState]): Array[Byte] = {
     val replicaAssignmentJson = mutable.Map[String, util.List[Int]]()
     val addingReplicasAssignmentJson = mutable.Map[String, util.List[Int]]()
     val removingReplicasAssignmentJson = mutable.Map[String, util.List[Int]]()
@@ -278,7 +281,7 @@ object TopicZNode {
       "target_observers" -> targetObserversAssignment.asJava
     )
     topicId.foreach(id => topicAssignment += "confluent_topic_id" -> id.toString)
-    clusterLink.foreach(linkName => topicAssignment += "confluent_cluster_link" -> linkName)
+    clusterLink.foreach(cl => topicAssignment += "confluent_cluster_link" -> cl.toJsonString)
 
     Json.encodeAsBytes(topicAssignment.asJava)
   }
@@ -305,7 +308,7 @@ object TopicZNode {
     Json.parseBytes(bytes).map { js =>
       val assignmentJson = js.asJsonObject
       val topicId = assignmentJson.get("confluent_topic_id").map(_.to[String]).map(UUID.fromString)
-      val clusterLink = assignmentJson.get("confluent_cluster_link").map(_.to[String])
+      val clusterLink = assignmentJson.get("confluent_cluster_link").map(cl => ClusterLinkTopicState.fromJsonString(cl.to[String]))
       val addingReplicasJsonOpt = assignmentJson.get("adding_replicas").map(_.asJsonObject)
       val removingReplicasJsonOpt = assignmentJson.get("removing_replicas").map(_.asJsonObject)
       val observersJson = assignmentJson.get("observers").map(_.asJsonObject)

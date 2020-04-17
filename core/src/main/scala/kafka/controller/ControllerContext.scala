@@ -20,6 +20,7 @@ package kafka.controller
 import java.util.UUID
 
 import kafka.cluster.Broker
+import kafka.server.link.ClusterLinkTopicState
 import org.apache.kafka.common.TopicPartition
 
 import scala.collection.{mutable, Map, Seq, Set}
@@ -167,8 +168,6 @@ case class ReplicaAssignment (replicas: Seq[Int],
     s"targetObservers=${targetObservers.map(_.mkString(","))})"
 }
 
-private[controller] case class ClusterLinkName(name: String)
-
 class ControllerContext {
   val stats = new ControllerStats
   var offlinePartitionCount = 0
@@ -180,7 +179,7 @@ class ControllerContext {
 
   val allTopics = mutable.Set.empty[String]
   var topicIds = mutable.Map.empty[String, UUID]
-  val linkedTopics = mutable.Map.empty[String, ClusterLinkName]
+  val linkedTopics = mutable.Map.empty[String, ClusterLinkTopicState]
   val partitionAssignments = mutable.Map.empty[String, mutable.Map[Int, ReplicaAssignment]]
   val partitionLeadershipInfo = mutable.Map.empty[TopicPartition, LeaderIsrAndControllerEpoch]
   val partitionsBeingReassigned = mutable.Set.empty[TopicPartition]
