@@ -19,7 +19,7 @@ import org.mockito.Mockito.{atLeastOnce, mock, times, verify, when}
 class GcsTierObjectStoreTest {
   val storage = mock(classOf[Storage])
   val bucket = mock(classOf[Bucket])
-  val config = new GcsTierObjectStoreConfig("cluster", 3, "bucket", "prefix", "region", 10240, 1024, "path")
+  val config = new GcsTierObjectStoreConfig("cluster", 3, "bucket", "prefix", "region", 10240, "path")
   val metadata = new TierObjectStore.ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0, false, false, false)
   val testFile : File = TestUtils.tempFile()
   val bb = ByteBuffer.allocate(0)

@@ -14,7 +14,6 @@ public class GcsTierObjectStoreConfig extends TierObjectStoreConfig {
     public String gcsPrefix;
     public String gcsRegion;
     public Integer gcsWriteChunkSize;
-    public Integer gcsReadChunkSize;
     public Optional<String> gcsCredFilePath;
 
     public GcsTierObjectStoreConfig(String clusterId, KafkaConfig config) {
@@ -24,7 +23,6 @@ public class GcsTierObjectStoreConfig extends TierObjectStoreConfig {
         this.gcsRegion = config.tierGcsRegion();
         this.gcsPrefix = config.tierGcsPrefix();
         this.gcsWriteChunkSize = config.tierGcsWriteChunkSize();
-        this.gcsReadChunkSize = config.tierGcsReadChunkSize();
         this.gcsCredFilePath = OptionConverters.toJava(config.tierGcsCredFilePath());
     }
 
@@ -35,14 +33,12 @@ public class GcsTierObjectStoreConfig extends TierObjectStoreConfig {
                              String prefix,
                              String region,
                              Integer writeChunkSize,
-                             Integer readChunkSize,
                              String credFilePath) {
         super(clusterId, brokerId);
         this.gcsBucket = bucket;
         this.gcsRegion = region;
         this.gcsPrefix = prefix;
         this.gcsWriteChunkSize = writeChunkSize;
-        this.gcsReadChunkSize = readChunkSize;
         this.gcsCredFilePath = Optional.ofNullable(credFilePath);
     }
 

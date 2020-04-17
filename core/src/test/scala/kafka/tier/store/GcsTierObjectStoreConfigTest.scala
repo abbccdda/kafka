@@ -16,7 +16,6 @@ class GcsTierObjectStoreConfigTest {
     val props = TestUtils.createBrokerConfig(0, "127.0.0.1:1", port = -1)
     props.put(KafkaConfig.TierGcsBucketProp, "bucket")
     props.put(KafkaConfig.TierGcsRegionProp, "region")
-    props.put(KafkaConfig.TierGcsReadChunkSizeProp, "10000")
     props.put(KafkaConfig.TierGcsWriteChunkSizeProp, "10000")
     val kafkaConfig = KafkaConfig.fromProps(props)
     new GcsTierObjectStoreConfig("clusterid", kafkaConfig)
@@ -26,7 +25,6 @@ class GcsTierObjectStoreConfigTest {
   def testInvalidConfigNoRegion(): Unit = {
     val props = TestUtils.createBrokerConfig(0, "127.0.0.1:1", port = -1)
     props.put(KafkaConfig.TierGcsBucketProp, "bucket")
-    props.put(KafkaConfig.TierGcsReadChunkSizeProp, "10000")
     props.put(KafkaConfig.TierGcsWriteChunkSizeProp, "10000")
     val kafkaConfig = KafkaConfig.fromProps(props)
     assertThrows[IllegalArgumentException]{new GcsTierObjectStoreConfig("clusterid", kafkaConfig)}
@@ -36,7 +34,6 @@ class GcsTierObjectStoreConfigTest {
   def testInvalidConfigNoBucket(): Unit = {
     val props = TestUtils.createBrokerConfig(0, "127.0.0.1:1", port = -1)
     props.put(KafkaConfig.TierGcsRegionProp, "region")
-    props.put(KafkaConfig.TierGcsReadChunkSizeProp, "10000")
     props.put(KafkaConfig.TierGcsWriteChunkSizeProp, "10000")
     val kafkaConfig = KafkaConfig.fromProps(props)
     assertThrows[IllegalArgumentException]{new GcsTierObjectStoreConfig("clusterid", kafkaConfig)}

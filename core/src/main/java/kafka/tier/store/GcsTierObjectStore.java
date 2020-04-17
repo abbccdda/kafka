@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 /*
  *  Google Cloud Storage manages SSE keys by default.
@@ -39,13 +40,13 @@ import java.util.Optional;
  */
 public class GcsTierObjectStore implements TierObjectStore {
     private final static Logger log = LoggerFactory.getLogger(GcsTierObjectStore.class);
+    private final static int UNKNOWN_END_RANGE_CHUNK_SIZE = 1_000_000;
     private final String clusterId;
     private final int brokerId;
     private final String bucket;
     private final String prefix;
     // If write or read chunkSize is 0, then the respective default value of the GCS implementation is used
     private final int writeChunkSize;
-    private final int readChunkSize;
     private final Storage storage;
 
     public GcsTierObjectStore(GcsTierObjectStoreConfig config) {
@@ -59,7 +60,6 @@ public class GcsTierObjectStore implements TierObjectStore {
         this.bucket = config.gcsBucket;
         this.prefix = config.gcsPrefix;
         this.writeChunkSize = config.gcsWriteChunkSize;
-        this.readChunkSize = config.gcsReadChunkSize;
         expectBucket(bucket, config.gcsRegion);
     }
 
@@ -79,7 +79,9 @@ public class GcsTierObjectStore implements TierObjectStore {
         try {
             ReadChannel reader = storage.reader(blobId);
             long byteOffsetStartLong = byteOffsetStart == null ? 0 : byteOffsetStart.longValue();
-            return new GcsTierObjectStoreResponse(reader, byteOffsetStartLong, readChunkSize);
+            OptionalInt chunkSize = byteOffsetEnd == null ? OptionalInt.empty() :
+                    OptionalInt.of(byteOffsetEnd - byteOffsetStart);
+            return new GcsTierObjectStoreResponse(reader, byteOffsetStartLong, chunkSize);
         } catch (StorageException e) {
             throw new TierObjectStoreRetriableException("Failed to fetch segment " + objectMetadata, e);
         } catch (Exception e) {
@@ -201,7 +203,9 @@ public class GcsTierObjectStore implements TierObjectStore {
             try {
                 GoogleCredentials credentials = GoogleCredentials.fromStream(new FileInputStream(config.gcsCredFilePath.get()))
                         .createScoped(Lists.newArrayList("https://www.googleapis.com/auth/cloud-platform"));
-                return StorageOptions.newBuilder().setCredentials(credentials).build().getService();
+                return StorageOptions.newBuilder()
+                        .setCredentials(credentials).build()
+                        .getService();
             } catch (IOException e) {
                 throw new TierObjectStoreFatalException("Error in opening GCS credentials file", e);
             }
@@ -231,11 +235,14 @@ public class GcsTierObjectStore implements TierObjectStore {
 
     private static class GcsTierObjectStoreResponse implements TierObjectStoreResponse {
         private final InputStream inputStream;
-        GcsTierObjectStoreResponse(ReadChannel channel, long startOffset, int chunkSize) throws IOException {
-            if (chunkSize > 0)
-                channel.setChunkSize(chunkSize);
+        GcsTierObjectStoreResponse(ReadChannel channel, long startOffset,
+                                   OptionalInt chunkSizeOpt) throws IOException {
+            // we set chunk size to our estimate of the maximum amount of data required to read.
+            // this avoids reading data that will be discarded as a result of being larger than
+            // max partition fetch bytes, and results in similar read behavior to range fetches in S3
+            int chunkSize = chunkSizeOpt.orElse(UNKNOWN_END_RANGE_CHUNK_SIZE);
             channel.seek(startOffset);
-
+            channel.setChunkSize(chunkSize);
             this.inputStream = Channels.newInputStream(channel);
         }
 
