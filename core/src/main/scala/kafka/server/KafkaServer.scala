@@ -374,7 +374,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         // Delay starting processors until the end of the initialization sequence to ensure
         // that credentials have been loaded before processing authentications.
         socketServer = new SocketServer(config, metrics, time, credentialProvider)
-        socketServer.startup(startupProcessors = false)
+        socketServer.startup(startProcessingRequests = false)
 
         adminManager = new AdminManager(config, metrics, metadataCache, zkClient)
 
@@ -490,8 +490,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         dynamicConfigManager = new DynamicConfigManager(zkClient, dynamicConfigHandlers)
         dynamicConfigManager.startup()
 
-        socketServer.startControlPlaneProcessor(authorizerFutures)
-        socketServer.startDataPlaneProcessors(authorizerFutures)
+        socketServer.startProcessingRequests(authorizerFutures)
 
         authorizerFutures.values.foreach(_.join())
         metadataServer.start()

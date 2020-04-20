@@ -508,7 +508,7 @@ private[log] object LogCleanerManager extends Logging {
     * by maxCompactionLagMs and the current time.
     */
   def maxCompactionDelay(log: AbstractLog, firstDirtyOffset: Long, now: Long) : Long = {
-    val dirtyNonActiveSegments = log.localLogSegments(firstDirtyOffset, log.activeSegment.baseOffset)
+    val dirtyNonActiveSegments = log.localNonActiveLogSegmentsFrom(firstDirtyOffset)
     val firstBatchTimestamps = log.getFirstBatchTimestampForSegments(dirtyNonActiveSegments).filter(_ > 0)
 
     val earliestDirtySegmentTimestamp = {
@@ -574,7 +574,7 @@ private[log] object LogCleanerManager extends Logging {
       // the first segment whose largest message timestamp is within a minimum time lag from now
       if (minCompactionLagMs > 0) {
         // dirty log segments
-        val dirtyNonActiveSegments = log.localLogSegments(firstDirtyOffset, log.activeSegment.baseOffset)
+        val dirtyNonActiveSegments = log.localNonActiveLogSegmentsFrom(firstDirtyOffset)
         dirtyNonActiveSegments.find { s =>
           val isUncleanable = s.largestTimestamp > now - minCompactionLagMs
           debug(s"Checking if log segment may be cleaned: log='${log.name}' segment.baseOffset=${s.baseOffset} " +
@@ -599,7 +599,7 @@ private[log] object LogCleanerManager extends Logging {
   def calculateCleanableBytes(log: AbstractLog, firstDirtyOffset: Long, uncleanableOffset: Long): (Long, Long) = {
     val firstUncleanableSegment = log.localNonActiveLogSegmentsFrom(uncleanableOffset).headOption.getOrElse(log.activeSegment)
     val firstUncleanableOffset = firstUncleanableSegment.baseOffset
-    val cleanableBytes = log.localLogSegments(firstDirtyOffset, math.max(firstDirtyOffset, firstUncleanableOffset)).map(_.size.toLong).sum
+    val cleanableBytes = log.localLogSegments(math.min(firstDirtyOffset, firstUncleanableOffset), firstUncleanableOffset).map(_.size.toLong).sum
 
     (firstUncleanableOffset, cleanableBytes)
   }

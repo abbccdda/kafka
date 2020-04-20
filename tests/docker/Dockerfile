@@ -31,11 +31,10 @@ ENV DEBIAN_FRONTEND noninteractive
 ARG ducker_creator=default
 LABEL ducker.creator=$ducker_creator
 
-
 # Update Linux and install necessary utilities.
 RUN apt update && apt install -y sudo netcat iptables rsync unzip wget curl jq coreutils openssh-server net-tools vim python-pip python-dev libffi-dev libssl-dev cmake pkg-config libfuse-dev iperf traceroute && apt-get -y clean
 RUN python -m pip install -U pip==9.0.3;
-RUN pip install --upgrade cffi virtualenv pyasn1 boto3 pycrypto pywinrm ipaddress enum34 && pip install --upgrade ducktape==0.7.6
+RUN pip install --upgrade cffi virtualenv pyasn1 boto3 pycrypto pywinrm ipaddress enum34 && pip install --upgrade ducktape==0.7.7
 RUN pip install awscli
 
 RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
@@ -65,6 +64,7 @@ RUN mkdir -p "/opt/kafka-2.1.1" && chmod a+rw /opt/kafka-2.1.1 && curl -s "$KAFK
 RUN mkdir -p "/opt/kafka-2.2.2" && chmod a+rw /opt/kafka-2.2.2 && curl -s "$KAFKA_MIRROR/kafka_2.12-2.2.2.tgz" | tar xz --strip-components=1 -C "/opt/kafka-2.2.2"
 RUN mkdir -p "/opt/kafka-2.3.1" && chmod a+rw /opt/kafka-2.3.1 && curl -s "$KAFKA_MIRROR/kafka_2.12-2.3.1.tgz" | tar xz --strip-components=1 -C "/opt/kafka-2.3.1"
 RUN mkdir -p "/opt/kafka-2.4.1" && chmod a+rw /opt/kafka-2.4.1 && curl -s "$KAFKA_MIRROR/kafka_2.12-2.4.1.tgz" | tar xz --strip-components=1 -C "/opt/kafka-2.4.1"
+RUN mkdir -p "/opt/kafka-2.5.0" && chmod a+rw /opt/kafka-2.5.0 && curl -s "$KAFKA_MIRROR/kafka_2.12-2.5.0.tgz" | tar xz --strip-components=1 -C "/opt/kafka-2.5.0"
 
 RUN mkdir -p "/opt/confluentplatform-5.3.0" && chmod a+rw /opt/confluentplatform-5.3.0 && curl -s "https://s3-us-west-2.amazonaws.com/confluent-packages-5.3.0/archive/5.3/confluent-5.3.0-2.12.tar.gz" | tar xz --strip-components=1 -C "/opt/confluentplatform-5.3.0"; for i in /opt/confluentplatform-5.3.0/bin/kafka-*; do cp "$i" "$i.sh"; done
 RUN mkdir -p "/opt/confluentplatform-5.4.0" && chmod a+rw /opt/confluentplatform-5.4.0 && curl -s "https://s3-us-west-2.amazonaws.com/confluent-packages-5.4.0/archive/5.4/confluent-5.4.0-2.12.tar.gz" | tar xz --strip-components=1 -C "/opt/confluentplatform-5.4.0"; for i in /opt/confluentplatform-5.4.0/bin/kafka-*; do cp "$i" "$i.sh"; done
@@ -81,6 +81,7 @@ RUN curl -s "$KAFKA_MIRROR/kafka-streams-2.1.1-test.jar" -o /opt/kafka-2.1.1/lib
 RUN curl -s "$KAFKA_MIRROR/kafka-streams-2.2.2-test.jar" -o /opt/kafka-2.2.2/libs/kafka-streams-2.2.2-test.jar
 RUN curl -s "$KAFKA_MIRROR/kafka-streams-2.3.1-test.jar" -o /opt/kafka-2.3.1/libs/kafka-streams-2.3.1-test.jar
 RUN curl -s "$KAFKA_MIRROR/kafka-streams-2.4.1-test.jar" -o /opt/kafka-2.4.1/libs/kafka-streams-2.4.1-test.jar
+RUN curl -s "$KAFKA_MIRROR/kafka-streams-2.5.0-test.jar" -o /opt/kafka-2.5.0/libs/kafka-streams-2.5.0-test.jar
 
 # The version of Kibosh to use for testing.
 # If you update this, also update vagrant/base.sh

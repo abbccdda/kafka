@@ -10,6 +10,7 @@ import java.util.Map;
 import javax.net.SocketFactory;
 import javax.net.ssl.SSLSocketFactory;
 import org.apache.kafka.common.network.Mode;
+import org.apache.kafka.common.security.ssl.DefaultSslEngineFactory;
 import org.apache.kafka.common.security.ssl.SslFactory;
 
 public class ConfigurableSslSocketFactory extends SSLSocketFactory {
@@ -29,7 +30,7 @@ public class ConfigurableSslSocketFactory extends SSLSocketFactory {
   }
 
   public ConfigurableSslSocketFactory() {
-    sslSocketFactory = sslFactory.sslEngineBuilder().sslContext().getSocketFactory();
+    sslSocketFactory = DefaultSslEngineFactory.castOrThrow(sslFactory.sslEngineFactory()).sslContext().getSocketFactory();
   }
 
   @Override

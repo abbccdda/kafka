@@ -19,10 +19,10 @@ package org.apache.kafka.common.security.ssl;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.Reconfigurable;
 import org.apache.kafka.common.config.ConfigException;
-import org.apache.kafka.common.config.SecurityConfig;
 import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.internals.BrokerSecurityConfigs;
 import org.apache.kafka.common.network.Mode;
+import org.apache.kafka.common.security.auth.SslEngineFactory;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,7 +57,8 @@ public class SslFactory implements Reconfigurable {
     private final boolean keystoreVerifiableUsingTruststore;
     private final boolean requireJSSE;
     private String endpointIdentification;
-    private SslEngineBuilder sslEngineBuilder;
+    private SslEngineFactory sslEngineFactory;
+    private Map<String, Object> sslEngineFactoryConfig;
 
     public SslFactory(Mode mode) {
         this(mode, null, false);
@@ -90,19 +91,16 @@ public class SslFactory implements Reconfigurable {
 
     @Override
     public void configure(Map<String, ?> configs) throws KafkaException {
-        if (sslEngineBuilder != null) {
+        if (sslEngineFactory != null) {
             throw new IllegalStateException("SslFactory was already configured.");
         }
         this.endpointIdentification = (String) configs.get(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG);
 
-        Map<String, Object> nextConfigs = new HashMap<>();
-        copyMapEntries(nextConfigs, configs, SslConfigs.NON_RECONFIGURABLE_CONFIGS);
-        copyMapEntries(nextConfigs, configs, SslConfigs.RECONFIGURABLE_CONFIGS);
-        copyMapEntry(nextConfigs, configs, SecurityConfig.SECURITY_PROVIDERS_CONFIG);
+        Map<String, Object> nextConfigs = new HashMap<>(configs);
         if (clientAuthConfigOverride != null) {
             nextConfigs.put(BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG, clientAuthConfigOverride);
         }
-        SslEngineBuilder builder = new SslEngineBuilder(nextConfigs,
+        SslEngineFactory builder = instantiateSslEngineFactory(nextConfigs,
                 mode == Mode.SERVER && (!requireJSSE));
         if (keystoreVerifiableUsingTruststore) {
             try {
@@ -112,69 +110,83 @@ public class SslFactory implements Reconfigurable {
                         "can't connect to a server SSLEngine created with those settings.", e);
             }
         }
-        this.sslEngineBuilder = builder;
+        this.sslEngineFactory = builder;
     }
 
     @Override
     public Set<String> reconfigurableConfigs() {
-        return SslConfigs.RECONFIGURABLE_CONFIGS;
+        return sslEngineFactory.reconfigurableConfigs();
     }
 
     @Override
     public void validateReconfiguration(Map<String, ?> newConfigs) {
-        createNewSslEngineBuilder(newConfigs);
+        createNewSslEngineFactory(newConfigs);
     }
 
     @Override
     public void reconfigure(Map<String, ?> newConfigs) throws KafkaException {
-        SslEngineBuilder newSslEngineBuilder = createNewSslEngineBuilder(newConfigs);
-        if (newSslEngineBuilder != this.sslEngineBuilder) {
-            this.sslEngineBuilder = newSslEngineBuilder;
+        SslEngineFactory newSslEngineFactory = createNewSslEngineFactory(newConfigs);
+        if (newSslEngineFactory != this.sslEngineFactory) {
+            this.sslEngineFactory = newSslEngineFactory;
             log.info("Created new {} SSL engine builder with keystore {} truststore {}", mode,
-                    newSslEngineBuilder.keystore(), newSslEngineBuilder.truststore());
+                    newSslEngineFactory.keystore(), newSslEngineFactory.truststore());
         }
     }
 
-    private SslEngineBuilder createNewSslEngineBuilder(Map<String, ?> newConfigs) {
-        if (sslEngineBuilder == null) {
+    private SslEngineFactory instantiateSslEngineFactory(Map<String, Object> configs, boolean allowNetty) {
+        @SuppressWarnings("unchecked")
+        Class<? extends SslEngineFactory> sslEngineFactoryClass =
+                (Class<? extends SslEngineFactory>) configs.get(SslConfigs.SSL_ENGINE_FACTORY_CLASS_CONFIG);
+        SslEngineFactory sslEngineFactory;
+        if (sslEngineFactoryClass == null) {
+            sslEngineFactory = new DefaultSslEngineFactory(allowNetty);
+        } else {
+            sslEngineFactory = Utils.newInstance(sslEngineFactoryClass);
+        }
+        sslEngineFactory.configure(configs);
+        this.sslEngineFactoryConfig = configs;
+        return sslEngineFactory;
+    }
+
+    private SslEngineFactory createNewSslEngineFactory(Map<String, ?> newConfigs) {
+        if (sslEngineFactory == null) {
             throw new IllegalStateException("SslFactory has not been configured.");
         }
-        Map<String, Object> nextConfigs = new HashMap<>(sslEngineBuilder.configs());
-        copyMapEntries(nextConfigs, newConfigs, SslConfigs.RECONFIGURABLE_CONFIGS);
+        Map<String, Object> nextConfigs = new HashMap<>(sslEngineFactoryConfig);
+        copyMapEntries(nextConfigs, newConfigs, reconfigurableConfigs());
         if (clientAuthConfigOverride != null) {
             nextConfigs.put(BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG, clientAuthConfigOverride);
         }
-        if (!sslEngineBuilder.shouldBeRebuilt(nextConfigs)) {
-            return sslEngineBuilder;
+        if (!sslEngineFactory.shouldBeRebuilt(nextConfigs)) {
+            return sslEngineFactory;
         }
         try {
-            SslEngineBuilder newSslEngineBuilder = new SslEngineBuilder(nextConfigs,
-                    mode == Mode.SERVER && (!requireJSSE));
-            if (sslEngineBuilder.keystore() == null) {
-                if (newSslEngineBuilder.keystore() != null) {
+            SslEngineFactory newSslEngineFactory = instantiateSslEngineFactory(nextConfigs, mode == Mode.SERVER && (!requireJSSE));
+            if (sslEngineFactory.keystore() == null) {
+                if (newSslEngineFactory.keystore() != null) {
                     throw new ConfigException("Cannot add SSL keystore to an existing listener for " +
                             "which no keystore was configured.");
                 }
             } else {
-                if (newSslEngineBuilder.keystore() == null) {
+                if (newSslEngineFactory.keystore() == null) {
                     throw new ConfigException("Cannot remove the SSL keystore from an existing listener for " +
                             "which a keystore was configured.");
                 }
-                if (!CertificateEntries.create(sslEngineBuilder.keystore().load()).equals(
-                        CertificateEntries.create(newSslEngineBuilder.keystore().load()))) {
+                if (!CertificateEntries.create(sslEngineFactory.keystore()).equals(
+                        CertificateEntries.create(newSslEngineFactory.keystore()))) {
                     throw new ConfigException("Keystore DistinguishedName or SubjectAltNames do not match");
                 }
             }
-            if (sslEngineBuilder.truststore() == null && newSslEngineBuilder.truststore() != null) {
+            if (sslEngineFactory.truststore() == null && newSslEngineFactory.truststore() != null) {
                 throw new ConfigException("Cannot add SSL truststore to an existing listener for which no " +
                         "truststore was configured.");
             }
             if (keystoreVerifiableUsingTruststore) {
-                if (sslEngineBuilder.truststore() != null || sslEngineBuilder.keystore() != null) {
-                    SslEngineValidator.validate(sslEngineBuilder, newSslEngineBuilder);
+                if (sslEngineFactory.truststore() != null || sslEngineFactory.keystore() != null) {
+                    SslEngineValidator.validate(sslEngineFactory, newSslEngineFactory);
                 }
             }
-            return newSslEngineBuilder;
+            return newSslEngineFactory;
         } catch (Exception e) {
             log.debug("Validation of dynamic config update of SSLFactory failed.", e);
             throw new ConfigException("Validation of dynamic config update of SSLFactory failed: " + e);
@@ -182,23 +194,27 @@ public class SslFactory implements Reconfigurable {
     }
 
     public SSLEngine createSslEngine(String peerHost, int peerPort) {
-        if (sslEngineBuilder == null) {
+        if (sslEngineFactory == null) {
             throw new IllegalStateException("SslFactory has not been configured.");
         }
-        return sslEngineBuilder.createSslEngine(mode, peerHost, peerPort, endpointIdentification);
+        if (mode == Mode.SERVER) {
+            return sslEngineFactory.createServerSslEngine(peerHost, peerPort);
+        } else {
+            return sslEngineFactory.createClientSslEngine(peerHost, peerPort, endpointIdentification);
+        }
     }
 
     public Closeable createCloseableSslEngine(SSLEngine engine) {
-        return sslEngineBuilder.sslEngineCloser(engine);
+        return DefaultSslEngineFactory.castOrThrow(sslEngineFactory).sslEngineCloser(engine);
     }
 
     @Deprecated
     public SSLContext sslContext() {
-        return sslEngineBuilder.sslContext();
+        return DefaultSslEngineFactory.castOrThrow(sslEngineFactory).sslContext();
     }
 
-    public SslEngineBuilder sslEngineBuilder() {
-        return sslEngineBuilder;
+    public SslEngineFactory sslEngineFactory() {
+        return sslEngineFactory;
     }
 
     /**
@@ -291,17 +307,21 @@ public class SslFactory implements Reconfigurable {
         private ByteBuffer appBuffer;
         private ByteBuffer netBuffer;
 
-        static void validate(SslEngineBuilder oldEngineBuilder,
-                             SslEngineBuilder newEngineBuilder) throws SSLException {
+        static void validate(SslEngineFactory oldEngineBuilder,
+                             SslEngineFactory newEngineBuilder) throws SSLException {
             validate(createSslEngineForValidation(oldEngineBuilder, Mode.SERVER),
                     createSslEngineForValidation(newEngineBuilder, Mode.CLIENT));
             validate(createSslEngineForValidation(newEngineBuilder, Mode.SERVER),
                     createSslEngineForValidation(oldEngineBuilder, Mode.CLIENT));
         }
 
-        private static SSLEngine createSslEngineForValidation(SslEngineBuilder sslEngineBuilder, Mode mode) {
+        private static SSLEngine createSslEngineForValidation(SslEngineFactory sslEngineFactory, Mode mode) {
             // Use empty hostname, disable hostname verification
-            return sslEngineBuilder.createSslEngine(mode, "", 0, "");
+            if (mode == Mode.SERVER) {
+                return sslEngineFactory.createServerSslEngine("", 0);
+            } else {
+                return sslEngineFactory.createClientSslEngine("", 0, "");
+            }
         }
 
         static void validate(SSLEngine clientEngine, SSLEngine serverEngine) throws SSLException {

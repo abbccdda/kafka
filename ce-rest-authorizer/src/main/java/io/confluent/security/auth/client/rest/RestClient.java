@@ -19,6 +19,7 @@ import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.network.Mode;
+import org.apache.kafka.common.security.ssl.DefaultSslEngineFactory;
 import org.apache.kafka.common.security.ssl.SslFactory;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
@@ -180,7 +181,7 @@ public class RestClient implements Closeable {
   private SSLSocketFactory createSslSocketFactory(final Map<String, ?> sslConfigs) {
     SslFactory sslFactory = new SslFactory(Mode.CLIENT);
     sslFactory.configure(sslConfigs);
-    return sslFactory.sslEngineBuilder().sslContext().getSocketFactory();
+    return DefaultSslEngineFactory.castOrThrow(sslFactory.sslEngineFactory()).sslContext().getSocketFactory();
   }
 
   // Exposed for testing

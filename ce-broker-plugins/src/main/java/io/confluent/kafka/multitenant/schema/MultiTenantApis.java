@@ -306,6 +306,7 @@ public class MultiTenantApis {
 
           break;
 
+        case ALTER_CONFIGS:
         case INCREMENTAL_ALTER_CONFIGS:
           if (field != null && field.name.equals("responses") && type instanceof Schema) {
             return Optional.some(
@@ -313,7 +314,6 @@ public class MultiTenantApis {
           }
           break;
 
-        case ALTER_CONFIGS:
         case DESCRIBE_CONFIGS:
           if (field != null && field.name.equals("resources") && type instanceof Schema) {
             return Optional.some(

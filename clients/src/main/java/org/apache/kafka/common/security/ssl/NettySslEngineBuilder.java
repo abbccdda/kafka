@@ -27,6 +27,7 @@ import io.netty.handler.ssl.SslProvider;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Log4JLoggerFactory;
 import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.security.auth.SslEngineFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,7 +50,7 @@ public class NettySslEngineBuilder {
      * @param ctx   The engine builder context to use.
      * @returns     A new NettySslEngineBuilder, or null if it could not be created.
      */
-    public static NettySslEngineBuilder maybeCreate(SslEngineBuilder ctx) {
+    public static NettySslEngineBuilder maybeCreate(SslEngineFactory ctx) {
         if (!OpenSsl.isAvailable()) {
             log.warn("Disabling netty because no OpenSSL is available.");
             return null;
@@ -58,29 +59,35 @@ public class NettySslEngineBuilder {
         return new NettySslEngineBuilder(sslContext);
     }
 
-    private static SslContext createNettySslContext(SslEngineBuilder ctx) {
+    private static SslContext createNettySslContext(SslEngineFactory ctx) {
         try {
             if (ctx.keystore() == null) {
                 throw new KafkaException("Whe using netty in server mode, a keystore must be configured.");
             }
             // The keystore should contain the private key as well as the
             // certificate chain for the server.
-            SslEngineBuilder.PrivateKeyData keystorePrivateKeyData = ctx.keystore().loadPrivateKeyData();
+            DefaultSslEngineFactory factory;
+            if (ctx instanceof DefaultSslEngineFactory) {
+                factory = (DefaultSslEngineFactory) ctx;
+            } else {
+                throw new RuntimeException("Cannot create netty engine from factory " + ctx.getClass());
+            }
+            DefaultSslEngineFactory.PrivateKeyData keystorePrivateKeyData = factory.securityKeyStore().loadPrivateKeyData();
             X509Certificate[] truststoreCerts = ctx.truststore() == null ?
-                null : ctx.truststore().loadAllCertificates();
+                null : factory.securityTrustStore().loadAllCertificates();
 
             SslContextBuilder builder = SslContextBuilder.
                 forServer(keystorePrivateKeyData.key(), keystorePrivateKeyData.certificateChain()).
                 applicationProtocolConfig(ApplicationProtocolConfig.DISABLED).
                 sslProvider(SslProvider.OPENSSL_REFCNT).
                 trustManager(truststoreCerts);
-            if (ctx.enabledProtocols() != null) {
-                builder.protocols(ctx.enabledProtocols());
+            if (factory.enabledProtocols() != null) {
+                builder.protocols(factory.enabledProtocols());
             }
-            if (ctx.cipherSuites() != null) {
-                builder.ciphers(Arrays.asList(ctx.cipherSuites()));
+            if (factory.cipherSuites() != null) {
+                builder.ciphers(Arrays.asList(factory.cipherSuites()));
             }
-            switch (ctx.sslClientAuth()) {
+            switch (factory.sslClientAuth()) {
                 case NONE:
                     builder.clientAuth(ClientAuth.NONE);
                     break;

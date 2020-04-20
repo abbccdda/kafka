@@ -22,6 +22,8 @@ import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.config.ConfluentTopicConfig;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.NotLeaderForPartitionException;
+import org.apache.kafka.common.message.AddOffsetsToTxnRequestData;
+import org.apache.kafka.common.message.AlterConfigsResponseData;
 import org.apache.kafka.common.message.ControlledShutdownRequestData;
 import org.apache.kafka.common.message.ControlledShutdownResponseData;
 import org.apache.kafka.common.message.CreateAclsRequestData;
@@ -80,6 +82,7 @@ import org.apache.kafka.common.message.OffsetDeleteResponseData.OffsetDeleteResp
 import org.apache.kafka.common.message.OffsetDeleteResponseData.OffsetDeleteResponsePartitionCollection;
 import org.apache.kafka.common.message.OffsetDeleteResponseData.OffsetDeleteResponseTopic;
 import org.apache.kafka.common.message.OffsetDeleteResponseData.OffsetDeleteResponseTopicCollection;
+import org.apache.kafka.common.message.StopReplicaRequestData;
 import org.apache.kafka.common.message.SyncGroupRequestData;
 import org.apache.kafka.common.message.UpdateMetadataRequestData.UpdateMetadataPartitionState;
 import org.apache.kafka.common.metrics.KafkaMetric;
@@ -1413,11 +1416,17 @@ public class MultiTenantRequestContextTest {
     for (short ver = ApiKeys.STOP_REPLICA.oldestVersion(); ver <= ApiKeys.STOP_REPLICA.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.STOP_REPLICA, ver);
       TopicPartition partition = new TopicPartition("foo", 0);
+      StopReplicaRequestData.StopReplicaTopicState topicState = new StopReplicaRequestData.StopReplicaTopicState()
+          .setTopicName("foo")
+          .setPartitionStates(Collections.singletonList(
+              new StopReplicaRequestData.StopReplicaPartitionState()
+                  .setPartitionIndex(0).setDeletePartition(false))
+          );
       StopReplicaRequest inbound = new StopReplicaRequest.Builder((short) 1, 0, 0, 0, false,
-          Collections.singleton(partition)).build(ver);
+          Collections.singletonList(topicState)).build(ver);
       StopReplicaRequest request = (StopReplicaRequest) parseRequest(context, inbound);
       assertEquals(singletonList(partition),
-          StreamSupport.stream(request.partitions().spliterator(), false).map(p ->
+          StreamSupport.stream(request.partitionStates().keySet().spliterator(), false).map(p ->
               new TopicPartition(p.topic(), p.partition())).collect(toList()));
       assertTrue(context.shouldIntercept());
       StopReplicaResponse response = (StopReplicaResponse) context.intercept(request, 0);
@@ -1980,10 +1989,15 @@ public class MultiTenantRequestContextTest {
   public void testAddOffsetsToTxnRequest() {
     for (short ver = ApiKeys.ADD_OFFSETS_TO_TXN.oldestVersion(); ver <= ApiKeys.ADD_OFFSETS_TO_TXN.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.ADD_OFFSETS_TO_TXN, ver);
-      AddOffsetsToTxnRequest inbound = new AddOffsetsToTxnRequest.Builder("tr", 23L, (short) 15, "group").build(ver);
+      AddOffsetsToTxnRequestData data = new AddOffsetsToTxnRequestData()
+              .setTransactionalId("tr")
+              .setProducerId(23L)
+              .setProducerEpoch((short) 15)
+              .setGroupId("group");
+      AddOffsetsToTxnRequest inbound = new AddOffsetsToTxnRequest.Builder(data).build(ver);
       AddOffsetsToTxnRequest intercepted = (AddOffsetsToTxnRequest) parseRequest(context, inbound);
-      assertEquals("tenant_tr", intercepted.transactionalId());
-      assertEquals("tenant_group", intercepted.consumerGroupId());
+      assertEquals("tenant_tr", intercepted.data.transactionalId());
+      assertEquals("tenant_group", intercepted.data.groupId());
       verifyRequestMetrics(ApiKeys.ADD_OFFSETS_TO_TXN);
     }
   }
@@ -2020,7 +2034,8 @@ public class MultiTenantRequestContextTest {
               "group",
               23L,
               (short) 15,
-              offsets).build(ver);
+              offsets,
+              false).build(ver);
       TxnOffsetCommitRequest intercepted = (TxnOffsetCommitRequest) parseRequest(context, inbound);
       assertEquals("tenant_tr", intercepted.data.transactionalId());
       assertEquals("tenant_group", intercepted.data.groupId());
@@ -2378,13 +2393,33 @@ public class MultiTenantRequestContextTest {
   public void testAlterConfigsResponse() throws IOException {
     for (short ver = ApiKeys.ALTER_CONFIGS.oldestVersion(); ver <= ApiKeys.ALTER_CONFIGS.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.ALTER_CONFIGS, ver);
-      Map<ConfigResource, ApiError> resourceErrors = new HashMap<>();
-      resourceErrors.put(new ConfigResource(ConfigResource.Type.TOPIC, "tenant_foo"), new ApiError(Errors.NONE, ""));
-      resourceErrors.put(new ConfigResource(ConfigResource.Type.BROKER, "blah"), new ApiError(Errors.NONE, ""));
-      resourceErrors.put(new ConfigResource(ConfigResource.Type.TOPIC, "tenant_bar"), new ApiError(Errors.NONE, ""));
-      AlterConfigsResponse outbound = new AlterConfigsResponse(0, resourceErrors);
+      List<AlterConfigsResponseData.AlterConfigsResourceResponse> resourceErrors = new ArrayList<>();
+      resourceErrors.add(
+          new AlterConfigsResponseData.AlterConfigsResourceResponse()
+              .setErrorCode(Errors.NONE.code())
+              .setErrorMessage("")
+              .setResourceType(ConfigResource.Type.TOPIC.id())
+              .setResourceName("tenant_foo"));
+      resourceErrors.add(
+              new AlterConfigsResponseData.AlterConfigsResourceResponse()
+                      .setErrorCode(Errors.NONE.code())
+                      .setErrorMessage("")
+                      .setResourceType(ConfigResource.Type.BROKER.id())
+                      .setResourceName("blah"));
+      resourceErrors.add(
+              new AlterConfigsResponseData.AlterConfigsResourceResponse()
+                      .setErrorCode(Errors.NONE.code())
+                      .setErrorMessage("")
+                      .setResourceType(ConfigResource.Type.TOPIC.id())
+                      .setResourceName("tenant_bar"));
+      AlterConfigsResponseData outboundData = new AlterConfigsResponseData();
+      outboundData.setResponses(resourceErrors);
+      AlterConfigsResponse outbound = new AlterConfigsResponse(outboundData);
+
       Struct struct = parseResponse(ApiKeys.ALTER_CONFIGS, ver, context.buildResponse(outbound));
-      AlterConfigsResponse intercepted = new AlterConfigsResponse(struct);
+      AlterConfigsResponseData data = new AlterConfigsResponseData();
+      data.fromStruct(struct, ver);
+      AlterConfigsResponse intercepted = new AlterConfigsResponse(data);
       assertEquals(mkSet(new ConfigResource(ConfigResource.Type.TOPIC, "foo"),
           new ConfigResource(ConfigResource.Type.BROKER, "blah"),
           new ConfigResource(ConfigResource.Type.TOPIC, "bar")), intercepted.errors().keySet());

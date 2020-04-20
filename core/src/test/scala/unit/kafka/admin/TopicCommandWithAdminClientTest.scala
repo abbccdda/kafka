@@ -1042,7 +1042,7 @@ class TopicCommandWithAdminClientTest extends KafkaServerTestHarness with Loggin
     val targetReplica = brokerIds.diff(replicasOfFirstPartition).head
 
     adminClient.alterPartitionReassignments(Collections.singletonMap(tp,
-      Optional.of(new NewPartitionReassignment(Collections.singletonList(targetReplica)))))
+      Optional.of(new NewPartitionReassignment(Collections.singletonList(targetReplica))))).all().get()
 
     // let's wait until the LAIR is propagated
     TestUtils.waitUntilTrue(() => {
