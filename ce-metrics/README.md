@@ -10,6 +10,7 @@
     - [Start Kafka broker](#start-kafka-broker)
     - [Read metrics](#read-metrics)
   - [Testing in CPD](#testing-in-cpd)
+  - [Sending Metrics to Sandbox Environment](#sending-metrics-to-sandbox-environment)
   - [Shadow JAR notes](#shadow-jar-notes)
     - [Gradle Shadow Plugin Configuration](#gradle-shadow-plugin-configuration)
     - [Verifying the contents of the shaded jar](#verifying-the-contents-of-the-shaded-jar)
@@ -194,6 +195,25 @@ Now you can inspect the metrics protobuf messages using the `ccloud` and `kafka-
       | head -1
    {"metricDescriptor":{"name":"io.confluent.kafka.server/request/local_time_ms/time/delta","type":"GAUGE_DOUBLE","labelKeys":[{"key":"kafka.cluster.id"},{"key":"request"},{"key":"cluster_id"},{"key":"library"},{"key":"java.version"},{"key":"broker_id"},{"key":"java.version.extended"},{"key":"kafka.id"},{"key":"host.hostname"},{"key":"kafka.broker.id"},{"key":"metric_name_original"},{"key":"kafka.version"}]},"timeseries":[{"startTimestamp":"2020-02-20T22:58:34.273564Z","labelValues":[{"value":"ut53nsiMSaem1vKZ6XVvQQ"},{"value":"LeaveGroup"},{"value":"ut53nsiMSaem1vKZ6XVvQQ"},{"value":"yammer"},{"value":"11.0.5"},{"value":"0"},{"value":"11.0.5+10"},{"value":"ut53nsiMSaem1vKZ6XVvQQ"},{"value":"kafka-0"},{"value":"0"},{"value":"kafka.network:RequestMetrics:LocalTimeMs"},{"value":"5.5.0-ce-SNAPSHOT"}],"points":[{"timestamp":"2020-02-20T22:58:50.952301Z","doubleValue":0.0}]}],"resource":{"type":"kafka","labels":{"java.version":"11.0.5","java.version.extended":"11.0.5+10","host.hostname":"kafka-0","kafka.version":"5.5.0-ce-SNAPSHOT","kafka.id":"ut53nsiMSaem1vKZ6XVvQQ","kafka.cluster.id":"ut53nsiMSaem1vKZ6XVvQQ","kafka.broker.id":"0","cluster_id":"ut53nsiMSaem1vKZ6XVvQQ","broker_id":"0"}}}
    ```
+
+## Sending Metrics to Sandbox Environment
+You can also configure your Kafka broker to send metrics to the observability sandbox environment:
+```
+metric.reporters=io.confluent.telemetry.reporter.KafkaServerMetricsReporter
+confluent.telemetry.exporter.kafka.producer.ssl.endpoint.identification.algorithm=https
+confluent.telemetry.exporter.kafka.producer.sasl.mechanism=PLAIN
+confluent.telemetry.exporter.kafka.producer.request.timeout.ms=20000
+confluent.telemetry.exporter.kafka.producer.bootstrap.servers=pkc-43k0e.us-west-2.aws.confluent.cloud:9092
+confluent.telemetry.exporter.kafka.producer.retry.backoff.ms=500
+confluent.telemetry.exporter.kafka.producer.sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required \
+   username="P7O4P4YF4VGRQPWA" \
+   password="<GET FROM LASTPASS: Shared-Observability/Sandbox metrics lkc-l9rd5>";
+confluent.telemetry.exporter.kafka.producer.security.protocol=SASL_SSL
+```
+
+These metrics will then be accessible via the following backends:
+* Metrics API: https://devel-sandbox-api.telemetry.confluent.cloud
+* Druid: https://druid-preprod.telemetry.aws.confluent.cloud:8888/
 
 ## Shadow JAR notes
 
