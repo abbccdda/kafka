@@ -251,12 +251,22 @@ class TierIntegrationSmokeTest extends IntegrationTestHarness {
     assertTrue("tier archiver mean rate shows no data uploaded to tiered storage", meanArchiveRate > 100)
 
     val partitionsStatusCounts = mBeanServer
-      .getAttributes(new ObjectName("kafka.server:type=TierTopicConsumer"),
-        Array("ImmigratingPartitions", "CatchupConsumerPartitions", "PrimaryConsumerPartitions", "NumListeners", "MaxListeningMs"))
+      .getAttributes(
+        new ObjectName("kafka.server:type=TierTopicConsumer"),
+        Array(
+          "ImmigratingPartitions",
+          "CatchupConsumerPartitions",
+          "PrimaryConsumerPartitions",
+          "ErrorPartitions",
+          "NumListeners",
+          "MaxListeningMs"))
       .asList.asScala
       .map { attr => attr.getValue.asInstanceOf[Double] }
 
-    assertEquals("tier topic manager fully immigrated the partition and metric works", List(0.0, 0.0, 1.0, 0.0, 0.0), partitionsStatusCounts)
+    assertEquals(
+      "tier topic manager fully immigrated the partition and metric works",
+      List(0.0, 0.0, 1.0, 0.0, 0.0, 0.0),
+      partitionsStatusCounts)
 
     val partitionsInErrorCount = mBeanServer
       .getAttributes(new ObjectName("kafka.tier.tasks:type=TierTasks,name=NumPartitionsInError"), Array("Value"))

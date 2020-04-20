@@ -488,6 +488,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         try {
             return state.appendMetadata(entry, offsetAndEpoch);
         } catch (IOException e) {
+            TierPartitionStatus previousStatus = state.getStatus();
             // Handle IOException specially by marking the dir offline, as it indicates a
             // serious enough error that we can't ignore. This may halt the broker eventually.
             if (stateUpdateFailureFencingEnabled) {
@@ -495,13 +496,28 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             }
             logDirFailureChannel.maybeAddOfflineLogDir(dir().getParent(),
                     func(() -> "Failed to apply event to TierPartitionState for " + dir().getParent()), e);
-            throw new KafkaStorageException("Failed to apply " + entry + ", currentEpoch=" + state.currentEpoch +
-                    ", tierTopicPartitionOffsetAndEpoch=" + offsetAndEpoch, e);
+            throw new KafkaStorageException(
+                "Failed to apply " + entry + ", currentEpoch=" + state.currentEpoch +
+                ", tierTopicPartitionOffsetAndEpoch=" + offsetAndEpoch +
+                ", previousTierPartitionStatus=" + previousStatus +
+                ", newTierPartitionStatus=" + TierPartitionStatus.ERROR, e);
         } catch (Exception e) {
             if (stateUpdateFailureFencingEnabled) {
+                TierPartitionStatus previousStatus = state.getStatus();
                 state.setStatus(TierPartitionStatus.ERROR);
-                log.error("Failed to apply {}, currentEpoch={} tierTopicPartitionOffset={}",
-                        entry, state.currentEpoch, offsetAndEpoch, e);
+                String logMsg = String.format(
+                    "Failed to apply %s, currentEpoch=%d, tierTopicPartitionOffsetAndEpoch=%s" +
+                    ", previousTierPartitionStatus=%s, newTierPartitionStatus=%s",
+                    entry, state.currentEpoch, offsetAndEpoch, previousStatus,
+                    TierPartitionStatus.ERROR);
+                if (previousStatus == TierPartitionStatus.ONLINE) {
+                    // To avoid noisy logging, we only log with error level, if a partition reaches
+                    // TierPartitionStatus.ERROR status while previously being in
+                    // TierPartitionStatus.ONLINE status.
+                    log.error(logMsg, e);
+                } else {
+                    log.info(logMsg, e);
+                }
             } else {
                 throw e;
             }
@@ -727,6 +743,10 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
         SegmentState getState(UUID objectId) {
             return allSegments.get(objectId);
+        }
+
+        private TierPartitionStatus getStatus() {
+            return status;
         }
 
         private void setStatus(TierPartitionStatus status) {

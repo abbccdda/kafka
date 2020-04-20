@@ -110,7 +110,8 @@ class TierTopicConsumerTest {
     tierTopicConsumer.register(tp_4, ctx_4)
     tierTopicConsumer.register(tp_5, ctx_5)
     assertEquals(Set(tp_1, tp_2, tp_3, tp_4, tp_5), tierTopicConsumer.immigratingPartitions.keySet.asScala)
-    assertEquals(Set(tp_5), tierTopicConsumer.errorPartitions.asScala)
+    assertEquals(Set(tp_5), tierTopicConsumer.catchUpConsumerErrorPartitions.asScala)
+    assertEquals(0, tierTopicConsumer.primaryConsumerErrorPartitions.size)
 
     // tp_1 and tp_2 must be online; tp_3 and tp_4 must be in catchup state
     tierTopicConsumer.startConsume(false, tierTopic)
@@ -118,7 +119,8 @@ class TierTopicConsumerTest {
     assertEquals(Set(tp_1, tp_2), tierTopicConsumer.primaryConsumerPartitions.keySet.asScala)
     assertEquals(Set(tp_3, tp_4, tp_5), tierTopicConsumer.catchUpConsumerPartitions.keySet.asScala)
     assertEquals(Set(), tierTopicConsumer.immigratingPartitions.keySet.asScala)
-    assertEquals(Set(tp_5), tierTopicConsumer.errorPartitions.asScala)
+    assertEquals(Set(tp_5), tierTopicConsumer.catchUpConsumerErrorPartitions.asScala)
+    assertEquals(0, tierTopicConsumer.primaryConsumerErrorPartitions.size)
 
     verify(ctx_3, times(1)).beginCatchup()
     verify(ctx_4, times(1)).beginCatchup()

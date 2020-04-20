@@ -176,12 +176,14 @@ class TierSupport():
 
     def check_fenced_partitions(self, expected_val):
         self.kafka.read_jmx_output_all_nodes()
+        metric = str(TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_NUM_FENCED_PARTITIONS)
         for node_stats in self.kafka.jmx_stats:
             last_jmx_entry = sorted(node_stats.items(), key=lambda kv: kv[0])[-1][1]
-            num_fenced_partitions = last_jmx_entry.get(
-                str(TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_NUM_FENCED_PARTITIONS), None)
+            num_fenced_partitions = last_jmx_entry.get(metric, None)
             if num_fenced_partitions != expected_val:
-                self.logger.debug("TierTopicConsumer " + str(num_fenced_partitions) + " num fenced partitions")
+                self.logger.debug(
+                    "Found " + str(num_fenced_partitions) + " for metric: " + metric +
+                    ", but expected: " + str(expected_val))
                 return False
         return True
 
