@@ -4,19 +4,29 @@
 
 package io.confluent.databalancer;
 
+import com.yammer.metrics.core.Gauge;
+import com.yammer.metrics.core.Metric;
+import com.yammer.metrics.core.MetricName;
+import com.yammer.metrics.core.MetricsRegistry;
 import kafka.controller.DataBalanceManager;
+import kafka.metrics.KafkaYammerMetrics;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
+import kafka.utils.TestUtils;
 import kafka.utils.TestUtils$;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
+import java.util.ArrayList;
+import java.util.Map;
 import java.util.Properties;
 
+import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -29,6 +39,7 @@ public class KafkaDataBalanceManagerTest {
     private KafkaConfig updatedConfig;
 
     private DataBalanceManager dataBalancer;
+    private MetricsRegistry metricsRegistry;
 
     @Mock
     private KafkaDataBalanceManager.DataBalanceEngineFactory mockDataBalanceEngineFactory;
@@ -44,16 +55,19 @@ public class KafkaDataBalanceManagerTest {
         brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, true);
         brokerProps.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, 200L);
         initConfig = new KafkaConfig(brokerProps);
+        metricsRegistry = KafkaYammerMetrics.defaultRegistry();
+
         MockitoAnnotations.initMocks(this);
         when(mockDataBalanceEngineFactory.makeActiveDataBalanceEngine()).thenReturn(mockActiveDataBalanceEngine);
         when(mockDataBalanceEngineFactory.makeInactiveDataBalanceEngine()).thenReturn(mockInactiveDataBalanceEngine);
+        when(mockActiveDataBalanceEngine.isActive()).thenReturn(true);
     }
 
     @Test
     public void testUpdateConfigBalancerEnable() {
         brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, false);
         updatedConfig = new KafkaConfig(brokerProps);
-        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory);
+        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, metricsRegistry);
         // Instantiate the Active DBE
         dataBalancer.startUp();
 
@@ -76,7 +90,7 @@ public class KafkaDataBalanceManagerTest {
     public void testUpdateConfigBalancerEnableOnNonEligibleNode() {
         brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, false);
         updatedConfig = new KafkaConfig(brokerProps);
-        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory);
+        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, metricsRegistry);
 
         dataBalancer.updateConfig(updatedConfig);
         verify(mockInactiveDataBalanceEngine).shutdown();
@@ -98,7 +112,7 @@ public class KafkaDataBalanceManagerTest {
     public void testUpdateConfigBalancerThrottle() {
         brokerProps.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, 100L);
         updatedConfig = new KafkaConfig(brokerProps);
-        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory);
+        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, metricsRegistry);
         dataBalancer.startUp();
         verify(mockActiveDataBalanceEngine).startUp(initConfig);
 
@@ -115,7 +129,7 @@ public class KafkaDataBalanceManagerTest {
     @Test
     public void testUpdateConfigNoPropsUpdated() {
         updatedConfig = new KafkaConfig(brokerProps);
-        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory);
+        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, metricsRegistry);
         dataBalancer.startUp();
         verify(mockActiveDataBalanceEngine).startUp(initConfig);
 
@@ -128,7 +142,7 @@ public class KafkaDataBalanceManagerTest {
     public void testEnableFromOff() {
         brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, false);
         KafkaConfig disabledConfig = new KafkaConfig(brokerProps);
-        dataBalancer = new KafkaDataBalanceManager(disabledConfig, mockDataBalanceEngineFactory);
+        dataBalancer = new KafkaDataBalanceManager(disabledConfig, mockDataBalanceEngineFactory, metricsRegistry);
         dataBalancer.startUp();
         // We SHOULD NOT have attempted to launch CC
         verify(mockActiveDataBalanceEngine, never()).startUp(any(KafkaConfig.class));
@@ -138,4 +152,27 @@ public class KafkaDataBalanceManagerTest {
         verify(mockActiveDataBalanceEngine).startUp(initConfig);
     }
 
+    @Test
+    public void testConfluentBalancerEnabledMetric() {
+        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, metricsRegistry);
+        dataBalancer.startUp();
+        verifyMetricValue(1);
+        dataBalancer.shutdown();
+        verifyMetricValue(0);
+    }
+
+    private void verifyMetricValue(Integer expectedValue) {
+        Map<MetricName, Metric> metrics = metricsRegistry.allMetrics();
+        assertEquals(1, metrics.size());
+        MetricName metricName = new ArrayList<>(metrics.keySet()).get(0);
+        assertEquals("ActiveBalancerCount", metricName.getName());
+        assertEquals("kafka.databalancer", metricName.getGroup());
+        assertEquals(expectedValue, ((Gauge<?>) metrics.get(metricName)).value());
+    }
+
+    @After
+    public void cleanMetrics() {
+        TestUtils.clearYammerMetrics();
+        metricsRegistry.shutdown();
+    }
 }

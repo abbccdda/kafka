@@ -91,6 +91,11 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         ccRunner.submit(() -> updateThrottleHelper(newThrottle));
     }
 
+    @Override
+    public boolean isActive() {
+        return cruiseControl != null;
+    }
+
     private void updateThrottleHelper(Long newThrottle) {
         if (cruiseControl != null) {
             LOG.info("Updating balancer throttle to {}", newThrottle);

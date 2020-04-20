@@ -4,20 +4,27 @@
 
 package io.confluent.databalancer;
 
+import com.yammer.metrics.core.MetricName;
+import com.yammer.metrics.core.MetricsRegistry;
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import kafka.controller.DataBalanceManager;
+import kafka.metrics.KafkaYammerMetrics;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
+import java.util.Set;
 
 public class KafkaDataBalanceManager implements DataBalanceManager {
     private static final Logger LOG = LoggerFactory.getLogger(KafkaDataBalanceManager.class);
+    public static final String ACTIVE_BALANCER_COUNT_METRIC_NAME = "ActiveBalancerCount";
 
     private KafkaConfig kafkaConfig;
     private DataBalanceEngineFactory dbeFactory;
     private DataBalanceEngine balanceEngine;
+    private DataBalancerMetricsRegistry dataBalancerMetricsRegistry;
 
     static class DataBalanceEngineFactory {
         DataBalanceEngine makeActiveDataBalanceEngine() {
@@ -29,22 +36,35 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         }
     }
 
+    private Set<MetricName> getMetricsWhiteList() {
+        DataBalancerMetricsRegistry.MetricsWhitelistBuilder metricsWhitelistBuilder =
+                new DataBalancerMetricsRegistry.MetricsWhitelistBuilder();
+        metricsWhitelistBuilder.addMetric(this.getClass(), ACTIVE_BALANCER_COUNT_METRIC_NAME);
+        return metricsWhitelistBuilder.buildWhitelist();
+    }
+
     /**
      * Create a KafkaDataBalanceManager. The DataBalanceManager is expected to be long-lived (broker lifetime).
      * @param kafkaConfig
      */
     public KafkaDataBalanceManager(KafkaConfig kafkaConfig) {
-        this(kafkaConfig, new DataBalanceEngineFactory());
+        this(kafkaConfig, new DataBalanceEngineFactory(), KafkaYammerMetrics.defaultRegistry());
     }
 
     /**
      * Visible for testing. cruiseControl expected to be a mock testing object
      */
-    KafkaDataBalanceManager(KafkaConfig kafkaConfig, DataBalanceEngineFactory dbeFactory) {
+    KafkaDataBalanceManager(KafkaConfig kafkaConfig, DataBalanceEngineFactory dbeFactory,
+                            MetricsRegistry metricsRegistry) {
         Objects.requireNonNull(kafkaConfig, "KafkaConfig must not be null");
+        Objects.requireNonNull(dbeFactory, "DataBalanceEngineFactory must be non-null");
+        Objects.requireNonNull(metricsRegistry, "MetricsRegistry must be non-null");
         this.kafkaConfig = kafkaConfig;
         this.dbeFactory = dbeFactory;
         this.balanceEngine = dbeFactory.makeInactiveDataBalanceEngine();
+        this.dataBalancerMetricsRegistry = new DataBalancerMetricsRegistry(metricsRegistry, getMetricsWhiteList());
+        this.dataBalancerMetricsRegistry.newGauge(KafkaDataBalanceManager.class, "ActiveBalancerCount",
+                () -> balanceEngine.isActive() ? 1 : 0, false);
     }
 
     /**

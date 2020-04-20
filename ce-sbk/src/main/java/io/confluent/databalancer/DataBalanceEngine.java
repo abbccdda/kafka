@@ -18,4 +18,6 @@ public interface DataBalanceEngine {
     void shutdown();
 
     void updateThrottle(Long newThrottle);
+
+    boolean isActive();
 }

@@ -19,4 +19,9 @@ public class NoOpDataBalanceEngine implements DataBalanceEngine {
 
     @Override
     public void updateThrottle(Long newThrottle) {  }
+
+    @Override
+    public boolean isActive() {
+        return false;
+    }
 }
