@@ -22,13 +22,14 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     public static final String ACTIVE_BALANCER_COUNT_METRIC_NAME = "ActiveBalancerCount";
 
     private KafkaConfig kafkaConfig;
-    private DataBalanceEngineFactory dbeFactory;
     private DataBalanceEngine balanceEngine;
-    private DataBalancerMetricsRegistry dataBalancerMetricsRegistry;
+
+    private final DataBalanceEngineFactory dbeFactory;
+    private final DataBalancerMetricsRegistry dataBalancerMetricsRegistry;
 
     static class DataBalanceEngineFactory {
-        DataBalanceEngine makeActiveDataBalanceEngine() {
-            return new ConfluentDataBalanceEngine();
+        DataBalanceEngine makeActiveDataBalanceEngine(DataBalancerMetricsRegistry dataBalancerMetricsRegistry) {
+            return new ConfluentDataBalanceEngine(dataBalancerMetricsRegistry);
         }
 
         DataBalanceEngine makeInactiveDataBalanceEngine() {
@@ -56,11 +57,9 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
      */
     KafkaDataBalanceManager(KafkaConfig kafkaConfig, DataBalanceEngineFactory dbeFactory,
                             MetricsRegistry metricsRegistry) {
-        Objects.requireNonNull(kafkaConfig, "KafkaConfig must not be null");
-        Objects.requireNonNull(dbeFactory, "DataBalanceEngineFactory must be non-null");
+        this.kafkaConfig = Objects.requireNonNull(kafkaConfig, "KafkaConfig must be non-null");
+        this.dbeFactory = Objects.requireNonNull(dbeFactory, "DataBalanceEngineFactory must be non-null");
         Objects.requireNonNull(metricsRegistry, "MetricsRegistry must be non-null");
-        this.kafkaConfig = kafkaConfig;
-        this.dbeFactory = dbeFactory;
         this.balanceEngine = dbeFactory.makeInactiveDataBalanceEngine();
         this.dataBalancerMetricsRegistry = new DataBalancerMetricsRegistry(metricsRegistry, getMetricsWhiteList());
         this.dataBalancerMetricsRegistry.newGauge(KafkaDataBalanceManager.class, "ActiveBalancerCount",
@@ -74,7 +73,7 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     @Override
     public synchronized void startUp() {
         // This node is now eligible to execute
-        balanceEngine = dbeFactory.makeActiveDataBalanceEngine();
+        balanceEngine = dbeFactory.makeActiveDataBalanceEngine(dataBalancerMetricsRegistry);
         if (!kafkaConfig.getBoolean(ConfluentConfigs.BALANCER_ENABLE_CONFIG)) {
             LOG.info("DataBalancer: Skipping DataBalancer Startup as its not enabled.");
             return;

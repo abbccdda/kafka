@@ -90,6 +90,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   private static final String RANDOM_UUID = "random_uuid";
   private static final String DESCRIBE_TOPICS_RESPONSE_TIMEOUT_MS = "10000";
 
+  private MetricsRegistry metricsRegistry;
+
   @Override
   public int clusterSize() {
     return 2;
@@ -107,11 +109,13 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   @Before
   public void setUp() {
     super.setUp();
+    metricsRegistry = new MetricsRegistry();
   }
 
   @After
   public void tearDown() {
     super.tearDown();
+    metricsRegistry.shutdown();
   }
 
   @Test
@@ -353,9 +357,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     EasyMock.replay(mockMetadataClient);
 
     Collection<ExecutionProposal> proposalsToExecute = Collections.singletonList(proposal);
-    Executor executor = new Executor(configs, time, new MetricsRegistry(), mockMetadataClient, 86400000L,
-                                     43200000L, null,
-                                     getMockAnomalyDetector(RANDOM_UUID));
+    Executor executor = new Executor(configs, time, KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
+            mockMetadataClient, 86400000L, 43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
     executor.setExecutionMode(false);
     executor.executeProposals(proposalsToExecute,
                               Collections.emptySet(),
@@ -419,9 +422,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                 -1L,
                 time);
 
-        Executor executor = new Executor(config, time, new MetricsRegistry(), metadataClient, 86400000L,
-                43200000L, null,
-                getMockAnomalyDetector(RANDOM_UUID));
+        Executor executor = new Executor(config, time, KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
+                metadataClient, 86400000L, 43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
         executor.setExecutionMode(false);
         executor.executeProposals(Collections.singletonList(proposal),
                 Collections.emptySet(),
@@ -499,8 +501,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
 
         // Set concurrency such that multiple batches are submitted, to ensure that the requested throttle is not overwritten
         // Because the Executor doesn't update ZK if nothing has changed, only one update with the new value will be seen
-        Executor executor = new Executor(config, time, new MetricsRegistry(), metadataClient, 86400000L,
-                43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
+        Executor executor = new Executor(config, time, KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
+                metadataClient, 86400000L, 43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
         executor.setExecutionMode(false);
         if (initialThrottle != null) {
             executor.updateThrottle(initialThrottle);
@@ -610,8 +612,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
 
     EasyMock.replay(mockExecutorNotifier);
 
-    Executor executor = new Executor(configs, new SystemTime(), new MetricsRegistry(), null, 86400000L,
-                                     43200000L, mockExecutorNotifier, getMockAnomalyDetector(uuid));
+    Executor executor = new Executor(configs, new SystemTime(), KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
+            null, 86400000L, 43200000L, mockExecutorNotifier, getMockAnomalyDetector(uuid));
     executor.setExecutionMode(false);
     executor.executeProposals(proposalsToExecute, Collections.emptySet(), null, EasyMock.mock(LoadMonitor.class), null,
                               null, null, null, NO_THROTTLE, uuid);
@@ -668,8 +670,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     Collection<ExecutionProposal> proposals = Arrays.asList(proposal0, proposal1);
 
     KafkaCruiseControlConfig configs = new KafkaCruiseControlConfig(getExecutorProperties());
-    Executor executor = new Executor(configs, new SystemTime(), new MetricsRegistry(), null, 86400000L,
-            43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
+    Executor executor = new Executor(configs, new SystemTime(), KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
+            null, 86400000L, 43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
     executor.setExecutionMode(false);
     executor.executeProposals(proposals, Collections.emptySet(), null, EasyMock.mock(LoadMonitor.class), null,
             null, null, null, NO_THROTTLE, RANDOM_UUID);
@@ -716,8 +718,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     kafkaZkClient.setOrCreateEntityConfigs(ConfigType$.MODULE$.Topic(), TOPIC0, topicDynamicConfigs);
 
     Thread.sleep(500);
-    Executor executor = new Executor(config, time, new MetricsRegistry(), metadataClient, 86400000L,
-            43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
+    Executor executor = new Executor(config, time, KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
+            metadataClient, 86400000L, 43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
     executor.startUp();
     Thread.sleep(100);
 
@@ -774,9 +776,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
 
       }
     };
-    Executor executor = new Executor(config, time, new MetricsRegistry(), metadataClient, 86400000L,
-            43200000L, notifier,
-            getMockAnomalyDetector(RANDOM_UUID));
+    Executor executor = new Executor(config, time, KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
+            metadataClient, 86400000L, 43200000L, notifier, getMockAnomalyDetector(RANDOM_UUID));
     executor.setExecutionMode(false);
     executor.executeProposals(Collections.singletonList(proposal),
             Collections.emptySet(),
@@ -843,9 +844,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     ReplicationThrottleHelper throttleHelper = new ReplicationThrottleHelper(
             KafkaCruiseControlUtils.createKafkaZkClient(zookeeper().connectionString(), "CruiseControlExecutor",
                     "Executor", false), adminClient, AUTO_THROTTLE);
-    Executor executor = new Executor(config, time, new MetricsRegistry(), metadataClient, 86400000L,
-            43200000L, notifier,
-            getMockAnomalyDetector(RANDOM_UUID),
+    Executor executor = new Executor(config, time, KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
+            metadataClient, 86400000L, 43200000L, notifier, getMockAnomalyDetector(RANDOM_UUID),
             KafkaCruiseControlUtils.createAdminClient(KafkaCruiseControlUtils.parseAdminClientConfigs(config)), throttleHelper);
     executor.setExecutionMode(false);
     executor.executeProposals(Collections.singletonList(proposal),
@@ -999,17 +999,15 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   private Executor executor() {
     KafkaCruiseControlConfig configs = new KafkaCruiseControlConfig(getExecutorProperties());
 
-    return new Executor(configs, new SystemTime(), new MetricsRegistry(), null, 86400000L,
-        43200000L, null,
-        getMockAnomalyDetector(RANDOM_UUID));
+    return new Executor(configs, new SystemTime(), KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
+            null, 86400000L, 43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
   }
 
   private Executor executor(AdminClient adminClient) {
     KafkaCruiseControlConfig configs = new KafkaCruiseControlConfig(getExecutorProperties());
 
-    return new Executor(configs, new SystemTime(), new MetricsRegistry(), null, 86400000L,
-        43200000L, null,
-        getMockAnomalyDetector(RANDOM_UUID), adminClient, null);
+    return new Executor(configs, new SystemTime(), KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
+            null, 86400000L, 43200000L, null, getMockAnomalyDetector(RANDOM_UUID), adminClient, null);
   }
 
   private void waitAndVerifyProposals(KafkaZkClient kafkaZkClient,
@@ -1044,9 +1042,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   private Executor createExecutor() {
     KafkaCruiseControlConfig configs = new KafkaCruiseControlConfig(getExecutorProperties());
 
-    Executor executor = new Executor(configs, new SystemTime(), new MetricsRegistry(), null, 86400000L,
-                                     43200000L, null,
-                                     getMockAnomalyDetector(RANDOM_UUID));
+    Executor executor = new Executor(configs, new SystemTime(), KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
+            null, 86400000L, 43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
     executor.setExecutionMode(false);
 
     return executor;

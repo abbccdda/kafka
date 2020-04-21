@@ -8,8 +8,8 @@ import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
-import com.yammer.metrics.Metrics;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.ConfigException;
@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
@@ -50,12 +51,14 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
 
     // ccRunner is used to control all access to the underlying CruiseControl object;
     // access is serialized through here (in particular for startup/shutdown).
-    private ExecutorService ccRunner;
+    private final ExecutorService ccRunner;
+    private final DataBalancerMetricsRegistry dataBalancerMetricsRegistry;
     private KafkaCruiseControl cruiseControl;
     private Semaphore abortStartupCheck  = new Semaphore(0);
 
-    public ConfluentDataBalanceEngine() {
-        this(null,
+    public ConfluentDataBalanceEngine(DataBalancerMetricsRegistry dataBalancerMetricsRegistry) {
+        this(dataBalancerMetricsRegistry,
+         null,
              Executors.newSingleThreadExecutor(
                  new ThreadFactoryBuilder()
                      .setNameFormat("DataBalanceEngine-%d")
@@ -63,8 +66,9 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     }
 
     // Visible for testing
-    ConfluentDataBalanceEngine(KafkaCruiseControl cc, ExecutorService executor) {
-        ccRunner = executor;
+    ConfluentDataBalanceEngine(DataBalancerMetricsRegistry dataBalancerMetricsRegistry, KafkaCruiseControl cc, ExecutorService executor) {
+        this.dataBalancerMetricsRegistry = Objects.requireNonNull(dataBalancerMetricsRegistry, "DataBalancerMetricsRegistry must be non-null");
+        ccRunner = Objects.requireNonNull(executor, "ExecutorService must be non-null");
         cruiseControl = cc;
     }
 
@@ -119,7 +123,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         try {
             KafkaCruiseControlConfig config = generateCruiseControlConfig(kafkaConfig);
             checkStartupComponentsReady(config);
-            KafkaCruiseControl cruiseControl = new KafkaCruiseControl(config, Metrics.defaultRegistry());
+            KafkaCruiseControl cruiseControl = new KafkaCruiseControl(config, dataBalancerMetricsRegistry);
             cruiseControl.startUp();
             this.cruiseControl = cruiseControl;
             LOG.info("DataBalancer: DataBalanceEngine started");
@@ -161,6 +165,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
                 cruiseControl.shutdown();
             } finally {
                 cruiseControl = null;
+                dataBalancerMetricsRegistry.clearShortLivedMetrics();
                 LOG.info("DataBalancer: DataBalanceEngine shutdown completed.");
             }
         }

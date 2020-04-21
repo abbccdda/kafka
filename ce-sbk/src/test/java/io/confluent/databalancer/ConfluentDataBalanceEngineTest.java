@@ -22,6 +22,7 @@ import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
 import io.confluent.cruisecontrol.analyzer.goals.CrossRackMovementGoal;
 import io.confluent.cruisecontrol.analyzer.goals.SequentialReplicaMovementGoal;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
@@ -41,7 +42,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.SynchronousQueue;
@@ -63,11 +63,12 @@ import static org.mockito.internal.verification.VerificationModeFactory.times;
 public class ConfluentDataBalanceEngineTest  {
     private Properties brokerProps;
     private KafkaConfig initConfig;
-    private KafkaConfig updatedConfig;
-
 
     @Mock
     private KafkaCruiseControl mockCruiseControl;
+
+    @Mock
+    private DataBalancerMetricsRegistry mockMetricsRegistry;
 
     // Kind of a mock to replace the SingleThreadExecutorService with something that just runs in the current
     // thread, guaranteeing completion. (Only usable with the CruiseControl mock, above.)
@@ -93,7 +94,7 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     private ConfluentDataBalanceEngine getTestDataBalanceEngine() {
-        return new ConfluentDataBalanceEngine(mockCruiseControl, currentThreadExecutorService());
+        return new ConfluentDataBalanceEngine(mockMetricsRegistry, mockCruiseControl, currentThreadExecutorService());
     }
 
     @Test
@@ -426,9 +427,10 @@ public class ConfluentDataBalanceEngineTest  {
     @Test
     public void testStopCruiseControlNotInitialized() {
         // Don't use the regular getTestDataBalanceEngine as that has a defined CruiseControl, which we don't want.
-        ConfluentDataBalanceEngine dbe = new ConfluentDataBalanceEngine(null, currentThreadExecutorService());
+        ConfluentDataBalanceEngine dbe = new ConfluentDataBalanceEngine(mockMetricsRegistry, null, currentThreadExecutorService());
         dbe.stopCruiseControl(); // should be a no-op
         verify(mockCruiseControl, never()).shutdown();
+        verify(mockMetricsRegistry, never()).clearShortLivedMetrics();
     }
 
     @Test
@@ -436,6 +438,7 @@ public class ConfluentDataBalanceEngineTest  {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.stopCruiseControl(); // This shuts down the mock
         verify(mockCruiseControl, times(1)).shutdown();
+        verify(mockMetricsRegistry, times(1)).clearShortLivedMetrics();
         dbe.stopCruiseControl();
         // Shutdown should not be called again
         verify(mockCruiseControl, times(1)).shutdown();
@@ -446,24 +449,26 @@ public class ConfluentDataBalanceEngineTest  {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.stopCruiseControl();
         verify(mockCruiseControl).shutdown();  // Shutdown should have been called
+        verify(mockMetricsRegistry).clearShortLivedMetrics();
     }
 
     @Test
-    public void testShutdown() throws  InterruptedException, ExecutionException {
+    public void testShutdown() {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.shutdown();
         verify(mockCruiseControl).shutdown();  // Shutdown should have been called
+        verify(mockMetricsRegistry).clearShortLivedMetrics();
     }
 
     @Test
-    public void testUpdateThrottleWhileRunning() throws  InterruptedException, ExecutionException {
+    public void testUpdateThrottleWhileRunning() {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.updateThrottle(100L);
         verify(mockCruiseControl).updateThrottle(100L);
     }
 
     @Test
-    public void testUpdateThrottleWhileStopped() throws  InterruptedException, ExecutionException {
+    public void testUpdateThrottleWhileStopped() {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.stopCruiseControl();
         dbe.updateThrottle(100L);

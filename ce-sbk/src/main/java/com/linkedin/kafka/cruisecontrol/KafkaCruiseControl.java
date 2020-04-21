@@ -32,7 +32,7 @@ import com.linkedin.kafka.cruisecontrol.monitor.MonitorUtils;
 import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
 import com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState;
 import com.linkedin.kafka.cruisecontrol.servlet.response.stats.BrokerStats;
-import com.yammer.metrics.core.MetricsRegistry;
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.utils.SystemTime;
@@ -104,7 +104,7 @@ public class KafkaCruiseControl {
    *
    * @param config the configuration of Cruise Control.
    */
-  public KafkaCruiseControl(KafkaCruiseControlConfig config, MetricsRegistry metricRegistry) {
+  public KafkaCruiseControl(KafkaCruiseControlConfig config, DataBalancerMetricsRegistry metricRegistry) {
     _config = config;
     _time = new SystemTime();
     // initialize some of the static state of Kafka Cruise Control;

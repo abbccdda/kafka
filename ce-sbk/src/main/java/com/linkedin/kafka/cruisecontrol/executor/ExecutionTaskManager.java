@@ -4,7 +4,6 @@
 
 package com.linkedin.kafka.cruisecontrol.executor;
 
-import com.yammer.metrics.core.MetricsRegistry;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.executor.strategy.ReplicaMovementStrategy;
 import java.util.Collection;
@@ -13,6 +12,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.TopicPartition;
@@ -69,7 +70,7 @@ public class ExecutionTaskManager {
                               int defaultLeadershipMovementConcurrency,
                               List<String> replicaMovementStrategies,
                               AdminClient adminClient,
-                              MetricsRegistry metricRegistry,
+                              DataBalancerMetricsRegistry metricRegistry,
                               Time time,
                               KafkaCruiseControlConfig config) {
     _inProgressInterBrokerReplicaMovementsByBrokerId = new HashMap<>();

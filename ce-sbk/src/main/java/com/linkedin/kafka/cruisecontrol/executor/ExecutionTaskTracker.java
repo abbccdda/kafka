@@ -4,15 +4,14 @@
 
 package com.linkedin.kafka.cruisecontrol.executor;
 
-import com.yammer.metrics.core.Gauge;
-import com.yammer.metrics.core.MetricName;
-import com.yammer.metrics.core.MetricsRegistry;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import org.apache.kafka.common.utils.Time;
 
 import static com.linkedin.kafka.cruisecontrol.executor.ExecutionTask.TaskType;
@@ -47,7 +46,7 @@ public class ExecutionTaskTracker {
   private static final String GAUGE_ONGOING_EXECUTION_IN_KAFKA_ASSIGNER_MODE = "ongoing-execution-kafka_assigner";
   private static final String GAUGE_ONGOING_EXECUTION_IN_NON_KAFKA_ASSIGNER_MODE = "ongoing-execution-non_kafka_assigner";
 
-  ExecutionTaskTracker(MetricsRegistry metricRegistry, Time time) {
+  ExecutionTaskTracker(DataBalancerMetricsRegistry metricRegistry, Time time) {
     List<State> states = State.cachedValues();
     List<TaskType> taskTypes = TaskType.cachedValues();
     _tasksByType = new HashMap<>(taskTypes.size());
@@ -72,8 +71,7 @@ public class ExecutionTaskTracker {
     registerGaugeSensors(metricRegistry);
   }
 
-  private void registerGaugeSensors(MetricsRegistry metricRegistry) {
-    String metricName = "Executor";
+  private void registerGaugeSensors(DataBalancerMetricsRegistry metricRegistry) {
     for (TaskType type : TaskType.cachedValues()) {
       for (State state : State.cachedValues()) {
         String typeString =  type == TaskType.INTER_BROKER_REPLICA_ACTION ? INTER_BROKER_REPLICA_ACTION :
@@ -85,26 +83,14 @@ public class ExecutionTaskTracker {
                               state == State.ABORTED     ? ABORTED :
                               state == State.COMPLETED   ? COMPLETED :
                                                            DEAD;
-        metricRegistry.newGauge(new MetricName(Executor.class, typeString + "-" + stateString),
-                                          new Gauge<Integer>() {
-                                            public Integer value() {
-                                              return (state == State.PENDING && _stopRequested) ? 0 : _tasksByType.get(type).get(state).size();
-                                            }
-                                          });
+        metricRegistry.newGauge(Executor.class, typeString + "-" + stateString,
+                () -> (state == State.PENDING && _stopRequested) ? 0 : _tasksByType.get(type).get(state).size());
       }
     }
-    metricRegistry.newGauge(new MetricName(Executor.class, GAUGE_ONGOING_EXECUTION_IN_KAFKA_ASSIGNER_MODE),
-            new Gauge<Integer>() {
-              public Integer value() {
-                return _isKafkaAssignerMode && !inExecutionTasks(TaskType.cachedValues()).isEmpty() ? 1 : 0;
-              }
-                                      });
-    metricRegistry.newGauge(new MetricName(Executor.class, GAUGE_ONGOING_EXECUTION_IN_NON_KAFKA_ASSIGNER_MODE),
-                                      new Gauge<Integer>() {
-      public Integer value() {
-        return !_isKafkaAssignerMode && !inExecutionTasks(TaskType.cachedValues()).isEmpty() ? 1 : 0;
-      }
-                                      });
+    metricRegistry.newGauge(Executor.class, GAUGE_ONGOING_EXECUTION_IN_KAFKA_ASSIGNER_MODE,
+            () -> _isKafkaAssignerMode && !inExecutionTasks(TaskType.cachedValues()).isEmpty() ? 1 : 0);
+    metricRegistry.newGauge(Executor.class, GAUGE_ONGOING_EXECUTION_IN_NON_KAFKA_ASSIGNER_MODE,
+            () -> !_isKafkaAssignerMode && !inExecutionTasks(TaskType.cachedValues()).isEmpty() ? 1 : 0);
   }
 
   /**

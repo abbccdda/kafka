@@ -8,6 +8,7 @@ import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Metric;
 import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.core.MetricsRegistry;
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import kafka.controller.DataBalanceManager;
 import kafka.metrics.KafkaYammerMetrics;
 import kafka.server.KafkaConfig;
@@ -58,7 +59,7 @@ public class KafkaDataBalanceManagerTest {
         metricsRegistry = KafkaYammerMetrics.defaultRegistry();
 
         MockitoAnnotations.initMocks(this);
-        when(mockDataBalanceEngineFactory.makeActiveDataBalanceEngine()).thenReturn(mockActiveDataBalanceEngine);
+        when(mockDataBalanceEngineFactory.makeActiveDataBalanceEngine(any(DataBalancerMetricsRegistry.class))).thenReturn(mockActiveDataBalanceEngine);
         when(mockDataBalanceEngineFactory.makeInactiveDataBalanceEngine()).thenReturn(mockInactiveDataBalanceEngine);
         when(mockActiveDataBalanceEngine.isActive()).thenReturn(true);
     }

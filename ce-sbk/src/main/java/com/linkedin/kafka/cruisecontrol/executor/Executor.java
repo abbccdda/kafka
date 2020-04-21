@@ -12,9 +12,7 @@ import com.linkedin.kafka.cruisecontrol.detector.AnomalyDetector;
 import com.linkedin.kafka.cruisecontrol.executor.strategy.ReplicaMovementStrategy;
 import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
-import com.yammer.metrics.core.Gauge;
-import com.yammer.metrics.core.MetricName;
-import com.yammer.metrics.core.MetricsRegistry;
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import kafka.zk.KafkaZkClient;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.common.Cluster;
@@ -123,7 +121,7 @@ public class Executor {
    */
   public Executor(KafkaCruiseControlConfig config,
                   Time time,
-                  MetricsRegistry metricRegistry,
+                  DataBalancerMetricsRegistry metricRegistry,
                   long demotionHistoryRetentionTimeMs,
                   long removalHistoryRetentionTimeMs,
                   AnomalyDetector anomalyDetector) {
@@ -133,7 +131,7 @@ public class Executor {
 
   Executor(KafkaCruiseControlConfig config,
            Time time,
-           MetricsRegistry metricRegistry,
+           DataBalancerMetricsRegistry metricRegistry,
            MetadataClient metadataClient,
            long demotionHistoryRetentionTimeMs,
            long removalHistoryRetentionTimeMs,
@@ -149,7 +147,7 @@ public class Executor {
    */
   Executor(KafkaCruiseControlConfig config,
            Time time,
-           MetricsRegistry metricRegistry,
+           DataBalancerMetricsRegistry metricRegistry,
            MetadataClient metadataClient,
            long demotionHistoryRetentionTimeMs,
            long removalHistoryRetentionTimeMs,
@@ -241,44 +239,13 @@ public class Executor {
   /**
    * Register gauge sensors.
    */
-  private void registerGaugeSensors(MetricsRegistry metricRegistry) {
-    String metricName = "Executor";
-    metricRegistry.newGauge(new MetricName(Executor.class, GAUGE_EXECUTION_STOPPED),
-                                      new Gauge<Integer>() {
-                                        public Integer value() {
-                                          return numExecutionStopped();
-                                        }
-                                      });
-    metricRegistry.newGauge(new MetricName(Executor.class, GAUGE_EXECUTION_STOPPED_BY_USER),
-                                      new Gauge<Integer>() {
-                                        public Integer value() {
-                                          return numExecutionStoppedByUser();
-                                        }
-                                      });
-    metricRegistry.newGauge(new MetricName(Executor.class, GAUGE_EXECUTION_STARTED_IN_KAFKA_ASSIGNER_MODE),
-                                      new Gauge<Integer>() {
-                                        public Integer value() {
-                                          return numExecutionStartedInKafkaAssignerMode();
-                                        }
-                                      });
-    metricRegistry.newGauge(new MetricName(Executor.class, GAUGE_EXECUTION_STARTED_IN_NON_KAFKA_ASSIGNER_MODE),
-                                      new Gauge<Integer>() {
-                                        public Integer value() {
-                                          return numExecutionStartedInNonKafkaAssignerMode();
-                                        }
-                                      });
-    metricRegistry.newGauge(new MetricName(Executor.class, GAUGE_CANCELLED_REASSIGNMENTS),
-                                      new Gauge<Integer>() {
-                                        public Integer value() {
-                                          return numCancelledReassignments();
-                                        }
-                                      });
-    metricRegistry.newGauge(new MetricName(Executor.class, GAUGE_FAILED_REASSIGNMENT_CANCELLATIONS),
-                                      new Gauge<Integer>() {
-                                        public Integer value() {
-                                          return numFailedReassignmentCancellations();
-                                        }
-                                      });
+  private void registerGaugeSensors(DataBalancerMetricsRegistry metricRegistry) {
+    metricRegistry.newGauge(Executor.class, GAUGE_EXECUTION_STOPPED, this::numExecutionStopped);
+    metricRegistry.newGauge(Executor.class, GAUGE_EXECUTION_STOPPED_BY_USER, this::numExecutionStoppedByUser);
+    metricRegistry.newGauge(Executor.class, GAUGE_EXECUTION_STARTED_IN_KAFKA_ASSIGNER_MODE, this::numExecutionStartedInKafkaAssignerMode);
+    metricRegistry.newGauge(Executor.class, GAUGE_EXECUTION_STARTED_IN_NON_KAFKA_ASSIGNER_MODE, this::numExecutionStartedInNonKafkaAssignerMode);
+    metricRegistry.newGauge(Executor.class, GAUGE_CANCELLED_REASSIGNMENTS, this::numCancelledReassignments);
+    metricRegistry.newGauge(Executor.class, GAUGE_FAILED_REASSIGNMENT_CANCELLATIONS, this::numFailedReassignmentCancellations);
   }
 
   private void removeExpiredDemotionHistory() {

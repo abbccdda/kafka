@@ -4,7 +4,6 @@
 
 package io.confluent.cruisecontrol.analyzer.goals;
 
-import com.yammer.metrics.core.MetricsRegistry;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
 import com.linkedin.kafka.cruisecontrol.analyzer.ActionAcceptance;
 import com.linkedin.kafka.cruisecontrol.analyzer.ActionType;
@@ -19,6 +18,7 @@ import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import com.linkedin.kafka.cruisecontrol.exception.OptimizationFailureException;
 import com.linkedin.kafka.cruisecontrol.executor.Executor;
 import com.linkedin.kafka.cruisecontrol.model.ClusterModel;
+import com.yammer.metrics.core.MetricsRegistry;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.utils.SystemTime;
 import org.easymock.EasyMock;
@@ -152,12 +152,12 @@ public class CrossRackMovementGoalTest {
 
         KafkaCruiseControlConfig config = new KafkaCruiseControlConfig(props);
         List<Goal> goalNameByPriority = config.getConfiguredInstances(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG, Goal.class);
-
+        MetricsRegistry metricsRegistry = new MetricsRegistry();
         GoalOptimizer goalOptimizer = new GoalOptimizer(
                 config,
                 null,
                 new SystemTime(),
-                new MetricsRegistry(),
+                KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
                 EasyMock.mock(Executor.class));
 
         // Attempt to balance a cluster that could satisfy the RackAwareGoal, which should fail
@@ -166,5 +166,6 @@ public class CrossRackMovementGoalTest {
                         DeterministicCluster.rackAwareSatisfiable(),
                         goalNameByPriority,
                         new OperationProgress()));
+        metricsRegistry.shutdown();
     }
 }

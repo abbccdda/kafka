@@ -5,7 +5,6 @@
 package com.linkedin.kafka.cruisecontrol.monitor.sampling;
 
 import com.yammer.metrics.core.Meter;
-import com.yammer.metrics.core.MetricsRegistry;
 import com.yammer.metrics.core.Timer;
 import com.linkedin.cruisecontrol.metricdef.MetricDef;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityConfigFileResolver;
@@ -23,6 +22,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
@@ -58,7 +59,7 @@ public class MetricFetcherManager {
   /**
    * Create a metric fetcher manager.
    * See {@link #MetricFetcherManager(KafkaCruiseControlConfig, KafkaPartitionMetricSampleAggregator, KafkaBrokerMetricSampleAggregator,
-   * MetadataClient, MetricDef, Time, MetricsRegistry, BrokerCapacityConfigResolver, MetricSampler)}
+   * MetadataClient, MetricDef, Time, DataBalancerMetricsRegistry, BrokerCapacityConfigResolver, MetricSampler)}
    */
   public MetricFetcherManager(KafkaCruiseControlConfig config,
                               KafkaPartitionMetricSampleAggregator partitionMetricSampleAggregator,
@@ -66,7 +67,7 @@ public class MetricFetcherManager {
                               MetadataClient metadataClient,
                               MetricDef metricDef,
                               Time time,
-                              MetricsRegistry metricRegistry,
+                              DataBalancerMetricsRegistry metricRegistry,
                               BrokerCapacityConfigResolver brokerCapacityConfigResolver) {
     this(config, partitionMetricSampleAggregator, brokerMetricSampleAggregator, metadataClient, metricDef, time, metricRegistry,
          brokerCapacityConfigResolver, null);
@@ -91,7 +92,7 @@ public class MetricFetcherManager {
                               MetadataClient metadataClient,
                               MetricDef metricDef,
                               Time time,
-                              MetricsRegistry metricRegistry,
+                              DataBalancerMetricsRegistry metricRegistry,
                               BrokerCapacityConfigResolver brokerCapacityConfigResolver,
                               MetricSampler sampler) {
     _time = time;

@@ -4,7 +4,6 @@
 
 package com.linkedin.kafka.cruisecontrol.monitor.task;
 
-import com.yammer.metrics.core.MetricsRegistry;
 import com.linkedin.cruisecontrol.metricdef.MetricInfo;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import com.linkedin.kafka.cruisecontrol.common.Resource;
@@ -29,6 +28,9 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+
+import com.yammer.metrics.core.MetricsRegistry;
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import kafka.admin.RackAwareMode;
 import kafka.zk.AdminZkClient;
 import kafka.zk.KafkaZkClient;
@@ -58,6 +60,7 @@ public class LoadMonitorTaskRunnerTest extends CCKafkaIntegrationTestHarness {
   // Using autoTick = 1
   private static final Time TIME = new MockTime(1L);
 
+  private MetricsRegistry metricsRegistry;
   @Before
   public void setUp() {
     super.setUp();
@@ -70,11 +73,13 @@ public class LoadMonitorTaskRunnerTest extends CCKafkaIntegrationTestHarness {
       adminZkClient.createTopic("topic-" + i, NUM_PARTITIONS, 1, new Properties(), RackAwareMode.Safe$.MODULE$, false, Option$.MODULE$.empty());
     }
     KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
+    metricsRegistry = new MetricsRegistry();
   }
 
   @After
   public void tearDown() {
     super.tearDown();
+    metricsRegistry.shutdown();
   }
 
   @Override
@@ -90,7 +95,7 @@ public class LoadMonitorTaskRunnerTest extends CCKafkaIntegrationTestHarness {
         new MockPartitionMetricSampleAggregator(config, metadataClient);
     KafkaBrokerMetricSampleAggregator mockBrokerMetricSampleAggregator =
         EasyMock.mock(KafkaBrokerMetricSampleAggregator.class);
-    MetricsRegistry metricRegistry = new MetricsRegistry();
+    DataBalancerMetricsRegistry metricRegistry = KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry);
     MetricSampler sampler = new MockSampler(0);
     MetricFetcherManager fetcherManager =
         new MetricFetcherManager(config, mockPartitionMetricSampleAggregator, mockBrokerMetricSampleAggregator,
@@ -137,7 +142,7 @@ public class LoadMonitorTaskRunnerTest extends CCKafkaIntegrationTestHarness {
         new MockPartitionMetricSampleAggregator(config, metadataClient);
     KafkaBrokerMetricSampleAggregator mockBrokerMetricSampleAggregator =
         EasyMock.mock(KafkaBrokerMetricSampleAggregator.class);
-    MetricsRegistry metricRegistry = new MetricsRegistry();
+    DataBalancerMetricsRegistry metricRegistry = KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry);
     MetricSampler sampler = new MockSampler(0);
     MetricFetcherManager fetcherManager =
         new MetricFetcherManager(config, mockMetricSampleAggregator, mockBrokerMetricSampleAggregator, metadataClient,

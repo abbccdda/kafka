@@ -4,7 +4,6 @@
 
 package com.linkedin.kafka.cruisecontrol.analyzer;
 
-import com.yammer.metrics.core.MetricsRegistry;
 import com.yammer.metrics.core.Timer;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.Goal;
@@ -41,6 +40,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
@@ -88,7 +89,7 @@ public class GoalOptimizer implements Runnable {
   public GoalOptimizer(KafkaCruiseControlConfig config,
                        LoadMonitor loadMonitor,
                        Time time,
-                       MetricsRegistry metricRegistry,
+                       DataBalancerMetricsRegistry metricRegistry,
                        Executor executor) {
     _goalsByPriority = AnalyzerUtils.getGoalsByPriority(config);
     _defaultModelCompletenessRequirements = MonitorUtils.combineLoadRequirementOptions(_goalsByPriority);

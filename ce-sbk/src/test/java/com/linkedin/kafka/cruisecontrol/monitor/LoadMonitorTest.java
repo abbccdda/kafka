@@ -4,7 +4,6 @@
 
 package com.linkedin.kafka.cruisecontrol.monitor;
 
-import com.yammer.metrics.core.MetricsRegistry;
 import com.linkedin.cruisecontrol.CruiseControlUnitTestUtils;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
 import com.linkedin.cruisecontrol.exception.NotEnoughValidWindowsException;
@@ -34,6 +33,8 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+
+import com.yammer.metrics.core.MetricsRegistry;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.DescribeLogDirsResult;
 import org.apache.kafka.common.Cluster;
@@ -46,7 +47,9 @@ import org.apache.kafka.common.requests.DescribeLogDirsResponse;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
 import org.easymock.EasyMock;
+import org.junit.After;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC0;
@@ -86,6 +89,18 @@ public class LoadMonitorTest {
   private static final String DEFAULT_CLEANUP_POLICY = "delete";
 
   private final Time _time = new MockTime(0);
+
+  private MetricsRegistry metricsRegistry;
+
+  @Before
+  public void setUp() {
+    metricsRegistry = new MetricsRegistry();
+  }
+
+  @After
+  public void tearDown() {
+    metricsRegistry.shutdown();
+  }
 
   @Test
   public void testStateWithOnlyActiveSnapshotWindow() {
@@ -575,7 +590,8 @@ public class LoadMonitorTest {
                 "com.linkedin.kafka.cruisecontrol.common.TestBrokerCapacityConfigResolver");
     }
     KafkaCruiseControlConfig config = new KafkaCruiseControlConfig(props);
-    LoadMonitor loadMonitor = new LoadMonitor(config, mockMetadataClient, mockAdminClient, _time, new MetricsRegistry(), COMMON_METRIC_DEF);
+    LoadMonitor loadMonitor = new LoadMonitor(config, mockMetadataClient, mockAdminClient, _time,
+            KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry), COMMON_METRIC_DEF);
 
     KafkaPartitionMetricSampleAggregator aggregator = loadMonitor.partitionSampleAggregator();
     assertFalse(aggregator.isValidLeader(new PartitionMetricSample(0, T0P0))); // stale metadata
