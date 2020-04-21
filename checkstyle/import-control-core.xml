@@ -43,6 +43,13 @@
   <disallow class="com.yammer.metrics.Metrics" />
   <allow pkg="com.yammer.metrics"/>
 
+  <subpackage name = "rest">
+    <allow pkg="com.fasterxml.jackson"/>
+    <allow pkg="javax.servlet"/>
+    <allow pkg="org.eclipse.jetty"/>
+    <allow pkg="org.mockito" />
+  </subpackage>
+
   <subpackage name="tools">
     <allow pkg="org.apache.kafka.clients.admin" />
     <allow pkg="kafka.admin" />

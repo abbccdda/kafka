@@ -1633,6 +1633,9 @@ object KafkaConfig {
       .defineInternal(ConfluentConfigs.STRAY_PARTITION_DELETION_ENABLE_CONFIG, BOOLEAN,
                       ConfluentConfigs.STRAY_PARTITION_DELETION_ENABLE_DEFAULT, MEDIUM,
                       ConfluentConfigs.STRAY_PARTITION_DELETION_ENABLE_DOC)
+      .defineInternal(ConfluentConfigs.INTERNAL_REST_SERVER_BIND_PORT_CONFIG, INT,
+                      ConfluentConfigs.INTERNAL_REST_SERVER_BIND_PORT_DEFAULT, MEDIUM,
+                      ConfluentConfigs.INTERNAL_REST_SERVER_BIND_PORT_DOC)
   }
 
   def configNames() = configDef.names().asScala.toList.sorted
@@ -2106,6 +2109,9 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
     getBoolean(ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS)
   val verifyGroupSubscriptionPrefix = getBoolean(ConfluentConfigs.VERIFY_GROUP_SUBSCRIPTION_PREFIX)
   val strayPartitionDeletionEnabled = getBoolean(ConfluentConfigs.STRAY_PARTITION_DELETION_ENABLE_CONFIG)
+
+  /************* Internal REST Server ***********/
+  val internalRestServerBindPort = getInt(ConfluentConfigs.INTERNAL_REST_SERVER_BIND_PORT_CONFIG)
 
   /** ********* Fetch Configuration **************/
   val maxIncrementalFetchSessionCacheSlots = getInt(KafkaConfig.MaxIncrementalFetchSessionCacheSlots)

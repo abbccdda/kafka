@@ -761,6 +761,7 @@ project(':core') {
     // ZooKeeperMain depends on commons-cli but declares the dependency as `provided`
     compile libs.commonsCli
     compile libs.googlecloudstorage
+    compile project(':internal-rest-server')
 
     compileOnly libs.log4j
 
@@ -2856,6 +2857,35 @@ project(':ce-resource-names') {
     duplicatesStrategy 'exclude'
   }
 
+  checkstyle {
+    configProperties = checkstyleConfigProperties("confluent-import-control.xml")
+  }
+}
+
+project(':internal-rest-server') {
+  group = "io.confluent"
+  archivesBaseName = "internal-rest-server"
+  sourceSets {
+    main {
+      java {
+        srcDirs = ["src/main/java"]
+      }
+    }
+  }
+
+  dependencies {
+    compile libs.jacksonCbor
+    compile libs.jacksonDatabind
+    compile libs.jacksonJDK8Datatypes
+    compile libs.jacksonModuleScala
+    compile libs.jettyServer
+    compile libs.jettyServlet
+    compile libs.slf4jApi
+    compile project(':clients')
+    testCompile libs.junit
+    testCompile libs.mockitoCore
+    testCompile project(':clients').sourceSets.test.output // for org.apache.kafka.test.IntegrationTest
+  }
   checkstyle {
     configProperties = checkstyleConfigProperties("confluent-import-control.xml")
   }

@@ -256,4 +256,11 @@
     <allow pkg="org.apache.kafka.common" />
   </subpackage>
 
+  <subpackage name="rest">
+    <allow pkg="org.eclipse.jetty.server" />
+    <allow pkg="org.eclipse.jetty.servlet" />
+    <allow pkg="javax.servlet" />
+    <allow pkg="org.apache.kafka.common.errors" />
+  </subpackage>
+
 </import-control>

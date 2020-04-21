@@ -29,7 +29,7 @@ import kafka.log.LogManager
 import kafka.zookeeper.ZooKeeperClientTimeoutException
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
-import org.apache.kafka.common.errors.KafkaStorageException
+import org.apache.kafka.common.errors.{KafkaStorageException, StaleBrokerEpochException}
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.ApiKeys
@@ -39,6 +39,7 @@ import org.apache.kafka.common.serialization.{IntegerDeserializer, IntegerSerial
 import org.apache.kafka.common.utils.Time
 import org.junit.{Before, Test}
 import org.junit.Assert._
+import org.junit.function.ThrowingRunnable
 
 import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
@@ -197,6 +198,31 @@ class ServerShutdownTest extends ZooKeeperTestHarness {
     server.shutdown()
     server.awaitShutdown()
     server.shutdown()
+  }
+
+  @Test
+  def testBeginShutdown(): Unit = {
+    val server = new KafkaServer(config)
+    server.startup()
+    val brokerEpoch = server.kafkaController.brokerEpoch
+    server.beginShutdown(brokerEpoch)
+    assertEquals("broker should only be in shutting down state", server.brokerState.currentState, BrokerShuttingDown.state)
+    server.shutdown()
+    server.awaitShutdown()
+    assertEquals("expected broker to be fully shut down", server.brokerState.currentState, NotRunning.state)
+  }
+
+  @Test
+  def testBeginShutdownWrongEpoch(): Unit = {
+    val server = new KafkaServer(config)
+    server.startup()
+    val wrongBrokerEpoch = server.kafkaController.brokerEpoch + 1
+    assertThrows("expected a begin shutdown requests at a different epoch to result in an exception", classOf[StaleBrokerEpochException], new ThrowingRunnable {
+      override def run(): Unit = server.beginShutdown(wrongBrokerEpoch)
+    })
+    assertEquals("broker shutdown should not have started", server.brokerState.currentState, RunningAsBroker.state)
+    server.shutdown()
+    server.awaitShutdown()
   }
 
   // Verify that if controller is in the midst of processing a request, shutdown completes

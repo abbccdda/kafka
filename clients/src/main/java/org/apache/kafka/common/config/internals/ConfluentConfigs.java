@@ -311,6 +311,9 @@ public class ConfluentConfigs {
     public static final String CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_DOC =
         "The time span of each sample for cluster link replication quotas";
 
+    public static final String INTERNAL_REST_SERVER_BIND_PORT_CONFIG = "confluent.internal.rest.server.bind.port";
+    public static final Integer INTERNAL_REST_SERVER_BIND_PORT_DEFAULT = null;
+    public static final String INTERNAL_REST_SERVER_BIND_PORT_DOC = "The port to bind the internal rest server to.";
 
     public enum ClientType {
         PRODUCER("producer", ProducerConfig.configNames()),
