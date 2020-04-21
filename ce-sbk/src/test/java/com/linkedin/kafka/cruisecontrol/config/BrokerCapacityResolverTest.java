@@ -36,8 +36,13 @@ import static org.junit.Assert.fail;
  */
 public class BrokerCapacityResolverTest {
   private final Double DISK_TEST_CAPACITY = 10D * 1024; // 10GB in units of MB
-  private final Double NW_IN_TEST_CAPACITY = 5D * 1024 * 1024; // 5 GB/s in units of KB/s
-  private final Double NW_OUT_TEST_CAPACITY = 12D * 1024 * 1024; // 12GB/s in units of KB/s
+  private final Double NW_IN_TEST_CAPACITY = 5D * 1024 * 1024 * 1024; // 5 GB/s in units of bytes
+  private final Double NW_OUT_TEST_CAPACITY = 12D * 1024 * 1024 * 1024; // 12GB/s in units of bytes
+  private final double BYTES_PER_KB = BrokerCapacityResolver.BYTES_PER_KB;
+
+  private final Double CONVERTED_NW_IN_TEST_CAPACITY = NW_IN_TEST_CAPACITY / BYTES_PER_KB;
+  private final Double CONVERTED_NW_OUT_TEST_CAPACITY = NW_OUT_TEST_CAPACITY / BYTES_PER_KB;
+
   Map<String, Object> capacityConfigs;
   private static File tempDir;
   private static String dirPath;
@@ -71,11 +76,11 @@ public class BrokerCapacityResolverTest {
   public void testParseFromConfig() {
     BrokerCapacityConfigResolver capacityResolver = getBrokerCapacityResolver(capacityConfigs);
     // Return the default capacity in the absence of broker-specific updates
-    assertEquals(NW_IN_TEST_CAPACITY, capacityResolver.capacityForBroker("", "", 0)
+    assertEquals(CONVERTED_NW_IN_TEST_CAPACITY, capacityResolver.capacityForBroker("", "", 0)
             .capacity().get(Resource.NW_IN), 0.01);
-    assertEquals(NW_IN_TEST_CAPACITY, capacityResolver.capacityForBroker("", "", 2)
+    assertEquals(CONVERTED_NW_IN_TEST_CAPACITY, capacityResolver.capacityForBroker("", "", 2)
             .capacity().get(Resource.NW_IN), 0.01);
-    assertEquals(NW_OUT_TEST_CAPACITY, capacityResolver.capacityForBroker("", "", 2)
+    assertEquals(CONVERTED_NW_OUT_TEST_CAPACITY, capacityResolver.capacityForBroker("", "", 2)
             .capacity().get(Resource.NW_OUT), 0.01);
     assertEquals(dirStoreCapacity, capacityResolver.capacityForBroker("", "", 2)
             .capacity().get(Resource.DISK), 0.01);
@@ -144,8 +149,8 @@ public class BrokerCapacityResolverTest {
     double networkInCapacity = updatedCapacity.capacity().get(Resource.NW_IN);
     double networkOutCapacity = updatedCapacity.capacity().get(Resource.NW_OUT);
     assertEquals("Expected disk capacity for broker 2 to be updated", DISK_TEST_CAPACITY, updatedDiskCapacity, 0.01);
-    assertEquals("Expected network in capacity for broker 2 not to change", NW_IN_TEST_CAPACITY, networkInCapacity, 0.01);
-    assertEquals("Expected network out capacity not to change", NW_OUT_TEST_CAPACITY, networkOutCapacity, 0.01);
+    assertEquals("Expected network in capacity for broker 2 not to change", CONVERTED_NW_IN_TEST_CAPACITY, networkInCapacity, 0.01);
+    assertEquals("Expected network out capacity not to change", CONVERTED_NW_OUT_TEST_CAPACITY, networkOutCapacity, 0.01);
 
     BrokerCapacityInfo nonUpdatedCapacity = capacityResolver.capacityForBroker("", "", 1);
     double nonUpdatedDiskCapacity = nonUpdatedCapacity.capacity().get(Resource.DISK);

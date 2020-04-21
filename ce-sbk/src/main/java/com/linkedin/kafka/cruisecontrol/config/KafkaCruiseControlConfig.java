@@ -44,6 +44,7 @@ import org.apache.kafka.common.config.ConfigDef;
 
 import java.util.Map;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
 
 import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
 import static org.apache.kafka.common.config.ConfigDef.Range.between;
@@ -366,13 +367,13 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final Double DEFAULT_CPU_CAPACITY_THRESHOLD = 1.0;
 
   /**
-   * <code>cpu.capacity.threshold</code>
+   * Disk capacity: <code>disk.max.load</code>
    */
-  public static final String DISK_CAPACITY_THRESHOLD_CONFIG = "disk.capacity.threshold";
+  public static final String DISK_CAPACITY_THRESHOLD_CONFIG = ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_BASE_CONFIG;
   private static final String DISK_CAPACITY_THRESHOLD_DOC = "The maximum percentage of the total broker.disk.capacity " +
       "that is allowed to be used on a broker. The analyzer will enforce a hard goal that the disk usage " +
       "of a broker cannot be higher than (broker.disk.capacity * disk.capacity.threshold).";
-  public static final Double DEFAULT_DISK_CAPACITY_THRESHOLD = 0.8;
+  public static final Double DEFAULT_DISK_CAPACITY_THRESHOLD = ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_DEFAULT;
 
   /**
    * <code>network.inbound.capacity.threshold</code>
@@ -449,9 +450,9 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final Integer DEFAULT_PROPOSAL_EXPIRATION_MS = 60 * 1000;
 
   /**
-   * <code>max.replicas.per.broker</code>
+   * Broker replica capacity: <code>max.replicas</code>
    */
-  public static final String MAX_REPLICAS_PER_BROKER_CONFIG = "max.replicas.per.broker";
+  public static final String MAX_REPLICAS_PER_BROKER_CONFIG = ConfluentConfigs.BALANCER_REPLICA_CAPACITY_BASE_CONFIG;
   private static final String MAX_REPLICAS_PER_BROKER_DOC = "The maximum number of replicas allowed to reside on a "
       + "broker. The analyzer will enforce a hard goal that the number of replica on a broker cannot be higher than "
       + "this config.";
@@ -504,11 +505,11 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
       "will also reduce the controller burden.";
 
   /**
-   * <code>default.replication.throttle</code>
+   * Replication throttle: <code>throttle.bytes.per.second</code>
    */
-  public static final String DEFAULT_REPLICATION_THROTTLE_CONFIG = "default.replication.throttle";
+  public static final String DEFAULT_REPLICATION_THROTTLE_CONFIG = ConfluentConfigs.BALANCER_THROTTLE_BASE_CONFIG;
   public static final Long NO_THROTTLE = null;
-  public static final long AUTO_THROTTLE = -2L;
+  public static final long AUTO_THROTTLE = ConfluentConfigs.BALANCER_THROTTLE_AUTO_THROTTLE;
   private static final String DEFAULT_REPLICATION_THROTTLE_DOC = "The replication throttle applied to " +
           "replicas being moved, in bytes per second. A value of null means no throttle is" +
           "applied. A value of -2 means the throttle is automatically calculated based on the cluster metrics.";
@@ -642,7 +643,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String ANOMALY_DETECTION_GOALS_CONFIG = "anomaly.detection.goals";
   private static final String ANOMALY_DETECTION_GOALS_DOC = "The goals that anomaly detector should detect if they are"
       + "violated.";
-  private static final List<String> DEFAULT_ANOMALY_DETECTION_GOALS_LIST = Arrays.asList(
+  public static final List<String> DEFAULT_ANOMALY_DETECTION_GOALS_LIST = Arrays.asList(
           CrossRackMovementGoal.class.getName(),
           SequentialReplicaMovementGoal.class.getName(),
           ReplicaCapacityGoal.class.getName(),

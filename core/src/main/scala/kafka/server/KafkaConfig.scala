@@ -1603,19 +1603,19 @@ object KafkaConfig {
                       ConfluentConfigs.BALANCER_RACK_AWARE_DEFAULT, MEDIUM,
                       ConfluentConfigs.BALANCER_RACK_AWARE_DOC)
       .defineInternal(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, LONG,
-                      ConfluentConfigs.BALANCER_THROTTLE_DEFAULT, HIGH,
+                      ConfluentConfigs.BALANCER_THROTTLE_DEFAULT, atLeast(ConfluentConfigs.BALANCER_THROTTLE_MIN), HIGH,
                       ConfluentConfigs.BALANCER_THROTTLE_DOC)
       .defineInternal(ConfluentConfigs.BALANCER_REPLICA_CAPACITY_CONFIG, LONG,
-                      ConfluentConfigs.BALANCER_REPLICA_CAPACITY_DEFAULT, HIGH,
+                      ConfluentConfigs.BALANCER_REPLICA_CAPACITY_DEFAULT, atLeast(0), HIGH,
                       ConfluentConfigs.BALANCER_REPLICA_CAPACITY_DOC)
-      .defineInternal(ConfluentConfigs.BALANCER_DISK_CAPACITY_CONFIG, LONG,
-                      ConfluentConfigs.BALANCER_DISK_CAPACITY_DEFAULT, HIGH,
-                      ConfluentConfigs.BALANCER_DISK_CAPACITY_DOC)
+      .defineInternal(ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_CONFIG, DOUBLE,
+                      ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_DEFAULT, between(0.0, 1.0), HIGH,
+                      ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_DOC)
       .defineInternal(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG, LONG,
-                      ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DEFAULT, HIGH,
+                      ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DEFAULT, atLeast(0), HIGH,
                       ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DOC)
       .defineInternal(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG, LONG,
-                      ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DEFAULT, HIGH,
+                      ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DEFAULT, atLeast(0), HIGH,
                       ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DOC)
       .defineInternal(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG, LIST,
                       ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_DEFAULT, MEDIUM,

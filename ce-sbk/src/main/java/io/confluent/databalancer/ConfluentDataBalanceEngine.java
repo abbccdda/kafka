@@ -5,8 +5,11 @@ package io.confluent.databalancer;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundCapacityGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
+import com.linkedin.kafka.cruisecontrol.detector.notifier.SelfHealingNotifier;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
@@ -48,6 +51,9 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     private static final String START_ANCHOR = "^";
     private static final String END_ANCHOR = "$";
     private static final String WILDCARD_SUFFIX = ".*";
+    // potentially removable goals
+    private static final String NETWORK_IN_CAPACITY_GOAL = NetworkInboundCapacityGoal.class.getName();
+    private static final String NETWORK_OUT_CAPACITY_GOAL = NetworkOutboundCapacityGoal.class.getName();
 
     // ccRunner is used to control all access to the underlying CruiseControl object;
     // access is serialized through here (in particular for startup/shutdown).
@@ -211,6 +217,27 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         }
         ccConfigProps.put(BrokerCapacityResolver.LOG_DIRS_CONFIG, logDirs.get(0));
 
+        // Adjust our goals list as needed -- if network capacities are not provided, remove them from the list
+        List<String> goals = new LinkedList<>(KafkaCruiseControlConfig.DEFAULT_GOALS_LIST);
+        List<String> hardGoals = new LinkedList<>(KafkaCruiseControlConfig.DEFAULT_HARD_GOALS_LIST);
+        List<String> anomalyDetectionGoals = new LinkedList<>(KafkaCruiseControlConfig.DEFAULT_ANOMALY_DETECTION_GOALS_LIST);
+        // if network in/out are zero, we don't want to enforce network capacity goals
+        long networkInCapacity = config.getLong(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG);
+        if (networkInCapacity <= 0) {
+            removeGoalFromLists(NETWORK_IN_CAPACITY_GOAL, goals, hardGoals, anomalyDetectionGoals);
+        }
+        long networkOutCapacity = config.getLong(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG);
+        if (networkOutCapacity <= 0) {
+            removeGoalFromLists(NETWORK_OUT_CAPACITY_GOAL, goals, hardGoals, anomalyDetectionGoals);
+        }
+
+        ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.GOALS_CONFIG, String.join(",", goals));
+        ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.HARD_GOALS_CONFIG, String.join(",", hardGoals));
+        ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.ANOMALY_DETECTION_GOALS_CONFIG, String.join(",", anomalyDetectionGoals));
+        // The defaults for the various self-healing properties are annoyingly difficult to set in the SelfHealingNotifier
+        ccConfigProps.putIfAbsent(SelfHealingNotifier.SELF_HEALING_ENABLED_CONFIG, String.valueOf(false));
+        ccConfigProps.putIfAbsent(SelfHealingNotifier.SELF_HEALING_GOAL_VIOLATION_ENABLED_CONFIG, String.valueOf(true));
+
         // Derive bootstrap.servers from the provided KafkaConfig, instead of requiring
         // users to specify it.
         String bootstrapServers = config.listeners().toStream()
@@ -252,4 +279,9 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         return new KafkaCruiseControlConfig(ccConfigProps);
     }
 
+    private static void removeGoalFromLists(String goal, List<String>... lists) {
+        for (List<String> goalList : lists) {
+            goalList.remove(goal);
+        }
+    }
 }
