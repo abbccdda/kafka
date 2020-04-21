@@ -72,6 +72,11 @@ public class DeleteClusterLinksResponse extends AbstractResponse {
         }
     }
 
+    // Visible for testing.
+    public DeleteClusterLinksResponseData data() {
+        return data;
+    }
+
     @Override
     public int throttleTimeMs() {
         return data.throttleTimeMs();

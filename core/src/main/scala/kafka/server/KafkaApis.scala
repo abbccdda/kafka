@@ -22,7 +22,7 @@ import java.lang.{Long => JLong}
 import java.nio.ByteBuffer
 import java.util
 import java.util.{Collections, Optional}
-import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ExecutionException}
 import java.util.concurrent.atomic.AtomicInteger
 
 import kafka.admin.{AdminUtils, RackAwareMode}
@@ -38,6 +38,7 @@ import kafka.message.ZStdCompressionCodec
 import kafka.network.RequestChannel
 import kafka.security.authorizer.{AclEntry, AuthorizerUtils}
 import kafka.server.QuotaFactory.{QuotaManagers, UnboundedQuota}
+import kafka.server.link.ClusterLinkAdminManager
 import kafka.tier.TierDeletedPartitionsCoordinator
 import kafka.tier.client.TierTopicClient
 import kafka.tier.fetcher.ReclaimableMemoryRecords
@@ -99,6 +100,7 @@ import scala.util.{Failure, Success, Try}
 class KafkaApis(val requestChannel: RequestChannel,
                 val replicaManager: ReplicaManager,
                 val adminManager: AdminManager,
+                val clusterLinkAdminManager: ClusterLinkAdminManager,
                 val groupCoordinator: GroupCoordinator,
                 val txnCoordinator: TransactionCoordinator,
                 val controller: KafkaController,
@@ -3080,28 +3082,66 @@ class KafkaApis(val requestChannel: RequestChannel,
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         createClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.NOT_CONTROLLER.exception))
 
-    } else if (!authorize(request, CREATE, CLUSTER, CLUSTER_NAME)) {
+    } else if (!authorize(request, ALTER, CLUSTER, CLUSTER_NAME)) {
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         createClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
 
     } else {
-      // Pending implementation.
-      sendResponseMaybeThrottle(request, requestThrottleMs =>
-        createClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.UNSUPPORTED_VERSION.exception))
+      val newClusterLinks = createClusterLinksRequest.newClusterLinks.asScala
+      val futures = newClusterLinks.map { ncl =>
+        val linkName = ncl.linkName
+        val future = try {
+          if (newClusterLinks.count(_.linkName == linkName) > 1)
+            throw new InvalidRequestException(s"Duplicate link name $linkName")
+          clusterLinkAdminManager.createClusterLink(ncl,
+            createClusterLinksRequest.validateOnly, createClusterLinksRequest.validateLink, createClusterLinksRequest.timeoutMs)
+        } catch {
+          case e: Throwable =>
+            val result = new CompletableFuture[Void]()
+            result.completeExceptionally(e)
+            result
+        }
+        linkName -> future
+      }.toMap
+
+      CompletableFuture.allOf(futures.values.toArray:_*).whenComplete((_, _) => {
+        val result = futures.map { case (linkName, future) =>
+          def handleError(e: Throwable): ApiError = {
+            error(s"Error processing cluster link creation request for '$linkName'", e)
+            ApiError.fromThrowable(e)
+          }
+          val apiError = try {
+            future.get
+            ApiError.NONE
+          } catch {
+            case e: ExecutionException => handleError(e.getCause)
+            case e: Throwable => handleError(e)
+          }
+          linkName -> apiError
+        }.toMap.asJava
+
+        sendResponseMaybeThrottle(request, requestThrottleMs =>
+          new CreateClusterLinksResponse(result, requestThrottleMs))
+      })
     }
   }
 
   def handleListClusterLinksRequest(request: RequestChannel.Request): Unit = {
     val listClusterLinksRequest = request.body[ListClusterLinksRequest]
 
-    if (!authorize(request, DESCRIBE_CONFIGS, CLUSTER, CLUSTER_NAME)) {
+    if (!authorize(request, DESCRIBE, CLUSTER, CLUSTER_NAME)) {
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         listClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
 
-    } else {
-      // Pending implementation.
+    } else try {
+      val result = clusterLinkAdminManager.listClusterLinks().asJava
       sendResponseMaybeThrottle(request, requestThrottleMs =>
-        listClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.UNSUPPORTED_VERSION.exception))
+        new ListClusterLinksResponse(result, requestThrottleMs))
+
+    } catch {
+      case e: Exception =>
+        sendResponseMaybeThrottle(request, requestThrottleMs =>
+          listClusterLinksRequest.getErrorResponse(requestThrottleMs, e))
     }
   }
 
@@ -3112,14 +3152,28 @@ class KafkaApis(val requestChannel: RequestChannel,
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         deleteClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.NOT_CONTROLLER.exception))
 
-    } else if (!authorize(request, DELETE, CLUSTER, CLUSTER_NAME)) {
+    } else if (!authorize(request, ALTER, CLUSTER, CLUSTER_NAME)) {
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         deleteClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
 
     } else {
-      // Pending implementation.
+      val linkNames = deleteClusterLinksRequest.linkNames.asScala
+      val result = linkNames.map { linkName =>
+        val apiError = try {
+          if (linkNames.count(_ == linkName) > 1)
+            throw new InvalidRequestException(s"Duplicate link name $linkName")
+          clusterLinkAdminManager.deleteClusterLink(linkName, deleteClusterLinksRequest.validateOnly, deleteClusterLinksRequest.force)
+          ApiError.NONE
+        } catch {
+          case e: Throwable =>
+            error(s"Error processing cluster link deletion request $linkName", e)
+            ApiError.fromThrowable(e)
+        }
+        linkName -> apiError
+      }.toMap.asJava
+
       sendResponseMaybeThrottle(request, requestThrottleMs =>
-        deleteClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.UNSUPPORTED_VERSION.exception))
+        new DeleteClusterLinksResponse(result, requestThrottleMs))
     }
   }
 

@@ -36,6 +36,7 @@ import kafka.log.{LogConfig, LogManager}
 import kafka.metrics.{KafkaMetricsGroup, KafkaMetricsReporter, KafkaYammerMetrics}
 import kafka.network.SocketServer
 import kafka.security.CredentialProvider
+import kafka.server.link.ClusterLinkAdminManager
 import kafka.tier.fetcher.{TierFetcher, TierFetcherConfig}
 import kafka.tier.state.TierPartitionStateFactory
 import kafka.tier.store.{GcsTierObjectStore, GcsTierObjectStoreConfig, MockInMemoryTierObjectStore, S3TierObjectStore, S3TierObjectStoreConfig, TierObjectStore, TierObjectStoreConfig}
@@ -211,6 +212,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
   var replicaManager: ReplicaManager = null
   var adminManager: AdminManager = null
+  var clusterLinkAdminManager: ClusterLinkAdminManager = null
   var tokenManager: DelegationTokenManager = null
 
   var dynamicConfigHandlers: Map[String, ConfigHandler] = null
@@ -377,6 +379,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         socketServer.startup(startupProcessors = false)
 
         adminManager = new AdminManager(config, metrics, metadataCache, zkClient)
+        clusterLinkAdminManager = new ClusterLinkAdminManager(config, clusterId, zkClient, () => replicaManager.clusterLinkManager)
 
         /* start replica manager */
         replicaManager = createReplicaManager(isShuttingDown, tierLogComponents)
@@ -451,7 +454,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
             KafkaServer.MIN_INCREMENTAL_FETCH_SESSION_EVICTION_MS))
 
         /* start processing requests */
-        dataPlaneRequestProcessor = new KafkaApis(socketServer.dataPlaneRequestChannel, replicaManager, adminManager, groupCoordinator, transactionCoordinator,
+        dataPlaneRequestProcessor = new KafkaApis(socketServer.dataPlaneRequestChannel, replicaManager, adminManager,
+          clusterLinkAdminManager, groupCoordinator, transactionCoordinator,
           kafkaController, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
           fetchManager, brokerTopicStats, clusterId, time, tokenManager, tierDeletedPartitionsCoordinatorOpt)
 
@@ -460,7 +464,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           config.numIoThreads, s"${SocketServer.DataPlaneMetricPrefix}RequestHandlerAvgIdlePercent", SocketServer.DataPlaneThreadPrefix, metrics)
 
         socketServer.controlPlaneRequestChannelOpt.foreach { controlPlaneRequestChannel =>
-          controlPlaneRequestProcessor = new KafkaApis(controlPlaneRequestChannel, replicaManager, adminManager, groupCoordinator, transactionCoordinator,
+          controlPlaneRequestProcessor = new KafkaApis(controlPlaneRequestChannel, replicaManager, adminManager,
+            clusterLinkAdminManager, groupCoordinator, transactionCoordinator,
             kafkaController, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
             fetchManager, brokerTopicStats, clusterId, time, tokenManager, tierDeletedPartitionsCoordinatorOpt)
 

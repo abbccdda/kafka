@@ -416,6 +416,8 @@ class ReplicaManager(val config: KafkaConfig,
     val haltBrokerOnFailure = config.interBrokerProtocolVersion < KAFKA_1_0_IV0
     logDirFailureHandler = new LogDirFailureHandler("LogDirFailureHandler", haltBrokerOnFailure)
     logDirFailureHandler.start()
+
+    clusterLinkManager.startup()
   }
 
   private def maybeRemoveTopicMetrics(topic: String): Unit = {

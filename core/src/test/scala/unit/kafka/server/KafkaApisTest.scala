@@ -38,6 +38,7 @@ import kafka.log.AppendOrigin
 import kafka.network.RequestChannel
 import kafka.network.RequestChannel.SendResponse
 import kafka.server.QuotaFactory.QuotaManagers
+import kafka.server.link.ClusterLinkAdminManager
 import kafka.tier.fetcher.ReclaimableMemoryRecords
 import kafka.utils.{MockTime, TestUtils}
 import kafka.zk.KafkaZkClient
@@ -80,6 +81,7 @@ class KafkaApisTest {
   private val replicaManager: ReplicaManager = EasyMock.createNiceMock(classOf[ReplicaManager])
   private val groupCoordinator: GroupCoordinator = EasyMock.createNiceMock(classOf[GroupCoordinator])
   private val adminManager: AdminManager = EasyMock.createNiceMock(classOf[AdminManager])
+  private val clusterLinkAdminManager: ClusterLinkAdminManager = EasyMock.createNiceMock(classOf[ClusterLinkAdminManager])
   private val txnCoordinator: TransactionCoordinator = EasyMock.createNiceMock(classOf[TransactionCoordinator])
   private val controller: KafkaController = EasyMock.createNiceMock(classOf[KafkaController])
   private val zkClient: KafkaZkClient = EasyMock.createNiceMock(classOf[KafkaZkClient])
@@ -116,6 +118,7 @@ class KafkaApisTest {
     new KafkaApis(requestChannel,
       replicaManager,
       adminManager,
+      clusterLinkAdminManager,
       groupCoordinator,
       txnCoordinator,
       controller,

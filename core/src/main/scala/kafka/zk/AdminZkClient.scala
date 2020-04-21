@@ -31,9 +31,6 @@ import org.apache.kafka.common.errors._
 import org.apache.kafka.common.internals.Topic
 import org.apache.zookeeper.KeeperException.NodeExistsException
 
-// TODO: Remove this - depends on outstanding pull request.
-import org.apache.kafka.common.errors.{TopicExistsException => ClusterLinkExistsException, InvalidTopicException => ClusterLinkNotFoundException}
-
 import scala.collection.{Map, Seq}
 
 /**
@@ -564,7 +561,7 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     * @param linkName the link name to delete
     */
   def deleteClusterLink(linkName: String): Unit = {
-    if (zkClient.clusterLinkExists(linkName))
+    if (!zkClient.clusterLinkExists(linkName))
       throw new ClusterLinkNotFoundException(s"Cluster link with name '$linkName' doesn't exist.")
     info(s"Deleting cluster link '$linkName'")
     zkClient.deleteClusterLink(linkName)
