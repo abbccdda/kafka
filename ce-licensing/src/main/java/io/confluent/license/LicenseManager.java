@@ -119,6 +119,8 @@ public class LicenseManager {
   private final CopyOnWriteArrayList<Consumer<LicenseChanged>> listeners =
       new CopyOnWriteArrayList<>();
 
+  private final License configuredLicense;
+
   /**
    * Create a new license manager that uses the specified topic for licenses, configurations for an
    * admin client, producer, and consumer to create, write to, and read from that topic in a
@@ -159,17 +161,45 @@ public class LicenseManager {
     );
   }
 
+  public LicenseManager(
+      Map<String, Object> topicConfig,
+      LicenseStore licenseStore,
+      String configuredLicense,
+      boolean startStore
+  ) {
+    this(
+        new BasicClusterClient(topicConfig),
+        licenseStore,
+        Time.SYSTEM,
+        configuredLicense,
+        startStore
+    );
+  }
+
+  protected LicenseManager(
+      ClusterClient primaryClusterClient,
+      LicenseStore licenseStore,
+      Time time) {
+    this(primaryClusterClient, licenseStore, time, null, true);
+  }
+
   //visible for testing
   protected LicenseManager(
       ClusterClient primaryClusterClient,
       LicenseStore licenseStore,
-      Time time
+      Time time,
+      String configuredLicenseStr,
+      boolean startStore
   ) {
     this.licenseStore = licenseStore;
     this.time = time;
-    this.licenseStore.start();
+    this.configuredLicense = readAndValidateConfiguredLicense(configuredLicenseStr);
     this.primaryClusterClient = primaryClusterClient;
+    if (startStore)
+      licenseStore.start();
   }
+
+
 
   /**
    * Add another Kafka cluster to be considered when validating a license. The cluster is
@@ -281,6 +311,10 @@ public class LicenseManager {
     licenseStore.stop();
   }
 
+  public License configuredLicense() {
+    return configuredLicense;
+  }
+
   /**
    * Validate the supplied license, or if blank register a new trial license. This should be
    * called with the valid license before calling {@link #start()}.
@@ -293,7 +327,7 @@ public class LicenseManager {
    */
   public License registerOrValidateLicense(String license) throws InvalidLicenseException {
     PublicKey publicKey = loadPublicKey();
-    License newLicense = null;
+    License newLicense = configuredLicense;
 
     // If a license key is given, always validate just against this key and fail if it's not valid
     if (StringUtils.isNotBlank(license)) {
@@ -388,6 +422,26 @@ public class LicenseManager {
     } catch (Throwable e) {
       throw new InvalidLicenseException("Invalid license with invalid expiration", e);
     }
+  }
+
+  private License readAndValidateConfiguredLicense(String licenseStr) {
+    if (StringUtils.isNotBlank(licenseStr)) {
+      try {
+        License license = readLicense(loadPublicKey(), licenseStr, false);
+        try {
+          License.expiration(license.jwtClaims());
+        } catch (Throwable t) {
+          throw new InvalidLicenseException("Configured license has invalid expiration", t);
+        }
+        checkLicense(license, license, time.milliseconds(), "Configured license");
+        log.debug("Found valid configured license: {}", license);
+        return license;
+      } catch (InvalidLicenseException e) {
+        log.warn("Configured license is invalid, will attempt to use stored license", e);
+        return null;
+      }
+    } else
+      return null;
   }
 
   protected License generateLicense(PublicKey publicKey, long now)

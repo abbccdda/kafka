@@ -5,10 +5,17 @@ package io.confluent.license.validator;
 import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.MetricName;
+import io.confluent.license.LicenseStore;
+import java.time.Duration;
 import java.util.HashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import org.apache.kafka.clients.producer.Callback;
+import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.AbstractConfig;
 import io.confluent.license.InvalidLicenseException;
 import io.confluent.license.License;
@@ -19,6 +26,8 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Consumer;
+import org.apache.kafka.common.errors.InterruptException;
+import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.server.license.LicenseValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,12 +44,20 @@ import org.slf4j.LoggerFactory;
  *
  * License is stored in a Kafka topic in the MDS cluster if MDS is enabled. Otherwise it is stored
  * in the Kafka cluster associated with the component.
+ *
+ * Since LicenseManager is used by several components, broker-specific startup sequence is
+ * managed by ConfluentLicenseValidator. If a valid license is configured, license store is
+ * started asynchronously. License is registered if/when license store start up completes.
+ * Broker starts up successfully if a valid license is configured in server.properties even
+ * if the license topic cannot be created or is unavailable. If a valid license is not configured,
+ * license validator blocks on the license store during start up and broker start up fails if
+ * the license topic is unavailable within the create timeout.
  */
 public class ConfluentLicenseValidator implements LicenseValidator, Consumer<LicenseChanged> {
   private static final Logger log = LoggerFactory.getLogger(
       ConfluentLicenseValidator.class);
 
-  private static final long EXPIRY_LOG_INTERVAL_MS = 10000;
+  private static final Duration EXPIRY_LOG_INTERVAL = Duration.ofSeconds(10);
   public static final String METRIC_GROUP = "confluent.license";
   public static final String METRIC_NAME = "licenseStatus";
 
@@ -59,12 +76,22 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
     }
   }
 
+  private final Duration expiryLogInterval;
   private Map<String, ?> configs;
   private MetricName licenseStatusMetricName;
   private ScheduledExecutorService executorService;
+  private KafkaLicenseStore licenseStore;
   private LicenseManager licenseManager;
   private volatile LicenseStatus licenseStatus;
   private volatile String errorMessage;
+
+  public ConfluentLicenseValidator() {
+    this(EXPIRY_LOG_INTERVAL);
+  }
+
+  ConfluentLicenseValidator(Duration expiryLogInterval) {
+    this.expiryLogInterval = expiryLogInterval;
+  }
 
   @Override
   public void configure(Map<String, ?> configs) {
@@ -87,11 +114,30 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
     replacePrefix(tmpConfig, licenseConfigs, "confluent.metadata.admin.", LicenseConfig.ADMIN_PREFIX);
     LicenseConfig licenseConfig = new LicenseConfig(componentId, configs);
 
+    licenseStore = createLicenseStore(licenseConfig);
     licenseManager = createLicenseManager(licenseConfig);
     licenseManager.addListener(this);
-    License registeredLicense = licenseManager.registerOrValidateLicense(licenseConfig.license);
-    updateLicenseStatus(registeredLicense);
-    licenseManager.start();
+    License configuredLicense = licenseManager.configuredLicense();
+    if (configuredLicense != null)
+      updateLicenseStatus(configuredLicense);
+
+    String licenseStoreDesc = "license store with topic " + licenseConfig.topic;
+    Future<?> startFuture = startLicenseStore(licenseConfig.license, configuredLicense == null, licenseStoreDesc);
+    if (configuredLicense == null) {
+      try {
+        startFuture.get(licenseConfig.topicCreateTimeout.toMillis() + 15000, TimeUnit.MILLISECONDS);
+      } catch (InterruptedException e) {
+        throw new InterruptException("Start up of " + licenseStoreDesc + " was interrupted", e);
+      } catch (TimeoutException e) {
+        throw new org.apache.kafka.common.errors.TimeoutException("Start up timed out for " + licenseStoreDesc, e);
+      } catch (ExecutionException e) {
+        if (e.getCause() instanceof InvalidLicenseException)
+          throw (InvalidLicenseException) e.getCause();
+        throw new KafkaException("Failed to start " + licenseStoreDesc +
+            ". A valid license must be configured using '" + LicenseConfig.LICENSE_PROP + "' if topic is unavailable.",
+            e.getCause());
+      }
+    }
 
     if (!isLicenseValid())
       throw new InvalidLicenseException("License validation failed: " + errorMessage);
@@ -141,12 +187,20 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
     }
   }
 
-  protected LicenseManager createLicenseManager(LicenseConfig licenseConfig) {
-    return new LicenseManager(licenseConfig.topic,
+  protected KafkaLicenseStore createLicenseStore(LicenseConfig licenseConfig) {
+    return new KafkaLicenseStore(licenseConfig.topic,
         licenseConfig.producerConfigs(),
         licenseConfig.consumerConfigs(),
         licenseConfig.topicAndAdminClientConfigs(),
         licenseConfig.topicCreateTimeout);
+  }
+
+  protected LicenseManager createLicenseManager(LicenseConfig licenseConfig) {
+    return new LicenseManager(
+        licenseConfig.topicAndAdminClientConfigs(),
+        licenseStore,
+        licenseConfig.license,
+        false);
   }
 
   protected void updateExpiredStatus(LicenseStatus status, Date expirationDate) {
@@ -167,6 +221,11 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
         throw new IllegalStateException("Unexpected expired license status " + status);
     }
     this.licenseStatus = status;
+  }
+
+  // Visibility for testing
+  LicenseStatus licenseStatus() {
+    return licenseStatus;
   }
 
   protected void updateLicenseStatus(LicenseStatus status) {
@@ -198,21 +257,37 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
     this.licenseStatusMetricName = metricName;
   }
 
-  protected void schedulePeriodicValidation() {
+  private Future<?> startLicenseStore(String configuredLicense, boolean failOnError, String storeDesc) {
     if (executorService != null)
       throw new IllegalStateException("License validation has already been started");
-
     executorService = Executors.newSingleThreadScheduledExecutor(runnable -> {
       Thread thread = new Thread(runnable, "confluent-license-manager");
       thread.setDaemon(true);
       return thread;
     });
+    return executorService.submit(() -> {
+      try {
+        licenseStore.start();
+        License license = licenseManager.registerOrValidateLicense(configuredLicense);
+        if (license != null)
+          updateLicenseStatus(license);
+      } catch (Throwable t) {
+        if (failOnError)
+          throw t;
+        else
+          log.warn("Could not start " + storeDesc + ", configured license will be used without storing in license topic", t);
+      }
+      licenseManager.start();
+    });
+  }
+
+  protected void schedulePeriodicValidation() {
     executorService.scheduleAtFixedRate(() -> {
       String error = this.errorMessage;
       if (!isLicenseValid() && error != null) {
         log.error(errorMessage);
       }
-    }, EXPIRY_LOG_INTERVAL_MS, EXPIRY_LOG_INTERVAL_MS, TimeUnit.MILLISECONDS);
+    }, expiryLogInterval.toMillis(), expiryLogInterval.toMillis(), TimeUnit.MILLISECONDS);
   }
 
   private void replacePrefix(AbstractConfig srcConfig, Map<String, Object> dstConfigs, String srcPrefix, String dstPrefix) {
@@ -221,5 +296,56 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
       dstConfigs.remove(srcPrefix + k);
       dstConfigs.putIfAbsent(dstPrefix + k, v);
     });
+  }
+
+  static class KafkaLicenseStore extends LicenseStore {
+    private volatile boolean active;
+
+    KafkaLicenseStore(String topic,
+                      Map<String, Object> producerConfig,
+                      Map<String, Object> consumerConfig,
+                      Map<String, Object> topicConfig,
+                      Duration topicCreateTimeout) {
+      super(topic, producerConfig, consumerConfig, topicConfig, topicCreateTimeout, Time.SYSTEM);
+    }
+
+    @Override
+    protected void startLog() {
+      startLogStore();
+      active = true;
+    }
+
+    @Override
+    protected void stopLog() {
+      active = false;
+      stopLogStore();
+    }
+
+    // Visibility to override for testing
+    protected void startLogStore() {
+      super.startLog();
+    }
+
+    // Visibility to override for testing
+    protected void stopLogStore() {
+      super.stopLog();
+    }
+
+    @Override
+    public String licenseScan() {
+      return active ? super.licenseScan() : null;
+    }
+
+    @Override
+    public synchronized void registerLicense(String license, Callback callback) {
+      if (active) {
+        super.registerLicense(license, callback);
+      } else
+        log.debug("License store is not active, not registering license");
+    }
+
+    protected boolean active() {
+      return active;
+    }
   }
 }
