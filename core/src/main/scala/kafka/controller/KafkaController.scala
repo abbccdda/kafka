@@ -177,6 +177,7 @@ class KafkaController(val config: KafkaConfig,
   def shutdown() = {
     eventManager.close()
     onControllerResignation()
+    dataBalancer.map { _.shutdown }
   }
 
   /**
@@ -273,7 +274,7 @@ class KafkaController(val config: KafkaConfig,
         unit = TimeUnit.MILLISECONDS)
     }
 
-    dataBalancer.map { _.startUp }
+    dataBalancer.map { _.onElection }
   }
 
   private def scheduleAutoLeaderRebalanceTask(delay: Long, unit: TimeUnit): Unit = {
@@ -294,8 +295,8 @@ class KafkaController(val config: KafkaConfig,
     zkClient.unregisterZNodeChildChangeHandler(logDirEventNotificationHandler.path)
     unregisterBrokerModificationsHandler(brokerModificationsHandlers.keySet)
 
-    // Shutdown databalancer
-    dataBalancer.map { _.shutdown }
+    // Notify databalancer it's time to resign
+    dataBalancer.map { _.onResignation }
 
     // shutdown leader rebalance scheduler
     kafkaScheduler.shutdown()

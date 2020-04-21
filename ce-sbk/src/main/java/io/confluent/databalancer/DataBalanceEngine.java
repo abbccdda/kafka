@@ -13,8 +13,21 @@ import kafka.server.KafkaConfig;
  * here map 1:1 to the underlying CruiseControl operations.
  */
 public interface DataBalanceEngine {
-    void startUp(KafkaConfig kafkaConfig);
+    /**
+     * To be called when this DataBalanceEngine should be activated and start running.
+     * @param kafkaConfig
+     */
+    void onActivation(KafkaConfig kafkaConfig);
 
+    /**
+     * To be called when this DataBalanceEngine should stop execution. onActivation may be
+     * called after this.
+     */
+    void onDeactivation();
+
+    /**
+     * To be called when the object is going away.
+     */
     void shutdown();
 
     void updateThrottle(Long newThrottle);

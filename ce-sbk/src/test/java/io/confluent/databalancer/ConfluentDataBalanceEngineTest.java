@@ -446,7 +446,7 @@ public class ConfluentDataBalanceEngineTest  {
             // Wait until checkStartupCondition method is called.
             ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.TEST_SYNC_SEMAPHORE.acquire();
             // This should unblock MockDatabalancerStartupComponent
-            dataBalancer.shutdown();
+            dataBalancer.onDeactivation();
             testThread.join();
 
             assertTrue(ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.checkupMethodCalled);
@@ -510,7 +510,7 @@ public class ConfluentDataBalanceEngineTest  {
     @Test
     public void testShutdown() {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
-        dbe.shutdown();
+        dbe.onDeactivation();
         verify(mockCruiseControl).shutdown();  // Shutdown should have been called
         verify(mockMetricsRegistry).clearShortLivedMetrics();
     }

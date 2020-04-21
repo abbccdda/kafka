@@ -16,7 +16,6 @@ import kafka.server.KafkaConfig$;
 import kafka.utils.TestUtils;
 import kafka.utils.TestUtils$;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
@@ -40,7 +39,6 @@ public class KafkaDataBalanceManagerTest {
     private KafkaConfig updatedConfig;
 
     private DataBalanceManager dataBalancer;
-    private MetricsRegistry metricsRegistry;
 
     @Mock
     private KafkaDataBalanceManager.DataBalanceEngineFactory mockDataBalanceEngineFactory;
@@ -48,6 +46,8 @@ public class KafkaDataBalanceManagerTest {
     private DataBalanceEngine mockActiveDataBalanceEngine;
     @Mock
     private DataBalanceEngine mockInactiveDataBalanceEngine;
+    @Mock
+    private DataBalancerMetricsRegistry mockDbMetrics;
 
     @Before
     public void setUp() {
@@ -56,11 +56,10 @@ public class KafkaDataBalanceManagerTest {
         brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, true);
         brokerProps.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, 200L);
         initConfig = new KafkaConfig(brokerProps);
-        metricsRegistry = KafkaYammerMetrics.defaultRegistry();
 
         MockitoAnnotations.initMocks(this);
-        when(mockDataBalanceEngineFactory.makeActiveDataBalanceEngine(any(DataBalancerMetricsRegistry.class))).thenReturn(mockActiveDataBalanceEngine);
-        when(mockDataBalanceEngineFactory.makeInactiveDataBalanceEngine()).thenReturn(mockInactiveDataBalanceEngine);
+        when(mockDataBalanceEngineFactory.getActiveDataBalanceEngine()).thenReturn(mockActiveDataBalanceEngine);
+        when(mockDataBalanceEngineFactory.getInactiveDataBalanceEngine()).thenReturn(mockInactiveDataBalanceEngine);
         when(mockActiveDataBalanceEngine.isActive()).thenReturn(true);
     }
 
@@ -68,22 +67,25 @@ public class KafkaDataBalanceManagerTest {
     public void testUpdateConfigBalancerEnable() {
         brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, false);
         updatedConfig = new KafkaConfig(brokerProps);
-        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, metricsRegistry);
+        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, mockDbMetrics);
         // Instantiate the Active DBE
-        dataBalancer.startUp();
+        dataBalancer.onElection();
 
         dataBalancer.updateConfig(updatedConfig);
-        verify(mockActiveDataBalanceEngine).shutdown();
+        verify(mockActiveDataBalanceEngine).onDeactivation();
 
         // Now check to see that it handles the state change properly
         Mockito.reset(mockActiveDataBalanceEngine);
         dataBalancer.updateConfig(initConfig);
-        verify(mockActiveDataBalanceEngine).startUp(initConfig);
+        verify(mockActiveDataBalanceEngine).onActivation(initConfig);
 
         dataBalancer.updateConfig(initConfig);
         verifyNoMoreInteractions(mockActiveDataBalanceEngine);
         // Since it's been active this whole time, the inactive DBE should never have been called
-        verify(mockInactiveDataBalanceEngine, never()).startUp(any(KafkaConfig.class));
+        verify(mockInactiveDataBalanceEngine, never()).onActivation(any(KafkaConfig.class));
+        verify(mockInactiveDataBalanceEngine, never()).onDeactivation();
+
+        verify(mockActiveDataBalanceEngine, never()).shutdown();
         verify(mockInactiveDataBalanceEngine, never()).shutdown();
     }
 
@@ -91,31 +93,34 @@ public class KafkaDataBalanceManagerTest {
     public void testUpdateConfigBalancerEnableOnNonEligibleNode() {
         brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, false);
         updatedConfig = new KafkaConfig(brokerProps);
-        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, metricsRegistry);
+        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, mockDbMetrics);
 
         dataBalancer.updateConfig(updatedConfig);
-        verify(mockInactiveDataBalanceEngine).shutdown();
+        verify(mockInactiveDataBalanceEngine).onDeactivation();
 
         // Now check to see that it handles the state change properly
         Mockito.reset(mockActiveDataBalanceEngine);
         dataBalancer.updateConfig(initConfig);
-        verify(mockInactiveDataBalanceEngine).startUp(initConfig);
+        verify(mockInactiveDataBalanceEngine).onActivation(initConfig);
 
         dataBalancer.updateConfig(initConfig);
         verifyNoMoreInteractions(mockActiveDataBalanceEngine);
         
         // Since it's been inactive this whole time, the active DBE should never have been called
-        verify(mockActiveDataBalanceEngine, never()).startUp(any(KafkaConfig.class));
+        verify(mockActiveDataBalanceEngine, never()).onActivation(any(KafkaConfig.class));
+        verify(mockActiveDataBalanceEngine, never()).onDeactivation();
+
         verify(mockActiveDataBalanceEngine, never()).shutdown();
+        verify(mockInactiveDataBalanceEngine, never()).shutdown();
     }
 
     @Test
     public void testUpdateConfigBalancerThrottle() {
         brokerProps.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, 100L);
         updatedConfig = new KafkaConfig(brokerProps);
-        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, metricsRegistry);
-        dataBalancer.startUp();
-        verify(mockActiveDataBalanceEngine).startUp(initConfig);
+        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, mockDbMetrics);
+        dataBalancer.onElection();
+        verify(mockActiveDataBalanceEngine).onActivation(initConfig);
 
         dataBalancer.updateConfig(updatedConfig);
         verify(mockActiveDataBalanceEngine).updateThrottle(100L);
@@ -130,9 +135,9 @@ public class KafkaDataBalanceManagerTest {
     @Test
     public void testUpdateConfigNoPropsUpdated() {
         updatedConfig = new KafkaConfig(brokerProps);
-        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, metricsRegistry);
-        dataBalancer.startUp();
-        verify(mockActiveDataBalanceEngine).startUp(initConfig);
+        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, mockDbMetrics);
+        dataBalancer.onElection();
+        verify(mockActiveDataBalanceEngine).onActivation(initConfig);
 
         // expect nothing to be updated
         dataBalancer.updateConfig(updatedConfig);
@@ -143,26 +148,31 @@ public class KafkaDataBalanceManagerTest {
     public void testEnableFromOff() {
         brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, false);
         KafkaConfig disabledConfig = new KafkaConfig(brokerProps);
-        dataBalancer = new KafkaDataBalanceManager(disabledConfig, mockDataBalanceEngineFactory, metricsRegistry);
-        dataBalancer.startUp();
+        dataBalancer = new KafkaDataBalanceManager(disabledConfig, mockDataBalanceEngineFactory, mockDbMetrics);
+        dataBalancer.onElection();
         // We SHOULD NOT have attempted to launch CC
-        verify(mockActiveDataBalanceEngine, never()).startUp(any(KafkaConfig.class));
+        verify(mockActiveDataBalanceEngine, never()).onActivation(any(KafkaConfig.class));
 
         // Now update and enable
         dataBalancer.updateConfig(initConfig);
-        verify(mockActiveDataBalanceEngine).startUp(initConfig);
+        verify(mockActiveDataBalanceEngine).onActivation(initConfig);
     }
 
     @Test
     public void testConfluentBalancerEnabledMetric() {
-        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, metricsRegistry);
-        dataBalancer.startUp();
-        verifyMetricValue(1);
-        dataBalancer.shutdown();
-        verifyMetricValue(0);
+        MetricsRegistry metrics = KafkaYammerMetrics.defaultRegistry();
+        DataBalancerMetricsRegistry dbMetricsRegistry = new DataBalancerMetricsRegistry(metrics,
+                KafkaDataBalanceManager.getMetricsWhiteList());
+        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, dbMetricsRegistry);
+        dataBalancer.onElection();
+        verifyMetricValue(metrics, 1);
+        dataBalancer.onResignation();
+        verifyMetricValue(metrics, 0);
+
+        cleanMetrics(metrics);
     }
 
-    private void verifyMetricValue(Integer expectedValue) {
+    private void verifyMetricValue(MetricsRegistry metricsRegistry, Integer expectedValue) {
         Map<MetricName, Metric> metrics = metricsRegistry.allMetrics();
         assertEquals(1, metrics.size());
         MetricName metricName = new ArrayList<>(metrics.keySet()).get(0);
@@ -171,9 +181,51 @@ public class KafkaDataBalanceManagerTest {
         assertEquals(expectedValue, ((Gauge<?>) metrics.get(metricName)).value());
     }
 
-    @After
-    public void cleanMetrics() {
+    public void cleanMetrics(MetricsRegistry metricsRegistry) {
         TestUtils.clearYammerMetrics();
         metricsRegistry.shutdown();
+    }
+
+    @Test
+    public void testShutdownOnActive() {
+        brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, true);
+        updatedConfig = new KafkaConfig(brokerProps);
+        dataBalancer = new KafkaDataBalanceManager(initConfig,
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+                mockDbMetrics);
+        // Instantiate the Active DBE
+        dataBalancer.onElection();
+        verify(mockActiveDataBalanceEngine).onActivation(initConfig);
+
+        // Since it's been active this whole time, the inactive DBE should never have been called
+        verify(mockInactiveDataBalanceEngine, never()).onActivation(any(KafkaConfig.class));
+        verify(mockInactiveDataBalanceEngine, never()).onDeactivation();
+
+        // The expected shutdown path in the Controller calls resignation
+        dataBalancer.onResignation();
+
+        dataBalancer.shutdown();
+
+        verify(mockActiveDataBalanceEngine).shutdown();
+        verify(mockInactiveDataBalanceEngine).shutdown();
+    }
+
+    @Test
+    public void testShutdownOnInactive() {
+        brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, true);
+        updatedConfig = new KafkaConfig(brokerProps);
+        dataBalancer = new KafkaDataBalanceManager(initConfig,
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+                mockDbMetrics);
+
+        verify(mockActiveDataBalanceEngine, never()).onActivation(initConfig);
+        verify(mockInactiveDataBalanceEngine, never()).onDeactivation();
+
+        dataBalancer.shutdown();
+        verify(mockActiveDataBalanceEngine, never()).onDeactivation();
+        verify(mockInactiveDataBalanceEngine, never()).onDeactivation();
+
+        verify(mockActiveDataBalanceEngine).shutdown();
+        verify(mockInactiveDataBalanceEngine).shutdown();
     }
 }

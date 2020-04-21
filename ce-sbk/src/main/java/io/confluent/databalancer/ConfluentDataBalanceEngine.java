@@ -79,20 +79,25 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     }
 
     @Override
-    public synchronized void startUp(KafkaConfig kafkaConfig)  {
+    public synchronized void onActivation(KafkaConfig kafkaConfig)  {
         LOG.info("DataBalancer: Scheduling DataBalanceEngine Startup");
         abortStartupCheck.drainPermits();
         ccRunner.submit(() -> startCruiseControl(kafkaConfig));
     }
 
     @Override
-    public synchronized void shutdown() {
+    public synchronized void onDeactivation() {
         LOG.info("DataBalancer: Scheduling DataBalanceEngine Shutdown");
 
         // If startup is in progress, abort it
         abortStartupCheck.release();
 
         ccRunner.submit(this::stopCruiseControl, null);
+    }
+
+    @Override
+    public void shutdown() {
+        ccRunner.shutdown();
     }
 
     @Override
