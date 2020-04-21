@@ -60,7 +60,7 @@ class ClusterLinkReplicaManager(brokerConfig: KafkaConfig,
       if (managers.contains(linkName))
         throw new ClusterLinkExistsException(s"Cluster link '$linkName' exists")
 
-      val clientManager = new ClusterLinkClientManager(linkName, config,
+      val clientManager = new ClusterLinkClientManager(linkName, scheduler, replicaManager.zkClient, config,
         (cfg: ClusterLinkConfig) => Admin.create(cfg.originals).asInstanceOf[ConfluentAdmin])
       clientManager.startup()
 

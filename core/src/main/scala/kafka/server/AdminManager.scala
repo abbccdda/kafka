@@ -35,7 +35,7 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.ConfigDef.ConfigKey
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, ConfigResource, ConfluentTopicConfig, LogLevelConfig}
-import org.apache.kafka.common.errors.{ApiException, InvalidConfigurationException, InvalidPartitionsException, InvalidReplicaAssignmentException, InvalidRequestException, ReassignmentInProgressException, TopicExistsException, UnknownTopicOrPartitionException, UnsupportedVersionException}
+import org.apache.kafka.common.errors.{ApiException, ClusterLinkNotFoundException, InvalidConfigurationException, InvalidPartitionsException, InvalidReplicaAssignmentException, InvalidRequestException, ReassignmentInProgressException, TopicExistsException, UnknownTopicOrPartitionException, UnsupportedVersionException}
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.message.CreatePartitionsRequestData.CreatePartitionsTopic
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
@@ -52,9 +52,6 @@ import org.apache.kafka.server.interceptor.{Monitorable, TopicMetadataListener}
 import org.apache.kafka.server.policy.{AlterConfigPolicy, CreateTopicPolicy}
 import org.apache.kafka.server.policy.CreateTopicPolicy.RequestMetadata
 import org.apache.kafka.common.utils.Sanitizer
-
-// TODO: Remove this - depends on outstanding pull request.
-import org.apache.kafka.common.errors.{InvalidTopicException => ClusterLinkNotFoundException}
 
 import scala.collection.{Map, mutable, _}
 import scala.jdk.CollectionConverters._

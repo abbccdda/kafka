@@ -51,9 +51,9 @@ class ClusterLinkSchedulerTest {
 
   @Test
   def testPeriodicTaskPeriod(): Unit = {
-    val taskPeriodMs = 10
+    val rescheduleDelayMs = 10
 
-    task = new ClusterLinkScheduler.PeriodicTask(scheduler, name = "TestTask", periodMs = taskPeriodMs) {
+    task = new ClusterLinkScheduler.PeriodicTask(scheduler, "TestTask", rescheduleDelayMs) {
       private var first = true
 
       override def run(): Boolean = {
@@ -72,16 +72,16 @@ class ClusterLinkSchedulerTest {
     testWait(1)
     testWait(2)
     val diffMs = (System.nanoTime() - start) / 1e6
-    assertTrue(diffMs >= taskPeriodMs * 2)
+    assertTrue(diffMs >= rescheduleDelayMs * 2)
   }
 
   @Test
   def testPeriodicTaskSchedule(): Unit = {
-    val taskPeriodMs = 10
+    val rescheduleDelayMs = 10
 
     val future = new KafkaFutureImpl[Void]()
 
-    task = new ClusterLinkScheduler.PeriodicTask(scheduler, name = "TestTask", periodMs = taskPeriodMs) {
+    task = new ClusterLinkScheduler.PeriodicTask(scheduler, "TestTask", rescheduleDelayMs) {
       private var running = false
       private var done = false
 
@@ -128,7 +128,7 @@ class ClusterLinkSchedulerTest {
     testNotify(2)
     testWait(3)
     testNotify(4)
-    Thread.sleep(taskPeriodMs)
+    Thread.sleep(rescheduleDelayMs)
     future.complete(null)
     testWait(5)
     testWait(6)
@@ -136,7 +136,7 @@ class ClusterLinkSchedulerTest {
 
   @Test
   def testPeriodicTaskException(): Unit = {
-    task = new ClusterLinkScheduler.PeriodicTask(scheduler, name = "TestTask", periodMs = 10) {
+    task = new ClusterLinkScheduler.PeriodicTask(scheduler, "TestTask", rescheduleDelayMs = 10) {
       private var first = true
 
       override def run(): Boolean = {
@@ -159,7 +159,7 @@ class ClusterLinkSchedulerTest {
 
   @Test
   def testRunOnce(): Unit = {
-    task = new ClusterLinkScheduler.PeriodicTask(scheduler, name = "TestTask", periodMs = 10) {
+    task = new ClusterLinkScheduler.PeriodicTask(scheduler, "TestTask", rescheduleDelayMs = 10) {
       private var first = true
 
       override def run(): Boolean = {
@@ -180,7 +180,7 @@ class ClusterLinkSchedulerTest {
 
   @Test(expected = classOf[InvalidRequestException])
   def testRunOnceException(): Unit = {
-    task = new ClusterLinkScheduler.PeriodicTask(scheduler, name = "TestTask", periodMs = 10) {
+    task = new ClusterLinkScheduler.PeriodicTask(scheduler, "TestTask", rescheduleDelayMs = 10) {
       override def run(): Boolean = {
         throw new InvalidRequestException("")
       }

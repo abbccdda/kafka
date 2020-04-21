@@ -7,6 +7,7 @@ package kafka.server.link
 import java.util.Properties
 
 import kafka.utils.Implicits._
+import kafka.zk.KafkaZkClient
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin.ConfluentAdmin
 import org.easymock.EasyMock.createNiceMock
@@ -16,6 +17,8 @@ import org.scalatest.Assertions.intercept
 
 class ClusterLinkClientManagerTest {
 
+  val scheduler: ClusterLinkScheduler = createNiceMock(classOf[ClusterLinkScheduler])
+  val zkClient: KafkaZkClient = createNiceMock(classOf[KafkaZkClient])
   var clientManager: ClusterLinkClientManager = _
 
   @Test
@@ -32,7 +35,7 @@ class ClusterLinkClientManagerTest {
       factoryAdmin
     }
 
-    val clientManager = new ClusterLinkClientManager(linkName, factoryConfig, adminFactory)
+    val clientManager = newClientManager(linkName, factoryConfig, adminFactory)
     assertEquals(0, factoryCalled)
 
     clientManager.startup()
@@ -61,7 +64,7 @@ class ClusterLinkClientManagerTest {
     val linkName = "test-link"
     val config = newConfig(Map(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG -> "localhost:1234"))
     def adminFactory(config: ClusterLinkConfig): ConfluentAdmin = createNiceMock(classOf[ConfluentAdmin])
-    val clientManager = new ClusterLinkClientManager(linkName, config, adminFactory)
+    val clientManager = newClientManager(linkName, config, adminFactory)
     val topics = List("topic0", "topic1", "topic2")
 
     clientManager.startup()
@@ -82,6 +85,12 @@ class ClusterLinkClientManagerTest {
     } finally {
       clientManager.shutdown()
     }
+  }
+
+  private def newClientManager(linkName: String,
+                               config: ClusterLinkConfig,
+                               adminFactory: ClusterLinkConfig => ConfluentAdmin): ClusterLinkClientManager = {
+    new ClusterLinkClientManager(linkName, scheduler, zkClient, config, adminFactory)
   }
 
   private def newConfig(configs: Map[String, String]): ClusterLinkConfig = {

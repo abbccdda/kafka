@@ -5,6 +5,7 @@
 package kafka.server.link
 
 import kafka.utils.{CoreUtils, Logging}
+import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.clients.admin.ConfluentAdmin
 
 import scala.collection.Set
@@ -18,6 +19,8 @@ import scala.collection.mutable
   *   - ClusterLinkClientManager is thread-safe.
   */
 class ClusterLinkClientManager(val linkName: String,
+                               val scheduler: ClusterLinkScheduler,
+                               val zkClient: KafkaZkClient,
                                private var config: ClusterLinkConfig,
                                private val adminFactory: ClusterLinkConfig => ConfluentAdmin) extends Logging {
 
@@ -29,6 +32,8 @@ class ClusterLinkClientManager(val linkName: String,
   // Contains the set of linked topics that this client manager is responsible for, i.e. the set of topics
   // for which the leader of a topic's first partition is on the local broker.
   private val topics = mutable.Set[String]()
+
+  val adminZkClient = new AdminZkClient(zkClient)
 
   def startup(): Unit = {
     setAdmin(Some(adminFactory(config)))
