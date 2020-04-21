@@ -14,8 +14,6 @@ import org.junit.Test
 import org.junit.Assert._
 import org.scalatest.Assertions.intercept
 
-import scala.jdk.CollectionConverters._
-
 class ClusterLinkClientManagerTest {
 
   var clientManager: ClusterLinkClientManager = _
