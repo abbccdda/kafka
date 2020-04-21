@@ -33,7 +33,7 @@ def retryFlagsString(jobConfig) {
 
 def downstreamBuildFailureOutput = ""
 def publishStep(String mavenUrl) {
-    sh "./gradlew -PmavenUrl=${mavenUrl} --no-daemon uploadArchivesAll"
+    sh "./gradlewAll -PmavenUrl=${mavenUrl} --no-daemon uploadArchives"
 }
 def job = {
 
