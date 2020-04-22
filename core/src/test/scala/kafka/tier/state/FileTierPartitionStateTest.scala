@@ -29,6 +29,7 @@ import org.scalatest.Assertions.assertThrows
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
+import scala.collection.Seq
 import scala.concurrent.ExecutionException
 
 class FileTierPartitionStateTest {

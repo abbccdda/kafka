@@ -316,7 +316,7 @@ class TopicDeletionManager(config: KafkaConfig,
       val deleteInitiate = new TierPartitionDeleteInitiate(topicIdPartition, controllerContext.epoch, UUID.randomUUID)
       appendResults += tierTopicManager.addMetadata(deleteInitiate)
     }
-    val futures = CompletableFuture.allOf(appendResults:_*)
+    val futures = CompletableFuture.allOf(appendResults.toSeq:_*)
 
     def maybeRetryDeletion(t: Throwable): Unit = {
       val isRetriable =

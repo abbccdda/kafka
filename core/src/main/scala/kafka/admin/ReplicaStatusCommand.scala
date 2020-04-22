@@ -22,6 +22,7 @@ import org.apache.kafka.common.utils.Utils
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.concurrent.duration._
+import scala.collection.Seq
 
 object ReplicaStatusCommand extends Logging {
   private val allColumns = List("Topic", "Partition", "Replica", "IsLeader", "IsObserver", "IsIsrEligible", "IsInIsr", "IsCaughtUp",

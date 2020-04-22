@@ -27,6 +27,7 @@ import org.apache.kafka.common.requests.ListOffsetRequest
 import org.apache.kafka.common.utils.{Time, Utils}
 
 import scala.collection.JavaConverters._
+import scala.collection.Seq
 import scala.compat.java8.OptionConverters._
 
 /**

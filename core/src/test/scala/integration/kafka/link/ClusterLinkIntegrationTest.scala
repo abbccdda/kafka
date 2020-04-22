@@ -154,7 +154,7 @@ class ClusterLinkIntegrationTest extends Logging {
     // Shutdown destination leader and verify clean leader election. No truncation is expected.
     val (leader1, _) = destCluster.shutdownLeader(tp)
     produceToSourceCluster(2)
-    waitForMirror(topic, servers = destCluster.servers - destCluster.servers(leader1))
+    waitForMirror(topic, servers = destCluster.servers.filter(_ != destCluster.servers(leader1)))
 
     // Trigger unclean leader election in the destination cluster. No truncation is expected.
     // Produce records and ensure that all records are replicated in destination leader and follower
@@ -163,7 +163,7 @@ class ClusterLinkIntegrationTest extends Logging {
     destCluster.addClusterLink(destCluster.servers(leader1), linkName)
     destCluster.updateBootstrapServers()
     produceToSourceCluster(2)
-    waitForMirror(topic, servers = destCluster.servers - destCluster.servers(leader2))
+    waitForMirror(topic, servers = destCluster.servers.filter(_ != destCluster.servers(leader2)))
     destCluster.servers(leader2).startup()
     produceToSourceCluster(2)
     verifyMirror(topic)

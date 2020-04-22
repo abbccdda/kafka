@@ -69,7 +69,7 @@ class DumpLogSegmentsTest {
     batches += BatchInfo(fourthBatchRecords, false, false)
 
     batches.foreach { batchInfo =>
-      log.appendAsLeader(MemoryRecords.withRecords(CompressionType.NONE, 0, batchInfo.records: _*),
+      log.appendAsLeader(MemoryRecords.withRecords(CompressionType.NONE, 0, batchInfo.records.toSeq: _*),
         leaderEpoch = 0)
     }
     // Flush, but don't close so that the indexes are not trimmed and contain some zero entries

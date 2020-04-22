@@ -29,7 +29,7 @@ import kafka.zk.ConfigEntityChangeNotificationZNode$;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.junit.After;
 import org.junit.Before;
-import scala.collection.JavaConversions;
+import scala.collection.JavaConverters;
 
 import java.util.Collections;
 import java.util.Properties;
@@ -89,9 +89,10 @@ public abstract class GroupEndToEndAuthorizationTest extends SaslEndToEndAuthori
     return "SCRAM-SHA-256";
   }
 
+  @SuppressWarnings("deprecation")
   @Override
   public scala.collection.immutable.List<String> kafkaServerSaslMechanisms() {
-    return JavaConversions.asScalaBuffer(Collections.singletonList("SCRAM-SHA-256")).toList();
+    return JavaConverters.asScalaBuffer(Collections.singletonList("SCRAM-SHA-256")).toList();
   }
 
   @Override

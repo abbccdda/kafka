@@ -10,7 +10,7 @@ import java.util.Properties;
 import kafka.server.ConfigType;
 import kafka.zk.AdminZkClient;
 import kafka.zk.KafkaZkClient;
-import scala.collection.JavaConversions;
+import scala.collection.JavaConverters;
 
 
 /**
@@ -45,7 +45,7 @@ public class KafkaTopicConfigProvider implements TopicConfigProvider {
                                                                               _zkSecurityEnabled);
     try {
       AdminZkClient adminZkClient = new AdminZkClient(kafkaZkClient);
-      return JavaConversions.mapAsJavaMap(adminZkClient.getAllTopicConfigs());
+      return JavaConverters.mapAsJavaMap(adminZkClient.getAllTopicConfigs());
     } finally {
       KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
     }

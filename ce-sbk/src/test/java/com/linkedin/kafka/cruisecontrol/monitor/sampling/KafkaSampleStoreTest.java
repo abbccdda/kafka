@@ -120,6 +120,7 @@ public class KafkaSampleStoreTest extends CCKafkaIntegrationTestHarness {
             );
   }
 
+  @SuppressWarnings("deprecation")
   @Test
   public void testCheckTopicsCreated() throws InterruptedException {
     KafkaZkClient kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(zookeeper().connectionString(),

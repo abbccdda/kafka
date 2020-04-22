@@ -208,7 +208,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
       Executor executor = executeProposals(executor(), Collections.singletonList(proposal), 1L);
       waitForAssert(() -> {
         // assert reassignment is in progress
-        assertEquals(2, kafkaZkClient.getReplicasForPartition(TP0).seq().size());
+        assertEquals(2, kafkaZkClient.getReplicasForPartition(TP0).size());
         return true;
       }, 10000, "Should have started reassigning");
       assertEquals(0, executor.numCancelledReassignments());
@@ -216,8 +216,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
 
       waitForAssert(() -> {
         // assert reassignment is cancelled
-        assertEquals(1, kafkaZkClient.getReplicasForPartition(TP0).seq().size());
-        assertTrue(kafkaZkClient.getReplicasForPartition(TP0).seq().contains(initialLeader));
+        assertEquals(1, kafkaZkClient.getReplicasForPartition(TP0).size());
+        assertTrue(kafkaZkClient.getReplicasForPartition(TP0).contains(initialLeader));
         return true;
       },  5000, "Should have reverted the reassignment");
       waitForAssert(() -> {

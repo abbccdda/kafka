@@ -24,7 +24,7 @@ import kafka.server.KafkaConfig$;
 import kafka.server.KafkaServer;
 import kafka.server.ThreadUsageMetrics;
 
-import scala.collection.JavaConversions;
+import scala.collection.JavaConverters;
 
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
@@ -92,6 +92,7 @@ public class BrokerBackpressureTest {
     return props;
   }
 
+  @SuppressWarnings("deprecation")
   @Test
   public void testNoTenantQuotasNoBackpressureConfig() throws Exception {
     final PhysicalCluster physicalCluster = testHarness.start(brokerProps());
@@ -110,7 +111,7 @@ public class BrokerBackpressureTest {
 
     assertEquals(numIoThreads * 100.0, ThreadUsageMetrics.ioThreadsCapacity(broker.metrics()), 1.0);
     assertEquals(numNetworkThreads * 100.0,
-                 ThreadUsageMetrics.networkThreadsCapacity(broker.metrics(), JavaConversions.asScalaBuffer(Collections.singletonList("EXTERNAL"))), 1.0);
+                 ThreadUsageMetrics.networkThreadsCapacity(broker.metrics(), JavaConverters.asScalaBuffer(Collections.singletonList("EXTERNAL"))), 1.0);
   }
 
   @Test
@@ -130,6 +131,7 @@ public class BrokerBackpressureTest {
     assertTrue(broker.quotaManagers().request().tenantLevelQuotasEnabled());
   }
 
+  @SuppressWarnings("deprecation")
   @Test
   public void testFetchBackpressureOnlyConfig() throws Exception {
     Properties props = brokerPropsWithTenantQuotas();
@@ -147,7 +149,7 @@ public class BrokerBackpressureTest {
     assertEquals(numIoThreads * 100.0, ThreadUsageMetrics.ioThreadsCapacity(broker.metrics()), 1.0);
     assertEquals(numNetworkThreads * 100.0,
                  ThreadUsageMetrics.networkThreadsCapacity(broker.metrics(),
-                                                           JavaConversions.asScalaBuffer(Collections.singletonList("EXTERNAL"))),
+                     JavaConverters.asScalaBuffer(Collections.singletonList("EXTERNAL"))),
                  1.0);
   }
 
@@ -181,6 +183,7 @@ public class BrokerBackpressureTest {
                broker.quotaManagers().request().backpressureEnabled());
   }
 
+  @SuppressWarnings("deprecation")
   @Test
   public void testRequestBackpressureConfig() throws Exception {
     Properties props = brokerPropsWithTenantQuotas();
@@ -199,7 +202,7 @@ public class BrokerBackpressureTest {
 
     assertEquals(numIoThreads * 100.0, ThreadUsageMetrics.ioThreadsCapacity(broker.metrics()), 1.0);
     assertEquals(numNetworkThreads * 100.0,
-                 ThreadUsageMetrics.networkThreadsCapacity(broker.metrics(), JavaConversions.asScalaBuffer(Collections.singletonList("EXTERNAL"))), 1.0);
+                 ThreadUsageMetrics.networkThreadsCapacity(broker.metrics(), JavaConverters.asScalaBuffer(Collections.singletonList("EXTERNAL"))), 1.0);
   }
 
   @Test

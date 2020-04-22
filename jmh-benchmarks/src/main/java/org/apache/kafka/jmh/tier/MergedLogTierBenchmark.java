@@ -4,6 +4,7 @@
 
 package org.apache.kafka.jmh.tier;
 
+import java.util.Collection;
 import kafka.api.ApiVersion$;
 import kafka.log.AppendOrigin;
 import kafka.log.Defaults;
@@ -48,6 +49,7 @@ import org.openjdk.jmh.annotations.Warmup;
 import scala.Function0;
 import scala.Option;
 import scala.collection.Iterator;
+import scala.collection.JavaConverters;
 import scala.runtime.AbstractFunction0;
 
 import java.io.File;
@@ -108,9 +110,8 @@ public class MergedLogTierBenchmark {
         state.onCatchUpComplete();
         state.append(new TierTopicInitLeader(topicIdPartition, 0, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch());
 
-        Iterator<LogSegment> iterator = log.logSegments().take(NUM_TIERED_SEGMENT).iterator();
-        while (iterator.hasNext()) {
-            LogSegment segment = iterator.next();
+        Collection<LogSegment> logSegments = JavaConverters.asJavaCollection(log.logSegments());
+        logSegments.stream().limit(NUM_TIERED_SEGMENT).forEach(segment ->
             TierUtils.uploadWithMetadata(state,
                     topicIdPartition,
                     0,
@@ -121,8 +122,7 @@ public class MergedLogTierBenchmark {
                     segment.size(),
                     false,
                     true,
-                    false);
-        }
+                    false));
         state.flush();
 
         // delete some segments so fetches will go through tier path
@@ -217,7 +217,7 @@ public class MergedLogTierBenchmark {
     @Benchmark
     @OutputTimeUnit(TimeUnit.NANOSECONDS)
     public int tieredLogSegmentsFullIteration() {
-        return mergedLog.tieredLogSegments().toStream().size();
+        return mergedLog.tieredLogSegments().size();
     }
 
     @Benchmark

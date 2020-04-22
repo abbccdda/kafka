@@ -213,17 +213,17 @@ object DeletionTask extends Logging {
               throw new TierMetadataRetriableException(s"Leadership not established for $topicIdPartition. Backing off.")
 
             replicaManager.getLog(topicIdPartition.topicPartition).map { log =>
-              val deletableSegments = collectDeletableSegments(time, log, log.tieredLogSegments).to[mutable.Queue]
+              val deletableSegments = collectDeletableSegments(time, log, log.tieredLogSegments)
               if (deletableSegments.nonEmpty)
-                InitiateDelete(metadata, deletableSegments)
+                InitiateDelete(metadata, mutable.Queue.empty ++= deletableSegments)
               else
                 this
             }.getOrElse(this)
 
           case deletedPartitionMetadata: DeletedPartitionMetadata =>
-            val deletableSegments = deletedPartitionMetadata.tieredObjects.map(DeleteObjectMetadata(_, None)).to[mutable.Queue]
+            val deletableSegments = deletedPartitionMetadata.tieredObjects.map(DeleteObjectMetadata(_, None))
             if (deletableSegments.nonEmpty)
-              InitiateDelete(metadata, deletableSegments)
+              InitiateDelete(metadata, mutable.Queue.empty ++= deletableSegments)
             else
               PartitionDeleteComplete(deletedPartitionMetadata)
         }

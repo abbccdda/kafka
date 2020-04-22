@@ -24,7 +24,7 @@ import kafka.utils.TestUtils;
 import kafka.zk.EmbeddedZookeeper;
 import scala.Option;
 import scala.Option$;
-import scala.collection.JavaConversions;
+import scala.collection.JavaConverters;
 
 /**
  * Customized test harness of a 2 broker Kafka cluster to run metric reporter. This is essentially
@@ -58,6 +58,7 @@ public class MetricReporterClusterTestHarness {
                 securityProtocol() == SecurityProtocol.SASL_SSL;
     }
 
+    @SuppressWarnings("deprecation")
     @Before
     public void setUp() throws Exception {
         zookeeper = new EmbeddedZookeeper();
@@ -78,7 +79,7 @@ public class MetricReporterClusterTestHarness {
         KafkaServer server = TestUtils.createServer(config, time);
         servers.add(server);
 
-        String broker0List = TestUtils.getBrokerListStrFromServers(JavaConversions.asScalaBuffer(servers),
+        String broker0List = TestUtils.getBrokerListStrFromServers(JavaConverters.asScalaBuffer(servers),
                                                                    securityProtocol());
 
         // add broker 1
@@ -93,11 +94,11 @@ public class MetricReporterClusterTestHarness {
             Topic.GROUP_METADATA_TOPIC_NAME,
             config.getInt(KafkaConfig.OffsetsTopicPartitionsProp()),
             1,
-            JavaConversions.asScalaBuffer(servers),
+            JavaConverters.asScalaBuffer(servers),
             servers.get(0).groupCoordinator().offsetsTopicConfigs()
         );
 
-        brokerList = TestUtils.getBrokerListStrFromServers(JavaConversions.asScalaBuffer(servers),
+        brokerList = TestUtils.getBrokerListStrFromServers(JavaConverters.asScalaBuffer(servers),
                                                            securityProtocol());
     }
 

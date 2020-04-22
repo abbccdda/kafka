@@ -20,6 +20,7 @@ import org.apache.kafka.common.requests.{ApiError, ClusterLinkListing, NewCluste
 import org.apache.kafka.common.serialization.ByteArrayDeserializer
 
 import scala.collection.JavaConverters._
+import scala.collection.Seq
 
 class ClusterLinkAdminManager(val config: KafkaConfig,
                               val clusterId: String,

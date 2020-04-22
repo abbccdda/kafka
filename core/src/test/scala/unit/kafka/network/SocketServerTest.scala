@@ -58,6 +58,7 @@ import org.scalatest.Assertions.fail
 import scala.jdk.CollectionConverters._
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
+import scala.collection.Seq
 import scala.util.control.ControlThrowable
 
 class SocketServerTest {

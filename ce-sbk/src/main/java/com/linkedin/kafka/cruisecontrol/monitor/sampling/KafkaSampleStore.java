@@ -55,7 +55,6 @@ import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.collection.JavaConversions;
 import scala.collection.JavaConverters;
 import scala.Option$;
 
@@ -350,7 +349,7 @@ public class KafkaSampleStore implements SampleStore {
       scala.collection.immutable.Set<String> topics = (scala.collection.immutable.Set<String>)
           scala.collection.immutable.Set$.MODULE$.apply(
               JavaConverters.asScalaBufferConverter(Collections.singletonList(topic)).asScala().toSeq());
-      JavaConversions.asJavaIterable(kafkaZkClient.getFullReplicaAssignmentForTopics(topics))
+      JavaConverters.asJavaIterable(kafkaZkClient.getFullReplicaAssignmentForTopics(topics))
           .forEach(e -> existingAssignment.put(e._1.partition(), e._2));
       LOG.info("DataBalancer: Adjusting sample store topic {} partition count to {}", topic, partitionCount);
       adminZkClient.addPartitions(topic, existingAssignment, adminZkClient.getBrokerMetadatas(RackAwareMode.Safe$.MODULE$, null),

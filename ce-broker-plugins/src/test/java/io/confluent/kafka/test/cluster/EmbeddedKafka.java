@@ -128,6 +128,7 @@ public class EmbeddedKafka {
   /**
    * Shutdown the broker and remove all data
    */
+  @SuppressWarnings("deprecation")
   public void shutdownAndCleanup() {
     log.debug("Shutting down embedded Kafka broker %s ...", this);
     kafka.shutdown();
@@ -135,7 +136,7 @@ public class EmbeddedKafka {
     kafka = null;
     log.debug("Removing logs.dir at {} ...", logDir);
     List<String> logDirs = Collections.singletonList(logDir.getAbsolutePath());
-    CoreUtils.delete(scala.collection.JavaConversions.asScalaBuffer(logDirs).seq());
+    CoreUtils.delete(scala.collection.JavaConverters.asScalaBuffer(logDirs));
     tmpFolder.delete();
     log.debug("Shutdown of embedded Kafka broker completed %s.", this);
   }
@@ -201,8 +202,9 @@ public class EmbeddedKafka {
       securityProtocol);
   }
 
+  @SuppressWarnings("deprecation")
   public List<String> listeners() {
-    return scala.collection.JavaConversions.seqAsJavaList(kafka.config().listeners())
+    return scala.collection.JavaConverters.seqAsJavaList(kafka.config().listeners())
         .stream().map(e -> e.listenerName().value())
         .collect(Collectors.toList());
   }

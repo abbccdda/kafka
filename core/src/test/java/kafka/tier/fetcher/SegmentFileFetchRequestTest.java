@@ -28,7 +28,7 @@ import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.test.TestUtils;
 import org.junit.Assert;
 import org.junit.Test;
-import scala.collection.JavaConversions;
+import scala.collection.JavaConverters;
 import scala.compat.java8.OptionConverters;
 
 import java.io.File;
@@ -336,9 +336,10 @@ public class SegmentFileFetchRequestTest {
         }
     }
 
+    @SuppressWarnings("deprecation")
     Optional<ByteBuffer> serializeAbortedTxns(AbortedTxn... abortedTxns) {
         return OptionConverters.toJava(Log.serializeAbortedTransactions(
-                JavaConversions.asScalaBuffer(Arrays.asList(abortedTxns))));
+                JavaConverters.asScalaBuffer(Arrays.asList(abortedTxns))));
     }
 
     private LogSegment createSegment(long baseOffset, int batches, int recsPerBatch) {
