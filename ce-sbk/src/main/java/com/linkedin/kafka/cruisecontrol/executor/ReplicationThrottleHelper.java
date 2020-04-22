@@ -124,8 +124,10 @@ class ReplicationThrottleHelper {
       ConfigEntry followerConfig =
           configResourceConfigEntry.getValue().get(
               LogConfig.FollowerReplicationThrottledReplicasProp());
-      return (leaderConfig != null && leaderConfig.value().equals("*"))
-          && (followerConfig != null && followerConfig.value().equals("*"));
+      return (leaderConfig != null && leaderConfig.value() != null &&
+              leaderConfig.value().equals("*"))
+          && (followerConfig != null && followerConfig.value() != null &&
+              followerConfig.value().equals("*"));
     };
 
     List<ConfigResource> configResources = participatingBrokers.stream()
