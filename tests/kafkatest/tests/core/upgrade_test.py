@@ -96,8 +96,7 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
 
     def add_tiered_storage_metrics(self):
         self.add_log_metrics(self.topic, partitions=range(0, self.PARTITIONS))
-        self.kafka.jmx_object_names += TieredStorageMetricsRegistry.ALL_MBEANS
-        self.kafka.jmx_attributes += TieredStorageMetricsRegistry.ALL_ATTRIBUTES
+        self.kafka.jmx_object_names += [TieredStorageMetricsRegistry.ARCHIVER_LAG.mbean]
         self.restart_jmx_tool()
 
     @cluster(num_nodes=6)
@@ -237,10 +236,11 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
         if to_tiered_storage:
             if not from_tiered_storage:
                 self.add_tiered_storage_metrics()
-            partitions = range(0, self.PARTITIONS)
-            self.add_log_metrics(self.topic, partitions=partitions)
-            self.kafka.jmx_object_names += [TieredStorageMetricsRegistry.ARCHIVER_LAG.mbean]
             self.restart_jmx_tool()
-            wait_until(lambda: self.tiering_started(self.topic, partitions=partitions),
+            partitions = range(0, self.PARTITIONS)
+            if hotset_bytes == -1:
+                wait_until(lambda: self.tiering_started(self.topic, partitions=partitions),
                     timeout_sec=120, backoff_sec=2, err_msg="no evidence of archival within timeout")
-            assert self.check_cluster_state()
+            else:
+                wait_until(lambda: self.tiering_completed(self.topic, partitions=partitions),
+                    timeout_sec=120, backoff_sec=2, err_msg="archiving did not complete within timeout")
