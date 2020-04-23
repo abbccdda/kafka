@@ -8,8 +8,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 public enum TierPartitionStatus {
-    // TierPartitionState has been initialized but it is not yet backed by a file on disk
-    CLOSED((byte) 0),
+    // TierPartitionState has been created but has not been initialized
+    UNINITIALIZED((byte) 0),
     // TierPartitionState has been initialized and is open for read/write, but is not being materialized
     INIT((byte) 1),
     // TierPartitionState has been initialized and is open for read/write, but is being materialized

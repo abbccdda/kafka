@@ -2935,13 +2935,11 @@ object Log {
 
   def isTierStateFile(file: File): Boolean = file.getPath.endsWith(TierStateSuffix)
 
-  def logSegments[A](segments: ConcurrentNavigableMap[java.lang.Long, A], from: Long, to: Long, lock: Object): ConcurrentNavigableMap[java.lang.Long, A] = {
-    lock synchronized {
-      val view = Option(segments.floorKey(from)).map { floor =>
-        segments.subMap(floor, to)
-      }.getOrElse(segments.headMap(to))
-      view
-    }
+  def logSegments[A](segments: ConcurrentNavigableMap[java.lang.Long, A], from: Long, to: Long): ConcurrentNavigableMap[java.lang.Long, A] = {
+    val view = Option(segments.floorKey(from)).map { floor =>
+      segments.subMap(floor, to)
+    }.getOrElse(segments.headMap(to))
+    view
   }
 
   /**
