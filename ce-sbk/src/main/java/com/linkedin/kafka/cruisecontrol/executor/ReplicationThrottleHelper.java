@@ -35,7 +35,7 @@ import java.util.stream.Stream;
 
 import static com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig.AUTO_THROTTLE;
 import static java.lang.String.valueOf;
-import static scala.collection.JavaConversions.asJavaCollection;
+import static scala.collection.JavaConverters.asJavaCollection;
 
 /**
  * CONFLUENT: We use a single instance of this helper throughout the
@@ -124,8 +124,10 @@ class ReplicationThrottleHelper {
       ConfigEntry followerConfig =
           configResourceConfigEntry.getValue().get(
               LogConfig.FollowerReplicationThrottledReplicasProp());
-      return (leaderConfig != null && leaderConfig.value().equals("*"))
-          && (followerConfig != null && followerConfig.value().equals("*"));
+      return (leaderConfig != null && leaderConfig.value() != null &&
+              leaderConfig.value().equals("*"))
+          && (followerConfig != null && followerConfig.value() != null &&
+              followerConfig.value().equals("*"));
     };
 
     List<ConfigResource> configResources = participatingBrokers.stream()

@@ -4,7 +4,6 @@
 
 package com.linkedin.kafka.cruisecontrol.executor;
 
-import com.yammer.metrics.core.MetricsRegistry;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
@@ -16,11 +15,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.yammer.metrics.core.MetricsRegistry;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.utils.SystemTime;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -28,6 +30,17 @@ import static org.junit.Assert.assertEquals;
 
 
 public class ExecutionTaskManagerTest {
+  private MetricsRegistry metricsRegistry;
+
+  @Before
+  public void setUp() {
+    metricsRegistry = new MetricsRegistry();
+  }
+
+  @After
+  public void tearDown() {
+    metricsRegistry.shutdown();
+  }
 
   private Cluster generateExpectedCluster(ExecutionProposal proposal, TopicPartition tp) {
     List<Node> expectedReplicas = new ArrayList<>(proposal.oldReplicas().size());
@@ -47,7 +60,7 @@ public class ExecutionTaskManagerTest {
   public void testStateChangeSequences() {
     TopicPartition tp = new TopicPartition("topic", 0);
     ExecutionTaskManager taskManager = new ExecutionTaskManager(1, 1, 1,
-            null, null, new MetricsRegistry(), new SystemTime(),
+            null, null, KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry), new SystemTime(),
             new KafkaCruiseControlConfig(KafkaCruiseControlUnitTestUtils.getKafkaCruiseControlProperties()));
 
     List<List<ExecutionTask.State>> testSequences = new ArrayList<>();

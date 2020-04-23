@@ -171,10 +171,10 @@ object TopicCommand extends Logging {
         TopicPlacement.validateAssignment(
           placementConstraint,
           syncReplicas.map { id =>
-            TopicPlacement.Replica.of(id, Optional.of(liveBrokerAttributes.getOrElse(id, Map.empty).asJava))
+            TopicPlacement.Replica.of(id, Optional.of(liveBrokerAttributes.getOrElse(id, immutable.Map.empty).asJava))
           }.asJava,
           observerIds.map { id =>
-            TopicPlacement.Replica.of(id, Optional.of(liveBrokerAttributes.getOrElse(id, Map.empty).asJava))
+            TopicPlacement.Replica.of(id, Optional.of(liveBrokerAttributes.getOrElse(id, immutable.Map.empty).asJava))
           }.asJava
         ).asScala
       }
@@ -458,7 +458,7 @@ object TopicCommand extends Logging {
             .replicaAssignment
             .map { assignments =>
               assignments
-                .filterKeys(partition => partition >= existingAssignment.size)
+                .filter { case (partition, _) => partition >= existingAssignment.size }
                 .map { case (key, replicas) =>
                   key -> ReplicaAssignment(replicas, Seq.empty)
                 }

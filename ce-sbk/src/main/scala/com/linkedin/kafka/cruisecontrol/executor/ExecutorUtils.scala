@@ -16,8 +16,9 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.UnsupportedVersionException
 import org.slf4j.{Logger, LoggerFactory}
 
-import scala.collection.JavaConversions._
+import scala.collection.JavaConverters._
 import scala.collection.mutable
+import scala.collection.Seq
 
 /**
  * This class is a Java interface wrapper of open source ReassignPartitionCommand. This class is needed because
@@ -41,7 +42,7 @@ object ExecutorUtils {
                                       reassignmentTasks: java.util.List[ExecutionTask],
                                       config: KafkaCruiseControlConfig) {
     if (reassignmentTasks != null && !reassignmentTasks.isEmpty) {
-      val partitionsToReassign = reassignmentTasks.map(_.proposal.topicPartition()).toSet
+      val partitionsToReassign = reassignmentTasks.asScala.map(_.proposal.topicPartition()).toSet
       val (inProgressTargetReplicaReassignment: Map[TopicPartition, Seq[Int]], supportsAdminApi: Boolean) =
         fetchTargetReplicasBeingReassigned(adminClient, kafkaZkClient, Some(partitionsToReassign))
 
@@ -51,7 +52,7 @@ object ExecutorUtils {
         // ZK reassignment is not incremental so we need to reissue everything
         scala.collection.mutable.Map(inProgressTargetReplicaReassignment.toSeq: _*)
 
-      reassignmentTasks.foreach({ task =>
+      reassignmentTasks.asScala.foreach({ task =>
         val tp = task.proposal().topicPartition()
         val targetReplicas = replicasToWrite(adminClient, config,
           task, inProgressTargetReplicaReassignment.get(tp))
@@ -65,9 +66,9 @@ object ExecutorUtils {
         if (supportsAdminApi) {
           val reassignments = newReplicaAssignments.map {
             case (tp, targetReplicas) =>
-              (tp, Optional.of(new NewPartitionReassignment(targetReplicas.map(i => i : java.lang.Integer))))
+              (tp, Optional.of(new NewPartitionReassignment(targetReplicas.map(i => i : java.lang.Integer).asJava)))
           }
-          adminClient.alterPartitionReassignments(reassignments).all().get()
+          adminClient.alterPartitionReassignments(reassignments.asJava).all().get()
         } else {
           kafkaZkClient.setOrCreatePartitionReassignment(newReplicaAssignments, ZkVersion.MatchAnyVersion)
         }
@@ -82,8 +83,8 @@ object ExecutorUtils {
   def replicasToWrite(adminClient: Admin, config: KafkaCruiseControlConfig,
                       task: ExecutionTask, inProgressTargetReplicasOpt: Option[Seq[Int]]): Seq[Int] = {
     val tp = task.proposal.topicPartition()
-    val oldReplicas = asScalaBuffer(task.proposal.oldReplicas).map(_.brokerId.toInt)
-    val newReplicas = asScalaBuffer(task.proposal.newReplicas).map(_.brokerId.toInt)
+    val oldReplicas = task.proposal.oldReplicas.asScala.map(_.brokerId.toInt)
+    val newReplicas = task.proposal.newReplicas.asScala.map(_.brokerId.toInt)
 
     // If aborting an existing task, trigger a reassignment to the oldReplicas
     // If no reassignment is in progress, trigger a reassignment to newReplicas
@@ -128,7 +129,7 @@ object ExecutorUtils {
   }
 
   def executePreferredLeaderElection(kafkaZkClient: KafkaZkClient, tasks: java.util.List[ExecutionTask]) {
-    val partitionsToExecute = tasks.map(task =>
+    val partitionsToExecute = tasks.asScala.map(task =>
       new TopicPartition(task.proposal.topic, task.proposal.partitionId)).toSet
 
     val preferredReplicaElectionCommand = new PreferredReplicaLeaderElectionCommand(kafkaZkClient, partitionsToExecute)
@@ -153,13 +154,13 @@ object ExecutorUtils {
     (Map[TopicPartition, Seq[Int]], Boolean) = {
     try {
       val listPartitionsResult = partitionsOpt match {
-        case Some(partitions) => adminClient.listPartitionReassignments(partitions)
+        case Some(partitions) => adminClient.listPartitionReassignments(partitions.asJava)
         case None => adminClient.listPartitionReassignments()
       }
 
-      val reassigningTargetReplicas = listPartitionsResult.reassignments().get().map {
+      val reassigningTargetReplicas = listPartitionsResult.reassignments().get().asScala.map {
         case (tp, partitionReassignment) =>
-          val targetReplicas = partitionReassignment.replicas().diff(partitionReassignment.removingReplicas())
+          val targetReplicas = partitionReassignment.replicas().asScala.diff(partitionReassignment.removingReplicas().asScala)
           (tp, targetReplicas.map(_.toInt))
       }.toMap
       (reassigningTargetReplicas, true)
@@ -178,7 +179,7 @@ object ExecutorUtils {
   }
 
   def currentReplicasForPartition(adminClient: Admin, tp: TopicPartition, config: KafkaCruiseControlConfig): java.util.List[java.lang.Integer] = {
-    ExecutorAdminUtils.getReplicasForPartition(adminClient, new TopicPartition(tp.topic(), tp.partition()), config).toList
+    ExecutorAdminUtils.getReplicasForPartition(adminClient, new TopicPartition(tp.topic(), tp.partition()), config)
   }
 
   def changeBrokerConfig(adminZkClient: AdminZkClient, brokerId: Int, config: Properties): Unit = {

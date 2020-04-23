@@ -1889,7 +1889,9 @@ class TestDataBalancer extends DataBalanceManager {
   var selfHealingConfig = true;
   var throttleConfig: Long = 0;
 
-  override def startUp(): Unit = {}
+  override def onElection(): Unit = {}
+
+  override def onResignation(): Unit = {}
 
   override def shutdown(): Unit = {}
 

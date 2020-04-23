@@ -1002,13 +1002,8 @@ class DynamicBalancerConfig(server: KafkaServer) extends BrokerReconfigurable {
     DynamicBalancerConfig.ReconfigurableConfigs
   }
 
-  override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
-    val oldThrottleValue = server.config.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG)
-    val newThrotteValue = newConfig.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG)
-    if(oldThrottleValue != newThrotteValue && newThrotteValue < 0) {
-      throw new ConfigException(s"'${ConfluentConfigs.BALANCER_THROTTLE_CONFIG}' should not be less than 0.")
-    }
-  }
+  // The only validation that's needed is throttle values > AUTO_THROTTLE (BALANCER_THROTTLE_MIN), and that's validated by KafkaConfig creation.
+  override def validateReconfiguration(newConfig: KafkaConfig): Unit = { }
 
   override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
     server.kafkaController.dataBalancer.map{ _.updateConfig(newConfig) }

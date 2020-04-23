@@ -12,11 +12,19 @@ import kafka.server.KafkaConfig;
  */
 public class NoOpDataBalanceEngine implements DataBalanceEngine {
     @Override
-    public void startUp(KafkaConfig kafkaConfig) { }
+    public void onActivation(KafkaConfig kafkaConfig) { }
+
+    @Override
+    public void onDeactivation() { }
 
     @Override
     public void shutdown() { }
 
     @Override
     public void updateThrottle(Long newThrottle) {  }
+
+    @Override
+    public boolean isActive() {
+        return false;
+    }
 }

@@ -9,14 +9,14 @@ import static io.confluent.events.EventLoggerConfig.KAFKA_EXPORTER_PREFIX;
 import static io.confluent.events.EventLoggerConfig.TOPIC_CONFIG;
 import static org.apache.kafka.clients.admin.AdminClientConfig.METRIC_REPORTER_CLASSES_CONFIG;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_LOGGER_PREFIX;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_DEFAULT;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_DOC;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_PREFIX;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_DEFAULT;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_DOC;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_PREFIX;
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_DEFAULT;
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_DEFAULT;
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_DOC;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.events.EventLoggerConfig;
@@ -231,7 +231,7 @@ public class AuditLogConfig extends AbstractConfig {
   public AuditLogRouterJsonConfig routerJsonConfig() throws ConfigException {
     try {
       String routerConfig = getString(AUDIT_EVENT_ROUTER_CONFIG);
-      if (routerConfig.isEmpty()) {
+      if (routerConfig == null || routerConfig.isEmpty()) {
         return AuditLogRouterJsonConfig.defaultConfig();
       }
       return AuditLogRouterJsonConfig.load(getString(AUDIT_EVENT_ROUTER_CONFIG));

@@ -17,8 +17,7 @@ import com.linkedin.kafka.cruisecontrol.exception.OptimizationFailureException;
 import com.linkedin.kafka.cruisecontrol.executor.ExecutorState;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner;
-import com.yammer.metrics.core.Gauge;
-import com.yammer.metrics.core.MetricsRegistry;
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
@@ -75,7 +74,7 @@ public class AnomalyDetector {
                          LoadMonitor loadMonitor,
                          KafkaCruiseControl kafkaCruiseControl,
                          Time time,
-                         MetricsRegistry metricRegistry) {
+                         DataBalancerMetricsRegistry metricRegistry) {
     _anomalies = new LinkedBlockingDeque<>();
     _adminClient = KafkaCruiseControlUtils.createAdminClient(KafkaCruiseControlUtils.parseAdminClientConfigs(config));
     _anomalyDetectionIntervalMs = config.getLong(KafkaCruiseControlConfig.ANOMALY_DETECTION_INTERVAL_MS_CONFIG);
@@ -99,12 +98,7 @@ public class AnomalyDetector {
     _anomalyInProgress = null;
     _numCheckedWithDelay = new AtomicLong();
     _shutdownLock = new Object();
-    metricRegistry.newGauge(AnomalyDetector.class, "balancedness-score",
-                                      new Gauge<Double>() {
-                                        public Double value() {
-                                          return _goalViolationDetector.balancednessScore();
-                                        }
-                                      });
+    metricRegistry.newGauge(AnomalyDetector.class, "balancedness-score", () -> _goalViolationDetector.balancednessScore());
     _anomalyDetectorState = new AnomalyDetectorState(time,
                                                      _anomalyNotifier.selfHealingEnabled(),
                                                      numCachedRecentAnomalyStates,

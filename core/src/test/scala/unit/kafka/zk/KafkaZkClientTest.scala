@@ -1283,6 +1283,42 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
     assertEquals(ZooDefs.Ids.READ_ACL_UNSAFE.asScala, zkClient.getAcl(mockPath))
   }
 
+  @Test
+  def testClusterLinksMethods(): Unit = {
+    val clusterLinks = Seq(
+      ("test-link-1", UUID.randomUUID(), Some("abc123")),
+      ("test-link-2", UUID.randomUUID(), Some("xyz789")),
+      ("test-link-3", UUID.randomUUID(), None)
+    )
+
+    clusterLinks.foreach { case (linkName, _, _) =>
+      assertFalse(zkClient.clusterLinkExists(linkName))
+    }
+
+    clusterLinks.foreach { case (linkName, linkId, clusterId) =>
+      zkClient.createClusterLink(linkName, linkId, clusterId)
+    }
+
+    val getClusterLinks = zkClient.getClusterLinks(clusterLinks.map(_._1).toSet + "nonexistent")
+    assertEquals(3, getClusterLinks.size)
+    clusterLinks.foreach { case (linkName, linkId, clusterId) =>
+      val data = getClusterLinks(linkName)
+      assertEquals(linkId, data.linkId)
+      assertEquals(clusterId, data.clusterId)
+    }
+
+    clusterLinks.foreach { case (linkName, _, _) =>
+      assertTrue(zkClient.clusterLinkExists(linkName))
+    }
+
+    clusterLinks.foreach { case (linkName, _, _) =>
+      zkClient.deleteClusterLink(linkName)
+    }
+
+    val getDeletedClusterLinks = zkClient.getClusterLinks(clusterLinks.map(_._1).toSet)
+    assertEquals(0, getDeletedClusterLinks.size)
+  }
+
   class ExpiredKafkaZkClient private (zooKeeperClient: ZooKeeperClient, isSecure: Boolean, time: Time)
     extends KafkaZkClient(zooKeeperClient, isSecure, time) {
     // Overwriting this method from the parent class to force the client to re-register the Broker.

@@ -68,6 +68,7 @@ public class MockAdminClient extends AdminClient implements ConfluentAdmin {
     private final String clusterId;
     private final List<List<String>> brokerLogDirs;
     private final List<Map<String, String>> brokerConfigs;
+    private Map<String, String> clusterConfigs;
 
     private Node controller;
     private int timeoutNextRequests = 0;
@@ -144,6 +145,7 @@ public class MockAdminClient extends AdminClient implements ConfluentAdmin {
         for (int i = 0; i < brokers.size(); i++) {
             this.brokerConfigs.add(new HashMap<>());
         }
+        this.clusterConfigs = new HashMap<>();
     }
 
     synchronized public void controller(Node controller) {
@@ -475,6 +477,9 @@ public class MockAdminClient extends AdminClient implements ConfluentAdmin {
     synchronized private Config getResourceDescription(ConfigResource resource) {
         switch (resource.type()) {
             case BROKER: {
+                if (resource.name().isEmpty()) {
+                    return toConfigObject(clusterConfigs);
+                }
                 int brokerId = Integer.valueOf(resource.name());
                 if (brokerId >= brokerConfigs.size()) {
                     throw new InvalidRequestException("Broker " + resource.name() +
@@ -533,16 +538,22 @@ public class MockAdminClient extends AdminClient implements ConfluentAdmin {
             ConfigResource resource, Collection<AlterConfigOp> ops) {
         switch (resource.type()) {
             case BROKER: {
+                HashMap<String, String> newMap;
                 int brokerId;
-                try {
-                    brokerId = Integer.valueOf(resource.name());
-                } catch (NumberFormatException e) {
-                    return e;
+                if (resource.name().isEmpty()) {
+                    newMap = new HashMap<>(clusterConfigs);
+                    brokerId = -1;
+                } else {
+                    try {
+                        brokerId = Integer.valueOf(resource.name());
+                    } catch (NumberFormatException e) {
+                        return e;
+                    }
+                    if (brokerId >= brokerConfigs.size()) {
+                        return new InvalidRequestException("no such broker as " + brokerId);
+                    }
+                    newMap = new HashMap<>(brokerConfigs.get(brokerId));
                 }
-                if (brokerId >= brokerConfigs.size()) {
-                    return new InvalidRequestException("no such broker as " + brokerId);
-                }
-                HashMap<String, String> newMap = new HashMap<>(brokerConfigs.get(brokerId));
                 for (AlterConfigOp op : ops) {
                     switch (op.opType()) {
                         case SET:
@@ -556,7 +567,11 @@ public class MockAdminClient extends AdminClient implements ConfluentAdmin {
                                 "Unsupported op type " + op.opType());
                     }
                 }
-                brokerConfigs.set(brokerId, newMap);
+                if (resource.name().isEmpty()) {
+                    clusterConfigs = newMap;
+                } else {
+                    brokerConfigs.set(brokerId, newMap);
+                }
                 return null;
             }
             case TOPIC: {

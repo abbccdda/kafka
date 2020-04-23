@@ -81,13 +81,23 @@ public class TierTopicConsumer implements Runnable {
 
     /**
      * Set of TopicIdPartition, where, each such partition's ClientCtx had reached
-     * TierPartitionStatus.ERROR status at some point. These may have reached an error state, when
-     * processing events via either the primary consumer or catch up consumer. Currently this
-     * attribute is used only for monitoring purposes.
+     * TierPartitionStatus.ERROR status at some point. These have reached an error state, when
+     * processing events via the primary consumer. Currently this attribute is used only for
+     * monitoring purposes.
      *
      * THREAD SAFETY: Access to this attribute must be synchronized.
      */
-    private final Set<TopicIdPartition> errorPartitions = new HashSet<>();    // accesses must be synchronized
+    private final Set<TopicIdPartition> primaryConsumerErrorPartitions = new HashSet<>();
+
+    /**
+     * Set of TopicIdPartition, where, each such partition's ClientCtx had reached
+     * TierPartitionStatus.ERROR status at some point. These have reached an error state, when
+     * processing events via the catchup consumer. Currently this attribute is used only for
+     * monitoring purposes.
+     *
+     * THREAD SAFETY: Access to this attribute must be synchronized.
+     */
+    private final Set<TopicIdPartition> catchUpConsumerErrorPartitions = new HashSet<>();
 
     private final Thread consumerThread = new KafkaThread("TierTopicConsumer", this, false);
     private final Supplier<Consumer<byte[], byte[]>> primaryConsumerSupplier;
@@ -101,7 +111,7 @@ public class TierTopicConsumer implements Runnable {
             "TierTopicConsumer",
             "Number of tiered partitions that are pending for materialization",
             new HashMap<>());
-    private final MetricName catchupConsumerMetricName = new MetricName("CatchupConsumerPartitions",
+    private final MetricName catchupConsumerPartitionsMetricName = new MetricName("CatchupConsumerPartitions",
             "TierTopicConsumer",
             "Number of tiered partitions being consumed by the catch up "
                     + "consumer (either CATCHUP or ERROR status)",
@@ -111,10 +121,12 @@ public class TierTopicConsumer implements Runnable {
             "Number of tiered partitions being consumed by the primary "
                     + "consumer (either ONLINE or ERROR status)",
             new HashMap<>());
-    private final MetricName errorPartitionsMetricName = new MetricName("ErrorPartitions",
+    private final MetricName primaryConsumerErrorPartitionsMetricName = new MetricName(
+            "ErrorPartitions",
             "TierTopicConsumer",
-            "Number of tiered partitions with ERROR materialization state",
-            new HashMap<>());
+         "Number of tiered partitions being consumed by primary consumer,"
+                    + " and with ERROR materialization state",
+        new HashMap<>());
     private final MetricName numListenersMetricName = new MetricName("NumListeners",
             "TierTopicConsumer",
             "Number of metadata listeners awaiting materialization.",
@@ -169,7 +181,8 @@ public class TierTopicConsumer implements Runnable {
             if (clientCtx.status() == TierPartitionStatus.ERROR) {
                 // We add the partition to errorPartitions immediately, as it is useful to surface
                 // error partitions in monitoring as soon as they are registered.
-                errorPartitions.add(partition);
+                log.info("Partition: {} registered with ERROR status", partition);
+                catchUpConsumerErrorPartitions.add(partition);
             }
         } else {
             throw new IllegalStateException("Duplicate registration for " + partition);
@@ -195,7 +208,8 @@ public class TierTopicConsumer implements Runnable {
         immigratingPartitions.remove(partition);
         primaryConsumerPartitions.remove(partition);
         catchUpConsumerPartitions.remove(partition);
-        errorPartitions.remove(partition);
+        primaryConsumerErrorPartitions.remove(partition);
+        catchUpConsumerErrorPartitions.remove(partition);
     }
 
     /**
@@ -301,22 +315,10 @@ public class TierTopicConsumer implements Runnable {
     public void doWork() {
         lastHeartbeatMs.set(System.currentTimeMillis());
         if (catchupConsumer.tryComplete(primaryConsumer)) {
-            synchronized (this) {
-                // Complete catchup of ClientCtx, only if did not reach an error status during
-                // catchup. Such error partitions should be already part of errorPartitions by this
-                // point.
-                for (ClientCtx ctx : catchUpConsumerPartitions.values()) {
-                    if (!ctx.status().hasError())
-                        ctx.completeCatchup();
-                }
-
-                primaryConsumerPartitions.putAll(catchUpConsumerPartitions);
-                catchUpConsumerPartitions.clear();
-            }
+            completeCatchup();
         }
 
         processPendingImmigrations();
-
         processRecords(primaryConsumer.poll(config.pollDuration), TierPartitionStatus.ONLINE, true);
         processRecords(catchupConsumer.poll(config.pollDuration), TierPartitionStatus.CATCHUP, false);
     }
@@ -362,6 +364,9 @@ public class TierTopicConsumer implements Runnable {
                     }
                 }
 
+                // Any ClientCtx that's currently in ERROR status still gets added to the catchup
+                // consumer. Note that the partition should already be in
+                // catchUpConsumerErrorPartitions by this point, since we add it in register(...).
                 catchUpConsumerPartitions.putAll(newCatchupPartitions);
                 primaryConsumerPartitions.putAll(newOnlinePartitions);
                 immigratingPartitions.clear();
@@ -373,12 +378,40 @@ public class TierTopicConsumer implements Runnable {
     }
 
     private void beginCatchup(Map<TopicIdPartition, ClientCtx> partitionsToCatchup) {
+        // Begin catchup of ClientCtx, only if is not in an ERROR status currently.
         for (ClientCtx ctx : partitionsToCatchup.values())
             if (!ctx.status().hasError())
                 ctx.beginCatchup();
 
         Set<TopicPartition> tierTopicPartitions = tierTopic.toTierTopicPartitions(partitionsToCatchup.keySet());
         catchupConsumer.doStart(tierTopicPartitions);
+    }
+
+    private void completeCatchup() {
+        synchronized (this) {
+            // 1. Complete catchup of ClientCtx, only if did not reach an ERROR status during
+            //    catchup. Such error partitions should be already part of
+            //    catchUpConsumerErrorPartitions by this point.
+            // 2. Any ClientCtx that remains in ERROR status by the end of catchup, still gets moved
+            //    over to the primary consumer.
+            for (Map.Entry<TopicIdPartition, ClientCtx> entry : catchUpConsumerPartitions.entrySet()) {
+                TopicIdPartition partition = entry.getKey();
+                ClientCtx ctx = entry.getValue();
+                if (ctx.status().hasError()) {
+                    catchUpConsumerErrorPartitions.remove(partition);
+                    primaryConsumerErrorPartitions.add(partition);
+                } else {
+                    ctx.completeCatchup();
+                }
+            }
+            if (primaryConsumerErrorPartitions.size() > 0) {
+                log.error(
+                    "Partitions remaining in ERROR status after catchup: {}",
+                    primaryConsumerErrorPartitions);
+            }
+            primaryConsumerPartitions.putAll(catchUpConsumerPartitions);
+            catchUpConsumerPartitions.clear();
+        }
     }
 
     /**
@@ -438,6 +471,7 @@ public class TierTopicConsumer implements Runnable {
         TopicIdPartition topicIdPartition = entry.topicIdPartition();
         ClientCtx clientCtx;
         boolean matchesRequiredState;
+        Set<TopicIdPartition> errorPartitionsToBeUpdated;
 
         // Retrieve the client context, if any
         synchronized (this) {
@@ -446,11 +480,13 @@ public class TierTopicConsumer implements Runnable {
                 matchesRequiredState =
                     (requiredState == TierPartitionStatus.ONLINE) &&
                     checkClientCtxStatus(clientCtx, requiredState);
+                errorPartitionsToBeUpdated = primaryConsumerErrorPartitions;
             } else {
                 clientCtx = catchUpConsumerPartitions.get(topicIdPartition);
                 matchesRequiredState =
                     (requiredState == TierPartitionStatus.CATCHUP) &&
                     checkClientCtxStatus(clientCtx, requiredState);
+                errorPartitionsToBeUpdated = catchUpConsumerErrorPartitions;
             }
         }
 
@@ -466,7 +502,8 @@ public class TierTopicConsumer implements Runnable {
 
                 default:
                     if (matchesRequiredState) {
-                        TierPartitionState.AppendResult result = processEntry(clientCtx, topicIdPartition, entry, offsetAndEpoch);
+                        TierPartitionState.AppendResult result = processEntry(
+                            clientCtx, topicIdPartition, entry, offsetAndEpoch, errorPartitionsToBeUpdated);
                         resultListeners.getAndRemoveTracked(entry).ifPresent(c -> c.complete(result));
                     } else {
                         // We partition the materialization between the primary and catchup consumer based on the
@@ -507,13 +544,14 @@ public class TierTopicConsumer implements Runnable {
     private TierPartitionState.AppendResult processEntry(ClientCtx clientCtx,
                                                          TopicIdPartition topicIdPartition,
                                                          AbstractTierMetadata entry,
-                                                         OffsetAndEpoch offsetAndEpoch) {
+                                                         OffsetAndEpoch offsetAndEpoch,
+                                                         Set<TopicIdPartition> errorPartitionsToBeUpdated) {
         try {
             return clientCtx.process(entry, offsetAndEpoch);
         } finally {
             if (clientCtx.status() == TierPartitionStatus.ERROR) {
                 synchronized (this) {
-                    errorPartitions.add(topicIdPartition);
+                    errorPartitionsToBeUpdated.add(topicIdPartition);
                 }
             }
         }
@@ -531,7 +569,7 @@ public class TierTopicConsumer implements Runnable {
                     return immigratingPartitions.size();
                 }
             });
-            m.addMetric(catchupConsumerMetricName, (MetricConfig config, long now) -> {
+            m.addMetric(catchupConsumerPartitionsMetricName, (MetricConfig config, long now) -> {
                 synchronized (this) {
                     return catchUpConsumerPartitions.size();
                 }
@@ -541,9 +579,9 @@ public class TierTopicConsumer implements Runnable {
                     return primaryConsumerPartitions.size();
                 }
             });
-            m.addMetric(errorPartitionsMetricName, (MetricConfig config, long now) -> {
+            m.addMetric(primaryConsumerErrorPartitionsMetricName, (MetricConfig config, long now) -> {
                 synchronized (this) {
-                    return errorPartitions.size();
+                    return primaryConsumerErrorPartitions.size();
                 }
             });
             m.addMetric(numListenersMetricName, (MetricConfig config, long now) -> numListeners());
@@ -559,9 +597,9 @@ public class TierTopicConsumer implements Runnable {
         metrics.ifPresent(m -> {
             m.removeMetric(heartbeatMetricName);
             m.removeMetric(immigrationMetricName);
-            m.removeMetric(catchupConsumerMetricName);
+            m.removeMetric(catchupConsumerPartitionsMetricName);
             m.removeMetric(primaryConsumerPartitionsMetricName);
-            m.removeMetric(errorPartitionsMetricName);
+            m.removeMetric(primaryConsumerErrorPartitionsMetricName);
             m.removeMetric(numListenersMetricName);
             m.removeMetric(maxListeningMsMetricName);
         });
@@ -583,8 +621,13 @@ public class TierTopicConsumer implements Runnable {
     }
 
     // visible for testing
-    synchronized Set<TopicIdPartition> errorPartitions() {
-        return new HashSet<>(errorPartitions);
+    synchronized Set<TopicIdPartition> primaryConsumerErrorPartitions() {
+        return new HashSet<>(primaryConsumerErrorPartitions);
+    }
+
+    // visible for testing
+    synchronized Set<TopicIdPartition> catchUpConsumerErrorPartitions() {
+        return new HashSet<>(catchUpConsumerErrorPartitions);
     }
 
     // visible for testing

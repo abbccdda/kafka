@@ -11,6 +11,8 @@ import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityConfigFileResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.NoopSampler;
+import com.yammer.metrics.core.MetricsRegistry;
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.Config;
 import org.apache.kafka.clients.admin.ConfigEntry;
@@ -23,6 +25,7 @@ import org.apache.kafka.common.config.ConfigResource;
 import org.easymock.EasyMock;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -141,5 +144,10 @@ public class KafkaCruiseControlUnitTestUtils {
       }
       aggregatedMetricValues.add(id, metricValues);
     }
+  }
+
+  public static DataBalancerMetricsRegistry getMetricsRegistry(MetricsRegistry metricsRegistry) {
+    // CruiseControl shouldn't be making any long-lived metrics
+    return new DataBalancerMetricsRegistry(metricsRegistry, Collections.emptySet());
   }
 }

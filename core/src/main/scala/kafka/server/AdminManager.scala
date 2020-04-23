@@ -26,6 +26,7 @@ import kafka.controller.ReplicaAssignment
 import kafka.log.LogConfig
 import kafka.utils.Log4jController
 import kafka.metrics.KafkaMetricsGroup
+import kafka.server.link.ClusterLinkConfig
 import kafka.utils._
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.clients.admin.AlterConfigOp
@@ -34,7 +35,7 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.ConfigDef.ConfigKey
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, ConfigResource, ConfluentTopicConfig, LogLevelConfig}
-import org.apache.kafka.common.errors.{ApiException, InvalidConfigurationException, InvalidPartitionsException, InvalidReplicaAssignmentException, InvalidRequestException, ReassignmentInProgressException, TopicExistsException, UnknownTopicOrPartitionException, UnsupportedVersionException}
+import org.apache.kafka.common.errors.{ApiException, ClusterLinkNotFoundException, InvalidConfigurationException, InvalidPartitionsException, InvalidReplicaAssignmentException, InvalidRequestException, ReassignmentInProgressException, TopicExistsException, UnknownTopicOrPartitionException, UnsupportedVersionException}
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.message.CreatePartitionsRequestData.CreatePartitionsTopic
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
@@ -450,6 +451,16 @@ class AdminManager(val config: KafkaConfig,
               createResponseConfig(Log4jController.loggers,
                 (name, value) => new DescribeConfigsResponse.ConfigEntry(name, value.toString, ConfigSource.DYNAMIC_BROKER_LOGGER_CONFIG, false, false, List.empty.asJava))
             }
+
+          case ConfigResource.Type.CLUSTER_LINK =>
+            val linkName = resource.name
+            if (linkName == null || linkName.isEmpty)
+              throw new InvalidRequestException("Cluster link name must not be empty")
+            if (!zkClient.clusterLinkExists(linkName))
+              throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' not found")
+            val config = new ClusterLinkConfig(adminZkClient.fetchEntityConfig(ConfigType.ClusterLink, linkName))
+            createResponseConfig(allConfigs(config), createClusterLinkConfigEntry(config))
+
           case resourceType => throw new InvalidRequestException(s"Unsupported resource type: $resourceType")
         }
         resource -> resourceConfig
@@ -566,6 +577,22 @@ class AdminManager(val config: KafkaConfig,
     }
   }
 
+  private def alterClusterLinkConfigs(resource: ConfigResource,
+                                      validateOnly: Boolean,
+                                      configProps: Properties,
+                                      configEntriesMap: Map[String, String],
+                                      principal: KafkaPrincipal): (ConfigResource, ApiError) = {
+    val linkName = resource.name
+    adminZkClient.validateClusterLinkConfig(linkName, configProps)
+    validateConfigPolicy(resource, configEntriesMap, principal)
+    if (!validateOnly) {
+      info(s"Updating cluster link $linkName with new configuration $config")
+      adminZkClient.changeClusterLinkConfig(linkName, configProps)
+    }
+
+    resource -> ApiError.NONE
+  }
+
   private def getBrokerId(resource: ConfigResource) = {
     if (resource.name == null || resource.name.isEmpty)
       None
@@ -628,6 +655,12 @@ class AdminManager(val config: KafkaConfig,
             if (!validateOnly)
               alterLogLevelConfigs(alterConfigOps)
             resource -> ApiError.NONE
+
+          case ConfigResource.Type.CLUSTER_LINK =>
+            val configProps = adminZkClient.fetchEntityConfig(ConfigType.ClusterLink, resource.name)
+            prepareIncrementalConfigs(alterConfigOps, configProps, ClusterLinkConfig.configKeys)
+            alterClusterLinkConfigs(resource, validateOnly, configProps, configEntriesMap, principal)
+
           case resourceType =>
             throw new InvalidRequestException(s"AlterConfigs is only supported for topics and brokers, but resource type is $resourceType")
         }
@@ -786,6 +819,13 @@ class AdminManager(val config: KafkaConfig,
     val source = if (allSynonyms.isEmpty) ConfigSource.DEFAULT_CONFIG else allSynonyms.head.source
     val readOnly = !DynamicBrokerConfig.AllDynamicConfigs.contains(name)
     new DescribeConfigsResponse.ConfigEntry(name, valueAsString, source, isSensitive, readOnly, synonyms.asJava)
+  }
+
+  private def createClusterLinkConfigEntry(config: AbstractConfig)(name: String, value: Any): DescribeConfigsResponse.ConfigEntry = {
+    val configEntryType = config.typeOf(name)
+    val isSensitive = configEntryType == ConfigDef.Type.PASSWORD
+    val valueAsString = if (isSensitive) null else ConfigDef.convertToString(value, configEntryType)
+    new DescribeConfigsResponse.ConfigEntry(name, valueAsString, ConfigSource.CLUSTER_LINK_CONFIG, isSensitive, false, List.empty.asJava)
   }
 
   private def filterTopicConfigs(configs: Map[String, Any], configNames: Option[Set[String]]): mutable.Buffer[(String, Any)] = {
@@ -1027,4 +1067,3 @@ object AdminManager {
     }
   }
 }
-

@@ -58,7 +58,7 @@ public class LicenseStore {
       .setConfigType(CommandConfigType.LICENSE_INFO)
       .setGuid(KEY_PREFIX)
       .build();
-  private static final Duration TOPIC_CREATE_RETRY_BACKOFF = Duration.ofMillis(10);
+  private static final Duration TOPIC_CREATE_RETRY_BACKOFF = Duration.ofMillis(1000);
   private final String topic;
 
   public static final String REPLICATION_FACTOR_CONFIG =
@@ -299,7 +299,7 @@ public class LicenseStore {
   public void start() {
     if (running.compareAndSet(false, true)) {
       log.info("Starting License Store");
-      licenseLog.start();
+      startLog();
       log.info("Started License Store");
     }
   }
@@ -307,9 +307,17 @@ public class LicenseStore {
   public void stop() {
     if (running.compareAndSet(true, false)) {
       log.info("Closing License Store");
-      licenseLog.stop();
+      stopLog();
       log.info("Closed License Store");
     }
+  }
+
+  protected void startLog() {
+    licenseLog.start();
+  }
+
+  protected void stopLog() {
+    licenseLog.stop();
   }
 
   public String licenseScan() {

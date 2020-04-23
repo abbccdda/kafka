@@ -35,7 +35,9 @@ import kafka.log.TierLogComponents
 import kafka.log.{LogConfig, LogManager}
 import kafka.metrics.{KafkaMetricsGroup, KafkaMetricsReporter, KafkaYammerMetrics}
 import kafka.network.SocketServer
+import io.confluent.rest.{BeginShutdownBrokerHandle, InternalRestServer}
 import kafka.security.CredentialProvider
+import kafka.server.link.ClusterLinkAdminManager
 import kafka.tier.fetcher.{TierFetcher, TierFetcherConfig}
 import kafka.tier.state.TierPartitionStateFactory
 import kafka.tier.store.{GcsTierObjectStore, GcsTierObjectStoreConfig, MockInMemoryTierObjectStore, S3TierObjectStore, S3TierObjectStoreConfig, TierObjectStore, TierObjectStoreConfig}
@@ -59,6 +61,7 @@ import org.apache.kafka.common.utils.{AppInfoParser, LogContext, Time}
 import org.apache.kafka.common.{ClusterResource, Endpoint, Node}
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.security.fips.FipsValidator
+import org.apache.kafka.common.errors.StaleBrokerEpochException
 import org.apache.kafka.server.authorizer.Authorizer
 import org.apache.kafka.server.http.{MetadataServer, MetadataServerFactory}
 import org.apache.kafka.server.license.LicenseValidator
@@ -176,6 +179,18 @@ object KafkaServer {
 }
 
 /**
+ * Handle which supports gathering broker metadata and triggering a beginShutdown
+ * command for the broker via the Rest server.
+ */
+case class BeginShutdownBrokerHandleAdapter(delegate: KafkaServer) extends BeginShutdownBrokerHandle {
+  override def brokerId(): Long = delegate.config.brokerId
+  override def brokerEpoch(): Long = delegate.kafkaController.brokerEpoch
+  override def controllerId(): Integer = delegate.metadataCache.getControllerId.get
+  override def underReplicatedPartitions(): Long = delegate.replicaManager.underReplicatedPartitionCount
+  override def beginShutdown(brokerEpoch: Long): Unit = delegate.beginShutdown(brokerEpoch)
+}
+
+/**
  * Represents the lifecycle of a single Kafka broker. Handles all functionality required
  * to start up and shutdown a single Kafka node.
  */
@@ -184,6 +199,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   private val startupComplete = new AtomicBoolean(false)
   private val isShuttingDown = new AtomicBoolean(false)
   private val isStartingUp = new AtomicBoolean(false)
+  private val controlledShutdownLatch = new CountDownLatch(1)
 
   private var shutdownLatch = new CountDownLatch(1)
 
@@ -211,6 +227,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
   var replicaManager: ReplicaManager = null
   var adminManager: AdminManager = null
+  var clusterLinkAdminManager: ClusterLinkAdminManager = null
   var tokenManager: DelegationTokenManager = null
 
   var dynamicConfigHandlers: Map[String, ConfigHandler] = null
@@ -252,6 +269,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   private var licenseValidator: LicenseValidator = null
 
   private var fipsValidator: FipsValidator = null
+
+  private var internalRestServer: InternalRestServer = null
 
   def clusterId: String = _clusterId
 
@@ -377,6 +396,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         socketServer.startup(startProcessingRequests = false)
 
         adminManager = new AdminManager(config, metrics, metadataCache, zkClient)
+        clusterLinkAdminManager = new ClusterLinkAdminManager(config, clusterId, zkClient, () => replicaManager.clusterLinkManager)
 
         /* start replica manager */
         replicaManager = createReplicaManager(isShuttingDown, tierLogComponents)
@@ -451,7 +471,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
             KafkaServer.MIN_INCREMENTAL_FETCH_SESSION_EVICTION_MS))
 
         /* start processing requests */
-        dataPlaneRequestProcessor = new KafkaApis(socketServer.dataPlaneRequestChannel, replicaManager, adminManager, groupCoordinator, transactionCoordinator,
+        dataPlaneRequestProcessor = new KafkaApis(socketServer.dataPlaneRequestChannel, replicaManager, adminManager,
+          clusterLinkAdminManager, groupCoordinator, transactionCoordinator,
           kafkaController, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
           fetchManager, brokerTopicStats, clusterId, time, tokenManager, tierDeletedPartitionsCoordinatorOpt)
 
@@ -460,7 +481,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           config.numIoThreads, s"${SocketServer.DataPlaneMetricPrefix}RequestHandlerAvgIdlePercent", SocketServer.DataPlaneThreadPrefix, metrics)
 
         socketServer.controlPlaneRequestChannelOpt.foreach { controlPlaneRequestChannel =>
-          controlPlaneRequestProcessor = new KafkaApis(controlPlaneRequestChannel, replicaManager, adminManager, groupCoordinator, transactionCoordinator,
+          controlPlaneRequestProcessor = new KafkaApis(controlPlaneRequestChannel, replicaManager, adminManager,
+            clusterLinkAdminManager, groupCoordinator, transactionCoordinator,
             kafkaController, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
             fetchManager, brokerTopicStats, clusterId, time, tokenManager, tierDeletedPartitionsCoordinatorOpt)
 
@@ -484,7 +506,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         dynamicConfigHandlers = Map[String, ConfigHandler](ConfigType.Topic -> new TopicConfigHandler(replicaManager, config, quotaManagers, kafkaController),
                                                            ConfigType.Client -> new ClientIdConfigHandler(quotaManagers),
                                                            ConfigType.User -> new UserConfigHandler(quotaManagers, credentialProvider),
-                                                           ConfigType.Broker -> new BrokerConfigHandler(config, quotaManagers))
+                                                           ConfigType.Broker -> new BrokerConfigHandler(config, quotaManagers),
+                                                           ConfigType.ClusterLink -> new ClusterLinkConfigHandler())
 
         // Create the config manager. start listening to notifications
         dynamicConfigManager = new DynamicConfigManager(zkClient, dynamicConfigHandlers)
@@ -494,6 +517,11 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         authorizerFutures.values.foreach(_.join())
         metadataServer.start()
+
+        if (config.internalRestServerBindPort != null) {
+          internalRestServer = new InternalRestServer(config.internalRestServerBindPort, BeginShutdownBrokerHandleAdapter(this))
+          internalRestServer.start()
+        }
 
         brokerState.newState(RunningAsBroker)
         shutdownLatch = new CountDownLatch(1)
@@ -780,6 +808,45 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   }
 
   /**
+   * beginShutdown will start the controlled shutdown process for the broker if the
+   * expectedBrokerEpoch matches the actual broker epoch.
+   *
+   * If the expectedBrokerEpoch does not match the actual epoch, a StaleBrokerEpochException
+   * will be thrown.
+   *
+   * It is safe to call this method from multiple threads, controlled shutdown will only be
+   * executed once.
+   *
+   * Callers of beginShutdown are responsible for ensuring the broker has successfully started up.
+   */
+  def beginShutdown(expectedBrokerEpoch: Long): Unit = {
+    // In order to use beginShutdown, it's expected that startup completed, so
+    // it's safe to assume kafkaController is set.
+    val currentBrokerEpoch = kafkaController.brokerEpoch
+    if (expectedBrokerEpoch == currentBrokerEpoch) {
+      info("Beginning controlled shutdown")
+      ensureControlledShutdownOnce()
+    } else {
+      throw new StaleBrokerEpochException(s"Expected epoch $expectedBrokerEpoch does not match current epoch $currentBrokerEpoch")
+    }
+  }
+
+  /**
+   * Serialize controlled shutdown requests to ensure only one is running at a time.
+   *
+   * If multiple controlled shutdown requests are issued, all will block on the first
+   * caller which aquired the lock succeeding or failing.
+   */
+  def ensureControlledShutdownOnce(): Unit = synchronized {
+    if (controlledShutdownLatch.getCount > 0) {
+      CoreUtils.swallow(controlledShutdown(), this)
+      brokerState.newState(BrokerShuttingDown)
+      controlledShutdownLatch.countDown()
+    }
+    controlledShutdownLatch.await()
+  }
+
+  /**
    * Shutdown API for shutting down a single instance of the Kafka server.
    * Shuts down the LogManager, the SocketServer and the log cleaner scheduler thread
    */
@@ -794,8 +861,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
       // last in the `if` block. If the order is reversed, we could shutdown twice or leave `isShuttingDown` set to
       // `true` at the end of this method.
       if (shutdownLatch.getCount > 0 && isShuttingDown.compareAndSet(false, true)) {
-        CoreUtils.swallow(controlledShutdown(), this)
-        brokerState.newState(BrokerShuttingDown)
+        ensureControlledShutdownOnce()
 
         if (licenseValidator != null)
           CoreUtils.swallow(licenseValidator.close(), this)
@@ -818,6 +884,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           CoreUtils.swallow(dataPlaneRequestProcessor.close(), this)
         if (controlPlaneRequestProcessor != null)
           CoreUtils.swallow(controlPlaneRequestProcessor.close(), this)
+
+        if (internalRestServer != null)
+          CoreUtils.swallow(internalRestServer.stop(), this)
 
         if (metadataServer != null)
           CoreUtils.swallow(metadataServer.close(), this)

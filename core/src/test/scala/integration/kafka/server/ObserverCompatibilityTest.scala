@@ -15,6 +15,7 @@ import org.apache.kafka.test.{TestUtils => JTestUtils}
 import org.junit.{After, Before, Test}
 
 import scala.collection.JavaConverters._
+import scala.collection.Seq
 
 /**
  * This class tests the usage of observers/placement constraints on a reduced IBP.

@@ -30,6 +30,7 @@ import kafka.controller.{IsrChangeNotificationHandler, LeaderIsrAndControllerEpo
 import kafka.security.authorizer.AclAuthorizer.VersionedAcls
 import kafka.security.authorizer.AclEntry
 import kafka.server.{ConfigType, DelegationTokenManager}
+import kafka.server.link.ClusterLinkTopicState
 import kafka.utils.Json
 import kafka.utils.json.JsonObject
 import org.apache.kafka.common.{KafkaException, TopicPartition}
@@ -243,11 +244,13 @@ object TopicZNode {
   case class TopicIdReplicaAssignment(topic: String,
                                       topicId: Option[UUID],
                                       assignment: Map[TopicPartition, ReplicaAssignment],
-                                      clusterLink: Option[String])
+                                      clusterLink: Option[ClusterLinkTopicState])
 
   def path(topic: String) = s"${TopicsZNode.path}/$topic"
 
-  def encode(topicId: Option[UUID], assignment: collection.Map[TopicPartition, ReplicaAssignment], clusterLink: Option[String]): Array[Byte] = {
+  def encode(topicId: Option[UUID],
+             assignment: collection.Map[TopicPartition, ReplicaAssignment],
+             clusterLink: Option[ClusterLinkTopicState]): Array[Byte] = {
     val replicaAssignmentJson = mutable.Map[String, util.List[Int]]()
     val addingReplicasAssignmentJson = mutable.Map[String, util.List[Int]]()
     val removingReplicasAssignmentJson = mutable.Map[String, util.List[Int]]()
@@ -278,7 +281,7 @@ object TopicZNode {
       "target_observers" -> targetObserversAssignment.asJava
     )
     topicId.foreach(id => topicAssignment += "confluent_topic_id" -> id.toString)
-    clusterLink.foreach(linkName => topicAssignment += "confluent_cluster_link" -> linkName)
+    clusterLink.foreach(cl => topicAssignment += "confluent_cluster_link" -> cl.toJsonString)
 
     Json.encodeAsBytes(topicAssignment.asJava)
   }
@@ -305,7 +308,7 @@ object TopicZNode {
     Json.parseBytes(bytes).map { js =>
       val assignmentJson = js.asJsonObject
       val topicId = assignmentJson.get("confluent_topic_id").map(_.to[String]).map(UUID.fromString)
-      val clusterLink = assignmentJson.get("confluent_cluster_link").map(_.to[String])
+      val clusterLink = assignmentJson.get("confluent_cluster_link").map(cl => ClusterLinkTopicState.fromJsonString(cl.to[String]))
       val addingReplicasJsonOpt = assignmentJson.get("adding_replicas").map(_.asJsonObject)
       val removingReplicasJsonOpt = assignmentJson.get("removing_replicas").map(_.asJsonObject)
       val observersJson = assignmentJson.get("observers").map(_.asJsonObject)
@@ -788,6 +791,31 @@ object DelegationTokenInfoZNode {
   def decode(bytes: Array[Byte]): Option[TokenInformation] = DelegationTokenManager.fromBytes(bytes)
 }
 
+object ClusterLinksZNode {
+  def path = "/cluster_links"
+}
+
+case class ClusterLinkData(linkName: String, linkId: UUID, clusterId: Option[String])
+
+object ClusterLinkZNode {
+  def path(linkName: String) = s"${ClusterLinksZNode.path}/$linkName"
+
+  def encode(linkId: UUID, clusterId: Option[String]): Array[Byte] = {
+    val config = mutable.Map.empty[String, String]
+    config += "link_id" -> linkId.toString
+    clusterId.foreach(cid => config += "cluster_id" -> cid)
+    Json.encodeAsBytes(config.asJava)
+  }
+
+  def decode(linkName: String, bytes: Array[Byte]): Option[ClusterLinkData] = {
+    Json.parseBytes(bytes).map(_.asJsonObject).map { json =>
+      val linkId = UUID.fromString(json("link_id").to[String])
+      val clusterId = json.get("cluster_id").map(_.to[String])
+      ClusterLinkData(linkName, linkId, clusterId)
+    }
+  }
+}
+
 object ZkData {
 
   // Important: it is necessary to add any new top level Zookeeper path to the Seq
@@ -801,7 +829,8 @@ object ZkData {
     ProducerIdBlockZNode.path,
     LogDirEventNotificationZNode.path,
     DelegationTokenAuthZNode.path,
-    ExtendedAclZNode.path) ++ ZkAclStore.securePaths
+    ExtendedAclZNode.path,
+    ClusterLinksZNode.path) ++ ZkAclStore.securePaths
 
   // These are persistent ZK paths that should exist on kafka broker startup.
   val PersistentZkPaths = Seq(
@@ -819,6 +848,7 @@ object ZkData {
   val SensitiveRootPaths = Seq(
     ConfigEntityTypeZNode.path(ConfigType.User),
     ConfigEntityTypeZNode.path(ConfigType.Broker),
+    ConfigEntityTypeZNode.path(ConfigType.ClusterLink),
     DelegationTokensZNode.path
   )
 

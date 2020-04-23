@@ -29,6 +29,7 @@ import kafka.metrics.KafkaMetricsGroup
 import kafka.security.authorizer.AclAuthorizer.{NoAcls, VersionedAcls}
 import kafka.security.authorizer.AclEntry
 import kafka.server.ConfigType
+import kafka.server.link.ClusterLinkTopicState
 import kafka.utils.Logging
 import kafka.zk.TopicZNode.TopicIdReplicaAssignment
 import kafka.zookeeper._
@@ -380,6 +381,18 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
   }
 
   /**
+   * Deletes the entity znode path for the given config.
+   *
+   * @param rootEntityType the entity type
+   * @param sanitizedEntityName the sanitized entity name
+   * @param expectedControllerEpochZkVersion the expected controller epoch ZK version
+   */
+  def deleteEntityConfig(rootEntityType: String, sanitizedEntityName: String, expectedControllerEpochZkVersion: Int = ZkVersion.MatchAnyVersion): Unit = {
+    val deleteRequest = DeleteRequest(ConfigEntityZNode.path(rootEntityType, sanitizedEntityName), expectedControllerEpochZkVersion)
+    retryRequestUntilConnected(deleteRequest, expectedControllerEpochZkVersion)
+  }
+
+  /**
    * Returns all the entities for a given entityType
    * @param entityType entity type
    * @return List of all entity names
@@ -510,13 +523,14 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
    * @param topic the topic whose assignment is being set.
    * @param topicId Optional topic ID if the topic has one
    * @param assignment the partition to replica mapping to set for the given topic
+   * @param clusterLink optional cluster link topic state
    * @param expectedControllerEpochZkVersion expected controller epoch zkVersion.
    * @return SetDataResponse
    */
   def setTopicAssignmentRaw(topic: String,
                             topicId: Option[UUID],
                             assignment: collection.Map[TopicPartition, ReplicaAssignment],
-                            clusterLink: Option[String],
+                            clusterLink: Option[ClusterLinkTopicState],
                             expectedControllerEpochZkVersion: Int): SetDataResponse = {
     val setDataRequest = SetDataRequest(TopicZNode.path(topic), TopicZNode.encode(topicId, assignment, clusterLink), ZkVersion.MatchAnyVersion)
     retryRequestUntilConnected(setDataRequest, expectedControllerEpochZkVersion)
@@ -527,14 +541,14 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
    * @param topic the topic whose assignment is being set
    * @param topicId optional topic ID if one exists for the topic
    * @param assignment the partition to replica mapping to set for the given topic
-   * @param clusterLink optional cluster link id if the topic is being mirrored
+   * @param clusterLink optional cluster link topic state
    * @param expectedControllerEpochZkVersion expected controller epoch zkVersion.
    * @throws KeeperException if there is an error while setting assignment
    */
   def setTopicAssignment(topic: String,
                          topicId: Option[UUID],
                          assignment: Map[TopicPartition, ReplicaAssignment],
-                         clusterLink: Option[String],
+                         clusterLink: Option[ClusterLinkTopicState],
                          expectedControllerEpochZkVersion: Int = ZkVersion.MatchAnyVersion) = {
     val setDataResponse = setTopicAssignmentRaw(topic, topicId, assignment, clusterLink, expectedControllerEpochZkVersion)
     setDataResponse.maybeThrow
@@ -545,13 +559,13 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
    * @param topic the topic whose assignment is being set.
    * @param topicId optional topic ID if one exists for the topic
    * @param assignment the partition to replica mapping to set for the given topic
-   * @param clusterLink optional cluster link id if the topic is being mirrored
+   * @param clusterLink optional cluster link topic state
    * @throws KeeperException if there is an error while creating assignment
    */
   def createTopicAssignment(topic: String,
                             topicId: Option[UUID],
                             assignment: Map[TopicPartition, ReplicaAssignment],
-                            clusterLink: Option[String]) = {
+                            clusterLink: Option[ClusterLinkTopicState]) = {
     createRecursive(TopicZNode.path(topic), TopicZNode.encode(topicId, assignment, clusterLink))
   }
 
@@ -634,11 +648,11 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
   }
 
   /**
-    * Gets the cluster link for the given topics.
-    * @param topics the topics we wish to retrieve the cluster link for
-    * @return the cluster links
+    * Gets the cluster link state for the given topics.
+    * @param topics the topics we wish to retrieve the cluster link state for
+    * @return the cluster link states
     */
-  def getClusterLinkForTopics(topics: Set[String]): Map[String, String] = {
+  def getClusterLinkForTopics(topics: Set[String]): Map[String, ClusterLinkTopicState] = {
     val getDataRequests = topics.map(topic => GetDataRequest(TopicZNode.path(topic), ctx = Some(topic)))
     val getDataResponses = retryRequestsUntilConnected(getDataRequests.toSeq)
     getDataResponses.map { getDataResponse =>
@@ -1471,6 +1485,52 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
   def deleteDelegationToken(delegationTokenId: String): Boolean = {
     deleteRecursive(DelegationTokenInfoZNode.path(delegationTokenId))
   }
+
+  /**
+   * Creates a cluster link.
+   *
+   * @param linkName the cluster link's name
+   * @param linkId the UUID associated with the cluster link
+   * @param clusterId the linked cluster's expected ID
+   */
+  def createClusterLink(linkName: String, linkId: UUID, clusterId: Option[String]) =
+    createRecursive(ClusterLinkZNode.path(linkName), ClusterLinkZNode.encode(linkId, clusterId))
+
+  /**
+   * Gets cluster link data for a set of link names.
+   *
+   * @param linkNames set of cluster link names
+   * @return a map of link names with data
+   */
+  def getClusterLinks(linkNames: Set[String]): Map[String, ClusterLinkData] = {
+    val getDataRequests = linkNames.map(ln => GetDataRequest(ClusterLinkZNode.path(ln), ctx = Some(ln))).toSeq
+    val getDataResponses = retryRequestsUntilConnected(getDataRequests)
+    getDataResponses.flatMap { getDataResponse =>
+      val linkName = getDataResponse.ctx.get.asInstanceOf[String]
+      getDataResponse.resultCode match {
+        case Code.OK => ClusterLinkZNode.decode(linkName, getDataResponse.data).map(linkName -> _)
+        case Code.NONODE => None
+        case _ => throw getDataResponse.resultException.get
+      }
+    }.toMap
+  }
+
+  /**
+   * Tests whether a cluster link exists.
+   *
+   * @param linkName the cluster link's name
+   * @return a cluster link listing
+   */
+  def clusterLinkExists(linkName: String): Boolean =
+    pathExists(ClusterLinkZNode.path(linkName))
+
+  /**
+    * Deletes a cluster link.
+    *
+    * @param linkName the link name to delete
+    */
+  def deleteClusterLink(linkName: String): Unit =
+    deletePath(ClusterLinkZNode.path(linkName))
 
   /**
    * This registers a ZNodeChangeHandler and attempts to register a watcher with an ExistsRequest, which allows data

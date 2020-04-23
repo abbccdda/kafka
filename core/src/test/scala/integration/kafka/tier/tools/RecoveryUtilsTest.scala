@@ -13,7 +13,7 @@ import java.util.concurrent.ExecutionException
 
 import kafka.api.IntegrationTestHarness
 import kafka.tier.TopicIdPartition
-import kafka.tier.domain.{AbstractTierMetadata, TierRecordType, TierTopicInitLeader}
+import kafka.tier.domain.{AbstractTierMetadata, TierTopicInitLeader}
 import kafka.tier.topic.{TierTopic, TierTopicAdmin, TierTopicManager}
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.KafkaConsumer

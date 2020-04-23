@@ -56,4 +56,5 @@ include 'clients',
     'ce-auth-providers',
     'ce-aegis',
     'ce-audit',
-    'ce-resource-names'
+    'ce-resource-names',
+    'internal-rest-server'

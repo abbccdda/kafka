@@ -45,7 +45,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 make build-go GO_OUTDIR= VERSION=${ver
 
 ##########
 
-FROM confluent-docker.jfrog.io/confluentinc/cc-base:v4.1.0
+FROM confluent-docker.jfrog.io/confluentinc/cc-base:v5.1.0-jdk-14
 
 ARG version
 ARG confluent_version

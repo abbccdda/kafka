@@ -4,8 +4,6 @@
 
 package com.linkedin.kafka.cruisecontrol.monitor;
 
-import com.yammer.metrics.core.Gauge;
-import com.yammer.metrics.core.MetricsRegistry;
 import com.yammer.metrics.core.Timer;
 import com.linkedin.cruisecontrol.exception.NotEnoughValidWindowsException;
 import com.linkedin.cruisecontrol.metricdef.MetricDef;
@@ -52,6 +50,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import com.linkedin.kafka.cruisecontrol.servlet.response.stats.SingleBrokerStats;
 import com.yammer.metrics.core.TimerContext;
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
@@ -121,7 +120,7 @@ public class LoadMonitor {
    */
   public LoadMonitor(KafkaCruiseControlConfig config,
                      Time time,
-                     MetricsRegistry metricRegistry,
+                     DataBalancerMetricsRegistry metricRegistry,
                      MetricDef metricDef) {
     this(config,
          new MetadataClient(config, METADATA_TTL, time),
@@ -138,7 +137,7 @@ public class LoadMonitor {
               MetadataClient metadataClient,
               AdminClient adminClient,
               Time time,
-              MetricsRegistry metricRegistry,
+              DataBalancerMetricsRegistry metricRegistry,
               MetricDef metricDef) {
     _config = config;
 
@@ -181,30 +180,10 @@ public class LoadMonitor {
     _loadMonitorExecutor.scheduleAtFixedRate(new SensorUpdater(), 0, SensorUpdater.UPDATE_INTERVAL_MS, TimeUnit.MILLISECONDS);
     _loadMonitorExecutor.scheduleAtFixedRate(new PartitionMetricSampleAggregatorCleaner(), 0,
                                              PartitionMetricSampleAggregatorCleaner.CHECK_INTERVAL_MS, TimeUnit.MILLISECONDS);
-    metricRegistry.newGauge(LoadMonitor.class, "valid-windows",
-                                      new Gauge<Integer>() {
-                                        public Integer value() {
-                                          return numValidSnapshotWindows();
-                                        }
-                                      });
-    metricRegistry.newGauge(LoadMonitor.class, "monitored-partitions-percentage",
-                                      new Gauge<Double>() {
-                                        public Double value() {
-                                          return monitoredPartitionsPercentage();
-                                        }
-                                      });
-    metricRegistry.newGauge(LoadMonitor.class, "total-monitored-windows",
-                                      new Gauge<Integer>() {
-                                        public Integer value() {
-                                          return totalMonitoredSnapshotWindows();
-                                        }
-                                      });
-    metricRegistry.newGauge(LoadMonitor.class, "num-partitions-with-extrapolations",
-                                      new Gauge<Integer>() {
-                                        public Integer value() {
-                                          return numPartitionsWithExtrapolations();
-                                        }
-                                      });
+    metricRegistry.newGauge(LoadMonitor.class, "valid-windows", this::numValidSnapshotWindows);
+    metricRegistry.newGauge(LoadMonitor.class, "monitored-partitions-percentage", this::monitoredPartitionsPercentage);
+    metricRegistry.newGauge(LoadMonitor.class, "total-monitored-windows", this::totalMonitoredSnapshotWindows);
+    metricRegistry.newGauge(LoadMonitor.class, "num-partitions-with-extrapolations", this::numPartitionsWithExtrapolations);
 
     _time = time;
   }

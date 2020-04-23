@@ -1666,7 +1666,7 @@ class ReplicaManagerTest {
 
     // create stray logs
     strayPartitions.foreach { topicIdPartition =>
-      val log = logManager.getOrCreateLog(topicIdPartition.topicPartition, logManager.currentDefaultConfig)
+      val log = logManager.getOrCreateLog(topicIdPartition.topicPartition, () => logManager.currentDefaultConfig)
       log.assignTopicId(topicIdPartition.topicId)
     }
 
@@ -1708,6 +1708,7 @@ class ReplicaManagerTest {
       val offsetCheckpoints = new LazyOffsetCheckpoints(rm.highWatermarkCheckpoints)
       val partitionState = leaderAndIsrPartitionState(topicPartition, leaderEpoch, leaderBrokerId, aliveBrokerIds)
       partition.makeLeader(partitionState, offsetCheckpoints)
+      partition.makeLeader(partitionState, offsetCheckpoints)
 
       val partitionData = new FetchRequest.PartitionData(0L, 0L, 100, Optional.empty())
 
@@ -1739,7 +1740,7 @@ class ReplicaManagerTest {
   private def createStrayLogs(numLogs: Int, logManager: LogManager): Seq[AbstractLog] = {
     val name = "stray"
     for (i <- 0 until numLogs)
-      yield logManager.getOrCreateLog(new TopicPartition(name, i), logManager.currentDefaultConfig)
+      yield logManager.getOrCreateLog(new TopicPartition(name, i), () => logManager.currentDefaultConfig)
   }
 
   private def sendProducerAppend(replicaManager: ReplicaManager,
@@ -1860,9 +1861,9 @@ class ReplicaManagerTest {
     val topicPartitionObj = new TopicPartition(topic, topicPartition)
     val mockLogMgr: LogManager = EasyMock.createMock(classOf[LogManager])
     EasyMock.expect(mockLogMgr.liveLogDirs).andReturn(config.logDirs.map(new File(_).getAbsoluteFile)).anyTimes
-    EasyMock.expect(mockLogMgr.currentDefaultConfig).andReturn(LogConfig())
-    EasyMock.expect(mockLogMgr.getOrCreateLog(topicPartitionObj,
-      LogConfig(), isNew = false, isFuture = false)).andReturn(mockMergedLog).anyTimes
+    EasyMock.expect(mockLogMgr.getOrCreateLog(EasyMock.eq(topicPartitionObj),
+      EasyMock.anyObject[() => LogConfig](), isNew = EasyMock.eq(false),
+      isFuture = EasyMock.eq(false))).andReturn(mockMergedLog).anyTimes
     if (expectTruncation) {
       EasyMock.expect(mockLogMgr.truncateTo(Map(topicPartitionObj -> offsetFromLeader),
         isFuture = false)).once
@@ -2403,7 +2404,7 @@ class ReplicaManagerTest {
     val replicaManager = setupReplicaManagerWithMockedPurgatories(mockTimer, aliveBrokerIds = Seq(0, 1))
 
     val tp0 = new TopicPartition(topic, 0)
-    val log = replicaManager.logManager.getOrCreateLog(tp0, LogConfig(), true)
+    val log = replicaManager.logManager.getOrCreateLog(tp0, () => LogConfig(), true)
 
     if (throwIOException) {
       // Delete the underlying directory to trigger an KafkaStorageException

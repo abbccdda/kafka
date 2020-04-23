@@ -127,6 +127,7 @@ class TierMetadataPartitionFencingTest(ProduceConsumeValidateTest, TierSupport):
                    err_msg="Producer did not produce all messages in reasonable amount of time")
 
         # 3. Trigger fencing on a partition. Then produce more data post fencing, eventually stop the producer.
+        self.restart_jmx_tool()
         assert (self.check_fenced_partitions(0))
         fenced_partitions = set([self.PARTITION_ID_TO_BE_FENCED])
         for partition in fenced_partitions:

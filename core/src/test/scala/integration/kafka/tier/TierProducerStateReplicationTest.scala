@@ -18,6 +18,8 @@ import org.apache.kafka.test.IntegrationTest
 import org.junit.experimental.categories.Category
 import org.junit.{After, Assert, Before, Test}
 
+import scala.collection.Seq
+
 // This test should be a system test
 @Category(Array(classOf[IntegrationTest]))
 class TierProducerStateReplicationTest extends IntegrationTestHarness with Logging {

@@ -16,6 +16,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 import scala.collection.JavaConverters._
+import scala.collection.Seq
 
 object VerifyGroupSubscriptionPrefixTest {
   val prefix = "lkc-12cd56g_"

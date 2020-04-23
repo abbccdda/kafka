@@ -4,7 +4,6 @@
 
 package com.linkedin.kafka.cruisecontrol.monitor.task;
 
-import com.yammer.metrics.core.MetricsRegistry;
 import com.linkedin.cruisecontrol.metricdef.MetricDef;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityConfigResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
@@ -18,6 +17,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,7 +79,7 @@ public class LoadMonitorTaskRunner {
                                MetadataClient metadataClient,
                                MetricDef metricDef,
                                Time time,
-                               MetricsRegistry metricRegistry,
+                               DataBalancerMetricsRegistry metricRegistry,
                                BrokerCapacityConfigResolver brokerCapacityConfigResolver) {
     this(config,
         new MetricFetcherManager(config, partitionMetricSampleAggregator, brokerMetricSampleAggregator, metadataClient,

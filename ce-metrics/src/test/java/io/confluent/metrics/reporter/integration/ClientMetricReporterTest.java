@@ -27,7 +27,7 @@ import java.util.Collections;
 import java.util.Properties;
 
 import io.confluent.metrics.record.ConfluentMetric;
-import scala.collection.JavaConversions;
+import scala.collection.JavaConverters;
 
 import static io.confluent.metrics.record.ConfluentMetric.MetricType.CONSUMER;
 import static io.confluent.metrics.record.ConfluentMetric.MetricType.PRODUCER;
@@ -41,12 +41,13 @@ public class ClientMetricReporterTest extends MetricsReporterTest {
     private static final String TOPIC = "testtopic";
     private KafkaConsumer<String, String> testConsumer;
 
+    @SuppressWarnings("deprecation")
     @Before
     public void setUp() throws Exception {
         enableMetricsReporterOnBroker = false;
         super.setUp();
         kafka.utils.TestUtils.createTopic(this.zkClient, TOPIC, 2, 1,
-            JavaConversions.asScalaBuffer(servers), new Properties());
+            JavaConverters.asScalaBuffer(servers), new Properties());
         testProducer = createProducer();
         int numRecords = 50;
         produceTestData(testProducer, TOPIC, numRecords);

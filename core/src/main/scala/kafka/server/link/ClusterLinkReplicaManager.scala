@@ -11,6 +11,7 @@ import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.Logging
 import org.apache.kafka.clients.admin.{Admin, ConfluentAdmin}
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.errors.{ClusterLinkExistsException, ClusterLinkInUseException, ClusterLinkNotFoundException, InvalidClusterLinkException}
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.utils.Time
@@ -43,6 +44,12 @@ class ClusterLinkReplicaManager(brokerConfig: KafkaConfig,
   private val managersLock = new Object
   private val managers = mutable.Map[String, Managers]()
 
+  val scheduler = new ClusterLinkScheduler
+
+  def startup(): Unit = {
+    scheduler.startup()
+  }
+
   def addClusterLink(linkName: String, config: ClusterLinkConfig): Unit = {
     // Support for OffsetsForLeaderEpoch in clients was added in 2.3.0. This is the minimum supported version
     // for cluster linking.
@@ -51,9 +58,9 @@ class ClusterLinkReplicaManager(brokerConfig: KafkaConfig,
 
     managersLock synchronized {
       if (managers.contains(linkName))
-        throw new InvalidClusterLinkException(s"Cluster link '$linkName' exists")
+        throw new ClusterLinkExistsException(s"Cluster link '$linkName' exists")
 
-      val clientManager = new ClusterLinkClientManager(linkName, config,
+      val clientManager = new ClusterLinkClientManager(linkName, scheduler, replicaManager.zkClient, config,
         (cfg: ClusterLinkConfig) => Admin.create(cfg.originals).asInstanceOf[ConfluentAdmin])
       clientManager.startup()
 
@@ -70,10 +77,10 @@ class ClusterLinkReplicaManager(brokerConfig: KafkaConfig,
             fetcherManager.shutdown()
             clientManager.shutdown()
           } else {
-            throw new IllegalStateException("Cluster link cannot be deleted since some local topics are currently linked to this cluster")
+            throw new ClusterLinkInUseException("Cluster link cannot be deleted since some local topics are currently linked to this cluster")
           }
         case None =>
-          throw new InvalidClusterLinkException(s"Cluster link '$linkName' not found")
+          throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' not found")
       }
     }
   }
@@ -103,7 +110,7 @@ class ClusterLinkReplicaManager(brokerConfig: KafkaConfig,
       }
       if (unknownClusterLinks.nonEmpty) {
         error(s"Cannot add linked fetcher for $unknownClusterLinks")
-        throw new InvalidClusterLinkException(s"Unknown cluster links: $unknownClusterLinks")
+        throw new ClusterLinkNotFoundException(s"Unknown cluster links: $unknownClusterLinks")
       }
     }
   }
@@ -160,6 +167,7 @@ class ClusterLinkReplicaManager(brokerConfig: KafkaConfig,
         clientManager.shutdown()
       }
     }
+    scheduler.shutdown()
     info("shutdown completed")
   }
 

@@ -47,6 +47,7 @@ import org.apache.kafka.common.errors.GroupSubscribedToTopicException;
 import org.apache.kafka.common.errors.IllegalGenerationException;
 import org.apache.kafka.common.errors.IllegalSaslStateException;
 import org.apache.kafka.common.errors.InconsistentGroupProtocolException;
+import org.apache.kafka.common.errors.InvalidClusterLinkException;
 import org.apache.kafka.common.errors.InvalidCommitOffsetSizeException;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.errors.InvalidFetchSessionEpochException;
@@ -339,7 +340,9 @@ public enum Errors {
     CLUSTER_LINK_EXISTS(10001, "A cluster link with the specified link name already exists.",
             ClusterLinkExistsException::new),
     CLUSTER_LINK_IN_USE(10002, "The specified cluster link is still in use.",
-            ClusterLinkInUseException::new);
+            ClusterLinkInUseException::new),
+    INVALID_CLUSTER_LINK(10003, "The provided cluster link name is invalid.",
+            InvalidClusterLinkException::new);
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);
 

@@ -305,6 +305,56 @@ class ReplicaFetcherThreadTest {
   }
 
   @Test
+  def shouldThrottleFollowerReplica(): Unit = {
+    val config = KafkaConfig.fromProps(TestUtils.createBrokerConfig(1, "localhost:1234"))
+
+    //Setup all dependencies
+    val logManager: LogManager = createMock(classOf[LogManager])
+    val replicaAlterLogDirsManager: ReplicaAlterLogDirsManager = createMock(classOf[ReplicaAlterLogDirsManager])
+    val log: AbstractLog = createNiceMock(classOf[AbstractLog])
+    val partition: Partition = createMock(classOf[Partition])
+    val replicaManager: ReplicaManager = createMock(classOf[ReplicaManager])
+
+    val leaderEpoch = 5
+
+    //Stubs
+    expect(partition.localLogOrException).andReturn(log).anyTimes()
+    expect(log.highWatermark).andReturn(0).anyTimes()
+    expect(log.latestEpoch).andReturn(Some(leaderEpoch)).anyTimes()
+    expect(log.endOffsetForEpoch(leaderEpoch)).andReturn(
+      Some(OffsetAndEpoch(0, leaderEpoch))).anyTimes()
+    expect(replicaManager.logManager).andReturn(logManager).anyTimes()
+    expect(replicaManager.replicaAlterLogDirsManager).andReturn(replicaAlterLogDirsManager).anyTimes()
+    expect(replicaManager.brokerTopicStats).andReturn(mock(classOf[BrokerTopicStats]))
+    expect(replicaManager.markFollowerReplicaThrottle()).times(1) // only t1p0 is throttled
+    stub(partition, replicaManager, log)
+
+    //Expectations
+    expect(partition.truncateTo(anyLong(), anyBoolean())).times(2)
+
+    replay(replicaManager, logManager, partition, log)
+
+    //Define the offsets for the OffsetsForLeaderEpochResponse
+    val offsets = Map(t1p0 -> new EpochEndOffset(leaderEpoch, 100), t1p1 -> new EpochEndOffset(leaderEpoch, 1)).asJava
+
+    //Create the fetcher thread
+    object Quota extends ReplicaQuota {
+      override def isThrottled(topicPartition: TopicPartition): Boolean = topicPartition == t1p0
+      override def isQuotaExceeded: Boolean = true
+      def record(value: Long): Unit = ()
+    }
+    val mockNetwork = new ReplicaFetcherMockBlockingSend(offsets, brokerEndPoint, new SystemTime())
+    val thread = createReplicaFetcherThread("bob", 0, brokerEndPoint, config, failedPartitions, replicaManager,
+      new Metrics, new SystemTime, Quota, None, Some(mockNetwork))
+    thread.addPartitions(Map(t1p0 -> offsetAndEpoch(0L), t1p1 -> offsetAndEpoch(0L)))
+
+    //Loop 1
+    thread.doWork()
+    assertEquals(1, mockNetwork.epochFetchCount)
+    assertEquals(1, mockNetwork.fetchCount)
+  }
+
+  @Test
   def shouldTruncateToOffsetSpecifiedInEpochOffsetResponse(): Unit = {
 
     //Create a capture to track what partitions/offsets are truncated

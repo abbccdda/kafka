@@ -8,11 +8,40 @@ import java.util.Properties
 import kafka.log.LogConfig
 import kafka.utils.Logging
 import org.apache.kafka.clients.admin.Config
-import org.apache.kafka.common.errors.InvalidConfigurationException
+import org.apache.kafka.common.errors.{InvalidClusterLinkException, InvalidConfigurationException}
 
 import scala.collection.JavaConverters._
 
 object ClusterLinkUtils extends Logging {
+
+  /**
+    * Validates the provided cluster link name, ensuring it's non-empty and contains only legal characters.
+    *
+    * @throws InvalidClusterLinkException if the link name is invalid
+    */
+  def validateLinkName(linkName: String): Unit = {
+    val maxLength = 200;
+
+    if (linkName eq null)
+      throw new InvalidClusterLinkException("Cluster link name is null")
+    if (linkName.isEmpty)
+      throw new InvalidClusterLinkException("Cluster link name is empty")
+    if (linkName.equals(".") || linkName.equals(".."))
+      throw new InvalidClusterLinkException("Link name cannot be \".\" or \"..\"");
+    if (linkName.length > maxLength)
+      throw new InvalidClusterLinkException(s"Link name exceeds maximum size of '$maxLength' characters")
+
+    val isValid = linkName.forall { c =>
+      (c >= 'a' && c <= 'z') ||
+      (c >= 'A' && c <= 'Z') ||
+      (c >= '0' && c <= '9') ||
+      c == '.' ||
+      c == '_' ||
+      c == '-'
+    }
+    if (!isValid)
+      throw new InvalidClusterLinkException(s"Link name '$linkName' is illegal, valid characters: [a-zA-Z0-9._-]")
+  }
 
   private object LogConfigAction extends Enumeration {
     type LogConfigAction = Value

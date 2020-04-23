@@ -8,7 +8,6 @@ import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils.g
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.yammer.metrics.core.MetricsRegistry;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
 import com.linkedin.kafka.cruisecontrol.analyzer.ActionAcceptance;
 import com.linkedin.kafka.cruisecontrol.analyzer.ActionType;
@@ -32,6 +31,8 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import com.yammer.metrics.core.MetricsRegistry;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.utils.SystemTime;
 import org.easymock.EasyMock;
@@ -127,19 +128,19 @@ public class SequentialReplicaMovementGoalTest {
 
         KafkaCruiseControlConfig config = new KafkaCruiseControlConfig(props);
         List<Goal> goalNameByPriority = config.getConfiguredInstances(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG, Goal.class);
-
+        MetricsRegistry metricsRegistry = new MetricsRegistry();
         GoalOptimizer goalOptimizer = new GoalOptimizer(
             config,
             null,
             new SystemTime(),
-            new MetricsRegistry(),
+            KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
             EasyMock.mock(Executor.class));
 
         OptimizerResult result = goalOptimizer.optimizations(
             unbalancedCluster(),
             goalNameByPriority,
             new OperationProgress());
-
+        metricsRegistry.shutdown();
         // Verify that the optimizer has yield as proposal for TopicPartition(T0, 0)
         assertEquals(1, result.goalProposals().size());
         ExecutionProposal proposal = result.goalProposals().iterator().next();

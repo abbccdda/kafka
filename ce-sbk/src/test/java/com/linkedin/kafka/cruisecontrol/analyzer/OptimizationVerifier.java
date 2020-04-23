@@ -4,7 +4,6 @@
 
 package com.linkedin.kafka.cruisecontrol.analyzer;
 
-import com.yammer.metrics.core.MetricsRegistry;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.Goal;
 import com.linkedin.kafka.cruisecontrol.async.progress.OperationProgress;
@@ -31,6 +30,8 @@ import java.util.StringJoiner;
 
 import com.linkedin.kafka.cruisecontrol.model.Replica;
 import java.util.stream.Collectors;
+
+import com.yammer.metrics.core.MetricsRegistry;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.utils.SystemTime;
 import org.easymock.EasyMock;
@@ -138,10 +139,11 @@ class OptimizationVerifier {
     StringJoiner stringJoiner = new StringJoiner(",");
     excludedTopics.forEach(stringJoiner::add);
     props.setProperty(KafkaCruiseControlConfig.TOPICS_EXCLUDED_FROM_PARTITION_MOVEMENT_CONFIG, stringJoiner.toString());
+    MetricsRegistry metricsRegistry = new MetricsRegistry();
     GoalOptimizer goalOptimizer = new GoalOptimizer(new KafkaCruiseControlConfig(constraint.setProps(props)),
                                                     null,
                                                     new SystemTime(),
-                                                    new MetricsRegistry(),
+                                                    KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
                                                     EasyMock.mock(Executor.class));
 
     List<Goal> goalsOfFirstPass = null;
@@ -166,6 +168,7 @@ class OptimizationVerifier {
       resultOfSecondPass = goalsOfSecondPass.isEmpty() ? null
                                                        : goalOptimizer.optimizations(clusterModel, goalByPriority, new OperationProgress());
     }
+    metricsRegistry.shutdown();
     if (LOG.isTraceEnabled()) {
       LOG.trace("Took {} ms to execute {} to generate {} proposals.", System.currentTimeMillis() - startTime,
                 goalByPriority,

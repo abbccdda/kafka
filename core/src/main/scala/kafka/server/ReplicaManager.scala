@@ -325,6 +325,13 @@ class ReplicaManager(val config: KafkaConfig,
   newGauge("LeaderCount", () => leaderPartitionsIterator.size)
   // Visible for testing
   private[kafka] val partitionCount = newGauge("PartitionCount", () => allPartitions.size)
+  /**
+   * ThrottledReplicasRate track the number of times any given replica was throttled as part of a fetch request.
+   * Leader - the fetch response returned no data (throttled) for that replica
+   * Follower - the fetch request did not include that replica (throttled)
+   */
+  private[kafka] val throttledLeaderReplicasRate = newMeter("ThrottledLeaderReplicasPerSec", "replicationThrottle", TimeUnit.SECONDS)
+  private[kafka] val throttledFollowerReplicasRate = newMeter("ThrottledFollowerReplicasPerSec", "replicationThrottle", TimeUnit.SECONDS)
   newGauge("OfflineReplicaCount", () => offlinePartitionCount)
   newGauge("UnderReplicatedPartitions", () => underReplicatedPartitionCount)
   newGauge("UnderMinIsrPartitionCount", () => leaderPartitionsIterator.count(_.isUnderMinIsr))
@@ -410,6 +417,8 @@ class ReplicaManager(val config: KafkaConfig,
     val haltBrokerOnFailure = config.interBrokerProtocolVersion < KAFKA_1_0_IV0
     logDirFailureHandler = new LogDirFailureHandler("LogDirFailureHandler", haltBrokerOnFailure)
     logDirFailureHandler.start()
+
+    clusterLinkManager.startup()
   }
 
   private def maybeRemoveTopicMetrics(topic: String): Unit = {
@@ -672,11 +681,12 @@ class ReplicaManager(val config: KafkaConfig,
                     entriesPerPartition: Map[TopicPartition, MemoryRecords],
                     responseCallback: Map[TopicPartition, PartitionResponse] => Unit,
                     delayedProduceLock: Option[Lock] = None,
-                    recordConversionStatsCallback: Map[TopicPartition, RecordConversionStats] => Unit = _ => ()): Unit = {
+                    recordConversionStatsCallback: Map[TopicPartition, RecordConversionStats] => Unit = _ => (),
+                    bufferSupplier: BufferSupplier = BufferSupplier.NO_CACHING): Unit = {
     if (isValidRequiredAcks(requiredAcks)) {
       val sTime = time.milliseconds
       val localProduceResults = appendToLocalLog(internalTopicsAllowed = internalTopicsAllowed,
-        origin, entriesPerPartition, requiredAcks)
+        origin, entriesPerPartition, requiredAcks, bufferSupplier)
       debug("Produce to local log in %d ms".format(time.milliseconds - sTime))
 
       val produceStatus = localProduceResults.map { case (topicPartition, result) =>
@@ -955,7 +965,8 @@ class ReplicaManager(val config: KafkaConfig,
   private def appendToLocalLog(internalTopicsAllowed: Boolean,
                                origin: AppendOrigin,
                                entriesPerPartition: Map[TopicPartition, MemoryRecords],
-                               requiredAcks: Short): Map[TopicPartition, LogAppendResult] = {
+                               requiredAcks: Short,
+                               bufferSupplier: BufferSupplier): Map[TopicPartition, LogAppendResult] = {
 
     def processFailedRecord(topicPartition: TopicPartition, t: Throwable) = {
       val logStartOffset = getPartition(topicPartition) match {
@@ -982,7 +993,7 @@ class ReplicaManager(val config: KafkaConfig,
       } else {
         try {
           val partition = getPartitionOrException(topicPartition, expectLeader = true)
-          val info = partition.appendRecordsToLeader(records, origin, requiredAcks)
+          val info = partition.appendRecordsToLeader(records, origin, requiredAcks, bufferSupplier)
           val numAppendedMessages = info.numMessages
 
           // update stats for successfully appended bytes and messages as bytesInRate and messageInRate
@@ -1313,6 +1324,7 @@ class ReplicaManager(val config: KafkaConfig,
 
           val fetchDataInfo = if (shouldLeaderThrottle(quota, partition, replicaId)) {
             // If the partition is being throttled, simply return an empty set.
+            markLeaderReplicaThrottle()
             FetchDataInfo(fetchOffsetMetadata, MemoryRecords.EMPTY)
           } else if (!hardMaxBytesLimit && firstEntryIncomplete) {
             // For FetchRequest version 3, we replace incomplete message sets with an empty one as consumers can make
@@ -2015,6 +2027,14 @@ class ReplicaManager(val config: KafkaConfig,
     Partition.removeMetrics(tp)
   }
 
+  def markFollowerReplicaThrottle(): Unit = synchronized {
+    throttledFollowerReplicasRate.mark()
+  }
+
+  def markLeaderReplicaThrottle(): Unit = synchronized {
+    throttledLeaderReplicasRate.mark()
+  }
+
   // logDir should be an absolute path
   // sendZkNotification is needed for unit test
   def handleLogDirFailure(dir: String, sendZkNotification: Boolean = true): Unit = {
@@ -2062,6 +2082,8 @@ class ReplicaManager(val config: KafkaConfig,
     removeMetric("AtMinIsrPartitionCount")
     removeMetric("NotCaughtUpPartitionCount")
     removeMetric("MaxLastStableOffsetLag")
+    removeMetric("ThrottledLeaderReplicasPerSec")
+    removeMetric("ThrottledFollowerReplicasPerSec")
   }
 
   // High watermark do not need to be checkpointed only when under unit tests

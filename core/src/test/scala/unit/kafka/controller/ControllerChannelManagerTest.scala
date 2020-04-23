@@ -23,9 +23,10 @@ import kafka.cluster.{Broker, EndPoint}
 import kafka.server.KafkaConfig
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.message.{LeaderAndIsrResponseData, StopReplicaResponseData, UpdateMetadataResponseData}
 import org.apache.kafka.common.message.LeaderAndIsrResponseData.LeaderAndIsrPartitionError
+import org.apache.kafka.common.message.StopReplicaRequestData.StopReplicaPartitionState
 import org.apache.kafka.common.message.StopReplicaResponseData.StopReplicaPartitionError
+import org.apache.kafka.common.message.{LeaderAndIsrResponseData, StopReplicaResponseData, UpdateMetadataResponseData}
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.requests.{AbstractControlRequest, AbstractResponse, LeaderAndIsrRequest, LeaderAndIsrResponse, StopReplicaRequest, StopReplicaResponse, UpdateMetadataRequest, UpdateMetadataResponse}
@@ -34,11 +35,9 @@ import org.junit.Assert._
 import org.junit.Test
 import org.scalatest.Assertions
 
-import scala.jdk.CollectionConverters._
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
-import java.util.UUID
-import org.apache.kafka.common.message.StopReplicaRequestData.StopReplicaPartitionState
+import scala.jdk.CollectionConverters._
 
 class ControllerChannelManagerTest {
   private val controllerId = 1
@@ -634,7 +633,8 @@ class ControllerChannelManagerTest {
                                                              expectedStopReplicaRequestVersion: Short): Unit = {
     val context = initContext(Seq(1, 2, 3), mutable.Map("foo" -> UUID.fromString("7957e4fe-3ceb-4c29-bd74-62bdb4e08cb4"),
       "bar" -> UUID.fromString("25ee26f4-f6b6-4961-95b4-a1c9a242451e")),2, 3)
-    val batch = new MockControllerBrokerRequestBatch(context)
+    val config = createConfig(interBrokerProtocolVersion)
+    val batch = new MockControllerBrokerRequestBatch(context, config)
 
     val deletePartitions = Map(
       new TopicPartition("foo", 0) -> LeaderAndDelete(1, true),

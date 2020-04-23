@@ -21,6 +21,7 @@ import org.junit.Assert._
 import org.junit.Before
 import org.junit.Test
 import scala.collection.JavaConverters._
+import scala.collection.Seq
 
 final class ConfluentBrokerPlacementConstraintTest extends ZooKeeperTestHarness {
   import ConfluentBrokerPlacementConstraintTest._

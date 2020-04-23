@@ -98,6 +98,8 @@ class ReplicaManagerQuotasTest {
       fetch.find(_._1 == topicPartition1).get._2.info.records.batches.asScala.size)
     assertEquals("Given two partitions, with both throttled, we should get no messages", 0,
       fetch.find(_._1 == topicPartition2).get._2.info.records.batches.asScala.size)
+    assertEquals(0, replicaManager.throttledFollowerReplicasRate.count())
+    assertEquals(2, replicaManager.throttledLeaderReplicasRate.count())
   }
 
   @Test

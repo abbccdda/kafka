@@ -88,6 +88,7 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
   private AuthStore authStore;
   private AuthCache authCache;
   private Optional<ConfluentAdmin> aclClient = Optional.empty();
+  private DynamicConfigurator configurator;
 
   private String clusterId;
   private Set<KafkaPrincipal> configuredSuperUsers;
@@ -213,6 +214,8 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
             injector.putInstance(Authorizer.class, createRbacAuthorizer());
             injector.putInstance(AuthStore.class, authStore);
             injector.putInstance(AuthenticateCallbackHandler.class, authenticateCallbackHandler);
+            configurator = new DefaultDynamicConfigurator(createMdsAdminClient(serverInfo, clientConfigs));
+            injector.putInstance(DynamicConfigurator.class, configurator);
             metadataServer.registerMetadataProvider(providerName(), injector);
             ConfluentProvider.this.metadataServer = metadataServer;
           }
@@ -269,6 +272,8 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
     if (authenticateCallbackHandler != null)
       Utils.closeQuietly(authenticateCallbackHandler, "authenticateCallbackHandler", firstException);
     Utils.closeQuietly(aclClient.orElse(null), "aclClient", firstException);
+    if (configurator != null)
+      Utils.closeQuietly(configurator, "configurator", firstException);
     Throwable exception = firstException.getAndSet(null);
     if (exception != null)
       throw new KafkaException("ConfluentProvider could not be closed cleanly", exception);

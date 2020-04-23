@@ -1314,6 +1314,7 @@ class ConfigCommandTest extends ZooKeeperTestHarness with Logging {
 
     ConfigCommand.parseConfigsToBeAdded(config)
   }
+
   class DummyAdminClient(node: Node) extends MockAdminClient(util.Collections.singletonList(node), node) {
     override def describeConfigs(resources: util.Collection[ConfigResource], options: DescribeConfigsOptions): DescribeConfigsResult =
       EasyMock.createNiceMock(classOf[DescribeConfigsResult])
@@ -1326,5 +1327,115 @@ class ConfigCommandTest extends ZooKeeperTestHarness with Logging {
     override def alterClientQuotas(entries: util.Collection[ClientQuotaAlteration],
       options: AlterClientQuotasOptions): AlterClientQuotasResult =
       EasyMock.createNiceMock(classOf[AlterClientQuotasResult])
+  }
+
+  @Test
+  def testAlterClusterLinkConfig(): Unit = {
+    val linkName = "test-link"
+    val alterOpts = new ConfigCommandOptions(Array("--bootstrap-server", "localhost:9092",
+      "--entity-name", linkName,
+      "--entity-type", "cluster-links",
+      "--alter",
+      "--add-config", "metadata.max.age.ms=10000,num.replica.fetchers=2",
+      "--delete-config", "request.timeout.ms"))
+    var alteredConfigs = false
+
+    def newConfigEntry(name: String, value: String): ConfigEntry =
+      ConfigTest.newConfigEntry(name, value, ConfigEntry.ConfigSource.DYNAMIC_CLUSTER_LINK_CONFIG, false, false, List.empty[ConfigEntry.ConfigSynonym].asJava)
+
+    val resource = new ConfigResource(ConfigResource.Type.CLUSTER_LINK, linkName)
+    val configEntries = List(newConfigEntry("num.replica.fetchers", "1"), newConfigEntry("request.timeout.ms", "30000")).asJava
+    val future = new KafkaFutureImpl[util.Map[ConfigResource, Config]]
+    future.complete(util.Collections.singletonMap(resource, new Config(configEntries)))
+    val describeResult: DescribeConfigsResult = EasyMock.createNiceMock(classOf[DescribeConfigsResult])
+    EasyMock.expect(describeResult.all()).andReturn(future).once()
+
+    val alterFuture = new KafkaFutureImpl[Void]
+    alterFuture.complete(null)
+    val alterResult: AlterConfigsResult = EasyMock.createNiceMock(classOf[AlterConfigsResult])
+    EasyMock.expect(alterResult.all()).andReturn(alterFuture)
+
+    val node = new Node(1, "localhost", 9092)
+    val mockAdminClient = new MockAdminClient(util.Collections.singletonList(node), node) {
+      override def describeConfigs(resources: util.Collection[ConfigResource], options: DescribeConfigsOptions): DescribeConfigsResult = {
+        assertEquals(1, resources.size)
+        val resource = resources.iterator.next
+        assertEquals(resource.`type`, ConfigResource.Type.CLUSTER_LINK)
+        assertEquals(resource.name, linkName)
+        describeResult
+      }
+
+      override def incrementalAlterConfigs(configs: util.Map[ConfigResource, util.Collection[AlterConfigOp]], options: AlterConfigsOptions): AlterConfigsResult = {
+        assertEquals(1, configs.size)
+        val entry = configs.entrySet.iterator.next
+        val resource = entry.getKey
+        val alterConfigOps = entry.getValue
+        assertEquals(ConfigResource.Type.CLUSTER_LINK, resource.`type`)
+        assertEquals(3, alterConfigOps.size)
+
+        val expectedConfigOps = Set(
+          new AlterConfigOp(newConfigEntry("metadata.max.age.ms", "10000"), AlterConfigOp.OpType.SET),
+          new AlterConfigOp(newConfigEntry("num.replica.fetchers", "2"), AlterConfigOp.OpType.SET),
+          new AlterConfigOp(newConfigEntry("request.timeout.ms", ""), AlterConfigOp.OpType.DELETE)
+        )
+        assertEquals(expectedConfigOps, alterConfigOps.asScala.toSet)
+        alteredConfigs = true
+        alterResult
+      }
+    }
+    EasyMock.replay(alterResult, describeResult)
+    ConfigCommand.alterConfig(mockAdminClient, alterOpts)
+    assertTrue(alteredConfigs)
+    EasyMock.reset(alterResult, describeResult)
+  }
+
+  @Test
+  def shouldParseArgumentsForClusterLinkEntityType(): Unit = {
+    testArgumentParse("cluster-links", zkConfig = false)
+  }
+
+  @Test
+  def testOptionClusterLinkNames(): Unit = {
+    def testExpectedNames(expectedNames: List[String], args: String*): Unit = {
+      val createOpts = new ConfigCommandOptions(Array("--bootstrap-server", "localhost:9092", "--describe") ++ args)
+      createOpts.checkArgs()
+      assertEquals(createOpts.entityTypes, List(ConfigType.ClusterLink))
+      assertEquals(createOpts.entityNames, expectedNames)
+    }
+
+    testExpectedNames(List("test-link"), "--entity-type", "cluster-links", "--entity-name", "test-link")
+    testExpectedNames(List("test-link"), "--cluster-link", "test-link")
+  }
+
+  @Test(expected = classOf[IllegalArgumentException])
+  def testNoEntityNameWithDescribeClusterLinkIsNotAllowed(): Unit = {
+    // NOTE: This will eventually be supported.
+
+    val optsList = List("--bootstrap-server", "localhost:9092",
+      "--entity-type", ConfigType.ClusterLink, "--describe")
+    new ConfigCommandOptions(optsList.toArray).checkArgs()
+  }
+
+  @Test(expected = classOf[IllegalArgumentException])
+  def testEntityDefaultWithDescribeClusterLinkIsNotAllowed(): Unit = {
+    val optsList = List("--bootstrap-server", "localhost:9092",
+      "--entity-type", ConfigType.ClusterLink,
+      "--entity-default",
+      "--describe"
+    )
+
+    new ConfigCommandOptions(optsList.toArray).checkArgs()
+  }
+
+  @Test(expected = classOf[IllegalArgumentException])
+  def testEntityDefaultWithAlterClusterLinkIsNotAllowed(): Unit = {
+    val optsList = List("--bootstrap-server", "localhost:9092",
+      "--entity-type", ConfigType.ClusterLink,
+      "--entity-default",
+      "--alter",
+      "--add-config", "metadata.refresh.ms"
+    )
+
+    new ConfigCommandOptions(optsList.toArray).checkArgs()
   }
 }

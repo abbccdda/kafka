@@ -21,7 +21,7 @@ import java.io.File
 import java.util.concurrent.Semaphore
 
 import kafka.api.ApiVersion
-import org.apache.kafka.common.record.{FileRecords, MemoryRecords}
+import org.apache.kafka.common.record.{BufferSupplier, FileRecords, MemoryRecords}
 import org.apache.kafka.common.utils.Time
 
 object LogUtils {
@@ -63,8 +63,11 @@ object LogUtils {
     tierPartitionState = log.tierPartitionState,
     tierLogComponents = tierLogComponents) {
 
-    override def appendAsLeader(records: MemoryRecords, leaderEpoch: Int, origin: AppendOrigin, interBrokerProtocolVersion: ApiVersion): LogAppendInfo = {
-      val appendInfo = super.appendAsLeader(records, leaderEpoch, origin, interBrokerProtocolVersion)
+    override def appendAsLeader(records: MemoryRecords, leaderEpoch: Int, origin: AppendOrigin,
+                                interBrokerProtocolVersion: ApiVersion,
+                                bufferSupplier: BufferSupplier = BufferSupplier.NO_CACHING): LogAppendInfo = {
+      val appendInfo = super.appendAsLeader(records, leaderEpoch, origin, interBrokerProtocolVersion,
+        bufferSupplier)
       appendSemaphore.acquire()
       appendInfo
     }

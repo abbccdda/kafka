@@ -25,12 +25,12 @@ import kafka.common.TopicPlacement
 import kafka.common.Config
 import kafka.log.LogConfig
 import kafka.server.{ConfigEntityName, ConfigType, Defaults, DynamicBrokerConfig, DynamicConfig, KafkaConfig}
+import kafka.server.link.{ClusterLinkConfig, ClusterLinkUtils}
 import kafka.utils.{CommandDefaultOptions, CommandLineUtils, Exit, PasswordEncoder}
 import kafka.utils.Implicits._
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.clients.admin.{AdminClient => JAdminClient}
-import org.apache.kafka.clients.admin.{Admin, AlterClientQuotasOptions, AlterConfigOp, AlterConfigsOptions, ConfigEntry, DescribeClusterOptions, DescribeConfigsOptions, ListTopicsOptions, Config => JConfig}
+import org.apache.kafka.clients.admin.{Admin, AdminClient => JAdminClient, AlterClientQuotasOptions, AlterConfigOp, AlterConfigsOptions, ConfigEntry, ConfluentAdmin, DescribeClusterOptions, DescribeConfigsOptions, ListClusterLinksOptions, ListTopicsOptions, Config => JConfig}
 import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.config.ConfluentTopicConfig
 import org.apache.kafka.common.config.types.Password
@@ -57,6 +57,7 @@ import scala.compat.java8.OptionConverters._
  *                          --entity-type users --entity-name <user-principal> --entity-type clients --entity-name <client-id>
  *     <li> broker: --broker <broker-id> OR --entity-type brokers --entity-name <broker-id>
  *     <li> broker-logger: --broker-logger <broker-id> OR --entity-type broker-loggers --entity-name <broker-id>
+ *     <li> cluster-link: --cluster-link <link-name> OR --entity-type cluster-links --entity-name <link-name>
  * </ul>
  * --user-defaults, --client-defaults, or --broker-defaults may be when describing or altering default configuration for users,
  * clients, and brokers, respectively. Alternatively, --entity-default may be used instead of --entity-name.
@@ -65,8 +66,8 @@ import scala.compat.java8.OptionConverters._
 object ConfigCommand extends Config {
 
   val BrokerLoggerConfigType = "broker-loggers"
-  val BrokerSupportedConfigTypes = ConfigType.all :+ BrokerLoggerConfigType
-  val ZkSupportedConfigTypes = ConfigType.all
+  val BrokerSupportedConfigTypes = ConfigType.all.toSet + BrokerLoggerConfigType
+  val ZkSupportedConfigTypes = ConfigType.all.toSet - ConfigType.ClusterLink
   val DefaultScramIterations = 4096
   // Dynamic broker configs can only be updated using the new AdminClient once brokers have started
   // so that configs may be fully validated. Prior to starting brokers, updates may be performed using
@@ -83,7 +84,7 @@ object ConfigCommand extends Config {
     try {
       val opts = new ConfigCommandOptions(args)
 
-      CommandLineUtils.printHelpAndExitIfNeeded(opts, "This tool helps to manipulate and describe entity config for a topic, client, user or broker")
+      CommandLineUtils.printHelpAndExitIfNeeded(opts, "This tool helps to manipulate and describe entity config for a topic, client, user, broker, or cluster link.")
 
       opts.checkArgs()
 
@@ -249,24 +250,15 @@ object ConfigCommand extends Config {
   }
 
   private[admin] def parseConfigsToBeAdded(opts: ConfigCommandOptions): Properties = {
-    val props = new Properties
-    if (opts.options.has(opts.addConfig)) {
-      // Split list by commas, but avoid those in [], then into KV pairs
-      // Each KV pair is of format key=value, split them into key and value, using -1 as the limit for split() to
-      // include trailing empty strings. This is to support empty value (e.g. 'ssl.endpoint.identification.algorithm=')
-      val pattern = "(?=[^\\]]*(?:\\[|$))"
-      val configsToBeAdded = opts.options.valueOf(opts.addConfig)
-        .split("," + pattern)
-        .map(_.split("""\s*=\s*""" + pattern, -1))
-      require(configsToBeAdded.forall(config => config.length == 2), "Invalid entity config: all configs to be added must be in the format \"key=val\".")
-      //Create properties, parsing square brackets from values if necessary
-      configsToBeAdded.foreach(pair => props.setProperty(pair(0).trim, pair(1).replaceAll("\\[?\\]?", "").trim))
-      if (props.containsKey(LogConfig.MessageFormatVersionProp)) {
-        println(s"WARNING: The configuration ${LogConfig.MessageFormatVersionProp}=${props.getProperty(LogConfig.MessageFormatVersionProp)} is specified. " +
-          s"This configuration will be ignored if the version is newer than the inter.broker.protocol.version specified in the broker.")
-      }
+    val props = if (opts.options.has(opts.addConfig)) {
+      AdminUtils.parseConfigs(opts.options.valueOf(opts.addConfig))
+    } else {
+      new Properties
     }
-
+    if (props.containsKey(LogConfig.MessageFormatVersionProp)) {
+      println(s"WARNING: The configuration ${LogConfig.MessageFormatVersionProp}=${props.getProperty(LogConfig.MessageFormatVersionProp)} is specified. " +
+        s"This configuration will be ignored if the version is newer than the inter.broker.protocol.version specified in the broker.")
+    }
     parseReplicaPlacementConfig(props, opts)
   }
 
@@ -330,16 +322,21 @@ object ConfigCommand extends Config {
     val configsToBeDeleted = parseConfigsToBeDeleted(opts)
 
     entityTypeHead match {
-      case ConfigType.Topic =>
+      case ConfigType.Topic | ConfigType.ClusterLink =>
         val oldConfig = getResourceConfig(adminClient, entityTypeHead, entityNameHead, includeSynonyms = false, describeAll = false)
           .map { entry => (entry.name, entry) }.toMap
+
+        val resourceType = entityTypeHead match {
+          case ConfigType.Topic => ConfigResource.Type.TOPIC
+          case ConfigType.ClusterLink => ConfigResource.Type.CLUSTER_LINK
+        }
 
         // fail the command if any of the configs to be deleted does not exist
         val invalidConfigs = configsToBeDeleted.filterNot(oldConfig.contains)
         if (invalidConfigs.nonEmpty)
           throw new InvalidConfigurationException(s"Invalid config(s): ${invalidConfigs.mkString(",")}")
 
-        val configResource = new ConfigResource(ConfigResource.Type.TOPIC, entityNameHead)
+        val configResource = new ConfigResource(resourceType, entityNameHead)
         val alterOptions = new AlterConfigsOptions().timeoutMs(30000).validateOnly(false)
         val alterEntries = (configsToBeAdded.values.map(new AlterConfigOp(_, AlterConfigOp.OpType.SET))
           ++ configsToBeDeleted.map { k => new AlterConfigOp(new ConfigEntry(k, ""), AlterConfigOp.OpType.DELETE) }
@@ -422,7 +419,7 @@ object ConfigCommand extends Config {
     val describeAll = opts.options.has(opts.allOpt)
 
     entityTypes.head match {
-      case ConfigType.Topic | ConfigType.Broker | BrokerLoggerConfigType =>
+      case ConfigType.Topic | ConfigType.Broker | BrokerLoggerConfigType | ConfigType.ClusterLink =>
         describeResourceConfig(adminClient, entityTypes.head, entityNames.headOption, describeAll)
       case ConfigType.User | ConfigType.Client =>
         describeClientQuotasConfig(adminClient, entityTypes, entityNames)
@@ -437,6 +434,9 @@ object ConfigCommand extends Config {
           adminClient.listTopics(new ListTopicsOptions().listInternal(true)).names().get().asScala.toSeq
         case ConfigType.Broker | BrokerLoggerConfigType =>
           adminClient.describeCluster(new DescribeClusterOptions()).nodes().get().asScala.map(_.idString).toSeq :+ ConfigEntityName.Default
+        case ConfigType.ClusterLink =>
+          val confluentAdminClient = adminClient.asInstanceOf[ConfluentAdmin]
+          confluentAdminClient.listClusterLinks(new ListClusterLinksOptions()).result().get().asScala.map(_.linkName).toSeq
       })
 
     entities.foreach { entity =>
@@ -476,6 +476,9 @@ object ConfigCommand extends Config {
         if (!entityName.isEmpty)
           validateBrokerId()
         (ConfigResource.Type.BROKER_LOGGER, None)
+      case ConfigType.ClusterLink =>
+        ClusterLinkUtils.validateLinkName(entityName)
+        (ConfigResource.Type.CLUSTER_LINK, Some(ConfigEntry.ConfigSource.DYNAMIC_CLUSTER_LINK_CONFIG))
     }
 
     val configSourceFilter = if (describeAll)
@@ -649,10 +652,10 @@ object ConfigCommand extends Config {
     val describeOpt = parser.accepts("describe", "List configs for the given entity.")
     val allOpt = parser.accepts("all", "List all configs for the given entity (includes static configuration when the entity type is brokers)")
 
-    val entityType = parser.accepts("entity-type", "Type of entity (topics/clients/users/brokers/broker-loggers)")
+    val entityType = parser.accepts("entity-type", "Type of entity (topics/clients/users/brokers/broker-loggers/cluster-links)")
       .withRequiredArg
       .ofType(classOf[String])
-    val entityName = parser.accepts("entity-name", "Name of entity (topic name/client id/user principal name/broker id)")
+    val entityName = parser.accepts("entity-name", "Name of entity (topic name/client id/user principal name/broker id/cluster link)")
       .withRequiredArg
       .ofType(classOf[String])
     val entityDefault = parser.accepts("entity-default", "Default entity name for clients/users/brokers (applies to corresponding entity type in command line)")
@@ -663,6 +666,7 @@ object ConfigCommand extends Config {
       "For entity-type '" + ConfigType.Broker + "': " + DynamicConfig.Broker.names.asScala.toSeq.sorted.map("\t" + _).mkString(nl, nl, nl) +
       "For entity-type '" + ConfigType.User + "': " + DynamicConfig.User.names.asScala.toSeq.sorted.map("\t" + _).mkString(nl, nl, nl) +
       "For entity-type '" + ConfigType.Client + "': " + DynamicConfig.Client.names.asScala.toSeq.sorted.map("\t" + _).mkString(nl, nl, nl) +
+      "For entity-type '" + ConfigType.ClusterLink + "': " + ClusterLinkConfig.configNames.toSeq.sorted.map("\t" + _).mkString(nl, nl, nl) +
       s"Entity types '${ConfigType.User}' and '${ConfigType.Client}' may be specified together to update config for clients of a specific user.")
       .withRequiredArg
       .ofType(classOf[String])
@@ -693,6 +697,9 @@ object ConfigCommand extends Config {
     val brokerLogger = parser.accepts("broker-logger", "The broker's ID for its logger config.")
       .withRequiredArg
       .ofType(classOf[String])
+    val clusterLink = parser.accepts("cluster-link", "The cluster link's name.")
+      .withRequiredArg
+      .ofType(classOf[String])
     val zkTlsConfigFile = parser.accepts("zk-tls-config-file",
       "Identifies the file where ZooKeeper client TLS connectivity properties are defined.  Any properties other than " +
         KafkaConfig.ZkSslConfigToSystemPropertyMap.keys.toList.sorted.mkString(", ") + " are ignored.")
@@ -703,7 +710,8 @@ object ConfigCommand extends Config {
       (client, ConfigType.Client),
       (user, ConfigType.User),
       (broker, ConfigType.Broker),
-      (brokerLogger, BrokerLoggerConfigType))
+      (brokerLogger, BrokerLoggerConfigType),
+      (clusterLink, ConfigType.ClusterLink))
 
     private val entityDefaultsFlags = List((clientDefaults, ConfigType.Client),
       (userDefaults, ConfigType.User),
@@ -781,7 +789,7 @@ object ConfigCommand extends Config {
         }
       }
 
-      if (options.has(describeOpt) && entityTypeVals.contains(BrokerLoggerConfigType) && !hasEntityName)
+      if (options.has(describeOpt) && (entityTypeVals.contains(BrokerLoggerConfigType) || entityTypeVals.contains(ConfigType.ClusterLink)) && !hasEntityName)
         throw new IllegalArgumentException(s"an entity name must be specified with --describe of ${entityTypeVals.mkString(",")}")
 
       if (options.has(alterOpt)) {

@@ -25,6 +25,7 @@ import org.scalatest.Assertions.intercept
 
 import scala.collection.JavaConverters._
 import scala.collection.Map
+import scala.collection.Seq
 import scala.compat.java8.OptionConverters._
 
 final class ConfluentObserverTest extends ZooKeeperTestHarness {

@@ -4,8 +4,11 @@
 
 package io.confluent.license;
 
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.function.Supplier;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.test.TestUtils;
 import org.easymock.Capture;
 import org.easymock.EasyMock;
 import org.easymock.EasyMockSupport;
@@ -141,6 +144,10 @@ public class LicenseManagerTest extends EasyMockSupport {
     jws.setAlgorithmHeaderValue(AlgorithmIdentifiers.RSA_USING_SHA256);
     String serialized = jws.getCompactSerialization();
     return new License(claims, clock, serialized);
+  }
+
+  public static void setLicenseManagerScheduler(Supplier<ScheduledExecutorService> execServiceFactory) throws Exception {
+    TestUtils.setFieldValue(LicenseManagers.INSTANCE, "execServiceFactory", execServiceFactory);
   }
 
   @Before

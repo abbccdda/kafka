@@ -1603,19 +1603,19 @@ object KafkaConfig {
                       ConfluentConfigs.BALANCER_RACK_AWARE_DEFAULT, MEDIUM,
                       ConfluentConfigs.BALANCER_RACK_AWARE_DOC)
       .defineInternal(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, LONG,
-                      ConfluentConfigs.BALANCER_THROTTLE_DEFAULT, HIGH,
+                      ConfluentConfigs.BALANCER_THROTTLE_DEFAULT, atLeast(ConfluentConfigs.BALANCER_THROTTLE_MIN), HIGH,
                       ConfluentConfigs.BALANCER_THROTTLE_DOC)
       .defineInternal(ConfluentConfigs.BALANCER_REPLICA_CAPACITY_CONFIG, LONG,
-                      ConfluentConfigs.BALANCER_REPLICA_CAPACITY_DEFAULT, HIGH,
+                      ConfluentConfigs.BALANCER_REPLICA_CAPACITY_DEFAULT, atLeast(0), HIGH,
                       ConfluentConfigs.BALANCER_REPLICA_CAPACITY_DOC)
-      .defineInternal(ConfluentConfigs.BALANCER_DISK_CAPACITY_CONFIG, LONG,
-                      ConfluentConfigs.BALANCER_DISK_CAPACITY_DEFAULT, HIGH,
-                      ConfluentConfigs.BALANCER_DISK_CAPACITY_DOC)
+      .defineInternal(ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_CONFIG, DOUBLE,
+                      ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_DEFAULT, between(0.0, 1.0), HIGH,
+                      ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_DOC)
       .defineInternal(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG, LONG,
-                      ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DEFAULT, HIGH,
+                      ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DEFAULT, atLeast(0), HIGH,
                       ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DOC)
       .defineInternal(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG, LONG,
-                      ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DEFAULT, HIGH,
+                      ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DEFAULT, atLeast(0), HIGH,
                       ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DOC)
       .defineInternal(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG, LIST,
                       ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_DEFAULT, MEDIUM,
@@ -1633,6 +1633,9 @@ object KafkaConfig {
       .defineInternal(ConfluentConfigs.STRAY_PARTITION_DELETION_ENABLE_CONFIG, BOOLEAN,
                       ConfluentConfigs.STRAY_PARTITION_DELETION_ENABLE_DEFAULT, MEDIUM,
                       ConfluentConfigs.STRAY_PARTITION_DELETION_ENABLE_DOC)
+      .defineInternal(ConfluentConfigs.INTERNAL_REST_SERVER_BIND_PORT_CONFIG, INT,
+                      ConfluentConfigs.INTERNAL_REST_SERVER_BIND_PORT_DEFAULT, MEDIUM,
+                      ConfluentConfigs.INTERNAL_REST_SERVER_BIND_PORT_DOC)
   }
 
   def configNames() = configDef.names().asScala.toList.sorted
@@ -2106,6 +2109,9 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
     getBoolean(ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS)
   val verifyGroupSubscriptionPrefix = getBoolean(ConfluentConfigs.VERIFY_GROUP_SUBSCRIPTION_PREFIX)
   val strayPartitionDeletionEnabled = getBoolean(ConfluentConfigs.STRAY_PARTITION_DELETION_ENABLE_CONFIG)
+
+  /************* Internal REST Server ***********/
+  val internalRestServerBindPort = getInt(ConfluentConfigs.INTERNAL_REST_SERVER_BIND_PORT_CONFIG)
 
   /** ********* Fetch Configuration **************/
   val maxIncrementalFetchSessionCacheSlots = getInt(KafkaConfig.MaxIncrementalFetchSessionCacheSlots)

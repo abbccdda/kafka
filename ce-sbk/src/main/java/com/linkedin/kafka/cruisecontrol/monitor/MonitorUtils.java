@@ -42,7 +42,7 @@ import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.requests.DescribeLogDirsResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.collection.JavaConversions;
+import scala.collection.JavaConverters;
 
 import static com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig.LOGDIR_RESPONSE_TIMEOUT_MS_CONFIG;
 import static com.linkedin.kafka.cruisecontrol.model.Disk.State.DEAD;
@@ -180,7 +180,7 @@ public class MonitorUtils {
    */
   public static boolean ensureTopicNotUnderPartitionReassignment(KafkaZkClient kafkaZkClient, String topic) {
     int attempt = 0;
-    while (JavaConversions.asJavaCollection(kafkaZkClient.getPartitionReassignment().keys()).stream()
+    while (JavaConverters.asJavaCollection(kafkaZkClient.getPartitionReassignment().keys()).stream()
                           .anyMatch(tp -> tp.topic().equals(topic))) {
       try {
         sleep(1000 << attempt);

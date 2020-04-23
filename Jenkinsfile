@@ -33,7 +33,7 @@ def retryFlagsString(jobConfig) {
 
 def downstreamBuildFailureOutput = ""
 def publishStep(String mavenUrl) {
-    sh "./gradlew -PmavenUrl=${mavenUrl} --no-daemon uploadArchivesAll"
+    sh "./gradlewAll -PmavenUrl=${mavenUrl} --no-daemon uploadArchives"
 }
 def job = {
 
@@ -43,9 +43,14 @@ def job = {
         passwordVariable: 'ORG_GRADLE_PROJECT_mavenPassword'
     )]) {
 
+        stage("Check compilation compatibility with Scala 2.13") {
+            sh "./gradlew clean assemble spotlessScalaCheck checkstyleMain checkstyleTest spotbugsMain " +
+                    "--no-daemon --stacktrace -PscalaVersion=2.13"
+        }
+
         stage("Compile and validate") {
             sh "./gradlew clean assemble spotlessScalaCheck checkstyleMain checkstyleTest spotbugsMain " +
-                    "--no-daemon --stacktrace --continue -PxmlSpotBugsReport=true"
+                    "--no-daemon --stacktrace -PxmlSpotBugsReport=true"
         }
 
         if (config.publish) {

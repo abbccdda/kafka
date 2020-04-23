@@ -22,6 +22,7 @@ import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
 import io.confluent.cruisecontrol.analyzer.goals.CrossRackMovementGoal;
 import io.confluent.cruisecontrol.analyzer.goals.SequentialReplicaMovementGoal;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
@@ -41,7 +42,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.SynchronousQueue;
@@ -63,11 +63,12 @@ import static org.mockito.internal.verification.VerificationModeFactory.times;
 public class ConfluentDataBalanceEngineTest  {
     private Properties brokerProps;
     private KafkaConfig initConfig;
-    private KafkaConfig updatedConfig;
-
 
     @Mock
     private KafkaCruiseControl mockCruiseControl;
+
+    @Mock
+    private DataBalancerMetricsRegistry mockMetricsRegistry;
 
     // Kind of a mock to replace the SingleThreadExecutorService with something that just runs in the current
     // thread, guaranteeing completion. (Only usable with the CruiseControl mock, above.)
@@ -93,7 +94,7 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     private ConfluentDataBalanceEngine getTestDataBalanceEngine() {
-        return new ConfluentDataBalanceEngine(mockCruiseControl, currentThreadExecutorService());
+        return new ConfluentDataBalanceEngine(mockMetricsRegistry, mockCruiseControl, currentThreadExecutorService());
     }
 
     @Test
@@ -187,14 +188,17 @@ public class ConfluentDataBalanceEngineTest  {
         // Not a valid ZK connect URL but to validate what gets copied over.
         brokerProps.put(KafkaConfig.ZkConnectProp(), sampleZkString);
 
-        // Add required properties to test
-        String nwInCapacity = ConfluentConfigs.CONFLUENT_BALANCER_PREFIX +
-                KafkaCruiseControlConfig.NETWORK_INBOUND_CAPACITY_THRESHOLD_CONFIG;
+        // Add required properties to test -- network capacity is necessary
+        String nwInCapacity = ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG;
+        String nwOutCapacity = ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG;
+
         String metricSamplerClass = ConfluentConfigs.CONFLUENT_BALANCER_PREFIX +
                 KafkaCruiseControlConfig.METRIC_SAMPLER_CLASS_CONFIG;
         String nonBalancerPropertyKey = "confluent.non_balancer_property_key";
 
-        brokerProps.put(nwInCapacity, "0.12");
+        // Just some arbitrary values for the network capacity -- needs to be non-zero
+        brokerProps.put(nwInCapacity, "1200");
+        brokerProps.put(nwOutCapacity, "780");
         brokerProps.put(metricSamplerClass, "io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler");
         brokerProps.put(nonBalancerPropertyKey, "nonBalancerPropertyValue");
 
@@ -273,14 +277,16 @@ public class ConfluentDataBalanceEngineTest  {
         brokerProps.put(KafkaConfig.ZkConnectProp(), sampleZkString);
 
         // Add required properties to test
-        String nwInCapacity = ConfluentConfigs.CONFLUENT_BALANCER_PREFIX +
-                KafkaCruiseControlConfig.NETWORK_INBOUND_CAPACITY_THRESHOLD_CONFIG;
+        String nwInCapacity = ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG;
+        String nwOutCapacity = ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG;
+
         String  metricsTopicConfig = ConfluentMetricsReporterConfig.TOPIC_CONFIG;
         String testMetricsTopic = "testMetricsTopic";
         String metricsRfConfig = ConfluentMetricsReporterConfig.TOPIC_REPLICAS_CONFIG;
         String testMetricsRfValue = "2";
 
-        brokerProps.put(nwInCapacity, "0.12");
+        brokerProps.put(nwInCapacity, "1200");
+        brokerProps.put(nwOutCapacity, "780");
         brokerProps.put(metricsTopicConfig, testMetricsTopic);
         brokerProps.put(metricsRfConfig, testMetricsRfValue);
 
@@ -301,6 +307,58 @@ public class ConfluentDataBalanceEngineTest  {
         assertEquals(testDefaultGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG));
     }
 
+    @Test
+    public void testGenerateCruiseControlConfigWithZeroNetworkCapacity() {
+        // Add required properties
+        final String sampleZkString = "zookeeper-1-internal.pzkc-ldqwz.svc.cluster.local:2181,zookeeper-2-internal.pzkc-ldqwz.svc.cluster.local:2181/testKafkaCluster";
+
+        // Goals Config should be lacking the outbound network goals initially
+        List<String> expectedGoalsConfig = new ArrayList<>(KafkaCruiseControlConfig.DEFAULT_GOALS_LIST);
+        // If this fails, NetworkOutboundCapacityGoal was not present
+        assertTrue("NetworkOutboundCapacityGoal was expected to be in DEFAULT_GOALS_LIST",
+                expectedGoalsConfig.remove(NetworkOutboundCapacityGoal.class.getName()));
+
+        List<String> expectedHardGoalsConfig = new ArrayList<>(KafkaCruiseControlConfig.DEFAULT_HARD_GOALS_LIST);
+        assertTrue("NetworkOutboundCapacityGoal expected to be in DEFAULT_HARD_GOALS_LIST",
+                expectedHardGoalsConfig.remove(NetworkOutboundCapacityGoal.class.getName()));
+
+        List<String> expectedAnomalyDetectionGoalsConfig = new ArrayList<>(KafkaCruiseControlConfig.DEFAULT_ANOMALY_DETECTION_GOALS_LIST);
+        assertTrue("NetworkOutboundCapacityGoal expected to be in DEFAULT_ANOMALY_DETECTION_GOALS",
+                expectedAnomalyDetectionGoalsConfig.remove(NetworkOutboundCapacityGoal.class.getName()));
+
+        // Not a valid ZK connect URL but to validate what gets copied over.
+        brokerProps.put(KafkaConfig.ZkConnectProp(), sampleZkString);
+
+        // Add required properties to test -- network capacity is necessary
+        // Intentionally leave out network-outbound -- this should remove the outbound goal from capacity config
+        String nwInCapacity = ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG;
+
+        brokerProps.put(nwInCapacity, "1200");
+
+        // Outbound capacity was not set -- this should result in no NetworkOutbound goal, and
+        // all goals should be properly updated
+        KafkaConfig config = new KafkaConfig(brokerProps);
+        KafkaCruiseControlConfig ccConfig = ConfluentDataBalanceEngine.generateCruiseControlConfig(config);
+
+        assertEquals(expectedGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.GOALS_CONFIG));
+        assertEquals(Collections.emptyList(), ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG));
+        assertEquals(expectedHardGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.HARD_GOALS_CONFIG));
+        assertEquals(expectedAnomalyDetectionGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.ANOMALY_DETECTION_GOALS_CONFIG));
+
+        // Now take out the NW-IN capacity. Both inbound and outbound capacity goals should be gone.
+        brokerProps.remove(nwInCapacity);
+        expectedGoalsConfig.remove(NetworkInboundCapacityGoal.class.getName());
+        expectedHardGoalsConfig.remove(NetworkInboundCapacityGoal.class.getName());
+        expectedAnomalyDetectionGoalsConfig.remove(NetworkInboundCapacityGoal.class.getName());
+
+        config = new KafkaConfig(brokerProps);
+        ccConfig = ConfluentDataBalanceEngine.generateCruiseControlConfig(config);
+
+        assertEquals(expectedGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.GOALS_CONFIG));
+        assertEquals(Collections.emptyList(), ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG));
+        assertEquals(expectedHardGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.HARD_GOALS_CONFIG));
+        assertEquals(expectedAnomalyDetectionGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.ANOMALY_DETECTION_GOALS_CONFIG));
+    }
 
     @Test
     public void testGenerateCruiseControlExclusionConfig() {
@@ -317,10 +375,8 @@ public class ConfluentDataBalanceEngineTest  {
         brokerProps.put(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG, topicNames);
         brokerProps.put(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, topicPrefixes);
 
-
         KafkaConfig config = new KafkaConfig(brokerProps);
         KafkaCruiseControlConfig ccConfig = ConfluentDataBalanceEngine.generateCruiseControlConfig(config);
-
 
         // Validate that the CruiseControl regex behaves as we would expect
         String configRegex = ccConfig.getString(KafkaCruiseControlConfig.TOPICS_EXCLUDED_FROM_PARTITION_MOVEMENT_CONFIG);
@@ -390,7 +446,7 @@ public class ConfluentDataBalanceEngineTest  {
             // Wait until checkStartupCondition method is called.
             ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.TEST_SYNC_SEMAPHORE.acquire();
             // This should unblock MockDatabalancerStartupComponent
-            dataBalancer.shutdown();
+            dataBalancer.onDeactivation();
             testThread.join();
 
             assertTrue(ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.checkupMethodCalled);
@@ -426,9 +482,10 @@ public class ConfluentDataBalanceEngineTest  {
     @Test
     public void testStopCruiseControlNotInitialized() {
         // Don't use the regular getTestDataBalanceEngine as that has a defined CruiseControl, which we don't want.
-        ConfluentDataBalanceEngine dbe = new ConfluentDataBalanceEngine(null, currentThreadExecutorService());
+        ConfluentDataBalanceEngine dbe = new ConfluentDataBalanceEngine(mockMetricsRegistry, null, currentThreadExecutorService());
         dbe.stopCruiseControl(); // should be a no-op
         verify(mockCruiseControl, never()).shutdown();
+        verify(mockMetricsRegistry, never()).clearShortLivedMetrics();
     }
 
     @Test
@@ -436,6 +493,7 @@ public class ConfluentDataBalanceEngineTest  {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.stopCruiseControl(); // This shuts down the mock
         verify(mockCruiseControl, times(1)).shutdown();
+        verify(mockMetricsRegistry, times(1)).clearShortLivedMetrics();
         dbe.stopCruiseControl();
         // Shutdown should not be called again
         verify(mockCruiseControl, times(1)).shutdown();
@@ -446,24 +504,26 @@ public class ConfluentDataBalanceEngineTest  {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.stopCruiseControl();
         verify(mockCruiseControl).shutdown();  // Shutdown should have been called
+        verify(mockMetricsRegistry).clearShortLivedMetrics();
     }
 
     @Test
-    public void testShutdown() throws  InterruptedException, ExecutionException {
+    public void testShutdown() {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
-        dbe.shutdown();
+        dbe.onDeactivation();
         verify(mockCruiseControl).shutdown();  // Shutdown should have been called
+        verify(mockMetricsRegistry).clearShortLivedMetrics();
     }
 
     @Test
-    public void testUpdateThrottleWhileRunning() throws  InterruptedException, ExecutionException {
+    public void testUpdateThrottleWhileRunning() {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.updateThrottle(100L);
         verify(mockCruiseControl).updateThrottle(100L);
     }
 
     @Test
-    public void testUpdateThrottleWhileStopped() throws  InterruptedException, ExecutionException {
+    public void testUpdateThrottleWhileStopped() {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.stopCruiseControl();
         dbe.updateThrottle(100L);

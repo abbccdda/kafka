@@ -22,7 +22,7 @@ import java.util.{Collections, Properties}
 import kafka.api.{IntegrationTestHarness, KafkaSasl, SaslSetup}
 import kafka.controller.ReplicaAssignment
 import kafka.server.{KafkaConfig, KafkaServer}
-import kafka.server.link.ClusterLinkConfig
+import kafka.server.link.{ClusterLinkConfig, ClusterLinkTopicState}
 import kafka.utils.Implicits._
 import kafka.utils.{JaasTestUtils, Logging, TestUtils}
 import kafka.zk.ConfigEntityChangeNotificationZNode
@@ -154,7 +154,7 @@ class ClusterLinkIntegrationTest extends Logging {
     // Shutdown destination leader and verify clean leader election. No truncation is expected.
     val (leader1, _) = destCluster.shutdownLeader(tp)
     produceToSourceCluster(2)
-    waitForMirror(topic, servers = destCluster.servers - destCluster.servers(leader1))
+    waitForMirror(topic, servers = destCluster.servers.filter(_ != destCluster.servers(leader1)))
 
     // Trigger unclean leader election in the destination cluster. No truncation is expected.
     // Produce records and ensure that all records are replicated in destination leader and follower
@@ -163,7 +163,7 @@ class ClusterLinkIntegrationTest extends Logging {
     destCluster.addClusterLink(destCluster.servers(leader1), linkName)
     destCluster.updateBootstrapServers()
     produceToSourceCluster(2)
-    waitForMirror(topic, servers = destCluster.servers - destCluster.servers(leader2))
+    waitForMirror(topic, servers = destCluster.servers.filter(_ != destCluster.servers(leader2)))
     destCluster.servers(leader2).startup()
     produceToSourceCluster(2)
     verifyMirror(topic)
@@ -336,12 +336,14 @@ class ClusterLinkTestHarness extends IntegrationTestHarness with SaslSetup {
     val assignment = (0 until numPartitions).map { i =>
       i -> ReplicaAssignment(Seq(i % 2, (i + 1) % 2), Seq.empty)
     }.toMap
+
+    val mirror = new ClusterLinkTopicState.Mirror(linkName)
     adminZkClient.createTopicWithAssignment(topic,
       config = new Properties(),
       assignment,
-      clusterLink = Some(linkName))
+      clusterLink = Some(mirror))
 
-    assertEquals(Map(topic -> linkName), zkClient.getClusterLinkForTopics(Set(topic)))
+    assertEquals(Map(topic -> mirror), zkClient.getClusterLinkForTopics(Set(topic)))
   }
 
   def unlinkTopic(topic: String, linkName: String): Unit = {

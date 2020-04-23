@@ -36,7 +36,7 @@ import org.apache.kafka.common.errors._
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.protocol.{Errors, MessageUtil}
 import org.apache.kafka.common.protocol.Errors._
-import org.apache.kafka.common.record.{MemoryRecords, RecordBatch}
+import org.apache.kafka.common.record.{BufferSupplier, MemoryRecords, RecordBatch}
 import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
 import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.replica.ReplicaStatus
@@ -446,17 +446,21 @@ class Partition(val topicPartition: TopicPartition,
       LogConfig.fromProps(logManager.currentDefaultConfig.originals, props)
     }
 
-    logManager.initializingLog(topicPartition)
-    var maybeLog: Option[AbstractLog] = None
-    try {
-      val log = logManager.getOrCreateLog(topicPartition, fetchLogConfig, isNew, isFutureReplica)
+    def updateHighWatermark(log: AbstractLog) = {
       val checkpointHighWatermark = offsetCheckpoints.fetch(log.parentDir, topicPartition).getOrElse {
         info(s"No checkpointed highwatermark is found for partition $topicPartition")
         0L
       }
       val initialHighWatermark = log.updateHighWatermark(checkpointHighWatermark)
       info(s"Log loaded for partition $topicPartition with initial high watermark $initialHighWatermark")
+    }
+
+    logManager.initializingLog(topicPartition)
+    var maybeLog: Option[AbstractLog] = None
+    try {
+      val log = logManager.getOrCreateLog(topicPartition, () => fetchLogConfig, isNew, isFutureReplica)
       maybeLog = Some(log)
+      updateHighWatermark(log)
       log
     } finally {
       logManager.finishedInitializingLog(topicPartition, maybeLog, () => fetchLogConfig)
@@ -1210,7 +1214,8 @@ class Partition(val topicPartition: TopicPartition,
     }
   }
 
-  def appendRecordsToLeader(records: MemoryRecords, origin: AppendOrigin, requiredAcks: Int): LogAppendInfo = {
+  def appendRecordsToLeader(records: MemoryRecords, origin: AppendOrigin, requiredAcks: Int,
+                            bufferSupplier: BufferSupplier = BufferSupplier.NO_CACHING): LogAppendInfo = {
     val (info, leaderHWIncremented) = inReadLock(leaderIsrUpdateLock) {
       leaderLogIfLocal match {
         case Some(leaderLog) =>
@@ -1224,7 +1229,7 @@ class Partition(val topicPartition: TopicPartition,
           }
 
           val info = leaderLog.appendAsLeader(records, leaderEpoch = this.leaderEpoch, origin,
-            interBrokerProtocolVersion)
+            interBrokerProtocolVersion, bufferSupplier)
 
           // we may need to increment high watermark since ISR could be down to 1
           (info, maybeIncrementLeaderHW(leaderLog))

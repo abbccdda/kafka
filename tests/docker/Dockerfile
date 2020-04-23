@@ -107,8 +107,6 @@ aws_secret_access_key=$aws_secret_access_key\n"\
 ARG gcs_credentials_file=
 COPY $gcs_credentials_file /vagrant/gcs_credentials.json
 
-RUN runuser -l ducker -c "gcloud auth activate-service-account --key-file /vagrant/gcs_credentials.json"
-
 USER ducker
 
 CMD sudo service ssh start && tail -f /dev/null

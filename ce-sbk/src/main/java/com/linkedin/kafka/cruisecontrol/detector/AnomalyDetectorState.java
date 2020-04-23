@@ -4,9 +4,7 @@
 
 package com.linkedin.kafka.cruisecontrol.detector;
 
-import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Meter;
-import com.yammer.metrics.core.MetricsRegistry;
 import com.linkedin.cruisecontrol.detector.Anomaly;
 import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType;
 import java.util.Collections;
@@ -18,6 +16,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -81,7 +81,7 @@ public class AnomalyDetectorState {
   public AnomalyDetectorState(Time time,
                               Map<AnomalyType, Boolean> selfHealingEnabled,
                               int numCachedRecentAnomalyStates,
-                              MetricsRegistry metricRegistry) {
+                              DataBalancerMetricsRegistry metricRegistry) {
     _time = time;
     _numCachedRecentAnomalyStates = numCachedRecentAnomalyStates;
     _recentAnomaliesByType = new HashMap<>(AnomalyType.cachedValues().size());
@@ -108,24 +108,9 @@ public class AnomalyDetectorState {
     _metrics = new AnomalyMetrics(meanTimeBetweenAnomaliesMs, 0.0, 0L, 0L);
 
     if (metricRegistry != null) {
-      metricRegistry.newGauge(AnomalyDetector.class, "mean-time-to-start-fix-ms",
-                                         new Gauge<Double>() {
-                                           public Double value() {
-                                             return meanTimeToStartFixMs();
-                                           }
-                                         });
-      metricRegistry.newGauge(AnomalyDetector.class, "number-of-self-healing-started",
-                                        new Gauge<Long>() {
-                                          public Long value() {
-                                            return numSelfHealingStarted();
-                                          }
-                                        });
-      metricRegistry.newGauge(AnomalyDetector.class, "ongoing-anomaly-duration-ms",
-                                        new Gauge<Long>() {
-                                          public Long value() {
-                                            return ongoingAnomalyDurationMs();
-                                          }
-                                        });
+      metricRegistry.newGauge(AnomalyDetector.class, "mean-time-to-start-fix-ms", this::meanTimeToStartFixMs);
+      metricRegistry.newGauge(AnomalyDetector.class, "number-of-self-healing-started", this::numSelfHealingStarted);
+      metricRegistry.newGauge(AnomalyDetector.class, "ongoing-anomaly-duration-ms", this::ongoingAnomalyDurationMs);
 
       _anomalyRateByType = new HashMap<>(AnomalyType.cachedValues().size());
       _anomalyRateByType.put(AnomalyType.BROKER_FAILURE,

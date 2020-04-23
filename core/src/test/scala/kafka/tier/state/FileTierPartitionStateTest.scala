@@ -29,6 +29,7 @@ import org.scalatest.Assertions.assertThrows
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
+import scala.collection.Seq
 import scala.concurrent.ExecutionException
 
 class FileTierPartitionStateTest {
@@ -382,7 +383,7 @@ class FileTierPartitionStateTest {
     state.close()
 
     val upgradedVersion = (initialVersion + 1).toByte
-    val upgradedState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true, true, upgradedVersion)
+    val upgradedState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true, upgradedVersion)
     assertEquals(upgradedVersion, upgradedState.version)
     assertEquals(numSegments, upgradedState.numSegments)
     assertEquals(expectedEndOffset, upgradedState.endOffset())
@@ -962,42 +963,52 @@ class FileTierPartitionStateTest {
   }
 
   @Test
-  def testIllegalTransitions(): Unit = {
-    var stateWithFencingDisabledOpt = None: Option[FileTierPartitionState]
-    try {
-      val tp = Log.parseTopicPartitionName(dir)
-      val tpid = new TopicIdPartition(tp.topic, UUID.randomUUID, tp.partition)
-      stateWithFencingDisabledOpt = Some(FileTierPartitionState.createWithStateUpdateFailureFencingDisabled(dir, logDirFailureChannel, tp, true))
-      stateWithFencingDisabledOpt.get.setTopicId(tpid.topicId)
-      stateWithFencingDisabledOpt.get.beginCatchup()
-      stateWithFencingDisabledOpt.get.onCatchUpComplete()
+  def testAllowedTransitionUploadInitiateToDeleteInitiate(): Unit = {
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    val objectId = UUID.randomUUID
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, 0, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(TierPartitionStatus.ONLINE, state.status())
+  }
 
-      def assertIllegal(metadata: AbstractTierMetadata): Unit = {
-        assertThrows[IllegalStateException] {
-          stateWithFencingDisabledOpt.get.append(metadata, TierTestUtils.nextTierTopicOffsetAndEpoch())
-        }
-      }
+  @Test
+  def testIllegalTransitionInitLeaderToUploadComplete(): Unit = {
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadComplete(tpid, 0, UUID.randomUUID), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(TierPartitionStatus.ERROR, state.status())
+  }
 
-      assertEquals(AppendResult.ACCEPTED, stateWithFencingDisabledOpt.get.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+  @Test
+  def testIllegalTransitionInitLeaderToDeleteInitiate(): Unit = {
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentDeleteInitiate(tpid, 0, UUID.randomUUID), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(TierPartitionStatus.ERROR, state.status())
+  }
 
-      // 1. first transition must always start from UploadInitiate
-      assertIllegal(new TierSegmentUploadComplete(tpid, 0, UUID.randomUUID))
-      assertIllegal(new TierSegmentDeleteInitiate(tpid, 0, UUID.randomUUID))
-      assertIllegal(new TierSegmentDeleteComplete(tpid, 0, UUID.randomUUID))
+  @Test
+  def testIllegalTransitionInitLeaderToDeleteComplete(): Unit = {
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentDeleteComplete(tpid, 0, UUID.randomUUID), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(TierPartitionStatus.ERROR, state.status())
+  }
 
-      // 2. cannot transition to DeleteComplete unless the previous state is DeleteInitiate
-      val objectId = UUID.randomUUID
-      val deleteComplete = new TierSegmentDeleteComplete(tpid, 0, objectId)
+  @Test
+  def testIllegalTransitionUploadInitiateToDeleteComplete(): Unit = {
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    val objectId = UUID.randomUUID
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentDeleteComplete(tpid, 0, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(TierPartitionStatus.ERROR, state.status())
+  }
 
-      assertEquals(AppendResult.ACCEPTED, stateWithFencingDisabledOpt.get.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertIllegal(deleteComplete)
-      assertEquals(AppendResult.ACCEPTED, stateWithFencingDisabledOpt.get.append(new TierSegmentUploadComplete(tpid, 0, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertIllegal(deleteComplete)
-      assertEquals(AppendResult.ACCEPTED, stateWithFencingDisabledOpt.get.append(new TierSegmentDeleteInitiate(tpid, 0, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(AppendResult.ACCEPTED, stateWithFencingDisabledOpt.get.append(deleteComplete, TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    } finally {
-      stateWithFencingDisabledOpt.get.close();
-    }
+  @Test
+  def testIllegalTransitionUploadCompleteDeleteComplete(): Unit = {
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    val objectId = UUID.randomUUID
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentDeleteComplete(tpid, 0, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(TierPartitionStatus.ERROR, state.status())
   }
 
   @Test

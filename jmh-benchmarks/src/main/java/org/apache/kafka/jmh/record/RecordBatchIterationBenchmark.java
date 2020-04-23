@@ -35,7 +35,6 @@ import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.utils.CloseableIterator;
 import org.apache.kafka.common.utils.Time;
-import org.apache.kafka.server.interceptor.RecordInterceptor;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Fork;
 import org.openjdk.jmh.annotations.Measurement;
@@ -153,6 +152,7 @@ public class RecordBatchIterationBenchmark {
         return builder.build().buffer();
     }
 
+    @SuppressWarnings("deprecation")
     @Benchmark
     public void measureValidation(Blackhole bh) throws IOException {
         MemoryRecords records = MemoryRecords.readableRecords(singleBatchBuffer.duplicate());
@@ -163,8 +163,8 @@ public class RecordBatchIterationBenchmark {
                 false,  messageVersion, TimestampType.CREATE_TIME, Long.MAX_VALUE, 0,
                 new AppendOrigin.Client$(),
                 ApiVersion.latestVersion(),
-                JavaConverters.iterableAsScalaIterable(new ArrayList<RecordInterceptor>()),
-                interceptorStats, brokerTopicStats);
+                JavaConverters.iterableAsScalaIterable(new ArrayList<>()),
+                interceptorStats, brokerTopicStats, bufferSupplier);
     }
 
     @Benchmark

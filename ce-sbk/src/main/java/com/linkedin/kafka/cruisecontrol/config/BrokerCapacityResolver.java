@@ -18,7 +18,9 @@ import java.util.AbstractMap;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.DoubleUnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -43,13 +45,36 @@ public class BrokerCapacityResolver implements BrokerCapacityConfigResolver {
     public static final String DEFAULT_NETWORK_OUT_CAPACITY_CONFIG = ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG;
     public static final String LOG_DIRS_CONFIG = KafkaConfig$.MODULE$.LogDirsProp();
 
+    // Visible for test cases
+    static final double BYTES_PER_KB = 1024.0;
+
     // Default CPU capacity is 100%
     private static final Double DEFAULT_CPU_CAPACITY = 100.0;
     private static final double DISK_CAPACITY_UPDATE_THRESHOLD = 1d;
     private static final double DISK_CAPACITY_WARN_THRESHOLD = 1d;
-    private static final Map<Resource, String> BROKER_RESOURCE_CONFIGS = Stream.of(
-            new AbstractMap.SimpleEntry<>(Resource.NW_IN, DEFAULT_NETWORK_IN_CAPACITY_CONFIG),
-            new AbstractMap.SimpleEntry<>(Resource.NW_OUT, DEFAULT_NETWORK_OUT_CAPACITY_CONFIG))
+
+    // Information on what config parameter stores a given resource value, and how to convert from
+    // the units that config parameter is in to the units needed for the BrokerCapacityInfo
+    private static class ResourceConfig {
+         String configName;
+         // Convert from how the value is stored/provided outside (bytes, bytes-per-sec, etc) to how the BrokerCapacityInfo stores it
+         DoubleUnaryOperator conversionFunc;
+
+         ResourceConfig(String configId, DoubleUnaryOperator converter) {
+             configName = Objects.requireNonNull(configId);
+             conversionFunc = Objects.requireNonNull(converter);
+         }
+
+         Double convertConfigValue(Double configValue) {
+             return conversionFunc.applyAsDouble(configValue);
+         }
+    }
+
+    // This tracks how config-specified resources are obtained (the config property name) and any unit conversions required
+    // Config properties are specified in bytes but we store them as different units in the BrokerCapacityInfo (see above).
+    private static final Map<Resource, ResourceConfig> BROKER_RESOURCE_CONFIGS = Stream.of(
+            new AbstractMap.SimpleEntry<>(Resource.NW_IN, new ResourceConfig(DEFAULT_NETWORK_IN_CAPACITY_CONFIG, bps -> bps / BYTES_PER_KB)),
+            new AbstractMap.SimpleEntry<>(Resource.NW_OUT, new ResourceConfig(DEFAULT_NETWORK_OUT_CAPACITY_CONFIG, bps -> bps / BYTES_PER_KB)))
     .collect(Collectors.toMap(AbstractMap.SimpleEntry::getKey, AbstractMap.SimpleEntry::getValue));
 
     private Map<Integer, BrokerCapacityInfo> capacitiesForBrokers = new HashMap<>();
@@ -77,11 +102,11 @@ public class BrokerCapacityResolver implements BrokerCapacityConfigResolver {
         LOG.info("CruiseControl: Attempting to configure Broker Capacity from config properties");
         Map<Resource, Double> defaultBrokerCapacity = new HashMap<>();
         defaultBrokerCapacity.put(Resource.CPU, DEFAULT_CPU_CAPACITY);
-        for (Map.Entry<Resource, String> resource : BROKER_RESOURCE_CONFIGS.entrySet()) {
+        for (Map.Entry<Resource, ResourceConfig> resource : BROKER_RESOURCE_CONFIGS.entrySet()) {
             Double parsedValue;
-            String configValue = KafkaCruiseControlUtils.getRequiredConfig(configs, resource.getValue());
+            String configValue = KafkaCruiseControlUtils.getRequiredConfig(configs, resource.getValue().configName);
             try {
-                parsedValue = Double.parseDouble(configValue);
+                parsedValue = resource.getValue().convertConfigValue(Double.parseDouble(configValue));
             } catch (NumberFormatException e) {
                 throw new ConfigException("Invalid capacity (unparseable) " + configValue + " for capacity measure " + resource.getValue(),
                         e);

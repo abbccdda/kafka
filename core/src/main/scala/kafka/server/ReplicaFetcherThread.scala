@@ -354,17 +354,21 @@ class ReplicaFetcherThread(name: String,
 
     val builder = fetchSessionHandler.newBuilder(partitionMap.size, false)
     partitionMap.foreach { case (topicPartition, fetchState) =>
-      // We will not include a replica in the fetch request if it should be throttled.
-      if (fetchState.isReadyForFetch && !shouldFollowerThrottle(quota, fetchState, topicPartition)) {
-        try {
-          val logStartOffset = this.logStartOffset(topicPartition)
-          builder.add(topicPartition, new FetchRequest.PartitionData(
-            fetchState.fetchOffset, logStartOffset, fetchSize, Optional.of(fetchState.currentLeaderEpoch)))
-        } catch {
-          case _: KafkaStorageException =>
-            // The replica has already been marked offline due to log directory failure and the original failure should have already been logged.
-            // This partition should be removed from ReplicaFetcherThread soon by ReplicaManager.handleLogDirFailure()
-            partitionsWithError += topicPartition -> Errors.KAFKA_STORAGE_ERROR
+      if (fetchState.isReadyForFetch) {
+        if (shouldFollowerThrottle(quota, fetchState, topicPartition)) {
+          // We will not include a replica in the fetch request if it should be throttled.
+          replicaMgr.markFollowerReplicaThrottle()
+        } else {
+          try {
+            val logStartOffset = this.logStartOffset(topicPartition)
+            builder.add(topicPartition, new FetchRequest.PartitionData(
+              fetchState.fetchOffset, logStartOffset, fetchSize, Optional.of(fetchState.currentLeaderEpoch)))
+          } catch {
+            case _: KafkaStorageException =>
+              // The replica has already been marked offline due to log directory failure and the original failure should have already been logged.
+              // This partition should be removed from ReplicaFetcherThread soon by ReplicaManager.handleLogDirFailure()
+              partitionsWithError += topicPartition -> Errors.KAFKA_STORAGE_ERROR
+          }
         }
       }
     }

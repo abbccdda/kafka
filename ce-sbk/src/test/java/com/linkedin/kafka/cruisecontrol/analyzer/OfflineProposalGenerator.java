@@ -4,7 +4,6 @@
 
 package com.linkedin.kafka.cruisecontrol.analyzer;
 
-import com.yammer.metrics.core.MetricsRegistry;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
 import com.linkedin.kafka.cruisecontrol.async.progress.OperationProgress;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
@@ -21,6 +20,8 @@ import java.io.ObjectInputStream;
 import java.util.Arrays;
 import java.util.Properties;
 import java.util.stream.Collectors;
+
+import com.yammer.metrics.core.MetricsRegistry;
 import org.apache.kafka.common.utils.SystemTime;
 import org.easymock.EasyMock;
 
@@ -49,13 +50,15 @@ public class OfflineProposalGenerator {
 
     String loadBeforeOptimization = clusterModel.brokerStats(null).toString();
     // Instantiate the components.
+    MetricsRegistry metricsRegistry = new MetricsRegistry();
     GoalOptimizer goalOptimizer = new GoalOptimizer(config,
                                                     null,
                                                     new SystemTime(),
-                                                    new MetricsRegistry(),
+                                                    KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
                                                     EasyMock.mock(Executor.class));
     start = System.currentTimeMillis();
     OptimizerResult optimizerResult = goalOptimizer.optimizations(clusterModel, new OperationProgress());
+    metricsRegistry.shutdown();
     end = System.currentTimeMillis();
     duration = (end - start) / 1000.0;
     String loadAfterOptimization = clusterModel.brokerStats(null).toString();

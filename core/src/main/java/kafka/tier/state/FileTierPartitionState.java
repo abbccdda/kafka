@@ -52,6 +52,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.Future;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import static scala.compat.java8.JFunction.func;
@@ -124,18 +125,9 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     private volatile State state;
     private volatile TopicIdPartition topicIdPartition;
     private volatile boolean tieringEnabled;
-    private volatile boolean stateUpdateFailureFencingEnabled;
 
     public FileTierPartitionState(File dir, LogDirFailureChannel logDirFailureChannel, TopicPartition topicPartition, boolean tieringEnabled) throws IOException {
-        this(dir, logDirFailureChannel, topicPartition, tieringEnabled, true, CURRENT_VERSION);
-    }
-
-    // package-private for testing
-    static FileTierPartitionState createWithStateUpdateFailureFencingDisabled(File dir,
-                                                                              LogDirFailureChannel logDirFailureChannel,
-                                                                              TopicPartition topicPartition,
-                                                                              boolean tieringEnabled)  throws IOException {
-        return new FileTierPartitionState(dir, logDirFailureChannel, topicPartition, tieringEnabled, false, CURRENT_VERSION);
+        this(dir, logDirFailureChannel, topicPartition, tieringEnabled, CURRENT_VERSION);
     }
 
     // package-private for testing
@@ -143,15 +135,13 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                            LogDirFailureChannel logDirFailureChannel,
                            TopicPartition topicPartition,
                            boolean tieringEnabled,
-                           boolean stateUpdateFailureFencingEnabled,
                            byte version) throws IOException {
         this.topicPartition = topicPartition;
         this.dir = dir;
         this.logDirFailureChannel = logDirFailureChannel;
         this.basePath = Log.tierStateFile(dir, FILE_OFFSET, "").getAbsolutePath();
         this.tieringEnabled = tieringEnabled;
-        this.stateUpdateFailureFencingEnabled = stateUpdateFailureFencingEnabled;
-        this.state = State.UNINITIALIZED_STATE;
+        this.state = State.EMPTY;
         this.version = version;
         maybeOpenChannel();
     }
@@ -175,7 +165,6 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
         topicIdPartition = new TopicIdPartition(topicPartition.topic(), topicId, topicPartition.partition());
         log.info("Setting topicIdPartition {}", topicIdPartition);
-
         synchronized (lock) {
             maybeOpenChannel();
         }
@@ -197,25 +186,26 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
     @Override
     public Optional<Long> startOffset() {
-        Map.Entry<Long, UUID> firstEntry = state.validSegments.firstEntry();
-        if (firstEntry != null)
-            return Optional.of(firstEntry.getKey());
-        return Optional.empty();
+        // safe to read without a lock, uses a concurrent collection consistently
+        return state.startOffset();
     }
 
     @Override
     public long endOffset() {
-        return state.endOffset;
+        // safe to read without a lock, accesses a member volatile
+        return state.endOffset();
     }
 
     @Override
     public long committedEndOffset() {
+        // safe to read without a lock, accesses a member volatile
         return state.committedEndOffset();
     }
 
     @Override
     public long totalSize() {
-        return state.validSegmentsSize;
+        // safe to read without a lock, accesses a member volatile
+        return state.totalSize();
     }
 
     @Override
@@ -240,7 +230,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
     @Override
     public int tierEpoch() {
-        return state.currentEpoch;
+        // safe to read without a lock, accesses a member volatile
+        return state.currentEpoch();
     }
 
     @Override
@@ -268,12 +259,11 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     @Override
     public void closeHandlers() throws IOException {
         synchronized (lock) {
-            if (state.status != TierPartitionStatus.CLOSED) {
+            if (state.status != TierPartitionStatus.UNINITIALIZED) {
                 try {
                     state.close();
                 } finally {
-                    state = State.UNINITIALIZED_STATE;
-                    state.setStatus(TierPartitionStatus.CLOSED);
+                    state = State.EMPTY;
                 }
             }
         }
@@ -281,32 +271,35 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
     @Override
     public TierPartitionStatus status() {
-        return state.status;
+        // safe to access without a lock
+        return state.status();
     }
 
     @Override
     public void beginCatchup() {
         synchronized (lock) {
-            if (!tieringEnabled || !state.status.isOpen())
-                throw new IllegalStateException("Illegal state " + state.status + " for tier partition. " +
+            if (!tieringEnabled)
+                throw new IllegalStateException("Illegal state for tier partition. " +
                         "tieringEnabled: " + tieringEnabled + " basePath: " + basePath);
-            state.setStatus(TierPartitionStatus.CATCHUP);
+            state.beginCatchup();
         }
     }
 
     @Override
     public void onCatchUpComplete() {
         synchronized (lock) {
-            if (!tieringEnabled || !state.status.isOpen())
-                throw new IllegalStateException("Illegal state " + state.status + " for tier partition. " +
+            if (!tieringEnabled)
+                throw new IllegalStateException("Illegal state for tier partition. " +
                         "tieringEnabled: " + tieringEnabled + " basePath: " + basePath);
-            state.setStatus(TierPartitionStatus.ONLINE);
+            state.onCatchUpComplete();
         }
     }
 
     @Override
     public int numSegments() {
-        return segmentOffsets().size();
+        synchronized (lock) {
+            return segmentOffsets().size();
+        }
     }
 
     @Override
@@ -332,31 +325,22 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     @Override
     public AppendResult append(AbstractTierMetadata metadata, OffsetAndEpoch offsetAndEpoch) {
         synchronized (lock) {
-            if (state.status.hasError()) {
-                log.debug("Skipping processing for {} from offset {} as the current status is failed", metadata, offsetAndEpoch);
-                return AppendResult.FAILED;
-            }
-
-            if (!state.status.isOpenForWrite()) {
-                log.debug("Skipping processing for {} from offset {} as file is not open for write",
-                        metadata, offsetAndEpoch);
-                return AppendResult.NOT_TIERABLE;
-            }
-
-            AppendResult result = appendMetadata(metadata, offsetAndEpoch);
-            log.debug("Processed append for {} with result {} consumed from offset {}", metadata, result, offsetAndEpoch);
-            return result;
+            return state.appendMetadata(metadata, offsetAndEpoch);
         }
     }
 
     @Override
     public NavigableSet<Long> segmentOffsets() {
-        return state.validSegments.keySet();
+        synchronized (lock) {
+            return state.segmentOffsets();
+        }
     }
 
     @Override
     public NavigableSet<Long> segmentOffsets(long from, long to) {
-        return Log$.MODULE$.logSegments(state.validSegments, from, to, lock).keySet();
+        synchronized (lock) {
+            return state.segmentOffsets(from, to);
+        }
     }
 
     @Override
@@ -386,12 +370,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         if (tieringEnabled)
             return "FileTierPartitionState("
                     + "topicIdPartition=" + topicIdPartition
-                    + ", startOffset=" + startOffset()
-                    + ", endOffset=" + endOffset()
-                    + ", committedEndOffset=" + committedEndOffset()
-                    + ", numSegments=" + numSegments()
-                    + ", tierEpoch=" + tierEpoch()
-                    + ", lastMaterializedOffset=" + lastConsumedSrcOffsetAndEpoch()
+                    + "state=" + state
                     + ")";
         else
             return "FileTierPartitionState("
@@ -443,6 +422,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return new FileTierPartitionIterator(topicIdPartition, channel, position);
     }
 
+    // callers must take FileTierPartitionState.lock
     private void maybeOpenChannel() throws IOException {
         if (tieringEnabled && !state.status.isOpen()) {
             Path flushedFilePath = flushedFilePath(basePath);
@@ -454,12 +434,15 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
             FileChannel channel = getChannelMaybeReinitialize(topicPartition, topicIdPartition, basePath, version);
             if (channel == null) {
-                state.setStatus(TierPartitionStatus.CLOSED);
+                state = State.EMPTY;
                 return;
             }
 
             try {
-                state = new State(topicPartition, basePath, version, channel);
+                Consumer<IOException> ioExceptionHandler =
+                        e -> logDirFailureChannel.maybeAddOfflineLogDir(dir().getParent(),
+                            func(() -> "Failed to apply event to TierPartitionState for " + dir().getParent()), e);
+                state = new State(topicPartition, basePath, version, channel, ioExceptionHandler);
                 topicIdPartition = state.topicIdPartition;
             } catch (Exception e) {
                 // Found exception while initializing the TierMetadataStates from flushed file. Till we
@@ -480,32 +463,6 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                         func(() -> "Failed to initialize TierPartitionState for " + dir().getParent()), ioexp);
                 throw new KafkaStorageException(ioexp);
            }
-        }
-    }
-
-    // Caller must hold FileTierPartitionState.lock
-    private AppendResult appendMetadata(AbstractTierMetadata entry, OffsetAndEpoch offsetAndEpoch) {
-        try {
-            return state.appendMetadata(entry, offsetAndEpoch);
-        } catch (IOException e) {
-            // Handle IOException specially by marking the dir offline, as it indicates a
-            // serious enough error that we can't ignore. This may halt the broker eventually.
-            if (stateUpdateFailureFencingEnabled) {
-                state.setStatus(TierPartitionStatus.ERROR);
-            }
-            logDirFailureChannel.maybeAddOfflineLogDir(dir().getParent(),
-                    func(() -> "Failed to apply event to TierPartitionState for " + dir().getParent()), e);
-            throw new KafkaStorageException("Failed to apply " + entry + ", currentEpoch=" + state.currentEpoch +
-                    ", tierTopicPartitionOffsetAndEpoch=" + offsetAndEpoch, e);
-        } catch (Exception e) {
-            if (stateUpdateFailureFencingEnabled) {
-                state.setStatus(TierPartitionStatus.ERROR);
-                log.error("Failed to apply {}, currentEpoch={} tierTopicPartitionOffset={}",
-                        entry, state.currentEpoch, offsetAndEpoch, e);
-            } else {
-                throw e;
-            }
-            return AppendResult.FAILED;
         }
     }
 
@@ -625,7 +582,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     private static class State {
-        private final static State UNINITIALIZED_STATE = new State();
+        private final static State EMPTY = new State();
 
         // the mutable file channel
         private final FileChannel channel;
@@ -636,6 +593,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         // state format version
         private final byte version;
         private final String basePath;
+        private final Consumer<IOException> ioExceptionHandler;
 
         private TopicIdPartition topicIdPartition = null;
         private TierObjectMetadata uploadInProgress;  // cached for quick lookup
@@ -652,26 +610,33 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         // total size of unfenced segments
         private volatile long validSegmentsSize = 0;
         // overall status of this partition state
-        private volatile TierPartitionStatus status = TierPartitionStatus.CLOSED;
+        private volatile TierPartitionStatus status = TierPartitionStatus.UNINITIALIZED;
         // offset and epoch for the _confluent-tier-state topic partition of the latest consumed message
         private volatile OffsetAndEpoch globalMaterializedOffsetAndEpoch = OffsetAndEpoch.EMPTY;
         // offset and epoch for the tier state topic partition of the latest materialized message
         private volatile OffsetAndEpoch localMaterializedOffsetAndEpoch = OffsetAndEpoch.EMPTY;
 
-        State() {
+        private State() {
             channel = null;
             version = -1;
             basePath = null;
+            ioExceptionHandler = e -> {
+                throw new IllegalStateException("Illegal use of setLogDirOffline");
+            };
         }
 
         State(TopicPartition topicPartition,
               String basePath,
               byte version,
-              FileChannel channel) throws IOException, StateCorruptedException {
+              FileChannel channel,
+              Consumer<IOException> ioExceptionHandler) throws IOException, StateCorruptedException {
             this.basePath = basePath;
             this.version = version;
             this.channel = channel;
+            this.ioExceptionHandler = ioExceptionHandler;
             scanAndInitialize(topicPartition);
+            if (status == TierPartitionStatus.UNINITIALIZED)
+                throw new IllegalStateException("Illegal TierPartitionStatus: " + status);
         }
 
         private void scanAndInitialize(TopicPartition topicPartition) throws IOException, StateCorruptedException {
@@ -729,12 +694,82 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             return allSegments.get(objectId);
         }
 
+        private TierPartitionStatus getStatus() {
+            return status;
+        }
+
         private void setStatus(TierPartitionStatus status) {
+            // TierPartitionStatus.UNINITIALIZED is special, as it is only used to indicate a dummy empty state.
+            // Therefore, once the object has reached this status, we explicitly check that it
+            // can not be changed again, nor can a state be transitioned to UNINITIALIZED
+            if (this.status == TierPartitionStatus.UNINITIALIZED || status == TierPartitionStatus.UNINITIALIZED)
+                throw new IllegalStateException("Illegal transition " + this.status + " to " + status);
+
             if (this.status != status) {
                 this.status = status;
                 dirty = true;
                 log.info("Status updated to {} for {}", status, topicIdPartition);
             }
+        }
+
+        public void beginCatchup() {
+            if (!status.isOpen())
+                throw new IllegalStateException("Illegal state " + status + " for tier partition basePath: " + basePath);
+
+            setStatus(TierPartitionStatus.CATCHUP);
+        }
+
+        public void onCatchUpComplete() {
+            if (!status.isOpen())
+                throw new IllegalStateException("Illegal state " + status + " for tier partition basePath: " + basePath);
+
+            setStatus(TierPartitionStatus.ONLINE);
+        }
+
+        public Optional<Long> startOffset() {
+            // be careful to generate startOffset consistently as it is accessed without a lock
+            Map.Entry<Long, UUID> firstEntry = validSegments.firstEntry();
+            if (firstEntry != null)
+                return Optional.of(firstEntry.getKey());
+            return Optional.empty();
+        }
+
+        public Long endOffset() {
+            // accessed without a lock
+            return endOffset;
+        }
+
+        TierPartitionStatus status() {
+            // accessed without a lock
+            return status;
+        }
+
+        int currentEpoch() {
+            // accessed without a lock
+            return currentEpoch;
+        }
+
+        public int numSegments() {
+            // accessed without a lock
+            return validSegments.size();
+        }
+
+        long committedEndOffset() {
+            // accessed without a lock
+            return committedEndOffset;
+        }
+
+        long totalSize() {
+            // accessed without a lock
+            return validSegmentsSize;
+        }
+
+        public NavigableSet<Long> segmentOffsets() {
+            return validSegments.keySet();
+        }
+
+        public NavigableSet<Long> segmentOffsets(long from, long to) {
+            return Log$.MODULE$.logSegments(validSegments, from, to).keySet();
         }
 
         void putValid(SegmentState state, TierObjectMetadata metadata) {
@@ -752,10 +787,6 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 validSegments.remove(segmentState.startOffset);
                 validSegmentsSize -= metadata.size();
             }
-        }
-
-        long committedEndOffset() {
-            return committedEndOffset;
         }
 
         long position(UUID objectId) {
@@ -810,16 +841,61 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
         // Caller must hold FileTierPartitionState.lock
         private AppendResult appendMetadata(AbstractTierMetadata entry,
-                                            OffsetAndEpoch offsetAndEpoch) throws IOException {
-            if (!mayAppend(offsetAndEpoch)) {
-                log.debug("Ignoring message at offset {} as last materialized offset is {} for {}",
-                        offsetAndEpoch, localMaterializedOffsetAndEpoch, topicIdPartition);
-                return AppendResult.FENCED;
+                                            OffsetAndEpoch offsetAndEpoch) throws KafkaStorageException {
+            if (status.hasError()) {
+                log.debug("Skipping processing for {} from offset {} as the current status is "
+                        + "failed", entry, offsetAndEpoch);
+                return AppendResult.FAILED;
             }
 
-            AppendResult result = appendMetadata(entry);
-            localMaterializedOffsetAndEpoch = offsetAndEpoch;
-            return result;
+            if (!status.isOpenForWrite()) {
+                log.debug("Skipping processing for {} from offset {} as file is not open for write",
+                        entry, offsetAndEpoch);
+                return AppendResult.NOT_TIERABLE;
+            }
+
+            try {
+                if (!mayAppend(offsetAndEpoch)) {
+                    log.debug("Ignoring message at offset {} as last materialized offset is {} for {}",
+                            offsetAndEpoch, localMaterializedOffsetAndEpoch, topicIdPartition);
+                    return AppendResult.FENCED;
+                }
+
+                AppendResult result = appendMetadata(entry);
+                localMaterializedOffsetAndEpoch = offsetAndEpoch;
+                log.debug("Processed append for {} with result {} consumed from offset {}", entry,
+                        result, offsetAndEpoch);
+                return result;
+            } catch (IOException ioe) {
+                TierPartitionStatus previousStatus = getStatus();
+                // Handle IOException specially by marking the dir offline, as it indicates a
+                // serious enough error that we can't ignore. This may halt the broker eventually.
+                setStatus(TierPartitionStatus.ERROR);
+                ioExceptionHandler.accept(ioe);
+                throw new KafkaStorageException(
+                        "Failed to apply " + entry + ", currentEpoch=" + currentEpoch +
+                                ", tierTopicPartitionOffsetAndEpoch=" + offsetAndEpoch +
+                                ", previousTierPartitionStatus=" + previousStatus +
+                                ", newTierPartitionStatus=" + TierPartitionStatus.ERROR, ioe);
+            } catch (Exception e) {
+                TierPartitionStatus previousStatus = getStatus();
+                setStatus(TierPartitionStatus.ERROR);
+                String logMsg = String.format(
+                        "Failed to apply %s, currentEpoch=%d, tierTopicPartitionOffsetAndEpoch=%s" +
+                                ", previousTierPartitionStatus=%s, newTierPartitionStatus=%s",
+                        entry, currentEpoch, offsetAndEpoch, previousStatus,
+                        TierPartitionStatus.ERROR);
+                if (previousStatus == TierPartitionStatus.ONLINE) {
+                    // To avoid noisy logging, we only log with error level, if a partition reaches
+                    // TierPartitionStatus.ERROR status while previously being in
+                    // TierPartitionStatus.ONLINE status.
+                    log.error(logMsg, e);
+                } else {
+                    log.info(logMsg, e);
+                }
+
+                return AppendResult.FAILED;
+            }
         }
 
         private boolean mayAppend(OffsetAndEpoch toAppend) {
@@ -887,6 +963,17 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                         }
                     })
                     .collect(Collectors.toList());
+        }
+
+        public String toString() {
+            // all read accesses below are safe without a lock
+            return "State(startOffset=" + startOffset()
+                    + ", endOffset=" + endOffset()
+                    + ", committedEndOffset=" + committedEndOffset()
+                    + ", numSegments=" + numSegments()
+                    + ", tierEpoch=" + currentEpoch
+                    + ", lastMaterializedOffset=" + localMaterializedOffsetAndEpoch
+                    + ")";
         }
 
         public Optional<TierObjectMetadata> metadata(long targetOffset) throws IOException {
@@ -1211,9 +1298,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 Files.createFile(flushedFilePathHandle);
             }
             Files.copy(flushedFilePathHandle, tmpFilePathHandle, StandardCopyOption.REPLACE_EXISTING);
-            FileChannel channel = FileChannel
-                    .open(tmpFilePathHandle, StandardOpenOption.READ, StandardOpenOption.WRITE);
-            try {
+            try (FileChannel channel = FileChannel
+                    .open(tmpFilePathHandle, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
                 Optional<Header> existingHeaderOpt = readHeader(channel);
                 Header newHeader;
                 if (existingHeaderOpt.isPresent()) {
@@ -1242,8 +1328,6 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 writeHeader(channel, newHeader);
                 channel.force(true);
                 Utils.atomicMoveWithFallback(tmpFilePathHandle, flushedFilePathHandle);
-            } finally {
-                channel.close();
             }
         }
 

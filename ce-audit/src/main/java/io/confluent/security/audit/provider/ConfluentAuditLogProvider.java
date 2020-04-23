@@ -24,7 +24,6 @@ import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import io.confluent.security.authorizer.provider.AuditLogProvider;
 import io.confluent.security.authorizer.provider.AuthorizationLogData;
 import io.confluent.security.authorizer.utils.ThreadUtils;
-import java.io.IOException;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -54,6 +53,15 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   // TODO(sumit): Make sure this logger has sane defaults.
   protected final Logger fallbackLog = LoggerFactory.getLogger(FALLBACK_LOGGER);
   private UnaryOperator<AuthorizationLogData> sanitizer;
+
+  // The audit logger needs to be configured to produce to a destination Kafka cluster. If no
+  // cluster is explicitly configured (which is the case in the default config, but might also
+  // happen in other configurations), the audit logger produces to the local cluster over the
+  // same listener that the inter-broker listener uses. Normally, this decision gets made in
+  // start(), when the Provider is passed the interBrokerListenerConfigs. However, reconfiguration
+  // can cause the config to be "reset" to a config that doesn't explicitly configure this.
+  // To support that reconfiguration, we need to store the values we were given in start()
+  private volatile Map<String, Object> originalInterBrokerListenerConfigs = new HashMap<>();
 
   // The Audit events feature has very strange requirements like dynamic config support for changing bootstrap servers
   // at runtime. They can have very high volume event streams for logging produce / consume audit events which
@@ -126,11 +134,8 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   @Override
   public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
     AuditLogConfig config = new AuditLogConfig(configs);
-    try {
-      AuditLogRouterJsonConfig.load(config.getString(AUDIT_EVENT_ROUTER_CONFIG));
-    } catch (IllegalArgumentException | IOException e) {
-      throw new ConfigException(e.getMessage());
-    }
+    // this actually creates the config, so it will throw a ConfigException if it's invalid
+    config.routerJsonConfig();
   }
 
   private void updateConfiguredState(Map<String, Object> loggerConfig, AuditLogRouter router,
@@ -147,18 +152,25 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
 
   @Override
   public void reconfigure(Map<String, ?> configs) {
-    AuditLogConfig config = new AuditLogConfig(configs);
+    AuditLogConfig alc = new AuditLogConfig(configs);
+    AuditLogRouterJsonConfig routerJsonConfig = alc.routerJsonConfig();
+    Map<String, Object> newConfigs = new HashMap<>(configs);
+    // If we don't have bootstrap servers specified, use the configs we saved at start
+    if (alc.routerJsonConfig().bootstrapServers() == null) {
+      newConfigs.putAll(originalInterBrokerListenerConfigs);
+    }
+
     AuditLogRouter router =
         new AuditLogRouter(
-            config.routerJsonConfig(),
-            config.getInt(AuditLogConfig.ROUTER_CACHE_ENTRIES_CONFIG));
+            routerJsonConfig,
+            alc.getInt(AuditLogConfig.ROUTER_CACHE_ENTRIES_CONFIG));
 
     // Merge the topics from the router config to the Kafka exporter config
-    Map<String, Object> elConfig = toEventLoggerConfig(configs);
+    Map<String, Object> elc = toEventLoggerConfig(newConfigs);
 
     // Because the bootstrap servers may change, create a new event logger instance pointing
     // to the new bootstrap URL
-    updateConfiguredState(elConfig, router, config);
+    updateConfiguredState(elc, router, alc);
   }
 
   @Override
@@ -167,13 +179,15 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
     initExecutor = Executors.
         newSingleThreadScheduledExecutor(ThreadUtils.createThreadFactory("audit-init-%d", true));
 
+    // save these, in case we're reconfigured without bootstrap servers
+    this.originalInterBrokerListenerConfigs = new HashMap<>(interBrokerListenerConfigs);
     CompletableFuture<Void> future = new CompletableFuture<>();
     initExecutor.submit(() -> {
       try {
-        // get values for AuditLogConfig settings
-        Map<String, Object> config = new HashMap<>(configuredState.config.values());
-        // and include the client configs to connect to the inter broker listener
-        config.putAll(interBrokerListenerConfigs);
+        // start with the configs to connect to the inter broker listener
+        Map<String, Object> config = new HashMap<>(interBrokerListenerConfigs);
+        // add the values for AuditLogConfig settings
+        config.putAll(configuredState.config.values());
 
         updateConfiguredState(toEventLoggerConfig(config),
             configuredState.router, configuredState.config);

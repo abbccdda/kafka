@@ -248,8 +248,9 @@ class TierTopicManagerTest {
     // Check that the TierPartitionFence even has fenced the partition.
     assertEquals(AppendResult.FAILED, partitionFenceFuture.get)
     assertEquals(TierPartitionStatus.ERROR, tierPartitionStateFiles(0).status())
-    assertEquals(1, tierTopicConsumer.errorPartitions().size())
-    assertEquals(Set(topicIdPartition), tierTopicConsumer.errorPartitions().asScala)
+    assertEquals(0, tierTopicConsumer.primaryConsumerErrorPartitions.size())
+    assertEquals(1, tierTopicConsumer.catchUpConsumerErrorPartitions.size())
+    assertEquals(Set(topicIdPartition), tierTopicConsumer.catchUpConsumerErrorPartitions().asScala)
   }
 
   @Test
@@ -273,7 +274,8 @@ class TierTopicManagerTest {
     tierTopicConsumer.doWork()
     assertTrue(uploadInitiateFuture.isDone)
     assertEquals(AppendResult.ACCEPTED, uploadInitiateFuture.get)
-    assertEquals(0, tierTopicConsumer.errorPartitions().size())
+    assertEquals(0, tierTopicConsumer.catchUpConsumerErrorPartitions.size())
+    assertEquals(0, tierTopicConsumer.primaryConsumerErrorPartitions().size())
     assertEquals(TierPartitionStatus.ONLINE, tierPartitionStateFiles(0).status())
 
     // Check that a valid SegmentUploadComplete event gets accepted.
@@ -285,7 +287,8 @@ class TierTopicManagerTest {
     assertEquals(
       uploadInitiate.objectId(),
       tierPartitionStateFiles(0).metadata(100).get().objectId())
-    assertEquals(0, tierTopicConsumer.errorPartitions().size())
+    assertEquals(0, tierTopicConsumer.catchUpConsumerErrorPartitions.size())
+    assertEquals(0, tierTopicConsumer.primaryConsumerErrorPartitions().size())
     assertEquals(TierPartitionStatus.ONLINE, tierPartitionStateFiles(0).status())
 
     // Check that the PartitionFence event has fenced the partition.
@@ -295,8 +298,9 @@ class TierTopicManagerTest {
     assertTrue(partitionFenceFuture.isDone)
     assertEquals(AppendResult.FAILED, partitionFenceFuture.get)
     assertEquals(TierPartitionStatus.ERROR, tierPartitionStateFiles(0).status())
-    assertEquals(1, tierTopicConsumer.errorPartitions().size())
-    assertEquals(Set(topicIdPartition), tierTopicConsumer.errorPartitions().asScala)
+    assertEquals(0, tierTopicConsumer.catchUpConsumerErrorPartitions().size())
+    assertEquals(1, tierTopicConsumer.primaryConsumerErrorPartitions.size())
+    assertEquals(Set(topicIdPartition), tierTopicConsumer.primaryConsumerErrorPartitions().asScala)
   }
 
   @Test
@@ -319,8 +323,9 @@ class TierTopicManagerTest {
     // fence the partition.
     assertEquals(AppendResult.FAILED, initiateResultFuture.get)
     assertEquals(TierPartitionStatus.ERROR, tierPartitionStateFiles(0).status())
-    assertEquals(1, tierTopicConsumer.errorPartitions().size())
-    assertEquals(Set(topicIdPartition), tierTopicConsumer.errorPartitions().asScala)
+    assertEquals(0, tierTopicConsumer.primaryConsumerErrorPartitions().size())
+    assertEquals(1, tierTopicConsumer.catchUpConsumerErrorPartitions.size())
+    assertEquals(Set(topicIdPartition), tierTopicConsumer.catchUpConsumerErrorPartitions().asScala)
   }
 
   @Test
@@ -336,6 +341,8 @@ class TierTopicManagerTest {
     moveRecordsToAllConsumers()
     tierTopicConsumer.doWork()
     assertEquals(TierPartitionStatus.ONLINE, tierPartitionStateFiles(0).status())
+    assertEquals(0, tierTopicConsumer.catchUpConsumerErrorPartitions().size())
+    assertEquals(0, tierTopicConsumer.primaryConsumerErrorPartitions().size())
 
     // TierSegmentUploadComplete is attempted without TierSegmentUploadInitiate, therefore it should
     // fence the partition state.
@@ -347,8 +354,9 @@ class TierTopicManagerTest {
     assertEquals(TierPartitionStatus.ERROR, tierPartitionStateFiles(0).status())
     assertTrue(uploadCompleteFuture.isDone)
     assertEquals(AppendResult.FAILED, uploadCompleteFuture.get)
-    assertEquals(1, tierTopicConsumer.errorPartitions().size())
-    assertEquals(Set(topicIdPartition), tierTopicConsumer.errorPartitions().asScala)
+    assertEquals(0, tierTopicConsumer.catchUpConsumerErrorPartitions().size())
+    assertEquals(1, tierTopicConsumer.primaryConsumerErrorPartitions().size())
+    assertEquals(Set(topicIdPartition), tierTopicConsumer.primaryConsumerErrorPartitions().asScala)
 
     // Now, TierSegmentUploadInitiate is attempted. It still gets processed with
     // AppendResult.FAILED.
@@ -359,8 +367,9 @@ class TierTopicManagerTest {
     assertEquals(TierPartitionStatus.ERROR, tierPartitionStateFiles(0).status())
     assertTrue(uploadInitiateFuture.isDone)
     assertEquals(AppendResult.FAILED, uploadInitiateFuture.get)
-    assertEquals(1, tierTopicConsumer.errorPartitions().size())
-    assertEquals(Set(topicIdPartition), tierTopicConsumer.errorPartitions().asScala)
+    assertEquals(0, tierTopicConsumer.catchUpConsumerErrorPartitions().size())
+    assertEquals(1, tierTopicConsumer.primaryConsumerErrorPartitions().size())
+    assertEquals(Set(topicIdPartition), tierTopicConsumer.primaryConsumerErrorPartitions().asScala)
   }
 
   @Test
@@ -374,6 +383,8 @@ class TierTopicManagerTest {
     moveRecordsToAllConsumers()
     tierTopicConsumer.doWork()
     assertEquals(TierPartitionStatus.CATCHUP, tierPartitionStateFiles(0).status())
+    assertEquals(0, tierTopicConsumer.catchUpConsumerErrorPartitions().size())
+    assertEquals(0, tierTopicConsumer.primaryConsumerErrorPartitions().size())
 
     // TierSegmentUploadInitiate is attempted without TierTopicInitLeader. It still gets processed with
     // AppendResult.FAILED.
@@ -387,8 +398,9 @@ class TierTopicManagerTest {
     assertTrue(uploadInitiateFuture.isDone)
     assertEquals(TierPartitionStatus.ERROR, tierPartitionStateFiles(0).status())
     assertEquals(AppendResult.FAILED, uploadInitiateFuture.get)
-    assertEquals(1, tierTopicConsumer.errorPartitions().size())
-    assertEquals(Set(topicIdPartition), tierTopicConsumer.errorPartitions().asScala)
+    assertEquals(0, tierTopicConsumer.catchUpConsumerErrorPartitions().size())
+    assertEquals(1, tierTopicConsumer.primaryConsumerErrorPartitions().size())
+    assertEquals(Set(topicIdPartition), tierTopicConsumer.primaryConsumerErrorPartitions().asScala)
 
     // Now TierTopicInitLeader is attempted. It still gets processed with
     // AppendResult.FAILED.
@@ -397,6 +409,9 @@ class TierTopicManagerTest {
     tierTopicConsumer.doWork()
     assertTrue(becomeArchiverFuture.isDone)
     assertEquals(AppendResult.FAILED, becomeArchiverFuture.get)
+    assertEquals(0, tierTopicConsumer.catchUpConsumerErrorPartitions().size())
+    assertEquals(1, tierTopicConsumer.primaryConsumerErrorPartitions().size())
+    assertEquals(Set(topicIdPartition), tierTopicConsumer.primaryConsumerErrorPartitions().asScala)
   }
 
   private def addReplica(topicIdPartition: TopicIdPartition, tierTopicConsumer: TierTopicConsumer): Unit = {

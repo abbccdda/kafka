@@ -230,23 +230,11 @@ class DynamicBrokerConfigTest {
   }
 
   @Test
-  def testBalancerValidateReconfigurationFailure(): Unit = {
-    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
-    val oldConfig =  KafkaConfig.fromProps(props)
-    val kafkaServer: KafkaServer = EasyMock.createMock(classOf[kafka.server.KafkaServer])
-    EasyMock.expect(kafkaServer.config).andReturn(oldConfig).anyTimes()
-    EasyMock.replay(kafkaServer)
-
-    props.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "-200")
-    val newConfig = KafkaConfig(props)
-    val dynamicBalancerConfig = new DynamicBalancerConfig(kafkaServer)
-    try {
-      dynamicBalancerConfig.validateReconfiguration(newConfig)
-      fail("Invalid throttle config did not fail validation")
-    } catch {
-      case e: Exception => // expected exception
-    }
+  def testBalancerReconfigureNegativeThrottle(): Unit = {
+    verifyConfigUpdate(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, ConfluentConfigs.BALANCER_THROTTLE_AUTO_THROTTLE.toString, perBrokerConfig = false, expectFailure = false)
+    verifyConfigUpdate(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, ConfluentConfigs.BALANCER_THROTTLE_MIN.toString, perBrokerConfig = false, expectFailure = false)
   }
+
 
   private def verifyConfigUpdate(name: String, value: Object, perBrokerConfig: Boolean, expectFailure: Boolean): Unit = {
     val configProps = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 8181)

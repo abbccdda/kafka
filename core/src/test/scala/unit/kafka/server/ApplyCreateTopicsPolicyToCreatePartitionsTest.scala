@@ -30,6 +30,7 @@ import org.apache.kafka.server.policy.CreateTopicPolicy.RequestMetadata
 import org.junit.{Assert, Test}
 
 import scala.collection.JavaConverters._
+import scala.collection.Seq
 
 /**
  * This is a test of a Confluent-specific configuration option,

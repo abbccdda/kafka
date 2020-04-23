@@ -33,6 +33,7 @@ import kafka.server.MetadataCache;
 import kafka.server.QuotaFactory;
 import kafka.server.ReplicaManager;
 import kafka.server.ReplicationQuotaManager;
+import kafka.server.link.ClusterLinkAdminManager;
 import kafka.zk.KafkaZkClient;
 import org.apache.kafka.common.memory.MemoryPool;
 import org.apache.kafka.common.message.UpdateMetadataRequestData.UpdateMetadataBroker;
@@ -92,6 +93,7 @@ public class MetadataRequestBenchmark {
     private ReplicaManager replicaManager = Mockito.mock(ReplicaManager.class);
     private GroupCoordinator groupCoordinator = Mockito.mock(GroupCoordinator.class);
     private AdminManager adminManager = Mockito.mock(AdminManager.class);
+    private ClusterLinkAdminManager clusterLinkAdminManager = Mockito.mock(ClusterLinkAdminManager.class);
     private TransactionCoordinator transactionCoordinator = Mockito.mock(TransactionCoordinator.class);
     private KafkaController kafkaController = Mockito.mock(KafkaController.class);
     private KafkaZkClient kafkaZkClient = Mockito.mock(KafkaZkClient.class);
@@ -165,6 +167,7 @@ public class MetadataRequestBenchmark {
         return new KafkaApis(requestChannel,
             replicaManager,
             adminManager,
+            clusterLinkAdminManager,
             groupCoordinator,
             transactionCoordinator,
             kafkaController,

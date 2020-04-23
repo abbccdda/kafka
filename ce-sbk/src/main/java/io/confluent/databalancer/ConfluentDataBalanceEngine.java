@@ -5,11 +5,14 @@ package io.confluent.databalancer;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundCapacityGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
+import com.linkedin.kafka.cruisecontrol.detector.notifier.SelfHealingNotifier;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
-import com.yammer.metrics.Metrics;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.ConfigException;
@@ -23,6 +26,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
@@ -47,15 +51,20 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     private static final String START_ANCHOR = "^";
     private static final String END_ANCHOR = "$";
     private static final String WILDCARD_SUFFIX = ".*";
+    // potentially removable goals
+    private static final String NETWORK_IN_CAPACITY_GOAL = NetworkInboundCapacityGoal.class.getName();
+    private static final String NETWORK_OUT_CAPACITY_GOAL = NetworkOutboundCapacityGoal.class.getName();
 
     // ccRunner is used to control all access to the underlying CruiseControl object;
     // access is serialized through here (in particular for startup/shutdown).
-    private ExecutorService ccRunner;
+    private final ExecutorService ccRunner;
+    private final DataBalancerMetricsRegistry dataBalancerMetricsRegistry;
     private KafkaCruiseControl cruiseControl;
     private Semaphore abortStartupCheck  = new Semaphore(0);
 
-    public ConfluentDataBalanceEngine() {
-        this(null,
+    public ConfluentDataBalanceEngine(DataBalancerMetricsRegistry dataBalancerMetricsRegistry) {
+        this(dataBalancerMetricsRegistry,
+         null,
              Executors.newSingleThreadExecutor(
                  new ThreadFactoryBuilder()
                      .setNameFormat("DataBalanceEngine-%d")
@@ -63,20 +72,21 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     }
 
     // Visible for testing
-    ConfluentDataBalanceEngine(KafkaCruiseControl cc, ExecutorService executor) {
-        ccRunner = executor;
+    ConfluentDataBalanceEngine(DataBalancerMetricsRegistry dataBalancerMetricsRegistry, KafkaCruiseControl cc, ExecutorService executor) {
+        this.dataBalancerMetricsRegistry = Objects.requireNonNull(dataBalancerMetricsRegistry, "DataBalancerMetricsRegistry must be non-null");
+        ccRunner = Objects.requireNonNull(executor, "ExecutorService must be non-null");
         cruiseControl = cc;
     }
 
     @Override
-    public synchronized void startUp(KafkaConfig kafkaConfig)  {
+    public synchronized void onActivation(KafkaConfig kafkaConfig)  {
         LOG.info("DataBalancer: Scheduling DataBalanceEngine Startup");
         abortStartupCheck.drainPermits();
         ccRunner.submit(() -> startCruiseControl(kafkaConfig));
     }
 
     @Override
-    public synchronized void shutdown() {
+    public synchronized void onDeactivation() {
         LOG.info("DataBalancer: Scheduling DataBalanceEngine Shutdown");
 
         // If startup is in progress, abort it
@@ -86,9 +96,19 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     }
 
     @Override
+    public void shutdown() {
+        ccRunner.shutdown();
+    }
+
+    @Override
     public void updateThrottle(Long newThrottle) {
         LOG.info("DataBalancer: Scheduling DataBalanceEngine throttle update");
         ccRunner.submit(() -> updateThrottleHelper(newThrottle));
+    }
+
+    @Override
+    public boolean isActive() {
+        return cruiseControl != null;
     }
 
     private void updateThrottleHelper(Long newThrottle) {
@@ -114,7 +134,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         try {
             KafkaCruiseControlConfig config = generateCruiseControlConfig(kafkaConfig);
             checkStartupComponentsReady(config);
-            KafkaCruiseControl cruiseControl = new KafkaCruiseControl(config, Metrics.defaultRegistry());
+            KafkaCruiseControl cruiseControl = new KafkaCruiseControl(config, dataBalancerMetricsRegistry);
             cruiseControl.startUp();
             this.cruiseControl = cruiseControl;
             LOG.info("DataBalancer: DataBalanceEngine started");
@@ -156,6 +176,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
                 cruiseControl.shutdown();
             } finally {
                 cruiseControl = null;
+                dataBalancerMetricsRegistry.clearShortLivedMetrics();
                 LOG.info("DataBalancer: DataBalanceEngine shutdown completed.");
             }
         }
@@ -201,6 +222,27 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         }
         ccConfigProps.put(BrokerCapacityResolver.LOG_DIRS_CONFIG, logDirs.get(0));
 
+        // Adjust our goals list as needed -- if network capacities are not provided, remove them from the list
+        List<String> goals = new LinkedList<>(KafkaCruiseControlConfig.DEFAULT_GOALS_LIST);
+        List<String> hardGoals = new LinkedList<>(KafkaCruiseControlConfig.DEFAULT_HARD_GOALS_LIST);
+        List<String> anomalyDetectionGoals = new LinkedList<>(KafkaCruiseControlConfig.DEFAULT_ANOMALY_DETECTION_GOALS_LIST);
+        // if network in/out are zero, we don't want to enforce network capacity goals
+        long networkInCapacity = config.getLong(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG);
+        if (networkInCapacity <= 0) {
+            removeGoalFromLists(NETWORK_IN_CAPACITY_GOAL, goals, hardGoals, anomalyDetectionGoals);
+        }
+        long networkOutCapacity = config.getLong(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG);
+        if (networkOutCapacity <= 0) {
+            removeGoalFromLists(NETWORK_OUT_CAPACITY_GOAL, goals, hardGoals, anomalyDetectionGoals);
+        }
+
+        ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.GOALS_CONFIG, String.join(",", goals));
+        ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.HARD_GOALS_CONFIG, String.join(",", hardGoals));
+        ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.ANOMALY_DETECTION_GOALS_CONFIG, String.join(",", anomalyDetectionGoals));
+        // The defaults for the various self-healing properties are annoyingly difficult to set in the SelfHealingNotifier
+        ccConfigProps.putIfAbsent(SelfHealingNotifier.SELF_HEALING_ENABLED_CONFIG, String.valueOf(false));
+        ccConfigProps.putIfAbsent(SelfHealingNotifier.SELF_HEALING_GOAL_VIOLATION_ENABLED_CONFIG, String.valueOf(true));
+
         // Derive bootstrap.servers from the provided KafkaConfig, instead of requiring
         // users to specify it.
         String bootstrapServers = config.listeners().toStream()
@@ -242,4 +284,9 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         return new KafkaCruiseControlConfig(ccConfigProps);
     }
 
+    private static void removeGoalFromLists(String goal, List<String>... lists) {
+        for (List<String> goalList : lists) {
+            goalList.remove(goal);
+        }
+    }
 }

@@ -125,7 +125,10 @@ final class LicenseManagers {
 
   protected void cancelled(LicenseManager licenseManager) {
     if (licenseManager != null) {
-      registered.remove(licenseManager);
+      RunningLicenseManager runningLicenseManager = registered.remove(licenseManager);
+      if (runningLicenseManager != null) {
+        runningLicenseManager.executor.shutdownNow();
+      }
     }
   }
 

@@ -58,6 +58,11 @@ public class ListClusterLinksResponse extends AbstractResponse {
         result.complete(clusterLinks);
     }
 
+    // Visible for testing.
+    public ListClusterLinksResponseData data() {
+        return data;
+    }
+
     @Override
     public int throttleTimeMs() {
         return data.throttleTimeMs();

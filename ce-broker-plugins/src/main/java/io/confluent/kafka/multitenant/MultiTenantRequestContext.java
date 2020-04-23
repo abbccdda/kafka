@@ -1,4 +1,4 @@
-// (Copyright) [2017 - 2017] Confluent, Inc.
+// (Copyright) [2017 - 2020] Confluent, Inc.
 
 package io.confluent.kafka.multitenant;
 
@@ -111,6 +111,8 @@ public class MultiTenantRequestContext extends RequestContext {
   private final TenantMetrics tenantMetrics;
   private final MetricsRequestContext metricsRequestContext;
   private final TenantPartitionAssignor partitionAssignor;
+  private final short defaultReplicationFactor;
+  private final int defaultNumPartitions;
   private final Time time;
   private final long startNanos;
   private boolean isMetadataFetchForAllTopics;
@@ -134,7 +136,9 @@ public class MultiTenantRequestContext extends RequestContext {
                                    Time time,
                                    Metrics metrics,
                                    TenantMetrics tenantMetrics,
-                                   TenantPartitionAssignor partitionAssignor) {
+                                   TenantPartitionAssignor partitionAssignor,
+                                   short defaultReplicationFactor,
+                                   int defaultNumPartitions) {
     super(header, connectionId, clientAddress, principal, listenerName, securityProtocol, clientInformation);
 
     if (!(principal instanceof MultiTenantPrincipal)) {
@@ -147,6 +151,8 @@ public class MultiTenantRequestContext extends RequestContext {
     this.metricsRequestContext = new MetricsRequestContext(
         (MultiTenantPrincipal) principal, header.clientId(), header.apiKey());
     this.partitionAssignor = partitionAssignor;
+    this.defaultReplicationFactor = defaultReplicationFactor;
+    this.defaultNumPartitions = defaultNumPartitions;
     this.time = time;
     this.startNanos = time.nanoseconds();
   }
@@ -349,8 +355,10 @@ public class MultiTenantRequestContext extends RequestContext {
     Map<String, TenantPartitionAssignor.TopicInfo> topicInfos = new HashMap<>();
 
     for (CreateTopicsRequestData.CreatableTopic topicDetails : topics) {
-      int partitions = topicDetails.numPartitions();
-      short replication = topicDetails.replicationFactor();
+      int partitions = topicDetails.numPartitions() == CreateTopicsRequest.NO_NUM_PARTITIONS ?
+          defaultNumPartitions : topicDetails.numPartitions();
+      short replication = topicDetails.replicationFactor() == CreateTopicsRequest.NO_REPLICATION_FACTOR ?
+          defaultReplicationFactor : topicDetails.replicationFactor();
       if (!topicDetails.assignments().isEmpty()) {
         log.debug("Overriding replica assignments provided in CreateTopicsRequest");
         partitions = topicDetails.assignments().size();
@@ -366,8 +374,8 @@ public class MultiTenantRequestContext extends RequestContext {
               new TenantPartitionAssignor.TopicInfo(partitions, replication, 0));
     }
 
-    return partitionAssignor.assignPartitionsForNewTopics(tenantContext.principal.tenantMetadata().tenantName,
-            topicInfos);
+    return partitionAssignor.assignPartitionsForNewTopics(
+        tenantContext.principal.tenantMetadata().tenantName, topicInfos);
   }
 
   private AlterConfigsRequest transformAlterConfigsRequest(AlterConfigsRequest alterConfigsRequest,

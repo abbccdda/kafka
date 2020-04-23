@@ -10,7 +10,6 @@ import kafka.tier.domain.TierSegmentUploadComplete;
 import kafka.tier.domain.TierSegmentUploadInitiate;
 import kafka.tier.state.TierPartitionState;
 
-import java.io.IOException;
 import java.util.UUID;
 
 public class TierUtils {
@@ -24,7 +23,7 @@ public class TierUtils {
                                                                      int size,
                                                                      boolean hasAbortedTxns,
                                                                      boolean hasEpochState,
-                                                                     boolean hasProducerState) throws IOException {
+                                                                     boolean hasProducerState) {
         TierSegmentUploadInitiate uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition,
                 tierEpoch,
                 objectId,

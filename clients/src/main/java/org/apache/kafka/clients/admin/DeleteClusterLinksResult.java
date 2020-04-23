@@ -10,7 +10,7 @@ import org.apache.kafka.common.annotation.InterfaceStability;
 import java.util.Map;
 
 /**
- * The result of {@link ConfluentAdmin#deleteClusterLinks(Collection, DeleteClusterLinkOptions)}.
+ * The result of {@link ConfluentAdmin#deleteClusterLinks(Collection, DeleteClusterLinksOptions)}.
  *
  * The API of this class is evolving, see {@link Admin} for details.
  */

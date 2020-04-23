@@ -42,6 +42,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.apache.kafka.clients.admin.Config;
+import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.CreateAclsOptions;
 import org.apache.kafka.clients.admin.CreateAclsResult;
@@ -70,6 +72,7 @@ import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.requests.NewClusterLink;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
+import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.apache.kafka.server.http.MetadataServerConfig;
 import org.junit.After;
@@ -366,6 +369,31 @@ public class ConfluentProviderTest {
   }
 
   @Test
+  public void testMetadataServerDynamicConfigurator() throws Exception {
+    Map<String, Object> configs = new HashMap<>();
+    configs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "CONFLUENT");
+    configs.put(MetadataServerConfig.METADATA_SERVER_LISTENERS_PROP, "http://somehost:8095");
+    initializeRbacProvider("clusterA", Scope.intermediateScope("testOrg"), configs);
+    MockMetadataServer metadataServer = new MockMetadataServer();
+
+    rbacProvider
+        .start(KafkaTestUtils.serverInfo("clusterA", metadataServer, SecurityProtocol.PLAINTEXT),
+            configs)
+        .toCompletableFuture().get();
+
+    DynamicConfigurator configurator = metadataServer.getInjectedInstance(DynamicConfigurator.class);
+    configurator.setClusterConfig(
+        Utils.mkSet(new ConfigEntry("a.b", "1"), new ConfigEntry("c.d", "2")));
+    Config config = configurator.getClusterConfig().get();
+    assertEquals("1", config.get("a.b").value());
+    assertEquals("2", config.get("c.d").value());
+    configurator.deleteClusterConfig(Utils.mkSet(new ConfigEntry("c.d", "2")));
+    config = configurator.getClusterConfig().get();
+    assertEquals("1", config.get("a.b").value());
+    assertNull(config.get("c.d"));
+  }
+
+  @Test
   public void testMetadataServerConfigs() throws Exception {
     Map<String, Object> configs = new HashMap<>();
     configs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "CONFLUENT");
@@ -654,4 +682,5 @@ public class ConfluentProviderTest {
         throw new UnsupportedOperationException();
     }
   }
+
 }

@@ -188,7 +188,7 @@ public class ConfluentConfigs {
 
     public static final String BALANCER_ENABLE_BASE_CONFIG = "enable";
     public static final String BALANCER_ENABLE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_ENABLE_BASE_CONFIG;
-    public static final boolean BALANCER_ENABLE_DEFAULT = true;
+    public static final boolean BALANCER_ENABLE_DEFAULT = false;
     public static final String BALANCER_ENABLE_DOC = "This config controls whether the balancer is enabled";
 
     public static final String BALANCER_RACK_AWARE_BASE_CONFIG = "rack.aware";
@@ -199,45 +199,48 @@ public class ConfluentConfigs {
 
     public static final String BALANCER_THROTTLE_BASE_CONFIG = "throttle.bytes.per.second";
     public static final String BALANCER_THROTTLE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_THROTTLE_BASE_CONFIG;
-    public static final Long BALANCER_THROTTLE_DEFAULT = null;
+    public static final Long BALANCER_THROTTLE_NO_THROTTLE = -1L;
+    public static final Long BALANCER_THROTTLE_AUTO_THROTTLE = -2L;
+    public static final Long BALANCER_THROTTLE_MIN = BALANCER_THROTTLE_AUTO_THROTTLE; // This is Kafka Cruise Control AUTO_THROTTLE.
+    public static final Long BALANCER_THROTTLE_DEFAULT = BALANCER_THROTTLE_NO_THROTTLE;
     public static final String BALANCER_THROTTLE_DOC = "This config specifies the upper bound for bandwidth in bytes to " +
             "move replicas around for replica reassignment.";
 
     public static final String BALANCER_REPLICA_CAPACITY_BASE_CONFIG = "max.replicas";
     public static final String BALANCER_REPLICA_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_REPLICA_CAPACITY_BASE_CONFIG;
-    public static final Long BALANCER_REPLICA_CAPACITY_DEFAULT = null;
+    public static final Long BALANCER_REPLICA_CAPACITY_DEFAULT = 10000L;
     public static final String BALANCER_REPLICA_CAPACITY_DOC = "The replica capacity is the maximum number of replicas " +
             "the balancer will place on a single broker.";
 
-    public static final String BALANCER_DISK_CAPACITY_BASE_CONFIG = "disk.max.bytes";
-    public static final String BALANCER_DISK_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_DISK_CAPACITY_BASE_CONFIG;
-    public static final Long BALANCER_DISK_CAPACITY_DEFAULT = null;
-    public static final String BALANCER_DISK_CAPACITY_DOC = "This config specifies the upper bound for disk usage in " +
-            "bytes per broker.";
+    public static final String BALANCER_DISK_CAPACITY_THRESHOLD_BASE_CONFIG = "disk.max.load";
+    public static final String BALANCER_DISK_CAPACITY_THRESHOLD_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_DISK_CAPACITY_THRESHOLD_BASE_CONFIG;
+    public static final Double BALANCER_DISK_CAPACITY_THRESHOLD_DEFAULT = 0.8;
+    public static final String BALANCER_DISK_CAPACITY_THRESHOLD_DOC = "This config specifies the maximum load for disk usage as " +
+            "a proportion of disk capacity. Valid values are between 0 and 1.";
 
     public static final String BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG = "network.in.max.bytes.per.second";
     public static final String BALANCER_NETWORK_IN_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG;
-    public static final Long BALANCER_NETWORK_IN_CAPACITY_DEFAULT = null;
+    public static final Long BALANCER_NETWORK_IN_CAPACITY_DEFAULT = 0L;
     public static final String BALANCER_NETWORK_IN_CAPACITY_DOC = "This config specifies the upper bound for network " +
-            "incoming bytes per second per broker.";
+            "incoming bytes per second per broker. 0 means that no bound is enforced.";
 
     public static final String BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG = "network.out.max.bytes.per.second";
     public static final String BALANCER_NETWORK_OUT_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG;
-    public static final Long BALANCER_NETWORK_OUT_CAPACITY_DEFAULT = null;
+    public static final Long BALANCER_NETWORK_OUT_CAPACITY_DEFAULT = 0L;
     public static final String BALANCER_NETWORK_OUT_CAPACITY_DOC = "This config specifies the upper bound for network " +
-            "outgoing bytes per second per broker.";
+            "outgoing bytes per second per broker. 0 means that no bound is enforced.";
 
     public static final String BALANCER_EXCLUDE_TOPIC_NAMES_BASE_CONFIG = "exclude.topic.names";
     public static final String BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_EXCLUDE_TOPIC_NAMES_BASE_CONFIG;
     public static final List BALANCER_EXCLUDE_TOPIC_NAMES_DEFAULT = Collections.EMPTY_LIST;
     public static final String BALANCER_EXCLUDE_TOPIC_NAMES_DOC = "This config accepts a list of topic names that " +
-            "will be excluded from rebalancing. For example, 'balancer.exclude.topic.names=[topic1, topic2]' ";
+            "will be excluded from rebalancing. For example, 'confluent.balancer.exclude.topic.names=[topic1, topic2]' ";
 
     public static final String BALANCER_EXCLUDE_TOPIC_PREFIXES_BASE_CONFIG = "exclude.topic.prefixes";
     public static final String BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_EXCLUDE_TOPIC_PREFIXES_BASE_CONFIG;
     public static final List BALANCER_EXCLUDE_TOPIC_PREFIXES_DEFAULT = Collections.EMPTY_LIST;
     public static final String BALANCER_EXCLUDE_TOPIC_PREFIXES_DOC = "This config accepts a list of topic prefixes that " +
-            "will be excluded from rebalancing. For example, 'balancer.exclude.topic.prefixes=[prefix1, prefix2]' would " +
+            "will be excluded from rebalancing. For example, 'confluent.balancer.exclude.topic.prefixes=[prefix1, prefix2]' would " +
             "exclude topics 'prefix1-suffix1', 'prefix1-suffix2', 'prefix2-suffix3', but not 'abc-prefix1-xyz'" +
             " and 'def-prefix2'";
 
@@ -308,6 +311,9 @@ public class ConfluentConfigs {
     public static final String CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_DOC =
         "The time span of each sample for cluster link replication quotas";
 
+    public static final String INTERNAL_REST_SERVER_BIND_PORT_CONFIG = "confluent.internal.rest.server.bind.port";
+    public static final Integer INTERNAL_REST_SERVER_BIND_PORT_DEFAULT = null;
+    public static final String INTERNAL_REST_SERVER_BIND_PORT_DOC = "The port to bind the internal rest server to.";
 
     public enum ClientType {
         PRODUCER("producer", ProducerConfig.configNames()),

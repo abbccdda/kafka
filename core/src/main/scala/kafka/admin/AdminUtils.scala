@@ -17,7 +17,7 @@
 
 package kafka.admin
 
-import java.util.Random
+import java.util.{Properties, Random}
 
 import kafka.utils.Logging
 import org.apache.kafka.common.errors.{InvalidPartitionsException, InvalidReplicationFactorException}
@@ -229,6 +229,22 @@ object AdminUtils extends Logging {
     brokerRackMap.toSeq.map { case (id, rack) => (rack, id) }
       .groupBy { case (rack, _) => rack }
       .map { case (rack, rackAndIdList) => (rack, rackAndIdList.map { case (_, id) => id }.sorted) }
+  }
+
+  /**
+    * Splits the config string by commas, avoiding those in [], into key-value pairs. Each key-value pair is
+    * of format key=value. Supports trailing empty strings.
+    */
+  private[admin] def parseConfigs(configs: String): Properties = {
+    // Use -1 as the limit for split() to include trailing empty strings. This
+    // is to support empty value (e.g. 'ssl.endpoint.identification.algorithm=')
+    val pattern = "(?=[^\\]]*(?:\\[|$))"
+    val splitConfigs = configs.split("," + pattern).map(_.split("""\s*=\s*""" + pattern, -1))
+    require(splitConfigs.forall(config => config.length == 2), "Invalid config: all configs must be in the format \"key=val\".")
+    // Create properties, parsing square brackets from values if necessary.
+    val props = new Properties
+    splitConfigs.foreach(pair => props.setProperty(pair(0).trim, pair(1).replaceAll("\\[?\\]?", "").trim))
+    props
   }
 
   private def replicaIndex(firstReplicaIndex: Int, secondReplicaShift: Int, replicaIndex: Int, nBrokers: Int): Int = {

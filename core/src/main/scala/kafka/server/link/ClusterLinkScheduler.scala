@@ -35,17 +35,17 @@ object ClusterLinkScheduler {
     * work that takes an indefinite amount of time to complete, and therefore an asynchronous
     * context is required.
     *
-    * A task's `run()` will be called from the scheduler when it's delay period has elapsed. From
+    * A task's `run()` will be called from the scheduler when it's reschedule delay has elapsed. From
     * there, the task should start its work and submit any asynchronous callbacks through the
     * `PeriodicTask` (e.g. via `scheduleWhenComplete()`), where the callback should return a boolean
     * indicating whether the task has completed. If an exception is thrown, it's assumed that the task
-    * has completed in a failed way, and will be scheduled to run again after its delay period.
+    * has completed in a failed way, and will be scheduled to run again after its delay has elapsed.
     *
     * @param scheduler the scheduler to run on
     * @param name the name identifying the task's work
-    * @param periodMs the delay between subsequent tasks
+    * @param rescheduleDelayMs the delay between subsequent tasks
     */
-  abstract class PeriodicTask(val scheduler: ClusterLinkScheduler, val name: String, val periodMs: Int) extends Logging {
+  abstract class PeriodicTask(val scheduler: ClusterLinkScheduler, val name: String, val rescheduleDelayMs: Int) extends Logging {
 
     private var runOnceResult: Option[KafkaFutureImpl[Void]] = None
     @volatile private var isShuttingDown = false
@@ -111,8 +111,8 @@ object ClusterLinkScheduler {
 
     /**
       * Invokes the callback. This should only be called from the scheduler's thread. If the callback
-      * indicates the task has completed, then the task is scheduled to be restarted after the
-      * delay period has elapsed.
+      * indicates the task has completed, then the task is scheduled to be rescheduled after the
+      * delay has elapsed.
       *
       * @param callback the callback to be invoked
       */
@@ -149,10 +149,10 @@ object ClusterLinkScheduler {
     private def wrap(callback: () => Boolean): () => Unit = () => invoke(callback)
 
     /**
-      * Schedules the task to be restarted after the delay period.
+      * Schedules the task to be restarted after the reschedule delay.
       */
     private def scheduleRun() = if (!isShuttingDown) {
-      scheduler.schedule(name, wrap(() => run()), delay = periodMs, period = -1L, TimeUnit.MILLISECONDS)
+      scheduler.schedule(name, wrap(() => run()), delay = rescheduleDelayMs, period = -1L, TimeUnit.MILLISECONDS)
     }
   }
 

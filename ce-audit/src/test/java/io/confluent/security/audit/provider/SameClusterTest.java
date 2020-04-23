@@ -4,15 +4,16 @@
 package io.confluent.security.audit.provider;
 
 import static io.confluent.events.EventLoggerConfig.KAFKA_EXPORTER_PREFIX;
+import static io.confluent.security.audit.router.AuditLogRouterJsonConfig.DEFAULT_TOPIC;
 import static io.confluent.security.audit.router.AuditLogRouterJsonConfig.TOPIC_PREFIX;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_PREFIX;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import io.confluent.crn.ConfluentResourceName;
+import io.confluent.crn.CrnSyntaxException;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
 import io.confluent.security.audit.AuditLogRouterJsonConfigUtils;
@@ -21,10 +22,11 @@ import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.test.utils.RbacClusters;
-import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AlterConfigOp;
 import org.apache.kafka.clients.admin.AlterConfigOp.OpType;
@@ -56,8 +58,34 @@ import org.junit.experimental.categories.Category;
 @Category(IntegrationTest.class)
 public class SameClusterTest extends ClusterTestCommon {
 
-  static final String APP3_TOPIC = "app3-topic";
+  Set<AdminClient> adminClients = new HashSet<>();
 
+  // app1-topic and app2-topic are used in produceConsume
+  static final String APP3_TOPIC = "app3-topic";
+  static final String APP4_TOPIC = "app4-topic";
+  static final String APP5_TOPIC = "app5-topic";
+  static final String APP6_TOPIC = "app6-topic";
+
+  // simple router config that sends audit messages to a non-default topic
+  static final String OTHER_TOPIC_ROUTER_CONFIG =
+      "{\n"
+          + "    \"destinations\": {\n"
+          + "        \"topics\": {\n"
+          + "            \"confluent-audit-log-events\": {\n"
+          + "                \"retention_ms\": 7776000000\n"
+          + "            },\n"
+          + "            \"confluent-audit-log-events-other\": {\n"
+          + "                \"retention_ms\": 7776000000\n"
+          + "            }\n"
+          + "        }\n"
+          + "    },\n"
+          + "    \"default_topics\": {\n"
+          + "        \"allowed\": \"confluent-audit-log-events-other\",\n"
+          + "        \"denied\": \"confluent-audit-log-events-other\"\n"
+          + "    }\n"
+          + "}";
+
+  // router config that enables produce logging for a single topic
   static final String APP3_ROUTER_CONFIG =
       "{\n"
           + "    \"routes\": {\n"
@@ -105,8 +133,9 @@ public class SameClusterTest extends ClusterTestCommon {
   @After
   public void tearDown() {
     try {
-      if (consumer != null) {
-        consumer.close();
+      closeConsumers();
+      for (AdminClient adminClient : adminClients) {
+        adminClient.close();
       }
       if (rbacClusters != null) {
         rbacClusters.shutdown();
@@ -146,14 +175,46 @@ public class SameClusterTest extends ClusterTestCommon {
     consumerProperties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
         ByteArrayDeserializer.class.getName());
 
-    consumer = new KafkaConsumer<>(consumerProperties);
+    KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consumerProperties);
+    consumers.add(consumer);
 
     consumer.subscribe(Collections.singleton(topic));
     return consumer;
   }
 
+  private void checkCreateTopicAuditMessageReceived(String topicToCreate, String auditTopic)
+      throws CrnSyntaxException {
+    KafkaConsumer<byte[], byte[]> consumer = consumer("event-log-" + topicToCreate, auditTopic);
+
+    AdminClient resourceOwnerAdminClient = rbacClusters.clientBuilder(RESOURCE_OWNER1)
+        .buildAdminClient();
+    adminClients.add(resourceOwnerAdminClient);
+    resourceOwnerAdminClient
+        .createTopics(Collections.singleton(new NewTopic(topicToCreate, 1, (short) 1)));
+
+    String resourceName = ConfluentResourceName.newBuilder()
+        .addElement("kafka", rbacClusters.kafkaClusterId())
+        .addElement("topic", topicToCreate)
+        .build()
+        .toString();
+
+    assertTrue(eventsMatchUnordered(consumer, 30000,
+        e -> match(e, "User:" + RESOURCE_OWNER1, resourceName, "kafka.CreateTopics",
+            AuthorizeResult.ALLOWED, AuthorizePolicy.PolicyType.ALLOW_ROLE)
+    ));
+  }
+
   @Test
-  public void testUnconfigured() throws Throwable {
+  public void testDefaultConfigurationAndReconfigure() throws Throwable {
+    // This test is larger than we would normally like, so that we reduce the number
+    // of times we set up and tear down the kafka cluster. It tests:
+    //
+    // - Are the reconfigurable settings exposed to an AdminClient's describeConfigs
+    // - Can we dynamically reconfigure from the default to something else
+    // - Does the reconfiguration stick around if we reconfigure something unrelated
+    // - Can we delete the reconfigured value and get back the default configuration
+    // - Does the deletion affect the unrelated configuration
+
     // Don't configure anything about audit logs. They should be on by default,
     // they should send the logs to the local cluster. They should include management
     // messages only
@@ -162,18 +223,14 @@ public class SameClusterTest extends ClusterTestCommon {
     initializeClusters();
     TestUtils.waitForCondition(() -> auditLoggerReady(), "auditLoggerReady");
 
-    consumer("event-log");
-
-    AdminClient resourceOwnerAdminClient = rbacClusters.clientBuilder(RESOURCE_OWNER1)
-        .buildAdminClient();
-    resourceOwnerAdminClient
-        .createTopics(Collections.singleton(new NewTopic(APP3_TOPIC, 1, (short) 1)));
-
+    // Check initial configuration
     ConfigResource key = new ConfigResource(Type.BROKER, "0");
     AdminClient brokerAdminClient = rbacClusters.clientBuilder(BROKER_USER).buildAdminClient();
+    adminClients.add(brokerAdminClient);
     Map<ConfigResource, Config> configs = brokerAdminClient
         .describeConfigs(Collections.singleton(key)).all().get();
 
+    // Make sure these configurations appear in the list
     assertEquals(1, configs.size());
     Config config = configs.get(key);
     assertEquals(ConfluentConfigs.CRN_AUTHORITY_NAME_DEFAULT,
@@ -183,28 +240,14 @@ public class SameClusterTest extends ClusterTestCommon {
     assertEquals(ConfluentConfigs.AUDIT_LOGGER_ENABLE_DEFAULT,
         config.get(ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG).value());
 
-    String app3TopicCrn = ConfluentResourceName.newBuilder()
-        .addElement("kafka", rbacClusters.kafkaClusterId())
-        .addElement("topic", APP3_TOPIC)
-        .build()
-        .toString();
+    // Check that Audit Logging works
+    checkCreateTopicAuditMessageReceived(APP3_TOPIC, DEFAULT_TOPIC);
 
-    assertTrue(eventsMatchUnordered(consumer, 30000,
-        e -> match(e, "User:" + RESOURCE_OWNER1, app3TopicCrn, "kafka.CreateTopics",
-            AuthorizeResult.ALLOWED, AuthorizePolicy.PolicyType.ALLOW_ROLE)
-    ));
-
-    // Consume message should *not* be received
-    rbacClusters.produceConsume(RESOURCE_OWNER1, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
-    assertFalse(eventsMatchUnordered(consumer, 10000,
-        e -> "kafka.FetchConsumer".equals(e.getMethodName())
-    ));
-
-    AuditLogRouterJsonConfig newConfig = AuditLogRouterJsonConfig.defaultConfig();
-    newConfig.destinations.bootstrapServers =
-        Arrays.asList(rbacClusters.kafkaCluster.bootstrapServers().split(","));
+    // Check dynamic reconfiguration
+    AuditLogRouterJsonConfig newConfig = AuditLogRouterJsonConfig.load(OTHER_TOPIC_ROUTER_CONFIG);
     String newConfigJson = newConfig.toJsonString();
 
+    // Make sure this is reconfigurable as expected
     ConfigResource cluster = new ConfigResource(Type.BROKER, "");
     AlterConfigsResult result = brokerAdminClient.incrementalAlterConfigs(
         Utils.mkMap(Utils.mkEntry(cluster,
@@ -214,20 +257,71 @@ public class SameClusterTest extends ClusterTestCommon {
     result.values().get(cluster).get();
 
     // Wait for config change to be applied to broker since this is async
-    TestUtils.waitForCondition(() -> auditEventRouterConfig(brokerAdminClient, cluster) != null,
+    TestUtils.waitForCondition(
+        () -> {
+          ConfigEntry routerConfig = singleConfig(brokerAdminClient, cluster,
+              ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG);
+          return routerConfig != null && routerConfig.value().equals(newConfigJson);
+        },
         ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG + " not updated");
 
-    ConfigEntry configEntry = auditEventRouterConfig(brokerAdminClient, cluster);
+    ConfigEntry configEntry = singleConfig(brokerAdminClient, cluster,
+        ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG);
     assertEquals(newConfigJson, configEntry.value());
+
+    // Check that Audit Logging works on the expected topic
+    checkCreateTopicAuditMessageReceived(APP4_TOPIC, "confluent-audit-log-events-other");
+
+    // Make sure that an unrelated reconfiguration doesn't break our reconfiguration
+    AlterConfigsResult result2 = brokerAdminClient.incrementalAlterConfigs(
+        Utils.mkMap(Utils.mkEntry(cluster,
+            Collections.singleton(
+                new AlterConfigOp(new ConfigEntry("background.threads",
+                    "20"), OpType.SET)))));
+    result2.values().get(cluster).get();
+
+    TestUtils.waitForCondition(
+        () -> singleConfig(brokerAdminClient, cluster, "background.threads") != null,
+        "background.threads not updated");
+
+    configEntry = singleConfig(brokerAdminClient, cluster, "background.threads");
+    assertEquals("20", configEntry.value());
+    configEntry = singleConfig(brokerAdminClient, cluster,
+        ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG);
+    assertEquals(newConfigJson, configEntry.value());
+
+    // Check that Audit Logging works on the expected topic
+    checkCreateTopicAuditMessageReceived(APP5_TOPIC, "confluent-audit-log-events-other");
+
+    // Make sure that we can delete the reconfigured value
+    AlterConfigsResult result3 = brokerAdminClient.incrementalAlterConfigs(
+        Utils.mkMap(Utils.mkEntry(cluster,
+            Collections.singleton(
+                new AlterConfigOp(
+                    new ConfigEntry(ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG, "not used"),
+                    OpType.DELETE)))));
+    result.values().get(cluster).get();
+
+    // Make sure that that delete didn't do something strange to the unrelated configuration
+    configEntry = singleConfig(brokerAdminClient, cluster, "background.threads");
+    assertEquals("20", configEntry.value());
+
+    TestUtils.waitForCondition(
+        () -> singleConfig(brokerAdminClient, cluster, ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG)
+            == null,
+        ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG + " not updated");
+
+    // This should reset us to the default config, which still allows audit logging
+    checkCreateTopicAuditMessageReceived(APP6_TOPIC, DEFAULT_TOPIC);
   }
 
-  private ConfigEntry auditEventRouterConfig(AdminClient adminClient, ConfigResource cluster)
+  private ConfigEntry singleConfig(AdminClient adminClient, ConfigResource cluster, String config)
       throws Exception {
     Map<ConfigResource, Config> describedConfigs = adminClient
         .describeConfigs(Collections.singleton(cluster)).all().get();
     Config clusterConfig = describedConfigs.get(cluster);
     assertNotNull("Cluster config is null", clusterConfig);
-    return clusterConfig.get(ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG);
+    return clusterConfig.get(config);
   }
 
   @Test
@@ -248,9 +342,9 @@ public class SameClusterTest extends ClusterTestCommon {
     initializeClusters();
     TestUtils.waitForCondition(() -> auditLoggerReady(), "auditLoggerReady");
 
-    consumer("event-log");
+    KafkaConsumer<byte[], byte[]> consumer = consumer("event-log");
 
-    produceConsume();
+    produceConsume(consumer);
   }
 
 
@@ -273,7 +367,8 @@ public class SameClusterTest extends ClusterTestCommon {
     initializeClusters();
     TestUtils.waitForCondition(() -> auditLoggerReady(), "auditLoggerReady");
 
-    consumer("event-log");
+    KafkaConsumer<byte[], byte[]> consumer = consumer("event-log");
+    consumers.add(consumer);
 
     rbacClusters.clientBuilder(BROKER_USER).buildAdminClient()
         .createTopics(Collections.singleton(new NewTopic(APP3_TOPIC, 1, (short) 3)));

@@ -28,7 +28,7 @@ import org.I0Itec.zkclient.serialize.ZkSerializer;
 import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.collection.JavaConversions;
+import scala.collection.JavaConverters;
 
 import static com.linkedin.kafka.cruisecontrol.detector.AnomalyDetectorUtils.MAX_METADATA_WAIT_MS;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.ZK_SESSION_TIMEOUT;
@@ -154,7 +154,7 @@ public class BrokerFailureDetector {
 
   private Set<Integer> aliveBrokers() {
     // We get the alive brokers from ZK directly.
-    return JavaConversions.asJavaCollection(_kafkaZkClient.getAllBrokersInCluster())
+    return JavaConverters.asJavaCollection(_kafkaZkClient.getAllBrokersInCluster())
                           .stream().map(Broker::id).collect(toSet());
   }
 

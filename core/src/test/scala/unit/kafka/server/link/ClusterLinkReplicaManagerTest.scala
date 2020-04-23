@@ -12,6 +12,7 @@ import kafka.server.{KafkaConfig, ReplicaManager}
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.errors.{ClusterLinkInUseException, ClusterLinkNotFoundException}
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.utils.MockTime
@@ -58,7 +59,7 @@ class ClusterLinkReplicaManagerTest {
     clusterLinkReplicaManager.addPartitions(Set(partition0))
 
     setupMock(partition0, tp0, Some(linkName))
-    intercept[InvalidClusterLinkException] {
+    intercept[ClusterLinkNotFoundException] {
       clusterLinkReplicaManager.addPartitions(Set(partition0))
     }
 
@@ -74,7 +75,7 @@ class ClusterLinkReplicaManagerTest {
       fetcherManager.metadata.retainTopic(topic, isInternal = false, time.milliseconds))
     assertTrue("Topic not added to client manager", clientManager.getTopics.contains(topic))
 
-    intercept[IllegalStateException] {
+    intercept[ClusterLinkInUseException] {
       clusterLinkReplicaManager.removeClusterLink(linkName)
     }
 

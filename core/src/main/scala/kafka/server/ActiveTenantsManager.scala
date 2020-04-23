@@ -42,7 +42,7 @@ class ActiveTenantsManager(private val metrics: Metrics,
     s"The number of active tenants over a $activeTimeWindowMs window"), new Value())
 
   def trackActiveTenant(metricTags: Map[String, String], timeMs: Long): Unit = {
-    trackActiveTenant(metricTags, timeMs, _ => Unit)
+    trackActiveTenant(metricTags, timeMs, _ => ())
   }
 
   def trackActiveTenant(metricTags: Map[String, String], timeMs: Long, resetQuotaCallback: Map[String, String] => Unit): Unit = {
@@ -62,7 +62,7 @@ class ActiveTenantsManager(private val metrics: Metrics,
     activeTenantsSensor.record(activeWindow.size, timeMs)
   }
 
-  def getActiveTenants(): mutable.Set[Map[String, String]] = getActiveTenants(_ => Unit)
+  def getActiveTenants(): mutable.Set[Map[String, String]] = getActiveTenants(_ => ())
 
   def getActiveTenants(resetQuotaCallback: Map[String, String] => Unit): mutable.Set[Map[String, String]] = {
     pruneInactiveTenants(time.milliseconds(), resetQuotaCallback)

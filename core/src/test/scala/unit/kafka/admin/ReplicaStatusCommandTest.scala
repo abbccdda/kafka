@@ -34,6 +34,7 @@ import org.junit.Test
 import scala.collection.JavaConverters._
 import scala.collection.immutable
 import scala.collection.mutable
+import scala.collection.Seq
 
 final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
   import ReplicaStatusCommandTest._

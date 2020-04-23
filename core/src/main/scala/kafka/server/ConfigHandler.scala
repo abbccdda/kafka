@@ -240,6 +240,15 @@ class BrokerConfigHandler(private val brokerConfig: KafkaConfig,
   }
 }
 
+/**
+ * Handles cluster link config updates in ZK.
+ */
+class ClusterLinkConfigHandler extends ConfigHandler with Logging {
+  override def processConfigChanges(linkName: String, value: Properties): Unit = {
+    // Pending implementation.
+  }
+}
+
 object ThrottledReplicaListValidator extends Validator {
   def ensureValidString(name: String, value: String): Unit =
     ensureValid(name, value.split(",").map(_.trim).toSeq)

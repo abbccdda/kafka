@@ -24,7 +24,7 @@ import kafka.security.authorizer.AclEntry
 import kafka.security.authorizer.AclEntry.WildcardHost
 import kafka.server.{BaseRequestTest, KafkaConfig}
 import kafka.utils.TestUtils
-import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, AlterConfigOp}
+import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, AlterConfigOp, ConfluentAdmin, CreateClusterLinksOptions}
 import org.apache.kafka.clients.consumer._
 import org.apache.kafka.clients.consumer.internals.NoOpConsumerRebalanceListener
 import org.apache.kafka.clients.producer._
@@ -107,6 +107,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
   val group = "my-group"
   val protocolType = "consumer"
   val protocolName = "consumer-range"
+  val linkName = "cluster-link"
   val clusterResource = new ResourcePattern(CLUSTER, Resource.CLUSTER_NAME, LITERAL)
   val topicResource = new ResourcePattern(TOPIC, topic, LITERAL)
   val groupResource = new ResourcePattern(GROUP, group, LITERAL)
@@ -216,7 +217,12 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
       )
     }),
     ApiKeys.REPLICA_STATUS -> ((resp: ReplicaStatusResponse) => Errors.forCode(resp.data().errorCode())),
-    ApiKeys.START_REBALANCE -> ((resp: StartRebalanceResponse) => Errors.forCode(resp.data.errorCode())))
+    ApiKeys.START_REBALANCE -> ((resp: StartRebalanceResponse) => Errors.forCode(resp.data.errorCode())),
+    ApiKeys.CREATE_CLUSTER_LINKS -> ((resp: CreateClusterLinksResponse) => Errors.forCode(
+      resp.data.entries.asScala.find(e => e.linkName == linkName).get.errorCode)),
+    ApiKeys.CREATE_CLUSTER_LINKS -> ((resp: ListClusterLinksResponse) => Errors.forCode(resp.data.errorCode)),
+    ApiKeys.DELETE_CLUSTER_LINKS -> ((resp: DeleteClusterLinksResponse) => Errors.forCode(
+      resp.data.entries.asScala.find(e => e.linkName == linkName).get.errorCode)))
 
   val requestKeysToAcls = Map[ApiKeys, Map[ResourcePattern, Set[AccessControlEntry]]](
     ApiKeys.METADATA -> topicDescribeAcl,
@@ -260,7 +266,10 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     ApiKeys.LIST_PARTITION_REASSIGNMENTS -> clusterDescribeAcl,
     ApiKeys.OFFSET_DELETE -> groupReadAcl,
     ApiKeys.REPLICA_STATUS -> topicDescribeAcl,
-    ApiKeys.START_REBALANCE -> clusterAlterAcl
+    ApiKeys.START_REBALANCE -> clusterAlterAcl,
+    ApiKeys.CREATE_CLUSTER_LINKS -> clusterAlterAcl,
+    ApiKeys.LIST_CLUSTER_LINKS -> clusterDescribeAcl,
+    ApiKeys.DELETE_CLUSTER_LINKS -> clusterAlterAcl
   )
 
   @Before
@@ -586,6 +595,14 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     Set(new BrokerId()).asJava).build()
 
   private def replicaStatusRequest = new ReplicaStatusRequest.Builder(Collections.singleton(tp)).build()
+
+  private def createClusterLinksRequest = new CreateClusterLinksRequest.Builder(
+    Collections.singleton(new NewClusterLink(linkName, null, Map("bootstrap.servers" -> "localhost:9092").asJava)),
+    false, false, 10000).build()
+
+  private def listClusterLinksRequest = new ListClusterLinksRequest.Builder().build()
+
+  private def deleteClusterLinksRequest = new DeleteClusterLinksRequest.Builder(Collections.singleton(linkName), false, true).build()
 
   @Test
   def testAuthorizationWithTopicExisting(): Unit = {
@@ -1554,6 +1571,65 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     addAndVerifyAcls(Set(new AccessControlEntry(clientPrincipalString, WildcardHost, DESCRIBE, ALLOW)), new ResourcePattern(TOPIC, "*", LITERAL))
     val replicaStatusResponse = connectAndReceive[ReplicaStatusResponse](replicaStatusRequest)
     assertEquals(Errors.NONE, Errors.forCode(replicaStatusResponse.data.topics.get(0).partitions.get(0).errorCode))
+  }
+
+  @Test
+  def testUnauthorizedCreateClusterLinksWithoutAlter(): Unit = {
+    val createClusterLinksResponse = connectAndReceive[CreateClusterLinksResponse](createClusterLinksRequest)
+    assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, Errors.forCode(createClusterLinksResponse.data.entries.get(0).errorCode))
+  }
+
+  @Test
+  def testUnauthorizedCreateClusterLinksWithDescribe(): Unit = {
+    addAndVerifyAcls(Set(new AccessControlEntry(clientPrincipalString, WildcardHost, DESCRIBE, ALLOW)), clusterResource)
+    val createClusterLinksResponse = connectAndReceive[CreateClusterLinksResponse](createClusterLinksRequest)
+    assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, Errors.forCode(createClusterLinksResponse.data.entries.get(0).errorCode))
+  }
+
+  @Test
+  def testCreateClusterLinksWithWildCardAuth(): Unit = {
+    addAndVerifyAcls(Set(new AccessControlEntry(clientPrincipalString, WildcardHost, ALTER, ALLOW)), clusterResource)
+    val createClusterLinksResponse = connectAndReceive[CreateClusterLinksResponse](createClusterLinksRequest)
+    assertEquals(Errors.NONE, Errors.forCode(createClusterLinksResponse.data.entries.get(0).errorCode))
+  }
+
+  @Test
+  def testUnauthorizedListClusterLinksWithoutDescribe(): Unit = {
+    val listClusterLinksResponse = connectAndReceive[ListClusterLinksResponse](listClusterLinksRequest)
+    assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, Errors.forCode(listClusterLinksResponse.data.errorCode))
+  }
+
+  @Test
+  def testListClusterLinksWithWildCardAuth(): Unit = {
+    addAndVerifyAcls(Set(new AccessControlEntry(clientPrincipalString, WildcardHost, DESCRIBE, ALLOW)), clusterResource)
+    val listClusterLinksResponse = connectAndReceive[ListClusterLinksResponse](listClusterLinksRequest)
+    assertEquals(Errors.NONE, Errors.forCode(listClusterLinksResponse.data.errorCode))
+  }
+
+  @Test
+  def testUnauthorizedDeleteClusterLinksWithoutAlter(): Unit = {
+    val deleteClusterLinksResponse = connectAndReceive[DeleteClusterLinksResponse](deleteClusterLinksRequest)
+    assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, Errors.forCode(deleteClusterLinksResponse.data.entries.get(0).errorCode))
+  }
+
+  @Test
+  def testUnauthorizedDeleteClusterLinksWithDescribe(): Unit = {
+    addAndVerifyAcls(Set(new AccessControlEntry(clientPrincipalString, WildcardHost, DESCRIBE, ALLOW)), clusterResource)
+    val deleteClusterLinksResponse = connectAndReceive[DeleteClusterLinksResponse](deleteClusterLinksRequest)
+    assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, Errors.forCode(deleteClusterLinksResponse.data.entries.get(0).errorCode))
+  }
+
+  @Test
+  def testDeleteClusterLinksWithWildCardAuth(): Unit = {
+    addAndVerifyAcls(Set(new AccessControlEntry(clientPrincipalString, WildcardHost, ALTER, ALLOW)), clusterResource)
+
+    val admin = createAdminClient().asInstanceOf[ConfluentAdmin]
+    admin.createClusterLinks(
+      Collections.singleton(new NewClusterLink(linkName, "test-id", Map("bootstrap.servers" -> "localhost:9092").asJava)),
+      new CreateClusterLinksOptions().validateLink(false)).all().get
+
+    val deleteClusterLinksResponse = connectAndReceive[DeleteClusterLinksResponse](deleteClusterLinksRequest)
+    assertEquals(Errors.NONE, Errors.forCode(deleteClusterLinksResponse.data.entries.get(0).errorCode))
   }
 
   @Test(expected = classOf[TransactionalIdAuthorizationException])

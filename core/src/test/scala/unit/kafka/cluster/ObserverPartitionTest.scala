@@ -114,7 +114,7 @@ final class ObserverPartitionTest {
     when(metadataCache.getAliveBroker(observerId))
       .thenReturn(Some(Broker(observerId, Seq.empty, Some("observer"))))
 
-    val log = logManager.getOrCreateLog(topicPartition, logConfig)
+    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
     seedLogData(log, numRecords = 6, leaderEpoch = 4)
 
     partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints)
