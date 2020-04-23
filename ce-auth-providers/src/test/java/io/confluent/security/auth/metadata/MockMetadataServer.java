@@ -19,6 +19,7 @@ public class MockMetadataServer implements MetadataServer, ClusterResourceListen
   }
 
   public ServerState serverState;
+  private MetadataServer.Injector injector;
 
   public MockMetadataServer() {
     this.serverState = ServerState.CREATED;
@@ -39,6 +40,7 @@ public class MockMetadataServer implements MetadataServer, ClusterResourceListen
 
   @Override
   public void registerMetadataProvider(String providerName, MetadataServer.Injector injector) {
+    this.injector = injector;
     this.serverState = ServerState.REGISTERED;
   }
 
@@ -58,5 +60,9 @@ public class MockMetadataServer implements MetadataServer, ClusterResourceListen
   @Override
   public void onUpdate(ClusterResource clusterResource) {
     // Do nothing.
+  }
+
+  public <T> T getInjectedInstance(Class<T> clazz) {
+    return injector.getInstance(clazz);
   }
 }
