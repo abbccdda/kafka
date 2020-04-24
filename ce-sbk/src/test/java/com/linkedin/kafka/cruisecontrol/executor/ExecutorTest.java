@@ -422,6 +422,12 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                 -1L,
                 time);
 
+        // Set throttled replicas for topic1 to test that they are not removed by executing the task for topic 0
+        Properties topic1Props = kafkaZkClient.getEntityConfigs(ConfigType.Topic(), TOPIC1);
+        topic1Props.put(LogConfig.LeaderReplicationThrottledReplicasProp(), "0:0,0:1");
+        topic1Props.put(LogConfig.FollowerReplicationThrottledReplicasProp(), "0:0,0:1");
+        kafkaZkClient.setOrCreateEntityConfigs(ConfigType.Topic(), TOPIC1, topic1Props);
+
         Executor executor = new Executor(config, time, KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
                 metadataClient, 86400000L, 43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
         executor.setExecutionMode(false);
@@ -442,9 +448,9 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
             for (Integer broker : _brokers.keySet()) {
                 verifyThrottleInZk(kafkaZkClient, ConfigType.Broker(), valueOf(broker), expectedThrottle);
             }
-            // topic 0 should be throttled, topic 1 should not
+            // topic 0 should be throttled depending on the override, topic 1 should have the fixed replica throttle config
             verifyThrottleInZk(kafkaZkClient, ConfigType.Topic(), TOPIC0, expectedReplicaLeaderThrottle, expectedReplicaFollowerThrottle);
-            verifyThrottleInZk(kafkaZkClient, ConfigType.Topic(), TOPIC1, null);
+            verifyThrottleInZk(kafkaZkClient, ConfigType.Topic(), TOPIC1, "0:0,0:1");
             return true;
         }, 5000, "Should have properly throttled during the reassignment");
         waitUntilExecutionFinishes(executor);
@@ -455,8 +461,9 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
         for (Integer broker : _brokers.keySet()) {
             verifyThrottleInZk(kafkaZkClient, ConfigType.Broker(), valueOf(broker), null);
         }
+        // topic 1 throttle configs should not have been cleared
         verifyThrottleInZk(kafkaZkClient, ConfigType.Topic(), TOPIC0, null);
-        verifyThrottleInZk(kafkaZkClient, ConfigType.Topic(), TOPIC1, null);
+        verifyThrottleInZk(kafkaZkClient, ConfigType.Topic(), TOPIC1, "0:0,0:1");
     } finally {
         KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
     }

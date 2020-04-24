@@ -866,8 +866,7 @@ public class Executor {
                  totalDataToMoveInMB == 0 ? 100 : String.format(java.util.Locale.US, "%.2f",
                                                   (finishedDataMovementInMB * 100.0) / totalDataToMoveInMB));
         synchronized (_throttleHelper) {
-          // remove all throttles, because we don't know what new throttles might have been set (via the REST API) during the reassignment
-          _throttleHelper.removeAllThrottles();
+          _throttleHelper.clearThrottles(completedTasks, new ArrayList<>(_executionTaskManager.inExecutionTasks()));
         }
       }
       // After the partition movement finishes, wait for the controller to clean the reassignment zkPath. This also

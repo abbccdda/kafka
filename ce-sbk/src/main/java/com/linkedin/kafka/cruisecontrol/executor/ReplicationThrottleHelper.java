@@ -346,7 +346,12 @@ class ReplicationThrottleHelper {
     Properties config = _kafkaZkClient.getEntityConfigs(ConfigType.Topic(), topic);
     removeLeaderThrottledReplicasFromTopic(config, topic, replicas);
     removeFollowerThrottledReplicasFromTopic(config, topic, replicas);
-    ExecutorUtils.changeTopicConfig(_adminZkClient, topic, config);
+    try {
+      ExecutorUtils.changeTopicConfig(_adminZkClient, topic, config);
+    } catch (AdminOperationException e) {
+      LOG.warn("Skip removing throttled replicas {} for topic {} due to error {}",
+              replicas, topic, e);
+    }
   }
 
   private void removeAllThrottledReplicasFromTopic(String topic) {
