@@ -112,6 +112,7 @@ import org.apache.kafka.common.security.scram.internals.ScramCredentialUtils;
 import org.apache.kafka.common.security.scram.internals.ScramFormatter;
 import org.apache.kafka.common.security.scram.ScramLoginModule;
 import org.apache.kafka.common.security.scram.internals.ScramMechanism;
+import org.apache.kafka.common.security.ssl.DefaultSslEngineFactory;
 import org.apache.kafka.common.security.token.delegation.TokenInformation;
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache;
 import org.apache.kafka.common.utils.LogContext;
@@ -162,8 +163,8 @@ public class SaslAuthenticatorTest {
         clientCertStores = new CertStores(false, "localhost");
         saslServerConfigs = serverCertStores.getTrustingConfig(clientCertStores);
         saslClientConfigs = clientCertStores.getTrustingConfig(serverCertStores);
-        saslServerConfigs.put(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG, SslConfigs.KAFKA_SSL_ENGINE_BUILDER_CLASS);
-        saslClientConfigs.put(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG, SslConfigs.KAFKA_SSL_ENGINE_BUILDER_CLASS);
+        saslServerConfigs.put(SslConfigs.SSL_ENGINE_FACTORY_CLASS_CONFIG, DefaultSslEngineFactory.class);
+        saslClientConfigs.put(SslConfigs.SSL_ENGINE_FACTORY_CLASS_CONFIG, DefaultSslEngineFactory.class);
         credentialCache = new CredentialCache();
         TestLogin.loginCount.set(0);
     }

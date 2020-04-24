@@ -24,6 +24,7 @@ import org.apache.kafka.common.memory.MemoryPool;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.security.TestSecurityConfig;
+import org.apache.kafka.common.security.ssl.DefaultSslEngineFactory;
 import org.apache.kafka.common.security.ssl.SslFactory;
 import org.apache.kafka.common.utils.Java;
 import org.apache.kafka.common.utils.LogContext;
@@ -109,8 +110,8 @@ public class SslTransportLayerTest {
         clientCertStores = new CertStores(false, "client", "localhost");
         sslServerConfigs = serverCertStores.getTrustingConfig(clientCertStores);
         sslClientConfigs = clientCertStores.getTrustingConfig(serverCertStores);
-        sslServerConfigs.put(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG, SslConfigs.KAFKA_SSL_ENGINE_BUILDER_CLASS);
-        sslClientConfigs.put(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG, SslConfigs.KAFKA_SSL_ENGINE_BUILDER_CLASS);
+        sslServerConfigs.put(SslConfigs.SSL_ENGINE_FACTORY_CLASS_CONFIG, DefaultSslEngineFactory.class);
+        sslClientConfigs.put(SslConfigs.SSL_ENGINE_FACTORY_CLASS_CONFIG, DefaultSslEngineFactory.class);
         // TODO: GV Look into this
         sslServerConfigs = getTrustingConfig(serverCertStores, clientCertStores);
         sslClientConfigs = getTrustingConfig(clientCertStores, serverCertStores);

@@ -27,7 +27,6 @@ import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLException;
@@ -55,17 +54,12 @@ public class SslFactory implements Reconfigurable {
     private final Mode mode;
     private final String clientAuthConfigOverride;
     private final boolean keystoreVerifiableUsingTruststore;
-    private final boolean requireJSSE;
     private String endpointIdentification;
     private SslEngineFactory sslEngineFactory;
     private Map<String, Object> sslEngineFactoryConfig;
 
     public SslFactory(Mode mode) {
         this(mode, null, false);
-    }
-
-    public SslFactory(Mode mode, String clientAuthConfigOverride, boolean keystoreVerifiableUsingTruststore) {
-        this(mode, clientAuthConfigOverride, keystoreVerifiableUsingTruststore, false);
     }
 
     /**
@@ -76,18 +70,15 @@ public class SslFactory implements Reconfigurable {
      *                                              if we don't want to override it.
      * @param keystoreVerifiableUsingTruststore     True if we should require the keystore to be verifiable
      *                                              using the truststore.
-     * @param requireJSSE                           True if we require JSSE.  For example, if we want to
-     *                                              directly use SSLContext, JSSE is required.
      */
     public SslFactory(Mode mode,
                       String clientAuthConfigOverride,
-                      boolean keystoreVerifiableUsingTruststore,
-                      boolean requireJSSE) {
+                      boolean keystoreVerifiableUsingTruststore) {
         this.mode = mode;
         this.clientAuthConfigOverride = clientAuthConfigOverride;
         this.keystoreVerifiableUsingTruststore = keystoreVerifiableUsingTruststore;
-        this.requireJSSE = requireJSSE;
     }
+
 
     @Override
     public void configure(Map<String, ?> configs) throws KafkaException {
@@ -100,8 +91,7 @@ public class SslFactory implements Reconfigurable {
         if (clientAuthConfigOverride != null) {
             nextConfigs.put(BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG, clientAuthConfigOverride);
         }
-        SslEngineFactory builder = instantiateSslEngineFactory(nextConfigs,
-                mode == Mode.SERVER && (!requireJSSE));
+        SslEngineFactory builder = instantiateSslEngineFactory(nextConfigs);
         if (keystoreVerifiableUsingTruststore) {
             try {
                 SslEngineValidator.validate(builder, builder);
@@ -133,13 +123,20 @@ public class SslFactory implements Reconfigurable {
         }
     }
 
-    private SslEngineFactory instantiateSslEngineFactory(Map<String, Object> configs, boolean allowNetty) {
+    private SslEngineFactory instantiateSslEngineFactory(Map<String, Object> configs) {
         @SuppressWarnings("unchecked")
         Class<? extends SslEngineFactory> sslEngineFactoryClass =
                 (Class<? extends SslEngineFactory>) configs.get(SslConfigs.SSL_ENGINE_FACTORY_CLASS_CONFIG);
         SslEngineFactory sslEngineFactory;
+
         if (sslEngineFactoryClass == null) {
-            sslEngineFactory = new DefaultSslEngineFactory(allowNetty);
+            sslEngineFactory = new DefaultSslEngineFactory();
+        } else if (NettySslEngineFactory.class.equals(sslEngineFactoryClass)) {
+            if (NettySslEngineFactory.isConfigurable(configs, mode)) {
+                sslEngineFactory = new NettySslEngineFactory();
+            } else {
+                sslEngineFactory = new DefaultSslEngineFactory();
+            }
         } else {
             sslEngineFactory = Utils.newInstance(sslEngineFactoryClass);
         }
@@ -161,7 +158,7 @@ public class SslFactory implements Reconfigurable {
             return sslEngineFactory;
         }
         try {
-            SslEngineFactory newSslEngineFactory = instantiateSslEngineFactory(nextConfigs, mode == Mode.SERVER && (!requireJSSE));
+            SslEngineFactory newSslEngineFactory = instantiateSslEngineFactory(nextConfigs);
             if (sslEngineFactory.keystore() == null) {
                 if (newSslEngineFactory.keystore() != null) {
                     throw new ConfigException("Cannot add SSL keystore to an existing listener for " +
@@ -205,12 +202,9 @@ public class SslFactory implements Reconfigurable {
     }
 
     public Closeable createCloseableSslEngine(SSLEngine engine) {
-        return DefaultSslEngineFactory.castOrThrow(sslEngineFactory).sslEngineCloser(engine);
-    }
-
-    @Deprecated
-    public SSLContext sslContext() {
-        return DefaultSslEngineFactory.castOrThrow(sslEngineFactory).sslContext();
+        return NettySslEngineFactory.maybeCast(sslEngineFactory).map(nettySslEngineFactory ->
+            nettySslEngineFactory.sslEngineCloser(engine)
+        ).orElse(() -> { });
     }
 
     public SslEngineFactory sslEngineFactory() {

@@ -39,7 +39,7 @@ public class NettySslFactoryTest extends SslFactoryTest {
 
     @Override
     protected void configureSslBuilderClass(Map<String, Object> conf) {
-        conf.put(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG, SslConfigs.NETTY_SSL_ENGINE_BUILDER_CLASS);
+        conf.put(SslConfigs.SSL_ENGINE_FACTORY_CLASS_CONFIG, NettySslEngineFactory.class);
     }
 
     @Test

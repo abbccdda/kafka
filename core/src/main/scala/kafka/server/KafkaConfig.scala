@@ -310,7 +310,7 @@ object Defaults {
   val SslClientAuthentication = SslClientAuth.NONE.name().toLowerCase(Locale.ROOT)
   val SslClientAuthenticationValidValues = SslClientAuth.VALUES.asScala.map(v => v.toString().toLowerCase(Locale.ROOT)).asJava.toArray(new Array[String](0))
   val SslPrincipalMappingRules = BrokerSecurityConfigs.DEFAULT_SSL_PRINCIPAL_MAPPING_RULES
-  val SslEngineBuilderClass = SslConfigs.DEFAULT_SSL_ENGINE_BUILDER_CLASS
+  val SslEngineFactoryClass = SslConfigs.KAFKA_SSL_ENGINE_FACTORY_CLASS
 
     /** ********* General Security configuration ***********/
   val ConnectionsMaxReauthMsDefault = 0L

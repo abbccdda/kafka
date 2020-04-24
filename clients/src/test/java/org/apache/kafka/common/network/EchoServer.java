@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.network;
 
+import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.security.ssl.DefaultSslEngineFactory;
 import org.apache.kafka.common.security.ssl.SslFactory;
@@ -46,12 +47,13 @@ class EchoServer extends Thread {
     private final SslFactory sslFactory;
     private final AtomicBoolean renegotiate = new AtomicBoolean();
 
-    public EchoServer(SecurityProtocol securityProtocol, Map<String, ?> configs) throws Exception {
+    public EchoServer(SecurityProtocol securityProtocol, Map<String, Object> configs) throws Exception {
         switch (securityProtocol) {
             case SSL:
-                this.sslFactory = new SslFactory(Mode.SERVER, null, false, true);
+                configs.put(SslConfigs.SSL_ENGINE_FACTORY_CLASS_CONFIG, DefaultSslEngineFactory.class);
+                this.sslFactory = new SslFactory(Mode.SERVER, null, false);
                 this.sslFactory.configure(configs);
-                SSLContext sslContext = ((DefaultSslEngineFactory) this.sslFactory.sslEngineFactory()).sslContext();
+                SSLContext sslContext = DefaultSslEngineFactory.castOrThrow(this.sslFactory.sslEngineFactory()).sslContext();
                 this.serverSocket = sslContext.getServerSocketFactory().createServerSocket(0);
                 break;
             case PLAINTEXT:

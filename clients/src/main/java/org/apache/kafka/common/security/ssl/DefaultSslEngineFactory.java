@@ -33,31 +33,24 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.TrustManagerFactory;
-import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.SecureRandom;
-import java.security.UnrecoverableEntryException;
-import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
-import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public final class DefaultSslEngineFactory implements SslEngineFactory {
+public class DefaultSslEngineFactory implements SslEngineFactory {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultSslEngineFactory.class);
 
@@ -73,12 +66,7 @@ public final class DefaultSslEngineFactory implements SslEngineFactory {
     private SecureRandom secureRandomImplementation;
     private SSLContext sslContext;
     private SslClientAuth sslClientAuth;
-    private NettySslEngineBuilder nettySslEngineBuilder;
-    private final boolean nettyAllowed;
 
-    public DefaultSslEngineFactory(boolean nettyAllowed) {
-        this.nettyAllowed = nettyAllowed;
-    }
     @Override
     public SSLEngine createClientSslEngine(String peerHost, int peerPort, String endpointIdentification) {
         return createSslEngine(Mode.CLIENT, peerHost, peerPort, endpointIdentification);
@@ -159,29 +147,6 @@ public final class DefaultSslEngineFactory implements SslEngineFactory {
                 (Password) configs.get(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG));
 
         this.sslContext = createSSLContext();
-        if (!nettyAllowed) {
-            this.nettySslEngineBuilder = null;
-        } else if (!sslEngineBuilderClassIsNetty((String)
-                configs.get(SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG))) {
-            this.nettySslEngineBuilder = null;
-        } else if (this.keystore == null) {
-            log.warn("Disabling netty because no keystore is configured.");
-            this.nettySslEngineBuilder = null;
-        } else {
-            this.nettySslEngineBuilder = NettySslEngineBuilder.maybeCreate(this);
-        }
-    }
-
-    private static boolean sslEngineBuilderClassIsNetty(String engineBuilderClass) {
-        if (engineBuilderClass == null ||
-                engineBuilderClass.equals(SslConfigs.KAFKA_SSL_ENGINE_BUILDER_CLASS)) {
-            return false;
-        } else if (engineBuilderClass.equals(SslConfigs.NETTY_SSL_ENGINE_BUILDER_CLASS)) {
-            return true;
-        } else {
-            throw new RuntimeException("Invalid configuration value for " +
-                    SslConfigs.SSL_ENGINE_BUILDER_CLASS_CONFIG);
-        }
     }
 
     @Override
@@ -195,10 +160,6 @@ public final class DefaultSslEngineFactory implements SslEngineFactory {
     }
 
     private SSLEngine createSslEngine(Mode mode, String peerHost, int peerPort, String endpointIdentification) {
-        if (mode == Mode.SERVER && nettySslEngineBuilder != null) {
-            return nettySslEngineBuilder.newEngine(peerHost, peerPort);
-        }
-
         SSLEngine sslEngine = sslContext.createSSLEngine(peerHost, peerPort);
         if (cipherSuites != null) sslEngine.setEnabledCipherSuites(cipherSuites);
         if (enabledProtocols != null) sslEngine.setEnabledProtocols(enabledProtocols);
@@ -323,31 +284,20 @@ public final class DefaultSslEngineFactory implements SslEngineFactory {
         return sslClientAuth;
     }
 
+    /**
+     * Visible for Confluent's {@link NettySslEngineFactory}
+     * @return
+     */
     SecurityStore securityKeyStore() {
         return keystore;
     }
 
+    /**
+     * Visible for Confluent's {@link NettySslEngineFactory}
+     * @return
+     */
     SecurityStore securityTrustStore() {
         return truststore;
-    }
-
-    class CloseableSslEngine implements Closeable {
-        private final SSLEngine engine;
-
-        CloseableSslEngine(SSLEngine engine) {
-            this.engine = engine;
-        }
-
-        @Override
-        public void close() throws IOException {
-            if (nettySslEngineBuilder != null) {
-                nettySslEngineBuilder.closeEngine(engine);
-            }
-        }
-    }
-
-    public Closeable sslEngineCloser(SSLEngine engine) {
-        return new CloseableSslEngine(engine);
     }
 
     static class PrivateKeyData {
@@ -397,7 +347,7 @@ public final class DefaultSslEngineFactory implements SslEngineFactory {
          * @throws KafkaException if the file could not be read or if the keystore could not be loaded
          *   using the specified configs (e.g. if the password or keystore type is invalid)
          */
-        private KeyStore load() {
+        KeyStore load() {
             try (InputStream in = Files.newInputStream(Paths.get(path))) {
                 KeyStore ks = KeyStore.getInstance(type);
                 // If a password is not set access to the truststore is still available, but integrity checking is disabled.
@@ -423,62 +373,20 @@ public final class DefaultSslEngineFactory implements SslEngineFactory {
             return modifiedMs != null && !Objects.equals(modifiedMs, this.fileLastModifiedMs);
         }
 
-        PrivateKeyData loadPrivateKeyData() {
-            KeyStore store = load();
-            KeyStore.PasswordProtection keyProtection = (keyPassword == null) ? null :
-                    new KeyStore.PasswordProtection(keyPassword.value().toCharArray());
-            try {
-                Enumeration<String> aliases = store.aliases();
-                while (aliases.hasMoreElements()) {
-                    String alias = aliases.nextElement();
-                    if (store.isKeyEntry(alias)) {
-                        try {
-                            KeyStore.Entry entry = store.getEntry(alias, keyProtection);
-                            if (entry instanceof KeyStore.PrivateKeyEntry) {
-                                KeyStore.PrivateKeyEntry privateKeyEntry = (KeyStore.PrivateKeyEntry) entry;
-                                PrivateKey privateKey = privateKeyEntry.getPrivateKey();
-                                Certificate[] certs = privateKeyEntry.getCertificateChain();
-                                if (!(certs instanceof X509Certificate[])) {
-                                    // TODO: can we convert this?
-                                    throw new RuntimeException("Expected a certificate chain of type " +
-                                            "X509Certificate for alias " + alias);
-                                }
-                                return new PrivateKeyData(privateKey, (X509Certificate[]) certs);
-                            }
-                        } catch (NoSuchAlgorithmException e) {
-                            log.info("can't find the algorithm for recovering the {} entry.", alias);
-                        } catch (UnrecoverableEntryException e) {
-                            log.trace("ignoring alias {}, since the password doesn't match.", alias);
-                        }
-                    }
-                }
-            } catch (KeyStoreException e) {
-                throw new KafkaException(e);
-            }
-            throw new RuntimeException("No private key found protected with the given password in " + path);
+        /**
+         * Visible for use in Confluent's {@link NettySslEngineFactory}
+         * @return
+         */
+        Password keyPassword() {
+            return keyPassword;
         }
 
-        X509Certificate[] loadAllCertificates() {
-            KeyStore store = load();
-            List<X509Certificate> all = new ArrayList<>();
-            try {
-                Enumeration<String> aliases = store.aliases();
-                while (aliases.hasMoreElements()) {
-                    String alias = aliases.nextElement();
-                    if (store.isCertificateEntry(alias)) {
-                        Certificate cert = store.getCertificate(alias);
-                        if (!(cert instanceof X509Certificate)) {
-                            // TODO: can we convert this?
-                            throw new RuntimeException("Expected a certificate of type " +
-                                    "X509Certificate for alias " + alias);
-                        }
-                        all.add((X509Certificate) cert);
-                    }
-                }
-            } catch (KeyStoreException e) {
-                throw new KafkaException(e);
-            }
-            return all.toArray(new X509Certificate[0]);
+        /**
+         * Visible for use in Confluent's {@link NettySslEngineFactory}
+         * @return
+         */
+        String path() {
+            return path;
         }
 
         @Override
@@ -489,6 +397,12 @@ public final class DefaultSslEngineFactory implements SslEngineFactory {
         }
     }
 
+    /**
+     * Used by Confluent code in places where we rely on methods on {@link DefaultSslEngineFactory} that are not
+     * defined in the {@link SslEngineFactory} interface (for example {@link #sslContext()}).
+     * @param factory
+     * @return
+     */
     public static DefaultSslEngineFactory castOrThrow(SslEngineFactory factory) {
         if (factory instanceof DefaultSslEngineFactory) {
             return (DefaultSslEngineFactory) factory;
