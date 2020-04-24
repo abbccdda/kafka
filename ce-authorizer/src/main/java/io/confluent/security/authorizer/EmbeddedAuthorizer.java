@@ -266,7 +266,7 @@ public class EmbeddedAuthorizer implements Authorizer {
 
     // Check if there is any Deny acl match that would disallow this operation.
     Optional<AuthorizePolicy> authorizePolicy;
-    if ((authorizePolicy = aclMatch(operation, resource, host, PermissionType.DENY, authorizeRule)).isPresent())
+    if ((authorizePolicy = authorizePolicy(operation, resource, host, authorizeRule)).isPresent())
       return authorizePolicy.get();
 
     accessRuleProviders.stream()
@@ -274,7 +274,7 @@ public class EmbeddedAuthorizer implements Authorizer {
         .forEach(p -> authorizeRule.add(p.findRule(sessionPrincipal, groupPrincipals, host, action)));
 
     // Check if there are any Allow ACLs which would allow this operation.
-    if ((authorizePolicy = aclMatch(operation, resource, host, PermissionType.ALLOW, authorizeRule)).isPresent())
+    if ((authorizePolicy = authorizePolicy(operation, resource, host, authorizeRule)).isPresent())
       return authorizePolicy.get();
 
     return authorizePolicy.orElse(authorizePolicyWithNoMatchingRule(resource, authorizeRule));
@@ -296,15 +296,15 @@ public class EmbeddedAuthorizer implements Authorizer {
     return scope;
   }
 
-  private Optional<AuthorizePolicy> aclMatch(Operation op,
-                                         ResourcePattern resource,
-                                         String host, PermissionType permissionType,
-                                         AuthorizeRule authorizeRule) {
+  private Optional<AuthorizePolicy> authorizePolicy(Operation op,
+                                                    ResourcePattern resource,
+                                                    String host,
+                                                    AuthorizeRule authorizeRule) {
     Optional<AccessRule> ruleOpt = authorizeRule.denyRule().isPresent() ?
         authorizeRule.denyRule() : authorizeRule.allowRule();
     ruleOpt.ifPresent(rule -> {
       log.debug("operation = {} on resource = {} from host = {} is {} based on policy = {}",
-            op, resource, host, permissionType, rule);
+            op, resource, host, rule.permissionType(), rule);
     });
     return ruleOpt.map(Function.identity());
   }
