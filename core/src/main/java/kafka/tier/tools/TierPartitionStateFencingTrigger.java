@@ -4,103 +4,181 @@
 
 package kafka.tier.tools;
 
-import kafka.tier.TopicIdPartition;
-import kafka.tier.domain.AbstractTierMetadata;
-import kafka.tier.domain.TierSegmentDeleteInitiate;
-
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+
+import kafka.server.KafkaConfig;
+import kafka.tier.TopicIdPartition;
+import kafka.tier.domain.TierPartitionFence;
+import kafka.tier.topic.TierTopic;
+
+import kafka.utils.CoreUtils;
+import org.apache.kafka.clients.producer.Producer;
+import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.utils.Utils;
 
 import net.sourceforge.argparse4j.ArgumentParsers;
 import net.sourceforge.argparse4j.inf.ArgumentParser;
 import net.sourceforge.argparse4j.inf.ArgumentParserException;
 import net.sourceforge.argparse4j.inf.Namespace;
-import net.sourceforge.argparse4j.inf.Subparsers;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 
 /**
- * A tool that injects a segment delete initiate event (generated at an epoch value of int32
- * maximum) into TierTopic. This is helpful in triggering fencing of broker's TierPartitionState
+ * A tool that injects TierPartitionFence events into TierTopic for a provided list of
+ * TopicIdPartition. This is helpful in triggering fencing of broker's TierPartitionState
  * materializer.
+ *
+ * SAMPLE USAGE:
+ * $> bin/kafka-run-class.sh \
+ *     kafka.tier.tools.TierPartitionStateFencingTrigger \
+ *        --tier.config /path/to/xxx.properties \
+ *        --file-fence-target-partitions /path/to/fence_target_partitions.csv
  */
 public class TierPartitionStateFencingTrigger {
+    public static final List<String> REQUIRED_PROPERTIES = Arrays.asList(
+        KafkaConfig.TierMetadataBootstrapServersProp(),
+        KafkaConfig.TierMetadataNamespaceProp());
 
-    public static final String DANGEROUS_FENCE_VIA_DELETE_EVENT_CMD = "dangerous-fence-via-delete-event";
-    public static final String DANGEROUS_FENCE_VIA_DELETE_EVENT_DOC =
-        "Triggers fencing by injecting a TierSegmentDeleteInitiate event with epoch set to int32 maximum: 2147483647.";
+    public static final String FILE_FENCE_TARGET_PARTITIONS_CONFIG = "file-fence-target-partitions";
+    public static final String FILE_FENCE_TARGET_PARTITIONS_DOC =
+        "The path to a file containing the list of target tiered partitions to be fenced by" +
+        " the tool. The format of the file is a newline separated list of information. Each line" +
+        " is a comma-separated value (CSV) containing information about a single tiered" +
+        " TopicIdPartition in the following format:" +
+        " '<tiered_partition_topic_ID_base64_encoded>, <tiered_partition_topic_name>, <tiered_partition_name>'.";
 
-    public static final String SELECTED_COMMAND = "selected_command";
+    private static final Logger log = LoggerFactory.getLogger(TierPartitionStateFencingTrigger.class);
 
     // Create the CLI argument parser.
     private static ArgumentParser createArgParser() {
-        ArgumentParser rootParser = ArgumentParsers
+        ArgumentParser parser = ArgumentParsers
             .newArgumentParser(TierPartitionStateFencingTrigger.class.getName())
             .defaultHelp(true)
-            .description("Provides commands to fence TierTopic in certain ways.");
-        RecoveryUtils.populateCommonCLIOptions(rootParser);
+            .description("Provides a command to fence TierTopic using the TierPartitionFence event.");
+        parser.addArgument(RecoveryUtils.makeArgument(RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG))
+            .dest(RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG)
+            .type(String.class)
+            .required(true)
+            .help(RecoveryUtils.TIER_PROPERTIES_CONF_FILE_DOC);
+        parser.addArgument(RecoveryUtils.makeArgument(TierPartitionStateFencingTrigger.FILE_FENCE_TARGET_PARTITIONS_CONFIG))
+            .dest(TierPartitionStateFencingTrigger.FILE_FENCE_TARGET_PARTITIONS_CONFIG)
+            .type(String.class)
+            .required(true)
+            .help(TierPartitionStateFencingTrigger.FILE_FENCE_TARGET_PARTITIONS_DOC);
 
-        Subparsers subparsers =
-            rootParser.addSubparsers()
-                .title("Valid subcommands")
-                .dest(TierPartitionStateFencingTrigger.SELECTED_COMMAND);
-        subparsers.addParser(TierPartitionStateFencingTrigger.DANGEROUS_FENCE_VIA_DELETE_EVENT_CMD)
-            .help(TierPartitionStateFencingTrigger.DANGEROUS_FENCE_VIA_DELETE_EVENT_DOC);
-        return rootParser;
+        return parser;
     }
 
     // Main entry point for the CLI tool. This picks the sub-command logic to run. This may be
     // augmented in the future, with more sub-commands (if needed).
-    private static void run(Namespace args) throws InterruptedException, ExecutionException {
-        String selectedCommand = args.getString(TierPartitionStateFencingTrigger.SELECTED_COMMAND);
-        switch (selectedCommand) {
-            case DANGEROUS_FENCE_VIA_DELETE_EVENT_CMD:
-                String tierTopicNamespace =
-                    args.getString(RecoveryUtils.CommonCLIOptions.TIER_TOPIC_NAMESPACE_CONFIG);
-                // When injected, this event is expected to cause fencing, because of the very
-                // high epoch value that inject into the event.
-                AbstractTierMetadata eventThatTriggersFencing =
-                    getDeleteInitiateEvent(args, Integer.MAX_VALUE);
-                String bootstrapServers =
-                    args.getString(RecoveryUtils.CommonCLIOptions.BOOTSTRAP_SERVERS_CONFIG);
-                RecoveryUtils.injectTierTopicEvent(eventThatTriggersFencing, bootstrapServers,
-                    tierTopicNamespace, "unknown");
-                break;
-            default:
-                throw new IllegalStateException("Unsupported command: " + selectedCommand);
+    private static List<kafka.tier.tools.common.FenceEventInfo> run(ArgumentParser parser, Namespace args)
+        throws ArgumentParserException, InterruptedException, ExecutionException {
+        final String propertiesConfFile =
+            args.getString(RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG).trim();
+        final Properties props;
+        try {
+            props = Utils.loadProps(propertiesConfFile, REQUIRED_PROPERTIES);
+        } catch (IOException e) {
+            throw new ArgumentParserException(
+                String.format("Can not load properties from file: '%s'", propertiesConfFile),
+                e,
+                parser);
         }
+
+        final String bootstrapServers = props.getProperty(
+            KafkaConfig.TierMetadataBootstrapServersProp(), "").trim();
+        if (bootstrapServers.isEmpty()) {
+            throw new ArgumentParserException(
+                String.format(
+                    "The provided properties conf file: '%s' can not contain empty or absent" +
+                    " bootstrap servers as value for the property: '%s'",
+                    propertiesConfFile,
+                    KafkaConfig.TierMetadataBootstrapServersProp()),
+                parser);
+        }
+        final String tierTopicNamespace =
+            props.getProperty(KafkaConfig.TierMetadataNamespaceProp(), "");
+        final String tieredTopicIdPartitionFile = args.getString(
+            TierPartitionStateFencingTrigger.FILE_FENCE_TARGET_PARTITIONS_CONFIG).trim();
+        final  List<String> tieredTopicIdPartitionsStr;
+        try {
+            Path filePath = Paths.get(tieredTopicIdPartitionFile);
+            tieredTopicIdPartitionsStr = Files.readAllLines(filePath);
+        } catch (IOException e) {
+            throw new ArgumentParserException(
+                String.format(
+                    "Can not read partitions information from file: '%s'", tieredTopicIdPartitionFile),
+                e,
+                parser);
+        }
+
+        return injectFencingEvents(
+            bootstrapServers, tierTopicNamespace, RecoveryUtils.toTopicIdPartitions(
+                tieredTopicIdPartitionsStr));
     }
 
-    /**
-     * Generates a TierSegmentDeleteInitiate event, with the epoch value set to provided value. The
-     * partition number, topic name and the topic ID are extracted from the provided args.
-     *
-     * @param args  the CLI args useful to extract few required attributes
-     * @param epoch the epoch to be injected into the generated TierSegmentDeleteInitiate event
-     * @return the generated TierSegmentDeleteInitiate event
-     */
-    private static TierSegmentDeleteInitiate getDeleteInitiateEvent(Namespace args, int epoch) {
-        String tieredPartitionTopicName =
-            args.getString(RecoveryUtils.CommonCLIOptions.TIERED_PARTITION_TOPIC_NAME_CONFIG);
-        UUID tieredPartitionTopicId =
-            UUID.fromString(
-                args.getString(RecoveryUtils.CommonCLIOptions.TIERED_PARTITION_TOPIC_ID_CONFIG));
-        int tieredPartitionInt =
-            args.getInt(RecoveryUtils.CommonCLIOptions.TIERED_PARTITION_NAME_CONFIG);
-        TopicIdPartition tieredPartition = new TopicIdPartition(
-            tieredPartitionTopicName, tieredPartitionTopicId, tieredPartitionInt);
-        return new TierSegmentDeleteInitiate(
-            tieredPartition, epoch, UUID.randomUUID());
+    public static List<kafka.tier.tools.common.FenceEventInfo> injectFencingEvents(
+        String bootstrapServers,
+        String tierTopicNamespace,
+        List<TopicIdPartition> tieredTopicIdPartitions) throws ExecutionException, InterruptedException {
+        final String tierTopicName = TierTopic.topicName(tierTopicNamespace);
+        final List<kafka.tier.tools.common.FenceEventInfo> events = new ArrayList<>();
+        Producer<byte[], byte[]> producer = null;
+        try {
+            short numTierTopicPartitions = RecoveryUtils.getNumPartitions(
+                bootstrapServers, tierTopicName);
+            producer = RecoveryUtils.createTierTopicProducer(
+                bootstrapServers,
+                tierTopicNamespace,
+                numTierTopicPartitions,
+                TierPartitionStateFencingTrigger.class.getSimpleName());
+            for (TopicIdPartition tieredPartition : tieredTopicIdPartitions) {
+                final TierPartitionFence fencingEvent = new TierPartitionFence(
+                    tieredPartition, UUID.randomUUID());
+                final RecordMetadata metadata = RecoveryUtils.injectTierTopicEvent(
+                    producer, fencingEvent, tierTopicName, numTierTopicPartitions);
+                events.add(
+                    new kafka.tier.tools.common.FenceEventInfo(
+                        tieredPartition.topic(),
+                        tieredPartition.topicIdAsBase64(),
+                        tieredPartition.partition(),
+                        CoreUtils.uuidToBase64(fencingEvent.messageId()),
+                        metadata.offset()));
+            }
+            return events;
+        } catch (Exception e) {
+            log.error("Could not inject fencing events! ", e);
+            throw e;
+        } finally {
+           if (producer != null) {
+               producer.close();
+           }
+        }
     }
 
     public static void main(String[] args) throws Exception {
-        ArgumentParser parser = TierPartitionStateFencingTrigger.createArgParser();
-        Namespace parsedArgs = null;
+        System.out.println(kafka.tier.tools.common.FenceEventInfo.listToJson(runMain(args)));
+    }
+
+    public static List<kafka.tier.tools.common.FenceEventInfo> runMain(String[] args) throws Exception {
+        final  ArgumentParser parser = TierPartitionStateFencingTrigger.createArgParser();
         try {
-            parsedArgs = parser.parseArgs(args);
+            return run(parser, parser.parseArgs(args));
         } catch (ArgumentParserException e) {
             parser.handleError(e);
             System.exit(1);
+            throw e;
         }
-
-        run(parsedArgs);
     }
 }

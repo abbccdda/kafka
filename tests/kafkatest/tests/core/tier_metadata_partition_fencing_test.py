@@ -1,3 +1,4 @@
+import base64
 import json
 
 from ducktape.mark import matrix
@@ -36,8 +37,8 @@ class TierMetadataPartitionFencingTest(ProduceConsumeValidateTest, TierSupport):
     LOG_SEGMENT_BYTES = 100 * 1024
     MIN_RECORDS_PRODUCED = 25000
     BROKER_COUNT = 3
-    PARTITION_COUNT = 5
-    PARTITION_ID_TO_BE_FENCED = 2
+    PARTITION_COUNT = 10
+    PARTITION_IDS_TO_BE_FENCED = set([2,3])
     TIER_BUCKET_PREFIX = "system-test-run-" + str(int(round(time.time() * 1000))) + "-" + str(uuid.uuid4()) + "/"
 
     TOPIC_CONFIG = {
@@ -78,20 +79,51 @@ class TierMetadataPartitionFencingTest(ProduceConsumeValidateTest, TierSupport):
         self.logger.info("Topic ID assigned for topic %s is %s (partition %d)" % (self.topic, topic_id, partition))
         return topic_id
 
-    def trigger_fencing(self, partition):
-        topic_id = self.topic_id(partition)
+    def trigger_fencing(self):
+        if not self.PARTITION_IDS_TO_BE_FENCED:
+            return
+
         node = self.kafka.nodes[0]
 
+        # 1. Write file containing list of partitions to be fenced.
+        first_partition = list(self.PARTITION_IDS_TO_BE_FENCED)[0]
+        topic_id_b64 = base64.b64encode(uuid.UUID(self.topic_id(first_partition)).bytes)
+        fencing_input_file = "{}/trigger_fencing.input".format(KafkaService.PERSISTENT_ROOT)
+        input_tpids = []
+        for partition in self.PARTITION_IDS_TO_BE_FENCED:
+            input_tpids.append('{},{},{}'.format(topic_id_b64, self.topic, partition))
+
+        cmd = "echo -n '{}' > {}".format("\n".join(input_tpids), fencing_input_file)
+        self.logger.debug(cmd)
+
+        output = ""
+        for line in node.account.ssh_capture(cmd):
+            output += line
+        self.logger.debug(output)
+
+        # 2. Write file containing list of properties.
+        properties_file = "{}/trigger_fencing.properties".format(KafkaService.PERSISTENT_ROOT)
+        property = "confluent.tier.metadata.bootstrap.servers={}".format(
+            self.kafka.bootstrap_servers(self.kafka.security_protocol))
+        cmd = "echo -n '{}' > {}".format(property, properties_file)
+        self.logger.debug(cmd)
+
+        output = ""
+        for line in node.account.ssh_capture(cmd):
+            output += line
+        self.logger.debug(output)
+
+         # 3. Run TierPartitionStateFencingTrigger command to fence the partitions.
         cmd = fix_opts_for_new_jvm(node)
         cmd += self.kafka.path.script("kafka-run-class.sh", node)
         cmd += " kafka.tier.tools.TierPartitionStateFencingTrigger"
-        cmd += " --bootstrap-servers %s --tiered-partition-topic-name %s --tiered-partition-name %d" % (
-            self.kafka.bootstrap_servers(self.kafka.security_protocol), self.topic, partition)
-        cmd += " --tiered-partition-topic-id %s dangerous-fence-via-delete-event" % topic_id
+        cmd += " --tier.config %s --file-fence-target-partitions %s" % (
+            properties_file, fencing_input_file)
         cmd += " 2>> %s/trigger_fencing.log" % KafkaService.PERSISTENT_ROOT
         cmd += " | tee -a %s/trigger_fencing.log &" % KafkaService.PERSISTENT_ROOT
-        output = ""
         self.logger.debug(cmd)
+
+        output = ""
         for line in node.account.ssh_capture(cmd):
             output += line
         self.logger.debug(output)
@@ -129,10 +161,8 @@ class TierMetadataPartitionFencingTest(ProduceConsumeValidateTest, TierSupport):
         # 3. Trigger fencing on a partition. Then produce more data post fencing, eventually stop the producer.
         self.restart_jmx_tool()
         assert (self.check_fenced_partitions(0))
-        fenced_partitions = set([self.PARTITION_ID_TO_BE_FENCED])
-        for partition in fenced_partitions:
-            self.trigger_fencing(partition)
-        wait_until(lambda: self.check_fenced_partitions(len(fenced_partitions)),
+        self.trigger_fencing()
+        wait_until(lambda: self.check_fenced_partitions(len(self.PARTITION_IDS_TO_BE_FENCED)),
                    timeout_sec=600, backoff_sec=2, err_msg="num fenced partitions was not reported as 1")
         wait_until(lambda: self.producer.each_produced_at_least(self.MIN_RECORDS_PRODUCED * 2),
                    timeout_sec=360, backoff_sec=1,
@@ -142,14 +172,14 @@ class TierMetadataPartitionFencingTest(ProduceConsumeValidateTest, TierSupport):
         # 4. Ensure tiering is complete, and fenced partitions metric remains the same as before.
         self.add_log_metrics(self.topic, range(0, self.PARTITION_COUNT))
         self.restart_jmx_tool()
-        partitions_without_error = list(set(range(0, self.PARTITION_COUNT)) - fenced_partitions)
+        partitions_without_error = list(set(range(0, self.PARTITION_COUNT)) - self.PARTITION_IDS_TO_BE_FENCED)
         wait_until(
             lambda: self.tiering_completed(
                 self.topic, partitions=partitions_without_error, ignore_error_partitions=True),
             timeout_sec=360,
             backoff_sec=2,
             err_msg="archive did not complete within timeout for partitions without error")
-        assert (self.check_fenced_partitions(len(fenced_partitions)))
+        assert (self.check_fenced_partitions(len(self.PARTITION_IDS_TO_BE_FENCED)))
 
         # 5. Verify that produced data can be read by the consumer
         self.consumer = ConsoleConsumer(self.test_context, self.num_consumers, self.kafka,
