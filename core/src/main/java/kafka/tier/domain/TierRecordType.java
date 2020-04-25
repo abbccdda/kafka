@@ -15,7 +15,8 @@ public enum TierRecordType {
     SegmentDeleteComplete((byte) 4),
     PartitionDeleteInitiate((byte) 5),
     PartitionDeleteComplete((byte) 6),
-    PartitionFence((byte) 7);
+    PartitionFence((byte) 7),
+    PartitionForceRestore((byte) 8);
 
     private static final Map<Byte, TierRecordType> ID_TO_TYPE = new HashMap<>();
     private final byte id;

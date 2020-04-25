@@ -1,0 +1,22 @@
+/*
+ Copyright 2019 Confluent Inc.
+ */
+
+include "../immutable/offset_epoch.fbs";
+include "../immutable/uuid.fbs";
+namespace kafka.tier.serdes;
+
+// DO NOT REUSE FIELD IDS AS THIS WILL BREAK FORWARD AND BACKWARD COMPAT
+// INSTEAD MARK THEM AS DEPRECATED
+// e.g. myfield:byte (id: 9, deprecated)
+
+table PartitionForceRestore {
+  version: byte (id: 0); // metadata version number
+  messageId: UUID (id: 1); // correlation ID
+  startOffset: long (id: 2); // start offset of the state to restore
+  endOffset: long (id: 3); // end offset of the state to restore
+  contentHash: string (id: 4); // hash of the snapshot contained in object storage
+  stateValidityOffsetAndEpoch: OffsetAndEpoch (id: 5); // only restore this snapshot over a TierPartitionState with a lower restore offset
+}
+
+root_type PartitionForceRestore;

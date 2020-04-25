@@ -6,17 +6,20 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.ByteBuffer;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.AbstractTierMetadata;
 import kafka.tier.domain.TierPartitionFence;
 import kafka.tier.domain.TierPartitionDeleteInitiate;
+import kafka.tier.domain.TierPartitionForceRestore;
 import kafka.tier.domain.TierRecordType;
 import kafka.tier.domain.TierSegmentDeleteComplete;
 import kafka.tier.domain.TierSegmentDeleteInitiate;
 import kafka.tier.domain.TierSegmentUploadComplete;
 import kafka.tier.domain.TierSegmentUploadInitiate;
 import kafka.tier.domain.TierTopicInitLeader;
+import kafka.tier.state.OffsetAndEpoch;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.record.TimestampType;
 import org.junit.Test;
@@ -78,6 +81,42 @@ public class TierMessageFormatterTest {
         String expected = String.format("(%d, %d, %s): %s\n",
                 topicIdPartition.partition(), record.offset(), Instant.ofEpochMilli(record.timestamp()), partDeleteInit.toString());
         assertEquals(expected, baos.toString());
+    }
+
+    @Test
+    public void formatTierPartitionForceRestoreTest() {
+        UUID topicId = UUID.fromString("4da3c386-128c-48f3-bd2a-8c0e4ddc81c4");
+        TopicIdPartition topicIdPartition = new TopicIdPartition("foo", topicId, 0);
+        UUID messageId = UUID.fromString("71ad0b74-d8a3-487a-baf6-bb152d8f70d3");
+        AbstractTierMetadata partitionRestore = new TierPartitionForceRestore(topicIdPartition,
+                messageId, 1, 100, new OffsetAndEpoch(300L, Optional.of(30)), "contenthash");
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        PrintStream ps = new PrintStream(baos);
+        ConsumerRecord<byte[], byte[]> record = new ConsumerRecord<>(
+                "foo",
+                topicIdPartition.partition(),
+                1,
+                System.currentTimeMillis(),
+                TimestampType.LOG_APPEND_TIME,
+                ConsumerRecord.NULL_CHECKSUM,
+                ConsumerRecord.NULL_SIZE,
+                ConsumerRecord.NULL_SIZE,
+                partitionRestore.serializeKey(),
+                partitionRestore.serializeValue());
+        formatter.writeTo(record, ps);
+
+        String expected = String.format("(%d, %d, %s): %s\n",
+                topicIdPartition.partition(), record.offset(),
+                Instant.ofEpochMilli(record.timestamp()), partitionRestore.toString());
+        assertEquals(expected, baos.toString());
+        assertEquals("TierPartitionForceRestore(version=0, "
+                        + "topicIdPartition=TaPDhhKMSPO9KowOTdyBxA-foo-0, "
+                        + "messageIdAsBase64=ca0LdNijSHq69rsVLY9w0w, "
+                        + "startOffset=1, endOffset=100, "
+                        + "stateValidityOffsetAndEpoch=Optional[OffsetAndEpoch(offset=300, epoch=Optional[30])], "
+                        + "contentHash=contenthash)",
+                partitionRestore.toString());
     }
 
     @Test
@@ -188,7 +227,6 @@ public class TierMessageFormatterTest {
     }
 
     private class UnknownTierMetadata extends AbstractTierMetadata {
-
         @Override
         public TierRecordType type() {
             return null;

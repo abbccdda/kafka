@@ -10,12 +10,14 @@ import kafka.tier.serdes.InitLeader;
 import kafka.tier.exceptions.TierMetadataDeserializationException;
 import kafka.tier.serdes.PartitionDeleteComplete;
 import kafka.tier.serdes.PartitionDeleteInitiate;
+import kafka.tier.serdes.PartitionForceRestore;
 import kafka.tier.serdes.TierKafkaKey;
 import com.google.flatbuffers.FlatBufferBuilder;
 import kafka.tier.serdes.SegmentDeleteComplete;
 import kafka.tier.serdes.SegmentDeleteInitiate;
 import kafka.tier.serdes.SegmentUploadComplete;
 import kafka.tier.serdes.SegmentUploadInitiate;
+import kafka.tier.state.OffsetAndEpoch;
 import kafka.utils.CoreUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,6 +82,11 @@ public abstract class AbstractTierMetadata {
                 tierKey.partition());
     }
 
+    public static OffsetAndEpoch offsetAndEpoch(kafka.tier.serdes.OffsetAndEpoch offsetAndEpoch) {
+         return new OffsetAndEpoch(offsetAndEpoch.offset(),
+                 offsetAndEpoch.epoch() == -1 ? Optional.empty() : Optional.of(offsetAndEpoch.epoch()));
+    }
+
     /**
      * Deserializes byte key and value read from Tier State Topic into Tier Metadata.
      * Current implementation maps any exception while deserialization as TierMetadataDeserializationException. In
@@ -127,6 +134,9 @@ public abstract class AbstractTierMetadata {
             case PartitionFence:
                 final PartitionFence partitionFence = PartitionFence.getRootAsPartitionFence(value);
                 return Optional.of(new TierPartitionFence(topicIdPartition, partitionFence));
+            case PartitionForceRestore:
+                final PartitionForceRestore partitionForceRestore = PartitionForceRestore.getRootAsPartitionForceRestore(value);
+                return Optional.of(new TierPartitionForceRestore(topicIdPartition, partitionForceRestore));
             default:
                 log.debug("Unknown tier metadata type with ID {}. Ignoring record.", type);
                 return Optional.empty();
