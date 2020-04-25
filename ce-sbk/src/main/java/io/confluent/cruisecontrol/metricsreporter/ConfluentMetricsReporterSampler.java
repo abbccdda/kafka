@@ -13,6 +13,7 @@ import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.BrokerMetric;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.CruiseControlMetric;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.MetricsUtils;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType;
+import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.YammerMetricWrapper;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.CruiseControlMetricsProcessor;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricSampler;
 import io.confluent.databalancer.StartupCheckInterruptedException;
@@ -235,8 +236,8 @@ public class ConfluentMetricsReporterSampler implements MetricSampler {
             }
         }
         for (ConfluentMetric.YammerGauge gauge : metricsMessage.getYammerGaugeList()) {
-            com.yammer.metrics.core.MetricName metricName = convertYammerMetricName(gauge.getMetricName());
-            if (MetricsUtils.isInterested(metricName)) {
+            YammerMetricWrapper metricWrapper = new YammerMetricWrapper(convertYammerMetricName(gauge.getMetricName()));
+            if (MetricsUtils.isInterested(metricWrapper)) {
                 Double value = null;
                 switch (gauge.getNumericValueCase()) {
                     case LONGVALUE:
@@ -252,56 +253,56 @@ public class ConfluentMetricsReporterSampler implements MetricSampler {
                     this.addIfNotNull(metricList, MetricsUtils.toCruiseControlMetric(
                             metricsMessage.getTimestamp(),
                             metricsMessage.getBrokerId(),
-                            convertYammerMetricName(gauge.getMetricName()),
+                            metricWrapper,
                             value));
                 }
             }
         }
         for (ConfluentMetric.YammerMeter meter : metricsMessage.getYammerMeterList()) {
-            com.yammer.metrics.core.MetricName metricName = convertYammerMetricName(meter.getMetricName());
-            if (MetricsUtils.isInterested(metricName)) {
+            YammerMetricWrapper metricWrapper = new YammerMetricWrapper(convertYammerMetricName(meter.getMetricName()));
+            if (MetricsUtils.isInterested(metricWrapper)) {
                 this.addIfNotNull(metricList, MetricsUtils.toCruiseControlMetric(
                         metricsMessage.getTimestamp(),
                         metricsMessage.getBrokerId(),
-                        convertYammerMetricName(meter.getMetricName()),
+                        metricWrapper,
                         meter.getOneMinuteRate()));
             }
         }
         for (ConfluentMetric.YammerTimer timer : metricsMessage.getYammerTimerList()) {
-            com.yammer.metrics.core.MetricName metricName = convertYammerMetricName(timer.getMetricName());
-            if (MetricsUtils.isInterested(metricName)) {
+            YammerMetricWrapper metricWrapper = new YammerMetricWrapper(convertYammerMetricName(timer.getMetricName()));
+            if (MetricsUtils.isInterested(metricWrapper)) {
                 this.addIfNotNull(metricList, MetricsUtils.toCruiseControlMetric(
                         metricsMessage.getTimestamp(),
                         metricsMessage.getBrokerId(),
-                        metricName,
+                        metricWrapper,
                         timer.getOneMinuteRate()));
                 this.addIfNotNull(metricList, MetricsUtils.toCruiseControlMetric(
                         metricsMessage.getTimestamp(),
                         metricsMessage.getBrokerId(),
-                        metricName,
+                        metricWrapper,
                         timer.getMax(),
                         MetricsUtils.ATTRIBUTE_MAX));
                 this.addIfNotNull(metricList, MetricsUtils.toCruiseControlMetric(
                         metricsMessage.getTimestamp(),
                         metricsMessage.getBrokerId(),
-                        metricName,
+                        metricWrapper,
                         timer.getMean(),
                         MetricsUtils.ATTRIBUTE_MEAN));
             }
         }
         for (ConfluentMetric.YammerHistogram histogram : metricsMessage.getYammerHistogramList()) {
-            com.yammer.metrics.core.MetricName metricName = convertYammerMetricName(histogram.getMetricName());
-            if (MetricsUtils.isInterested(metricName)) {
+            YammerMetricWrapper metricWrapper = new YammerMetricWrapper(convertYammerMetricName(histogram.getMetricName()));
+            if (MetricsUtils.isInterested(metricWrapper)) {
                 this.addIfNotNull(metricList, MetricsUtils.toCruiseControlMetric(
                         metricsMessage.getTimestamp(),
                         metricsMessage.getBrokerId(),
-                        metricName,
+                        metricWrapper,
                         histogram.getMax(),
                         MetricsUtils.ATTRIBUTE_MAX));
                 this.addIfNotNull(metricList, MetricsUtils.toCruiseControlMetric(
                         metricsMessage.getTimestamp(),
                         metricsMessage.getBrokerId(),
-                        metricName,
+                        metricWrapper,
                         histogram.getMean(),
                         MetricsUtils.ATTRIBUTE_MEAN));
             }
