@@ -6,8 +6,6 @@ import kafka.tier.store.TierObjectStore;
 import org.apache.kafka.common.errors.KafkaStorageException;
 
 import java.io.IOException;
-import java.util.Iterator;
-import java.util.NavigableSet;
 import java.util.Optional;
 
 public class TierUtils {
@@ -25,18 +23,6 @@ public class TierUtils {
                                                                    Optional<TierObjectStore> objectStore) {
         return metadataForOffset(partitionState, offset)
                 .map(metadataOpt -> new TierLogSegment(metadataOpt.metadata, metadataOpt.startOffset, objectStore.get()));
-    }
-
-    public static Iterator<TierLogSegment> tieredSegments(NavigableSet<Long> tieredOffsets,
-                                                          TierPartitionState partitionState,
-                                                          Optional<TierObjectStore> objectStore) {
-        return tieredOffsets
-                .stream()
-                .map(offset -> metadataForOffset(partitionState, offset))
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .map(metadata -> new TierLogSegment(metadata.metadata, metadata.startOffset, objectStore.get()))
-                .iterator();
     }
 
     private static class MetadataWithOffset {

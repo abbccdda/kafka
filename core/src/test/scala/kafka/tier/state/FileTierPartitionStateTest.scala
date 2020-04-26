@@ -144,13 +144,13 @@ class FileTierPartitionStateTest {
     }
     state.flush()
 
-    var segmentOffsets = state.segmentOffsets.iterator
+    var segments = state.segments
     for (i <- 0 until numSegments) {
       val startOffset = i * 2L
-      assertEquals(startOffset, segmentOffsets.next)
+      assertEquals(startOffset, segments.next.baseOffset())
       assertEquals(startOffset, state.metadata(startOffset).get().baseOffset())
     }
-    assertFalse(segmentOffsets.hasNext)
+    assertFalse(segments.hasNext)
     assertEquals(currentSegments, state.numSegments())
     assertEquals(size, state.totalSize)
     assertEquals(0L, state.startOffset().get())
@@ -166,13 +166,13 @@ class FileTierPartitionStateTest {
     }
     state.flush()
 
-    segmentOffsets = state.segmentOffsets.iterator
+    segments = state.segments
     for (i <- 0L until currentSegments) {
       val startOffset = i * 2L
-      assertEquals(startOffset, segmentOffsets.next)
+      assertEquals(startOffset, segments.next.baseOffset())
       assertEquals(startOffset, state.metadata(startOffset).get().baseOffset())
     }
-    assertFalse(segmentOffsets.hasNext)
+    assertFalse(segments.hasNext)
     assertEquals(currentSegments, state.numSegments())
     assertEquals(size, state.totalSize)
     assertEquals(0L, state.startOffset().get())
@@ -313,7 +313,7 @@ class FileTierPartitionStateTest {
     // committedEndOffset is unavailable before first flush
     assertEquals(100L, state.endOffset)
     assertEquals(-1L, state.committedEndOffset)
-    assertEquals(1, state.segmentOffsets.size)
+    assertEquals(1, state.segments.asScala.size)
 
     // committedEndOffset equals endOffset after flush
     state.flush()
@@ -337,7 +337,7 @@ class FileTierPartitionStateTest {
     // committedEndOffset is unavailable before first flush
     assertEquals(100L, state.endOffset)
     assertEquals(-1L, state.committedEndOffset)
-    assertEquals(1, state.segmentOffsets.size)
+    assertEquals(1, state.segments.asScala.size)
 
     // committedEndOffset equals endOffset after flush
     state.flush()
@@ -354,7 +354,7 @@ class FileTierPartitionStateTest {
     state.flush()
     assertEquals(0L, state.startOffset.get)
     assertEquals(200L, state.committedEndOffset())
-    val numSegments = state.segmentOffsets.size
+    val numSegments = state.segments.asScala.size
     state.close()
 
     validateConsoleDumpedEntries(dir, numSegments)
@@ -407,7 +407,7 @@ class FileTierPartitionStateTest {
     }
 
     assertEquals(offset, state.endOffset)
-    assertEquals(numSegments, state.segmentOffsets.size)
+    assertEquals(numSegments, state.segments.asScala.size)
 
     // initiate a new upload
     val inProgressObjectId = UUID.randomUUID
@@ -415,12 +415,12 @@ class FileTierPartitionStateTest {
 
     // upload must not be visible to readers
     assertEquals(offset, state.endOffset)
-    assertEquals(numSegments, state.segmentOffsets.size)
+    assertEquals(numSegments, state.segments.asScala.size)
 
     // complete upload
     assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, inProgressObjectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     assertEquals(offset + 1, state.endOffset)
-    assertEquals(numSegments + 1, state.segmentOffsets.size)
+    assertEquals(numSegments + 1, state.segments.asScala.size)
   }
 
   @Test
@@ -518,7 +518,7 @@ class FileTierPartitionStateTest {
 
     // unsuccessful initiate uploads are not tracked as fenced
     assertEquals(0, state.fencedSegments.size)
-    assertEquals(numSegments * 2, state.segmentOffsets.size)
+    assertEquals(numSegments * 2, state.segments.asScala.size)
 
     // reopen state and validate state remains the same
     state.close()
@@ -526,7 +526,7 @@ class FileTierPartitionStateTest {
     assertFalse(reopenedState.dirty())
     try {
       assertEquals(0, reopenedState.fencedSegments.size)
-      assertEquals(numSegments * 2, reopenedState.segmentOffsets.size)
+      assertEquals(numSegments * 2, reopenedState.segments.asScala.size)
     } finally {
       reopenedState.close()
     }
@@ -543,7 +543,7 @@ class FileTierPartitionStateTest {
     assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset, offset + 1, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     assertEquals(0, state.fencedSegments.size)
-    assertEquals(1, state.segmentOffsets.size)
+    assertEquals(1, state.segments.asScala.size)
 
     // an attempt to upload at epoch=1 without init leader, should fail
     epoch += 1
@@ -554,7 +554,7 @@ class FileTierPartitionStateTest {
     assertEquals(AppendResult.FAILED, state.append(new TierTopicInitLeader(tpid, epoch, UUID.randomUUID, 0), nextTierTopicOffsetAndEpoch));
     assertEquals(TierPartitionStatus.ERROR, state.status())
     assertEquals(0, state.fencedSegments.size)
-    assertEquals(1, state.segmentOffsets.size)
+    assertEquals(1, state.segments.asScala.size)
   }
 
   @Test
@@ -568,7 +568,7 @@ class FileTierPartitionStateTest {
     assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset, offset + 1, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     assertEquals(0, state.fencedSegments.size)
-    assertEquals(1, state.segmentOffsets.size)
+    assertEquals(1, state.segments.asScala.size)
 
     // An attempt to delete at epoch=1 without init leader, should fail
     epoch += 1
@@ -579,7 +579,7 @@ class FileTierPartitionStateTest {
     assertEquals(AppendResult.FAILED, state.append(new TierTopicInitLeader(tpid, epoch, UUID.randomUUID, 0), nextTierTopicOffsetAndEpoch));
     assertEquals(TierPartitionStatus.ERROR, state.status())
     assertEquals(0, state.fencedSegments.size)
-    assertEquals(1, state.segmentOffsets.size)
+    assertEquals(1, state.segments.asScala.size)
   }
 
 
@@ -611,7 +611,7 @@ class FileTierPartitionStateTest {
     assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, ongoingUpload, offset, offset + 1, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
     // all but the last in-progress upload must now be fenced
-    assertEquals(numAbortedSegments, state.fencedSegments.size)
+    assertEquals(numAbortedSegments, state.fencedSegments.asScala.size)
     assertEquals(abortedObjectIds.toSet, state.fencedSegments.asScala.map(_.objectId).toSet)
     assertEquals(numSegments, state.numSegments)
 
@@ -626,7 +626,7 @@ class FileTierPartitionStateTest {
 
       // complete the ongoing upload
       assertEquals(AppendResult.ACCEPTED, reopenedState.append(new TierSegmentUploadComplete(tpid, epoch, ongoingUpload), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(ongoingUpload, reopenedState.metadata(reopenedState.segmentOffsets.last).get.objectId)
+      assertEquals(ongoingUpload, reopenedState.segments.asScala.toList.last.objectId)
     } finally {
       reopenedState.close()
     }
@@ -739,7 +739,6 @@ class FileTierPartitionStateTest {
     val epoch = 0
     var offset = 0
     val objectIds = new ListBuffer[UUID]
-    val tierObjectStore = mock(classOf[TierObjectStore])
 
     // upload few segments at epoch=0
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
@@ -758,7 +757,7 @@ class FileTierPartitionStateTest {
     }
 
     val validObjectIds = objectIds.takeRight(numSegments - numSegmentsToDelete)
-    val foundObjectIds = TierUtils.tieredSegments(state.segmentOffsets, state, Optional.of(tierObjectStore)).asScala.map(_.metadata.objectId).toList
+    val foundObjectIds = state.segments.asScala.map(_.objectId).toList
 
     assertEquals(validObjectIds.size, state.numSegments)
     assertEquals(validObjectIds, foundObjectIds)
@@ -771,7 +770,6 @@ class FileTierPartitionStateTest {
     var offset = 0
     val objectIds = new ListBuffer[UUID]
     val endOffsets = new ListBuffer[Long]
-    val tierObjectStore = mock(classOf[TierObjectStore])
     var size = 0
 
     // upload few segments at epoch=0
@@ -794,12 +792,12 @@ class FileTierPartitionStateTest {
     }
 
     val validObjectIds = objectIds.takeRight(numSegments - numSegmentsToDelete)
-    val foundObjectIds = TierUtils.tieredSegments(state.segmentOffsets, state, Optional.of(tierObjectStore)).asScala.map(_.metadata.objectId).toList
+    val foundObjectIds = state.segments.asScala.map(_.objectId).toList
     assertEquals(validObjectIds.size, state.numSegments)
     assertEquals(validObjectIds, foundObjectIds)
 
     val validEndOffsets = endOffsets.takeRight(numSegments - numSegmentsToDelete)
-    val foundEndOffsets = TierUtils.tieredSegments(state.segmentOffsets, state, Optional.of(tierObjectStore)).asScala.map(_.endOffset).toList
+    val foundEndOffsets = state.segments.asScala.map(_.endOffset).toList
     assertEquals(validEndOffsets, foundEndOffsets)
     assertEquals(size, state.totalSize)
 
@@ -1327,7 +1325,7 @@ class FileTierPartitionStateTest {
       assertTrue(Set(AppendResult.FENCED, AppendResult.ACCEPTED)(result))
     }
 
-    val segments = state.segmentOffsets
+    val segments = state.segments
     val fencedSegments = state.fencedSegments
     val size = state.totalSize
 
@@ -1335,7 +1333,7 @@ class FileTierPartitionStateTest {
     assertEquals(expected, state.append(metadata, TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
     // assert the tier partition state does not change after a duplicate append
-    assertEquals(segments, state.segmentOffsets)
+    assertEquals(segments.asScala.toList, state.segments.asScala.toList)
     assertEquals(fencedSegments, state.fencedSegments)
     assertEquals(size, state.totalSize)
   }

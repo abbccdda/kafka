@@ -23,6 +23,7 @@ import kafka.tier.serdes.TierPartitionStateHeader;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.KafkaStorageException;
 import org.apache.kafka.common.errors.RetriableException;
+import org.apache.kafka.common.utils.AbstractIterator;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +42,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
@@ -57,6 +59,11 @@ import java.util.stream.Collectors;
 
 import static scala.compat.java8.JFunction.func;
 
+/**
+ * Important: this code is performance sensitive. When making potentially performance sensitive
+ * code, please run the following under the jmh-benchmarks directory:
+ * ./jmh.sh -prof gc org.apache.kafka.jmh.tier.MergedLogTierBenchmark
+ */
 public class FileTierPartitionState implements TierPartitionState, AutoCloseable {
     private enum StateFileType {
         /**
@@ -296,9 +303,16 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     @Override
+    public int numSegments(long from, long to) {
+        synchronized (lock) {
+            return state.segmentOffsets(from, to).size();
+        }
+    }
+
+    @Override
     public int numSegments() {
         synchronized (lock) {
-            return segmentOffsets().size();
+            return state.segmentOffsets().size();
         }
     }
 
@@ -329,17 +343,15 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         }
     }
 
-    @Override
-    public NavigableSet<Long> segmentOffsets() {
+    public Iterator<TierObjectMetadata> segments() {
         synchronized (lock) {
-            return state.segmentOffsets();
+            return state.segments();
         }
     }
 
-    @Override
-    public NavigableSet<Long> segmentOffsets(long from, long to) {
+    public Iterator<TierObjectMetadata> segments(long from, long to) {
         synchronized (lock) {
-            return state.segmentOffsets(from, to);
+            return state.segments(from, to);
         }
     }
 
@@ -764,12 +776,26 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             return validSegmentsSize;
         }
 
-        public NavigableSet<Long> segmentOffsets() {
+        private NavigableSet<Long> segmentOffsets() {
             return validSegments.keySet();
         }
 
         public NavigableSet<Long> segmentOffsets(long from, long to) {
             return Log$.MODULE$.logSegments(validSegments, from, to).keySet();
+        }
+
+        public Iterator<TierObjectMetadata> segments() {
+            // first compute a safe view of validSegments base offsets under a lock
+            // and provide it to the iterator. This achieves consistent iteration across
+            // a given State even if one State is swapped for another
+            return new TierObjectMetadataIterator(segmentOffsets().iterator());
+        }
+
+        public Iterator<TierObjectMetadata> segments(long from, long to) {
+            // first compute a safe view of validSegments base offsets under a lock
+            // and provide it to the iterator. This achieves consistent iteration across
+            // a given State even if one State is swapped for another
+            return new TierObjectMetadataIterator(segmentOffsets(from, to).iterator());
         }
 
         void putValid(SegmentState state, TierObjectMetadata metadata) {
@@ -811,9 +837,10 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
          * with offset >= targetOffset. This is intended to be used when a consumer / reader wishes
          * to read records with offset >= targetOffset as it will skip over any segments with
          * endOffset < targetOffset.
-         * @param topicIdPartition TopicIdPartition for tier partition state being read
+         *
+         * @param topicIdPartition    TopicIdPartition for tier partition state being read
          * @param initialBytePosition the initial byte position for the FileTierPartitionIterator
-         * @param targetOffset the target offset to be read
+         * @param targetOffset        the target offset to be read
          * @return optional TierObjectMetadata for a containing data with offsets >= targetOffset
          * @throws IOException
          */
@@ -991,7 +1018,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             // reuse the existing logic for state fencing, where, exceptions are caught and the state
             // is fenced *without* forwarding localMaterializedOffsetAndEpoch.
             throw new TierPartitionFencedException(
-                String.format("topicIdPartition=%s fenced by PartitionFence event=%s", topicIdPartition, partitionFence));
+                    String.format("topicIdPartition=%s fenced by PartitionFence event=%s", topicIdPartition, partitionFence));
         }
 
         private AppendResult handleInitLeader(TierTopicInitLeader initLeader) throws IOException {
@@ -1342,6 +1369,38 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             Utils.writeFully(channel, sizeBuf);
             Utils.writeFully(channel, metadataBuffer);
             return byteOffset;
+        }
+
+        /**
+         * TierObjectMetadataIterator provides a way iterate segments with supplied
+         * base offsets over a State. The TierObjectMetadataIterator is created for a given
+         * state, and can thus be returned to external code when a consistent and lazy scan of metadata
+         * is required by the caller. This mechanism allows State objects to be swapped in
+         * the outer class during state restoration/recovery.
+         */
+        private class TierObjectMetadataIterator extends AbstractIterator<TierObjectMetadata> {
+            final Iterator<Long> baseOffsets;
+
+            TierObjectMetadataIterator(Iterator<Long> baseOffsets) {
+                this.baseOffsets = baseOffsets;
+            }
+
+            protected TierObjectMetadata makeNext() {
+                    while (baseOffsets.hasNext()) {
+                        final Long offset = baseOffsets.next();
+                        final Optional<TierObjectMetadata> metadata;
+                        try {
+                            metadata = metadata(offset);
+                        } catch (IOException e) {
+                            throw new KafkaStorageException(
+                                    "Encountered error during iteration at target offset " + offset, e);
+                        }
+
+                        if (metadata.isPresent())
+                            return metadata.get();
+                    }
+                    return allDone();
+            }
         }
     }
 

@@ -44,8 +44,8 @@ public class FileTierPartitionIterator extends AbstractIterator<TierObjectMetada
         if (position >= endPosition)
             return allDone();
 
+        long currentPosition = this.position;
         try {
-            long currentPosition = this.position;
             // read length
             Utils.readFully(channel, lengthBuffer, currentPosition);
             if (lengthBuffer.hasRemaining())
@@ -81,7 +81,8 @@ public class FileTierPartitionIterator extends AbstractIterator<TierObjectMetada
 
             return new TierObjectMetadata(topicIdPartition, TierPartitionStateEntry.getRootAsTierPartitionStateEntry(entryBuffer));
         } catch (IOException e) {
-            throw new KafkaStorageException(e);
+            throw new KafkaStorageException(
+                    "Encountered error during iteration at byte offset " + currentPosition, e);
         }
     }
 

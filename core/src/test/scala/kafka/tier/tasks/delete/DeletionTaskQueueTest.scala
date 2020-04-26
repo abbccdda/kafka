@@ -118,7 +118,7 @@ class DeletionTaskQueueTest {
     when(replicaManager.getLog(partition.topicPartition)).thenReturn(Some(log))
 
     // mock Log
-    when(log.tieredLogSegments).thenReturn(Seq(tieredLogSegment))
+    when(log.tieredLogSegments).thenReturn(Seq(tieredLogSegment).iterator)
     when(log.config).thenReturn(logConfig)
     when(log.logStartOffset).thenReturn(100)
     when(log.tierPartitionState).thenReturn(tierPartitionState)

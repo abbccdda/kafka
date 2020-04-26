@@ -6,8 +6,8 @@ package kafka.tier.tasks.archive
 
 import java.io.File
 import java.nio.file.Paths
-import java.{lang, util}
-import java.util.concurrent.{CompletableFuture, ConcurrentSkipListSet, Executors, ScheduledExecutorService, TimeUnit}
+import java.util
+import java.util.concurrent.{CompletableFuture, Executors, ScheduledExecutorService, TimeUnit}
 import java.util.{Collections, Properties, UUID}
 
 import com.yammer.metrics.core.Meter
@@ -18,11 +18,12 @@ import kafka.tier.exceptions.TierArchiverFailedException
 import kafka.tier.exceptions.TierArchiverFencedException
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState.AppendResult
-import kafka.tier.state.{FileTierPartitionState, TierPartitionStateFactory, TierPartitionState}
+import kafka.tier.state.{FileTierPartitionState, TierPartitionState, TierPartitionStateFactory}
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStoreConfig}
 import kafka.tier.tasks.CompletableFutureUtil
 import kafka.tier.topic.{TierTopicConsumer, TierTopicManager}
 import kafka.tier.{TierReplicaManager, TierTestUtils, TopicIdPartition}
+import kafka.tier.domain.TierObjectMetadata
 import kafka.utils.{MockTime, TestUtils}
 import org.apache.kafka.common.utils.Time
 import org.junit.Assert.assertTrue
@@ -165,7 +166,7 @@ class TierArchiverStateTest {
     when(tierPartitionState.committedEndOffset()).thenReturn(-1L: java.lang.Long)
     when(tierPartitionState.tierEpoch).thenReturn(0)
     when(tierPartitionState.endOffset).thenReturn(0)
-    when(tierPartitionState.segmentOffsets(any(), any())).thenReturn(new ConcurrentSkipListSet[lang.Long]())
+    when(tierPartitionState.segments(any(), any())).thenReturn(new util.ArrayList[TierObjectMetadata]().iterator())
     when(tierTopicManager.addMetadata(any())).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
 
     val logConfig = LogTest.createLogConfig(segmentBytes = 150, indexIntervalBytes = 1, maxMessageBytes = 64 * 1024, tierEnable = true)
