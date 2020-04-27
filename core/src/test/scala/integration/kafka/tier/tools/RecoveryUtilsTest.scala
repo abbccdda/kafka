@@ -9,7 +9,6 @@ import java.util.Arrays;
 import java.util.Collections
 import java.util.Optional
 import java.util.Properties
-import java.util.HashSet
 import java.util.UUID
 import java.util.concurrent.ExecutionException
 
@@ -28,7 +27,6 @@ import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
 import org.junit.Assert._
 import org.junit.Test
 import org.scalatest.Assertions.intercept
-import scala.collection.JavaConverters._
 
 class RecoveryUtilsTest extends IntegrationTestHarness {
   override protected def brokerCount: Int = 3

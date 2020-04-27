@@ -35,12 +35,15 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.errors.TopicExistsException
 import org.apache.kafka.common.utils.Utils
 import org.junit.{After, Before, Test}
-import org.junit.Assert._
+import org.junit.Assert.{assertEquals, assertTrue}
 import org.mockito.Mockito._
+import org.scalatest.Assertions.assertThrows
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
 import scala.collection.mutable.Map
+
+import net.sourceforge.argparse4j.inf.ArgumentParserException
 
 class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
   override protected def brokerCount: Int = 3
@@ -77,12 +80,12 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
   override def setUp(): Unit = {
     super.setUp()
     topicIdPartitionsFile = TestUtils.tempFile
-    val pw1 = new PrintWriter(topicIdPartitionsFile)
+    val pw = new PrintWriter(topicIdPartitionsFile)
     tpidsToBeFenced.foreach(tpid => {
-      pw1.write("%s,%s,%d".format(tpid.topicIdAsBase64(), tpid.topic(), tpid.partition()))
-      pw1.println()
+      pw.write("%s,%s,%d".format(tpid.topicIdAsBase64(), tpid.topic(), tpid.partition()))
+      pw.println()
     })
-    pw1.close
+    pw.close
 
     propertiesConfFile = TestUtils.tempFile
   }
@@ -94,9 +97,6 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
       tierPartitionState.delete()
     }
 
-    Utils.delete(new File(logDir))
-    Utils.delete(topicIdPartitionsFile)
-    Utils.delete(propertiesConfFile)
     super.tearDown()
   }
 
@@ -226,5 +226,70 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
       tierPartitionStateFiles.forall(state => state.status == TierPartitionStatus.ERROR)
     }, "Timed out waiting for fencing")
     tierTopicConsumer.shutdown()
+  }
+
+  @Test
+  def testFencingWithBadTopicIdPartitionFile(): Unit = {
+    Utils.mkProperties(
+      new HashMap[String, String] {
+        put(KafkaConfig.TierMetadataBootstrapServersProp, brokerList)
+        put(KafkaConfig.TierMetadataNamespaceProp, "")
+      }
+    ).store(new PrintWriter(propertiesConfFile), "")
+
+    // 1. Empty TopicIdPartition file should cause ArgumentParserException to be raised.
+    val emptyTopicIdPartitionsFile = TestUtils.tempFile
+    assertThrows[ArgumentParserException] {
+      kafka.tier.tools.TierPartitionStateFencingTrigger.runMain(Array(
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG),
+        propertiesConfFile.getPath,
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.TierPartitionStateFencingTrigger.FILE_FENCE_TARGET_PARTITIONS_CONFIG),
+        emptyTopicIdPartitionsFile.getPath))
+    }
+
+    // 2. Badly formatted TopicIdPartition file should cause ArgumentParserException to be raised.
+    val badTopicIdPartitionsFile = TestUtils.tempFile
+    val pw = new PrintWriter(badTopicIdPartitionsFile)
+    // Third field is intentionally missing in the printed line
+    pw.write("%s,%s".format("abc", "def"))
+    pw.println()
+    pw.close
+    assertThrows[ArgumentParserException] {
+      kafka.tier.tools.TierPartitionStateFencingTrigger.runMain(Array(
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG),
+        propertiesConfFile.getPath,
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.TierPartitionStateFencingTrigger.FILE_FENCE_TARGET_PARTITIONS_CONFIG),
+        badTopicIdPartitionsFile.getPath))
+    }
+  }
+
+  @Test
+  def testFencingWithBadPropertiesFile(): Unit = {
+    // 1. Bad properties file path should cause ArgumentParserException to be raised.
+    assertThrows[ArgumentParserException] {
+      kafka.tier.tools.TierPartitionStateFencingTrigger.runMain(Array(
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG),
+        "non-existing-file",
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.TierPartitionStateFencingTrigger.FILE_FENCE_TARGET_PARTITIONS_CONFIG),
+        topicIdPartitionsFile.getPath))
+    }
+
+    // 2. Empty properties file (without required properties) should cause ArgumentParserException
+    // to be raised.
+    assertThrows[ArgumentParserException] {
+      kafka.tier.tools.TierPartitionStateFencingTrigger.runMain(Array(
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG),
+        propertiesConfFile.getPath,
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.TierPartitionStateFencingTrigger.FILE_FENCE_TARGET_PARTITIONS_CONFIG),
+        topicIdPartitionsFile.getPath))
+    }
   }
 }
