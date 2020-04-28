@@ -199,7 +199,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   private val startupComplete = new AtomicBoolean(false)
   private val isShuttingDown = new AtomicBoolean(false)
   private val isStartingUp = new AtomicBoolean(false)
-  private val controlledShutdownLatch = new CountDownLatch(1)
+  private var controlledShutdownLatch = new CountDownLatch(1)
 
   private var shutdownLatch = new CountDownLatch(1)
 
@@ -525,6 +525,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         }
 
         brokerState.newState(RunningAsBroker)
+        controlledShutdownLatch = new CountDownLatch(1)
         shutdownLatch = new CountDownLatch(1)
 
         if (multitenantMetadata != null) {
