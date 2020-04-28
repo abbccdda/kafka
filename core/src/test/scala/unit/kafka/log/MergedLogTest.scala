@@ -9,6 +9,7 @@ import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, ScheduledFuture, TimeUnit}
+import java.util.Optional
 import java.util.UUID
 
 import com.yammer.metrics.core.Gauge
@@ -27,6 +28,8 @@ import kafka.utils.{MockTask, MockTime, Scheduler, TestUtils}
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, RecordBatch, SimpleRecord}
 import org.apache.kafka.common.record.ControlRecordType
 import org.apache.kafka.common.record.EndTransactionMarker
+import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
+import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.junit.Assert.{assertEquals, assertTrue, fail}
 import org.junit.{After, Before, Test}
@@ -152,7 +155,8 @@ class MergedLogTest {
   @Test
   def testReadFromTieredRegion(): Unit = {
     val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = 1)
-    val log = createLogWithOverlap(30, 50, 10, logConfig)
+    var maxTimestamp = 0
+    val log = createLogWithOverlap(30, 50, 10, logConfig, () => { maxTimestamp += 1; maxTimestamp } )
     val tierPartitionState = log.tierPartitionState
     val ranges = logRanges(log)
 
@@ -165,11 +169,17 @@ class MergedLogTest {
       val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true, permitPreferredTierRead = true)
       result match {
         case tierResult: TierFetchDataInfo =>
-          val segmentBaseOffset = tierPartitionState.segmentOffsets.floor(offset)
-          assertEquals(segmentBaseOffset, tierResult.fetchMetadata.segmentBaseOffset)
+          val segment = tierPartitionState.metadata(offset)
+          assertEquals(segment.get().baseOffset(), tierResult.fetchMetadata.segmentBaseOffset)
         case _ => fail(s"Unexpected $result for read at $offset")
       }
     }
+
+    assertTrue(tierPartitionState.endOffset > log.localLogSegments.head.baseOffset)
+    assertEquals("Expected timestamp and offset from local segment not tiered segment",
+      Some(new FileTimestampAndOffset(31, 601, Optional.of(0 : Integer))),
+      log.fetchOffsetByTimestamp(log.localLogSegments.head.largestTimestamp))
+
     log.close()
   }
 
@@ -231,10 +241,9 @@ class MergedLogTest {
           assertEquals(offset, localResult.records.records.iterator.next.offset)
 
         case tierResult: TierFetchDataInfo =>
-          val segmentBaseOffset = tierPartitionState.segmentOffsets.floor(offset)
-          val segment = tierPartitionState.metadata(segmentBaseOffset).get
+          val segment = tierPartitionState.metadata(offset).get
           assertTrue(segment.maxTimestamp < mockTime.milliseconds - 55)
-          assertEquals(segmentBaseOffset, tierResult.fetchMetadata.segmentBaseOffset)
+          assertEquals(segment.baseOffset(), tierResult.fetchMetadata.segmentBaseOffset)
       }
     }
     log.close()
@@ -534,7 +543,7 @@ class MergedLogTest {
 
     assertEquals("Only 1 local segment expected after recovery", 1, recoveredLog.localLogSegments.size)
     assertTrue("First untiered offset is expected to be greater than merged log start offset ",
-      recoveredLog.tieredLogSegments.last.endOffset + 1 > recoveredLog.logStartOffset)
+      recoveredLog.tieredLogSegments.toList.last.endOffset + 1 > recoveredLog.logStartOffset)
     assertEquals("baseOffset for first local segment after recovery must be mergedLogStartOffset",
       20, recoveredLog.localLogSegments.head.baseOffset)
     assertEquals("endOffset for the mergedLog after deletion and recovery must be equal to the baseOffset of first local segment ",
@@ -577,7 +586,7 @@ class MergedLogTest {
     val recoveredLog = logRecovery.get
 
     assertTrue("First untiered offset is expected to be greater than merged log start offset ",
-      recoveredLog.tieredLogSegments.last.endOffset + 1 > recoveredLog.logStartOffset)
+      recoveredLog.tieredLogSegments.toList.last.endOffset + 1 > recoveredLog.logStartOffset)
     assertEquals("mergedLogStartOffset should be 0", 0L, recoveredLog.logStartOffset)
     assertEquals("baseOffset for first local segment after recovery should be log start offset", predictedBaseOffset, recoveredLog.activeSegment.baseOffset)
     assertEquals("endOffset for the mergedLog after deletion and recovery must be equal to the baseOffset " +
@@ -622,7 +631,7 @@ class MergedLogTest {
 
     assertEquals("Only 1 local segment expected", 1, recoveredLog.localLogSegments.size)
     assertTrue("First untiered offset is expected to be less than merged log start offset ",
-      recoveredLog.tieredLogSegments.last.endOffset + 1 < recoveredLog.logStartOffset)
+      recoveredLog.tieredLogSegments.toList.last.endOffset + 1 < recoveredLog.logStartOffset)
     assertEquals("localLogSegment.head.baseOffset after recovery must be max(firstUntieredOffset, mergedLogStartOffset)",
       recoveredLog.logStartOffset, recoveredLog.localLogSegments.head.baseOffset)
     assertEquals("endOffset for the mergedLog after deletion and recovery must be equal to the baseOffset of first local segment ",
@@ -1293,7 +1302,7 @@ class MergedLogTest {
     val tierPartitionState = log.tierPartitionState
 
     val firstTieredOffset = log.logStartOffset
-    val lastTieredOffset = tierPartitionState.metadata(tierPartitionState.segmentOffsets().last()).get.endOffset
+    val lastTieredOffset = tierPartitionState.segments.asScala.toList.last.baseOffset()
     val firstLocalOffset = log.localLogSegments.head.baseOffset
     val lastLocalOffset = log.logEndOffset
 
@@ -1415,7 +1424,7 @@ object MergedLogTest {
 
     // assert number of segments
     assertEquals(numLocalSegments + numOverlap, log.localLogSegments.size)
-    assertEquals(numTieredSegments + numOverlap, tierPartitionState.segmentOffsets.size)
+    assertEquals(numTieredSegments + numOverlap, tierPartitionState.segments.asScala.size)
 
     log.uniqueLogSegments match {
       case (tierLogSegments, localLogSegments) =>

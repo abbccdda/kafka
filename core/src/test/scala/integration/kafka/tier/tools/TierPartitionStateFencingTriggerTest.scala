@@ -4,37 +4,46 @@
 
 package kafka.tier.tools
 
+import java.io.{File, PrintWriter}
+import java.util.Collections
+import java.util.HashMap
+import java.util.Optional
+import java.util.UUID
+import java.util.function.Supplier
+
 import kafka.api.IntegrationTestHarness
 import kafka.log.Log
-import kafka.server.Defaults
-import kafka.server.LogDirFailureChannel
+import kafka.server.{Defaults, KafkaConfig, LogDirFailureChannel}
 import kafka.tier.TierTopicManagerCommitter
 import kafka.tier.client.TierTopicConsumerSupplier
 import kafka.tier.domain.AbstractTierMetadata
 import kafka.tier.domain.TierRecordType
-import kafka.tier.domain.TierSegmentDeleteInitiate
+import kafka.tier.domain.TierPartitionFence
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.state.{FileTierPartitionState, OffsetAndEpoch, TierPartitionStatus}
+import kafka.tier.TopicIdPartition
+import kafka.tier.tools.common.FenceEventInfo
 import kafka.tier.topic.TierTopicManagerConfig
 import kafka.tier.topic.TierTopic
 import kafka.tier.topic.TierTopicAdmin
 import kafka.tier.topic.TierTopicConsumer
 import kafka.tier.topic.TierTopicManager
-import kafka.utils.TestUtils
+import kafka.utils.{CoreUtils, TestUtils}
 import kafka.zk.AdminZkClient
 import org.apache.kafka.clients.producer.ProducerConfig
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.errors.TopicExistsException
 import org.apache.kafka.common.utils.Utils
-import org.junit.{After, Test}
-import org.junit.Assert._
+import org.junit.{After, Before, Test}
+import org.junit.Assert.{assertEquals, assertTrue}
 import org.mockito.Mockito._
-import java.io.File
-import java.util.Collections
-import java.util.Optional
-import java.util.UUID
-import java.util.function.Supplier
+import org.scalatest.Assertions.assertThrows
 
-import kafka.tier.TopicIdPartition
+import scala.collection.JavaConverters._
+import scala.collection.mutable.ListBuffer
+import scala.collection.mutable.Map
+
+import net.sourceforge.argparse4j.inf.ArgumentParserException
 
 class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
   override protected def brokerCount: Int = 3
@@ -42,6 +51,13 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
   private val logDirFailureChannel = new LogDirFailureChannel(10)
   private val logDir = TestUtils.tempDir().getAbsolutePath
   private var tierPartitionStateFiles: Array[FileTierPartitionState] = Array()
+  private val tpidsToBeFenced: Array[TopicIdPartition] = Array(
+    new TopicIdPartition("the_dark_knight", UUID.randomUUID(),123),
+    new TopicIdPartition("mummy_returns", UUID.randomUUID(), 456),
+    new TopicIdPartition("mission_impossible", UUID.randomUUID(), 789)
+  )
+  private var topicIdPartitionsFile: File = _
+  private var propertiesConfFile: File = _
 
   private def addReplica(topicIdPartition: TopicIdPartition, tierTopicConsumer: TierTopicConsumer): Unit = {
     val dir = new File(logDir + "/" + Log.logDirName(topicIdPartition.topicPartition))
@@ -60,28 +76,36 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
     })
   }
 
+  @Before
+  override def setUp(): Unit = {
+    super.setUp()
+    topicIdPartitionsFile = TestUtils.tempFile
+    val pw = new PrintWriter(topicIdPartitionsFile)
+    tpidsToBeFenced.foreach(tpid => {
+      pw.write("%s,%s,%d".format(tpid.topicIdAsBase64(), tpid.topic(), tpid.partition()))
+      pw.println()
+    })
+    pw.close
+
+    propertiesConfFile = TestUtils.tempFile
+  }
+
   @After
-  def teardown(): Unit = {
+  override def tearDown(): Unit = {
     tierPartitionStateFiles.foreach { tierPartitionState =>
       tierPartitionState.close()
       tierPartitionState.delete()
     }
 
-    Utils.delete(new File(logDir))
+    super.tearDown()
   }
 
   @Test
-  def testDeleteInitiateEventInjectionAndFencing(): Unit = {
+  def testPartitionFenceEventInjectionAndFencing(): Unit = {
     // 1. Setup
     val tierTopicNamespace = ""
     val numTierTopicPartitions: Short = 19
     val tierTopicReplicationFactor = 3
-    val tieredTopicIdPartition = new TopicIdPartition(
-      "dummy",
-      UUID.fromString("021516db-7a5f-40ef-adda-b6e2b21a3e83"),
-      123
-    )
-    val deleteInitiateEventEpoch = Int.MaxValue
 
     // 2. Create the TierTopic.
     createTopic(
@@ -103,23 +127,39 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
       .thenReturn(Map(tierTopic.topicName() -> numTierTopicPartitions.asInstanceOf[Int]))
     tierTopic.ensureTopic(numTierTopicPartitions, Defaults.TierMetadataReplicationFactor)
 
-    // 3. Trigger fencing on a user partition, by injecting a delete initiate event into
-    // the corresponding TierTopic partition.
-    kafka.tier.tools.TierPartitionStateFencingTrigger.main(Array(
-      "--bootstrap-servers",
-      brokerList,
-      "--tiered-partition-name",
-      tieredTopicIdPartition.partition().toString(),
-      "--tiered-partition-topic-name",
-      tieredTopicIdPartition.topic(),
-      "--tiered-partition-topic-id",
-      tieredTopicIdPartition.topicId().toString(),
-      "--tier-topic-namespace",
-      tierTopicNamespace,
-      "dangerous-fence-via-delete-event"
-    ));
+    // 3. Trigger fencing on user partitions, by injecting TierPartitionFence events into
+    // the corresponding TierTopic partitions.
+    Utils.mkProperties(
+      new HashMap[String, String] {
+        put(KafkaConfig.TierMetadataBootstrapServersProp, brokerList)
+        put(KafkaConfig.TierMetadataNamespaceProp, tierTopicNamespace)
+      }
+    ).store(new PrintWriter(propertiesConfFile), "")
 
-    // 4. Using a dummy consumer, verify that exactly 1 TierSegmentDeleteInitiate event was written
+    val fenceEvents: List[FenceEventInfo] =
+      kafka.tier.tools.TierPartitionStateFencingTrigger.runMain(Array(
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG),
+        propertiesConfFile.getPath,
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.TierPartitionStateFencingTrigger.FILE_FENCE_TARGET_PARTITIONS_CONFIG),
+        topicIdPartitionsFile.getPath)
+      ).asScala.toList
+    assertEquals(tpidsToBeFenced.size, fenceEvents.size)
+
+    val partitionToFenceEventInfoMap = Map[Int, FenceEventInfo]()
+    (fenceEvents zip tpidsToBeFenced).map {
+      case (output, input) => {
+        val outputTpid = new TopicIdPartition(
+          output.topic, CoreUtils.uuidFromBase64(output.topicIdBase64), output.partition)
+        assertEquals(outputTpid, input)  // Ensure the TopicIdPartition is valid and same as input
+        assertTrue(output.recordOffset >= 0)  // Ensure the record has a valid TierTopic offset >= 0
+        CoreUtils.uuidFromBase64(output.recordMessageIdBase64)  // Ensure the record has a valid message UUID
+        partitionToFenceEventInfoMap += (output.partition -> output)
+      }
+    }
+
+    // 4. Using a dummy consumer, verify that exactly 1 TierPartitionFence event was written
     // to TierTopic.
     val config = new TierTopicManagerConfig(
       () => Collections.singletonMap(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList),
@@ -134,22 +174,45 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
       Collections.singletonList(logDir))
     val primaryConsumerSupplier = new TierTopicConsumerSupplier(config, "primary");
     val verificationConsumer = primaryConsumerSupplier.get()
-    val tierTopicPartitions = TierTopicManager.partitions(tierTopic.topicName(), tierTopic.numPartitions().getAsInt());
+    val tierTopicPartitions = TierTopicManager.partitions(
+      tierTopic.topicName(), tierTopic.numPartitions().getAsInt());
     verificationConsumer.assign(tierTopicPartitions);
-    tierTopicPartitions.forEach(tp => verificationConsumer.seekToBeginning(Collections.singletonList(tp)))
-    val records = verificationConsumer.poll(config.pollDuration)
-    assertEquals(1, records.count)
-    val record = records.iterator().next()
-    val eventOpt: Optional[AbstractTierMetadata]
-      = AbstractTierMetadata.deserialize(record.key(), record.value());
-    assertTrue(eventOpt.isPresent)
-    assertEquals(TierRecordType.SegmentDeleteInitiate, eventOpt.get.`type`())
-    val deleteEvent = eventOpt.get().asInstanceOf[TierSegmentDeleteInitiate]
-    assertEquals(tieredTopicIdPartition, deleteEvent.topicIdPartition())
-    assertEquals(deleteInitiateEventEpoch, deleteEvent.tierEpoch())
+    tierTopicPartitions.forEach(
+      tp => verificationConsumer.seekToBeginning(Collections.singletonList(tp)))
+    val records = new ListBuffer[ConsumerRecord[Array[Byte], Array[Byte]]]()
+    TestUtils.waitUntilTrue(() => {
+      val batch = verificationConsumer.poll(config.pollDuration)
+      val batchIterator = batch.iterator()
+      while (batchIterator.hasNext) {
+        records += batchIterator.next
+      }
+      records.size == tpidsToBeFenced.size
+    }, "Timed out trying to fetch TierTopic records")
+
+    val allFencedTpids = collection.mutable.Set[TopicIdPartition]() ++ tpidsToBeFenced
+    records.foreach(record => {
+      // Ensure each event is a TierPartitionFence event.
+      val eventOpt: Optional[AbstractTierMetadata]
+        = AbstractTierMetadata.deserialize(record.key(), record.value());
+      assertTrue(eventOpt.isPresent)
+
+      assertEquals(TierRecordType.PartitionFence, eventOpt.get.`type`())
+      val fenceEvent = eventOpt.get.asInstanceOf[TierPartitionFence]
+      assertTrue(allFencedTpids.contains(fenceEvent.topicIdPartition))
+      allFencedTpids.remove(fenceEvent.topicIdPartition)
+
+      // Check if the FenceEvent UUID matches with the output produced by the tool.
+      val userPartition = fenceEvent.topicIdPartition.partition
+      assertTrue(partitionToFenceEventInfoMap.contains(userPartition))
+      val fenceEventInfo = partitionToFenceEventInfoMap(userPartition)
+      assertEquals(fenceEvent.messageId, CoreUtils.uuidFromBase64(fenceEventInfo.recordMessageIdBase64))
+      assertEquals(record.offset(), fenceEventInfo.recordOffset)
+      partitionToFenceEventInfoMap -= userPartition
+    })
+    assertTrue(allFencedTpids.isEmpty)
     verificationConsumer.close
 
-    // 5. Using a TierTopicConsumer, consume the injected TierSegmentDeleteInitiate and verify
+    // 5. Using a TierTopicConsumer, consume the injected TierPartitionFence and verify
     // that the materializer gets fenced.
     val tierTopicConsumer = new TierTopicConsumer(
       config,
@@ -157,11 +220,76 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
       new TierTopicConsumerSupplier(config, "catchup"),
       new TierTopicManagerCommitter(config, logDirFailureChannel),
       Optional.empty())
-    addReplica(tieredTopicIdPartition, tierTopicConsumer)
+    tpidsToBeFenced.foreach(tpid => addReplica(tpid, tierTopicConsumer))
     tierTopicConsumer.startConsume(true, tierTopic)
     TestUtils.waitUntilTrue(() => {
-      tierPartitionStateFiles(0).status == TierPartitionStatus.ERROR
+      tierPartitionStateFiles.forall(state => state.status == TierPartitionStatus.ERROR)
     }, "Timed out waiting for fencing")
     tierTopicConsumer.shutdown()
+  }
+
+  @Test
+  def testFencingWithBadTopicIdPartitionFile(): Unit = {
+    Utils.mkProperties(
+      new HashMap[String, String] {
+        put(KafkaConfig.TierMetadataBootstrapServersProp, brokerList)
+        put(KafkaConfig.TierMetadataNamespaceProp, "")
+      }
+    ).store(new PrintWriter(propertiesConfFile), "")
+
+    // 1. Empty TopicIdPartition file should cause ArgumentParserException to be raised.
+    val emptyTopicIdPartitionsFile = TestUtils.tempFile
+    assertThrows[ArgumentParserException] {
+      kafka.tier.tools.TierPartitionStateFencingTrigger.runMain(Array(
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG),
+        propertiesConfFile.getPath,
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.TierPartitionStateFencingTrigger.FILE_FENCE_TARGET_PARTITIONS_CONFIG),
+        emptyTopicIdPartitionsFile.getPath))
+    }
+
+    // 2. Badly formatted TopicIdPartition file should cause ArgumentParserException to be raised.
+    val badTopicIdPartitionsFile = TestUtils.tempFile
+    val pw = new PrintWriter(badTopicIdPartitionsFile)
+    // Third field is intentionally missing in the printed line
+    pw.write("%s,%s".format("abc", "def"))
+    pw.println()
+    pw.close
+    assertThrows[ArgumentParserException] {
+      kafka.tier.tools.TierPartitionStateFencingTrigger.runMain(Array(
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG),
+        propertiesConfFile.getPath,
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.TierPartitionStateFencingTrigger.FILE_FENCE_TARGET_PARTITIONS_CONFIG),
+        badTopicIdPartitionsFile.getPath))
+    }
+  }
+
+  @Test
+  def testFencingWithBadPropertiesFile(): Unit = {
+    // 1. Bad properties file path should cause ArgumentParserException to be raised.
+    assertThrows[ArgumentParserException] {
+      kafka.tier.tools.TierPartitionStateFencingTrigger.runMain(Array(
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG),
+        "non-existing-file",
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.TierPartitionStateFencingTrigger.FILE_FENCE_TARGET_PARTITIONS_CONFIG),
+        topicIdPartitionsFile.getPath))
+    }
+
+    // 2. Empty properties file (without required properties) should cause ArgumentParserException
+    // to be raised.
+    assertThrows[ArgumentParserException] {
+      kafka.tier.tools.TierPartitionStateFencingTrigger.runMain(Array(
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG),
+        propertiesConfFile.getPath,
+        kafka.tier.tools.RecoveryUtils.makeArgument(
+          kafka.tier.tools.TierPartitionStateFencingTrigger.FILE_FENCE_TARGET_PARTITIONS_CONFIG),
+        topicIdPartitionsFile.getPath))
+    }
   }
 }

@@ -5,6 +5,7 @@
 package kafka.tier.tools
 
 import java.time.Duration
+import java.util.Arrays;
 import java.util.Collections
 import java.util.Optional
 import java.util.Properties
@@ -15,9 +16,14 @@ import kafka.api.IntegrationTestHarness
 import kafka.tier.TopicIdPartition
 import kafka.tier.domain.{AbstractTierMetadata, TierTopicInitLeader}
 import kafka.tier.topic.{TierTopic, TierTopicAdmin, TierTopicManager}
+import kafka.utils.CoreUtils
+
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.KafkaConsumer
+import org.apache.kafka.clients.producer.Producer
+import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
+
 import org.junit.Assert._
 import org.junit.Test
 import org.scalatest.Assertions.intercept
@@ -69,8 +75,22 @@ class RecoveryUtilsTest extends IntegrationTestHarness {
       tieredTopicIdPartition, leaderEpoch, messageId, brokerId);
 
     // 4. Inject the initLeaderEvent into TierTopic.
-    RecoveryUtils.injectTierTopicEvent(
-      initLeaderEvent, brokerList, tierTopicNamespace, "unknown")
+    var mayBeProducer: Option[Producer[Array[Byte], Array[Byte]]] = None
+    var mayBeMetadata: Option[RecordMetadata] = None
+    try {
+      mayBeProducer = Some(RecoveryUtils.createTierTopicProducer(
+        brokerList, tierTopicNamespace, numTierTopicPartitions, "test"))
+      mayBeMetadata = Some(RecoveryUtils.injectTierTopicEvent(
+        mayBeProducer.get, initLeaderEvent, tierTopicName, numTierTopicPartitions))
+    } finally {
+      mayBeProducer.map(producer => producer.close)
+    }
+    mayBeMetadata.map(metadata => {
+      assertTrue(metadata.hasOffset)
+      assertEquals(0, metadata.offset)
+      assertTrue(metadata.serializedKeySize > 0)
+      assertTrue(metadata.serializedValueSize > 0)
+    })
 
     // 5. Using a dummy consumer, verify that exactly the above event was written to TierTopic.
     var consumer: KafkaConsumer[Array[Byte], Array[Byte]] = null
@@ -117,9 +137,116 @@ class RecoveryUtilsTest extends IntegrationTestHarness {
 
     // 2. Inject the initLeaderEvent into TierTopic that doesn't exist. This should cause a suitable
     // exception to be raised.
-    intercept[ExecutionException](
-      RecoveryUtils.injectTierTopicEvent(
-        initLeaderEvent, brokerList, "", "unknown")
-    ).getCause.isInstanceOf[UnknownTopicOrPartitionException]
+    val numTierTopicPartitions: Short = 1
+    var mayBeProducer: Option[Producer[Array[Byte], Array[Byte]]] = None
+    try {
+      mayBeProducer = Some(RecoveryUtils.createTierTopicProducer(
+        brokerList, "", numTierTopicPartitions, "test"))
+      intercept[ExecutionException](
+        RecoveryUtils.injectTierTopicEvent(
+          mayBeProducer.get, initLeaderEvent, "", numTierTopicPartitions)
+      ).getCause.isInstanceOf[UnknownTopicOrPartitionException]
+    } finally {
+      mayBeProducer.map(producer => producer.close)
+    }
+  }
+
+  @Test
+  def testToTopicIdPartitionsWithEmptyTopicName(): Unit = {
+    org.scalatest.Assertions.assertThrows[IllegalArgumentException]{
+      RecoveryUtils.toTopicIdPartitions(
+        Arrays.asList("%s,%s,%s".format(
+          CoreUtils.generateUuidAsBase64,
+          "",
+          "23")));
+    }
+
+    org.scalatest.Assertions.assertThrows[IllegalArgumentException]{
+      RecoveryUtils.toTopicIdPartitions(
+        Arrays.asList("%s,%s,%s".format(
+          CoreUtils.generateUuidAsBase64,
+          "   ",
+          "23")));
+    }
+  }
+
+  @Test
+  def testToTopicIdPartitionsWithBadTopicId(): Unit = {
+    org.scalatest.Assertions.assertThrows[IllegalArgumentException]{
+      RecoveryUtils.toTopicIdPartitions(
+        Arrays.asList("%s,%s,%s".format(
+          "",
+          "foo",
+          "23")));
+    }
+
+    org.scalatest.Assertions.assertThrows[IllegalArgumentException]{
+      RecoveryUtils.toTopicIdPartitions(
+        Arrays.asList("%s,%s,%s".format(
+          "  ",
+          "foo",
+          "23")));
+    }
+
+    val badUuid = "badUuid"
+    org.scalatest.Assertions.assertThrows[IllegalArgumentException]{
+      RecoveryUtils.toTopicIdPartitions(
+        Arrays.asList("%s,%s,%s".format(
+          badUuid,
+          "foo",
+          "23")));
+    }
+  }
+
+  @Test
+  def testToTopicIdPartitionsWithBadPartitionNumber(): Unit = {
+    org.scalatest.Assertions.assertThrows[IllegalArgumentException]{
+      RecoveryUtils.toTopicIdPartitions(
+        Arrays.asList("%s,%s,%s".format(
+          CoreUtils.generateUuidAsBase64,
+          "foo",
+          "")));
+    }
+
+    org.scalatest.Assertions.assertThrows[IllegalArgumentException]{
+      RecoveryUtils.toTopicIdPartitions(
+        Arrays.asList("%s,%s,%s".format(
+          CoreUtils.generateUuidAsBase64,
+          "foo",
+          "  ")));
+    }
+
+    org.scalatest.Assertions.assertThrows[IllegalArgumentException]{
+      RecoveryUtils.toTopicIdPartitions(
+        Arrays.asList("%s,%s,%s".format(
+          CoreUtils.generateUuidAsBase64,
+          "foo",
+          "abc")));
+    }
+
+    org.scalatest.Assertions.assertThrows[IllegalArgumentException]{
+      RecoveryUtils.toTopicIdPartitions(
+        Arrays.asList("%s,%s,%s".format(
+          CoreUtils.generateUuidAsBase64,
+          "foo",
+          "-1")));
+    }
+  }
+
+  @Test
+  def testToTopicIdPartitionsWithGoodArgs(): Unit = {
+    val topicIdPartition1 = new TopicIdPartition("foo", UUID.randomUUID(), 23)
+    val topicIdPartition2 = new TopicIdPartition("bar", UUID.randomUUID(), 97)
+    val result = RecoveryUtils.toTopicIdPartitions(
+      Arrays.asList(
+        "%s,%s,%d".format(
+          CoreUtils.uuidToBase64(topicIdPartition1.topicId),
+          topicIdPartition1.topic,
+          topicIdPartition1.partition),
+        "%s,%s,%d".format(
+          CoreUtils.uuidToBase64(topicIdPartition2.topicId),
+          topicIdPartition2.topic,
+          topicIdPartition2.partition)));
+    assertEquals(Arrays.asList(topicIdPartition1, topicIdPartition2), result)
   }
 }

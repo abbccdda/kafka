@@ -73,9 +73,9 @@ class TierRetentionIntegrationTest extends IntegrationTestHarness {
     // Wait for at least one segment to be tiered
     TestUtils.waitUntilTrue(() => tierPartitionState.totalSize > 0, "Timed out waiting for segments to be tiered")
     TestUtils.waitUntilTrue(() => tierPartitionState.committedEndOffset > 0, "Timed out waiting for tier partition state to be flushed")
-    assertTrue(tierPartitionState.segmentOffsets.size > 0)
+    assertTrue(tierPartitionState.segments().asScala.nonEmpty)
     assertEquals(0, log.logStartOffset)
-    assertEquals(0L, tierPartitionState.segmentOffsets.first)
+    assertEquals(0L, tierPartitionState.segments().asScala.next().baseOffset())
 
     // Kill one of the followers
     awaitISR(topicPartition, numReplicas, leader)
@@ -94,8 +94,8 @@ class TierRetentionIntegrationTest extends IntegrationTestHarness {
         val log = server.logManager.getLog(topicPartition).get
         val tierPartitionState = log.tierPartitionState
         TestUtils.waitUntilTrue(() => log.logStartOffset > 0, "Timed out waiting for retention to kick in")
-        TestUtils.waitUntilTrue(() => tierPartitionState.segmentOffsets.size > 0, "Timed out waiting for more segments to be tiered")
-        assertTrue(tierPartitionState.segmentOffsets.first > 0)
+        TestUtils.waitUntilTrue(() => tierPartitionState.segments().asScala.nonEmpty, "Timed out waiting for more segments to be tiered")
+        assertTrue(tierPartitionState.segments().next().baseOffset() > 0)
       }
     }
 
@@ -115,10 +115,6 @@ class TierRetentionIntegrationTest extends IntegrationTestHarness {
     // Wait until all brokers have the same log structure
     waitUntilEqualOnAllBrokers(server => server.logManager.getLog(topicPartition).get.logStartOffset.toString, "Timed out waiting for logStartOffset sync")
     waitUntilEqualOnAllBrokers(server => server.logManager.getLog(topicPartition).get.logEndOffset.toString, "Timed out waiting for logEndOffset sync")
-    waitUntilEqualOnAllBrokers(server => {
-      val tierPartitionState = server.logManager.getLog(topicPartition).get.tierPartitionState
-      tierPartitionState.segmentOffsets
-    }, "Timed out waiting for tier partition state sync")
   }
 
   private def waitUntilEqualOnAllBrokers(computeFn: (KafkaServer) => Object, msg: String): Unit = {

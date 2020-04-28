@@ -12,7 +12,7 @@ import org.apache.kafka.common.TopicPartition;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collection;
-import java.util.NavigableSet;
+import java.util.Iterator;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Future;
@@ -90,18 +90,27 @@ public interface TierPartitionState {
     int numSegments();
 
     /**
-     * Get the set of base offsets for all tiered segments. The returned set is sorted by base offset.
-     * @return Set of base offset for tiered segments
-     */
-    NavigableSet<Long> segmentOffsets();
-
-    /**
-     * Get the set of base offsets for all tiered segments in a given range. The returned set is sorted by base offset.
+     * Count of the number of segments lying within a range
      * @param from Start of the range, include segment which contains "from" (inclusive)
      * @param to End of the range, upper bound exclusive offset to include or the end of the log if "to" is past the end
-     * @return Set of base offset for tiered segments
+     * @return number of tiered segments
      */
-    NavigableSet<Long> segmentOffsets(long from, long to) throws IOException;
+    int numSegments(long from, long to);
+
+    /**
+     * Get an iterator for all readable tiered segments. The returned list is in order of base
+     * offset
+     * @return list of tiered seggments
+     */
+    Iterator<TierObjectMetadata> segments();
+
+    /**
+     * Get an iterator for all readable tiered segments in a given range. The iterator is sorted by base offset.
+     * @param from Start of the range, include segment which contains "from" (inclusive)
+     * @param to End of the range, upper bound exclusive offset to include or the end of the log if "to" is past the end
+     * @return list of tiered segments
+     */
+    Iterator<TierObjectMetadata> segments(long from, long to);
 
     /**
      * Lookup the TierObjectMetadata which will contain data for a target offset.

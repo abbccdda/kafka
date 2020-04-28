@@ -372,10 +372,7 @@ class TierIntegrationTest {
                                                            tierObjectStore: MockInMemoryTierObjectStore,
                                                            logs: Iterable[AbstractLog]): Unit = {
     logs.foreach { log =>
-      val tierPartitionState = log.tierPartitionState
-      val tierSegmentOffsets = tierPartitionState.segmentOffsets
-      tierSegmentOffsets.asScala.foreach { offset =>
-        val tierObjectMetadata = tierPartitionState.metadata(offset).get
+      log.tierPartitionState.segments.asScala.foreach { tierObjectMetadata =>
         assertNotNull(tierObjectStore.getObject(new TierObjectStore.ObjectMetadata(tierObjectMetadata), FileType.SEGMENT, 0, 1000))
       }
     }

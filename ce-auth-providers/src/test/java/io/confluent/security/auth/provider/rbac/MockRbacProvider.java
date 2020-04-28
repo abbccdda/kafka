@@ -16,6 +16,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 
 public class MockRbacProvider extends ConfluentProvider implements MetadataProvider {
@@ -23,6 +24,12 @@ public class MockRbacProvider extends ConfluentProvider implements MetadataProvi
   @Override
   public String providerName() {
     return "MOCK_RBAC";
+  }
+
+  @Override
+  protected ConfluentAdmin createMdsAdminClient(final AuthorizerServerInfo serverInfo, final Map<String, ?> clientConfigs) {
+    // don't actually try to lookup bootstrap.servers and try to create an AdminClient
+    return null;
   }
 
   @Override

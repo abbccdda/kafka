@@ -130,7 +130,6 @@ public class TierFetcherBenchmark {
 
         @TearDown(Level.Trial)
         public void teardown() {
-            logSegment.close();
             logSegment.deleteIfExists();
         }
     }

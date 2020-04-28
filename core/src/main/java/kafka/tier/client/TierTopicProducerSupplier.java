@@ -41,7 +41,7 @@ public class TierTopicProducerSupplier implements Supplier<Producer<byte[], byte
     }
 
     // visible for testing
-    static Properties properties(TierTopicManagerConfig config, String clientId) {
+    public static Properties properties(TierTopicManagerConfig config, String clientId) {
         Properties properties = new Properties();
 
         for (Map.Entry<String, Object> configEntry : config.interBrokerClientConfigs.get().entrySet())

@@ -131,12 +131,11 @@ public class MergedLogTierBenchmark {
 
     @TearDown(Level.Trial)
     public void tearDown() throws IOException {
-        mergedLog.close();
+        scheduler.shutdown();
         mergedLog.delete();
         state.close();
         state.delete();
         logDir.delete();
-        scheduler.shutdown();
     }
 
     private LogConfig createLogConfig(int segmentBytes) {
@@ -210,6 +209,13 @@ public class MergedLogTierBenchmark {
 
     @Benchmark
     @OutputTimeUnit(TimeUnit.NANOSECONDS)
+    public Object legacyFetchOffsetByTimestamp() {
+        // timestamp 20 will be 20 segments into tiered section of log
+        return mergedLog.legacyFetchOffsetsBefore(20, 100);
+    }
+
+    @Benchmark
+    @OutputTimeUnit(TimeUnit.NANOSECONDS)
     public void tierableLogSegments() {
         mergedLog.tierableLogSegments();
     }
@@ -224,7 +230,7 @@ public class MergedLogTierBenchmark {
     @OutputTimeUnit(TimeUnit.NANOSECONDS)
     public int tieredLogSegmentsPartialIteration() {
         int partialSize = 0;
-        Iterator<TierLogSegment> iterator = mergedLog.tieredLogSegments().iterator();
+        Iterator<TierLogSegment> iterator = mergedLog.tieredLogSegments();
         iterator.hasNext();
         partialSize += iterator.next().size();
         iterator.hasNext();

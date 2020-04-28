@@ -4,9 +4,12 @@
 
 package kafka.tier
 
+import java.util.Optional
 import java.util.UUID
 
 import kafka.tier.domain.{AbstractTierMetadata, TierObjectMetadata, TierPartitionDeleteInitiate, TierSegmentDeleteComplete, TierSegmentDeleteInitiate, TierSegmentUploadComplete, TierSegmentUploadInitiate, TierTopicInitLeader}
+import kafka.tier.domain.TierPartitionForceRestore
+import kafka.tier.state.OffsetAndEpoch
 import org.junit.Assert._
 import org.junit.Test
 
@@ -21,6 +24,7 @@ class TierTopicSerDeTest {
     roundTrip(new TierSegmentDeleteInitiate(new TopicIdPartition("foo", UUID.randomUUID,0), 0, UUID.randomUUID))
     roundTrip(new TierSegmentDeleteComplete(new TopicIdPartition("foo", UUID.randomUUID,0), 0, UUID.randomUUID))
     roundTrip(new TierPartitionDeleteInitiate(new TopicIdPartition("foo", UUID.randomUUID,0), 0, UUID.randomUUID))
+    roundTrip(new TierPartitionForceRestore(new TopicIdPartition("foo", UUID.randomUUID,0), UUID.randomUUID(), 0L, 10000L, new OffsetAndEpoch(30, Optional.of(3)), "8f1993e8ba666af2c9421956f9a29b6e7123768c"))
   }
 
   private def roundTrip(v: AbstractTierMetadata): Unit = {

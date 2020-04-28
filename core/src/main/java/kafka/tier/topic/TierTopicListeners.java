@@ -11,6 +11,8 @@ import kafka.tier.exceptions.TierMetadataFatalException;
 import kafka.tier.state.TierPartitionState;
 import kafka.utils.CoreUtils;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -48,6 +50,17 @@ class TierTopicListeners {
             return Optional.ofNullable(future);
         }
         return Optional.empty();
+    }
+
+    /**
+     * Get and remove all listeners for a particular TopicIdPartition
+     *
+     * @param topicIdPartition
+     * @return Collection of CompletableFuture(s) for the supplied TopicIdPartition
+     */
+    synchronized Collection<CompletableFuture<TierPartitionState.AppendResult>> getAndRemoveAll(TopicIdPartition topicIdPartition) {
+        Map<MaterializationKey, CompletableFuture<TierPartitionState.AppendResult>> entries = results.remove(topicIdPartition);
+        return entries == null ? new ArrayList<>() : entries.values();
     }
 
     /**

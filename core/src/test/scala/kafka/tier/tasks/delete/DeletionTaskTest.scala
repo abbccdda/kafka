@@ -164,9 +164,8 @@ class DeletionTaskTest {
 
   @Test
   def testInitiateDelete(): Unit = {
-    val toDelete = logWithTieredSegments.tieredLogSegments.take(3).map(_.metadata).map(DeleteObjectMetadata(_, None))
-    val initiateDelete = InitiateDelete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0),
-      mutable.Queue.empty ++= toDelete)
+    val toDelete = logWithTieredSegments.tieredLogSegments.take(3).map(_.metadata).map(DeleteObjectMetadata(_, None)).toList
+    val initiateDelete = InitiateDelete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0), mutable.Queue.empty ++ toDelete)
     assertEquals(0, initiateDelete.getNextSegmentDelay(time.hiResClockMs()))
 
     val future = initiateDelete.transition(topicIdPartition_1, replicaManager, tierTopicManager, tierObjectStore, time)
@@ -220,8 +219,8 @@ class DeletionTaskTest {
 
   @Test
   def testDelete(): Unit = {
-    val toDelete = logWithTieredSegments.tieredLogSegments.take(3).map(_.metadata).map(DeleteObjectMetadata(_, Some(time.milliseconds())))
-    val delete = Delete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0), mutable.Queue.empty ++= toDelete)
+    val toDelete = logWithTieredSegments.tieredLogSegments.take(3).map(_.metadata).map(DeleteObjectMetadata(_, Some(time.milliseconds()))).toList
+    val delete = Delete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0), mutable.Queue.empty ++ toDelete)
     val future = delete.transition(topicIdPartition_1, replicaManager, tierTopicManager, tierObjectStore, time)
     val result = Await.ready(future, 1 second)
     val nextState = result.value.get.get
@@ -292,9 +291,8 @@ class DeletionTaskTest {
 
   @Test
   def testCompleteDelete(): Unit = {
-    val toDelete = logWithTieredSegments.tieredLogSegments.take(3).map(_.metadata).map(DeleteObjectMetadata(_, None))
-    val completeDelete = CompleteDelete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0),
-      mutable.Queue.empty ++= toDelete)
+    val toDelete = logWithTieredSegments.tieredLogSegments.take(3).map(_.metadata).map(DeleteObjectMetadata(_, None)).toList
+    val completeDelete = CompleteDelete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0), mutable.Queue.empty ++ toDelete)
     val future = completeDelete.transition(topicIdPartition_1, replicaManager, tierTopicManager, tierObjectStore, time)
     val result = Await.ready(future, 1 second)
     val nextState = result.value.get.get
@@ -395,7 +393,7 @@ class DeletionTaskTest {
 
   private def mockAbstractLog(tieredSegments: List[TierLogSegment], localSegments: List[LogSegment]): AbstractLog = {
     val log = mock(classOf[AbstractLog])
-    when(log.tieredLogSegments).thenReturn(tieredSegments)
+    when(log.tieredLogSegments).thenReturn(tieredSegments.iterator)
     when(log.tierableLogSegments).thenReturn(localSegments)
     log
   }

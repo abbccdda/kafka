@@ -1,27 +1,33 @@
 package kafka.tier.tools;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
 import kafka.server.Defaults;
+import kafka.tier.TopicIdPartition;
+import kafka.tier.client.TierTopicClient;
 import kafka.tier.client.TierTopicProducerSupplier;
 import kafka.tier.domain.AbstractTierMetadata;
 import kafka.tier.topic.TierTopic;
 import kafka.tier.topic.TierTopicManagerConfig;
 import kafka.tier.topic.TierTopicPartitioner;
+import kafka.utils.CoreUtils;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.DescribeTopicsResult;
 import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.TopicPartition;
 
-import net.sourceforge.argparse4j.inf.ArgumentParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,27 +35,11 @@ import org.slf4j.LoggerFactory;
  * Provides a set of static functions for recovery related tooling.
  */
 public class RecoveryUtils {
-
-    // Defines common CLI option names and documentation.
-    public interface CommonCLIOptions {
-        String BOOTSTRAP_SERVERS_CONFIG = "bootstrap-servers";
-        String BOOTSTRAP_SERVERS_DOC =
-            "List of comma-separated broker server and port string each in the form host:port";
-
-        String TIER_TOPIC_NAMESPACE_CONFIG = "tier-topic-namespace";
-        String TIER_TOPIC_NAMESPACE_DOC = "The tier topic namespace";
-
-        String TIERED_PARTITION_NAME_CONFIG = "tiered-partition-name";
-        String TIERED_PARTITION_NAME_DOC = "The name of the tiered partition";
-
-        String TIERED_PARTITION_TOPIC_NAME_CONFIG = "tiered-partition-topic-name";
-        String TIERED_PARTITION_TOPIC_NAME_DOC = "The name of the tiered partition topic";
-
-        String TIERED_PARTITION_TOPIC_ID_CONFIG = "tiered-partition-topic-id";
-        String TIERED_PARTITION_TOPIC_ID_DOC = "The UUID of the tiered partition topic";
-    }
-
     private static final Logger log = LoggerFactory.getLogger(RecoveryUtils.class);
+
+    public static final String TIER_PROPERTIES_CONF_FILE_CONFIG = "tier.config";
+    public static final String TIER_PROPERTIES_CONF_FILE_DOC =
+        "The path to a configuration file containing the required properties";
 
     /**
      * Discovers and returns the number of partitions in the provided topicName.
@@ -66,13 +56,14 @@ public class RecoveryUtils {
      */
     public static short getNumPartitions(String bootstrapServers, String topicName)
         throws InterruptedException, ExecutionException {
-        Properties props = new Properties();
+        final Properties props = new Properties();
         props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         props.put(AdminClientConfig.CLIENT_ID_CONFIG, RecoveryUtils.class.getName());
-        Admin adminClient = Admin.create(props);
+        final Admin adminClient = Admin.create(props);
 
-        DescribeTopicsResult result = adminClient.describeTopics(Collections.singletonList(topicName));
-        Map<String, TopicDescription> descriptions = null;
+        final DescribeTopicsResult result =
+            adminClient.describeTopics(Collections.singletonList(topicName));
+        final Map<String, TopicDescription> descriptions;
         try {
             descriptions = result.all().get();
         } finally {
@@ -89,89 +80,144 @@ public class RecoveryUtils {
     }
 
     /**
-     * Injects an event into the TierTopic, using a newly created TierTopic producer object.
+     * Create and return a new TierTopic Producer object.
      *
-     * @param event                the event to be injected into the TierTopic
-     * @param bootstrapServers     the comma-separated list of bootstrap servers to be used by the
-     *                             producer (the string passed should be non-empty and valid)
-     * @param tierTopicNamespace   the TierTopic namespace (can be empty string if absent)
+     * @param bootstrapServers         the comma-separated list of bootstrap servers to be used by
+     *                                 the producer (the string passed should be non-empty and
+     *                                 valid)
+     * @param tierTopicNamespace       the TierTopic namespace
+     * @param numTierTopicPartitions   the number of partitions in the TierTopic
+     * @param clientId                 the client ID to be used to construct the producer
      *
-     * @throws InterruptedException
-     * @throws ExecutionException
+     * @return                         a newly created TierTopic producer object
      */
-    public static void injectTierTopicEvent(
-        AbstractTierMetadata event, String bootstrapServers, String tierTopicNamespace, String clusterId
-    ) throws InterruptedException, ExecutionException {
-        String tierTopicName = TierTopic.topicName(tierTopicNamespace);
-        short numTierTopicPartitions = RecoveryUtils.getNumPartitions(bootstrapServers, tierTopicName);
-        TierTopicPartitioner partitioner = new TierTopicPartitioner(numTierTopicPartitions);
-        TopicPartition tierTopicPartition = TierTopic.toTierTopicPartition(
-            event.topicIdPartition(), tierTopicName, partitioner);
-        log.info(
-            "Injecting TierTopic event: {} into TierTopic partition: {}", event, tierTopicPartition);
-
-        TierTopicManagerConfig config = new TierTopicManagerConfig(
-            new Supplier<Map<String, Object>>() {
-                @Override
-                public Map<String, Object> get() {
-                    return Collections.singletonMap(
-                        ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-                }
-            },
+    public static Producer<byte[], byte[]> createTierTopicProducer(
+        String bootstrapServers,
+        String tierTopicNamespace,
+        short numTierTopicPartitions,
+        String clientId
+    ) {
+        final TierTopicManagerConfig config = new TierTopicManagerConfig(
+            (Supplier<Map<String, Object>>) () -> Collections.singletonMap(
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers),
             tierTopicNamespace,
             numTierTopicPartitions,
             Defaults.TierMetadataReplicationFactor(),
             -1,
-            clusterId,
+            clientId,
             Defaults.TierMetadataMaxPollMs(),
             Defaults.TierMetadataRequestTimeoutMs(),
             Defaults.TierPartitionStateCommitInterval(),
             Collections.emptyList());
-        Producer<byte[], byte[]> producer = null;
+        final String tierTopicClientId = TierTopicClient.clientIdPrefix(clientId);
+        final Producer<byte[], byte[]> newProducer
+            = new KafkaProducer<>(TierTopicProducerSupplier.properties(config, tierTopicClientId));
+        log.info(
+            "Created new TierTopic producer! bootstrapServers={}, tierTopicNamespace={}" +
+            ", numTierTopicPartitions={}, tierTopicClientId={}, newProducer={}",
+            bootstrapServers, tierTopicNamespace, numTierTopicPartitions, tierTopicClientId, newProducer);
+        return newProducer;
+    }
+
+    /**
+     * Injects an event into the TierTopic, using the provided TierTopic producer object.
+     *
+     * @param producer                 the TierTopic producer object
+     * @param event                    the event to be injected into the TierTopic
+     * @param tierTopicName            the name of the TierTopic
+     * @param numTierTopicPartitions   the number of TierTopic partitions
+     *
+     * @return                         the RecordMetadata obtained after successfully producing
+     *                                 the event into the TierTopic
+     *
+     * @throws InterruptedException    if there was an error in producing the event
+     * @throws ExecutionException      if there was an error in producing the event
+     */
+    public static RecordMetadata injectTierTopicEvent(
+        Producer<byte[], byte[]> producer,
+        AbstractTierMetadata event,
+        String tierTopicName,
+        short numTierTopicPartitions
+    ) throws InterruptedException, ExecutionException {
+        final TierTopicPartitioner partitioner = new TierTopicPartitioner(numTierTopicPartitions);
+        final TopicPartition tierTopicPartition = TierTopic.toTierTopicPartition(
+            event.topicIdPartition(), tierTopicName, partitioner);
         try {
-            producer = new TierTopicProducerSupplier(config).get();
-            RecordMetadata injected = producer.send(
+            log.info(
+                "Injecting TierTopic event: event={}, tierTopicPartition={}, tierTopicName={}" +
+                ", numTierTopicPartitions={}",
+                event, tierTopicPartition, tierTopicName, numTierTopicPartitions);
+            final RecordMetadata injected = producer.send(
                 new ProducerRecord<>(tierTopicPartition.topic(),
                     tierTopicPartition.partition(),
                     event.serializeKey(),
                     event.serializeValue())).get();
-            log.info("Injected TierTopic event! RecordMetadata: {}", injected);
-        } finally {
-            producer.close();
+            log.info("Injected TierTopic event! recordMetadata={}", injected);
+            return injected;
+        } catch (InterruptedException | ExecutionException e) {
+            log.error(
+                "Failed to inject TierTopic event={}, tierTopicPartition={}, tierTopicName={}" +
+                ", numTierTopicPartitions={}",
+                event, tierTopicPartition, tierTopicName, numTierTopicPartitions, e);
+            throw e;
         }
     }
 
-    // Populates common useful CLI options into provider parser.
-    public static void populateCommonCLIOptions(ArgumentParser parser) {
-        parser.addArgument(makeArgument(CommonCLIOptions.BOOTSTRAP_SERVERS_CONFIG))
-            .dest(CommonCLIOptions.BOOTSTRAP_SERVERS_CONFIG)
-            .type(String.class)
-            .required(true)
-            .help(CommonCLIOptions.BOOTSTRAP_SERVERS_DOC);
-        parser.addArgument(makeArgument(CommonCLIOptions.TIER_TOPIC_NAMESPACE_CONFIG))
-            .dest(CommonCLIOptions.TIER_TOPIC_NAMESPACE_CONFIG)
-            .type(String.class)
-            .required(false)
-            .setDefault("")
-            .help(CommonCLIOptions.TIER_TOPIC_NAMESPACE_DOC);
-        parser.addArgument(makeArgument(CommonCLIOptions.TIERED_PARTITION_NAME_CONFIG))
-            .dest(CommonCLIOptions.TIERED_PARTITION_NAME_CONFIG)
-            .type(Integer.class)
-            .required(true)
-            .help(CommonCLIOptions.TIERED_PARTITION_NAME_DOC);
-        parser.addArgument(makeArgument(CommonCLIOptions.TIERED_PARTITION_TOPIC_NAME_CONFIG))
-            .dest(CommonCLIOptions.TIERED_PARTITION_TOPIC_NAME_CONFIG)
-            .type(String.class)
-            .required(true)
-            .help(CommonCLIOptions.TIERED_PARTITION_TOPIC_NAME_DOC);
-        parser.addArgument(makeArgument(CommonCLIOptions.TIERED_PARTITION_TOPIC_ID_CONFIG))
-            .dest(CommonCLIOptions.TIERED_PARTITION_TOPIC_ID_CONFIG)
-            .type(String.class)
-            .required(true)
-            .help(CommonCLIOptions.TIERED_PARTITION_TOPIC_ID_DOC);
+    /**
+     * Converts a list of formatted TopicIdPartition strings to a list of TopicIdPartition.
+     * Each item in the input list should be a CSV string with the following format:
+     * '<tiered_partition_topic_ID_base64_encoded>, <tiered_partition_topic_name>, <tiered_partition_name>'.
+     *
+     * @param topicIdPartitionsStr   the list of formatted TopicIdPartition strings
+     *
+     * @return                       a list of TopicIdPartition
+     */
+    public static List<TopicIdPartition> toTopicIdPartitions(List<String> topicIdPartitionsStr) {
+        final List<TopicIdPartition> partitions = new ArrayList<>();
+        for (String topicIdPartitionStr : topicIdPartitionsStr) {
+            final String[] components = topicIdPartitionStr.split(",");
+            if (components.length != 3) {
+                throw new IllegalArgumentException(
+                    String.format("'%s' does not contain 3 items.", topicIdPartitionStr));
+            }
+
+            final UUID topicId;
+            try {
+                topicId = CoreUtils.uuidFromBase64(components[0].trim());
+            } catch (Exception e) {
+                String msg = String.format(
+                    "Item: '%s' has an invalid UUID provided as topic ID: '%s'", topicIdPartitionStr, components[0]);
+                throw new IllegalArgumentException(msg, e);
+            }
+
+            final String topicName = components[1].trim();
+            if (topicName.isEmpty()) {
+                throw new IllegalArgumentException(
+                    String.format(
+                        "Item: '%s' cannot contain an empty topic name: '%s'",
+                        topicIdPartitionStr, components[1]));
+            }
+
+            final int partition;
+            try {
+                partition = Integer.parseInt(components[2].trim());
+            } catch (NumberFormatException e) {
+                String msg = String.format(
+                    "Item: '%s' has an illegal partition number: '%s'", topicIdPartitionStr, components[2]);
+                throw new IllegalArgumentException(msg, e);
+            }
+            if (partition < 0) {
+                throw new IllegalArgumentException(String.format(
+                    "Item: '%s' cannot have a negative partition number: '%d'",
+                    topicIdPartitionStr, partition));
+            }
+            partitions.add(new TopicIdPartition(topicName, topicId, partition));
+        }
+
+        return partitions;
     }
 
-    private static String makeArgument(String arg) {
+    public static String makeArgument(String arg) {
         return String.format("--%s", arg);
     }
 }
