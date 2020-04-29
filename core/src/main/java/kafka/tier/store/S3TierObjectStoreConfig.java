@@ -19,7 +19,6 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
     public Optional<String> s3EndpointOverride;
     public Optional<String> s3SignerOverride;
     public String s3SseAlgorithm;
-    public Integer s3MultipartUploadSize;
     public Integer s3AutoAbortThresholdBytes;
 
     public S3TierObjectStoreConfig(String clusterId, KafkaConfig config) {
@@ -32,7 +31,6 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
         this.s3AwsAccessKeyId = OptionConverters.toJava(config.tierS3AwsAccessKeyId()).map(Password::value);
         this.s3EndpointOverride = OptionConverters.toJava(config.tierS3EndpointOverride());
         this.s3SignerOverride = OptionConverters.toJava(config.tierS3SignerOverride());
-        this.s3MultipartUploadSize = config.tierS3MultipartUploadSize();
         if (!config.tierS3SseAlgorithm().equals(KafkaConfig.TIER_S3_SSE_ALGORITHM_NONE()))
             this.s3SseAlgorithm = config.tierS3SseAlgorithm();
         this.s3AutoAbortThresholdBytes = config.tierS3AutoAbortThresholdBytes();
@@ -48,7 +46,6 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
                             String endpointOverride,
                             String signerOverride,
                             String sseAlgorithm,
-                            Integer multipartUploadSize,
                             Integer s3AutoAbortThresholdBytes,
                             String s3Prefix) {
         super(clusterId, brokerId);
@@ -59,7 +56,6 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
         this.s3EndpointOverride = Optional.ofNullable(endpointOverride);
         this.s3SignerOverride = Optional.ofNullable(signerOverride);
         this.s3SseAlgorithm = sseAlgorithm;
-        this.s3MultipartUploadSize = multipartUploadSize;
         this.s3AutoAbortThresholdBytes = s3AutoAbortThresholdBytes;
         this.s3Prefix = s3Prefix;
     }

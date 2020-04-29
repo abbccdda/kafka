@@ -13,17 +13,11 @@ import com.amazonaws.client.builder.AwsClientBuilder;
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
 import com.amazonaws.services.s3.model.DeleteObjectsRequest;
 import com.amazonaws.services.s3.model.GetObjectRequest;
-import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
-import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
-import com.amazonaws.services.s3.model.PartETag;
 import com.amazonaws.services.s3.model.PutObjectRequest;
 import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.s3.model.S3ObjectInputStream;
-import com.amazonaws.services.s3.model.UploadPartRequest;
-import com.amazonaws.services.s3.model.UploadPartResult;
 import kafka.tier.exceptions.TierObjectStoreFatalException;
 import kafka.tier.exceptions.TierObjectStoreRetriableException;
 import org.apache.kafka.common.utils.ByteBufferInputStream;
@@ -45,7 +39,6 @@ public class S3TierObjectStore implements TierObjectStore {
     private final String bucket;
     private final String prefix;
     private final String sseAlgorithm;
-    private final int partUploadSize;
     private final int autoAbortThresholdBytes;
     private AmazonS3 client;
 
@@ -61,7 +54,6 @@ public class S3TierObjectStore implements TierObjectStore {
         this.bucket = config.s3Bucket;
         this.prefix = config.s3Prefix;
         this.sseAlgorithm = config.s3SseAlgorithm;
-        this.partUploadSize = config.s3MultipartUploadSize;
         this.autoAbortThresholdBytes = config.s3AutoAbortThresholdBytes;
         expectBucket(bucket, config.s3Region);
     }
@@ -104,11 +96,7 @@ public class S3TierObjectStore implements TierObjectStore {
         Map<String, String> metadata = TierObjectStoreUtils.createSegmentMetadata(objectMetadata, clusterId, brokerId);
 
         try {
-            if (segmentData.length() <= partUploadSize)
-                putFile(keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
-            else
-                putFileMultipart(keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
-
+            putFile(keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
             putFile(keyPath(objectMetadata, FileType.OFFSET_INDEX), metadata, offsetIndexData);
             putFile(keyPath(objectMetadata, FileType.TIMESTAMP_INDEX), metadata, timestampIndexData);
             producerStateSnapshotData.ifPresent(file -> putFile(keyPath(objectMetadata, FileType.PRODUCER_STATE), metadata, file));
@@ -169,38 +157,6 @@ public class S3TierObjectStore implements TierObjectStore {
         final PutObjectRequest request = new PutObjectRequest(bucket, key, new ByteBufferInputStream(buf), s3metadata);
         log.debug("Uploading object to s3://{}/{}", bucket, key);
         client.putObject(request);
-    }
-
-    private void putFileMultipart(String key, Map<String, String> metadata, File file) {
-        final long fileLength = file.length();
-        long partSize = partUploadSize;
-        log.debug("Uploading multipart object to s3://{}/{}", bucket, key);
-
-        final List<PartETag> partETags = new ArrayList<>();
-        final InitiateMultipartUploadRequest initiateMultipartUploadRequest = new InitiateMultipartUploadRequest(bucket, key, putObjectMetadata(metadata));
-        final InitiateMultipartUploadResult initiateMultipartUploadResult = client.initiateMultipartUpload(initiateMultipartUploadRequest);
-
-        long filePosition = 0;
-        for (int partNum = 1; filePosition < fileLength; partNum++) {
-            partSize = Math.min(partSize, fileLength - filePosition);
-            UploadPartRequest uploadPartRequest = new UploadPartRequest()
-                    .withBucketName(bucket)
-                    .withKey(key)
-                    .withUploadId(initiateMultipartUploadResult.getUploadId())
-                    .withPartNumber(partNum)
-                    .withFile(file)
-                    .withFileOffset(filePosition)
-                    .withPartSize(partSize);
-
-            UploadPartResult uploadPartResult = client.uploadPart(uploadPartRequest);
-            partETags.add(uploadPartResult.getPartETag());
-            filePosition += partSize;
-        }
-
-        final CompleteMultipartUploadRequest completeMultipartUploadRequest =
-                new CompleteMultipartUploadRequest(
-                        bucket, key, initiateMultipartUploadResult.getUploadId(), partETags);
-        client.completeMultipartUpload(completeMultipartUploadRequest);
     }
 
     private static AmazonS3 client(S3TierObjectStoreConfig config) {

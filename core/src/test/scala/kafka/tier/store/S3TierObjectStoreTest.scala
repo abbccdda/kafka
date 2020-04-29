@@ -21,12 +21,11 @@ class S3TierObjectStoreTest {
   @Test
   def testSinglePut(): Unit = {
     val segmentSize = 100
-    val partSize = 200
 
     val client = mock(classOf[AmazonS3])
     when(client.getBucketLocation("bucket")).thenReturn("region")
     val config = new S3TierObjectStoreConfig("cluster", 3, "bucket", "region", "key",
-      "id", "endpoint", "signer", "sseAlgorithm", partSize, 0, "")
+      "id", "endpoint", "signer", "sseAlgorithm", 0, "")
     val objectStore = new S3TierObjectStore(client, config)
     val metadata = new TierObjectStore.ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0, false, false, false)
     val segmentData = mock(classOf[File])
@@ -41,12 +40,11 @@ class S3TierObjectStoreTest {
   @Test
   def testSinglePutWithAbortedTxns(): Unit = {
     val segmentSize = 100
-    val partSize = 200
 
     val client = mock(classOf[AmazonS3])
     when(client.getBucketLocation("bucket")).thenReturn("region")
     val config = new S3TierObjectStoreConfig("cluster", 3, "bucket", "region", "key",
-      "id", "endpoint", "signer", "sseAlgorithm", partSize, 0, "")
+      "id", "endpoint", "signer", "sseAlgorithm", 0, "")
     val objectStore = new S3TierObjectStore(client, config)
     val metadata = new TierObjectStore.ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0, true, false, false)
     val segmentData = mock(classOf[File])
@@ -58,34 +56,12 @@ class S3TierObjectStoreTest {
   }
 
   @Test
-  def testMultiPartPut(): Unit = {
-    val segmentSize = 100
-    val partSize = 33
-
-    val client = mock(classOf[AmazonS3])
-    when(client.getBucketLocation("bucket")).thenReturn("region")
-    val config = new S3TierObjectStoreConfig("cluster", 3, "bucket", "region", "key", "id", "endpoint", "signer", "sseAlgorithm", partSize, 0, "")
-    val objectStore = new S3TierObjectStore(client, config)
-    val metadata = new TierObjectStore.ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0, false, false, false)
-    val segmentData = mock(classOf[File])
-
-    when(segmentData.length).thenReturn(segmentSize)
-    when(client.initiateMultipartUpload(any())).thenReturn(mock(classOf[InitiateMultipartUploadResult]))
-    when(client.uploadPart(any())).thenReturn(mock(classOf[UploadPartResult]))
-
-    objectStore.putSegment(metadata, segmentData, null, null, Optional.empty(), Optional.of(ByteBuffer.allocate(0)), Optional.empty())
-    verify(client, times(3)).putObject(any())
-    verify(client, times(math.ceil(segmentSize.toDouble / partSize).toInt)).uploadPart(any())
-  }
-
-  @Test
   def testSinglePutProducerStateEpochState(): Unit = {
     val segmentSize = 100
-    val partSize = 200
 
     val client = mock(classOf[AmazonS3])
     when(client.getBucketLocation("bucket")).thenReturn("region")
-    val config = new S3TierObjectStoreConfig("cluster", 3, "bucket", "region", "key", "id", "endpoint", "signer", "sseAlgorithm", partSize, 0, "")
+    val config = new S3TierObjectStoreConfig("cluster", 3, "bucket", "region", "key", "id", "endpoint", "signer", "sseAlgorithm", 0, "")
     val objectStore = new S3TierObjectStore(client, config)
     val metadata = new TierObjectStore.ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0, true, true, true)
     val segmentData = mock(classOf[File])

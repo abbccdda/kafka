@@ -78,7 +78,6 @@ public class TierObjectStoreUtils {
                         props.getProperty(KafkaConfig.TierS3EndpointOverrideProp()),
                         props.getProperty(KafkaConfig.TierS3SignerOverrideProp()),
                         props.getProperty(KafkaConfig.TierS3SseAlgorithmProp(), Defaults.TierS3SseAlgorithm()),
-                        (Integer) props.getOrDefault(KafkaConfig.TierS3MultipartUploadSizeProp(), Defaults.TierS3MultipartUploadSize()),
                         (Integer) props.getOrDefault(KafkaConfig.TierS3AutoAbortThresholdBytesProp(), Defaults.TierS3AutoAbortThresholdBytes()),
                         props.getProperty(KafkaConfig.TierS3PrefixProp(), Defaults.TierS3Prefix()));
             case Mock:

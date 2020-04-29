@@ -108,11 +108,6 @@ class TierCloudBackendUtils {
                 .describedAs(KafkaConfig.TierS3SseAlgorithmDoc())
                 .ofType(String.class)
                 .defaultsTo(Defaults.TierS3SseAlgorithm());
-        maybeExistingParser.accepts(KafkaConfig.TierS3MultipartUploadSizeProp(), KafkaConfig.TierS3MultipartUploadSizeDoc())
-                .withRequiredArg()
-                .describedAs(KafkaConfig.TierS3MultipartUploadSizeDoc())
-                .ofType(Integer.class)
-                .defaultsTo(Defaults.TierS3MultipartUploadSize());
         maybeExistingParser.accepts(KafkaConfig.TierS3AutoAbortThresholdBytesProp(), KafkaConfig.TierS3AutoAbortThresholdBytesDoc())
                 .withRequiredArg()
                 .describedAs(KafkaConfig.TierS3AutoAbortThresholdBytesDoc())
@@ -181,7 +176,6 @@ class TierCloudBackendUtils {
         if (options.has(KafkaConfig.TierS3SignerOverrideProp()))
             maybeExistingProps.put(KafkaConfig.TierS3SignerOverrideProp(), options.valueOf(KafkaConfig.TierS3SignerOverrideProp()));
         maybeExistingProps.put(KafkaConfig.TierS3SseAlgorithmProp(), options.valueOf(KafkaConfig.TierS3SseAlgorithmProp()));
-        maybeExistingProps.put(KafkaConfig.TierS3MultipartUploadSizeProp(), options.valueOf(KafkaConfig.TierS3MultipartUploadSizeProp()));
         maybeExistingProps.put(KafkaConfig.TierS3AutoAbortThresholdBytesProp(), options.valueOf(KafkaConfig.TierS3AutoAbortThresholdBytesProp()));
         maybeExistingProps.put(KafkaConfig.TierS3PrefixProp(), options.valueOf(KafkaConfig.TierS3PrefixProp()));
 

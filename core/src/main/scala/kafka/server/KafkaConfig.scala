@@ -212,7 +212,6 @@ object Defaults {
   val TierS3Region = null
   val TierS3Prefix = ""
   val TierS3SseAlgorithm = "AES256"
-  val TierS3MultipartUploadSize = 200 * 1024 * 1024
   val TierS3AwsAccessKeyId = null
   val TierS3AwsSecretAccessKey = null
   val TierS3EndpointOverride = null
@@ -579,7 +578,6 @@ object KafkaConfig {
   val TierS3RegionProp = ConfluentPrefix + "tier.s3.region"
   val TierS3PrefixProp = ConfluentPrefix + "tier.s3.prefix"
   val TierS3SseAlgorithmProp = ConfluentPrefix + "tier.s3.sse.algorithm"
-  val TierS3MultipartUploadSizeProp = ConfluentPrefix + "tier.s3.multipart.upload.size"
   val TierS3AwsAccessKeyIdProp = ConfluentPrefix + "tier.s3.aws.access.key.id"
   val TierS3AwsSecretAccessKeyProp = ConfluentPrefix + "tier.s3.aws.secret.access.key"
   val TierS3EndpointOverrideProp = ConfluentPrefix + "tier.s3.aws.endpoint.override"
@@ -1044,7 +1042,6 @@ object KafkaConfig {
   val TierS3RegionDoc = "The S3 region to use for tiered storage."
   val TierS3PrefixDoc = "This prefix will be added to tiered storage objects stored in S3."
   val TierS3SseAlgorithmDoc = "The S3 server side encryption algorithm to use to protect objects at rest. Currently supports AES256 and none. Defaults to AES256."
-  val TierS3MultipartUploadSizeDoc = "Segments will be uploaded to S3 in parts of this size. Multipart uploads will not be used if the segment size is less than or equal to this size. Part sizes of less than 5MB are not supported."
   val TierS3AwsAccessKeyIdDoc = "The S3 AWS access key id directly via the Kafka configuration. If not set, the access key id will be supplied via the AWS default provider chain e.g. AWS_ACCESS_KEY_ID environment variable, ~/.aws/config, etc"
   val TierS3AwsSecretAccessKeyDoc = "The S3 AWS secret access key directly via the Kafka configuration. If not set, the secret access key will be supplied via the AWS default provider chain e.g. AWS_SECRET_ACCESS_KEY environment variable, ~/.aws/config, etc"
   val TierS3EndpointOverrideDoc = "Override picking an S3 endpoint. Normally this is performed automatically by the client."
@@ -1402,7 +1399,6 @@ object KafkaConfig {
       .define(TierS3RegionProp, STRING, Defaults.TierS3Region, HIGH, TierS3RegionDoc)
       .define(TierS3PrefixProp, STRING, Defaults.TierS3Prefix, HIGH, TierS3PrefixDoc)
       .defineInternal(TierS3SseAlgorithmProp, STRING, Defaults.TierS3SseAlgorithm, in("AES256", TIER_S3_SSE_ALGORITHM_NONE), HIGH, TierS3SseAlgorithmDoc)
-      .defineInternal(TierS3MultipartUploadSizeProp, INT, Defaults.TierS3MultipartUploadSize, atLeast(5 * 1024 * 1024), LOW, TierS3MultipartUploadSizeDoc)
       .define(TierS3AwsAccessKeyIdProp, PASSWORD, Defaults.TierS3AwsAccessKeyId, MEDIUM, TierS3AwsAccessKeyIdDoc)
       .define(TierS3AwsSecretAccessKeyProp, PASSWORD, Defaults.TierS3AwsSecretAccessKey, MEDIUM, TierS3AwsSecretAccessKeyDoc)
       .defineInternal(TierS3EndpointOverrideProp, STRING, Defaults.TierS3EndpointOverride, LOW, TierS3EndpointOverrideDoc)
@@ -1997,7 +1993,6 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierS3Region = getString(KafkaConfig.TierS3RegionProp)
   val tierS3Prefix = getString(KafkaConfig.TierS3PrefixProp)
   val tierS3SseAlgorithm = getString(KafkaConfig.TierS3SseAlgorithmProp)
-  val tierS3MultipartUploadSize = getInt(KafkaConfig.TierS3MultipartUploadSizeProp)
   val tierS3AwsAccessKeyId = Option(getPassword(KafkaConfig.TierS3AwsAccessKeyIdProp))
   val tierS3AwsSecretAccessKey = Option(getPassword(KafkaConfig.TierS3AwsSecretAccessKeyProp))
   val tierS3EndpointOverride = Option(getString(KafkaConfig.TierS3EndpointOverrideProp))
