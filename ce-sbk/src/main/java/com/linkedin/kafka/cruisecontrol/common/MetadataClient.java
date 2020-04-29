@@ -50,7 +50,7 @@ public class MetadataClient {
   public MetadataClient(KafkaCruiseControlConfig config,
                         long metadataTTLMs,
                         Time time) {
-    this(config, metadataTTLMs, time, AdminClient.create(KafkaCruiseControlUtils.parseAdminClientConfigs(config)));
+    this(config, metadataTTLMs, time, AdminClient.create(KafkaCruiseControlUtils.filterAdminClientConfigs(config.values())));
   }
 
   // for testing

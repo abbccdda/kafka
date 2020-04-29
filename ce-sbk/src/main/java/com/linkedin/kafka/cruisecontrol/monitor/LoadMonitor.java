@@ -124,7 +124,7 @@ public class LoadMonitor {
                      MetricDef metricDef) {
     this(config,
          new MetadataClient(config, METADATA_TTL, time),
-         KafkaCruiseControlUtils.createAdminClient(KafkaCruiseControlUtils.parseAdminClientConfigs(config)),
+         KafkaCruiseControlUtils.createAdminClient(config.originals()),
          time,
          metricRegistry,
          metricDef);

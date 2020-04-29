@@ -76,7 +76,7 @@ public class AnomalyDetector {
                          Time time,
                          DataBalancerMetricsRegistry metricRegistry) {
     _anomalies = new LinkedBlockingDeque<>();
-    _adminClient = KafkaCruiseControlUtils.createAdminClient(KafkaCruiseControlUtils.parseAdminClientConfigs(config));
+    _adminClient = KafkaCruiseControlUtils.createAdminClient(config.originals());
     _anomalyDetectionIntervalMs = config.getLong(KafkaCruiseControlConfig.ANOMALY_DETECTION_INTERVAL_MS_CONFIG);
     _anomalyNotifier = config.getConfiguredInstance(KafkaCruiseControlConfig.ANOMALY_NOTIFIER_CLASS_CONFIG,
                                                     AnomalyNotifier.class);

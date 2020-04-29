@@ -48,6 +48,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricFetcherManager.BROKER_CAPACITY_CONFIG_RESOLVER_OBJECT_CONFIG;
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricFetcherManager.DEFAULT_BROKER_CAPACITY_CONFIG_RESOLVER_OBJECT_CONFIG;
@@ -411,7 +412,12 @@ public class ConfluentMetricsReporterSampler implements MetricSampler {
 
     private static Consumer<byte[], byte[]> createConsumerForMetricTopic(
             Properties consumerProps, String metricReporterTopic) {
-        Consumer<byte[], byte[]> metricConsumer = new KafkaConsumer<>(consumerProps);
+        // Contortion to ensure that we only get valid consumer properties; needed for type safety.
+        Map<String, Object> filteredConsumerProperties = KafkaCruiseControlUtils.filterConsumerConfigs(
+                consumerProps.entrySet().stream().collect(Collectors.toMap(
+                        e -> e.getKey().toString(),
+                        e -> e.getValue())));
+        Consumer<byte[], byte[]> metricConsumer = new KafkaConsumer<>(filteredConsumerProperties);
         metricConsumer.subscribe(Pattern.compile(metricReporterTopic), new ConsumerRebalanceListener() {
             @Override
             public void onPartitionsRevoked(Collection<TopicPartition> collection) {

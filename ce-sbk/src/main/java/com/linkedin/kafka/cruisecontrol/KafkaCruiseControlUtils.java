@@ -38,9 +38,6 @@ import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.ConfigException;
-import org.apache.kafka.common.config.SslConfigs;
-import org.apache.kafka.common.config.SaslConfigs;
-import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.SystemTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -246,7 +243,7 @@ public class KafkaCruiseControlUtils {
    * @return A new instance of AdminClient.
    */
   public static AdminClient createAdminClient(Map<String, Object> adminClientConfigs) {
-    return AdminClient.create(adminClientConfigs);
+    return AdminClient.create(filterAdminClientConfigs(adminClientConfigs));
   }
 
   /**
@@ -262,58 +259,12 @@ public class KafkaCruiseControlUtils {
     closeClientWithTimeout(adminClient::close, timeoutMs);
   }
 
-  /**
-   * Parse AdminClient configs based on the given {@link KafkaCruiseControlConfig configs}.
-   *
-   * @param configs Configs to be used for parsing AdminClient configs.
-   * @return AdminClient configs.
-   */
-  public static Map<String, Object> parseAdminClientConfigs(KafkaCruiseControlConfig configs) {
-    Map<String, Object> adminClientConfigs = new HashMap<>();
-    // Add bootstrap server.
-    List<String> bootstrapServers = configs.getList(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG);
-    String bootstrapServersString = bootstrapServers.toString()
-        .replace(" ", "")
-        .replace("[", "")
-        .replace("]", "");
-    adminClientConfigs.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServersString);
-
-    // Add request timeout config
-    adminClientConfigs.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG,
-            configs.getInt(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG));
-
-    // Add security protocol (if specified).
-    try {
-      String securityProtocol = configs.getString(AdminClientConfig.SECURITY_PROTOCOL_CONFIG);
-      adminClientConfigs.put(AdminClientConfig.SECURITY_PROTOCOL_CONFIG, securityProtocol);
-      setStringConfigIfExists(configs, adminClientConfigs, SaslConfigs.SASL_MECHANISM);
-      setPasswordConfigIfExists(configs, adminClientConfigs, SaslConfigs.SASL_JAAS_CONFIG);
-
-      // Configure SSL configs (if security protocol is SSL or SASL_SSL)
-      if (securityProtocol.equals(SecurityProtocol.SSL.name) || securityProtocol.equals(SecurityProtocol.SASL_SSL.name)) {
-        setStringConfigIfExists(configs, adminClientConfigs, SslConfigs.SSL_TRUSTMANAGER_ALGORITHM_CONFIG);
-        setStringConfigIfExists(configs, adminClientConfigs, SslConfigs.SSL_KEYMANAGER_ALGORITHM_CONFIG);
-        setStringConfigIfExists(configs, adminClientConfigs, SslConfigs.SSL_KEYSTORE_TYPE_CONFIG);
-        setStringConfigIfExists(configs, adminClientConfigs, SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG);
-        setStringConfigIfExists(configs, adminClientConfigs, SslConfigs.SSL_TRUSTSTORE_TYPE_CONFIG);
-        setStringConfigIfExists(configs, adminClientConfigs, SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG);
-        setStringConfigIfExists(configs, adminClientConfigs, SslConfigs.SSL_SECURE_RANDOM_IMPLEMENTATION_CONFIG);
-        setStringConfigIfExists(configs, adminClientConfigs, SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG);
-        setPasswordConfigIfExists(configs, adminClientConfigs, SslConfigs.SSL_KEYSTORE_PASSWORD_CONFIG);
-        setPasswordConfigIfExists(configs, adminClientConfigs, SslConfigs.SSL_KEY_PASSWORD_CONFIG);
-        setPasswordConfigIfExists(configs, adminClientConfigs, SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG);
-      }
-    } catch (ConfigException ce) {
-      // let it go.
-    }
-
-    return adminClientConfigs;
-  }
-
   public static Map<String, Object> filterAdminClientConfigs(Map<String, ?> configs) {
     Map<String, Object> adminClientConfig = new HashMap<>(configs);
     Set<String> validAdminClientProps = AdminClientConfig.configNames();
     adminClientConfig.keySet().retainAll(validAdminClientProps);
+    // Internal clients do not need the metric reporter
+    adminClientConfig.remove(AdminClientConfig.METRIC_REPORTER_CLASSES_CONFIG);
     return adminClientConfig;
   }
 
@@ -321,6 +272,7 @@ public class KafkaCruiseControlUtils {
     Map<String, Object> consumerConfig = new HashMap<>(configs);
     Set<String> validConsumerProps = ConsumerConfig.configNames();
     consumerConfig.keySet().retainAll(validConsumerProps);
+    consumerConfig.remove(ConsumerConfig.METRIC_REPORTER_CLASSES_CONFIG);
     return consumerConfig;
   }
 
@@ -328,6 +280,7 @@ public class KafkaCruiseControlUtils {
     Map<String, Object> producerConfig = new HashMap<>(configs);
     Set<String> validProducerProps = ProducerConfig.configNames();
     producerConfig.keySet().retainAll(validProducerProps);
+    producerConfig.remove(ProducerConfig.METRIC_REPORTER_CLASSES_CONFIG);
     return producerConfig;
   }
 

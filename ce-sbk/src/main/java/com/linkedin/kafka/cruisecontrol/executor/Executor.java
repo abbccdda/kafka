@@ -139,7 +139,7 @@ public class Executor {
            AnomalyDetector anomalyDetector) {
     this(config, time, metricRegistry, metadataClient, demotionHistoryRetentionTimeMs,
         removalHistoryRetentionTimeMs, executorNotifier, anomalyDetector,
-        KafkaCruiseControlUtils.createAdminClient(KafkaCruiseControlUtils.parseAdminClientConfigs(config)), null);
+         KafkaCruiseControlUtils.createAdminClient(config.originals()), null);
   }
 
   /**

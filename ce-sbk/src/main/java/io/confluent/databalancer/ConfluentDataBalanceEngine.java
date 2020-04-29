@@ -16,6 +16,7 @@ import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -156,6 +157,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
             LOG.info("DataBalancer: Checking startup component {}", startupComponent);
             // Get the method object to validate
             Class<?> startupComponentClass = Class.forName(startupComponent);
+            LOG.info("DataBalancer: Checking startup readiness for {}", startupComponent);
             Method method = startupComponentClass.getMethod(
                     CHECK_STARTUP_CONDITION_METHOD_NAME, KafkaCruiseControlConfig.class, Semaphore.class);
             method.invoke(null, config, abortStartupCheck);
@@ -245,16 +247,18 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
 
         // Derive bootstrap.servers from the provided KafkaConfig, instead of requiring
         // users to specify it.
-        String bootstrapServers = config.listeners().toStream()
+        if (ccConfigProps.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG) == null) {
+            Endpoint interBrokerEp = config.listeners().toStream()
                 .find(ep -> ep.listenerName().equals(config.interBrokerListenerName()))
-                .map(ep -> ep.connectionString())
-                .getOrElse(() -> "");
+                .get().toJava();
+            LOG.info("DataBalancer: Listener endpoint is {}", interBrokerEp);
+            Map<String, Object> clientConfigs = ConfluentConfigs.interBrokerClientConfigs(config, interBrokerEp);
 
-        if (!bootstrapServers.equals("")) {
-            ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+            LOG.info("Adding configs {} to config", clientConfigs);
+
+            ccConfigProps.putAll(clientConfigs);
         }
         LOG.info("DataBalancer: BOOTSTRAP_SERVERS determined to be {}", ccConfigProps.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG));
-
 
         // Some CruiseControl properties can be interpreted from existing properties,
         // but those properties aren't defined in KafkaConfig because they're in external modules,

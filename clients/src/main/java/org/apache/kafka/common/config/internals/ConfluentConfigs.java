@@ -409,7 +409,8 @@ public class ConfluentConfigs {
             }
         }
         updatePrefixedConfigs(configs, clientConfigs, listenerPrefix);
-        clientConfigs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, interBrokerEndpoint.host() + ":" + interBrokerEndpoint.port());
+        String ibpHost = interBrokerEndpoint.host() == null ? "" : interBrokerEndpoint.host();
+        clientConfigs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, ibpHost + ":" + interBrokerEndpoint.port());
         clientConfigs.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol.name);
         return clientConfigs;
     }

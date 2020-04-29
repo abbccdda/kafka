@@ -5,6 +5,7 @@
 package io.confluent.databalancer;
 
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
+import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.CpuUsageDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.DiskCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.DiskUsageDistributionGoal;
@@ -27,8 +28,10 @@ import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
 import kafka.utils.TestUtils$;
-import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.junit.Before;
 import org.junit.Test;
@@ -205,10 +208,13 @@ public class ConfluentDataBalanceEngineTest  {
         KafkaConfig config = new KafkaConfig(brokerProps);
         // We expect only one listener in a bare-bones config.
         assertTrue(config.listeners().length() == 1);
-        String expectedBootstrapServers = config.listeners().head().connectionString();
+        Endpoint interBpEp = config.listeners().head().toJava();
+        String expectedBootstrapServers = (interBpEp.host() == null ? "" : interBpEp.host()) + ":" + interBpEp.port();
+        //String expectedBootstrapServers = config.listeners().head().connectionString();
         KafkaCruiseControlConfig ccConfig = ConfluentDataBalanceEngine.generateCruiseControlConfig(config);
 
-        assertTrue(ccConfig.getList(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG).contains(expectedBootstrapServers));
+        assertTrue("expected bootstrap servers " + expectedBootstrapServers + " not set, got " + ccConfig.getList(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG),
+                ccConfig.getList(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG).contains(expectedBootstrapServers));
         assertEquals(sampleZkString, ccConfig.getString(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG));
         assertNotNull("balancer n/w input capacity property not present",
                 ccConfig.getDouble(KafkaCruiseControlConfig.NETWORK_INBOUND_CAPACITY_THRESHOLD_CONFIG));
@@ -231,6 +237,9 @@ public class ConfluentDataBalanceEngineTest  {
     public void testGeneratedConfigWithOverrides() {
         // Add required properties
         final String sampleZkString = "zookeeper-1-internal.pzkc-ldqwz.svc.cluster.local:2181,zookeeper-2-internal.pzkc-ldqwz.svc.cluster.local:2181/testKafkaCluster";
+        // Set a different bootstrap server
+        final String expectedBootstrapServers = "localhost:9095";
+        final String listenerString = "PLAINTEXT://" + expectedBootstrapServers;
 
         // Goals Config should be this -- not overridden
         List<String> expectedGoalsConfig = new ArrayList<>(
@@ -275,6 +284,7 @@ public class ConfluentDataBalanceEngineTest  {
 
         // Not a valid ZK connect URL but to validate what gets copied over.
         brokerProps.put(KafkaConfig.ZkConnectProp(), sampleZkString);
+        brokerProps.put(KafkaConfig.ListenersProp(), listenerString);
 
         // Add required properties to test
         String nwInCapacity = ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG;
@@ -297,6 +307,9 @@ public class ConfluentDataBalanceEngineTest  {
 
         KafkaConfig config = new KafkaConfig(brokerProps);
         KafkaCruiseControlConfig ccConfig = ConfluentDataBalanceEngine.generateCruiseControlConfig(config);
+        // Validate the non-default listener
+        assertTrue(ccConfig.getList(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG).contains(expectedBootstrapServers));
+
         // Not all properties go into the KafkaCruiseControlConfig. Extract everything for validation.
         Map<String, Object> ccOriginals = ccConfig.originals();
 
@@ -364,10 +377,6 @@ public class ConfluentDataBalanceEngineTest  {
     public void testGenerateCruiseControlExclusionConfig() {
         // Add required properties
         final String sampleZkString = "zookeeper-1-internal.pzkc-ldqwz.svc.cluster.local:2181,zookeeper-2-internal.pzkc-ldqwz.svc.cluster.local:2181/testKafkaCluster";
-        String bootstrapServersConfig = ConfluentConfigs.CONFLUENT_BALANCER_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
-        String bootstrapServers =  "localhost:9092";
-
-        brokerProps.put(bootstrapServersConfig, bootstrapServers);
 
         // Set topic exclusions (same as above tests)
         String topicNames = "topic1, top.c2, test-topic";
@@ -393,6 +402,34 @@ public class ConfluentDataBalanceEngineTest  {
         assertFalse("Expected topicName value as suffix in topic name not to match", "abc-topic1".matches(configRegex));
         assertFalse("Expected topicName with regex metacharacters to be treated as a literal", "topic2".matches(configRegex));
         assertFalse("Expected topicPrefix with regex metacharacters to be treated as a literal", "prefix2".matches(configRegex));
+    }
+
+    @Test
+    public void testGeneratedEncryptedInterBrokerConfig() {
+        Properties props = new Properties();
+        final String localListener = "localhost:9075";
+        props.put(KafkaConfig$.MODULE$.ZkConnectProp(), "localhost:9095");
+        props.put(KafkaConfig$.MODULE$.ListenersProp(), "INTERNAL://" + localListener);
+        props.put(KafkaConfig$.MODULE$.ListenerSecurityProtocolMapProp(), "INTERNAL:SSL");
+        props.put(SslConfigs.SSL_PROTOCOL_CONFIG, "TLSv1.2");
+        props.put(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, "test.truststore.jks");
+        props.put(SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG, "test.keystore.jks");
+        props.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG, Arrays.asList("TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA"));
+        props.put(SslConfigs.SSL_PROVIDER_CONFIG, "JVM");
+        props.put("listener.name.internal.ssl.keystore.location", "listener.keystore.jks");
+        props.put("inter.broker.listener.name", "INTERNAL");
+
+        KafkaCruiseControlConfig ccConfig = ConfluentDataBalanceEngine.generateCruiseControlConfig(new KafkaConfig(props));
+        assertTrue(ccConfig.getList(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG).contains(localListener));
+
+        // Security operations may not be present in default KafkaCruiseControlConfig
+        Map<String, Object> clientConfigs = KafkaCruiseControlUtils.filterAdminClientConfigs(ccConfig.values());
+        assertEquals("SSL", clientConfigs.get(AdminClientConfig.SECURITY_PROTOCOL_CONFIG));
+        assertEquals("test.truststore.jks", clientConfigs.get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG));
+        assertEquals("listener.keystore.jks", clientConfigs.get(SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG));
+        assertEquals("TLSv1.2", clientConfigs.get(SslConfigs.SSL_PROTOCOL_CONFIG));
+        assertEquals(Arrays.asList("TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA"), clientConfigs.get(SslConfigs.SSL_CIPHER_SUITES_CONFIG));
+        assertEquals("JVM", clientConfigs.get(SslConfigs.SSL_PROVIDER_CONFIG));
     }
 
     @Test

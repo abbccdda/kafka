@@ -846,7 +846,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                     "Executor", false), adminClient, AUTO_THROTTLE);
     Executor executor = new Executor(config, time, KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
             metadataClient, 86400000L, 43200000L, notifier, getMockAnomalyDetector(RANDOM_UUID),
-            KafkaCruiseControlUtils.createAdminClient(KafkaCruiseControlUtils.parseAdminClientConfigs(config)), throttleHelper);
+            KafkaCruiseControlUtils.createAdminClient(config.originals()), throttleHelper);
     executor.setExecutionMode(false);
     executor.executeProposals(Collections.singletonList(proposal),
             Collections.emptySet(),
