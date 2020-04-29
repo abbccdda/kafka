@@ -234,7 +234,7 @@ public class ConfluentLicenseValidatorTest {
 
   @Test
   public void testMetricsReporterIsDisabledForClients() {
-    ConfluentLicenseValidator licenseValidator = new ConfluentLicenseValidator() {
+    licenseValidator = new ConfluentLicenseValidator() {
       @Override
       protected LicenseManager createLicenseManager(LicenseConfig licenseConfig) {
         assertNull(licenseConfig.consumerConfigs().get(
