@@ -31,7 +31,7 @@ import org.apache.kafka.common.message.CreateTopicsRequestData.{CreatableTopic, 
 import org.apache.kafka.common.message.JoinGroupRequestData.JoinGroupRequestProtocolCollection
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.message.LeaveGroupRequestData.MemberIdentity
-import org.apache.kafka.common.message.StartRebalanceRequestData.BrokerId
+import org.apache.kafka.common.message.RemoveBrokersRequestData.BrokerId
 import org.apache.kafka.common.message.StopReplicaRequestData.{StopReplicaPartitionState, StopReplicaTopicState}
 import org.apache.kafka.common.message.UpdateMetadataRequestData.{UpdateMetadataBroker, UpdateMetadataEndpoint, UpdateMetadataPartitionState}
 import org.apache.kafka.common.message._
@@ -574,8 +574,8 @@ class RequestQuotaTest extends BaseRequestTest {
         case ApiKeys.ALTER_CLIENT_QUOTAS =>
           new AlterClientQuotasRequest.Builder(List.empty.asJava, false)
 
-        case ApiKeys.START_REBALANCE =>
-          new StartRebalanceRequest.Builder(
+        case ApiKeys.REMOVE_BROKERS =>
+          new RemoveBrokersRequest.Builder(
             Set(new BrokerId()).asJava
           )
 

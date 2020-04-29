@@ -42,6 +42,8 @@ import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.errors.AuthenticationException;
+import org.apache.kafka.common.errors.BrokerRemovalInProgressException;
+import org.apache.kafka.common.errors.BrokerRemovedException;
 import org.apache.kafka.common.errors.ClusterAuthorizationException;
 import org.apache.kafka.common.errors.ClusterLinkExistsException;
 import org.apache.kafka.common.errors.ClusterLinkNotFoundException;
@@ -51,7 +53,6 @@ import org.apache.kafka.common.errors.GroupSubscribedToTopicException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.InvalidTopicException;
 import org.apache.kafka.common.errors.LeaderNotAvailableException;
-import org.apache.kafka.common.errors.ReassignmentInProgressException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.NotLeaderForPartitionException;
 import org.apache.kafka.common.errors.OffsetOutOfRangeException;
@@ -99,8 +100,8 @@ import org.apache.kafka.common.message.ReplicaStatusResponseData;
 import org.apache.kafka.common.message.ReplicaStatusResponseData.ReplicaStatusPartitionResponse;
 import org.apache.kafka.common.message.ReplicaStatusResponseData.ReplicaStatusTopicResponse;
 import org.apache.kafka.common.message.ReplicaStatusResponseData.ReplicaStatusReplicaResponse;
-import org.apache.kafka.common.message.StartRebalanceResponseData;
-import org.apache.kafka.common.message.StartRebalanceResponseData.DrainBrokerResponse;
+import org.apache.kafka.common.message.RemoveBrokersResponseData;
+import org.apache.kafka.common.message.RemoveBrokersResponseData.RemoveBrokerResponse;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.replica.ReplicaStatus;
 import org.apache.kafka.common.quota.ClientQuotaAlteration;
@@ -142,7 +143,7 @@ import org.apache.kafka.common.requests.OffsetCommitResponse;
 import org.apache.kafka.common.requests.OffsetDeleteResponse;
 import org.apache.kafka.common.requests.OffsetFetchResponse;
 import org.apache.kafka.common.requests.ReplicaStatusResponse;
-import org.apache.kafka.common.requests.StartRebalanceResponse;
+import org.apache.kafka.common.requests.RemoveBrokersResponse;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourcePattern;
 import org.apache.kafka.common.resource.ResourcePatternFilter;
@@ -357,11 +358,11 @@ public class KafkaAdminClientTest {
         return new CreateTopicsResponse(data);
     }
 
-    private static StartRebalanceResponse prepareStartRebalanceResponse(Integer brokerId, Errors error) {
-        StartRebalanceResponseData data = new StartRebalanceResponseData();
-        data.setBrokersToDrain(Collections.singletonList(new DrainBrokerResponse().
+    private static RemoveBrokersResponse prepareRemoveBrokersResponse(Integer brokerId, Errors error) {
+        RemoveBrokersResponseData data = new RemoveBrokersResponseData();
+        data.setBrokersToRemove(Collections.singletonList(new RemoveBrokerResponse().
             setBrokerId(brokerId))).setErrorCode(error.code());
-        return new StartRebalanceResponse(data);
+        return new RemoveBrokersResponse(data);
     }
 
     private static DeleteTopicsResponse prepareDeleteTopicsResponse(String topicName, Errors error) {
@@ -573,111 +574,114 @@ public class KafkaAdminClientTest {
     }
 
     @Test
-    public void testDrainBrokersHandleNotControllerException() throws Exception {
+    public void testRemoveBrokersHandlesNotControllerException() throws Exception {
         try (AdminClientUnitTestEnv env = mockClientEnv()) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
             env.kafkaClient().prepareResponseFrom(
-                    prepareStartRebalanceResponse(1, Errors.NOT_CONTROLLER),
+                    prepareRemoveBrokersResponse(1, Errors.NOT_CONTROLLER),
                     env.cluster().nodeById(0));
             env.kafkaClient().prepareResponse(MetadataResponse.prepareResponse(env.cluster().nodes(),
                     env.cluster().clusterResource().clusterId(),
                     1,
                     Collections.emptyList()));
             env.kafkaClient().prepareResponseFrom(
-                    prepareStartRebalanceResponse(1, Errors.NONE),
+                    prepareRemoveBrokersResponse(1, Errors.NONE),
                     env.cluster().nodeById(1));
-            KafkaFuture<List<Integer>> future = env.adminClient().drainBrokers(
+            KafkaFuture<List<Integer>> future = env.adminClient().removeBrokers(
                     Collections.singletonList(1),
-                    new DrainBrokersOptions().timeoutMs(10000)).all();
+                    new RemoveBrokersOptions().timeoutMs(10000)).all();
             future.get();
         }
     }
 
     @Test
-    public void testDrainBrokersHandleClusterAuthorizationException() throws Exception {
+    public void testRemoveBrokersHandlesClusterAuthorizationException() throws Exception {
         try (AdminClientUnitTestEnv env = mockClientEnv()) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
-            env.kafkaClient().prepareResponse(prepareStartRebalanceResponse(1, Errors.CLUSTER_AUTHORIZATION_FAILED));
-            DrainBrokersResult result = env.adminClient().drainBrokers(
+            env.kafkaClient().prepareResponse(prepareRemoveBrokersResponse(1, Errors.CLUSTER_AUTHORIZATION_FAILED));
+            RemoveBrokersResult result = env.adminClient().removeBrokers(
                     Collections.singletonList(1),
-                    new DrainBrokersOptions().timeoutMs(10000));
+                    new RemoveBrokersOptions().timeoutMs(10000));
             TestUtils.assertFutureError(result.values().get(1), ClusterAuthorizationException.class);
         }
     }
 
     @Test
-    public void testDrainBrokersHandleInvalidRequestException() throws Exception {
+    public void testRemoveBrokersHandlesInvalidRequestException() throws Exception {
         try (AdminClientUnitTestEnv env = mockClientEnv()) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
             env.kafkaClient().prepareResponse(
-                    prepareStartRebalanceResponse(1, Errors.INVALID_REQUEST));
-            TestUtils.assertFutureError(env.adminClient().drainBrokers(Collections.singletonList(1),
-                    new DrainBrokersOptions().timeoutMs(10000)).values().get(1),
+                    prepareRemoveBrokersResponse(1, Errors.INVALID_REQUEST));
+            TestUtils.assertFutureError(env.adminClient().removeBrokers(Collections.singletonList(1),
+                    new RemoveBrokersOptions().timeoutMs(10000)).values().get(1),
                     InvalidRequestException.class);
         }
     }
 
     @Test
-    public void testDrainBrokersHandleTimeoutException() throws Exception {
+    public void testRemoveBrokersHandlesTimeoutException() throws Exception {
         final Cluster cluster = mockCluster(3, 0);
         final Time time = new MockTime(1500);
         try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(time, cluster)) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
             env.kafkaClient().prepareResponseFrom(
-                    prepareStartRebalanceResponse(1, Errors.NOT_CONTROLLER),
+                    prepareRemoveBrokersResponse(1, Errors.NOT_CONTROLLER),
                     env.cluster().nodeById(0));
             env.kafkaClient().prepareResponse(MetadataResponse.prepareResponse(env.cluster().nodes(),
                     env.cluster().clusterResource().clusterId(),
                     0,
                     Collections.emptyList()));
-            DrainBrokersResult result = env.adminClient().drainBrokers(
+            RemoveBrokersResult result = env.adminClient().removeBrokers(
                     Collections.singletonList(1),
-                    new DrainBrokersOptions().timeoutMs(2000));
+                    new RemoveBrokersOptions().timeoutMs(2000));
             TestUtils.assertFutureError(result.all(), TimeoutException.class);
         }
     }
 
     @Test
-    public void testDrainBrokersHandleBrokerLevelException() throws Exception {
+    public void testRemoveBrokersHandlesBrokerLevelException() throws Exception {
         try (AdminClientUnitTestEnv env = mockClientEnv()) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
-            StartRebalanceResponseData data = new StartRebalanceResponseData();
-            DrainBrokerResponse response1 =
-                    new DrainBrokerResponse().setBrokerId(2).setErrorCode(Errors.REASSIGNMENT_IN_PROGRESS.code());
-            DrainBrokerResponse response2 =
-                    new DrainBrokerResponse().setBrokerId(5).setErrorCode(Errors.INVALID_REQUEST.code());
-            data.setBrokersToDrain(Arrays.asList(response1, response2)).setErrorCode(Errors.NONE.code());
+            RemoveBrokersResponseData data = new RemoveBrokersResponseData();
+            RemoveBrokerResponse response1 =
+                    new RemoveBrokerResponse().setBrokerId(2).setErrorCode(Errors.BROKER_REMOVAL_IN_PROGRESS.code());
+            RemoveBrokerResponse response2 =
+                    new RemoveBrokerResponse().setBrokerId(5).setErrorCode(Errors.INVALID_REQUEST.code());
+            RemoveBrokerResponse response3 =
+                    new RemoveBrokerResponse().setBrokerId(3).setErrorCode(Errors.BROKER_REMOVED.code());
+            data.setBrokersToRemove(Arrays.asList(response1, response2, response3)).setErrorCode(Errors.NONE.code());
 
-            env.kafkaClient().prepareResponseFrom(new StartRebalanceResponse(data), env.cluster().nodeById(0));
-            DrainBrokersResult result = env.adminClient().drainBrokers(
-                    Arrays.asList(2, 5), new DrainBrokersOptions().timeoutMs(1000));
-            TestUtils.assertFutureError(result.values().get(2), ReassignmentInProgressException.class);
+            env.kafkaClient().prepareResponseFrom(new RemoveBrokersResponse(data), env.cluster().nodeById(0));
+            RemoveBrokersResult result = env.adminClient().removeBrokers(
+                    Arrays.asList(2, 3, 5), new RemoveBrokersOptions().timeoutMs(1000));
+            TestUtils.assertFutureError(result.values().get(2), BrokerRemovalInProgressException.class);
+            TestUtils.assertFutureError(result.values().get(3), BrokerRemovedException.class);
             TestUtils.assertFutureError(result.values().get(5), InvalidRequestException.class);
         }
     }
 
     @Test
-    public void testDrainBrokerHandleInvalidBrokerIds() throws Exception {
+    public void testRemoveBrokersHandlesInvalidBrokerIds() throws Exception {
         try (AdminClientUnitTestEnv env = mockClientEnv()) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
-            StartRebalanceResponseData data = new StartRebalanceResponseData();
-            DrainBrokerResponse response0 =
-                    new DrainBrokerResponse().setBrokerId(0).setErrorCode(Errors.NONE.code());
-            DrainBrokerResponse response1 =
-                    new DrainBrokerResponse().setBrokerId(1).setErrorCode(Errors.NONE.code());
-            DrainBrokerResponse response2 =
-                    new DrainBrokerResponse().setBrokerId(2).setErrorCode(Errors.NONE.code());
-            data.setBrokersToDrain(Arrays.asList(response0, response1, response2)).setErrorCode(Errors.NONE.code());
-            env.kafkaClient().prepareResponseFrom(new StartRebalanceResponse(data), env.cluster().nodeById(0));
+            RemoveBrokersResponseData data = new RemoveBrokersResponseData();
+            RemoveBrokerResponse response0 =
+                    new RemoveBrokerResponse().setBrokerId(0).setErrorCode(Errors.NONE.code());
+            RemoveBrokerResponse response1 =
+                    new RemoveBrokerResponse().setBrokerId(1).setErrorCode(Errors.NONE.code());
+            RemoveBrokerResponse response2 =
+                    new RemoveBrokerResponse().setBrokerId(2).setErrorCode(Errors.NONE.code());
+            data.setBrokersToRemove(Arrays.asList(response0, response1, response2)).setErrorCode(Errors.NONE.code());
+            env.kafkaClient().prepareResponseFrom(new RemoveBrokersResponse(data), env.cluster().nodeById(0));
 
             // valid list of broker ids works
-            KafkaFuture<List<Integer>> future = env.adminClient().drainBrokers(
-                    Arrays.asList(0, 1, 2), new DrainBrokersOptions().timeoutMs(1000)).all();
+            KafkaFuture<List<Integer>> future = env.adminClient().removeBrokers(
+                    Arrays.asList(0, 1, 2), new RemoveBrokersOptions().timeoutMs(1000)).all();
             assertEquals(3, future.get().size());
 
             // duplicate or invalid / negative broker ids throws exception
-            DrainBrokersResult result = env.adminClient().drainBrokers(
-                    Arrays.asList(-2, 1, 1, null), new DrainBrokersOptions().timeoutMs(1000));
+            RemoveBrokersResult result = env.adminClient().removeBrokers(
+                    Arrays.asList(-2, 1, 1, null), new RemoveBrokersOptions().timeoutMs(1000));
             TestUtils.assertFutureError(result.values().get(-2), InvalidRequestException.class);
             TestUtils.assertFutureError(result.values().get(1), InvalidRequestException.class);
             assertEquals(2, result.values().size());

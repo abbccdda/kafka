@@ -42,6 +42,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+
 import org.apache.kafka.clients.admin.Config;
 import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
@@ -53,8 +54,8 @@ import org.apache.kafka.clients.admin.DeleteAclsOptions;
 import org.apache.kafka.clients.admin.DeleteAclsResult;
 import org.apache.kafka.clients.admin.DeleteClusterLinksOptions;
 import org.apache.kafka.clients.admin.DeleteClusterLinksResult;
-import org.apache.kafka.clients.admin.DrainBrokersOptions;
-import org.apache.kafka.clients.admin.DrainBrokersResult;
+import org.apache.kafka.clients.admin.RemoveBrokersOptions;
+import org.apache.kafka.clients.admin.RemoveBrokersResult;
 import org.apache.kafka.clients.admin.ListClusterLinksOptions;
 import org.apache.kafka.clients.admin.ListClusterLinksResult;
 import org.apache.kafka.clients.admin.MockAdminClient;
@@ -378,7 +379,7 @@ public class ConfluentProviderTest {
 
     rbacProvider
         .start(KafkaTestUtils.serverInfo("clusterA", metadataServer, SecurityProtocol.PLAINTEXT),
-            configs)
+                configs)
         .toCompletableFuture().get();
 
     DynamicConfigurator configurator = metadataServer.getInjectedInstance(DynamicConfigurator.class);
@@ -659,7 +660,7 @@ public class ConfluentProviderTest {
     }
 
     @Override
-    public DrainBrokersResult drainBrokers(List<Integer> brokersToDrain, DrainBrokersOptions options) {
+    public RemoveBrokersResult removeBrokers(List<Integer> brokersToRemove, RemoveBrokersOptions options) {
       throw new UnsupportedOperationException();
     }
 
@@ -682,5 +683,4 @@ public class ConfluentProviderTest {
         throw new UnsupportedOperationException();
     }
   }
-
 }

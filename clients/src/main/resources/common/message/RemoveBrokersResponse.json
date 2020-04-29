@@ -2,7 +2,7 @@
 {
   "apiKey": 10001,
   "type": "response",
-  "name": "StartRebalanceResponse",
+  "name": "RemoveBrokersResponse",
   "validVersions": "0",
   "fields": [
     { "name": "ThrottleTimeMs", "type": "int32", "versions": "0+",
@@ -12,13 +12,13 @@
     { "name": "ErrorMessage", "type": "string", "versions": "0+",
       "nullableVersions": "0+",
       "about": "The error message, or null if there was no error." },
-    { "name": "BrokersToDrain", "type": "[]DrainBrokerResponse", "versions": "0+",
-      "about": "Response for broker drain requests.",
+    { "name": "BrokersToRemove", "type": "[]RemoveBrokerResponse", "versions": "0+",
+      "about": "Response for the broker removal requests.",
       "fields": [
         { "name": "brokerId", "type": "int32", "versions": "0+",
-          "about": "The Broker ID for which the drain was requested" },
+          "about": "The Broker ID for which the removal was requested" },
         { "name": "ErrorCode", "type": "int16", "versions": "0+",
-          "about": "The error code for the drain request." },
+          "about": "The error code for the removal request." },
         { "name": "ErrorMessage",  "type": "string", "versions": "0+",
           "nullableVersions": "0+",
           "about": "The error message, or null if there was no error." }

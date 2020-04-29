@@ -103,8 +103,8 @@ import org.apache.kafka.common.message.SaslAuthenticateRequestData;
 import org.apache.kafka.common.message.SaslAuthenticateResponseData;
 import org.apache.kafka.common.message.SaslHandshakeRequestData;
 import org.apache.kafka.common.message.SaslHandshakeResponseData;
-import org.apache.kafka.common.message.StartRebalanceRequestData;
-import org.apache.kafka.common.message.StartRebalanceResponseData;
+import org.apache.kafka.common.message.RemoveBrokersRequestData;
+import org.apache.kafka.common.message.RemoveBrokersResponseData;
 import org.apache.kafka.common.message.StopReplicaRequestData;
 import org.apache.kafka.common.message.StopReplicaResponseData;
 import org.apache.kafka.common.message.SyncGroupRequestData;
@@ -236,7 +236,7 @@ public enum ApiKeys {
     /* ----- Begin Confluent APIs: API ids increment sequentially from 10000 ----- */
 
     REPLICA_STATUS(10000, "ReplicaStatus", ReplicaStatusRequestData.SCHEMAS, ReplicaStatusResponseData.SCHEMAS),
-    START_REBALANCE(10001, "StartRebalance", StartRebalanceRequestData.SCHEMAS, StartRebalanceResponseData.SCHEMAS),
+    REMOVE_BROKERS(10001, "RemoveBrokers", RemoveBrokersRequestData.SCHEMAS, RemoveBrokersResponseData.SCHEMAS),
     CREATE_CLUSTER_LINKS(10002, "CreateClusterLinks", CreateClusterLinksRequestData.SCHEMAS, CreateClusterLinksResponseData.SCHEMAS),
     LIST_CLUSTER_LINKS(10003, "ListClusterLinks", ListClusterLinksRequestData.SCHEMAS, ListClusterLinksResponseData.SCHEMAS),
     DELETE_CLUSTER_LINKS(10004, "DeleteClusterLinks", DeleteClusterLinksRequestData.SCHEMAS, DeleteClusterLinksResponseData.SCHEMAS),

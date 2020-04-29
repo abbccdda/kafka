@@ -118,7 +118,7 @@ public class MultiTenantApis {
       case ALTER_PARTITION_REASSIGNMENTS:
       case DESCRIBE_CLIENT_QUOTAS:
       case ALTER_CLIENT_QUOTAS:
-      case START_REBALANCE:
+      case REMOVE_BROKERS:
       case CREATE_CLUSTER_LINKS:
       case LIST_CLUSTER_LINKS:
       case DELETE_CLUSTER_LINKS:

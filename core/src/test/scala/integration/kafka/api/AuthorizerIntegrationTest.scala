@@ -42,7 +42,7 @@ import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData.{Alter
 import org.apache.kafka.common.message.JoinGroupRequestData.JoinGroupRequestProtocolCollection
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.message.LeaveGroupRequestData.MemberIdentity
-import org.apache.kafka.common.message.StartRebalanceRequestData.BrokerId
+import org.apache.kafka.common.message.RemoveBrokersRequestData.BrokerId
 import org.apache.kafka.common.message.StopReplicaRequestData.{StopReplicaPartitionState, StopReplicaTopicState}
 import org.apache.kafka.common.message.UpdateMetadataRequestData.{UpdateMetadataBroker, UpdateMetadataEndpoint, UpdateMetadataPartitionState}
 import org.apache.kafka.common.message.{AlterPartitionReassignmentsRequestData, ControlledShutdownRequestData, CreateAclsRequestData, CreatePartitionsRequestData, CreateTopicsRequestData, DeleteAclsRequestData, DeleteGroupsRequestData, DeleteRecordsRequestData, DeleteTopicsRequestData, DescribeGroupsRequestData, DescribeLogDirsRequestData, FindCoordinatorRequestData, HeartbeatRequestData, IncrementalAlterConfigsRequestData, JoinGroupRequestData, ListPartitionReassignmentsRequestData, OffsetCommitRequestData, SyncGroupRequestData}
@@ -217,7 +217,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
       )
     }),
     ApiKeys.REPLICA_STATUS -> ((resp: ReplicaStatusResponse) => Errors.forCode(resp.data().errorCode())),
-    ApiKeys.START_REBALANCE -> ((resp: StartRebalanceResponse) => Errors.forCode(resp.data.errorCode())),
+    ApiKeys.REMOVE_BROKERS -> ((resp: RemoveBrokersResponse) => Errors.forCode(resp.data.errorCode())),
     ApiKeys.CREATE_CLUSTER_LINKS -> ((resp: CreateClusterLinksResponse) => Errors.forCode(
       resp.data.entries.asScala.find(e => e.linkName == linkName).get.errorCode)),
     ApiKeys.CREATE_CLUSTER_LINKS -> ((resp: ListClusterLinksResponse) => Errors.forCode(resp.data.errorCode)),
@@ -266,7 +266,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     ApiKeys.LIST_PARTITION_REASSIGNMENTS -> clusterDescribeAcl,
     ApiKeys.OFFSET_DELETE -> groupReadAcl,
     ApiKeys.REPLICA_STATUS -> topicDescribeAcl,
-    ApiKeys.START_REBALANCE -> clusterAlterAcl,
+    ApiKeys.REMOVE_BROKERS -> clusterAlterAcl,
     ApiKeys.CREATE_CLUSTER_LINKS -> clusterAlterAcl,
     ApiKeys.LIST_CLUSTER_LINKS -> clusterDescribeAcl,
     ApiKeys.DELETE_CLUSTER_LINKS -> clusterAlterAcl
@@ -591,7 +591,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     )
   ).build()
 
-  private def startRebalanceRequest = new StartRebalanceRequest.Builder(
+  private def RemoveBrokerRequest = new RemoveBrokersRequest.Builder(
     Set(new BrokerId()).asJava).build()
 
   private def replicaStatusRequest = new ReplicaStatusRequest.Builder(Collections.singleton(tp)).build()
@@ -638,7 +638,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
       ApiKeys.INCREMENTAL_ALTER_CONFIGS -> incrementalAlterConfigsRequest,
       ApiKeys.ALTER_PARTITION_REASSIGNMENTS -> alterPartitionReassignmentsRequest,
       ApiKeys.LIST_PARTITION_REASSIGNMENTS -> listPartitionReassignmentsRequest,
-      ApiKeys.START_REBALANCE -> startRebalanceRequest,
+      ApiKeys.REMOVE_BROKERS -> RemoveBrokerRequest,
 
       // Inter-broker APIs use an invalid broker epoch, so does not affect the test case
       ApiKeys.UPDATE_METADATA -> createUpdateMetadataRequest,

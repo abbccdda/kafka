@@ -19,6 +19,8 @@ package org.apache.kafka.common.protocol;
 import org.apache.kafka.common.InvalidRecordException;
 import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.errors.BrokerNotAvailableException;
+import org.apache.kafka.common.errors.BrokerRemovalInProgressException;
+import org.apache.kafka.common.errors.BrokerRemovedException;
 import org.apache.kafka.common.errors.ClusterAuthorizationException;
 import org.apache.kafka.common.errors.ClusterLinkExistsException;
 import org.apache.kafka.common.errors.ClusterLinkInUseException;
@@ -342,7 +344,9 @@ public enum Errors {
     CLUSTER_LINK_IN_USE(10002, "The specified cluster link is still in use.",
             ClusterLinkInUseException::new),
     INVALID_CLUSTER_LINK(10003, "The provided cluster link name is invalid.",
-            InvalidClusterLinkException::new);
+            InvalidClusterLinkException::new),
+    BROKER_REMOVED(10004, "The broker is removed.", BrokerRemovedException::new),
+    BROKER_REMOVAL_IN_PROGRESS(10005, "The broker is being removed.", BrokerRemovalInProgressException::new);
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);
 

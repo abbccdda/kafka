@@ -65,10 +65,10 @@ public class RbacSbkIntegrationTest {
         rbacClusters = new RbacClusters(rbacConfig);
         initializeRoles();
 
-        verifyDrainBrokersAPIAccess(BROKER_USER, true);
-        verifyDrainBrokersAPIAccess(SYSTEM_ADMIN_USER, true);
-        verifyDrainBrokersAPIAccess(CLUSTER_ADMIN_USER, true);
-        verifyDrainBrokersAPIAccess(RESOURCE_OWNER_USER, false);
+        verifyRemoveBrokersAPIAccess(BROKER_USER, true);
+        verifyRemoveBrokersAPIAccess(SYSTEM_ADMIN_USER, true);
+        verifyRemoveBrokersAPIAccess(CLUSTER_ADMIN_USER, true);
+        verifyRemoveBrokersAPIAccess(RESOURCE_OWNER_USER, false);
     }
 
     private void initializeRoles() throws Exception {
@@ -87,12 +87,12 @@ public class RbacSbkIntegrationTest {
     }
 
 
-    // TODO Currently drainBrokers API returns UnsupportedVersionException. Need to update the below code
+    // TODO Currently the removeBrokers API returns UnsupportedVersionException. Need to update the below code
     //  after completing server side implementation
-    private void verifyDrainBrokersAPIAccess(String user, boolean authorized) throws Throwable {
+    private void verifyRemoveBrokersAPIAccess(String user, boolean authorized) throws Throwable {
         KafkaTestUtils.ClientBuilder clientBuilder = rbacClusters.clientBuilder(user);
         try (KafkaAdminClient adminClient = (KafkaAdminClient) clientBuilder.buildAdminClient()) {
-            KafkaFuture<List<Integer>> future = adminClient.drainBrokers(Collections.singletonList(0)).all();
+            KafkaFuture<List<Integer>> future = adminClient.removeBrokers(Collections.singletonList(0)).all();
             if (!authorized)
                 TestUtils.assertFutureError(future, ClusterAuthorizationException.class);
             else

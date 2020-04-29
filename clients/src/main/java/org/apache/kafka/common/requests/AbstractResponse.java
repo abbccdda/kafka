@@ -180,8 +180,8 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
                 return new DescribeClientQuotasResponse(struct, version);
             case ALTER_CLIENT_QUOTAS:
                 return new AlterClientQuotasResponse(struct, version);
-            case START_REBALANCE:
-                return new StartRebalanceResponse(struct, version);
+            case REMOVE_BROKERS:
+                return new RemoveBrokersResponse(struct, version);
             default:
                 return maybeParseInternalResponse(apiKey, struct, version);
         }

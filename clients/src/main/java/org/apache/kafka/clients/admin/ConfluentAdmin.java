@@ -88,47 +88,52 @@ public interface ConfluentAdmin extends Admin {
     DeleteAclsResult deleteCentralizedAcls(Collection<AclBindingFilter> filters, DeleteAclsOptions options, String clusterId, int writerBrokerId);
 
     /**
-     * Drain data off a given set of brokers. Once initiated, the brokers will not have any partitions placed
-     * on them.
+     * Drain data off a given set of brokers and remove them from the cluster via shutdown.
+     * This API initiates the removal. It is suggested that the user tracks it via {@link #describeBrokerRemovals()}
+     *
+     * Once initiated, the brokers will be shut down and replicas will be reassigned away from them.
      * <p>
-     * This is a convenience method for {@link #drainBrokers(List, DrainBrokersOptions)}
+     * This is a convenience method for {@link #removeBrokers(List, RemoveBrokersOptions)}
      * with default options. See the overload for more details.
      * </p>
      *
-     * @param brokersToDrain    The broker IDs to drain off partition replicas. Must not be empty.
-     * @return                  The result of the drain operation.
+     * @param brokersToRemove   The broker IDs to drain off partition replicas and shut down. Must not be empty.
+     * @return                  The result of the broker removal operation.
      */
     @Confluent
-    default DrainBrokersResult drainBrokers(List<Integer> brokersToDrain) {
-        return drainBrokers(brokersToDrain, new DrainBrokersOptions());
+    default RemoveBrokersResult removeBrokers(List<Integer> brokersToRemove) {
+        return removeBrokers(brokersToRemove, new RemoveBrokersOptions());
     }
 
     /**
-     * Drain data off a given set of brokers. Once initiated, the brokers will not have any partitions placed on
-     * them and all the partition replicas on the broker will be reassigned to other active brokers in the
-     * cluster.
-     * A broker ID that is drained will not have data placed on it until it is gracefully restarted.
+     * Drain data off a given set of brokers and remove them from the cluster via shutdown.
+     * This API initiates the removal. It is suggested that the user tracks it via {@link #describeBrokerRemovals()}
+     *
+     * Once initiated, the brokers will be shut down and replicas will be reassigned away from them.
+     *
      * <p>The following exceptions can be anticipated when calling {@code get()} on the futures obtained from
-     * the returned {@code DrainBrokersResult}:</p>
+     * the returned {@link RemoveBrokersResult}:</p>
      * <li> {@link org.apache.kafka.common.errors.ClusterAuthorizationException}
-     * If we didn't have sufficient permission to initiate the drain. None of the requests started. </li>
+     * If we didn't have sufficient permission to initiate the broker removal. None of the requests started. </li>
      * <li> {@link org.apache.kafka.common.errors.TimeoutException}
-     * If the request timed out before the controller could initiate the drain. It cannot be guaranteed whether the
-     * drain initiated or not. </li>
+     * If the request timed out before the controller could initiate the broker removal.
+     * It cannot be guaranteed whether the removal was initiated or not. </li>
      * <li>{@link org.apache.kafka.common.errors.InvalidRequestException}
-     * If drain request cannot be satisfied given the current cluster configuration. For example, a negative broker
-     * id. </li>
+     * If the broker removal request cannot be satisfied given the current cluster configuration.
+     * For example, a negative broker id. </li>
      * <li> {@link org.apache.kafka.common.errors.BrokerNotAvailableException}
      * If broker ID doesn't exist, or is otherwise not available. </li>
-     * <li> {@link org.apache.kafka.common.errors.ReassignmentInProgressException}
-     * If a drain request is already in progress on the broker. </li>
+     * <li> {@link org.apache.kafka.common.errors.BrokerRemovalInProgressException}
+     * If the broker is already being removed. </li>
+     * <li> {@link org.apache.kafka.common.errors.BrokerRemovedException}
+     * If the broker was already removed successfully. </li>
      *
-     * @param brokersToDrain   The broker IDs to drain off partition replicas. Must not be empty.
+     * @param brokersToRemove  The broker IDs to drain off partition replicas and shut down. Must not be empty.
      * @param options          The options to use for the request.
-     * @return                 The result of the drain operation.
+     * @return                 The result of the broker removal operation.
      */
     @Confluent
-    DrainBrokersResult drainBrokers(List<Integer> brokersToDrain, DrainBrokersOptions options);
+    RemoveBrokersResult removeBrokers(List<Integer> brokersToRemove, RemoveBrokersOptions options);
 
     /**
      * Creates links to remote clusters with the specified configurations for performing inter-cluster

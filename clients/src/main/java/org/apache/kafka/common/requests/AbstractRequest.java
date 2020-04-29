@@ -243,8 +243,8 @@ public abstract class AbstractRequest implements AbstractRequestResponse {
                 return new DescribeClientQuotasRequest(struct, apiVersion);
             case ALTER_CLIENT_QUOTAS:
                 return new AlterClientQuotasRequest(struct, apiVersion);
-            case START_REBALANCE:
-                return new StartRebalanceRequest(struct, apiVersion);
+            case REMOVE_BROKERS:
+                return new RemoveBrokersRequest(struct, apiVersion);
             default:
                 return maybeParseInternalRequest(apiKey, apiVersion, struct);
         }

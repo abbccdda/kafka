@@ -1200,6 +1200,16 @@ public final class MessageTest {
         testAllMessageRoundTrips(data);
     }
 
+    @Test
+    public void testRemoveBrokers() throws Exception {
+        RemoveBrokersRequestData.BrokerId brokerId = new RemoveBrokersRequestData.BrokerId().setBrokerId(1);
+        RemoveBrokersRequestData data = new RemoveBrokersRequestData()
+                .setBrokersToRemove(Collections.singletonList(brokerId))
+                .setTimeoutMs(100);
+
+        testAllMessageRoundTrips(data);
+    }
+
     private void verifyWriteRaisesNpe(short version, Message message) throws Exception {
         ObjectSerializationCache cache = new ObjectSerializationCache();
         assertThrows(NullPointerException.class, () -> {

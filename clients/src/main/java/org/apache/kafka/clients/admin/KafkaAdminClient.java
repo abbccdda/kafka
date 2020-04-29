@@ -124,12 +124,12 @@ import org.apache.kafka.common.message.OffsetDeleteRequestData;
 import org.apache.kafka.common.message.OffsetDeleteRequestData.OffsetDeleteRequestPartition;
 import org.apache.kafka.common.message.OffsetDeleteRequestData.OffsetDeleteRequestTopic;
 import org.apache.kafka.common.message.OffsetDeleteRequestData.OffsetDeleteRequestTopicCollection;
+import org.apache.kafka.common.message.RemoveBrokersRequestData.BrokerId;
 import org.apache.kafka.common.message.RenewDelegationTokenRequestData;
 import org.apache.kafka.common.message.ReplicaStatusResponseData.ReplicaStatusPartitionResponse;
 import org.apache.kafka.common.message.ReplicaStatusResponseData.ReplicaStatusReplicaResponse;
 import org.apache.kafka.common.message.ReplicaStatusResponseData.ReplicaStatusTopicResponse;
-import org.apache.kafka.common.message.StartRebalanceRequestData.BrokerId;
-import org.apache.kafka.common.message.StartRebalanceResponseData.DrainBrokerResponse;
+import org.apache.kafka.common.message.RemoveBrokersResponseData.RemoveBrokerResponse;
 import org.apache.kafka.common.metrics.JmxReporter;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
@@ -220,8 +220,8 @@ import org.apache.kafka.common.requests.RenewDelegationTokenRequest;
 import org.apache.kafka.common.requests.RenewDelegationTokenResponse;
 import org.apache.kafka.common.requests.ReplicaStatusRequest;
 import org.apache.kafka.common.requests.ReplicaStatusResponse;
-import org.apache.kafka.common.requests.StartRebalanceRequest;
-import org.apache.kafka.common.requests.StartRebalanceResponse;
+import org.apache.kafka.common.requests.RemoveBrokersRequest;
+import org.apache.kafka.common.requests.RemoveBrokersResponse;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.token.delegation.DelegationToken;
 import org.apache.kafka.common.security.token.delegation.TokenInformation;
@@ -4131,52 +4131,52 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
 
     @Confluent
     @Override
-    public DrainBrokersResult drainBrokers(List<Integer> brokersToDrain, DrainBrokersOptions options) {
-        final Map<Integer, KafkaFutureImpl<Void>> drainBrokerFutures = new HashMap<>(brokersToDrain.size());
-        final Map<Integer, KafkaFutureImpl<Void>> invalidDrainBrokerFutures = new HashMap<>();
-        for (Integer brokerToDrain: brokersToDrain) {
-            if (brokerToDrain == null) {
+    public RemoveBrokersResult removeBrokers(List<Integer> brokersToRemove, RemoveBrokersOptions options) {
+        final Map<Integer, KafkaFutureImpl<Void>> removeBrokerFutures = new HashMap<>(brokersToRemove.size());
+        final Map<Integer, KafkaFutureImpl<Void>> invalidRemoveBrokerFutures = new HashMap<>();
+        for (Integer brokerToRemove: brokersToRemove) {
+            if (brokerToRemove == null) {
                 continue;
             }
-            if (brokerIdIsUnrepresentable(brokerToDrain)) {
+            if (brokerIdIsUnrepresentable(brokerToRemove)) {
                 KafkaFutureImpl<Void> future = new KafkaFutureImpl<>();
                 future.completeExceptionally(new InvalidRequestException("The given broker id '" +
-                        brokerToDrain + "' is invalid and cannot be represented in a request"));
-                invalidDrainBrokerFutures.put(brokerToDrain, future);
-            } else if (drainBrokerFutures.containsKey(brokerToDrain)) {
+                        brokerToRemove + "' is invalid and cannot be represented in a request"));
+                invalidRemoveBrokerFutures.put(brokerToRemove, future);
+            } else if (removeBrokerFutures.containsKey(brokerToRemove)) {
                 KafkaFutureImpl<Void> future = new KafkaFutureImpl<>();
                 future.completeExceptionally(new InvalidRequestException("The given broker id '" +
-                        brokerToDrain + "' is duplicate and cannot be represented in a request"));
-                invalidDrainBrokerFutures.put(brokerToDrain, future);
+                        brokerToRemove + "' is duplicate and cannot be represented in a request"));
+                invalidRemoveBrokerFutures.put(brokerToRemove, future);
             } else {
-                drainBrokerFutures.put(brokerToDrain, new KafkaFutureImpl<>());
+                removeBrokerFutures.put(brokerToRemove, new KafkaFutureImpl<>());
             }
         }
 
-        if (!invalidDrainBrokerFutures.isEmpty()) {
-            for (Map.Entry<Integer, KafkaFutureImpl<Void>> drainBrokerFuture : drainBrokerFutures.entrySet()) {
-                KafkaFutureImpl<Void> future = drainBrokerFuture.getValue();
+        if (!invalidRemoveBrokerFutures.isEmpty()) {
+            for (Map.Entry<Integer, KafkaFutureImpl<Void>> removeBrokerFuture : removeBrokerFutures.entrySet()) {
+                KafkaFutureImpl<Void> future = removeBrokerFuture.getValue();
                 future.completeExceptionally(new InvalidRequestException("The request contains " +
                         "some invalid or duplicate broker ids"));
-                invalidDrainBrokerFutures.putIfAbsent(drainBrokerFuture.getKey(), future);
+                invalidRemoveBrokerFutures.putIfAbsent(removeBrokerFuture.getKey(), future);
             }
-            return new DrainBrokersResult(new HashMap<>(invalidDrainBrokerFutures));
+            return new RemoveBrokersResult(new HashMap<>(invalidRemoveBrokerFutures));
         }
 
         final long now = time.milliseconds();
-        Call call = new Call("drainBrokers", calcDeadlineMs(now, options.timeoutMs),
+        Call call = new Call("removeBrokers", calcDeadlineMs(now, options.timeoutMs),
                 new ControllerNodeProvider()) {
 
             @Override
-            StartRebalanceRequest.Builder createRequest(int timeoutMs) {
-                Set<BrokerId> brokerIds = brokersToDrain.stream().map(brokerId -> new BrokerId().setBrokerId(brokerId)).
+            RemoveBrokersRequest.Builder createRequest(int timeoutMs) {
+                Set<BrokerId> brokerIds = brokersToRemove.stream().map(brokerId -> new BrokerId().setBrokerId(brokerId)).
                         collect(Collectors.toSet());
-                return new StartRebalanceRequest.Builder(brokerIds);
+                return new RemoveBrokersRequest.Builder(brokerIds);
             }
 
             @Override
             void handleResponse(AbstractResponse abstractResponse) {
-                StartRebalanceResponse response = (StartRebalanceResponse) abstractResponse;
+                RemoveBrokersResponse response = (RemoveBrokersResponse) abstractResponse;
                 // Check for top level error.
                 Errors topLevelError = Errors.forCode(response.data().errorCode());
                 switch (topLevelError) {
@@ -4186,17 +4186,17 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
                         handleNotControllerError(topLevelError);
                         break;
                     default:
-                        completeAllExceptionally(drainBrokerFutures.values(), topLevelError.exception());
+                        completeAllExceptionally(removeBrokerFutures.values(), topLevelError.exception());
                         return;
                 }
 
                 // Handle server responses for brokers.
-                for (DrainBrokerResponse drainBrokerResponse : response.data().brokersToDrain()) {
-                    KafkaFutureImpl<Void> future = drainBrokerFutures.get(drainBrokerResponse.brokerId());
+                for (RemoveBrokerResponse removeBrokerResponse : response.data().brokersToRemove()) {
+                    KafkaFutureImpl<Void> future = removeBrokerFutures.get(removeBrokerResponse.brokerId());
                     if (future == null) {
-                        log.warn("Server response mentioned unknown broker id {}", drainBrokerResponse.brokerId());
+                        log.warn("Server response mentioned unknown broker id {}", removeBrokerResponse.brokerId());
                     } else {
-                        Errors error = Errors.forCode(drainBrokerResponse.errorCode());
+                        Errors error = Errors.forCode(removeBrokerResponse.errorCode());
                         if (error == Errors.NONE) {
                             future.complete(null);
                         } else {
@@ -4206,7 +4206,7 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
                 }
 
                 // The server should send back a response for every brokerId. But do a sanity check anyway.
-                for (Map.Entry<Integer, KafkaFutureImpl<Void>> entry : drainBrokerFutures.entrySet()) {
+                for (Map.Entry<Integer, KafkaFutureImpl<Void>> entry : removeBrokerFutures.entrySet()) {
                     KafkaFutureImpl<Void> future = entry.getValue();
                     if (!future.isDone()) {
                         future.completeExceptionally(new ApiException("The server response did not contain a " +
@@ -4217,13 +4217,13 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
 
             @Override
             void handleFailure(Throwable throwable) {
-                completeAllExceptionally(drainBrokerFutures.values(), throwable);
+                completeAllExceptionally(removeBrokerFutures.values(), throwable);
             }
         };
 
         runnable.call(call, now);
 
-        return new DrainBrokersResult(new HashMap<>(drainBrokerFutures));
+        return new RemoveBrokersResult(new HashMap<>(removeBrokerFutures));
     }
 
     @Confluent

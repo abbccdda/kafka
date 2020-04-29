@@ -790,7 +790,7 @@ public class MockAdminClient extends AdminClient implements ConfluentAdmin {
 
     @Confluent
     @Override
-    public DrainBrokersResult drainBrokers(List<Integer> brokersToDrain, DrainBrokersOptions options) {
+    public RemoveBrokersResult removeBrokers(List<Integer> brokersToRemove, RemoveBrokersOptions options) {
         throw new UnsupportedOperationException("Not implement yet");
     }
 

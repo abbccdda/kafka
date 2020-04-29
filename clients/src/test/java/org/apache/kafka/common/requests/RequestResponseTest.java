@@ -123,8 +123,8 @@ import org.apache.kafka.common.message.SaslAuthenticateRequestData;
 import org.apache.kafka.common.message.SaslAuthenticateResponseData;
 import org.apache.kafka.common.message.SaslHandshakeRequestData;
 import org.apache.kafka.common.message.SaslHandshakeResponseData;
-import org.apache.kafka.common.message.StartRebalanceRequestData.BrokerId;
-import org.apache.kafka.common.message.StartRebalanceResponseData;
+import org.apache.kafka.common.message.RemoveBrokersRequestData.BrokerId;
+import org.apache.kafka.common.message.RemoveBrokersResponseData;
 import org.apache.kafka.common.message.StopReplicaRequestData.StopReplicaPartitionState;
 import org.apache.kafka.common.message.StopReplicaRequestData.StopReplicaTopicState;
 import org.apache.kafka.common.message.StopReplicaResponseData;
@@ -471,9 +471,9 @@ public class RequestResponseTest {
         checkRequest(createOffsetDeleteRequest(), true);
         checkErrorResponse(createOffsetDeleteRequest(), new UnknownServerException(), true);
         checkResponse(createOffsetDeleteResponse(), 0, true);
-        checkRequest(createStartRebalanceRequest(), true);
-        checkErrorResponse(createStartRebalanceRequest(), new UnknownServerException(), true);
-        checkResponse(createStartRebalanceResponse(), 0, true);
+        checkRequest(createRemoveBrokerRequest(), true);
+        checkErrorResponse(createRemoveBrokerRequest(), new UnknownServerException(), true);
+        checkResponse(createRemoveBrokersResponse(), 0, true);
     }
 
     @Test
@@ -2297,18 +2297,18 @@ public class RequestResponseTest {
         return new OffsetDeleteResponse(data);
     }
 
-    private StartRebalanceRequest createStartRebalanceRequest() {
+    private RemoveBrokersRequest createRemoveBrokerRequest() {
         Set<BrokerId> brokerIds = new HashSet<>();
         brokerIds.add(new BrokerId().setBrokerId(5));
-        return new StartRebalanceRequest.Builder(brokerIds).build();
+        return new RemoveBrokersRequest.Builder(brokerIds).build();
     }
 
-    private StartRebalanceResponse createStartRebalanceResponse() {
-        StartRebalanceResponseData data = new StartRebalanceResponseData();
-        data.setBrokersToDrain(Collections.singletonList(
-                new StartRebalanceResponseData.DrainBrokerResponse()
+    private RemoveBrokersResponse createRemoveBrokersResponse() {
+        RemoveBrokersResponseData data = new RemoveBrokersResponseData();
+        data.setBrokersToRemove(Collections.singletonList(
+                new RemoveBrokersResponseData.RemoveBrokerResponse()
                     .setBrokerId(1)
         ));
-        return new StartRebalanceResponse(data);
+        return new RemoveBrokersResponse(data);
     }
 }
