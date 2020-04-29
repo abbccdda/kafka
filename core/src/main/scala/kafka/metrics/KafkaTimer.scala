@@ -24,7 +24,7 @@ import com.yammer.metrics.core.Timer
  * package.
  * @param metric The underlying timer object.
  */
-class KafkaTimer(metric: Timer) {
+final class KafkaTimer(metric: Timer) {
 
   def time[A](f: => A): A = {
     val ctx = metric.time

@@ -155,7 +155,7 @@ class LogSegment private[log] (val log: FileRecords,
       ensureOffsetInRange(largestOffset)
 
       // append the messages
-      val appendedBytes = log.append(records)
+      val appendedBytes = SegmentStats.segmentAppendTimeMs.time(log.append(records))
       trace(s"Appended $appendedBytes to ${log.file} at end offset $largestOffset")
       // Update the in memory max timestamp and corresponding offset.
       if (largestTimestamp > maxTimestampSoFar) {
@@ -164,8 +164,8 @@ class LogSegment private[log] (val log: FileRecords,
       }
       // append an entry to the index (if needed)
       if (bytesSinceLastIndexEntry > indexIntervalBytes) {
-        offsetIndex.append(largestOffset, physicalPosition)
-        timeIndex.maybeAppend(maxTimestampSoFar, offsetOfMaxTimestampSoFar)
+        SegmentStats.offsetIndexAppendTimeMs.time(offsetIndex.append(largestOffset, physicalPosition))
+        SegmentStats.timestampIndexAppendTimeMs.time(timeIndex.maybeAppend(maxTimestampSoFar, offsetOfMaxTimestampSoFar))
         bytesSinceLastIndexEntry = 0
       }
       bytesSinceLastIndexEntry += records.sizeInBytes
@@ -676,4 +676,10 @@ object LogSegment {
 
 object LogFlushStats extends KafkaMetricsGroup {
   val logFlushTimer = new KafkaTimer(newTimer("LogFlushRateAndTimeMs", TimeUnit.MILLISECONDS, TimeUnit.SECONDS))
+}
+
+object SegmentStats extends KafkaMetricsGroup {
+  val segmentAppendTimeMs = new KafkaTimer(newTimer("SegmentAppendTimeMs", TimeUnit.MILLISECONDS, TimeUnit.SECONDS))
+  val offsetIndexAppendTimeMs = new KafkaTimer(newTimer("OffsetIndexAppendTimeMs", TimeUnit.MILLISECONDS, TimeUnit.SECONDS))
+  val timestampIndexAppendTimeMs = new KafkaTimer(newTimer("TimestampIndexAppendTimeMs", TimeUnit.MILLISECONDS, TimeUnit.SECONDS))
 }
