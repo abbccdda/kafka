@@ -36,6 +36,7 @@ import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 import java.lang.reflect.InvocationTargetException;
@@ -94,6 +95,7 @@ public class ConfluentDataBalanceEngineTest  {
 
         initConfig = new KafkaConfig(brokerProps);
         MockitoAnnotations.initMocks(this);
+        Mockito.doNothing().when(mockCruiseControl).userTriggeredStopExecution();
     }
 
     private ConfluentDataBalanceEngine getTestDataBalanceEngine() {
@@ -541,14 +543,16 @@ public class ConfluentDataBalanceEngineTest  {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.stopCruiseControl();
         verify(mockCruiseControl).shutdown();  // Shutdown should have been called
+        verify(mockCruiseControl).userTriggeredStopExecution();
         verify(mockMetricsRegistry).clearShortLivedMetrics();
     }
 
     @Test
-    public void testShutdown() {
+    public void testDeactivation() {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.onDeactivation();
         verify(mockCruiseControl).shutdown();  // Shutdown should have been called
+        verify(mockCruiseControl).userTriggeredStopExecution();
         verify(mockMetricsRegistry).clearShortLivedMetrics();
     }
 

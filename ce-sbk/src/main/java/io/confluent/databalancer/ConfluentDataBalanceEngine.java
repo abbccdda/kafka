@@ -175,6 +175,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         if (cruiseControl != null) {
             LOG.info("DataBalancer: Starting DataBalanceEngine Shutdown");
             try {
+                cruiseControl.userTriggeredStopExecution();
                 cruiseControl.shutdown();
             } finally {
                 cruiseControl = null;
