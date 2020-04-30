@@ -16,6 +16,7 @@
   */
 package integration.kafka.link
 
+import java.time.Duration
 import java.util.concurrent.TimeUnit
 import java.util.{Collections, Properties}
 
@@ -123,15 +124,13 @@ class ClusterLinkIntegrationTest extends Logging {
 
     // Trigger unclean leader election in the source cluster and ensure truncation is performed
     // on the leader as well as follower in the destination cluster
-    /* TODO: Enable after additional testing to ensure this is not flaky
     val (leader2, _) = sourceCluster.shutdownLeader(tp)
-    sourceCluster.servers(leader1).startup()
-    sourceCluster.updateBootstrapServers()
+    sourceCluster.startBroker(leader1)
     truncate(producedRecords, 2)
     produceToSourceCluster(4)
-    assertEquals(producedRecords.size, logEndOffset(sourceCluster.servers(leader1), tp).get)
+    val (endOffset, _) = TestUtils.computeUntilTrue(logEndOffset(sourceCluster.servers(leader1), tp).get)(_ >= producedRecords.size)
+    assertEquals(producedRecords.size, endOffset)
     consume(sourceCluster, topic)
-    */
     verifyMirror(topic)
   }
 
@@ -159,13 +158,65 @@ class ClusterLinkIntegrationTest extends Logging {
     // Trigger unclean leader election in the destination cluster. No truncation is expected.
     // Produce records and ensure that all records are replicated in destination leader and follower
     val (leader2, _) = destCluster.shutdownLeader(tp)
-    destCluster.servers(leader1).startup()
-    destCluster.addClusterLink(destCluster.servers(leader1), linkName)
-    destCluster.updateBootstrapServers()
+    destCluster.startBroker(leader1, Some(linkName))
     produceToSourceCluster(2)
     waitForMirror(topic, servers = destCluster.servers.filter(_ != destCluster.servers(leader2)))
     destCluster.servers(leader2).startup()
     produceToSourceCluster(2)
+    verifyMirror(topic)
+  }
+
+  /**
+    * Scenario:
+    *   destBroker1 shutdown
+    *   Source cluster: (epoch=0, 0-99) (epoch=1, 100-199) (epoch=2, 200-299) (epoch=3, 300-399)
+    *   sourceBroker1 shutdown
+    *   sourceBroker2 produces: (epoch=4, 400-499) with only one replica
+    *   destBroker2 mirrors: (epoch=0, 0-99) (epoch=1, 100-199) (epoch=2, 200-299) (epoch=3, 300-399) (epoch=4, 400-499)
+    *   destBroker2 shutdown
+    *   sourceBroker2 shutdown
+    *   sourceBroker1 starts up becomes leader, (epoch=4, 400-499) needs truncation in followers
+    *   destBroker1 starts up and becomes leader with no records yet and hence no truncation
+    *   destBroker2 starts up, becomes follower, gets offsets from destBroker1 and performs truncation
+    *   Source cluster: (epoch=0, 0-99) (epoch=1, 100-199) (epoch=2, 200-299) (epoch=3, 300-399) (epoch=6 400-499)
+    *   Wait for mirror and verify records in destBroker1 and destBroker2
+    */
+  @Test
+  def testDestFollowerAheadOfLeader(): Unit = {
+    numPartitions = 1
+    val tp = partitions.head
+    sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
+    destCluster.createClusterLink(linkName, sourceCluster)
+    destCluster.linkTopic(topic, numPartitions, linkName)
+
+    val (destBroker1, _) = destCluster.shutdownLeader(tp)
+    val destBroker2 = TestUtils.waitUntilLeaderIsElectedOrChanged(destCluster.zkClient, topic, 0, oldLeaderOpt = Some(destBroker1))
+
+    // Produce records with multiple source epochs and wait for destBroker2 to mirror them. The last
+    // batch is produced with a single leader and will be truncated due to unclean leader election later.
+    produceToSourceCluster(100)
+    (0 until 3).foreach { i =>
+      sourceCluster.bounceLeader(tp)
+      produceToSourceCluster(100)
+    }
+    val (sourceBroker1, _) = sourceCluster.shutdownLeader(tp)
+    produceToSourceCluster(100)
+    waitForMirror(topic, Seq(destCluster.servers(destBroker2)))
+
+    // Shutdown destination destBroker2 and trigger unclean leader election in the source cluster
+    destCluster.shutdownLeader(tp)
+    val (sourceBroker2, _) = sourceCluster.shutdownLeader(tp)
+    truncate(producedRecords, 100)
+    sourceCluster.startBroker(sourceBroker1)
+
+    // Startup destBroker1 so that destBroker1 with no records becomes the new leader
+    destCluster.startBroker(destBroker1, Some(linkName))
+    val newLeader = TestUtils.waitUntilLeaderIsElectedOrChanged(destCluster.zkClient, topic, 0, oldLeaderOpt = Some(destBroker2))
+    assertEquals(destBroker1, newLeader)
+
+    // Restart destBroker2 which was ahead of destBroker1 and verify the mirrored records on leader and follower
+    destCluster.startBroker(destBroker2, Some(linkName))
+    produceToSourceCluster(100)
     verifyMirror(topic)
   }
 
@@ -281,6 +332,7 @@ class ClusterLinkTestHarness extends IntegrationTestHarness with SaslSetup {
   override protected val clientSaslProperties = Some(kafkaClientSaslProperties(kafkaClientSaslMechanism))
 
   private val clusterLinks = mutable.Map[String, Properties]()
+  private var producer: KafkaProducer[Array[Byte], Array[Byte]] = _
 
   serverConfig.put(KafkaConfig.OffsetsTopicReplicationFactorProp, brokerCount.toString)
   serverConfig.put(KafkaConfig.UncleanLeaderElectionEnableProp, "true")
@@ -300,6 +352,7 @@ class ClusterLinkTestHarness extends IntegrationTestHarness with SaslSetup {
     brokerList = TestUtils.bootstrapServers(servers, listenerName)
     producerConfig.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList)
     consumerConfig.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList)
+    maybeShutdownProducer()
   }
 
   def createClusterLink(linkName: String, sourceCluster: ClusterLinkTestHarness, metadataMaxAgeMs: Long = 60000L): Unit = {
@@ -337,7 +390,7 @@ class ClusterLinkTestHarness extends IntegrationTestHarness with SaslSetup {
       i -> ReplicaAssignment(Seq(i % 2, (i + 1) % 2), Seq.empty)
     }.toMap
 
-    val mirror = new ClusterLinkTopicState.Mirror(linkName)
+    val mirror = ClusterLinkTopicState.Mirror(linkName)
     adminZkClient.createTopicWithAssignment(topic,
       config = new Properties(),
       assignment,
@@ -370,8 +423,7 @@ class ClusterLinkTestHarness extends IntegrationTestHarness with SaslSetup {
   def bounceLeader(tp: TopicPartition): Unit = {
     val (oldLeaderId, oldLeaderEpoch) = shutdownLeader(tp)
     waitForLeaderChange(tp, oldLeaderId, oldLeaderEpoch)
-    servers(oldLeaderId).startup()
-    updateBootstrapServers()
+    startBroker(oldLeaderId)
   }
 
   def shutdownLeader(tp: TopicPartition): (Int, Int) = {
@@ -406,5 +458,22 @@ class ClusterLinkTestHarness extends IntegrationTestHarness with SaslSetup {
     val (epoch, _) = TestUtils.computeUntilTrue(leaderEpoch(tp))(_ >= expectedMinEpoch)
     assertTrue(s"Leader epoch not updated epoch=$epoch expected>=$expectedMinEpoch", epoch >= expectedMinEpoch)
     epoch
+  }
+
+  def getOrCreateProducer(): KafkaProducer[Array[Byte], Array[Byte]] = {
+    if (producer != null) producer else createProducer()
+  }
+
+  def maybeShutdownProducer(): Unit = {
+    val oldProducer = this.producer
+    this.producer = null
+    if (oldProducer != null)
+      oldProducer.close(Duration.ZERO)
+  }
+
+  def startBroker(brokerId: Int, clusterLink: Option[String] = None): Unit = {
+    servers(brokerId).startup()
+    clusterLink.foreach { linkName => addClusterLink(servers(brokerId), linkName) }
+    updateBootstrapServers()
   }
 }

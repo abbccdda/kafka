@@ -388,6 +388,39 @@ class PartitionTest {
   }
 
   @Test
+  def testLastOffsetForLeaderEpochForLinkedLeader(): Unit = {
+    val leaderEpoch = 5
+    val partition = setupPartitionWithMocks(leaderEpoch, isLeader = true, clusterLink = Some("clusterLink"))
+
+    def assertLastOffsetForLeader(currentLeaderEpochOpt: Optional[Integer],
+                                  requestedEpoch: Int,
+                                  expectedValue: EpochEndOffset): Unit = {
+      val endOffset = partition.lastOffsetForLeaderEpoch(currentLeaderEpochOpt, requestedEpoch,
+        fetchOnlyFromLeader = true)
+      assertEquals(expectedValue, endOffset)
+    }
+
+    assertLastOffsetForLeader(Optional.empty(), 0, new EpochEndOffset(Errors.NONE, 0, 0))
+    assertLastOffsetForLeader(Optional.of(leaderEpoch), 0, new EpochEndOffset(Errors.NONE, 0, 0))
+    assertLastOffsetForLeader(Optional.of(leaderEpoch - 1), 0, new EpochEndOffset(Errors.FENCED_LEADER_EPOCH, -1, -1))
+    assertLastOffsetForLeader(Optional.of(leaderEpoch + 1), 0, new EpochEndOffset(Errors.UNKNOWN_LEADER_EPOCH, -1, -1))
+
+    // Don't return offsets for linked partitions when source offsets are pending
+    partition.linkedLeaderOffsetsPending(true)
+    assertLastOffsetForLeader(Optional.of(leaderEpoch), 0, new EpochEndOffset(Errors.NOT_LEADER_FOR_PARTITION, -1, -1))
+    partition.linkedLeaderOffsetsPending(false)
+    assertLastOffsetForLeader(Optional.of(leaderEpoch), 0, new EpochEndOffset(Errors.NONE, 0, 0))
+
+    // Return log offset if requested epoch is higher than any in the cache but within current leader epoch
+    assertLastOffsetForLeader(Optional.of(leaderEpoch), leaderEpoch - 1, new EpochEndOffset(Errors.NONE, 0, 0))
+    assertLastOffsetForLeader(Optional.empty(), leaderEpoch - 1, new EpochEndOffset(Errors.NONE, 0, 0))
+    assertLastOffsetForLeader(Optional.of(leaderEpoch), leaderEpoch, new EpochEndOffset(Errors.NONE, 0, 0))
+    assertLastOffsetForLeader(Optional.empty(), leaderEpoch, new EpochEndOffset(Errors.NONE, 0, 0))
+    assertLastOffsetForLeader(Optional.of(leaderEpoch), leaderEpoch + 1, new EpochEndOffset(Errors.NONE, -1, -1))
+    assertLastOffsetForLeader(Optional.empty(), leaderEpoch + 1, new EpochEndOffset(Errors.NONE, -1, -1))
+  }
+
+  @Test
   def testReadRecordEpochValidationForLeader(): Unit = {
     val leaderEpoch = 5
     val partition = setupPartitionWithMocks(leaderEpoch, isLeader = true)
@@ -708,7 +741,8 @@ class PartitionTest {
   private def setupPartitionWithMocks(leaderEpoch: Int,
                                       isLeader: Boolean,
                                       log: AbstractLog = logManager.getOrCreateLog(topicPartition, () => logConfig),
-                                      topicIdOpt: Option[UUID] = None): Partition = {
+                                      topicIdOpt: Option[UUID] = None,
+                                      clusterLink: Option[String] = None): Partition = {
     partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints)
 
     val controllerEpoch = 0
@@ -724,6 +758,7 @@ class PartitionTest {
           .setZkVersion(1)
           .setReplicas(replicas)
           .setIsNew(true)
+          .setClusterLink(clusterLink.orNull)
       topicIdOpt.foreach { topicId => partitionState.setTopicId(topicId) }
 
       assertTrue("Expected become leader transition to succeed",

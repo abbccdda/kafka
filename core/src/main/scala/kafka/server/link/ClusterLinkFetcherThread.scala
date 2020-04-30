@@ -12,7 +12,7 @@ import org.apache.kafka.clients.ManualMetadataUpdater
 import org.apache.kafka.common.errors.InvalidMetadataException
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.Errors
-import org.apache.kafka.common.requests.{EpochEndOffset, FetchRequest, ListOffsetRequest, OffsetsForLeaderEpochRequest}
+import org.apache.kafka.common.requests.{FetchRequest, ListOffsetRequest, OffsetsForLeaderEpochRequest}
 import org.apache.kafka.common.utils.{LogContext, Time}
 import org.apache.kafka.common.{IsolationLevel, TopicPartition}
 
@@ -135,23 +135,14 @@ class ClusterLinkFetcherThread(name: String,
     super.handlePartitionsWithErrors(partitions, methodName)
   }
 
-  override def fetchEpochEndOffsets(partitions: Map[TopicPartition, EpochData]): Map[TopicPartition, EpochEndOffset] = {
-    val epochOffsets = super.fetchEpochEndOffsets(partitions)
-    epochOffsets.foreach { case (tp, epochOffset) =>
-      val currentSourceEpoch = clusterLinkMetadata.currentLeader(tp).epoch.orElse(-1)
-      val offsetEpoch = epochOffset.leaderEpoch
-      val endOffset = epochOffset.endOffset
-      fetcherManager.partition(tp).foreach { partition =>
-        if (!epochOffset.hasError) {
-          debug(s"Processing offsets from linked leader for $tp")
-          if (endOffset > 0 && offsetEpoch > 0 && offsetEpoch < currentSourceEpoch) {
-            debug(s"Update linked leader epoch cache $tp sourceEpoch=${offsetEpoch + 1} startOffset=$endOffset")
-            partition.localLogOrException.maybeAssignEpochStartOffset(offsetEpoch + 1, endOffset)
-          }
-          partition.linkedLeaderOffsetsPending(false)
-        }
+  override protected[link] def updateFetchOffsetAndMaybeMarkTruncationComplete(fetchOffsets: Map[TopicPartition, OffsetTruncationState]): Unit = {
+    super.updateFetchOffsetAndMaybeMarkTruncationComplete(fetchOffsets)
+
+    fetchOffsets.foreach { case (tp, offsetTruncationState) =>
+      if (offsetTruncationState.truncationCompleted) {
+        // Link destination leader is ready to return offsets to followers since truncation has completed
+        fetcherManager.partition(tp).foreach(_.linkedLeaderOffsetsPending(false))
       }
     }
-    epochOffsets
   }
 }

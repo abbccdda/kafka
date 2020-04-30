@@ -599,7 +599,7 @@ class Partition(val topicPartition: TopicPartition,
       // to ensure that these followers can truncate to the right offset, we must cache the new
       // leader epoch and the start offset since it should be larger than any epoch that a follower
       // would try to query.
-      // For cluster links, leader epoch cache is updated based on source epochs from OffsetsForLeaderEpoch response.
+      // For cluster links, leader epoch cache is updated after truncation based on source offsets.
       if (clusterLink.isEmpty) {
         leaderLog.maybeAssignEpochStartOffset(leaderEpoch, leaderEpochStartOffset)
       }
@@ -1377,15 +1377,27 @@ class Partition(val topicPartition: TopicPartition,
       val localLogOrError = getLocalLog(currentLeaderEpoch, fetchOnlyFromLeader)
       localLogOrError match {
         case Left(localLog) =>
-          localLog.endOffsetForEpoch(leaderEpoch) match {
-            // For linked partitions, leader returns offsets only after source offsets are known.
-            // This ensures that followers process offsets after any truncation performed by leader
-            // in the case of unclean leader election in the source cluster.
-            case Some(epochAndOffset) if fetchOnlyFromLeader && needsLinkedLeaderOffsets =>
-              new EpochEndOffset(NOT_LEADER_FOR_PARTITION, UNDEFINED_EPOCH, UNDEFINED_EPOCH_OFFSET)
-
-            case Some(epochAndOffset) => new EpochEndOffset(NONE, epochAndOffset.leaderEpoch, epochAndOffset.offset)
-            case None => new EpochEndOffset(NONE, UNDEFINED_EPOCH, UNDEFINED_EPOCH_OFFSET)
+          // For linked partitions, leader returns offsets only after source offsets are known.
+          // This ensures that followers process offsets after any truncation performed by leader
+          // in the case of unclean leader election in the source cluster.
+          if (fetchOnlyFromLeader && needsLinkedLeaderOffsets) {
+            new EpochEndOffset(NOT_LEADER_FOR_PARTITION, UNDEFINED_EPOCH, UNDEFINED_EPOCH_OFFSET)
+          } else {
+            localLog.endOffsetForEpoch(leaderEpoch) match {
+              case Some(epochAndOffset) =>
+                new EpochEndOffset(NONE, epochAndOffset.leaderEpoch, epochAndOffset.offset)
+              case None =>
+                if (!isLinkDestination || leaderEpoch > currentLeaderEpoch.orElse(this.leaderEpoch))
+                  new EpochEndOffset(NONE, UNDEFINED_EPOCH, UNDEFINED_EPOCH_OFFSET)
+                else {
+                  // For linked partitions, destination follower may be ahead of the leader and may
+                  // request later epochs. In this case, we return the last known epoch from the
+                  // epoch cache (which is lower than the requested epoch) along with the leader's
+                  // log end offset to be used for truncation.
+                  val latestEpoch = localLog.leaderEpochCache.flatMap(_.latestEpoch).getOrElse(0)
+                  new EpochEndOffset(NONE, latestEpoch, localLog.logEndOffset)
+                }
+            }
           }
         case Right(error) =>
           new EpochEndOffset(error, UNDEFINED_EPOCH, UNDEFINED_EPOCH_OFFSET)
