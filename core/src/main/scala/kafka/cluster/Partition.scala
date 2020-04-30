@@ -292,86 +292,16 @@ class Partition(val topicPartition: TopicPartition,
 
   private val tags = Map("topic" -> topic, "partition" -> partitionId.toString)
 
-  newGauge("UnderReplicated",
-    new Gauge[Int] {
-      def value: Int = {
-        if (isUnderReplicated) 1 else 0
-      }
-    },
-    tags
-  )
-
-  newGauge("InSyncReplicasCount",
-    new Gauge[Int] {
-      def value: Int = {
-        if (isLeader) inSyncReplicaIds.size else 0
-      }
-    },
-    tags
-  )
-
-  newGauge("CaughtUpReplicasCount",
-    new Gauge[Int] {
-      def value: Int = {
-        caughtUpReplicaCount
-      }
-    },
-    tags
-  )
-
-  newGauge("UnderMinIsr",
-    new Gauge[Int] {
-      def value: Int = {
-        if (isUnderMinIsr) 1 else 0
-      }
-    },
-    tags
-  )
-
-  newGauge("AtMinIsr",
-    new Gauge[Int] {
-      def value: Int = {
-        if (isAtMinIsr) 1 else 0
-      }
-    },
-    tags
-  )
-
-  newGauge("ReplicasCount",
-    new Gauge[Int] {
-      def value: Int = {
-        if (isLeader) assignmentState.replicationFactor else 0
-      }
-    },
-    tags
-  )
-
-  newGauge("LastStableOffsetLag",
-    new Gauge[Long] {
-      def value: Long = {
-        lastStableOffsetLag
-      }
-    },
-    tags
-  )
-
-  newGauge("IsNotCaughtUp",
-    new Gauge[Int] {
-      def value: Int = {
-        if (isNotCaughtUp) 1 else 0
-      }
-    },
-    tags
-  )
-
-  newGauge("ObserverReplicasCount",
-    new Gauge[Int] {
-      def value: Int = {
-        if (isLeader) assignmentState.observers.size else 0
-      }
-    },
-    tags
-  )
+  newGauge("UnderReplicated", () => if (isUnderReplicated) 1 else 0, tags)
+  newGauge("InSyncReplicasCount", () => if (isLeader) inSyncReplicaIds.size else 0, tags)
+  newGauge("CaughtUpReplicasCount", () => caughtUpReplicaCount, tags)
+  newGauge("UnderMinIsr", () => if (isUnderMinIsr) 1 else 0, tags)
+  newGauge("AtMinIsr", () => if (isAtMinIsr) 1 else 0, tags)
+  newGauge("ReplicasCount", () => if (isLeader) assignmentState.replicationFactor else 0, tags)
+  newGauge("LastStableOffsetLag", () => lastStableOffsetLag, tags)
+  newGauge("IsNotCaughtUp", () => if (isNotCaughtUp) 1 else 0, tags)
+  newGauge("ObserverReplicasCount", () => if (isLeader) assignmentState.observers.size else 0,
+    tags)
 
   def isNotCaughtUp: Boolean =
     isLeader && caughtUpReplicaCount < assignmentState.replicationFactor
