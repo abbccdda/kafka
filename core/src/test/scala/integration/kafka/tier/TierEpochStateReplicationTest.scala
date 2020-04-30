@@ -33,7 +33,7 @@ import org.apache.kafka.common.config.{TopicConfig, ConfluentTopicConfig}
 import org.apache.kafka.common.record.RecordBatch
 import org.apache.kafka.common.utils.Exit
 import org.apache.kafka.common.utils.Exit.Procedure
-import org.junit.Assert.{assertEquals, assertFalse}
+import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import org.junit.{Before, After, Test}
 
 import scala.collection.JavaConverters._
@@ -41,7 +41,6 @@ import scala.collection.mutable.{ListBuffer => Buffer}
 import scala.collection.Seq
 
 class TierEpochStateReplicationTest extends ZooKeeperTestHarness with Logging {
-
   val topic = "topic1"
   val msg = new Array[Byte](1000)
   val msgBigger = new Array[Byte](10000)
@@ -66,8 +65,7 @@ class TierEpochStateReplicationTest extends ZooKeeperTestHarness with Logging {
   }
 
   @Test
-  def testTierStateRestoreToReplication(): Unit = {
-    //Given 2 brokers
+  def testTierStateRestoreOnLaggingReplica(): Unit = {
     brokers = (100 to 101).map(createBroker(_))
 
     val properties = new Properties()
@@ -75,68 +73,62 @@ class TierEpochStateReplicationTest extends ZooKeeperTestHarness with Logging {
     properties.put(TopicConfig.SEGMENT_BYTES_CONFIG, "10000")
     properties.put(TopicConfig.RETENTION_BYTES_CONFIG, "-1")
 
-    // since we use RF = 2 on the tier topic,
-    // we must make sure the tier topic is up before we start stopping brokers
-    // otherwise no tiering will take place
-    // Tier topic partition 0 will lie on all brokers due to RF.
-    brokers.foreach(b => TierTestUtils.awaitTierTopicPartition(b, 0))
-
-    //A single partition topic with 2 replicas
-    TestUtils.createTopic(zkClient, topic, Map(0 -> Seq(100, 101)), brokers, properties)
-    producer = createProducer
+    // a single partition topic with 2 replicas
     val tp = new TopicPartition(topic, 0)
+    TestUtils.createTopic(zkClient, topic, Map(0 -> Seq(100, 101)), brokers, properties)
+    val leader = this.leader
+    val follower = this.follower
 
+    // write a message to the partition
+    producer = createProducer
     producer.send(new ProducerRecord(topic, 0, null, msg)).get
+    val epochBeforeLeaderBounce = epochCache(leader).latestEpoch.get
 
-    // check epoch entries
-    assertEquals(Buffer(EpochEntry(0, 0)), epochCache(leader).epochEntries)
-    assertEquals(Buffer(EpochEntry(0, 0)), epochCache(leader).epochEntries)
-
-    // bounce leader to bump initial epoch
+    // bounce the leader and wait until it is re-elected as the leader
     bounce(leader)
+    awaitISR(tp, numReplicas = 2)
+    TestUtils.waitUntilTrue(() => this.leader == leader, "Timed out waiting for preferred leader to be elected")
+    TestUtils.waitUntilTrue(() => leader.tierTopicManagerOpt.get.isReady, "Timed out waiting for tier topic manager to be ready")
 
-    awaitISR(tp, 2)
-
+    // Write a message to the partition. This write will be at a higher epoch than the previous message.
     producer.send(new ProducerRecord(topic, 0, null, msg)).get
+    val epochAfterLeaderBounce = epochCache(leader).latestEpoch.get
+    assertTrue(epochAfterLeaderBounce > epochBeforeLeaderBounce)
+    assertEquals(epochCache(leader).epochEntries, epochCache(follower).epochEntries)
 
-    assertEquals(Buffer(EpochEntry(0, 0), EpochEntry(1, 1)), epochCache(leader).epochEntries)
-    assertEquals(Buffer(EpochEntry(0, 0), EpochEntry(1, 1)), epochCache(follower).epochEntries)
-
-    val followerToShutdown = follower()
-    //Stop the follower before writing anything
-    stop(followerToShutdown)
-    awaitISR(tp, 1)
-
-    val logEndPriorToProduce = leader.replicaManager.logManager.getLog(tp).get.localLogEndOffset
-
-    // follower is now shutdown, write a bunch of messages
-    for (i <- 0 until 999) {
-      producer.send(new ProducerRecord(topic, 0, null, msg)).get
+    // Ensure that tier topic is created and tier topic manager is ready before stopping the follower
+    brokers.foreach { broker =>
+      TestUtils.waitUntilTrue(() => broker.tierTopicManagerOpt.get.isReady,
+        "Timed out waiting for tier topic manager to be ready")
     }
 
+    // stop the follower
+    stop(follower)
+    awaitISR(tp, numReplicas = 1)
+
+    // follower is now shutdown, write a bunch of messages
+    for (_ <- 0 until 999)
+      producer.send(new ProducerRecord(topic, 0, null, msg)).get
+
+    // wait until hotset retention deletes the first local segment
     TestUtils.waitUntilTrue(() => {
-      // delete some segments so that replication will happen
-      val leaderLog = leader.replicaManager.logManager.getLog(tp)
-      leaderLog.get.deleteOldSegments()
-      leaderLog.get.localLogStartOffset > logEndPriorToProduce
-    }, "timed out waiting for segment tiering and deletion",
+      val leaderLog = leader.replicaManager.logManager.getLog(tp).get
+      leaderLog.localLogStartOffset > 0
+    }, "timed out waiting for segment tiering and hotset retention",
       60000)
 
-    assertEquals(1001, latestRecord(leader).nextOffset())
+    // messages appended now must have an epoch higher than the message appended before follower shutdown
+    val epochAfterFollowerShutdown = epochCache(leader).latestEpoch.get
+    assertTrue(epochAfterFollowerShutdown > epochAfterLeaderBounce)
 
-    //The message should have epoch 2 stamped onto it after we shutdown the follower
-    assertEquals(2, latestRecord(leader).partitionLeaderEpoch())
-
-    // leader should have recorded Epoch 2 at Offset 2, and new entries at epoch 1
-    assertEquals(Buffer(EpochEntry(0, 0), EpochEntry(1, 1), EpochEntry(2, 2)), epochCache(leader).epochEntries)
-
-    start(followerToShutdown)
+    // Startup the follower. The follower will receive an OFFSET_TIERED exception when it begins replication. This
+    // will initiate catchup for tier partition state and will restore the leader epoch cache from tiered storage,
+    // before it can continue to replicate the leader's local log.
+    start(follower)
     awaitISR(tp, 2)
 
-    // Since we've started back up the leader and we've replicated, follower and leader entries should be the same
-    // even though we only replicated a portion from the leader
-    assertEquals(Buffer(EpochEntry(0, 0), EpochEntry(1, 1), EpochEntry(2, 2)), epochCache(leader).epochEntries)
-    assertEquals(Buffer(EpochEntry(0, 0), EpochEntry(1, 1), EpochEntry(2, 2)), epochCache(follower).epochEntries)
+    // now that the follower is in the ISR, the epoch cache must match with that of the leader
+    assertEquals(epochCache(leader).epochEntries, epochCache(follower).epochEntries)
   }
 
   private def getLog(broker: KafkaServer, partition: Int): AbstractLog = {
@@ -183,16 +175,16 @@ class TierEpochStateReplicationTest extends ZooKeeperTestHarness with Logging {
     TestUtils.createProducer(getBrokerListStrFromServers(brokers), acks = -1)
   }
 
-  private def leader(): KafkaServer = {
+  private def leader: KafkaServer = {
     assertEquals(2, brokers.size)
     val leaderId = zkClient.getLeaderForPartition(new TopicPartition(topic, 0)).get
-    brokers.filter(_.config.brokerId == leaderId)(0)
+    brokers.find(_.config.brokerId == leaderId).get
   }
 
-  private def follower(): KafkaServer = {
+  private def follower: KafkaServer = {
     assertEquals(2, brokers.size)
     val leader = zkClient.getLeaderForPartition(new TopicPartition(topic, 0)).get
-    brokers.filter(_.config.brokerId != leader)(0)
+    brokers.find(_.config.brokerId != leader).get
   }
 
   private def createBroker(id: Int, enableUncleanLeaderElection: Boolean = false): KafkaServer = {
@@ -203,6 +195,9 @@ class TierEpochStateReplicationTest extends ZooKeeperTestHarness with Logging {
     config.setProperty(KafkaConfig.TierMetadataReplicationFactorProp, "2")
     config.setProperty(KafkaConfig.TierMetadataNumPartitionsProp, "1")
     config.setProperty(KafkaConfig.TierLocalHotsetBytesProp, "0")
+    config.setProperty(KafkaConfig.LogCleanupIntervalMsProp, "10")
+    config.setProperty(KafkaConfig.LeaderImbalancePerBrokerPercentageProp, "0")
+    config.setProperty(KafkaConfig.LeaderImbalanceCheckIntervalSecondsProp, "10")
     createServer(fromProps(config))
   }
 }
