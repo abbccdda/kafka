@@ -47,7 +47,7 @@ import static com.linkedin.kafka.cruisecontrol.detector.AnomalyDetectorUtils.get
 public class AnomalyDetector {
   static final String METRIC_REGISTRY_NAME = "AnomalyDetector";
   private static final int INIT_JITTER_BOUND = 10000;
-  private static final int NUM_ANOMALY_DETECTION_THREADS = 5;
+  private static final int NUM_ANOMALY_DETECTION_THREADS = 2;
   private static final Logger LOG = LoggerFactory.getLogger(AnomalyDetector.class);
   private static final Logger OPERATION_LOG = LoggerFactory.getLogger(OPERATION_LOGGER);
   private final KafkaCruiseControl _kafkaCruiseControl;

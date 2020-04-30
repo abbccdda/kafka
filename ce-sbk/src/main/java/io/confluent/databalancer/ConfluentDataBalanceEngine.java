@@ -3,10 +3,10 @@
  */
 package io.confluent.databalancer;
 
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundCapacityGoal;
+import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.detector.notifier.SelfHealingNotifier;
@@ -65,11 +65,9 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
 
     public ConfluentDataBalanceEngine(DataBalancerMetricsRegistry dataBalancerMetricsRegistry) {
         this(dataBalancerMetricsRegistry,
-         null,
+             null,
              Executors.newSingleThreadExecutor(
-                 new ThreadFactoryBuilder()
-                     .setNameFormat("DataBalanceEngine-%d")
-                     .build()));
+                     new KafkaCruiseControlThreadFactory("DataBalanceEngine", true, LOG)));
     }
 
     // Visible for testing

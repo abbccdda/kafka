@@ -20,7 +20,7 @@ public class KafkaCruiseControlThreadFactory implements ThreadFactory {
   public KafkaCruiseControlThreadFactory(String name,
                                          boolean daemon,
                                          Logger logger) {
-    _name = name;
+    _name = "SBK_" + name;
     _daemon = daemon;
     _logger = logger == null ? LOG : logger;
   }

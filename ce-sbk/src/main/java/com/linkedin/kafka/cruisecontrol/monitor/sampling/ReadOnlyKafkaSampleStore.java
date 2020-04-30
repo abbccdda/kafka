@@ -5,6 +5,10 @@
 package com.linkedin.kafka.cruisecontrol.monitor.sampling;
 
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
+import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -15,6 +19,9 @@ import java.util.concurrent.Executors;
  * It does not change any configurations or produce to Kafka.
  */
 public class ReadOnlyKafkaSampleStore extends KafkaSampleStore {
+
+  private static final Logger LOG = LoggerFactory.getLogger(ReadOnlyKafkaSampleStore.class);
+
   /**
    * We have to override the configure method so that no producer is created and no ZK topic configuration change
    * is made either.
@@ -26,7 +33,8 @@ public class ReadOnlyKafkaSampleStore extends KafkaSampleStore {
     String numProcessingThreadsString = (String) config.get(NUM_SAMPLE_LOADING_THREADS_CONFIG);
     int numProcessingThreads = numProcessingThreadsString == null || numProcessingThreadsString.isEmpty()
         ? DEFAULT_NUM_SAMPLE_LOADING_THREADS : Integer.parseInt(numProcessingThreadsString);
-    _metricProcessorExecutor = Executors.newFixedThreadPool(numProcessingThreads);
+    _metricProcessorExecutor = Executors.newFixedThreadPool(numProcessingThreads,
+            new KafkaCruiseControlThreadFactory("ReadOnlySampleStore", true, LOG));
     _consumers = new ArrayList<>(numProcessingThreads);
     for (int i = 0; i < numProcessingThreads; i++) {
       _consumers.add(createConsumer(config));

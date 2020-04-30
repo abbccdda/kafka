@@ -4,6 +4,7 @@
 
 package com.linkedin.kafka.cruisecontrol.monitor.sampling;
 
+import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.exception.UnknownVersionException;
@@ -94,7 +95,7 @@ public class KafkaSampleStore implements SampleStore {
 
   private static final String DEFAULT_PARTITION_SAMPLE_STORE_TOPIC = "_confluent_balancer_partition_samples";
   private static final String DEFAULT_BROKER_SAMPLE_STORE_TOPIC =  "_confluent_balancer_broker_samples";
-  protected static final int DEFAULT_NUM_SAMPLE_LOADING_THREADS = 8;
+  protected static final int DEFAULT_NUM_SAMPLE_LOADING_THREADS = 2;
   protected static final int DEFAULT_SAMPLE_STORE_TOPIC_REPLICATION_FACTOR = 3;
   protected static final int DEFAULT_PARTITION_SAMPLE_STORE_TOPIC_PARTITION_COUNT = 32;
   protected static final int DEFAULT_BROKER_SAMPLE_STORE_TOPIC_PARTITION_COUNT = 32;
@@ -136,7 +137,8 @@ public class KafkaSampleStore implements SampleStore {
                                               || skipSampleStoreTopicRackAwarenessCheckString.isEmpty()
                                               ? DEFAULT_SKIP_SAMPLE_STORE_TOPIC_RACK_AWARENESS_CHECK
                                               : Boolean.parseBoolean(skipSampleStoreTopicRackAwarenessCheckString);
-    _metricProcessorExecutor = Executors.newFixedThreadPool(numProcessingThreads);
+    _metricProcessorExecutor = Executors.newFixedThreadPool(numProcessingThreads,
+            new KafkaCruiseControlThreadFactory("SampleStore", true, LOG));
     _consumers = new ArrayList<>(numProcessingThreads);
     for (int i = 0; i < numProcessingThreads; i++) {
       _consumers.add(createConsumer(config));
