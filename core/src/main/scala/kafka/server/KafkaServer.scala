@@ -37,7 +37,7 @@ import kafka.metrics.{KafkaMetricsGroup, KafkaMetricsReporter, KafkaYammerMetric
 import kafka.network.SocketServer
 import io.confluent.rest.{BeginShutdownBrokerHandle, InternalRestServer}
 import kafka.security.CredentialProvider
-import kafka.server.link.ClusterLinkAdminManager
+import kafka.server.link.ClusterLinkManager
 import kafka.tier.fetcher.{TierFetcher, TierFetcherConfig}
 import kafka.tier.state.TierPartitionStateFactory
 import kafka.tier.store.{GcsTierObjectStore, GcsTierObjectStoreConfig, MockInMemoryTierObjectStore, S3TierObjectStore, S3TierObjectStoreConfig, TierObjectStore, TierObjectStoreConfig}
@@ -227,7 +227,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
   var replicaManager: ReplicaManager = null
   var adminManager: AdminManager = null
-  var clusterLinkAdminManager: ClusterLinkAdminManager = null
+  var clusterLinkManager: ClusterLinkManager = null
   var tokenManager: DelegationTokenManager = null
 
   var dynamicConfigHandlers: Map[String, ConfigHandler] = null
@@ -396,11 +396,13 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         socketServer.startup(startProcessingRequests = false)
 
         adminManager = new AdminManager(config, metrics, metadataCache, zkClient)
-        clusterLinkAdminManager = new ClusterLinkAdminManager(config, clusterId, zkClient, () => replicaManager.clusterLinkManager)
+        clusterLinkManager = new ClusterLinkManager(config, clusterId, quotaManagers.clusterLink, adminManager,
+          zkClient, metrics, time, threadNamePrefix = None, tierStateFetcherOpt)
 
         /* start replica manager */
         replicaManager = createReplicaManager(isShuttingDown, tierLogComponents)
         replicaManager.startup()
+        clusterLinkManager.startup(replicaManager)
 
         // This broker registration delay is intended to be temporary and will be removed on completion of
         // this Jira.
@@ -472,7 +474,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         /* start processing requests */
         dataPlaneRequestProcessor = new KafkaApis(socketServer.dataPlaneRequestChannel, replicaManager, adminManager,
-          clusterLinkAdminManager, groupCoordinator, transactionCoordinator,
+          clusterLinkManager.admin, groupCoordinator, transactionCoordinator,
           kafkaController, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
           fetchManager, brokerTopicStats, clusterId, time, tokenManager, tierDeletedPartitionsCoordinatorOpt)
 
@@ -482,7 +484,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         socketServer.controlPlaneRequestChannelOpt.foreach { controlPlaneRequestChannel =>
           controlPlaneRequestProcessor = new KafkaApis(controlPlaneRequestChannel, replicaManager, adminManager,
-            clusterLinkAdminManager, groupCoordinator, transactionCoordinator,
+            clusterLinkManager.admin, groupCoordinator, transactionCoordinator,
             kafkaController, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
             fetchManager, brokerTopicStats, clusterId, time, tokenManager, tierDeletedPartitionsCoordinatorOpt)
 
@@ -507,7 +509,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
                                                            ConfigType.Client -> new ClientIdConfigHandler(quotaManagers),
                                                            ConfigType.User -> new UserConfigHandler(quotaManagers, credentialProvider),
                                                            ConfigType.Broker -> new BrokerConfigHandler(config, quotaManagers),
-                                                           ConfigType.ClusterLink -> new ClusterLinkConfigHandler())
+                                                           ConfigType.ClusterLink -> new ClusterLinkConfigHandler(clusterLinkManager))
 
         // Create the config manager. start listening to notifications
         dynamicConfigManager = new DynamicConfigManager(zkClient, dynamicConfigHandlers)
@@ -585,7 +587,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   protected def createReplicaManager(isShuttingDown: AtomicBoolean, tierLogComponents: TierLogComponents): ReplicaManager = {
     val tierReplicaComponents = TierReplicaComponents(tierReplicaManagerOpt, tierFetcherOpt, tierStateFetcherOpt, tierLogComponents)
     new ReplicaManager(config, metrics, time, zkClient, kafkaScheduler, logManager, isShuttingDown, quotaManagers,
-      brokerTopicStats, metadataCache, logDirFailureChannel, tierReplicaComponents, adminManager)
+      brokerTopicStats, metadataCache, logDirFailureChannel, tierReplicaComponents, Some(clusterLinkManager))
   }
 
   private def initZkClient(time: Time): Unit = {
@@ -912,6 +914,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         if (replicaManager != null)
           CoreUtils.swallow(replicaManager.shutdown(), this)
+        if (clusterLinkManager != null)
+          CoreUtils.swallow(clusterLinkManager.shutdown(), this)
         if (logManager != null)
           CoreUtils.swallow(logManager.shutdown(), this)
 

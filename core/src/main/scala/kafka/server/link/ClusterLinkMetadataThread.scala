@@ -55,7 +55,6 @@ class ClusterLinkMetadataThread(clusterLinkConfig: ClusterLinkConfig,
   override def shutdown(): Unit = {
     clusterLinkClient.close()
     super.shutdown()
-    metrics.removeSensor(clusterLinkMetadata.throttleTimeSensorName)
   }
 
   def addListener(listener: MetadataListener): Unit = {
@@ -72,7 +71,7 @@ class ClusterLinkMetadataThread(clusterLinkConfig: ClusterLinkConfig,
       metrics,
       Map("link-name" -> clusterLinkMetadata.linkName),
       time,
-      s"cluster-link-metadata-${clusterLinkMetadata.linkName}-broker",
+      s"cluster-link-metadata-${clusterLinkMetadata.linkName}-broker-${clusterLinkMetadata.brokerConfig.brokerId}",
       logContext)
   }
 

@@ -25,7 +25,7 @@ import scala.collection.Seq
 class ClusterLinkAdminManager(val config: KafkaConfig,
                               val clusterId: String,
                               val zkClient: KafkaZkClient,
-                              val clusterLinkReplicaManager: () => ClusterLinkReplicaManager) extends Logging {
+                              val clusterLinkManager: ClusterLinkManager) extends Logging {
 
   this.logIdent = "[Cluster Link Admin Manager on Broker " + config.brokerId + "]: "
 
@@ -39,7 +39,7 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
     val linkName = newClusterLink.linkName
     ClusterLinkUtils.validateLinkName(linkName)
 
-    if (clusterLinkReplicaManager().clientManager(linkName).isDefined)
+    if (clusterLinkManager.clientManager(linkName).isDefined)
       throw new ClusterLinkExistsException(s"Cluster link '$linkName' already exists")
 
     val props = new Properties()
@@ -47,12 +47,12 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
     ClusterLinkConfig.validate(props)
 
     val expectedClusterId = Option(newClusterLink.clusterId)
-    if (expectedClusterId.exists(_ == clusterId))
+    if (expectedClusterId.contains(clusterId))
       throw new InvalidRequestException(s"Requested cluster ID matches local cluster ID '$clusterId' - cannot create cluster link to self")
 
     val result = new CompletableFuture[Void]()
     if (validateLink) {
-      clusterLinkReplicaManager().scheduler.schedule("CreateClusterLink",
+      clusterLinkManager.scheduler.schedule("CreateClusterLink",
         () => try {
           val linkClusterId = validateClusterLink(expectedClusterId, props, timeoutMs)
           finishCreateClusterLink(linkName, linkClusterId, props, validateOnly)
@@ -76,12 +76,12 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
   def deleteClusterLink(linkName: String, validateOnly: Boolean, force: Boolean): Unit = {
     ClusterLinkUtils.validateLinkName(linkName)
 
-    if (!clusterLinkReplicaManager().clientManager(linkName).isDefined)
+    if (clusterLinkManager.clientManager(linkName).isEmpty)
       throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' not found")
 
     val allTopics = zkClient.getAllTopicsInCluster()
     if (allTopics.nonEmpty) {
-      val topicsInUse = zkClient.getClusterLinkForTopics(allTopics).filter(_._2 == linkName).values
+      val topicsInUse = zkClient.getClusterLinkForTopics(allTopics).filter(_._2.activeLinkName.contains(linkName)).values
       if (topicsInUse.nonEmpty) {
         if (force)
           throw new UnsupportedVersionException("Force deletion not yet implemented")
@@ -94,7 +94,7 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
       adminZkClient.deleteClusterLink(linkName)
 
       try {
-        clusterLinkReplicaManager().removeClusterLink(linkName)
+        clusterLinkManager.removeClusterLink(linkName)
       } catch {
         case _: ClusterLinkNotFoundException => // Ignore, this may have been done due to config callback.
         case e: Throwable => warn(s"Encountered error while removing cluster link '$linkName'", e)
@@ -107,7 +107,7 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
       adminZkClient.createClusterLink(linkName, UUID.randomUUID(), linkClusterId, props)
 
       try {
-        clusterLinkReplicaManager().addClusterLink(linkName, new ClusterLinkConfig(props))
+        clusterLinkManager.addClusterLink(linkName, props)
       } catch {
         case _: ClusterLinkExistsException => // Ignore, this may have been done due to config callback.
         case e: Throwable => warn(s"Encountered error while adding cluster link '$linkName'", e)

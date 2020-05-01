@@ -12,6 +12,10 @@ import org.apache.kafka.common.utils.LogContext
 
 import scala.collection.JavaConverters._
 
+object ClusterLinkMetadata {
+  def throttleTimeSensorName(linkName: String): String = s"linked-fetcher-throttle-time-$linkName"
+}
+
 /**
   * Metadata for a cluster link. A single metadata instance is managed to track metadata of all
   * topics mirrored on a link. This metadata is periodically refreshed by a ClusterLinkMetadataThread.
@@ -20,7 +24,7 @@ import scala.collection.JavaConverters._
   *   - ClusterLinkMetadata is thread-safe. Operations are synchronized using the instance lock
   *     that is also used for synchronization in the base Metadata class.
   */
-class ClusterLinkMetadata(brokerConfig: KafkaConfig,
+class ClusterLinkMetadata(val brokerConfig: KafkaConfig,
                           val linkName: String,
                           metadataRefreshBackoffMs: Long,
                           metadataMaxAgeMs: Long)
@@ -28,7 +32,7 @@ class ClusterLinkMetadata(brokerConfig: KafkaConfig,
     new LogContext(s"[ClusterLinkMetadata brokerId=${brokerConfig.brokerId}, link=$linkName] "),
     new ClusterResourceListeners) {
 
-  val throttleTimeSensorName = s"linked-fetcher-throttle-time-$linkName"
+  val throttleTimeSensorName = ClusterLinkMetadata.throttleTimeSensorName(linkName)
 
   private var linkedTopics = Set.empty[String]
   @volatile private var metadataRefreshListener: Option[MetadataRefreshListener] = None

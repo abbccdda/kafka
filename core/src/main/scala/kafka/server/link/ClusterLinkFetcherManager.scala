@@ -11,15 +11,18 @@ import kafka.server._
 import kafka.tier.fetcher.TierStateFetcher
 import org.apache.kafka.clients.Metadata.LeaderAndEpoch
 import org.apache.kafka.clients._
+import org.apache.kafka.common.config.SslConfigs
 import org.apache.kafka.common.errors.ReassignmentInProgressException
 import org.apache.kafka.common.message.CreatePartitionsRequestData.CreatePartitionsTopic
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.metrics.stats.{Avg, Max}
 import org.apache.kafka.common.requests.ApiError
 import org.apache.kafka.common.utils.Time
-import org.apache.kafka.common.{Cluster, MetricName, Reconfigurable, TopicPartition}
+import org.apache.kafka.common._
 
-import scala.collection.{Map, mutable}
+import scala.collection.{Map, Set, mutable}
+import scala.collection.JavaConverters._
+
 
 /**
   * Fetcher manager associated with one cluster link. Each ClusterLinkFetcherManager manages
@@ -37,6 +40,7 @@ class ClusterLinkFetcherManager(linkName: String,
                                 initialConfig: ClusterLinkConfig,
                                 brokerConfig: KafkaConfig,
                                 replicaManager: ReplicaManager,
+                                adminManager: AdminManager,
                                 quota: ReplicaQuota,
                                 metrics: Metrics,
                                 time: Time,
@@ -45,22 +49,20 @@ class ClusterLinkFetcherManager(linkName: String,
   extends AbstractFetcherManager[ClusterLinkFetcherThread](
     name = s"ClusterLinkFetcherManager on broker ${brokerConfig.brokerId} for $linkName",
     clientId = s"ClusterLinkFetcher-$linkName",
-    numFetchers = initialConfig.numClusterLinkFetchers) with MetadataListener with Reconfigurable {
+    numFetchers = initialConfig.numClusterLinkFetchers) with MetadataListener  {
 
-  private[link] val metadata = new ClusterLinkMetadata(brokerConfig,
-                                                       linkName,
-                                                       initialConfig.metadataRefreshBackoffMs,
-                                                       initialConfig.metadataMaxAgeMs)
   private val linkedPartitions = mutable.Map[TopicPartition, PartitionAndState]()
   private val unassignedPartitions = mutable.Set[TopicPartition]()
-  private[link] val metadataRefreshThread = new ClusterLinkMetadataThread(initialConfig, metadata, metrics, time)
+
+  @volatile private var metadata: ClusterLinkMetadata = _
+  @volatile private var metadataRefreshThread: ClusterLinkMetadataThread = _
   @volatile private var clusterLinkConfig = initialConfig
+  initialize()
 
-  def startup(): Unit = {
-    info(s"starting fetcher manager for cluster link $linkName")
-    metadataRefreshThread.addListener(this)
+  private def initialize(): Unit = {
+    info(s"Initializing fetcher manager for cluster link $linkName")
 
-    val throttleTimeSensor = metrics.sensor(metadata.throttleTimeSensorName)
+    val throttleTimeSensor = metrics.sensor(ClusterLinkMetadata.throttleTimeSensorName(linkName))
     val tags = util.Collections.singletonMap("link-name", linkName)
     val throttleTimeAvg = new MetricName("fetch-throttle-time-avg", "cluster-link",
       "The average throttle time in ms", tags)
@@ -68,30 +70,66 @@ class ClusterLinkFetcherManager(linkName: String,
       "The maximum throttle time in ms", tags)
     throttleTimeSensor.add(throttleTimeAvg, new Avg)
     throttleTimeSensor.add(throttleTimeMax, new Max)
+    initializeMetadata()
+  }
 
-    val addresses = ClientUtils.parseAndValidateAddresses(
-      clusterLinkConfig.bootstrapServers,
-      clusterLinkConfig.dnsLookup)
-    metadata.bootstrap(addresses)
+  def startup(): Unit = {
+    debug("Starting fetcher manager")
     metadataRefreshThread.start()
   }
 
-  override def configure(configs: util.Map[String, _]): Unit = {}
-
-  override def reconfigurableConfigs(): util.Set[String] = {
-    metadataRefreshThread.clusterLinkClient.reconfigurableConfigs()
+  private def initializeMetadata(): Unit = {
+    val config = clusterLinkConfig
+    metadata = new ClusterLinkMetadata(brokerConfig,
+      linkName,
+      config.metadataRefreshBackoffMs,
+      config.metadataMaxAgeMs)
+    metadataRefreshThread = new ClusterLinkMetadataThread(config, metadata, metrics, time)
+    metadataRefreshThread.addListener(this)
+    val addresses = ClientUtils.parseAndValidateAddresses(
+      config.bootstrapServers,
+      config.dnsLookup)
+    metadata.bootstrap(addresses)
   }
 
-  override def validateReconfiguration(configs: util.Map[String, _]): Unit = {
-    metadataRefreshThread.clusterLinkClient.validateReconfiguration(configs)
-  }
+  /**
+    * Reconfigures cluster link clients. If only dynamic configs are updated (e.g. SSL keystore),
+    * changes are applied to existing clients without any disruption. If non-dynamic configs are
+    * updated (e.g. bootstrap servers), metadata and fetcher threads are restarted to recreate all clients.
+    *
+    * At most one reconfiguration may be in progress at any time.
+    */
+  def reconfigure(newConfig: ClusterLinkConfig): Unit = {
+    val oldConfig = currentConfig
+    val currentProps = oldConfig.originals
+    val newProps = newConfig.originals
+    val changeMap = newProps.asScala.filter { case (k, v) => v != currentProps.get(k) }
+    val deletedKeys = currentProps.asScala.filter { case (k, _) => !newProps.containsKey(k) }
 
-  override def reconfigure(configs: util.Map[String, _]): Unit = {
-    lock synchronized {
-      metadataRefreshThread.clusterLinkClient.reconfigure(configs)
-      fetcherThreadMap.values.map(_.clusterLinkClient).foreach(_.reconfigure(configs))
-      clusterLinkConfig = new ClusterLinkConfig(configs)
-    }
+    if (changeMap.nonEmpty || deletedKeys.nonEmpty) {
+      lock synchronized {
+        val updatedKeys = changeMap.keySet ++ deletedKeys.keySet
+        info(s"Reconfiguring link $linkName with new configs updated=$updatedKeys newConfig=${newConfig.values}")
+        if (SslConfigs.RECONFIGURABLE_CONFIGS.containsAll(updatedKeys.asJava)) {
+          debug(s"Reconfiguring cluster link fetchers with updated configs: $updatedKeys")
+          metadataRefreshThread.clusterLinkClient.validateReconfiguration(newProps)
+          val newConfigValues = newConfig.values
+          metadataRefreshThread.clusterLinkClient.reconfigure(newConfigValues)
+          fetcherThreadMap.values.map(_.clusterLinkClient).foreach(_.reconfigure(newConfigValues))
+          this.clusterLinkConfig = newConfig
+        } else {
+          debug(s"Recreating cluster link fetchers with updated configs: $updatedKeys")
+          fetcherThreadMap.values.foreach(_.partitionsAndOffsets.keySet.foreach(unassignedPartitions.add))
+          shutdown()
+          this.clusterLinkConfig = newConfig
+          initializeMetadata()
+          updateMetadataTopics()
+          metadata.requestUpdate()
+          startup()
+        }
+      }
+    } else
+      debug("Not reconfiguring fetcher manager since configs haven't changed")
   }
 
   override def createFetcherThread(fetcherId: Int, sourceBroker: BrokerEndPoint): ClusterLinkFetcherThread = {
@@ -107,6 +145,7 @@ class ClusterLinkFetcherManager(linkName: String,
     info("shutting down")
     closeAllFetchers()
     metadataRefreshThread.shutdown()
+    metrics.removeSensor(metadata.throttleTimeSensorName)
     info("shutdown completed")
   }
 
@@ -160,7 +199,7 @@ class ClusterLinkFetcherManager(linkName: String,
         linkedPartitions += partition.topicPartition -> new PartitionAndState(partition)
         unassignedPartitions += partition.topicPartition
       }
-      metadata.setTopics(linkedPartitions.keySet.map(_.topic).toSet)
+      updateMetadataTopics()
       maybeAddLinkedFetchers()
     }
   }
@@ -176,10 +215,14 @@ class ClusterLinkFetcherManager(linkName: String,
           partitionAndState.foreach(_.partition.linkedLeaderOffsetsPending(false))
         }
       }
-      metadata.setTopics(linkedPartitions.keySet.map(_.topic).toSet)
+      updateMetadataTopics()
       if (retainMetadata)
         metadata.requestUpdate()
     }
+  }
+
+  private def updateMetadataTopics(): Unit = {
+    metadata.setTopics(linkedPartitions.keySet.map(_.topic).toSet)
   }
 
   def isEmpty: Boolean = {
@@ -187,6 +230,10 @@ class ClusterLinkFetcherManager(linkName: String,
       linkedPartitions.isEmpty
     }
   }
+
+  def currentConfig: ClusterLinkConfig = clusterLinkConfig
+
+  private[link] def currentMetadata: ClusterLinkMetadata = metadata
 
   private[link] def partition(tp: TopicPartition): Option[Partition] = {
     linkedPartitions.get(tp).map(_.partition)
@@ -253,7 +300,7 @@ class ClusterLinkFetcherManager(linkName: String,
     val newPartitions = topics.flatMap(createPartitionsRequestData).toSeq
     if (newPartitions.nonEmpty) {
       try {
-        replicaManager.adminManager.createPartitions(
+        adminManager.createPartitions(
           brokerConfig.requestTimeoutMs,
           newPartitions,
           validateOnly = false,

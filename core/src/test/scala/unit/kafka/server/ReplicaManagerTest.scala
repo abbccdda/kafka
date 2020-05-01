@@ -102,7 +102,7 @@ class ReplicaManagerTest {
     val mockLogMgr = TestUtils.createLogManager(config.logDirs.map(new File(_)))
     val rm = new ReplicaManager(config, metrics, time, kafkaZkClient, new MockScheduler(time), mockLogMgr,
       new AtomicBoolean(false), QuotaFactory.instantiate(config, metrics, time, ""), new BrokerTopicStats,
-      new MetadataCache(config.brokerId), new LogDirFailureChannel(config.logDirs.size), TierReplicaComponents.EMPTY, null)
+      new MetadataCache(config.brokerId), new LogDirFailureChannel(config.logDirs.size), TierReplicaComponents.EMPTY, None)
     try {
       val partition = rm.createPartition(new TopicPartition(topic, 1))
       partition.createLogIfNotExists(isNew = false, isFutureReplica = false,
@@ -122,7 +122,7 @@ class ReplicaManagerTest {
     val mockLogMgr = TestUtils.createLogManager(config.logDirs.map(new File(_)))
     val rm = new ReplicaManager(config, metrics, time, kafkaZkClient, new MockScheduler(time), mockLogMgr,
       new AtomicBoolean(false), QuotaFactory.instantiate(config, metrics, time, ""), new BrokerTopicStats,
-      new MetadataCache(config.brokerId), new LogDirFailureChannel(config.logDirs.size), TierReplicaComponents.EMPTY, null)
+      new MetadataCache(config.brokerId), new LogDirFailureChannel(config.logDirs.size), TierReplicaComponents.EMPTY, None)
     try {
       val partition = rm.createPartition(new TopicPartition(topic, 1))
       partition.createLogIfNotExists(isNew = false, isFutureReplica = false,
@@ -142,7 +142,7 @@ class ReplicaManagerTest {
     val rm = new ReplicaManager(config, metrics, time, kafkaZkClient, new MockScheduler(time), mockLogMgr,
       new AtomicBoolean(false), QuotaFactory.instantiate(config, metrics, time, ""), new BrokerTopicStats,
       new MetadataCache(config.brokerId), new LogDirFailureChannel(config.logDirs.size),
-      TierReplicaComponents.EMPTY, null, Option(this.getClass.getName))
+      TierReplicaComponents.EMPTY, None, Option(this.getClass.getName))
     try {
       def callback(responseStatus: Map[TopicPartition, PartitionResponse]) = {
         assert(responseStatus.values.head.error == Errors.INVALID_REQUIRED_ACKS)
@@ -175,7 +175,7 @@ class ReplicaManagerTest {
     EasyMock.replay(metadataCache)
     val rm = new ReplicaManager(config, metrics, time, kafkaZkClient, new MockScheduler(time), mockLogMgr,
       new AtomicBoolean(false), QuotaFactory.instantiate(config, metrics, time, ""), new BrokerTopicStats,
-      metadataCache, new LogDirFailureChannel(config.logDirs.size), TierReplicaComponents.EMPTY, null)
+      metadataCache, new LogDirFailureChannel(config.logDirs.size), TierReplicaComponents.EMPTY, None)
 
     try {
       val brokerList = Seq[Integer](0, 1).asJava
@@ -1587,7 +1587,7 @@ class ReplicaManagerTest {
     val replicaManager = new ReplicaManager(config, metrics, time, kafkaZkClient, new MockScheduler(time), logManager,
       new AtomicBoolean(false), QuotaFactory.instantiate(config, metrics, time, ""),
       new BrokerTopicStats, new MetadataCache(config.brokerId), new LogDirFailureChannel(config.logDirs.size),
-      TierReplicaComponents.EMPTY, null, Option(this.getClass.getName))
+      TierReplicaComponents.EMPTY, None, Option(this.getClass.getName))
 
     val validLogs = createValidLogs(numLogs = 5, replicaManager).toSet
     createStrayLogs(numLogs = 5, logManager)
@@ -1610,7 +1610,7 @@ class ReplicaManagerTest {
     val replicaManager = new ReplicaManager(config, metrics, time, kafkaZkClient, new MockScheduler(time), logManager,
       new AtomicBoolean(false), QuotaFactory.instantiate(config, metrics, time, ""),
       new BrokerTopicStats, new MetadataCache(config.brokerId), new LogDirFailureChannel(config.logDirs.size),
-      TierReplicaComponents.EMPTY, null, Option(this.getClass.getName))
+      TierReplicaComponents.EMPTY, None, Option(this.getClass.getName))
 
     val validLogs = createValidLogs(numLogs = 5, replicaManager).toSet
     val strayLogs = createStrayLogs(numLogs = 5, logManager).toSet
@@ -1652,7 +1652,7 @@ class ReplicaManagerTest {
     val replicaManager = new ReplicaManager(config, metrics, time, kafkaZkClient, new MockScheduler(time), logManager,
       new AtomicBoolean(false), QuotaFactory.instantiate(config, metrics, time, ""),
       new BrokerTopicStats, new MetadataCache(config.brokerId), new LogDirFailureChannel(config.logDirs.size),
-      tierReplicaComponents, null, Option(this.getClass.getName))
+      tierReplicaComponents, None, Option(this.getClass.getName))
 
     // create valid logs
     val validLogs = validPartitions.map { topicIdPartition =>
@@ -1697,7 +1697,7 @@ class ReplicaManagerTest {
 
     val rm = new ReplicaManager(config, metrics, time, kafkaZkClient, new MockScheduler(time), mockLogMgr,
       new AtomicBoolean(false), QuotaFactory.instantiate(config, metrics, time, ""), new BrokerTopicStats,
-      new MetadataCache(config.brokerId), new LogDirFailureChannel(config.logDirs.size), TierReplicaComponents.EMPTY, null)
+      new MetadataCache(config.brokerId), new LogDirFailureChannel(config.logDirs.size), TierReplicaComponents.EMPTY, None)
     try {
       val partition = rm.createPartition(topicPartition)
       val log = Mockito.mock(classOf[AbstractLog])
@@ -1916,7 +1916,7 @@ class ReplicaManagerTest {
       new AtomicBoolean(false), quota, mockBrokerTopicStats,
       metadataCache, mockLogDirFailureChannel, mockProducePurgatory, mockFetchPurgatory,
       mockDeleteRecordsPurgatory, mockElectLeaderPurgatory, mockListOffestsPurgatory,
-      TierReplicaComponents.EMPTY, null, Option(this.getClass.getName)) {
+      TierReplicaComponents.EMPTY, None, Option(this.getClass.getName)) {
       override protected def createReplicaFetcherManager(metrics: Metrics,
                                                          time: Time,
                                                          threadNamePrefix: Option[String],
@@ -2111,7 +2111,7 @@ class ReplicaManagerTest {
       new AtomicBoolean(false), QuotaFactory.instantiate(config, metrics, timer.time, ""), brokerTopicStats,
       metadataCache, new LogDirFailureChannel(config.logDirs.size), mockProducePurgatory, mockFetchPurgatory,
       mockDeleteRecordsPurgatory, mockDelayedElectLeaderPurgatory, mockDelayedListOffsetsPurgatory,
-      TierReplicaComponents.EMPTY, null, Option(this.getClass.getName))
+      TierReplicaComponents.EMPTY, None, Option(this.getClass.getName))
   }
 
   @Test
@@ -2322,10 +2322,10 @@ class ReplicaManagerTest {
     // each replica manager is for a broker
     val rm0 = new ReplicaManager(config0, metrics, time, kafkaZkClient, new MockScheduler(time), mockLogMgr0,
       new AtomicBoolean(false), QuotaFactory.instantiate(config0, metrics, time, ""),
-      brokerTopicStats1, metadataCache0, new LogDirFailureChannel(config0.logDirs.size), TierReplicaComponents.EMPTY, null)
+      brokerTopicStats1, metadataCache0, new LogDirFailureChannel(config0.logDirs.size), TierReplicaComponents.EMPTY, None)
     val rm1 = new ReplicaManager(config1, metrics, time, kafkaZkClient, new MockScheduler(time), mockLogMgr1,
       new AtomicBoolean(false), QuotaFactory.instantiate(config1, metrics, time, ""),
-      brokerTopicStats2, metadataCache1, new LogDirFailureChannel(config1.logDirs.size), TierReplicaComponents.EMPTY, null)
+      brokerTopicStats2, metadataCache1, new LogDirFailureChannel(config1.logDirs.size), TierReplicaComponents.EMPTY, None)
 
     (rm0, rm1)
   }

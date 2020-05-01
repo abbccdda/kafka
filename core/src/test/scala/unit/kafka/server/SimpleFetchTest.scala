@@ -120,7 +120,7 @@ class SimpleFetchTest {
     replicaManager = new ReplicaManager(configs.head, metrics, time, kafkaZkClient, scheduler, logManager,
       new AtomicBoolean(false), QuotaFactory.instantiate(configs.head, metrics, time, ""), new BrokerTopicStats,
       new MetadataCache(configs.head.brokerId), new LogDirFailureChannel(configs.head.logDirs.size),
-      TierReplicaComponents.EMPTY, null)
+      TierReplicaComponents.EMPTY, None)
 
     // add the partition with two replicas, both in ISR
     val partition = replicaManager.createPartition(new TopicPartition(topic, partitionId))

@@ -177,6 +177,24 @@ public class ConfluentConfigs {
         + "not set, or set to class other than TenantQuotaCallback. In other words, broker"
         + " back-pressure can be enabled for multi-tenant clusters only.";
 
+    public static final String BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_CONFIG = CONFLUENT_PREFIX + "backpressure.request.min.broker.limit";
+    // Our default cloud deployments have 4 virtual cores (aws, gcp, azure), and time on threads is usually not exactly
+    // CPU time (especially when the time is taken to read from disk). If time on threads was exactly CPU, then 200
+    // corresponds to two cores.
+    public static final Long BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_DEFAULT = 200L;
+    public static final String BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_DOC =
+            "The minimum broker request quota, i.e., request backpressure would not reduce the broker request quota any further"
+                    + " even if the request overload is still detected. Broker-wide request quota, if not unlimited,"
+                    + " caps the combined dynamic request quotas of currently active tenants."
+                    + " All values are accepted, but values below 10 will result in the minimum limit of 10.";
+
+    public static final String BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_CONFIG = CONFLUENT_PREFIX + "backpressure.request.queue.size.percentile";
+    public static final String BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_DEFAULT = "p95";
+    public static final String BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_DOC =
+            "Queue size percentile used by request backpressure. For example, p95 means that when the number of requests"
+                    + " in the request queue exceeds 80% of `queued.max.requests` in more than 5% of cases,"
+                    + " the backpressure mechanism starts reducing the total broker request quota."
+                    + " Accepted values: `p90`, `p95`, `p98`, `p99`. Setting an invalid value will default to `p95`.";
 
     // Confluent DataBalancer Configs
     public static final String CONFLUENT_BALANCER_PREFIX = CONFLUENT_PREFIX + "balancer.";
