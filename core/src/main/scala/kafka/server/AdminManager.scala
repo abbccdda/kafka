@@ -17,6 +17,7 @@
 package kafka.server
 
 import java.util.{Collections, Properties}
+import java.util.concurrent.CompletableFuture
 
 import kafka.admin.AdminOperationException
 import kafka.cluster.Observer
@@ -26,7 +27,7 @@ import kafka.controller.ReplicaAssignment
 import kafka.log.LogConfig
 import kafka.utils.Log4jController
 import kafka.metrics.KafkaMetricsGroup
-import kafka.server.link.ClusterLinkConfig
+import kafka.server.link.{ClusterLinkClientManager, ClusterLinkConfig, ClusterLinkManager, ClusterLinkUtils}
 import kafka.utils._
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.clients.admin.AlterConfigOp
@@ -59,11 +60,13 @@ import scala.jdk.CollectionConverters._
 class AdminManager(val config: KafkaConfig,
                    val metrics: Metrics,
                    val metadataCache: MetadataCache,
-                   val zkClient: KafkaZkClient) extends Logging with KafkaMetricsGroup {
+                   val zkClient: KafkaZkClient,
+                   val clusterLinkManager: ClusterLinkManager) extends Logging with KafkaMetricsGroup {
 
   this.logIdent = "[Admin Manager on Broker " + config.brokerId + "]: "
 
   private val topicPurgatory = DelayedOperationPurgatory[DelayedOperation]("topic", config.brokerId)
+  private val fetchMirrorTopicInfoPurgatory = new DelayedFuturePurgatory(purgatoryName = "FetchMirrorTopicInfo", brokerId = config.brokerId)
   private val adminZkClient = new AdminZkClient(zkClient)
 
   private val createTopicPolicy =
@@ -96,9 +99,64 @@ class AdminManager(val config: KafkaConfig,
   def createTopics(timeout: Int,
                    validateOnly: Boolean,
                    toCreate: Map[String, CreatableTopic],
-                   includeConfigsAndMetatadata: Map[String, CreatableTopicResult],
+                   includeConfigsAndMetadata: Map[String, CreatableTopicResult],
                    responseCallback: Map[String, ApiError] => Unit,
                    createTopicId: Boolean = false): Unit = {
+
+    if (toCreate.values.forall(_.mirrorTopic == null)) {
+      // Standard case where no mirror topics area being created. Perform the creation immediately.
+      doCreateTopics(timeout, validateOnly, toCreate, includeConfigsAndMetadata, responseCallback, createTopicId, Some(Map.empty))
+
+    } else {
+      // The topic creation request contains at least one mirrored topic. Since mirror topics must fetch information over the cluster
+      // link about the topics that they're mirroring, the creation may be long-running and should therefore be completed asynchronously.
+      // This proceeds in three steps:
+      //   1. The request to create the mirror topics is validated without using any remote topic information. If an error is encountered,
+      //      then no attempt is made to fetch the topic's information over the cluster link.
+      //   2. The information of the mirrors' remote topics is fetched asynchronously.
+      //   3. The remote topic information is used to perform the actual topic creation of all requested topics.
+
+      val mirrorTopics = toCreate.filter(_._2.mirrorTopic != null)
+      def mirrorValidateCallback(results: Map[String, ApiError]): Unit = {
+        val mirrorInfo = mirrorTopics.values.map { topic =>
+          val future = try {
+            val error = results(topic.name)
+            if (error != ApiError.NONE)
+              throw error.exception()
+
+            // 2. Fetch the remote topic's information.
+            val linkName = topic.linkName
+            val clientManager = clusterLinkManager.clientManager(linkName).getOrElse(
+              throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' doesn't exist."))
+            clientManager.fetchTopicInfo(topic.name, timeout)
+          } catch {
+            case e: Throwable =>
+              val result = new CompletableFuture[ClusterLinkClientManager.TopicInfo]
+              result.completeExceptionally(e)
+              result
+          }
+          topic.name -> future
+        }.toMap
+
+        // 3. When fetching all remote topics has completed, perform the topic creation with the remote topic information.
+        fetchMirrorTopicInfoPurgatory.tryCompleteElseWatch(timeout, mirrorInfo.values.toSeq, () => {
+          doCreateTopics(timeout, validateOnly, toCreate, includeConfigsAndMetadata, responseCallback, createTopicId, Some(mirrorInfo))
+        })
+      }
+
+      // 1. Ensure the topic creation for the mirror topics is valid without using remote topic information.
+      doCreateTopics(timeout, validateOnly = true, mirrorTopics, includeConfigsAndMetadata = Map.empty,
+        mirrorValidateCallback, createTopicId = false, mirrorInfo = None)
+    }
+  }
+
+  private def doCreateTopics(timeout: Int,
+                             validateOnly: Boolean,
+                             toCreate: Map[String, CreatableTopic],
+                             includeConfigsAndMetadata: Map[String, CreatableTopicResult],
+                             responseCallback: Map[String, ApiError] => Unit,
+                             createTopicId: Boolean,
+                             mirrorInfo: Option[Map[String, CompletableFuture[ClusterLinkClientManager.TopicInfo]]]): Unit = {
 
     // 1. map over topics creating assignment and calling zookeeper
     val brokers = metadataCache.getAliveBrokers.map { b => kafka.admin.BrokerMetadata(b.id, b.rack) }
@@ -111,7 +169,7 @@ class AdminManager(val config: KafkaConfig,
         if (nullConfigs.nonEmpty)
           throw new InvalidRequestException(s"Null value not supported for topic configs : ${nullConfigs.mkString(",")}")
 
-        val configs = new Properties()
+        var configs = new Properties()
         topic.configs.asScala.foreach { entry =>
           configs.setProperty(entry.name, entry.value)
         }
@@ -134,8 +192,16 @@ class AdminManager(val config: KafkaConfig,
             "Both cannot be used at the same time.")
         }
 
-        val resolvedNumPartitions = if (topic.numPartitions == NO_NUM_PARTITIONS)
-          defaultNumPartitions else topic.numPartitions
+        // Resolve the mirror topic information.
+        val resolveClusterLink = ClusterLinkUtils.resolveCreateTopic(topic, configs, validateOnly, mirrorInfo.flatMap(_.get(topic.name)))
+        configs = resolveClusterLink.configs
+
+        val resolvedNumPartitions = if (resolveClusterLink.numPartitions != NO_NUM_PARTITIONS)
+          resolveClusterLink.numPartitions
+        else if (topic.numPartitions == NO_NUM_PARTITIONS)
+          defaultNumPartitions
+        else
+          topic.numPartitions
         val resolvedReplicationFactor = if (topic.replicationFactor == NO_REPLICATION_FACTOR)
           defaultReplicationFactor else topic.replicationFactor
 
@@ -179,17 +245,17 @@ class AdminManager(val config: KafkaConfig,
               javaAssignments, javaConfigs))
 
             if (!validateOnly)
-              adminZkClient.createTopicWithAssignment(topic.name, configs, assignments, createTopicId, None)
+              adminZkClient.createTopicWithAssignment(topic.name, configs, assignments, createTopicId, resolveClusterLink.topicState)
 
           case None =>
             if (validateOnly)
               adminZkClient.validateTopicCreate(topic.name, assignments, configs)
             else
-              adminZkClient.createTopicWithAssignment(topic.name, configs, assignments, createTopicId, None)
+              adminZkClient.createTopicWithAssignment(topic.name, configs, assignments, createTopicId, resolveClusterLink.topicState)
         }
 
         // For responses with DescribeConfigs permission, populate metadata and configs
-        includeConfigsAndMetatadata.get(topic.name).foreach { result =>
+        includeConfigsAndMetadata.get(topic.name).foreach { result =>
           val createEntry = createTopicConfigEntry(logConfig, configs, includeSynonyms = false)(_, _)
           val topicConfigs = filterTopicConfigs(logConfig.values.asScala, None).map { case (k, v) =>
             val entry = createEntry(k, v)
@@ -243,6 +309,7 @@ class AdminManager(val config: KafkaConfig,
       topicPurgatory.tryCompleteElseWatch(delayedCreate, delayedCreateKeys)
     }
   }
+
 
   /**
     * Delete topics and wait until the topics have been completely deleted.
@@ -750,6 +817,7 @@ class AdminManager(val config: KafkaConfig,
 
   def shutdown(): Unit = {
     topicPurgatory.shutdown()
+    fetchMirrorTopicInfoPurgatory.shutdown()
     CoreUtils.swallow(createTopicPolicy.foreach(_.close()), this)
     CoreUtils.swallow(alterConfigPolicy.foreach(_.close()), this)
   }

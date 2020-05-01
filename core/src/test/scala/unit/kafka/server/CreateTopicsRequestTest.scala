@@ -172,4 +172,61 @@ class CreateTopicsRequestTest extends AbstractCreateTopicsRequestTest {
       }
     }
   }
+
+  @Test
+  def testErrorCreateMirrorTopicsRequests(): Unit = {
+    validateErrorCreateTopicsRequests(topicsReq(Seq(topicReq("mirror-no-link-name",
+      numPartitions = CreateTopicsRequest.NO_NUM_PARTITIONS,
+      replicationFactor = 2,
+      mirrorTopic = "mirror-empty-link-name"))),
+      Map("mirror-no-link-name" -> error(Errors.INVALID_REQUEST)), checkErrorMessage = false)
+    validateErrorCreateTopicsRequests(topicsReq(Seq(topicReq("mirror-empty-link-name",
+      numPartitions = CreateTopicsRequest.NO_NUM_PARTITIONS,
+      replicationFactor = 2,
+      linkName = "",
+      mirrorTopic = "mirror-empty-link-name"))),
+      Map("mirror-empty-link-name" -> error(Errors.INVALID_CLUSTER_LINK)), checkErrorMessage = false)
+    validateErrorCreateTopicsRequests(topicsReq(Seq(topicReq("mirror-partitions",
+      numPartitions = 10,
+      replicationFactor = 2,
+      linkName = "test-link",
+      mirrorTopic = "mirror-partitions"))),
+      Map("mirror-partitions" -> error(Errors.INVALID_REQUEST)), checkErrorMessage = false)
+    validateErrorCreateTopicsRequests(topicsReq(Seq(topicReq("mirror-assignment",
+      replicationFactor = 2,
+      assignment = Map(0 -> List(0, 1)),
+      linkName = "test-link",
+      mirrorTopic = "mirror-assignment"))),
+      Map("mirror-assignment" -> error(Errors.INVALID_REQUEST)), checkErrorMessage = false)
+    validateErrorCreateTopicsRequests(topicsReq(Seq(topicReq("mirror-immutable-config",
+      numPartitions = CreateTopicsRequest.NO_NUM_PARTITIONS,
+      replicationFactor = 2,
+      config = Map("log.cleanup.policy" -> "compact"),
+      linkName = "test-link",
+      mirrorTopic = "mirror-immutable-config"))),
+      Map("mirror-immutable-config" -> error(Errors.INVALID_CONFIG)), checkErrorMessage = false)
+    validateErrorCreateTopicsRequests(topicsReq(Seq(topicReq("mirror-link-name-not-found",
+      numPartitions = CreateTopicsRequest.NO_NUM_PARTITIONS,
+      replicationFactor = 2,
+      linkName = "doesnt-exist",
+      mirrorTopic = "mirror-link-name-not-found"))),
+      Map("mirror-link-name-not-found" -> error(Errors.CLUSTER_LINK_NOT_FOUND)), checkErrorMessage = false)
+    validateErrorCreateTopicsRequests(topicsReq(Seq(topicReq("mirror-no-mirror-topic",
+      numPartitions = CreateTopicsRequest.NO_NUM_PARTITIONS,
+      replicationFactor = 2,
+      linkName = "test-link"))),
+      Map("mirror-no-mirror-topic" -> error(Errors.INVALID_REQUEST)), checkErrorMessage = false)
+    validateErrorCreateTopicsRequests(topicsReq(Seq(topicReq("mirror-empty-mirror-topic",
+      numPartitions = CreateTopicsRequest.NO_NUM_PARTITIONS,
+      replicationFactor = 2,
+      linkName = "test-link",
+      mirrorTopic = ""))),
+      Map("mirror-empty-mirror-topic" -> error(Errors.UNSUPPORTED_VERSION)), checkErrorMessage = false)
+    validateErrorCreateTopicsRequests(topicsReq(Seq(topicReq("mirror-different-topic",
+      numPartitions = CreateTopicsRequest.NO_NUM_PARTITIONS,
+      replicationFactor = 2,
+      linkName = "test-link",
+      mirrorTopic = "another-topic"))),
+      Map("mirror-different-topic" -> error(Errors.UNSUPPORTED_VERSION)), checkErrorMessage = false)
+  }
 }

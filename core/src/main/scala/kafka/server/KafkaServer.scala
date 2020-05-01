@@ -395,14 +395,14 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         socketServer = new SocketServer(config, metrics, time, credentialProvider)
         socketServer.startup(startProcessingRequests = false)
 
-        adminManager = new AdminManager(config, metrics, metadataCache, zkClient)
-        clusterLinkManager = new ClusterLinkManager(config, clusterId, quotaManagers.clusterLink, adminManager,
+        clusterLinkManager = new ClusterLinkManager(config, clusterId, quotaManagers.clusterLink,
           zkClient, metrics, time, threadNamePrefix = None, tierStateFetcherOpt)
+        adminManager = new AdminManager(config, metrics, metadataCache, zkClient, clusterLinkManager)
 
         /* start replica manager */
         replicaManager = createReplicaManager(isShuttingDown, tierLogComponents)
         replicaManager.startup()
-        clusterLinkManager.startup(replicaManager)
+        clusterLinkManager.startup(replicaManager, adminManager)
 
         // This broker registration delay is intended to be temporary and will be removed on completion of
         // this Jira.

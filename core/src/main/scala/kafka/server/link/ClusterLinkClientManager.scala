@@ -1,15 +1,24 @@
 /*
  * Copyright 2020 Confluent Inc.
  */
-
 package kafka.server.link
+
+import java.util.concurrent.{CompletableFuture, ExecutionException}
 
 import kafka.utils.{CoreUtils, Logging}
 import kafka.zk.{AdminZkClient, KafkaZkClient}
-import org.apache.kafka.clients.admin.ConfluentAdmin
+import org.apache.kafka.clients.admin.{ConfluentAdmin, Config, DescribeConfigsOptions, DescribeTopicsOptions, TopicDescription}
+import org.apache.kafka.common.KafkaFuture
+import org.apache.kafka.common.config.ConfigResource
+import org.apache.kafka.common.requests.ApiError
 
+import scala.collection.JavaConverters._
 import scala.collection.Set
 import scala.collection.mutable
+
+object ClusterLinkClientManager {
+  case class TopicInfo(description: TopicDescription, config: Config)
+}
 
 /**
   * The ClusterLinkClientManager is responsible for managing an admin client instance for the
@@ -78,6 +87,66 @@ class ClusterLinkClientManager(val linkName: String,
     val oldAdmin = admin
     admin = newAdmin
     oldAdmin.foreach(a => CoreUtils.swallow(a.close(), this))
+  }
+
+  /**
+    * Fetches information about a remote topic.
+    *
+    * @param topic the remote topic to fetch information for
+    * @param timeoutMs the timeout, in milliseconds
+    * @return a future for the topic's description and its configuration
+    */
+  def fetchTopicInfo(topic: String, timeoutMs: Int): CompletableFuture[ClusterLinkClientManager.TopicInfo] = {
+    val result = new CompletableFuture[ClusterLinkClientManager.TopicInfo]
+
+    try {
+      val options = new DescribeTopicsOptions().timeoutMs(timeoutMs)
+      val describeTopicsResult = getAdmin.describeTopics(Seq(topic).asJava, options)
+      scheduler.scheduleWhenComplete("FetchTopicInfoDescription", describeTopicsResult.all, () => {
+        fetchTopicInfoHandleDescription(topic, timeoutMs, describeTopicsResult.values.get(topic), result)
+      })
+    } catch {
+      case e: Throwable => throw fetchTopicInfoWrapException(topic, e)
+    }
+
+    result
+  }
+
+  private def fetchTopicInfoHandleDescription(topic: String,
+                                              timeoutMs: Int,
+                                              descriptionFuture: KafkaFuture[TopicDescription],
+                                              result: CompletableFuture[ClusterLinkClientManager.TopicInfo]): Unit = {
+    try {
+      val description = descriptionFuture.get
+      val resource = new ConfigResource(ConfigResource.Type.TOPIC, topic)
+      val options = new DescribeConfigsOptions().timeoutMs(timeoutMs)
+      val describeConfigsResult = getAdmin.describeConfigs(Seq(resource).asJava, options)
+      scheduler.scheduleWhenComplete("FetchTopicInfoConfig", describeConfigsResult.all, () => {
+        fetchTopicInfoHandleConfig(topic, description, describeConfigsResult.values.get(resource), result)
+      })
+    } catch {
+      case e: ExecutionException => result.completeExceptionally(fetchTopicInfoWrapException(topic, e.getCause))
+      case e: Throwable => result.completeExceptionally(fetchTopicInfoWrapException(topic, e))
+    }
+  }
+
+  private def fetchTopicInfoHandleConfig(topic: String,
+                                         description: TopicDescription,
+                                         configFuture: KafkaFuture[Config],
+                                         result: CompletableFuture[ClusterLinkClientManager.TopicInfo]): Unit = {
+    try {
+      val config = configFuture.get
+      result.complete(ClusterLinkClientManager.TopicInfo(description, config))
+    } catch {
+      case e: ExecutionException => result.completeExceptionally(fetchTopicInfoWrapException(topic, e.getCause))
+      case e: Throwable => result.completeExceptionally(fetchTopicInfoWrapException(topic, e))
+    }
+  }
+
+  private def fetchTopicInfoWrapException(topic: String, e: Throwable): Throwable = {
+    val error = ApiError.fromThrowable(e)
+    error.error.exception(s"While fetching topic '$topic's info over cluster link '$linkName': " +
+      s"${error.messageWithFallback}")
   }
 
 }

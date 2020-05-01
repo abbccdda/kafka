@@ -39,7 +39,6 @@ class ClusterLinkManagerTest {
       brokerConfig,
       "clusterId",
       UnboundedQuota,
-      adminManager = null,
       zkClient = null,
       metrics,
       time,

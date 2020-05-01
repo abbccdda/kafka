@@ -87,12 +87,11 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
       KafkaConfig.fromProps(props),
       "clusterId",
       quota = UnboundedQuota,
-      adminManager = null,
       zkClient = null,
       new Metrics,
       new SystemTime,
       tierStateFetcher = None)
-    clusterLinkManager.startup(replicaManager)
+    clusterLinkManager.startup(replicaManager, adminManager = null)
     clusterLinkManager.addClusterLink(clusterLinkName, clusterLinkProps)
   }
 

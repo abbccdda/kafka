@@ -641,7 +641,7 @@ class TopicCommandTest extends ZooKeeperTestHarness with Logging with RackAwareT
   def testAlterInternalTopicPartitionCount(): Unit = {
     val brokers = List(0)
     TestUtils.createBrokersInZk(zkClient, brokers)
-    
+
     // create internal topics
     adminZkClient.createTopic(Topic.GROUP_METADATA_TOPIC_NAME, 1, 1)
     adminZkClient.createTopic(Topic.TRANSACTION_STATE_TOPIC_NAME, 1, 1)
@@ -657,5 +657,11 @@ class TopicCommandTest extends ZooKeeperTestHarness with Logging with RackAwareT
     }
     expectAlterInternalTopicPartitionCountFailed(Topic.GROUP_METADATA_TOPIC_NAME)
     expectAlterInternalTopicPartitionCountFailed(Topic.TRANSACTION_STATE_TOPIC_NAME)
+  }
+
+  @Test(expected = classOf[IllegalArgumentException])
+  def testCreateMirrorInvalid(): Unit = {
+    new TopicCommandOptions(Array("--create", "--topic", testTopicName, "--mirror-topic", testTopicName,
+      "--link-name", "linked-cluster", "--replica-assignment", "3:0,5:1")).checkArgs()
   }
 }
